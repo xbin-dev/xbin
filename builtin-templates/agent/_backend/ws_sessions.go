@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -201,8 +202,20 @@ func (ag *Agent) wsRefresh(ctx context.Context, s *wsSession, force bool) {
 	if ag.db.wsPutHandle(s.Run, h) == nil {
 		s.Conn, s.ConnMs, s.Scope, s.Model = h, nowMs(), h.Scope, h.Model
 	}
-	ag.wsAllow(ctx, s) // the orgs' rules may have moved too
+	// the orgs' rules may have moved too — asked again at most every
+	// wsAllowFresh: the question is an act at xbind (rate-limited with the
+	// agent's others), and a stale yes shows nothing xbind wouldn't: the
+	// taint a page's reading records is refused for a model its org forbids
+	if last, _ := wsAllowAt.Load(s.Run); last == nil || nowMs()-last.(int64) > wsAllowFresh.Milliseconds() {
+		ag.wsAllow(ctx, s)
+	}
 }
+
+// wsAllowFresh is how long a session's allow answers are trusted;
+// wsAllowAt when each session last asked.
+const wsAllowFresh = 5 * time.Minute
+
+var wsAllowAt sync.Map
 
 func wsUnion(a, b []string) []string {
 	out := append([]string(nil), a...)
@@ -365,6 +378,7 @@ func (ag *Agent) wsAllow(ctx context.Context, s *wsSession) {
 	}
 	if _, err := ag.db.q.Exec(`UPDATE ws_sessions SET allow=? WHERE run_id=?`, mustJSON(allow), s.Run); err == nil {
 		s.Allow = allow
+		wsAllowAt.Store(s.Run, nowMs())
 	}
 }
 

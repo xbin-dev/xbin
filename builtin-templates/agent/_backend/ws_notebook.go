@@ -12,8 +12,10 @@
 //     grows by the agent's hand; no page is exempt.
 //   - a session reads, searches and is shown a page only when its MODEL is
 //     allowed by every org on the page's stamp — xbind's answer
-//     (wsXbin.Allows), kept on the session and asked again when it is
-//     stale. A page it may not read is counted, never named.
+//     (wsXbin.Allows: one call for every org on any stamp, since it
+//     counts against the agent's act limit), kept on the session and
+//     asked again when it is stale or a stamp names an org it has no
+//     answer for. A page it may not read is counted, never named.
 //   - reading a page, or being shown it in the prompt, adds the page's
 //     stamps to the session's taint at xbind (wsXbin.Taint) first: the
 //     conversation now holds that data, wherever it goes next.
@@ -256,7 +258,7 @@ func wsNotebookSearch(ctx context.Context, ag *Agent, s *wsSession, c coordCall)
 	if err != nil {
 		return "", err
 	}
-	ag.wsAllow(ctx, s)
+	ag.wsAllowKnown(ctx, s, store)
 	q := strings.TrimSpace(str(c.Args["query"]))
 	if q == "" {
 		pages, stamps, hidden := wsPageList(ag.db, s, store)
@@ -329,7 +331,9 @@ func wsScopedPage(ag *Agent, s *wsSession, slugArg string) (int64, *WikiPage, ws
 }
 
 func wsNotebookRead(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (string, error) {
-	ag.wsAllow(ctx, s)
+	if store, err := wsStore(ag, s, false); err == nil {
+		ag.wsAllowKnown(ctx, s, store)
+	}
 	_, p, st, err := wsScopedPage(ag, s, str(c.Args["slug"]))
 	if err != nil {
 		return "", err
@@ -414,7 +418,7 @@ func wsNotebookChange(ctx context.Context, ag *Agent, s *wsSession, c coordCall,
 	if err != nil {
 		return "", wsNotebookErr(err)
 	}
-	ag.wsAllow(ctx, s) // its own stamps, asked about: the page is readable where it was written
+	ag.wsAllowKnown(ctx, s, store) // a stamp it has no answer for yet: asked, so the page is readable where it was written
 	ag.wsChanged(s.Run, "notebook")
 	switch {
 	case p.unchanged:

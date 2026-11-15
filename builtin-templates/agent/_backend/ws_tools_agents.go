@@ -200,7 +200,8 @@ func (ag *Agent) wsRunsOn(ctx context.Context, s *wsSession, tile, picked string
 	if id == "" {
 		return ""
 	}
-	return d.name(id) + ", " + map[bool]string{true: "asks before acting", false: "acts without asking"}[d.Asks]
+	h, _ := d.of(id)
+	return orStr(h.Name, id) + ", " + map[bool]string{true: "asks before acting", false: "acts without asking"}[h.Asks]
 }
 
 func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (string, error) {

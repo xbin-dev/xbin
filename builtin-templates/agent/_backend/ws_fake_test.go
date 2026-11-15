@@ -577,8 +577,11 @@ func (f *fakeXbin) StartDefaults(_ context.Context, sid, tile string) (wsStartDe
 	if _, err := f.tile(sid, tile, false); err != nil {
 		return wsStartDefaults{}, err
 	}
-	return wsStartDefaults{Tile: tile, Harness: f.harnesses[0].ID, Harnesses: append([]wsHarness(nil), f.harnesses...), Mode: "default", Asks: true,
-		Net: "model only", Ticket: f.startAsk}, nil
+	d := wsStartDefaults{Tile: tile, Harness: f.harnesses[0].ID, Mode: "default", Asks: true, Net: "model", Ticket: f.startAsk}
+	for _, h := range f.harnesses {
+		d.Harnesses = append(d.Harnesses, wsHarness{ID: h.ID, Name: h.Name, Mode: "default", Asks: true, Net: "model", NeedsTicket: f.startAsk})
+	}
+	return d, nil
 }
 
 func (f *fakeXbin) Allows(_ context.Context, sid string, orgs []string) (bool, map[string]string, error) {
@@ -904,6 +907,7 @@ func newWsFix(t *testing.T) *wsFix {
 	coordWakeEvery.Store(int64(30 * time.Millisecond))
 	coordWakerReset()
 	wsSyncReset()
+	wsAllowAt.Range(func(k, _ any) bool { wsAllowAt.Delete(k); return true }) // run ids repeat from one test's database to the next
 	t.Cleanup(func() {
 		wsSyncReset()
 		wsX = oldX

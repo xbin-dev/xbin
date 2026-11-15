@@ -15056,10 +15056,13 @@ Deviations and refinements made while implementing; all deliberate:
     from the person's preferences and the tile's org's rules: the backend
     picks nothing, reads `GET /delegate/start-defaults?tile=` for the
     brief's card, and passes a harness only when the person picked one of
-    the allowed ones there (`/ws/prefs.harness` decides nothing). Coded
-    against the shapes as described, before the routes landed: confirm
-    `start-defaults`' field names, `…/allows`' `reasons` (a map by org)
-    and how the compact session read marks an end by restart.
+    the allowed ones there (`/ws/prefs.harness` decides nothing).
+    `…/allows` and `…/taint` are acts at xbind (30 a minute): one
+    `allows` covers every org on any stamp, asked when an answer is
+    missing or five minutes old; a taint is sent only for orgs the
+    session doesn't hold yet. An end by restart is read from the compact
+    session read with `ids` — only for sessions this agent started, since
+    xbind answers "restart" for an id it never knew.
   - **Notices are hints, and none is relied on.** A notice
     (`xbin.ReadHolderNotice`, on `POST /delegate/notify`) asks for a
     reconcile — one worker, dirty-flagged, so a storm is two passes — that

@@ -413,11 +413,7 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 				wsWriteErr(w, err)
 				return
 			}
-			allowed := false
-			for _, h := range d.Harnesses {
-				allowed = allowed || h.ID == pick
-			}
-			if !allowed {
+			if _, allowed := d.of(pick); !allowed {
 				xbin.WriteError(w, http.StatusConflict, "that coding agent isn't allowed on "+b.Tile+": pick one of the ones listed")
 				return
 			}
@@ -473,8 +469,14 @@ func handleWsBriefDefaults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := orStr(b.Harness, d.Harness)
-	xbin.WriteJSON(w, http.StatusOK, map[string]any{"defaults": d, "picked": b.Harness, "harness": id, "harnessName": d.name(id),
-		"line": d.name(id) + " · " + map[bool]string{true: "asks before acting", false: "acts without asking"}[d.Asks]})
+	h, _ := d.of(id)
+	out := map[string]any{"defaults": d, "picked": b.Harness, "harness": id, "harnessName": orStr(h.Name, id), "mode": h.Mode, "asks": h.Asks, "net": h.Net, "ticket": h.NeedsTicket}
+	if id == "" { // no coding agent may run there: xbind says why
+		out["line"] = orStr(d.Why, "No coding agent may run in this tile")
+	} else {
+		out["line"] = orStr(h.Name, id) + " · " + map[bool]string{true: "asks before acting", false: "acts without asking"}[h.Asks]
+	}
+	xbin.WriteJSON(w, http.StatusOK, out)
 }
 
 // handleWsBriefStart is "Review and start…" on a brief's card: it answers
@@ -621,11 +623,11 @@ func handleWsNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := wsQuerySession(r, owner)
-	if s != nil {
-		agent.wsAllow(r.Context(), s)
-	}
 	items := []map[string]any{}
 	if store, err := agent.db.knowID(wsNotebook(owner), false); err == nil {
+		if s != nil {
+			agent.wsAllowKnown(r.Context(), s, store)
+		}
 		for _, p := range agent.db.wikiPages(store, false) {
 			items = append(items, wsPageItem(p, agent.db.wsStamp(store, p.Slug), s))
 		}

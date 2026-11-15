@@ -151,21 +151,13 @@ func (h wsHTTP) UpdateSession(ctx context.Context, sid string, ch wsHandleChange
 // Allows asks whether the session's model is allowed by every one of orgs.
 func (h wsHTTP) Allows(ctx context.Context, sid string, orgs []string) (bool, map[string]string, error) {
 	var out struct {
-		Allowed bool            `json:"allowed"`
-		Reasons json.RawMessage `json:"reasons"`
+		Allowed bool              `json:"allowed"`
+		Reasons map[string]string `json:"reasons"`
 	}
 	if err := h.json(ctx, sid, http.MethodPost, wsSessionsPath+"/"+url.PathEscape(sid)+"/allows", map[string]any{"orgs": orgs}, &out); err != nil {
 		return false, nil, err
 	}
-	reasons := map[string]string{}
-	if json.Unmarshal(out.Reasons, &reasons) != nil { // or a list of {org, reason}
-		var list []struct{ Org, Reason string }
-		_ = json.Unmarshal(out.Reasons, &list)
-		for _, r := range list {
-			reasons[r.Org] = r.Reason
-		}
-	}
-	return out.Allowed, reasons, nil
+	return out.Allowed, out.Reasons, nil
 }
 
 // Taint records that the conversation holds data of orgs.
@@ -460,34 +452,13 @@ func (wsHTTP) startCall(a wsAgentStart) wsCall {
 
 // StartDefaults reads what a start in tile resolves to.
 func (h wsHTTP) StartDefaults(ctx context.Context, sid, tile string) (wsStartDefaults, error) {
-	var raw struct {
-		Tile                  string
-		Harness, Default      string
-		Harnesses, Choices    []wsHarness
-		Mode, Net, Network    string
-		Asks                  *bool
-		Ticket, NeedsApproval *bool
+	var out wsStartDefaults
+	if err := h.get(ctx, sid, "/api/xbin/delegate/start-defaults?tile="+url.QueryEscape(tile), &out); err != nil {
+		return out, err
 	}
-	if err := h.get(ctx, sid, "/api/xbin/delegate/start-defaults?tile="+url.QueryEscape(tile), &raw); err != nil {
-		return wsStartDefaults{}, err
-	}
-	out := wsStartDefaults{Tile: orStr(raw.Tile, tile), Harness: orStr(raw.Harness, raw.Default), Harnesses: append(raw.Harnesses, raw.Choices...),
-		Mode: raw.Mode, Net: orStr(raw.Net, raw.Network), Asks: true, Ticket: true}
-	if raw.Asks != nil {
-		out.Asks = *raw.Asks
-	} else if p, ok := acp.Lookup(out.Harness); ok && out.Mode != "" {
-		out.Asks = p.Safe(out.Mode)
-	}
-	if raw.Ticket != nil {
-		out.Ticket = *raw.Ticket
-	} else if raw.NeedsApproval != nil {
-		out.Ticket = *raw.NeedsApproval
-	}
-	for i := range out.Harnesses {
-		if out.Harnesses[i].Name == "" {
-			out.Harnesses[i].Name = wsHarnessName(out.Harnesses[i].ID)
-		}
-	}
+	out.Tile = orStr(out.Tile, tile)
+	def, _ := out.of(out.Harness)
+	out.Mode, out.Asks, out.Net, out.Ticket = def.Mode, def.Asks, def.Net, def.NeedsTicket
 	return out, nil
 }
 
@@ -543,18 +514,16 @@ func (h wsHTTP) TileCreate(ctx context.Context, sid string, t wsTileCreate, tick
 type wsSessionWire struct {
 	ID, Cwd, Kind, Provider, Mode, Status, Origin, Name string
 	Pending, Questions                                  int
-	// how it ended, when xbind says: a session an xbind restart ended is
-	// marked, so it isn't taken for one that finished
-	Ended, EndedBy, End string
+	// for an id no longer live (the compact read with ids): status "ended",
+	// and by what — "exit", or "restart" when xbind has no record of an end
+	EndedBy string
 }
 
-// endedBy is "restart" when xbind marks the session as ended by its own
-// restart.
+// endedBy is "restart" when xbind has no record of the session's end: its
+// own restart cut the session off.
 func (w wsSessionWire) endedBy() string {
-	for _, v := range []string{w.EndedBy, w.Ended, w.End, w.Status} {
-		if v == "restart" || v == "restarted" || v == "interrupted" {
-			return "restart"
-		}
+	if w.Status == "ended" && w.EndedBy == "restart" {
+		return "restart"
 	}
 	return ""
 }
@@ -562,9 +531,6 @@ func (w wsSessionWire) endedBy() string {
 func (w wsSessionWire) agent() wsAgent {
 	a := wsAgent{ID: w.ID, Tile: w.Cwd, Provider: w.Provider, Name: wsHarnessName(w.Provider), Mode: w.Mode, Asks: true,
 		Status: wsAgentStatus(w.Status), Pending: w.Pending, Questions: w.Questions, Origin: w.Origin, Mine: w.Origin == "agent", EndedBy: w.endedBy()}
-	if a.EndedBy != "" {
-		a.Status = "ended"
-	}
 	if p, ok := acp.Lookup(w.Provider); ok && w.Mode != "" {
 		a.Asks = p.Safe(w.Mode)
 	}
@@ -626,11 +592,19 @@ func (h wsHTTP) Agent(ctx context.Context, sid, id string) (wsAgent, error) {
 	if err != nil {
 		var de *xbin.DelegateError
 		if errors.As(err, &de) && de.Status == http.StatusNotFound {
-			// it left the live directory: ended. The compact read still lists
-			// it when xbind's restart ended it, and says so.
-			if rows, lerr := h.Agents(ctx, sid); lerr == nil {
-				for _, a := range rows {
-					if a.ID == id && !a.live() {
+			// it left the live directory: the compact read says how it ended —
+			// by its own exit, or by an xbind restart (no record of an end).
+			// Asked only about a session this agent started: for an id that
+			// never existed xbind would answer "restart" too.
+			var rows []wsSessionWire
+			if lerr := h.get(ctx, sid, "/api/xbin/term/sessions?origin=agent&compact=1&ids="+url.QueryEscape(id), &rows); lerr == nil {
+				for _, r := range rows {
+					if r.ID == id {
+						a := r.agent()
+						if a.live() { // listed live after all: read it again next time
+							return a, nil
+						}
+						a.Status = "ended"
 						return a, nil
 					}
 				}

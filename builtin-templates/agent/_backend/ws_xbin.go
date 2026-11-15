@@ -372,34 +372,47 @@ type wsAgentStart struct {
 	Resume  string `json:"resume,omitempty"`
 }
 
-// wsHarness is a coding agent a tile's rules allow.
+// wsHarness is a coding agent a tile's rules allow, with what a session
+// on it would open with: its mode (Asks: the mode asks before acting), its
+// network, and whether xbind asks the person for each start.
 type wsHarness struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Mode        string `json:"mode,omitempty"`
+	Asks        bool   `json:"asks"`
+	Net         string `json:"net,omitempty"`
+	NeedsTicket bool   `json:"needsTicket"`
 }
 
 // wsStartDefaults is what a start in a tile resolves to, for the brief's
-// card: the harness it would run on and the ones allowed instead, its mode
-// (Asks: the mode asks before acting), its network, and whether xbind
-// asks the person for this start.
+// card: Harness is the default one, Harnesses every one the person may
+// pick; Why says why none may run there. Mode, Asks, Net and Ticket are
+// the default harness's, for a card that shows one line.
 type wsStartDefaults struct {
 	Tile      string      `json:"tile"`
 	Harness   string      `json:"harness"`
 	Harnesses []wsHarness `json:"harnesses"`
+	Why       string      `json:"why,omitempty"`
 	Mode      string      `json:"mode,omitempty"`
 	Asks      bool        `json:"asks"`
 	Net       string      `json:"net,omitempty"`
 	Ticket    bool        `json:"ticket"`
 }
 
-// name is the harness id as people call it, by the defaults' list.
-func (d wsStartDefaults) name(id string) string {
+// of is the harness id among the allowed ones (ok false: it isn't one).
+func (d wsStartDefaults) of(id string) (wsHarness, bool) {
 	for _, h := range d.Harnesses {
 		if h.ID == id {
-			return orStr(h.Name, h.ID)
+			return h, true
 		}
 	}
-	return id
+	return wsHarness{ID: id, Name: id, Asks: true, NeedsTicket: true}, false
+}
+
+// name is the harness id as people call it, by the defaults' list.
+func (d wsStartDefaults) name(id string) string {
+	h, _ := d.of(id)
+	return orStr(h.Name, id)
 }
 
 // wsTileCreate is a tile made from a template.

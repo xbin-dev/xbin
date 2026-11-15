@@ -5896,8 +5896,10 @@ approval and sends it itself. The harness, mode and network are xbind's to
 resolve from the person's preferences and the tile's org's rules; a brief
 carries a `harness` only when its person picked one of the allowed ones on
 its card (`PUT …/briefs/{bid} {harness}`; `GET …/briefs/{bid}/start-defaults`
-→ `{defaults: {tile, harness, harnesses: [{id, name}], mode, asks, net,
-ticket}, picked, harness, harnessName, line}`). Where the person's
+→ `{defaults: {tile, harness, harnesses: [{id, name, mode, asks, net,
+needsTicket}], why?}, picked, harness, harnessName, mode, asks, net,
+ticket, line}` — the top-level fields are the picked harness's, else the
+default's). Where the person's
 preferences let starts through without a ticket, the click on the brief
 (`POST …/briefs/{bid}/start`) is the confirmation. What the agent messages
 a tile agent afterwards is not approved message by message: the session's

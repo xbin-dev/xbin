@@ -136,7 +136,7 @@ func TestWsBriefCard(t *testing.T) {
 		Line        string
 	}
 	fx.json(t, fx.call(t, wsAlice, "GET", base+"/briefs/1/start-defaults", nil), 200, &defs)
-	if defs.Line != "Claude Code · asks before acting" || len(defs.Defaults.Harnesses) != 2 || !defs.Defaults.Ticket || defs.Picked != "" {
+	if defs.Line != "Claude Code · asks before acting" || len(defs.Defaults.Harnesses) != 2 || !defs.Defaults.Ticket || !defs.Defaults.Harnesses[1].NeedsTicket || defs.Picked != "" {
 		t.Fatalf("the start's defaults: %+v", defs)
 	}
 	// the person edits the brief and picks another harness the tile allows:
@@ -485,6 +485,10 @@ func TestWsNotebookStampsAndRoutes(t *testing.T) {
 		t.Fatalf("after the delete: %+v", list.Pages)
 	}
 	fx.json(t, fx.call(t, caller{from: "user:bob", user: "bob", level: "read"}, "GET", "/ws/notebook/ledger-notes", nil), 404, nil)
+	// the questions are acts at xbind: one for every org at once, and only when an answer is missing or stale
+	if n := fx.x.count("Allows"); n > 8 {
+		t.Fatalf("%d allows calls for five sessions and four pages: %v", n, fx.x.calls)
+	}
 	var prefs wsPrefsData
 	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/prefs", map[string]any{"model": "local-llama", "lastSession": main.Run}), 200, &prefs)
 	if prefs.Model != "local-llama" || prefs.LastSession != main.Run {
@@ -639,12 +643,17 @@ func TestWsHTTPShapes(t *testing.T) {
 		case "GET /api/xbin/code/file":
 			reply(w, 200, map[string]any{"path": r.URL.Query().Get("file"), "content": "# Mail API"})
 		case "GET /api/xbin/delegate/start-defaults":
-			reply(w, 200, map[string]any{"tile": r.URL.Query().Get("tile"), "harness": "claude", "mode": "default", "net": "model", "ticket": true,
-				"harnesses": []map[string]any{{"id": "claude", "name": "Claude Code"}, {"id": "codex", "name": "Codex"}}})
+			reply(w, 200, map[string]any{"tile": r.URL.Query().Get("tile"), "harness": "claude", "harnesses": []map[string]any{
+				{"id": "claude", "name": "Claude Code", "mode": "default", "asks": true, "net": "model", "api": false, "needsTicket": true},
+				{"id": "codex", "name": "Codex", "mode": "full-auto", "asks": false, "net": "model", "api": false, "needsTicket": true}}})
 		case "POST /api/xbin/delegate/sessions/h1/allows":
-			reply(w, 200, map[string]any{"allowed": false, "reasons": map[string]string{"finance": "Finance allows private models only"}})
+			reply(w, 200, map[string]any{"id": "h1", "model": "house/big", "allowed": false, "reasons": map[string]string{"finance": "Finance allows private models only"}})
 		case "POST /api/xbin/delegate/sessions/h1/taint":
-			reply(w, 200, map[string]any{"tainted": []string{"sales", "finance"}})
+			if strings.Contains(string(b), "legal") {
+				reply(w, 409, map[string]any{"code": "model_taint", "orgs": []string{"legal"}, "reason": "Legal allows private models only", "error": "the session's model may not see that"})
+				return
+			}
+			reply(w, 200, map[string]any{"id": "h1", "model": "house/big", "tainted": []string{"sales", "finance"}})
 		case "POST /api/apps/mail/send":
 			switch {
 			case r.Header.Get("X-XBin-Dry-Run") == "1":
@@ -661,8 +670,16 @@ func TestWsHTTPShapes(t *testing.T) {
 		case "POST /api/xbin/term/sessions":
 			reply(w, 200, map[string]any{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "starting", "origin": "agent"})
 		case "GET /api/xbin/term/sessions":
-			reply(w, 200, []map[string]any{{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "idle", "origin": "agent"},
-				{"id": "s0", "cwd": "apps/mail", "kind": "agent", "provider": "codex", "mode": "default", "status": "exited", "ended": "restart", "origin": "agent"}})
+			rows := []map[string]any{{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "idle", "origin": "agent"}}
+			for _, id := range strings.Split(r.URL.Query().Get("ids"), ",") { // ids no longer live: how each ended
+				switch id {
+				case "s0":
+					rows = append(rows, map[string]any{"id": "s0", "status": "ended", "endedBy": "restart"})
+				case "s9":
+					rows = append(rows, map[string]any{"id": "s9", "status": "ended", "endedBy": "exit", "ended": "2026-11-15T09:00:00Z"})
+				}
+			}
+			reply(w, 200, rows)
 		case "POST /api/xbin/term/sessions/s1/queue":
 			reply(w, 200, map[string]any{"outcome": "prompted"})
 		case "GET /api/xbin/term/sessions/s1":
@@ -727,14 +744,24 @@ func TestWsHTTPShapes(t *testing.T) {
 	if f, err := h.CodeFile(ctx, "h1", "apps/mail", "API.md"); err != nil || f.Content != "# Mail API" || !strings.Contains(got[len(got)-1].path, "component=apps%2Fmail&file=API.md") {
 		t.Fatalf("CodeFile: %+v %v %s", f, err, got[len(got)-1].path)
 	}
-	if d, err := h.StartDefaults(ctx, "h1", "apps/mail"); err != nil || d.Harness != "claude" || len(d.Harnesses) != 2 || d.name("codex") != "Codex" || !d.Ticket || !d.Asks || d.Net != "model" {
+	d, err := h.StartDefaults(ctx, "h1", "apps/mail")
+	if err != nil || d.Harness != "claude" || len(d.Harnesses) != 2 || d.name("codex") != "Codex" || !d.Ticket || !d.Asks || d.Net != "model" || d.Mode != "default" {
 		t.Fatalf("StartDefaults: %+v %v", d, err)
+	}
+	if cx, ok := d.of("codex"); !ok || cx.Asks || cx.Mode != "full-auto" || !cx.NeedsTicket {
+		t.Fatalf("a harness's own defaults: %+v", cx)
+	}
+	if _, ok := d.of("vim"); ok {
+		t.Fatal("a harness the tile doesn't allow")
 	}
 	if ok, why, err := h.Allows(ctx, "h1", []string{"sales", "finance"}); err != nil || ok || why["finance"] == "" || got[len(got)-1].body != `{"orgs":["sales","finance"]}` {
 		t.Fatalf("Allows: %v %v %v", ok, why, err)
 	}
 	if err := h.Taint(ctx, "h1", []string{"finance"}); err != nil || got[len(got)-1].path != "/api/xbin/delegate/sessions/h1/taint" || got[len(got)-1].body != `{"orgs":["finance"]}` {
 		t.Fatalf("Taint: %v %+v", err, got[len(got)-1])
+	}
+	if err := h.Taint(ctx, "h1", []string{"legal"}); !errors.Is(err, xbin.ErrModelTaint) { // the model may not see it: the page is not read
+		t.Fatalf("a taint the model may not take: %v", err)
 	}
 	c := wsCall{Method: "POST", Path: "/api/apps/mail/send", Body: []byte(`{"to":"ada"}`), ContentType: "application/json"}
 	dc := c
@@ -775,11 +802,15 @@ func TestWsHTTPShapes(t *testing.T) {
 	if c := h.startCall(wsAgentStart{Tile: "apps/mail", Resume: "s0", Prompt: "ignored"}); string(c.Body) != `{"cwd":"apps/mail","kind":"agent","resume":"s0"}` {
 		t.Fatalf("a resume: %s", c.Body)
 	}
-	if list, err := h.Agents(ctx, "h1"); err != nil || len(list) != 2 || list[0].Status != "idle" || list[1].EndedBy != "restart" || got[len(got)-1].path != "/api/xbin/term/sessions?origin=agent&compact=1" {
+	if list, err := h.Agents(ctx, "h1"); err != nil || len(list) != 1 || list[0].Status != "idle" || got[len(got)-1].path != "/api/xbin/term/sessions?origin=agent&compact=1" {
 		t.Fatalf("Agents: %+v %v", list, err)
 	}
-	if a, err := h.Agent(ctx, "h1", "s0"); err != nil || a.Status != "ended" || a.EndedBy != "restart" { // gone from the live directory, marked in the compact read
+	// gone from the live directory: the compact read with its id says how it ended
+	if a, err := h.Agent(ctx, "h1", "s0"); err != nil || a.Status != "ended" || a.EndedBy != "restart" || got[len(got)-1].path != "/api/xbin/term/sessions?origin=agent&compact=1&ids=s0" {
 		t.Fatalf("a session a restart ended: %+v %v", a, err)
+	}
+	if a, err := h.Agent(ctx, "h1", "s9"); err != nil || a.Status != "ended" || a.EndedBy != "" {
+		t.Fatalf("a session that exited: %+v %v", a, err)
 	}
 	if a, err := h.Agent(ctx, "h1", "s1"); err != nil || a.Status != "running" || a.Pending != 1 || a.Waiting != "permission: go test ./..." {
 		t.Fatalf("Agent: %+v %v", a, err)
