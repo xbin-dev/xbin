@@ -763,7 +763,10 @@ page, tiles and view-as sessions can't read it.
 `/ws/events` carries `{type: "delegate", data: {op, id?, user}}` to the
 person's own sockets and their agent's page — `op`: `request` (one
 appeared, was decided, withdrawn or used), `approval`, `changeset`,
-`state`. Refetch the list it names. Pushes: `agent.approval` (a request
+`state` (the person paused or resumed, changed the admin opt-in or who gets
+an agent — and the workspace's switch going on or off, told to every
+person who has an agent and to the admin who turned it). Refetch the list
+it names. Pushes: `agent.approval` (a request
 waits — one notification a person: the same collapse key, a count, at most
 one a minute) and `agent.changeset` (a proposal waits). Their link is the path of
 the sealed component that is the person's agent (the `agent` of the request

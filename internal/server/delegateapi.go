@@ -360,11 +360,19 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 	if !ws.Enabled {
 		s.CutDelegateStreams("")
 	}
-	for _, u := range s.Delegation.People() { // every person's agent: delegation went on or off
-		s.notifyHolders(u, "state", "")
+	// Every person's agent: delegation went on or off. Their backend is told,
+	// and so are their own sockets (a `delegate` state event): the chrome and
+	// the app show the switch at once, not at their next read.
+	told := map[string]bool{}
+	for _, u := range s.Delegation.People() {
+		told[u] = true
+		s.delegateEvent(u, "state", "")
 		if !ws.Enabled { // off: nothing approved before the switch is waiting when it is on again
 			s.delegationStopped(u, false)
 		}
+	}
+	if !told[p.UserID] { // the admin who turned it, with no record of their own yet
+		s.delegateEvent(p.UserID, "state", "")
 	}
 	WriteJSON(w, http.StatusOK, s.delegateWorkspaceView(p))
 }

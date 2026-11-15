@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- delegation: the workspace's switch (`PUT /delegate/workspace
+  {enabled}`) now also sends a `delegate` event with `op: "state"` to the
+  own sockets of every person who has an agent, and of the admin who turned
+  it ([protocol/delegation.md](/docs/protocol/delegation.md) §Events and
+  pushes). Before, only the agents' backends were told, so xbin's chrome
+  and the app showed the switch at their next read. Additive: clients
+  already refetch on that event.
 - **The workspace agent in the xbin app** (D233;
   [workspace-agent.md](/docs/workspace-agent.md#in-the-xbin-app)): the iOS
   app has a person's workspace agent as its own chrome — a button at the
