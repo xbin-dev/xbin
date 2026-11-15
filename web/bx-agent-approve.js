@@ -278,7 +278,7 @@ export class BxAgentApprove extends LitElement {
   }
 
   _foot(req) {
-    const never = req.kind === 'session' && req.preview && req.preview.session && req.preview.session.asks === false;
+    const never = req.kind === 'session' && !(req.preview && req.preview.session && req.preview.session.asks === true);
     const on = this._armed && !this._busy;
     return html`<div class="foot">
       <span class="when small muted">${req.kind === 'call' ? asked(req) : `asked every time${req.kind === 'session' ? ' · change in Preferences' : ''}`}</span>

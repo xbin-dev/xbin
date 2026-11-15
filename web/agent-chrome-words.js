@@ -150,7 +150,7 @@ export const DURATIONS = Object.freeze([{ id: 'hour', label: 'For one hour' }, {
 
 /** allowLabel(req, choice): the Allow button's words — they follow the choice. */
 export function allowLabel(req, choice = 'once') {
-  if (req.kind === 'session') return req.preview && req.preview.session && req.preview.session.asks === false ? 'Start without asking' : 'Start';
+  if (req.kind === 'session') return req.preview && req.preview.session && req.preview.session.asks === true ? 'Start' : 'Start without asking'; // only xbind's word that the mode asks
   if (req.kind === 'template') return 'Create the tile';
   return choice === 'once' ? 'Allow once' : choice === 'call' ? 'Allow always' : `Allow every change to ${tileOf(req).name || 'the tile'}`;
 }
@@ -193,7 +193,9 @@ export function widerWords(req) {
 export function sessionRows(req) {
   const s = (req.preview && req.preview.session) || {};
   const t = tileOf(req).name || 'the tile';
-  const asks = s.asks !== false;
+  // only xbind's word that the mode asks (a harness's ask or plan mode) earns the green tag: any other mode, and one
+  // xbind doesn't vouch for, leads with the danger wording
+  const asks = s.asks === true;
   const who = s.providerName || s.provider || 'A coding agent';
   const model = s.model ? ` · model ${s.model}` : '';
   const cred = s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';

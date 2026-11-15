@@ -20,7 +20,7 @@ import Testing
 
     @Test func requests() throws {
         let cases = try #require(v["requests"]?.arrayValue)
-        #expect(cases.count >= 15)
+        #expect(cases.count >= 17)
         for c in cases {
             let r = try #require(DelegateRequest(json: c["json"]))
             let id = r.id
@@ -62,6 +62,9 @@ import Testing
                 #expect(rows.agent == s(want, "agent"), "\(id)")
                 #expect(rows.modeTag == s(want["mode"], "tag") && rows.modeText == s(want["mode"], "text") && rows.modeName == s(want["mode"], "name"), "\(id)")
                 #expect(rows.modeAsks == (s(want["mode"], "tone") == "ok"), "\(id)")
+                // only xbind's `asks: true` earns the green tag; anything else is the danger wording, Deny first
+                #expect(rows.modeAsks == (r.session["asks"]?.boolValue == true), "\(id)")
+                #expect(r.neverAsks == !rows.modeAsks && rows.danger.isEmpty == rows.modeAsks, "\(id)")
                 #expect(rows.network == s(want, "network") && rows.others == s(want, "others"), "\(id)")
                 #expect(rows.brief == s(want, "brief") && rows.danger == s(want, "danger") && rows.comes == s(want, "comes"), "\(id)")
             }
@@ -167,6 +170,19 @@ import Testing
         #expect(pw.heading == s(small["stepUp"]?[0], "heading") && pw.text == s(small["stepUp"]?[0], "text") && pw.action == s(small["stepUp"]?[0], "action") && pw.password)
         #expect(si.heading == s(small["stepUp"]?[1], "heading") && si.text == s(small["stepUp"]?[1], "text") && si.action == s(small["stepUp"]?[1], "action") && !si.password)
         #expect(AgentChoices.armSeconds * 1000 == small["arm"]?.doubleValue)
+        // what the agent's view may ask the chrome to open: the web chrome's PAGE_VIEWS, to the letter — never Preferences
+        #expect(AgentBridge.View.allCases.map(\.rawValue) == (small["pageViews"]?.arrayValue ?? []).compactMap(\.stringValue))
+        for c in small["pageMessages"]?.arrayValue ?? [] {
+            let view = c[0]?.stringValue ?? ""
+            let got = AgentBridge.decide(["type": "xbin:agent-open", "view": .string(view)], tile: "xbin/wsagent", holder: "xbin/wsagent")
+            if c[1]?.isNull ?? true {
+                if case .refuse = got {} else { Issue.record("view \(view) was opened; the web chrome refuses it") }
+            } else {
+                #expect(got == AgentBridge.View(rawValue: view).map { .openView($0) }, "\(view)")
+            }
+        }
+        #expect(AgentBridge.draftLabel == small["draftFrom"]?["label"]?.stringValue)
+        #expect(AgentBridge.draftNote == small["draftFrom"]?["text"]?.stringValue)
         #expect(AgentChoices.duration(for: .call) == small["duration"]?["call"]?.stringValue)
         #expect(AgentChoices.duration(for: .tile) == small["duration"]?["tile"]?.stringValue)
 

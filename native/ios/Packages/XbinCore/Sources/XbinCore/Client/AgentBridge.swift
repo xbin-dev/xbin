@@ -15,12 +15,21 @@ import Foundation
 
 /// The app's decision about one `agent` message of a native tile.
 public enum AgentBridge {
-    /// One of the chrome's panels a message may ask for.
+    /// The chrome's views a message may ask for — the ones that change
+    /// nothing (the web chrome's `PAGE_VIEWS`). Never Preferences: where the
+    /// agent's reach widens opens from the app's own menu alone.
     public enum View: String, Sendable, Equatable, CaseIterable {
+        case needs
         case approvals
         case activity
-        case prefs
     }
+
+    /// How a new session's draft that came from the agent's view is labelled
+    /// wherever the app shows it (the web chrome's `DRAFT_FROM`): the view
+    /// renders what a model wrote, so the text is what it SUGGESTS, for the
+    /// person to read and edit — never presented as their own words.
+    public static let draftLabel = "Suggested by your agent’s page — not your words"
+    public static let draftNote = "Read it and change it as you like. It waits in the new session’s message box: nothing is sent until you press Send."
 
     public enum Action: Sendable, Equatable {
         /// Show the approval of one request (the app fetches it by id; an id

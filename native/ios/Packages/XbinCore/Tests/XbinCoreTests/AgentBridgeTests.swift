@@ -141,7 +141,10 @@ import Testing
     @Test func views() {
         #expect(decide(["type": "xbin:agent-open", "view": "approvals"]) == .openView(.approvals))
         #expect(decide(["type": "xbin:agent-open", "view": "activity"]) == .openView(.activity))
-        #expect(decide(["type": "xbin:agent-open", "view": "prefs"]) == .openView(.prefs))
+        #expect(decide(["type": "xbin:agent-open", "view": "needs"]) == .openView(.needs))
+        // Preferences — where the agent's reach widens — never opens for a message
+        #expect(refused(decide(["type": "xbin:agent-open", "view": "prefs"])))
+        #expect(refused(decide(["type": "xbin:agent-open", "view": "setup"])))
         for bad: JSONValue in ["setup", "Approvals", "", 1, .null] {
             #expect(refused(decide(["type": "xbin:agent-open", "view": bad])), "\(bad)")
         }

@@ -1570,6 +1570,215 @@
   },
   {
    "json": {
+    "id": "rq_unknown_mode",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "session",
+    "method": "POST",
+    "target": "xbin/term/sessions",
+    "tile": "apps/orders",
+    "body": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "bodyShown": true,
+    "bodySize": 96,
+    "bodySha256": "cd34",
+    "summary": "Start Claude Code on the export.",
+    "state": "pending",
+    "created": "2026-11-16T10:02:00Z",
+    "expires": "2026-11-17T10:02:00Z",
+    "preview": {
+     "class": "act",
+     "session": {
+      "tile": "apps/orders",
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "acceptEdits",
+      "net": "none",
+      "api": true,
+      "model": "sonnet"
+     }
+    }
+   },
+   "tile": {
+    "name": "Orders",
+    "path": "apps/orders",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Start a tile agent in Orders",
+   "heading": {
+    "before": "Start a tile agent in ",
+    "strong": "Orders",
+    "after": "?"
+   },
+   "sends": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "note": "96 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
+   "choices": [],
+   "allow": [
+    [
+     "Start without asking",
+     "Start without asking"
+    ],
+    [
+     "Start without asking",
+     "Start without asking"
+    ],
+    [
+     "Start without asking",
+     "Start without asking"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "wider": {
+    "heading": "Allow every change to Orders?",
+    "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": {
+    "agent": "Claude Code · model sonnet, through the workspace's connector",
+    "mode": {
+     "tag": "acts without asking",
+     "tone": "bad",
+     "text": "It edits files and runs commands in Orders without asking you.",
+     "name": "acceptEdits"
+    },
+    "network": "Its model only. No internet.",
+    "others": "It can call the tile APIs this tile is granted.",
+    "brief": "Goal: add CSV export.\nDone when: the export test passes.",
+    "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+    "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them."
+   },
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:02 · expires in 23 h 46 min"
+  },
+  {
+   "json": {
+    "id": "rq_odd_asks",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "session",
+    "method": "POST",
+    "target": "xbin/term/sessions",
+    "tile": "apps/orders",
+    "body": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "bodyShown": true,
+    "bodySize": 96,
+    "bodySha256": "cd34",
+    "summary": "Start Claude Code on the export.",
+    "state": "pending",
+    "created": "2026-11-16T10:02:00Z",
+    "expires": "2026-11-17T10:02:00Z",
+    "preview": {
+     "class": "act",
+     "session": {
+      "tile": "apps/orders",
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "odd",
+      "asks": "yes",
+      "net": "none",
+      "api": true,
+      "model": "sonnet"
+     }
+    }
+   },
+   "tile": {
+    "name": "Orders",
+    "path": "apps/orders",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Start a tile agent in Orders",
+   "heading": {
+    "before": "Start a tile agent in ",
+    "strong": "Orders",
+    "after": "?"
+   },
+   "sends": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "note": "96 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
+   "choices": [],
+   "allow": [
+    [
+     "Start without asking",
+     "Start without asking"
+    ],
+    [
+     "Start without asking",
+     "Start without asking"
+    ],
+    [
+     "Start without asking",
+     "Start without asking"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "wider": {
+    "heading": "Allow every change to Orders?",
+    "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": {
+    "agent": "Claude Code · model sonnet, through the workspace's connector",
+    "mode": {
+     "tag": "acts without asking",
+     "tone": "bad",
+     "text": "It edits files and runs commands in Orders without asking you.",
+     "name": "odd"
+    },
+    "network": "Its model only. No internet.",
+    "others": "It can call the tile APIs this tile is granted.",
+    "brief": "Goal: add CSV export.\nDone when: the export test passes.",
+    "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+    "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them."
+   },
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:02 · expires in 23 h 46 min"
+  },
+  {
+   "json": {
     "id": "rq_tmpl",
     "user": "ana",
     "agent": "xbin/wsagent",
@@ -3208,6 +3417,112 @@
     "text": "Approvals, what your agent did and your preferences work here already. The agent's own conversation is not part of this xbin yet: it arrives with an update.",
     "more": ""
    }
+  },
+  {
+   "name": "admin-without-one",
+   "state": {
+    "user": "ana",
+    "workspace": true,
+    "paused": false,
+    "adminChanges": false,
+    "canAdminChanges": false,
+    "pendingRequests": 2,
+    "standingApprovals": 1,
+    "openChangeSets": 1,
+    "access": false,
+    "agent": "",
+    "workspaceAt": "2026-11-16T09:12:00Z",
+    "who": {
+     "everyone": false,
+     "entries": 2,
+     "chosen": true
+    }
+   },
+   "llm": {
+    "configured": true
+   },
+   "admin": true,
+   "dock": "hidden",
+   "chip": {
+    "shown": false,
+    "label": "",
+    "spoken": "",
+    "count": 0,
+    "paused": false
+   },
+   "words": null,
+   "named": null
+  },
+  {
+   "name": "admin-with-one",
+   "state": {
+    "user": "ana",
+    "workspace": true,
+    "paused": false,
+    "adminChanges": false,
+    "canAdminChanges": false,
+    "pendingRequests": 2,
+    "standingApprovals": 1,
+    "openChangeSets": 1,
+    "access": true,
+    "agent": "xbin/wsagent",
+    "workspaceAt": "2026-11-16T09:12:00Z",
+    "who": {
+     "everyone": true,
+     "entries": 0,
+     "chosen": true
+    }
+   },
+   "llm": {
+    "configured": true
+   },
+   "admin": true,
+   "dock": "page",
+   "chip": {
+    "shown": true,
+    "label": "workspace agent",
+    "spoken": "Workspace agent, 3 need you",
+    "count": 3,
+    "paused": false
+   },
+   "words": null,
+   "named": null
+  },
+  {
+   "name": "admin-held-without-one",
+   "state": {
+    "user": "ana",
+    "workspace": true,
+    "paused": false,
+    "adminChanges": false,
+    "canAdminChanges": false,
+    "pendingRequests": 2,
+    "standingApprovals": 1,
+    "openChangeSets": 1,
+    "access": false,
+    "agent": "",
+    "workspaceAt": "2026-11-16T09:12:00Z",
+    "held": "locked",
+    "who": {
+     "everyone": false,
+     "entries": 1,
+     "chosen": true
+    }
+   },
+   "llm": {
+    "configured": true
+   },
+   "admin": true,
+   "dock": "hidden",
+   "chip": {
+    "shown": false,
+    "label": "",
+    "spoken": "",
+    "count": 0,
+    "paused": false
+   },
+   "words": null,
+   "named": null
   }
  ],
  "small": {
@@ -3375,6 +3690,18 @@
    },
    {
     "kind": "request",
+    "id": "rq_unknown_mode",
+    "title": "Start a tile agent in Orders",
+    "note": "asked 10:02 · expires in 23 h 46 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_odd_asks",
+    "title": "Start a tile agent in Orders",
+    "note": "asked 10:02 · expires in 23 h 46 min"
+   },
+   {
+    "kind": "request",
     "id": "rq_tmpl",
     "title": "Create a tile",
     "note": "asked 10:02 · expires in 23 h 46 min"
@@ -3404,6 +3731,52 @@
     "note": "asked 10:14 · expires in 23 h 58 min"
    }
   ],
+  "pageViews": [
+   "needs",
+   "approvals",
+   "activity"
+  ],
+  "pageMessages": [
+   [
+    "needs",
+    {
+     "type": "open",
+     "view": "needs"
+    }
+   ],
+   [
+    "approvals",
+    {
+     "type": "open",
+     "view": "approvals"
+    }
+   ],
+   [
+    "activity",
+    {
+     "type": "open",
+     "view": "activity"
+    }
+   ],
+   [
+    "prefs",
+    null
+   ],
+   [
+    "setup",
+    null
+   ],
+   [
+    "",
+    null
+   ]
+  ],
+  "draftFrom": {
+   "label": "Suggested by your agent’s page — not your words",
+   "text": "Read it and change it as you like. It waits in the new session’s message box: nothing is sent until you press Send.",
+   "paste": "paste the text your agent’s page suggests, once you have read it",
+   "copy": "Copy the suggested text"
+  },
   "standingNote": "Starting a tile agent and creating a tile are asked every time. Taking an approval back stops a change that is running under it.",
   "didNote": "Kept by xbin for 13 months. Your agent and its page can't read or change this list. It never holds what was sent, only what was called.",
   "arm": 600,

@@ -153,7 +153,7 @@ struct AgentTileView: View {
                 switch v {
                 case .approvals: scene.agentPanel = .approvals
                 case .activity: scene.agentPanel = .activity
-                case .prefs: scene.agentPanel = .prefs
+                case .needs: scene.showAgentInbox = true
                 }
                 return true
             case .refuse:

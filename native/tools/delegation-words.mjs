@@ -38,6 +38,9 @@ export const requests = [
   session(),
   session({ asks: false, mode: 'bypassPermissions', net: 'internet', api: false, model: '', credentials: 'own' }, { id: 'rq_never' }),
   session({ resume: 'ses_1', providerName: '', model: '' }, { id: 'rq_resume' }),
+  // a mode xbind doesn't vouch for (no `asks`): never the green tag
+  session({ asks: undefined, mode: 'acceptEdits' }, { id: 'rq_unknown_mode' }),
+  session({ asks: 'yes', mode: 'odd' }, { id: 'rq_odd_asks' }),
   session({}, { id: 'rq_tmpl', kind: 'template', tile: '', target: 'xbin/templates/new', preview: { class: 'act' } }),
 ];
 
@@ -104,6 +107,10 @@ export const states = [
   { name: 'older', state: S({ held: 'older' }), llm: { configured: true }, admin: false },
   { name: 'held-other', state: S({ held: 'unavailable', heldWhy: 'tiles run without sandboxes here.' }), llm: { configured: true }, admin: true },
   { name: 'soon', state: S({ agent: '' }), llm: null, admin: false },
+  // an admin who gave others an agent and not themselves: administering it isn't having one
+  { name: 'admin-without-one', state: S({ access: false, agent: '', who: { everyone: false, entries: 2, chosen: true } }), llm: { configured: true }, admin: true },
+  { name: 'admin-with-one', state: S({ who: { everyone: true, entries: 0, chosen: true } }), llm: { configured: true }, admin: true },
+  { name: 'admin-held-without-one', state: S({ access: false, agent: '', held: 'locked', who: { everyone: false, entries: 1, chosen: true } }), llm: { configured: true }, admin: true },
 ];
 
 const out = { now: new Date(NOW).toISOString(), requests: [], changesets: [], approvals: [], audit: [], states: [], small: {} };
@@ -136,6 +143,8 @@ out.small = {
   admins: [[], ['A'], ['A', 'B'], ['A', 'B', 'C', 'D']].map((n) => [n, W.admins(n)]),
   stepUp: [W.stepUp('password'), W.stepUp('signin')],
   needs: W.needs({ requests, changesets }, NOW).map((n) => ({ kind: n.kind, id: n.id, title: n.title, note: n.note })),
+  pageViews: [...W.PAGE_VIEWS], pageMessages: [['needs'], ['approvals'], ['activity'], ['prefs'], ['setup'], ['']].map(([view]) => [view, W.pageMessage({ type: 'xbin:agent-open', view })]),
+  draftFrom: { ...W.DRAFT_FROM },
   standingNote: W.STANDING_NOTE, didNote: W.DID_NOTE, arm: W.CHOICES.armMs, duration: W.CHOICES.duration,
 };
 if (import.meta.url === `file://${process.argv[1]}`) process.stdout.write(`${JSON.stringify(out, null, 1)}\n`);

@@ -256,7 +256,7 @@ public enum DelegationWords {
     public static func sessionRows(_ r: DelegateRequest) -> SessionRows {
         let s = r.session
         let t = tile(r).name.isEmpty ? "the tile" : tile(r).name
-        let asks = s["asks"]?.boolValue != false
+        let asks = s["asks"]?.boolValue == true
         let who = nonEmpty(s["providerName"]?.stringValue) ?? nonEmpty(s["provider"]?.stringValue) ?? "A coding agent"
         let modelName = s["model"]?.stringValue ?? ""
         let model = modelName.isEmpty ? "" : " · model \(modelName)"
@@ -572,6 +572,8 @@ public enum DelegationWords {
         if state.access == false, !wsAdmin { return .hidden }
         if !state.workspace { return state.workspaceAt != nil ? .off : anyAdmin ? .setup : .hidden }
         if let who = state.who, !who.chosen { return .setup }
+        // an admin who gave others one and not themselves: administering it isn't having one
+        if state.access == false { return .hidden }
         if llmConfigured == false { return .unavailable }
         if state.paused { return .paused }
         if !state.held.isEmpty { return .held }

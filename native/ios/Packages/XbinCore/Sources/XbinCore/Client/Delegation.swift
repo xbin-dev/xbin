@@ -146,7 +146,9 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
     /// `preview.session`: the harness and mode a tile agent will run in.
     public var session: JSONValue { preview["session"] ?? .object([:]) }
     /// A session start whose mode lets the tile agent act without asking.
-    public var neverAsks: Bool { kind == .session && session["asks"]?.boolValue == false }
+    /// Only xbind's word that the mode asks — a harness's ask or plan mode —
+    /// counts: a mode it doesn't vouch for is one that never asks.
+    public var neverAsks: Bool { kind == .session && session["asks"]?.boolValue != true }
     public var isResume: Bool {
         guard kind == .session, let r = session["resume"] else { return false }
         if let b = r.boolValue { return b }
