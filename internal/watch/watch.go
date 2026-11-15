@@ -26,6 +26,9 @@ import (
 type Event struct {
 	// Paths are the workspace-relative file paths that changed in this batch.
 	Paths []string
+	// Last is when the batch's last change was seen: every save in it was
+	// made before then (the runner's ChangedSaved).
+	Last time.Time
 }
 
 type Watcher struct {
@@ -35,6 +38,7 @@ type Watcher struct {
 
 	mu      sync.Mutex
 	pending map[string]struct{}
+	last    time.Time // the pending batch's latest change
 	timer   *time.Timer
 	closed  bool // Close ran: no batch is sent any more, C is closed
 
@@ -158,6 +162,7 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 		return
 	}
 	w.pending[rel] = struct{}{}
+	w.last = time.Now()
 	if w.timer == nil {
 		w.timer = time.AfterFunc(w.debounce, w.flush)
 	} else {
@@ -177,13 +182,14 @@ func (w *Watcher) flush() {
 	for p := range w.pending {
 		paths = append(paths, p)
 	}
+	last := w.last
 	w.pending = map[string]struct{}{}
 	w.timer = nil
 	if len(paths) == 0 {
 		return
 	}
 	select {
-	case w.C <- Event{Paths: paths}:
+	case w.C <- Event{Paths: paths, Last: last}:
 	default:
 		slog.Warn("watch: consumer slow, dropping batch", "n", len(paths))
 	}

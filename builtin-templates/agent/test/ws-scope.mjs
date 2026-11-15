@@ -17,8 +17,9 @@
 //     refused card, whose way forward is a new session on that model;
 //   - the notebook: the list, a page this session can't read listed but
 //     closed with the reason, reading, editing (from the version seen), Add a
-//     note, deleting behind a confirmation, clearing a page's org marks only
-//     behind its own.
+//     note, deleting behind a confirmation; a page's org marks are said, with
+//     how to clear them (delete it, have it written again) — nothing here
+//     takes them off.
 //
 //   node test/ws-scope.mjs        (needs playwright + a chromium build)
 import { launch, checker } from './backend.mjs';
@@ -172,14 +173,9 @@ const seed = () => ({
   const put = JSON.parse((await calls(page, 'PUT', /\/ws\/notebook\/orders-code$/))[0].body);
   ok('an edit is saved from the version seen, its marks kept', put.base === 1 && put.body.includes('export_csv.go') && !('clearStamps' in put), JSON.stringify(put));
   await until(async () => (await text(page, '.wsp-pbody')).includes('export_csv.go'));
-  await page.click('.wsp-pmeta button');
-  ok('clearing the org marks asks first, and says what it means', (await text(page, '.wsp-confirm')).includes('Clear the marks of Sales? A session on any model could then read this page'));
-  await page.click('.wsp-confirm button:has-text("Keep them")');
-  ok('…Keep them changes nothing', (await calls(page, 'PUT', /\/ws\/notebook\/orders-code$/)).length === 1 && !(await page.$('.wsp-confirm')));
-  await page.click('.wsp-pmeta button');
-  await page.click('.wsp-confirm button.danger');
-  await until(async () => (await calls(page, 'PUT', /\/ws\/notebook\/orders-code$/)).length === 2);
-  ok('…confirmed: clearStamps, from the version seen', JSON.parse((await calls(page, 'PUT', /\/ws\/notebook\/orders-code$/))[1].body).clearStamps === true);
+  ok('a marked page says so, and how its marks go: delete it, have a session that holds none of their data write it again',
+    (await text(page, '.wsp-marks')).includes('Marked with Sales') && (await text(page, '.wsp-marks')).includes('To clear them, delete the page and have a session that holds none of their data write it again'));
+  ok('…and offers no way to clear them here', !(await page.$('.wsp-pmeta button')) && (await page.$$eval('.wsp-nb button', (bs) => bs.filter((b) => /clear|mark/i.test(b.textContent)).length)) === 0);
   await page.click('.wsp-nb-h button.danger');
   ok('Delete asks first', (await text(page, '.wsp-confirm')).includes('Delete this page? The agent forgets it'));
   await page.click('.wsp-confirm button.danger');

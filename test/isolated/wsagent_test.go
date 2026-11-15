@@ -47,6 +47,13 @@ func TestWorkspaceAgent(t *testing.T) {
 	e.staticTile(wsLedgerTile, "Ledger")
 	e.org("closed", "Closed", wsKeptTile, map[string]any{"workspaceAgent": "off"})
 	e.org("finance", "Finance", wsLedgerTile, map[string]any{"models": []string{wsModelA}})
+	// Coding agents here run on the LLM connector alone. A conversation that
+	// has seen Finance's tile (its row on the map is enough) holds Finance's
+	// data, and what it tells a tile agent goes to that session's model: on
+	// a person's own sign-in nobody can say which, and the start is refused.
+	// Held to the connector, the session starts on its default — the model
+	// Finance allows (docs/protocol/delegation.md §Agent sessions).
+	d.Must(t, "PUT", "/api/xbin/agents/policy", map[string]any{"credentials": "connector-only"}, 200)
 
 	e.person(wsAdmin, "admin", nil)
 	e.person("alice", "user", map[string]string{wsNoteTile: "terminal", wsKeptTile: "write", wsLedgerTile: "write"})
@@ -513,12 +520,29 @@ func TestWorkspaceAgent(t *testing.T) {
 		if d.Must(t, "GET", "/api/xbin/delegate/state", nil, 200, alice.fr).Decode(t, &own); !own.Paused || own.PausedAt == "" {
 			t.Errorf("the page's own read of GET /delegate/state while paused: %+v, want paused, with when", own)
 		}
-		turn := alice.say(`ws: tile_call {"tile":"` + wsNoteTile + `","method":"GET","path":"/note"}`)
-		if got := turn.tool("tile_call", 0); !strings.Contains(got, "paused") || strings.Contains(got, "note=") {
-			t.Errorf("a read while paused: %q, want it refused as paused", got)
+		// xbind runs no model turn for a paused agent: the backend answers her message without the model —
+		// a line in the transcript naming the switch and who changes it where, nothing queued or sent, her
+		// words kept (409) for her to send again
+		read := `ws: tile_call {"tile":"` + wsNoteTile + `","method":"GET","path":"/note"}`
+		lastBefore := alice.last()
+		r = d.Call(t, "POST", wsAPI+"/runs/"+alice.run+"/message", map[string]any{"text": read}, alice.fr)
+		var off struct {
+			Code, Refusal, Error string
+			Kept                 bool
 		}
-		if c := alice.cards(); len(c.Refusals) == 0 || c.Refusals[0].Kind != "paused" {
-			t.Errorf("the session's refusals while paused: %+v, want the newest of kind paused", c.Refusals)
+		if r.Decode(t, &off); r.Status != 409 || off.Code != "agent-off" || off.Refusal != "paused" || !off.Kept || !strings.Contains(off.Error, "Resume in the workspace agent's dock") {
+			t.Errorf("a message while paused: %d %s, want 409 agent-off, paused, kept, saying where to resume", r.Status, r)
+		}
+		var view struct {
+			Steps []struct{ Kind, Detail string }
+		}
+		d.Must(t, "GET", wsAPI+"/runs/"+alice.run+"/view", nil, 200, alice.fr).Decode(t, &view)
+		if n := len(view.Steps); n == 0 || view.Steps[n-1].Kind != "off" || !strings.Contains(view.Steps[n-1].Detail, "Your agent is paused") {
+			t.Errorf("the transcript's line for a message while paused: %+v, want the newest step of kind off", view.Steps)
+		}
+		time.Sleep(time.Second) // (a negative: nothing may reach the conversation or the model)
+		if ms := wsAfter(alice.messages(), lastBefore); len(ms) != 0 {
+			t.Errorf("a message while paused reached the conversation:%s", wsTail(ms, 4))
 		}
 		if got := e.seen("alice"); got != before {
 			t.Errorf("the tile was reached while alice's agent was paused: %s, before: %s", got, before)
@@ -528,9 +552,19 @@ func TestWorkspaceAgent(t *testing.T) {
 			t.Errorf("the agent's page resumes it: %d %s, want 403", r.Status, r)
 		}
 		d.Must(t, "PUT", "/api/xbin/delegate/state", map[string]any{"paused": false}, 200, e.as("alice")...)
-		turn = alice.say(`ws: tile_call {"tile":"` + wsNoteTile + `","method":"GET","path":"/note"}`)
+		// resumed, nothing runs by itself: sent again, it runs — once
+		turn := alice.say(read)
 		if got := turn.tool("tile_call", 0); !strings.Contains(got, "GET /note → 200") {
 			t.Errorf("a read after alice resumed: %q, want it to run", got)
+		}
+		users := 0
+		for _, m := range wsAfter(alice.messages(), lastBefore) {
+			if m.Role == "user" {
+				users++
+			}
+		}
+		if users != 1 {
+			t.Errorf("%d messages of alice's reached the conversation after she resumed, want only the one she sent again", users)
 		}
 	})
 

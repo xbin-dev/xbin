@@ -111,6 +111,12 @@ test('refusals from their fields: each kind its words and ways forward; the two 
   assert.match(card('hidden').text, /You left Ledger out of this session’s scope/);
   assert.equal(card('not-connected').title, 'Ledger isn’t connected in this session');
   assert.deepEqual(card('taint').ways, ['model']);
+  // what xbind refuses the agent tells tile agents: what happened and what to do instead, in plain words
+  assert.match(card('brief-taint', 'this conversation holds data of finance').title, /Ledger’s agent can’t be told this/);
+  assert.match(card('brief-taint').note, /Start the tile agent on the workspace’s connector, on a model the org allows — or ask from a new session/);
+  assert.match(card('mode').note, /only you can drive it now/);
+  assert.match(card('command').text, /begins with “\/”.*yours to give/);
+  assert.ok(card('no-agent').quiet && /an admin chooses who has one/.test(card('no-agent').text));
   for (const k of ['paused', 'off', 'slow']) assert.equal(card(k).quiet, true, k);
   assert.equal(card('something-new').title, 'xbin refused this');
   // a request's and a brief's place is their callId: the page reads nothing of the tool's answer to find it
@@ -132,12 +138,12 @@ test('every field the page reads is a JSON name the backend writes', () => {
     .concat([...backend.matchAll(/^\s+([A-Z]\w*)(?:, \w+)*\s+\*?(?:int64|bool|string)\b/gm)].map((m) => m[1][0].toLowerCase() + m[1].slice(1))));
   const read = ['user', 'mode', 'delegation', 'workspace', 'paused', 'pausedAt', 'models', 'default', 'upstream', 'private', 'where', 'quota', 'stopped', 'resets', 'limitWords', 'raise',
     'sessions', 'name', 'main', 'model', 'handle', 'connection', 'summary', 'status', 'waiting', 'ask',
-    'archivedAt', 'agents', 'requests', 'activityMs', 'counts', 'tiles', 'orgs', 'notConnected', 'hidden', 'blocked', 'noAccess', 'whatIf', 'connects', 'disconnects', 'allowed', 'taintedOrgs',
+    'archivedAt', 'agents', 'requests', 'activityMs', 'held', 'atMs', 'counts', 'tiles', 'orgs', 'notConnected', 'hidden', 'blocked', 'noAccess', 'whatIf', 'connects', 'disconnects', 'allowed', 'taintedOrgs',
     'code', 'reason', 'offer', 'kind', 'ref', 'tile', 'title', 'method', 'path', 'brief', 'state', 'createdMs', 'decidedMs', 'expiresMs', 'grant', 'grantUntilMs', 'by', 'via', 'resultStatus', 'result',
     'refusals', 'callId', 'tool', 'question', 'choices', 'context', 'connected', 'screen',
     'session', 'harness', 'asks', 'waits', 'last', 'startedMs', 'request',
     'goal', 'doneWhen', 'leaveAlone', 'checkBy', 'edited', 'updatedMs', 'plan', 'text', 'started', 'heading', 'line', 'can', 'cant', 'hint', 'startersTitle', 'starters', 'blank',
-    'pages', 'slug', 'version', 'updatedBy', 'rev', 'locked', 'lockedWhy', 'body', 'base', 'clearStamps', 'page', 'lastSession', 'defaults', 'harnesses', 'ticket', 'harnessName', 'needsTicket', 'scope', 'archived'];
+    'pages', 'slug', 'version', 'updatedBy', 'rev', 'locked', 'lockedWhy', 'body', 'base', 'page', 'lastSession', 'defaults', 'harnesses', 'ticket', 'harnessName', 'needsTicket', 'scope', 'archived'];
   const missing = read.filter((n) => !names.has(n));
   assert.deepEqual(missing, [], 'fields the page reads that no workspace route writes');
 });
@@ -151,6 +157,10 @@ test('the brief: the backend\'s button, what it runs on, the coding agents to pi
   assert.equal(w.runsOn, 'Claude Code · asks before acting');
   assert.deepEqual(w.harnesses.map((h) => h.id), ['claude', 'codex']);
   assert.match(w.note, /told first/);
+  // "asks before acting" only where xbind says the mode asks (ask or plan); not before it said
+  assert.match(w.note, /the tile agent asks you before it acts/);
+  assert.match(W.briefCard(b, undefined, null).note, /Whether it asks you before it acts shows once xbin says/);
+  assert.doesNotMatch(W.briefCard(b, undefined, null).note, /the tile agent asks you before it acts/);
   assert.equal(W.briefCard(b, undefined, { ...sd, ticket: false }).button, 'Start', 'the person\'s preference lets it through: the click is the confirmation');
   assert.match(W.briefCard(b, undefined, { ...sd, asks: false }).note, /acts without asking/);
   assert.equal(W.briefCard(b, undefined, null).button, 'Review and start…', 'before the defaults are read: the asking button');

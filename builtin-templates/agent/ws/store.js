@@ -41,7 +41,7 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     scope: { view: 'tree', filter: 'all', ticks: new Set(), expanded: new Set(), pick: '', what: null, refused: null, busy: false, err: '', focus: '' },
     ses: { renaming: null, err: '' },
     nb: { pages: [], open: '', page: null, editing: false, draft: null, confirm: false, err: '', busy: false },
-    context: null, drafts: new Map(), sending: false, sendErr: '',
+    context: null, drafts: new Map(), sending: false, sendErr: '', heldErr: '',
     conn0: 'live', lostAt: 0, updating: false, afterUpdate: null, loadedAt: 0,
     bags: new Map(), rev: 0, narrow: false, said: '',
   };
@@ -198,6 +198,13 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     S.sending = true; S.sendErr = ''; paint();
     const r = await ws.send(S.sel, text, Math.random().toString(36).slice(2), c);
     S.sending = false;
+    if (r.status === 409 && r.data && r.data.code === 'agent-off') {
+      // the agent's switch is off (xbind said which): the transcript has the line, the words stay here, unsent
+      S.sendErr = r.data.error || 'Your agent is off: nothing was sent.';
+      await loadState();
+      paint();
+      return false;
+    }
     if (!r.ok) { S.sendErr = errOf(r, 'The message was not sent.'); paint(); return false; }
     S.context = null;
     if ((S.drafts.get(S.sel) || '').trim() === text) S.drafts.set(S.sel, '');
@@ -356,6 +363,15 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     else { S.pop = ''; await loadSessions(); await loadConnection(); }
     paint();
   }
+  // a held session (GET /ws/sessions → held) moves back to the model it was on
+  async function moveHeld(model) {
+    const s = current();
+    if (!s) return;
+    const r = await ws.patch(s.id, { model });
+    S.heldErr = r.ok ? '' : errOf(r, 'The session could not move.');
+    await loadSessions();
+    paint();
+  }
   async function newSessionOn(model) {
     const r = await ws.newSession(S.sel, { model });
     if (!r.ok) { S.scope.err = errOf(r, 'A new session could not be started.'); paint(); return; }
@@ -463,21 +479,13 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
       if (!r.ok) { S.nb.err = errOf(r); paint(); return; }
       openNotebook();
     },
-    // the person's deliberate act, confirmed: the page no longer carries the orgs it was marked with
-    clearStamps: async () => {
-      const p = S.nb.page;
-      const r = await ws.putPage(p.slug, { title: p.title, body: p.body || '', base: p.version, clearStamps: true });
-      S.nb.confirm = false;
-      if (!r.ok) { S.nb.err = errOf(r); paint(); return; }
-      await notebook.read(p.slug);
-    },
   };
 
   function showWhatCan() { S.whatCan = true; S.pop = ''; S.view = 'chat'; if (!S.empty) loadEmpty(); paint(); hook('whatCan'); }
 
   // ---- the page's states --------------------------------------------------------------------------------
 
-  /** banners(): what stops the agent, each a glyph, its words and what still works: [{key, tone, icon, bold, text, more?, button?: {label, act}}]. */
+  /** banners(): what stops the agent, each a glyph, its words and what still works: [{key, tone, icon, bold, text, more?, button?: {label, act}, buttons?: [{key, label, act}]}]. */
   function banners() {
     const out = [];
     const d = delegation();
@@ -485,6 +493,12 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     if (d.paused) out.push({ key: 'paused', tone: 'warn', icon: 'pause', bold: `Paused by you${d.pausedAt ? ` at ${clock(Date.parse(d.pausedAt))}` : ''}.`, text: 'Your agent can’t read or change anything in the workspace until you resume. Tile agents that are already running keep going; their questions still come to you.' });
     const q = quotaOf(S.state);
     if (q) out.push({ key: 'quota', tone: 'warn', icon: 'clock', bold: 'Today’s limit is used up.', text: q.words, more: q.raise });
+    const held = current() && current().held;
+    if (held) { // it can't go on on its model: why, and the ways forward (the backend refuses every call meanwhile)
+      const h = SM.heldWords(held);
+      out.push({ key: 'held', tone: 'bad', icon: 'lock', bold: h.bold, text: h.text, more: S.heldErr || '',
+        buttons: [...(h.back ? [{ key: 'back', label: h.back.label, act: () => moveHeld(h.back.model) }] : []), { key: 'new', label: h.fresh.label, act: () => newSessionOn(h.fresh.model) }] });
+    }
     if (S.updating) out.push({ key: 'updating', tone: 'info', icon: 'refresh', bold: 'xbin is updating.', text: 'Back in about a minute. Running tile agents are stopped and continue afterwards.' });
     else if (offline()) out.push({ key: 'offline', tone: 'warn', icon: 'signal', bold: 'Can’t reach the workspace.', text: `Showing what was loaded at ${clock(S.loadedAt)}. Trying again… Approvals can’t be given until it’s back.`, button: { label: 'Try now', act: () => session.live.resync() } });
     if (S.afterUpdate) {

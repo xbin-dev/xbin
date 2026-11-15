@@ -14,7 +14,9 @@
 // gets the file tools and nothing else: not the wiki's tools (the notebook
 // is scoped by org, ws_notebook.go). With save_as its answer is kept as a
 // notebook page stamped with the tile, its revision and its org, written
-// when it answers (wsResearchEnded).
+// when it answers (wsResearchEnded) — over an existing page only where the
+// session may read it, as with notebook_write (wsSaveRefused), its stamps
+// added to.
 package main
 
 import (
@@ -457,6 +459,14 @@ func wsResearch(e *Engine, ctx context.Context, ts *turnState, tc toolCall, scop
 		if save, err = wikiSlug(save); err != nil {
 			return "", err
 		}
+		// a page the answer would go over is one this session may write only
+		// if it may read it — the notebook tools' rule, preferences included
+		if store, err := wsStore(e.ag, s, false); err == nil {
+			e.ag.wsAllowKnown(ctx, s, store)
+			if why := wsSaveRefused(e.ag.db, s, store, save); why != "" {
+				return "", errors.New(why)
+			}
+		}
 	}
 	rev := t.Rev
 	if rev == "" {
@@ -488,6 +498,21 @@ func wsResearch(e *Engine, ctx context.Context, ts *turnState, tc toolCall, scop
 	return e.researchSpawn(ts, tc, start)
 }
 
+// wsSaveRefused says why research in s may not save its answer as the page
+// slug of store ("": it may): a page that exists, and isn't deleted, is
+// written only by a session that may read it (wsReadable), as with
+// notebook_write.
+func wsSaveRefused(d *DB, s *wsSession, store int64, slug string) string {
+	cur, err := d.wikiPage(store, slug)
+	if err != nil || cur == nil || cur.Archived {
+		return ""
+	}
+	if st := d.wsStamp(store, slug); !wsReadable(s, st) {
+		return fmt.Sprintf("save_as: the page %q holds data of an org that doesn't allow this session's model (%s), so this session can't write it: pick another slug", slug, wsLockedWhy(s, st))
+	}
+	return ""
+}
+
 // wsResearchEnded (turnEndHooks): a research subagent answered — with
 // save_as, its answer becomes a notebook page stamped with the tile, the
 // revision it read and the orgs whose data the page may hold.
@@ -512,16 +537,24 @@ func wsResearchEnded(t *DB, run *Run, why, outcome, result string) {
 	if err != nil {
 		return
 	}
+	if why := wsSaveRefused(t, s, store, b.Save); why != "" {
+		return // closed to this session since the research began: the answer reached the conversation, not the page
+	}
+	old := t.wsStamp(store, b.Save)
 	base := int64(0)
 	if cur, err := t.wikiPage(store, b.Save); err == nil {
 		base = cur.Version
+		if cur.Archived {
+			old = wsStamp{} // written whole over a deleted page: none of its text, none of its stamp
+		}
 	}
 	body := clip(strings.TrimSpace(result), wikiPageMax-200)
 	if _, err := t.wikiPut(store, wikiActor{By: "research: " + b.Tile, Run: run.ID, At: b.Tile + "@" + b.Rev},
 		wikiChange{Slug: b.Save, Title: slugTitle(b.Save), Body: body, Note: "research on " + b.Tile, Sources: []string{b.Tile + "@" + b.Rev}, Base: &base}); err != nil {
 		return
 	}
-	orgs := wsUnion(s.Conn.Tainted, nil)
+	// the page's stamps, the session's taint and the tile's org: a stamp only grows
+	orgs := wsUnion(old.Orgs, s.Tainted)
 	if b.Org != "" && !hasStr(orgs, b.Org) {
 		orgs = append(orgs, b.Org)
 	}

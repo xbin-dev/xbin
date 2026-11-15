@@ -13,6 +13,9 @@
 //   - no connection: the banner after a while, the draft kept and not sent,
 //     Review… off ("Approvals need a connection"), Try now; back: gone;
 //   - "Can't do this" with What can it do?; slowing down, quietly;
+//   - held (xbin won't let a new handle on the session's model hold what the
+//     conversation holds): why, and the ways forward — back to the model it
+//     was on, or a new session;
 //   - at 360 px (the dock's narrowest) and at a phone's width nothing
 //     scrolls sideways: the conversation, the scope panel, the sessions, the
 //     notebook. WS_SHOTS=<dir> also draws the page there, dark and light,
@@ -125,6 +128,51 @@ const STATE = { user: 'ana', mode: 'workspace', delegation: { workspace: true, p
   await page.click('[data-refusal="cannot"] button');
   ok('What can it do? shows what it can and can\'t, again', await until(async () => (await text(page, '.wsp-whatcan')).includes('It can’t')));
   ok('no page errors (refusals)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- the agent's switch is off: the backend answers without the model, the words stay ---------------------
+{
+  const OFF = 'You haven’t been given a workspace agent. An admin chooses who has one. Nothing was sent to the agent or its model. Your message is still in the message box: send it again once it runs.';
+  const { ctx, page, errors } = await openWs(browser, base({ state: fresh(STATE), offAnswer: { error: OFF, code: 'agent-off', refusal: 'no-agent', kept: true } }));
+  await page.fill('bx-chat-composer textarea', 'Which invoices are overdue?');
+  await page.keyboard.press('Enter');
+  await until(async () => (await calls(page, 'POST', /\/runs\/1\/message$/)).length === 1);
+  await until(async () => (await text(page, '.wsc-err')).includes('haven’t been given'));
+  const c = await composer(page);
+  ok('switch off (409 agent-off): the backend\'s words shown, the message kept in the box, unsent', (await text(page, '.wsc-err')) === OFF && c.v === 'Which invoices are overdue?', JSON.stringify(c));
+  ok('…and the state read again, for the banners', (await calls(page, 'GET', /\/ws\/state$/)).length >= 2);
+  ok('no page errors (switch off)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- the empty state of an agent that can't act (an admin who wasn't given one, say): the switch, nothing else ----
+{
+  const line = 'You haven’t been given a workspace agent. An admin chooses who has one: Admin → People → access, or the workspace agent’s set-up in the dock.';
+  const { ctx, page, errors } = await openWs(browser, { sessions: fresh(SESSIONS).slice(0, 1).map((s) => ({ ...s, status: 'idle', requests: 0, agents: 0 })), full: FULL,
+    empty: { ...EMPTY, off: 'no-agent', line, can: [], starters: [] }, state: fresh(STATE) });
+  await until(async () => !!(await page.$('.wsp-empty [data-off]')));
+  ok('the empty state of an agent that can\'t act: the switch, and no list of what it could do', (await text(page, '.wsp-empty [data-off]')) === line && !(await page.$('.wsp-empty .wsp-cols')) && !(await page.$('.wsp-starter')));
+  ok('no page errors (empty, off)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- held: xbin won't let a new handle on its model hold what the conversation holds --------------------
+{
+  const sessions = fresh(SESSIONS);
+  sessions[0].held = { code: 'model_taint', model: 'hosted/big', orgs: ['Sales'], reason: 'Sales allows private models only', offer: { model: 'hosted/big-1', newSession: { model: 'hosted/big' } } };
+  const { ctx, page, errors } = await openWs(browser, base({ sessions }));
+  await until(async () => !!(await page.$('.wsp-banner[data-state="held"]')));
+  const b = await text(page, '.wsp-banner[data-state="held"]');
+  ok('held: the session can’t go on on its model, why, and that nothing runs in it', b.includes('This session can’t go on on big.') && b.includes('It holds data from Sales, and Sales allows private models only')
+    && b.includes('Nothing is read, changed or sent to a model in it until it moves'), b);
+  const acts = await page.$$eval('.wsp-banner[data-state="held"] button', (bs) => bs.map((x) => x.textContent.trim()));
+  ok('…the ways forward: the model it was on, or a new session', acts.join(' | ') === 'Move back to big-1 | New session on big', acts.join(' | '));
+  await page.click('.wsp-banner[data-state="held"] button[data-act="back"]');
+  await until(async () => (await calls(page, 'PATCH', /\/ws\/sessions\/1$/)).length === 1);
+  ok('…Move back asks the backend to move it (PATCH {model})', JSON.parse((await calls(page, 'PATCH', /\/ws\/sessions\/1$/))[0].body).model === 'hosted/big-1');
+  ok('…and moved, the banner goes', await until(async () => !(await page.$('.wsp-banner[data-state="held"]'))));
+  ok('no page errors (held)', errors.length === 0, errors.join(' | '));
   await ctx.close();
 }
 

@@ -152,6 +152,9 @@ type AgentOpen struct {
 	// delegate's open without it is refused.
 	Delegate *DelegateStart
 	origin   string // a restart: the session's origin carries over
+	// originMode: a restart — the mode the session was first opened in by
+	// its origin carries over too (the restart's own mode is the person's)
+	originMode string
 }
 
 // OpenAgentWith is OpenAgent with the sandbox pickers.
@@ -227,6 +230,9 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
 	o.origin = cmp.Or(p.Agent, a.origin) // a delegate's open; a restart keeps its session's (delegate.go)
+	if o.originMode = a.originMode; p.Agent != "" {
+		o.originMode = mode // the mode its person approved, or their preference's
+	}
 	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
@@ -405,8 +411,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
-		origin: o.origin,
-		born:   time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
+		origin: o.origin, originMode: o.originMode,
+		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
 	drv := acp.NewFor(func(h acp.HelloParams) { s.llmHello(m, h) }) // who serves its model calls (llmhook.go)

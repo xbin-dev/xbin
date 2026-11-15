@@ -4,13 +4,13 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/gpu"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -300,11 +300,38 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 	}
 	ci.Deployments = s.primarySummary(c.Path)
 	partitionOf(&ci, c)
-	apiMD := ""
-	if b, err := os.ReadFile(filepath.Join(c.Dir, "API.md")); err == nil {
-		apiMD = string(b)
+	WriteJSON(w, http.StatusOK, map[string]any{"component": ci, "apiDoc": s.apiDocOf(c.Path)})
+}
+
+// apiDocOf is a tile's API.md, read beneath the tile's own directory
+// (fsutil.OpenIn, as the /c/ plane opens a tile's files): the tile's writers
+// choose what that name is, and every signed-in caller is handed its
+// content, so a link that leaves the tile (API.md -> ../../.xbin/token) reads
+// as no API.md, as a FIFO does. "" when there is none.
+//
+// A sealed component's is the release's own bytes, from memory, as every
+// other file of it is served (sealedfile.go): its tree isn't under the
+// workspace's tile directories, and nothing vouches for the copy on disk.
+func (s *Server) apiDocOf(tile string) string {
+	if s.sealedOwned(tile) {
+		if b, dir, ok := s.Reg.SealedFile(tile, "API.md"); ok && !dir {
+			return string(b)
+		}
+		return ""
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{"component": ci, "apiDoc": apiMD})
+	f, err := fsutil.OpenIn(s.Reg.Root, tile, "API.md")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // apiFrameToken refreshes a frame token. Allowed for a principal that may use

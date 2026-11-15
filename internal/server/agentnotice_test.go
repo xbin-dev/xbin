@@ -69,6 +69,14 @@ func TestAgentChromeState(t *testing.T) {
 	if _, ok := w.s.AgentPageNotice("bob"); ok {
 		t.Fatal("the notice after its dismissal")
 	}
+	// alice is an admin: the role gives her no agent, so no notice of its
+	// page — until an entry of her own does
+	if _, ok := w.s.AgentPageNotice("alice"); ok {
+		t.Fatal("an admin who wasn't given an agent is told of its page")
+	}
+	if err := w.s.Auth.Users.SetUserTile("alice", dHolder, "read"); err != nil {
+		t.Fatal(err)
+	}
 	if _, ok := w.s.AgentPageNotice("alice"); !ok {
 		t.Fatal("bob's dismissal ended alice's notice")
 	}

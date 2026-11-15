@@ -96,10 +96,11 @@ func TestWorkspaceAgentIsInertUntilSetUp(t *testing.T) {
 	if code, body := d.do("GET", "/api/xbin/components", nil); code != 200 || strings.Contains(body, wsAgentPath) {
 		t.Errorf("the owner's plain listing shows it (old shells and apps read that): %d", code)
 	}
-	// an admin: theirs to set up, held here, and nobody chosen yet
+	// an admin: theirs to set up, held here, and nobody chosen yet — the
+	// admin included: administering the component isn't having an agent
 	st := state(admin)
 	who, _ := st["who"].(map[string]any)
-	if st["workspace"] != false || st["access"] != true || st["agent"] != wsAgentPath || who == nil || who["chosen"] != false || st["held"] != "unavailable" || st["heldWhy"] == nil {
+	if st["workspace"] != false || st["access"] != false || st["agent"] != nil || who == nil || who["chosen"] != false || st["held"] != "unavailable" || st["heldWhy"] == nil {
 		t.Errorf("an admin before setup: %v", st)
 	}
 
@@ -126,6 +127,9 @@ func TestWorkspaceAgentIsInertUntilSetUp(t *testing.T) {
 		t.Fatalf("who: me: %d %s", code, body)
 	}
 	nothing("the admin chose themselves")
+	if st = state(admin); st["access"] != true || st["agent"] != wsAgentPath {
+		t.Errorf("the admin, by their own entry: %v", st)
+	}
 
 	// "everyone": the workspace defaults name it, and alice has one — held
 	// here, which she is told without xbind's reason
@@ -361,7 +365,9 @@ func TestWorkspaceAgentHeldByNewerData(t *testing.T) {
 		code, body := d.do("GET", "/api/xbin/delegate/state", nil, tok)
 		var st map[string]any
 		_ = json.Unmarshal([]byte(body), &st)
-		if code != 200 || st["held"] != "older" || st["agent"] != wsAgentPath || (st["heldWhy"] != nil) != (tok == admin) {
+		// the admin reads why it is held, with xbind's reason, and — by the
+		// role alone — has no agent of their own; alice, who was given one, does
+		if code != 200 || st["held"] != "older" || (st["agent"] == wsAgentPath) != (tok == alice) || (st["access"] == true) != (tok == alice) || (st["heldWhy"] != nil) != (tok == admin) {
 			t.Errorf("%s: %d %v", who, code, st)
 		}
 	}

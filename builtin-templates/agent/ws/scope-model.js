@@ -138,6 +138,25 @@ export function whatIf(backend, full, current = '') {
 }
 
 /**
+ * heldWords(held): a session that can't go on on its model (GET
+ * /ws/sessions → held: xbind won't let a new handle on it hold what the
+ * conversation holds) and its ways forward: back to the model it was on,
+ * where its model now names another, or a new session, which starts empty.
+ */
+export function heldWords(h) {
+  const m = short(h.model);
+  const who = (h.orgs || []).length ? h.orgs.join(', ') : 'an org';
+  const back = h.offer && h.offer.model;
+  return {
+    bold: `This session can’t go on on ${m}.`,
+    text: `It holds data from ${who}${h.reason ? `, and ${h.reason}` : ', whose rules no longer allow that model'}. Nothing is read, changed or sent to a model in it until it moves.`,
+    back: back ? { label: `Move back to ${short(back)}`, model: back } : null,
+    fresh: { label: `New session on ${m}`, model: (h.offer && h.offer.newSession && h.offer.newSession.model) || h.model },
+  };
+}
+const short = (model) => String(model || '').replace(/^.*\//, '');
+
+/**
  * refusedWords({model, orgs, reason, current}): a model change that is
  * refused — the conversation holds data from an org whose rules the new
  * model doesn't meet (409 model_taint, or a what-if that isn't allowed) —

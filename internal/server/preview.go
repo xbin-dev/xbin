@@ -283,7 +283,9 @@ func (s *Server) previewAdmits(r *http.Request, sc *previewScope, label string, 
 // /api/xbin/prefs/<key> and /api/xbin/frame-token (for a tile on the screen)
 // are admitted beside it. Deliberately absent, though the shell asks:
 // /status, /backends and /vault-status (admin-only: a member's shell gets
-// 403 for them anyway).
+// 403 for them anyway), and the workspace agent chip's /delegate/state and
+// /llm (D232: a preview draws the screen, not the person's agent — the
+// refused reads leave the chip hidden, as on an xbind without an agent).
 var shellReads = map[string]bool{
 	"/api/xbin/whoami": true, "/api/xbin/components": true, "/api/xbin/screens": true, "/api/xbin/branding": true,
 	"/api/xbin/tile-report": true, "/api/xbin/limits": true, "/api/xbin/alerts": true, "/api/xbin/prefs": true,
@@ -729,7 +731,15 @@ func (s *Server) previewDelegate(p auth.Principal, t PreviewTarget) error {
 	case !s.inSessionScope(h, tile):
 		return previewErr(http.StatusForbidden, "%s", hiddenByScope(p.UserID))
 	}
-	if err := s.agentPolicy().TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}); err != nil {
+	// the gate a delegate's read of the tile goes through — the tile's own
+	// agent level (off: the consoles, and any tile that says so), the
+	// policy ceiling and the orgs' rules — not the orgs' rules alone: a
+	// picture of the page is the tile's content like any GET of its API
+	dp, ok := s.policy().(DelegatePolicy)
+	if !ok {
+		return previewErr(http.StatusForbidden, "this xbind has no tile routing for a person's agent")
+	}
+	if _, _, _, err := dp.DelegateTile(p, tile, false); err != nil {
 		return previewErr(http.StatusForbidden, "%s", err.Error())
 	}
 	s.taint(p, tile)

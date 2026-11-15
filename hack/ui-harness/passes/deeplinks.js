@@ -106,6 +106,10 @@ async function deepLinks(browser) {
 
   // a tile this person may not read
   const dev = await login(browser, 'dev1', 'devpass123', { viewport: { width: 1400, height: 900 } });
+  // from a screen without it: a pass before this one can leave the card on
+  // dev1's screen, and "opens nothing" is about what the link does
+  await openShell(dev.page);
+  await sh(dev.page, (t) => { if (t.isOpen('tiles/admin')) t.closeTile('tiles/admin'); return t.flushSave(); });
   await dev.page.goto(`${URL}/c/root/?tile=tiles/admin&at=users`);
   await waitFor(dev.page, (t) => !!t?.routeMessage, null, { timeout: 15000, label: 'the no-access message' });
   const m2 = await sh(dev.page, (t) => ({ msg: t.routeMessage, open: t.isOpen('tiles/admin') }));

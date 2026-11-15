@@ -132,7 +132,10 @@ ended.
   list), `/code/prs/summary`, the pending `/grants`, `/bindings` and
   `/access-requests`, a frame token for a tile on the screen, and
   `/ws/events`. Anything else answers 403 and is named in `leftOut`: the
-  admin-only status reads the shell asks for are always there. A tile that
+  admin-only status reads the shell asks for are always there, and so are
+  the workspace agent's (`/delegate/state`, `/llm`) — the picture is the
+  screen, not the person's agent, and the shell draws no agent chip
+  without them. A tile that
   loads another tile's files shows without them; a chrome tile on a screen
   (it acts as you) gets the same list, so what it reads beyond it is
   missing.

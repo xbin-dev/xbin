@@ -54,17 +54,18 @@ export function sessionsView(s, act) {
  * one heading, one sentence, what the agent can and can't do in this
  * session's own numbers, and starters built from the person's own tiles
  * (GET /ws/empty). A starter fills the composer; one with a blank puts the
- * cursor in it.
+ * cursor in it. With `off` (the agent's switch, xbind's word — paused,
+ * turned off, held, none given) only that sentence: nothing it could do.
  */
 export function emptyView(e, act) {
   if (!e) return html`<div class="wsp-empty wsc-muted" role="status">Loading…</div>`;
   return html`<section class="wsp-empty" aria-labelledby="wsp-empty-h">
     <h2 id="wsp-empty-h">${e.heading}</h2>
-    <p>${e.line}</p>
-    <div class="wsp-cols">
+    <p class=${e.off ? 'wsp-off' : nothing} data-off=${e.off || nothing}>${e.line}</p>
+    ${e.off ? nothing : html`<div class="wsp-cols">
       <div><h3>It can</h3><ul class="can">${(e.can || []).map((x) => html`<li>${icon('check')}<span>${x}</span></li>`)}</ul></div>
       <div><h3>It can’t</h3><ul class="cant">${(e.cant || []).map((x) => html`<li>${icon('xmark')}<span>${x}</span></li>`)}</ul></div>
-    </div>
+    </div>`}
     ${(e.starters || []).length ? html`<h3>${e.startersTitle}</h3>
       <ul class="wsp-starters">${e.starters.map((s) => html`<li><button class="wsp-starter" data-kind=${s.kind} @click=${() => act.starter(s)}>
         <span class="wsp-kind">${s.kind}</span><span>${s.text}</span></button></li>`)}</ul>` : nothing}
@@ -112,9 +113,6 @@ function pageView(n, act) {
       <span class="grow"></span>
       ${p && !editing ? html`<button @click=${() => act.edit()}>${icon('pencil')}Edit</button>
         <button class="danger" @click=${() => act.confirm(true)}>${icon('trash')}Delete</button>` : nothing}</div>
-    ${n.confirm === 'stamps' ? html`<div class="wsp-confirm" role="alertdialog" aria-label="Clear the org marks?">
-      <span>Clear the marks of ${(p.orgs || []).join(', ')}? A session on any model could then read this page. Do it only when the page holds nothing of theirs.</span>
-      <button class="danger" @click=${() => act.clearStamps()}>Clear the marks</button><button @click=${() => act.confirm(false)}>Keep them</button></div>` : nothing}
     ${n.err ? html`<div class="wsc-err" role="alert">${n.err}</div>` : nothing}
     ${n.confirm === true ? html`<div class="wsp-confirm" role="alertdialog" aria-label="Delete this page?">
       <span>Delete this page? The agent forgets it; its history is kept.</span>
@@ -125,7 +123,8 @@ function pageView(n, act) {
         <div class="wsc-btns"><button class="primary" ?disabled=${n.busy} @click=${() => act.save()}>Save</button><button ?disabled=${n.busy} @click=${() => act.cancel()}>Cancel</button></div>
       </div>`
       : p ? html`<div class="wsp-pmeta wsc-muted">${[p.updatedBy ? `edited by ${p.updatedBy}` : '', day(p.updatedMs), p.tile ? `about ${p.tile}${p.rev ? ' at ' + p.rev : ''}` : '', pageTag(p)].filter(Boolean).join(' · ')}
-          ${(p.orgs || []).length ? html` <button class="quiet" title="the page holds data of these orgs, so it is closed to sessions their rules keep out" @click=${() => act.confirm('stamps')}>Clear org marks…</button>` : nothing}</div>
+</div>
+        ${(p.orgs || []).length ? html`<p class="wsp-marks wsc-muted" data-marks>${W.marksNote(p.orgs)}</p>` : nothing}
         <div class="wsp-pbody bxc-md" .innerHTML=${act.md(p.body || '')}></div>` : html`<div class="wsc-muted" role="status">Loading…</div>`}
   </section>`;
 }
@@ -136,6 +135,6 @@ function pageView(n, act) {
 export function bannersView(list) {
   return (list || []).map((b) => html`<div class="wsp-banner ${b.tone || ''}" data-state=${b.key} role=${b.tone === 'bad' || b.tone === 'warn' ? 'alert' : 'status'}>
     ${icon(b.icon)}<div class="wsp-bt"><b>${b.bold}</b> ${b.text || ''}${b.more ? html`<div class="wsc-muted">${b.more}</div>` : nothing}</div>
-    ${b.button ? html`<button @click=${b.button.act}>${b.button.label}</button>` : nothing}
+    ${[...(b.button ? [b.button] : []), ...(b.buttons || [])].map((x) => html`<button data-act=${x.key || nothing} @click=${x.act}>${x.label}</button>`)}
   </div>`);
 }

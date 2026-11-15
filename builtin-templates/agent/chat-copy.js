@@ -15,7 +15,7 @@
 // in the frame itself.
 import { md } from './chat-md.js';
 
-const DROP = 'button, bx-icon, svg, img, input, textarea, select, script, style, .cur, .acts';
+const DROP = 'button, bx-icon, svg, img, input, textarea, select, script, style, .cur, .acts, .bxc-acts';
 const KEEP = new Set(['p', 'br', 'strong', 'b', 'em', 'i', 'code', 'pre', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
   'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr']);
 

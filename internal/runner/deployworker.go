@@ -232,6 +232,7 @@ func takeTurn(ctx context.Context, s *state) error {
 		s.mu.Lock()
 		if !s.building {
 			s.building = true
+			s.readAt = time.Time{} // a deploy's code, not the work tree's (ChangedSaved)
 			s.buildDone = make(chan struct{})
 			s.mu.Unlock()
 			return nil

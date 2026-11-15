@@ -310,6 +310,32 @@ func (ag *Agent) wsClaim(r *wsReq) bool {
 	return n == 1
 }
 
+// wsRefile files r — a start that was to be confirmed here (wsLocalRef) —
+// for its person's approval at xbind, as start: it waits again, as any
+// request does, now under xbind's id.
+func (ag *Agent) wsRefile(ctx context.Context, s *wsSession, r *wsReq, start wsAgentStart) error {
+	var brief *wsBrief
+	if r.Brief != 0 {
+		brief, _ = ag.db.wsBrief(r.Run, r.Brief)
+	}
+	var xr wsRequest
+	if err := ag.wsWith(ctx, s, func(sid string) (err error) {
+		xr, err = wsX.AskAgentStart(ctx, sid, start, wsStartSummary(start, brief))
+		return
+	}); err != nil {
+		return err
+	}
+	raw, _ := json.Marshal(start)
+	if _, err := ag.db.q.Exec(`UPDATE ws_requests SET ref=?, body=?, expires_ms=?, state='pending' WHERE id=? AND state IN ('pending','running')`,
+		xr.ID, raw, xr.Expires*1000, r.ID); err != nil {
+		return err
+	}
+	r.Ref, r.State, r.Expires, r.Body = xr.ID, "pending", xr.Expires*1000, raw
+	wsArmPoll()
+	ag.wsChanged(r.Run, "request")
+	return nil
+}
+
 // wsDecideByID runs request id now (a start its person's preferences let
 // through).
 func (ag *Agent) wsDecideByID(id int64) {
@@ -393,6 +419,13 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, xr wsRequ
 		}
 		var a wsAgent
 		err := ag.wsWith(ctx, s, func(sid string) (err error) { a, _, err = wsX.AgentStart(ctx, sid, start, ticket, false); return })
+		if err != nil && a.ID == "" && ticket == "" && errors.Is(err, xbin.ErrNeedsApproval) {
+			// xbind says this start needs its person's approval after all (their
+			// preference changed since it was confirmed here): asked, not failed
+			if ag.wsRefile(ctx, s, r, start) == nil {
+				return
+			}
+		}
 		if err != nil && a.ID == "" {
 			fail(err)
 			if r.Brief != 0 {
@@ -589,11 +622,38 @@ func (ag *Agent) wsFlushHeld(ctx context.Context, s *wsSession, row *wsAgentRow)
 		return
 	}
 	for i, id := range ids {
-		if err := ag.wsWith(ctx, s, func(sid string) (err error) { _, err = wsX.AgentSay(ctx, sid, row.Session, texts[i]); return }); err != nil {
+		err := ag.wsWith(ctx, s, func(sid string) (err error) { _, err = wsX.AgentSay(ctx, sid, row.Session, texts[i]); return })
+		if wsSendRefused(err) {
+			// xbind won't take it whatever happens next (its mode, its model,
+			// a "/"): not tried again — dropped, and the conversation told once
+			q := `DELETE FROM ws_held WHERE id=?`
+			if !errors.Is(err, xbin.ErrHarnessCommand) {
+				q = `DELETE FROM ws_held WHERE agent_id=? AND id>=?` // the rest would meet the same refusal
+				_, _ = ag.db.q.Exec(q, row.ID, id)
+			} else {
+				_, _ = ag.db.q.Exec(q, id)
+			}
+			kind, reason := wsRefusalKind(err)
+			ag.wsNoteRefusal(ctx, s, kind, reason, row.Tile)
+			_, _ = ag.db.q.Exec(`UPDATE ws_agents SET refused=?, owed=1, wake=1 WHERE id=?`, clip(wsRefusal(err), 900), row.ID)
+			row.Owed, row.Wake = true, true
+			if !errors.Is(err, xbin.ErrHarnessCommand) {
+				return
+			}
+			continue
+		}
+		if err != nil {
 			return // the rest stay held, in order
 		}
 		_, _ = ag.db.q.Exec(`DELETE FROM ws_held WHERE id=?`, id)
 	}
+}
+
+// wsSendRefused: xbind refused what the agent would tell a tile agent for
+// a reason no retry changes — the session's mode, the conversation's
+// taint, a harness command.
+func wsSendRefused(err error) bool {
+	return errors.Is(err, xbin.ErrSessionMode) || errors.Is(err, xbin.ErrTaintedBrief) || errors.Is(err, xbin.ErrHarnessCommand)
 }
 
 // wsChanged tells the conversation's page that what it shows beside the

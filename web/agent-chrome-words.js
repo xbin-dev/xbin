@@ -416,7 +416,9 @@ export const DID_NOTE = "Kept by xbin for 13 months. Your agent and its page can
  * dockState({state, llm, me, error}): what the dock shows in place of the
  * agent's page, or 'page' —
  *   hidden       nothing at all (a non-admin before setup, and anyone who
- *                was not given an agent — state.access false: no chip either)
+ *                was not given an agent — state.access false: no chip either;
+ *                an admin too, once the setup is done: the admin role reads
+ *                the component's system page and is no agent of their own)
  *   setup        an admin before setup: the three steps — until someone was
  *                given an agent (state.who.chosen; who is an admin's alone)
  *   unavailable  it was on, and no language model is connected now
@@ -436,6 +438,7 @@ export function dockState({ state = null, llm = null, me = null, error = '' } = 
   const model = !llm || llm.configured !== false;
   if (!state.workspace) return state.workspaceAt ? 'off' : admin ? 'setup' : 'hidden';
   if (state.who && !state.who.chosen) return 'setup'; // an admin: on, and nobody was given one yet (the third step)
+  if (state.access === false) return 'hidden'; // an admin who gave others one and not themselves: administering it isn't having one
   if (!model) return 'unavailable';
   if (state.paused) return 'paused';
   if (state.held) return 'held';
@@ -546,6 +549,20 @@ export const DRAFT_MAX = 8000;
 // control characters but newline and tab, and the invisible ones that reorder or hide text
 const UNSEEN = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 /**
+ * DRAFT_FROM: how a new session's draft from the agent's page is labelled
+ * wherever the chrome shows it. The page renders what a model wrote and
+ * its message is untrusted: the text is what the page SUGGESTS, for the
+ * person to read and edit — never presented as their own words — and it
+ * waits, unsent, until they press Send.
+ */
+export const DRAFT_FROM = Object.freeze({
+  label: 'Suggested by your agent’s page — not your words',
+  text: 'Read it and change it as you like. It waits in the new session’s message box: nothing is sent until you press Send.',
+  paste: 'paste the text your agent’s page suggests, once you have read it',
+  copy: 'Copy the suggested text',
+});
+
+/**
  * plainDraft(v): words for a new session's composer, as plain text — never
  * markup, never a command: line ends made \n, control and invisible
  * characters dropped, trimmed, at most DRAFT_MAX characters; '' for
@@ -567,7 +584,7 @@ export const handoffLink = (tile) => `/?tile=${encodeURIComponent(tilePath(tile)
  *   xbin:open-session {session, tile} → {type: 'session', tile, session}
  *   xbin:open-session {session: "new", tile, draft}
  *                                     → {type: 'new-session', tile, draft}  (draft: plainDraft)
- *   xbin:agent-open {view}            → {type: 'open', view}  (approvals | activity | prefs)
+ *   xbin:agent-open {view}            → {type: 'open', view}  (needs | approvals | activity — never prefs)
  *
  * or null. Ids and a word — and a new session's draft, the person's own
  * words, kept as plain text for its composer: no other field of a message
@@ -584,9 +601,13 @@ export function pageMessage(data) {
     if (tile && session === 'new') return { type: 'new-session', tile, draft: plainDraft(data.draft) };
     return tile && session ? { type: 'session', tile, session } : null;
   }
-  if (data.type === 'xbin:agent-open') return ['approvals', 'activity', 'prefs'].includes(data.view) ? { type: 'open', view: data.view } : null;
+  // only views that change nothing: Preferences — where the agent's reach widens — opens from the chrome's own menu alone
+  if (data.type === 'xbin:agent-open') return PAGE_VIEWS.includes(data.view) ? { type: 'open', view: data.view } : null;
   return null;
 }
+
+/** PAGE_VIEWS: the dock's views the agent's page may ask for (xbin:agent-open {view}) — the ones that change nothing. */
+export const PAGE_VIEWS = Object.freeze(['needs', 'approvals', 'activity']);
 
 /** contextMessage(context): what the dock tells the page it was opened about — xbin:agent-context {tile} or {screen} — or null. */
 export function contextMessage(context) {

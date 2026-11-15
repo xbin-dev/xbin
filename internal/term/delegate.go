@@ -42,6 +42,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/util"
+	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // OriginAgent is SessionInfo.Origin of a session a person's workspace agent
@@ -139,6 +140,70 @@ func (m *Manager) AgentOrigin(id string) string {
 	return ""
 }
 
+// DelegateStartSource is who would serve the model calls of an agent
+// session of harness started for userID on tile rel, as far as xbind can
+// vouch for it before it exists: held reports that the agents policy gives
+// the session the LLM connector alone (CredentialRule.Forced — the
+// workspace's connector-only mode, or a model rule on the tile), and
+// models are the ones it may start on: the model the start asks for
+// (asked; checked against the connector's when the session opens) and the
+// connector's default for a harness, which it runs on when the start names
+// none or the harness doesn't take the one named. Not held: nothing says
+// which model it will call (the person's own sign-in, or a choice).
+func (m *Manager) DelegateStartSource(userID, rel, harness, asked string) (held bool, models []string) {
+	rule := m.credentialRule(openOpts{userID: userID}, rel, harness, "")
+	if !rule.Forced {
+		return false, nil
+	}
+	if asked != "" {
+		models = append(models, asked)
+	}
+	if m.LLM != nil {
+		if offer, ok := m.LLM.Offer(context.Background(), llmUser(openOpts{userID: userID}), rel, KindAgent); ok && offer.Model != "" && offer.Model != asked {
+			models = append(models, offer.Model)
+		}
+	}
+	return true, models
+}
+
+// AgentConnectorModel is the connector's model that live agent session id
+// calls, as far as xbind knows: the one its model setting names, when that
+// is one of the connector's as the harness writes it (ModelPrefix + id),
+// else the connector's default, which the CLI was started on — a harness's
+// own name for its default ("fake-default") is no model of the
+// connector's. "" for a session the connector doesn't serve, and for an
+// unknown id.
+func (m *Manager) AgentConnectorModel(id string) string {
+	_, st, err := m.agentOf(id)
+	if err != nil || st.llm == nil || st.llmServes() != sdkacp.ServeConnector {
+		return ""
+	}
+	st.mu.Lock()
+	cur, k := st.model, st.provider.Connector
+	st.mu.Unlock()
+	if k != nil && cur != "" {
+		for _, cm := range st.llm.offer.Models {
+			if cur == k.ModelPrefix+cm.ID {
+				return cm.ID
+			}
+		}
+	}
+	return st.llm.offer.Model
+}
+
+// AgentOriginMode is the mode live session id was opened in by the sealed
+// component that started it for its person — the mode the person approved
+// on the start's card, or their preference's; "" for a session they opened
+// themselves, and for an unknown id.
+func (m *Manager) AgentOriginMode(id string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s := m.sessions[id]; s != nil && s.origin != "" {
+		return s.originMode
+	}
+	return ""
+}
+
 // delegateOpen applies the file comment's rules to delegate p's open a on
 // tile rel: the mode and network the session opens with (a.NoAPI is set in
 // place), or why it is refused. resumed is the past session being reopened,
@@ -184,7 +249,7 @@ func (m *Manager) delegateOpen(p auth.Principal, a *AgentOpen, rel string, prov 
 		return "", "", who + "starts without asking only the harness its person's preference is for: that preference is for " + cmp.Or(d.Provider, "none") + ", and this would open " + prov.ID
 	}
 	mode = cmp.Or(d.Prefs.Mode, prov.DefaultMode)
-	if !prov.Safe(mode) { // whatever the store handed over: never a mode that asks nothing, unasked
+	if !prov.Asks(mode) { // whatever the store handed over: unasked, only a mode that asks before every edit and command
 		return "", "", who + "starting without asking needs a mode known to ask its person: choose one for " + prov.ID + " in the agent preferences"
 	}
 	a.NoAPI = !d.Prefs.API
@@ -229,4 +294,27 @@ func (m *Manager) OpenAgentPrompted(ctx context.Context, p auth.Principal, a Age
 		return SessionInfo{}, QueueResult{}, 502, fmt.Errorf("the session started but its first prompt couldn't be handed over, so it was ended: %w", err)
 	}
 	return info, res, code, nil
+}
+
+// DropAgentQueues takes back every message held for a session of user that
+// a workspace agent started (holder "": any agent's): what the agent
+// queued for a tile agent is not delivered once the agent is stopped. It
+// answers how many were dropped.
+func (m *Manager) DropAgentQueues(user, holder string) int {
+	n := 0
+	for _, si := range m.ListFor(user, "", nil) {
+		if origin := m.AgentOrigin(si.ID); origin == "" || holder != "" && origin != holder {
+			continue
+		}
+		held, err := m.AgentQueued(si.ID)
+		if err != nil {
+			continue
+		}
+		for _, q := range held {
+			if _, err := m.AgentUnqueue(si.ID, q.ID); err == nil {
+				n++
+			}
+		}
+	}
+	return n
 }

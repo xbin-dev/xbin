@@ -19,7 +19,9 @@
  * taken only from this dock's own frame (agent-chrome-words.js pageMessage:
  * xbin:agent-open-request {id}, xbin:agent-open-changeset {id},
  * xbin:open-session {session, tile}, and {session: "new", tile, draft} for a
- * new session of a tile's own agent with the person's words, unsent). The dock then reads the request from
+ * new session of a tile's own agent with a draft the page suggests — shown as the page's, for the person to read
+ * and edit, never as their words — unsent; xbin:agent-open {view} for a view that changes nothing — Needs you,
+ * Approvals, What my agent did: Preferences opens from this dock's own menu only). The dock then reads the request from
  * xbind itself and draws xbind's reading; what the page sent is never
  * shown, and nothing the page does reaches a button: it is another origin
  * (sandboxed, never chrome), it cannot draw outside its frame, and Allow
@@ -42,7 +44,7 @@ import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore, call } from '/vendor/agent-chrome-store.js';
 import { infoFor, refreshFrameInfo, frameSource, SANDBOX } from '/vendor/frame-info.js';
-import { CHOICES, clampDock, contextMessage, dockState, handoffLink, needs, pageMessage } from '/vendor/agent-chrome-words.js';
+import { CHOICES, DRAFT_FROM, clampDock, contextMessage, dockState, handoffLink, needs, pageMessage } from '/vendor/agent-chrome-words.js';
 import '/vendor/bx-agent-approve.js';
 import '/vendor/bx-agent-changes.js';
 import '/vendor/bx-agent-panels.js';
@@ -191,7 +193,8 @@ export class BxAgentDock extends LitElement {
   }
 
   // what the page may ask: to open a request or a change set by id, one of
-  // the person's sessions, a panel. Only from this dock's own frame.
+  // the person's sessions, a view that changes nothing (pageMessage: never
+  // Preferences). Only from this dock's own frame.
   _message(e) {
     const frame = this.renderRoot.querySelector('iframe');
     if (!frame || e.source !== frame.contentWindow) return;
@@ -216,9 +219,10 @@ export class BxAgentDock extends LitElement {
     if (!h) return nothing;
     const copy = (e) => { navigator.clipboard?.writeText(h.draft).then(() => { e.target.textContent = 'Copied'; }, () => { }); };
     return html`<div class="banner" role="status" data-handoff><bx-icon name="info"></bx-icon><span>
-      <b>Start a session of ${h.tile}’s own agent there.</b> This workspace can’t open one for you from here: <a href=${handoffLink(h.tile)} target="_top">open ${h.tile}</a>, start a coding agent in its window, and paste your words.
-      ${h.draft ? html`<div class="small muted mono" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:120px;overflow:auto;margin-top:4px" data-draft>${h.draft}</div>` : nothing}
-      <div class="btns" style="justify-content:flex-start;margin-top:4px">${h.draft ? html`<button data-copy @click=${copy}>Copy your words</button>` : nothing}<button class="quiet" @click=${() => { this._handoff = null; }}>Dismiss</button></div></span></div>`;
+      <b>Start a session of ${h.tile}’s own agent there.</b> This workspace can’t open one for you from here: <a href=${handoffLink(h.tile)} target="_top">open ${h.tile}</a>, start a coding agent in its window${h.draft ? html`, and ${DRAFT_FROM.paste}` : ''}.
+      ${h.draft ? html`<div class="small" style="margin-top:4px" data-draft-from>${DRAFT_FROM.label}</div>
+        <div class="small muted mono" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:120px;overflow:auto" data-draft>${h.draft}</div>` : nothing}
+      <div class="btns" style="justify-content:flex-start;margin-top:4px">${h.draft ? html`<button data-copy @click=${copy}>${DRAFT_FROM.copy}</button>` : nothing}<button class="quiet" @click=${() => { this._handoff = null; }}>Dismiss</button></div></span></div>`;
   }
 
   // what the person was looking at, for the page ("about <tile>")

@@ -13,9 +13,9 @@ of a row say who may call it.
 
 ```
 GET    /code/tree                  read on the tile, admin OR code[:<component>]. ?component=<path> → {component, files:
-                                   [{path,size}]} — a component's files.
+                                   [{path,size}]} — its files.
 GET    /code/file                  read on the tile, admin OR code[:<component>]. ?component=<path>&file=<rel> →
-                                   {path, content|binary|truncated}.
+                                   {path, content|binary|truncated}; a link out of the tile: 404.
 GET    /git/log                    read on the tile, admin OR code[:<component>]. ?component=<path>&limit=N → {repo,
                                    commits:[{hash,short,author,date,subject,
                                    add,del,files}], remote}. From the component's

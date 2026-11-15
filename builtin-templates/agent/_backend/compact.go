@@ -380,7 +380,7 @@ func (e *Engine) summarize(ctx context.Context, run *Run, cfg Config, task, prio
 		user.WriteString(task + "\n\n")
 	}
 	user.WriteString("Prior summary:\n" + orStr(prior, "(none)") + "\n\nNew transcript to fold in:\n" + transcript)
-	reply, err := e.llm.Chat(ctx, LLMRequest{
+	reply, err := e.chat(ctx, LLMRequest{
 		Run: run.ID, Purpose: "compact",
 		Model: modelFor(ctx, cfg, "memory"),
 		Msgs:  []wireMsg{{Role: "system", Content: summarizerSystem}, {Role: "user", Content: user.String()}},

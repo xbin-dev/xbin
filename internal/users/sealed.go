@@ -78,6 +78,33 @@ func (u *User) ShownTiles() map[string]string {
 	return out
 }
 
+// Given reports whether path was given to the person: they read it by an
+// access entry — their own, an org's, the workspace defaults', an owner's —
+// and not merely by being an admin. An admin reads every sealed component
+// as they manage it (TileLevel); what a component does FOR a person — the
+// workspace agent acting as them — is for the people it was given to, an
+// admin among them only when an entry says so.
+func (a *Access) Given(path string) bool {
+	if a == nil || a.user == nil {
+		return false
+	}
+	if !a.user.IsAdmin() {
+		return a.CanReadTile(path)
+	}
+	plain := *a.user
+	plain.Role = RoleUser
+	b := *a
+	b.user = &plain
+	return b.CanReadTile(path)
+}
+
+// Given is Access.Given by a person's id (false for an unknown or
+// disabled one).
+func (s *Store) Given(id, path string) bool {
+	a, ok := s.Access(id)
+	return ok && !a.user.Disabled && a.Given(path)
+}
+
 // SealedGrants says who was given the sealed component at path: everyone
 // (the workspace defaults name it) and how many people and orgs have an
 // entry of their own that names it. Admins read it without one.

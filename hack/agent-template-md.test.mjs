@@ -54,6 +54,9 @@ test('fenced code is highlighted once the highlighter arrives; streaming, unknow
   const src = '```js\nconst x = "<b>" + 1; // hi\n```';
   let painted = 0;
   M.onHighlighter(() => { painted++; });
+  // the import is real file I/O: waited for by its own signal, not by a clock (a loaded machine's
+  // read outran the old 100 × 10 ms poll); the guard only keeps a lost import from hanging the run
+  const arrived = new Promise((r) => M.onHighlighter(r));
   assert.equal(M.mdEpoch, 0, 'no highlighter is imported before a fence asks');
   const before = M.md(src); // asks for the highlighter
   assert.match(before, /<code class="language-js">/);
@@ -62,7 +65,9 @@ test('fenced code is highlighted once the highlighter arrives; streaming, unknow
   const memo = {};
   M.mdInto(el, `text\n\n${src}`, memo);
   assert.match(el.children[1].innerHTML, /<code class="language-js">const x/);
-  for (let i = 0; i < 100 && M.mdEpoch === 0; i++) await new Promise((r) => setTimeout(r, 10));
+  let guard;
+  await Promise.race([arrived, new Promise((r) => { guard = setTimeout(r, 30000); })]);
+  clearTimeout(guard);
   assert.equal(M.mdEpoch, 1, 'the highlighter arrived');
   assert.equal(painted, 1, 'and a paint was asked for');
   const after = M.md(src);

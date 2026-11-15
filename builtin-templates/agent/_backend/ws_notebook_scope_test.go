@@ -1,0 +1,166 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+// research's save_as is a write of a notebook page like notebook_write: a
+// page that exists is written only by a session that may read it —
+// preferences included —, refused with the reason otherwise, and its
+// stamps only grow. A page closed to the session while the research ran is
+// left alone.
+func TestWsResearchSaveAsReadsFirst(t *testing.T) {
+	fx := newWsFix(t)
+	main := fx.main(t) // on big: Finance isn't connected
+	books := fx.session(t, map[string]any{"name": "Books", "model": "local-llama"})
+	fx.tool(t, books, "workspace_map", nil)
+	fx.tool(t, books, "notebook_write", map[string]any{"slug": "ledger-notes", "body": "The ledger closes on the 5th.", "summary": "When the ledger closes"})
+	fx.tool(t, books, "notebook_write", map[string]any{"slug": "preferences", "body": "Ana likes bullet points.", "summary": "How Ana likes things"})
+	fx.tool(t, main, "workspace_map", nil)
+	fx.tool(t, main, "notebook_write", map[string]any{"slug": "orders-notes", "body": "Orders takes the shop's orders.", "summary": "What Orders does"})
+	store, _ := fx.ag.db.knowID(wsNotebook("alice"), false)
+	st := fx.ag.db.wsStamp(store, "orders-notes")
+	st.Orgs = append(st.Orgs, "legal") // an org of the page's own, which big may see
+	_ = fx.ag.db.wsPutStamp(store, "orders-notes", st)
+	fx.x.code["apps/orders"] = map[string]string{"main.go": "package main\n"}
+
+	f := fakeOf(fx.ag)
+	isChild := func(r LLMRequest) bool {
+		return r.Run != main.Run && strings.Contains(systemOf(r), "research subagent")
+	}
+	for i, slug := range []string{"ledger-notes", "preferences"} {
+		q := "research into " + slug
+		f.on(forRun(main.Run, lastUser(q)), callTools(tc("r"+slug, "research", `{"tile":"Orders","question":"What does main.go do?","save_as":"`+slug+`"}`))).once()
+		f.on(forRun(main.Run, lastTool("research")), say("Noted.")).once()
+		fx.say(t, main, q)
+		fx.idle(t, main)
+		if got := fx.toolResult(t, main, "research"); !strings.Contains(got, `save_as: the page "`+slug+`" holds data of an org that doesn't allow this session's model (Finance allows private models only`) {
+			t.Fatalf("%d: research saving over %s, which Main can't read: %q", i, slug, got)
+		}
+		if p, _ := fx.ag.db.wikiPage(store, slug); p.Version != 1 || p.UpdatedBy != "the workspace agent" {
+			t.Fatalf("%d: %s was written: %+v", i, slug, p)
+		}
+	}
+	if n := len(fx.ag.db.wsAgents(`WHERE run_id=?`, main.Run)); n != 0 || fx.x.count("CodeTree") != 0 {
+		t.Fatalf("a refused save_as started research anyway: %v", fx.x.calls)
+	}
+
+	// a page Main may read: the answer goes over it, and its stamps grow
+	f.on(forRun(main.Run, lastUser("what does orders do")), callTools(tc("r3", "research", `{"tile":"Orders","question":"What does main.go do?","save_as":"orders-notes"}`))).once()
+	f.on(forRun(main.Run, lastTool("research")), say("Saved.")).once()
+	f.on(isChild, callTools(tc("c1", "finish", `{"result":"main.go starts the Orders backend."}`))).once()
+	fx.say(t, main, "what does orders do?")
+	fx.idle(t, main)
+	p, _ := fx.ag.db.wikiPage(store, "orders-notes")
+	if st := fx.ag.db.wsStamp(store, "orders-notes"); !strings.Contains(p.Body, "starts the Orders backend") || !hasStr(st.Orgs, "legal") || !hasStr(st.Orgs, "sales") {
+		t.Fatalf("the page research saved over: %q %+v", p.Body, st)
+	}
+
+	// closed to Main while the research ran: left as it was
+	f.on(forRun(main.Run, lastUser("look again")), callTools(tc("r4", "research", `{"tile":"Orders","question":"Anything else?","save_as":"orders-notes"}`))).once()
+	f.on(forRun(main.Run, lastTool("research")), say("Done.")).once()
+	f.on(isChild, func(r LLMRequest) (LLMReply, error) {
+		st := fx.ag.db.wsStamp(store, "orders-notes")
+		st.Orgs = append(st.Orgs, "finance") // a session that read Finance wrote to it meanwhile
+		_ = fx.ag.db.wsPutStamp(store, "orders-notes", st)
+		return callTools(tc("c2", "finish", `{"result":"Nothing else."}`))(r)
+	}).once()
+	fx.say(t, main, "look again")
+	fx.idle(t, main)
+	if p2, _ := fx.ag.db.wikiPage(store, "orders-notes"); p2.Version != p.Version || strings.Contains(p2.Body, "Nothing else") {
+		t.Fatalf("research wrote over a page closed to its session: %+v", p2)
+	}
+}
+
+// Whatever route a page took — written by a session that read Finance,
+// saved by its research, edited by the person (asking to clear its marks,
+// or deleted and added again) — no tool of a session whose model Finance
+// doesn't allow reads it: not the read, the search, the list, the index or
+// preferences in the prompt, an edit, an archive or research saving over
+// it. The person's own page reads it, as theirs.
+func TestWsToolsNeverReadAPageTheModelMayNotSee(t *testing.T) {
+	fx := newWsFix(t)
+	main := fx.main(t) // on big
+	books := fx.session(t, map[string]any{"name": "Books", "model": "local-llama"})
+	fx.tool(t, books, "workspace_map", nil)
+	fx.tool(t, main, "workspace_map", nil)
+	const secret = "ZEBRA-LEDGER-7"
+	// by the agent, in a session that holds Finance
+	fx.tool(t, books, "notebook_write", map[string]any{"slug": "by-agent", "body": "closes " + secret, "summary": "the close " + secret})
+	fx.tool(t, books, "notebook_write", map[string]any{"slug": "preferences", "body": "Ana: " + secret, "summary": "how Ana likes it " + secret})
+	fx.tool(t, books, "notebook_write", map[string]any{"slug": "by-person", "body": "draft", "summary": "a draft"})
+	fx.tool(t, books, "notebook_write", map[string]any{"slug": "re-added", "body": "draft", "summary": "a draft"})
+	// by its research
+	fx.x.code["apps/o/finance/ledger"] = map[string]string{"main.go": "package main\n"}
+	f := fakeOf(fx.ag)
+	f.on(forRun(books.Run, lastUser("look into the ledger")), callTools(tc("r1", "research", `{"tile":"Ledger","question":"When does it close?","save_as":"by-research"}`))).once()
+	f.on(forRun(books.Run, lastTool("research")), say("Saved.")).once()
+	f.on(func(r LLMRequest) bool {
+		return r.Run != books.Run && strings.Contains(systemOf(r), "research subagent")
+	},
+		callTools(tc("c1", "finish", `{"result":"It closes on `+secret+`."}`))).once()
+	fx.say(t, books, "look into the ledger")
+	fx.idle(t, books)
+	// by the person: an edit that asks to clear the marks; a page deleted and added again
+	var pg struct{ Page struct{ Version int64 } }
+	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/notebook/by-person", nil), 200, &pg)
+	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/by-person", map[string]any{"body": "mine: " + secret, "base": pg.Page.Version, "clearStamps": true}), 200, nil)
+	fx.json(t, fx.call(t, wsAlice, "DELETE", "/ws/notebook/re-added", nil), 200, nil)
+	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/re-added", map[string]any{"title": "Re-added", "body": "again: " + secret, "base": 0}), 200, nil)
+
+	slugs := []string{"by-agent", "preferences", "by-person", "re-added", "by-research"}
+	store, _ := fx.ag.db.knowID(wsNotebook("alice"), false)
+	for _, slug := range slugs {
+		if p, err := fx.ag.db.wikiPage(store, slug); err != nil || p.Archived || !strings.Contains(p.Body, secret) {
+			t.Fatalf("the page %s wasn't made as the test means it: %+v %v", slug, p, err)
+		}
+	}
+	for _, slug := range slugs {
+		for _, c := range []struct {
+			tool string
+			args map[string]any
+		}{
+			{"notebook_read", map[string]any{"slug": slug}},
+			{"notebook_edit", map[string]any{"slug": slug, "old": secret, "new": "x"}},
+			{"notebook_archive", map[string]any{"slug": slug}},
+			{"notebook_write", map[string]any{"slug": slug, "body": "over it", "summary": "over it"}},
+		} {
+			if got := fx.tool(t, main, c.tool, c.args); strings.Contains(got, secret) || !strings.HasPrefix(got, "error:") {
+				t.Errorf("%s of %s from Main: %q", c.tool, slug, got)
+			}
+		}
+		f.on(forRun(main.Run, lastUser("research "+slug)), callTools(tc("m-"+slug, "research", `{"tile":"Orders","question":"x","save_as":"`+slug+`"}`))).once()
+		f.on(forRun(main.Run, lastTool("research")), say("ok")).once()
+		fx.say(t, main, "research "+slug)
+		fx.idle(t, main)
+		if got := fx.toolResult(t, main, "research"); !strings.Contains(got, "can't write it") {
+			t.Errorf("research saving over %s from Main: %q", slug, got)
+		}
+	}
+	for _, q := range []map[string]any{{}, {"query": "ledger closes"}} {
+		if got := fx.tool(t, main, "notebook_search", q); strings.Contains(got, secret) || strings.Contains(got, "by-") || strings.Contains(got, "re-added") {
+			t.Errorf("Main's search %v: %q", q, got)
+		}
+	}
+	// …and the search is no oracle: what it says of the closed pages doesn't depend on the words
+	hit := strings.ReplaceAll(fx.tool(t, main, "notebook_search", map[string]any{"query": secret}), secret, "Q")
+	miss := strings.ReplaceAll(fx.tool(t, main, "notebook_search", map[string]any{"query": "quokka"}), "quokka", "Q")
+	if hit != miss {
+		t.Errorf("Main's search tells words in pages it may not read apart:\n%q\n%q", hit, miss)
+	}
+	if p := fx.ag.wsPromptFor(wsRunOf(t, fx.ag, main.Run), Config{}); strings.Contains(p, secret) || strings.Contains(p, "by-") || strings.Contains(p, "re-added") || strings.Contains(p, "preferences`") {
+		t.Errorf("Main's prompt carries a page it may not see:\n%s", p)
+	}
+	for _, slug := range slugs {
+		if st := fx.ag.db.wsStamp(store, slug); !hasStr(st.Orgs, "finance") {
+			t.Errorf("%s lost its Finance mark: %+v", slug, st)
+		}
+		var page struct{ Page struct{ Body string } }
+		fx.json(t, fx.call(t, wsAlice, "GET", fmt.Sprintf("/ws/notebook/%s?session=%d", slug, main.Run), nil), 200, &page)
+		if !strings.Contains(page.Page.Body, secret) {
+			t.Errorf("the person's own page doesn't show %s: %+v", slug, page)
+		}
+	}
+}

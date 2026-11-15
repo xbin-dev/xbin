@@ -258,6 +258,9 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	if haltBlocks(w, r, id) {
 		return
 	}
+	if wsOffKeeps(w, r, run) { // a workspace agent whose switch is off: answered without the model, nothing queued (ws_off.go)
+		return
+	}
 	sender := callerOf(r).user
 	kind, in := inboxUser, inboxBody{Text: body.Text, Files: body.Files, Source: "human", Sender: sender}
 	in.Context = wsAboutOf(r.Context(), run, body.Context) // nil outside a workspace agent's session

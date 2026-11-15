@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -107,8 +108,66 @@ func (s *Server) tileFrameAncestors() string {
 func (s *Server) setDocCSP(w http.ResponseWriter, r *http.Request, policy string) {
 	if tileOriginOf(r) != "" {
 		policy += "; " + s.tileFrameAncestors()
+	} else if holderDoc(r) {
+		policy += "; " + holderFrameAncestors // a person's agent's page, on the workspace origin (holderFrameGate)
 	}
 	w.Header().Set("Content-Security-Policy", policy)
+}
+
+// ---- who frames a person's agent's page ----
+
+// holderFrameAncestors keeps every other site from framing a delegation
+// holder's document served on the workspace origin (the legacy and tokens
+// asset modes; in origins mode it is on its own origin, under
+// tileFrameAncestors).
+const holderFrameAncestors = "frame-ancestors 'self'"
+
+type holderDocKey struct{}
+
+func holderDoc(r *http.Request) bool {
+	v, _ := r.Context().Value(holderDocKey{}).(bool)
+	return v
+}
+
+// frameDests are the Fetch Metadata destinations of a document loaded into
+// another document.
+var frameDests = map[string]bool{"iframe": true, "frame": true, "embed": true, "object": true, "fencedframe": true}
+
+// holderFrameGate is the framing rule of a delegation holder's files on
+// the /c/ plane (the workspace agent's page): they are framed only by
+// xbind's own chrome documents — the shell's dock and /xbin/agent — in
+// every asset mode. The page shows a person's conversation with their
+// agent and asks the chrome to open approvals by id; framed by another
+// tile's document it could be dressed up and clicked through.
+//
+// In origins mode the holder has an origin of its own and the CSP says who
+// frames it (tileFrameAncestors: itself and the workspace, where no tile
+// document runs). In the other modes every tile's document is served from
+// the workspace origin — sandboxed into an opaque origin, but
+// frame-ancestors matches a framing document by its URL, so 'self' admits
+// them all. What tells them apart is who starts the navigation: a frame
+// made by xbind's chrome (same origin, not sandboxed) arrives with
+// Sec-Fetch-Site: same-origin; one made by a tile's sandboxed document,
+// whose origin is opaque, arrives cross-site, as one made by any other
+// site does. So a framed load that isn't same-origin is refused. A request
+// with no Fetch Metadata at all isn't a browser that frames (the native
+// app's scheme handler, bx) or is a browser too old to say — the CSP
+// header still keeps other sites out there.
+//
+// It returns r marked as a holder's document request (setDocCSP adds the
+// frame-ancestors) and whether it answered the refusal.
+func (s *Server) holderFrameGate(w http.ResponseWriter, r *http.Request, owner string) (*http.Request, bool) {
+	if !auth.HoldsDelegation(owner) || tileOriginOf(r) != "" {
+		return r, false
+	}
+	if frameDests[r.Header.Get("Sec-Fetch-Dest")] && r.Header.Get("Sec-Fetch-Site") != "same-origin" {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		w.Header().Set("X-Frame-Options", "DENY")
+		http.Error(w, "the workspace agent's page is framed only by xbin's own pages (docs/protocol/delegation.md §The chrome)", http.StatusForbidden)
+		return r, true
+	}
+	return r.WithContext(context.WithValue(r.Context(), holderDocKey{}, true)), false
 }
 
 // tileDocOnWorkspace answers a browser navigating to a sandboxed tile's

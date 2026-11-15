@@ -519,6 +519,19 @@ type wsPreview struct {
 	Failed   []string
 }
 
+// wsTaintedBriefWords is xbind's taint refusal of what the conversation
+// would tell a tile agent (a start's brief, a message), with what to do
+// instead: the taint is the conversation's, so no rewording helps.
+func wsTaintedBriefWords(why string) string {
+	return "xbin refused it — " + strings.TrimSuffix(orStr(why, "this conversation holds data of an org whose rules that tile agent's model doesn't meet"), ".") +
+		". What this conversation tells a tile agent goes to that session's model, and the conversation holds data of an org whose model rule that model doesn't meet: telling it less, rewording it or asking again changes nothing. " +
+		"The ways forward are your person's: the tile agent started on the workspace's LLM connector, on a model those orgs allow (their agent preferences, or an admin's agents policy), or this done from a clean conversation — a new session that hasn't read those orgs' data. Stop here and tell your person"
+}
+
+// wsHarnessCommandWords: what the model is told when a brief or a message
+// began with "/".
+const wsHarnessCommandWords = "xbin refused it: what you send a tile agent can't begin with \"/\" — the coding agent reads that as one of its own commands, and those are your person's to give. Never begin a brief or a message with \"/\": say what you mean in words"
+
 // errWsUnavailable: this xbind doesn't serve the route yet.
 var errWsUnavailable = errors.New("not available on this xbin yet")
 
@@ -530,6 +543,10 @@ func wsRefusal(err error) string {
 	var ww *wsWords
 	if errors.As(err, &ww) {
 		return ww.msg
+	}
+	var he *wsHeldError
+	if errors.As(err, &he) {
+		return he.Error()
 	}
 	var te *wsTaintError
 	if errors.As(err, &te) {
@@ -543,6 +560,16 @@ func wsRefusal(err error) string {
 	switch {
 	case errors.Is(err, errWsUnavailable):
 		return "this isn't available on this xbin yet: say so, and offer the nearest thing you can do"
+	case errors.Is(err, xbin.ErrTaintedBrief):
+		return wsTaintedBriefWords(msg)
+	case errors.Is(err, xbin.ErrSessionMode):
+		return "xbin refused it — " + strings.TrimSuffix(msg, ".") + ". Your person switched that tile agent's session to a mode that doesn't ask before it acts, so it takes no more messages from you: only they can drive it now. Don't send it again or look for another way in; tell your person — they can switch it back to a mode that asks"
+	case errors.Is(err, xbin.ErrHarnessCommand):
+		return wsHarnessCommandWords
+	case errors.Is(err, xbin.ErrAgentOff) && de != nil && de.Refusal == "no-agent":
+		return "your person hasn't been given a workspace agent — an admin chooses who has one: nothing can be read or changed. Stop here and tell them"
+	case errors.Is(err, xbin.ErrAgentOff) && de != nil && de.Refusal == "held":
+		return "you are held on this xbin (" + msg + "): nothing can be read or changed until an admin clears it. Stop here and tell your person"
 	case errors.Is(err, xbin.ErrAgentPaused):
 		return "your person paused you: nothing can be read or changed until they resume. Stop here and tell them"
 	case errors.Is(err, xbin.ErrAgentOff):

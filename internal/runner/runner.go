@@ -92,10 +92,14 @@ type state struct {
 	buildDone chan struct{} // closed when in-flight build settles
 	lastErr   error         // sticky build/crash error until next change
 	dirty     bool          // changed since last successful build
-	lastReq   time.Time
-	active    int // in-flight proxied connections (incl. SSE/WS streams; a partition's passive ones apart)
-	crashes   []time.Time
-	pt        *partInfo // a person's partition's (partitions.go); nil for every other state
+	// readAt is when the latest work-tree build began (ensureState): the
+	// files saved before it are in what it built, so a save batch older
+	// than it moves nothing (ChangedSaved). Zero after a deploy's build.
+	readAt  time.Time
+	lastReq time.Time
+	active  int // in-flight proxied connections (incl. SSE/WS streams; a partition's passive ones apart)
+	crashes []time.Time
+	pt      *partInfo // a person's partition's (partitions.go); nil for every other state
 }
 
 type Runner struct {
@@ -246,6 +250,7 @@ func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *stat
 		// We take the build.
 		s.building = true
 		s.dirty = false
+		s.readAt = time.Now() // the wall clock the watcher's batches carry (watch.Event.Last)
 		s.buildDone = make(chan struct{})
 		s.mu.Unlock()
 
@@ -278,33 +283,6 @@ func (r *Runner) track(s *state) func() {
 			s.lastReq = r.now()
 			s.mu.Unlock()
 		})
-	}
-}
-
-// Changed marks a component dirty and kicks a background rebuild so build
-// errors surface on save, not on next request.
-func (r *Runner) Changed(c *registry.Component) {
-	if !c.HasBackend() {
-		return
-	}
-	r.nextBuild(c.Path) // a partitioned tile's shared build is a new one, before the primary's (partadmit.go)
-	s := r.state(c.Path)
-	s.mu.Lock()
-	s.dirty = true
-	s.crashes = nil
-	hadProcess := s.cur != nil || s.building || s.lastErr != nil
-	s.mu.Unlock()
-	// Don't respawn a disabled/offloaded component on a file change (Ensure would
-	// refuse anyway; this just skips the pointless goroutine + build).
-	restart := hadProcess && (r.ShouldRun == nil || r.ShouldRun(c.Path))
-	done := r.changedPartitions(c, restart) // people's partitions follow, onto the same build (partstop.go)
-	if restart {
-		go func() {
-			defer done()
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancel()
-			_, _ = r.Ensure(ctx, c)
-		}()
 	}
 }
 

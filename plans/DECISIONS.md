@@ -4473,6 +4473,39 @@ here: cut from the old end, never reword.
     Rejected: a process-wide handle in the SDK (one backend serves many
     conversations: the handle rides the context); naming blocked tiles
     to the agent "so it can explain" (the reason and a count explain).
+  - **After the final combined review (2026-11-15).** *Asks*: "asks
+    before acting" is a property the catalog states per provider
+    (`Provider.Asks`: its ask or plan mode) — "not bypass" was not it
+    (accept-edits, auto). *Taint is about where text goes*: a brief to a
+    tile agent goes to that session's model, so the handle's taint is
+    asked against the SESSION's model source (`agentpolicy.Brief`): the
+    tile's own layers hold it to the rule (the connector asks per call),
+    or it is held to the connector on a model the rule allows; a session
+    on a person's own sign-in is never vouched for, and a start (no
+    session yet) passes only on a tile under the rule. Rejected: judging
+    a start by the model its body names (the option isn't enforced by a
+    strict start) and re-judging when the person later changes the
+    session's model (their own act). *Harness commands*: every shipped
+    adapter reads a leading `/` in prompt text as a command of its own
+    (claude: `/model` and project commands with `allowed-tools`; codex:
+    `/logout`, `/compact`; gemini: `/restore`, `/memory`, `/extensions`)
+    — refused for the agent outright rather than ticketed: a person who
+    wants one types it. *Mode drift*: the agent's messages go to a
+    session whose current mode asks, or is the mode approved at its
+    start (kept with the session, across a restart). *Off means off*:
+    the connector's holder rule asks the gate; a stop voids unused
+    tickets and takes back queued messages; standing approvals survive
+    only a pause. *Having an agent is being given one*: the gate asks
+    `users.Access.Given` — access without the admin role; the role keeps
+    the system page. *Deleted accounts*: the per-user directory moves to
+    `deleted/` on delete and carries the account's creation stamp
+    (`Claim`), so a re-created id inherits nothing; kept aside for the
+    log's retention, not destroyed. *Framing*: in the asset modes where
+    tile documents share the workspace origin, `frame-ancestors` can't
+    tell the shell from a tile (it matches by URL), so a holder's framed
+    load must be `Sec-Fetch-Site: same-origin`; a browser without Fetch
+    Metadata gets the CSP alone (other sites kept out, sibling tiles
+    not) — accepted, as the legacy plane already rests on Fetch Metadata.
 - **D229 — Orgs constrain agents by harness and model; scope and
   connection state; agent preferences on the server (2026-11-14; issue
   #51).** The owner: "Orgs define constraints; Workspace agents then get

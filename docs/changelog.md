@@ -39,6 +39,48 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `request`/`session` nodes the app draws by xbind's id, and the view asks
   the app's chrome with `xbin.native.agent`. An instance's own native view
   is unchanged (`native/main.js`, what `native.js` was).
+- **Workspace agent: its backend follows xbind's switches and refusals**
+  ([workspace-agent.md](/docs/workspace-agent.md), the agent template's
+  `API.md` §Workspace mode). While the agent is paused, turned off, held
+  or not given to its person, a message to it is answered without the
+  model: `POST /runs/{id}/message` answers `409 {code: "agent-off",
+  refusal, error, kept: true}`, the transcript gets a line (a step of kind
+  `off`) naming the switch, who can change it and where, nothing is queued,
+  and the page keeps the words in the message box to send again. xbind's
+  refusals of what the agent tells a tile agent — `taint`, `mode`,
+  `command`, and `no-agent` / `held` — reach the model once, with what to
+  do instead, and the person's card says the same (`cards.refusals[].kind`
+  `brief-taint`, `mode`, `command`, `no-agent`, `held`). "Asks before
+  acting" is said only where xbind names the mode as asking (a harness's
+  ask or plan mode); a tile agent in a mode nobody named isn't. `GET
+  /ws/empty` adds `off` and says the switch first where the agent can't
+  act — an admin who wasn't given an agent included.
+
+- **Workspace agent: fixes from a security review**
+  ([workspace-agent.md](/docs/workspace-agent.md),
+  [protocol/delegation.md](/docs/protocol/delegation.md#the-chrome)).
+  What a conversation has read is kept with the conversation: a session
+  whose record xbind renewed (a day unused) gives the new record
+  everything it holds before it reads or calls a model again, and stops,
+  saying so, where an org's rules no longer allow its model (`held` on
+  `GET /ws/sessions`; the agent template's `API.md` §Workspace mode). A
+  notebook page's org marks can't be cleared in place any more (the
+  `clearStamps` field of `PUT /ws/notebook/{slug}` is gone and ignored):
+  delete the page and have a clean session write it again. `research`'s
+  `save_as` writes over an existing page only where the session may read
+  it, and adds to its stamps instead of replacing them. `admin_changes`
+  lists the change sets its own conversation proposed, no other
+  session's. A tile agent's start follows xbind's dry run at the brief's
+  Start: no request where the person lets starts through, one filed
+  wherever xbind says it is needed. `notebook_search` counts the pages a
+  session can't read whatever the words searched for (the count of the
+  matching ones said what they held). The chrome: the agent's page may
+  open only views that change nothing (`xbin:agent-open {view}`: `needs`,
+  `approvals`, `activity` — no longer `prefs`), and every control that
+  widens what the agent may do is armed like Allow. A new session's draft
+  from the page (`xbin:open-session {session: "new", draft}`) is labelled
+  as text the agent's page suggests, never as the person's own words.
+
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),
   [protocol/agents.md](/docs/protocol/agents.md)). A session's row and its
@@ -63,6 +105,68 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Workspace agents: the final security review** (D228;
+  [protocol/delegation.md](/docs/protocol/delegation.md),
+  [auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)).
+  Nothing of this is in a release yet; each line changes what a delegate
+  call answers.
+  - **"Asks before acting" is the harness's ask or plan mode**, nothing
+    else (`sdk/acp` `Provider.Asks`, additive): a start in any other mode
+    needs a ticket whose card says what the mode does; `asks` and
+    `needsTicket` in request previews and `GET /delegate/start-defaults`
+    follow; the preference for agent-started sessions saves only such
+    modes (`400` otherwise).
+  - **Taint binds what the agent tells tile agents**: a start, `…/prompt`
+    or `…/queue` is `403 {refusal: "taint"}` unless the session's model
+    source satisfies the model rule of every org the conversation holds
+    data of. A message that begins with `/` is `403 {refusal:
+    "command"}`; one to a session its person switched to a mode that
+    doesn't ask is `403 {refusal: "mode"}`. SDK: `ErrTaintedBrief`,
+    `ErrHarnessCommand`, `ErrSessionMode`.
+  - **The off switches** also stop the agent's model turns (the LLM
+    connector asks them), void approved-but-unused tickets and take back
+    messages queued for tile agents; standing approvals survive a pause
+    only (the table in §The switches).
+  - **A dry run of a start tells the truth**: `needsApproval: false,
+    under: "preference"` when the person's preference starts it unasked;
+    `allowed: false` with the reason when nothing would.
+  - **The admin role is no agent**: `access` in `GET /delegate/state` is
+    false for an admin who wasn't given one, and a delegate call in their
+    name is `403 {refusal: "no-agent"}`; `who: "me"` gives them theirs.
+  - **A deleted account's delegation records go with it**
+    (`data/delegation/deleted/`, kept for the log's 13 months): an account
+    made later under the same id inherits no approval, ticket, session,
+    change set or log.
+  - **Only xbin's chrome frames the agent's page**, in every asset mode:
+    in `legacy` and `tokens` a framed load of `/c/xbin/wsagent/…` that
+    isn't same-origin is `403`, and the page carries `frame-ancestors
+    'self'`.
+  - A preview of a tile whose manifest says `"agent": "off"` is refused
+    to the agent, as a read of it is.
+- **Security — reading a tile's code could return any file the server can
+  read.** `GET /api/xbin/code/file` (the tile window's Files tab) and the
+  `apiDoc` of `GET /api/xbin/components/<tile>` (the tile's `API.md`)
+  followed symbolic links out of the tile. Anyone who can write a tile's
+  directory — a person with terminal access to that one tile, or a coding
+  agent working in it — could plant a link there (`API.md ->
+  ../../.xbin/token`) and then fetch its target: the owner token, the
+  frame-token secret, `data/users.json` (every account's password hash),
+  files in other people's homes, other tiles' source, and files of the
+  host outside the workspace. Under `--isolate` their own shell cannot
+  read those files; the server read them for them. Whoever may read the
+  tile's code got the same from a planted link, and `apiDoc` goes to every
+  signed-in caller. Affected: every workspace where someone other than
+  the owner has terminal access to a tile or runs a coding agent in one;
+  a tile imported from a repository you don't trust may carry such a link
+  too. Now both reads stay inside the tile: a link that leaves it
+  is `404` (`apiDoc`: empty), `?component=` takes no path through a link,
+  and a FIFO in a tile no longer hangs the request. A link that stays
+  inside the tile (`CLAUDE.md -> AGENTS.md`) still reads; `GET /code/tree`
+  never listed links. **Rotate the owner token after upgrading** if anyone
+  but you had such access (admin console → Users, or `POST
+  /api/xbin/auth-rotate-token`), and consider resetting passwords: the
+  hashes are Argon2id, but they could be copied. xbind keeps no record of
+  what was read this way.
 - **The workspace agent's page, its backend and xbin's chrome meet** (D235;
   [workspace-agent.md](/docs/workspace-agent.md), [protocol/delegation.md
   §The chrome](/docs/protocol/delegation.md#the-chrome)): the run view
@@ -121,6 +225,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     about 45 MB, 16 MB in the bundle); `make build` needs the agent
     template's Go modules. A development xbind compiles it on first use.
 
+- **Shell: a tile's admin panel no longer puts an old binding back.** Two
+  quick re-binds in the interfaces section (org, then back to internet)
+  could leave the picker showing the first choice while the second was
+  bound: the first change's reload answered last and overwrote the newer
+  one. Only the newest reload's answers land now. Workspaces get it with
+  the scaffold's shell update.
+- **A screen preview leaves the workspace agent out.** The shell's agent
+  chip reads `/delegate/state` and `/llm`; a preview render refuses both
+  and names them in `leftOut`, beside the admin-only status reads, and the
+  picture has no agent chip ([preview.md](/docs/protocol/preview.md)).
+- **A backend started on demand right after a save is not restarted for
+  that same save.** A request (or a bus push, a cron tick) that reached a
+  just-saved tile before xbind had finished handling the save started the
+  backend, and the save then rebuilt and replaced it a moment later — the
+  first generation's in-memory state and any request it was still serving
+  went with it. A save the running or building generation already read
+  now moves nothing; a later save rebuilds as before.
 - **The workspace agent's page** (D232; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
   the agent template's `API.md` §Workspace mode → The page). On the sealed
   component's path the agent template's `boot.js` asks `GET /ws/state` and

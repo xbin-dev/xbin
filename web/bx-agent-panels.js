@@ -10,7 +10,10 @@
  *   <bx-agent-activity>   "What my agent did": the audit log in sentences
  *                         (Changes · Refused · Everything)
  *   <bx-agent-prefs>      what a tile agent the agent starts gets, and — for
- *                         admins — the opt-in to proposing admin changes
+ *                         admins — the opt-in to proposing admin changes;
+ *                         opened from the dock's own menu, never by the
+ *                         agent's page, and every control that widens the
+ *                         agent's reach armed like Allow (WidenGuard)
  *   <bx-agent-setup>      what the dock shows in place of the agent's page:
  *                         the three setup steps (an admin, before setup),
  *                         not available, turned off, paused, held
@@ -23,6 +26,7 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
+import { WidenGuard } from '/vendor/bx-agent-approve.js';
 import { needs, standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, neverAsks } from '/vendor/agent-chrome-words.js';
 
 // an element that draws the store: it subscribes while it is in the page
@@ -112,7 +116,9 @@ export class BxAgentPrefs extends StoreView {
     label.row { display: flex; gap: 8px; align-items: flex-start; } label.row input { margin-top: 3px; }
     label.mode { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } label.mode .nm { flex: 1 1 120px; min-width: 0; }
     label.mode select { flex: 1 1 160px; min-width: 0; max-width: 100%; }`];
-  constructor() { super(); this._prefs = null; this._provs = []; this._err = ''; }
+  // what widens the agent's reach — starting without asking, the internet, other tiles' APIs, the admin opt-in — answers
+  // only a deliberate click, as Allow does (bx-agent-approve.js WidenGuard)
+  constructor() { super(); this._prefs = null; this._provs = []; this._err = ''; this._widen = new WidenGuard(this); }
   connectedCallback() {
     super.connectedCallback();
     this.store.prefs().then((p) => { this._prefs = p || {}; });
@@ -139,7 +145,8 @@ export class BxAgentPrefs extends StoreView {
       ${this._prefs == null ? html`<div class="empty">Reading…</div>` : html`
       <div class="sec" role="radiogroup" aria-labelledby="ps"><h3 id="ps">When my agent wants to start a tile agent</h3>
         <label class="row"><input type="radio" name="start" data-start="ask" .checked=${start === 'ask'} @change=${() => this._save({ start: 'ask' })}><span>Ask me each time</span></label>
-        <label class="row"><input type="radio" name="start" data-start="allow" .checked=${start === 'allow'} @change=${() => this._save({ start: 'allow' })}>
+        <label class="row"><input type="radio" name="start" data-start="allow" data-widen="on" .checked=${start === 'allow'} @click=${this._widen.click} @keydown=${this._widen.key}
+          @change=${() => this._save({ start: 'allow' })}>
           <span>Start without asking<div class="small muted">Only in a mode that asks before acting, with the network below. You are told in the chat.</div></span></label></div>
       <div class="sec" data-modes><h3>Started tile agents get</h3>
         <div class="small muted">The mode each coding agent starts in. Only modes that ask you before acting are offered.</div>
@@ -148,10 +155,13 @@ export class BxAgentPrefs extends StoreView {
             <option value="" ?selected=${!r.value}>Its own asking mode</option>
             ${r.options.map((o) => html`<option value=${o.id} ?selected=${o.id === r.value}>${o.name}</option>`)}</select></label>
           ${r.never.length ? html`<div class="small muted" data-never=${r.id}>${neverAsks(r.never)}</div>` : nothing}`)}
-        <label class="row"><input type="checkbox" data-net .checked=${!a.net || a.net === 'none'} @change=${(e) => this._save({ net: e.target.checked ? 'none' : null })}><span>Its model only. No internet.</span></label>
-        <label class="row"><input type="checkbox" data-api .checked=${a.api !== false} @change=${(e) => this._save({ api: e.target.checked })}><span>Other tiles: it may call the tile APIs its tile is granted</span></label></div>
+        <label class="row"><input type="checkbox" data-net data-widen="off" .checked=${!a.net || a.net === 'none'} @click=${this._widen.click} @keydown=${this._widen.key}
+          @change=${(e) => this._save({ net: e.target.checked ? 'none' : null })}><span>Its model only. No internet.</span></label>
+        <label class="row"><input type="checkbox" data-api data-widen="on" .checked=${a.api !== false} @click=${this._widen.click} @keydown=${this._widen.key}
+          @change=${(e) => this._save({ api: e.target.checked })}><span>Other tiles: it may call the tile APIs its tile is granted</span></label></div>
       ${st.canAdminChanges ? html`<div class="sec" data-admin><h3>Admin changes</h3>
-        <label class="row"><input type="checkbox" data-admin-changes .checked=${!!st.adminChanges} @change=${this._admin}><span><b>Let my agent propose admin changes</b>
+        <label class="row"><input type="checkbox" data-admin-changes data-widen="on" .checked=${!!st.adminChanges} @click=${this._widen.click} @keydown=${this._widen.key}
+          @change=${this._admin}><span><b>Let my agent propose admin changes</b>
           <div class="small muted">It can read grants, bindings, org shares and limits, and propose changes in a batch. Nothing is applied until you approve the batch here.</div></span></label></div>` : nothing}`}
       ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
     </div></div>`;

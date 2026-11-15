@@ -133,6 +133,7 @@ function plainOther(kb) {
       case 'finish': return d.result ? say('check', d.result, { md: true }) : say('check', 'finished');
       case 'cancel': return say('stop', `stopped${d.reason ? ': ' + d.reason : ''}`);
       case 'ask': return nothing;
+      case 'off': return say('pause', d.text || '', { tone: 'warn' }); // the agent's switch: answered without the model (API.md)
     }
     return say('', d.text || d.summary || '');
   }

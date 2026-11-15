@@ -90,7 +90,7 @@ export function WS_STUB(seed) {
       if (b.model && (S.taint || []).includes(b.model)) return json({ error: 'refused', code: 'model_taint', model: b.model, orgs: ['Finance'], reason: 'Finance allows private models only', offer: { newSession: { model: b.model } } }, 409);
       if (b.name) s.name = b.name;
       if ('archived' in b) s.archivedAt = b.archived ? Date.now() : 0;
-      if (b.model) s.model = b.model;
+      if (b.model) { s.model = b.model; delete s.held; } // a held session moves by a new handle that holds what it holds
       if ('scope' in b) s.scope = b.scope;
       return json({ session: s });
     }],
@@ -119,7 +119,6 @@ export function WS_STUB(seed) {
       if (p && b.base !== p.version) return json({ error: 'moved', current: p.version }, 409);
       if (!p) S.pages.push((p = { slug, version: 0, orgs: [] }));
       Object.assign(p, { title: b.title, body: b.body, version: p.version + 1, updatedBy: 'ana', updatedMs: Date.now() });
-      if (b.clearStamps) p.orgs = [];
       return json({ page: p });
     }],
     ['DELETE', /\/ws\/notebook\/([^?]+)$/, (m) => { const p = S.pages.find((x) => x.slug === decodeURIComponent(m[1])); if (p) p.gone = true; return json({ ok: 'true' }); }],
@@ -133,7 +132,7 @@ export function WS_STUB(seed) {
         o.signal && o.signal.addEventListener('abort', () => { streams.delete(c); try { c.close(); } catch { /* closed */ } });
       },
     }), { headers: { 'Content-Type': 'text/event-stream' } }))],
-    ['POST', /\/runs\/(\d+)\/message$/, () => json({ ok: 'true', inboxId: 1, queued: false })],
+    ['POST', /\/runs\/(\d+)\/message$/, () => (S.offAnswer ? json(S.offAnswer, 409) : json({ ok: 'true', inboxId: 1, queued: false }))],
     ['POST', /\/runs\/(\d+)\/interrupt$/, () => json({ ok: 'true' })],
     ['GET', /\/api\/xbin\/agents\/connection\?session=([^&]+)(?:&whatIf=([^&]+))?$/, (m) => {
       if (!S.full) return json({ error: 'not here' }, 403);

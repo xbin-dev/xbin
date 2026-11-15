@@ -86,7 +86,7 @@ func wsOtherTools() []coordTool {
 			})}},
 			Run: wsTool(wsProposeTool)},
 		{Spec: toolSpec{Type: "function", Function: funcDef{Name: "admin_changes",
-			Description: "The admin batches you proposed and where each stands: waiting, applied, partly applied, rejected, expired — with xbin's result for every change. A read.",
+			Description: "The admin batches you proposed in this conversation and where each stands: waiting, applied, partly applied, rejected, expired — with xbin's result for every change. A read.",
 			Parameters:  obj(nil, map[string]any{})}},
 			Run: wsTool(wsChangesTool)},
 		{Spec: toolSpec{Type: "function", Function: funcDef{Name: "preview",
@@ -150,6 +150,12 @@ func wsDryWords(what string, d *wsDry) string {
 		return what + ": xbin gave no description."
 	}
 	if !d.Allowed {
+		switch d.Refusal { // a start xbind refuses whatever approves it: what to do instead
+		case "taint":
+			return what + " is refused. Nothing was asked and nothing ran. " + wsTaintedBriefWords(d.Error) + "."
+		case "command":
+			return what + " is refused. Nothing was asked and nothing ran. " + wsHarnessCommandWords + "."
+		}
 		return fmt.Sprintf("%s would be refused: %s. Nothing ran.", what, orStr(d.Error, orStr(d.Refusal, "the tile or its org doesn't allow it")))
 	}
 	var b strings.Builder
@@ -166,6 +172,8 @@ func wsDryWords(what string, d *wsDry) string {
 		b.WriteString("It reads and changes nothing, so nobody is asked.")
 	case d.NeedsApproval:
 		b.WriteString("It changes something: your person is shown the exact call and must allow it first. xbin can't undo it.")
+	case d.Under == "preference": // xbind: this start, as asked, runs on the person's own preference
+		b.WriteString("It changes something, and your person's preference lets it start without xbin asking: Start on the brief's card is their go-ahead. xbin can't undo it.")
 	case d.Under != "":
 		b.WriteString("It changes something, and a standing approval your person gave covers it (" + d.Under + "): it would run without asking. xbin can't undo it.")
 	default:
@@ -441,17 +449,29 @@ func wsProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	return wsChangeSetText(cs) + "\nProposed; nothing is applied. Your person reviews it in xbin (the lines above are xbin's, and what they see). Their decision reaches you as a workspace update — don't wait for it here.", nil
 }
 
+// wsChangesTool lists the change sets this conversation proposed: xbind
+// answers every set its person's agent proposed, in any session — another
+// session's lines are data from what that one read (other orgs', on
+// another model), so only this one's own are told.
 func wsChangesTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (string, error) {
-	var sets []wsChangeSet
-	if err := ag.wsWith(ctx, s, func(sid string) (err error) { sets, err = wsX.ChangeSets(ctx, sid); return }); err != nil {
-		return "", err
+	mine := map[string]bool{}
+	for _, r := range ag.db.wsReqs(`WHERE run_id=? AND kind=?`, s.Run, wsReqChangeSet) {
+		mine[r.Ref] = true
 	}
-	if len(sets) == 0 {
-		return "You have proposed no admin changes that xbin still keeps.", nil
+	var sets []wsChangeSet
+	if len(mine) > 0 {
+		if err := ag.wsWith(ctx, s, func(sid string) (err error) { sets, err = wsX.ChangeSets(ctx, sid); return }); err != nil {
+			return "", err
+		}
 	}
 	var parts []string
 	for _, cs := range sets {
-		parts = append(parts, wsChangeSetText(cs))
+		if mine[cs.ID] {
+			parts = append(parts, wsChangeSetText(cs))
+		}
+	}
+	if len(parts) == 0 {
+		return "This conversation has proposed no admin changes that xbin still keeps.", nil
 	}
 	return strings.Join(parts, "\n\n"), nil
 }

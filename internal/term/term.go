@@ -74,6 +74,10 @@ type Session struct {
 	part    sessionPart   // its partition on a partitioned tile, fixed at start (partition.go)
 	purpose string        // "" or PurposeSignin, fixed at start (purpose.go)
 	origin  string        // "" or the sealed component that opened it for its person (delegate.go), fixed at start
+	// originMode: the mode a session with an origin was opened in — the one
+	// its person approved, or their preference's (delegate.go); a restart
+	// carries it over
+	originMode string
 
 	// hub is the session's side of the /ws/term wire: its scrollback, the
 	// attached sockets, the last activity (the reaper's clock) and the exit.
@@ -343,6 +347,7 @@ type openOpts struct {
 	part       sessionPart       // the partition on a partitioned tile (pickPartition, partition.go)
 	purpose    string            // "" or PurposeSignin: a guided sign-in's shell (purpose.go)
 	origin     string            // "" or the sealed component opening it for its person (delegate.go)
+	originMode string            // the mode that component's open was authorised with (delegate.go)
 	llmOpts                      // its hold on the LLM connector, when it gets one (llmhook.go)
 }
 

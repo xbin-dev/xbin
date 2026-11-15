@@ -93,11 +93,29 @@ func TestAgentDetachedTurnIsFollowedAndHoldsMessages(t *testing.T) {
 		t.Fatalf("the agent's own turn has no turn number: %s", e.Data)
 	}
 	r.until(t, isStatus(agent.StatusIdle))
-	if q := queueOf(r.until(t, ofType(EvQueue))); len(q.Sent) != 1 || q.Sent[0] != held.ID || len(q.Items) != 0 {
-		t.Fatalf("the held message goes in at the turn's end: %+v", q)
+	// What was held goes in as a prompt; the queue event saying so is logged
+	// once the prompt is in, while the agent already answers it on its own
+	// goroutine — so its echo, and even its turn's idle, may come before the
+	// queue event or after it. Each is waited for, in whichever order.
+	var sent *queueData
+	echoed, idleAfter := false, false
+	for sent == nil || !echoed || !idleAfter {
+		e := r.until(t, func(e SessionEvent) bool {
+			return e.Type == EvQueue && len(queueOf(e).Sent) > 0 || agentSays("echo: after")(e) || echoed && isStatus(agent.StatusIdle)(e)
+		})
+		switch {
+		case e.Type == EvQueue:
+			q := queueOf(e)
+			sent = &q
+		case agentSays("echo: after")(e):
+			echoed = true
+		default:
+			idleAfter = true
+		}
 	}
-	r.until(t, agentSays("echo: after"))
-	r.until(t, isStatus(agent.StatusIdle))
+	if len(sent.Sent) != 1 || sent.Sent[0] != held.ID || len(sent.Items) != 0 {
+		t.Fatalf("the held message goes in at the turn's end: %+v", *sent)
+	}
 	if err := m.AgentCancel(id); err != nil { // nothing runs: a no-op, no second end
 		t.Fatal(err)
 	}
