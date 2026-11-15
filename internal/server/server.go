@@ -86,6 +86,8 @@ type Server struct {
 	DelegationDev bool
 	delegateRT    delegateRuntime // the gate's rate limit and running calls
 	docsIx        docsIndex       // the docs search index, built at first use (docsapi.go)
+	// delegationGate is the off-switch check (SetDelegationGate, DelegationOff)
+	delegationGate func(holder, user string) error
 	// AgentPrefs is the people's agent preferences (D229, agentprefsapi.go);
 	// nil = none.
 	AgentPrefs *agentprefs.Store

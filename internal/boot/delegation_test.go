@@ -108,6 +108,26 @@ func TestHolderModelCallsAreTheSessions(t *testing.T) {
 	if why := call(bob, local, "llama"); why == "" {
 		t.Error("the model the session left still passes")
 	}
+	// the off switches stop model turns too: paused, or the workspace's switch off
+	srv.SetDelegationGate(server.DelegationGate(store, true, false))
+	if why := call(bob, hosted, "big"); !strings.Contains(why, "is off") || !strings.Contains(why, "an admin hasn't turned") {
+		t.Errorf("with workspace agents off: %q", why)
+	}
+	if _, err := store.SetWorkspace(true, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if why := call(bob, hosted, "big"); why != "" {
+		t.Errorf("with workspace agents on: %s", why)
+	}
+	if _, err := store.SetState("bob", func(st *delegation.State) { st.Paused = true }); err != nil {
+		t.Fatal(err)
+	}
+	if why := call(bob, hosted, "big"); !strings.Contains(why, "paused") {
+		t.Errorf("a paused agent's model call: %q", why)
+	}
+	if _, err := store.SetState("bob", func(st *delegation.State) { st.Paused = false }); err != nil {
+		t.Fatal(err)
+	}
 	// anyone who isn't a holder is not this policy's business
 	for _, c := range []llm.Caller{{Component: "apps/chat", Via: "component", User: "bob"}, {User: "bob", Via: "person"}, {User: "bob", Via: "key"}} {
 		if why := call(c, hosted, "big"); why != "" {

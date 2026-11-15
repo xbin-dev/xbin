@@ -437,8 +437,57 @@ func (s *Server) SweepDelegation() {
 		if n, _ := s.Delegation.DropApprovals(user, gone); n > 0 {
 			s.delegateEvent(user, "approval", "")
 		}
+		if !ok || !live || u.Disabled { // the person is gone or disabled: nothing approved before carries over
+			s.delegationStopped(user, false)
+		}
 	}
 }
+
+// delegationStopped ends what was set in motion for user's agent before it
+// was stopped — by a pause, the workspace's switch going off, or the person
+// being disabled or deleted (docs/protocol/delegation.md "What each switch
+// stops"): the calls in flight are cut, every approved-but-unused ticket is
+// void (resuming doesn't bring it back), and the messages the agent had
+// queued for tile agents it started are taken back. Standing approvals go
+// too unless keepApprovals: a pause keeps them — the person resumes on
+// purpose — a switch-off or the person's end does not.
+func (s *Server) delegationStopped(user string, keepApprovals bool) {
+	s.CutDelegateStreams(user)
+	if s.Delegation == nil {
+		return
+	}
+	changed := false
+	if n, _ := s.Delegation.VoidTickets(user); n > 0 {
+		changed = true
+	}
+	if !keepApprovals {
+		if n, _ := s.Delegation.DropApprovals(user, func(delegation.Approval) bool { return true }); n > 0 {
+			changed = true
+		}
+	}
+	if s.Term != nil {
+		s.Term.DropAgentQueues(user, "")
+	}
+	if changed {
+		s.delegateEvent(user, "request", "")
+	}
+}
+
+// DelegationOff is why user's agent holder may not act now ("" nil: it
+// may) — the gate's off switches (paused, the workspace's switch, no
+// sandbox), for callers that aren't the delegate gate: the LLM connector
+// asks it before a holder's model call, so a paused or switched-off agent
+// runs no model turn either.
+func (s *Server) DelegationOff(holder, user string) error {
+	if s.delegationGate == nil {
+		return nil
+	}
+	return s.delegationGate(holder, user)
+}
+
+// SetDelegationGate installs the off-switch check DelegationOff asks (boot:
+// the same function the auth layer's delegate resolver uses).
+func (s *Server) SetDelegationGate(gate func(holder, user string) error) { s.delegationGate = gate }
 
 func (s *Server) tileExists(tile string) bool {
 	if s.Reg == nil {

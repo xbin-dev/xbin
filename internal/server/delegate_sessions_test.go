@@ -15,6 +15,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // fakeWorld is a server.AgentWorld: apps/mail is Finance's (which allows
@@ -537,5 +538,76 @@ func TestDelegateStartDefaultsAndPrompt(t *testing.T) {
 	big, _ := json.Marshal(map[string]string{"cwd": "apps/x", "kind": "agent", "prompt": strings.Repeat("x", maxStartPrompt+1)})
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", `{"method":"POST","path":"/api/xbin/term/sessions","body":`+strconv.Quote(string(big))+`}`, alice); rec.Code == 200 {
 		t.Error("a start with an over-long first prompt was asked for")
+	}
+}
+
+// What each off switch stops (the final review's finding 4): a ticket
+// approved before a pause, a switch-off or the person's end is void
+// afterwards — resuming doesn't bring it back; a standing approval
+// survives a pause (the person resumes on purpose) and not a switch-off.
+func TestOffSwitchesVoidWhatWasApproved(t *testing.T) {
+	w := delegateWorld(t)
+	bob, person, admin := delegateCred("d-bob"), w.cookie("bob"), w.cookie("alice")
+	const send = `{"to":"x"}`
+	ticket := func() string {
+		t.Helper()
+		req := w.ask(bob, "POST", "/api/apps/mail/send", send)
+		w.approve(person, req.ID, "once")
+		return req.ID
+	}
+	use := func(id string) int {
+		return w.do(w.inv, "POST", "/api/apps/mail/send", send, bob, header(HeaderTicket, id)).Code
+	}
+	state := func(c cred, path, body string) {
+		t.Helper()
+		if rec := w.do(w.full, "PUT", "/api/xbin/delegate/"+path, body, c); rec.Code != 200 {
+			t.Fatalf("PUT %s %s: %d %s", path, body, rec.Code, rec.Body.String())
+		}
+	}
+	if _, err := w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/x", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session"); err != nil {
+		t.Fatal(err)
+	}
+	// pause, then resume: the ticket approved before it is gone; the standing approval isn't
+	id := ticket()
+	state(person, "state", `{"paused":true}`)
+	state(person, "state", `{"paused":false}`)
+	if code := use(id); code != 403 {
+		t.Errorf("a ticket approved before a pause, used after the resume: %d", code)
+	}
+	if got, _ := w.store.Request("bob", id); got.State == delegation.Approved {
+		t.Errorf("the ticket is still %s", got.State)
+	}
+	if _, ok := w.store.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); !ok {
+		t.Error("a pause dropped a standing approval")
+	}
+	// the workspace's switch off, then on: tickets and standing approvals are gone
+	id = ticket()
+	state(admin, "workspace", `{"enabled":false}`)
+	state(admin, "workspace", `{"enabled":true}`)
+	if code := use(id); code != 403 {
+		t.Errorf("a ticket approved before the switch-off, used after: %d", code)
+	}
+	if _, ok := w.store.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); ok {
+		t.Error("a standing approval survived the workspace's switch-off")
+	}
+	// the person is disabled, then enabled again: nothing approved before carries over
+	id = ticket()
+	if _, err := w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/x", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session"); err != nil {
+		t.Fatal(err)
+	}
+	set := func(disabled bool) {
+		if _, err := w.s.Auth.Users.Upsert(users.User{ID: "bob", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelRead, "apps/mail": users.LevelRead}, Disabled: disabled}, ""); err != nil {
+			t.Fatal(err)
+		}
+		w.invS.SweepDelegation()
+		w.s.SweepDelegation()
+	}
+	set(true)
+	set(false)
+	if code := use(id); code == 200 {
+		t.Errorf("a ticket approved before the person was disabled, used after: %d", code)
+	}
+	if _, ok := w.store.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); ok {
+		t.Error("a standing approval survived the person being disabled")
 	}
 }

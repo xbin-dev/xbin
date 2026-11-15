@@ -363,6 +363,21 @@ POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
                                  them (§The chrome). {ok}
 ```
 
+**What each switch stops.**
+
+| | new calls | calls in flight | the agent's model turns | approved, unused tickets | messages it queued for tile agents | standing approvals | pending requests |
+|---|---|---|---|---|---|---|---|
+| the person pauses | refused | cut | refused at the LLM connector | void | taken back | **kept** (the person resumes on purpose) | kept |
+| the workspace's switch off | refused | cut | refused | void | taken back | dropped | kept |
+| the person disabled or deleted | refused (no credential) | cut | refused | void | taken back | dropped | kept until they expire |
+| the person loses a tile | refused for that tile | cut | — | refused at use (the tile is judged again) | — | dropped for that tile | refused at use |
+
+Resuming, or switching back on, brings nothing back: a ticket that was
+void stays void, and a dropped approval is given again by the person.
+Tile agents the agent started keep running through all of these — they are
+the person's sessions; only what the workspace agent had queued for them
+is taken back.
+
 The workspace's switch is kept with the rest of delegation's state
 (`data/delegation/workspace.json`), not in `/workspace-settings`: the admin
 console and `bx settings` list that store's entries by name, so a new one

@@ -310,7 +310,7 @@ func (s *Server) apiDelegateStatePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if st.Paused {
-		s.CutDelegateStreams(a.user)
+		s.delegationStopped(a.user, true) // calls in flight, unused tickets, held messages; standing approvals stay
 	}
 	s.delegateEvent(a.user, "state", "")
 	WriteJSON(w, http.StatusOK, s.delegateStateView(a))
@@ -362,6 +362,9 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 	}
 	for _, u := range s.Delegation.People() { // every person's agent: delegation went on or off
 		s.notifyHolders(u, "state", "")
+		if !ws.Enabled { // off: nothing approved before the switch is waiting when it is on again
+			s.delegationStopped(u, false)
+		}
 	}
 	WriteJSON(w, http.StatusOK, s.delegateWorkspaceView(p))
 }

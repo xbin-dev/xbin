@@ -230,3 +230,26 @@ func (m *Manager) OpenAgentPrompted(ctx context.Context, p auth.Principal, a Age
 	}
 	return info, res, code, nil
 }
+
+// DropAgentQueues takes back every message held for a session of user that
+// a workspace agent started (holder "": any agent's): what the agent
+// queued for a tile agent is not delivered once the agent is stopped. It
+// answers how many were dropped.
+func (m *Manager) DropAgentQueues(user, holder string) int {
+	n := 0
+	for _, si := range m.ListFor(user, "", nil) {
+		if origin := m.AgentOrigin(si.ID); origin == "" || holder != "" && origin != holder {
+			continue
+		}
+		held, err := m.AgentQueued(si.ID)
+		if err != nil {
+			continue
+		}
+		for _, q := range held {
+			if _, err := m.AgentUnqueue(si.ID, q.ID); err == nil {
+				n++
+			}
+		}
+	}
+	return n
+}

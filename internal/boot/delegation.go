@@ -71,7 +71,9 @@ func (st *State) setupDelegation(srv *server.Server) {
 	}
 	// the off switches, asked on every delegate call: sandboxes on (--dev
 	// and --no-auth excepted), the workspace's switch, the person's pause
-	st.Auth.SetDelegationGate(server.DelegationGate(store, st.Cfg.Isolate, st.Cfg.Dev || st.Cfg.NoAuth))
+	gate := server.DelegationGate(store, st.Cfg.Isolate, st.Cfg.Dev || st.Cfg.NoAuth)
+	st.Auth.SetDelegationGate(gate)
+	srv.SetDelegationGate(gate) // the LLM connector's holder rule asks the same switches (holderCallPolicy)
 	// people or their access changed: running delegate calls and standing
 	// approvals are judged again at once (tiles: serve.go's watch loop)
 	st.Broker.OnPeopleChanged = srv.SweepDelegation
@@ -114,6 +116,12 @@ func holderCallPolicy(srv *server.Server, brk *broker.Broker) llm.CallPolicy {
 			// Holding the list to the session's own model left the agent's
 			// model picker empty.
 			return nil
+		}
+		// the off switches first, before the session is touched (a call
+		// that is refused doesn't keep a handle alive): a paused or
+		// switched-off agent runs no model turn
+		if err := srv.DelegationOff(c.Component, c.User); err != nil {
+			return fmt.Errorf("this person's workspace agent is off: %w", err)
 		}
 		const how = ": make one (POST /api/xbin/delegate/sessions) and send its id as " + llm.AgentSessionHeader
 		if c.User == "" || c.AgentSession == "" || srv.Delegation == nil {
