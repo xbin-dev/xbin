@@ -12,7 +12,10 @@ package main
 // Each step is a tool's name and its arguments as a JSON object ({} when
 // left out). The model makes them one request at a time, in order, and then
 // answers "Done: " with the first line of every tool result, " | " between
-// them — so a test reads what each tool told the model from the answer.
+// them — so a test reads what each tool told the model from the answer. A
+// result that says a request is pending ("Pending — request N … waits for
+// your person's decision …", words for the model) is said as wsPendingWords
+// instead; a test reads the tool's own answer from the transcript.
 //
 // The line is found anywhere in the message (the agent puts a context line
 // before a person's words), in the message's own case (tool arguments are
@@ -81,7 +84,11 @@ func wsScript(conv []turn) (plan, bool) {
 	for _, t := range conv[at+1:] {
 		switch {
 		case t.Role == "tool":
-			results = append(results, answerLine(t.Text))
+			line := answerLine(t.Text)
+			if wsPending(line) { // the request's words are the model's instructions: say it to the person (wsphrases.go)
+				line = wsPendingWords
+			}
+			results = append(results, line)
 		case t.Role == "assistant" && strings.HasPrefix(t.Text, wsDone):
 			return plan{}, false // summarized already: the script is over
 		}

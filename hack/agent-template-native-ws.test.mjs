@@ -13,7 +13,9 @@ import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
 import { fullCaps } from '../web/xb/vocab.js';
 import { SESSIONS, FULL, EMPTY, CONVERSATION, CARDS, msg, call, fresh, now as NOW } from '../builtin-templates/agent/test/ws-stub.mjs';
-import { W } from '../builtin-templates/agent/ws/words.js';
+import { W, refusalCard } from '../builtin-templates/agent/ws/words.js';
+import { VIEWS, openView } from '../builtin-templates/agent/ws/dock.js';
+import { PAGE_VIEWS } from '../web/agent-chrome-words.js';
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url).pathname;
 
@@ -269,16 +271,20 @@ test('what the view asks of the app\'s chrome: its panels, a redirect\'s hand-of
   const view = { messages: [msg(1, 'user', 'change line 40 in export.go'), msg(2, 'assistant', '', { toolCalls: [call('a1', 'ask_user', { question: 'That is a change to code.', kind: 'redirect', tile: 'sales/orders' })] }),
     msg(3, 'tool', '(asked the user; awaiting their reply)', { toolCallId: 'a1', name: 'ask_user' })] };
   const seed = () => seedOf({ cards: { 1: fresh(cards) }, views: { 1: fresh(view) } });
-  const steps = [{ tap: { t: 'button', p: { label: 'Approvals' } } }, { tap: { t: 'button', p: { label: 'What my agent did' } } }, { tap: { t: 'button', p: { label: 'Preferences' } } },
+  const steps = [{ tap: { t: 'button', p: { label: 'Approvals' } } }, { tap: { t: 'button', p: { label: 'What my agent did' } } }, { tap: { t: 'button', p: { label: W.needsYou } } },
     { tap: { t: 'button', p: { label: 'Hand this to Orders’ own agent' } } }];
   const r = await run(seed(), steps);
-  assert.deepEqual(r.asked, [{ type: 'xbin:agent-open', view: 'approvals' }, { type: 'xbin:agent-open', view: 'activity' }, { type: 'xbin:agent-open', view: 'prefs' },
+  assert.deepEqual(r.asked, [{ type: 'xbin:agent-open', view: 'approvals' }, { type: 'xbin:agent-open', view: 'activity' }, { type: 'xbin:agent-open', view: 'needs' },
     { type: 'xbin:open-session', session: 'new', tile: 'sales/orders', draft: 'change line 40 in export.go' }]);
+  // the views the chrome takes (web/agent-chrome-words.js PAGE_VIEWS): never Preferences — those are the app's own
+  assert.deepEqual([...VIEWS].sort(), [...PAGE_VIEWS].sort());
+  assert.equal(openView('prefs'), null);
   const card = find(r.tree, { t: 'card', has: 'doesn’t open or edit code' });
   assert.deepEqual(all(card, { t: 'button' }).map((b) => b.p.label), ['Hand this to Orders’ own agent', 'Tell me the outcome instead']);
   // the ⋯ menu never pauses or resumes: those are the app's
   const menu = labels(r.tree, { t: 'button', in: { t: 'menu' } });
-  assert.deepEqual(menu, ['Sessions', 'New session…', 'Scope…', 'Notebook', W.whatCanItDo, 'Approvals', 'What my agent did', 'Preferences']);
+  assert.deepEqual(menu, ['Sessions', 'New session…', 'Scope…', 'Notebook', W.whatCanItDo, W.needsYou, 'Approvals', 'What my agent did']);
+  assert.ok(!json(r.tree).includes('Preferences'), 'Preferences live in the app\'s own shield menu');
   // an app that doesn't show the tile as an agent has no chrome to ask: nothing is sent, and the view says why
   const no = await run(seed(), [steps[0]], { caps: app('compact', false) });
   assert.deepEqual(no.asked, []);
@@ -373,4 +379,174 @@ test('a normal instance is asked nothing and loads the template\'s own view', as
   const calls = (r.extra && r.extra.calls) || [];
   assert.equal(calls.filter((c) => /\/ws\//.test(c.url)).length, 0, 'no /ws/ route is asked of a tile');
   assert.ok(find(r.tree, { t: 'button', p: { label: 'New chat' } }));
+});
+
+// ---- the agent's switch, a held session, the notebook's marks, xbin's refusals, a call no card replaces --------------
+
+const NO_AGENT = 'You haven’t been given a workspace agent. An admin chooses who has one: Admin → People → access, or the workspace agent’s set-up in the dock.';
+const HELD_AGENT = 'Your agent is held on this xbin, and does nothing until that is cleared. An admin can see why and clear it: Admin → Runtime, or the workspace agent’s dock.';
+const OFF_SEND = `${NO_AGENT} Nothing was sent to the agent or its model. Your message is still in the message box: send it again once it runs.`;
+const offSeed = (over = {}) => talking({ offAnswer: { error: OFF_SEND, code: 'agent-off', refusal: 'no-agent', kept: true }, ...over });
+const kids = (tree) => find(tree, { t: 'screen' }).c || [];
+
+test('a switched-off agent: the refused message stays in the box, unsent, the reason at the composer, the switch\'s line in the transcript', async () => {
+  const words = 'Which invoices are overdue?';
+  // the app reports the send alone (no keystrokes before it): the box is controlled, so what stays is the tile's value
+  const r = await run(offSeed(), [{ event: { k: { t: 'composer' }, type: 'send', payload: { value: words } } }, { wait: 300 }]);
+  assert.equal(sent(r, 'POST', /\/runs\/1\/message$/).length, 1);
+  const c = find(r.tree, { t: 'composer' });
+  assert.equal(c.p.value, words, 'the words are still the composer\'s value after @send');
+  assert.equal(c.p.disabled, false, 'and can be sent again');
+  // the backend's sentence right at the composer, as a warning
+  const at = kids(r.tree);
+  const i = at.findIndex((n) => n.t === 'composer');
+  assert.deepEqual([at[i - 1].t, at[i - 1].p.tone, at[i - 1].p.text], ['notice', 'warn', OFF_SEND]);
+  // the step of kind off: which switch, who changes it and where — drawn, warn, with the pause glyph
+  const step = find(r.tree, { t: 'step', in: { t: 'transcript' }, p: { text: OFF_SEND } });
+  assert.deepEqual([step.p.glyph, step.p.tone], ['‖', 'warn']);
+  assert.ok(sent(r, 'GET', /\/ws\/state$/).length >= 2 && sent(r, 'GET', /\/ws\/empty/).length >= 2, 'the state and the empty state read again');
+  // typed first, then sent: the same
+  const typed = await run(offSeed(), [{ input: [{ t: 'composer' }, words] }, { event: { k: { t: 'composer' }, type: 'send', payload: { value: words } } }, { wait: 300 }]);
+  assert.equal(find(typed.tree, { t: 'composer' }).p.value, words);
+  // a message the backend took clears the box
+  const ok = await run(talking(), [{ event: { k: { t: 'composer' }, type: 'send', payload: { value: words } } }, { wait: 300 }]);
+  assert.equal(find(ok.tree, { t: 'composer' }).p.value, '');
+});
+
+test('the empty state of an agent that can\'t act: the switch\'s sentence, nothing it could do, no starters', async () => {
+  const empty = { ...fresh(EMPTY), off: 'no-agent', line: NO_AGENT, can: [], starters: [] };
+  const r = await run(seedOf({ empty }));
+  assert.deepEqual(find(r.tree, { t: 'transcript' }).p.empty, { title: 'Ask for an outcome', text: NO_AGENT });
+  assert.equal(find(r.tree, { t: 'notice', p: { title: W.offTitle['no-agent'] } }), null, 'the empty state says it: no banner as well');
+  const old = await run(seedOf({ empty }), [], { caps: BEFORE });
+  assert.ok(find(old.tree, { t: 'text', p: { text: NO_AGENT } }));
+  assert.equal(find(old.tree, { t: 'markdown', has: 'It can' }), null);
+  assert.deepEqual(all(find(old.tree, { t: 'composer' }), { t: 'button' }), [], 'no starters as chips');
+  // "What can it do?" says the same
+  const can = await run(seedOf({ empty }), [{ tap: { t: 'button', p: { label: W.whatCanItDo }, in: { t: 'menu' } } }, { wait: 100 }]);
+  const sheet = find(can.tree, { t: 'sheet' });
+  assert.equal(find(sheet, { t: 'section' }).p.footer, NO_AGENT);
+  assert.equal(find(sheet, { t: 'row' }), null);
+  // a conversation with rows: the switch as a banner, in the backend's words — no agent given, or the agent held here
+  for (const [off, line] of [['no-agent', NO_AGENT], ['held', HELD_AGENT]]) {
+    const t = await run(talking({ empty: { ...fresh(EMPTY), off, line, can: [], starters: [] } }));
+    assert.equal(find(t.tree, { t: 'notice', p: { title: W.offTitle[off] } }).p.text, line, off);
+  }
+});
+
+test('a held session: why, its two ways forward, and the list marks it', async () => {
+  const held = () => { const s = fresh(SESSIONS); s[0].held = { code: 'model_taint', model: 'hosted/big', orgs: ['Sales'], reason: 'Sales allows private models only', offer: { model: 'hosted/big-1', newSession: { model: 'hosted/big' } } }; return s; };
+  const r = await run(talking({ sessions: held() }), [{ snapshot: 'held' }, { tap: { t: 'button', p: { label: 'Move back to big-1' } } }, { wait: 200 }]);
+  const n = find(r.snapshots.held, { t: 'notice', p: { title: 'This session can’t go on on big.' } });
+  assert.equal(n.p.tone, 'danger');
+  assert.equal(n.p.text, 'It holds data from Sales, and Sales allows private models only. Nothing is read, changed or sent to a model in it until it moves.');
+  const at = kids(r.snapshots.held);
+  const row = at[at.indexOf(at.find((x) => x.p && x.p.title === 'This session can’t go on on big.')) + 1];
+  assert.deepEqual([row.t, ...all(row, { t: 'button' }).map((b) => [b.p.label, b.p.role])], ['stack', ['Move back to big-1', 'primary'], ['New session on big', 'plain']]);
+  assert.deepEqual(JSON.parse(sent(r, 'PATCH', /\/ws\/sessions\/1$/)[0].body), { model: 'hosted/big-1' });
+  assert.equal(find(r.tree, { t: 'notice', has: 'can’t go on' }), null, 'moved: the banner goes');
+  const fresh2 = await run(talking({ sessions: held() }), [{ tap: { t: 'button', p: { label: 'New session on big' } } }, { wait: 200 }]);
+  assert.deepEqual(JSON.parse(sent(fresh2, 'POST', /\/ws\/sessions$/).pop().body), { from: 1, model: 'hosted/big' });
+  // a move xbin refuses: its words in the banner
+  const no = await run(talking({ sessions: held(), taint: ['hosted/big-1'] }), [{ tap: { t: 'button', p: { label: 'Move back to big-1' } } }, { wait: 200 }]);
+  assert.match(find(no.tree, { t: 'notice', p: { title: 'This session can’t go on on big.' } }).p.text, /until it moves\. refused$/);
+  // the sessions list marks it
+  const list = await run(talking({ sessions: held() }), [{ tap: { t: 'button', p: { label: 'Sessions' } } }]);
+  const main = find(find(list.tree, { t: 'sheet' }), { t: 'row', p: { title: 'Main' } });
+  assert.deepEqual([main.p.subtitle.split(' · ')[0], main.p.icon, main.p.tone], ['held: can’t go on on big', 'lock', 'danger']);
+});
+
+test('the notebook: a marked page says what its marks mean; nothing clears them', async () => {
+  const pages = [{ slug: 'q3', title: 'Q3 numbers', body: 'From the ledger', version: 1, orgs: ['Finance'], updatedBy: 'agent', updatedMs: NOW }];
+  const r = await run(talking({ pages }), [{ tap: { t: 'button', p: { label: 'Notebook' } } }, { wait: 100 }, { tap: { t: 'row', p: { title: 'Q3 numbers' } } }, { wait: 100 }]);
+  const page = find(r.tree, { t: 'nav' }).c[2];
+  assert.ok(find(page, { t: 'text', p: { text: W.marksNote(['Finance']) } }));
+  assert.deepEqual(all(page, { t: 'button', in: { t: 'menu' } }).map((b) => b.p.label), ['Delete']);
+  assert.ok(!json(r.tree).includes('Clear'), 'no way to clear the marks');
+});
+
+// xbin's refusals of the review's round: each card in refusalCard's own words (the web's module)
+const REFUSALS = [
+  { id: 1, callId: 'r1', tool: 'tile_agent_message', kind: 'brief-taint', reason: 'Sales allows private models only', tile: 'sales/orders' },
+  { id: 2, callId: 'r2', tool: 'tile_agent_message', kind: 'mode', reason: 'Ana switched it to a mode that acts without asking', tile: 'sales/orders' },
+  { id: 3, callId: 'r3', tool: 'tile_agent_message', kind: 'command', reason: '', tile: 'sales/orders' },
+  { id: 4, callId: 'r4', tool: 'workspace_map', kind: 'no-agent', reason: '', tile: '' },
+  { id: 5, callId: 'r5', tool: 'workspace_map', kind: 'held', reason: '', tile: '' },
+];
+const refusedSeed = () => {
+  const cards = { requests: [], agents: [], briefs: [], plan: [], refusals: fresh(REFUSALS).reverse() };
+  const view = { messages: [msg(1, 'user', 'Tell the Orders agent to go on.'), msg(2, 'assistant', '', { toolCalls: REFUSALS.map((f) => call(f.callId, f.tool, { agent: '3', text: 'go on' })) }),
+    ...REFUSALS.map((f, i) => msg(3 + i, 'tool', `Refused: ${f.kind}`, { toolCallId: f.callId, name: f.tool }))] };
+  return seedOf({ cards: { 1: cards }, views: { 1: view } });
+};
+const nameOf = (p) => (FULL.tiles.find((t) => t.tile === p) || {}).name || p;
+
+test('xbin\'s refusals: brief-taint, mode and command as cards in refusalCard\'s words; no-agent and held a quiet line', async () => {
+  const r = await run(refusedSeed());
+  for (const f of REFUSALS) {
+    const w = refusalCard(f, nameOf);
+    if (w.quiet) {
+      assert.deepEqual(find(r.tree, { t: 'step', p: { text: w.text } }).p.tone, 'muted', f.kind);
+      assert.equal(find(r.tree, { t: 'card', has: w.text }), null, `${f.kind}: no card`);
+      continue;
+    }
+    const card = find(r.tree, { t: 'card', p: { title: w.title } });
+    assert.ok(card, f.kind);
+    assert.equal(card.p.note, w.note || undefined, `${f.kind}: its note`);
+    assert.deepEqual(all(card, { t: 'text' }).map((x) => x.p.text), [w.text], `${f.kind}: its text`);
+    assert.deepEqual(all(card, { t: 'button' }), [], `${f.kind}: no way forward the page could offer`);
+  }
+  assert.equal(find(r.tree, { t: 'card', p: { title: 'Orders’ agent can’t be told this' } }).p.title, refusalCard(REFUSALS[0], nameOf).title);
+  // an app without cards: the same words as markdown
+  const old = await run(refusedSeed(), [], { caps: BEFORE });
+  for (const f of REFUSALS.slice(0, 3)) {
+    const w = refusalCard(f, nameOf);
+    const md = find(old.tree, { t: 'markdown', has: w.title });
+    assert.ok(md && (!w.note || json(md).includes(w.note)) && json(md).includes(w.text), `${f.kind}: ${json(md)}`);
+  }
+});
+
+test('a brief whose mode xbin hasn\'t named: it says so, and nothing says "asks before acting"', async () => {
+  const seed = briefSeed();
+  seed.startDefaults = { harness: 'claude', harnessName: 'Claude Code', ticket: true, line: 'Claude Code', defaults: { harness: 'claude', harnesses: [{ id: 'claude', name: 'Claude Code', needsTicket: true }] } };
+  const r = await run(seed, [{ wait: 100 }]);
+  const card = find(r.tree, { t: 'card', p: { title: 'Brief for Orders’ agent' } });
+  assert.equal(card.p.note, 'This is what the tile agent is told first. What your agent sends it later isn’t approved message by message. Whether it asks you before it acts shows once xbin says what it runs on.');
+  assert.ok(!/asks? (you )?before (it )?act/.test(json(r.tree).replace('Whether it asks you before it acts', '')), 'no promise that it asks');
+});
+
+test('a tool call no card replaces is the kit\'s tool card — its arguments and result folded, never raw JSON in the conversation', async () => {
+  const MAP = 'This session: 3 tiles · 2 orgs connected · 3 not connected (model hosted/big).\nTiles (3):\n- sales/orders — Orders';
+  const view = { messages: [msg(1, 'user', 'What tiles do I have?'), msg(2, 'assistant', '', { toolCalls: [call('m1', 'workspace_map', { filter: 'sales' })] }),
+    msg(3, 'tool', MAP, { toolCallId: 'm1', name: 'workspace_map' }), msg(4, 'assistant', 'You have 3 tiles connected in this session: Orders, Invoices and Team calendar.')] };
+  const r = await run(seedOf({ cards: { 1: { requests: [], agents: [], briefs: [], plan: [], refusals: [] } }, views: { 1: view } }));
+  const tc = find(r.tree, { t: 'toolcard', in: { t: 'transcript' } });
+  assert.ok(tc && tc.p.title, 'a tool card with its headline');
+  assert.deepEqual([tc.p.state, tc.p.open], ['ok', false]);
+  assert.ok(find(tc, { t: 'text', p: { text: 'workspace_map' } }), 'its name inside');
+  assert.ok(find(tc, { t: 'text', p: { text: 'filter: sales' } }), 'its arguments inside, as key: value');
+  assert.equal(find(tc, { t: 'code' }).p.text, MAP, 'its result inside');
+  // outside the card: the person's words and the answer — no arguments, no result
+  const rows = find(r.tree, { t: 'transcript' }).c.filter((x) => x.t !== 'toolcard');
+  assert.ok(!JSON.stringify(rows).includes('"filter"') && !JSON.stringify(rows).includes('This session:'), JSON.stringify(rows));
+  assert.deepEqual(all(r.tree.root, { t: 'message' }).map((m) => m.p.text), ['What tiles do I have?', 'You have 3 tiles connected in this session: Orders, Invoices and Team calendar.']);
+});
+
+test('an app from before these nodes draws every state of this round without an unsupported node', async () => {
+  const held = fresh(SESSIONS);
+  held[0].held = { code: 'model_taint', model: 'hosted/big', orgs: ['Sales'], reason: 'Sales allows private models only', offer: { newSession: { model: 'hosted/big' } } };
+  const old = app('compact', false);
+  for (const p of ['card', 'connection', 'request', 'session']) delete old.prims[p];
+  Object.assign(old.prims, { transcript: 1, question: 1, plan: 1, composer: 1, toolbar: 1, menu: 1 });
+  for (const [name, seed, steps] of [
+    ['off', offSeed(), [{ event: { k: { t: 'composer' }, type: 'send', payload: { value: 'hi' } } }, { wait: 300 }]],
+    ['held', talking({ sessions: held }), []],
+    ['refusals', refusedSeed(), []],
+    ['empty off', seedOf({ empty: { ...fresh(EMPTY), off: 'held', line: HELD_AGENT, can: [], starters: [] } }), []],
+  ]) {
+    for (const caps of [BEFORE, old]) {
+      const r = await run(seed, steps, { caps }); // run() fails on any error or warning diagnostic (an unsupported node is one)
+      assert.ok(find(r.tree, { t: 'screen' }), name);
+    }
+  }
 });

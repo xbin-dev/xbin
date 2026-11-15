@@ -107,17 +107,17 @@ function mainScreen() {
         <button icon="doc" @tap=${() => store.openNotebook()}>Notebook</button>
         <button icon="question" @tap=${() => store.showWhatCan()}>${W.whatCanItDo}</button>
         <divider/>
+        <button icon="bell" @tap=${ask('needs')}>${W.needsYou}</button>
         <button icon="shield" @tap=${ask('approvals')}>Approvals</button>
         <button icon="clock" @tap=${ask('activity')}>What my agent did</button>
-        <button icon="gear" @tap=${ask('prefs')}>Preferences</button>
       </menu>
     </toolbar>
     ${s && has('connection') ? connectionTpl(s) : nothing}
-    ${store.banners().map(bannerTpl)}
+    ${[...store.banners(), ...switchBanner()].map(bannerTpl)}
     ${S.err ? html`<notice tone="danger" text=${S.err}/><button @tap=${() => { S.err = ''; store.boot(); }}>Try again</button>` : nothing}
-    ${S.sendErr ? html`<notice tone="danger" text=${S.sendErr}/>` : nothing}
     ${ui.err ? html`<notice tone="danger" text=${ui.err}/>` : nothing}
     ${tpl}
+    ${S.sendErr ? html`<notice tone="warn" text=${S.sendErr}/>` : nothing}
     ${composer}
   </screen>`;
 }
@@ -134,10 +134,22 @@ function connectionTpl(s) {
     @tap=${() => store.openScope({})} @model=${() => store.openScope({ models: true })}/>`;
 }
 
-// a state of the page: its words, and the one thing to do about it (never Resume: that is the app's)
+// a state of the page: its words, and what to do about it — one button, or a held session's ways forward, a row of
+// them under the notice (a notice has no children) — never Resume: that is the app's
 function bannerTpl(b) {
+  const acts = [...(b.button ? [b.button] : []), ...(b.buttons || [])];
+  const btn = (x, i) => html`<button role=${acts.length > 1 && i === 0 ? 'primary' : 'plain'} @tap=${() => x.act()}>${x.label}</button>`;
   return html`<notice tone=${TONE[b.tone] || 'info'} title=${b.bold} text=${[b.text, b.more].filter(Boolean).join(' ') || nothing}/>
-    ${b.button ? html`<button role="plain" @tap=${() => b.button.act()}>${b.button.label}</button>` : nothing}`;
+    ${acts.length > 1 ? html`<stack axis="h" wrap>${acts.map(btn)}</stack>` : acts.length ? btn(acts[0], 0) : nothing}`;
+}
+
+// the agent's switch where no banner of the store's says it (xbind's `off` on the empty state: no agent given, the
+// agent held on this xbin, no sandboxes) once the conversation has rows — an empty one says it in its empty state
+function switchBanner() {
+  const e = store.S.empty;
+  const off = e && e.off;
+  if (!off || !W.offTitle[off] || !store.session.current() || !store.session.shown().blocks.length) return [];
+  return [{ key: 'switch', tone: 'warn', bold: W.offTitle[off], text: e.line || W.offWhy[off] }];
 }
 
 // --- what the app says, and where it opens the view ------------------------------------

@@ -303,6 +303,9 @@ func script(conv []turn, system string) plan {
 	if p, ok := wsScript(conv); ok { // a script the message carries (ws.go)
 		return p
 	}
+	if p, ok := wsPhrasebook(conv, system); ok { // a workspace agent's natural turn (wsphrases.go)
+		return p
+	}
 	sub := strings.Contains(system, "You are a subagent")
 	last := conv[len(conv)-1]
 	// images a tool showed (file_view, browser_check) ride a user message

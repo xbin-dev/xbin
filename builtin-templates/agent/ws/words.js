@@ -59,6 +59,13 @@ export const W = Object.freeze({
   readyToStart: 'Ready to start',
   askAgain: 'Ask again',
   updates: 'Updates from xbin and your tile agents',
+  needsYou: 'Needs you',
+  // the agent's switch, where xbind says it can't act (GET /ws/empty → off) and no other banner says so: a
+  // notice's title above the backend's sentence (which switch, who changes it, where); offWhy when it gave none
+  offTitle: Object.freeze({ 'no-agent': 'No workspace agent for you yet', held: 'Your agent is held on this xbin', 'no-sandbox': 'Your agent can’t act on this xbin' }),
+  offWhy: Object.freeze({ 'no-agent': 'An admin chooses who has one: Admin → People → access, or the workspace agent’s set-up in the dock.',
+    held: 'It does nothing until that is cleared. An admin can see why and clear it: Admin → Runtime, or the workspace agent’s dock.',
+    'no-sandbox': 'This xbin runs tiles without sandboxes, where a workspace agent can’t act. An admin can run it with sandboxes.' }),
 });
 
 // ---- time ----------------------------------------------------------------------------
@@ -313,7 +320,9 @@ export function sessionRow(s, now = Date.now()) {
   const c = (s.connection && s.connection.counts) || {};
   const scope = [c.tiles != null ? `${c.tiles} tiles` : '', c.orgs != null ? `${c.orgs} orgs` : '', short(s.model)].filter(Boolean).join(' · ');
   let status;
-  if (s.status === 'waiting_input' || s.requests > 0) status = { glyph: 'bell', word: 'waiting for you', tone: 'warn' };
+  // held (GET /ws/sessions → held): nothing runs in it until it moves — its banner says why and the ways forward
+  if (s.held) status = { glyph: 'lock', word: `held: can’t go on on ${short(s.held.model || s.model)}`, tone: 'bad' };
+  else if (s.status === 'waiting_input' || s.requests > 0) status = { glyph: 'bell', word: 'waiting for you', tone: 'warn' };
   else if (['running', 'awaiting', 'sleeping'].includes(s.status)) status = { glyph: 'clock', word: `working${s.agents ? ` · ${s.agents} tile agent${s.agents === 1 ? '' : 's'}` : ''}`, tone: '' };
   else if (s.agents) status = { glyph: 'clock', word: `${s.agents} tile agent${s.agents === 1 ? '' : 's'} working`, tone: '' };
   else status = { glyph: '', word: `idle${s.activityMs ? ' · ' + day(s.activityMs) : ''}`, tone: '' };

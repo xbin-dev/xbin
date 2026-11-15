@@ -174,7 +174,7 @@ function refusedScreen(r) {
 
 // ---- "What can it do?" ---------------------------------------------------------------------------
 
-/** whatCanSheet(): the empty state's lists and starters again, on request; a starter fills the composer and closes it. */
+/** whatCanSheet(): the empty state's lists and starters again, on request; a starter fills the composer and closes it. With the agent's switch off (`off`): its sentence only. */
 export function whatCanSheet() {
   const S = st.S;
   if (!S.whatCan) return nothing;
@@ -182,7 +182,7 @@ export function whatCanSheet() {
   const done = () => { S.whatCan = false; ctx.paint(); };
   return html`<sheet open title=${W.whatCanItDo} detents=${['medium', 'large']} @dismiss=${done}>
     <screen title=${W.whatCanItDo} style="list">
-      ${!e ? html`<progress label="Loading…"/>` : html`
+      ${!e ? html`<progress label="Loading…"/>` : e.off ? html`<section title=${e.heading || W.whatCanItDo} footer=${e.line || nothing}></section>` : html`
         <section title=${e.heading || W.whatCanItDo} footer=${e.line || nothing}></section>
         <section title=${W.itCan}>${(e.can || []).map((x) => html`<row icon="check" tone="ok" title=${x}/>`)}</section>
         <section title=${W.itCant}>${(e.cant || []).map((x) => html`<row icon="xmark" title=${x}/>`)}</section>
@@ -243,14 +243,13 @@ function pageTpl() {
     <toolbar>
       <button icon="pencil" @tap=${() => act.edit()}>Edit</button>
       <menu icon="ellipsis" label="More">
-        ${orgs.length ? html`<button icon="tag" confirm=${{ title: 'Clear the org marks?', message: `Clear the marks of ${orgs.join(', ')}? A session on any model could then read this page. Do it only when the page holds nothing of theirs.`, label: 'Clear the marks', destructive: true }}
-          @tap=${() => act.clearStamps()}>Clear org marks…</button>` : nothing}
         <button icon="trash" role="destructive" confirm=${{ title: 'Delete this page?', message: 'The agent forgets it; its history is kept.', label: 'Delete', destructive: true }}
           @tap=${() => act.drop()}>Delete</button>
       </menu>
     </toolbar>
     ${n.err ? html`<notice tone="danger" text=${n.err}/>` : nothing}
     <text style="footnote" tone="muted">${meta}</text>
+    ${orgs.length ? html`<text style="footnote" tone="muted">${W.marksNote(orgs)}</text>` : nothing}
     <markdown source=${p.body || ''}/>
   </screen>`;
 }

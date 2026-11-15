@@ -201,7 +201,7 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     if (r.status === 409 && r.data && r.data.code === 'agent-off') {
       // the agent's switch is off (xbind said which): the transcript has the line, the words stay here, unsent
       S.sendErr = r.data.error || 'Your agent is off: nothing was sent.';
-      await loadState();
+      await Promise.all([loadState(), loadEmpty()]); // (the empty state says the switch too: GET /ws/empty → off)
       paint();
       return false;
     }
@@ -372,9 +372,11 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     await loadSessions();
     paint();
   }
-  async function newSessionOn(model) {
+  // (from: 'held' — the held banner's offer, whose error the banner shows; else the scope panel's)
+  async function newSessionOn(model, from = 'scope') {
     const r = await ws.newSession(S.sel, { model });
-    if (!r.ok) { S.scope.err = errOf(r, 'A new session could not be started.'); paint(); return; }
+    if (!r.ok) { const err = errOf(r, 'A new session could not be started.'); if (from === 'held') S.heldErr = err; else S.scope.err = err; paint(); return; }
+    S.heldErr = '';
     S.sessions = [...S.sessions, r.data.session];
     await select(r.data.session.id);
   }
@@ -497,7 +499,7 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     if (held) { // it can't go on on its model: why, and the ways forward (the backend refuses every call meanwhile)
       const h = SM.heldWords(held);
       out.push({ key: 'held', tone: 'bad', icon: 'lock', bold: h.bold, text: h.text, more: S.heldErr || '',
-        buttons: [...(h.back ? [{ key: 'back', label: h.back.label, act: () => moveHeld(h.back.model) }] : []), { key: 'new', label: h.fresh.label, act: () => newSessionOn(h.fresh.model) }] });
+        buttons: [...(h.back ? [{ key: 'back', label: h.back.label, act: () => moveHeld(h.back.model) }] : []), { key: 'new', label: h.fresh.label, act: () => newSessionOn(h.fresh.model, 'held') }] });
     }
     if (S.updating) out.push({ key: 'updating', tone: 'info', icon: 'refresh', bold: 'xbin is updating.', text: 'Back in about a minute. Running tile agents are stopped and continue afterwards.' });
     else if (offline()) out.push({ key: 'offline', tone: 'warn', icon: 'signal', bold: 'Can’t reach the workspace.', text: `Showing what was loaded at ${clock(S.loadedAt)}. Trying again… Approvals can’t be given until it’s back.`, button: { label: 'Try now', act: () => session.live.resync() } });

@@ -43,7 +43,9 @@ const NOTICE = /^\[(subagent results|results of the runs|message from your paren
 // conversation (messages.meta origin).
 const ORIGIN_LABEL = { schedule: 'Scheduled', watch: 'Watcher check', learn: 'Learn a skill', trigger: 'Triggered', starter: 'Project starter' };
 // Journal steps worth a line in the chat (the rest is in the transcript).
-const SHOWN_STEPS = new Set(['note', 'error', 'compaction', 'yield', 'finish', 'render', 'live', 'state_changed', 'cancel', 'ask']);
+// `off`: a workspace agent's switch met a message or a turn, answered
+// without the model (API.md §Workspace mode, "When the agent's switch is off").
+const SHOWN_STEPS = new Set(['note', 'error', 'compaction', 'yield', 'finish', 'render', 'live', 'state_changed', 'cancel', 'ask', 'off']);
 
 const ATTACH_NOTE = /\n\n\[attached: ([^\]]*)\]$/;
 const ATTACH_ITEM = /([A-Za-z0-9._/-]+) \(([^,()]+), ([^()]+)\)/g;

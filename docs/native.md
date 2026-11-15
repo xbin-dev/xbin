@@ -688,7 +688,7 @@ form of the messages a workspace agent's page exchanges with xbin's chrome
 await xbin.native.agent({ type: 'xbin:agent-open-request', id });       // an approval
 await xbin.native.agent({ type: 'xbin:agent-open-changeset', id });     // an admin change set
 await xbin.native.agent({ type: 'xbin:open-session', session, tile });  // one of the person's sessions
-await xbin.native.agent({ type: 'xbin:agent-open', view: 'approvals' }); // approvals | activity | prefs
+await xbin.native.agent({ type: 'xbin:agent-open', view: 'approvals' }); // needs | approvals | activity
 // …and hear what the chrome says: what the agent was opened about
 xbin.native.on('agent', (m) => { if (m.type === 'xbin:agent-context') about = m.tile ?? m.screen; });
 ```
@@ -697,7 +697,10 @@ xbin.native.on('agent', (m) => { if (m.type === 'xbin:agent-context') about = m.
 nothing to show (an id that isn't the person's); it rejects in an app, or
 for a tile, without the feature. It can only ask: the app reads whatever it
 then shows from xbind, and no message approves, denies, resumes or changes
-a preference.
+a preference — or opens Preferences, where the agent's reach widens: only
+views that change nothing open for a message. A new session's `draft`
+(`session: "new"`) is shown labelled as the view's suggestion, never as the
+person's own words, and waits unsent.
 
 **Older apps.** An app released before these shows your web page as soon as
 the tree uses one of them (§Fallback, versions and older apps), so branch

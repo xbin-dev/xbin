@@ -279,6 +279,8 @@ function stepTpl(b) {
     case 'finish': return d.result ? html`<step glyph="✓" tone="ok" text="finished"/><markdown source=${d.result}/>` : html`<step glyph="✓" tone="ok" text="finished"/>`; // theme-ok: the step primitive's text glyph
     case 'cancel': return html`<step glyph="■" tone="warn" text=${`stopped${d.reason ? ': ' + d.reason : ''}`}/>`;
     case 'ask': return nothing;
+    // the agent's switch met this message or turn: answered without the model — which switch, who changes it, where
+    case 'off': return html`<step glyph="‖" tone="warn" text=${d.text || ''}/>`;
   }
   const text = d.text || d.summary || '';
   return text ? html`<step glyph="•" tone="muted" text=${text}/>` : nothing;
@@ -296,9 +298,11 @@ function rowTpl(b, layout) {
 
 // emptyOf: the empty state (GET /ws/empty) as the transcript's `empty` slot: what the agent can and can't do in
 // this session's own numbers — three lines each on a phone — and starters from the person's own tiles (three on a
-// phone, four beside it).
+// phone, four beside it). With `off` (the agent's switch: xbind says it can't act) only its sentence — which switch,
+// who changes it, where — as the web page's empty state says it (ws/panels.js emptyView).
 function emptyOf(e) {
   const n = compact() ? 3 : 4;
+  if (e.off) return { title: e.heading || W.title, text: e.line || W.offWhy[e.off] || '' };
   return {
     title: e.heading || 'Ask for an outcome', text: e.line || '',
     lists: [{ title: W.itCan, items: (e.can || []).slice(0, compact() ? 3 : 8) }, { title: W.itCant, items: (e.cant || []).slice(0, compact() ? 3 : 8) }].filter((l) => l.items.length),
@@ -307,7 +311,8 @@ function emptyOf(e) {
 }
 /** starter(i): a starter fills the composer — it never sends (CHOICES.starterSends). */
 export function starter(i) {
-  const s = ((st.S.empty && st.S.empty.starters) || [])[Number(i)];
+  const e = st.S.empty;
+  const s = (e && !e.off && e.starters) ? e.starters[Number(i)] : null;
   if (s) st.fill(s.text);
 }
 
@@ -345,6 +350,7 @@ export function transcriptTpl() {
 
 // an app whose transcript has no `empty` slot: the same words as text, the starters as the composer's chips
 function emptyFallback(e) {
+  if (e.off) return html`<text style="title3">${e.heading || W.title}</text><text>${e.line || W.offWhy[e.off] || ''}</text>`;
   const list = (title, items) => (items && items.length ? `**${title}**\n${items.slice(0, 3).map((x) => `- ${x}`).join('\n')}` : '');
   (e.starters || []).slice(0, 3).forEach((s, i) => late.push({ label: s.text, tap: () => starter(i) }));
   return html`<text style="title3">${e.heading || 'Ask for an outcome'}</text>
@@ -358,7 +364,10 @@ function emptyFallback(e) {
  * composerTpl(pill): the message box — the context chip, the quick replies
  * and the hint (composer rev 2; rev 1: chips above the box). Paused, there
  * is none: the app's own chrome draws Resume in its place — resuming is a
- * grant, and this view draws none.
+ * grant, and this view draws none. Its `value` is the draft, controlled
+ * (docs/native.md §Controlled props): a send takes the words as the draft,
+ * and only a message the backend took clears it — one it refused (the
+ * agent's switch, 409 agent-off; no connection) stays in the box, unsent.
  */
 export function composerTpl(pill = '') {
   const S = st.S;
@@ -373,7 +382,7 @@ export function composerTpl(pill = '') {
   return html`<composer value=${S.drafts.get(S.sel) || ''} placeholder=${cs.placeholder} ?busy=${st.busy()} ?disabled=${off}
       context=${c2 && chips.length ? chips : nothing} replies=${c2 && replies.length ? replies.map((r) => ({ id: r.id, label: r.label })) : nothing}
       hint=${c2 && hint ? hint : nothing}
-      @input=${(e) => { S.drafts.set(S.sel, e.value); }} @send=${(e) => st.send(e.value)} @stop=${() => st.stop()}
+      @input=${(e) => { S.drafts.set(S.sel, e.value); }} @send=${(e) => { S.drafts.set(S.sel, e.value); st.send(e.value); }} @stop=${() => st.stop()}
       @context=${c2 && c && c.not ? () => st.openScope({}) : nothing} @remove-context=${c2 ? () => st.dropContext() : nothing}
       @reply=${c2 ? (e) => st.reply(e.id) : nothing}>
     ${pill ? html`<button role="primary" @tap=${jump}>${pill}</button>` : nothing}

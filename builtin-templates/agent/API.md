@@ -6149,16 +6149,17 @@ in a filled composer). The run's rows are `model/session.js` and
 | a tile agent | `<session id tile>` — xbind's session id: the app draws its status and last line from xbind's session directory, and Open goes to the app's agent screen |
 | the composer | `composer` rev 2: the "About …" context chip (`context`; not connected: a warn chip whose tap opens the scope panel), quick replies (`replies`: the waiting question's choices, "Go ahead" / "Change the plan"), the standing hint |
 | the notebook, one tool call in full | screens pushed over the conversation |
-| what stops it | a `notice` per state above the transcript; **paused, there is no composer** — the app's own chrome draws Resume where it was |
+| what stops it | a `notice` per state above the transcript; a held session's ways forward ("Move back to …", "New session on …") a row of `button`s under it; the agent's switch where xbind says it can't act (`off` of `GET /ws/empty`: no agent given, held, no sandboxes) a notice with the backend's sentence once the conversation has rows (an empty one says it in its `empty` slot, alone). A message the switch refused (`409 agent-off`) stays the composer's `value`, unsent, its reason a warn `notice` right above the composer, and the transcript's step of kind `off` a warn `step`. **Paused, there is no composer** — the app's own chrome draws Resume where it was |
 
 It grants nothing, like the page. What the page posts to the dock the
 native view asks of the app with `xbin.native.agent(msg)` — the same
 messages, built by `ws/dock.js`: `xbin:agent-open-request {id}` (a brief's
 "Review and start…", once the backend filed the start),
 `xbin:agent-open-changeset {id}`, `xbin:open-session {session: "new", tile,
-draft}` (a redirect's hand-off), and `xbin:agent-open {view}` — `approvals`
-| `activity` | `prefs`, the app's own panels, from the view's ⋯ (the web
-dock has them in its header). The app tells the view what it was opened
+draft}` (a redirect's hand-off), and `xbin:agent-open {view}` — `needs`
+| `approvals` | `activity`, the app's own panels that change nothing, from
+the view's ⋯ (the web dock has them in its header; the chrome refuses any
+other view: Preferences are the app's own, in its shield menu). The app tells the view what it was opened
 about with `xbin:agent-context {tile}` | `{screen}` (`xbin.native.on('agent',
 …)`), read as strictly as the page reads it. An app that doesn't list the
 `agent` feature for the tile has no chrome to ask: the view says so in a
