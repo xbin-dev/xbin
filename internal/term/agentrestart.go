@@ -81,7 +81,7 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 	}
 	info, code, err = m.OpenAgentWith(p, AgentOpen{Cwd: s.Cwd, Net: net, GPU: gpu, NoAPI: !api, VM: inVM,
 		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options, Deployment: deployment, LLM: llm,
-		origin: s.origin}) // still the session the person's agent started (delegate.go)
+		origin: s.origin, originMode: s.originMode}) // still the session the person's agent started (delegate.go)
 	return info, resume != "", code, err
 }
 

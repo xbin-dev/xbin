@@ -161,6 +161,53 @@ func modelRefusal(rule Allow, m *ModelRef) string {
 	return "allows these models only: " + strings.Join(ids, ", ")
 }
 
+// Who serves a tile agent session's model calls, for Brief.
+const (
+	ServedUnknown   = ""          // not started yet: a start
+	ServedUnsettled = "unsettled" // running, and nothing says who serves it (no connector here, or not settled yet)
+	ServedConnector = "connector" // the LLM connector, and nothing else can
+	ServedOffered   = "offered"   // the connector by default; the harness may leave it
+	ServedOwn       = "own"       // the person's own sign-in: a model xbind can't see
+)
+
+// Brief answers whether a conversation holding data under the rules
+// `from` (one org's layers) may send it to a tile agent session bound by
+// the rules `to` (its tile's layers), served as `served` on `model` (nil:
+// not known). Every layer of `from` with a model rule other than "any"
+// must hold for the session, one of two ways: the session's tile is under
+// that very layer — its sessions run on the connector alone, which asks
+// the rule for every call — or the session is on the connector, nothing
+// lets it leave, and its model satisfies the rule. A session on the
+// person's own sign-in can't be vouched for: xbind doesn't see its model.
+func Brief(from, to []Layer, served string, model *ModelRef) Decision {
+	for _, l := range from {
+		rule := modelRule(l.Rules.Models)
+		if rule == "" {
+			continue
+		}
+		bound := slices.ContainsFunc(to, func(t Layer) bool { return t.ID == l.ID && t.Pinned == l.Pinned && modelRule(t.Rules.Models) == rule })
+		switch {
+		case bound && (served == ServedUnknown || served == ServedConnector):
+			continue // the session's own tile is under the rule: the connector asks it for every call
+		case served == ServedConnector && model != nil && modelRefusal(l.Rules.Models, model) == "":
+			continue
+		}
+		why := "the session's model isn't known to satisfy that"
+		switch {
+		case served == ServedOwn:
+			why = "the session runs on its person's own sign-in, a model xbind can't see"
+		case served == ServedOffered:
+			why = "nothing holds the session to the LLM connector"
+		case served == ServedConnector && model != nil:
+			why = "the session is on " + model.ID()
+		case served == ServedUnknown:
+			why = "the session's tile isn't under that rule, so nothing holds its model to it"
+		}
+		return l.deny("models", l.who()+" "+rule+": "+why)
+	}
+	return Decision{Allowed: true}
+}
+
 // Harnesses is the harness rule of all layers together: any, or the ids
 // every layer allows.
 func Harnesses(layers []Layer) Allow {

@@ -67,6 +67,10 @@ type dPolicy struct {
 	// the broker's does); onAsk runs once when the tile's rules are asked.
 	readCheck bool
 	onAsk     func()
+	// tileOff: DelegateTile refuses these tiles as the broker does one whose
+	// agent level is "off" — a rule of the tile, which TileAllows (the
+	// orgs' rules) knows nothing of.
+	tileOff map[string]bool
 }
 
 func (d *dPolicy) TileAllows(s delegation.Subject) error {
@@ -92,8 +96,11 @@ func (d *dPolicy) DelegateTile(p auth.Principal, tile string, write bool) (strin
 		return "", "", false, err
 	}
 	d.mu.Lock()
-	check := d.readCheck
+	check, off := d.readCheck, d.tileOff[tile]
 	d.mu.Unlock()
+	if off {
+		return "", "", false, errors.New(tile + ` doesn't let a person's agent use it (its agent level is "off")`)
+	}
 	if check && !p.CanReadTile(tile) {
 		return "", "", false, errors.New(p.UserID + " can't read " + tile)
 	}

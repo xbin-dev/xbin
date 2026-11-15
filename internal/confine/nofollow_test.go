@@ -47,6 +47,7 @@ var nofollowScope = []string{
 	"internal/deps/buildwork.go", // a Go build's workspace: work trees and checkpoints read (D166)
 	"internal/deps/modfile.go",
 	"internal/runner/gowork.go",
+	"internal/broker/code.go", // the code API: a tile's files read on a caller's behalf
 }
 
 // walkOK is the escape hatch: `// walk-ok: <why>` on the call's line or one

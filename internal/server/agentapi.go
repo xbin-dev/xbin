@@ -416,6 +416,10 @@ func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, code, err.Error())
 		return
 	}
+	if !s.delegateSends(w, r, id, p.Text) { // what a person's agent may tell a session, and which session
+		s.Term.KickQueue(id)
+		return
+	}
 	turn, err := s.Term.AgentPromptWith(r.Context(), id, p)
 	if err != nil {
 		apiErr(w, agentStatus(err), err.Error())
@@ -447,6 +451,9 @@ func (s *Server) apiAgentQueue(w http.ResponseWriter, r *http.Request) {
 	p, code, err := decodePromptWith(http.MaxBytesReader(w, r.Body, maxPromptBody), &interrupt)
 	if err != nil {
 		apiErr(w, code, err.Error())
+		return
+	}
+	if !s.delegateSends(w, r, id, p.Text) {
 		return
 	}
 	res, err := s.Term.AgentQueue(r.Context(), id, p, interrupt)

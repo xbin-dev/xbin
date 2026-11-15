@@ -188,6 +188,18 @@ func (b *Broker) AgentModelAllowedIn(org, model string) error {
 	return agentpolicy.Check(b.Users.OrgAgentLayers(org), agentpolicy.Ask{WorkspaceAgent: true, Model: b.ResolveModel(model)}).Err()
 }
 
+// AgentBriefAllowed is why a conversation that holds org's data may not
+// send text to a tile agent session on tile (nil: it may): the session's
+// model source — served ("connector", "offered", "own", "" for a session
+// that isn't started or settled) and model ("" unknown) — must satisfy
+// org's model rule (agentpolicy.Brief).
+func (b *Broker) AgentBriefAllowed(org, tile, served, model string) error {
+	if b.Users == nil {
+		return nil
+	}
+	return agentpolicy.Brief(b.Users.OrgAgentLayers(org), b.AgentLayers(tile), served, b.ResolveModel(model)).Err()
+}
+
 // AgentConnectionFor is the connection view of person p for a scope and a
 // model, and what changing to whatIf ("" none) would do.
 func (b *Broker) AgentConnectionFor(p auth.Principal, orgs, tiles []string, model, whatIf string) (agentpolicy.View, *agentpolicy.Change) {

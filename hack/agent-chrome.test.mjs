@@ -141,6 +141,9 @@ test('the dock\'s states and the chip', () => {
   assert.equal(W.dockState({ state: { ...adminOn, who: { everyone: false, entries: 0, chosen: false } }, me: admin, llm: { configured: true } }), 'setup');
   assert.equal(W.dockState({ state: { ...adminOn, who: { everyone: true, entries: 0, chosen: true } }, me: admin, llm: { configured: true } }), 'page');
   assert.equal(W.dockState({ state: { ...on, access: true, agent: 'xbin/wsagent' }, me: {}, llm: { configured: true } }), 'page', 'a person who was given one');
+  // an admin who gave other people an agent and not themselves has none: no chip, no page
+  assert.equal(W.dockState({ state: { ...on, access: false, who: { everyone: false, entries: 2, chosen: true } }, me: admin, llm: { configured: true } }), 'hidden', 'administering it is not having one');
+  assert.equal(W.dockState({ state: { ...on, access: false, who: { everyone: false, entries: 0, chosen: false } }, me: admin, llm: { configured: true } }), 'setup', '…and the setup is still theirs to finish');
   const third = (who) => W.setupSteps({ llm: { configured: true }, state: { workspace: true, who } })[2];
   assert.deepEqual(third({ everyone: false, entries: 0, chosen: false }).choices.map((c) => c.who), ['everyone', 'me']);
   assert.equal(third({ everyone: false, entries: 0, chosen: false }).done, false);

@@ -71,7 +71,10 @@ type Provider struct {
 	// never Explicit; "" when the provider has none — it asks as its own
 	// settings say.
 	ApproveMode string `json:"-"`
-	PlanMode    string `json:"-"`
+	// AskModes are more modes in which the harness asks before every edit
+	// and command (Asks), for a harness whose modes aren't in Modes.
+	AskModes []string `json:"-"`
+	PlanMode string   `json:"-"`
 	// SafeModes are modes outside Modes this catalog knows never take the
 	// agent past its own asks (Safe): the ones an adapter speaks only as a
 	// config option of category mode (opencode's build and plan agents).
@@ -186,7 +189,9 @@ var catalog = []Provider{
 		// its build and plan agents, as its config option of category mode
 		// (opencode 1.18): build asks as its own settings say, plan changes
 		// nothing
-		SafeModes: []string{"build", "plan"}},
+		SafeModes: []string{"build", "plan"},
+		// its plan agent proposes and edits nothing; build edits and runs
+		AskModes: []string{"plan"}},
 }
 
 // Providers is the catalog of adapters this package knows, in display
@@ -235,6 +240,28 @@ func Lookup(id string) (Provider, bool) {
 		}
 	}
 	return Provider{}, false
+}
+
+// Asks reports whether mode is one in which the harness asks its person
+// before EVERY edit and command: its ask mode (ApproveMode) or its plan
+// mode (PlanMode), and no other. It is narrower than Safe, which only
+// excludes the bypass modes: Claude's acceptEdits and auto, Codex's agent
+// and Gemini's autoEdit are Safe — they keep some asks — and edit files or
+// run commands without asking each time. A consumer that starts a session
+// for someone who isn't there to watch it (xbind's workspace agent,
+// without a ticket) or tells a person "it asks before it acts" uses Asks.
+// A mode the catalog doesn't know, and any mode of a provider with no ask
+// mode, doesn't ask.
+func (p Provider) Asks(mode string) bool {
+	if mode == "" {
+		return false
+	}
+	for _, m := range p.AskModes {
+		if m == mode {
+			return true
+		}
+	}
+	return mode == p.ApproveMode || mode == p.PlanMode
 }
 
 // Safe reports whether mode is one this catalog knows never takes the agent

@@ -245,7 +245,7 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 		if admin {
 			out["who"] = who // an admin: who was given one (the third setup step)
 		}
-		if access && s.AgentHeld != nil {
+		if (access || admin) && s.AgentHeld != nil { // an admin without one of their own still reads why nobody's runs
 			if kind, why := s.AgentHeld(); kind != "" {
 				out["held"] = kind // the chrome says why there is no conversation
 				if admin || s.devOwner(a.p) {
@@ -310,7 +310,7 @@ func (s *Server) apiDelegateStatePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if st.Paused {
-		s.CutDelegateStreams(a.user)
+		s.delegationStopped(a.user, true) // calls in flight, unused tickets, held messages; standing approvals stay
 	}
 	s.delegateEvent(a.user, "state", "")
 	WriteJSON(w, http.StatusOK, s.delegateStateView(a))
@@ -362,6 +362,9 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 	}
 	for _, u := range s.Delegation.People() { // every person's agent: delegation went on or off
 		s.notifyHolders(u, "state", "")
+		if !ws.Enabled { // off: nothing approved before the switch is waiting when it is on again
+			s.delegationStopped(u, false)
+		}
 	}
 	WriteJSON(w, http.StatusOK, s.delegateWorkspaceView(p))
 }
@@ -577,6 +580,9 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	if len(b.Prompt) > maxStartPrompt {
 		return nil, fmt.Sprintf("a start's first prompt is at most %d KiB", maxStartPrompt>>10)
 	}
+	if _, why := s.startRefusal(p, sessionAskOf(body)); why != "" {
+		return nil, why // no approval makes it startable: don't put it in front of the person
+	}
 	// what the request leaves out, xbind fills from the person's
 	// preferences for sessions their agent starts and the tile's orgs'
 	// rules (startDefaults) — and shows: the card says the EFFECTIVE values
@@ -617,7 +623,7 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 		// alone decides it: a delegate's start is strict (acp.Config.Strict)
 		// — the mode is in force or the session ends, and no option but a
 		// model or a thinking level is set
-		"asks":    eff.Provider.Safe(eff.Mode),
+		"asks":    eff.Provider.Asks(eff.Mode),
 		"options": options, // every setting the start carries; none of them can change the mode
 		// what the session will be told first: sent by xbind itself once the
 		// session is up, and bound by the ticket with the rest of the body.

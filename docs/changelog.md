@@ -61,6 +61,68 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Workspace agents: the final security review** (D228;
+  [protocol/delegation.md](/docs/protocol/delegation.md),
+  [auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)).
+  Nothing of this is in a release yet; each line changes what a delegate
+  call answers.
+  - **"Asks before acting" is the harness's ask or plan mode**, nothing
+    else (`sdk/acp` `Provider.Asks`, additive): a start in any other mode
+    needs a ticket whose card says what the mode does; `asks` and
+    `needsTicket` in request previews and `GET /delegate/start-defaults`
+    follow; the preference for agent-started sessions saves only such
+    modes (`400` otherwise).
+  - **Taint binds what the agent tells tile agents**: a start, `…/prompt`
+    or `…/queue` is `403 {refusal: "taint"}` unless the session's model
+    source satisfies the model rule of every org the conversation holds
+    data of. A message that begins with `/` is `403 {refusal:
+    "command"}`; one to a session its person switched to a mode that
+    doesn't ask is `403 {refusal: "mode"}`. SDK: `ErrTaintedBrief`,
+    `ErrHarnessCommand`, `ErrSessionMode`.
+  - **The off switches** also stop the agent's model turns (the LLM
+    connector asks them), void approved-but-unused tickets and take back
+    messages queued for tile agents; standing approvals survive a pause
+    only (the table in §The switches).
+  - **A dry run of a start tells the truth**: `needsApproval: false,
+    under: "preference"` when the person's preference starts it unasked;
+    `allowed: false` with the reason when nothing would.
+  - **The admin role is no agent**: `access` in `GET /delegate/state` is
+    false for an admin who wasn't given one, and a delegate call in their
+    name is `403 {refusal: "no-agent"}`; `who: "me"` gives them theirs.
+  - **A deleted account's delegation records go with it**
+    (`data/delegation/deleted/`, kept for the log's 13 months): an account
+    made later under the same id inherits no approval, ticket, session,
+    change set or log.
+  - **Only xbin's chrome frames the agent's page**, in every asset mode:
+    in `legacy` and `tokens` a framed load of `/c/xbin/wsagent/…` that
+    isn't same-origin is `403`, and the page carries `frame-ancestors
+    'self'`.
+  - A preview of a tile whose manifest says `"agent": "off"` is refused
+    to the agent, as a read of it is.
+- **Security — reading a tile's code could return any file the server can
+  read.** `GET /api/xbin/code/file` (the tile window's Files tab) and the
+  `apiDoc` of `GET /api/xbin/components/<tile>` (the tile's `API.md`)
+  followed symbolic links out of the tile. Anyone who can write a tile's
+  directory — a person with terminal access to that one tile, or a coding
+  agent working in it — could plant a link there (`API.md ->
+  ../../.xbin/token`) and then fetch its target: the owner token, the
+  frame-token secret, `data/users.json` (every account's password hash),
+  files in other people's homes, other tiles' source, and files of the
+  host outside the workspace. Under `--isolate` their own shell cannot
+  read those files; the server read them for them. Whoever may read the
+  tile's code got the same from a planted link, and `apiDoc` goes to every
+  signed-in caller. Affected: every workspace where someone other than
+  the owner has terminal access to a tile or runs a coding agent in one;
+  a tile imported from a repository you don't trust may carry such a link
+  too. Now both reads stay inside the tile: a link that leaves it
+  is `404` (`apiDoc`: empty), `?component=` takes no path through a link,
+  and a FIFO in a tile no longer hangs the request. A link that stays
+  inside the tile (`CLAUDE.md -> AGENTS.md`) still reads; `GET /code/tree`
+  never listed links. **Rotate the owner token after upgrading** if anyone
+  but you had such access (admin console → Users, or `POST
+  /api/xbin/auth-rotate-token`), and consider resetting passwords: the
+  hashes are Argon2id, but they could be copied. xbind keeps no record of
+  what was read this way.
 - **The workspace agent's page, its backend and xbin's chrome meet** (D235;
   [workspace-agent.md](/docs/workspace-agent.md), [protocol/delegation.md
   §The chrome](/docs/protocol/delegation.md#the-chrome)): the run view

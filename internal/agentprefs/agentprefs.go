@@ -28,6 +28,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/xbin-dev/xbin/internal/agent"
@@ -345,8 +347,12 @@ func (s *Store) check(p *Prefs) error {
 			delete(a.Modes, id)
 		case !known:
 			return fmt.Errorf("agentSessions.modes: no harness %q", id)
-		case !prov.Safe(mode):
+		case !prov.Safe(mode): // a bypass mode, or one the catalog doesn't know
 			return fmt.Errorf("agentSessions.modes.%s: %s", id, modeRefusal(prov, mode))
+		case !prov.Asks(mode):
+			// a session nobody watches start: only a mode that asks before
+			// every edit and command (the harness's ask or plan mode)
+			return fmt.Errorf("agentSessions.modes.%s: %s isn't a mode in which %s asks before every edit and command — a session your agent starts without asking you opens only in one that does (%s)", id, mode, prov.Name, strings.Join(askModes(prov), ", "))
 		}
 	}
 	if len(a.Modes) == 0 {
@@ -400,7 +406,7 @@ type AgentStart struct {
 func (p Prefs) AgentStart(prov agent.Provider) AgentStart {
 	a := AgentStart{Ask: p.AgentSessions.Start != StartAllow, Net: p.AgentSessions.Net, API: true,
 		Mode: cmp.Or(prov.ApproveMode, prov.DefaultMode), Model: p.Harnesses[prov.ID].Model}
-	if m := p.AgentSessions.Modes[prov.ID]; m != "" && prov.Safe(m) {
+	if m := p.AgentSessions.Modes[prov.ID]; m != "" && prov.Asks(m) {
 		a.Mode = m
 	}
 	if p.AgentSessions.API != nil {
@@ -427,4 +433,16 @@ func (s *Store) AgentStartFor(userID, harness string) (AgentStart, bool) {
 		return AgentStart{Ask: true}, false
 	}
 	return s.Get(userID).AgentStart(prov), true
+}
+
+// askModes are the modes of prov in which it asks before every edit and
+// command.
+func askModes(prov agent.Provider) []string {
+	var out []string
+	for _, m := range []string{prov.ApproveMode, prov.PlanMode} {
+		if m != "" && !slices.Contains(out, m) {
+			out = append(out, m)
+		}
+	}
+	return out
 }

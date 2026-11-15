@@ -47,6 +47,13 @@ func TestWorkspaceAgent(t *testing.T) {
 	e.staticTile(wsLedgerTile, "Ledger")
 	e.org("closed", "Closed", wsKeptTile, map[string]any{"workspaceAgent": "off"})
 	e.org("finance", "Finance", wsLedgerTile, map[string]any{"models": []string{wsModelA}})
+	// Coding agents here run on the LLM connector alone. A conversation that
+	// has seen Finance's tile (its row on the map is enough) holds Finance's
+	// data, and what it tells a tile agent goes to that session's model: on
+	// a person's own sign-in nobody can say which, and the start is refused.
+	// Held to the connector, the session starts on its default — the model
+	// Finance allows (docs/protocol/delegation.md §Agent sessions).
+	d.Must(t, "PUT", "/api/xbin/agents/policy", map[string]any{"credentials": "connector-only"}, 200)
 
 	e.person(wsAdmin, "admin", nil)
 	e.person("alice", "user", map[string]string{wsNoteTile: "terminal", wsKeptTile: "write", wsLedgerTile: "write"})

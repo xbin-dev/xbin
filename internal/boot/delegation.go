@@ -71,10 +71,30 @@ func (st *State) setupDelegation(srv *server.Server) {
 	}
 	// the off switches, asked on every delegate call: sandboxes on (--dev
 	// and --no-auth excepted), the workspace's switch, the person's pause
-	st.Auth.SetDelegationGate(server.DelegationGate(store, st.Cfg.Isolate, st.Cfg.Dev || st.Cfg.NoAuth))
+	gate := server.DelegationGate(store, st.Cfg.Isolate, st.Cfg.Dev || st.Cfg.NoAuth)
+	if us := st.Auth.Users; us != nil && !st.Cfg.NoAuth {
+		// …and that the person was given the agent: an admin's role reads the
+		// component (its system page) and is no agent acting as them
+		gate = server.AgentGivenGate(gate, us.Given)
+	}
+	gate = srv.AgentHeldGate(gate) // …and that the agent isn't held (a newer xbin's data, a locked vault)
+	st.Auth.SetDelegationGate(gate)
+	srv.SetDelegationGate(gate) // the LLM connector's holder rule asks the same switches (holderCallPolicy)
 	// people or their access changed: running delegate calls and standing
 	// approvals are judged again at once (tiles: serve.go's watch loop)
 	st.Broker.OnPeopleChanged = srv.SweepDelegation
+	// a deleted account takes its delegation records with it: an account
+	// made later under the same id inherits no approval, ticket, handle,
+	// change set or log (delegation/purge.go)
+	prevOut := st.Broker.OnUserSignedOut
+	st.Broker.OnUserSignedOut = func(id string, deleted bool) {
+		if prevOut != nil {
+			prevOut(id, deleted)
+		}
+		if deleted {
+			srv.DelegationPersonGone(id)
+		}
+	}
 	srv.DelegationDev = st.Cfg.Dev || st.Cfg.NoAuth // developing an agent: no step-up; --no-auth's owner answers as the person
 	if st.AgentPolicy == nil {
 		var startPrefs func(user, harness string) (mode, net string, api, ok bool)
@@ -83,6 +103,7 @@ func (st *State) setupDelegation(srv *server.Server) {
 		}
 		st.AgentPolicy = st.Broker.DelegationPolicy(startPrefs)
 	}
+	srv.SweepDelegation()          // accounts deleted or replaced while xbind was down: their records go before anything reads them
 	srv.RearmDelegateNotices()     // the expiry notices of requests that waited across the restart
 	st.Broker.ObserveAgentLevels() // what each tile's manifest says agents may do, against what was approved
 	srv.AgentPolicy = st.AgentPolicy
@@ -114,6 +135,12 @@ func holderCallPolicy(srv *server.Server, brk *broker.Broker) llm.CallPolicy {
 			// Holding the list to the session's own model left the agent's
 			// model picker empty.
 			return nil
+		}
+		// the off switches first, before the session is touched (a call
+		// that is refused doesn't keep a handle alive): a paused or
+		// switched-off agent runs no model turn
+		if err := srv.DelegationOff(c.Component, c.User); err != nil {
+			return fmt.Errorf("this person's workspace agent is off: %w", err)
 		}
 		const how = ": make one (POST /api/xbin/delegate/sessions) and send its id as " + llm.AgentSessionHeader
 		if c.User == "" || c.AgentSession == "" || srv.Delegation == nil {

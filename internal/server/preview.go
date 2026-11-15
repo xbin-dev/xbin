@@ -729,7 +729,15 @@ func (s *Server) previewDelegate(p auth.Principal, t PreviewTarget) error {
 	case !s.inSessionScope(h, tile):
 		return previewErr(http.StatusForbidden, "%s", hiddenByScope(p.UserID))
 	}
-	if err := s.agentPolicy().TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}); err != nil {
+	// the gate a delegate's read of the tile goes through — the tile's own
+	// agent level (off: the consoles, and any tile that says so), the
+	// policy ceiling and the orgs' rules — not the orgs' rules alone: a
+	// picture of the page is the tile's content like any GET of its API
+	dp, ok := s.policy().(DelegatePolicy)
+	if !ok {
+		return previewErr(http.StatusForbidden, "this xbind has no tile routing for a person's agent")
+	}
+	if _, _, _, err := dp.DelegateTile(p, tile, false); err != nil {
 		return previewErr(http.StatusForbidden, "%s", err.Error())
 	}
 	s.taint(p, tile)

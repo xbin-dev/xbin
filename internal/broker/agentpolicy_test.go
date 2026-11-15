@@ -589,3 +589,37 @@ func TestAgentSessionLLM(t *testing.T) {
 		t.Errorf("no users store: %+v", s)
 	}
 }
+
+// What a conversation holding an org's data may tell a tile agent
+// (AgentBriefAllowed, the server's delegateSends): with the real rules —
+// Finance allows private models only; apps/ledger is Finance's,
+// apps/calendar shared into it, apps/notes in no org.
+func TestAgentBriefAllowed(t *testing.T) {
+	fx := agentFixture(t)
+	fx.b.AgentModels = func(id string) (agentpolicy.ModelRef, bool) {
+		m := agentpolicy.ParseModelID(id)
+		m.Private = m.Upstream == "local"
+		return m, true
+	}
+	if _, err := fx.st.SetOrgAgents("finance", agentpolicy.Patch{Models: &privateOnly}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct {
+		org, tile, served, model string
+		want                     string // "": allowed
+	}{
+		"workspace data goes anywhere":                       {agentpolicy.WorkspaceID, "apps/notes", agentpolicy.ServedOwn, "", ""},
+		"Finance's data, a start on Finance's tile":          {"finance", "apps/ledger", agentpolicy.ServedUnknown, "", ""},
+		"…on a tile shared into Finance":                     {"finance", "apps/calendar", agentpolicy.ServedConnector, "", ""},
+		"…a start on a tile outside it":                      {"finance", "apps/notes", agentpolicy.ServedUnknown, "", "Finance allows private models only"},
+		"…a session there on the person's sign-in":           {"finance", "apps/notes", agentpolicy.ServedOwn, "", "own sign-in"},
+		"…a session there on the connector, a private model": {"finance", "apps/notes", agentpolicy.ServedConnector, "local/llama", ""},
+		"…a session there on the connector, a hosted model":  {"finance", "apps/notes", agentpolicy.ServedConnector, "hosted/big", "hosted/big"},
+		"…a session there the connector is only offered to":  {"finance", "apps/notes", agentpolicy.ServedOffered, "local/llama", "nothing holds"},
+	} {
+		err := fx.b.AgentBriefAllowed(c.org, c.tile, c.served, c.model)
+		if (err == nil) != (c.want == "") || err != nil && !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", name, err, c.want)
+		}
+	}
+}

@@ -599,3 +599,31 @@ func (s *Store) Covers(user, tile, method, path string) (Approval, bool) {
 	}
 	return Approval{}, false
 }
+
+// VoidTickets ends every ticket of user that was approved and not used:
+// what a person approved before their agent was stopped — paused, switched
+// off, or the person themselves disabled — is not waiting when it runs
+// again. A pending request stays (the person may still decide it). It
+// answers how many were voided.
+func (s *Store) VoidTickets(user string) (int, error) {
+	if s == nil {
+		return 0, ErrNoStore
+	}
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	doc, _, err := s.requests(p, user)
+	if err != nil {
+		return 0, err
+	}
+	now, n := s.now().UTC().Truncate(time.Second), 0
+	for i := range doc.Requests {
+		if r := &doc.Requests[i]; r.State == Approved {
+			r.State, r.Body, r.Expires = Expired, "", now
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	return n, s.saveRequests(p, user, doc)
+}

@@ -114,6 +114,12 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	if s.tileReadRefused(w, r, auth.PrincipalOf(r), owner) {
 		return
 	}
+	// A person's agent's page is framed by xbind's own chrome alone, in
+	// every asset mode (tilenav.go).
+	r, refused := s.holderFrameGate(w, r, owner)
+	if refused {
+		return
+	}
 	// A pending partition mode switch: the tile's documents are xbind's own
 	// page, no tile HTML touched (partitionpage.go; the D36 precedent).
 	if s.servePartitionSwitchPage(w, r, owner, cleaned) {

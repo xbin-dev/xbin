@@ -15,6 +15,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // fakeWorld is a server.AgentWorld: apps/mail is Finance's (which allows
@@ -32,6 +33,20 @@ func (fakeWorld) AgentModelAllowedIn(org, model string) error {
 		return errors.New("Finance allows private models only")
 	}
 	return nil
+}
+
+// AgentBriefAllowed: Finance's rule holds for a session on Finance's own
+// tile (the connector asks it for every call) and for one held to the
+// connector on a local model; nothing else is vouched for.
+func (fakeWorld) AgentBriefAllowed(org, tile, served, model string) error {
+	if org != "fin" {
+		return nil
+	}
+	bound := tile == "apps/mail" && (served == agentpolicy.ServedUnknown || served == agentpolicy.ServedConnector)
+	if bound || served == agentpolicy.ServedConnector && strings.HasPrefix(model, "local/") {
+		return nil
+	}
+	return errors.New("Finance allows private models only: not this session (" + served + " " + model + ")")
 }
 func (f fakeWorld) AgentConnectionFor(p auth.Principal, orgs, tiles []string, model, whatIf string) (agentpolicy.View, *agentpolicy.Change) {
 	if whatIf != "" {
@@ -361,6 +376,13 @@ func TestDelegatePreview(t *testing.T) {
 			t.Errorf("%s: %d %s, want a 403 with %q", name, code, body, c[1])
 		}
 	}
+	// a tile whose agent level is off (the consoles are) isn't rendered for
+	// an agent either: a preview is a read of the tile, through the same gate
+	w.policy.set(func(d *dPolicy) { d.tileOff = map[string]bool{"apps/x": true} })
+	if code, body := post(`{"tile":"apps/x"}`, bob); code != 403 || !strings.Contains(body, `agent level is \"off\"`) {
+		t.Errorf("a preview of a tile that is off for agents: %d %s", code, body)
+	}
+	w.policy.set(func(d *dPolicy) { d.tileOff = nil })
 	// blocked by an org's rule: its reason
 	w.policy.set(func(d *dPolicy) { d.deny["apps/x"] = errors.New("Finance allows private models only") })
 	if code, body := post(`{"tile":"apps/x"}`, bob); code != 403 || !strings.Contains(body, "Finance allows private models only") {
@@ -487,6 +509,11 @@ func TestDelegateStartDefaultsAndPrompt(t *testing.T) {
 	if sess["provider"] != get().Harness || sess["mode"] == "" || sess["asks"] != true || sess["prompt"] != brief {
 		t.Fatalf("the card of a start that named nothing: %v", sess)
 	}
+	// a mode that edits on its own is never "asks": the card says so, and it takes a ticket
+	edits, _ := json.Marshal(map[string]string{"cwd": "apps/x", "kind": "agent", "provider": "claude", "mode": "acceptEdits"})
+	if card, _ := w.ask(alice, "POST", "/api/xbin/term/sessions", string(edits)).Preview["session"].(map[string]any); card["asks"] != false || card["mode"] != "acceptEdits" {
+		t.Errorf("the card of a start in acceptEdits: %v", card)
+	}
 	// the brief is part of what the ticket binds: another one isn't this start
 	w.approve(w.cookie("alice"), req.ID, "once")
 	other, _ := json.Marshal(map[string]string{"cwd": "apps/x", "kind": "agent", "prompt": "Delete the schema."})
@@ -525,5 +552,76 @@ func TestDelegateStartDefaultsAndPrompt(t *testing.T) {
 	big, _ := json.Marshal(map[string]string{"cwd": "apps/x", "kind": "agent", "prompt": strings.Repeat("x", maxStartPrompt+1)})
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", `{"method":"POST","path":"/api/xbin/term/sessions","body":`+strconv.Quote(string(big))+`}`, alice); rec.Code == 200 {
 		t.Error("a start with an over-long first prompt was asked for")
+	}
+}
+
+// What each off switch stops (the final review's finding 4): a ticket
+// approved before a pause, a switch-off or the person's end is void
+// afterwards — resuming doesn't bring it back; a standing approval
+// survives a pause (the person resumes on purpose) and not a switch-off.
+func TestOffSwitchesVoidWhatWasApproved(t *testing.T) {
+	w := delegateWorld(t)
+	bob, person, admin := delegateCred("d-bob"), w.cookie("bob"), w.cookie("alice")
+	const send = `{"to":"x"}`
+	ticket := func() string {
+		t.Helper()
+		req := w.ask(bob, "POST", "/api/apps/mail/send", send)
+		w.approve(person, req.ID, "once")
+		return req.ID
+	}
+	use := func(id string) int {
+		return w.do(w.inv, "POST", "/api/apps/mail/send", send, bob, header(HeaderTicket, id)).Code
+	}
+	state := func(c cred, path, body string) {
+		t.Helper()
+		if rec := w.do(w.full, "PUT", "/api/xbin/delegate/"+path, body, c); rec.Code != 200 {
+			t.Fatalf("PUT %s %s: %d %s", path, body, rec.Code, rec.Body.String())
+		}
+	}
+	if _, err := w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/x", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session"); err != nil {
+		t.Fatal(err)
+	}
+	// pause, then resume: the ticket approved before it is gone; the standing approval isn't
+	id := ticket()
+	state(person, "state", `{"paused":true}`)
+	state(person, "state", `{"paused":false}`)
+	if code := use(id); code != 403 {
+		t.Errorf("a ticket approved before a pause, used after the resume: %d", code)
+	}
+	if got, _ := w.store.Request("bob", id); got.State == delegation.Approved {
+		t.Errorf("the ticket is still %s", got.State)
+	}
+	if _, ok := w.store.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); !ok {
+		t.Error("a pause dropped a standing approval")
+	}
+	// the workspace's switch off, then on: tickets and standing approvals are gone
+	id = ticket()
+	state(admin, "workspace", `{"enabled":false}`)
+	state(admin, "workspace", `{"enabled":true}`)
+	if code := use(id); code != 403 {
+		t.Errorf("a ticket approved before the switch-off, used after: %d", code)
+	}
+	if _, ok := w.store.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); ok {
+		t.Error("a standing approval survived the workspace's switch-off")
+	}
+	// the person is disabled, then enabled again: nothing approved before carries over
+	id = ticket()
+	if _, err := w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/x", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session"); err != nil {
+		t.Fatal(err)
+	}
+	set := func(disabled bool) {
+		if _, err := w.s.Auth.Users.Upsert(users.User{ID: "bob", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelRead, "apps/mail": users.LevelRead}, Disabled: disabled}, ""); err != nil {
+			t.Fatal(err)
+		}
+		w.invS.SweepDelegation()
+		w.s.SweepDelegation()
+	}
+	set(true)
+	set(false)
+	if code := use(id); code == 200 {
+		t.Errorf("a ticket approved before the person was disabled, used after: %d", code)
+	}
+	if _, ok := w.store.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); ok {
+		t.Error("a standing approval survived the person being disabled")
 	}
 }

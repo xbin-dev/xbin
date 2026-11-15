@@ -25,24 +25,45 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 )
 
-// agentAccess: the person behind p may open the agent at holder.
+// agentAccess: the person behind p has an agent at holder — it was given
+// to them (users.Access.Given). An admin who wasn't reads the component as
+// they manage it and has no agent: administering it and having one are two
+// things, and `who` alone decides the second.
 func (s *Server) agentAccess(p auth.Principal, holder string) bool {
 	if s.devOwner(p) {
 		return true // --no-auth: the implicit owner is everyone there is
 	}
 	p = personOf(p)
-	p.Component = "" // the person, whichever of their credentials asks (their agent's page is a frame of holder)
-	return p.UserID != "" && p.CanReadTile(holder)
+	return p.UserID != "" && s.userHasAgent(p.UserID, holder)
 }
 
 // userHasAgent is agentAccess by a person's id, for what xbind tells a
-// person unasked (the notice that names the agent's page).
+// person unasked (the notice that names the agent's page) and for the
+// delegation gate (AgentGivenGate).
 func (s *Server) userHasAgent(user, holder string) bool {
 	if s.Auth == nil || s.Auth.Users == nil {
 		return true // --no-auth: the owner
 	}
-	a, ok := s.Auth.Users.Access(user)
-	return ok && a.CanReadTile(holder)
+	return s.Auth.Users.Given(user, holder)
+}
+
+// AgentGivenGate adds to a delegation gate (DelegationGate) that the
+// person was GIVEN the agent: an admin's role lets them read the sealed
+// component — its system page — and is no agent acting as them. given nil
+// (no accounts: --no-auth) adds nothing.
+func AgentGivenGate(gate func(holder, user string) error, given func(user, holder string) bool) func(holder, user string) error {
+	if given == nil {
+		return gate
+	}
+	return func(holder, user string) error {
+		if err := gate(holder, user); err != nil {
+			return err
+		}
+		if !given(user, holder) {
+			return &OffError{"no-agent", "you weren't given a workspace agent: an admin chooses who gets one (administering it isn't having one)"}
+		}
+		return nil
+	}
 }
 
 // AgentWho is who was given a workspace agent, as an admin reads it.
@@ -109,4 +130,30 @@ func (s *Server) delegateWorkspaceView(p auth.Principal) map[string]any {
 		}
 	}
 	return out
+}
+
+// AgentHeldGate adds to a delegation gate that the agent isn't HELD (its
+// data is a newer xbin's, the vault is locked, its release can't run
+// here: AgentHeld). A held component's backends aren't started; this is
+// for one that was running when the hold began, and for its model turns.
+func (s *Server) AgentHeldGate(gate func(holder, user string) error) func(holder, user string) error {
+	return func(holder, user string) error {
+		if err := gate(holder, user); err != nil {
+			return err
+		}
+		if kind := s.agentHeldKind(holder); kind != "" {
+			return &OffError{"held", "the workspace agent is held on this xbin (" + kind + "): it does nothing until that is cleared"}
+		}
+		return nil
+	}
+}
+
+// agentHeldKind is why holder — the agent here — is held ("" when it
+// isn't, and for any other component).
+func (s *Server) agentHeldKind(holder string) string {
+	if s.AgentHeld == nil || holder == "" || holder != s.agentHolder() {
+		return ""
+	}
+	kind, _ := s.AgentHeld()
+	return kind
 }
