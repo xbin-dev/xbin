@@ -15264,7 +15264,8 @@ Deviations and refinements made while implementing; all deliberate:
     `TestModelIsCurrent` fails when a quoted passage changed and the file
     wasn't regenerated. It compares the output, not a hash of the pages:
     an edit elsewhere in a page costs nobody a regeneration.
-  - **Evaluation.** Fourteen scripted scenarios (`ws_eval_test.go`) run
+  - **Evaluation.** Fourteen scripted scenarios (`ws_eval_test.go`; the
+    fields' own tests are `ws_fields_test.go`) run
     in the template's suite — two came with the follow-up: pending
     requests interleaving with a finishing tile agent, and an end by
     restart offered for resume. They check what a scripted model can't
@@ -15275,6 +15276,25 @@ Deviations and refinements made while implementing; all deliberate:
     wake row the first build's park left behind when a pass raced its
     commit. What a real model does is twenty-one scenarios for a manual
     run (`testdata/ws-real-model-scenarios.md`); no provider was called.
+  - **Fields beside the words.** The page draws from fields, the model
+    reads sentences, and neither is parsed out of the other
+    (`ws_context.go`): a message's `context` (the tile or screen the
+    person attached; the tile's name and whether the session is connected
+    are xbind's answer, and the model reads one labelled line before their
+    words, the stored message staying theirs); a request's outcome
+    (`grant` once | call | tile and until when, `by`, `via`,
+    `resultStatus`, `result`, `expiresMs`); a refusal as a card of its own
+    with a `kind` and xbind's sentence (`ws_refusals`); `ask_user`'s
+    `kind` (choices | redirect, with its tile | cant); and on
+    `/ws/state` the stopping `quota` (from the connector's 429), `pausedAt`
+    and each model's `private` and `where`. All additive; no sentence the
+    model is told changed. *Rejected*: deriving the cards from the tool
+    results' wording (the page did, and every reword would break it);
+    asking the model to restate a refusal (it is xbind's fact, not the
+    model's). *Open*: the connector's model list carries no `private` per
+    model, so only a model one of the person's sessions is on is marked
+    (from xbind's connection view); a tile outside the map is `hidden` or
+    `policy` only where xbind's dry run says so, else `not-connected`.
   - **Not here.** The page (D, E) and anything in the template's
     frontend; attachments (the class has no file tools: a file a person
     attaches would be unreadable — open); a preview's picture (the tool gives the model

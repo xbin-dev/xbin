@@ -226,7 +226,20 @@ func (ag *Agent) wsCheckReq(ctx context.Context, s *wsSession, r *wsReq) bool {
 		if !cs.decided() {
 			return true
 		}
-		ag.wsOutcome(r, cs.State, "your person decided — "+wsChangeSetText(cs))
+		applied, chosen := 0, 0
+		for _, it := range cs.Items {
+			if it.Result != "" && it.Result != "rejected" {
+				chosen++
+			}
+			if it.Result == "applied" {
+				applied++
+			}
+		}
+		done := wsDone{State: cs.State, By: "person", Outcome: "your person decided — " + wsChangeSetText(cs)}
+		if chosen > 0 || applied > 0 {
+			done.Result = fmt.Sprintf("%d of %d changes applied", applied, chosen)
+		}
+		ag.wsSettled(r, done)
 		return false
 	}
 	if r.State == "running" {
@@ -248,9 +261,10 @@ func (ag *Agent) wsCheckReq(ctx context.Context, s *wsSession, r *wsReq) bool {
 	case "pending":
 		return true
 	case "approved":
-		ag.wsDecide(ctx, s, r, xr.Grant)
+		ag.wsDecide(ctx, s, r, xr)
 	case "denied":
-		ag.wsOutcome(r, "denied", "denied by your person. Nothing ran. Don't ask for it again unless they say so; if you don't know what they want instead, ask them.")
+		ag.wsSettled(r, wsDone{State: "denied", By: "person", Via: xr.Via,
+			Outcome: "denied by your person. Nothing ran. Don't ask for it again unless they say so; if you don't know what they want instead, ask them."})
 	case "expired":
 		ag.wsOutcome(r, "expired", "expired — not approved within 24 hours. Nothing ran. Mention it when your person is back; file it again only if they still want it.")
 	case "withdrawn":
@@ -283,13 +297,13 @@ func (ag *Agent) wsDecideByID(id int64) {
 		return
 	}
 	if s, err := ag.db.wsSession(r.Run); err == nil {
-		ag.wsDecide(ctx, s, r, "")
+		ag.wsDecide(ctx, s, r, wsRequest{})
 	}
 }
 
 // wsDecide makes the call an approved request allows — once — and records
 // what came of it.
-func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, grant string) {
+func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, xr wsRequest) {
 	if !ag.wsClaim(r) {
 		return
 	}
@@ -298,15 +312,30 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, grant str
 		ticket = "" // confirmed on the brief; the person's preferences let the start through
 	}
 	how := "approved by your person"
-	switch grant {
+	switch xr.Grant {
 	case "hour":
 		how = "approved by your person, for an hour"
 	case "always":
 		how = "approved by your person, from now on"
 	}
+	// the same in fields, for the page: how it was allowed (a standing
+	// approval's scope and end are xbind's record of it), by whom, via what
+	done := wsDone{State: "used", Grant: "once", By: "person", Via: orStr(xr.Via, map[bool]string{true: "page", false: ""}[ticket == ""])}
+	if xr.Grant == "hour" || xr.Grant == "always" {
+		done.Grant = "call"
+		var standing []wsStanding
+		if err := ag.wsWith(ctx, s, func(sid string) (err error) { standing, err = wsX.Standing(ctx, sid); return }); err == nil {
+			for _, st := range standing {
+				if st.Request == xr.ID {
+					done.Grant, done.Until = orStr(st.Scope, "call"), st.Until*1000
+				}
+			}
+		}
+	}
 	state, outcome := "used", ""
 	fail := func(err error) {
 		state = "failed"
+		done.Result = clip(wsPlain(wsRefusal(err)), 240)
 		switch {
 		case errors.Is(err, xbin.ErrBadTicket):
 			outcome = how + ", but the approval no longer covered the call when it was made (it expired after 15 minutes, or the tile changed). Nothing ran. Ask again if it is still wanted."
@@ -323,6 +352,7 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, grant str
 			break
 		}
 		outcome = how + " — it ran: " + wsAnswerText(r.Tile, c, a)
+		done.Status, done.Result = a.Status, fmt.Sprintf("%s %s → %d", c.Method, strings.TrimPrefix(c.Path, "/api/"+r.Tile), a.Status)
 		if a.Status >= 400 {
 			outcome += "\nThe tile answered with an error: the change may not have happened. Say so."
 		}
@@ -350,6 +380,7 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, grant str
 		row := ag.wsAddAgent(s, r, a)
 		outcome = fmt.Sprintf("%s — tile agent #%d started in %s (%s, %s) and was told the brief. It is your person's session: they can open it and only they answer its questions. You are told when it ends its turn, fails or waits for them; until then go on with what doesn't depend on it.",
 			how, row.ID, row.Tile, orStr(row.Harness, "coding agent"), map[bool]string{true: "asks before acting", false: "acts without asking"}[row.Asks])
+		done.Result = fmt.Sprintf("tile agent #%d started in %s (%s)", row.ID, row.Tile, orStr(row.Harness, "coding agent"))
 	case wsReqTemplate:
 		var create wsTileCreate
 		_ = json.Unmarshal(r.Body, &create)
@@ -359,8 +390,10 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, grant str
 			break
 		}
 		outcome = fmt.Sprintf("%s — the tile %s now exists, made from %s. It is your person's. workspace_map lists it; a tile agent can build in it (tile_agent_brief).", how, path, create.Template)
+		done.Result = "the tile " + path + " now exists"
 	}
-	ag.wsOutcome(r, state, outcome)
+	done.State, done.Outcome = state, outcome
+	ag.wsSettled(r, done)
 	ag.wsRefresh(ctx, s, true)
 }
 
@@ -375,30 +408,52 @@ func (ag *Agent) wsLostTicket(ctx context.Context, s *wsSession, r *wsReq) bool 
 	case err == nil && xr.State == "approved": // never used: use it now
 		_, _ = ag.db.q.Exec(`UPDATE ws_requests SET state='approved' WHERE id=? AND state='running'`, r.ID)
 		r.State = "approved"
-		ag.wsDecide(ctx, s, r, xr.Grant)
+		ag.wsDecide(ctx, s, r, xr)
 		return false
 	}
 	ag.wsOutcome(r, "used", "approved by your person, and the call was probably made — this agent restarted before it could read the answer. Check what it did (a read, tile_status, tile_agents) before you say it worked, and don't repeat it blindly.")
 	return false
 }
 
-// wsOutcome records what came of r and owes it to the conversation as a
+// wsDone is what came of a request: Outcome in the words the conversation
+// is told, and the same in fields for the page (wsReq's).
+type wsDone struct {
+	State   string
+	Outcome string
+	Grant   string // once | call | tile
+	Until   int64  // a standing approval's end, ms (0: until taken back)
+	By      string // person | agent | xbin
+	Via     string
+	Status  int    // the HTTP status of the call that ran
+	Result  string // one line
+}
+
+// wsOutcome is wsSettled for an end nobody chose a grant for: who ended it
+// follows from how it ended.
+func (ag *Agent) wsOutcome(r *wsReq, state, outcome string) {
+	by := map[string]string{"expired": "xbin", "withdrawn": "agent", "denied": "person", "used": "person"}[state]
+	ag.wsSettled(r, wsDone{State: state, Outcome: outcome, By: by})
+}
+
+// wsSettled records what came of r and owes it to the conversation as a
 // workspace update. A decision is its person's act, like a message of
 // theirs: it wakes the conversation now, whatever the coalescing window
 // (which is for tile agents' chatter) — an idle one starts a turn, one in
 // a turn reads it at its next step.
-func (ag *Agent) wsOutcome(r *wsReq, state, outcome string) {
-	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state=?, outcome=?, decided_ms=?, owed=1, call_id='' WHERE id=? AND state IN ('pending','approved','proposed','applying','running')`,
-		state, outcome, nowMs(), r.ID)
+func (ag *Agent) wsSettled(r *wsReq, d wsDone) {
+	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state=?, outcome=?, decided_ms=?, owed=1, call_id='',
+		grant_scope=?, grant_until_ms=?, decided_by=?, decided_via=?, result_status=?, result=?
+		WHERE id=? AND state IN ('pending','approved','proposed','applying','running')`,
+		d.State, d.Outcome, nowMs(), d.Grant, d.Until, d.By, d.Via, d.Status, d.Result, r.ID)
 	if err != nil {
 		return
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return // decided already
 	}
-	if r.Brief != 0 && state != "used" {
+	if r.Brief != 0 && d.State != "used" {
 		_, _ = ag.db.q.Exec(`UPDATE ws_briefs SET state=?, updated_ms=? WHERE id=? AND state='asked'`,
-			map[bool]string{true: "denied", false: "draft"}[state == "denied"], nowMs(), r.Brief)
+			map[bool]string{true: "denied", false: "draft"}[d.State == "denied"], nowMs(), r.Brief)
 	}
 	coordForget(r.Run)
 	if e := projEng(); e != nil {

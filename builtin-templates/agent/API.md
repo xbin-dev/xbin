@@ -736,7 +736,7 @@ background tab doesn't keep a partition running.
 | `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
 | `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text and tool-call arguments as appended pieces |
 | `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it. A conversation's sandbox jobs still running are killed in the background (§The coding tools); its sandboxes stay |
-| `POST /runs/{id}/message` | `{text, files?, clientId?}` | send a user message → `{inboxId, queued}`. An idle, finished or failed run starts a new turn; a working run gets it at its next step (`queued:true`). A retried post with the same `clientId` is stored once. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not |
+| `POST /runs/{id}/message` | `{text, files?, clientId?}` | send a user message → `{inboxId, queued}`. An idle, finished or failed run starts a new turn; a working run gets it at its next step (`queued:true`). A retried post with the same `clientId` is stored once. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not. A workspace agent's session also takes `context` (§Workspace mode); anywhere else it is ignored |
 | `DELETE /runs/{id}/inbox/{iid}` | — | take back a queued message; **409** once the agent has it |
 | `POST /runs/{id}/answer` | `{text}` | answer an `ask_user` (alias of message) |
 | `POST /runs/{id}/approve` | `{approve, grant?, park?}` | approve/deny a parked tool turn (approval mode). A turn parked on a **grant** (`pendingState.grant`, see **Threads, schedules and grants**) is allowed only by the conversation's owner — **403** for anyone else, who may still deny — with `grant: "once"` (the default) or `"hour"`; **400** for anything else. Every park has an id, `pendingState.park`; `park` names the one the verdict answers — **409** when that ask is no longer pending (the agent moved on; the web card and the xbin app say so beside the card, and the run event redraws it) — and without it the verdict answers the one pending now. A verdict applies to its own park only: one queued for an ask that is gone is dropped, never spent on the next ask, and an allow of a grant counts only from the owner (checked again when it is applied) |
@@ -5852,17 +5852,17 @@ orgs, reason, offer: {newSession: {model}}}`.
 
 | Route | |
 |---|---|
-| `GET /ws/state` | `{user, mode, delegation: {workspace, paused, adminChanges, canAdminChanges} \| delegationError, models: {default, models[]}}` — read-only: pausing is xbind's |
-| `GET /ws/sessions` | `{sessions: [{id, name, main, model, scope, handle, connection, summary, tainted, status, waiting?, archivedAt, agents, requests}]}`, Main first. `id` is the conversation: its transcript is `GET /runs/{id}/view` and `/stream` |
+| `GET /ws/state` | `{user, mode, delegation: {workspace, paused, pausedAt?, adminChanges, canAdminChanges} \| delegationError, models: {default, models: [{id, name, upstream?, private?, where?}]}, quota?}` — read-only: pausing is xbind's (`pausedAt`: RFC 3339, while paused). A model's `private` and `where` ("hosted" \| "your organisation's own server") are there only when xbind says: the connector's list for that model, or the connection view of a session of theirs that is on it. `quota` is the stopping quota a model call last met (below) |
+| `GET /ws/sessions` | `{sessions: [{id, name, main, model, scope, handle, connection, summary, tainted, status, waiting?, ask?, archivedAt, agents, requests}]}`, Main first. `connection.model` is the session's model as xbind names it: `{upstream, model, private}`. `ask` is the question it waits on, in fields (below). `id` is the conversation: its transcript is `GET /runs/{id}/view` and `/stream` |
 | `POST /ws/sessions` | `{main: true}`, or `{name?, scope?, model?, from?}` (`from`: copy that session's scope and model; no name: named from its first request) → `{session}` |
 | `PATCH /ws/sessions/{id}` | `{name?, archived?, scope? ({orgs, tiles} or null: everything allowed), model?}` → `{session}`; `409` for Main's archive, a model change while it works, and `model_taint` |
 | `DELETE /ws/sessions/{id}` | not Main. Closes the handle and withdraws its pending requests; tile agents it started keep running, as their person's |
 | `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection: {counts, orgs: [{id, name, kind, state, reason?, tiles, connected}]}, summary, model, handle}`; with `whatIf` also `whatIf: {model, connects, disconnects, counts, summary, allowed, taintedOrgs}` and, when not allowed, `offer: {newSession: {model}}`. Totals and org-level reasons only: the page reads the tiles' names from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`) |
-| `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset, ref, tile, title, method, path, brief, state, outcome, createdMs, decidedMs}], agents: [{id, session, tile, harness, mode, asks, status, waits, waiting, last, held}], briefs: [{id, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}]}`. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
+| `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset, ref, tile, title, method, path, brief, state, outcome, createdMs, decidedMs, expiresMs?, grant?, grantUntilMs?, by?, via?, resultStatus?, result?}], agents: [{id, session, tile, harness, mode, asks, status, waits, waiting, last, held}], briefs: [{id, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}], refusals: [{id, callId, tool, kind, reason, tile, createdMs}], ask?}` — the fields are described under "In fields" below. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
 | `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?, harness?}`: the person's edit, and their pick of a coding agent among what the tile allows (409 otherwise; `""`: xbind's default again). A request already filed for the old brief is withdrawn and filed again |
 | `GET /ws/sessions/{id}/briefs/{bid}/start-defaults` | what the brief's start would run on, from xbind: `{defaults, picked, harness, harnessName, line}` ("Claude Code · asks before acting") |
 | `POST /ws/sessions/{id}/briefs/{bid}/start` | "Review and start…" → `{request, id}` (the request to review; filed now when the agent hadn't asked), or `{started, id, outcome}` where the person's preferences let tile agents start without xbind asking — there the click is the confirmation |
-| `GET /ws/needs` | `{items, count}`: what waits for the person because of the agent, oldest first per session — `approval` and `changeset` (with `request`), `tile-agent` (with `tileSession`, `text`), `question` (the agent's own `ask_user`) |
+| `GET /ws/needs` | `{items, count}`: what waits for the person because of the agent, oldest first per session — `approval` and `changeset` (with `request`), `tile-agent` (with `tileSession`, `text`), `question` (the agent's own `ask_user`: `text`, and `ask` — its kind —, `choices`, `callId`, and for a redirect `tile`) |
 | `GET /ws/empty?session=` | the empty state, computed from xbind's map without a model call: `{heading, line, can[], cant[], connected, notConnected, summary, placeholder, hint, startersTitle, starters: [{kind: Ask\|Fix\|Change\|New, text, tile?, blank?}]}`. A starter fills the composer; a tile that reports a failure becomes a Fix |
 | `GET /ws/notebook?session=` | `{pages: [{slug, title, summary, version, updatedBy, updatedMs, orgs, tile, rev, locked?, lockedWhy?}]}` — every page is the person's to see; `locked` says the session's model isn't allowed by an org on the page's stamp (`lockedWhy`: xbind's reason) |
 | `GET` / `PUT` / `DELETE /ws/notebook/{slug}` | read; write `{title?, body, summary?, base, clearStamps?}` (`base`: the version seen, `0` for a new page; `409 {current}` when it moved; the page keeps its `orgs` unless `clearStamps`); delete makes the agent forget (history kept) |
@@ -5876,7 +5876,8 @@ orgs, reason, offer: {newSession: {model}}}`.
 `tile_agent_cancel`, `tile_agents`; `research`; `tile_create`;
 `admin_propose`, `admin_changes`; `preview`; `plan`; `notebook_search`,
 `notebook_read`, `notebook_write`, `notebook_edit`, `notebook_archive` —
-with the core `ask_user` (here it takes `choices`), notes and `recall`.
+with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
+notes and `recall`.
 
 **A request is pending, never a wait.** `tile_call` with a method other
 than GET/HEAD, `tile_agent_start` and `tile_create` ask xbind what the call
@@ -5893,6 +5894,60 @@ at once (a decision is its person's act). The same message carries each
 tile agent's change — a turn that ended, a failure, a question for the
 person, a session an xbind restart cut off (with the offer to continue it)
 — and those wake an idle conversation at most once a minute.
+
+**In fields.** What the page draws it reads from fields; the sentences
+beside them are the model's, and neither is parsed out of the other.
+
+- **A message's context.** `POST /runs/{id}/message {text, context}` with
+  `context: {tile: "<path>"}` or `{screen: "<name>"}` — what the person
+  attached to the message (the "About …" chip). The backend resolves it:
+  the tile's `name` and whether the session is `connected` to it are
+  xbind's answer (the session's map), never the page's. The stored message
+  is the person's text; the context is in its `meta.context` (`{tile, name?,
+  connected?}` — `connected` absent when xbind couldn't be asked — or
+  `{screen}`), and the model reads it as one labelled line
+  before their words — `[context your person attached to this message: the
+  tile "Orders" (apps/orders)]`. A malformed context is dropped; outside a
+  workspace agent's session the field is ignored.
+- **A request's outcome** (`cards.requests[]`): `expiresMs` (when xbind
+  lets it lapse); once decided, `by` (`person` \| `xbin` — it expired — \|
+  `agent` — it withdrew it) and `via` (what the person decided it on:
+  `session` \| `app` \| `device`, or `page` for a brief's Start); approved,
+  `grant` — `once`, or a standing approval's scope `call` \| `tile` with
+  `grantUntilMs` (0: until they take it back) —, `resultStatus` (the tile's
+  HTTP status, for a call) and `result`, one line ("POST /send → 200", "tile
+  agent #2 started in apps/orders (Claude Code)", "the tile apps/crm now
+  exists", "2 of 3 changes applied", or why it failed). `outcome` stays the
+  sentence the model was told.
+- **A refusal** (`cards.refusals[]`, newest first, 50 at most): a tool call
+  that xbind refused, or that named a tile the session isn't connected to —
+  `{callId, tool, kind, reason, tile}`, `callId` being the tool call it
+  answers. `kind`: `hidden` (outside the session's scope: the person's
+  choice), `policy` (the tile's or its org's rule; `reason` is their
+  sentence), `cannot` (not in what an agent may do, whatever is approved),
+  `paused`, `off`, `slow` (rate-limited), `taint` (the session's model may
+  not hold that data), `not-connected` (no such tile for this session:
+  xbind answers a tile that isn't there and one the person can't see
+  alike). `tile` is the tile as the call named it. The tool's answer to the
+  model is unchanged.
+- **A question** (`cards.ask`, a session's `ask`, a `question` item of
+  `/ws/needs`): `{callId, kind, question, choices?, tile?}`. `kind` is
+  `ask_user`'s: `choices` (built from what it found), `redirect` (the
+  request was a change to code: the ways forward are the tile's own agent
+  or the outcome; `tile` is the tile it concerns), `cant` (it can't do what
+  was asked: the choices are the nearest things it can), or `question`
+  when it gave no choices. An unknown kind is read as `choices`.
+- **A stopping quota** (`state.quota`, absent when none): `{stopped: true,
+  quota, source, org?, unit, window, limit, used, resets, limitWords, raise,
+  atMs}` — from the connector's `429 xbin_llm_quota_exceeded`. `quota` is
+  the connector's name for the limit (`user.tokensPerDay`,
+  `org:sales.costPerMonth`, `default.…`, `workspace.…`), split into
+  `source` (`user` \| `org` \| `default` \| `workspace`), `org`, `unit`
+  (`tokens` \| `cost`) and `window` (`day` \| `month`); `resets` is RFC
+  3339; `limitWords` says the limit as its person would ("your 2M tokens
+  for today"); `raise` says who can raise it ("a workspace admin", "an
+  admin of sales, or a workspace admin"). It goes when a model call goes
+  through or `resets` passes.
 
 **A tile agent's start** is a ticket of the tile and the brief: the brief
 rides the start as the session's first prompt, so xbind shows it on the

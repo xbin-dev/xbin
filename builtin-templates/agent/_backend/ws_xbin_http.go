@@ -194,7 +194,14 @@ func (wsHTTP) Models(ctx context.Context) (wsModels, error) {
 		return out, nil
 	}
 	for _, m := range cat.Models {
-		out.Models = append(out.Models, wsModel{ID: m.Ref, Name: m.ID})
+		wm := wsModel{ID: m.Ref, Name: m.ID}
+		if up, _, ok := strings.Cut(m.ID, "/"); ok { // the connector's "<upstream>/<model>"
+			wm.Upstream = up
+		}
+		if m.Private != nil { // only when the connector's list says
+			wm.Private, wm.Where = m.Private, wsWhere(*m.Private)
+		}
+		out.Models = append(out.Models, wm)
 	}
 	return out, nil
 }
@@ -409,10 +416,32 @@ type wsRequestWire struct {
 	Tile    string         `json:"tile"`
 	Preview map[string]any `json:"preview"`
 	Expires json.RawMessage
+	Decided json.RawMessage
+	Via     string `json:"decidedVia"`
 }
 
 func (w wsRequestWire) request() wsRequest {
-	return wsRequest{ID: w.ID, Kind: w.Kind, State: w.State, Grant: w.Grant, Tile: w.Tile, Preview: w.Preview, Expires: wireUnix(w.Expires)}
+	return wsRequest{ID: w.ID, Kind: w.Kind, State: w.State, Grant: w.Grant, Tile: w.Tile, Preview: w.Preview, Expires: wireUnix(w.Expires),
+		Decided: wireUnix(w.Decided), Via: w.Via}
+}
+
+// Standing lists the person's standing approvals.
+func (h wsHTTP) Standing(ctx context.Context, sid string) ([]wsStanding, error) {
+	var raw struct {
+		Approvals []struct {
+			ID, Tile, Scope, Method, Path, Request string
+			Until                                  json.RawMessage
+		} `json:"approvals"`
+	}
+	if err := h.get(ctx, sid, "/api/xbin/delegate/approvals", &raw); err != nil {
+		return nil, err
+	}
+	out := make([]wsStanding, 0, len(raw.Approvals))
+	for _, a := range raw.Approvals {
+		st := wsStanding{ID: a.ID, Tile: a.Tile, Scope: a.Scope, Method: a.Method, Path: a.Path, Request: a.Request, Until: wireUnix(a.Until)}
+		out = append(out, st)
+	}
+	return out, nil
 }
 
 func (h wsHTTP) Request(ctx context.Context, sid, id string) (wsRequest, error) {
@@ -803,12 +832,12 @@ func (h wsHTTP) Preview(ctx context.Context, sid string, p wsPreviewAsk) (wsPrev
 func wireUnix(raw json.RawMessage) int64 {
 	var n int64
 	if json.Unmarshal(raw, &n) == nil {
-		return n
+		return max(n, 0)
 	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			return t.Unix()
+			return max(t.Unix(), 0) // Go's zero time: none
 		}
 	}
 	return 0

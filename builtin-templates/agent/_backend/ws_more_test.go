@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
@@ -159,7 +160,7 @@ func TestWsBriefCard(t *testing.T) {
 	}
 	fx.x.decide(second.ID, "approved")
 	fx.notify(t)
-	fx.idle(t, s)
+	fx.rest(t, s)
 	agents := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)
 	if len(agents) != 1 || agents[0].Harness != "Codex" || fx.x.said[agents[0].Session][0] != asked.Prompt {
 		t.Fatalf("the tile agent: %+v, told %q", agents, fx.x.said)
@@ -191,7 +192,7 @@ func TestWsBriefCard(t *testing.T) {
 	}
 	fx.json(t, fx.call(t, wsAlice, "PUT", base+"/briefs/2", map[string]any{"goal": "Export orders as a PDF, one page each"}), 200, nil)
 	fx.json(t, fx.call(t, wsAlice, "POST", base+"/briefs/2/start", nil), 200, &start)
-	fx.idle(t, s)
+	fx.rest(t, s) // the start's outcome is delivered by a turn of its own
 	agents = fx.ag.db.wsAgents(`WHERE run_id=? ORDER BY id`, s.Run)
 	if !start.Started || len(agents) != 2 || !strings.Contains(fx.x.said[agents[1].Session][0], "Goal: Export orders as a PDF, one page each") {
 		t.Fatalf("Start on the brief: %+v, told %q", start, fx.x.said)
@@ -349,8 +350,7 @@ func TestWsLookingAndCreating(t *testing.T) {
 	}
 	fx.x.decide(req.ID, "approved")
 	fx.notify(t)
-	fx.idle(t, s)
-	waitFor(t, "the create's update", func() bool { return len(fx.updates(t, s)) == 1 })
+	fx.rest(t, s)
 	if up := fx.updates(t, s); !strings.Contains(up[0], "the tile apps/team-holidays now exists") || fx.x.count("TileCreate apps/team-holidays") != 1 {
 		t.Fatalf("the create: %q", up)
 	}
@@ -667,6 +667,13 @@ func TestWsHTTPShapes(t *testing.T) {
 			reply(w, 403, map[string]any{"error": "hidden by you: this tile is outside what alice let this conversation see", "refusal": "hidden"})
 		case "POST /api/xbin/delegate/requests":
 			reply(w, 200, map[string]any{"id": "r1", "kind": "call", "state": "pending", "tile": "apps/mail", "expires": "2026-11-16T10:00:00Z"})
+		case "GET /api/xbin/delegate/requests/r1":
+			reply(w, 200, map[string]any{"id": "r1", "kind": "call", "state": "approved", "grant": "hour", "tile": "apps/mail", "expires": "2026-11-16T10:00:00Z",
+				"decided": "2026-11-15T10:01:00Z", "decidedVia": "device"})
+		case "GET /api/xbin/delegate/approvals":
+			reply(w, 200, map[string]any{"approvals": []map[string]any{
+				{"id": "a1", "user": "alice", "tile": "apps/mail", "scope": "call", "method": "POST", "path": "/api/apps/mail/send", "until": "2026-11-15T11:01:00Z", "via": "device", "request": "r1"},
+				{"id": "a2", "user": "alice", "tile": "apps/mail", "scope": "tile"}}})
 		case "POST /api/xbin/term/sessions":
 			reply(w, 200, map[string]any{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "starting", "origin": "agent"})
 		case "GET /api/xbin/term/sessions":
@@ -780,6 +787,13 @@ func TestWsHTTPShapes(t *testing.T) {
 		t.Fatalf("Ask: %+v %v", req, err)
 	}
 	asked := got[len(got)-1]
+	if r, err := h.Request(ctx, "h1", "r1"); err != nil || r.State != "approved" || r.Grant != "hour" || r.Via != "device" || r.Decided != time.Date(2026, 11, 15, 10, 1, 0, 0, time.UTC).Unix() {
+		t.Fatalf("Request: %+v %v", r, err)
+	}
+	if st, err := h.Standing(ctx, "h1"); err != nil || len(st) != 2 || st[0].Request != "r1" || st[0].Scope != "call" || st[0].Method != "POST" ||
+		st[0].Until != time.Date(2026, 11, 15, 11, 1, 0, 0, time.UTC).Unix() || st[1].Scope != "tile" || st[1].Until != 0 {
+		t.Fatalf("Standing: %+v %v", st, err)
+	}
 	if asked.session != "h1" || !strings.Contains(asked.body, `"path":"/api/apps/mail/send"`) || !strings.Contains(asked.body, `"bodyBase64":"eyJ0byI6ImFkYSJ9"`) || !strings.Contains(asked.body, `"summary":"send it"`) {
 		t.Fatalf("the request as filed: %+v", asked)
 	}

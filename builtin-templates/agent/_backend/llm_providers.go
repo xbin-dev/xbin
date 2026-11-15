@@ -125,6 +125,9 @@ type catalogModel struct {
 	// ContextWindow is the model's input limit in tokens when its provider
 	// says (0: unknown). It sizes the compaction budget (D133).
 	ContextWindow int `json:"contextWindow,omitempty"`
+	// Private is the provider's mark that the model keeps prompts inside the
+	// organisation (nil: its list doesn't say).
+	Private *bool `json:"private,omitempty"`
 }
 
 // UnmarshalJSON reads a model object as llm.Model does — member by member:
@@ -142,6 +145,13 @@ func (m *catalogModel) UnmarshalJSON(b []byte) error {
 	m.Provider, m.Ref = "", ""
 	_ = json.Unmarshal(w.Extra["provider"], &m.Provider)
 	_ = json.Unmarshal(w.Extra["ref"], &m.Ref)
+	m.Private = nil
+	if raw, ok := w.Extra["private"]; ok {
+		var b bool
+		if json.Unmarshal(raw, &b) == nil {
+			m.Private = &b
+		}
+	}
 	return nil
 }
 

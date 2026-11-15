@@ -35,7 +35,7 @@ func wsTool(f func(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 		ag.wsRefresh(ctx, s, false)
 		out, err := f(ctx, ag, s, c)
 		if err != nil {
-			return "", errors.New(wsRefusal(err))
+			return "", ag.wsToolErr(ctx, s, err, strings.Trim(strings.TrimSpace(str(c.Args["tile"])), "/"))
 		}
 		return out, nil
 	}
@@ -115,7 +115,9 @@ func wsFindTile(ctx context.Context, ag *Agent, s *wsSession, name string) (wsTi
 	case 1:
 		return byName[0], nil
 	case 0:
-		return wsTile{}, fmt.Errorf("no tile %q is connected in this session: it isn't there, your person can't see it, or it is outside this session's scope or its org's rules (workspace_map lists what is connected, and why the rest is not)", clip(name, 80))
+		nt := &wsNoTile{msg: fmt.Sprintf("no tile %q is connected in this session: it isn't there, your person can't see it, or it is outside this session's scope or its org's rules (workspace_map lists what is connected, and why the rest is not)", clip(name, 80))}
+		nt.kind, nt.reason = ag.wsWhyNot(ctx, s, strings.Trim(name, "/")) // for the page's card; the model reads the map
+		return wsTile{}, nt
 	}
 	var paths []string
 	for _, t := range byName {
