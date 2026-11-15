@@ -420,14 +420,18 @@ func runCS(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 			Images, Sizes       []struct{ ID string }
 		}
 		cons(t).Call("GET", "/hello?protocol=1", nil, 200, &h)
-		// stdio: this tree's runtime has the sockets; a remote release may
-		// predate them
-		caps := "[exec files tar tty snapshots clone ports stdio partitions]"
-		if d.IsRemote() && !slices.Contains(h.Caps, "stdio") {
-			caps = "[exec files tar tty snapshots clone ports partitions]"
+		// llm and stdio: this tree's runtime forwards the LLM connector into
+		// a sandbox (D226) and has the stdio sockets, so the manager offers
+		// both; a remote release may predate either
+		var want []string
+		for _, c := range []string{"exec", "files", "tar", "tty", "snapshots", "clone", "llm", "ports", "stdio", "partitions"} {
+			if (c == "llm" || c == "stdio") && d.IsRemote() && !slices.Contains(h.Caps, c) {
+				continue
+			}
+			want = append(want, c)
 		}
-		if fmt.Sprint(h.Caps) != caps || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
-			t.Errorf("hello: %+v", h)
+		if !slices.Equal(h.Caps, want) || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
+			t.Errorf("hello: %+v (want the capabilities %v, egress [none internet], no notes)", h, want)
 		}
 		if len(h.Images) != 1 || h.Images[0].ID != "base" || len(h.Sizes) != 2 || h.Sizes[0].ID != "tiny" {
 			t.Errorf("hello's images and sizes: %+v", h)
