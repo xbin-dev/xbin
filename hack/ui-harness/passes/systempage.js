@@ -68,7 +68,13 @@ async function systemPage(browser) {
       const body = await text(A.page);
       check(body.includes('System component · managed by xbin') && !/sealed/i.test(body), 'each is called a system component; the page never says "sealed"');
       check(body.includes(`xbin ${sealed.release}`) && body.includes(sealed.components[0].digest), 'it shows the release and the code digest');
-      check(list.every((c) => ['Ready', 'Running', 'Starting'].includes(c.state)), `all are runnable on the harness (${JSON.stringify(list)})`);
+      // one instance: runnable. One per person: only with sandboxes — the
+      // harness has users, so without HARNESS_ISOLATE it is held, and the
+      // page says why (one shared instance is --no-auth's alone)
+      const runnable = (c) => ['Ready', 'Running', 'Starting'].includes(c.state);
+      const held = list.filter((c) => !runnable(c));
+      check(held.every((c) => c.hold === 'needs-sandboxes') && runnable(list.find((c) => c.path === paths[0])) && (held.length === 0 || body.includes('--isolate')),
+        `each is runnable, or held for needing sandboxes with the reason shown (${JSON.stringify(list)})`);
       const P = paths[0];
       const card = A.page.locator(`bx-system-page section[data-path="${P}"]`);
       check((await card.innerText()).includes('Nobody but workspace admins'), `${P}: nobody but admins has access at first`);
