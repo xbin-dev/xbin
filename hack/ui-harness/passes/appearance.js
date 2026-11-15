@@ -217,13 +217,15 @@ async function appearance(browser) {
       for (const tile of [PROBE, OLD]) await openTile(L.page, tile);
       const probe = await until(() => shown(L.page, PROBE), 'the probe on screen'), old = await until(() => shown(L.page, OLD), 'the old probe on screen');
       await until(async () => (await now(probe)).scheme === 'dark', 'the probe is dark on a dark system');
-      // the parent's message (what <bx-frame> posts on every load and change)
-      const post = (tile, data) => L.page.locator(`.card[data-path="${tile}"] bx-frame iframe`).first()
+      // the parent's message (what <bx-frame> posts on every load and change),
+      // to the very frame judged: the first card of a tile in the DOM can be a
+      // copy the layout keeps on another screen tab, never drawn
+      const post = async (frame, data) => (await frame.frameElement())
         .evaluate((iframe, d) => iframe.contentWindow.postMessage(d, '*'), data);
-      await post(PROBE, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
+      await post(probe, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
       const v = await until(async () => { const x = await now(probe); return x.scheme === 'light' && x.row === '32px' && x; }, 'the probe follows its parent');
       check(v.scheme === 'light' && v.row === '32px', `live: the frame applies xbin:appearance from its parent at once (${JSON.stringify(v)})`);
-      await post(OLD, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
+      await post(old, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
       await sleep(300); // a negative: nothing may change
       check((await now(old)).scheme === 'dark', 'live: a frame that didn\'t opt in hears it and stays Night');
       // anything but the parent posting to the probe — the frame itself, a
@@ -237,7 +239,7 @@ async function appearance(browser) {
       await sleep(300); // a negative: nothing may change
       check((await now(probe)).scheme === 'light', `live: an xbin:appearance from the frame itself is ignored${siblings ? `, and from ${siblings} sibling frame(s)` : ' (no sibling could post: frames in shadow roots aren\'t in window.frames)'}`);
       await L.page.screenshot({ path: `${OUT}/appearance-live.png` });
-      await post(PROBE, { type: 'xbin:appearance', theme: 'system', density: 'compact' });
+      await post(probe, { type: 'xbin:appearance', theme: 'system', density: 'compact' });
       await until(async () => (await now(probe)).scheme === 'dark', 'the probe back to the system');
 
       if (shellFollows) {
