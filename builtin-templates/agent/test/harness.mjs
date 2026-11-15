@@ -25,18 +25,18 @@ const go = async (id, sel) => { await page.evaluate((h) => { location.hash = h; 
 await page.goto(`${ORIGIN}/#c=21`);
 await page.waitForSelector('.tcard[data-tool="acp:execute"]');
 const cards = await page.$$eval('#timeline .tcard', (els) => els.map((e) => ({
-  k: e.dataset.k, fam: e.dataset.fam, tool: e.dataset.tool, ic: e.querySelector('.ic bx-icon')?.getAttribute('name') || e.querySelector('.ic').textContent, hl: e.querySelector('.hl').textContent.trim(),
-  oc: e.querySelector('.oc')?.textContent || '', tone: e.querySelector('.oc')?.className || '' })));
+  k: e.dataset.k, fam: e.dataset.fam, tool: e.dataset.tool, ic: e.querySelector('summary .bxc-ic')?.getAttribute('name') || '', hl: e.querySelector('.bxc-title').textContent.trim(),
+  oc: e.querySelector('.bxc-oc')?.textContent || '', tone: e.querySelector('.bxc-oc')?.className || '' })));
 const card = (id) => cards.find((c) => c.k === 'c' + id) || {};
 ok('every acp call is a card', cards.length === 11, cards.map((c) => c.k).join());
 ok('execute: the adapter\'s label, exit 1 as bad news', card('h1:toolu_10').hl.startsWith('Run the flaky test 20 times') && card('h1:toolu_10').oc === 'exit 1'
   && /bad/.test(card('h1:toolu_10').tone), JSON.stringify(card('h1:toolu_10')));
-ok('…its command under it', (await page.textContent('[data-k="ch1:toolu_10"] .sub')) === '$ go test ./... -run TestClientRetry -count=20');
+ok('…its command under it', (await page.textContent('[data-k="ch1:toolu_10"] .bxc-sub')) === '$ go test ./... -run TestClientRetry -count=20');
 ok('edit: the pencil glyph and +5 −1', card('h1:toolu_06').ic === 'pencil' && card('h1:toolu_06').oc === '+5 −1', JSON.stringify(card('h1:toolu_06')));
 ok('the families of the harness kinds', ['edit', 'del', 'move', 'search', 'think', 'mode', 'web', 'file', 'box', 'other'].every((f) => cards.some((c) => c.fam === f)),
   [...new Set(cards.map((c) => c.fam))].join());
 ok('a Task\'s calls are inside it, not beside it', !(await page.$('#timeline [data-k="ch1:toolu_04"]')));
-await page.click('[data-k="ch1:toolu_03"] .tch');
+await page.click('[data-k="ch1:toolu_03"] summary');
 await page.waitForSelector('[data-k="ch1:toolu_03"] [data-k="ch1:toolu_04"]');
 ok('…and open with it, its text too', !!(await page.$('[data-k="ch1:toolu_03"] .msg.assistant')));
 // the top bar: Memory, Learn skill and Compact are the built-in agent's (Compact: a coding agent's own /compact only)
@@ -47,7 +47,7 @@ ok('a coding agent\'s top bar: no Memory or Learn skill; Compact, as Claude Code
 // a park: its module (harness-ask.js, U4) draws it — the built-in card is only the fallback while none answers
 await go(22, '.hask');
 ok('a harness park is its module\'s card, not the built-in one', !(await page.$('.ask.approve')) && (await page.textContent('.hask')).includes('go test ./...'));
-ok('its call waits for the verdict', (await page.textContent('[data-k="ch2:toolu_02"] .st')) === 'needs approval');
+ok('its call waits for the verdict', (await page.textContent('[data-k="ch2:toolu_02"] .bxc-st')) === 'needs approval');
 ok('the activity line is the harness\'s', (await page.textContent('.activity')).includes('Waiting for your approval'));
 // a park of a kind no module answers (one a later backend may add): the built-in card, the fallback
 const repark = (ps, result) => page.evaluate(([ps, result]) => {

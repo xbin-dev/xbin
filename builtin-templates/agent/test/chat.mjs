@@ -74,13 +74,13 @@ await page.waitForFunction(() => window.__streams() > 0);
 
 ok('finished thinking folds to "Thought for 2s"', (await page.textContent('.think .th')).includes('Thought for 2s'));
 ok('…and is closed', (await page.$('.think .tb')) === null);
-const heads = await page.$$eval('.acard, .tcard', (els) => els.map((e) => e.querySelector('.hl').textContent));
+const heads = await page.$$eval('.acard, .tcard', (els) => els.map((e) => e.querySelector('.hl, .bxc-title').textContent));
 ok('a tool card is headed by the model\'s summary', heads.includes('Look up open invoices'), heads.join(' | '));
 ok('…or by a reading of its arguments', heads.includes('Read notes.md'), heads.join(' | '));
-ok('a running call shows it', !!(await page.$('.tcard.running .spin')));
+ok('a running call shows it', !!(await page.$('.tcard.running .bxc-spin')));
 ok('a subagent is a card in the session, open while it works', !!(await page.$('.acard.running.on')));
-await page.waitForSelector('.acard .acb .tcard .hl', { timeout: 5000 }).catch(() => {}); // its view is read once the card is open
-const nested = await page.$$eval('.acard .acb .tcard .hl', (els) => els.map((e) => e.textContent));
+await page.waitForSelector('.acard .acb .tcard .bxc-title', { timeout: 5000 }).catch(() => {}); // its view is read once the card is open
+const nested = await page.$$eval('.acard .acb .tcard .bxc-title', (els) => els.map((e) => e.textContent));
 ok('…with its own tool calls inside', nested.includes('Fetch the price list'), nested.join(' | '));
 ok('…and its task on the card, not as a message', (await page.textContent('.acard .task')).includes('research vendor prices'));
 
@@ -90,13 +90,13 @@ await page.waitForSelector('.think.live');
 ok('streamed thinking shows live and open', (await page.textContent('.think.live')).includes('considering the budget'));
 
 // Open a card, then let results and tokens arrive: it stays open.
-await page.click('.tcard:has-text("Look up open invoices") .tch');
+await page.click('.tcard:has-text("Look up open invoices") summary');
 await page.waitForSelector('.tcard.on');
 await push({ type: 'message', run: 1, root: 1, data: msg(4, 'tool', '# notes\nq3 plan', { toolCallId: 'c2', name: 'file_read' }) });
 await push({ type: 'text', run: 1, root: 1, data: { text: 'Here is the plan' } });
 await page.waitForSelector('.msg.assistant.live');
 ok('the settled result updates its card', !(await page.$('.tcard.running')));
-ok('the card you opened stays open', (await page.$$eval('.tcard.on .hl', (els) => els.map((e) => e.textContent))).includes('Look up open invoices'));
+ok('the card you opened stays open', (await page.$$eval('.tcard.on .bxc-title', (els) => els.map((e) => e.textContent))).includes('Look up open invoices'));
 ok('the answer streams as a draft', (await page.textContent('.msg.assistant.live')).includes('Here is the plan'));
 ok('thinking folded when the answer started', !(await page.$('.think.live')));
 
@@ -252,7 +252,7 @@ await page.click('#prev-close');
   ok('…its open card says why, with Retry', why === "Couldn't read its steps: bad gateway" && !!(await p.$('.acard .readfail [data-act="retry"]')), why);
   await p.evaluate(() => { window.__down = false; });
   await p.click('.acard .readfail [data-act="retry"]');
-  await p.waitForSelector('.acard .acb .tcard .hl');
+  await p.waitForSelector('.acard .acb .tcard .bxc-title');
   ok('…Retry reads it: its own tools, and nothing to say', (await reads()) === n + 1 && !(await p.$('.acard .readfail')));
   await c2.close();
 }

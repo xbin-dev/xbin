@@ -99,11 +99,11 @@ async function agentTemplate(browser) {
   // 2. a tool call is a card headed by its summary
   await say(page, 'now use a tool');
   await answered(page, 'Noted it.');
-  const heads = await text(page, '.tcard .hl');
+  const heads = await text(page, '.tcard .bxc-title');
   check(heads.includes('Jot down a quick note'), `the tool card is headed by the model's summary (${JSON.stringify(heads)})`);
-  await page.click('.tcard .tch');
-  await until(page, () => document.querySelector('.tcard.on .args'));
-  const args = await text(page, '.tcard.on .args .k');
+  await page.click('.tcard summary');
+  await until(page, () => document.querySelector('.tcard.on .bxc-args'));
+  const args = await text(page, '.tcard.on .bxc-args .bxc-ak');
   check(!args.includes('summary') && args.includes('text'), `the summary is the headline, not an argument row (${JSON.stringify(args)})`);
   await shot(page, 'agent-template-chat', { fullPage: false });
 
@@ -129,7 +129,7 @@ async function agentTemplate(browser) {
   check(true, 'a message sent while the agent works shows as a queued chip');
   await answered(page, 'Got your steer', 30000);
   check(!(await page.$('#queue .qchip')), 'the chip leaves once delivered');
-  const order = await page.$$eval('#timeline > *', (els) => els.map((e) => e.classList.contains('tcard') ? 'tool:' + e.querySelector('.hl').textContent
+  const order = await page.$$eval('#timeline > *', (els) => els.map((e) => e.classList.contains('tcard') ? 'tool:' + e.querySelector('.bxc-title').textContent
     : e.classList.contains('user') ? 'user:' + e.textContent.trim() : '').filter(Boolean));
   const iNote = order.indexOf('tool:Take a slow note'), iSteer = order.findIndex((o) => o.startsWith('user:steer'));
   check(iNote >= 0 && iSteer > iNote, `the steer landed after the in-flight step, before the next model call (${JSON.stringify(order.slice(-4))})`);
@@ -224,7 +224,7 @@ async function agentTemplate(browser) {
       const gap = cut && again ? again.start - cut.end : -1;
       log(`restart: ${rs.length} request(s), gap ${gap} ms`);
       check(gap >= 0 && gap < 1500, `a swap mid-call: the new backend re-issued the call ${gap} ms after the old one let go`);
-      const notes = (await text(page, '.tcard .hl')).filter((h) => h === 'Survive a restart');
+      const notes = (await text(page, '.tcard .bxc-title')).filter((h) => h === 'Survive a restart');
       check(notes.length === 1, `the call ran once across the swap (${notes.length} card(s))`);
     } finally {
       fs.rmSync(bump, { force: true });

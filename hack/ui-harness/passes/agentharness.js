@@ -120,9 +120,9 @@ async function start(a, ref, t) {
 }
 
 // the cards of the open conversation, by ACP kind
-const cards = (a) => a.$$eval('#timeline .tcard.hcard', (els) => els.map((e) => ({ kind: e.dataset.kind, status: e.dataset.status, k: e.dataset.k,
-  hl: e.querySelector('.hl')?.textContent.replace(/\s+/g, ' ').trim() || '', oc: e.querySelector('.oc')?.textContent.trim() || '',
-  st: e.querySelector('.st')?.textContent.trim() || '' })));
+const cards = (a) => a.$$eval('#timeline .tcard.hcard', (els) => els.map((e) => ({ kind: (e.dataset.tool || '').replace(/^acp:/, ''), status: e.dataset.status, k: e.dataset.k,
+  hl: e.querySelector('.bxc-title')?.textContent.replace(/\s+/g, ' ').trim() || '', oc: e.querySelector('.bxc-oc')?.textContent.trim() || '',
+  st: e.querySelector('.bxc-st')?.textContent.trim() || '' })));
 
 // ---- 1. start, the transcript ----
 async function transcript(a, check, box) {
@@ -141,18 +141,17 @@ async function transcript(a, check, box) {
   const chip = await a.$eval('#hchip', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
   check(/^FA\s*Fake agent \(tests\) · ready/.test(chip), `the top bar's chip: who answers and its state (${chip})`);
   // open the edit's patch and the command's output
-  await a.click('#timeline .tcard[data-kind="edit"] .tch');
-  await a.click('#timeline .tcard[data-kind="edit"] .hfh');
-  await a.click('#timeline .tcard[data-kind="execute"] .tch');
-  await a.waitForSelector('#timeline .tcard[data-kind="edit"] .hdiff');
-  const patch = await a.textContent('#timeline .tcard[data-kind="edit"] .hdiff');
+  await a.click('#timeline .tcard[data-tool="acp:edit"] summary');
+  await a.click('#timeline .tcard[data-tool="acp:execute"] summary');
+  await a.waitForSelector('#timeline .tcard[data-tool="acp:edit"] .bxc-diff');
+  const patch = await a.textContent('#timeline .tcard[data-tool="acp:edit"] .bxc-diff');
   check(/@@ -1 \+1 @@\s*-hello\s*\+hello, world/.test(patch), `the edit's patch, from the backend's diff (${patch.replace(/\s+/g, ' ').slice(-120)})`);
-  const out = await a.textContent('#timeline .tcard[data-kind="execute"] .tcb');
+  const out = await a.textContent('#timeline .tcard[data-tool="acp:execute"] .bxc-body');
   check(/ok\s+example/.test(out) && /exit 0/.test(out), `the execute card's output and exit (${out.replace(/\s+/g, ' ').slice(0, 120)})`);
-  await a.$eval('#timeline .tcard[data-kind="edit"]', (e) => e.scrollIntoView({ block: 'start' }));
+  await a.$eval('#timeline .tcard[data-tool="acp:edit"]', (e) => e.scrollIntoView({ block: 'start' }));
   await shots(a, 'cards');
-  await a.click('#timeline .tcard[data-kind="edit"] .tch');
-  await a.click('#timeline .tcard[data-kind="execute"] .tch');
+  await a.click('#timeline .tcard[data-tool="acp:edit"] summary');
+  await a.click('#timeline .tcard[data-tool="acp:execute"] summary');
 
   // the plan: live while the turn runs, then 3/3
   await say(a, 'todo');

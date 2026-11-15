@@ -16,10 +16,10 @@ import { html, nothing, repeat, unsafeHTML, classMap, directive, Directive, noCh
 import { md, mdInto, mdEpoch, onHighlighter } from './chat-md.js';
 import { ctx } from './web-ext.js';
 import { copyAnswer } from './chat-copy.js'; // copying with the formatting: an answer's Copy, the transcript's Ctrl+C (D199)
-import { ICON, argsShown } from './model/tool-heads.js';
 import { grantAsk, compactionWords } from './model/rules.js';
 import { activityStill } from './model/harness.js';
 import { docStepTpl } from './doc-cards.js'; // a document the agent wrote (D201)
+import { kitRow, KIT, ownViews } from './chat-kit.js'; // the kinds xbind's chat kit draws (D224)
 
 // mdOf(b, slot, text): the HTML of a block's markdown, parsed once per block
 // object (a changed message is a new block: parsed again).
@@ -44,14 +44,7 @@ class MdLive extends Directive {
 }
 const mdLive = directive(MdLive);
 
-const STATE_LABEL = {
-  running: 'running', writing: 'writing', waiting: 'waiting', approval: 'needs approval',
-  error: 'failed', stopped: 'stopped', done: '',
-};
-// the glyphs (D184): a state that needs a look says so with its glyph and
-// its word; an outcome's tone, likewise; a fold's caret
-const STATE_ICON = { approval: 'warning', error: 'error', stopped: 'stop' };
-const TONE_ICON = { ok: 'ok', bad: 'error' };
+// the glyphs (D184): a line's own, a fold's caret
 const icon = (name) => (name ? html`<bx-icon name=${name}></bx-icon>` : nothing);
 const caret = (open) => html`<span class="tw"><bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></span>`;
 
@@ -59,7 +52,6 @@ const secs = (ms) => {
   const s = Math.max(1, Math.round(ms / 1000));
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 };
-const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
 // ui: {isOpen(id, dflt), toggle(id, dflt), act: {...}, ext?}
 export function blocksTpl(blocks, ui, depth = 0) {
@@ -69,6 +61,12 @@ export function blocksTpl(blocks, ui, depth = 0) {
 function blockTpl(b, ui, depth) {
   const x = ui.ext?.block(b, ui, depth);
   if (x) return x;
+  if (KIT.has(b.k)) return kitRow(b, ui, depth);
+  return ownTpl(b, ui, depth);
+}
+
+// the kinds still drawn here (also inside a card the kit draws: chat-kit.js asks)
+function ownTpl(b, ui, depth) {
   switch (b.k) {
     case 'user': return userTpl(b, ui);
     case 'notice': return noticeTpl(b, ui);
@@ -77,12 +75,13 @@ function blockTpl(b, ui, depth) {
       <div class="acts"><button class="act" title="copy this answer (with its formatting)" aria-label="copy this answer"
         @click=${(e) => copyAnswer(e, b.text)}><bx-icon name="copy"></bx-icon></button></div></div>`;
     case 'draft': return html`<div class="msg assistant live" data-k=${b.id}><div class="md" ${mdLive(b.text)}></div><span class="cur"></span></div>`;
-    case 'tool': return toolTpl(b, ui, depth);
     case 'agent': return agentTpl(b, ui, depth);
     case 'step': return stepTpl(b, ui);
   }
   return nothing;
 }
+
+ownViews(ownTpl);
 
 function userTpl(b, ui) {
   // someone else in a shared conversation: say who
@@ -116,57 +115,6 @@ function thinkTpl(b, ui) {
   return html`<div class="think ${b.live ? 'live' : ''} ${open ? 'on' : ''}" data-k=${b.id}>
     <div class="th" @click=${() => ui.toggle(b.id, b.live)}>${caret(open)}${label}</div>
     ${open ? html`<div class="tb">${b.text}</div>` : nothing}
-  </div>`;
-}
-
-// argsOf: a call's arguments as shown, parsed once per block object.
-const argMemo = new WeakMap();
-function argsOf(b) {
-  let a = argMemo.get(b);
-  if (!a) argMemo.set(b, (a = argsShown(b.args)));
-  return a;
-}
-
-function argRows(b) {
-  const a = argsOf(b);
-  const keys = Object.keys(a);
-  if (!keys.length) return nothing;
-  return html`<div class="args">${keys.map((k) => {
-    const v = a[k];
-    const s = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
-    const long = s.length > 80 || s.includes('\n');
-    return html`<div class="arg"><span class="k">${k}</span>${long ? html`<pre class="v">${s}</pre>` : html`<span class="v">${s}</span>`}</div>`;
-  })}</div>`;
-}
-
-function toolTpl(b, ui, depth = 0) {
-  const open = ui.isOpen(b.id, false);
-  const st = b.state;
-  return html`<div class=${classMap({ tcard: true, on: open, [st]: true })} data-fam=${b.fam} data-tool=${b.name} data-k=${b.id}>
-    <div class="tch" @click=${() => ui.toggle(b.id, false)} title=${b.name}>
-      <span class="ic">${icon(ICON[b.fam])}</span>
-      <span class="hl">${b.headline}${b.sub ? html`<span class="sub">${b.sub}</span>` : nothing}</span>
-      ${b.outcome ? html`<span class="oc ${b.outcome.tone}">${icon(TONE_ICON[b.outcome.tone])}${b.outcome.text}</span>` : nothing}
-      ${st === 'running' || st === 'writing' ? html`<span class="spin"></span>` : nothing}
-      ${STATE_LABEL[st] ? html`<span class="st">${icon(STATE_ICON[st])}${STATE_LABEL[st]}</span>` : nothing}
-      ${caret(open)}
-    </div>
-    ${open ? html`<div class="tcb">
-      <div class="tname mono">${b.name}</div>
-      ${argRows(b)}
-      ${b.result && st !== 'running' ? resultTpl(b, ui) : nothing}
-      ${b.kids ? html`<div class="acb">${blocksTpl(b.kids, ui, depth + 1)}</div>` : nothing}
-    </div>` : nothing}
-  </div>`;
-}
-
-function resultTpl(b, ui) {
-  const full = ui.isOpen(b.id + ':full', false);
-  const long = b.result.length > 1200;
-  const text = long && !full ? b.result.slice(0, 1200) + '…' : b.result;
-  return html`<div class="res">
-    <pre>${text}</pre>
-    ${long ? html`<button class="lnk" @click=${() => ui.toggle(b.id + ':full', false)}>${full ? 'show less' : `show all (${fmtN(b.result.length)} chars)`}</button>` : nothing}
   </div>`;
 }
 

@@ -12,6 +12,44 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **The agent template's chat is drawn with the chat kit; a tool call's
+  card says what it came to** (D224; [frontend-kit.md](/docs/frontend-kit.md)
+  §The chat kit). The kit (`/vendor/chat/…`, revision 4 in
+  `/vendor/chat/rev.js`) has a second host: the agent template hands its
+  blocks to the kit's views (`model/fold.js` `blockOf`, `chat-kit.js`), so
+  a coding agent's calls and the template's own tools are one card, in the
+  Agent tab and in the template alike.
+  - **The tool card** (`/vendor/chat/cards.js` `toolView`) is one line —
+    glyph, headline with the command under a description, what the call
+    came to (`exit 1`, `+3 −1`, `12 matches`), a still mark while it runs,
+    and its state only while that needs a look (needs approval, failed,
+    cancelled) — in place of a boxed status badge on every card. Open, it
+    adds the tool's name, an `exit N` line under a command's output, the
+    places a read or a search touched, a fetch's address as a link, and a
+    file a patch could not be drawn for by name. The Agent tab's cards
+    change with it.
+  - **For a tile that draws with the kit**: a `tool` block may carry its
+    own `icon`, `sub`, `outcome`, `args` and `result` (a tool of the
+    host's own); `ChatCtx.rowAttrs(block, depth)` puts the host's hook
+    classes and `data-*` attributes on a block's element; a block inside a
+    card sits in `<div class="bxc-in" data-k>` (`innerView`); `cards.js`
+    exports `argsView` and `clipView`; `tools.js` `stateChip` says
+    `waiting`. A fold is now drawn as `ChatCtx.isOpen` says and `setOpen`
+    hears a fold closing as well as opening — a host whose `isOpen`
+    returned `true` for a fold the reader had closed will see it stay
+    open; return what the reader last did.
+  - **An instance of the agent template** merges this by git. Its page
+    needs kit revision 4 (`boot.js` `NEEDS`: it says "This agent needs
+    xbind ≥ v0.3.80" on an older xbind). A tool call's row keeps its
+    hooks — `.tcard` (`.hcard` for a coding agent's), its state class,
+    `.on` while open, `data-k`, `data-fam`, `data-tool`, `data-status` —
+    on the kit's row; inside it the markup is the kit's (`.bxc-title` for
+    `.hl`, `.bxc-sub` for `.sub`, `.bxc-oc` for `.oc`, `.bxc-st` for
+    `.st`, `summary` for `.tch`, `.bxc-body` for `.tcb`; a coding agent's
+    `data-kind` is read from `data-tool`), so a stylesheet of your own
+    that reached inside a card needs those names. `harness-cards.js`
+    keeps the top bar's usage badge, counts and plan pin.
+
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
   `llm.ReadData(r, fn)` hands each `data:` line's payload to `fn` by itself

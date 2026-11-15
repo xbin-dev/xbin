@@ -117,9 +117,9 @@ async function turn(page, msg, want, timeout = 30000) {
 const lastCard = (page, tool) => page.$$eval(`#timeline .tcard[data-tool="${tool}"]`, (els) => {
   const e = els[els.length - 1];
   if (!e) return null;
-  return { fam: e.dataset.fam, hl: e.querySelector('.hl')?.textContent.trim() || '', oc: e.querySelector('.oc')?.textContent.trim() || '',
-    tone: e.querySelector('.oc')?.className || '', st: [...e.classList].filter((c) => c !== 'tcard' && c !== 'on').join(' '),
-    ic: e.querySelector('.ic bx-icon')?.getAttribute('name') || e.querySelector('.ic')?.textContent.trim() || '' }; // its glyph's name (D184)
+  return { fam: e.dataset.fam, hl: e.querySelector('.bxc-title')?.textContent.trim() || '', oc: e.querySelector('.bxc-oc')?.textContent.trim() || '',
+    tone: e.querySelector('.bxc-oc')?.className || '', st: [...e.classList].filter((c) => c !== 'tcard' && c !== 'on').join(' '),
+    ic: e.querySelector('summary .bxc-ic')?.getAttribute('name') || '' }; // its glyph's name (D184)
 });
 const badge = (page) => page.$eval('#sbxbadge', (e) => e.textContent.trim()).catch(() => '');
 
@@ -221,15 +221,15 @@ async function browserAndDownload(a, check, home, runId) {
       `"sandbox browser": a real Chromium loaded the page (${checked.slice(0, 220)})`);
     check(/saw the screenshots/.test(checked), `the screenshot rode the next model request, as file_view's do (${checked.slice(-40)})`);
     check(bcard && /console error/.test(bcard.oc) && /\bbad\b/.test(bcard.tone), `the card's reading says the page logged errors: "${bcard && bcard.oc}"`);
-    await a.click('#timeline .tcard[data-tool="browser_check"] .tch >> nth=-1');
-    await until(a, () => !!document.querySelector('#timeline .tcard.on[data-tool="browser_check"] .res'));
-    const res = await a.textContent('#timeline .tcard.on[data-tool="browser_check"] .res');
+    await a.click('#timeline .tcard[data-tool="browser_check"] summary >> nth=-1');
+    await until(a, () => !!document.querySelector('#timeline .tcard.on[data-tool="browser_check"] .bxc-res'));
+    const res = await a.textContent('#timeline .tcard.on[data-tool="browser_check"] .bxc-res');
     for (const [want, what] of [['boom from the page', 'the console error'],
       ['cdn.invalid/x.mjs', 'the module import that could not load'], ['127.0.0.1:9/nothing', 'the failed fetch'], ['shots/page-0ms.png', 'the screenshot, a session file']]) {
       check(res.includes(want), `its card's result has ${what} (${want})`);
     }
     await shot(a, 'agent-sandbox-browser', { fullPage: false });
-    await a.click('#timeline .tcard[data-tool="browser_check"] .tch >> nth=-1');
+    await a.click('#timeline .tcard[data-tool="browser_check"] summary >> nth=-1');
     // the whole result (the card shows its head): the facts as JSON after two lines
     const full = ((await api(a, `/runs/${runId}`)).body?.messages || []).filter((m) => m.role === 'tool' && /^browser_check /.test(m.content)).pop()?.content || '';
     let facts = {};
@@ -345,14 +345,14 @@ async function agentSandbox(browser) {
     check((await turn(a, 'sandbox edit', 'Edited it.')) !== '', '"sandbox edit": the agent edited it');
     const ecard = await lastCard(a, 'edit');
     check(ecard && ecard.hl.includes('Edit hello.txt: hi → hello'), `the edit card shows old → new (${ecard && ecard.hl})`);
-    await a.click('#timeline .tcard[data-tool="edit"] .tch >> nth=-1');
-    await until(a, () => !!document.querySelector('#timeline .tcard.on[data-tool="edit"] .res'));
-    const eres = await a.textContent('#timeline .tcard.on[data-tool="edit"] .res');
+    await a.click('#timeline .tcard[data-tool="edit"] summary >> nth=-1');
+    await until(a, () => !!document.querySelector('#timeline .tcard.on[data-tool="edit"] .bxc-res'));
+    const eres = await a.textContent('#timeline .tcard.on[data-tool="edit"] .bxc-res');
     check(/hello from the agent/.test(eres), `the edit's result shows the changed line (${eres.replace(/\s+/g, ' ').trim().slice(0, 120)})`);
     const cat = await turn(a, 'sandbox cat', 'Ran: ');
     check(cat === 'Ran: hello from the agent', `the file changed in the sandbox: cat hello.txt → "${cat}"`);
     await shot(a, 'agent-sandbox-cards', { fullPage: false });
-    await a.click('#timeline .tcard[data-tool="edit"] .tch >> nth=-1');
+    await a.click('#timeline .tcard[data-tool="edit"] summary >> nth=-1');
 
     // D136: browser_check, and a download that overwrites in place
     await browserAndDownload(a, check, home, privId);
@@ -370,18 +370,18 @@ async function agentSandbox(browser) {
     // kill its own job; bash_kill answers with the tail and the signal
     const pk = await turn(a, 'sandbox pkill', 'Ran: ');
     check(pk === 'Ran: before', `"sandbox pkill": refused, then forced (${pk})`);
-    const pkCards = await a.$$eval('#timeline .tcard[data-tool="bash"]', (els) => els.slice(-2).map((e) => e.querySelector('.oc')?.textContent.trim() || ''));
+    const pkCards = await a.$$eval('#timeline .tcard[data-tool="bash"]', (els) => els.slice(-2).map((e) => e.querySelector('.bxc-oc')?.textContent.trim() || ''));
     check(pkCards[0] === 'not run: kills by name', `the refused bash card says so (${pkCards[0]})`);
     check(/^exit 0\b/.test(pkCards[1] || ''), `the forced one outlived its own pkill -f: exit 0 (${pkCards[1]})`);
     const killed = await turn(a, 'sandbox kill', 'Killed: ');
     check(/^Killed: \[job \d+ stopped · killed by TERM\]$/.test(killed), `"sandbox kill": bash_kill says how it ended (${killed})`);
     const kcard = await lastCard(a, 'bash_kill');
     check(kcard && /^job \d+ stopped · killed by TERM$/.test(kcard.oc), `the bash_kill card reads its footer (${kcard && kcard.oc})`);
-    await a.click('#timeline .tcard[data-tool="bash_kill"] .tch >> nth=-1');
-    await until(a, () => !!document.querySelector('#timeline .tcard.on[data-tool="bash_kill"] .res'));
-    const kres = await a.textContent('#timeline .tcard.on[data-tool="bash_kill"] .res');
+    await a.click('#timeline .tcard[data-tool="bash_kill"] summary >> nth=-1');
+    await until(a, () => !!document.querySelector('#timeline .tcard.on[data-tool="bash_kill"] .bxc-res'));
+    const kres = await a.textContent('#timeline .tcard.on[data-tool="bash_kill"] .bxc-res');
     check(/line \d+/.test(kres), `its result shows the job's last output (${kres.replace(/\s+/g, ' ').trim().slice(0, 120)})`);
-    await a.click('#timeline .tcard[data-tool="bash_kill"] .tch >> nth=-1');
+    await a.click('#timeline .tcard[data-tool="bash_kill"] summary >> nth=-1');
 
     // ---- 4. a team conversation: dev1 in its team sandbox; the owner's grant ----
     await a.click('#home');
@@ -495,7 +495,7 @@ async function agentSandbox(browser) {
           `the cut-off bash card says it went on as a job, not struck through as stopped (${cut && `${cut.oc} · ${cut.st}`})`);
         const follow = await lastCard(a, 'bash_output');
         check(follow && /^exit 0\b/.test(follow.oc), `bash_output picked the job up to its end (${follow && follow.oc})`);
-        await a.click('#timeline .tcard[data-tool="bash"] .tch >> nth=-1');
+        await a.click('#timeline .tcard[data-tool="bash"] summary >> nth=-1');
         await shot(a, 'agent-sandbox-restart', { fullPage: false });
       } finally {
         fs.rmSync(bump, { force: true });

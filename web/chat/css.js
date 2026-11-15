@@ -84,8 +84,25 @@ export const chatCssText = `
   .bxc-tool > summary:hover { background: var(--bx-hover, #2A2B34); }
   .bxc-tool > summary::-webkit-details-marker { display: none; }
   .bxc-tool .bxc-ic { flex: none; width: 16px; color: var(--bx-muted, #A3A6B6); }
-  .bxc-tool .bxc-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bxc-tool .bxc-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bxc-tool .bxc-title .bxc-sub { color: var(--bx-muted, #A3A6B6); margin-left: 8px; }
+  .bxc-tool .bxc-under { color: var(--bx-muted, #A3A6B6); }
+  /* a call's line ends with what it came to (an exit status in words, +a −d, matches), the still mark of a call at work,
+     its state while that needs a look, and the fold's caret */
+  .bxc-oc, .bxc-st { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; color: var(--bx-muted, #A3A6B6);
+    font-variant-numeric: tabular-nums; }
+  .bxc-st { font: ${F.meta}; }
+  .bxc-oc bx-icon, .bxc-st bx-icon { --bx-icon-size: 12px; }
+  .bxc-oc.bxc-ok { color: var(--bx-ok, #A3CF5E); }
+  .bxc-oc.bxc-bad, .bxc-st.bxc-bad { color: var(--bx-danger, #FF7A7A); }
+  .bxc-oc.bxc-run, .bxc-st.bxc-run { color: var(--bx-text, #E9EAF0); }
+  .bxc-st.bxc-warn { color: var(--bx-warn, #F2994A); }
+  .bxc-spin { display: inline-block; flex: none; width: 8px; height: 8px; background: var(--bx-accent, #8C9BFF); }
+  .bxc-tool > summary > .bxc-cr, .bxc-tool > summary > .bxc-cd { flex: none; width: 16px; color: var(--bx-muted, #A3A6B6); }
+  .bxc-tool:not([open]) > summary > .bxc-cd, .bxc-tool[open] > summary > .bxc-cr { display: none; }
+  .bxc-tool[data-state="error"] { border-color: var(--bx-danger, #FF7A7A); }
+  .bxc-tool[data-state="approval"] { border-color: var(--bx-warn, #F2994A); }
+  .bxc-tool[data-state="stopped"] > summary .bxc-title { color: var(--bx-muted, #A3A6B6); text-decoration: line-through; }
   /* a status badge: square, 20px, micro caps, glyph + word + colour */
   .bxc-chip { display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box; height: 20px; padding: 0 6px; white-space: nowrap; flex: none;
     font: ${F.micro}; letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase;
@@ -110,6 +127,20 @@ export const chatCssText = `
   pre.bxc-out { color: var(--bx-text, #E9EAF0); border-left: 2px solid var(--bx-border, #33353F); padding-left: 8px; max-height: 360px; overflow: auto; }
   .bxc-raw > summary, .bxc-outx > summary { cursor: pointer; font: ${F.meta}; color: var(--bx-muted, #A3A6B6); }
   .bxc-places { display: flex; flex-wrap: wrap; gap: 2px 12px; font: ${F.code}; color: var(--bx-muted, #A3A6B6); }
+  .bxc-places a { color: var(--bx-link, #8C9BFF); overflow-wrap: anywhere; }
+  /* the call's own name; its arguments a row each; a plain result; a thought's or a subagent's task */
+  .bxc-meta { font: ${F.code}; color: var(--bx-muted, #A3A6B6); overflow-wrap: anywhere; }
+  .bxc-args { display: grid; gap: 2px; }
+  .bxc-arg { display: grid; grid-template-columns: minmax(60px, auto) 1fr; gap: 8px; min-width: 0; }
+  .bxc-ak { font: ${F.code}; color: var(--bx-muted, #A3A6B6); }
+  .bxc-av { min-width: 0; overflow-wrap: anywhere; }
+  .bxc-tool pre.bxc-av, .bxc-tool pre.bxc-res { word-break: break-word; background: var(--bx-code-bg, #16171D); border: 1px solid var(--bx-border, #33353F);
+    border-radius: var(--bx-radius, 2px); padding: 4px 8px; max-height: 320px; overflow: auto; }
+  .bxc-clip { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+  .bxc-clip > pre { align-self: stretch; }
+  .bxc-exit { font: ${F.code}; } .bxc-exit.bxc-ok { color: var(--bx-ok, #A3CF5E); } .bxc-exit.bxc-bad { color: var(--bx-danger, #FF7A7A); }
+  .bxc-nopatch { font: ${F.code}; }
+  .bxc-task { white-space: pre-wrap; color: var(--bx-muted, #A3A6B6); font: ${F.meta}; overflow-x: auto; }
 
   /* ---- diffs: a rendered patch (diffHTML's or patchLines' line classes) ---- */
   .bxc-diff { margin: 0; font: ${F.code}; background: var(--bx-code-bg, #16171D); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }

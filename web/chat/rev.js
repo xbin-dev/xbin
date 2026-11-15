@@ -29,5 +29,11 @@
  *      usageBadge, cached and ChatCtx's readonly, role, rev, state, copy,
  *      openDiff, signin, host; tools.js DIFF_LINES, lineCount, headLines,
  *      diffBody; ask.js stageFiles, fmtSize, ATTACH_LIMITS
+ *   4  a second host on the views (the agent template): a tool block's own
+ *      words (icon, sub, outcome, args) and a card's line that says what
+ *      the call came to; ChatCtx.rowAttrs (a host's hook classes and data
+ *      attributes on a block's element); views.js innerView (a nested
+ *      block in an element with its key); cards.js argsView, clipView;
+ *      a fold is drawn as the host holds it (ChatCtx.isOpen), closed too
  */
-export const KIT = 3;
+export const KIT = 4;

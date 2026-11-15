@@ -48,6 +48,29 @@ export const mdLive = directive(MdLive);
 
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
+/**
+ * What a host hangs on a block's element (ChatCtx.rowAttrs): hook classes
+ * and data-* attributes of its own — for its tests, its instances' styles
+ * — beside the kit's. Anything else it names is ignored; data-k and
+ * data-kind stay the kit's.
+ */
+class HostAttrs extends Directive {
+  render() { return noChange; }
+  update(part, [attrs]) {
+    const el = part.element, prev = this.prev || {}, next = attrs || {};
+    const words = (v) => String(v || '').split(/\s+/).filter(Boolean);
+    for (const c of words(prev.class)) if (!words(next.class).includes(c)) el.classList.remove(c);
+    for (const c of words(next.class)) el.classList.add(c);
+    const mine = (k) => k.startsWith('data-') && k !== 'data-k' && k !== 'data-kind';
+    for (const k of Object.keys(prev)) if (mine(k) && (next[k] == null || next[k] === false)) el.removeAttribute(k);
+    for (const k of Object.keys(next)) if (mine(k) && next[k] != null && next[k] !== false && prev[k] !== next[k]) el.setAttribute(k, String(next[k]));
+    this.prev = next;
+    return noChange;
+  }
+}
+const hostAttrs = directive(HostAttrs);
+const attrsOf = (ctx, b, depth) => hostAttrs(ctx.rowAttrs ? ctx.rowAttrs(b, depth) : null);
+
 // ---- messages ---------------------------------------------------------------------------
 
 function fileChip(b, f, ctx) {
@@ -127,8 +150,8 @@ export function blockView(b, ctx, depth = 0) {
     case 'assistant': return assistantView(b, ctx);
     case 'draft': return draftView(b, ctx);
     case 'thought': return thoughtView(b, ctx);
-    case 'tool': return toolView(b, ctx, depth, blockView);
-    case 'agent': return agentView(b, ctx, depth, blockView);
+    case 'tool': return toolView(b, ctx, depth, innerView);
+    case 'agent': return agentView(b, ctx, depth, innerView);
     case 'changes': return changesView(b, ctx);
     case 'plan': return planView(b, ctx);
     case 'perm': return permView(b, ctx);
@@ -140,6 +163,15 @@ export function blockView(b, ctx, depth = 0) {
     case 'host': return hostView(b, ctx);
   }
   return nothing;
+}
+
+/**
+ * innerView(block, ctx, depth): a block inside another's card (a subagent's
+ * steps, a sub-conversation's blocks) — its view in an element that carries
+ * its key, like a row: `<div class="bxc-in" data-k=…>`.
+ */
+export function innerView(b, ctx, depth = 1) {
+  return b ? html`<div class="bxc-in" data-k=${b.k} data-kind=${b.kind} ${attrsOf(ctx, b, depth)}>${blockView(b, ctx, depth)}</div>` : nothing;
 }
 
 // a request that waits holds live form state (values, a busy answer): it is drawn every time
@@ -156,7 +188,7 @@ const rowDeps = (b, ctx) => [b.v, ctx.rev ? ctx.rev(b) : 0, !!ctx.ended, !!ctx.r
  * running (for the kinds that read it) or a highlighter's arrival changed.
  */
 export function rowView(b, ctx) {
-  return html`<div class="bxc-row" data-k=${b.k} data-kind=${b.kind}>${waits(b) ? blockView(b, ctx) : guard(rowDeps(b, ctx), () => blockView(b, ctx))}</div>`;
+  return html`<div class="bxc-row" data-k=${b.k} data-kind=${b.kind} ${attrsOf(ctx, b, 0)}>${waits(b) ? blockView(b, ctx) : guard(rowDeps(b, ctx), () => blockView(b, ctx))}</div>`;
 }
 
 /** rowsView(blocks, ctx): the rows of blocks, keyed by k (the scroller's direct children: /vendor/chat/window.js measures them). */

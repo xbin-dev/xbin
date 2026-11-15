@@ -121,7 +121,13 @@ export const TOOL_STATES = Object.freeze(['writing', 'pending', 'running', 'appr
  *   state: string,              // one of TOOL_STATES (toolState)
  *   children: ChatBlock[]|null, // a subagent call's blocks, in order; null: not a subagent call
  *   result?: string,            // what the call answered as its host words it, when that is more than the record
- *                               // (a call of the host's own tools; a call settled some other way: "(cancelled)")
+ *                               // (a call of the host's own tools; a call settled some other way: "(cancelled)") —
+ *                               // drawn as plain text
+ *   // A reducer that knows a call better than its record says (a tool of its own) words its card itself:
+ *   icon?: string,              // its glyph (a /vendor/bx-icons.js name; '' none) in place of the kind's
+ *   sub?: string,               // what follows its headline, muted (default: tools.js subline — a command under a description)
+ *   outcome?: {text: string, tone: string}|null,  // what it came to (default: tools.js outcome); tone ok | bad | run | ''
+ *   args?: object,              // its arguments worth showing, a row each, in place of the folded raw input
  * }} ToolBlock
  */
 
@@ -563,6 +569,10 @@ export function cached(b, slot, fn) {
  * @property {(block: SigninBlock) => any} [signin]  the host's sign-in for a signin block (its guided flow, its buttons):
  *           drawn inside the kit's card; left out, the card says only that the agent is signed out
  * @property {(block: HostBlock) => any} [host]   draw the inside of a host block (null: its title alone)
+ * @property {(block: ChatBlock, depth: number) => object|null} [rowAttrs]  what the host hangs on a block's element (a row,
+ *                                               or a block inside a card) beside the kit's own: `class` (hook classes, space
+ *                                               separated) and data-* attributes — for its tests, its own styles; never
+ *                                               data-k or data-kind
  * @property {(block: ChatBlock, depth: number) => any} [other]  draw a block the kit has no view for — or one the host
  *           draws its own way: asked first for every block, null leaves it to the kit
  * @property {() => void} repaint                 something a view keeps outside the blocks changed (a form's value)

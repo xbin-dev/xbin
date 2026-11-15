@@ -70,7 +70,7 @@ async function agentDocs(browser) {
   check(finalText.includes('saw the page'), 'doc_view\'s picture of the page reached the model');
   const chip = await page.$eval('.afile:has-text("paper.pdf")', (e) => e.className).catch(() => 'missing');
   check(!/\bgone\b/.test(chip), `the attached PDF's chip is a file, not drawn as deleted (${chip})`);
-  const heads = await text(page, '.tcard .hl');
+  const heads = await text(page, '.tcard .bxc-title');
   for (const h of ['Read the PDF', 'Look at page 1', 'Write the sales sheet', 'Write the deck', 'Write the report']) {
     check(heads.includes(h), `a "${h}" tool card (${JSON.stringify(heads.slice(-6))})`);
   }

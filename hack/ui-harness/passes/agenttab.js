@@ -704,14 +704,15 @@ async function agentTab(browser) {
     out.diff = pre ? { hljs: pre.classList.contains('hljs'), lines: [...pre.children].map((x) => x.className), text: pre.textContent,
       addBg: getComputedStyle(pre.querySelector('.d')).backgroundColor, delBg: getComputedStyle(pre.querySelector('.a')).backgroundColor } : null;
     out.epoch = cards.diffEpoch;
-    out.chip = el.querySelector('.bxc-chip')?.textContent.trim();
+    out.chip = el.querySelector('.bxc-oc')?.textContent.trim();
+    out.state = el.querySelector('.bxc-st')?.textContent.trim() || '';
     return out;
   });
   check(!plain.importMap && plain.code === 'cannot load', `a page without an import map cannot load the code highlighter (${plain.code})`);
   check(plain.diff && !plain.diff.hljs && plain.diff.lines.join(' ') === 'fh fh fh h ctx a d ctx' && /-var x = 1/.test(plain.diff.text) && /\+var x = 2/.test(plain.diff.text) && plain.epoch === 0,
     `the kit's views load there all the same and draw the diff plain, a class a line (${JSON.stringify(plain.diff)})`);
   check(plain.diff && plain.diff.addBg !== plain.diff.delBg && plain.diff.addBg !== 'rgba(0, 0, 0, 0)', `…tinted by the one stylesheet (${plain.diff?.addBg} / ${plain.diff?.delBg})`);
-  check(/completed \+1\/-1/i.test(plain.chip || '') && bareErrors.length === 0, `the card says what it came to; no page errors (${plain.chip}; ${bareErrors.join(' | ')})`);
+  check(plain.chip === '+1 −1' && plain.state === '' && bareErrors.length === 0, `the card's line says what it came to, and no state once it is done; no page errors (${plain.chip}; ${plain.state}; ${bareErrors.join(' | ')})`);
   await bare.close();
 
   await settle(A.page);

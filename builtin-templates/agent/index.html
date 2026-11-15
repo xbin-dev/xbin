@@ -503,35 +503,14 @@
     .think .tb { white-space: pre-wrap; border-left: 2px solid var(--bx-border); padding: 2px 0 2px 12px; margin-top: 4px;
                  font-style: italic; max-height: 320px; overflow: auto; }
     .tw { display: inline-flex; flex: none; width: 16px; justify-content: center; color: var(--bx-muted); }
-    /* tool calls: a mono block — the call, its outcome (an exit status in words), a caret to open it */
-    .tcard, .acard { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); margin: 4px 0; background: var(--bx-code-bg); min-width: 0; }
-    .tch, .ach { box-sizing: border-box; min-height: var(--bx-row); display: flex; align-items: center; gap: 8px; padding: 4px 8px; cursor: pointer; min-width: 0; }
-    .tch { font: var(--bx-font-code); }
-    .tch:hover, .ach:hover { background: var(--bx-hover); }
-    .tch .ic, .ach .ic { flex: none; width: 16px; display: inline-flex; justify-content: center; color: var(--bx-muted); }
-    .tch .hl, .ach .hl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tch .st, .ach .st { flex: none; display: inline-flex; align-items: center; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); }
-    /* a sandbox call (model/tool-heads.js subline, outcome): its command, what it came to */
-    .tch .sub { margin-left: 8px; color: var(--bx-muted); }
-    .tch .oc { flex: none; display: inline-flex; align-items: center; gap: 4px; color: var(--bx-muted); }
-    .tch .oc.ok { color: var(--bx-ok); }
-    .tch .oc.bad { color: var(--bx-danger); }
-    .tch .oc.run { color: var(--bx-text); }
-    .tcard.error { border-color: var(--bx-danger); }
-    .tcard.error .st { color: var(--bx-danger); }
-    .tcard.approval, .acard.approval { border-color: var(--bx-warn); }
-    .tcard.approval .st { color: var(--bx-warn); }
-    .tcard.stopped .hl { color: var(--bx-muted); text-decoration: line-through; }
-    .tcb { padding: 4px 12px 8px 32px; }
-    .tname { color: var(--bx-muted); margin-bottom: 4px; }
-    .args { display: grid; gap: 2px; }
-    .arg { display: grid; grid-template-columns: minmax(60px, auto) 1fr; gap: 8px; min-width: 0; }
-    .arg .k { color: var(--bx-muted); font: var(--bx-font-code); text-transform: none; letter-spacing: normal; margin: 0; }
-    .arg .v { min-width: 0; overflow-wrap: anywhere; }
-    .arg pre.v, .res pre { margin: 0; font: var(--bx-font-code); white-space: pre-wrap; word-break: break-word;
-                           background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 4px 8px;
-                           max-height: 320px; overflow: auto; }
-    .res { margin-top: 8px; }
+    /* a subagent's card (a tool call's is xbind's chat kit's: chat-kit.js) */
+    .acard { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); margin: 4px 0; background: var(--bx-code-bg); min-width: 0; }
+    .ach { box-sizing: border-box; min-height: var(--bx-row); display: flex; align-items: center; gap: 8px; padding: 4px 8px; cursor: pointer; min-width: 0; }
+    .ach:hover { background: var(--bx-hover); }
+    .ach .ic { flex: none; width: 16px; display: inline-flex; justify-content: center; color: var(--bx-muted); }
+    .ach .hl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ach .st { flex: none; display: inline-flex; align-items: center; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); }
+    .acard.approval { border-color: var(--bx-warn); }
     .bx .lnk { display: inline-flex; align-items: center; gap: 4px; min-height: 0; border: 0; background: none; color: var(--bx-link);
                cursor: pointer; font: inherit; font-weight: 400; padding: 0 2px; }
     .bx .lnk:hover { background: none; text-decoration: underline; }
