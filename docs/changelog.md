@@ -10,6 +10,16 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-16
+
+- **docs: the changelog's older entries** moved, unchanged, to archive
+  pages: everything before 2026-10-01 is in `/docs/changelog/<YYYY-MM>.md`
+  (September in two, `2026-09a.md` and `2026-09b.md`), listed under
+  [Older entries](#older-entries) at the end of this page.
+  `/docs/changelog.md` still works and keeps the recent weeks, so its
+  `?raw=1` fetch returns only those; read an archive page for anything
+  older.
+
 ## 2026-11-15
 
 - **The workspace agent's page** (D235; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
