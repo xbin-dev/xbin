@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ type zsDaemon struct {
 	url   string
 	owner string
 	ws    string
+	stop  func() // stops the daemon and checks it left no backend running (also the test's cleanup)
 }
 
 // zsNodeServer is a node backend that answers every request with what it
@@ -110,17 +112,22 @@ func zsBootWith(t *testing.T, ws string, tune func(*Config)) *zsDaemon {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- st.serve(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(30 * time.Second):
-			t.Error("the daemon did not stop")
-		}
-	})
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			select {
+			case <-done:
+				noneLeftBehind(t, d.ws) // a stopped xbind leaves no backend running (leftbehind_test.go)
+			case <-time.After(30 * time.Second):
+				t.Error("the daemon did not stop")
+			}
+		})
+	}
+	t.Cleanup(stop)
 	select {
 	case addr := <-ready:
-		return &zsDaemon{st: st, url: "http://" + addr, owner: st.Auth.OwnerTokenValue(), ws: d.ws}
+		return &zsDaemon{st: st, url: "http://" + addr, owner: st.Auth.OwnerTokenValue(), ws: d.ws, stop: stop}
 	case err := <-done:
 		t.Fatalf("serve ended: %v", err)
 	case <-time.After(30 * time.Second):

@@ -213,6 +213,12 @@ func (r *Runner) startFor(c *registry.Component, dep, bin string, gen int) (*ins
 		r.sbxFail(c, sbx.Start, err)
 		return nil, err
 	}
+	// the one door every spawn passes: none begins once xbind is shutting
+	// down, and each is in the live set from here until its process ends,
+	// installed or not (live.go)
+	if !r.live.beginSpawn() {
+		return nil, errStopping
+	}
 	var inst *instance
 	var err error
 	if e := r.engine; e != nil && e.start != nil {
@@ -223,7 +229,15 @@ func (r *Runner) startFor(c *registry.Component, dep, bin string, gen int) (*ins
 	if inst != nil {
 		inst.dep = dep
 	}
-	return inst, err
+	if err != nil || inst == nil {
+		r.live.endSpawn(nil)
+		return inst, err
+	}
+	r.live.endSpawn(inst)
+	if inst.waitCh != nil {
+		go func() { <-inst.waitCh; r.live.forget(inst) }()
+	}
+	return inst, nil
 }
 
 // genSpawn is what one generation of a deployment spawns with.
