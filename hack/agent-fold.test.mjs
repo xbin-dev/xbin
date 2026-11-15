@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { Fold, cached, foldStatus, newStatus, llmHint } from '../web/agent-fold.js';
+import { Fold, cached, foldStatus, newStatus, llmHint, llmLabel } from '../web/agent-fold.js';
 import { newTool, foldTool } from '../web/agent-tools.js';
 import { changeSet } from '../web/chat/tools.js';
 
@@ -323,6 +323,22 @@ test('a notice that names who serves the model calls moves the digest (D226)', (
   const f = new Fold().reset([{ seq: 1, type: 'notice', data: { text: 'Model calls go through…', llm: 'connector' } }]);
   assert.equal(f.st.llm, 'connector');
   assert.equal(f.blocks[0].kind, 'notice');
-  assert.equal(llmHint({ llm: { use: 'own-first' } }), 'your sign-in, else LLM by xbin');
+  assert.equal(llmLabel(f.st).text, 'on the workspace connector');
+  foldStatus(st, { type: 'notice', data: { text: '… is offered to the agent …', llm: 'connector', offered: true } });
+  assert.equal(st.llmOffered, true);
+  assert.equal(llmLabel(st).text, 'offered: workspace connector');
+  const g = new Fold().seed({ llm: 'connector', llmOffered: true });
+  assert.equal(llmLabel(g.st).text, 'offered: workspace connector');
+  assert.equal(llmLabel(new Fold().seed({ llm: 'connector' }).st).text, 'on the workspace connector');
+  assert.equal(llmLabel(new Fold().seed({ llm: 'own' }).st), null);
+  assert.equal(llmLabel(newStatus()), null);
+});
+
+test('the launcher says "on" the connector only where the rule holds a session to it (D226)', () => {
+  assert.equal(llmHint({ llm: { use: 'connector', connector: true, forced: true } }), 'on the workspace connector');
+  assert.equal(llmHint({ llm: { use: 'connector', connector: true } }), 'offered: workspace connector');
+  assert.equal(llmHint({ llm: { use: 'own-first', connector: true } }), 'your sign-in, else offered: workspace connector');
+  assert.equal(llmHint({ llm: { use: 'own' } }), 'your sign-in');
+  assert.equal(llmHint({ llm: { use: 'unavailable', forced: true } }), "can't run here");
   assert.equal(llmHint({ id: 'claude' }), '');
 });

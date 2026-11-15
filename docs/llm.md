@@ -352,7 +352,16 @@ quietly.
 The session says what it runs on: a first line in the transcript when the
 connector serves it, `llm: "connector" | "own"` in its row, and `GET
 /agent/providers` tells a launcher beforehand, per harness
-([protocol/agents.md](/docs/protocol/agents.md)).
+([protocol/agents.md](/docs/protocol/agents.md)). Where nothing holds the
+CLI to the connector — no rule gives the session the connector alone, and
+the harness keeps the person's and the project's own providers (OpenCode;
+see above) — the row adds `llmOffered: true` and the first line says the
+connector is *offered* as the default model. The Agent tab follows it: a
+session's header says "on the workspace connector" only when the rule
+holds it there or the harness's connector settings replace the person's
+(Codex), else "offered: workspace connector"; and its launcher, before any
+session has started, says "on" only when the rule is forced (`llm.forced`
+on the provider's row) and "offered" otherwise.
 
 The default model is `xbin/harness` — the `harness` role's model, else the
 default model, else the first model an upstream lists — resolved when the

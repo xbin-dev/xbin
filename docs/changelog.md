@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- **Agent sessions: "offered" versus "on" the LLM connector**
+  ([llm.md](/docs/llm.md#agent-sessions),
+  [protocol/agents.md](/docs/protocol/agents.md)). A session's row and its
+  tail page's state add `llmOffered: true` beside `llm: "connector"` when
+  nothing holds the CLI to the connector: no rule gives it the connector
+  alone, and the harness keeps the person's and the project's own
+  providers (OpenCode), whose config can leave it out. Its first notice
+  carries `offered: true` and says the connector is offered as the default
+  model. The Agent tab's header says "on the workspace connector" only when
+  the rule holds the session there or the harness's settings replace the
+  person's (Codex), else "offered: workspace connector"; its launcher says
+  "on" only when the provider's row is `forced`. Before, both said "LLM by
+  xbin" whenever the connector was the default. Additive: a client that
+  ignores the new field reads what it did.
 - **docs: the changelog's older entries** moved, unchanged, to archive
   pages: everything before 2026-10-01 is in `/docs/changelog/<YYYY-MM>.md`
   (September in two, `2026-09a.md` and `2026-09b.md`), listed under

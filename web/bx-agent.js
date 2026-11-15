@@ -46,7 +46,7 @@ import '/vendor/bx-md.js'; // the markdown highlighter up front: the kit's rende
 import { diffHTML, langFor } from '/vendor/bx-code.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { Transcript, PAGE_LIMIT } from '/vendor/agent-pages.js';
-import { blockOf, llmHint } from '/vendor/agent-fold.js';
+import { blockOf, llmHint, llmLabel } from '/vendor/agent-fold.js';
 import { block } from '/vendor/chat/blocks.js';
 import { rowsView, activityView, usageView } from '/vendor/chat/views.js';
 import { signinView } from '/vendor/chat/asks.js';
@@ -655,7 +655,7 @@ export class BxAgent extends LitElement {
           <span>${this.history ? 'past session' : this.session ? (status === 'waiting_permission' ? 'waiting for you' : status.replace('_', ' ')) : 'not started'}</span>
           ${this._curMode() && !this._options().length ? html`<span>· ${this._curMode()}</span>` : nothing}
           ${tx.st.usage ? html`<span>· ${usageView(tx.st.usage)}</span>` : nothing}
-          ${this.session && tx.st.llm === 'connector' ? html`<span title="model calls go through this workspace's LLM connector, metered to you">· LLM by xbin</span>` : nothing}
+          ${this.session && llmLabel(tx.st) ? html`<span title=${llmLabel(tx.st).title}>· ${llmLabel(tx.st).text}</span>` : nothing}
           ${this._followUp ? html`<span title=${this._followUp.text}>· your feedback goes in when the turn ends</span>` : nothing}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
         </div>
