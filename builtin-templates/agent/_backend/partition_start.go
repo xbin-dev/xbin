@@ -93,7 +93,7 @@ func startMode(db *DB) {
 		// person's pause and the workspace's switch refuse its calls.
 		// Reading conf there parked every run for good: nothing ever
 		// writes it.)
-		if team != "" {
+		if team != "" && !wsMode() { // (a workspace agent has no shared instance to migrate team, and no team conversations)
 			go func() {
 				t, err := openShared(context.Background(), team)
 				if err != nil {
