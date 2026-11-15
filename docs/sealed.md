@@ -180,7 +180,10 @@ archives can decrypt them outside xbind. A plaintext-vault workspace
 - **`/xbin/system`** — a page served by xbind itself, so it is there on
   every workspace whatever its shell's age: each system component, its
   version, whether it runs and why not, its logs, who has access, its
-  limits and its connections.
+  limits and its connections. Who has access is what xbind enforces:
+  "Everyone in this workspace" when the workspace's default access names
+  the component (the workspace agent's **Everyone**), with where that was
+  set, then each person's and org's own entry.
 - **`bx system`** — the same list in a terminal; `bx system <name>` for
   one, `bx logs xbin/<name>` for its log.
 - **`GET /api/xbin/sealed`** — the data behind both

@@ -10,6 +10,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Ownership / org management API (plans/ownership.md, D24–D28). Pure
@@ -574,14 +575,42 @@ func (b *Broker) apiAccessGet(w http.ResponseWriter, r *http.Request) {
 		}
 		return entries[i].ID < entries[j].ID
 	})
+	// what reaches everyone in the workspace without an entry of their own:
+	// the workspace defaults (D27), which stop at an org-owned tile (D31) —
+	// for a system component, `who: everyone` of the workspace agent is one
+	owner := st.Owner(tile)
+	defaults := []defaultEntry{}
+	if !strings.HasPrefix(owner, users.OwnerKindOrg+":") {
+		for pat, l := range st.DefaultTiles() {
+			if l == "" || l == users.LevelNone || !matchesTile(pat, tile) {
+				continue
+			}
+			src := "exact"
+			if pat != tile {
+				src = "pattern:" + pat
+			}
+			defaults = append(defaults, defaultEntry{Level: l, Source: src})
+		}
+		sort.Slice(defaults, func(i, j int) bool { return defaults[i].Source < defaults[j].Source })
+	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{
-		"tile": tile, "owner": st.Owner(tile), "entries": entries,
+		"tile": tile, "owner": owner, "entries": entries, "defaults": defaults,
 	})
+}
+
+// defaultEntry is a workspace default (D27) that reaches the tile: everyone
+// in the workspace has it at Level, with no entry of their own.
+type defaultEntry struct {
+	Level  string `json:"level"`
+	Source string `json:"source"` // exact | pattern:<pat>
 }
 
 // matchesTile mirrors users.matchTile for the API's provenance display.
 func matchesTile(pat, path string) bool {
-	if pat == "*" || pat == path {
+	if pat == path || util.SealedPath(path) {
+		return pat == path // a system component is reached only by an entry that names it
+	}
+	if pat == "*" {
 		return true
 	}
 	if strings.HasSuffix(pat, "/*") {

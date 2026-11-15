@@ -166,7 +166,15 @@ POST   /owner                     transfer (D24/D39): {tile, to}. GIVE:
 GET    /access?tile=<path>        ws-admin, the tile's USER-OWNER, or an
                                    owning-org admin. {tile, owner, entries:
                                    [{kind:user|org, id, level, source:
-                                   exact|pattern:<pat>}]}
+                                   exact|pattern:<pat>}], defaults: [{level,
+                                   source}]} — defaults: the workspace
+                                   defaults that reach it (everyone has
+                                   them, no entry of their own; none on an
+                                   org-owned tile). A system component is
+                                   reached only by an entry naming it, so
+                                   it lists no pattern in either (the
+                                   workspace agent's `who: everyone` is
+                                   its exact default)
 PUT    /access                    same gate (sharing is an ownership right,
                                    D24). set/clear one EXACT entry: {tile,
                                    kind:user|org, id, level:

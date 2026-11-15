@@ -120,6 +120,44 @@ async function shipped(call) {
   return ws.agent || ((await call('GET', '/delegate/state')).data || {}).agent || '';
 }
 
+/** snapshot(call, tile): what an admin may change of a system component (AGENT by default) — its own access entries and, when it
+ *  is the agent this xbind ships, the workspace switch, whether everyone was given one, and the admin's pause. For putBack. */
+async function snapshot(call, tile = AGENT) {
+  const acc = (await call('GET', `/access?tile=${encodeURIComponent(tile)}`)).data || {};
+  const snap = { tile, entries: (acc.entries || []).filter((e) => e.source === 'exact').map(({ kind, id, level }) => ({ kind, id, level })) };
+  const ws = (await call('GET', '/delegate/workspace')).data || {};
+  if (ws.agent !== tile) return snap;
+  const st = (await call('GET', '/delegate/state')).data || {};
+  return { ...snap, agent: true, enabled: !!ws.enabled, everyone: !!(ws.who && ws.who.everyone), paused: !!st.paused };
+}
+
+/** putBack(call, want): make the component's state what snapshot read (or what want says, e.g. nobody given it). → what failed. */
+async function putBack(call, want) {
+  const bad = [];
+  const put = async (p, body) => { const r = await call('PUT', p, body); if (r.status >= 300) bad.push(`PUT ${p} ${JSON.stringify(body)}: ${r.status} ${r.text.slice(0, 160)}`); };
+  const now = await snapshot(call, want.tile);
+  if (want.agent && now.paused !== want.paused) await put('/delegate/state', { paused: want.paused });
+  const key = (e) => `${e.kind}:${e.id}`;
+  const wanted = new Map(want.entries.map((e) => [key(e), e]));
+  for (const e of now.entries) if (!wanted.has(key(e))) await put('/access', { tile: want.tile, kind: e.kind, id: e.id, level: '' });
+  for (const e of want.entries) if ((now.entries.find((n) => key(n) === key(e)) || {}).level !== e.level) await put('/access', { tile: want.tile, kind: e.kind, id: e.id, level: e.level });
+  if (want.agent && now.everyone !== want.everyone) await put('/delegate/workspace', { who: want.everyone ? 'everyone' : 'chosen' });
+  if (want.agent && now.enabled !== want.enabled) await put('/delegate/workspace', { enabled: want.enabled });
+  const after = await snapshot(call, want.tile);
+  const same = (a) => JSON.stringify({ ...a, entries: [...a.entries].sort((x, y) => key(x).localeCompare(key(y))) });
+  if (same(after) !== same(want)) bad.push(`now ${same(after)}, want ${same(want)}`);
+  return bad;
+}
+
+/** putBackChecked(browser, found, check): putBack in an admin session of its own (the pass's may be closed), checked. */
+async function putBackChecked(browser, found, check) {
+  const K = await login(browser, 'admin', 'admin');
+  try {
+    const bad = await putBack(caller(K.ctx), found);
+    check(bad.length === 0, `${found.tile}: what the pass changed is put back as it found it (${bad.join(' | ') || JSON.stringify(found)})`);
+  } finally { await K.ctx.close(); }
+}
+
 async function agentOn(call) {
   let st = (await call('GET', '/delegate/state')).data || {};
   if (!st.workspace) await call('PUT', '/delegate/workspace', { enabled: true });
@@ -206,6 +244,16 @@ async function wsAgentPage(browser) {
   const call = caller(ctx);
   const ships = await shipped(call);
   if (ships !== AGENT) { skip(`the workspace agent's page: this xbind ships no ${AGENT} (GET /delegate/workspace says agent ${JSON.stringify(ships)})`); await ctx.close(); done(); return; }
+  const found = await snapshot(call); // put back at the end, however the pass ends: no pass depends on another's leftovers
+  try {
+    await drive(browser, { check, ctx, page, call, stamp });
+  } finally {
+    await putBackChecked(browser, found, check);
+  }
+  done();
+}
+
+async function drive(browser, { check, ctx, page, call, stamp }) {
   await connectModel(call);
   await agentOn(call);
   await nothingWaits(call);
@@ -444,7 +492,6 @@ async function wsAgentPage(browser) {
     }
     await V.ctx.close();
   }
-  done();
 }
 
-module.exports = { shipped, wsAgentPage, PENDING, AGENT, NOTE, DOCK, SHEET, TA, until, caller, noHolder, connectModel, agentOn, noteTile, nothingWaits, agentFrame, say, armed, pickMain };
+module.exports = { snapshot, putBack, putBackChecked, shipped, wsAgentPage, PENDING, AGENT, NOTE, DOCK, SHEET, TA, until, caller, noHolder, connectModel, agentOn, noteTile, nothingWaits, agentFrame, say, armed, pickMain };

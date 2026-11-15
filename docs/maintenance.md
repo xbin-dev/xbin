@@ -1218,9 +1218,11 @@ it (give a `--shots` run against that instance the switch too).
 `oldScaffold` checks the last release's shell and admin console show no
 tile, card or sidebar row for a system component while `/xbin/system` lists
 them. A default xbind has one, the workspace agent (`xbin/wsagent`): held
-without sandboxes, so run them with `HARNESS_ISOLATE=1` to have it up —
-`systemPage` first, since it checks that nobody but admins has it at
-first and `agentChrome` gives it to everyone. `HARNESS_GO_TAGS=sealedfixture`
+without sandboxes, so run them with `HARNESS_ISOLATE=1` to have it up, in
+any order: `systemPage` takes the component's access entries away before it
+checks that nobody but admins has it, and it, `wsAgentPage` and
+`agentChrome` put back what they changed (the switch, who has one, pause,
+the entries), however they end. `HARNESS_GO_TAGS=sealedfixture`
 builds the harness xbind with the fixture table instead (two fixture
 components, `internal/sealed/table_fixture.go`; `bin/xbind` is then a
 fixture build — rebuild it before using it for anything else).

@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- access: **`GET /access?tile=` says what reaches everyone.** A new
+  `defaults: [{level, source}]` lists the workspace defaults that reach the
+  tile (additive; none on an org-owned tile), and a system component no
+  longer lists a pattern entry, which gives nothing there. `/xbin/system`
+  shows "Everyone in this workspace" when the defaults give a component —
+  the workspace agent after `who: everyone` — where it said "Nobody but
+  workspace admins" ([protocol/orgs.md](/docs/protocol/orgs.md),
+  [sealed.md](/docs/sealed.md)).
 - delegation, the workspace agent's chrome (web and app): **nothing can
   be allowed while the agent is stopped.** Approving a request (once,
   hour, always), `POST /delegate/approvals` and applying a change set
