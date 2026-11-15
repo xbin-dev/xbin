@@ -102,6 +102,9 @@ type turnState struct {
 	// sbx collects what the step's sandbox tools changed in the bindings
 	// (sandbox_create.go); execTools applies it to cfg after each batch.
 	sbx *sbxTurn
+	// parked are a coordinator's calls of this step that wait for a
+	// decision outside the engine (coord_park.go).
+	parked []toolCall
 }
 
 // --- the pass ------------------------------------------------------------------
@@ -174,6 +177,20 @@ func (e *Engine) pass(a *actor) {
 			return
 		}
 		e.consumeStale(run, in.approve)
+		if p.Kind == pendKindCoord { // a coordinator's calls waiting outside (coord_park.go)
+			open := coordParked(e.db, run, p.ToolCalls)
+			switch {
+			case len(open) == 0: // every one decided
+				if e.setRunning(run, in.wake) {
+					e.turn(a, run, nil)
+				}
+			case len(in.user) > 0: // its person wrote instead: the calls are answered "still open"
+				if e.coordUnpark(run, p) {
+					e.turn(a, run, nil)
+				}
+			}
+			return
+		}
 		if len(in.user) > 0 || len(in.wake) > 0 {
 			if e.setRunning(run, in.wake) {
 				e.turn(a, run, nil)
