@@ -11,6 +11,10 @@ import { pathToFileURL } from 'node:url';
 
 const [repo, fixDir] = process.argv.slice(2);
 const tools = await import(pathToFileURL(path.join(repo, 'web/agent-tools.js')));
+// what a card is called: the chat kit's headline over the call's record (the
+// Agent tab draws that one; /vendor/agent-tools.js's own `headline` leaves
+// the reading by kind out, as it always did)
+const kit = await import(pathToFileURL(path.join(repo, 'web/chat/tools.js')));
 const slash = await import(pathToFileURL(path.join(repo, 'web/agent-slash.js')));
 
 // the Agent tab's blocks: its fold (web/agent-fold.js — bx-agent renders
@@ -25,7 +29,7 @@ function summarize(b) {
     case 'msg': Object.assign(o, { role: b.role, text: b.text, mid: b.mid }); if (b.files) o.files = b.files.map((f) => f.name); break;
     case 'thought': Object.assign(o, { text: b.text, done: b.done, ms: (b.t1 || 0) - (b.t0 || 0) }); break;
     case 'tool': Object.assign(o, { id: b.id, title: b.title, tk: b.tk, status: b.status, name: b.name, label: b.label, parent: b.parent,
-      subagent: b.subagent, output: b.output, exitCode: b.exitCode, headline: tools.headline(b), command: tools.commandOf(b),
+      subagent: b.subagent, output: b.output, exitCode: b.exitCode, headline: kit.headline(b.rec), command: tools.commandOf(b),
       plan: tools.isPlanApproval(b), files: b.files ? b.files.changes.map((c) => c.path) : null,
       children: b.children ? b.children.map(summarize) : null }); break;
     case 'plan': Object.assign(o, { entries: b.entries.map((e) => e.content + ':' + e.status) }); break;
@@ -71,11 +75,40 @@ const toolCases = [
   [{ kind: 'switch_mode', title: 'Ready to code?', rawInput: { plan: '# P' } }],
   [{ kind: 'execute', title: 'x', rawInput: { command: null, cmd: 'fallback' } }],
   [{ kind: 'execute', title: 'make build', status: 'in_progress', outputDelta: 'compiling\n' }, { output: '$ make build\ncompiling\n', outputDelta: 'done\n' }, { outputDelta: '!' }],
+  // a call nothing describes (no label, no command, no title): read from its arguments, by kind
+  [{ kind: 'read', name: 'Read', rawInput: { file_path: '/w/a.go', offset: 10, limit: 40 } }],
+  [{ kind: 'read', name: 'Read', rawInput: { path: 'b.go', offset: 7 } }],
+  [{ kind: 'read', name: 'Read', rawInput: { filePath: 'c.go', limit: '25' } }],
+  [{ kind: 'read', rawInput: { file_path: null, notebook_path: 'n.ipynb', offset: 2.5, limit: 2 } }],
+  [{ kind: 'read', locations: [{ path: 'from/location.go', line: 3 }] }],
+  [{ kind: 'read', title: '  ', rawInput: { file_path: 7 } }],
+  [{ kind: 'edit', rawInput: { abs_path: '/w/x.txt' } }, { locations: [{ path: '/other' }] }],
+  [{ kind: 'edit', rawInput: 'not an object' }],
+  [{ kind: 'delete', rawInput: { path: 'old.log' } }],
+  [{ kind: 'move', rawInput: { source: 'a.txt', destination: 'b.txt' } }],
+  [{ kind: 'move', rawInput: { from: 'a', to: 'b', path: 'p' } }],
+  [{ kind: 'move', rawInput: { path: 'only.txt' } }],
+  [{ kind: 'move', rawInput: { source: 0, from: '', destination: 5 } }],
+  [{ kind: 'search', rawInput: { pattern: 'func \\w+\\(', path: 'internal/server' } }],
+  [{ kind: 'search', rawInput: { pattern: null, query: 'where   is\n\tthe  router' } }],
+  [{ kind: 'search', rawInput: { pattern: 'x'.repeat(30) + ' ' + 'y'.repeat(30), path: '' } }],
+  [{ kind: 'search', rawInput: { pattern: 12, path: ['a', 'b'] } }],
+  [{ kind: 'search' }],
+  [{ kind: 'fetch', rawInput: { url: 'https://example.com/a?b=1' } }],
+  [{ kind: 'fetch', rawInput: { query: 'xbin  docs' } }],
+  [{ kind: 'fetch', name: 'WebFetch' }],
+  [{ kind: 'think', rawInput: { prompt: 'no description here' } }],
+  [{ kind: 'switch_mode', name: 'ExitPlanMode' }],
+  [{ kind: 'execute', name: 'Bash' }],
+  [{ kind: 'execute', rawInput: { command: 5 } }],
+  [{ kind: 'custom_kind', name: 'A   tool\twith a long name ' + 'z'.repeat(100) }],
+  [{ kind: 'custom_kind' }],
+  [{ kind: 'fetch', rawInput: { url: 'h\u00a0\u2003t\ufefftp ' + '\u{1F600}'.repeat(50) } }],
 ];
 const headlines = toolCases.map((evs, k) => {
   const t = tools.newTool('t' + k);
   for (const d of evs) tools.foldTool(t, d);
-  return { events: evs, headline: tools.headline(t), command: tools.commandOf(t), plan: tools.isPlanApproval(t), planText: tools.planText(t), output: t.output, raw: tools.rawText(t.rawInput) };
+  return { events: evs, headline: kit.headline(t.rec), command: tools.commandOf(t), plan: tools.isPlanApproval(t), planText: tools.planText(t), output: t.output, raw: tools.rawText(t.rawInput) };
 });
 
 const rawTexts = [null, 'plain', { command: 'ls' }, { cmd: 'a', args: ['b'] }, { path: 'x', n: 1, deep: { a: [1, 2, true, null] } }, [1, 'two'], 42, true, { command: ['a', 'b'] }]
