@@ -101,7 +101,7 @@ type Spec struct {
 	Env map[string]string
 	// Notify is a path on its backend ("/…", no query) that xbind delivers
 	// holder notifications to (the delegation side: a request decided, an
-	// approval revoked); "" = none. NotifyPath answers it.
+	// approval revoked); "" = none. Boot feeds auth.SetDelegateNotify from it.
 	Notify string
 	// FrameReads extends what its page's credential may send (a viewer's:
 	// its own backend, its files, its renewal, whoami, the events socket —

@@ -624,7 +624,8 @@ people's conversations, so a row that lets a workspace tile in says so in
 review), the grants and capabilities (`Delegate`: the row holds delegation,
 D228 — boot feeds `auth.SetDelegateHolders` from it), `Env` (fixed
 environment for the backend), `Notify` (the backend path holder
-notifications are delivered to, `sealed.NotifyPath`), `FrameReads` (exact
+notifications are delivered to — boot feeds `auth.SetDelegateNotify`
+from it), `FrameReads` (exact
 GET paths under `/api/xbin/` its page may read beside a viewer's list —
 never a write, a data route or another API; `Load` refuses those), and
 `Data`, the data format. The name
