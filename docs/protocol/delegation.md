@@ -266,7 +266,11 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   conversation it asks `…/allows` for the page's orgs, and after reading
   adds them with `…/taint`; a page it writes carries the session's whole
   `tainted` set. Taint is add-only — no call removes an org — and binds
-  later model changes like taint xbind recorded.
+  later model changes like taint xbind recorded. A holder keeps what a
+  conversation holds with the conversation, and gives a handle it opens
+  again for it (the old one gone after 24 h unused) all of it with
+  `…/taint` before the handle carries anything: a `409 model_taint` there
+  means the conversation can't go on on that model.
 - Audit rows carry `session`.
 
 ## Notices to the agent's backend
@@ -703,27 +707,43 @@ xbin:open-session         {session, tile}  show one of the person's sessions
                                            in its tile's window
 xbin:open-session         {session: "new", a new session of the tile's own
                            tile, draft}    agent: its window opens on a new
-                                           session's launcher, draft (the
-                                           person's own words, at most 8000
+                                           session's launcher, draft (text
+                                           the page suggests, at most 8000
                                            characters) in the composer of the
                                            one they pick — never sent by the
                                            message
-xbin:agent-open           {view}           approvals | activity | prefs
+xbin:agent-open           {view}           needs | approvals | activity — a
+                                           view that changes nothing; never
+                                           Preferences
 ```
 
 A new session's `draft` is read as plain text — line ends made `\n`,
 control and invisible (bidi) characters dropped, capped — and never
 interpreted: it is shown, and waits in the composer until the person
-presses Send. The chrome hands it to the shell (`bx-agent-new-session`);
-where no shell takes it (an older scaffold, `/xbin/agent`) the dock shows
-a plain link to the tile and the words to copy.
+presses Send. It comes from the agent's page, so it is untrusted: the
+chrome labels it as text the agent's page suggests, for the person to read
+and edit — never as their own words. The chrome hands it to the shell
+(`bx-agent-new-session`); where no shell takes it (an older scaffold,
+`/xbin/agent`) the dock shows a plain link to the tile and the suggested
+text to copy.
 
 The chrome reads the request or change set from xbind itself
 (`GET /delegate/requests/<id>`, `/delegate/changesets/<id>`) and draws
 xbind's reading: the call, its class, the body's text or its size and
 hash, the warnings. The agent's own sentence (`summary`, `why`) is shown
 quoted and labelled as the agent's. An id that isn't the person's opens
-nothing. No message approves, denies, resumes or changes a preference.
+nothing. No message approves, denies, resumes or changes a preference, and
+none opens Preferences: they open from the chrome's own menu only.
+
+**What widens the agent's reach is armed like Allow.** A page that baits
+a double-click, or scripts one, must not land it on a control that widens
+what the agent may do: Allow, the approval's wider standing scope, and in
+Preferences "start without asking", a wider network, other tiles' APIs and
+the admin opt-in each answer only the person's own click (`isTrusted`),
+not for 600 ms after the control appears, only while nothing covers it and
+the window has their attention — and never Enter. Until then it carries
+`aria-disabled="true"`. Narrowing (back to asking, no internet, the
+opt-in off) is never held up.
 
 **What the chrome tells the page**: `{type: "xbin:agent-context", tile}`
 or `{…, screen}` when the dock was opened about a tile or a screen — once

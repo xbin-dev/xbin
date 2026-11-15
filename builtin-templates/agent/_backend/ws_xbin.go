@@ -531,6 +531,10 @@ func wsRefusal(err error) string {
 	if errors.As(err, &ww) {
 		return ww.msg
 	}
+	var he *wsHeldError
+	if errors.As(err, &he) {
+		return he.Error()
+	}
 	var te *wsTaintError
 	if errors.As(err, &te) {
 		return te.Error()

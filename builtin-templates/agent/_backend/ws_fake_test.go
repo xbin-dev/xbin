@@ -38,7 +38,8 @@ type fakeXbin struct {
 	logs      map[string]string
 	api       map[string]func(body []byte) (int, string) // "METHOD /api/<tile>/path": a tile's API
 	state     wsState
-	startAsk  bool // starting a tile agent asks (false: the person's preference lets it through)
+	startAsk  bool  // starting a tile agent asks (false: the person's preference lets it through)
+	startDry  *bool // what a start's dry run answers for needsApproval, when it isn't startAsk (the preference changed in between)
 	paused    bool
 	pages     map[string]string // what a tile's page shows (a preview's snapshot)
 	noPreview bool              // previews are off on this xbind
@@ -494,6 +495,9 @@ func (f *fakeXbin) call(sid string, c wsCall) (wsAnswer, error) {
 	}
 	if c.DryRun {
 		d := &wsDry{Allowed: true, Class: "tile-write", SideEffect: !read, NeedsApproval: needs}
+		if f.startDry != nil && strings.HasPrefix(c.Path, "/api/xbin/term/sessions") {
+			d.NeedsApproval = *f.startDry
+		}
 		if t != nil {
 			d.Tile, d.Level, d.Role = t.Path, t.Level, "writer"
 		}
@@ -611,6 +615,17 @@ func (f *fakeXbin) Taint(_ context.Context, sid string, orgs []string) error {
 		return err
 	}
 	f.note("Taint %s", strings.Join(orgs, ","))
+	// as xbind: all or nothing, and never an org whose rules the handle's model doesn't meet (409)
+	var refused []string
+	why := ""
+	for _, o := range orgs {
+		if w := f.orgBlocked(o, h.Model); w != "" {
+			refused, why = append(refused, o), orStr(why, w)
+		}
+	}
+	if len(refused) > 0 {
+		return &xbin.DelegateError{Status: 409, Refusal: "model_taint", Orgs: refused, Reason: why, Message: "this session's model may not see data of " + strings.Join(refused, ", ")}
+	}
 	h.Tainted = wsUnion(h.Tainted, orgs)
 	return nil
 }

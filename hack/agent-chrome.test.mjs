@@ -171,6 +171,10 @@ test('what the dock takes from the agent\'s page: a word and an id, nothing else
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-changeset', id: 'c9', items: [1, 2] }), { type: 'review', kind: 'changeset', id: 'c9' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 's-1', tile: '/apps/notes/', id: 7 }), { type: 'session', tile: 'apps/notes', session: 's-1' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'approvals' }), { type: 'open', view: 'approvals' });
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'activity' }), { type: 'open', view: 'activity' });
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'needs' }), { type: 'open', view: 'needs' });
+  // Preferences widen what the agent may do: the page can't open them (only the chrome's own menu does)
+  assert.equal(W.pageMessage({ type: 'xbin:agent-open', view: 'prefs' }), null);
   for (const bad of [null, 'x', { type: 'xbin:agent-open-request', id: { toString: () => 'x' } }, { type: 'xbin:agent-open-request', id: '../x' }, { type: 'xbin:agent-open-request', id: 'a'.repeat(81) },
     { type: 'xbin:agent-open-changeset' }, { type: 'xbin:open-session', session: 's1', tile: '../etc' }, { type: 'xbin:open-session', session: 'a b', tile: 'apps/x' },
     { type: 'xbin:agent-open', view: 'allow' }, { type: 'xbin:agent-approve', id: 'r1' }, { type: 'xbin:agent-decide', id: 'r1', verdict: 'allow' }, { type: 'xbin:agent-review', kind: 'request', id: 'r1' }]) {
@@ -180,7 +184,11 @@ test('what the dock takes from the agent\'s page: a word and an id, nothing else
   assert.deepEqual(W.contextMessage({ screen: 'Home' }), { type: 'xbin:agent-context', screen: 'Home' });
   assert.equal(W.contextMessage({ tile: '../x' }), null);
   assert.equal(W.clampDock(100, 1400), 360);
-  // a new session of the tile's own agent: the person's words as its draft — plain text, capped, never a command
+  // a new session of the tile's own agent: a draft the page suggests — plain text, capped, never a command,
+  // and labelled as the page's, never as the person's own words
+  assert.match(W.DRAFT_FROM.label, /^Suggested by your agent’s page — not your words$/);
+  assert.doesNotMatch(`${W.DRAFT_FROM.text} ${W.DRAFT_FROM.copy} ${W.DRAFT_FROM.paste}`, /your (own )?words/i);
+  assert.match(W.DRAFT_FROM.text, /nothing is sent until you press Send/);
   assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 'new', tile: 'apps/notes/', draft: '  change line 40\r\n<b>x</b>\u202e\u0007 ', send: true, grant: 'always' }),
     { type: 'new-session', tile: 'apps/notes', draft: 'change line 40\n<b>x</b>' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 'new', tile: 'apps/notes' }), { type: 'new-session', tile: 'apps/notes', draft: '' });

@@ -12,6 +12,31 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- **Workspace agent: fixes from a security review**
+  ([workspace-agent.md](/docs/workspace-agent.md),
+  [protocol/delegation.md](/docs/protocol/delegation.md#the-chrome)).
+  What a conversation has read is kept with the conversation: a session
+  whose record xbind renewed (a day unused) gives the new record
+  everything it holds before it reads or calls a model again, and stops,
+  saying so, where an org's rules no longer allow its model (`held` on
+  `GET /ws/sessions`; the agent template's `API.md` §Workspace mode). A
+  notebook page's org marks can't be cleared in place any more (the
+  `clearStamps` field of `PUT /ws/notebook/{slug}` is gone and ignored):
+  delete the page and have a clean session write it again. `research`'s
+  `save_as` writes over an existing page only where the session may read
+  it, and adds to its stamps instead of replacing them. `admin_changes`
+  lists the change sets its own conversation proposed, no other
+  session's. A tile agent's start follows xbind's dry run at the brief's
+  Start: no request where the person lets starts through, one filed
+  wherever xbind says it is needed. `notebook_search` counts the pages a
+  session can't read whatever the words searched for (the count of the
+  matching ones said what they held). The chrome: the agent's page may
+  open only views that change nothing (`xbin:agent-open {view}`: `needs`,
+  `approvals`, `activity` — no longer `prefs`), and every control that
+  widens what the agent may do is armed like Allow. A new session's draft
+  from the page (`xbin:open-session {session: "new", draft}`) is labelled
+  as text the agent's page suggests, never as the person's own words.
+
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),
   [protocol/agents.md](/docs/protocol/agents.md)). A session's row and its

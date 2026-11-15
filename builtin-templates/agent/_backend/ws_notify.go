@@ -310,6 +310,32 @@ func (ag *Agent) wsClaim(r *wsReq) bool {
 	return n == 1
 }
 
+// wsRefile files r — a start that was to be confirmed here (wsLocalRef) —
+// for its person's approval at xbind, as start: it waits again, as any
+// request does, now under xbind's id.
+func (ag *Agent) wsRefile(ctx context.Context, s *wsSession, r *wsReq, start wsAgentStart) error {
+	var brief *wsBrief
+	if r.Brief != 0 {
+		brief, _ = ag.db.wsBrief(r.Run, r.Brief)
+	}
+	var xr wsRequest
+	if err := ag.wsWith(ctx, s, func(sid string) (err error) {
+		xr, err = wsX.AskAgentStart(ctx, sid, start, wsStartSummary(start, brief))
+		return
+	}); err != nil {
+		return err
+	}
+	raw, _ := json.Marshal(start)
+	if _, err := ag.db.q.Exec(`UPDATE ws_requests SET ref=?, body=?, expires_ms=?, state='pending' WHERE id=? AND state IN ('pending','running')`,
+		xr.ID, raw, xr.Expires*1000, r.ID); err != nil {
+		return err
+	}
+	r.Ref, r.State, r.Expires, r.Body = xr.ID, "pending", xr.Expires*1000, raw
+	wsArmPoll()
+	ag.wsChanged(r.Run, "request")
+	return nil
+}
+
 // wsDecideByID runs request id now (a start its person's preferences let
 // through).
 func (ag *Agent) wsDecideByID(id int64) {
@@ -393,6 +419,13 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, xr wsRequ
 		}
 		var a wsAgent
 		err := ag.wsWith(ctx, s, func(sid string) (err error) { a, _, err = wsX.AgentStart(ctx, sid, start, ticket, false); return })
+		if err != nil && a.ID == "" && ticket == "" && errors.Is(err, xbin.ErrNeedsApproval) {
+			// xbind says this start needs its person's approval after all (their
+			// preference changed since it was confirmed here): asked, not failed
+			if ag.wsRefile(ctx, s, r, start) == nil {
+				return
+			}
+		}
 		if err != nil && a.ID == "" {
 			fail(err)
 			if r.Brief != 0 {

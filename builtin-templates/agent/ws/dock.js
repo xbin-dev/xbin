@@ -22,9 +22,10 @@
 //                                                   xbin.openSession when the
 //                                                   client has it)
 //                               {session: "new",   open a new session of the
-//                                tile, draft}      tile's own agent with the
-//                                                   person's own words as a
-//                                                   draft (a redirect: "Hand
+//                                tile, draft}      tile's own agent with their
+//                                                   request as a draft, which
+//                                                   the chrome labels as this
+//                                                   page's suggestion (a redirect: "Hand
 //                                                   this to <tile>'s own
 //                                                   agent"); nothing is sent
 //   chrome → page

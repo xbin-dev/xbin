@@ -45,6 +45,8 @@ export const W = Object.freeze({
   scopeFoot: 'Scope is where this session looks. It is not a permission — blocked stays blocked whatever you tick.',
   sessionsFoot: 'A new session starts empty, with its own scope and model. The notebook is shared by all of them, within each one’s scope.',
   notebookFoot: 'You can open, edit or delete any page. Deleting a page makes the agent forget it.',
+  // a page's org marks: nothing takes them off — the way to is to delete the page and have it written again (API.md §Workspace mode)
+  marksNote: (orgs) => `Marked with ${orgs.join(', ')}: it may hold their data, so sessions on a model their rules keep out can’t read it. Your edits keep the marks. To clear them, delete the page and have a session that holds none of their data write it again.`,
   whatCanItDo: 'What can it do?',
 });
 

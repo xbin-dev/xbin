@@ -104,11 +104,27 @@ func wsRouteSession(w http.ResponseWriter, r *http.Request) (*wsSession, bool) {
 	return s, true
 }
 
+// wsHeldItem is a held conversation as the page shows it: the model, the
+// orgs and xbind's reason, and the ways forward — back to the model it was
+// on (offer.model, where its model now names another), or a new session.
+func wsHeldItem(h wsHeld) map[string]any {
+	offer := map[string]any{"newSession": map[string]any{"model": h.Model}}
+	if h.Was != "" {
+		offer["model"] = h.Was
+	}
+	return map[string]any{"code": orStr(h.Code, "model_taint"), "model": h.Model, "orgs": h.Orgs, "reason": h.Reason, "atMs": h.At, "offer": offer}
+}
+
 // wsWriteErr answers an error of xbind's in its own status and words.
 func wsWriteErr(w http.ResponseWriter, err error) {
+	var he *wsHeldError
 	var te *wsTaintError
 	var de *xbin.DelegateError
 	switch {
+	case errors.As(err, &he):
+		out := wsHeldItem(he.Held)
+		out["error"], out["code"], out["held"] = he.Error(), "model_taint", true
+		xbin.WriteJSON(w, http.StatusConflict, out)
 	case errors.As(err, &te):
 		// the copy deck's card: this session can't move; a new one can start
 		xbin.WriteJSON(w, http.StatusConflict, map[string]any{"error": te.Error(), "code": "model_taint", "model": te.Model, "orgs": te.Orgs,
@@ -163,7 +179,10 @@ func handleWsState(w http.ResponseWriter, r *http.Request) {
 // wsSessionItem is a session as the list and the header show it.
 func wsSessionItem(s *wsSession, owner string) map[string]any {
 	it := map[string]any{"id": s.Run, "main": s.Main, "model": s.Model, "scope": s.Scope, "handle": s.Handle,
-		"connection": s.Conn.Connection, "summary": wsConnLine(s.Conn.Connection), "tainted": s.Conn.Tainted, "createdMs": s.Created}
+		"connection": s.Conn.Connection, "summary": wsConnLine(s.Conn.Connection), "tainted": s.Tainted, "createdMs": s.Created}
+	if s.Held != nil { // it can't go on on its model: why, and the ways forward
+		it["held"] = wsHeldItem(*s.Held)
+	}
 	if run, err := agent.db.getRun(s.Run); err == nil {
 		it["name"], it["status"], it["activityMs"] = run.Title, run.Status, run.ActivityMs
 		if run.Status == statusWaiting { // the agent's own question
@@ -531,8 +550,30 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 			xbin.WriteJSON(w, http.StatusOK, map[string]any{"request": req.Ref, "id": req.ID})
 			return
 		}
-		agent.wsDecide(ctx, s, req, wsRequest{}) // the click is the confirmation
+		// the click is the confirmation only where xbind says, now, that
+		// none is needed: its dry run answers for the person's preference as
+		// it stands, not as it stood when the agent asked
+		start := wsStartOf(b, s.Owner)
+		var dry *wsDry
+		if err := agent.wsWith(ctx, s, func(sid string) (err error) { _, dry, err = wsX.AgentStart(ctx, sid, start, "", true); return }); err != nil {
+			wsWriteErr(w, err)
+			return
+		}
+		if dry == nil || !dry.Allowed {
+			xbin.WriteError(w, http.StatusForbidden, orStr(dryErr(dry), "xbin would refuse this start"))
+			return
+		}
+		if !dry.NeedsApproval {
+			agent.wsDecide(ctx, s, req, wsRequest{})
+		} else if err := agent.wsRefile(ctx, s, req, start); err != nil {
+			wsWriteErr(w, err)
+			return
+		}
 		cur, _ := agent.db.wsReq(req.ID)
+		if cur != nil && cur.State == "pending" && !wsLocalRef(cur.Ref) { // filed for their approval: the chrome opens it
+			xbin.WriteJSON(w, http.StatusOK, map[string]any{"request": cur.Ref, "id": cur.ID})
+			return
+		}
 		xbin.WriteJSON(w, http.StatusOK, map[string]any{"started": cur != nil && cur.State == "used", "id": req.ID, "outcome": cur.Outcome})
 		return
 	}
@@ -544,11 +585,7 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if dry == nil || !dry.Allowed {
-		msg := "xbin would refuse this start"
-		if dry != nil {
-			msg = orStr(dry.Error, msg)
-		}
-		xbin.WriteError(w, http.StatusForbidden, msg)
+		xbin.WriteError(w, http.StatusForbidden, orStr(dryErr(dry), "xbin would refuse this start"))
 		return
 	}
 	raw, _ := json.Marshal(start)
@@ -578,7 +615,19 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 	}
 	agent.wsDecide(ctx, s, req, wsRequest{})
 	cur, _ := agent.db.wsReq(req.ID)
+	if cur != nil && cur.State == "pending" && !wsLocalRef(cur.Ref) { // xbind wanted an approval after all: filed, for the chrome to open
+		xbin.WriteJSON(w, http.StatusOK, map[string]any{"request": cur.Ref, "id": cur.ID})
+		return
+	}
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"started": cur != nil && cur.State == "used", "id": req.ID, "outcome": cur.Outcome})
+}
+
+// dryErr is a dry run's refusal in xbind's words ("" none).
+func dryErr(d *wsDry) string {
+	if d == nil {
+		return ""
+	}
+	return d.Error
 }
 
 // handleWsNeeds is what waits for the person because of their agent: the
@@ -707,8 +756,10 @@ func handleWsPage(w http.ResponseWriter, r *http.Request) {
 // handleWsPagePut is the person's own write: a new page ("Add a note") or
 // an edit, from the version they saw (base; 409 when it moved). A page the
 // person writes keeps the stamps it had — their edit doesn't unmark what
-// the page already held — unless they clear them (clearStamps: a
-// deliberate act the page confirms; this route offers it, no tool does).
+// the page already held, and nothing here takes a stamp off: this route is
+// reachable with the page's own credential, and the page renders what a
+// model wrote. A page is unmarked only by deleting it and having a session
+// that holds none of that data write it again (wsNotebookChange).
 func handleWsPagePut(w http.ResponseWriter, r *http.Request) {
 	owner, ok := wsCaller(w, r)
 	if !ok {
@@ -717,7 +768,6 @@ func handleWsPagePut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title, Body, Summary string
 		Base                 int64
-		ClearStamps          bool // the person's own, deliberate act: the page holds no org's data any more
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -734,9 +784,6 @@ func handleWsPagePut(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		st := t.wsStamp(store, p.Slug)
-		if body.ClearStamps {
-			st.Orgs, st.Tile, st.Rev = nil, "", ""
-		}
 		if s := clip(oneLineTitle(body.Summary), wsSummaryMax); s != "" {
 			st.Summary = s
 		} else if st.Summary == "" {

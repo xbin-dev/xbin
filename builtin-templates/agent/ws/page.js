@@ -41,7 +41,7 @@ const errOf = (r, dflt) => (r && r.data && r.data.error) || dflt || `error ${r ?
 // ---- the page's state ----------------------------------------------------------------------
 
 const S = {
-  state: null, sessions: [], sel: null, err: '',
+  state: null, sessions: [], sel: null, err: '', heldErr: '',
   cards: null, conn: null, full: null, fullErr: '', empty: null, sd: new Map(),
   view: 'chat', pop: '', whatCan: false,
   scope: { view: 'tree', filter: 'all', ticks: new Set(), expanded: new Set(), pick: '', what: null, refused: null, busy: false, err: '', focus: '' },
@@ -401,6 +401,14 @@ async function switchModel() {
   else { S.pop = ''; await loadSessions(); await loadConnection(); }
   paint();
 }
+async function moveHeld(model) {
+  const s = current();
+  if (!s) return;
+  const r = await ws.patch(s.id, { model });
+  S.heldErr = r.ok ? '' : errOf(r, 'The session could not move.');
+  await loadSessions();
+  paint();
+}
 async function newSessionOn(model) {
   const r = await ws.newSession(S.sel, { model });
   if (!r.ok) { S.scope.err = errOf(r, 'A new session could not be started.'); paint(); return; }
@@ -530,14 +538,6 @@ const nbAct = {
     if (!r.ok) { S.nb.err = errOf(r); paint(); return; }
     openNotebook();
   },
-  // the person's deliberate act, confirmed: the page no longer carries the orgs it was marked with
-  clearStamps: async () => {
-    const p = S.nb.page;
-    const r = await ws.putPage(p.slug, { title: p.title, body: p.body || '', base: p.version, clearStamps: true });
-    S.nb.confirm = false;
-    if (!r.ok) { S.nb.err = errOf(r); paint(); return; }
-    await nbAct.read(p.slug);
-  },
   md: (s) => md(s),
 };
 
@@ -558,6 +558,12 @@ function banners() {
   if (d.paused) out.push({ key: 'paused', tone: 'warn', icon: 'pause', bold: `Paused by you${d.pausedAt ? ` at ${clock(Date.parse(d.pausedAt))}` : ''}.`, text: 'Your agent can’t read or change anything in the workspace until you resume. Tile agents that are already running keep going; their questions still come to you.' });
   const q = quotaOf(S.state);
   if (q) out.push({ key: 'quota', tone: 'warn', icon: 'clock', bold: 'Today’s limit is used up.', text: q.words, more: q.raise });
+  const held = current() && current().held;
+  if (held) { // it can't go on on its model: why, and the ways forward (the backend refuses every call meanwhile)
+    const h = SM.heldWords(held);
+    out.push({ key: 'held', tone: 'bad', icon: 'lock', bold: h.bold, text: h.text, more: S.heldErr || '',
+      buttons: [...(h.back ? [{ key: 'back', label: h.back.label, act: () => moveHeld(h.back.model) }] : []), { key: 'new', label: h.fresh.label, act: () => newSessionOn(h.fresh.model) }] });
+  }
   if (S.updating) out.push({ key: 'updating', tone: 'info', icon: 'refresh', bold: 'xbin is updating.', text: 'Back in about a minute. Running tile agents are stopped and continue afterwards.' });
   else if (offline()) out.push({ key: 'offline', tone: 'warn', icon: 'signal', bold: 'Can’t reach the workspace.', text: `Showing what was loaded at ${clock(S.loadedAt)}. Trying again… Approvals can’t be given until it’s back.`, button: { label: 'Try now', act: () => session.live.resync() } });
   if (S.afterUpdate) {

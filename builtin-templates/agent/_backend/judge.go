@@ -161,7 +161,7 @@ func (e *Engine) judge(runID int64) {
 		return // busy: the next turn end judges again
 	}
 	defer release()
-	reply, err := e.llm.Chat(ctx, LLMRequest{
+	reply, err := e.chat(ctx, LLMRequest{
 		Run: runID, Purpose: "judge", Model: modelFor(ctx, cfg, "memory"), Wire: cfg.Wire,
 		Msgs: []wireMsg{{Role: "system", Content: judgePrompt},
 			{Role: "user", Content: "The person's last request:\n" + clip(ask, judgeClip) + "\n\nThe agent's final message:\n" + clip(answer, judgeClip)}},

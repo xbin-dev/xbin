@@ -490,7 +490,7 @@ func TestWsNotebookStampsAndRoutes(t *testing.T) {
 		}
 	}
 	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/notebook/ledger-notes", nil), 200, &page) // theirs to read, whatever a session may
-	// their edit keeps the stamps; only their explicit clear removes them
+	// their edit keeps the stamps, and nothing the route takes removes them (the page's credential reaches it)
 	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/ledger-notes", map[string]any{"body": "x", "base": 7}), 409, nil)
 	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/ledger-notes", map[string]any{"body": "The ledger closes on the 6th.", "base": 1}), 200, &page)
 	if page.Page.Version != 2 || !hasStr(page.Page.Orgs, "finance") {
@@ -500,11 +500,25 @@ func TestWsNotebookStampsAndRoutes(t *testing.T) {
 		t.Fatalf("a tool cleared a stamp: %q", got)
 	}
 	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/ledger-notes", map[string]any{"body": "The ledger closes early in the month.", "base": 2, "clearStamps": true}), 200, &page)
-	if len(page.Page.Orgs) != 0 {
-		t.Fatalf("after the person's clear: %+v", page)
+	if !hasStr(page.Page.Orgs, "finance") || !hasStr(fx.ag.db.wsStamp(store(), "ledger-notes").Orgs, "finance") {
+		t.Fatalf("a write that asked to clear the stamps: %+v", page)
 	}
-	if got := tool(main, "notebook_read", map[string]any{"slug": "ledger-notes"}); !strings.Contains(got, "closes early in the month") {
-		t.Fatalf("Main's read after the clear: %q", got)
+	if got := tool(main, "notebook_read", map[string]any{"slug": "ledger-notes"}); strings.Contains(got, "closes early in the month") {
+		t.Fatalf("Main read a page stamped with Finance: %q", got)
+	}
+	// the way to clear: delete it, and a session that holds none of Finance's data writes it again, whole
+	fx.json(t, fx.call(t, wsAlice, "DELETE", "/ws/notebook/ledger-notes", nil), 200, nil)
+	if got := tool(main, "notebook_edit", map[string]any{"slug": "ledger-notes", "old": "early", "new": "late"}); !strings.Contains(got, "can't be changed here") {
+		t.Fatalf("an edit of the deleted page brought its Finance text back to Main: %q", got)
+	}
+	if got := tool(main, "notebook_write", map[string]any{"slug": "ledger-notes", "body": "Ask Ana when the ledger closes.", "summary": "Who knows when the ledger closes"}); strings.HasPrefix(got, "error:") {
+		t.Fatalf("Main writing the deleted page again: %q", got)
+	}
+	if st := fx.ag.db.wsStamp(store(), "ledger-notes"); hasStr(st.Orgs, "finance") || !hasStr(st.Orgs, "sales") {
+		t.Fatalf("the page written again carries: %+v", st)
+	}
+	if got := tool(main, "notebook_read", map[string]any{"slug": "ledger-notes"}); !strings.Contains(got, "Ask Ana when the ledger closes.") {
+		t.Fatalf("Main's read of the page written again: %q", got)
 	}
 	fx.json(t, fx.call(t, wsAlice, "DELETE", "/ws/notebook/preferences", nil), 200, nil)
 	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/notebook", nil), 200, &list)

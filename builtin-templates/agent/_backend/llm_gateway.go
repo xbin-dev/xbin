@@ -106,6 +106,11 @@ type wireCodec interface {
 // (LLMRequest.Run); registered at init, none in a normal instance's calls.
 var llmHeaderHooks []func(req LLMRequest, h http.Header)
 
+// llmRefuseHooks may refuse a model call before it is made, whatever the
+// LLM behind the engine (Engine.chat): a workspace conversation that can't
+// go on on its model. Registered at init; none in a normal instance.
+var llmRefuseHooks []func(req LLMRequest) error
+
 // llmStatusHooks hear how a model call was answered: its status, and the
 // body of a refusal (nil for a 200). Registered at init.
 var llmStatusHooks []func(req LLMRequest, status int, body []byte)
