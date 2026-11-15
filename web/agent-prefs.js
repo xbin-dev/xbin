@@ -60,6 +60,29 @@ export function optionPatch(provider, option, value) {
   return { harnesses: { [provider.id]: { options: { [option.id]: value } } } };
 }
 
+// credentialsChoice(prefs, provider) → the launcher's control for what a new
+// session of `provider` runs its model calls on, or null when there is
+// nothing to choose: it shows only where both can serve — the row's `llm`
+// (GET /agent/providers, D226) says the workspace's LLM connector can and no
+// rule forces it — and the server keeps this person's preferences. value is
+// their saved choice ('' = none: the workspace's default decides).
+export function credentialsChoice(p, provider) {
+  const l = provider?.llm;
+  if (!p || !provider?.id || !l || !l.connector || l.forced || l.use === 'unavailable') return null;
+  const saved = p.harnesses?.[provider.id]?.credentials;
+  return {
+    value: saved === 'own' || saved === 'connector' ? saved : '',
+    options: [{ value: '', name: 'workspace default' }, { value: 'own', name: 'your sign-in' }, { value: 'connector', name: 'LLM by xbin' }],
+  };
+}
+
+// credentialsPatch(provider, value) → the merge patch that saves that choice
+// ('' takes it back), or null for anything else.
+export function credentialsPatch(provider, value) {
+  if (!provider?.id || !['', 'own', 'connector'].includes(value)) return null;
+  return { harnesses: { [provider.id]: { credentials: value || null } } };
+}
+
 // merge(target, patch): RFC 7386, as the server applies a PUT.
 function merge(t, p) {
   const out = t && typeof t === 'object' && !Array.isArray(t) ? { ...t } : {};
@@ -125,6 +148,16 @@ export function makeAgentPrefs({ fetch: f = globalThis.fetch, storage = globalTh
     // harness: the harness a new agent session starts with, when one was picked
     get harness() { return cur?.harness || (local()?.kind === 'agent' ? local().provider : '') || ''; },
     startWith: (provider) => startWith(cur, provider),
+    // whose credentials a new session of `provider` runs on: the control
+    // (null: nothing to choose), and saving a choice — resolved once the
+    // server has it, so the caller can ask again what a session would run on
+    credentialsChoice: (provider) => credentialsChoice(cur, provider),
+    rememberCredentials(provider, value) {
+      const patch = credentialsPatch(provider, value);
+      if (!patch || !cur) return Promise.resolve();
+      cur = merge(cur, patch);
+      return put(patch);
+    },
     // rememberOption(provider, option, value): a setting changed in a session
     rememberOption(provider, option, value) {
       const patch = optionPatch(provider, option, value);
