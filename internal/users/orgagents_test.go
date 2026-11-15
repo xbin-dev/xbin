@@ -226,12 +226,16 @@ func TestOrgAgentsPin(t *testing.T) {
 		t.Errorf("the pinned model rule: %+v", d)
 	}
 	// an org admin's write: below the pin yes, past it no, "any" changes nothing the pin holds
-	for js, want := range map[string]string{
-		`{"harnesses":["claude"]}`:           "",
-		`{"harnesses":["gemini"]}`:           "gemini is outside what the pin allows (claude, codex)",
-		`{"harnesses":"any","models":"any"}`: "",
-		`{"workspaceAgent":"off"}`:           "",
+	// (in this order: each write is judged with the org's rules as the one
+	// before left them — as a map these ran in any order, and "off" written
+	// while the org's own list still named gemini was refused for that)
+	for _, c := range [][2]string{
+		{`{"harnesses":["claude"]}`, ""},
+		{`{"harnesses":["gemini"]}`, "gemini is outside what the pin allows (claude, codex)"},
+		{`{"harnesses":"any","models":"any"}`, ""},
+		{`{"workspaceAgent":"off"}`, ""},
 	} {
+		js, want := c[0], c[1]
 		_, err := s.SetOrgAgents("finance", agentPatch(t, js), known)
 		if (want == "") != (err == nil) || (err != nil && (!strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "pinned"))) {
 			t.Errorf("%s: %v, want %q", js, err, want)
