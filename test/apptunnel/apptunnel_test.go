@@ -61,6 +61,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/apptunnel/devclient"
 	"github.com/xbin-dev/xbin/internal/apptunnel/wire"
+	"github.com/xbin-dev/xbin/test/portlease"
 	"github.com/xbin-dev/xbin/test/xbindtest"
 )
 
@@ -688,12 +689,7 @@ func TestTunnel(t *testing.T) {
 func relay(t *testing.T, token string) (string, *logs) {
 	t.Helper()
 	bin := relayBin(t)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := portlease.Addr(t)
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "iroh-relay.toml")
 	toml := fmt.Sprintf("http_bind_addr = %q\nenable_quic_addr_discovery = false\nenable_metrics = false\naccess.shared_token = [%q]\n", addr, token)

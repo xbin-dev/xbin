@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // The isolated daemon (15-test-plan §5.1). Pinned and non-primary backends
@@ -334,15 +334,11 @@ func isoTail(p string, n int) string {
 	return strings.Join(lines, "")
 }
 
-// isoFreeAddr is a loopback address with a port free a moment ago.
+// isoFreeAddr is a loopback address whose port is the test's until it ends
+// (a lease among the harnesses: test/portlease).
 func isoFreeAddr(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().String()
+	return portlease.Addr(t)
 }
 
 // isoExists says whether anything is at p (a dangling link counts).

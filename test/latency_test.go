@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -23,6 +22,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // The dev-flow latency budgets (plans/dev-flow.md, "Latency budgets"), each
@@ -556,12 +556,7 @@ func latencyGet(url string) (int, string) {
 func startLatencyDaemon(t *testing.T, bin string) latencyTarget {
 	t.Helper()
 	lws := filepath.Join(t.TempDir(), "ws")
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := portlease.Addr(t)
 	cmd := exec.Command(bin, "--workspace", lws, "--listen", addr, "--no-auth")
 	cmd.Env = append(os.Environ(), "XBIN_SDK_PATH="+filepath.Join(repo, "sdk"))
 	var out bytes.Buffer

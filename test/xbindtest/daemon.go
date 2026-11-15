@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // Options tune a daemon. The zero value is an isolated, --no-auth, --dev
@@ -64,7 +65,7 @@ type Daemon struct {
 	log   *os.File
 	seen  map[int]string // every pid seen in its process tree, with its command line
 	boots int
-	lease *os.File // the port's reservation among harnesses (reserveAddr), held while the daemon lives
+	lease func() // lets go of the port's reservation among harnesses (portlease), held while the daemon lives
 }
 
 // Start boots an isolated xbind (--dev --no-auth --isolate) and waits for it
@@ -102,7 +103,8 @@ func Start(t testing.TB, a *Assets, o Options) *Daemon {
 // close that, none of them a retry of the test:
 //
 //   - harnesses don't pick the same port: a port is reserved among them by
-//     a lock file held while the daemon lives (reserveAddr);
+//     a lock file held while the daemon lives (test/portlease, which every
+//     helper that picks a port for a program to bind uses);
 //   - a boot is ready only when OUR xbind says it listens (its start-up
 //     line, after its bind) and is still running — never because something
 //     answered on the port;
@@ -110,47 +112,17 @@ func Start(t testing.TB, a *Assets, o Options) *Daemon {
 //     picks another and boots again; a restart, which keeps its address,
 //     waits for it.
 
-// portLocks is where harnesses reserve ports among themselves: one lock
-// file per port, flock'ed. Not under TMPDIR, which tests set per test.
-func portLocks() string { return fmt.Sprintf("/tmp/xbindtest-ports-%d", os.Getuid()) }
-
-// reserveAddr picks a free port on 127.0.0.1 that no other daemon of this
-// harness — in this process or another — holds or is about to bind.
-func reserveAddr() (string, *os.File, error) {
-	if err := os.MkdirAll(portLocks(), 0o700); err != nil {
-		return "", nil, err
-	}
-	for range 100 {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			return "", nil, err
-		}
-		addr := ln.Addr().String()
-		_, port, _ := net.SplitHostPort(addr)
-		f, err := os.OpenFile(filepath.Join(portLocks(), port+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
-		if err == nil && syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
-			ln.Close()
-			return addr, f, nil
-		}
-		if f != nil {
-			f.Close()
-		}
-		ln.Close() // another harness holds it: its daemon is booting or running
-	}
-	return "", nil, errors.New("xbindtest: no free port that another harness doesn't hold")
-}
-
 // pickAddr gives the daemon an address of the harness's choosing.
 func (d *Daemon) pickAddr(t testing.TB) {
 	t.Helper()
 	if d.lease != nil {
-		d.lease.Close()
+		d.lease()
 		d.lease = nil
 	}
 	if len(d.o.TryAddrs) > 0 {
 		d.Addr, d.o.TryAddrs = d.o.TryAddrs[0], d.o.TryAddrs[1:]
 	} else {
-		addr, lease, err := reserveAddr()
+		addr, lease, err := portlease.Reserve()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -523,7 +495,7 @@ func (d *Daemon) cleanup(t testing.TB) {
 		d.log.Close()
 	}
 	if d.lease != nil { // the port is anyone's again
-		d.lease.Close()
+		d.lease()
 	}
 	if d.own {
 		RemoveTree(filepath.Dir(d.WS))

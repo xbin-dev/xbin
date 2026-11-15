@@ -43,6 +43,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/xbin-dev/xbin/sdk/sandboxcontract"
+	"github.com/xbin-dev/xbin/test/portlease"
 	"github.com/xbin-dev/xbin/test/xbindtest"
 )
 
@@ -223,15 +224,11 @@ echo "$d $! 127.0.0.1:$p"
 	return addr
 }
 
-// freeLoopback is a free 127.0.0.1 port, as host:port.
+// freeLoopback is a free 127.0.0.1 port, as host:port, the test's until it
+// ends (a lease among the harnesses: test/portlease).
 func freeLoopback(t *testing.T) string {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	return l.Addr().String()
+	return portlease.Addr(t)
 }
 
 func cut(s string, n int) string {

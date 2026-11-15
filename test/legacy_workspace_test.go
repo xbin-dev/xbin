@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io/fs"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // A workspace created by an older xbind must boot on today's binary with
@@ -106,9 +107,7 @@ func TestLegacyWorkspaceHomeConflictStops(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(ws, "home", ".claude", "settings.json"), []byte(`{"old":true}`), 0o644))
 	must(t, os.MkdirAll(filepath.Join(ws, "homes", "owner", ".claude"), 0o755))
 	must(t, os.WriteFile(filepath.Join(ws, "homes", "owner", ".claude", "settings.json"), []byte(`{"new":true}`), 0o644))
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := portlease.Addr(t)
 	cmd := exec.Command(xbindBin, "--workspace", ws, "--listen", addr, "--no-auth", "--insecure-vault")
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -138,9 +137,7 @@ func TestLegacyWorkspaceHomeConflictStops(t *testing.T) {
 // returns its log.
 func bootOnce(t *testing.T, ws string) string {
 	t.Helper()
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := portlease.Addr(t)
 	cmd := exec.Command(xbindBin, "--workspace", ws, "--listen", addr, "--no-auth", "--insecure-vault")
 	cmd.Env = append(os.Environ(), "XBIN_SDK_PATH="+filepath.Join(repo, "sdk"))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

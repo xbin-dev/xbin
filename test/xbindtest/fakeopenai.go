@@ -4,13 +4,14 @@ package xbindtest
 
 import (
 	"bytes"
-	"net"
 	"net/http"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // FakeOpenAI builds hack/fakeopenai — the scripted OpenAI-compatible server
@@ -19,12 +20,7 @@ import (
 // answers its base URL (http://127.0.0.1:<port>; the API is under /v1).
 func FakeOpenAI(t testing.TB, a *Assets) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := portlease.Addr(t)
 	bin := filepath.Join(t.TempDir(), "fakeopenai")
 	build := exec.Command("go", "build", "-o", bin, "./hack/fakeopenai")
 	build.Dir = a.Repo
