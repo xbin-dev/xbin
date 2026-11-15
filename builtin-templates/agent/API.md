@@ -6024,7 +6024,10 @@ so where it shows a message being sent.
 **What reaches the model from outside** — a tile's answer, a log, a tile
 agent's report, a research summary, a notebook page — is framed
 `[untrusted — from …]` with the frames' and the updates' markers defused.
-**The notebook's rule**, for every page (`preferences` too): a page the
+**The notebook's rule**, for every page (`preferences` too) and every
+write — `notebook_write`, `notebook_edit`, `notebook_archive` and
+`research`'s `save_as`: a page that exists is written only by a session
+that may read it (refused with the reason otherwise); a page the
 agent writes is stamped with every org its session is tainted with at that
 moment, added to the stamps it had; a session reads, searches and is shown
 a page only when its model is allowed by every stamped org (xbind's

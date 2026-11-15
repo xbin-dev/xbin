@@ -22,7 +22,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `GET /ws/sessions`; the agent template's `API.md` §Workspace mode). A
   notebook page's org marks can't be cleared in place any more (the
   `clearStamps` field of `PUT /ws/notebook/{slug}` is gone and ignored):
-  delete the page and have a clean session write it again.
+  delete the page and have a clean session write it again. `research`'s
+  `save_as` writes over an existing page only where the session may read
+  it, and adds to its stamps instead of replacing them.
 
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),
