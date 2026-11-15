@@ -207,9 +207,15 @@ listed deliberately. The caps were 800 (Go) and 900 (JS) until D219.
   in `docs/`, `plans/`, `internal/`, `web/`, `workspace-template/`, `cmd/`,
   `sdk/` or the builtin trees has no definition — a bullet or heading opening
   with the bold id — in any `plans/*.md` (core `D`/`ND` numbers live in
-  `plans/DECISIONS.md`; the per-domain series in their design record). A
+  `plans/DECISIONS.md` and the archives it indexes, `plans/decisions/
+  D<first>-D<last>.md`; the per-domain series in their design record). A
   trailing letter (`D17a`) names a labelled sub-point of the base entry and
   resolves to it;
+- a core `D` number has more than one entry across the decision log and its
+  archives, an archive is missing from the log's index, or holds a number
+  outside the range its name says. The log keeps the recent entries; when it
+  passes about 450 KB its oldest whole entries move, byte for byte, into a
+  new archive (it is not embedded, but `large-files` caps it at 1 MiB);
 - a relative or `/docs/`-absolute markdown link in `docs/` or `plans/` points
   at a file that does not exist;
 - a `plans/*.md` has no `> Status: live | implemented | superseded |

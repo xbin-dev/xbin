@@ -93,7 +93,7 @@ func (m *Manager) DelegateEffective(p auth.Principal, a AgentOpen) (EffectiveSta
 		return EffectiveStart{}, 403, fmt.Errorf("%s doesn't have terminal access to %s: their agent can't start a tile agent there", p.UserID, strings.Trim(a.Cwd, "/"))
 	}
 	if auth.HoldsDelegation(rel) {
-		return EffectiveStart{}, 403, errors.New("a workspace agent starts no tile agent on a sealed system component")
+		return EffectiveStart{}, 403, errors.New("a workspace agent starts no tile agent on a system component")
 	}
 	providerID, mode := a.Provider, a.Mode
 	if a.Resume != "" {
@@ -157,7 +157,7 @@ func (m *Manager) delegateOpen(p auth.Principal, a *AgentOpen, rel string, prov 
 	}
 	switch {
 	case auth.HoldsDelegation(rel):
-		return "", "", who + "starts no tile agent on a sealed system component"
+		return "", "", who + "starts no tile agent on a system component"
 	case resumed != nil && resumed.Agent != p.Agent:
 		return "", "", resumeOwn
 	}

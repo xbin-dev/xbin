@@ -243,7 +243,7 @@ func TestSealedHolderIsNoTarget(t *testing.T) {
 	comp, _ := b.Reg.Component("apps/pg")
 	// apps/x and apps/q hold approved grants on apps/pg: refused all the same
 	for _, p := range []auth.Principal{instanceOf("apps/x", ""), instanceOf("apps/q", "user:alice"), frameOf("apps/x", "alice")} {
-		if d := b.Route(p, comp, ""); d.Deny == nil || !strings.Contains(d.Deny.Error(), "sealed system component") {
+		if d := b.Route(p, comp, ""); d.Deny == nil || !strings.Contains(d.Deny.Error(), "is a system component that acts for people") || strings.Contains(d.Deny.Error(), "sealed") {
 			t.Errorf("%s reached the holder: %+v", p.Component, d)
 		}
 	}
@@ -257,7 +257,7 @@ func TestSealedHolderIsNoTarget(t *testing.T) {
 	// another holder's delegate doesn't either
 	t.Cleanup(auth.TestSealDelegate("apps/q"))
 	b.AgentPolicy = delegation.OpenPolicy{}
-	if d := b.Route(delegateOf(t, w, "alice", "apps/q"), comp, ""); d.Deny == nil || !strings.Contains(d.Deny.Error(), "sealed system component") {
+	if d := b.Route(delegateOf(t, w, "alice", "apps/q"), comp, ""); d.Deny == nil || !strings.Contains(d.Deny.Error(), "is a system component") || strings.Contains(d.Deny.Error(), "sealed") {
 		t.Errorf("a delegate reached another holder: %+v", d)
 	}
 	if holderRefusal("apps/x", "apps/pg") == "" || holderRefusal("apps/pg", "apps/pg") != "" || holderRefusal("", "apps/pg") != "" || holderRefusal("apps/x", "apps/pu") != "" {

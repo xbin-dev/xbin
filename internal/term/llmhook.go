@@ -178,11 +178,16 @@ type llmSession struct {
 
 	mu     sync.Mutex
 	serves string // agents: who serves, once the host said (sdkacp.ServeConnector | ServeOwn)
-	note   string // agents: said in the session once it is listed
-	ended  bool
-	say    func(text string)    // agents: logs a notice in the session, once it is listed (llmSay)
-	told   map[string]time.Time // agents: when each refusal code was last said
-	cats   map[string]string    // agents, forced: the category of each config option the agent advertised
+	// offered: the host said the connector serves, but nothing holds the CLI
+	// to it — no rule gives it the connector alone and the harness keeps the
+	// person's and the project's own providers beside it (an Additive one,
+	// opencode), whose own config can leave the connector out. Set with serves.
+	offered bool
+	note    string // agents: said in the session once it is listed
+	ended   bool
+	say     func(text string)    // agents: logs a notice in the session, once it is listed (llmSay)
+	told    map[string]time.Time // agents: when each refusal code was last said
+	cats    map[string]string    // agents, forced: the category of each config option the agent advertised
 }
 
 // The LLM-only door of a session with no network: the gateway port its
@@ -614,13 +619,18 @@ func (s *Session) llmHello(m *Manager, h acp.HelloParams) {
 	}
 	l.serves = h.LLM
 	serves := l.serves
+	l.offered = serves == sdkacp.ServeConnector && !l.forced && st.provider.Connector != nil && st.provider.Connector.Additive
+	offered := l.offered
 	l.mu.Unlock()
 	switch {
 	case l.forced && serves != sdkacp.ServeConnector:
 		s.llmEnd(m, l.errOnly("its agent did not start on it"))
 	case serves == sdkacp.ServeConnector:
 		note := "Model calls go through this workspace's LLM connector (" + sdkacp.ConnectorName + "), metered to you."
-		s.logEvent(m, agent.New(EvNotice, llmNotice{Text: note, LLM: serves}))
+		if offered {
+			note = "This workspace's LLM connector (" + sdkacp.ConnectorName + ") is offered to the agent as its default model, metered to you. Its own or the project's configuration can still leave it out and use another provider."
+		}
+		s.logEvent(m, agent.New(EvNotice, llmNotice{Text: note, LLM: serves, Offered: offered}))
 		st.logf(note)
 	case serves == sdkacp.ServeOwn && st.provider.Connector != nil && st.provider.Connector.Additive:
 		// declared next to the person's own providers: the key stays
@@ -634,7 +644,7 @@ func (s *Session) llmHello(m *Manager, h acp.HelloParams) {
 func (s *Session) llmEnd(m *Manager, why error) {
 	st := s.agent
 	st.llm.mu.Lock()
-	st.llm.serves = ""
+	st.llm.serves, st.llm.offered = "", false
 	st.llm.mu.Unlock()
 	st.llm.end()
 	text := why.Error() + ". The session was ended."
@@ -701,10 +711,12 @@ func (st *agentState) llmOptions(data []byte) {
 }
 
 // llmNotice is the notice an agent session logs when the connector serves
-// it: a notice's text, plus who serves (a client's header may say so).
+// it: a notice's text, plus who serves (a client's header may say so) and
+// whether the connector is only offered (llmSession.offered).
 type llmNotice struct {
-	Text string `json:"text"`
-	LLM  string `json:"llm"`
+	Text    string `json:"text"`
+	LLM     string `json:"llm"`
+	Offered bool   `json:"offered,omitempty"`
 }
 
 // llmSay logs what an agent session has to say about the connector, once
@@ -735,6 +747,18 @@ func (st *agentState) llmServes() string {
 	st.llm.mu.Lock()
 	defer st.llm.mu.Unlock()
 	return st.llm.serves
+}
+
+// llmOffered: the host said the connector serves, and nothing holds the
+// CLI to it (llmSession.offered) — its row says llm "connector" with
+// llmOffered, and a client says "offered", not "on".
+func (st *agentState) llmOffered() bool {
+	if st == nil || st.llm == nil {
+		return false
+	}
+	st.llm.mu.Lock()
+	defer st.llm.mu.Unlock()
+	return st.llm.serves == sdkacp.ServeConnector && st.llm.offered
 }
 
 // ---- what the launcher is told (GET /agent/providers) ---------------------------

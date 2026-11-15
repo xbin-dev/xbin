@@ -339,8 +339,8 @@ func TestAgentLLMAdditive(t *testing.T) {
 	if !strings.HasPrefix(key, "xbl_") || model != "" {
 		t.Fatalf("signed in: key %q (declared), model %q (theirs stays)", key, model)
 	}
-	if row, _ := r.m.Info(info.ID); row.LLM != sdkacp.ServeOwn {
-		t.Errorf("row llm %q", row.LLM)
+	if row, _ := r.m.Info(info.ID); row.LLM != sdkacp.ServeOwn || row.LLMOffered {
+		t.Errorf("row llm %q offered %v", row.LLM, row.LLMOffered)
 	}
 	if live := f.liveKeys(); len(live) != 1 || live[0] != key {
 		t.Errorf("the declared provider's key must stay alive: %v", live)
@@ -358,13 +358,39 @@ func TestAgentLLMAdditive(t *testing.T) {
 	if model := r.agentEnv(t, info.ID, "FAKEACP_LLM_MODEL"); model != "up/m1" {
 		t.Errorf("no sign-in: model %q, want the connector's", model)
 	}
-	if row, _ := r.m.Info(info.ID); row.LLM != sdkacp.ServeConnector {
-		t.Errorf("row llm %q", row.LLM)
+	// …offered, not held: no rule, and an additive CLI's own or project
+	// config can leave the connector out — the row, the page and the
+	// notice say so
+	if row, _ := r.m.Info(info.ID); row.LLM != sdkacp.ServeConnector || !row.LLMOffered {
+		t.Errorf("row llm %q offered %v, want connector, offered", row.LLM, row.LLMOffered)
+	}
+	p, err := r.m.AgentPage(info.ID, 0, 50)
+	if err != nil || p.State.LLM != sdkacp.ServeConnector || !p.State.LLMOffered {
+		t.Errorf("page state llm %q offered %v (%v)", p.State.LLM, p.State.LLMOffered, err)
+	}
+	var notice map[string]any
+	for _, e := range p.Events {
+		if e.Type == EvNotice {
+			notice = edata(e)
+		}
+	}
+	if text, _ := notice["text"].(string); notice["llm"] != sdkacp.ServeConnector || notice["offered"] != true || !strings.Contains(text, "is offered to the agent") {
+		t.Errorf("notice: %v", notice)
+	}
+	r.endSession(t, info.ID)
+
+	// where the rule gives it the connector alone, the CLI is held to it
+	r.m.Credentials = policy("connector-only", "Finance allows private models only", nil)
+	info = r.openLLM(t, owner, AgentOpen{})
+	if row, _ := r.m.Info(info.ID); row.LLM != sdkacp.ServeConnector || row.LLMOffered {
+		t.Errorf("forced: row llm %q offered %v, want connector, held", row.LLM, row.LLMOffered)
 	}
 	r.endSession(t, info.ID)
 }
 
-// A session the connector serves says so once, as a notice that names it.
+// A session the connector serves says so once, as a notice that names it;
+// a CLI whose connector configuration replaces the person's (not additive)
+// is on it, not offered it.
 func TestAgentLLMNotice(t *testing.T) {
 	r, _ := llmRig(t)
 	info, code, err := r.m.OpenAgentWith(owner, AgentOpen{Cwd: "apps/x", Provider: "fake"})
@@ -372,8 +398,11 @@ func TestAgentLLMNotice(t *testing.T) {
 		t.Fatalf("open: %d %v", code, err)
 	}
 	e := r.until(t, func(e SessionEvent) bool { return e.ID == info.ID && e.Type == EvNotice })
-	if d := edata(e.Event); d["llm"] != sdkacp.ServeConnector || !strings.Contains(d["text"].(string), "LLM connector") {
+	if d := edata(e.Event); d["llm"] != sdkacp.ServeConnector || !strings.Contains(d["text"].(string), "go through this workspace's LLM connector") || d["offered"] != nil {
 		t.Fatalf("notice: %v", d)
+	}
+	if row, _ := r.m.Info(info.ID); row.LLM != sdkacp.ServeConnector || row.LLMOffered {
+		t.Errorf("row llm %q offered %v", row.LLM, row.LLMOffered)
 	}
 	r.endSession(t, info.ID)
 }

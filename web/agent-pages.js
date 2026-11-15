@@ -86,7 +86,7 @@ export class Transcript {
       if (st.status) this._status({ seq: 0, type: 'status', data: st.status });
       if (st.usage) this.st.usage = st.usage;
       if (Array.isArray(st.queue)) this.st.queue = st.queue; // held now (D197); the page's queue events are newer
-      if (st.llm) this.st.llm = st.llm; // who serves its model calls (D226)
+      if (st.llm) [this.st.llm, this.st.llmOffered] = [st.llm, !!st.llmOffered]; // who serves its model calls, and whether only offered (D226)
       this.segs = [this._seg(evs, st, evs.length ? evs[0].seq : (r.next || 0) + 1)];
       for (const e of evs) this._status(e);
     }

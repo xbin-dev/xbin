@@ -1,6 +1,6 @@
 // ws/dock.js — the workspace agent's page and xbin's chrome around it: the
 // whole of what they say to each other (API.md §Workspace mode → "The
-// page and the chrome"; D235).
+// page and the chrome"; D232, D235).
 //
 // The page renders what a model wrote, so xbin treats it as untrusted: it
 // never grants anything. It shows that something waits and asks the chrome

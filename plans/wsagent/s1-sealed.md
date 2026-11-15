@@ -887,7 +887,8 @@ the entry keeps the rules.
   single instance is the implicit owner's delegate, as a person, never
   as the root token. Rows gain `Env` and `Notify`. Left as found: the
   delegation package says "sealed system component" in a few refusals,
-  where this decision's rule is "system component" for people.
+  where this decision's rule is "system component" for people (fixed
+  2026-11-16: those refusals say "system component").
 - **Sixth round (2026-11-15; agent sessions, notices, previews).**
   `auth.SetDelegateNotify` is installed beside the holder lookup, from
   the same row: a holder's `Notify`, "" for every other component. The

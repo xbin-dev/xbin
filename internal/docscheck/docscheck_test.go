@@ -1,7 +1,9 @@
 // Package docscheck keeps the prose honest: every decision id cited anywhere
-// resolves to an entry in the decision log, every relative link in docs/ and
-// plans/ resolves to a file, and every design record in plans/ says whether
-// it is live, implemented, superseded or historical. It is a test so that
+// resolves to an entry in the decision log (plans/DECISIONS.md and its
+// archives in plans/decisions/, each entry once), every relative link in
+// docs/ and plans/ resolves to a file, and every design record in plans/
+// says whether it is live, implemented, superseded or historical (the
+// archives are parts of the log, not records: they carry none). It is a test so that
 // `make test` (and CI) catches drift instead of a reader finding a 404.
 package docscheck
 
@@ -13,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -86,6 +89,9 @@ func TestDecisionIDsResolve(t *testing.T) {
 		for i, line := range strings.Split(text, "\n") {
 			for _, m := range idCite.FindAllStringSubmatch(line, -1) {
 				series, num := m[1], m[2]
+				if trimmed := strings.TrimLeft(num, "0"); trimmed != "" {
+					num = trimmed // D001 in an archive's name is D1
+				}
 				id := series + num
 				if series != "D" && series != "ND" {
 					id = series + "-" + num
@@ -101,13 +107,72 @@ func TestDecisionIDsResolve(t *testing.T) {
 					continue
 				}
 				seen[key] = true
-				problems = append(problems, fmt.Sprintf("%s:%d: cites %s%s, which no plans/*.md defines (add the entry to plans/DECISIONS.md or fix the id)", file, i+1, id, m[3]))
+				problems = append(problems, fmt.Sprintf("%s:%d: cites %s%s, which no plans/**/*.md defines — not plans/DECISIONS.md nor its archives in plans/decisions/ (add the entry to plans/DECISIONS.md or fix the id)", file, i+1, id, m[3]))
 			}
 		}
 	}
 	sort.Strings(problems)
 	for _, p := range problems {
 		t.Error(p)
+	}
+}
+
+// The decision log is plans/DECISIONS.md (the entry: status meanings, the
+// index of archives, the recent entries) plus archives plans/decisions/
+// D<first>-D<last>.md holding older entries moved byte for byte. Each core
+// entry exists once across them, each archive is in the index and holds only
+// the numbers its name says.
+func TestDecisionLogSplit(t *testing.T) {
+	entry := regexp.MustCompile(`(?m)^- \*\*D(\d+) —`)
+	archiveName := regexp.MustCompile(`^D(\d{3})-D(\d{3})\.md$`)
+	read := func(rel string) string {
+		b, err := os.ReadFile(filepath.Join(repo, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	log := read("plans/DECISIONS.md")
+	where := map[string][]string{}
+	note := func(file, text string) []int {
+		var nums []int
+		for _, m := range entry.FindAllStringSubmatch(text, -1) {
+			where["D"+m[1]] = append(where["D"+m[1]], file)
+			n, _ := strconv.Atoi(m[1])
+			nums = append(nums, n)
+		}
+		return nums
+	}
+	note("plans/DECISIONS.md", log)
+	archives, err := os.ReadDir(filepath.Join(repo, "plans", "decisions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range archives {
+		m := archiveName.FindStringSubmatch(e.Name())
+		if m == nil {
+			t.Errorf("plans/decisions/%s: an archive is named D<first>-D<last>.md, three-digit numbers", e.Name())
+			continue
+		}
+		if !strings.Contains(log, "](decisions/"+e.Name()+")") {
+			t.Errorf("plans/decisions/%s is not in the index of plans/DECISIONS.md", e.Name())
+		}
+		lo, _ := strconv.Atoi(m[1])
+		hi, _ := strconv.Atoi(m[2])
+		rel := "plans/decisions/" + e.Name()
+		for _, n := range note(rel, read(rel)) {
+			if n < lo || n > hi {
+				t.Errorf("%s holds D%d, outside the range its name says", rel, n)
+			}
+		}
+	}
+	if len(where) < 200 {
+		t.Fatalf("found only %d core decision entries — did the format change?", len(where))
+	}
+	for id, files := range where {
+		if len(files) > 1 {
+			t.Errorf("%s has %d entries (%s) — one number, one entry", id, len(files), strings.Join(files, ", "))
+		}
 	}
 }
 
