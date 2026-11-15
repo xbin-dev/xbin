@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -158,6 +159,16 @@ func (d *isoDaemon) start(t *testing.T) {
 	} {
 		if p := filepath.Join(repo, "bin", tool.file); os.Getenv(tool.env) == "" && isoExists(p) {
 			cmd.Env = append(cmd.Env, tool.env+"="+p)
+		}
+	}
+	// …and the VM guest agent, which xbind looks for beside itself: this
+	// suite's xbind is alone in a temporary directory, so without this its
+	// VM halves reported "no VM support: missing xbin-vmagent" on every
+	// machine and skipped. It is this tree's code: bin/'s when
+	// `make integration-deps` built it, else built here, once.
+	if os.Getenv("XBIN_VM_AGENT") == "" {
+		if agent := isoVMAgent(t); agent != "" {
+			cmd.Env = append(cmd.Env, "XBIN_VM_AGENT="+agent)
 		}
 	}
 	cmd.Env = append(cmd.Env, d.opts.Env...)
@@ -332,6 +343,39 @@ func isoTail(p string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "")
+}
+
+// isoVMAgentBuilt is the guest agent built from this tree for the run.
+var isoVMAgentBuilt struct {
+	once sync.Once
+	path string
+	err  error
+}
+
+// isoVMAgent is the VM guest agent for an isolated daemon: the repo's
+// bin/xbin-vmagent, else one built from the tree beside this suite's xbind
+// (static, as `make integration-deps` builds it).
+func isoVMAgent(t *testing.T) string {
+	t.Helper()
+	if p := filepath.Join(repo, "bin", "xbin-vmagent"); isoExists(p) {
+		return p
+	}
+	b := &isoVMAgentBuilt
+	b.once.Do(func() {
+		out := filepath.Join(filepath.Dir(xbindBin), "vmagent", "xbin-vmagent") // not beside xbind: the shared daemon stays as it was
+		cmd := exec.Command("go", "build", "-o", out, "./cmd/xbin-vmagent")
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if msg, err := cmd.CombinedOutput(); err != nil {
+			b.err = fmt.Errorf("building xbin-vmagent: %v\n%s", err, msg)
+			return
+		}
+		b.path = out
+	})
+	if b.err != nil {
+		t.Fatal(b.err)
+	}
+	return b.path
 }
 
 // isoFreeAddr is a loopback address whose port is the test's until it ends

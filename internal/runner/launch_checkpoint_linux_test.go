@@ -166,7 +166,29 @@ func TestPinnedBackendSeesCheckpoint(t *testing.T) {
 				t.Setenv(env, filepath.Join(assets, name))
 			}
 		}
-		m := &vm.Manager{Root: ws, Rootfs: fs, Bx: filepath.Join(assets, "bx")}
+		// the guest agent and bx are this tree's code: bin/'s when `make
+		// integration-deps` built them, else built here (a worktree sharing
+		// another checkout's helpers has no bin/, and this half skipped)
+		fromTree := func(name string) string {
+			out := filepath.Join(t.TempDir(), name)
+			build := exec.Command("go", "build", "-o", out, "./cmd/"+name)
+			build.Dir = repo
+			build.Env = append(os.Environ(), "CGO_ENABLED=0")
+			if b, err := build.CombinedOutput(); err != nil {
+				t.Fatalf("building %s: %v\n%s", name, err, b)
+			}
+			return out
+		}
+		bx := filepath.Join(assets, "bx")
+		if _, err := os.Stat(bx); err != nil {
+			bx = fromTree("bx")
+		}
+		if agent := filepath.Join(assets, "xbin-vmagent"); os.Getenv("XBIN_VM_AGENT") == agent { // set just above: none named
+			if _, err := os.Stat(agent); err != nil {
+				t.Setenv("XBIN_VM_AGENT", fromTree("xbin-vmagent"))
+			}
+		}
+		m := &vm.Manager{Root: ws, Rootfs: fs, Bx: bx}
 		st := m.Status()
 		if !st.Available {
 			t.Skipf("VM sandboxes unavailable here (no KVM or no VM assets): %s", st.Reason)
