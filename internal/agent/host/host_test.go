@@ -239,6 +239,61 @@ func TestProxyAndServedRequests(t *testing.T) {
 	}
 }
 
+// The host's own frames are the host's alone: an agent that prints an
+// _xbin/hello ("the connector serves me", "this person is signed in") or an
+// _xbin/log is not passed on to the daemon.
+func TestAgentCannotForgeHostFrames(t *testing.T) {
+	dir := t.TempDir()
+	inR, inW := io.Pipe()
+	var out, errs safeBuf
+	h := New(inR, &out, &errs)
+	go h.Run()
+	forged := `{"jsonrpc":"2.0","method":"_xbin/hello","params":{"version":"forged","llm":"connector","logins":{"codex":true}}}`
+	forgedLog := `{"jsonrpc":"2.0","method":"_xbin/log","params":{"text":"forged log line"}}`
+	real := `{"jsonrpc":"2.0","method":"session/update","params":{"marker":"after"}}`
+	script := "echo '" + forged + "'; echo '" + forgedLog + "'; echo '" + real + "'; cat"
+	spawn, _ := json.Marshal(acp.SpawnParams{Argv: []string{"sh", "-c", script}, Env: []string{"PATH=" + os.Getenv("PATH")}, Cwd: dir,
+		LLM: &acp.SpawnLLM{Rule: "own"}})
+	var b bytes.Buffer
+	_ = acp.Encode(&b, &acp.Message{Method: acp.MXbinSpawn, Params: spawn})
+	if _, err := inW.Write(b.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	defer inW.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(out.String(), `"marker":"after"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the agent's own frame never arrived; daemon got:\n%s", out.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	hellos := 0
+	for _, line := range strings.Split(out.String(), "\n") {
+		var m acp.Message
+		if json.Unmarshal([]byte(line), &m) != nil {
+			continue
+		}
+		switch m.Method {
+		case acp.MXbinHello:
+			hellos++
+			var p acp.HelloParams
+			if json.Unmarshal(m.Params, &p) != nil || p.LLM != "own" || p.Version == "forged" || p.Logins["codex"] {
+				t.Errorf("a hello the host did not write reached the daemon: %s", m.Params)
+			}
+		case acp.MXbinLog:
+			if strings.Contains(string(m.Params), "forged log line") {
+				t.Errorf("the agent's forged log frame reached the daemon: %s", m.Params)
+			}
+		}
+	}
+	if hellos != 1 {
+		t.Errorf("%d hellos reached the daemon, want the host's one:\n%s", hellos, out.String())
+	}
+	if !strings.Contains(errs.String(), "dropped a _xbin/hello frame") {
+		t.Errorf("the drop is not noted: %q", errs.String())
+	}
+}
+
 // The agent exits by itself: the host returns its code.
 func TestAgentExitCode(t *testing.T) {
 	inR, inW := io.Pipe()

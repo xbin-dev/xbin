@@ -44,6 +44,7 @@ const (
 	UpSessionInfo      = sdkacp.UpSessionInfo
 	UpUsage            = sdkacp.UpUsage
 	// xbin's own, daemon ⇄ host (never reaches the agent):
+	XbinPrefix  = "_xbin/" // the daemon ⇄ host vocabulary: never the agent's to send, or to receive
 	MXbinSpawn  = "_xbin/spawn"
 	MXbinHello  = "_xbin/hello"
 	MXbinLog    = "_xbin/log"

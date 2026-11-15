@@ -191,8 +191,11 @@ func (h *Host) spawn(p acp.SpawnParams) error {
 }
 
 // agentLoop reads the agent's frames: fs/* and terminal/* requests are
-// answered here; everything else goes to the daemon as it is. A line that
-// is not a frame is reported to the daemon as a log line.
+// answered here; everything else goes to the daemon as it is — but never a
+// frame of the host's own vocabulary (_xbin/*): only the host says who
+// serves the session's model calls (_xbin/hello) or writes the host's log
+// lines, so one from the agent is dropped and noted. A line that is not a
+// frame is reported to the daemon as a log line.
 func (h *Host) agentLoop() {
 	dec := acp.NewDecoder(h.agentR)
 	for {
@@ -203,6 +206,10 @@ func (h *Host) agentLoop() {
 				continue
 			}
 			return
+		}
+		if strings.HasPrefix(m.Method, acp.XbinPrefix) {
+			h.note("dropped a " + m.Method + " frame from the agent: those are the host's own")
+			continue
 		}
 		if m.IsRequest() && h.serves(m.Method) {
 			go func(m *acp.Message) {
