@@ -204,7 +204,7 @@ function copyInTpl(f) {
   </sheet>`;
 }
 
-/** partitionSheets (native.js, beside the nav): the open form's sheet. */
+/** partitionSheets (native/main.js, beside the nav): the open form's sheet. */
 export function partitionSheets() {
   const f = ui.part;
   if (!f) return nothing;

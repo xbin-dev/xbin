@@ -46,6 +46,17 @@ export const W = Object.freeze({
   sessionsFoot: 'A new session starts empty, with its own scope and model. The notebook is shared by all of them, within each one’s scope.',
   notebookFoot: 'You can open, edit or delete any page. Deleting a page makes the agent forget it.',
   whatCanItDo: 'What can it do?',
+  // the app's native view (native/ws.js; D233)
+  itCan: 'It can',
+  itCant: 'It can’t',
+  answerBelow: 'Answer in the message box.',
+  replaced: 'A newer question replaced this one.',
+  updateToReview: 'Something waits for your approval. Update the app to review it.',
+  needsApp: 'That opens in xbin’s own panels: update the app, or use xbin on the web.',
+  startFromBrief: 'Start it from the brief.',
+  readyToStart: 'Ready to start',
+  askAgain: 'Ask again',
+  updates: 'Updates from xbin and your tile agents',
 });
 
 // ---- time ----------------------------------------------------------------------------
@@ -270,6 +281,13 @@ export function aboutOf(c) {
   if (c.tile) return { tile: String(c.tile), name: String(c.name || c.tile), connected: c.connected };
   if (c.screen) return { screen: String(c.screen) };
   return null;
+}
+
+/** aboutLabel(c): the chip's words in one line — "About Orders", "About the Sales desk screen", "About Ledger — not connected" (c: aboutOf's, or the composer's {tile, name, not}). */
+export function aboutLabel(c) {
+  if (!c) return '';
+  if (!c.tile) return `About the ${c.screen} screen`;
+  return `About ${c.name || c.tile}${c.not || c.connected === false ? ' — not connected' : ''}`;
 }
 
 /** blankAt(text): where a starter's blank is ([start, end] of "___"), or null. */

@@ -27,6 +27,13 @@
 //                                                   draft (a redirect: "Hand
 //                                                   this to <tile>'s own
 //                                                   agent"); nothing is sent
+//     xbin:agent-open           {view}             one of the chrome's own
+//                                                   panels: approvals |
+//                                                   activity | prefs (the
+//                                                   native view's ⋯ asks the
+//                                                   app for them, D233; the
+//                                                   web dock has them in its
+//                                                   own header)
 //   chrome → page
 //     xbin:agent-context        {tile} | {screen}  what the dock was opened
 //                                                   about: a tile's path, or
@@ -59,6 +66,11 @@ export function tilePath(v) {
 /** openRequest(id) / openChangeset(id) / openSession(session, tile, draft?): the message, or null when the ids aren't ids (a draft rides only on session "new"). */
 export const openRequest = (id) => (typeof id === 'string' && ID.test(id) ? { type: MSG.openRequest, id } : null);
 export const openChangeset = (id) => (typeof id === 'string' && ID.test(id) ? { type: MSG.openChangeset, id } : null);
+/** VIEWS: the chrome's own panels a page may ask for (docs/protocol/delegation.md §The chrome). */
+export const VIEWS = Object.freeze(['approvals', 'activity', 'prefs']);
+/** openView(view): the message that asks the chrome for one of its panels, or null for anything else. */
+export const OPEN_VIEW = 'xbin:agent-open'; // (not one of the web page's: its dock has these panels in its own header)
+export const openView = (view) => (VIEWS.includes(view) ? { type: OPEN_VIEW, view } : null);
 export const DRAFT_MAX = 8000;
 export function openSession(session, tile, draft) {
   const t = tilePath(tile);

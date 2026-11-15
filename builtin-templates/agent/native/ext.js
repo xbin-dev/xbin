@@ -1,6 +1,6 @@
 // native/ext.js — the native view's seams (model/ext.js): where a feature
 // module draws into the conversation, its toolbar, menu and composer, the
-// new-chat sheet and pushed screens without editing native.js or
+// new-chat sheet and pushed screens without editing native/main.js or
 // native/chat.js. Register from a module native/harness-all.js imports:
 //
 //   import { ext } from './ext.js';
@@ -45,7 +45,7 @@
 //                    module notices which of its screens is on top — and when
 //                    none is (popped, covered), stops what it does for it
 // Their call sites: drawer in native/convs.js (native/projects.js: Projects), dock in native/harness-board.js,
-// card in native/projects.js (the board), childStatus in native/harness-child.js, drawn in native.js
+// card in native/projects.js (the board), childStatus in native/harness-child.js, drawn in native/main.js
 // (native/project-status.js: a project's overview read again while it shows).
 import { makeExt } from '../model/ext.js';
 

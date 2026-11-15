@@ -64,7 +64,7 @@ export function hostedButtonsTpl(v) {
 }
 
 /**
- * hostedWarnSheet (native.js, beside the nav): the warning as a modal — it
+ * hostedWarnSheet (native/main.js, beside the nav): the warning as a modal — it
  * opens by itself the first time a hosted conversation is opened in this app
  * session, and from the composer's "Read the warning…". Start anyway
  * unlocks the composer; Open without sending leaves it locked. No "don't

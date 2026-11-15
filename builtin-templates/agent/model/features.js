@@ -24,6 +24,7 @@ export const AREAS = {
   harness: 'Coding agents — a conversation with Claude Code, Codex, Gemini or opencode in a coding sandbox',
   proj: 'Projects — a sandbox, its repos and task conversations, each with a git worktree per repo',
   ci: 'CI — what a conversation pushed, as the platform\'s CI reports it',
+  ws: 'Workspace agent — the page of a person\'s workspace agent (workspace mode, API.md §Workspace mode): ws/page.js on the web, native/ws.js in the app, one model (ws/store.js)',
 };
 
 export const FEATURES = {
@@ -323,18 +324,43 @@ export const FEATURES = {
   'ci.watch': '"Watch CI for…" a branch or PR, and stop watching one',
   'ci.cards': 'a card in the conversation when CI passes or fails, with Open logs',
   'ci.board': 'CI on a project board\'s tasks and on the cards of coding agents that pushed',
+
+  // Workspace agent (workspace mode: another page over the same run view; D233, D235)
+  'ws.sessions': 'the session in view and its switcher: Main first and never archived, the others with scope, model and status; New session… (copies the scope and model in view), Rename, Archive, Older folded',
+  'ws.scope.chip': 'the connection line, always in view: xbin\'s numbers ("14 tiles · 3 orgs", "6 not connected") and the model, private said; it opens the scope panel',
+  'ws.scope.panel': 'the scope panel: four totals, orgs unfolding to tiles — connected, hidden by you, blocked (the org\'s sentence once) or no access —, ticks staged and applied with one button, Select all allowed; scope is focus, not permission, and the panel says so',
+  'ws.scope.model': 'a model change: xbin\'s what-if first (connects, disconnects, the resulting line), then Switch; one the conversation\'s data refuses is "This session can\'t move to …" with a new session as the way forward',
+  'ws.cards.plan': 'the plan in place of its call: numbered steps, each tagged reads only / asks you / where it stands, and the line that says what go ahead does not approve',
+  'ws.cards.ask': 'the agent\'s question by its kind: choices with "Something else" and a skip that is never consent, a redirect\'s two ways forward (the tile\'s own agent with the words as its draft, or the outcome), can\'t with the nearest things it can',
+  'ws.cards.brief': 'the brief for a tile agent: Goal, Done when, Leave alone, Check by — editable —, what it will run on, a pick among the coding agents the tile allows, and one button that files the start for xbin to ask',
+  'ws.cards.request': 'a request waiting for approval, and what came of it — opened in xbin\'s chrome by xbind\'s id; the page never draws an Allow',
+  'ws.cards.agent': 'a tile agent it started: status as a glyph and a word, its last line, Open — Answer when it waits for the person, who alone can answer',
+  'ws.cards.refusal': 'what xbin refused, as a card with the way forward (Open scope, Change the model…, What can it do?); paused, off and slow as a quiet line',
+  'ws.empty': 'the empty state of a new session: what the agent can and can\'t do in this session\'s numbers, starters built from the person\'s tiles — a starter fills the composer, never sends; "What can it do?" shows it again',
+  'ws.context': 'the "About …" context chip: what xbin\'s chrome says the agent was opened about, one tap to remove, sent with the next message only; a tile the session isn\'t connected to says so and opens the scope panel; the sent message keeps its chip',
+  'ws.replies': 'quick replies: "Go ahead" / "Change the plan" while the plan waits for a go',
+  'ws.replies.ask': 'the choices of the question that waits as quick replies above the composer',
+  'ws.notebook': 'the notebook: every page listed, one the session may not read closed with the reason; read, edit, add, delete (confirmed), clear a page\'s org marks (confirmed)',
+  'ws.states': 'banners for what stops it: paused, a used-up quota, turned off, xbin updating and back, no connection (the draft is kept and not sent); the composer\'s words follow',
+  'ws.paused.composer': 'paused, the message box is disabled ("Resume to send a message"); resuming is xbin\'s chrome',
+  'ws.chrome': 'the page grants nothing: an approval, a change set and a tile agent\'s session are asked of xbin\'s chrome by id (ws/dock.js), and the chrome draws them from xbind',
+  'ws.chrome.panels': 'Approvals, What my agent did and Preferences — xbin\'s own panels — from the page\'s ⋯ menu',
+  'ws.live': 'xbind\'s own events (a request decided, a change set, the switches) and the run\'s stream keep the cards, the sessions and the states current',
 };
 
 // DIFFERENCES: keys a view does not implement ON PURPOSE, with the reason.
 // Anything else missing from a view fails the features test.
 export const DIFFERENCES = {
   web: {
+    'ws.chrome.panels': 'on the web these three are in the dock\'s own header, above the page\'s frame (bx-agent-dock.js): the page has no menu entry for what the chrome already shows',
+    'ws.replies.ask': 'the web\'s question card shows its choices as full-width rows right above the composer; a second row of the same choices would repeat it',
     'needs.push': 'a web page does not receive pushes: the backend sends Needs-you to the person\'s xbin app (POST /api/xbin/notify), which opens the conversation in the native view',
     'composer.dictation': 'the browser and the OS dictate into any text box; the tile adds no control of its own',
     'composer.attach.camera': 'the browser\'s file picker offers the camera and the photo library itself',
     'link.back': 'the web page draws the conversation list beside the open conversation, and its panes beside both: there is nothing to go back to — its address is replaced, not pushed, so a reload comes back to where you were',
   },
   native: {
+    'ws.paused.composer': 'paused, the app shows no message box at all: its own chrome draws Resume where the box was — resuming is a grant, and a tile\'s view draws none (D233)',
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
