@@ -475,7 +475,7 @@ func (b *Broker) apiAgentsConnection(w http.ResponseWriter, r *http.Request) {
 // enters a model's context.
 func (b *Broker) apiAgentsConnectionSession(w http.ResponseWriter, r *http.Request, p auth.Principal, sid string) {
 	const docs = "/docs/protocol/delegation.md"
-	if p.Via != "frame" || p.UserID == "" || p.Deployment != "" || p.Impersonator != "" || !auth.HoldsDelegation(p.Component) || b.AgentHandle == nil {
+	if p.Via != "frame" || p.UserID == "" || p.Deployment != "" || p.ReadOnly() || !auth.HoldsDelegation(p.Component) || b.AgentHandle == nil {
 		server.WriteError(w, http.StatusForbidden, "a session's connection view is read by the page of the agent it belongs to, for the person driving that page", docs)
 		return
 	}
