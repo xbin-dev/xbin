@@ -5977,7 +5977,7 @@ to the session's taint (`…/taint`) first. `PUT /ws/notebook/{slug}` — the
 person's own route — keeps a page's stamps, and clears them only with
 `clearStamps: true` (a deliberate act the page confirms; no tool can).
 
-**The page** (`ws/`; D232). In workspace mode the tile's page is another
+**The page** (`ws/`; D235). In workspace mode the tile's page is another
 one: `boot.js` — on a sealed component's path (`xbin/<name>`) only, once the
 kit is there — asks `GET /ws/state` and, when it answers `mode:
 "workspace"`, loads `ws/page.js` in place of `agent.js`; anywhere else
@@ -5994,8 +5994,12 @@ and back, no connection; the conversation — the run view, drawn with the
 chat kit's rows and window, with the session's cards set where the
 conversation made them (`ws/place.js`: a request in place of the call that
 filed it, a brief in place of `tile_agent_brief`, a tile agent after the
-request that started it, the plan in place of its first `plan` call, an
-`ask_user` with `choices` as the kit's question form; else by time); the
+request that started it, the plan in place of its first `plan` call, a
+refusal after the call it answers (`refusals[].callId`), an `ask_user` by
+its `kind` — choices as the kit's question form, a redirect's two ways
+forward, can't with the nearest things it can; else by time). Every card
+is drawn from the fields above ("In fields"), never from the model's
+sentences beside them; the
 empty state (`/ws/empty`: a starter fills the composer, never sends);
 the notebook; and the kit's composer with the context chip. The words are
 `ws/words.js`; the choices the owner hasn't settled are its `CHOICES`.
@@ -6009,7 +6013,8 @@ whole contract):
 | `xbin:agent-open-request {id}` | page → chrome | open the approval of xbind's request `id` (a request's `ref`; the brief's start answers one) |
 | `xbin:agent-open-changeset {id}` | page → chrome | open the review of an admin change set |
 | `xbin:open-session {session, tile}` | page → chrome | show a tile agent's session in its tile's window (`xbin.openSession`, D229) |
-| `xbin:agent-context {tile}` \| `{screen}` | chrome → page | what the dock was opened about: the composer's context chip, one tap to remove, sent with the next message only as its first line — `About tile "<name>" (<path>):` or `About the screen "<name>":` (the message route takes text) |
+| `xbin:open-session {session: "new", tile, draft}` | page → chrome | a redirect's "Hand this to <tile>'s own agent": a new session of the tile's own agent with the person's own words as its draft (at most 8000 characters); nothing is sent |
+| `xbin:agent-context {tile}` \| `{screen}` | chrome → page | what the dock was opened about: the composer's context chip, one tap to remove, sent with the next message only, as its `context` field (`POST /runs/{id}/message {text, context}`) — the person's words stay their own; the chip above a sent message is drawn from the `context` the backend answers back |
 
 A message in is taken only from the framing window, and read strictly (a
 path, a short name). Paused, the composer takes nothing ("Resume to send a

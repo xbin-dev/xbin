@@ -36,10 +36,11 @@ const STATE = { user: 'ana', mode: 'workspace', delegation: { workspace: true, p
 {
   const { ctx, page, errors } = await openWs(browser, base({ state: fresh(STATE) }));
   ok('not paused: the composer takes a message', !(await composer(page)).off);
-  await page.evaluate(() => { window.__seed.state.delegation.paused = true; window.__event({ type: 'delegate', data: { op: 'state', user: 'ana' } }); });
+  await page.evaluate(() => { Object.assign(window.__seed.state.delegation, { paused: true, pausedAt: '2030-01-02T09:31:00Z' }); window.__event({ type: 'delegate', data: { op: 'state', user: 'ana' } }); });
   await until(async () => !!(await page.$('.wsp-banner[data-state="paused"]')));
   const b = await text(page, '.wsp-banner[data-state="paused"]');
-  ok('paused (xbind\'s state event, read again): the banner says what still works', b.includes('Paused by you') && b.includes('can’t read or change anything') && b.includes('Tile agents that are already running keep going'), b);
+  const pat = await page.evaluate(() => { const d = new Date('2030-01-02T09:31:00Z'); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; });
+  ok('paused (xbind\'s state event, read again): when, and what still works', b.includes(`Paused by you at ${pat}.`) && b.includes('can’t read or change anything') && b.includes('Tile agents that are already running keep going'), b);
   const c = await composer(page);
   ok('…the composer is off: "Resume to send a message"', c.off && c.ph === 'Resume to send a message', JSON.stringify(c));
   ok('…and the page offers no Resume: that is xbin\'s chrome', (await grants(page)).length === 0, (await grants(page)).join());
@@ -47,23 +48,17 @@ const STATE = { user: 'ana', mode: 'workspace', delegation: { workspace: true, p
   await ctx.close();
 }
 
-// ---- a stopping quota; turned off -------------------------------------------------------------------
+// ---- a stopping quota (state.quota); turned off -------------------------------------------------------
 {
-  const st = { ...fresh(STATE), quota: { stopped: true, resets: '2030-01-02T01:00:00Z', limitWords: 'your 2M tokens for today' } };
+  const st = { ...fresh(STATE), quota: { stopped: true, quota: 'user.tokensPerDay', source: 'user', unit: 'tokens', window: 'day', limit: 2000000, used: 2000310,
+    resets: '2030-01-02T01:00:00Z', limitWords: 'your 2M tokens for today', raise: 'a workspace admin' } };
   const { ctx, page } = await openWs(browser, base({ state: st }));
   const b = await text(page, '.wsp-banner[data-state="quota"]');
   const at = await page.evaluate(() => { const d = new Date('2030-01-02T01:00:00Z'); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; });
-  ok('quota: what ran out, when it resets, that reading still works', b.includes('Today’s limit is used up.') && b.includes(`It resets at ${at}`) && b.includes('You can still read everything here'), b);
+  ok('quota: what ran out, when it resets, that reading still works, who can raise it', b.includes('Today’s limit is used up.') && b.includes('You\'ve used your 2M tokens for today.') && b.includes(`It resets at ${at}`)
+    && b.includes('You can still read everything here') && b.includes('A workspace admin can raise your limit.'), b);
   const c = await composer(page);
   ok('…the composer is off until then', c.off && c.ph === `Sending resumes at ${at}`, JSON.stringify(c));
-  await ctx.close();
-}
-{
-  // the connector's refusal in the run's error, when the state says nothing
-  const v = fresh(CONVERSATION);
-  v.run = { status: 'error', result: 'llm: 429 xbin_llm_quota_exceeded (insufficient_quota): user.tokensPerDay reached; resets 2030-01-02T01:00:00Z' };
-  const { ctx, page } = await openWs(browser, base({ views: { 1: v } }));
-  ok('quota, from the run\'s error: the same banner', (await text(page, '.wsp-banner[data-state="quota"]')).includes('Today’s limit is used up.'));
   await ctx.close();
 }
 {
@@ -110,19 +105,23 @@ const STATE = { user: 'ana', mode: 'workspace', delegation: { workspace: true, p
   await ctx.close();
 }
 
-// ---- can't do this; slowing down ------------------------------------------------------------------------
+// ---- refusals of every kind (cards.refusals) -----------------------------------------------------------
 {
   const v = fresh(CONVERSATION);
-  v.messages.push(
-    msg(20, 'user', 'delete the old Leave requests tile'),
-    msg(21, 'assistant', '', { toolCalls: [call('d1', 'tile_call', { tile: 'people/leave', method: 'DELETE', path: '/' })] }),
-    msg(22, 'tool', 'an agent can\'t do this, whatever is approved — deleting a tile is its person\'s to do. Tell your person it is theirs to do, and offer the nearest thing you can do', { toolCallId: 'd1', name: 'tile_call' }),
-    msg(23, 'assistant', '', { toolCalls: [call('d2', 'tile_status', { tile: 'people/leave' })] }),
-    msg(24, 'tool', 'too many actions in a minute: wait a little before the next one', { toolCallId: 'd2', name: 'tile_status' }));
-  const { ctx, page, errors } = await openWs(browser, base({ views: { 1: v } }));
+  const kinds = ['cannot', 'hidden', 'not-connected', 'taint', 'slow', 'paused', 'off'];
+  kinds.forEach((k, i) => v.messages.push(msg(20 + 2 * i, 'assistant', '', { toolCalls: [call('f' + i, 'tile_call', { tile: 'people/leave' })] }),
+    msg(21 + 2 * i, 'tool', 'the model\'s sentence', { toolCallId: 'f' + i, name: 'tile_call' })));
+  const s = base({ views: { 1: v } });
+  s.cards[1].refusals = kinds.map((k, i) => ({ id: 10 + i, callId: 'f' + i, tool: 'tile_call', kind: k, tile: 'people/leave', reason: k === 'cannot' ? 'deleting a tile is its person\'s to do' : k === 'taint' ? 'Finance allows private models only' : '' }));
+  const { ctx, page, errors } = await openWs(browser, s);
   const c = await text(page, '[data-refusal="cannot"]');
-  ok('"Can\'t do this": what, that it is the person\'s, and What can it do?', c.includes('Can’t do this') && c.includes('deleting a tile is its person\'s to do') && c.includes('It’s yours to do yourself') && c.includes('What can it do?'), c);
-  ok('slowing down: a quiet line', (await text(page, '.wsc-quiet')).includes('Slowing down — the agent is doing a lot at once.'));
+  ok('cannot: "Can\'t do this", why, that it is the person\'s, What can it do?', c.includes('Can’t do this') && c.includes('deleting a tile is its person\'s to do') && c.includes('It’s yours to do yourself') && c.includes('What can it do?'), c);
+  ok('hidden: left out of the scope by the person, Open scope', (await text(page, '[data-refusal="hidden"]')).includes('You left people/leave out of this session’s scope') && (await text(page, '[data-refusal="hidden"]')).includes('Open scope'));
+  ok('not-connected: isn\'t connected in this session, Open scope', (await text(page, '[data-refusal="not-connected"]')).includes('people/leave isn’t connected in this session'));
+  ok('taint: the model can\'t hold that data, Change the model…', (await text(page, '[data-refusal="taint"]')).includes('This session’s model can’t hold that data') && (await text(page, '[data-refusal="taint"]')).includes('Change the model…'));
+  ok('slow, paused, off: quiet lines', (await text(page, '[data-refusal="slow"]')).includes('Slowing down — the agent is doing a lot at once.')
+    && (await text(page, '[data-refusal="paused"]')).includes('Paused — nothing was read or changed.') && (await text(page, '[data-refusal="off"]')).includes('turned off'));
+  ok('…the model\'s own sentence is never drawn as a card', !(await page.$$eval('.wsc', (cs) => cs.some((x) => x.textContent.includes('the model\'s sentence')))));
   await page.click('[data-refusal="cannot"] button');
   ok('What can it do? shows what it can and can\'t, again', await until(async () => (await text(page, '.wsp-whatcan')).includes('It can’t')));
   ok('no page errors (refusals)', errors.length === 0, errors.join(' | '));

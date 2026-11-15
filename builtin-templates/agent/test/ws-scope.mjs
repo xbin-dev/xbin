@@ -136,7 +136,7 @@ const seed = () => ({
   const { ctx, page } = await openWs(browser, seed());
   await page.click('[data-refusal="policy"] button.primary');
   await until(async () => !!(await page.$('.wsp-models')));
-  ok('"See what a private model connects…" opens the model\'s what-if', !!(await page.$('.wsp-models')));
+  ok('a policy refusal\'s "Change the model…" opens the model\'s what-if', !!(await page.$('.wsp-models')));
   await page.click('.wsp-model[data-model="hosted/small"] input');
   await until(async () => !!(await page.$('.wsp-refused')));
   ok('a what-if that isn\'t allowed: the refused card, nothing switched', (await text(page, '.wsp-refused')).includes('This session can’t move to small') && (await calls(page, 'PATCH', /sessions\/1$/)).length === 0);
