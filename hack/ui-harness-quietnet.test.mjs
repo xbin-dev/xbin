@@ -11,6 +11,7 @@
 // the namespace. docs/maintenance.md → "UI harness".)
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
@@ -23,16 +24,29 @@ const inNamespace = (env, script) => new Promise((resolve) => {
   execFile(quietnet.WRAPPER, ['-e', script], { env: { ...process.env, ...env, QUIETNET_EXE: process.execPath }, timeout: 30000 },
     (err, stdout, stderr) => resolve({ code: err ? err.code ?? 1 : 0, stdout, stderr }));
 });
-const relays = () => { try { return execFileSync('pgrep', ['-f', 'quietnet[.]js inner'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean); } catch { return []; } };
+// relays(ns): the relay processes of THIS namespace — the ones started with
+// its directory. Any other relay on the machine is another harness run's
+// browser (a pass running beside this test), and none of this test's business.
+const relays = (ns) => {
+  let pids = [];
+  try { pids = execFileSync('pgrep', ['-f', 'quietnet[.]js inner'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean); } catch { /* none */ }
+  return pids.filter((pid) => { try { return readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').includes(`QUIETNET_DIR=${ns.env.QUIETNET_DIR}`); } catch { return false; } });
+};
+const gone = async (ns) => {
+  const t0 = Date.now();
+  let left = relays(ns);
+  while (left.length && Date.now() - t0 < 5000) { await new Promise((r) => setTimeout(r, 100)); left = relays(ns); }
+  return left;
+};
 
 test('a port on the host\'s loopback is the same port in the namespace', { skip }, async () => {
   const srv = http.createServer((req, res) => res.end(`host says ${req.url}`));
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   const port = srv.address().port;
-  const before = relays();
   const ns = await quietnet.namespace([port]);
+  let seen = [];
   try {
-    const got = await inNamespace(ns.env, `
+    const run = inNamespace(ns.env, `
       const { execFileSync } = require('child_process');
       (async () => {
         const body = await (await fetch('http://127.0.0.1:${port}/x?y=1')).text();
@@ -43,7 +57,11 @@ test('a port on the host\'s loopback is the same port in the namespace', { skip 
         const other = await fetch('http://127.0.0.1:${port + 1 > 65535 ? port - 1 : port + 1}/').then(() => 'reached', (e) => 'refused');
         console.log(JSON.stringify({ body, links, events: events.trim(), other, uid: process.getuid() }));
       })();`);
+    // while it runs (three seconds at least), its relay is found by its directory: what "gone" below means
+    for (let i = 0; i < 200 && !seen.length; i++) { await new Promise((r) => setTimeout(r, 50)); seen = relays(ns); }
+    const got = await run;
     assert.equal(got.code, 0, got.stderr);
+    assert.ok(seen.length > 0, 'the relay is found while its browser runs');
     const out = JSON.parse(got.stdout);
     assert.equal(out.body, 'host says /x?y=1', 'the request crossed the relay to the host\'s server');
     assert.deepEqual(out.links, ['lo', 'qn0', 'qn1'], 'the namespace has its loopback and the idle pair, none of the host\'s interfaces');
@@ -54,21 +72,14 @@ test('a port on the host\'s loopback is the same port in the namespace', { skip 
     srv.close();
   }
   // the relay goes with what it served
-  const t0 = Date.now();
-  let left = relays().filter((p) => !before.includes(p));
-  while (left.length && Date.now() - t0 < 5000) { await new Promise((r) => setTimeout(r, 100)); left = relays().filter((p) => !before.includes(p)); }
-  assert.deepEqual(left, [], 'no relay outlives its browser');
+  assert.deepEqual(await gone(ns), [], 'no relay outlives its browser');
 });
 
 test('the relay goes when the browser never starts', { skip }, async () => {
-  const before = relays();
   const ns = await quietnet.namespace([]);
   try {
     const got = await new Promise((resolve) => execFile(quietnet.WRAPPER, [], { env: { ...process.env, ...ns.env, QUIETNET_EXE: '/nonexistent/browser' } }, (err) => resolve(err?.code)));
     assert.equal(got, 127, 'the wrapper says the browser could not be started');
   } finally { ns.close(); }
-  const t0 = Date.now();
-  let left = relays().filter((p) => !before.includes(p));
-  while (left.length && Date.now() - t0 < 5000) { await new Promise((r) => setTimeout(r, 100)); left = relays().filter((p) => !before.includes(p)); }
-  assert.deepEqual(left, [], 'no relay left behind');
+  assert.deepEqual(await gone(ns), [], 'no relay left behind');
 });
