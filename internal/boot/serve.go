@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/apptunnel"
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/deps"
@@ -45,6 +46,8 @@ func (st *State) serve(ctx context.Context) error {
 	}
 	gwSrv := &http.Server{
 		Handler: handler,
+		// a delegate credential is honoured here alone (auth/delegate.go)
+		ConnContext: func(ctx context.Context, _ net.Conn) context.Context { return auth.WithGateway(ctx) },
 		// Reap idle keep-alive conns from backends' pooled clients (the
 		// SDK's IdleConnTimeout is 90s — under this) without touching
 		// long-lived streams (WS is hijacked; SSE is never idle).
@@ -56,6 +59,13 @@ func (st *State) serve(ctx context.Context) error {
 			slog.Error("gateway serve", "err", err)
 		}
 	}()
+
+	// The LLM-only listener (D226): the connector's model routes for LLM
+	// keys, for tile sandboxes created with net.llm (llmsessions.go).
+	llmSrv, err := st.serveLLMOnly()
+	if err != nil {
+		return fmt.Errorf("llm listener: %w", err)
+	}
 
 	// The app tunnel (D204): its connections come from the iroh sidecar,
 	// each a paired device's after its Noise handshake, and are served by
@@ -174,8 +184,11 @@ func (st *State) serve(ctx context.Context) error {
 		_ = tunSrv.Close()
 		st.AppTunnel.Close() // the sidecar stops, before the broker
 	}
+	if llmSrv != nil {
+		_ = llmSrv.Close()
+	}
 	if st.LLM != nil {
-		st.LLM.Close() // the usage counters not yet saved
+		st.LLM.Close() // the usage counters not yet saved; every LLM key ends
 	}
 	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor, the resources' decrypted views
 	// Open tiles keep their login binding across the restart (auth/framegens.go).

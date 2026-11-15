@@ -317,7 +317,7 @@ type SandboxRuntime struct {
 	Unavailable []SandboxMode   `json:"unavailable"`
 	Users       string          `json:"users"` // "any", or "root" on a namespace host mapping one uid
 	Egress      []SandboxEgress `json:"egress"`
-	Caps        []string        `json:"caps"` // the contract capabilities served: exec, files, tar, tty, snapshots, clone, ports (D135; an older xbind leaves it out)
+	Caps        []string        `json:"caps"` // the contract capabilities served: exec, files, tar, tty, snapshots, clone, ports (D135; an older xbind leaves it out), llm (D226: it forwards the LLM connector into a sandbox created with net.llm)
 	Limits      SandboxLimits   `json:"limits"`
 	Used        SandboxUsage    `json:"used"`
 }
@@ -412,9 +412,14 @@ type SandboxMount struct {
 }
 
 // SandboxNet is a sandbox's egress: "none" (the default) or
-// "class:<sandbox-net slot>".
+// "class:<sandbox-net slot>". LLM (at create only: a PATCH never changes
+// it) asks for the workspace's LLM connector inside the sandbox, whatever
+// its egress: SandboxNetInfo.LLM then names its address there. The
+// connector's model routes are all it serves, and only to an LLM key
+// (LLMKeyFor).
 type SandboxNet struct {
 	Egress string `json:"egress,omitempty"`
+	LLM    bool   `json:"llm,omitempty"`
 }
 
 // SandboxDefaults are what every command in the sandbox gets unless it
@@ -539,6 +544,10 @@ type SandboxNetInfo struct {
 	Reach      string `json:"reach"`
 	EgressNext string `json:"egressNext,omitempty"`
 	Note       string `json:"note,omitempty"`
+	// LLM is the OpenAI base URL of the workspace's LLM connector as the
+	// sandbox reaches it ("" when it wasn't asked for with SandboxNet.LLM,
+	// or this xbind forwards none — an older xbind ignores the ask).
+	LLM string `json:"llm,omitempty"`
 }
 
 // SandboxBase is the base image version a sandbox's state is pinned to.

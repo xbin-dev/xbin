@@ -30,6 +30,7 @@ documented in exactly one of them:
 | [protocol/deployments.md](/docs/protocol/deployments.md) | `/deployments…`, `/checkpoints/…`; the tile deployments conventions |
 | [protocol/sandboxes.md](/docs/protocol/sandboxes.md) | a manager tile's `/sandboxes…` routes |
 | [protocol/devices.md](/docs/protocol/devices.md) | `/devices…`, `/web-ticket`, `/app-tunnel`, `/notify`, `/push/…`; push notifications, Live Activities |
+| [protocol/delegation.md](/docs/protocol/delegation.md) | `/delegate/…`: a person's workspace agent — the delegate call, approval requests and tickets, standing approvals, admin change sets, the audit log |
 | [protocol/llm.md](/docs/protocol/llm.md) | `/llm/v1/…` (the OpenAI-compatible routes), `/llm`, `/llm/config`, `/llm/upstreams`, `/llm/usage`, `/llm/quotas`; LLM keys |
 | [protocol/preview.md](/docs/protocol/preview.md) | `/preview`: a tile or a screen rendered as the person who asks |
 | [protocol/sealed.md](/docs/protocol/sealed.md) | reserved: sealed components |
@@ -176,6 +177,12 @@ X-XBin-Viewed-By: owner | <admin id>     (set with X-XBin-User when an admin
                                           is VIEWING AS that user, D64 — a
                                           backend keeping per-user private
                                           data should not show it)
+X-XBin-Agent: <sealed component path>    (set with X-XBin-User when the call is
+                                          that person's workspace agent acting
+                                          for them, not their own hand:
+                                          X-XBin-From is user:<id>, X-XBin-Role
+                                          reader | writer — their level, never
+                                          admin; protocol/delegation.md)
 X-XBin-Ingress-Host: <public hostname>   (ingress traffic only)
 X-XBin-Deployment: <name>                (the calling tile's deployment, when
                                           the caller is one of a tile's own

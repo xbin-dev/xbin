@@ -637,7 +637,9 @@ then: no mark-as-read, no presence, no cursor (xbind also sends role
 `reader` and user level `read` on those calls), and nothing drawn
 differently because of it; `xbin.Caller(r).Preview` in Go, `/docs/sdk.md`;
 `X-XBin-Partition`/`X-XBin-Partition-Id` when a partitioned tile calls you
-for a person — see Auth) headers,
+for a person; `X-XBin-Agent` when the call is that user's workspace agent
+acting for them — `X-XBin-From` is then `user:<id>` at role `reader` or
+`writer`, so never read `user:` as "an admin" — see Auth) headers,
 call outbound via the `XBIN_GATEWAY` unix socket with
 `Authorization: Bearer $XBIN_TOKEN`. `bx new` scaffolds working skeletons.
 `cgi` was removed (it ran tile code outside the sandbox): a tile declaring it

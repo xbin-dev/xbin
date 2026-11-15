@@ -11,6 +11,12 @@
   },
 
   "runtime": "go",
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — channel links and pairing codes: who may talk to
+  // an agent from outside.
+  "agent": "off",
+
   // The backend lives in _backend/ (not backend/) so xbin's own `go build ./...` never
   // sweeps this template in; an instance builds it from here.
   "entry": "./_backend",

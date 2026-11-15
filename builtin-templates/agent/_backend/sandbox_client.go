@@ -311,6 +311,11 @@ type sbxSandbox struct {
 	AutoStopMin   int               `json:"autoStopMin"`
 	Version       int               `json:"version"`
 	RestartNeeded bool              `json:"restartNeeded,omitempty"`
+	// LLM is where the sandbox reaches the workspace's LLM connector (the
+	// contract's optional llm): only on one created with llm: true.
+	LLM *struct {
+		URL string `json:"url"`
+	} `json:"llm,omitempty"`
 
 	Raw json.RawMessage `json:"-"`
 }
@@ -394,6 +399,9 @@ type sbxCreate struct {
 	ClientID   string            `json:"clientId,omitempty"`
 	Start      *bool             `json:"start,omitempty"`
 	From       *sbxFrom          `json:"from,omitempty"`
+	// LLM asks for the workspace's LLM connector inside the sandbox (the
+	// contract's llm capability; Create sets it: harness_connector.go).
+	LLM bool `json:"llm,omitempty"`
 }
 
 type sbxFrom struct {
@@ -425,6 +433,7 @@ func (c *sbxConn) List(ctx context.Context) ([]*sbxSandbox, error) {
 
 func (c *sbxConn) Create(ctx context.Context, req sbxCreate) (*sbxSandbox, error) {
 	req.Labels = withHomeLabel(req.Labels) // sandbox_partition.go
+	req.LLM = wantLLM(ctx, c.M)            // the LLM connector inside it, where it can be had (harness_connector.go)
 	var out sbxSandbox
 	return &out, c.call(ctx, "POST", "/sandboxes", nil, req, &out, sbxCallTimeout)
 }
@@ -436,6 +445,7 @@ const sbxCreateTimeout = 25 * time.Minute
 // CreateWait is Create, waiting up to wait for the manager's answer.
 func (c *sbxConn) CreateWait(ctx context.Context, req sbxCreate, wait time.Duration) (*sbxSandbox, error) {
 	req.Labels = withHomeLabel(req.Labels)
+	req.LLM = wantLLM(ctx, c.M)
 	var out sbxSandbox
 	return &out, c.call(ctx, "POST", "/sandboxes", nil, req, &out, wait)
 }

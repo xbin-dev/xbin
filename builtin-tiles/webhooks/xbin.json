@@ -4,6 +4,12 @@
   // this tile is bound to (their `inbox`, service agent-inbox) as public data
   // and runs their matching triggers.
   "runtime": "go",
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — hook secrets, and URLs anyone on the internet can
+  // call.
+  "agent": "off",
+
   "uses": [
     { "target": "res:apps/webhooks/state", "role": "writer" }
   ],

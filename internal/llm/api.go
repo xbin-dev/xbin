@@ -34,10 +34,16 @@ type registrar interface {
 
 func (s *Service) mount(srv registrar) {
 	// the OpenAI-compatible surface: errors in OpenAI's shape
-	srv.RegisterAPI("POST /llm/v1/chat/completions", s.apiCall(sdkllm.PathChat))
-	srv.RegisterAPI("POST /llm/v1/responses", s.apiCall(sdkllm.PathResponses))
+	// (watched: a refusal is reported to the minter of the key that called, keywatch.go)
+	srv.RegisterAPI("POST /llm/v1/chat/completions", s.watched(s.apiCall(sdkllm.PathChat)))
+	srv.RegisterAPI("POST /llm/v1/responses", s.watched(s.apiCall(sdkllm.PathResponses)))
 	srv.RegisterAPI("GET /llm/v1/models", s.apiModels)
 	srv.RegisterAPI("GET /llm/preferred", s.apiPreferred)
+	// a bound component's keys for the harnesses it runs (sessions.go)
+	srv.RegisterAPI("POST /llm/keys", s.apiMintKey)
+	srv.RegisterAPI("POST /llm/keys/{id}/renew", s.apiRenewKey) // …keeps it alive for a run that goes on
+	srv.RegisterAPI("DELETE /llm/keys/{id}", s.apiRevokeKey)
+	srv.RegisterAPI("DELETE /llm/keys", s.apiRevokeKeys) // …by the label they were asked for with
 	// management: xbind's own error shape
 	srv.RegisterAPI("GET /llm", s.apiStatus)
 	srv.RegisterAPI("GET /llm/config", s.apiConfig)
@@ -213,7 +219,7 @@ func (s *Service) apiPreferred(w http.ResponseWriter, r *http.Request) {
 // a caller that may not call reads why.
 func (s *Service) apiStatus(w http.ResponseWriter, r *http.Request) {
 	snap := s.current()
-	v := StatusView{Configured: snap.configured(), Enabled: snap.enabled, URL: BaseURL, Ref: Ref, People: snap.people, Host: snap.host,
+	v := StatusView{Configured: snap.configured(), Enabled: snap.enabled, URL: BaseURL, Ref: Ref, People: snap.people, Host: snap.host, Sessions: snap.sessions,
 		Defaults: Defaults{Model: snap.defaults.Model, Roles: maps.Clone(snap.defaults.Roles)}}
 	c, ref := s.admit(r, snap)
 	if ref != nil {
@@ -246,8 +252,9 @@ func (s *Service) apiConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiPutConfig — PUT /llm/config {enabled?, people?, defaults?: {model?,
-// roles?: {<role>: model | ""}}, aliases?: {<alias>: target | ""}}: only
-// what is named changes; "" removes a role, an alias or the default.
+// roles?: {<role>: model | ""}}, aliases?: {<alias>: target | ""},
+// sessions?: {agents?, terminals?, openaiEnv?}}: only what is named
+// changes; "" removes a role, an alias or the default.
 func (s *Service) apiPutConfig(w http.ResponseWriter, r *http.Request) {
 	if !s.admin(w, r) {
 		return
@@ -261,9 +268,10 @@ func (s *Service) apiPutConfig(w http.ResponseWriter, r *http.Request) {
 		} `json:"defaults"`
 		Aliases     map[string]string `json:"aliases"`
 		Concurrency *int              `json:"concurrency"`
+		Sessions    *sessionsBody     `json:"sessions"`
 	}
 	if err := decode(r, &body); err != nil {
-		server.WriteError(w, http.StatusBadRequest, "need {enabled?, people?: admins|everyone|nobody, defaults?: {model?, roles?: {<role>: <model>}}, aliases?: {<alias>: <model>}, concurrency?}", docs)
+		server.WriteError(w, http.StatusBadRequest, "need {enabled?, people?: admins|everyone|nobody, defaults?: {model?, roles?: {<role>: <model>}}, aliases?: {<alias>: <model>}, concurrency?, sessions?: {agents?, terminals?, openaiEnv?}}", docs)
 		return
 	}
 	err := s.change(r, func(next *Settings, snap *snapshot) error {
@@ -327,6 +335,7 @@ func (s *Service) apiPutConfig(w http.ResponseWriter, r *http.Request) {
 		if body.Concurrency != nil && !hold("concurrency", *body.Concurrency == snap.concurrency) {
 			next.Concurrency = *body.Concurrency
 		}
+		body.Sessions.apply(next, snap, hold)
 		if len(locked) > 0 {
 			return lockedErr(locked...)
 		}

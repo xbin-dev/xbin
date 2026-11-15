@@ -136,7 +136,7 @@ func (e *Engine) harnessSpawnOf(ctx context.Context, ts *turnState, args map[str
 		return nil, fmt.Errorf("harness: the %s class doesn't allow %s", cls.Name, harnessName(id))
 	case !hasStr(bindingHarnesses(b), id):
 		return nil, fmt.Errorf("harness: %s doesn't offer %s (it offers %s)", name, harnessName(id), orStr(strings.Join(bindingHarnesses(b), ", "), "none"))
-	case b.Egress == "none":
+	case b.Egress == "none" && !connectorMight(ctx, prov): // the workspace's LLM connector needs no egress
 		return nil, fmt.Errorf("%s must reach its provider — %s's egress is none", prov.Name, name)
 	}
 	if seen := e.db.seenHarnesses(id)[b.Ref]; seen.Installed != nil && !*seen.Installed {
@@ -151,7 +151,9 @@ func (e *Engine) harnessSpawnOf(ctx context.Context, ts *turnState, args map[str
 	}
 	name = orStr(u.Box.Name, name)
 	if u.Box.effectiveEgress() == "none" {
-		return nil, fmt.Errorf("%s must reach its provider — %s's egress is none", prov.Name, name)
+		if err := noEgressFail(ctx, u.Box, prov, name); err != nil {
+			return nil, err
+		}
 	}
 	if u.Hello.advertises() && !hasStr(u.Hello.imageHarnesses(u.Box.Image.ID), id) {
 		// a binding without harnesses offers the catalog's; a manager that

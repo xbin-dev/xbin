@@ -67,7 +67,10 @@ var impersonatorUses = map[string]struct {
 	n    int
 	kind string
 }{
+	"internal/broker/agentlevel.go":               {1, "act: the person's own approval"},
 	"internal/broker/agentpolicy.go":              {1, "act"},
+	"internal/broker/changeset.go":                {1, "act: an admin approving a change set"},
+	"internal/broker/delegation.go":               {1, "act: a delegate is never a view of someone"},
 	"internal/broker/backup_partition_restore.go": {1, "act"},
 	"internal/broker/partitionconsent.go":         {1, "act"},
 	"internal/broker/partitioncreds.go":           {1, "act"},
@@ -82,6 +85,8 @@ var impersonatorUses = map[string]struct {
 	"internal/broker/whoami.go":                   {2, "name: after the Preview() case"},
 	"internal/proxy/proxy.go":                     {1, "name: X-XBin-Viewed-By, under ViewAs()"},
 	"internal/server/agentprefsapi.go":            {1, "act"},
+	"internal/server/changeset.go":                {1, "act: who may approve"},
+	"internal/server/delegateapi.go":              {2, "act: the person's own grants and pauses"},
 	"internal/server/partitionclass.go":           {1, "act: PersonOnly routes"},
 	"internal/server/server.go":                   {2, "carry: the audit line"},
 	"internal/server/tileorigin.go":               {2, "carry: the tile cookie's grant"},

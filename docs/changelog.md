@@ -45,7 +45,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   trading the code. scm-github: the device-flow poll and the App manifest
   callback do nothing. coding-sandbox (and `examples/sandbox-go`): a file
   read starts no stopped sandbox, and no terminal opens. sandbox-terminal
-  v10: the page is not a visit and re-checks nobody's access. A workspace's
+  v12: the page is not a visit and re-checks nobody's access. A workspace's
   instances get the template changes as template updates (`bx template
   updates`).
 - **Client: `xbin.ready()`** (D234; [elements.md](/docs/elements.md)) — a
@@ -65,6 +65,50 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   view-as session and a preview (the server refused them before; now the
   shell doesn't ask). Scaffolded shells get it with the next scaffold
   update; a preview hides an older shell's toasts by itself.
+- **LLM connector for coding agents and terminals: a security pass**
+  (D226; [llm.md](/docs/llm.md) §Coding agents and terminals). None of it
+  changes a workspace with no connector configured.
+  - **`connector-only` fails closed.** Where the workspace's credential
+    mode or an org's model rule gives the connector alone, a session that
+    can't be put on it is refused (`403`) instead of opening without it, a
+    session whose agent host doesn't confirm it is ended with the reason,
+    OpenCode is configured with the connector as its only provider, and a
+    model that isn't the connector's can't be set — at `POST
+    /term/sessions` (`model`, `options`) or `POST …/options` (`403`).
+  - **`POST /api/xbin/llm/keys` is for a tile's backend only.** A frame,
+    terminal or agent-session credential is now `403` (before, a tile's
+    page could mint a key for its person). A key lives **24 h at most**
+    (was 30 days); `POST /api/xbin/llm/keys/<id>/renew` keeps a longer
+    run's alive (`xbin.RenewLLMKey`, `ErrLLMKeyGone`). A tile holds at most
+    64 live keys for one person and 512 in all (`429 xbin_llm_keys`,
+    `xbin.ErrLLMKeyLimit`). A key names its backend's deployment: it is
+    held to the tile's edge policy for that deployment on every call, and
+    `DELETE /llm/keys?label=` ends that deployment's keys only.
+    **If your tile's page asked for keys, move the call to its backend.**
+  - **A session with no network reaches the connector** — and nothing
+    else: `net: none` sessions and terminals get `XBIN_LLM_URL` =
+    `http://10.0.2.2:4180/v1`, one gateway port forwarded to xbind's
+    LLM-only listener (before: no key, "can't be reached"). **A session
+    on a non-primary tile deployment gets a key** that names the
+    deployment (before: none).
+  - Only models whose ids are plain model names are written into a CLI's
+    configuration (`acp.ValidConnectorModel`); an upstream's list can't
+    put `{env:…}` or `{file:…}` into OpenCode's.
+  - An agent can no longer forge the agent host's own frames (who serves
+    its model calls); LLM keys are masked in a dead terminal's logged tail
+    before the cut.
+  - `sdk/acp`: `ConnectorParams.Only`, `Connector.AllowsOption`,
+    `ValidConnectorModel` ([sdk.md](/docs/sdk.md)).
+  - **Agent template**: a coding agent runs on the connector only when the
+    workspace set a model for coding agents (else it says why and uses its
+    own sign-in); it starts in a sandbox with **no egress** when the
+    connector is reachable there (`GET /harnesses` images gain `llm`); its
+    key is renewed while the run lives and its end is retried until xbind
+    acknowledged it. Template instances pick it up with a template update.
+  - The Agent tab's launcher gains **"runs on"**: a person's saved choice
+    between their own sign-in and the workspace's connector for a harness
+    (`harnesses.<id>.credentials` in their agent preferences), shown only
+    where both can serve and no rule forces one.
 
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
@@ -157,6 +201,172 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   prompt plays it (`sdk/acp/acptest`).
 
 ## 2026-11-14
+
+- **Coding agents and terminals run on the workspace's LLM connector by
+  default** (D226; [llm.md](/docs/llm.md) §Coding agents and terminals).
+  Nothing changes for a workspace with no connector configured: no new
+  variable, no new behaviour.
+  - **Agent sessions**: OpenCode and Codex start pointed at the connector
+    with no sign-in — OpenCode with the provider "LLM by xbin" declared
+    beside the person's own, Codex through its gateway sign-in. A person's
+    own sign-in keeps working and, by default, wins (the agents policy's
+    `credentials: own-first`, D229); a workspace admin can make the
+    connector the rule (`bx org agents --credentials connector`) or take it
+    away from agent sessions (`bx llm sessions agents=off`). Claude Code and
+    Gemini CLI keep running on the person's own sign-in. `POST /api/xbin/term/sessions`
+    takes `llm: "connector" | "own"` (`bx agent run --llm`), a session row
+    gains `llm`, a `notice` event says when the connector serves, and `GET
+    /api/xbin/agent/providers` gains `llm` per row — `{use, connector,
+    note?, signedIn?}` ([protocol/agents.md](/docs/protocol/agents.md));
+    rows are unchanged without a connector.
+  - **Terminals** get `XBIN_LLM_URL` and `XBIN_LLM_KEY`; `OPENAI_BASE_URL`
+    and `OPENAI_API_KEY` only with `bx llm sessions openai-env=on`.
+  - **The credential is a per-session LLM key** (`xbl_…`), never the
+    terminal token: good for the connector's model routes only, metered to
+    the session's person and tile, revoked when the session ends.
+  - **Settings**: `sessions: {agents, terminals, openaiEnv}` in `PUT
+    /api/xbin/llm/config` and the host's `XBIN_LLM_CONFIG` (lockable), read
+    back by `GET /api/xbin/llm` and `/llm/config`; `bx llm sessions`.
+- **A tile bound to `xbin:llm` can ask for an LLM key** for a coding tool it
+  runs in a sandbox: `POST /api/xbin/llm/keys` → `{id, token, expires, …}`,
+  `DELETE /api/xbin/llm/keys/<id>` ([protocol/llm.md](/docs/protocol/llm.md)
+  §Keys for a tile's harnesses). The key is for the person the tile's
+  credential acts for, and no one else.
+- **A sandbox can reach the LLM connector, and nothing else of xbind**:
+  a tile sandbox created with `net.llm: true`
+  ([protocol/sandboxes.md](/docs/protocol/sandboxes.md)) gets the
+  connector's model routes at `http://10.0.2.2:4180/v1` — its SandboxInfo
+  says so in `net.llm` — for the holder of an LLM key, with any egress,
+  `none` included. A command's `env` there may now carry `XBIN_LLM_URL`
+  and `XBIN_LLM_KEY` (every other `XBIN_*` is still refused, and so are
+  these two in `defaults.env`). Go SDK: `xbin.SandboxNet.LLM`, `SandboxNetInfo.LLM`,
+  and **`xbin.LLMKeyFor` / `xbin.RevokeLLMKey`** for the key
+  ([sdk.md](/docs/sdk.md) §An LLM key for a coding tool).
+- **Sandbox-manager contract: the optional capability `llm`**
+  ([sandbox-manager.md](/docs/sandbox-manager.md) §The LLM connector in a
+  sandbox). A manager that offers it takes `llm: true` on `POST
+  /sbx/sandboxes` and the sandbox then carries `llm: {url}` — where a
+  process inside reaches the workspace's LLM connector. Nothing changes for
+  a manager that doesn't offer it: a consumer reads `hello.caps` first. The
+  builtin `coding-sandbox` manager offers it on an xbind that forwards the
+  connector (the runtime's `caps` carry `llm`), and the conformance suite
+  (`sdk/sandboxcontract`) gained the section `llm`. A manager that offers
+  it accepts `XBIN_LLM_URL` and `XBIN_LLM_KEY` in a command's `env`.
+  (`sandbox-terminal` v11 is its tests' copy of the fake manager following
+  this; nothing changes for people or managers.)
+- **Agent template: coding agents start on the workspace's LLM connector**
+  when they have no sign-in (D226; the template's API.md §Coding agents).
+  Bind the agent's `llm` slot to `xbin:llm` and use a sandbox manager that
+  offers `llm` (the builtin `coding-sandbox` on this xbind): new sandboxes
+  are created with the connector asked for, and OpenCode or Codex with no
+  saved sign-in and none in the sandbox runs on it, with a key xbind mints
+  for the person. Existing sandboxes, saved sign-ins and instances not
+  bound to `xbin:llm` behave as before. Template instances pick it up with
+  a template update. New SDK call `xbin.RevokeLLMKeysLabeled` and route
+  `DELETE /api/xbin/llm/keys?label=`.
+- **Go SDK, `sdk/acp`**: `Provider.Connector`, `Provider.ConnectorEnv`,
+  `acp.ConnectorServes`, `Provider.HasOwnLogin` and `acp.ExpandWord` — how
+  each coding CLI is pointed at an LLM connector from its environment, and
+  who serves a session ([sdk.md](/docs/sdk.md) §Driving a coding agent).
+  `acp.Fake` takes a connector too, and the scripted agent (`acptest`)
+  gains the `llm-call` script.
+- **Delegation: a person's workspace agent acts as them, under a cap
+  (D228).** The auth primitive the workspace agent will run on; nothing
+  uses it until an xbind ships that sealed component and an admin turns
+  workspace agents on, so an upgrade changes no tile's behaviour today.
+  What a tile builder should know now ([auth.md
+  §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)):
+  - **A new header, `X-XBin-Agent`.** A call made by a person's workspace
+    agent for them carries it (the sealed component's path) beside
+    `X-XBin-User`, with `X-XBin-From: user:<id>` and `X-XBin-Role:
+    reader | writer` — the person's level on your tile. Stripped inbound
+    like every `X-XBin-*`. SDK: `xbin.Caller(r).Agent` and `.ByAgent()`.
+  - **`X-XBin-From: user:<id>` no longer implies an admin.** Until now
+    only an admin could call a tile's API in person, so a backend saw
+    `user:<id>` only with role `admin`. An agent's call arrives as
+    `user:<id>` at `reader` or `writer`. If your backend treats the `user:`
+    prefix as "an admin", change it to read `X-XBin-Role` or
+    `X-XBin-User-Level` (`xbin.Role(…)`, `Caller(r).UserCanWrite()` already
+    do). The shipped tiles and templates judge by level.
+  - **A new manifest key, `"agent"`**: `"full"` (the default), `"read"`
+    (an agent may only `GET`/`HEAD` your API) or `"off"`
+    ([elements.md](/docs/elements.md)). `GET /api/xbin/components` rows
+    carry `agent` when it isn't full.
+  - **Every write an agent makes was approved by its person, and xbind
+    checks it**: a one-shot ticket bound to the exact method, path, body
+    and content type, or a standing approval the person gave and can
+    revoke — of that call (method and path), or of every write to your
+    tile when they chose that. Your tile needs no code for this.
+  - No tile can be granted or bound to a sealed component that acts for
+    people: `POST /grants` and `POST /bindings` answer 409 for such a
+    target.
+  - **Decide what an agent may do in your tile**
+    ([elements.md → A person's agent](/docs/elements.md)): xbind approves a
+    *call*, and only your tile knows what the call means. A route that
+    answers an approval, a permission request, a question or a sign-in must
+    refuse a caller with `ByAgent()`, or the manifest says `"read"` or
+    `"off"`. A backend written before this release treats an agent's call
+    as its person's.
+  - **The infrastructure that ships with xbind now says `"agent"`.**
+    `off`: egress-approver, llm-gw, s3-archiver, sandbox-terminal, traefik,
+    webhooks, the agent-messaging-bridge, coding-sandbox and scm-github
+    templates, and a new workspace's admin console, organisations console
+    and tile manager. `read`: prometheus-viewer and the agent template.
+    **Apps stay unspecified** — the chat tile, the starter template, the
+    examples: an app is what a workspace agent is for, and without the key
+    a person's agent may use it fully, each write under their approval. The
+    starter template gained an `AGENTS.md` that tells its builder when to
+    narrow that and how to keep a route human-only. Each changed builtin
+    tile is one version up (`bx builtin updates`); a template's instances
+    get it with `git merge template/main`.
+  - **The agent template refuses a person's agent everything but reads**
+    (and stopping a run, marking one read) in its backend too
+    (`_backend/wsagent.go`; API.md "A person's workspace agent"). **An
+    instance made before this release can't tell the agent from the
+    person**: unmodified, its routes all need the `admin` role, which an
+    agent's call never has, so it refuses the agent outright; if you opened
+    routes to `writer`, merge the template's update or add `"agent": "off"`
+    to the instance's `xbin.json`. Letting a person's agent message a
+    conversation in a template instance is a possible later addition, under
+    tickets; this release has none.
+- **API: `/api/xbin/delegate/…`** ([protocol/delegation.md](/docs/protocol/delegation.md)):
+  the workspace's switch and a person's pause, approval requests and
+  tickets (bound to the call's method, path, query, body and content
+  type), standing approvals — of one call (`scope: "call"`, the default) or,
+  as a separate explicit choice, of every write to a tile (`scope:
+  "tile"`) — admin change sets (an admin's agent proposes grants, bindings,
+  org shares and limit raises, none of them on an agent itself or of
+  workspace-level power; the person approves after a recent sign-in; xbind
+  applies them as the person), and the person's audit log of what their
+  agent did. A `delegate` event on `/ws/events`;
+  push kinds `agent.approval` and `agent.changeset`.
+- **A tile's `"agent"` level is raised only by a person**
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §A tile's agent
+  level). A manifest lowers the level at once; one that states more than
+  xbind has on record, or drops the key after stating less, changes nothing
+  until someone who manages the tile approves it (`GET` / `PUT
+  /api/xbin/agent-levels`; an `agent-level` alert; `agentRequested` on
+  `/components` rows). A tile that never stated a level is `full`, and its
+  first value is taken as is. A workspace's consoles are `off` whatever
+  their copy of the manifest says.
+- **A delegate's call to a tile carries a fixed list of request headers**
+  (Accept…, Content-Type, the conditionals, Range, Cache-Control,
+  User-Agent) and a tile's answer to it no `Location`: write a tile's API
+  so an agent needs neither a custom header nor a redirect.
+- **SDK: `xbin.AsPerson()` and the delegate helpers** (`RequestApproval`,
+  `RequestApprovalAs`, `ApprovalOf`, `StandingApprovals`, `WithTicket`,
+  `WithAgentModel`, `DryRun`, `ProposeChanges`,
+  `ChangeSetOf`, `DelegateRefusal` and its `Err…` values) — for xbind's own
+  workspace-agent component; from any other tile they answer 401
+  ([sdk.md](/docs/sdk.md)). `AsPerson()` follows no redirect. `sdk/acp`:
+  `Config.Strict` — a start whose mode the harness refuses, or that asks
+  for an option other than a model or a thinking level, fails (xbind sets
+  it for sessions a workspace agent opens).
+- **Agent sessions: `origin`.** A session row, and its history entry,
+  carries `origin: "agent"` when the person's workspace agent opened it
+  (`GET /term/sessions`, `GET /agent/history`). Absent otherwise.
+- **`GET /tile-status`** also answers a person's workspace agent for a tile
+  that person can read.
 
 - **The LLM connector has a page and an admin console tab** (D226;
   [llm.md](/docs/llm.md)). `/xbin/llm` — xbind's own page, there whatever

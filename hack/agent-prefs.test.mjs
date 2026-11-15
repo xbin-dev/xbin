@@ -4,7 +4,7 @@
 // choice to the server, and the fallback to it when the server can't answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeAgentPrefs, kindOf, startWith, optionPatch, LAST_KIND } from '../web/agent-prefs.js';
+import { makeAgentPrefs, kindOf, startWith, optionPatch, credentialsChoice, credentialsPatch, LAST_KIND } from '../web/agent-prefs.js';
 
 const URL_ = '/api/xbin/agent/prefs';
 const empty = () => ({ harness: '', lastKind: '', harnesses: {}, agentSessions: { start: 'ask' } });
@@ -117,6 +117,39 @@ test('remembering: at once here, in the browser record, and on the server', asyn
   p.rememberKind({ kind: 'agent' });
   p.rememberKind(null);
   assert.deepEqual(p.lastKind(), { kind: 'shell' }, 'a choice that names nothing changes nothing');
+});
+
+test('the credentials choice: only where both can serve and nothing forces one; saved per harness', async () => {
+  const both = { id: 'opencode', llm: { use: 'own-first', connector: true } };
+  const names = (c) => c && c.options.map((o) => o.value);
+  assert.deepEqual(names(credentialsChoice(empty(), both)), ['', 'own', 'connector']);
+  assert.equal(credentialsChoice(empty(), both).value, '', 'nothing saved: the workspace default');
+  assert.equal(credentialsChoice({ harnesses: { opencode: { credentials: 'connector' } } }, both).value, 'connector');
+  assert.equal(credentialsChoice({ harnesses: { opencode: { credentials: 'bogus' } } }, both).value, '');
+  for (const [why, row] of [
+    ['no connector here', { id: 'opencode' }],
+    ['the connector can\'t serve it', { id: 'claude', llm: { use: 'own', connector: false, note: 'a wire the connector doesn\'t serve' } }],
+    ['a rule forces the connector', { id: 'opencode', llm: { use: 'connector', connector: true, forced: true, reason: 'Finance allows private models only' } }],
+    ['it can\'t run here at all', { id: 'gemini', llm: { use: 'unavailable', connector: false, forced: true } }],
+  ]) assert.equal(credentialsChoice(empty(), row), null, why);
+  assert.equal(credentialsChoice(null, both), null, 'a server that keeps no preferences: nothing to save a choice in');
+  assert.deepEqual(credentialsPatch(both, 'connector'), { harnesses: { opencode: { credentials: 'connector' } } });
+  assert.deepEqual(credentialsPatch(both, ''), { harnesses: { opencode: { credentials: null } } }, 'taking it back removes the member');
+  assert.equal(credentialsPatch(both, 'vendor'), null);
+  assert.equal(credentialsPatch({}, 'own'), null);
+
+  const srv = fakeServer(empty());
+  const p = makeAgentPrefs({ fetch: srv.f, storage: fakeStorage() });
+  assert.equal(p.credentialsChoice(both), null, 'before the preferences are read');
+  await p.load();
+  await p.rememberCredentials(both, 'connector');
+  assert.equal(srv.prefs.harnesses.opencode.credentials, 'connector', 'on the server by the time the promise resolves');
+  assert.equal(p.credentialsChoice(both).value, 'connector');
+  p.rememberOption(both, { id: 'model' }, 'xbin/m1');
+  await p.rememberCredentials(both, '');
+  assert.deepEqual(srv.prefs.harnesses.opencode, { model: 'xbin/m1' }, 'the choice taken back, the harness\'s other settings kept');
+  await p.rememberCredentials(both, 'vendor');
+  assert.equal(srv.calls.filter((c) => c.method === 'PUT').length, 3, 'a word that is no choice is never sent');
 });
 
 for (const [name, status] of [['an xbind without the route', 404], ['a credential the route refuses', 403]]) {

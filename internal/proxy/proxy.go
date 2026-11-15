@@ -63,6 +63,14 @@ const (
 	// when it isn't the target's primary (NP-11-12), set over any value the
 	// backend set. Absent everywhere for the primary.
 	HeaderDeployment = "X-XBin-Deployment"
+	// HeaderAgent is set when the call is made by the attributed user's
+	// workspace agent — a sealed system component acting for them under
+	// delegation (auth/delegate.go) — and names that component. X-XBin-From
+	// is then "user:<id>", X-XBin-User the person, and X-XBin-Role their
+	// level on the tile (reader or writer), never admin. Absent on every
+	// call a person or a tile makes themselves; stripped inbound like every
+	// X-XBin-*, so a backend that receives one knows xbind set it.
+	HeaderAgent = "X-XBin-Agent"
 )
 
 // Policy decides whether principal p may call target, and at which role.
@@ -283,6 +291,10 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a := d.Attribute; a != nil && a.ReadOnly && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		jsonErr(w, http.StatusForbidden, comp.Path+" lets a person's agent read only (its agent level is \"read\")", "")
+		return
+	}
 	px.identify(r, p, d.Role, comp.Path)
 	px.identifyPartition(r, d)
 
@@ -528,8 +540,8 @@ func (px *Proxy) identify(r *http.Request, p auth.Principal, role, tile string) 
 		}
 	}
 	stripCookies(r, auth.CookieName, auth.SessionCookieHostName, auth.TileCookieName, auth.HostTileCookieName)
-	if h := r.Header.Get("Authorization"); len(h) >= 7 && strings.EqualFold(h[:7], "Bearer ") {
-		r.Header.Del("Authorization")
+	if h := r.Header.Get("Authorization"); len(h) >= 7 && strings.EqualFold(h[:7], "Bearer ") || auth.IsDelegateRequest(r) {
+		r.Header.Del("Authorization") // a delegate's too: the callee would replay it as the person's agent
 	}
 	r.Header.Set(HeaderFrom, p.From())
 	r.Header.Set(HeaderRole, role)

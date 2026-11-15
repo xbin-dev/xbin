@@ -22,6 +22,10 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    never instead of it),
                                    state? (lifecycle; absent = enabled),
                                    roles, uses, deps, manifestError,
+                                   agent? ("off" | "read": the manifest's
+                                   "agent" key, when it narrows what a
+                                   person's workspace agent may use of the
+                                   tile's API; absent = full),
                                    chrome? (trusted chrome — bx-frame does
                                    not sandbox these: root, shell, shipped
                                    tiles/organisations, admin-approved tiles),

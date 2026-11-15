@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -54,7 +55,8 @@ func TestTileVersions(t *testing.T) {
 		}
 		h := rollup(hashes)
 		v := fmt.Sprint(m.Version)
-		if p, ok := prev[m.Name]; ok && p[1] != h && p[0] >= v {
+		was, _ := strconv.Atoi(prev[m.Name][0]) // as numbers: "9" >= "10" as strings
+		if p, ok := prev[m.Name]; ok && p[1] != h && was >= m.Version {
 			t.Errorf("builtin tile %s changed (its files no longer match hack/tile-versions.txt) but tile.json still says version %s — bump the version, note the change in its changelog, then UPDATE_TILE_VERSIONS=1 go test ./internal/builtins -run TestTileVersions", m.Name, v)
 		}
 		lines = append(lines, fmt.Sprintf("%s %s %s", m.Name, v, h))

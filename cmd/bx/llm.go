@@ -37,6 +37,8 @@ const llmUsage = `  bx llm [status] [--json]              the LLM connector: ups
   bx llm alias [set <alias> <model> | rm <alias>]      "*" catches every unknown model name
   bx llm on | off | people admins|everyone|nobody | concurrency <n>
                                         concurrency: calls one caller may have in flight
+  bx llm sessions [agents=on|off] [terminals=on|off] [openai-env=on|off]
+                                        what coding agents and terminals get of it
   bx llm usage [--month] [--from <day>] [--to <day>] [--user <id>] [--component <tile>] [--json]
   bx llm quota [show [<user>]] | set <default|workspace|user:<id>|org:<id>>
                  [tokens/day=<n>] [tokens/month=<n>] [cost/day=<usd>] [cost/month=<usd>]
@@ -102,6 +104,7 @@ type llmConfig struct {
 	Defaults   llmDefaults        `json:"defaults"`
 	Aliases    map[string]string  `json:"aliases"`
 	Quotas     llmQuotaRules      `json:"quotas"`
+	Sessions   *llmSessions       `json:"sessions"` // nil: an xbind from before the session hook-up
 	Locks      map[string]llmLock `json:"locks"`
 	Host       struct {
 		Active  bool   `json:"active"`
@@ -223,6 +226,8 @@ func cmdLLM(args []string) error {
 			return usage
 		}
 		return llmPutConfig(map[string]any{"people": pos[1]})
+	case "sessions":
+		return llmSessionsCmd(pos[1:], usage)
 	case "concurrency":
 		n, err := strconv.Atoi(strings.Join(pos[1:], " "))
 		if err != nil {
@@ -333,6 +338,7 @@ func printLLMConfig(v llmConfig) {
 	if v.Concurrency > 0 {
 		fmt.Printf("  calls in flight per caller: %d%s\n", v.Concurrency, lock("concurrency"))
 	}
+	printLLMSessions(v.Sessions, lock)
 	if v.Vault != "open" && v.Vault != "" {
 		fmt.Printf("  vault: %s\n", v.Vault)
 	}

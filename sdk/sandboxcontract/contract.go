@@ -12,7 +12,7 @@
 // Every check drives the manager over HTTP (and WebSocket, for terminals
 // and stdio sockets) alone, grouped by the contract's sections as subtests — hello, sandboxes,
 // partitions, people, lifecycle, run, execs, tty, stdio, files, tar,
-// snapshots, ports, caps — so `go test -run 'TestContract/execs'` picks a section. Sections
+// snapshots, ports, llm, caps — so `go test -run 'TestContract/execs'` picks a section. Sections
 // of an optional capability hello doesn't offer are skipped; a missing
 // one's routes must answer `unsupported` (stdio's may answer `not-found`: a
 // manager from before it).
@@ -146,6 +146,7 @@ func sections() []section {
 		{name: "tar", cap: "tar", checks: tarChecks},
 		{name: "snapshots", cap: "snapshots", checks: snapshotChecks},
 		{name: "ports", cap: "ports", checks: portChecks},
+		{name: "llm", checks: llmChecks},
 		{name: "caps", checks: capChecks},
 	}
 }
@@ -466,6 +467,9 @@ type Sandbox struct {
 	Version             int
 	RestartNeeded       bool
 	Usage               *Usage // optional (D215): nil when the manager can't tell
+	// LLM is where the sandbox reaches the workspace's LLM connector (the
+	// llm capability): only on a sandbox created with llm: true.
+	LLM *struct{ URL string }
 }
 
 // Usage is a running sandbox's CPU and memory (optional): Series only on a

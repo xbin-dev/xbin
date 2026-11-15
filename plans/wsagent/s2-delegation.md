@@ -6,6 +6,21 @@
 > table is empty, no gate or log is wired at boot, no route is mounted.
 > Line numbers are this branch's.
 
+> **Superseded by the implementation (D228, 2026-11-14).** This is the
+> spike's record; the contract is `docs/auth.md` §Delegation and
+> `docs/protocol/delegation.md`. What changed after the owner's decisions:
+> the holder lookup is one function set at boot (no compiled-in map); the
+> scheme is honoured on the gateway socket only, and not without sandboxes;
+> the cap names every route (an `admin-read` class, a session's log and
+> diff, `DELETE` and driving only for sessions the agent opened); side
+> effects need xbind-verified approvals (tickets, standing approvals);
+> session modes and pickers come from the ticket or the person's
+> preferences, not a fixed default-mode clamp; the org seam is
+> `delegation.Policy`; reads are not coalesced in the audit log, and
+> listing reads are not logged; change sets are built (section 7's design,
+> with previews that call the handlers' own check functions instead of a
+> dry-run flag). Sections 9 and 11 are history.
+
 ## 1. Result in short
 
 Delegation fits the existing identity model with one new credential form,

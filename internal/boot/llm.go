@@ -16,6 +16,8 @@ import (
 // it up sees nothing new. A host file that can't be read stops the boot:
 // xbind doesn't run without the limits its host wrote.
 func (st *State) setupLLM(srv *server.Server) error {
+	// (agent sessions and terminals reach it through term.Manager.LLM, tile
+	// sandboxes through the LLM-only listener serve() opens: llmsessions.go)
 	brk, userStore := st.Broker, st.Users
 	var grace time.Duration
 	if v := st.Cfg.LLMCancelGrace; v != "" {
@@ -34,7 +36,9 @@ func (st *State) setupLLM(srv *server.Server) error {
 		Vault: brk.Barrier(), AllowPlaintext: brk.AllowInsecureVault,
 		IsAdmin: brk.IsAdmin, AdminShell: brk.AdminShell,
 		Bound: brk.LLMBound, // the binding is the authorization, asked per call
-		Edge:  brk.LLMEdge,  // …and a non-primary deployment uses it by the tile's edge policy
+		// a call made for a tile uses only the models its orgs allow (D229)
+		Policy: llmCallPolicy(brk),
+		Edge:   brk.LLMEdge, // …and a non-primary deployment uses it by the tile's edge policy
 		// an LLM key stands while its person exists, is enabled and can
 		// still open the tile it was minted for
 		KeyOwner: func(user, component string) bool {
@@ -70,6 +74,14 @@ func (st *State) setupLLM(srv *server.Server) error {
 	}
 	st.LLM = svc
 	svc.Register(srv)
+	if st.Term != nil { // agent sessions and terminals on the connector (llmsessions.go)
+		st.Term.LLM = llmSessions{svc}
+		st.Term.Credentials = st.agentCredentials
+		st.Term.LLMDoor = st.llmSock // a session with no network reaches the connector through it alone
+	}
+	// the agents policy's two questions of the connector (D229): can this
+	// harness run on it, and what is this model (its upstream, private?)
+	brk.AgentConnector, brk.AgentModels = llmSessions{svc}.agentConnector, llmSessions{svc}.agentModel
 	brk.LLMOffered = svc.Configured // pickers offer xbin:llm once an upstream exists
 	// LLM keys end with what they were minted under: a person signed out
 	// everywhere, disabled or deleted; a tile's binding to the connector

@@ -147,6 +147,10 @@ type Deps struct {
 	// Listen is every address xbind listens on: a sandbox's relay denies
 	// them, beside every address the host delivers locally (§4).
 	Listen []netip.AddrPort
+	// LLMSock is the unix socket of xbind's LLM-only listener ("" or nil:
+	// none): a sandbox created with net.llm gets it forwarded at its
+	// gateway (netcfg.go). Asked at every start.
+	LLMSock func() string
 	// Cgroup is xbind's delegated cgroup: the tile sandboxes' parent is made
 	// in it (§6.2). nil or disabled: they run without limits.
 	Cgroup *cgroup.Manager

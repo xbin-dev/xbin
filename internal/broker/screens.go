@@ -209,6 +209,7 @@ func (b *Broker) apiScreensGet(w http.ResponseWriter, r *http.Request) {
 	memb := b.membershipsOf(p)
 	out := []screenView{}
 	for _, s := range d.Org {
+		s.Tiles = b.agentTiles(p, s.Tiles) // a person's agent: not the tiles whose org keeps it out (delegatelist.go)
 		if admin {
 			out = append(out, screenView{s, true})
 			continue
@@ -231,7 +232,11 @@ func (b *Broker) apiScreensGet(w http.ResponseWriter, r *http.Request) {
 			folders["org:"+id] = folderViewOf(d.Folders["org:"+id], m.Admin)
 		}
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"default": d.Default, "org": out, "folders": folders})
+	for k, f := range folders {
+		f.Folders = b.agentFolders(p, f.Folders)
+		folders[k] = f
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"default": b.agentDefaultScreen(p, d.Default), "org": out, "folders": folders})
 }
 
 // PUT /screens/default {tiles} — the ws-admin-curated first screen new users

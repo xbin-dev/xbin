@@ -38,7 +38,7 @@ xbin.WriteError(w, http.StatusForbidden, "…") // {"error": "…"} — the shap
 
 ```go
 c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy, Preview,
-                             //            Deployment, Partition, PartitionID}
+                             //            Deployment, Partition, PartitionID, Agent}
 c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // level (D29) — frame calls from your own UI run
                              // at full role even for read-level viewers
@@ -70,6 +70,11 @@ c.Partition                  // X-XBin-Partition: the partition the call acts
                              // display name
 c.PartitionID                // X-XBin-Partition-Id: key per-caller state on
                              // (From, Deployment, PartitionID) — partitions.md
+c.Agent, c.ByAgent()         // X-XBin-Agent: the call is User's workspace agent
+                             // acting for them (auth.md §Delegation), not
+                             // their own hand. From is then "user:<id>" and
+                             // Role "reader" | "writer" — their level here,
+                             // never admin: "user:" does NOT mean an admin
 ```
 
 Headers are trustworthy: xbind strips inbound `X-XBin-*` and injects
@@ -293,6 +298,60 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   `--codex-auth` it signs in as codex does (a key through `authenticate`,
   kept in `auth.json` and in memory); `printenv N` prints its own
   environment variable N as Claude Code's Bash tool would.
+- **An LLM connector.** `p.Connector` says how the CLI is pointed at an
+  OpenAI-compatible endpoint a host serves in place of the vendor's —
+  xbind's built-in connector ([llm.md](/docs/llm.md)) — from its
+  environment alone, and `p.ConnectorEnv(acp.ConnectorParams{URL, Key,
+  Models, Model, Serves})` renders it for one session: `Set` (the
+  variables, `Lines()` sorted, `Apply(env)` merged), `Unset` (variables to
+  drop) and `UsesKey` (false: the session has no use for the key — revoke
+  it). One table for every host that runs these CLIs:
+
+  | Provider | Wire | Kind | What is set |
+  |---|---|---|---|
+  | `opencode` | `chat` | additive | `OPENCODE_CONFIG_CONTENT`: an inline config declaring the provider `xbin` ("LLM by xbin") with `Models`, its key read from `XBIN_LLM_KEY`; its `model` member (`xbin/<Model>`) only when the connector serves |
+  | `codex` | `responses` | replacing | `DEFAULT_AUTH_REQUEST` (codex-acp's gateway auth: the base URL and the key as a header — what a signed-out Codex needs to open a session), and the connector as the session's model provider in its own config: `CODEX_CONFIG` `{"model": <Model>, "model_provider": "custom-gateway", "model_providers": {…, "env_key": "XBIN_LLM_KEY"}}` and `MODEL_PROVIDER=custom-gateway` — over whatever `~/.codex/config.toml` or a project's names; unset `CODEX_API_KEY`, `OPENAI_API_KEY` |
+  | `claude` | `anthropic` | replacing | `ANTHROPIC_BASE_URL` (the URL without `/v1`), `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL` and the three `ANTHROPIC_DEFAULT_*_MODEL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`; unset `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` |
+  | `gemini` | — | | no `Connector`: the CLI speaks Google's wire only |
+
+  Whenever anything is set, so are `XBIN_LLM_URL` and `XBIN_LLM_KEY`
+  (`acp.ConnectorURLEnv`, `ConnectorKeyEnv`). `Wire` is what the CLI
+  speaks (`acp.WireChat`, `WireResponses`, `WireAnthropic`): offer the
+  connector for a provider only where your connector serves it (xbind's
+  serves `chat` and `responses` today). **Additive**: the CLI keeps the
+  person's own providers beside the connector's, so it is always declared
+  and `Serves` only decides the default model. **Replacing**: the
+  variables take the place of the person's sign-in, so with `Serves:
+  acp.ServeOwn` nothing is rendered. `Never` lists variables a host never
+  puts the connector's key in (it would go to the vendor's own address, or
+  replace the person's sign-in).
+  Who serves is the host's to decide first:
+  `acp.ConnectorServes(session, saved, workspace, own)` — the session's
+  choice, else the person's saved default, else the workspace's
+  (`acp.UseConnector`, `UseOwn`, `UseOwnFirst`; nothing said is
+  own-first), where `own` is `p.HasOwnLogin(env, exists)`: a key of
+  `p.Keys` in the environment, or one of `p.LoginFiles` — shell words,
+  `acp.ExpandWord(word, getenv)` expands them — where the CLI runs. A
+  sign-in the person already has keeps working. The key should be narrow
+  and short-lived (xbind's LLM keys: `xbin.LLMKeyFor`, below): Codex
+  writes its environment to `$CODEX_HOME/shell_snapshots`.
+  **`ConnectorParams.Only`**: the connector alone may serve the session —
+  a rule of yours nobody's choice overrides. With `Serves:
+  acp.ServeConnector` opencode is then rendered with `enabled_providers:
+  ["xbin"]` and its `small_model`, so no other provider of the person's,
+  the project's or the vendor's exists in that session; check what your
+  client asks the CLI to switch to with `p.Connector.AllowsOption(id,
+  category, value, models)` (a model option must name one of your models
+  as the CLI writes it, `ModelPrefix + id`), and fail closed where you
+  can't hand the session the connector. **What you pass is rendered only
+  when it is safe in a configuration**: a model whose id is not
+  `acp.ValidConnectorModel` (letters, digits, `. _ : / @ + ~ = , -`; at
+  most 200) is left out, a model name with braces becomes its id, and
+  nothing at all is rendered for a URL, key or name that could read as
+  opencode's `{env:…}`/`{file:…}`. `acp.Fake` takes a connector as codex
+  does (or, with `--llm-additive` in its argv, as opencode does); its
+  `llm-call <text>` script calls it, and `FAKEACP_LLM_ONLY=1` in its
+  environment says `Only` was set.
 - **Prompts with files.** `acp.PrepareAttachments` checks and normalises
   them (limits: `acp.Max*`). Each file is first dropped where the agent
   runs — `ClientOptions.Drop` returns the path — then an image goes inline
@@ -507,8 +566,9 @@ prompt: `echo` by default, `perm` and `perm-edit` (a permission request),
 `perm2…` (two at once), `plan…` (a plan approval), `ask…` (a form
 question), `subagent…`, `think…`, `todo` (plan updates), `cards` (one tool
 call of every kind), `run: <cmd>` (a `terminal/*` round trip), `slow`,
-`stall` (nothing until `session/cancel`), `fail` (signed out), `crash`, and
-more — the package doc lists every script and what it sends.
+`stall` (nothing until `session/cancel`), `fail` (signed out), `crash`,
+`llm-call <text>` (one call to the LLM connector its environment names),
+and more — the package doc lists every script and what it sends.
 
 ```go
 import "github.com/xbin-dev/xbin/sdk/acp/acptest"
@@ -609,6 +669,58 @@ err = llm.ReadSSE(resp.Body, func(_ string, data []byte) error {
   usage)` in USD (per million tokens; `CachedIn` prices cached input).
 - **Errors**: `llm.WriteError(w, status, llm.Error{…})` answers in OpenAI's
   shape, `llm.ParseError(body)` reads one.
+
+### An LLM key for a coding tool — `xbin.LLMKeyFor`
+
+A tile whose `llm` slot is bound to xbind's LLM connector (`xbin:llm`,
+[llm.md](/docs/llm.md)) calls it with its own credential. A coding agent
+the tile runs in a sandbox must not hold that credential, so the tile asks
+for a **narrow key** instead — good for the connector's model routes only,
+metered to the person and the tile:
+
+```go
+k, err := xbin.LLMKeyFor(ctx, xbin.LLMKeyOpts{User: person, TTL: 24 * time.Hour,
+	Label: "codex run 12", Sandbox: box.ID})
+switch {
+case errors.Is(err, xbin.ErrLLMUnavailable): // no connector here (or an older xbind): run it on its own sign-in
+case errors.Is(err, xbin.ErrLLMKeyForbidden): // the slot isn't bound to xbin:llm, User isn't who this backend acts for, or the caller isn't the backend
+case errors.Is(err, xbin.ErrLLMKeyLimit): // too many of this tile's keys are alive: end the ones no longer in use
+}
+defer xbin.RevokeLLMKey(context.Background(), k.ID) // when the run ends — or
+// xbin.RevokeLLMKeysLabeled(ctx, "codex run 12"): every key asked for with that
+// label, with no id to keep (a successor after a restart can end the run's key)
+
+env, _ := provider.ConnectorEnv(acp.ConnectorParams{URL: box.LLM.URL, Key: k.Token,
+	Model: model, Serves: acp.ServeConnector}) // sdk/acp, above: the CLI's variables
+```
+
+- `User` is the person the run acts for and must be the one this backend's
+  credential acts for — a partition's person
+  ([partitions.md](/docs/partitions.md)); `""` takes them. A backend that
+  serves everyone acts for nobody: its key is metered to the tile alone.
+  xbind refuses any other name: a tile never mints a key for someone else.
+- **Only a backend asks**: the call is made with the tile's own credential
+  (its instance or partition token — what `xbin.Client()` carries in a
+  backend). The tile's frame, a terminal and an agent session are refused.
+- `TTL` is a day at most (and by default); a key also ends when xbind
+  restarts. Revoke it when the run ends — and don't treat that as best
+  effort: retry until xbind acknowledged it. A run that goes on past a day
+  keeps its key alive with `xbin.RenewLLMKey(ctx, k.ID, 0)` well before it
+  expires (`ErrLLMKeyGone`: it ended; ask for a new one) — so a key whose
+  backend went away is dead within a day, whatever was forgotten.
+- A tile holds at most 64 live keys for one person and 512 in all
+  (`ErrLLMKeyLimit`). A key names the deployment its backend runs in:
+  `RevokeLLMKeysLabeled` ends that deployment's only, and the tile's edge
+  policy for the deployment holds on every call made with it.
+- `Token` is a secret: pass it in the tool's environment, keep it out of
+  stores and logs, and redact it from what the tool prints.
+- **Where the tool reaches the connector** is the sandbox's to say. A
+  sandbox created with the connector asked for — `llm: true` on a sandbox
+  manager's create ([sandbox-manager.md](/docs/sandbox-manager.md)),
+  `xbin.SandboxNet{LLM: true}` on xbind's own runtime — names the address
+  in its row (`llm.url`; `SandboxNetInfo.LLM`): an OpenAI base URL at the
+  sandbox's gateway, served by xbind's LLM-only listener whatever the
+  sandbox's egress. No address there means no connector: fall back.
 
 ### Resources, vault, bus
 
@@ -817,6 +929,93 @@ if err != nil || !a.CanRead() {        // fail closed: no answer is no
   sandbox-terminal tile keeps them 30 s) rather than asking on every
   packet.
 
+### Acting as a person — `xbin.AsPerson()` (xbind's own agent component)
+
+For the backend of the **workspace agent**: a sealed component that ships
+inside xbind, partitioned per person, which xbind lets act as its person
+([auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent),
+[protocol/delegation.md](/docs/protocol/delegation.md)). A tile of your own
+that calls these gets `401`: who may delegate is xbind's table, not a
+grant.
+
+```go
+xbin.Client()                 // the component itself: its kv, vault, bus, notify
+xbin.AsPerson()               // the person this partition belongs to: xbind's
+                              // API under the delegation cap, and /api/<tile>/…
+                              // where they can read the tile, at their level
+
+req, _ := http.NewRequestWithContext(ctx, "GET", "http://xbin/api/apps/mail/inbox", nil)
+xbin.WithAgentModel(req, model)      // the model the conversation is on: the
+                                     // orgs' model rules are asked with it
+resp, err := xbin.AsPerson().Do(req) // reads need nothing more
+if err := xbin.DelegateRefusal(resp); err != nil { … }  // nil for 2xx; else *DelegateError
+```
+
+Every **side effect** — a non-`GET` call to a tile's API, starting a tile
+agent (`POST /api/xbin/term/sessions`), creating a tile — needs the
+person's approval, and xbind checks it. Ask, wait, then send exactly what
+was approved:
+
+```go
+info, _ := xbin.DryRun(ctx, "POST", "/api/apps/mail/send") // what it would be: tile, level, role,
+                                                           // needsApproval — nothing runs
+ask, err := xbin.RequestApproval(ctx, "POST", "/api/apps/mail/send", body, "send the summary to Ada")
+// the person is told (an event, a push) and answers in their own session;
+// summary is shown as the agent's words, beside xbind's own description
+for {
+	a, err := xbin.ApprovalOf(ctx, ask.ID)
+	if err != nil || a.Decided() { return /* denied, expired, withdrawn */ }
+	if a.Approved() { break }
+	// wait: the person answers when they answer
+}
+req, _ = http.NewRequestWithContext(ctx, "POST", "http://xbin/api/apps/mail/send", bytes.NewReader(body))
+req.Header.Set("Content-Type", "application/json") // part of what was approved
+xbin.WithTicket(req, ask.ID)         // once, within 15 minutes; another method, path,
+resp, err = xbin.AsPerson().Do(req)  // query, body or content type is ErrBadTicket
+```
+
+`AsPerson()` follows no redirect — a tile's 3xx is the response you get,
+and `DelegateRefusal` reports it as an error: the call a person approved is
+one call. A body is approved as JSON (send exactly `Content-Type:
+application/json`, or the type you asked with: the whole header is bound); `xbin.RequestApprovalAs(ctx, method, path,
+contentType, body, summary)` asks for another content type.
+`xbin.StandingApprovals(ctx)` lists what the person lets their agent do
+without a ticket — each one call (`Scope "call"`: `Method` on `Path`) or
+every write to a tile (`Scope "tile"`); `a.Covers(method, path)` answers
+for one. `xbin.WithdrawApproval(ctx, id)` takes a request back. Starting a tile agent without a ticket works only when the person
+allowed it in their agent preferences, and then without `mode`, `net` or
+`api` in the body — those are the preference's.
+
+Admin changes are never calls: an admin's agent **proposes** them, the
+person approves, xbind applies.
+
+```go
+cs, err := xbin.ProposeChanges(ctx, "let the report read the calendar", []xbin.Change{
+	{Kind: "grant.add", Args: map[string]string{"from": "apps/report", "target": "apps/calendar", "role": "reader"},
+		Why: "the weekly report lists meetings"},
+})
+// cs.Items[i].Line, .Effects, .Warnings, .Blocked are xbind's description;
+// later: xbin.ChangeSetOf(ctx, cs.ID) → State and each item's Result
+```
+
+The refusals to tell apart (`errors.Is` on what `DelegateRefusal` and the
+helpers return; `*DelegateError` carries xbind's `Message`, fit to show):
+
+| Error | Meaning | Do |
+|---|---|---|
+| `ErrNotDelegated` | the route isn't in the delegation cap (the admin API, answering a tile agent, …) | don't retry; no approval changes it |
+| `ErrNeedsApproval` | a side effect without the person's approval | `RequestApproval`, then `WithTicket` |
+| `ErrBadTicket` | the ticket is unknown, unapproved, expired, used, or for another call | ask again |
+| `ErrPolicyRefused` | the tile, or the org that owns it, keeps the agent out — or the person can't read it; `Message` says why | tell the person; don't retry |
+| `ErrAgentPaused` | the person paused their agent | stop until they resume |
+| `ErrAgentOff` | workspace agents are off here | stop |
+| `ErrAdminRead` | admin state without the person's opt-in | propose nothing; say how to opt in |
+| `ErrRateLimited` | more than 30 acts a minute; `RetryAfter` says when | wait |
+
+A `*DelegateError` with an empty `Refusal` is the called tile's own
+refusal. Data that reaches the component from other tiles — bus events,
+partition mail, anything a tile's API returns — is untrusted input.
+
 ### Tile sandboxes, for manager tiles — `xbin.SandboxAPI()`
 
 A **manager tile** serves the sandbox-manager contract
@@ -832,7 +1031,7 @@ routes a few lines (its `API.md`):
 sbx := xbin.SandboxAPI()
 rt, err := sbx.Runtime(ctx) // modes, egress classes, limits (rt.Limits.Flows too), and rt.Caps: what this xbind serves
 info, err := sbx.Create(ctx, xbin.SandboxSpec{Name: "sb-7f3a", Mode: "vm",
-	Net: &xbin.SandboxNet{Egress: "class:internet"}, ClientID: reqID})
+	Net: &xbin.SandboxNet{Egress: "class:internet"}, ClientID: reqID}) // SandboxNet.LLM: the LLM connector inside it (info.Net.LLM names its address)
 info, err = sbx.Start(ctx, "sb-7f3a", 30*time.Second) // Stop, Reset, Rebase alike; List, Get, Patch, Delete, Copy
 
 sb := sbx.Sandbox("sb-7f3a")

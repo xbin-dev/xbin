@@ -134,7 +134,7 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 	if class == PersonOnly {
 		// a person's own session, app or device credential only: never a
 		// tile's, view-as, or one that names no person (the root token)
-		if p.Component != "" || p.Impersonator != "" || p.UserID == "" {
+		if p.Component != "" || p.Impersonator != "" || p.UserID == "" || p.Agent != "" { // nor their workspace agent (delegate.go)
 			return r2, refusal(http.StatusForbidden, "this is a person's own act: sign in and do it yourself — a tile's credentials can't")
 		}
 		return r2, nil
@@ -456,6 +456,7 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /impersonate/stop":                 GlobalOnlyRefused,
 	"PUT /native-runtime":                    GlobalOnlyRefused,
 	"PUT /chrome":                            GlobalOnlyRefused,
+	"PUT /agent-levels":                      GlobalOnlyRefused,
 	"PUT /branding":                          GlobalOnlyRefused,
 	"PUT /workspace-policies":                PartitionNeutral,
 	"PUT /workspace-settings":                GlobalOnlyRefused,
@@ -507,6 +508,10 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /llm/v1/models":            PartitionScoped,
 	"GET /llm/preferred":            PartitionScoped,
 	"GET /llm":                      PartitionScoped,
+	"POST /llm/keys":                PartitionScoped, // a key for a harness the partition runs: its person's, by the stamp
+	"DELETE /llm/keys/{id}":         PartitionScoped,
+	"POST /llm/keys/{id}/renew":     PartitionScoped,
+	"DELETE /llm/keys":              PartitionScoped,
 
 	// ---- partitions' governance acts (02 §8): their handlers judge the
 	// person and refuse the target tile's own credentials. A mode decision
@@ -561,6 +566,7 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /term-net":             PartitionNeutral,
 	"GET /native-runtime":       PartitionNeutral,
 	"GET /chrome":               PartitionNeutral,
+	"GET /agent-levels":         PartitionNeutral,
 	"GET /branding":             PartitionNeutral,
 	"GET /workspace-policies":   PartitionNeutral,
 	"GET /workspace-settings":   PartitionNeutral,
@@ -607,4 +613,33 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /agent/history":                                   PartitionNeutral,
 	"GET /agent/history/{id}/events":                       PartitionNeutral,
 	"DELETE /agent/history/{id}":                           PartitionNeutral,
+	// ---- delegation (D228, delegateapi.go): a person's workspace agent.
+	// Every handler judges its caller in one place (delegateCaller): the
+	// person's own credential for whatever grants; their agent's own page
+	// — the sealed holder's frame, in their partition, under their login —
+	// to read and to pause; their agent to ask. Neutral here because the
+	// page must reach the reads, and --no-auth's owner (who names no
+	// person, so PersonOnly would refuse them) answers as the person in
+	// development. The workspace's switch is an admin's ----
+	"GET /delegate/state":                    PartitionNeutral,
+	"PUT /delegate/state":                    PartitionNeutral,
+	"GET /delegate/workspace":                GlobalOnlyRefused,
+	"PUT /delegate/workspace":                GlobalOnlyRefused,
+	"GET /delegate/audit":                    PartitionNeutral,
+	"POST /delegate/requests":                PartitionNeutral,
+	"GET /delegate/requests":                 PartitionNeutral,
+	"GET /delegate/requests/{id}":            PartitionNeutral,
+	"POST /delegate/requests/{id}/approve":   PartitionNeutral,
+	"POST /delegate/requests/{id}/deny":      PartitionNeutral,
+	"DELETE /delegate/requests/{id}":         PartitionNeutral,
+	"GET /delegate/approvals":                PartitionNeutral,
+	"POST /delegate/approvals":               PartitionNeutral,
+	"DELETE /delegate/approvals/{id}":        PartitionNeutral,
+	"POST /delegate/changesets":              PartitionNeutral,
+	"GET /delegate/changesets":               PartitionNeutral,
+	"GET /delegate/changesets/{id}":          PartitionNeutral,
+	"DELETE /delegate/changesets/{id}":       PartitionNeutral,
+	"POST /delegate/changesets/{id}/approve": PartitionNeutral,
+	"POST /delegate/changesets/{id}/reject":  PartitionNeutral,
+	"POST /delegate/changesets/{id}/undo":    PartitionNeutral,
 }
