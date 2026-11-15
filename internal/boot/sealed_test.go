@@ -122,6 +122,7 @@ func startSealed(t *testing.T, ws string, table []sealed.Spec, tune ...func(*Con
 		cancel()
 		select {
 		case <-done:
+			noneLeftBehind(t, ws) // a stopped xbind leaves no backend running (leftbehind_test.go)
 		case <-time.After(60 * time.Second):
 			t.Error("boot did not stop after cancel")
 		}

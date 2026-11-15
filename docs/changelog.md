@@ -122,6 +122,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - Not yet: an admin console section, the connector in terminals and
     agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
 
+- **Fixed: a backend that was still starting when xbind shut down kept
+  running.** Shutdown stopped the backends that were up; one that was
+  being built, spawned or waited for at that moment was started (or
+  finished starting) afterwards and nobody stopped it. Under systemd the
+  unit's cgroup ended it; run by hand, or from a test, it stayed behind.
+  xbind now starts nothing once it is shutting down and stops every
+  backend it started, healthy yet or not.
 - **Fixed: a restore could register another tile's cron jobs.** Restoring
   a tile registered every cron job its archive's manifest listed, whatever
   component a job named; the bus subscriptions beside them were always
