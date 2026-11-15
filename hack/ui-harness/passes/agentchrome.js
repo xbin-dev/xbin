@@ -421,7 +421,7 @@ async function agentChrome(browser) {
     await page.click('bx-shell bx-agent-dock [data-close]');
     await page.waitForFunction(() => !document.querySelector('bx-shell').shadowRoot.querySelector('bx-agent-dock').open);
     const wasOpen = await dockAbout(page, ctx, check);
-    await handOff(page, ctx, check, wasOpen);
+    await handOff(page, ctx, check, wasOpen, skip);
     // the alert that names /xbin/agent is for shells without the chip: this one leaves it out
     let alertsRead = 0;
     await ctx.route('**/api/xbin/alerts', async (route) => { const resp = await route.fetch(); const j = await resp.json().catch(() => ({})); alertsRead++;
@@ -828,7 +828,7 @@ async function askAbout(page, check) {
   await shot(page, 'agent-chrome-ask-about', { fullPage: false });
 }
 
-async function handOff(page, ctx, check, wasOpen) {
+async function handOff(page, ctx, check, wasOpen, skip) {
   const sent = [];
   page.on('request', (r) => { if (r.method() === 'POST' && /\/api\/xbin\/term\/sessions($|\/[^/]+\/queue)/.test(new globalThis.URL(r.url()).pathname)) sent.push(new globalThis.URL(r.url()).pathname); });
   // "Hand this to <tile>'s own agent": the tile's window on a new session's launcher, the words beside it as text, nothing started
@@ -849,7 +849,10 @@ async function handOff(page, ctx, check, wasOpen) {
   check(tokens[0] === tokens[1] && tokens[2] === tokens[3], `…drawn in the theme's own panel and text colours (${tokens.join(' / ')})`);
   await shot(page, 'agent-chrome-handoff', { fullPage: false });
   const fake = await page.$(`.card[data-path="${HAND_TILE}"] bx-frame [data-handoff] [data-provider="fake"]`);
+  // (under --isolate the scripted agent — a host path, XBIN_AGENT_FAKE — can't start inside a tile's sandbox: run.sh says so)
+  const sandboxed = await ctx.request.get(`${URL}/api/xbin/runtime`).then((r) => r.json()).then((j) => !!(j.host && j.host.isolate)).catch(() => false);
   if (!fake) check(false, 'the launcher offers the scripted "fake" coding agent (XBIN_AGENT_FAKE)');
+  else if (sandboxed) (skip || log)('picking a coding agent on the launcher (its session, the words in its composer): this xbind runs tiles in sandboxes, where the scripted agent can\'t start — a run without HARNESS_ISOLATE covers it');
   else {
     await fake.click();
     await waitFor(page, (t, p) => { const f = t.frameFor(p)?.testApi(); const g = f && f.agent(f.tabs.length - 1); return !!g && g.status === 'idle' && !f.handoff; }, HAND_TILE, { timeout: 20000, label: 'the picked agent\'s session is idle' });
