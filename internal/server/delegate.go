@@ -833,7 +833,8 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 			if prov == "" || mode == "" {
 				return nil, http.StatusForbidden, "ticket", "the ticket says no harness and mode: ask again"
 			}
-			start = &term.DelegateStart{Approved: true, Provider: prov, Mode: mode}
+			net, _ := shown["net"].(string)
+			start = &term.DelegateStart{Approved: true, Provider: prov, Mode: mode, Net: net}
 		}
 		s.delegateEvent(p.UserID, "request", req.ID)
 		return start, 0, "", ""
@@ -846,6 +847,9 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		return nil, 0, "", ""
 	case session:
 		cwd, provider := sessionAsk(body)
+		if provider == "" { // no harness named: the person's default for this tile (startDefaults)
+			provider = s.startDefaults(p, cwd).Harness
+		}
 		prefs, ok := s.agentPolicy().StartPrefs(p.UserID, cwd, provider)
 		if !ok {
 			return nil, http.StatusForbidden, "needs-approval", "starting a tile agent needs its person's approval" + ask

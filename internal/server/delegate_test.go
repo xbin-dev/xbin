@@ -451,7 +451,7 @@ func TestDelegateNeverList(t *testing.T) {
 	}{
 		{"acts that need the person's approval", tickets, "POST /templates/new\nPOST /term/sessions"},
 		{"acts that need none (driving its own sessions, asking)", acts, "DELETE /delegate/changesets/{id}\nDELETE /delegate/requests/{id}\nDELETE /delegate/sessions/{id}\nDELETE /term/sessions/{id}\n" +
-			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPATCH /delegate/sessions/{id}\nPOST /delegate/changesets\nPOST /delegate/requests\nPOST /delegate/sessions\nPOST /preview\n" +
+			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPATCH /delegate/sessions/{id}\nPOST /delegate/changesets\nPOST /delegate/requests\nPOST /delegate/sessions\nPOST /delegate/sessions/{id}/allows\nPOST /delegate/sessions/{id}/taint\nPOST /preview\n" +
 			"POST /term/sessions/{id}/cancel\nPOST /term/sessions/{id}/prompt\nPOST /term/sessions/{id}/queue"},
 		{"admin reads", admin, "GET /bindings\nGET /grants\nGET /limits\nGET /orgs"},
 	} {
