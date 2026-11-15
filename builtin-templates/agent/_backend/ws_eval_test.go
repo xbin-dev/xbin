@@ -454,7 +454,7 @@ func TestWsEvalVagueRequestYieldsChoices(t *testing.T) {
 	fx.x.api["GET /api/apps/invoices/invoices?state=overdue"] = func([]byte) (int, string) { return 200, `[{"id":1},{"id":2},{"id":3}]` }
 	f := fakeOf(fx.ag)
 	f.on(forRun(s.Run, lastUser("fix the invoices")), callTools(tc("v1", "workspace_map", `{"filter":"invoice"}`), tc("v2", "tile_call", `{"tile":"apps/invoices","method":"GET","path":"/invoices?state=overdue"}`))).once()
-	f.on(forRun(s.Run, lastTool("tile_call")), callTools(tc("v3", "ask_user", `{"question":"Which one do you mean?","choices":["Three invoices are overdue but still marked sent","The PDF export failed twice this morning"]}`))).once()
+	f.on(forRun(s.Run, lastTool("tile_call")), callTools(tc("v3", "ask_user", `{"question":"Which one do you mean?","kind":"choices","choices":["Three invoices are overdue but still marked sent","The PDF export failed twice this morning"]}`))).once()
 	f.on(forRun(s.Run, lastUser("Three invoices are overdue")), say("I'll look into the three overdue invoices.")).once()
 	fx.say(t, s, "fix the invoices")
 	waitStatus(t, fx.ag.db, s.Run, statusWaiting)
@@ -481,7 +481,7 @@ func TestWsEvalVagueRequestYieldsChoices(t *testing.T) {
 		Items []map[string]any `json:"items"`
 	}
 	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/needs", nil), 200, &needs)
-	if len(needs.Items) != 1 || needs.Items[0]["kind"] != "question" {
+	if len(needs.Items) != 1 || needs.Items[0]["kind"] != "question" || needs.Items[0]["ask"] != "choices" || len(needs.Items[0]["choices"].([]any)) != 2 || needs.Items[0]["callId"] != "v3" {
 		t.Fatalf("needs: %+v", needs.Items)
 	}
 	fx.say(t, s, "Three invoices are overdue but still marked sent")
@@ -496,16 +496,21 @@ var codeTools = []string{"read", "write", "edit", "bash", "bash_output", "glob",
 	"web_search", "web_fetch", "sandbox_create", "harness_spawn", "subagent_spawn", "schedule", "repl", "skill_manage", "wiki_write", "wiki_read"}
 
 // Scenario 9 — a low-level request yields the redirect. The agent has no
-// tool that opens or edits code, its prompt says what to offer instead, and
-// the redirect it gives costs no tool call.
+// tool that opens or edits code and its prompt says what to offer instead:
+// it finds the tile the request is about and asks, as a redirect naming
+// that tile, with the two ways forward as choices — which the page reads
+// in fields, and draws its "open the tile's own agent" action from.
 func TestWsEvalLowLevelRequestYieldsRedirect(t *testing.T) {
 	fx := newWsFix(t)
 	s := fx.main(t)
 	f := fakeOf(fx.ag)
-	redirect := "The workspace agent doesn't open or edit code. Two ways forward: hand this to Orders' own agent — it opens in Orders with your message as written — or tell me the outcome instead."
-	f.on(forRun(s.Run, lastUser("line 40")), say(redirect)).once()
+	redirect := "I don't open or edit code. Hand this to Orders' own agent as written, or tell me the outcome you want?"
+	f.on(forRun(s.Run, lastUser("line 40")), callTools(tc("l1", "workspace_map", `{"filter":"orders"}`))).once()
+	f.on(forRun(s.Run, lastTool("workspace_map")), callTools(tc("l2", "ask_user",
+		`{"question":"`+redirect+`","kind":"redirect","tile":"apps/orders","choices":["Hand it to Orders' own agent as written","Tell you the outcome instead"]}`))).once()
+	f.on(forRun(s.Run, lastUser("the outcome")), say("Tell me what the export should do differently, and I'll brief Orders' agent.")).once()
 	fx.say(t, s, "change line 40 in export.go")
-	fx.idle(t, s)
+	waitStatus(t, fx.ag.db, s.Run, statusWaiting)
 	c := f.callsFor(s.Run)[0]
 	offered := toolNamesIn(c.Tools)
 	for _, n := range codeTools {
@@ -513,20 +518,34 @@ func TestWsEvalLowLevelRequestYieldsRedirect(t *testing.T) {
 			t.Errorf("the agent is offered %s", n)
 		}
 	}
-	for _, want := range []string{"You don't read or change code.", "Low-level (\"change line 40 in export.go\")", "hand it to that tile's own agent as written", "This is a redirect, not a refusal."} {
+	for _, want := range []string{"You don't read or change code.", "Low-level (\"change line 40 in export.go\")", "hand it to that tile's own agent as written", "This is a redirect, not a refusal.", `ask_user, kind "redirect", naming the tile`} {
 		if !strings.Contains(systemOf(c), want) {
 			t.Errorf("the prompt lacks %q", want)
 		}
 	}
-	if fx.lastAssistant(t, s) != redirect || len(fx.x.calls) > 2 { // the session's handle, nothing else
-		t.Fatalf("the redirect: %q; xbind saw %v", fx.lastAssistant(t, s), fx.x.calls)
+	var needs struct {
+		Items []map[string]any `json:"items"`
+	}
+	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/needs", nil), 200, &needs)
+	if len(needs.Items) != 1 || needs.Items[0]["kind"] != "question" || needs.Items[0]["ask"] != "redirect" || needs.Items[0]["tile"] != "apps/orders" ||
+		needs.Items[0]["text"] != redirect || len(needs.Items[0]["choices"].([]any)) != 2 {
+		t.Fatalf("the redirect, in fields: %+v", needs.Items)
+	}
+	if fx.x.count("Call") != 0 || fx.x.count("Ask") != 0 || fx.x.count("CodeTree") != 0 || fx.x.count("CodeFile") != 0 { // it looked at the map, nothing else
+		t.Fatalf("xbind saw %v", fx.x.calls)
+	}
+	fx.say(t, s, "Tell you the outcome instead")
+	fx.idle(t, s)
+	if !strings.HasPrefix(fx.lastAssistant(t, s), "Tell me what the export should do differently") {
+		t.Fatalf("after the pick: %q", fx.lastAssistant(t, s))
 	}
 }
 
 // Scenario 10 — an impossible request yields the "can't" answer: the agent
 // looks at its tools and the docs first, has nothing that deletes a tile
 // or reaches the web, and a call that tries is refused in words that say
-// whose it is to do.
+// whose it is to do — and as a card of its own for the page. With more
+// than one nearest thing to offer, it asks as a "cant".
 func TestWsEvalImpossibleRequestYieldsCant(t *testing.T) {
 	fx := newWsFix(t)
 	s := fx.main(t)
@@ -535,10 +554,12 @@ func TestWsEvalImpossibleRequestYieldsCant(t *testing.T) {
 	f := fakeOf(fx.ag)
 	f.on(forRun(s.Run, lastUser("delete the old tile")), callTools(tc("x1", "docs_search", `{"query":"deleting a tile"}`),
 		tc("x2", "tile_call", `{"tile":"tiles/admin","method":"DELETE","path":"/components/apps/invoices","why":"delete it"}`))).once()
-	cant := "Can't do this: only you can delete a tile, from the tile's ⋯ menu. I can show you where it is and what still uses it."
-	f.on(forRun(s.Run, lastTool("tile_call")), say(cant)).once()
+	cant := "Can't do this: only you can delete a tile, from the tile's ⋯ menu. What would help instead?"
+	f.on(forRun(s.Run, lastTool("tile_call")), callTools(tc("x3", "ask_user", `{"question":"`+cant+`","kind":"cant","choices":["Show what still uses it","Show where its menu is"]}`))).once()
+	f.on(forRun(s.Run, lastUser("Show what still uses it")), callTools(tc("x4", "tile_call", `{"tile":"apps/invoices","method":"GET","path":"/usage"}`))).once()
+	f.on(forRun(s.Run, lastTool("tile_call")), say("Orders still uses it.")).once()
 	fx.say(t, s, "delete the old tile")
-	fx.idle(t, s)
+	waitStatus(t, fx.ag.db, s.Run, statusWaiting)
 	c := f.callsFor(s.Run)[0]
 	for n := range toolNamesIn(c.Tools) {
 		if (strings.Contains(n, "delete") && n != "memory_delete") || strings.Contains(n, "web") || strings.Contains(n, "terminal") {
@@ -556,8 +577,21 @@ func TestWsEvalImpossibleRequestYieldsCant(t *testing.T) {
 	if got := fx.toolResult(t, s, "tile_call"); !strings.Contains(got, "would be refused: Admin doesn't let agents change it") {
 		t.Fatalf("the refused call: %q", got)
 	}
-	if fx.x.count("Ask") != 0 || fx.lastAssistant(t, s) != cant {
-		t.Fatalf("the answer: %q; xbind saw %v", fx.lastAssistant(t, s), fx.x.calls)
+	var cards struct {
+		Refusals []wsRefused    `json:"refusals"`
+		Ask      map[string]any `json:"ask"`
+	}
+	fx.json(t, fx.call(t, wsAlice, "GET", fmt.Sprintf("/ws/sessions/%d/cards", s.Run), nil), 200, &cards)
+	if len(cards.Refusals) != 1 || cards.Refusals[0].Kind != "policy" || cards.Refusals[0].CallID != "x2" || cards.Refusals[0].Reason != "Admin doesn't let agents change it" || cards.Refusals[0].Tile != "tiles/admin" {
+		t.Fatalf("the refusal's card: %+v", cards.Refusals)
+	}
+	if cards.Ask == nil || cards.Ask["kind"] != "cant" || cards.Ask["question"] != cant || len(cards.Ask["choices"].([]any)) != 2 || fx.x.count("Ask") != 0 {
+		t.Fatalf("the can't, in fields: %v; xbind saw %v", cards.Ask, fx.x.calls)
+	}
+	fx.say(t, s, "Show what still uses it")
+	fx.idle(t, s)
+	if fx.lastAssistant(t, s) != "Orders still uses it." || fx.x.count("Ask") != 0 {
+		t.Fatalf("the nearest thing: %q; xbind saw %v", fx.lastAssistant(t, s), fx.x.calls)
 	}
 }
 

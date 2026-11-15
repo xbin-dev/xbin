@@ -140,7 +140,22 @@ func handleWsState(w http.ResponseWriter, r *http.Request) {
 		out["delegationError"] = wsRefusal(err)
 	}
 	if ms, err := wsX.Models(r.Context()); err == nil {
+		// each with private and where it runs, when the connector's list says;
+		// else, for a model one of their sessions is on, as xbind's connection
+		// view of that session says
+		for i := range ms.Models {
+			m := &ms.Models[i]
+			for _, s := range agent.db.wsSessions(owner) {
+				if ref := s.Conn.Connection.Model; m.Private == nil && ref != nil && s.Model == m.ID {
+					private := ref.Private
+					m.Private, m.Where, m.Upstream = &private, wsWhere(private), orStr(m.Upstream, ref.Upstream)
+				}
+			}
+		}
 		out["models"] = ms
+	}
+	if q := wsQuotaNow(agent.db); q != nil {
+		out["quota"] = q // the stopping quota a model call met (ws_context.go)
 	}
 	xbin.WriteJSON(w, http.StatusOK, out)
 }
@@ -153,6 +168,9 @@ func wsSessionItem(s *wsSession, owner string) map[string]any {
 		it["name"], it["status"], it["activityMs"] = run.Title, run.Status, run.ActivityMs
 		if run.Status == statusWaiting { // the agent's own question
 			it["waiting"] = run.Result
+			if a := wsAskOf(agent.db, s.Run); a != nil {
+				it["ask"] = a
+			}
 		} else if w := wsWaitingWords(agent.db, s.Run); w != "" { // requests open for its person: the conversation itself goes on
 			it["waiting"] = w
 		}
@@ -358,7 +376,17 @@ func handleWsCards(w http.ResponseWriter, r *http.Request) {
 	if briefs == nil {
 		briefs = []*wsBrief{}
 	}
-	xbin.WriteJSON(w, http.StatusOK, map[string]any{"requests": reqs, "agents": cards, "briefs": briefs, "plan": plan})
+	refusals := agent.db.wsRefusals(s.Run)
+	if refusals == nil {
+		refusals = []wsRefused{}
+	}
+	out := map[string]any{"requests": reqs, "agents": cards, "briefs": briefs, "plan": plan, "refusals": refusals}
+	if run, err := agent.db.getRun(s.Run); err == nil && run.Status == statusWaiting {
+		if a := wsAskOf(agent.db, s.Run); a != nil {
+			out["ask"] = a // the question the session waits on, in fields
+		}
+	}
+	xbin.WriteJSON(w, http.StatusOK, out)
 }
 
 // wsBriefOf is the brief a /briefs/{bid} route names.
@@ -441,7 +469,7 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 		}
 		raw, _ := json.Marshal(start)
 		old := req.Ref
-		if _, err := agent.db.q.Exec(`UPDATE ws_requests SET ref=?, body=? WHERE id=? AND state='pending'`, xr.ID, raw, req.ID); err == nil {
+		if _, err := agent.db.q.Exec(`UPDATE ws_requests SET ref=?, body=?, expires_ms=? WHERE id=? AND state='pending'`, xr.ID, raw, xr.Expires*1000, req.ID); err == nil {
 			_ = wsX.Withdraw(r.Context(), s.Handle, old)
 		}
 	}
@@ -503,7 +531,7 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 			xbin.WriteJSON(w, http.StatusOK, map[string]any{"request": req.Ref, "id": req.ID})
 			return
 		}
-		agent.wsDecide(ctx, s, req, "") // the click is the confirmation
+		agent.wsDecide(ctx, s, req, wsRequest{}) // the click is the confirmation
 		cur, _ := agent.db.wsReq(req.ID)
 		xbin.WriteJSON(w, http.StatusOK, map[string]any{"started": cur != nil && cur.State == "used", "id": req.ID, "outcome": cur.Outcome})
 		return
@@ -535,7 +563,7 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 			wsWriteErr(w, err)
 			return
 		}
-		req.Ref = xr.ID
+		req.Ref, req.Expires = xr.ID, xr.Expires*1000
 	}
 	if err := agent.db.wsAddReq(req); err != nil {
 		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
@@ -548,7 +576,7 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteJSON(w, http.StatusOK, map[string]any{"request": req.Ref, "id": req.ID})
 		return
 	}
-	agent.wsDecide(ctx, s, req, "")
+	agent.wsDecide(ctx, s, req, wsRequest{})
 	cur, _ := agent.db.wsReq(req.ID)
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"started": cur != nil && cur.State == "used", "id": req.ID, "outcome": cur.Outcome})
 }
@@ -581,7 +609,14 @@ func handleWsNeeds(w http.ResponseWriter, r *http.Request) {
 				"tile": a.Tile, "harness": a.Harness, "text": a.Waiting, "since": a.Updated})
 		}
 		if err == nil && run.Status == statusWaiting {
-			items = append(items, map[string]any{"kind": "question", "session": s.Run, "sessionName": name, "text": run.Result, "since": run.Updated * 1000})
+			it := map[string]any{"kind": "question", "session": s.Run, "sessionName": name, "text": run.Result, "since": run.Updated * 1000}
+			if a := wsAskOf(agent.db, s.Run); a != nil {
+				it["ask"], it["choices"], it["callId"] = a.Kind, a.Choices, a.CallID
+				if a.Tile != "" {
+					it["tile"] = a.Tile
+				}
+			}
+			items = append(items, it)
 		}
 	}
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "count": len(items)})

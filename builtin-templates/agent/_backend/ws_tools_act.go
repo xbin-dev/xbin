@@ -123,7 +123,7 @@ func wsFile(ctx context.Context, ag *Agent, s *wsSession, req *wsReq, ask func(s
 		if err := ag.wsWith(ctx, s, func(sid string) (err error) { xr, err = ask(sid); return }); err != nil {
 			return "", err
 		}
-		req.Ref = xr.ID
+		req.Ref, req.Expires = xr.ID, xr.Expires*1000
 	}
 	req.Run, req.State = s.Run, "pending"
 	if err := ag.db.wsAddReq(req); err != nil {
@@ -268,6 +268,7 @@ func wsTileCall(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (str
 		return "", err
 	}
 	if dryRun || dry.Dry == nil || !dry.Dry.Allowed {
+		ag.wsDryRefused(ctx, s, dry.Dry, t.Path)
 		return wsDryWords(what, dry.Dry), nil
 	}
 	if !dry.Dry.NeedsApproval { // a standing approval covers it
@@ -332,6 +333,7 @@ func wsTileCreateTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall
 		return "", err
 	}
 	if args["dry_run"] == true || dry == nil || !dry.Allowed {
+		ag.wsDryRefused(ctx, s, dry, "")
 		out := wsDryWords("To "+what, dry)
 		if dry != nil && dry.Allowed {
 			out += " The tile would be your person's; deleting it again is theirs to do, from the tile's own menu."

@@ -105,6 +105,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   may use. A normal instance of the template is unchanged: without the
   variable none of this exists, and an unknown value refuses to serve. The
   template's coordinator kit gained the profile hooks `System` and `Specs`.
+  What its page draws is answered in fields beside the model's sentences
+  (`API.md` §Workspace mode, "In fields"): a message's `context`, a
+  request's outcome, refusals and questions with a `kind`, the stopping
+  quota and the pause's time.
 - **Agent sessions: a workspace agent's conversation is a handle xbind
   issues** (D228 part C0;
   [protocol/delegation.md](/docs/protocol/delegation.md) §Agent sessions).
