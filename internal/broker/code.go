@@ -3,6 +3,8 @@ package broker
 import (
 	"bytes"
 	"context"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -42,7 +45,12 @@ func (b *Broker) registerCode(srv *server.Server) {
 	srv.RegisterAPI("POST /git/import", b.apiGitImport)
 }
 
-// component validates the ?component= query param and returns its OS dir.
+// component validates the ?component= query param and returns its OS dir:
+// a directory reached from the workspace root without any symlink
+// (fsutil.OpenIn). The path need not be a registered component, and a
+// directory inside a tile is that tile's writers' to replace: one swapped
+// for a link (apps/x/sub -> ../../data, or -> another tile's repo) is no
+// component, whatever the link points at.
 func (b *Broker) component(w http.ResponseWriter, r *http.Request) (string, string, bool) {
 	comp := strings.Trim(r.URL.Query().Get("component"), "/")
 	if sealedRefused(w, sealedNone(comp, sealedNoSource)) {
@@ -52,12 +60,19 @@ func (b *Broker) component(w http.ResponseWriter, r *http.Request) (string, stri
 		server.WriteError(w, http.StatusBadRequest, "bad component path")
 		return "", "", false
 	}
-	dir := filepath.Join(b.Reg.Root, filepath.FromSlash(comp))
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+	d, err := fsutil.OpenIn(b.Reg.Root, comp, "")
+	if err == nil {
+		fi, serr := d.Stat()
+		d.Close()
+		if serr != nil || !fi.IsDir() {
+			err = os.ErrNotExist
+		}
+	}
+	if err != nil {
 		server.WriteError(w, http.StatusNotFound, "no such component")
 		return "", "", false
 	}
-	return comp, dir, true
+	return comp, filepath.Join(b.Reg.Root, filepath.FromSlash(comp)), true
 }
 
 // runGitIn runs a git subcommand in dir (a component's own repo — each component
@@ -88,7 +103,7 @@ type gitError struct{ msg string }
 func (e *gitError) Error() string { return e.msg }
 
 func isRepo(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, ".git"))
+	_, err := os.Lstat(filepath.Join(dir, ".git")) // the name, never where a link there points: git reads it, confined
 	return err == nil
 }
 
@@ -183,8 +198,11 @@ func (b *Broker) requireCodeRead(w http.ResponseWriter, r *http.Request, comp st
 }
 
 // GET /code/tree?component=<path> — the component's files (flat, sorted).
+// Walked inside an os.Root at the component's directory: links are not
+// listed and never followed, and a directory swapped for one while the walk
+// runs lists nothing from outside the tile.
 func (b *Broker) apiCodeTree(w http.ResponseWriter, r *http.Request) {
-	comp, dir, ok := b.component(w, r)
+	comp, _, ok := b.component(w, r)
 	if !ok {
 		return
 	}
@@ -196,34 +214,46 @@ func (b *Broker) apiCodeTree(w http.ResponseWriter, r *http.Request) {
 		Size int64  `json:"size"`
 	}
 	var files []file
-	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if p != dir && (name == ".git" || name == "node_modules" || name == "data") {
-				return filepath.SkipDir
+	if root, err := fsutil.OpenRootIn(b.Reg.Root, comp); err == nil {
+		defer root.Close()
+		_ = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
 			}
+			name := d.Name()
+			if d.IsDir() {
+				if p != "." && (name == ".git" || name == "node_modules" || name == "data") {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if !d.Type().IsRegular() { // links (deps/…) are never followed; FIFOs and devices are no source
+				return nil
+			}
+			info, _ := d.Info()
+			var sz int64
+			if info != nil {
+				sz = info.Size()
+			}
+			files = append(files, file{Path: p, Size: sz})
 			return nil
-		}
-		if d.Type()&os.ModeSymlink != 0 { // don't follow deps/ symlinks
-			return nil
-		}
-		rel, _ := filepath.Rel(dir, p)
-		info, _ := d.Info()
-		var sz int64
-		if info != nil {
-			sz = info.Size()
-		}
-		files = append(files, file{Path: filepath.ToSlash(rel), Size: sz})
-		return nil
-	})
+		})
+	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	server.WriteJSON(w, http.StatusOK, map[string]any{"component": comp, "files": files})
 }
 
 // GET /code/file?component=<path>&file=<rel> — one file's current content.
+//
+// The file is read with xbind's own privileges on the caller's behalf, out
+// of a tree its sandboxes write: it is opened beneath the component's
+// directory (fsutil.OpenIn, as the /c/ plane opens a tile's files), so a
+// link there that leaves the tile — API.md -> ../../.xbin/token, a directory
+// -> ../../data, an absolute path — is "no such file", as is a FIFO or a
+// device. This once joined the path and read it (os.Stat, os.ReadFile):
+// whoever could write the tile's directory chose any file xbind can read,
+// and whoever may read the tile's code was handed it. A link that stays
+// inside the tile (CLAUDE.md -> AGENTS.md) still reads.
 func (b *Broker) apiCodeFile(w http.ResponseWriter, r *http.Request) {
 	comp, dir, ok := b.component(w, r)
 	if !ok {
@@ -233,13 +263,19 @@ func (b *Broker) apiCodeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rel := r.URL.Query().Get("file")
-	p, _, err := util.SafeJoin(dir, rel)
+	_, clean, err := util.SafeJoin(dir, rel)
 	if err != nil {
 		server.WriteError(w, http.StatusBadRequest, "bad file path")
 		return
 	}
-	fi, err := os.Stat(p)
-	if err != nil || fi.IsDir() {
+	f, err := fsutil.OpenIn(b.Reg.Root, comp, clean)
+	if err != nil {
+		server.WriteError(w, http.StatusNotFound, "no such file")
+		return
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() {
 		server.WriteError(w, http.StatusNotFound, "no such file")
 		return
 	}
@@ -247,9 +283,13 @@ func (b *Broker) apiCodeFile(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusOK, map[string]any{"path": rel, "truncated": true, "size": fi.Size()})
 		return
 	}
-	data, err := os.ReadFile(p)
+	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1)) // the file opened above, whatever its path names now
 	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(data) > maxFileBytes { // it grew since the stat
+		server.WriteJSON(w, http.StatusOK, map[string]any{"path": rel, "truncated": true, "size": len(data)})
 		return
 	}
 	if bytes.IndexByte(firstN(data, 8<<10), 0) >= 0 {

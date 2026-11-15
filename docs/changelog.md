@@ -36,6 +36,30 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Security — reading a tile's code could return any file the server can
+  read.** `GET /api/xbin/code/file` (the tile window's Files tab) and the
+  `apiDoc` of `GET /api/xbin/components/<tile>` (the tile's `API.md`)
+  followed symbolic links out of the tile. Anyone who can write a tile's
+  directory — a person with terminal access to that one tile, or a coding
+  agent working in it — could plant a link there (`API.md ->
+  ../../.xbin/token`) and then fetch its target: the owner token, the
+  frame-token secret, `data/users.json` (every account's password hash),
+  files in other people's homes, other tiles' source, and files of the
+  host outside the workspace. Under `--isolate` their own shell cannot
+  read those files; the server read them for them. Whoever may read the
+  tile's code got the same from a planted link, and `apiDoc` goes to every
+  signed-in caller. Affected: every workspace where someone other than
+  the owner has terminal access to a tile or runs a coding agent in one;
+  a tile imported from a repository you don't trust may carry such a link
+  too. Now both reads stay inside the tile: a link that leaves it
+  is `404` (`apiDoc`: empty), `?component=` takes no path through a link,
+  and a FIFO in a tile no longer hangs the request. A link that stays
+  inside the tile (`CLAUDE.md -> AGENTS.md`) still reads; `GET /code/tree`
+  never listed links. **Rotate the owner token after upgrading** if anyone
+  but you had such access (admin console → Users, or `POST
+  /api/xbin/auth-rotate-token`), and consider resetting passwords: the
+  hashes are Argon2id, but they could be copied. xbind keeps no record of
+  what was read this way.
 - **The workspace agent's page, its backend and xbin's chrome meet** (D235;
   [workspace-agent.md](/docs/workspace-agent.md), [protocol/delegation.md
   §The chrome](/docs/protocol/delegation.md#the-chrome)): the run view

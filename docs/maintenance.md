@@ -173,8 +173,9 @@ checkpoint or a quarantine, a host-side `os.Open`/`OpenFile`/`ReadFile`/
 `ReadDir`/`Stat`/`Chmod`/`Chown` or `filepath.Walk`/`WalkDir`/`EvalSymlinks`
 would follow wherever the tree's writer points it (and an open blocks on a
 FIFO). In the packages and files that open those trees
-(`internal/checkpoint`, `internal/deployments`, and the deployment files of
-the registry, server, broker and runner — its `nofollowScope`) every such
+(`internal/checkpoint`, `internal/deployments`, the deployment files of
+the registry, server, broker and runner, and the broker's code API,
+`code.go` — its `nofollowScope`) every such
 call carries `// walk-ok: <why>` on its line or the two above (an
 xbind-owned file under `data/deployments`, say); `fsutil.OpenBeneath`/
 `OpenIn`, `os.Lstat` and `os.RemoveAll` need none. Its behavioural half
