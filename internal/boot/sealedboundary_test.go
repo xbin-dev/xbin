@@ -13,8 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sealed"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // boundaryReq is one well-formed request of a Refused or Self row about the
@@ -280,10 +282,98 @@ func TestSealedBoundaryWithoutTheGate(t *testing.T) {
 		t.Errorf("only %d requests driven: is the table intact?", n)
 	}
 
-	// nothing of it reached the workspace: no row in its manifest, no
-	// directory, no owner, no registration but the backend's own
-	if b, err := os.ReadFile(filepath.Join(ws, "xbin.json")); err != nil || strings.Contains(string(b), "xbin/") {
-		t.Errorf("the workspace manifest names a sealed path: %s (%v)", b, err)
+	// ---- the rows the handler decides (handled): the route gate never
+	// acts on them, so what answers here is the handler and what it calls.
+	// Each is a change an admin may make to a sealed component — and only an
+	// admin: not a reader, not another tile's backend, not the component's
+	// page (a viewer) and not the component's own backend (it is no admin).
+	// What an admin may NOT make (levels above read, offloading, a provider
+	// the release doesn't name) is refused for the admin too.
+	type handled struct {
+		method, path string
+		body         any
+		admin        int // what an admin and the root token get
+	}
+	for _, h := range []handled{
+		{"POST", "/lifecycle", map[string]any{"component": P, "state": "hidden"}, 200},
+		{"POST", "/lifecycle", map[string]any{"component": P, "state": "enabled"}, 200},
+		{"POST", "/lifecycle", map[string]any{"component": P, "state": "offloaded"}, 400},
+		{"POST", "/limits", map[string]any{"tile": P, "kind": "diskGiB", "value": 60, "source": "admin-set"}, 200},
+		{"DELETE", "/limits?tile=" + P + "&kind=diskGiB", nil, 200},
+		{"PUT", "/access", map[string]any{"tile": P, "kind": "user", "id": "reader", "level": "read"}, 200},
+		{"PUT", "/access", map[string]any{"tile": P, "kind": "user", "id": "reader", "level": "terminal"}, 400},
+		{"PATCH", "/users/reader", map[string]any{"tiles": map[string]string{P: "write", "apps/plain": "read"}}, 400},
+		{"PUT", "/defaults", map[string]any{"defaultTiles": map[string]string{P: "terminal"}}, 400},
+		{"POST", "/bindings", map[string]any{"component": P, "slot": "llm", "provider": "apps/prov"}, 200},
+		{"DELETE", "/bindings", map[string]any{"component": P, "slot": "llm"}, 200},
+		{"POST", "/backup-schedule", map[string]any{"component": P, "schedule": "@daily"}, 0},
+		{"DELETE", "/backup-schedule?component=" + P, nil, 0},
+		{"POST", "/restore", map[string]any{"component": P}, 0},
+		{"POST", "/partitions/limits", map[string]any{"tile": P, "maxRunning": 3}, 0},
+		{"POST", "/partitions/stop", map[string]any{"tile": P, "user": "reader"}, 0},
+		{"POST", "/partitions/purge", map[string]any{"tile": P, "user": "reader"}, 0},
+		{"POST", "/partitions/reset", map[string]any{"tile": P, "user": "reader"}, 0},
+		{"POST", "/partitions/restore", map[string]any{"tile": P, "user": "reader"}, 0},
+		{"POST", "/backup/erase", map[string]any{"component": P, "what": "data"}, 0},
+	} {
+		path := "/api/xbin" + h.path
+		for who, tok := range map[string]string{"a reader of it": reader, "another tile's backend": plainInstance, "its own backend": ownInstance} {
+			if code, out := d.do(h.method, path, h.body, tok); code < 400 || code >= 500 {
+				t.Errorf("%s %s as %s: %d %.200s — only an admin changes a sealed component", h.method, h.path, who, code, out)
+			}
+		}
+		if code, out := frame(h.method, path, h.body); code != http.StatusForbidden || !strings.Contains(out, "its page reaches its own backend only") {
+			t.Errorf("%s %s from its own page: %d %.200s", h.method, h.path, code, out)
+		}
+		for who, tok := range map[string]string{"an admin": admin, "the root token": d.token} {
+			code, out := d.do(h.method, path, h.body, tok)
+			switch {
+			case code >= 500 && h.admin != 0, code >= 500 && !strings.Contains(out, "archiver") && !strings.Contains(out, "vault"):
+				t.Errorf("%s %s as %s: %d %.200s", h.method, h.path, who, code, out)
+			case h.admin != 0 && code != h.admin:
+				t.Errorf("%s %s as %s: %d %.200s, want %d", h.method, h.path, who, code, out, h.admin)
+			case strings.Contains(out, secret):
+				t.Errorf("%s %s as %s shows its data: %.200s", h.method, h.path, who, out)
+			}
+		}
+	}
+	// the reads the handler decides: its data is in none of them, whoever asks
+	for _, path := range []string{"/logs?component=" + P, "/components/" + P, "/tile-status?component=" + P, "/access?tile=" + P, "/limits?tile=" + P,
+		"/backups?component=" + P, "/partitions?tile=" + P, "/resources?sealed=1", "/runtime?sealed=1", "/vaults?sealed=1", "/sealed", "/auth-overview?sealed=1"} {
+		for who, tok := range map[string]string{"an admin": admin, "the root token": d.token, "a reader of it": reader, "another tile's backend": plainInstance} {
+			code, out := d.do("GET", "/api/xbin"+path, nil, tok)
+			if code >= 500 && !strings.Contains(out, "archiver") || strings.Contains(out, secret) {
+				t.Errorf("GET %s as %s: %d %.200s", path, who, code, out)
+			}
+		}
+	}
+
+	// nothing of it reached the workspace: no row in its manifest (but the
+	// binding and the switch an admin made above, undone), no directory, no
+	// owner, no registration but the backend's own
+	var man registry.WorkspaceManifest
+	if b, err := os.ReadFile(filepath.Join(ws, "xbin.json")); err != nil || json.Unmarshal(b, &man) != nil {
+		t.Fatalf("the workspace manifest: %v", err)
+	}
+	for _, g := range man.Grants {
+		if util.SealedPath(g.From) || util.SealedTarget(g.Target) {
+			t.Errorf("the workspace manifest holds a grant naming a sealed path: %+v", g)
+		}
+	}
+	for comp, slots := range man.Bindings {
+		for slot, bnd := range slots {
+			if util.SealedPath(comp) && (slot != "llm" || len(bnd) != 0) {
+				t.Errorf("the workspace manifest binds %s %s to %v", comp, slot, bnd.Refs())
+			}
+			for _, ref := range bnd.Refs() {
+				if util.SealedPath(ref) {
+					t.Errorf("the workspace manifest binds %s %s to a sealed component", comp, slot)
+				}
+			}
+		}
+	}
+	if len(man.IfaceInstances[P]) != 0 || len(man.IngressHosts[P]) != 0 || registry.IsOffloaded(man.Lifecycle[P]) {
+		t.Errorf("the workspace manifest holds instances, hosts or an offloaded state for it: %+v", man)
 	}
 	if _, err := os.Stat(filepath.Join(ws, "xbin")); err == nil {
 		t.Error("a directory appeared at <workspace>/xbin")

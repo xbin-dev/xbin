@@ -1,6 +1,8 @@
 package server
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -60,5 +62,76 @@ func TestSealedNameShapes(t *testing.T) {
 	}
 	if !sealedOwn("xbin/x", "res:xbin/x/db") || !sealedOwn("xbin/x", "xbin/x/k") || sealedOwn("xbin/x", "xbin/xy/k") || sealedOwn("", "xbin/x") || sealedOwn("apps/a", "xbin/x") {
 		t.Error("sealedOwn: a component's own names are its path, below it, and its resources — nothing else's")
+	}
+}
+
+// A route with no row in the sealed table (the CI guard fails for one)
+// takes no sealed path at runtime either; and an odd spelling of a sealed
+// path is refused on every route, classified or not.
+func TestSealedGateOnUnclassifiedRoutesAndSpellings(t *testing.T) {
+	s := &Server{}
+	s.RegisterAPI("POST /zz-no-row-yet", func(w http.ResponseWriter, r *http.Request) { WriteOK(w) })
+	s.RegisterAPI("GET /zz-no-row-yet/{rest...}", func(w http.ResponseWriter, r *http.Request) { WriteOK(w) })
+	for _, classified := range []string{"POST /lifecycle", "GET /logs", "GET /whoami", "GET /components/{path...}", "GET /kv/{rest...}"} {
+		s.RegisterAPI(classified, func(w http.ResponseWriter, r *http.Request) { WriteOK(w) }) // (the broker's and the core's, in a daemon)
+	}
+	gate := func(method, target, body string) bool {
+		r := httptest.NewRequest(method, target, strings.NewReader(body))
+		if body == "" {
+			r = httptest.NewRequest(method, target, nil)
+		}
+		return s.sealedGate(r) != nil
+	}
+	for target, refused := range map[string]bool{
+		"/zz-no-row-yet":                        false,
+		"/zz-no-row-yet?tile=apps/a":            false,
+		"/zz-no-row-yet?tile=xbin/x":            true,
+		"/zz-no-row-yet?anything=res:xbin/x/db": true,
+		"/zz-no-row-yet?x=code:xbin/x":          true,
+		"/zz-no-row-yet?tile=%2Fxbin%2Fx":       true,
+		"/zz-no-row-yet?tile=XBIN/x":            false, // other bytes: no sealed path
+	} {
+		if got := gate("POST", target, ""); got != refused {
+			t.Errorf("POST %s: refused=%v, want %v", target, got, refused)
+		}
+	}
+	for body, refused := range map[string]bool{
+		`{"tile":"apps/a"}`: false, `{"tile":"xbin/x"}`: true, `{"deep":{"list":["res:xbin/x/db"]}}`: true, `{"tile":"xbin\/x"}`: true, `{"note":"xbin"}`: false,
+	} {
+		if got := gate("POST", "/zz-no-row-yet", body); got != refused {
+			t.Errorf("POST /zz-no-row-yet %s: refused=%v, want %v", body, got, refused)
+		}
+	}
+	if !gate("GET", "/zz-no-row-yet/xbin/x/file", "") || gate("GET", "/zz-no-row-yet/apps/a/file", "") {
+		t.Error("an unclassified route's path tail")
+	}
+	// classified routes: the spelling, wherever a route names a tile
+	for target, refused := range map[string]bool{
+		"/logs?component=xbin/x":      false, // handled: the handler answers
+		"/logs?component=/xbin/x":     true,
+		"/logs?component=xbin//x":     true,
+		"/logs?component=./xbin/x/":   true,
+		"/whoami?next=apps/../xbin/x": true,
+		"/components/xbin/x":          false,
+		"/components//xbin/x":         true,
+		"/kv/res:/xbin/x/db/k":        true,
+		"/logs?component=/apps/a/":    false, // a tile's spelling is the handler's business, as before
+	} {
+		if got := gate("GET", target, ""); got != refused {
+			t.Errorf("GET %s: refused=%v, want %v", target, got, refused)
+		}
+	}
+	for body, refused := range map[string]bool{
+		`{"component":"xbin/x","state":"disabled"}`:       false,
+		`{"component":"/xbin/x","state":"disabled"}`:      true,
+		`{"component":"xbin/x/","state":"disabled"}`:      true,
+		`{"tiles":{"/xbin/x":"terminal"}}`:                true,
+		`{"newUsers":{"tiles":{"xbin//x":"write"}}}`:      true,
+		`{"tiles":{"xbin/x":"read","apps/a":"terminal"}}`: false,
+		`{"component":"xbin/x","component":"apps/a"}`:     true, // one key twice
+	} {
+		if got := gate("POST", "/lifecycle", body); got != refused {
+			t.Errorf("POST /lifecycle %s: refused=%v, want %v", body, got, refused)
+		}
 	}
 }

@@ -124,7 +124,7 @@ func TestSealedRouteAnswers(t *testing.T) {
 			}
 			for _, q := range rule.Query {
 				probes = append(probes, probe{"?" + q + "=", base + "?" + q + "=" + url.QueryEscape(probePath), nil},
-					probe{"?" + q + "= (a path below it)", base + "?" + q + "=" + url.QueryEscape("/"+probePath+"/sub/"), nil})
+					probe{"?" + q + "= (a path below it)", base + "?" + q + "=" + url.QueryEscape(probePath+"/sub"), nil})
 			}
 			for _, f := range rule.Body {
 				probes = append(probes, probe{"body " + f, base, map[string]any{f: probePath}},
