@@ -622,7 +622,9 @@ mode, the slots an admin may bind, the providers each slot may be bound to
 (`Providers`, beside its `Defaults` entry — a model slot's provider reads
 people's conversations, so a row that lets a workspace tile in says so in
 review), the grants and capabilities (`Delegate`: the row holds delegation,
-D228 — boot feeds `auth.SetDelegateHolders` from it), `Env` (fixed
+D228 — boot feeds `auth.SetDelegateHolders` from it; `Agent`: the one
+row that is people's workspace agent, whose page xbin's chrome frames —
+boot's `Server.AgentHolder`, D232), `Env` (fixed
 environment for the backend), `Notify` (the backend path holder
 notifications are delivered to — boot feeds `auth.SetDelegateNotify`
 from it), `FrameReads` (exact

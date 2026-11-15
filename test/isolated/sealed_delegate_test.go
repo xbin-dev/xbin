@@ -222,6 +222,10 @@ func TestSealedHolderActsForItsPerson(t *testing.T) {
 	if r := d.Call(t, "GET", "/api/xbin/agents/connection?session=nope", nil, fr); r.Status != 404 {
 		t.Errorf("an unknown session: %d %s", r.Status, r)
 	}
+	// xbin's chrome learns which component is the agent from the table's mark
+	if r := d.Call(t, "GET", "/api/xbin/delegate/state", nil, e.as("alice")...); r.Status != 200 || !strings.Contains(r.String(), `"agent":"`+sealedPeople+`"`) {
+		t.Errorf("alice's delegation state names no agent: %d %s", r.Status, r)
+	}
 	if r := d.Call(t, "GET", "/api/xbin/delegate/state", nil, fr); r.Status != 200 {
 		t.Errorf("its page reads its person's delegation state: %d %s", r.Status, r)
 	}

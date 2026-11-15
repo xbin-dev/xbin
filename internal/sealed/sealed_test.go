@@ -557,25 +557,26 @@ func TestTableEnvNotifyAndFrameReads(t *testing.T) {
 		t.Errorf("the registry's row: env %q, reads %q", sc.Env, sc.FrameReads)
 	}
 	bad := map[string]Spec{
-		"a lower-case variable":          {Name: "fix", Source: fixture(""), Env: map[string]string{"mode": "x"}},
-		"a variable xbind sets":          {Name: "fix", Source: fixture(""), Env: map[string]string{"XBIN_TOKEN": "x"}},
-		"its own component name":         {Name: "fix", Source: fixture(""), Env: map[string]string{"XBIN_COMPONENT": "apps/other"}},
-		"a variable with an equals sign": {Name: "fix", Source: fixture(""), Env: map[string]string{"A=B": "x"}},
-		"a notify path without a slash":  {Name: "fix", Source: fixture(""), Notify: "notify"},
-		"a notify path with a query":     {Name: "fix", Source: fixture(""), Notify: "/notify?x=1"},
-		"a notify path with its method":  {Name: "fix", Source: fixture(""), Notify: "POST /delegate/notify"}, // xbind POSTs; the row is the path
-		"a notify path that climbs":      {Name: "fix", Source: fixture(""), Notify: "/a/../b"},
-		"a read of a tile's API":         {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/apps/x/secret"}},
-		"a read outside /api/":           {Name: "fix", Source: fixture(""), FrameReads: []string{"/c/apps/x/index.html"}},
-		"a read with a wildcard":         {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/agents/*"}},
-		"a read with a route pattern":    {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/components/{path...}"}},
-		"a read with a query":            {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/logs?component=apps/x"}},
-		"a read spelled oddly":           {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin//agents/connection"}},
-		"a read of stored data":          {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/kv/res:apps/x/db/k"}},
-		"a read of secrets":              {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/vault/apps/x"}},
-		"a read of the people":           {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/users"}},
-		"a read of the model plane":      {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/llm/v1/models"}},
-		"the whole API":                  {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/"}},
+		"a lower-case variable":             {Name: "fix", Source: fixture(""), Env: map[string]string{"mode": "x"}},
+		"a variable xbind sets":             {Name: "fix", Source: fixture(""), Env: map[string]string{"XBIN_TOKEN": "x"}},
+		"its own component name":            {Name: "fix", Source: fixture(""), Env: map[string]string{"XBIN_COMPONENT": "apps/other"}},
+		"a variable with an equals sign":    {Name: "fix", Source: fixture(""), Env: map[string]string{"A=B": "x"}},
+		"a notify path without a slash":     {Name: "fix", Source: fixture(""), Notify: "notify"},
+		"a notify path with a query":        {Name: "fix", Source: fixture(""), Notify: "/notify?x=1"},
+		"an agent that holds no delegation": {Name: "fix", Source: fixture(""), Capabilities: Capabilities{Agent: true}},
+		"a notify path with its method":     {Name: "fix", Source: fixture(""), Notify: "POST /delegate/notify"}, // xbind POSTs; the row is the path
+		"a notify path that climbs":         {Name: "fix", Source: fixture(""), Notify: "/a/../b"},
+		"a read of a tile's API":            {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/apps/x/secret"}},
+		"a read outside /api/":              {Name: "fix", Source: fixture(""), FrameReads: []string{"/c/apps/x/index.html"}},
+		"a read with a wildcard":            {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/agents/*"}},
+		"a read with a route pattern":       {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/components/{path...}"}},
+		"a read with a query":               {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/logs?component=apps/x"}},
+		"a read spelled oddly":              {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin//agents/connection"}},
+		"a read of stored data":             {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/kv/res:apps/x/db/k"}},
+		"a read of secrets":                 {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/vault/apps/x"}},
+		"a read of the people":              {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/users"}},
+		"a read of the model plane":         {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/llm/v1/models"}},
+		"the whole API":                     {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/"}},
 	}
 	for what, sp := range bad {
 		if _, err := Load([]Spec{sp}); err == nil {
@@ -595,5 +596,26 @@ func TestTableEnvNotifyAndFrameReads(t *testing.T) {
 	}
 	if sp, ok := Lookup("xbin/people"); ok != fixtureTable || sp.Capabilities.Delegate != fixtureTable {
 		t.Errorf("Lookup(xbin/people): %v, delegate %v", ok, sp.Capabilities.Delegate)
+	}
+}
+
+// One row at most is people's workspace agent (Capabilities.Agent), it
+// holds delegation, and the set names it; a table without one names none.
+func TestTableNamesOneAgent(t *testing.T) {
+	a := Spec{Name: "one", Source: fixture(""), Capabilities: Capabilities{Delegate: true, Agent: true}}
+	b := Spec{Name: "two", Source: fixture(""), Capabilities: Capabilities{Delegate: true, Agent: true}}
+	plain := Spec{Name: "plain", Source: fixture(""), Capabilities: Capabilities{Delegate: true}}
+	if _, err := Load([]Spec{a, b}); err == nil || !strings.Contains(err.Error(), "one row at most") {
+		t.Errorf("two agents: %v", err)
+	}
+	s, err := Load([]Spec{plain, a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Agent(); got != "xbin/one" {
+		t.Errorf("the agent: %q", got)
+	}
+	if s, err := Load([]Spec{plain}); err != nil || s.Agent() != "" || (*Set)(nil).Agent() != "" {
+		t.Errorf("a table without an agent names one: %v", err)
 	}
 }

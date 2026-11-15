@@ -129,6 +129,11 @@ type Capabilities struct {
 	// (the delegation primitive reads it through Lookup; nothing in this
 	// package does).
 	Delegate bool
+	// Agent marks the one row that is people's workspace agent here: the
+	// component whose page xbin's own chrome frames (/xbin/agent and the
+	// dock; server.AgentHolder, D232). It needs Delegate, and at most one
+	// row has it. No row: this xbind ships no agent.
+	Agent bool
 }
 
 // Lookup answers the compiled-in table's row for the sealed component at
@@ -277,7 +282,7 @@ type Set struct {
 // is a programming error of the release, reported at boot.
 func Load(specs []Spec) (*Set, error) {
 	s := &Set{holds: map[string]Hold{}, stamps: map[string]Stamp{}}
-	seen := map[string]bool{}
+	seen, agent := map[string]bool{}, ""
 	for _, sp := range specs {
 		if !nameRe.MatchString(sp.Name) || reservedNames[sp.Name] || seen[sp.Name] {
 			return nil, fmt.Errorf("sealed component %q: invalid, reserved or repeated name", sp.Name)
@@ -332,6 +337,15 @@ func Load(specs []Spec) (*Set, error) {
 		}
 		if n := sp.Notify; n != "" && (!strings.HasPrefix(n, "/") || strings.ContainsAny(n, "?#") || "/"+util.CanonPath(n) != n) {
 			return nil, fmt.Errorf("sealed component %s: Notify %q is not a path on its backend (\"/…\", no query)", p, n)
+		}
+		if sp.Capabilities.Agent {
+			if !sp.Capabilities.Delegate {
+				return nil, fmt.Errorf("sealed component %s: the workspace agent (Capabilities.Agent) must hold delegation (Capabilities.Delegate)", p)
+			}
+			if agent != "" {
+				return nil, fmt.Errorf("sealed component %s: %s is already the workspace agent (Capabilities.Agent): one row at most", p, agent)
+			}
+			agent = p
 		}
 		for _, fr := range sp.FrameReads {
 			if why := frameReadRefusal(fr); why != "" {
@@ -525,6 +539,17 @@ func (s *Set) Registry() []registry.SealedCode {
 		out = append(out, sc)
 	}
 	return out
+}
+
+// Agent is the path of the sealed component that is people's workspace
+// agent in this xbind ("" none): the row with Capabilities.Agent.
+func (s *Set) Agent() string {
+	for _, c := range s.Components() {
+		if c.Capabilities.Agent {
+			return c.Path
+		}
+	}
+	return ""
 }
 
 // Components lists the set, in table order.

@@ -821,6 +821,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     xbind's notices to a holder's backend go to its row's `Notify` path
     and nowhere else; the fixture holder's page reads
     `GET /agents/connection?session=` through its row's `FrameReads`.
+    Which component is the agent xbin's chrome frames (`agent` in
+    `GET /delegate/state`) is the one row the table marks.
   - No preview shows a system component: `POST /preview {tile:
     "xbin/<name>"}` answers 400, and a screen render leaves it out.
   - A sealed path has one spelling, `xbin/<name>`: a leading, trailing or
