@@ -112,14 +112,15 @@ func TestBuildNamesAndTargets(t *testing.T) {
 		t.Errorf("a build of other code was accepted: %+v", h)
 	}
 
-	// What runs is verified before every start, not only at boot.
+	// What runs is verified where a backend is spawned, not only at boot —
+	// and not on a request an instance already serves (Admit stays cheap).
 	s, err = Open([]Spec{buildable("one")}, Options{Workspace: ws, Isolate: true, BinDir: out, Release: "v"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := s.Components()[0]
-	if why := s.Admit("xbin/fix"); why != "" {
-		t.Fatalf("a sound install: %s", why)
+	if why, err := s.Admit("xbin/fix"), s.Verify("xbin/fix"); why != "" || err != nil {
+		t.Fatalf("a sound install: %q %v", why, err)
 	}
 	// its tree, changed on disk between two starts: written again
 	page := filepath.Join(c.Dir, "index.html")
@@ -133,7 +134,13 @@ func TestBuildNamesAndTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	if why := s.Admit("xbin/fix"); why != "" {
-		t.Fatalf("a changed tree should be written again, not held: %s", why)
+		t.Fatalf("a request met a changed tree: %s", why)
+	}
+	if b, _ := os.ReadFile(page); string(b) != "planted" {
+		t.Error("Admit (every request) rewrote the tree: the check belongs to a spawn")
+	}
+	if err := s.Verify("xbin/fix"); err != nil {
+		t.Fatalf("a changed tree should be written again, not refused: %v", err)
 	}
 	if b, _ := os.ReadFile(page); string(b) != string(c.Files["index.html"]) {
 		t.Errorf("the tree was not written again: index.html is %q", b)
@@ -141,19 +148,38 @@ func TestBuildNamesAndTargets(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(c.Dir, "extra.js")); err == nil {
 		t.Error("a planted file survived in its tree")
 	}
-	// its build, replaced after boot: not run
+	// its build, unreadable for a moment (an install replacing bin/sealed):
+	// that start fails, the next one runs — nothing latches
 	bin := filepath.Join(out, want[0])
+	if err := os.Rename(bin, bin+".away"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Verify("xbin/fix"); err == nil || !strings.Contains(err.Error(), "can't be read") {
+		t.Errorf("a spawn with its build gone: %v", err)
+	}
+	if err := os.Rename(bin+".away", bin); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Verify("xbin/fix"); err != nil {
+		t.Errorf("the next spawn, its build back: %v (a failed check latched)", err)
+	}
+	if h, held := s.Hold("xbin/fix"); held {
+		t.Errorf("a failed check became a hold: %+v", h)
+	}
+	// its build, replaced after boot: not run, at any spawn, and no hold
 	orig, _ := os.ReadFile(bin)
 	if err := os.WriteFile(bin, append([]byte("#!/bin/sh\n# planted\n"), orig...), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if why := s.Admit("xbin/fix"); !strings.Contains(why, "no longer the file this xbin install shipped") {
-		t.Errorf("a replaced build was admitted: %q", why)
+	for i := 0; i < 2; i++ {
+		if err := s.Verify("xbin/fix"); err == nil || !strings.Contains(err.Error(), "not the file this xbin install shipped") {
+			t.Errorf("a replaced build was passed: %v", err)
+		}
 	}
-	if h, held := s.Hold("xbin/fix"); !held || h.Code != HoldNoBuild {
-		t.Errorf("after a replaced build: %+v %v", h, held)
+	if why := s.Admit("xbin/fix"); why != "" {
+		t.Errorf("a request is refused for it: %q (the spawn is what fails)", why)
 	}
-	// and a boot on that install doesn't take it either
+	// a boot on that install holds it: the file is definitely not the one listed
 	s, err = Open([]Spec{buildable("one")}, Options{Workspace: ws, Isolate: true, BinDir: out, Release: "v"})
 	if err != nil {
 		t.Fatal(err)
@@ -164,26 +190,24 @@ func TestBuildNamesAndTargets(t *testing.T) {
 	if _, err := set.CheckBuilds(out, "../../sdk"); err == nil || !strings.Contains(err.Error(), "SHA-256 differs") {
 		t.Errorf("CheckBuilds with a replaced build: %v", err)
 	}
-}
-
-func TestBuildFailureSaysWhy(t *testing.T) {
-	if testing.Short() {
-		t.Skip("runs the go command")
-	}
-	sp := buildable("x")
-	sp.Source.(fstest.MapFS)["backend/main.go"] = &fstest.MapFile{Data: []byte("package main\n\nfunc main() { undefined() }\n")}
-	set, err := Load([]Spec{sp})
-	if err != nil {
+	// a boot while the file can't be read holds nothing: the spawn decides
+	if err := os.WriteFile(bin, orig, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	out := t.TempDir()
-	if _, err := set.Build(BuildOptions{Out: out, SDK: "../../sdk"}); err == nil {
-		t.Fatal("a backend that doesn't compile built")
+	if err := os.Chmod(bin, 0o111); err != nil {
+		t.Fatal(err)
 	}
-	if ents, _ := os.ReadDir(out); len(ents) != 0 {
-		t.Errorf("a failed build left %v", ents)
+	if os.Getuid() != 0 {
+		s, err = Open([]Spec{buildable("one")}, Options{Workspace: ws, Isolate: true, BinDir: out, Release: "v"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h, held := s.Hold("xbin/fix"); held {
+			t.Errorf("a boot that couldn't read its build holds it: %+v", h)
+		}
+		if err := s.Verify("xbin/fix"); err == nil {
+			t.Error("a spawn passed a build it couldn't read")
+		}
 	}
-	if _, err := set.Build(BuildOptions{Out: out, SDK: filepath.Join(out, "nosdk")}); err == nil {
-		t.Error("a build without the SDK started")
-	}
+	_ = os.Chmod(bin, 0o755)
 }

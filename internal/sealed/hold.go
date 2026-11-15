@@ -74,10 +74,6 @@ func (s *Set) Admit(path string) string {
 	if h, held := s.holds[path]; held {
 		return h.Reason
 	}
-	if h, bad := s.verify(c); bad {
-		s.holds[path] = h
-		return h.Reason
-	}
 	if st := s.stamps[path]; st.Data < c.data() {
 		if err := s.writeStamp(c, c.data()); err != nil {
 			h := Hold{HoldStamp, "is held: its data stamp can't be written (" + err.Error() + "), so a later release couldn't tell what wrote its data"}
@@ -88,27 +84,45 @@ func (s *Set) Admit(path string) string {
 	return ""
 }
 
-// verify is run before every start of c (Admit): what is about to run is
-// the release's. The tree its backend runs in is compared with the
-// release's bytes, file by file, and written again when it differs (the
-// copy under .xbin/sealed/ is xbind's own, never mounted into a sandbox;
-// what a browser is sent never comes from it at all, server/sealedfile.go).
-// The prebuilt backend's hash is compared with the install's manifest: a
-// file that is no longer the one the release shipped is not run, and the
-// component is held until xbind restarts on a sound install.
-func (s *Set) verify(c *Component) (Hold, bool) {
+// Verify is run where a backend of the component at path is spawned (the
+// runner's SealedVerify hook) — never on a request that an instance
+// already serves: what is about to run is the release's. The tree its
+// backend runs in is compared with the release's bytes, file by file, and
+// written again when it differs (the copy under .xbin/sealed/ is xbind's
+// own, never mounted into a sandbox; what a browser is sent never comes
+// from it at all, server/sealedfile.go). The prebuilt backend's hash is
+// compared with the install's manifest: a file that is not the one the
+// release shipped is not run.
+//
+// A failure fails that start and nothing more: the next start checks
+// again. (It once ran on every proxied request, under the set's mutex — a
+// tree compare and a hash of the whole binary per call — and latched a
+// hold until xbind restarted, so one unreadable moment, an install
+// replacing bin/sealed, took the component down for good.) nil for a path
+// that is no sealed component.
+func (s *Set) Verify(path string) error {
+	c, ok := s.Component(path)
+	if !ok {
+		return nil
+	}
+	s.vmu.Lock() // one check, and one rewrite, at a time; requests don't wait on it (s.mu)
+	defer s.vmu.Unlock()
 	if c.Dir != "" && !intact(c.Dir, c.Files) {
 		slog.Warn("sealed: a system component's files on disk were not the release's: rewritten", "component", c.Path, "dir", c.Dir)
 		if err := writeTree(filepath.Dir(c.Dir), c.Dir, c.Files); err != nil {
-			return Hold{HoldNoBuild, "is held: its files under .xbin/sealed were changed and can't be written again (" + err.Error() + ")"}, true
+			return fmt.Errorf("%s: its files under .xbin/sealed were changed and can't be written again: %w", c.Path, err)
 		}
 	}
-	if c.Prebuilt != "" && !(s.opts.Dev && c.prebuiltSum == "") {
-		if sum, _, err := FileSum(c.Prebuilt); err != nil || sum != c.prebuiltSum {
-			return Hold{HoldNoBuild, fmt.Sprintf("is held: its build %s is no longer the file this xbin install shipped (its SHA-256 differs from %s) — reinstall the release bundle", c.Prebuilt, ManifestName)}, true
+	if c.Prebuilt != "" {
+		sum, _, err := FileSum(c.Prebuilt)
+		switch {
+		case err != nil:
+			return fmt.Errorf("%s: its build %s can't be read: %w", c.Path, c.Prebuilt, err)
+		case sum != c.prebuiltSum:
+			return fmt.Errorf("%s: its build %s is not the file this xbin install shipped (its SHA-256 differs from %s) — reinstall the release bundle", c.Path, c.Prebuilt, ManifestName)
 		}
 	}
-	return Hold{}, false
+	return nil
 }
 
 // settle decides c's hold at boot: its data first (the stamp, claimed when

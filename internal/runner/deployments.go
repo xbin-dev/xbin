@@ -216,6 +216,11 @@ func (r *Runner) startFor(c *registry.Component, dep, bin string, gen int) (*ins
 	// the one door every spawn passes: none begins once xbind is shutting
 	// down, and each is in the live set from here until its process ends,
 	// installed or not (live.go)
+	if c.Sealed && r.SealedVerify != nil {
+		if err := r.SealedVerify(c); err != nil {
+			return nil, fmt.Errorf("%w: %v", errRetryStart, err)
+		}
+	}
 	if !r.live.beginSpawn() {
 		return nil, errStopping
 	}

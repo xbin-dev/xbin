@@ -307,7 +307,8 @@ func (st *State) stepRegistry() error {
 	st.Hub = events.NewHub()
 	st.Run = runner.New(st.WS, st.Auth, st.Hub, reg)
 	st.Run.SealedPrebuilt = sealedPrebuilt(set)
-	st.Run.SealedCompile = st.sealedDev() // only a development xbind compiles one (D227)
+	st.Run.SealedVerify = func(c *registry.Component) error { return set.Verify(c.Path) } // at every spawn, and only there
+	st.Run.SealedCompile = st.sealedDev()                                                 // only a development xbind compiles one (D227)
 	st.Sbx = sbx.New()
 	st.Run.Sandboxes = st.Sbx
 	st.bootGoVersions() // before any build: an earlier xbind's builds say the check is due (goversions.go)

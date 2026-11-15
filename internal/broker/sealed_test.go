@@ -574,3 +574,24 @@ func TestSealedDataKeyIsNoTilesInAnyDeployment(t *testing.T) {
 		}
 	}
 }
+
+// A person's own bind of a sealed component's slot takes the providers its
+// release names, like an admin's; and a sealed component is no provider of
+// anyone's personal bind.
+func TestSealedPersonalBindsTakeOnlyNamedProviders(t *testing.T) {
+	b := sealedBroker(t) // xbin/fix: an llm slot, no provider named
+	for _, pb := range []personalBind{
+		{Requester: "xbin/fix", Slot: "llm", Provider: "apps/plain"},
+		{Requester: "xbin/fix", Slot: "net", Provider: "apps/plain"},
+		{Requester: "apps/plain", Slot: "llm", Provider: "xbin/fix"},
+		{Requester: "apps/plain", Slot: "llm", Provider: "/xbin/fix"},
+	} {
+		if _, why := b.personalBindCheck("ann", pb); !strings.Contains(why, "is a system component, managed by xbin") {
+			t.Errorf("personal bind %s %s → %s: %q, want the system-component refusal", pb.Requester, pb.Slot, pb.Provider, why)
+		}
+	}
+	// a tile's personal bind is judged as before (here: not partitioned)
+	if _, why := b.personalBindCheck("ann", personalBind{Requester: "apps/plain", Slot: "llm", Provider: "apps/plain"}); strings.Contains(why, "system component") {
+		t.Errorf("a tile's personal bind is answered as a sealed component's: %q", why)
+	}
+}

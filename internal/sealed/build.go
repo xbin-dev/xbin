@@ -160,7 +160,7 @@ func (s *Set) CheckBuilds(dir, sdk string) (int, error) {
 		if !have[n] {
 			return 0, fmt.Errorf("%s has no %s: the release would hold that component (no-build)", dir, n)
 		}
-		if why := man.mismatch(c, filepath.Join(dir, n)); why != "" {
+		if why, _ := man.mismatch(c, filepath.Join(dir, n)); why != "" {
 			return 0, fmt.Errorf("%s: %s %s", dir, n, why)
 		}
 		if e := man.Builds[n]; sdkSum != "" && e.SDK != sdkSum {
@@ -179,23 +179,24 @@ func (s *Set) CheckBuilds(dir, sdk string) (int, error) {
 
 // mismatch says why the file at p isn't c's build as m lists it ("" when it
 // is): not listed, built from other source, or not the bytes the manifest
-// names.
-func (m BuildManifest) mismatch(c *Component, p string) string {
+// names. unread reports that the file could not be read: nothing was
+// decided about its bytes.
+func (m BuildManifest) mismatch(c *Component, p string) (why string, unread bool) {
 	e, ok := m.Builds[filepath.Base(p)]
 	switch {
 	case !ok:
-		return "isn't listed in " + ManifestName
+		return "isn't listed in " + ManifestName, false
 	case e.Source != c.Digest || e.Component != c.Path:
-		return "is listed in " + ManifestName + " as a build of other source"
+		return "is listed in " + ManifestName + " as a build of other source", false
 	}
 	sum, size, err := FileSum(p)
 	switch {
 	case err != nil:
-		return "can't be read: " + err.Error()
+		return "can't be read: " + err.Error(), true
 	case sum != e.SHA256 || size != e.Size:
-		return "isn't the file " + ManifestName + " lists (its SHA-256 differs)"
+		return "isn't the file " + ManifestName + " lists (its SHA-256 differs)", false
 	}
-	return ""
+	return "", false
 }
 
 // BuildNames are the files a release's bin/sealed must hold for the set:

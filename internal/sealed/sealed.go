@@ -195,6 +195,7 @@ type Set struct {
 	opts  Options
 	comps []*Component
 
+	vmu    sync.Mutex // Verify: one check, and one rewrite of a tree, at a time
 	mu     sync.Mutex
 	holds  map[string]Hold  // path → why it can't run (hold.go)
 	stamps map[string]Stamp // path → its data stamp as last read or written (stamp.go)
@@ -295,12 +296,17 @@ func Open(specs []Spec, o Options) (*Set, error) {
 			// the release's build: the file the install's manifest lists
 			// for this source, with the hash it gives (build.go)
 			p := filepath.Join(o.BinDir, BuildName(c))
-			switch why := man.mismatch(c, p); {
+			// What boot decides is what the install holds: no file, no
+			// manifest entry for this source, or a file that definitely is
+			// not the one listed — a hold, with the reason. A file that
+			// could not be read just now is not decided here: every spawn
+			// checks the hash again (Verify) and fails that start alone.
+			switch why, unread := man.mismatch(c, p); {
 			case !executable(p):
 				c.noBuild = "is missing"
 			case manErr != nil:
 				c.noBuild = "can't be checked: " + manErr.Error()
-			case why != "":
+			case why != "" && !unread:
 				c.noBuild = why
 			default:
 				c.Prebuilt, c.prebuiltSum = p, man.Builds[BuildName(c)].SHA256
