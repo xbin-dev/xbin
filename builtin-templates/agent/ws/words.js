@@ -1,5 +1,5 @@
 // ws/words.js — what the workspace agent's page says (docs/workspace-agent.md
-// §The agent's page; D232): the product's copy deck in the page's words,
+// §The agent's page; D235): the product's copy deck in the page's words,
 // and the pure readings of the backend's shapes that choose among them — a
 // tile agent's card, a request's state, a session's line, the scope chip,
 // the plan's steps, the states of the page (quota, paused, offline). No lit,
@@ -8,7 +8,7 @@ import { nameOf } from '../model/harness.js';
 
 /**
  * CHOICES — the design's recommendations for questions the owner has not
- * answered yet, each in one place (D232 lists them):
+ * answered yet, each in one place (D235 lists them):
  *   starterSends     a starter fills the composer instead of sending (Q8)
  *   typeWhilePaused  the composer takes no message while the agent is paused (Q10)
  *   sessionCap       no cap on sessions; archived ones fold under Older (Q17)

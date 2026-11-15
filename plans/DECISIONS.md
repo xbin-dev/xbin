@@ -3366,150 +3366,6 @@ here: cut from the old end, never reword.
     step, which says what failed. The `[project starter` marker is defused
     in text from outside, like the coordinator's other markers.
 
-- **D228 — Delegation: a sealed component acts as its person, under a cap,
-  with xbind-verified approvals and admin change sets (2026-11-14; issue
-  #51).** The workspace agent needs "the access of its user clicking
-  through the UI". Spike S2 (`plans/wsagent/s2-delegation.md`) found the
-  shape; the owner decided its nine questions the same day. Contract:
-  `docs/auth.md` §Delegation, `docs/protocol/delegation.md`.
-  - **Who**: only a sealed system component marked for it (one lookup, set
-    at boot from the sealed-component table). Never a workspace's
-    `xbin.json`, a grant or an approval.
-  - **The credential** is the instance token of the person's partition
-    under another scheme (`Authorization: XBin-Delegate`), honoured on the
-    gateway socket and on `/api/` only; with isolation off (outside
-    `--dev`/`--no-auth`) delegation refuses to run. It resolves to the
-    person's principal (`Via: "delegate"`, `Agent`), **never an admin**.
-  - **The cap** is a table naming every route xbind mounts (read, act,
-    admin-read, never, refused), kept exhaustive by a test over the route
-    inventory. Never delegated: answering a tile agent, a session's
-    settings, terminals, deletes, code writes, the account and devices,
-    other identities, the person's consents, tile stores, the admin API.
-  - **Approvals are xbind's, not the agent's.** A side effect (a non-GET
-    tile call, a session start, a tile create) needs a one-shot ticket the
-    person approved — bound to method, path with query, and body — or a
-    standing approval of a tile's API the person can list and revoke. A
-    stolen token is read-only. Rejected: approval only in the engine (a
-    token taken from the sandbox would then write).
-  - **Tiles** see `From: user:<id>`, the person's level as the role
-    (`reader`/`writer`), and a new `X-XBin-Agent`. `From` is not the
-    component's path: the agent template in the wild treats another
-    component as a tile manager. Consequence, stated in the changelog:
-    `user:<id>` no longer implies an admin. A tile opts down with
-    `"agent": "off" | "read" | "full"`; absent is full.
-  - **Tile agents it starts** take mode and pickers from the ticket the
-    person approved or from their preferences, on the default deployment;
-    the agent drives only sessions it opened and never answers one. A
-    reduced `$HOME` for such sessions waits for the sign-in store.
-  - **Admin changes** are change sets: a closed list of kinds (grants,
-    bindings, org shares, limits), each previewed by the handler's own
-    checks without writing, approved only by the person whose agent
-    proposed it after a step-up, applied in order as that person through
-    the ordinary handlers; stale items are not applied; an undo set.
-    An opted-in admin's agent also reads grants, bindings, orgs and limits.
-  - **Org rules** live in one place, `Org.Agents` (another package);
-    delegation asks through `delegation.Policy` and refuses without one.
-    No new policy deny kind.
-  - **Also**: per-person audit log, 13 months, every act and tile call and
-    no listing read; the person's pause cuts running calls; 30 acts a
-    minute; no grant or binding may target a sealed holder; each delegate
-    tile call is counted in the partition's egress ledger and its edges
-    count as approved for the consent prompt.
-  - **After the security review (2026-11-15).** Nine findings, fixed on the
-    branch, each with the case that passed before as a test. What changed
-    in the design: (1) a session-start card shows the harness, mode and
-    options the session *will* run with (history included), the ticket
-    binds them, and an agent resumes only sessions it started; (2) change
-    sets are closed by what a kind can *express*, not only by its name —
-    nothing on a holder, no `xbin`/`cap:`/`gpu:`/`code` targets, no `@`
-    slots, workspace default or host network, no share of a tile that
-    holds such grants; a binding's line states its route and xbind writes
-    PUBLIC / OPEN PORT / EGRESS warnings; an item whose warnings changed
-    is stale; (3) the plane is primary-only; (4) `?xbin-partition=global`
-    takes the same consent and ledger as the person's partition; (5) a
-    standing approval is of one call (tile, method, path) by default, the
-    whole tile a separate explicit scope — and the shipped infrastructure
-    says `"agent"` (`off`; the agent template `read`, with a closed rule in
-    its backend; apps say nothing — see below). The review's "the agent can answer a
-    harness's permission through the template's API" did not reproduce:
-    every route there needs the `admin` role and a delegate's call never
-    carries it — an accident, so the explicit rule went in anyway; (6)
-    the audit log rate-limits what isn't an act that ran, stores are
-    per-person locked and bounded; (7) running calls are re-judged (3 s,
-    and at once on a sweep), method-override headers are stripped, a
-    ticket binds the content type and the tile; (8) the cap's classes are
-    pinned by a golden file; (9) `Subject.Model` has one source.
-    Rejected: letting an agent message or start conversations in the
-    agent template under `"agent": "full"` — a message answers a parked
-    question and a start picks a harness and mode; each needs its own
-    design.
-  - **Wired to the agent rules (2026-11-15, with D229 merged).** The
-    delegation policy xbind runs with is `Broker.DelegationPolicy`: the
-    orgs' rules (`AgentTileAllows`, `AgentSessionAllows`) and people's
-    agent preferences (`agentprefs.Store.StartPrefs`), installed by boot;
-    a server, broker or terminal manager given none still refuses
-    everything, and `delegation.OpenPolicy` is the tests'. `GET /alerts`
-    and `GET /screens` are delegated reads, filtered by the same
-    `DelegateHides` as every listing. The routes D229 and D226 added are
-    classed and none is in the cap: the agent rules and preferences
-    (`PUT /agent/prefs` is what an agent may do unasked — the person's),
-    the LLM connector (a component calls it as itself), and **the
-    connection view** (`GET /agents/connection`) — its handler expects the
-    workspace agent as a caller, but it names the tiles the rules block,
-    which an agent's listings leave out; opening it is a decision of its
-    own. Owner's calls: the agent template's closed rule stands for this
-    release (messaging a template instance's conversation under tickets
-    is a possible later addition); `"agent": "off"` for infrastructure
-    (the gateways, sandboxes, ingress, bridges, and a new workspace's
-    admin, organisations and tile-manager consoles), `read` for
-    prometheus-viewer and the agent template, and **nothing** in the chat
-    tile, the starter template and the examples — apps are what a
-    workspace agent acts on, under tickets; the starter's `AGENTS.md`
-    tells a builder when to narrow it and how to keep a route human-only.
-    Kept for the sealed-components merge: under `--dev --no-auth` the
-    holder's single global instance is the implicit owner's delegate
-    (`TestDelegateNoAuthGlobalHolder`, skipped until then).
-  - **After the second review (2026-11-15).** What changed in the design:
-    a tile's agent level is xbind's record, raised only by a person who
-    manages the tile (`data/agent-levels.json`; the manifest lowers, never
-    raises; the consoles' level is the release's); a delegate's tile call
-    forwards an allowlist of request headers, a ticket binds the whole
-    `Content-Type`, a tile's redirect headers are dropped and `AsPerson()`
-    follows none; a missing tile and an unreadable one are one refusal; a
-    binary body is approved only as `unseen`; applying a change set takes
-    an explicit non-empty list, its names are validated before they reach
-    a line, and sets are capped (50 decided, 30 days, 256 KiB); every
-    audit field is bounded and a bad line is skipped and counted; a
-    delegate's session start is strict (`acp.Config.Strict`: the mode in
-    force or no session, only a model or thinking level set) and a
-    preference is its harness's; the cap's golden pins the audit flag and
-    tile function and is not regenerated in CI; the agent template's rule
-    lists reads too and covers the adapters, bus and mailbox. **A holder
-    is never trusted chrome**: "the person's own session" is a request
-    with the person's session and no component, which is exactly what
-    chrome's documents send — `trustedChrome` is false for a holder,
-    `PUT /chrome` refuses one, and boot stops on a conflict.
-  - **Part C0 — what the agent's backend builds on (2026-11-15).**
-    *Agent sessions*: a conversation is a handle xbind issues
-    (`POST /delegate/sessions`: scope, model; per person and holder, 32,
-    24 h idle). Every delegate call names it; the gate takes the model
-    from it (the self-declared `X-XBin-Agent-Model` is gone), confines
-    the call to its scope ("hidden by you"; a policy refusal keeps its
-    reason) and taints it with the orgs of every tile a call touched,
-    reads and listing rows included. The model changes only to one every
-    tainted org allows (409 `model_taint`); the LLM connector holds the
-    holder's own calls to the session's model (its `CallPolicy`).
-    *Views*: the agent's connection view carries no blocked, hidden or
-    no-access tile's name (it enters a model's context); the holder's
-    page reads the full one, for its driver only. *Notices*: xbind tells
-    the holder's backend that something changed — kinds and ids only,
-    coalesced, at least once — over partition mail's delivery principal
-    (no new kind of principal), on a path from the holder's table entry
-    (`auth.SetDelegateNotify`). *Reads*: the docs searchable on `/api/`,
-    a workspace map, the session directory's `origin=agent` filter.
-    Rejected: a process-wide handle in the SDK (one backend serves many
-    conversations: the handle rides the context); naming blocked tiles
-    to the agent "so it can explain" (the reason and a count explain).
 - **D224 — One chat kit for the Agent tab, the agent template and the
   workspace agent; a newer template needs its xbind (2026-11-14; issue
   #51).** The Agent tab (`web/agent-*.js`), the agent template
@@ -3658,152 +3514,370 @@ here: cut from the old end, never reword.
       network namespace with xbind's port relayed
       (`hack/ui-harness/quietnet.js`). The template's browser scripts
       answer every request by a route and are immune.
-- **D229 — Orgs constrain agents by harness and model; scope and
-  connection state; agent preferences on the server (2026-11-14; issue
-  #51).** The owner: "Orgs define constraints; Workspace agents then get
-  their calls filtered based on those constraints", a multi-select of orgs
-  (unfolding to tiles) says what a session sees, and the UI "should very
-  clearly indicate what orgs/tiles are hooked up and which are not (incl
-  top level UI element showing eg aggregate numbers)"; from the issue:
-  "internal-data org only allows private LLMs". This is the data and the
-  API of `plans/workspace-agent.md` §5.3 and §5.6; the scope picker, the
-  chip and the panel are the web and iOS packages'.
-  - **Three rules, one shape, two levels.** `Org.Agents` (additive, in
-    `data/users.json` like D203's `Org.Limits`): `workspaceAgent` on|off,
-    `harnesses` any | a list of `sdk/acp` provider ids, `models` any |
-    `private` | a list of LLM connector ids (an upstream, or
-    `upstream/model`). The workspace has the same three as outer bounds
-    (a top-level `agents` key beside the workspace policy rows, not
-    `workspace-settings.json`: that store is booleans with their own
-    protections, and the bounds are validated together with the orgs' rules
-    under one lock), plus the credential default of S4 §1.5 (`own-first`,
-    or `connector` forced). Stored only when it narrows something: with
-    nothing set `users.json` is byte for byte what it was.
-  - **Filtering follows the tile's org, on every call**
-    (`internal/agentpolicy`, pure: `Check(layers, ask)`). A tile's layers
-    are the workspace's bounds, the org that owns it, and every org it is
-    shared into (an exact share or a pattern — `users.Store.TileOrgs`).
-    Every layer must allow, so several orgs give the strictest and a tile
-    in no org follows the bounds. A path inside a tile (a session opened
-    on a sub-directory, a nested component) falls under the orgs of every
-    path above it: stepping into a tile never steps out of its org's
-    rules. A share is the tile's managers' act
-    (D24), so the org a tile is shared into gaining a say over it is
-    something its owner chose. The answer carries the reason a person
-    reads ("Finance allows private models only"), the org and the rule.
-  - **An org only narrows — at write time and at call time.** A list entry
-    the bounds don't cover is refused when written, for a workspace admin
-    too; "any" is always accepted (it adds no rule). Bounds tightened later
-    rewrite nothing: each call is asked against both.
-  - **Who sets what.** Workspace admins (and `xbin:users`): the bounds and
-    any org. An org's admin: their own org, in their own session only —
-    refused from a tile they drive (the frame-token rule), from a
-    terminal's or an agent session's token, and in view-as. D203 kept
-    ceilings to workspace admins because a ceiling is a budget; these
-    rules are the org's own data policy, so its admins hold them, and the
-    bounds are where a workspace pins what no org may loosen. The stricter
-    "own session" rule is new here: a coding agent running on an org
-    admin's token must not widen the rules it runs under.
-  - **`private` is the connector's word.** `Broker.AgentModels` (wired by
-    the LLM connector) says whether a model's upstream is private; without
-    it, and for a model it doesn't know, nothing is private. No route takes
-    the caller's word for it.
-  - **The connection view** (`GET /agents/connection?model=&orgs=&tiles=
-    &whatIf=`): every org the person has to do with and every tile they
-    can read as connected | hidden (by their scope) | blocked (reason, org,
-    rule) | no-access (the scope names what they can't see — or what
-    doesn't exist: not told apart), with the totals and the sentence for
-    the chip, and what a model change would connect and disconnect.
-    Blocked wins over hidden: selecting it would not connect it. The scope
-    is the caller's parameter — the session that holds it is the agent
-    component's — and takes `workspace` for the tiles in no org (a
-    reserved org id). The handler answers whoever its credential names as
-    a person, so a delegate gets its person's view with no code of its own.
-  - **The harness list also governs sessions people start themselves**
-    (`term.Manager.AgentGate`, the broker's `AgentHarnessGate`):
-    `GET /agent/providers?cwd=` offers only what the tile allows, and
-    `POST /term/sessions` refuses the rest with the reason. Nothing running
-    is ever ended: a session keeps going, a restart of it is refused before
-    it would end it, and a resume of a past session of a disallowed harness
-    is refused with its transcript still readable. Without `cwd` the
-    catalog is whole, so the shipped app and older frames lose nothing and
-    learn the reason from the refusal. Not a sandbox boundary: a terminal
-    on the tile can still run any CLI.
-  - **Agent preferences on the server** (`internal/agentprefs`,
-    `data/agent-prefs/<user>.json`, `GET`/`PUT /agent/prefs`, a merge
-    patch): the default harness and the launcher's last choice; per
-    harness the mode, model, options and the credential choice; and what
-    the person's workspace agent may start a session with — `start` ask
-    (default) or allow, a mode per harness, the network and tile-API
-    pickers. A bypass mode is never stored (Explicit modes are per
-    session, D74), and `agentSessions.modes` takes only modes the catalog
-    knows keep asking — checked again on every read (`AgentStart`), so the
-    file is never trusted. The routes are `PersonOnly` and refuse terminal
-    and agent tokens too: what an agent may do without asking is not the
-    agent's to write. The file records whose it is (the account's creation
-    stamp): a user id given to a new person keeps the conveniences, like
-    the home directory, and resets `agentSessions`. The launcher reads and
-    writes them, with its `localStorage` value as the migration source and
-    as the fallback against an xbind without the route or a credential the
-    route refuses (the root token, `--no-auth`).
-  - **`origin`** on a session row and its history entry: `"agent"` for
-    one a workspace agent opened, absent otherwise; the session keeps the
-    component that opened it. The field, its JSON and the lines that carry
-    it through `internal/term` are the delegation package's, word for
-    word, so the two merge; setting it at open is that package's alone,
-    and until it lands every row reads as its person's own.
-  - **A session opens from outside its tile's window.** `<bx-frame>`
-    `open({session})` shows a live session's tab, or a past one's
-    transcript; `xbin:open-session {tile, session}` asks the shell for it
-    from a tile's page; the D220 link gains `&session=<id>`. A shell that
-    doesn't answer the request (an older scaffold) gets the link, which it
-    reads as a plain link to the tile.
-  - **Round 2 (2026-11-14), the owner's answers.**
-    - *A workspace admin pins an org's rules* (`Org.AgentsPin`, `PUT
-      /orgs/{org}/agents/pin`; the pattern of D203's ceiling, turned
-      around: a floor of strictness). The first round let an org's admin
-      put back anything a workspace admin had set on their org; only the
-      bounds held. Pin and own rules are two layers asked on every call,
-      so narrowing below the pin needs no rule and loosening it is
-      impossible; a write past it is also refused, for the message. The
-      answer names it: "(pinned by a workspace admin)".
-    - *A share brings a tile under the org's rules, patterns included*
-      (kept), and the reason names the share — "this tile is under
-      Finance by its share apps/*" — so a surprising `*` can be traced
-      (`TileOrgVia`, `Layer.Via`).
-    - *Three credential modes*: `own-first`, `connector-first` (the
-      connector unless the person chose their own sign-in for the harness
-      or the session), `connector-only`. The earlier `connector` reads as
-      `connector-only`.
-    - *The model rule binds tile agent sessions* (the issue: "internal-data
-      org only allows private LLMs … at harness/model level"). A harness
-      on a person's own subscription sends the tile's code to a model
-      xbind can't verify, so wherever a layer's `models` rule is not `any`
-      the session is connector-only whatever the mode and the person's
-      choice, and the connector asks the rule for every call
-      (`Broker.AgentCallAllows`, its `CallPolicy`). One function answers
-      the hook-up: `Broker.AgentSessionLLM(user, tile, harness)
-      agentpolicy.SessionLLM` — `Mode`, `Use` (the saved choice applied;
-      `Choose(session)` for a session's), `Forced`, `Reason`,
-      `ModelAllowed(ModelRef)`. A harness that can't run on the connector
-      (`Broker.AgentConnector`, the connector's to answer; unset: there is
-      none) isn't offered there: `AgentHarnessGate`, so providers, create,
-      resume and restart, and `unavailable` in the connection view and in
-      `GET /agent/providers?cwd=&all=1`. A plain terminal is not governed
-      by either rule, and the docs say so.
-    - *The editor is xbind's* (`/vendor/org-agents.js`, as
-      `<bx-org-limits>` is), used by the admin console and — through a new
-      sibling module — the organisations tile, so an org's admin has a UI.
-  - **Not done.** The scope picker, chip and panel (web, iOS); the
-    delegation package's `Policy` answered by `Broker.AgentTileAllows`,
-    `AgentSessionAllows` and `agentprefs.Store.StartPrefs` (written for
-    it; wired where the two meet); the connector's side of
-    `AgentSessionLLM`, `AgentCallAllows` and `AgentConnector` (the hook-up
-    package wires them); a session's `llm` choice and the
-    connector's variables (the connector's); per-model rules inside one
-    upstream beyond the allowlist; the admin console's editor reaches an
-    old scaffold only after `bx builtin update` (`bx org agents` and the
-    API reach it now).
+- **D225 — The agent session rules live in sdk/acp: tool record, mode
+  escalation, steer queue, auth state, status words (2026-11-14; issue
+  #51).** Two hosts run coding agents through `sdk/acp`'s client — xbind's
+  tile agent sessions (`internal/term`, `internal/agent`) and the agent
+  template's harness engine (`builtin-templates/agent/_backend`) — and each
+  had its own reading of what to do with the event stream
+  (`plans/agent-dedupe.md` §1, §4 B1). The hosts stay two (different
+  stores, different lifetimes); the rules move to five pure files of
+  `sdk/acp` — no I/O, no goroutine, no clock of their own, table-tested —
+  that both call, and that the workspace agent will call too. `sdk/` is
+  the only place a tile backend can import from, so that is where shared
+  Go lives; every name below is public API that only grows.
+  - **`toolrec.go` — the tool record.** `ToolRecord` is a call's
+    `tool.call`/`tool.update` events merged (the chat kit's record,
+    `plans/wsagent/chat-kit-spec.md` §2, K6–K12); `ToolRecords` folds a
+    session, with the id-reuse rule (`StartsToolRecord`: a `tool.call` for
+    an id whose record is over, or of an earlier turn, starts a new one —
+    the union of the two halves each side had) and an embedder's
+    `files.changed`. `ToolPolicy` is the one parameter set: xbind keeps
+    everything and coalesces bare output chunks in its log
+    (`OutputChunk`); the template keeps the newest 64 KiB of output, 64 KiB
+    of text, an edit as a patch (`Diff`), and an 8 KiB result tail
+    (`OutputTail`). The Go fold reproduces the shared fixtures'
+    `<name>.records.json` exactly. The template stores what it stored
+    (`harnessMeta`, with `tool` and patch-form diffs: rows written by
+    earlier versions read back), so its `acp` row meta is byte-identical on
+    every fixture; four intended differences are tested in
+    `harness_toolrec_test.go` (an id of an earlier turn's unfinished call,
+    cuts between characters, an unknown kind stored as `other`, a call
+    first named by its permission request takes the request's content).
+    `internal/agent/page.go` asks `ToolRecords.Observe` which card an
+    event lands on; because a client's fold may be older than the daemon,
+    it also keeps two same-turn calls of one id in one page (the old fold
+    merged them) — that clause goes when no fold from before the rule is
+    in use.
+  - **`escalation.go` — does an option raise the mode.** The template's
+    `optionRaises` is `Provider.OptionRaises` (with `ModeOpen`, `ModeIDs`,
+    `ModeOption`, `SessionState.Mode`). The client marks the options of
+    every request it files — `PermissionOption.Explicit`, `explicit: true`
+    in `permission.request`, the pending list and the tail page's state —
+    judged with `Config.Mode` as the start mode: a session opened in a
+    bypass mode by its person is not "raised" by returning to it. xbind
+    refuses nothing; the flag is for the Agent tab's second confirmation
+    (K13, gap W3 closed). The template keeps refusing such options to
+    non-owners, judged with its own start mode (the adapter's first).
+    Rejected: marking in xbind's pump — the requests a client re-reads
+    (`GET …/sessions/{id}`, the page state) come from `Permissions`, which
+    only the client fills.
+  - **`queue.go` — a message while a turn runs.** `QueueState.Message`
+    (prompt, steer, hold), `SteerOutcome`, `QueueState.Flush`, and
+    `DetachedTurn` for the turn codex-acp starts when a steer lands just
+    after its turn ended. Each host keeps its store (xbind: memory and
+    `queue` events; the template: inbox rows and its steer mark) and its
+    timer. xbind gains the detached turn it lacked
+    (`internal/term/agentdetached.go`): the session says running, holds
+    messages, and ends the turn itself with a `turn.end {stopReason,
+    detached: true}` — after 5 s of quiet with no request waiting, or at a
+    cancel. Two choices there: statuses the client restates as idle are
+    rewritten in the pump rather than teaching the client about detached
+    turns (the template would have had to unlearn its own handling in the
+    same step); and a turn waiting on a person is never "quiet" (the
+    template ends its detached state at the quiet time and goes idle at the
+    answer — left as it is). One client fix came with it: a request
+    answered outside a prompt returns the status to idle.
+  - **`authstate.go` — signed out, and what to say.** `IsAuthRequired`,
+    `SaysSignedOut`, `AuthState.SignedOut` (a host that injected a
+    credential trusts only the agent's own refusal) and one sentence,
+    `Provider.SignInHint(where)`. xbind's longer sentence goes; it names
+    the place ("in a terminal on ‹tile›") and uses `LoginCmd`, the line
+    that works in a sandbox terminal.
+  - **`summary.go` — status words.** `Busy`, `TurnOver`, `StateOf` (the
+    template's `harness.state` words, now also the SDK's), `Summary` (what
+    xbind's `term` status event carries), `Need` (heading and sentence for
+    an approval, a question, a sign-in). Strings a client or test matches
+    are kept on both sides; two fallback push bodies of xbind's take the
+    template's wording. Not unified: stop-reason words (xbind's push says
+    "Stop reason: ‹reason›" and a test holds it) and the three vocabularies
+    for "what it is doing" (ACP status, the template's `activity.kind`,
+    the Live Activity's phase) — they are wire formats of three clients.
+  - **Compatibility.** Everything is additive on the wire (`explicit`,
+    `detached`) and in the SDK; the v0.3.79 template backend builds and
+    passes its tests against this `sdk/`. A newer template needs the SDK
+    of the xbind it ships with, as ever (`docs/compat.md`, "What this does
+    not promise") — no fallback code is kept for an older SDK.
+  - **Not here.** The guided sign-in driver (`guided.go`) and anything
+    about credentials land with the sign-in store (B4); the provider table
+    for the LLM connector with the connector.
+  - **F2 — the models: `/vendor/chat/tools.js` and `/vendor/chat/ask.js`;
+    `KIT` 2 (2026-11-14).** Both pure (their only imports are each other
+    and `blocks.js`, relative, so node tests and the parity script load
+    them without a resolver). `tools.js` is one tool call read from its
+    `ToolRecord`: the merge of an agent's events (`mergeTool`,
+    `ToolRecords` — the executable rules of
+    `plans/wsagent/chat-kit-spec.md` §2, which lived in
+    `hack/chat-fixtures/reference.mjs` and are now shipped code the
+    fixtures hold), headline, subline, outcome and state chips,
+    `stripAnsi`, the output's tail, diff helpers, plan approval. `ask.js`
+    is a permission request's card, a question's form, the slash menu, the
+    composer's words, `cleanCode`.
+    - *The old modules stay, thin.* `web/agent-tools.js`,
+      `web/agent-slash.js` and `signin-scan.js`'s `cleanCode` re-export
+      (URLs and names are frozen, rule 3; the Swift port is held to them).
+      `agent-tools.js` is also the adapter from the Agent tab's old record
+      (`tk`, the last content list) to the kit; `newTool` now carries the
+      kit's record too (`rec`, kept by `mergeTool`), so the fold holds
+      what the views of F3 will read while today's cards keep reading the
+      old fields. The two outputs are one string: the rules differ only
+      when one event carries a whole output and a delta (the old record:
+      the whole one wins; the kit, as the template's backend and
+      `sdk/acp`'s record: delta appended after it), and equal lengths mean
+      equal texts. The template's `model/harness-heads.js`,
+      `model/harness-ask.js` and `model/harness-signins.js` keep every
+      export and become adapters from its rows (`acp:<kind>`, arguments
+      with `summary`, the `acp` lift, the park) to the kit's record and
+      blocks (`acpRecord`, `permBlock`, `askBlock`).
+    - *Headline: one chain.* Label → a `description` argument → a shell
+      command read by `describeCommand` (the Agent tab's) → the title's
+      first line → a reading by kind (the template's `acpReading`) → name
+      → id. The template gets it through `acpHeadline` (the fold passes
+      the tool row's `acp`); a summary that is neither the lift's title
+      nor the kind is taken as the label, so hand-made rows and rows from
+      before the lift read as they did. **`/vendor/agent-tools.js`
+      `headline` keeps its old chain** (no reading by kind:
+      `{reading: false}`): the Swift port is held to that export and its
+      parity corpus has no call the reading would change; the Agent tab's
+      cards get the full chain when they move to the kit (F3), with the
+      port.
+    - *One `stripAnsi`.* There were three rules (the Agent tab's, the
+      template's for a call's output, the template's for a CI log). The
+      kit's is the richest escape rule of the three: CSI with any
+      parameter byte, an OSC up to its own terminator, character-set
+      designations, the 8-bit CSI. The Agent tab's old rule left
+      `ESC[1;2:3m` and `ESC ( B` in the text and ate a hyperlink's text
+      (and everything up to the last terminator). Three outputs of the
+      parity corpus changed; `XbinAgent`'s `stripANSI` regex changed with
+      them (`swift test` on Linux, 113 tests). The CI log's function is
+      the kit's plus what a log adds (CR ends a line, control characters
+      go).
+    - *One form reader: the template's superset* (`anyOf` single choice,
+      `enumNames`, defaults, "Other" answering a required choice) — with
+      its bug fixed: a plain `enum` without `enumNames` was labelled
+      "false" per choice (`(Array.isArray(names) && names[i]) ?? o`). The
+      parity corpus found it; no parity output changed.
+    - *One slash rule: the Agent tab's.* Prefix matches first, then names
+      **or descriptions** containing the query, at most **8**; a draft is
+      a command in progress while it is `/[\w:.-]*`. The template's was
+      names only, at most 12, `/[^\s/]*`. Eight because the same number
+      has to fit a phone's menu and a small tab (a host with room passes
+      another `max`); descriptions because a person who types "/pull"
+      means the command that shows pull request comments.
+    - *`patchLines` is not deleted* (the plan had it go for `bx-code.js`
+      `diffHTML`). `bx-code.js` is a lit element module with highlight.js
+      behind a bare `lit` import: a tile page loads it lazily and, on a
+      workspace whose import map has no `lit`, never — the template draws
+      a patch plain until then. That plain drawing's line classes are the
+      kit's `patchLines` now (one home, re-exported by the template).
+    - *`commandOf`*: the Agent tab's reading (`command` string or argv,
+      else `cmd`, else `script`; a string command's `args`) for both; the
+      template read `command`/`cmd` only.
+    - *The native view on an older xbind.* `native/*` imports the models,
+      which now import the kit, and a static import cannot ask first. On
+      an xbind without revision 2 the import is a 404, `native.js` fails
+      to load, the runtime reports `{op: "error", kind: "module"}` — one
+      of the app's fatal kinds — and the app shows the tile's web page,
+      whose `boot.js` says "needs xbind ≥ v0.3.80". No guard was added to
+      `native.js`: a guarded dynamic entry would be a second load path,
+      and the failure is already whole (no tree, no request to the
+      backend — `hack/agent-template-boot.test.mjs` plays both older
+      xbinds with `hack/xbn/older-xbind.mjs`).
+    - *Guards.* js-check's duplicate ban gains `mergeTool`, `stripAnsi`,
+      `outputTail`, `describeCommand`, `unifiedDiff`, `joinPatches`,
+      `patchLines`, `diffFiles`, `diffTotals`, `contentPreview`,
+      `diffsPreview`, `filesStat`, `rawText` (tools.js) and `formFields`,
+      `formContent`, `missingRequired`, `nativeSchema`, `nativeContent`,
+      `cleanCode`, `slashQuery`, `matchCommands`, `commandHint`,
+      `optionConfirm`, `modeConfirm`, `composerWords`, `steerTracker`
+      (ask.js). `hack/chat-tools.test.mjs` and `hack/chat-ask.test.mjs`
+      hold the kit and that the old modules' functions are the kit's own;
+      `hack/chat-fixtures-agtt.test.mjs` holds that the kit says every
+      call of the shared transcripts the same from either reducer's
+      record. Fixture gaps closed: W1 (locations, files), W4 (a
+      question's mode and url).
+    - *Open after F2.* The Agent tab's cards still read the old record:
+      the reading by kind, the `approval` state on a call's card (W2) and
+      the confirmation of an `explicit` option arrive with its views
+      (F3); `explicit` itself needs xbind's `permission.request` to carry
+      it (W3, `sdk/acp`'s escalation rule). The fold's id-reuse rule is
+      still per turn only (K6's other half is `ToolRecords`'). A whole
+      output and a delta in one event: the kit follows the spec's
+      reference (delta after the whole output); the Agent tab's old order
+      (the whole output wins) may be the better reading — to settle with
+      `sdk/acp`'s record, no fixture has one.
+  - **F3 — the views, and the Agent tab on them; `KIT` 3 (2026-11-15).**
+    `web/chat/views.js`, `cards.js`, `asks.js`, `css.js`, `composer.js`,
+    `window.js`; `<bx-agent>` draws with them and nothing else.
+    - *Template functions of `(block, ctx)`, as F0 measured.* Rows are
+      `<div class="bxc-row" data-k>` holding a `guard`ed template; widgets
+      with state of their own are elements, both light DOM
+      (`<bx-chat-composer>`, `<bx-chat-form>`) so they wear the stylesheet
+      of the root they sit in — a shadow root for the Agent tab, a
+      document for a tile. The view modules import lit by URL
+      (`/vendor/lit-all.min.js`, what every workspace's import map maps
+      `lit` to): one copy with the shell, and they load on a page with no
+      import map at all.
+    - *The kit's look is the Agent tab's.* F3 changes nothing the tab
+      drew except the table of gains, so where the two chats' cards
+      differ (the status badge's words, a command under the headline, the
+      template's outcome chips) the kit has the tab's; F4 decides each for
+      the template (`plans/wsagent/chat-kit-spec.md` §11).
+    - *The fold is not rewritten.* `agent-fold.js` keeps its blocks (the
+      test API and the iOS port's parity corpus read them) and says each
+      in the kit's model on demand: `blockOf(b)`, the same object while
+      `b.v` holds, its `$memo` shared with `b` — so a streaming message's
+      parsed parts outlive the mapping, and a row whose block did not
+      change is not drawn. The fixtures' test adapter (`web.mjs`) became
+      that code. The fold now ties a permission request to its call
+      (`perm` on the tool block, the call's label on the request): the
+      card says "needs approval" — gap W2 closed, the Agent tab has none
+      left.
+    - *`ChatCtx` grew by what the tab needed to stop reaching into its
+      element*: `rev(block)` (the host's revision for a row — its folds, a
+      diff that loaded — beside the block's `v` in the row's guard),
+      `state(block)` (a bag for a widget's values: a form or a rejection's
+      feedback survives the row leaving the window, as the tab's
+      `_askVals` did), `readonly`, `role`, `copy`, `openDiff`, `signin`,
+      `host`, `sessionRules` (xbind's "always" is its own session rule,
+      offered only when the request can be scoped to one — the agent
+      template's is the agent's own and always offered).
+    - *The `host` block kind.* A card the kit frames and the host draws
+      (`ctx.host`), for what only a host can say or may do: the workspace
+      agent's cards for tile agent sessions it started, and a request its
+      TRUSTED chrome must grant. The kit draws no answer for one, by
+      construction: a page that merely renders a transcript cannot grant
+      it. Rejected: a kind per case (`session`, `grant`) — each would be a
+      special case in a module that must not know its hosts.
+    - *Diffs: `bx-code.js` stays optional.* `cards.js` imports it on the
+      first diff drawn and draws plain (`patchLines`, same line classes,
+      styled under `.bxc-diff`) until it arrives; a host that has it hands
+      it over (`useDiffHighlighter`; the Agent tab does, so nothing
+      changes there). Markdown: the tab imports `bx-md.js` as before
+      (highlighter up front).
+    - *`ChatWindow`* is the bookkeeping the tab had around `ScrollWindow`
+      (which rows, when to render or load more, what to let go, the pill),
+      moved as it was. Where the template's `chat-window.js` differs —
+      it returns after growing the window before letting pages go, keeps
+      a floor of two pages under the unload margin, lets nothing go while
+      a page is being read, and renders again for a trim when not
+      following too — each is an option that defaults to the tab's rule
+      (`growFirst`, `minMargin`, `holdWhileBusy`, `retrim`); F4 sets them
+      and deletes the template's class.
+    - *The gains, each with a check in the UI harness*: an `explicit`
+      option confirmed in the window's dialog (`bx-frame`'s, passed as
+      `ask`; Cancel sends no request); files in the message box; the
+      usage badge; URL-mode questions, `anyOf`/`enumNames`/defaults and a
+      viewer's and participant's cards (the kit drawn in the shell's
+      document with a plain `ChatCtx`); the diff drawn plain on a page
+      with no import map; harnesses not offered listed with their reason
+      (`agentPolicy`).
+    - *Two root causes while in that code.* (1) A session that is
+      `starting` was not polled: its `idle` is one live event, the events
+      hub drops a slow subscriber silently, and nothing later reveals the
+      gap — the tab stayed on "starting". It is polled like a running
+      turn now. (2) The `agentTab` pass kept the resumed tab's INDEX
+      across several looks at the page; a listing in between re-sorts the
+      tabs (ended ones last) and the index named the ended tab, whose
+      status is never idle. It asks by id every time.
+    - *A whole output and a delta in one event*: settled as the whole
+      output, then the delta — `sdk/acp`'s record and the kit already
+      agreed; `agent-tools.js` `foldTool` and the Swift port follow, and
+      the shared transcript `output` (acptest's `recap`) pins it for Go,
+      the template's backend and both JS reducers.
+    - *Performance* (agentLongPerf, `AGENT_PERF=950`, CPU 4×, 8 runs on a
+      machine at load ~25; F0's three runs in brackets): streamed 549–650
+      ms, median 586 [550–616]; reload → bottom 1444–1882, median 1503
+      [1432–1648]; a fresh tab 61–89, median 77 [65–76]; 30 more units
+      127–211, median 136 [128–167]; held 134 blocks, 30 rendered, 200
+      events [same]; heap 11.5 MiB [11.1–11.3 — the pre-F3 code measures
+      11.5 on today's base too]. The pre-F3 code measured in the same
+      session (the machine then at load 30–70): reload 1498–2768, a fresh
+      tab 62–156, 30 more units 142–355.
+  - **Decided by the owner (2026-11-14)**, of what the core left open:
+    `people` stays default `admins`; binding `xbin:llm` stays a workspace
+    admin's act; calls nobody acts in stay under the workspace total alone
+    (usage lists them as their own row); a quota that warns raises an admin
+    alert as one that stops does.
+  - **The admin UI (package B1b).** One element, two homes:
+    `<bx-llm-admin>` (`web/llm-admin.js` and its parts — `llm-upstreams`,
+    `llm-quotas`, `llm-usage`) is xbind's own page **`/xbin/llm`**
+    (`web/llm.html`, served as `/xbin/limits` is: no transform, top-level
+    only, a CSP of `'self'`) and the admin console's **workspace → LLM**
+    tab (`tabs/llm.js`, a sibling the entry imports relatively, passing
+    `xbin.fetch`). The page exists whatever scaffold a workspace runs,
+    which is what lets every alert name it. Words and arithmetic are
+    `web/llm-kit.js` (pure, `hack/llm-kit.test.mjs`); **every call is in
+    `web/llm-client.js`**, so a route the core moves is a one-file change.
+    - **Locks are drawn, never inferred**: a control is disabled and
+      marked "Set by your host" exactly when `locks` names its path (or
+      `*`); the form never sends a locked row (`modelsChanges` skips them),
+      and xbind's 409 is the authority either way. `lockAll` gets one note
+      at the top instead of thirty badges being the only signal.
+    - **A key is write-only in the UI too**: a masked field, sent once,
+      gone from the DOM after the save; edit opens with an empty field
+      ("unchanged"). The harness asserts the key is in no text, attribute
+      or field value afterwards.
+    - **Who sees what is xbind's answer, not the page's**: the page tries
+      `GET /llm/config`; 403 switches it to `<bx-llm-me>` — the person's
+      own quota and usage, from `GET /llm` and `GET /llm/usage`, which
+      already answer only their own. `GET /llm`'s `admin` is not used for
+      this: it is only set for a caller who is admitted.
+    - **Server additions, kept to `internal/llm/alerts.go`**: (1)
+      `Service.Alerts()`, chained into the broker's `AdminAlerts`
+      (`boot/llm.go`): a reached quota per person — the verdict's limit,
+      its source (their own, org `<id>`, the default), stop or warn, the
+      reset — `crit` for a workspace quota that stops, one summary row
+      past five people, computed from the meter's windows on each read and
+      stored nowhere, so it ends with the window or a raise. (2) The setup
+      alert `llm-setup` with `POST /llm/setup/dismiss`: shown only while
+      nothing is configured, no admin has saved anything (`store.Set ==
+      0`), the host doesn't lock all, and `data/llm/setup.json` is absent
+      — the file's presence is the whole state, so the alert can't
+      outlive a dismissal through a cache. (3) `GET /llm` answers a
+      person's own `user` and `quota` when their direct calls aren't
+      admitted: under the default people switch a member's calls all go
+      through tiles, and their limits were otherwise unreadable to them.
+    - **The setup card is the alert.** The console draws kind `llm-setup`
+      as a card (Set up…, dismiss) instead of a row; an old console or
+      shell shows the row, whose text names `/xbin/llm`. No second source
+      of truth, and one dismissal covers every surface. It is `warn`
+      because alerts have two levels and old shells style only those.
+    - **An admin's shell gets the connector's alerts; found while
+      building.** `AdminAlerts` never reached a shell: a shell reads
+      `/alerts` with its frame token, which is no admin's (only an admin's
+      own session, the owner token and the admin console are). So "an
+      alert usable by old shells" needed a rule: the broker gains
+      `AdminShellAlerts`, answered to a trusted chrome frame minted under a
+      workspace admin's own login (`Broker.AdminShell` =
+      `chromeFrameDriver` + `IsAdmin` of the driver — the rule D203's
+      raises already use; such a document runs with the admin's cookie, so
+      the token learns nothing the page couldn't fetch). `AdminShell` is
+      not `IsAdmin`: that frame manages nothing, and of the connector's
+      routes it may only POST the setup alert's dismissal (a shell posts
+      an alert's `dismiss` with its own token). Only the connector's
+      alerts go this way; the other admin-only alerts (Go build versions,
+      backup keys, consent files, settings) stay where they were — moving
+      them is a separate call.
+    - **After the review's route changes** (merged while this was built):
+      the core's own alert (kind `llm`, unpriced calls under cost quotas)
+      rides the same chain — `internal/llm/adminalerts.go` holds this
+      package's `AdminAlerts()`, which appends `Alerts()`. The page gained
+      *Calls at once* (`concurrency`, lockable), a write's `notices` at
+      the top, `~`/"estimated" and an "unknown models" row in usage (and a
+      per-model table for admins). A moved address needs the key again
+      **in the form**, before any write: the kit refuses the keyless move
+      xbind would answer by dropping the key, so the notice is a backstop,
+      not the way an admin learns it. A host's default is drawn as a
+      ceiling over the per-person and per-org forms — said, shown in each
+      field, a higher limit refused client-side (xbind accepts it and it
+      gives nothing, which is the silent failure the form exists to
+      prevent).
+    - **Not done here**: a banner for the affected person in the shell
+      (the alert chain has no per-person source; they read it on the page
+      and in their call's refusal); live updates (the connector emits no
+      event; the page reloads after its own writes and has a Refresh on
+      usage); per-component quotas.
 
 - **D226 — An LLM connector in the daemon: two config sources with a host
   lock, per-user metering and quotas (2026-11-14; issue #51).** The owner:
@@ -4210,600 +4284,341 @@ here: cut from the old end, never reword.
         list when the rule is not forced (above); a person-level
         attribution for non-partitioned backends' keys; the Anthropic wire
         for Claude Code.
-- **D225 — The agent session rules live in sdk/acp: tool record, mode
-  escalation, steer queue, auth state, status words (2026-11-14; issue
-  #51).** Two hosts run coding agents through `sdk/acp`'s client — xbind's
-  tile agent sessions (`internal/term`, `internal/agent`) and the agent
-  template's harness engine (`builtin-templates/agent/_backend`) — and each
-  had its own reading of what to do with the event stream
-  (`plans/agent-dedupe.md` §1, §4 B1). The hosts stay two (different
-  stores, different lifetimes); the rules move to five pure files of
-  `sdk/acp` — no I/O, no goroutine, no clock of their own, table-tested —
-  that both call, and that the workspace agent will call too. `sdk/` is
-  the only place a tile backend can import from, so that is where shared
-  Go lives; every name below is public API that only grows.
-  - **`toolrec.go` — the tool record.** `ToolRecord` is a call's
-    `tool.call`/`tool.update` events merged (the chat kit's record,
-    `plans/wsagent/chat-kit-spec.md` §2, K6–K12); `ToolRecords` folds a
-    session, with the id-reuse rule (`StartsToolRecord`: a `tool.call` for
-    an id whose record is over, or of an earlier turn, starts a new one —
-    the union of the two halves each side had) and an embedder's
-    `files.changed`. `ToolPolicy` is the one parameter set: xbind keeps
-    everything and coalesces bare output chunks in its log
-    (`OutputChunk`); the template keeps the newest 64 KiB of output, 64 KiB
-    of text, an edit as a patch (`Diff`), and an 8 KiB result tail
-    (`OutputTail`). The Go fold reproduces the shared fixtures'
-    `<name>.records.json` exactly. The template stores what it stored
-    (`harnessMeta`, with `tool` and patch-form diffs: rows written by
-    earlier versions read back), so its `acp` row meta is byte-identical on
-    every fixture; four intended differences are tested in
-    `harness_toolrec_test.go` (an id of an earlier turn's unfinished call,
-    cuts between characters, an unknown kind stored as `other`, a call
-    first named by its permission request takes the request's content).
-    `internal/agent/page.go` asks `ToolRecords.Observe` which card an
-    event lands on; because a client's fold may be older than the daemon,
-    it also keeps two same-turn calls of one id in one page (the old fold
-    merged them) — that clause goes when no fold from before the rule is
-    in use.
-  - **`escalation.go` — does an option raise the mode.** The template's
-    `optionRaises` is `Provider.OptionRaises` (with `ModeOpen`, `ModeIDs`,
-    `ModeOption`, `SessionState.Mode`). The client marks the options of
-    every request it files — `PermissionOption.Explicit`, `explicit: true`
-    in `permission.request`, the pending list and the tail page's state —
-    judged with `Config.Mode` as the start mode: a session opened in a
-    bypass mode by its person is not "raised" by returning to it. xbind
-    refuses nothing; the flag is for the Agent tab's second confirmation
-    (K13, gap W3 closed). The template keeps refusing such options to
-    non-owners, judged with its own start mode (the adapter's first).
-    Rejected: marking in xbind's pump — the requests a client re-reads
-    (`GET …/sessions/{id}`, the page state) come from `Permissions`, which
-    only the client fills.
-  - **`queue.go` — a message while a turn runs.** `QueueState.Message`
-    (prompt, steer, hold), `SteerOutcome`, `QueueState.Flush`, and
-    `DetachedTurn` for the turn codex-acp starts when a steer lands just
-    after its turn ended. Each host keeps its store (xbind: memory and
-    `queue` events; the template: inbox rows and its steer mark) and its
-    timer. xbind gains the detached turn it lacked
-    (`internal/term/agentdetached.go`): the session says running, holds
-    messages, and ends the turn itself with a `turn.end {stopReason,
-    detached: true}` — after 5 s of quiet with no request waiting, or at a
-    cancel. Two choices there: statuses the client restates as idle are
-    rewritten in the pump rather than teaching the client about detached
-    turns (the template would have had to unlearn its own handling in the
-    same step); and a turn waiting on a person is never "quiet" (the
-    template ends its detached state at the quiet time and goes idle at the
-    answer — left as it is). One client fix came with it: a request
-    answered outside a prompt returns the status to idle.
-  - **`authstate.go` — signed out, and what to say.** `IsAuthRequired`,
-    `SaysSignedOut`, `AuthState.SignedOut` (a host that injected a
-    credential trusts only the agent's own refusal) and one sentence,
-    `Provider.SignInHint(where)`. xbind's longer sentence goes; it names
-    the place ("in a terminal on ‹tile›") and uses `LoginCmd`, the line
-    that works in a sandbox terminal.
-  - **`summary.go` — status words.** `Busy`, `TurnOver`, `StateOf` (the
-    template's `harness.state` words, now also the SDK's), `Summary` (what
-    xbind's `term` status event carries), `Need` (heading and sentence for
-    an approval, a question, a sign-in). Strings a client or test matches
-    are kept on both sides; two fallback push bodies of xbind's take the
-    template's wording. Not unified: stop-reason words (xbind's push says
-    "Stop reason: ‹reason›" and a test holds it) and the three vocabularies
-    for "what it is doing" (ACP status, the template's `activity.kind`,
-    the Live Activity's phase) — they are wire formats of three clients.
-  - **Compatibility.** Everything is additive on the wire (`explicit`,
-    `detached`) and in the SDK; the v0.3.79 template backend builds and
-    passes its tests against this `sdk/`. A newer template needs the SDK
-    of the xbind it ships with, as ever (`docs/compat.md`, "What this does
-    not promise") — no fallback code is kept for an older SDK.
-  - **Not here.** The guided sign-in driver (`guided.go`) and anything
-    about credentials land with the sign-in store (B4); the provider table
-    for the LLM connector with the connector.
-  - **F2 — the models: `/vendor/chat/tools.js` and `/vendor/chat/ask.js`;
-    `KIT` 2 (2026-11-14).** Both pure (their only imports are each other
-    and `blocks.js`, relative, so node tests and the parity script load
-    them without a resolver). `tools.js` is one tool call read from its
-    `ToolRecord`: the merge of an agent's events (`mergeTool`,
-    `ToolRecords` — the executable rules of
-    `plans/wsagent/chat-kit-spec.md` §2, which lived in
-    `hack/chat-fixtures/reference.mjs` and are now shipped code the
-    fixtures hold), headline, subline, outcome and state chips,
-    `stripAnsi`, the output's tail, diff helpers, plan approval. `ask.js`
-    is a permission request's card, a question's form, the slash menu, the
-    composer's words, `cleanCode`.
-    - *The old modules stay, thin.* `web/agent-tools.js`,
-      `web/agent-slash.js` and `signin-scan.js`'s `cleanCode` re-export
-      (URLs and names are frozen, rule 3; the Swift port is held to them).
-      `agent-tools.js` is also the adapter from the Agent tab's old record
-      (`tk`, the last content list) to the kit; `newTool` now carries the
-      kit's record too (`rec`, kept by `mergeTool`), so the fold holds
-      what the views of F3 will read while today's cards keep reading the
-      old fields. The two outputs are one string: the rules differ only
-      when one event carries a whole output and a delta (the old record:
-      the whole one wins; the kit, as the template's backend and
-      `sdk/acp`'s record: delta appended after it), and equal lengths mean
-      equal texts. The template's `model/harness-heads.js`,
-      `model/harness-ask.js` and `model/harness-signins.js` keep every
-      export and become adapters from its rows (`acp:<kind>`, arguments
-      with `summary`, the `acp` lift, the park) to the kit's record and
-      blocks (`acpRecord`, `permBlock`, `askBlock`).
-    - *Headline: one chain.* Label → a `description` argument → a shell
-      command read by `describeCommand` (the Agent tab's) → the title's
-      first line → a reading by kind (the template's `acpReading`) → name
-      → id. The template gets it through `acpHeadline` (the fold passes
-      the tool row's `acp`); a summary that is neither the lift's title
-      nor the kind is taken as the label, so hand-made rows and rows from
-      before the lift read as they did. **`/vendor/agent-tools.js`
-      `headline` keeps its old chain** (no reading by kind:
-      `{reading: false}`): the Swift port is held to that export and its
-      parity corpus has no call the reading would change; the Agent tab's
-      cards get the full chain when they move to the kit (F3), with the
-      port.
-    - *One `stripAnsi`.* There were three rules (the Agent tab's, the
-      template's for a call's output, the template's for a CI log). The
-      kit's is the richest escape rule of the three: CSI with any
-      parameter byte, an OSC up to its own terminator, character-set
-      designations, the 8-bit CSI. The Agent tab's old rule left
-      `ESC[1;2:3m` and `ESC ( B` in the text and ate a hyperlink's text
-      (and everything up to the last terminator). Three outputs of the
-      parity corpus changed; `XbinAgent`'s `stripANSI` regex changed with
-      them (`swift test` on Linux, 113 tests). The CI log's function is
-      the kit's plus what a log adds (CR ends a line, control characters
-      go).
-    - *One form reader: the template's superset* (`anyOf` single choice,
-      `enumNames`, defaults, "Other" answering a required choice) — with
-      its bug fixed: a plain `enum` without `enumNames` was labelled
-      "false" per choice (`(Array.isArray(names) && names[i]) ?? o`). The
-      parity corpus found it; no parity output changed.
-    - *One slash rule: the Agent tab's.* Prefix matches first, then names
-      **or descriptions** containing the query, at most **8**; a draft is
-      a command in progress while it is `/[\w:.-]*`. The template's was
-      names only, at most 12, `/[^\s/]*`. Eight because the same number
-      has to fit a phone's menu and a small tab (a host with room passes
-      another `max`); descriptions because a person who types "/pull"
-      means the command that shows pull request comments.
-    - *`patchLines` is not deleted* (the plan had it go for `bx-code.js`
-      `diffHTML`). `bx-code.js` is a lit element module with highlight.js
-      behind a bare `lit` import: a tile page loads it lazily and, on a
-      workspace whose import map has no `lit`, never — the template draws
-      a patch plain until then. That plain drawing's line classes are the
-      kit's `patchLines` now (one home, re-exported by the template).
-    - *`commandOf`*: the Agent tab's reading (`command` string or argv,
-      else `cmd`, else `script`; a string command's `args`) for both; the
-      template read `command`/`cmd` only.
-    - *The native view on an older xbind.* `native/*` imports the models,
-      which now import the kit, and a static import cannot ask first. On
-      an xbind without revision 2 the import is a 404, `native.js` fails
-      to load, the runtime reports `{op: "error", kind: "module"}` — one
-      of the app's fatal kinds — and the app shows the tile's web page,
-      whose `boot.js` says "needs xbind ≥ v0.3.80". No guard was added to
-      `native.js`: a guarded dynamic entry would be a second load path,
-      and the failure is already whole (no tree, no request to the
-      backend — `hack/agent-template-boot.test.mjs` plays both older
-      xbinds with `hack/xbn/older-xbind.mjs`).
-    - *Guards.* js-check's duplicate ban gains `mergeTool`, `stripAnsi`,
-      `outputTail`, `describeCommand`, `unifiedDiff`, `joinPatches`,
-      `patchLines`, `diffFiles`, `diffTotals`, `contentPreview`,
-      `diffsPreview`, `filesStat`, `rawText` (tools.js) and `formFields`,
-      `formContent`, `missingRequired`, `nativeSchema`, `nativeContent`,
-      `cleanCode`, `slashQuery`, `matchCommands`, `commandHint`,
-      `optionConfirm`, `modeConfirm`, `composerWords`, `steerTracker`
-      (ask.js). `hack/chat-tools.test.mjs` and `hack/chat-ask.test.mjs`
-      hold the kit and that the old modules' functions are the kit's own;
-      `hack/chat-fixtures-agtt.test.mjs` holds that the kit says every
-      call of the shared transcripts the same from either reducer's
-      record. Fixture gaps closed: W1 (locations, files), W4 (a
-      question's mode and url).
-    - *Open after F2.* The Agent tab's cards still read the old record:
-      the reading by kind, the `approval` state on a call's card (W2) and
-      the confirmation of an `explicit` option arrive with its views
-      (F3); `explicit` itself needs xbind's `permission.request` to carry
-      it (W3, `sdk/acp`'s escalation rule). The fold's id-reuse rule is
-      still per turn only (K6's other half is `ToolRecords`'). A whole
-      output and a delta in one event: the kit follows the spec's
-      reference (delta after the whole output); the Agent tab's old order
-      (the whole output wins) may be the better reading — to settle with
-      `sdk/acp`'s record, no fixture has one.
-  - **F3 — the views, and the Agent tab on them; `KIT` 3 (2026-11-15).**
-    `web/chat/views.js`, `cards.js`, `asks.js`, `css.js`, `composer.js`,
-    `window.js`; `<bx-agent>` draws with them and nothing else.
-    - *Template functions of `(block, ctx)`, as F0 measured.* Rows are
-      `<div class="bxc-row" data-k>` holding a `guard`ed template; widgets
-      with state of their own are elements, both light DOM
-      (`<bx-chat-composer>`, `<bx-chat-form>`) so they wear the stylesheet
-      of the root they sit in — a shadow root for the Agent tab, a
-      document for a tile. The view modules import lit by URL
-      (`/vendor/lit-all.min.js`, what every workspace's import map maps
-      `lit` to): one copy with the shell, and they load on a page with no
-      import map at all.
-    - *The kit's look is the Agent tab's.* F3 changes nothing the tab
-      drew except the table of gains, so where the two chats' cards
-      differ (the status badge's words, a command under the headline, the
-      template's outcome chips) the kit has the tab's; F4 decides each for
-      the template (`plans/wsagent/chat-kit-spec.md` §11).
-    - *The fold is not rewritten.* `agent-fold.js` keeps its blocks (the
-      test API and the iOS port's parity corpus read them) and says each
-      in the kit's model on demand: `blockOf(b)`, the same object while
-      `b.v` holds, its `$memo` shared with `b` — so a streaming message's
-      parsed parts outlive the mapping, and a row whose block did not
-      change is not drawn. The fixtures' test adapter (`web.mjs`) became
-      that code. The fold now ties a permission request to its call
-      (`perm` on the tool block, the call's label on the request): the
-      card says "needs approval" — gap W2 closed, the Agent tab has none
-      left.
-    - *`ChatCtx` grew by what the tab needed to stop reaching into its
-      element*: `rev(block)` (the host's revision for a row — its folds, a
-      diff that loaded — beside the block's `v` in the row's guard),
-      `state(block)` (a bag for a widget's values: a form or a rejection's
-      feedback survives the row leaving the window, as the tab's
-      `_askVals` did), `readonly`, `role`, `copy`, `openDiff`, `signin`,
-      `host`, `sessionRules` (xbind's "always" is its own session rule,
-      offered only when the request can be scoped to one — the agent
-      template's is the agent's own and always offered).
-    - *The `host` block kind.* A card the kit frames and the host draws
-      (`ctx.host`), for what only a host can say or may do: the workspace
-      agent's cards for tile agent sessions it started, and a request its
-      TRUSTED chrome must grant. The kit draws no answer for one, by
-      construction: a page that merely renders a transcript cannot grant
-      it. Rejected: a kind per case (`session`, `grant`) — each would be a
-      special case in a module that must not know its hosts.
-    - *Diffs: `bx-code.js` stays optional.* `cards.js` imports it on the
-      first diff drawn and draws plain (`patchLines`, same line classes,
-      styled under `.bxc-diff`) until it arrives; a host that has it hands
-      it over (`useDiffHighlighter`; the Agent tab does, so nothing
-      changes there). Markdown: the tab imports `bx-md.js` as before
-      (highlighter up front).
-    - *`ChatWindow`* is the bookkeeping the tab had around `ScrollWindow`
-      (which rows, when to render or load more, what to let go, the pill),
-      moved as it was. Where the template's `chat-window.js` differs —
-      it returns after growing the window before letting pages go, keeps
-      a floor of two pages under the unload margin, lets nothing go while
-      a page is being read, and renders again for a trim when not
-      following too — each is an option that defaults to the tab's rule
-      (`growFirst`, `minMargin`, `holdWhileBusy`, `retrim`); F4 sets them
-      and deletes the template's class.
-    - *The gains, each with a check in the UI harness*: an `explicit`
-      option confirmed in the window's dialog (`bx-frame`'s, passed as
-      `ask`; Cancel sends no request); files in the message box; the
-      usage badge; URL-mode questions, `anyOf`/`enumNames`/defaults and a
-      viewer's and participant's cards (the kit drawn in the shell's
-      document with a plain `ChatCtx`); the diff drawn plain on a page
-      with no import map; harnesses not offered listed with their reason
-      (`agentPolicy`).
-    - *Two root causes while in that code.* (1) A session that is
-      `starting` was not polled: its `idle` is one live event, the events
-      hub drops a slow subscriber silently, and nothing later reveals the
-      gap — the tab stayed on "starting". It is polled like a running
-      turn now. (2) The `agentTab` pass kept the resumed tab's INDEX
-      across several looks at the page; a listing in between re-sorts the
-      tabs (ended ones last) and the index named the ended tab, whose
-      status is never idle. It asks by id every time.
-    - *A whole output and a delta in one event*: settled as the whole
-      output, then the delta — `sdk/acp`'s record and the kit already
-      agreed; `agent-tools.js` `foldTool` and the Swift port follow, and
-      the shared transcript `output` (acptest's `recap`) pins it for Go,
-      the template's backend and both JS reducers.
-    - *Performance* (agentLongPerf, `AGENT_PERF=950`, CPU 4×, 8 runs on a
-      machine at load ~25; F0's three runs in brackets): streamed 549–650
-      ms, median 586 [550–616]; reload → bottom 1444–1882, median 1503
-      [1432–1648]; a fresh tab 61–89, median 77 [65–76]; 30 more units
-      127–211, median 136 [128–167]; held 134 blocks, 30 rendered, 200
-      events [same]; heap 11.5 MiB [11.1–11.3 — the pre-F3 code measures
-      11.5 on today's base too]. The pre-F3 code measured in the same
-      session (the machine then at load 30–70): reload 1498–2768, a fresh
-      tab 62–156, 30 more units 142–355.
-  - **Decided by the owner (2026-11-14)**, of what the core left open:
-    `people` stays default `admins`; binding `xbin:llm` stays a workspace
-    admin's act; calls nobody acts in stay under the workspace total alone
-    (usage lists them as their own row); a quota that warns raises an admin
-    alert as one that stops does.
-  - **The admin UI (package B1b).** One element, two homes:
-    `<bx-llm-admin>` (`web/llm-admin.js` and its parts — `llm-upstreams`,
-    `llm-quotas`, `llm-usage`) is xbind's own page **`/xbin/llm`**
-    (`web/llm.html`, served as `/xbin/limits` is: no transform, top-level
-    only, a CSP of `'self'`) and the admin console's **workspace → LLM**
-    tab (`tabs/llm.js`, a sibling the entry imports relatively, passing
-    `xbin.fetch`). The page exists whatever scaffold a workspace runs,
-    which is what lets every alert name it. Words and arithmetic are
-    `web/llm-kit.js` (pure, `hack/llm-kit.test.mjs`); **every call is in
-    `web/llm-client.js`**, so a route the core moves is a one-file change.
-    - **Locks are drawn, never inferred**: a control is disabled and
-      marked "Set by your host" exactly when `locks` names its path (or
-      `*`); the form never sends a locked row (`modelsChanges` skips them),
-      and xbind's 409 is the authority either way. `lockAll` gets one note
-      at the top instead of thirty badges being the only signal.
-    - **A key is write-only in the UI too**: a masked field, sent once,
-      gone from the DOM after the save; edit opens with an empty field
-      ("unchanged"). The harness asserts the key is in no text, attribute
-      or field value afterwards.
-    - **Who sees what is xbind's answer, not the page's**: the page tries
-      `GET /llm/config`; 403 switches it to `<bx-llm-me>` — the person's
-      own quota and usage, from `GET /llm` and `GET /llm/usage`, which
-      already answer only their own. `GET /llm`'s `admin` is not used for
-      this: it is only set for a caller who is admitted.
-    - **Server additions, kept to `internal/llm/alerts.go`**: (1)
-      `Service.Alerts()`, chained into the broker's `AdminAlerts`
-      (`boot/llm.go`): a reached quota per person — the verdict's limit,
-      its source (their own, org `<id>`, the default), stop or warn, the
-      reset — `crit` for a workspace quota that stops, one summary row
-      past five people, computed from the meter's windows on each read and
-      stored nowhere, so it ends with the window or a raise. (2) The setup
-      alert `llm-setup` with `POST /llm/setup/dismiss`: shown only while
-      nothing is configured, no admin has saved anything (`store.Set ==
-      0`), the host doesn't lock all, and `data/llm/setup.json` is absent
-      — the file's presence is the whole state, so the alert can't
-      outlive a dismissal through a cache. (3) `GET /llm` answers a
-      person's own `user` and `quota` when their direct calls aren't
-      admitted: under the default people switch a member's calls all go
-      through tiles, and their limits were otherwise unreadable to them.
-    - **The setup card is the alert.** The console draws kind `llm-setup`
-      as a card (Set up…, dismiss) instead of a row; an old console or
-      shell shows the row, whose text names `/xbin/llm`. No second source
-      of truth, and one dismissal covers every surface. It is `warn`
-      because alerts have two levels and old shells style only those.
-    - **An admin's shell gets the connector's alerts; found while
-      building.** `AdminAlerts` never reached a shell: a shell reads
-      `/alerts` with its frame token, which is no admin's (only an admin's
-      own session, the owner token and the admin console are). So "an
-      alert usable by old shells" needed a rule: the broker gains
-      `AdminShellAlerts`, answered to a trusted chrome frame minted under a
-      workspace admin's own login (`Broker.AdminShell` =
-      `chromeFrameDriver` + `IsAdmin` of the driver — the rule D203's
-      raises already use; such a document runs with the admin's cookie, so
-      the token learns nothing the page couldn't fetch). `AdminShell` is
-      not `IsAdmin`: that frame manages nothing, and of the connector's
-      routes it may only POST the setup alert's dismissal (a shell posts
-      an alert's `dismiss` with its own token). Only the connector's
-      alerts go this way; the other admin-only alerts (Go build versions,
-      backup keys, consent files, settings) stay where they were — moving
-      them is a separate call.
-    - **After the review's route changes** (merged while this was built):
-      the core's own alert (kind `llm`, unpriced calls under cost quotas)
-      rides the same chain — `internal/llm/adminalerts.go` holds this
-      package's `AdminAlerts()`, which appends `Alerts()`. The page gained
-      *Calls at once* (`concurrency`, lockable), a write's `notices` at
-      the top, `~`/"estimated" and an "unknown models" row in usage (and a
-      per-model table for admins). A moved address needs the key again
-      **in the form**, before any write: the kit refuses the keyless move
-      xbind would answer by dropping the key, so the notice is a backstop,
-      not the way an admin learns it. A host's default is drawn as a
-      ceiling over the per-person and per-org forms — said, shown in each
-      field, a higher limit refused client-side (xbind accepts it and it
-      gives nothing, which is the silent failure the form exists to
-      prevent).
-    - **Not done here**: a banner for the affected person in the shell
-      (the alert chain has no per-person source; they read it on the page
-      and in their call's refusal); live updates (the connector emits no
-      event; the page reloads after its own writes and has a Refresh on
-      usage); per-component quotas.
-
-- **D234 — Previews: xbind renders a tile or a screen as a person,
-  read-only, in a confined browser (2026-11-15; issue #51).** The workspace
-  agent has to see what its person sees, and a person (or `bx`) wants a
-  picture of a tile without opening a browser. Spike S3
-  (`plans/wsagent/s3-preview.md`) showed it costs about 1.5 s and 0.4 GB a
-  render; this is the production form. Owner's calls are marked (O1–O8).
-  - **The route.** `POST /api/xbin/preview {tile | screen, shell?, at?,
-    viewport?, wait?, fullPage?}` → a PNG, a text rendering (an
-    accessibility tree per frame), console errors, failed requests, the
-    final URL, the browser's build and a fixed `notice`; `GET
-    /api/xbin/preview` → availability and limits. Classes: primary-only for
-    the POST (a preview shows what people see, so a non-primary
-    deployment's credential gets 403), partition-neutral (it renders as the
-    person behind the call).
-  - **Who (O5, O8).** `previewPerson` (internal/server/preview.go) is the
-    one function that decides: a person for themselves (browser session,
-    the app's bearers), a person's terminal for its own tile only; never
-    the root token, a tile, a view-as session. The delegate's case is added
-    there when delegation merges. Admins who want someone else's view use
-    view-as: a preview is never of another person.
-  - **The session (O1).** A view-as session whose viewer is the reserved
-    `~preview` (`auth.PreviewViewer`): `ReadOnly()` holds, so every write
-    gate and every derived credential is read-only with no new claim in any
-    wire form. `Principal.ViewAs()` separates "someone else is looking"
-    from "read-only": privacy gates (a partitioned tile's document, its
-    routing, its events, session history and names, personal binds) ask
-    `ViewAs`, write gates keep `ReadOnly`, and every remaining direct read
-    of `Impersonator` is classified act / carry / name in a test that fails
-    on a new one. No account can take the id; the reserved viewer mints and
-    redeems no view-as; a preview session is not listed, not persisted, has
-    no "stop" and expires on its own.
-  - **The transport.** One unix socket per render; xbind sets the session
-    on its requests, by the cookie jar's rules (not to a tile origin, not
-    on a request a sandboxed frame starts: `Sec-Fetch-Site`, or `Origin`
-    on a WebSocket handshake). The socket refuses non-GET, terminals and
-    sign-in routes whatever credential arrives, and any Host that is not
-    the workspace's. Read-only therefore holds by the credential alone and
-    by the transport alone (tested separately).
-  - **Scope (O4).** A tile render's socket admits that tile's files and its
-    frame's calls; a screen render's the shell, the person's own reads
-    minus tile source, git, checkpoints, backups and the vault, and the
-    tiles on that screen (resolved from the person's layout and the org
-    screens shared with them, read as the shell reads them). A tile that
-    loads another tile's files renders without them.
-  - **Sockets (O2).** An upgrade by a preview principal reaches the backend
-    at `reader` (the read clamp; a role it can't narrow is refused). Plain
-    GETs keep their role, so the picture is true. View-as is unchanged.
-  - **Partitions (O3).** A preview opens the person's own partition
-    read-only and never makes one: a tile never opened answers 409.
-  - **Tiles are told.** `X-XBin-Preview: 1` on every call
-    (`xbin.Caller(r).Preview`), documented as the contract: a GET or a
-    socket under it changes nothing. xbind can't enforce it inside a
-    handler; the builtin tiles and templates were audited for it.
-  - **Ready (O6).** `xbin.ready()` and `<meta name="xbin-ready"
-    content="manual">`, additive. The render ends on the signal when every
-    tile gave it, else when the network is quiet and frames are loaded; a
-    declared tile is waited for about ten seconds.
-  - **The sandbox.** `internal/preview` runs the rootfs's node and
-    Chromium through `internal/confine`, unchanged but for a cgroup hook:
-    an empty network namespace, one read-only bind (the driver and the
-    socket), the answer over stdout only. Only the workspace's names
-    resolve, to the socket; an https workspace gets TLS on the socket under
-    a per-render key pinned by SPKI. No `--isolate` or no Chromium → 503,
-    never a host run (D78).
-  - **Limits (O7).** 1 per person, 2 per workspace, 45 s, 1 GiB:
-    `XBIN_PREVIEW_PER_USER`, `_TOTAL`, `_TIMEOUT`, `_MEM`; `XBIN_PREVIEWS=off`.
-    The memory cap is a cgroup leaf (killed at the cap, no `memory.high`)
-    and needs delegation, as tile limits do.
-  - **Chromium's own sandbox stays off.** Tried: it refuses uid 0, which a
-    confined tool is in its user namespace, and an unprivileged process
-    there can't write a nested namespace's uid map. Turning it on needs the
-    sandbox init to exec a tool as a non-root uid of the range — not done.
-    Mitigations: the scope, the empty netns, and the rootfs's Playwright
-    now pinned (`PLAYWRIGHT_VERSION`, guarded by `make pins`). The residual
-    risk is written down in docs/isolation.md §Previews: a page that owns
-    the browser can read what the render shows and pass it to a backend it
-    controls in a GET.
-  - **Prompt injection.** The answer's `notice` says its content is data,
-    not instructions; the agent's tool shows it with every result.
-  - **Not done.** The shell still tries its saves under `readOnly` (they
-    are refused; a failure toast can be in a picture); VM-backed sandboxes
-    for the browser; a tile's non-primary deployment as a target; the
-    delegate's route-class row (with delegation).
-  - **After an independent review (same day).** What it found and what
-    changed: (1) clamping only the role left backends that authorize on
-    the person's level writable over a socket (the coding-sandbox's
-    terminals) — in a preview every call, GET or upgrade, now carries role
-    `reader` and user level `read`, `UserCanWrite()` is false, and the
-    builtin tiles' sockets refuse a preview from any consumer; a custom
-    role with no read form keeps its role on a GET and gets no socket.
-    The cost is fidelity: a tile is drawn as its reader sees it. (2)
-    xbind's own GETs with effects: a work-tree diff captured a checkpoint
-    for any read-only session (fixed in a commit of its own, for master);
-    the cross-tile branch could start a first partition and send a consent
-    prompt; the model list dialled upstreams — all refused. (3) The answer
-    is rebuilt in Go from a strict shape with byte caps; nothing the
-    sandbox returns is passed through, the browser's name included. (4)
-    The picture has a pixel budget checked from its header before
-    decoding; the runner clips a taller page (`clipped`). (5) No
-    enforceable memory cap → unavailable unless `XBIN_PREVIEWS=uncapped`;
-    the sandbox's tmpfs mounts are sized in every case
-    (`sandbox.Spec.TmpfsBytes`). (6) The person's plane on a screen render
-    is an allow-list of the shell's reads, pinned by an end-to-end test
-    through `leftOut`; an admin's render is a member's view (the
-    workspace-wide lists answered empty, events refused, a `note`). (7)
-    The socket honours only its own render's session, on every host. (8)
-    `/whoami` no longer says `preview`; a tile must not draw differently
-    for the header. The review also turned up, by its admin-screen test,
-    that the first scope gate refused the shell's own frame token and so
-    broke every admin's screen render.
-- **D232 — The workspace agent's chrome on the web: grants are drawn and
-  sent by xbin, never by the agent's page (2026-11-15; issue #51;
-  `plans/wsagent/ux.md`).** The agent's conversation renders what a model
-  wrote; a grant drawn there could be drawn by the model.
-  - **The rule.** A request, a standing approval, a change set, resume and
-    the admin opt-in are decided in a document that holds the person's
-    session — the shell, `/xbin/agent` — by `web/bx-agent-dock.js` and its
-    siblings. The agent's page sits below the dock's header in a sandboxed
-    frame on its tile credential (a holder is never chrome, D228) and may
-    post `xbin:agent-open-request {id}`, `xbin:agent-open-changeset {id}`,
-    `xbin:open-session {session, tile}`; the dock takes messages only from
-    its own frame's window, reads ids and no other field
-    (`agent-chrome-words.js` `pageMessage`), and draws what xbind answers
-    for the id. The agent's sentence is quoted and labelled.
-  - **Against a click the person didn't mean.** Allow is armed 600 ms
-    after the sheet shows, only while nothing covers it (hit-tested
-    through the shadow roots), only for a trusted event in a focused
-    document; Enter never allows; Esc is "later". The wider grant (every
-    change to a tile) has a second step whose primary button is Go back
-    and a default duration of an hour; a danger-mode session start makes
-    Deny primary. A warned change-set item starts unticked; a blocked one
-    can't be ticked.
-  - **One obvious place per choice**: `CHOICES` in
-    `web/agent-chrome-words.js` (dock bounds 360–720 px, whole page under
-    640 px, the arming delay, default durations, the shortcut Ctrl/⌘+J,
-    no typing while paused) and the words beside it — the copy deck of
-    ux.md §14, node-tested (`hack/agent-chrome.test.mjs`).
-  - **`/xbin/agent`** follows the pages of D203/D226 (static, top-level
-    only, the person's session) with one difference: its CSP has a
-    `frame-src`, because it frames the agent's tile document.
-  - **Old shells** get one alert a person (kind `agent-page`, dismissed
-    with `POST /delegate/page/dismiss`, kept in the person's delegation
-    state through `Store.SeePage`, which never replaces an unreadable
-    file). It is a person's, not an admin's: the alert chain got its first
-    per-person source (`Broker.alertPerson`: own session, or the trusted
-    chrome frame under their login). A shell with the chip filters the
-    kind out.
-  - **Seams, one assignment each.** `Server.AgentHolder` (boot, from the
-    sealed-component table): until it is set `GET /delegate/state` has no
-    `agent`, the dock says the conversation arrives with an update, and
-    the alert is sent to nobody. `state.held` (`locked` | `older`) is read
-    by the chrome and not sent by any xbind yet.
-  - **Tested by faking**: the `agentChrome` harness pass fakes
-    `/api/xbin/delegate/…` by route interception (no holder can post a
-    request on this tree) and refuses the frame's credential as xbind
-    does. To re-run against a real holder: an approval reaching xbind and
-    its ticket being used, live `delegate` events, the sign-in step, the
-    holder's own frame and its messages.
-  - **Not done here**: an "ask my agent about this tile" entry in the
-    tile menu (the chip opens the dock about the tile in front; the dock
-    takes `context`); a mode picker in Preferences (modes are shown, the
-    start preference is set); naming the admins in "An admin can fix
-    this" (no route lists admins to a non-admin); the setup's "Choose who
-    gets one" step links the docs rather than an editor.
-- **D235 — The workspace agent on the web: xbin's chrome grants, the
-  agent's page shows (2026-11-15; issue #51; `plans/wsagent/ux.md`).**
-  *(Part 1, xbin's own chrome — the dock, the approval sheet, the change
-  set, Needs you, pause — is written on `wsagent/d1-chrome` and merges in
-  here.)*
-  - **Part 2 — the agent's own page (package D2).** The conversation with
-    a person's workspace agent is the agent template's page in workspace
-    mode, `builtin-templates/agent/ws/`, framed by the dock.
-  - **A page of its own, not a mode of agent.js.** `boot.js` chooses: on a
-    sealed component's path (`xbin/<name>`, which no workspace can hold)
-    it asks `GET /ws/state` after the kit check and loads `ws/page.js` when
-    the mode is `workspace`. Rejected: a field on `GET /me` (the backend is
-    another package's, and `/me` is read after agent.js has loaded half the
-    app); asking every instance (one more call before every normal page —
-    and `test/ci.mjs`, which takes the first call as "the app started",
-    showed what that shifts); a branch inside agent.js (its static imports
-    run the whole app first, and instances patch that file). The ws tree
-    reuses the models (`model/session.js`, `model/fold.js`) and the
-    template's chat window; it never imports agent.js's views, and a test
-    pins that both ways.
-  - **It grants nothing, by construction.** Every way out is a message
-    to the chrome with ids only (`ws/dock.js`: `xbin:agent-open-request
-    {id}`, `xbin:agent-open-changeset {id}`, `xbin:open-session {session,
-    tile}`; in, `xbin:agent-context {tile | screen}` from the framing window
-    only). The one exception is the backend's: where the person's
-    preferences let a start through without a ticket (`start-defaults` →
-    `ticket: false`), the brief's button reads Start and the click is the
-    confirmation. Browser scripts assert that no Allow, Approve, Deny or
-    Resume is ever drawn, whatever waits.
-  - **Cards where the conversation made them, the window untouched.**
-    `ws/place.js` maps the session's cards onto the fold's rows: a request
-    in place of the call that filed it (by `callId`, else the call's own
-    "Pending — request N"), a brief in place of `tile_agent_brief`, a tile
-    agent after the request that started it, the plan once in place of its
-    first call, an `ask_user` with `choices` as the kit's form; else after
-    the line before it in time. A row may draw several cards or none, so
-    the session's paging and the kit's window keep their indices.
-    Rejected: a second list of blocks for the window (its `keep()` cuts by
-    the fold's indices). The phrases it reads in tool answers are the
-    backend's, pinned by a node test against the Go source, and so is every
-    JSON field it reads.
-  - **The context chip goes as a line of text** (`About tile "<name>"
-    (<path>):`): the message route takes text only; the page splits it back
-    to draw the chip above the person's words. A structured field is a gap
-    for the backend's owner.
-  - **Kit, generic** (KIT 5): a plan's title, meta, note, numbering and a
-    step's tag; a question's button words; the composer's accessible name.
-    The page needs `NEEDS.ws` = 5; the normal page still needs 4.
-  - **The recommendations of ux.md §15 that the page follows**, each in
-    `CHOICES` (`ws/words.js`): a starter fills, never sends (Q8); no typing
-    while paused (Q10); no session cap, archived fold under Older (Q17);
-    "can't reach" after 3 s of a dropped stream.
-  - **"xbin is updating"** is the stream's `bye` (the backend is being
-    replaced) followed by a lost connection; back, the page says what
-    continued and what an update cut off (`status: stopped`). A dropped
-    stream without `bye` is "can't reach" — the draft stays and is not
-    sent; Review… is off.
-  - **Tested by faking.** `test/ws-stub.mjs` stubs the backend in
-    workspace mode and xbind's connection view; `ws-page`, `ws-scope`,
-    `ws-states` drive the page in Chromium, `hack/agent-template-ws-page`
-    the pure parts. No UI harness pass: no holder component is registered
-    on this tree, so no real workspace-mode backend can be framed by a
-    real xbind; to re-run against one: the dock's frame, live `delegate`
-    events, a real `bye` on an xbind update, the full connection view's
-    frame check.
+- **D227 — Sealed components: code that is always the running release's
+  (2026-11-14; issue #51).** The owner, on where the workspace agent runs:
+  a sealed system component, as a general facility, with "a very clean
+  auto-update story (eg code always = builtin template code)". **The
+  full record** — each rule's reasoning, what was weighed and rejected,
+  the owner's answers, four review rounds — is
+  `plans/wsagent/s1-sealed.md` §Decision record (moved there verbatim on
+  2026-11-15: this log is at its size guard). The rules:
+  - **A compiled-in table declares them** (`internal/sealed`; empty in a
+    release until `xbin/wsagent` is registered). Nothing in a workspace
+    declares one or is read about one. The path is `xbin/<name>`: `xbin`
+    is reserved, names are at most 18 characters, `xbin~*` is reserved,
+    and a name may not shadow an xbind route or page.
+  - **The code is the binary's**: rendered, hashed and materialized under
+    `.xbin/sealed`, verified before every start, pages served from
+    memory. Backends are prebuilt per release (`bin/sealed`, listed in
+    `sealed.json`); only `--dev`/`--no-auth` compile.
+  - **Holds, not fallbacks** (`no-build`, `foreign-data`, `newer-data`,
+    `stamp`, `needs-sandboxes`), shown by `/xbin/system` and `bx system`.
+  - **Its data key is its own**, claimed by a stamp with the data format;
+    unclaimed data at the key holds it and is never read, moved or
+    deleted; a newer format holds it (a downgrade).
+  - **Never a target**: no grant, binding or route reaches it or a
+    person's partition of it; only its instance credential acts as it;
+    its page's frame token is a viewer's (its own backend and files,
+    plus the exact GET paths its row names and, for a holder, the
+    delegation API).
+  - **What an admin may change**: who has read access (no level above
+    read exists on it), enabled, limits, the bindings of its declared
+    slots to providers the release names. Everything else is the table's.
+  - **The boundary is where the work is done**, on the canonical path
+    (`util.SealedPath`); the route table (`server/sealedclass.go`, pinned
+    by a golden) is the early answer. One spelling: an odd one is refused.
+  - **Restore is a write path**: only a sealed archive that names it,
+    under a backup key this workspace created; never while held.
+  - **Delegation** (D228, D232): holders, their notice path and the one
+    row that is the agent xbin's chrome frames are the table's
+    (`Capabilities.Delegate`, `Notify`, `Capabilities.Agent`). A person's
+    agent does nothing in a sealed component; no preview shows one.
+  - **Compat and words.** Listings leave sealed rows out unless asked
+    (`?sealed=1`). "Sealed component" in code and builder docs; people
+    read "system component", never beside the vault's sealed state.
+  - **Not done here.** No entry point in the shell, the admin console or
+    the app (the workspace agent's UI work adds them). The real-binary
+    downgrade suite has nothing sealed to downgrade until a row exists.
+- **D228 — Delegation: a sealed component acts as its person, under a cap,
+  with xbind-verified approvals and admin change sets (2026-11-14; issue
+  #51).** The workspace agent needs "the access of its user clicking
+  through the UI". Spike S2 (`plans/wsagent/s2-delegation.md`) found the
+  shape; the owner decided its nine questions the same day. Contract:
+  `docs/auth.md` §Delegation, `docs/protocol/delegation.md`.
+  - **Who**: only a sealed system component marked for it (one lookup, set
+    at boot from the sealed-component table). Never a workspace's
+    `xbin.json`, a grant or an approval.
+  - **The credential** is the instance token of the person's partition
+    under another scheme (`Authorization: XBin-Delegate`), honoured on the
+    gateway socket and on `/api/` only; with isolation off (outside
+    `--dev`/`--no-auth`) delegation refuses to run. It resolves to the
+    person's principal (`Via: "delegate"`, `Agent`), **never an admin**.
+  - **The cap** is a table naming every route xbind mounts (read, act,
+    admin-read, never, refused), kept exhaustive by a test over the route
+    inventory. Never delegated: answering a tile agent, a session's
+    settings, terminals, deletes, code writes, the account and devices,
+    other identities, the person's consents, tile stores, the admin API.
+  - **Approvals are xbind's, not the agent's.** A side effect (a non-GET
+    tile call, a session start, a tile create) needs a one-shot ticket the
+    person approved — bound to method, path with query, and body — or a
+    standing approval of a tile's API the person can list and revoke. A
+    stolen token is read-only. Rejected: approval only in the engine (a
+    token taken from the sandbox would then write).
+  - **Tiles** see `From: user:<id>`, the person's level as the role
+    (`reader`/`writer`), and a new `X-XBin-Agent`. `From` is not the
+    component's path: the agent template in the wild treats another
+    component as a tile manager. Consequence, stated in the changelog:
+    `user:<id>` no longer implies an admin. A tile opts down with
+    `"agent": "off" | "read" | "full"`; absent is full.
+  - **Tile agents it starts** take mode and pickers from the ticket the
+    person approved or from their preferences, on the default deployment;
+    the agent drives only sessions it opened and never answers one. A
+    reduced `$HOME` for such sessions waits for the sign-in store.
+  - **Admin changes** are change sets: a closed list of kinds (grants,
+    bindings, org shares, limits), each previewed by the handler's own
+    checks without writing, approved only by the person whose agent
+    proposed it after a step-up, applied in order as that person through
+    the ordinary handlers; stale items are not applied; an undo set.
+    An opted-in admin's agent also reads grants, bindings, orgs and limits.
+  - **Org rules** live in one place, `Org.Agents` (another package);
+    delegation asks through `delegation.Policy` and refuses without one.
+    No new policy deny kind.
+  - **Also**: per-person audit log, 13 months, every act and tile call and
+    no listing read; the person's pause cuts running calls; 30 acts a
+    minute; no grant or binding may target a sealed holder; each delegate
+    tile call is counted in the partition's egress ledger and its edges
+    count as approved for the consent prompt.
+  - **After the security review (2026-11-15).** Nine findings, fixed on the
+    branch, each with the case that passed before as a test. What changed
+    in the design: (1) a session-start card shows the harness, mode and
+    options the session *will* run with (history included), the ticket
+    binds them, and an agent resumes only sessions it started; (2) change
+    sets are closed by what a kind can *express*, not only by its name —
+    nothing on a holder, no `xbin`/`cap:`/`gpu:`/`code` targets, no `@`
+    slots, workspace default or host network, no share of a tile that
+    holds such grants; a binding's line states its route and xbind writes
+    PUBLIC / OPEN PORT / EGRESS warnings; an item whose warnings changed
+    is stale; (3) the plane is primary-only; (4) `?xbin-partition=global`
+    takes the same consent and ledger as the person's partition; (5) a
+    standing approval is of one call (tile, method, path) by default, the
+    whole tile a separate explicit scope — and the shipped infrastructure
+    says `"agent"` (`off`; the agent template `read`, with a closed rule in
+    its backend; apps say nothing — see below). The review's "the agent can answer a
+    harness's permission through the template's API" did not reproduce:
+    every route there needs the `admin` role and a delegate's call never
+    carries it — an accident, so the explicit rule went in anyway; (6)
+    the audit log rate-limits what isn't an act that ran, stores are
+    per-person locked and bounded; (7) running calls are re-judged (3 s,
+    and at once on a sweep), method-override headers are stripped, a
+    ticket binds the content type and the tile; (8) the cap's classes are
+    pinned by a golden file; (9) `Subject.Model` has one source.
+    Rejected: letting an agent message or start conversations in the
+    agent template under `"agent": "full"` — a message answers a parked
+    question and a start picks a harness and mode; each needs its own
+    design.
+  - **Wired to the agent rules (2026-11-15, with D229 merged).** The
+    delegation policy xbind runs with is `Broker.DelegationPolicy`: the
+    orgs' rules (`AgentTileAllows`, `AgentSessionAllows`) and people's
+    agent preferences (`agentprefs.Store.StartPrefs`), installed by boot;
+    a server, broker or terminal manager given none still refuses
+    everything, and `delegation.OpenPolicy` is the tests'. `GET /alerts`
+    and `GET /screens` are delegated reads, filtered by the same
+    `DelegateHides` as every listing. The routes D229 and D226 added are
+    classed and none is in the cap: the agent rules and preferences
+    (`PUT /agent/prefs` is what an agent may do unasked — the person's),
+    the LLM connector (a component calls it as itself), and **the
+    connection view** (`GET /agents/connection`) — its handler expects the
+    workspace agent as a caller, but it names the tiles the rules block,
+    which an agent's listings leave out; opening it is a decision of its
+    own. Owner's calls: the agent template's closed rule stands for this
+    release (messaging a template instance's conversation under tickets
+    is a possible later addition); `"agent": "off"` for infrastructure
+    (the gateways, sandboxes, ingress, bridges, and a new workspace's
+    admin, organisations and tile-manager consoles), `read` for
+    prometheus-viewer and the agent template, and **nothing** in the chat
+    tile, the starter template and the examples — apps are what a
+    workspace agent acts on, under tickets; the starter's `AGENTS.md`
+    tells a builder when to narrow it and how to keep a route human-only.
+    Kept for the sealed-components merge: under `--dev --no-auth` the
+    holder's single global instance is the implicit owner's delegate
+    (`TestDelegateNoAuthGlobalHolder`, skipped until then).
+  - **After the second review (2026-11-15).** What changed in the design:
+    a tile's agent level is xbind's record, raised only by a person who
+    manages the tile (`data/agent-levels.json`; the manifest lowers, never
+    raises; the consoles' level is the release's); a delegate's tile call
+    forwards an allowlist of request headers, a ticket binds the whole
+    `Content-Type`, a tile's redirect headers are dropped and `AsPerson()`
+    follows none; a missing tile and an unreadable one are one refusal; a
+    binary body is approved only as `unseen`; applying a change set takes
+    an explicit non-empty list, its names are validated before they reach
+    a line, and sets are capped (50 decided, 30 days, 256 KiB); every
+    audit field is bounded and a bad line is skipped and counted; a
+    delegate's session start is strict (`acp.Config.Strict`: the mode in
+    force or no session, only a model or thinking level set) and a
+    preference is its harness's; the cap's golden pins the audit flag and
+    tile function and is not regenerated in CI; the agent template's rule
+    lists reads too and covers the adapters, bus and mailbox. **A holder
+    is never trusted chrome**: "the person's own session" is a request
+    with the person's session and no component, which is exactly what
+    chrome's documents send — `trustedChrome` is false for a holder,
+    `PUT /chrome` refuses one, and boot stops on a conflict.
+  - **Part C0 — what the agent's backend builds on (2026-11-15).**
+    *Agent sessions*: a conversation is a handle xbind issues
+    (`POST /delegate/sessions`: scope, model; per person and holder, 32,
+    24 h idle). Every delegate call names it; the gate takes the model
+    from it (the self-declared `X-XBin-Agent-Model` is gone), confines
+    the call to its scope ("hidden by you"; a policy refusal keeps its
+    reason) and taints it with the orgs of every tile a call touched,
+    reads and listing rows included. The model changes only to one every
+    tainted org allows (409 `model_taint`); the LLM connector holds the
+    holder's own calls to the session's model (its `CallPolicy`).
+    *Views*: the agent's connection view carries no blocked, hidden or
+    no-access tile's name (it enters a model's context); the holder's
+    page reads the full one, for its driver only. *Notices*: xbind tells
+    the holder's backend that something changed — kinds and ids only,
+    coalesced, at least once — over partition mail's delivery principal
+    (no new kind of principal), on a path from the holder's table entry
+    (`auth.SetDelegateNotify`). *Reads*: the docs searchable on `/api/`,
+    a workspace map, the session directory's `origin=agent` filter.
+    Rejected: a process-wide handle in the SDK (one backend serves many
+    conversations: the handle rides the context); naming blocked tiles
+    to the agent "so it can explain" (the reason and a count explain).
+- **D229 — Orgs constrain agents by harness and model; scope and
+  connection state; agent preferences on the server (2026-11-14; issue
+  #51).** The owner: "Orgs define constraints; Workspace agents then get
+  their calls filtered based on those constraints", a multi-select of orgs
+  (unfolding to tiles) says what a session sees, and the UI "should very
+  clearly indicate what orgs/tiles are hooked up and which are not (incl
+  top level UI element showing eg aggregate numbers)"; from the issue:
+  "internal-data org only allows private LLMs". This is the data and the
+  API of `plans/workspace-agent.md` §5.3 and §5.6; the scope picker, the
+  chip and the panel are the web and iOS packages'.
+  - **Three rules, one shape, two levels.** `Org.Agents` (additive, in
+    `data/users.json` like D203's `Org.Limits`): `workspaceAgent` on|off,
+    `harnesses` any | a list of `sdk/acp` provider ids, `models` any |
+    `private` | a list of LLM connector ids (an upstream, or
+    `upstream/model`). The workspace has the same three as outer bounds
+    (a top-level `agents` key beside the workspace policy rows, not
+    `workspace-settings.json`: that store is booleans with their own
+    protections, and the bounds are validated together with the orgs' rules
+    under one lock), plus the credential default of S4 §1.5 (`own-first`,
+    or `connector` forced). Stored only when it narrows something: with
+    nothing set `users.json` is byte for byte what it was.
+  - **Filtering follows the tile's org, on every call**
+    (`internal/agentpolicy`, pure: `Check(layers, ask)`). A tile's layers
+    are the workspace's bounds, the org that owns it, and every org it is
+    shared into (an exact share or a pattern — `users.Store.TileOrgs`).
+    Every layer must allow, so several orgs give the strictest and a tile
+    in no org follows the bounds. A path inside a tile (a session opened
+    on a sub-directory, a nested component) falls under the orgs of every
+    path above it: stepping into a tile never steps out of its org's
+    rules. A share is the tile's managers' act
+    (D24), so the org a tile is shared into gaining a say over it is
+    something its owner chose. The answer carries the reason a person
+    reads ("Finance allows private models only"), the org and the rule.
+  - **An org only narrows — at write time and at call time.** A list entry
+    the bounds don't cover is refused when written, for a workspace admin
+    too; "any" is always accepted (it adds no rule). Bounds tightened later
+    rewrite nothing: each call is asked against both.
+  - **Who sets what.** Workspace admins (and `xbin:users`): the bounds and
+    any org. An org's admin: their own org, in their own session only —
+    refused from a tile they drive (the frame-token rule), from a
+    terminal's or an agent session's token, and in view-as. D203 kept
+    ceilings to workspace admins because a ceiling is a budget; these
+    rules are the org's own data policy, so its admins hold them, and the
+    bounds are where a workspace pins what no org may loosen. The stricter
+    "own session" rule is new here: a coding agent running on an org
+    admin's token must not widen the rules it runs under.
+  - **`private` is the connector's word.** `Broker.AgentModels` (wired by
+    the LLM connector) says whether a model's upstream is private; without
+    it, and for a model it doesn't know, nothing is private. No route takes
+    the caller's word for it.
+  - **The connection view** (`GET /agents/connection?model=&orgs=&tiles=
+    &whatIf=`): every org the person has to do with and every tile they
+    can read as connected | hidden (by their scope) | blocked (reason, org,
+    rule) | no-access (the scope names what they can't see — or what
+    doesn't exist: not told apart), with the totals and the sentence for
+    the chip, and what a model change would connect and disconnect.
+    Blocked wins over hidden: selecting it would not connect it. The scope
+    is the caller's parameter — the session that holds it is the agent
+    component's — and takes `workspace` for the tiles in no org (a
+    reserved org id). The handler answers whoever its credential names as
+    a person, so a delegate gets its person's view with no code of its own.
+  - **The harness list also governs sessions people start themselves**
+    (`term.Manager.AgentGate`, the broker's `AgentHarnessGate`):
+    `GET /agent/providers?cwd=` offers only what the tile allows, and
+    `POST /term/sessions` refuses the rest with the reason. Nothing running
+    is ever ended: a session keeps going, a restart of it is refused before
+    it would end it, and a resume of a past session of a disallowed harness
+    is refused with its transcript still readable. Without `cwd` the
+    catalog is whole, so the shipped app and older frames lose nothing and
+    learn the reason from the refusal. Not a sandbox boundary: a terminal
+    on the tile can still run any CLI.
+  - **Agent preferences on the server** (`internal/agentprefs`,
+    `data/agent-prefs/<user>.json`, `GET`/`PUT /agent/prefs`, a merge
+    patch): the default harness and the launcher's last choice; per
+    harness the mode, model, options and the credential choice; and what
+    the person's workspace agent may start a session with — `start` ask
+    (default) or allow, a mode per harness, the network and tile-API
+    pickers. A bypass mode is never stored (Explicit modes are per
+    session, D74), and `agentSessions.modes` takes only modes the catalog
+    knows keep asking — checked again on every read (`AgentStart`), so the
+    file is never trusted. The routes are `PersonOnly` and refuse terminal
+    and agent tokens too: what an agent may do without asking is not the
+    agent's to write. The file records whose it is (the account's creation
+    stamp): a user id given to a new person keeps the conveniences, like
+    the home directory, and resets `agentSessions`. The launcher reads and
+    writes them, with its `localStorage` value as the migration source and
+    as the fallback against an xbind without the route or a credential the
+    route refuses (the root token, `--no-auth`).
+  - **`origin`** on a session row and its history entry: `"agent"` for
+    one a workspace agent opened, absent otherwise; the session keeps the
+    component that opened it. The field, its JSON and the lines that carry
+    it through `internal/term` are the delegation package's, word for
+    word, so the two merge; setting it at open is that package's alone,
+    and until it lands every row reads as its person's own.
+  - **A session opens from outside its tile's window.** `<bx-frame>`
+    `open({session})` shows a live session's tab, or a past one's
+    transcript; `xbin:open-session {tile, session}` asks the shell for it
+    from a tile's page; the D220 link gains `&session=<id>`. A shell that
+    doesn't answer the request (an older scaffold) gets the link, which it
+    reads as a plain link to the tile.
+  - **Round 2 (2026-11-14), the owner's answers.**
+    - *A workspace admin pins an org's rules* (`Org.AgentsPin`, `PUT
+      /orgs/{org}/agents/pin`; the pattern of D203's ceiling, turned
+      around: a floor of strictness). The first round let an org's admin
+      put back anything a workspace admin had set on their org; only the
+      bounds held. Pin and own rules are two layers asked on every call,
+      so narrowing below the pin needs no rule and loosening it is
+      impossible; a write past it is also refused, for the message. The
+      answer names it: "(pinned by a workspace admin)".
+    - *A share brings a tile under the org's rules, patterns included*
+      (kept), and the reason names the share — "this tile is under
+      Finance by its share apps/*" — so a surprising `*` can be traced
+      (`TileOrgVia`, `Layer.Via`).
+    - *Three credential modes*: `own-first`, `connector-first` (the
+      connector unless the person chose their own sign-in for the harness
+      or the session), `connector-only`. The earlier `connector` reads as
+      `connector-only`.
+    - *The model rule binds tile agent sessions* (the issue: "internal-data
+      org only allows private LLMs … at harness/model level"). A harness
+      on a person's own subscription sends the tile's code to a model
+      xbind can't verify, so wherever a layer's `models` rule is not `any`
+      the session is connector-only whatever the mode and the person's
+      choice, and the connector asks the rule for every call
+      (`Broker.AgentCallAllows`, its `CallPolicy`). One function answers
+      the hook-up: `Broker.AgentSessionLLM(user, tile, harness)
+      agentpolicy.SessionLLM` — `Mode`, `Use` (the saved choice applied;
+      `Choose(session)` for a session's), `Forced`, `Reason`,
+      `ModelAllowed(ModelRef)`. A harness that can't run on the connector
+      (`Broker.AgentConnector`, the connector's to answer; unset: there is
+      none) isn't offered there: `AgentHarnessGate`, so providers, create,
+      resume and restart, and `unavailable` in the connection view and in
+      `GET /agent/providers?cwd=&all=1`. A plain terminal is not governed
+      by either rule, and the docs say so.
+    - *The editor is xbind's* (`/vendor/org-agents.js`, as
+      `<bx-org-limits>` is), used by the admin console and — through a new
+      sibling module — the organisations tile, so an org's admin has a UI.
+  - **Not done.** The scope picker, chip and panel (web, iOS); the
+    delegation package's `Policy` answered by `Broker.AgentTileAllows`,
+    `AgentSessionAllows` and `agentprefs.Store.StartPrefs` (written for
+    it; wired where the two meet); the connector's side of
+    `AgentSessionLLM`, `AgentCallAllows` and `AgentConnector` (the hook-up
+    package wires them); a session's `llm` choice and the
+    connector's variables (the connector's); per-model rules inside one
+    upstream beyond the allowlist; the admin console's editor reaches an
+    old scaffold only after `bx builtin update` (`bx org agents` and the
+    API reach it now).
 
 - **D231 — The workspace agent: one long-lived coordinating agent per
   person, built from the agent template's engine (2026-11-15; issue
@@ -4995,48 +4810,233 @@ here: cut from the old end, never reword.
     tile agents by itself after an xbind update (it is told they stopped
     and may ask to continue one, which asks the person); the reduced
     `$HOME` for started sessions (5.7).
-- **D227 — Sealed components: code that is always the running release's
-  (2026-11-14; issue #51).** The owner, on where the workspace agent runs:
-  a sealed system component, as a general facility, with "a very clean
-  auto-update story (eg code always = builtin template code)". **The
-  full record** — each rule's reasoning, what was weighed and rejected,
-  the owner's answers, four review rounds — is
-  `plans/wsagent/s1-sealed.md` §Decision record (moved there verbatim on
-  2026-11-15: this log is at its size guard). The rules:
-  - **A compiled-in table declares them** (`internal/sealed`; empty in a
-    release until `xbin/wsagent` is registered). Nothing in a workspace
-    declares one or is read about one. The path is `xbin/<name>`: `xbin`
-    is reserved, names are at most 18 characters, `xbin~*` is reserved,
-    and a name may not shadow an xbind route or page.
-  - **The code is the binary's**: rendered, hashed and materialized under
-    `.xbin/sealed`, verified before every start, pages served from
-    memory. Backends are prebuilt per release (`bin/sealed`, listed in
-    `sealed.json`); only `--dev`/`--no-auth` compile.
-  - **Holds, not fallbacks** (`no-build`, `foreign-data`, `newer-data`,
-    `stamp`, `needs-sandboxes`), shown by `/xbin/system` and `bx system`.
-  - **Its data key is its own**, claimed by a stamp with the data format;
-    unclaimed data at the key holds it and is never read, moved or
-    deleted; a newer format holds it (a downgrade).
-  - **Never a target**: no grant, binding or route reaches it or a
-    person's partition of it; only its instance credential acts as it;
-    its page's frame token is a viewer's (its own backend and files,
-    plus the exact GET paths its row names and, for a holder, the
-    delegation API).
-  - **What an admin may change**: who has read access (no level above
-    read exists on it), enabled, limits, the bindings of its declared
-    slots to providers the release names. Everything else is the table's.
-  - **The boundary is where the work is done**, on the canonical path
-    (`util.SealedPath`); the route table (`server/sealedclass.go`, pinned
-    by a golden) is the early answer. One spelling: an odd one is refused.
-  - **Restore is a write path**: only a sealed archive that names it,
-    under a backup key this workspace created; never while held.
-  - **Delegation** (D228, D232): holders, their notice path and the one
-    row that is the agent xbin's chrome frames are the table's
-    (`Capabilities.Delegate`, `Notify`, `Capabilities.Agent`). A person's
-    agent does nothing in a sealed component; no preview shows one.
-  - **Compat and words.** Listings leave sealed rows out unless asked
-    (`?sealed=1`). "Sealed component" in code and builder docs; people
-    read "system component", never beside the vault's sealed state.
-  - **Not done here.** No entry point in the shell, the admin console or
-    the app (the workspace agent's UI work adds them). The real-binary
-    downgrade suite has nothing sealed to downgrade until a row exists.
+- **D232 — The workspace agent's chrome on the web: grants are drawn and
+  sent by xbin, never by the agent's page (2026-11-15; issue #51;
+  `plans/wsagent/ux.md`).** The agent's conversation renders what a model
+  wrote; a grant drawn there could be drawn by the model.
+  - **The rule.** A request, a standing approval, a change set, resume and
+    the admin opt-in are decided in a document that holds the person's
+    session — the shell, `/xbin/agent` — by `web/bx-agent-dock.js` and its
+    siblings. The agent's page sits below the dock's header in a sandboxed
+    frame on its tile credential (a holder is never chrome, D228) and may
+    post `xbin:agent-open-request {id}`, `xbin:agent-open-changeset {id}`,
+    `xbin:open-session {session, tile}`; the dock takes messages only from
+    its own frame's window, reads ids and no other field
+    (`agent-chrome-words.js` `pageMessage`), and draws what xbind answers
+    for the id. The agent's sentence is quoted and labelled.
+  - **Against a click the person didn't mean.** Allow is armed 600 ms
+    after the sheet shows, only while nothing covers it (hit-tested
+    through the shadow roots), only for a trusted event in a focused
+    document; Enter never allows; Esc is "later". The wider grant (every
+    change to a tile) has a second step whose primary button is Go back
+    and a default duration of an hour; a danger-mode session start makes
+    Deny primary. A warned change-set item starts unticked; a blocked one
+    can't be ticked.
+  - **One obvious place per choice**: `CHOICES` in
+    `web/agent-chrome-words.js` (dock bounds 360–720 px, whole page under
+    640 px, the arming delay, default durations, the shortcut Ctrl/⌘+J,
+    no typing while paused) and the words beside it — the copy deck of
+    ux.md §14, node-tested (`hack/agent-chrome.test.mjs`).
+  - **`/xbin/agent`** follows the pages of D203/D226 (static, top-level
+    only, the person's session) with one difference: its CSP has a
+    `frame-src`, because it frames the agent's tile document.
+  - **Old shells** get one alert a person (kind `agent-page`, dismissed
+    with `POST /delegate/page/dismiss`, kept in the person's delegation
+    state through `Store.SeePage`, which never replaces an unreadable
+    file). It is a person's, not an admin's: the alert chain got its first
+    per-person source (`Broker.alertPerson`: own session, or the trusted
+    chrome frame under their login). A shell with the chip filters the
+    kind out.
+  - **Seams, one assignment each.** `Server.AgentHolder` (boot, from the
+    sealed-component table): until it is set `GET /delegate/state` has no
+    `agent`, the dock says the conversation arrives with an update, and
+    the alert is sent to nobody. `state.held` (`locked` | `older`) is read
+    by the chrome and not sent by any xbind yet.
+  - **Tested by faking**: the `agentChrome` harness pass fakes
+    `/api/xbin/delegate/…` by route interception (no holder can post a
+    request on this tree) and refuses the frame's credential as xbind
+    does. To re-run against a real holder: an approval reaching xbind and
+    its ticket being used, live `delegate` events, the sign-in step, the
+    holder's own frame and its messages.
+  - **Not done here**: an "ask my agent about this tile" entry in the
+    tile menu (the chip opens the dock about the tile in front; the dock
+    takes `context`); a mode picker in Preferences (modes are shown, the
+    start preference is set); naming the admins in "An admin can fix
+    this" (no route lists admins to a non-admin); the setup's "Choose who
+    gets one" step links the docs rather than an editor.
+- **D234 — Previews: xbind renders a tile or a screen as a person,
+  read-only, in a confined browser (2026-11-15; issue #51).** The workspace
+  agent has to see what its person sees, and a person (or `bx`) wants a
+  picture of a tile without opening a browser. Spike S3
+  (`plans/wsagent/s3-preview.md`) showed it costs about 1.5 s and 0.4 GB a
+  render; this is the production form. Owner's calls are marked (O1–O8).
+  - **The route.** `POST /api/xbin/preview {tile | screen, shell?, at?,
+    viewport?, wait?, fullPage?}` → a PNG, a text rendering (an
+    accessibility tree per frame), console errors, failed requests, the
+    final URL, the browser's build and a fixed `notice`; `GET
+    /api/xbin/preview` → availability and limits. Classes: primary-only for
+    the POST (a preview shows what people see, so a non-primary
+    deployment's credential gets 403), partition-neutral (it renders as the
+    person behind the call).
+  - **Who (O5, O8).** `previewPerson` (internal/server/preview.go) is the
+    one function that decides: a person for themselves (browser session,
+    the app's bearers), a person's terminal for its own tile only; never
+    the root token, a tile, a view-as session. The delegate's case is added
+    there when delegation merges. Admins who want someone else's view use
+    view-as: a preview is never of another person.
+  - **The session (O1).** A view-as session whose viewer is the reserved
+    `~preview` (`auth.PreviewViewer`): `ReadOnly()` holds, so every write
+    gate and every derived credential is read-only with no new claim in any
+    wire form. `Principal.ViewAs()` separates "someone else is looking"
+    from "read-only": privacy gates (a partitioned tile's document, its
+    routing, its events, session history and names, personal binds) ask
+    `ViewAs`, write gates keep `ReadOnly`, and every remaining direct read
+    of `Impersonator` is classified act / carry / name in a test that fails
+    on a new one. No account can take the id; the reserved viewer mints and
+    redeems no view-as; a preview session is not listed, not persisted, has
+    no "stop" and expires on its own.
+  - **The transport.** One unix socket per render; xbind sets the session
+    on its requests, by the cookie jar's rules (not to a tile origin, not
+    on a request a sandboxed frame starts: `Sec-Fetch-Site`, or `Origin`
+    on a WebSocket handshake). The socket refuses non-GET, terminals and
+    sign-in routes whatever credential arrives, and any Host that is not
+    the workspace's. Read-only therefore holds by the credential alone and
+    by the transport alone (tested separately).
+  - **Scope (O4).** A tile render's socket admits that tile's files and its
+    frame's calls; a screen render's the shell, the person's own reads
+    minus tile source, git, checkpoints, backups and the vault, and the
+    tiles on that screen (resolved from the person's layout and the org
+    screens shared with them, read as the shell reads them). A tile that
+    loads another tile's files renders without them.
+  - **Sockets (O2).** An upgrade by a preview principal reaches the backend
+    at `reader` (the read clamp; a role it can't narrow is refused). Plain
+    GETs keep their role, so the picture is true. View-as is unchanged.
+  - **Partitions (O3).** A preview opens the person's own partition
+    read-only and never makes one: a tile never opened answers 409.
+  - **Tiles are told.** `X-XBin-Preview: 1` on every call
+    (`xbin.Caller(r).Preview`), documented as the contract: a GET or a
+    socket under it changes nothing. xbind can't enforce it inside a
+    handler; the builtin tiles and templates were audited for it.
+  - **Ready (O6).** `xbin.ready()` and `<meta name="xbin-ready"
+    content="manual">`, additive. The render ends on the signal when every
+    tile gave it, else when the network is quiet and frames are loaded; a
+    declared tile is waited for about ten seconds.
+  - **The sandbox.** `internal/preview` runs the rootfs's node and
+    Chromium through `internal/confine`, unchanged but for a cgroup hook:
+    an empty network namespace, one read-only bind (the driver and the
+    socket), the answer over stdout only. Only the workspace's names
+    resolve, to the socket; an https workspace gets TLS on the socket under
+    a per-render key pinned by SPKI. No `--isolate` or no Chromium → 503,
+    never a host run (D78).
+  - **Limits (O7).** 1 per person, 2 per workspace, 45 s, 1 GiB:
+    `XBIN_PREVIEW_PER_USER`, `_TOTAL`, `_TIMEOUT`, `_MEM`; `XBIN_PREVIEWS=off`.
+    The memory cap is a cgroup leaf (killed at the cap, no `memory.high`)
+    and needs delegation, as tile limits do.
+  - **Chromium's own sandbox stays off.** Tried: it refuses uid 0, which a
+    confined tool is in its user namespace, and an unprivileged process
+    there can't write a nested namespace's uid map. Turning it on needs the
+    sandbox init to exec a tool as a non-root uid of the range — not done.
+    Mitigations: the scope, the empty netns, and the rootfs's Playwright
+    now pinned (`PLAYWRIGHT_VERSION`, guarded by `make pins`). The residual
+    risk is written down in docs/isolation.md §Previews: a page that owns
+    the browser can read what the render shows and pass it to a backend it
+    controls in a GET.
+  - **Prompt injection.** The answer's `notice` says its content is data,
+    not instructions; the agent's tool shows it with every result.
+  - **Not done.** The shell still tries its saves under `readOnly` (they
+    are refused; a failure toast can be in a picture); VM-backed sandboxes
+    for the browser; a tile's non-primary deployment as a target; the
+    delegate's route-class row (with delegation).
+  - **After an independent review (same day).** What it found and what
+    changed: (1) clamping only the role left backends that authorize on
+    the person's level writable over a socket (the coding-sandbox's
+    terminals) — in a preview every call, GET or upgrade, now carries role
+    `reader` and user level `read`, `UserCanWrite()` is false, and the
+    builtin tiles' sockets refuse a preview from any consumer; a custom
+    role with no read form keeps its role on a GET and gets no socket.
+    The cost is fidelity: a tile is drawn as its reader sees it. (2)
+    xbind's own GETs with effects: a work-tree diff captured a checkpoint
+    for any read-only session (fixed in a commit of its own, for master);
+    the cross-tile branch could start a first partition and send a consent
+    prompt; the model list dialled upstreams — all refused. (3) The answer
+    is rebuilt in Go from a strict shape with byte caps; nothing the
+    sandbox returns is passed through, the browser's name included. (4)
+    The picture has a pixel budget checked from its header before
+    decoding; the runner clips a taller page (`clipped`). (5) No
+    enforceable memory cap → unavailable unless `XBIN_PREVIEWS=uncapped`;
+    the sandbox's tmpfs mounts are sized in every case
+    (`sandbox.Spec.TmpfsBytes`). (6) The person's plane on a screen render
+    is an allow-list of the shell's reads, pinned by an end-to-end test
+    through `leftOut`; an admin's render is a member's view (the
+    workspace-wide lists answered empty, events refused, a `note`). (7)
+    The socket honours only its own render's session, on every host. (8)
+    `/whoami` no longer says `preview`; a tile must not draw differently
+    for the header. The review also turned up, by its admin-screen test,
+    that the first scope gate refused the shell's own frame token and so
+    broke every admin's screen render.
+
+- **D235 — The workspace agent on the web: xbin's chrome grants, the
+  agent's page shows (2026-11-15; issue #51; `plans/wsagent/ux.md`).**
+  *(Part 1, xbin's own chrome — the dock, the approval sheet, the change
+  set, Needs you, pause — is its own entry, D232; this entry is the
+  agent's page only.)*
+  - **Part 2 — the agent's own page (package D2).** The conversation with
+    a person's workspace agent is the agent template's page in workspace
+    mode, `builtin-templates/agent/ws/`, framed by the dock.
+  - **A page of its own, not a mode of agent.js.** `boot.js` chooses: on a
+    sealed component's path (`xbin/<name>`, which no workspace can hold)
+    it asks `GET /ws/state` after the kit check and loads `ws/page.js` when
+    the mode is `workspace`. Rejected: a field on `GET /me` (the backend is
+    another package's, and `/me` is read after agent.js has loaded half the
+    app); asking every instance (one more call before every normal page —
+    and `test/ci.mjs`, which takes the first call as "the app started",
+    showed what that shifts); a branch inside agent.js (its static imports
+    run the whole app first, and instances patch that file). The ws tree
+    reuses the models (`model/session.js`, `model/fold.js`) and the
+    template's chat window; it never imports agent.js's views, and a test
+    pins that both ways.
+  - **It grants nothing, by construction.** Every way out is a message
+    to the chrome with ids only (`ws/dock.js`: `xbin:agent-open-request
+    {id}`, `xbin:agent-open-changeset {id}`, `xbin:open-session {session,
+    tile}`; in, `xbin:agent-context {tile | screen}` from the framing window
+    only). The one exception is the backend's: where the person's
+    preferences let a start through without a ticket (`start-defaults` →
+    `ticket: false`), the brief's button reads Start and the click is the
+    confirmation. Browser scripts assert that no Allow, Approve, Deny or
+    Resume is ever drawn, whatever waits.
+  - **Cards where the conversation made them, the window untouched.**
+    `ws/place.js` maps the session's cards onto the fold's rows: a request
+    in place of the call that filed it (by `callId`, else the call's own
+    "Pending — request N"), a brief in place of `tile_agent_brief`, a tile
+    agent after the request that started it, the plan once in place of its
+    first call, an `ask_user` with `choices` as the kit's form; else after
+    the line before it in time. A row may draw several cards or none, so
+    the session's paging and the kit's window keep their indices.
+    Rejected: a second list of blocks for the window (its `keep()` cuts by
+    the fold's indices). The phrases it reads in tool answers are the
+    backend's, pinned by a node test against the Go source, and so is every
+    JSON field it reads.
+  - **The context chip goes as a line of text** (`About tile "<name>"
+    (<path>):`): the message route takes text only; the page splits it back
+    to draw the chip above the person's words. A structured field is a gap
+    for the backend's owner.
+  - **Kit, generic** (KIT 5): a plan's title, meta, note, numbering and a
+    step's tag; a question's button words; the composer's accessible name.
+    The page needs `NEEDS.ws` = 5; the normal page still needs 4.
+  - **The recommendations of ux.md §15 that the page follows**, each in
+    `CHOICES` (`ws/words.js`): a starter fills, never sends (Q8); no typing
+    while paused (Q10); no session cap, archived fold under Older (Q17);
+    "can't reach" after 3 s of a dropped stream.
+  - **"xbin is updating"** is the stream's `bye` (the backend is being
+    replaced) followed by a lost connection; back, the page says what
+    continued and what an update cut off (`status: stopped`). A dropped
+    stream without `bye` is "can't reach" — the draft stays and is not
+    sent; Review… is off.
+  - **Tested by faking.** `test/ws-stub.mjs` stubs the backend in
+    workspace mode and xbind's connection view; `ws-page`, `ws-scope`,
+    `ws-states` drive the page in Chromium, `hack/agent-template-ws-page`
+    the pure parts. No UI harness pass: no holder component is registered
+    on this tree, so no real workspace-mode backend can be framed by a
+    real xbind; to re-run against one: the dock's frame, live `delegate`
+    events, a real `bye` on an xbind update, the full connection view's
+    frame check.

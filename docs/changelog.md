@@ -12,7 +12,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
-- **The workspace agent's page** (D232; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
+- **The workspace agent's page** (D235; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
   the agent template's `API.md` §Workspace mode → The page). On the sealed
   component's path the agent template's `boot.js` asks `GET /ws/state` and
   loads its workspace page (`ws/`) in place of `agent.js`; an instance of

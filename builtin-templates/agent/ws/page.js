@@ -1,5 +1,5 @@
 // ws/page.js — the workspace agent's own page (docs/workspace-agent.md §The
-// agent's page; D232): what xbin's dock frames when it shows a person's
+// agent's page; D235): what xbin's dock frames when it shows a person's
 // workspace agent. boot.js loads it in place of agent.js when the backend
 // says it is in workspace mode (GET /ws/state → mode "workspace"); the
 // template's normal page is never loaded here, and nothing of this tree is

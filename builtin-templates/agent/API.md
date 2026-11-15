@@ -5977,7 +5977,7 @@ to the session's taint (`…/taint`) first. `PUT /ws/notebook/{slug}` — the
 person's own route — keeps a page's stamps, and clears them only with
 `clearStamps: true` (a deliberate act the page confirms; no tool can).
 
-**The page** (`ws/`; D232). In workspace mode the tile's page is another
+**The page** (`ws/`; D235). In workspace mode the tile's page is another
 one: `boot.js` — on a sealed component's path (`xbin/<name>`) only, once the
 kit is there — asks `GET /ws/state` and, when it answers `mode:
 "workspace"`, loads `ws/page.js` in place of `agent.js`; anywhere else

@@ -1,5 +1,5 @@
 // hack/agent-template-ws-page.test.mjs — the pure parts of the workspace
-// agent's page (builtin-templates/agent/ws/; D232), run by `make js-test`:
+// agent's page (builtin-templates/agent/ws/; D235), run by `make js-test`:
 // the message contract with xbin's chrome (ws/dock.js), the words and
 // readings of the backend's shapes (ws/words.js), the scope panel's model
 // (ws/scope-model.js), where the agent's cards sit in its transcript
