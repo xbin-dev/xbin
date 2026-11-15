@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -131,6 +132,10 @@ func TestTheReleasesTable(t *testing.T) {
 	}
 	if !slices.Equal(sp.FrameReads, []string{"/api/xbin/agents/connection"}) {
 		t.Errorf("its page's extra reads: %v, want the connection view alone", sp.FrameReads)
+	}
+	// sized for one person's backend, below a tile's defaults (table.go says why)
+	if sp.Limits != (Limits{Memory: 512 << 20, IdleStop: 3 * time.Minute}) {
+		t.Errorf("its limits: %+v", sp.Limits)
 	}
 	if !sp.Capabilities.Delegate || !sp.Capabilities.Agent {
 		t.Errorf("its capabilities: %+v", sp.Capabilities)
@@ -619,6 +624,9 @@ func TestTableEnvNotifyAndFrameReads(t *testing.T) {
 		"a variable with an equals sign":    {Name: "fix", Source: fixture(""), Env: map[string]string{"A=B": "x"}},
 		"a notify path without a slash":     {Name: "fix", Source: fixture(""), Notify: "notify"},
 		"a notify path with a query":        {Name: "fix", Source: fixture(""), Notify: "/notify?x=1"},
+		"a memory cap no backend runs in":   {Name: "fix", Source: fixture(""), Limits: Limits{Memory: 8 << 20}},
+		"an idle stop under a minute":       {Name: "fix", Source: fixture(""), Partition: []string{"user"}, Limits: Limits{IdleStop: 5 * time.Second}},
+		"an idle stop for a single backend": {Name: "fix", Source: fixture(""), Limits: Limits{IdleStop: 5 * time.Minute}},
 		"an agent that holds no delegation": {Name: "fix", Source: fixture(""), Capabilities: Capabilities{Agent: true}},
 		"a notify path with its method":     {Name: "fix", Source: fixture(""), Notify: "POST /delegate/notify"}, // xbind POSTs; the row is the path
 		"a notify path that climbs":         {Name: "fix", Source: fixture(""), Notify: "/a/../b"},

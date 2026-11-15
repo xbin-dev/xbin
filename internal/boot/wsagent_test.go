@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
+
+	"github.com/xbin-dev/xbin/internal/limits"
 
 	"github.com/xbin-dev/xbin/internal/sealed"
 )
@@ -373,5 +376,45 @@ func TestWorkspaceAgentHeldByNewerData(t *testing.T) {
 	}
 	if b, err := os.ReadFile(stamp); err != nil || json.Unmarshal(b, &kept) != nil || kept.Data != 2 || kept.Release != "v9.9.9" || kept.Mode != "" {
 		t.Errorf("the stamp after the boot: %s %v", b, err)
+	}
+}
+
+// The workspace agent's row sizes it for one person's backend, below a
+// tile's defaults: its memory cap (what an admin's raise starts from), and
+// the idle stop of people's partitions of it. A tile's are as they were,
+// and the cap people's partitions run under at once is the default's until
+// an admin sets one.
+func TestWorkspaceAgentRowLimits(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace")
+	}
+	quiet(t)
+	ws := probeWorkspace(t)
+	d := startSealed(t, ws, sealed.Table(), production(filepath.Join(t.TempDir(), "no-sealed-bin")))
+	st := d.st
+	if got, _ := st.limitDefault(wsAgentPath, limits.MemMiB); got != 512 {
+		t.Errorf("the agent's memory cap: %d MiB, want the row's 512", got)
+	}
+	if got, _ := st.limitDefault("apps/plain", limits.MemMiB); got != 2048 {
+		t.Errorf("a tile's memory cap: %d MiB, want the default 2048", got)
+	}
+	if got := st.Run.PartitionIdleFor(wsAgentPath); got != 3*time.Minute {
+		t.Errorf("the idle stop of people's partitions of the agent: %s, want the row's 3m", got)
+	}
+	if got := st.Run.PartitionIdleFor("apps/plain"); got != 0 {
+		t.Errorf("a tile's idle stop: %s, want the default (0)", got)
+	}
+	defTile, _ := st.Run.DefaultPartitionCaps()
+	if perTile, _ := st.Run.PartitionCapsFor(wsAgentPath); perTile != 0 && perTile != defTile {
+		t.Errorf("the agent's running cap: %d, want the default (%d)", perTile, defTile)
+	}
+	// with cgroup caps enforced, the ceiling a partition's leaf gets is the
+	// row's, and a raise an admin approved lifts it as a tile's
+	st.Deployments.TileLimits.MemMax = 2 << 30
+	if got := st.Deployments.TileCeiling(wsAgentPath).MemMax; got != 512<<20 {
+		t.Errorf("the agent's ceiling under a 2 GiB tile default: %d", got)
+	}
+	if got := st.Deployments.TileCeiling("apps/plain").MemMax; got != 2<<30 {
+		t.Errorf("a tile's ceiling: %d", got)
 	}
 }

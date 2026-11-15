@@ -4,6 +4,7 @@ package sealed
 
 import (
 	"io/fs"
+	"time"
 
 	xbin "github.com/xbin-dev/xbin"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -33,7 +34,17 @@ const WorkspaceAgent = "wsagent"
 //     server, sandbox manager, scm provider or network slot exists for it;
 //   - its page reads one thing of xbind's beside a viewer's list: the
 //     connection view of its own session (the names a model must not see);
-//   - cap:open-links: its transcript renders links that open in a new tab.
+//   - cap:open-links: its transcript renders links that open in a new tab;
+//   - limits below a tile's, sized for one person's backend: a memory cap
+//     of 512 MiB where a tile's default is 2 GiB — measured, a partition
+//     holds 57–63 MiB idle and 74 MiB after a 216-tool-call conversation
+//     and a compaction, so the cap is about seven times its heaviest
+//     measured use and a quarter of what 32 running partitions could
+//     otherwise claim — and an idle stop of three minutes where a
+//     partition's default is ten: a stopped partition answers again in
+//     0.1 s (0.4 s when its volumes are mounted anew), so stopping early
+//     costs a person nothing they notice. The number running at once is
+//     the partition default's. An admin raises the memory cap as a tile's.
 //
 // It is inert until an admin has connected a model (the slot's default
 // applies only then), turned workspace agents on (the delegation switch,
@@ -53,6 +64,7 @@ func table() []Spec {
 		Notify:       "/delegate/notify",
 		FrameReads:   []string{"/api/xbin/agents/connection"},
 		Grants:       []registry.Use{{Target: "cap:open-links", Role: "writer"}},
+		Limits:       Limits{Memory: 512 << 20, IdleStop: 3 * time.Minute},
 		Capabilities: Capabilities{Delegate: true, Agent: true},
 		Data:         1,
 	}}

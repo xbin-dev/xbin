@@ -101,6 +101,9 @@ func (st *State) stepTileLimits() error {
 	brk.RefreshLimitAsks() // the manifests' asks, and the max clamp LimitGrant uses
 	dp.TileCeiling = func(tile string) cgroup.Limits {
 		l := dp.TileLimits
+		if low := st.Sealed.Limits(tile).Memory; low > 0 && l.MemMax > 0 && low < l.MemMax {
+			l.MemMax = low // a sealed component's row asks for less than a tile's default (sealed.Limits)
+		}
 		if g := brk.LimitGrant(tile, limits.MemMiB) << 20; l.MemMax > 0 && g > l.MemMax {
 			l.MemMax = g
 		}
