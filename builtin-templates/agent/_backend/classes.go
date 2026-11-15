@@ -364,6 +364,9 @@ func (st *classState) defaultFor(w who) agentClass {
 
 // currentClasses is the cached set (the built-ins until loadClasses ran).
 func currentClasses() *classState {
+	if wsMode() { // a workspace agent: its one fixed class, nothing stored (ws_mode.go)
+		return wsClasses
+	}
 	if confIn() != nil {
 		refreshConfClasses() // a person's partition follows conf (conf.go)
 	}

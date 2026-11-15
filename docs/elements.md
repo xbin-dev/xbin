@@ -1154,7 +1154,8 @@ Keep it truthful over pretty — it's a contract, not marketing.
 
 A person can have a **workspace agent**: software a model drives, which
 xbind lets call your tile's API *as that person*
-([auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)).
+([auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent);
+what the agent is and does: [workspace-agent.md](/docs/workspace-agent.md)).
 Its calls look like the person's — `X-XBin-From: user:<id>`, `X-XBin-User`,
 their level — at role `reader` or `writer`, never `admin`, plus
 **`X-XBin-Agent`** (`xbin.Caller(r).ByAgent()`). xbind asks the person

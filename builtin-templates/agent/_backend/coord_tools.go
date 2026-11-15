@@ -124,6 +124,34 @@ func coordToolsFor(cfg Config, run *Run) []toolSpec {
 	return out
 }
 
+// coordSpecsFor is specs as run's profile words them (its Specs hook), for
+// a coordinator at depth 0: a tool may be reworded or dropped, never added
+// — a name that wasn't in specs is left out.
+func coordSpecsFor(cfg Config, run *Run, specs []toolSpec) []toolSpec {
+	if run == nil || run.Depth != 0 || coordOriginOf(run) == nil {
+		return specs
+	}
+	ag := projAg()
+	if ag == nil || !ag.db.features {
+		return specs
+	}
+	p := coordProfileOf(ag.db, run)
+	if p == nil || p.Specs == nil {
+		return specs
+	}
+	had := map[string]bool{}
+	for _, s := range specs {
+		had[s.Function.Name] = true
+	}
+	out := specs[:0:0]
+	for _, s := range p.Specs(cfg, run, specs) {
+		if had[s.Function.Name] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // coordToolOf is the tool name for run and the profile that answers for
 // it: run's own when it has the tool; else the profile that owns the name
 // — whose Resolve refuses a run that is none of its coordinators, in its
