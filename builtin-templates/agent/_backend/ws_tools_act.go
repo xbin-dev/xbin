@@ -172,6 +172,8 @@ func wsDryWords(what string, d *wsDry) string {
 		b.WriteString("It reads and changes nothing, so nobody is asked.")
 	case d.NeedsApproval:
 		b.WriteString("It changes something: your person is shown the exact call and must allow it first. xbin can't undo it.")
+	case d.Under == "preference": // xbind: this start, as asked, runs on the person's own preference
+		b.WriteString("It changes something, and your person's preference lets it start without xbin asking: Start on the brief's card is their go-ahead. xbin can't undo it.")
 	case d.Under != "":
 		b.WriteString("It changes something, and a standing approval your person gave covers it (" + d.Under + "): it would run without asking. xbin can't undo it.")
 	default:

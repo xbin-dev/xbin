@@ -499,7 +499,11 @@ func (f *fakeXbin) call(sid string, c wsCall) (wsAnswer, error) {
 	}
 	needs := !read && !f.standing[fakeKey(c)]
 	if strings.HasPrefix(c.Path, "/api/xbin/term/sessions") {
-		needs = f.startAsk
+		// as xbind's startsUnasked: the person's preference, and only for a
+		// start that names no mode, picker or resume of its own
+		var ask struct{ Resume, Mode string }
+		_ = json.Unmarshal(c.Body, &ask)
+		needs = f.startAsk || ask.Resume != "" || ask.Mode != ""
 	}
 	if t != nil && !read && t.Agent != "full" {
 		msg := t.name() + " doesn't let agents change it"
@@ -518,6 +522,9 @@ func (f *fakeXbin) call(sid string, c wsCall) (wsAnswer, error) {
 		}
 		if !read && !needs && !strings.HasPrefix(c.Path, "/api/xbin/") {
 			d.Under = "approval:always"
+		}
+		if !needs && strings.HasPrefix(c.Path, "/api/xbin/term/sessions") {
+			d.Class, d.Under = "act", "preference" // as xbind answers a start its person's preference lets through
 		}
 		return wsAnswer{Status: 200, Dry: d}, nil
 	}

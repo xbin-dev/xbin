@@ -6038,7 +6038,9 @@ default's; every name and `asks` in it is xbind's answer (`GET
 /delegate/start-defaults?tile=`), read anew for the card: the backend has
 no list of coding agents of its own in this mode). Where the person's
 preferences let starts through without a ticket — xbind's dry run says
-`needsApproval: false` — no request is filed and the click on the brief
+`needsApproval: false, under: "preference"` (never for a resume, or a start
+that names a mode of its own); a start it refuses whatever approves it is
+`allowed: false` with its sentence, filed nowhere — no request is filed and the click on the brief
 (`POST …/briefs/{bid}/start`) is the confirmation; wherever xbind says one
 is needed, at the tool, at the click or on the call itself, a request is
 filed and nothing starts before the person allows it. What the agent messages
