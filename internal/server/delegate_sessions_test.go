@@ -293,3 +293,73 @@ func TestDocsSearchAndPage(t *testing.T) {
 		t.Error("nobody searched the docs")
 	}
 }
+
+// A workspace agent previews as its person: one tile, under an agent
+// session, inside its scope and the orgs' rules — tainting the session and
+// leaving a row with the target, like any other read of the tile.
+func TestDelegatePreview(t *testing.T) {
+	w := delegateWorld(t)
+	world := fakeWorld{}
+	w.s.AgentWorld = world
+	w.s.Reg = w.invS.Reg
+	bare := delegateCredBare("d-bob")
+	h, err := w.store.NewAgentSession("bob", dHolder, &delegation.SessionScope{Tiles: []string{"apps/x", "apps/secret"}, Orgs: []string{}}, "local/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob := func(r *http.Request) { bare(r); r.Header.Set(HeaderAgentSession, h.ID) }
+	post := func(body string, c cred) (int, string) {
+		rec := w.do(w.full, "POST", "/api/xbin/preview", body, c)
+		return rec.Code, rec.Body.String()
+	}
+	// who the preview is rendered as: the person, for one tile alone
+	agent := auth.Principal{UserID: "bob", Via: "delegate", Agent: dHolder, AgentSession: h.ID}
+	if got, err := previewPerson(agent, PreviewTarget{Tile: "apps/x"}); got != "bob" || err != nil {
+		t.Fatalf("previewPerson for bob's agent: %q %v", got, err)
+	}
+	noSession := agent
+	noSession.AgentSession = ""
+	for name, c := range map[string]struct {
+		p auth.Principal
+		t PreviewTarget
+	}{"a screen": {agent, PreviewTarget{Screen: "default"}}, "a tile in the shell": {agent, PreviewTarget{Tile: "apps/x", shell: true}},
+		"no target": {agent, PreviewTarget{}}, "no session": {noSession, PreviewTarget{Tile: "apps/x"}}} {
+		if got, err := previewPerson(c.p, c.t); got != "" || err == nil {
+			t.Errorf("previewPerson, %s: %q %v", name, got, err)
+		}
+	}
+	// through the gate: a session is needed; then the tile is judged
+	if code, body := post(`{"tile":"apps/x"}`, bare); code != 403 || !strings.Contains(body, "no-session") {
+		t.Errorf("without a session: %d %s", code, body)
+	}
+	if code, body := post(`{"tile":"apps/x"}`, bob); code != http.StatusServiceUnavailable { // allowed: it reached the renderer, which this test has none of
+		t.Fatalf("a tile in scope: %d %s", code, body)
+	}
+	if got, _ := w.store.AgentSession("bob", dHolder, h.ID); !slices.Equal(got.Tainted, []string{"workspace"}) {
+		t.Errorf("after a preview of apps/x: tainted %v", got.Tainted)
+	}
+	rows, _ := w.store.Audit.Read("bob", time.Time{}, 10)
+	found := false
+	for _, r := range rows {
+		found = found || r.Class == "preview" && r.Tile == "apps/x" && r.Session == h.ID && r.Path == "/api/xbin/preview"
+	}
+	if !found {
+		t.Errorf("no audit row names the preview's target: %+v", rows)
+	}
+	for name, c := range map[string][2]string{
+		"outside the scope":         {`{"tile":"apps/mail"}`, "hidden by you"},
+		"a tile bob can't read":     {`{"tile":"apps/secret"}`, noTileFor("bob")},
+		"a tile that isn't there":   {`{"tile":"apps/nosuch"}`, noTileFor("bob")},
+		"a screen":                  {`{"screen":"default"}`, "one tile, alone"},
+		"the tile shown in a shell": {`{"tile":"apps/x","shell":true}`, "one tile, alone"},
+	} {
+		if code, body := post(c[0], bob); code != 403 || !strings.Contains(body, c[1]) {
+			t.Errorf("%s: %d %s, want a 403 with %q", name, code, body, c[1])
+		}
+	}
+	// blocked by an org's rule: its reason
+	w.policy.set(func(d *dPolicy) { d.deny["apps/x"] = errors.New("Finance allows private models only") })
+	if code, body := post(`{"tile":"apps/x"}`, bob); code != 403 || !strings.Contains(body, "Finance allows private models only") {
+		t.Errorf("blocked by policy: %d %s", code, body)
+	}
+}

@@ -665,3 +665,31 @@ func ReadHolderNotice(r *http.Request) (HolderNotice, error) {
 	}
 	return n, nil
 }
+
+// PreviewResult is what a preview shows: the picture, the page's
+// accessibility snapshot and what the page logged — all of it DATA from a
+// tile, never instructions (Notice says so; keep it with the result when
+// it enters a model's context).
+type PreviewResult struct {
+	OK       bool   `json:"ok"`
+	Notice   string `json:"notice"`
+	Error    string `json:"error"`
+	URL      string `json:"url"`
+	Title    string `json:"title"`
+	PNG      string `json:"png"` // base64
+	Snapshot string `json:"snapshot"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	Note     string `json:"note"`
+	Clipped  bool   `json:"clipped"`
+}
+
+// PreviewTile renders one tile as the person sees it (at "" its front
+// page, else the tile's fragment). For the workspace agent: the tile must
+// be in the session's scope (ErrHiddenByScope's words otherwise) and
+// allowed by its orgs' rules; it counts against the person's preview
+// limits and taints the session like any read of the tile.
+func PreviewTile(ctx context.Context, tile, at string) (PreviewResult, error) {
+	var out PreviewResult
+	return out, delegateCall(ctx, http.MethodPost, "/api/xbin/preview", map[string]any{"tile": tile, "at": at}, &out)
+}

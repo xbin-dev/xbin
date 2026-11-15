@@ -239,8 +239,8 @@ var delegateClasses = map[string]delegateRow{
 	// decided: a delegate previews AS ITS PERSON, and the one place that
 	// says who a preview renders as is previewPerson (preview.go) — the
 	// delegate's case goes there, with these rows, in the same change.
-	"POST /preview":             dNo("previews for a workspace agent are not decided yet (D234): the person asks for their own"),
-	"GET /preview":              dNo("previews for a workspace agent are not decided yet (D234)"),
+	"POST /preview":             dAct(),  // as its person: one tile, in the session's scope and the orgs' rules; rate-limited as an act, no ticket (preview.go previewDelegate)
+	"GET /preview":              dRead(), // whether previews are available, and the limits
 	"GET /components":           dRead(), // the tiles the person can read
 	"GET /components/{path...}": dRead().on(byComponentPath),
 	"GET /screens":              dRead(), // its tiles and folder items, filtered (the broker's delegatelist.go)

@@ -141,7 +141,7 @@ GET /permission-sets	never
 GET /policy	never
 GET /prefs	refused
 GET /prefs/{key}	refused
-GET /preview	refused
+GET /preview	read
 GET /push/config	never
 GET /push/devices	never
 GET /push/prefs	never
@@ -288,7 +288,7 @@ POST /partitions/reviewed	never
 POST /partitions/share-log	never
 POST /partitions/stop	never
 POST /path-tickets	never
-POST /preview	refused
+POST /preview	act
 POST /push/test	never
 POST /restore	never
 POST /sandboxes	refused
