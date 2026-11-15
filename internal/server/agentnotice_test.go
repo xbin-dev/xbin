@@ -32,8 +32,19 @@ func TestAgentChromeState(t *testing.T) {
 	if _, ok := w.s.AgentPageNotice("bob"); ok {
 		t.Fatal("a notice without an agent to show")
 	}
+	// …and only for a person who was given it: nobody has an agent until
+	// then (agentwho.go), and nobody without one is told of its page
 	w.s.AgentHolder = func() string { return dHolder }
-	if st = state("bob"); st["agent"] != dHolder {
+	if st = state("bob"); st["agent"] != nil || st["access"] != false {
+		t.Fatalf("a person who wasn't given the agent: %v", st)
+	}
+	if _, ok := w.s.AgentPageNotice("bob"); ok {
+		t.Fatal("a notice for a person without an agent")
+	}
+	if err := w.s.Auth.Users.SetUserTile("bob", dHolder, "read"); err != nil {
+		t.Fatal(err)
+	}
+	if st = state("bob"); st["agent"] != dHolder || st["access"] != true || st["who"] != nil {
 		t.Fatalf("agent: %v", st)
 	}
 	msg, ok := w.s.AgentPageNotice("bob")

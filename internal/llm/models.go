@@ -320,13 +320,15 @@ func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdk
 	wg.Wait()
 	list := sdkllm.ModelList{Object: "list", Data: []sdkllm.Model{}}
 	errs := map[string]string{}
+	listing := c
+	listing.Listing = true // the policy is asked what to show, not whether a call runs (Caller.Listing)
 	for i, name := range names {
 		u := snap.upstreams[name]
 		if results[i].err != "" {
 			errs[name] = results[i].err
 		}
 		for _, m := range results[i].models {
-			if m.ID == "" || s.refusedByPolicy(c, u, m.ID) {
+			if m.ID == "" || s.refusedByPolicy(listing, u, m.ID) {
 				continue
 			}
 			m.ID = publicName(u, m.ID)
@@ -341,7 +343,7 @@ func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdk
 	}
 	alias := func(id, target string) {
 		u, m, err := snap.resolve(target)
-		if err != nil || s.refusedByPolicy(c, u, m) {
+		if err != nil || s.refusedByPolicy(listing, u, m) {
 			return
 		}
 		list.Data = append(list.Data, sdkllm.Model{ID: id, Object: "model", OwnedBy: "alias", AliasOf: publicName(u, m)})

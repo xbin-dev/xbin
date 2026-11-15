@@ -846,6 +846,7 @@ func (st *State) stepServer() error {
 	st.registerGoVersionsAPI(srv)     // the D166 upgrade check's routes and admin alert
 	st.setupDelegation(srv)           // people's workspace agents (delegation.go, D228)
 	srv.AgentHolder = st.Sealed.Agent // which component is the agent here: the table's row (D232), "" in a release without one
+	srv.AgentHeld = st.agentHeld      // …and why it can't run, when it can't (wsagent.go)
 	if err := srv.DelegationChromeConflict(); err != nil {
 		return err // a holder that is also trusted chrome: its page would approve its own agent's requests
 	}

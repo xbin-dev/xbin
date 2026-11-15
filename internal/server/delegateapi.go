@@ -234,7 +234,25 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 		out["pausedAt"] = st.PausedAt
 	}
 	if h := s.agentHolder(); h != "" {
-		out["agent"] = h // the component whose page is the agent's conversation
+		// the component whose page is the agent's conversation — for a
+		// person who was given it; nobody has one until then (agentwho.go)
+		access := s.agentAccess(a.p, h)
+		out["access"] = access
+		if access {
+			out["agent"] = h
+		}
+		who, admin := s.agentWho(a.p, h)
+		if admin {
+			out["who"] = who // an admin: who was given one (the third setup step)
+		}
+		if access && s.AgentHeld != nil {
+			if kind, why := s.AgentHeld(); kind != "" {
+				out["held"] = kind // the chrome says why there is no conversation
+				if admin || s.devOwner(a.p) {
+					out["heldWhy"] = why // xbind's own reason: an admin's to act on
+				}
+			}
+		}
 	}
 	return out
 }
@@ -304,7 +322,7 @@ func (s *Server) apiDelegateWorkspace(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusForbidden, "admin only", delegationDocs)
 		return
 	}
-	WriteJSON(w, http.StatusOK, s.Delegation.Workspace())
+	WriteJSON(w, http.StatusOK, s.delegateWorkspaceView(auth.PrincipalOf(r)))
 }
 
 // apiDelegateWorkspacePut — PUT /delegate/workspace {enabled}: admin. Off
@@ -316,11 +334,23 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var body struct {
-		Enabled *bool `json:"enabled"`
+		Enabled *bool   `json:"enabled"`
+		Who     *string `json:"who"`
 	}
-	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil {
-		WriteError(w, http.StatusBadRequest, "need {enabled: bool}", delegationDocs)
+	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil && body.Who == nil {
+		WriteError(w, http.StatusBadRequest, `need {enabled?: bool, who?: "everyone" | "me" | "chosen"} with at least one key`, delegationDocs)
 		return
+	}
+	if body.Who != nil { // who gets an agent (agentwho.go): before the switch, so a refusal changes nothing
+		if code, msg := s.setAgentWho(p, *body.Who); code != 0 {
+			WriteError(w, code, msg, delegationDocs)
+			return
+		}
+		if body.Enabled == nil {
+			s.delegateEvent(p.UserID, "state", "")
+			WriteJSON(w, http.StatusOK, s.delegateWorkspaceView(p))
+			return
+		}
 	}
 	ws, err := s.Delegation.SetWorkspace(*body.Enabled, p.From())
 	if err != nil {
@@ -333,7 +363,7 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 	for _, u := range s.Delegation.People() { // every person's agent: delegation went on or off
 		s.notifyHolders(u, "state", "")
 	}
-	WriteJSON(w, http.StatusOK, ws)
+	WriteJSON(w, http.StatusOK, s.delegateWorkspaceView(p))
 }
 
 // apiDelegateAudit — GET /delegate/audit[?before=<RFC 3339>&limit=<n>]:

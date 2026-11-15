@@ -93,6 +93,9 @@ type coordProfile struct {
 type coordBounds struct {
 	Research        int           // research subagents at once (per scope)
 	ResearchTimeout time.Duration // a research subagent's time to answer
+	// Wakes is how many wakes its Pending may ask for within one
+	// coordWakeEvery before the next waits (coord_wake.go); 0: one.
+	Wakes int
 }
 
 // coordWords is a profile's status words: a state of something the

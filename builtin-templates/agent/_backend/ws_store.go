@@ -147,6 +147,9 @@ func (d *DB) addWsSchema() error {
 		`ALTER TABLE ws_requests ADD COLUMN result TEXT NOT NULL DEFAULT ''`,           // one line of what came of it
 		`ALTER TABLE ws_requests ADD COLUMN expires_ms INTEGER NOT NULL DEFAULT 0`,     // when a pending request lapses
 		`ALTER TABLE ws_briefs ADD COLUMN call_id TEXT NOT NULL DEFAULT ''`,            // the tile_agent_brief call that wrote it: where the page draws it
+		// what started a tile agent: where the page sets its card
+		`ALTER TABLE ws_agents ADD COLUMN request_id INTEGER NOT NULL DEFAULT 0`, // the request that started it (ws_requests.id)
+		`ALTER TABLE ws_agents ADD COLUMN call_id TEXT NOT NULL DEFAULT ''`,      // the tile_agent_start call that filed that request
 	} {
 		_, _ = d.q.Exec(q)
 	}
@@ -341,7 +344,9 @@ type wsAgentRow struct {
 	Mode    string `json:"mode,omitempty"`
 	Asks    bool   `json:"asks"`
 	Brief   int64  `json:"brief,omitempty"`
-	Status  string `json:"status"` // starting | running | idle | ended | failed | stopped | lost
+	Request int64  `json:"request,omitempty"` // the request that started it (ws_requests.id; 0: a row from before the field)
+	CallID  string `json:"callId,omitempty"`  // … and the tile_agent_start call that filed that request ("": the brief's Start did)
+	Status  string `json:"status"`            // starting | running | idle | ended | failed | stopped | lost
 	Waiting string `json:"waiting,omitempty"`
 	Waits   bool   `json:"waits"`
 	Last    string `json:"last,omitempty"`
@@ -378,11 +383,11 @@ func (a *wsAgentRow) state() string {
 	return a.Status
 }
 
-const wsAgentCols = `id, run_id, session, tile, harness, mode, asks, brief_id, status, waiting, waits, last, turn, told, owed, wake, started_ms, updated_ms`
+const wsAgentCols = `id, run_id, session, tile, harness, mode, asks, brief_id, request_id, call_id, status, waiting, waits, last, turn, told, owed, wake, started_ms, updated_ms`
 
 func scanWsAgent(scan func(...any) error) (*wsAgentRow, error) {
 	var a wsAgentRow
-	err := scan(&a.ID, &a.Run, &a.Session, &a.Tile, &a.Harness, &a.Mode, &a.Asks, &a.Brief, &a.Status, &a.Waiting, &a.Waits, &a.Last, &a.Turn,
+	err := scan(&a.ID, &a.Run, &a.Session, &a.Tile, &a.Harness, &a.Mode, &a.Asks, &a.Brief, &a.Request, &a.CallID, &a.Status, &a.Waiting, &a.Waits, &a.Last, &a.Turn,
 		&a.Told, &a.Owed, &a.Wake, &a.Started, &a.Updated)
 	return &a, err
 }

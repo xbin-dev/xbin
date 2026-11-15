@@ -63,6 +63,16 @@ type Server struct {
 	// ChangeSets previews admin change-set operations (changeset.go: the
 	// broker's); nil = change sets can't be proposed.
 	ChangeSets ChangePreviewer
+	// PeopleChanged, if set, is what an access change made here ends with
+	// (the broker's usersEvent): who gets a workspace agent is access
+	// (agentwho.go).
+	PeopleChanged func()
+	// AgentHeld, if set, says why the agent can't run right now ("" when it
+	// can): kind "older" (its data was written by a newer xbin), "locked"
+	// (the vault is locked: people's partitions can't open) or
+	// "unavailable", with xbind's reason. GET /delegate/state answers it as
+	// held, for the chrome's state in place of the page (agentwho.go).
+	AgentHeld func() (kind, why string)
 	// AgentHolder, if set, names the sealed component whose page is people's
 	// workspace agent in this workspace ("" none): what GET /delegate/state
 	// answers as agent — the frame xbin's chrome puts below its header

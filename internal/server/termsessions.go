@@ -135,9 +135,23 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if q.Get("compact") != "" { // what a status poll needs, and no more
+		// an agent session's glance — the prompts it took, what waits for an
+		// answer, the last line it wrote — is transcript: the caller's own
+		// sessions only, never an admin's listing of someone else's
+		own := homeKey == term.HomeKey(p) && !p.ViewAs()
 		out := make([]map[string]any, 0, len(rows))
 		for _, si := range rows {
-			out = append(out, map[string]any{"id": si.ID, "cwd": si.Cwd, "kind": si.Kind, "provider": si.Provider, "mode": si.Mode, "status": si.Status, "origin": si.Origin})
+			row := map[string]any{"id": si.ID, "cwd": si.Cwd, "kind": si.Kind, "provider": si.Provider, "mode": si.Mode, "status": si.Status, "origin": si.Origin}
+			if si.Kind == term.KindAgent {
+				row["pending"], row["questions"] = si.Pending, si.Questions
+				if turn, last, ok := s.Term.AgentGlance(si.ID); ok {
+					row["turn"] = turn
+					if own {
+						row["last"] = last
+					}
+				}
+			}
+			out = append(out, row)
 		}
 		// ?ids=a,b: sessions the caller knew of that aren't live any more,
 		// with how they ended — "exit" when xbind recorded the end (its

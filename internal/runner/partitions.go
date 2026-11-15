@@ -118,6 +118,11 @@ type PartitionHooks struct {
 	// crashLoop, which survive a restart of xbind; 03 §E, PD-24). Called on
 	// its own goroutine, outside the state's lock. nil: nothing recorded.
 	PartitionExit func(tile, dep, part, pkey string, crashLoop bool)
+	// PartitionIdleFor answers how long tile's user partitions may sit
+	// unused before they are stopped, when that is not the default (a
+	// sealed component's row: sealed.Limits.IdleStop); 0 or nil: the
+	// default (partitionIdleReap).
+	PartitionIdleFor func(tile string) time.Duration
 	// PartitionCapsFor answers the running caps an admin or a tile manager
 	// set for tile's user partitions and the workspace's (POST
 	// /partitions/limits); 0 = the default derived from memory

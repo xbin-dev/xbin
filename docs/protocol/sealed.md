@@ -193,9 +193,10 @@ PUT    /access                     {tile: "xbin/<name>", kind, id, level} —
                                    component: 400, here and on every route
                                    that writes entries — POST /users and
                                    PATCH /users/<id> (tiles), PUT /defaults
-                                   (defaultTiles, newUsers.tiles). A pattern
-                                   that reaches it ("*", "xbin/*") is kept
-                                   and reads as read.
+                                   (defaultTiles, newUsers.tiles). Only an
+                                   entry that names it gives read: a
+                                   pattern ("*", "xbin/*") is kept and
+                                   gives nothing there.
 POST   /access-requests            a person asks for read (400 for more);
 POST   /access-requests/approve    an admin approves at read.
 POST   /lifecycle                  {component, state} — enabled, disabled or

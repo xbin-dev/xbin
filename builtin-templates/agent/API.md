@@ -5858,7 +5858,7 @@ orgs, reason, offer: {newSession: {model}}}`.
 | `PATCH /ws/sessions/{id}` | `{name?, archived?, scope? ({orgs, tiles} or null: everything allowed), model?}` → `{session}`; `409` for Main's archive, a model change while it works, and `model_taint` |
 | `DELETE /ws/sessions/{id}` | not Main. Closes the handle and withdraws its pending requests; tile agents it started keep running, as their person's |
 | `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection: {counts, orgs: [{id, name, kind, state, reason?, tiles, connected}]}, summary, model, handle}`; with `whatIf` also `whatIf: {model, connects, disconnects, counts, summary, allowed, taintedOrgs}` and, when not allowed, `offer: {newSession: {model}}`. Totals and org-level reasons only: the page reads the tiles' names from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`) |
-| `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset, ref, callId?, tile, title, method, path, brief, state, outcome, createdMs, decidedMs, expiresMs?, grant?, grantUntilMs?, by?, via?, resultStatus?, result?}], agents: [{id, session, tile, harness, mode, asks, status, waits, waiting, last, held}], briefs: [{id, callId?, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}], refusals: [{id, callId, tool, kind, reason, tile, createdMs}], ask?}` — the fields are described under "In fields" below. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
+| `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset, ref, callId?, tile, title, method, path, brief, state, outcome, createdMs, decidedMs, expiresMs?, grant?, grantUntilMs?, by?, via?, resultStatus?, result?}], agents: [{id, session, tile, harness, mode, asks, brief?, request?, callId?, status, waits, waiting, last, turn, held, startedMs, updatedMs}], briefs: [{id, callId?, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}], refusals: [{id, callId, tool, kind, reason, tile, createdMs}], ask?}` — the fields are described under "In fields" below. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
 | `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?, harness?}`: the person's edit, and their pick of a coding agent among what the tile allows (409 otherwise; `""`: xbind's default again). A request already filed for the old brief is withdrawn and filed again |
 | `GET /ws/sessions/{id}/briefs/{bid}/start-defaults` | what the brief's start would run on, from xbind: `{defaults, picked, harness, harnessName, line}` ("Claude Code · asks before acting") |
 | `POST /ws/sessions/{id}/briefs/{bid}/start` | "Review and start…" → `{request, id}` (the request to review; filed now when the agent hadn't asked), or `{started, id, outcome}` where the person's preferences let tile agents start without xbind asking — there the click is the confirmation |
@@ -5893,7 +5893,16 @@ runs. Either way the outcome reaches the conversation as a message headed
 at once (a decision is its person's act). The same message carries each
 tile agent's change — a turn that ended, a failure, a question for the
 person, a session an xbind restart cut off (with the offer to continue it)
-— and those wake an idle conversation at most once a minute.
+— and those wake an idle conversation at once too. Nothing waits out a
+window: the first change after a quiet time starts a turn the moment the
+backend reads it. What is coalesced is what arrives together — one
+reconcile pass asks for one wake for everything it found changed in a
+session, and a wake's message carries everything owed; what changes while
+that turn runs is read at its next step, or starts the next turn when it
+ends. Only a storm is spaced: past six wakes for tile agents' news within
+a minute (`wsWakeBurst`; the kit's `Limits.Wakes`, `coord_wake.go`) the
+next waits for the oldest to be a minute old — and a decision of the
+person's still wakes it then, and starts the count again.
 
 **In fields.** What the page draws it reads from fields; the sentences
 beside them are the model's, and neither is parsed out of the other.
@@ -5929,6 +5938,30 @@ beside them are the model's, and neither is parsed out of the other.
   request asked again after its brief was edited, and one decided, keep
   theirs. Absent where no tool call made it: a request the brief's Start
   filed (the page draws it by its `brief`), or one filed before the field.
+  A tile agent (`cards.agents[]`) names what started it: `request`, the
+  `id` of the request in `cards.requests[]` whose approval (or the brief's
+  Start) opened the session, and `callId`, the `tile_agent_start` call that
+  filed that request (absent when the brief's Start did) — its card sits
+  after that request's, or after that call when the request is no longer
+  among the newest listed. Both are absent on a row from before the
+  fields; only then does the page fall back to the request whose outcome
+  names it ("tile agent #N started") or that started its `brief`.
+- **A tile agent's card** (`cards.agents[]`): nothing on it is this
+  backend's own knowledge of coding agents. `status` (`starting` \|
+  `running` \| `idle` \| `ended` \| `failed` \| `stopped`), `turn` (the
+  prompts the session took so far) and `last` (the last line it wrote
+  since its last prompt; `""` while it has written none; a failure's
+  reason) are xbind's compact read of the session directory (`GET
+  /term/sessions?origin=agent&compact=1&ids=<session>`), as of the last
+  notice or pass — a session that left the directory keeps what was last
+  read. `harness` is the coding agent's name and `asks` whether the mode
+  the session is in asks its person before it acts, both from xbind's `GET
+  /delegate/start-defaults?tile=` (the row of the session's provider:
+  `name`, and `asks` when the session's `mode` is the one xbind names
+  there); a harness xbind doesn't list for the tile keeps the name it had
+  (or shows its id), and a mode xbind doesn't name is not known to ask
+  (`asks: false`). `waits` and `waiting` (what it asks its person) come
+  from the session's own read, made only while it waits.
 - **A refusal** (`cards.refusals[]`, newest first, 50 at most): a tool call
   that xbind refused, or that named a tile the session isn't connected to —
   `{callId, tool, kind, reason, tile}`, `callId` being the tool call it
@@ -5968,7 +6001,9 @@ its card (`PUT …/briefs/{bid} {harness}`; `GET …/briefs/{bid}/start-defaults
 → `{defaults: {tile, harness, harnesses: [{id, name, mode, asks, net,
 needsTicket}], why?}, picked, harness, harnessName, mode, asks, net,
 ticket, line}` — the top-level fields are the picked harness's, else the
-default's). Where the person's
+default's; every name and `asks` in it is xbind's answer (`GET
+/delegate/start-defaults?tile=`), read anew for the card: the backend has
+no list of coding agents of its own in this mode). Where the person's
 preferences let starts through without a ticket, the click on the brief
 (`POST …/briefs/{bid}/start`) is the confirmation. What the agent messages
 a tile agent afterwards is not approved message by message: the session's
@@ -6005,7 +6040,9 @@ chat kit's rows and window, with the session's cards set where the
 conversation made them (`ws/place.js`: a request in place of the call that
 filed it, a brief in place of `tile_agent_brief` — both by their `callId`,
 else a request after its brief, else by time —, a tile agent after the
-request that started it, the plan in place of its first `plan` call, a
+request that started it (its `request`, else its `callId`; a row with
+neither by the old reading of the outcome's words), the plan in place of
+its first `plan` call, a
 refusal after the call it answers (`refusals[].callId`), an `ask_user` by
 its `kind` — choices as the kit's question form, a redirect's two ways
 forward, can't with the nearest things it can; else by time). Every card

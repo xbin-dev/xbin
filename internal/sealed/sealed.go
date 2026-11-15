@@ -38,6 +38,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/jsonc"
@@ -114,12 +115,30 @@ type Spec struct {
 	// Grants are the cross-scope grants the release gives it (its own
 	// scope's resources need none). No admin adds to or removes from them.
 	Grants []registry.Use
+	// Limits are caps the release gives it BELOW a tile's defaults: a
+	// component of one backend per person is sized for what one person's
+	// backend needs, not for a tile's worst case. Zero fields leave the
+	// tile default. An admin still raises them as for a tile.
+	Limits Limits
 	// Capabilities are what the release lets it do beyond a tile.
 	Capabilities Capabilities
 	// Data is the component's data format: a number a release raises when
 	// its migrations leave a store its predecessor can't read (stamp.go).
 	// 0 means 1.
 	Data int
+}
+
+// Limits are a row's own caps, each lower than a tile's default or unset.
+type Limits struct {
+	// Memory is its backend's memory cap in bytes (each person's partition
+	// has its own): the default an admin's raise starts from. 0: a tile's.
+	Memory int64
+	// IdleStop is how long a person's partition may sit unused before xbind
+	// stops it. 0: a partition's default (ten minutes).
+	IdleStop time.Duration
+	// MaxRunning is how many people's partitions run at once. 0: the
+	// default derived from the host's memory.
+	MaxRunning int
 }
 
 // Capabilities are a sealed component's powers, the table's alone: nothing
@@ -255,6 +274,9 @@ type Component struct {
 	// prebuiltSum is Prebuilt's SHA-256, as the install's manifest gives
 	// it; noBuild is why there is no Prebuilt though a file may be there.
 	prebuiltSum, noBuild string
+	// dataMode is the partition mode its data was made in, when that is not
+	// the row's (the stamp's Mode; the component is then held: HoldMode).
+	dataMode string
 	// Partitioned says it runs one backend per person in this boot: the
 	// table's mode, unless a development xbind without sandboxes runs it as
 	// one instance.
@@ -337,6 +359,16 @@ func Load(specs []Spec) (*Set, error) {
 		}
 		if n := sp.Notify; n != "" && (!strings.HasPrefix(n, "/") || strings.ContainsAny(n, "?#") || "/"+util.CanonPath(n) != n) {
 			return nil, fmt.Errorf("sealed component %s: Notify %q is not a path on its backend (\"/…\", no query)", p, n)
+		}
+		switch l := sp.Limits; {
+		case l.Memory != 0 && l.Memory < 64<<20:
+			return nil, fmt.Errorf("sealed component %s: Limits.Memory %d is under 64 MiB: no backend runs in that", p, l.Memory)
+		case l.IdleStop != 0 && l.IdleStop < time.Minute:
+			return nil, fmt.Errorf("sealed component %s: Limits.IdleStop %s is under a minute: a partition would stop between two clicks", p, l.IdleStop)
+		case l.MaxRunning < 0:
+			return nil, fmt.Errorf("sealed component %s: Limits.MaxRunning %d", p, l.MaxRunning)
+		case (l.IdleStop != 0 || l.MaxRunning != 0) && len(sp.Partition) == 0:
+			return nil, fmt.Errorf("sealed component %s: Limits.IdleStop and MaxRunning are about people's partitions, and it has one backend", p)
 		}
 		if sp.Capabilities.Agent {
 			if !sp.Capabilities.Delegate {
@@ -533,6 +565,12 @@ func (s *Set) Registry() []registry.SealedCode {
 		if c.Partitioned {
 			sc.Partition = slices.Clone(c.Partition)
 		}
+		if c.dataMode != "" { // held for its mode (HoldMode): registered in the mode its data has, so nothing switches it
+			sc.Partition = nil
+			if c.dataMode != "one" && (s.opts.Isolate || !s.opts.NoAuth) {
+				sc.Partition = strings.Split(c.dataMode, "+")
+			}
+		}
 		if h, held := s.Hold(c.Path); held && h.keepsData() {
 			sc.NoData = "system component " + c.Path + " " + h.Reason
 		}
@@ -550,6 +588,15 @@ func (s *Set) Agent() string {
 		}
 	}
 	return ""
+}
+
+// Limits answers the row's own caps for the component at path (zero for a
+// path that is no sealed component, and for a row that sets none).
+func (s *Set) Limits(path string) Limits {
+	if c, ok := s.Component(path); ok {
+		return c.Spec.Limits
+	}
+	return Limits{}
 }
 
 // Components lists the set, in table order.

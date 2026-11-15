@@ -55,7 +55,11 @@ func (st *State) limitDefault(tile string, k limits.Kind) (int64, bool) {
 	}
 	switch k {
 	case limits.MemMiB:
-		return max(st.Deployments.TileLimits.MemMax, st.memDefault) >> 20, backend && !vmTile && st.Run.Cgroup.Enabled()
+		def := max(st.Deployments.TileLimits.MemMax, st.memDefault)
+		if low := st.Sealed.Limits(tile).Memory; low > 0 && low < def {
+			def = low // a sealed component's row: what a raise starts from (sealed.Limits)
+		}
+		return def >> 20, backend && !vmTile && st.Run.Cgroup.Enabled()
 	case limits.VMMemMiB, limits.VMVCPUs:
 		p := st.VM.Policy() // nil-safe: the defaults
 		on := vmTile && st.VM != nil && p.Backends

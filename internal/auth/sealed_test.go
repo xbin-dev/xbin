@@ -40,7 +40,7 @@ func TestSealedPathHasNoLevelAboveRead(t *testing.T) {
 	}{
 		{"the root token", Principal{Owner: true, Via: "bearer"}, true},
 		{"an admin", admin, true},
-		{"a person with terminal patterns", patterned, true},
+		{"a person with terminal patterns", patterned, false}, // a pattern gives nothing there: only an entry that names it
 		{"a reader of it", reader, true},
 		{"a person without access", nobody, false},
 		{"a hand-edited terminal entry", edited, true},

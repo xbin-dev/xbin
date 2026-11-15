@@ -107,6 +107,7 @@ type agentState struct {
 	queueing  atomic.Bool         // a message for the queue is being taken (ReserveQueue)
 	det       sdkacp.DetachedTurn // a turn the agent runs on its own (agentdetached.go); under mu
 	quiet     *time.Timer         // looks at det's deadline; under mu
+	said      []byte              // the tail of what the agent wrote since its last prompt (agentstatus.go); under mu
 	llm       *llmSession         // the session's hold on the LLM connector (llmhook.go); nil = none
 	llmChoice string              // the session's own choice of who serves it, kept for a restart
 }
@@ -610,6 +611,7 @@ ended:
 func (s *Session) logEvent(m *Manager, e agent.Event) {
 	st := s.agent
 	ev := st.log.Append(e)
+	st.noteSaid(e) // its last line, for a status poll (agentstatus.go)
 	renamed := false
 	if e.Type == agent.EvStatus {
 		var d struct {

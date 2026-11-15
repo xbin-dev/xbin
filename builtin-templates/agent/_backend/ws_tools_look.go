@@ -168,6 +168,7 @@ func wsMapTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (strin
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { m, err = wsX.Map(ctx, sid); return }); err != nil {
 		return "", err
 	}
+	ag.wsRefresh(ctx, s, true) // a listing is a read of every tile on it: what the conversation now holds
 	filter := strings.ToLower(strings.TrimSpace(str(c.Args["filter"])))
 	sort.Slice(m.Tiles, func(i, j int) bool { return m.Tiles[i].Path < m.Tiles[j].Path })
 	var b strings.Builder
@@ -218,6 +219,7 @@ func wsStatusTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (st
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { full, err = wsX.Tile(ctx, sid, t.Path); return }); err != nil {
 		return "", err
 	}
+	ag.wsRefresh(ctx, s, true) // what the conversation now holds
 	out := wsTileLine(full)
 	if full.Report == "" && len(full.Alerts) == 0 {
 		out += "\nIt reports nothing about itself and xbin flags nothing."
@@ -242,6 +244,7 @@ func wsLogsTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (stri
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { text, err = wsX.Logs(ctx, sid, t.Path, n); return }); err != nil {
 		return "", err
 	}
+	ag.wsRefresh(ctx, s, true) // what the conversation now holds
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return t.Path + " has printed nothing to its log.", nil
@@ -332,6 +335,7 @@ func wsAPIDocTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (st
 		}
 		return "", err
 	}
+	ag.wsRefresh(ctx, s, true) // what the conversation now holds
 	if f.Binary || strings.TrimSpace(f.Content) == "" {
 		return t.Path + "'s API.md is empty.", nil
 	}

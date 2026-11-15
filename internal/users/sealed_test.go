@@ -112,7 +112,81 @@ func TestSealedEntriesOfAHandEditedFile(t *testing.T) {
 	if !ok {
 		t.Fatal("no Access for a stored user")
 	}
-	if a.CanTerminal() || a.CanTerminalTile(sealed) || a.TileLevel(sealed) != LevelRead {
+	// (a pattern gives nothing on a sealed component: only an entry that names it does)
+	if a.CanTerminal() || a.CanTerminalTile(sealed) || a.TileLevel(sealed) != "" {
 		t.Errorf("Access: terminal pre-gate %v, level %q", a.CanTerminal(), a.TileLevel(sealed))
+	}
+}
+
+// Nobody has a sealed component until it is given to them: "*" and every
+// other pattern were written about tiles and give nothing there — in a
+// person's entries, an org's shares, the workspace defaults. An entry that
+// names it does, wherever it is; an admin reads it without one. The store
+// says who was given it, and gives it to everyone (and takes that back)
+// without touching anyone's own entry.
+func TestSealedIsReachedOnlyByName(t *testing.T) {
+	const sealed = "xbin/wsagent"
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDefaultTiles(map[string]string{"*": LevelRead, "xbin/*": LevelRead, "apps/*": LevelWrite}); err != nil {
+		t.Fatal(err)
+	}
+	for id, tiles := range map[string]map[string]string{
+		"star": {"*": LevelTerminal}, "glob": {"xbin/*": LevelRead, "xbin/ws*": LevelRead}, "named": {sealed: LevelRead}, "none": nil,
+	} {
+		if _, err := s.Upsert(User{ID: id, Role: RoleUser, Tiles: tiles}, "pw-"+id+"-pw-pw"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Upsert(User{ID: "boss", Role: RoleAdmin}, "pw-boss-pw-pw"); err != nil {
+		t.Fatal(err)
+	}
+	level := func(id string) string { a, _ := s.Access(id); return a.TileLevel(sealed) }
+	for id, want := range map[string]string{"star": "", "glob": "", "none": "", "named": LevelRead, "boss": LevelRead} {
+		if got := level(id); got != want {
+			t.Errorf("%s's level on %s: %q, want %q", id, sealed, got, want)
+		}
+		if u, _ := s.Get(id); u.TileLevel(sealed) != want {
+			t.Errorf("%s's own entries give %q on %s, want %q", id, u.TileLevel(sealed), sealed, want)
+		}
+	}
+	if a, _ := s.Access("star"); a.TileLevel("apps/a") != LevelTerminal {
+		t.Error("a pattern no longer reaches a tile")
+	}
+	if all, n := s.SealedGrants(sealed); all || n != 1 {
+		t.Errorf("who was given it: everyone %v, entries %d; want one person", all, n)
+	}
+	// everyone, by one entry in the workspace defaults
+	if err := s.SetSealedEveryone(sealed, true); err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := s.SealedGrants(sealed); !all || level("none") != LevelRead || level("star") != LevelRead {
+		t.Errorf("after giving it to everyone: everyone %v, none %q, star %q", all, level("none"), level("star"))
+	}
+	if d := s.DefaultTiles(); d["*"] != LevelRead || d["apps/*"] != LevelWrite || d[sealed] != LevelRead {
+		t.Errorf("the defaults after: %v", d)
+	}
+	if err := s.SetSealedEveryone(sealed, false); err != nil {
+		t.Fatal(err)
+	}
+	if all, n := s.SealedGrants(sealed); all || n != 1 || level("none") != "" || level("named") != LevelRead {
+		t.Errorf("after taking it back: everyone %v, entries %d, none %q, named %q", all, n, level("none"), level("named"))
+	}
+	for _, bad := range []string{"apps/a", "xbin/*", "*"} {
+		if err := s.SetSealedEveryone(bad, true); err == nil {
+			t.Errorf("SetSealedEveryone(%q) passed", bad)
+		}
+	}
+	// an org's share names it too
+	if _, err := s.UpsertOrg(Org{ID: "sales", Members: []Member{{ID: "none", Level: LevelRead}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOrgTile("sales", sealed, LevelRead); err != nil {
+		t.Fatal(err)
+	}
+	if _, n := s.SealedGrants(sealed); n != 2 || level("none") != LevelRead {
+		t.Errorf("an org's share: entries %d, its member's level %q", n, level("none"))
 	}
 }

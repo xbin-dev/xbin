@@ -92,6 +92,9 @@
 //	report links file_write out/data.csv and out/report.html (a report linking
 //	             data.csv, a missing file and a web page), then render_html
 //	             it (D207: the step's links) → "Report shown with its files."
+//	ws: <steps>  (a line of the message) the steps it lists, one tool call a
+//	             request — any tools, in the test's own order (ws.go) →
+//	             "Done: <each result's first line>"
 //	huge context "ok: <text>", reporting a 5 000 000-token prompt: the agent's
 //	             next step compacts (D133)
 //	(else)       "ok: <text>"
@@ -296,6 +299,9 @@ func script(conv []turn, system string) plan {
 	if purposeOf(system) == "compact" {
 		folded := strings.Count(conv[len(conv)-1].Text, "\n#")
 		return plan{Text: fmt.Sprintf("SUMMARY: %d transcript line(s) folded", folded)}
+	}
+	if p, ok := wsScript(conv); ok { // a script the message carries (ws.go)
+		return p
 	}
 	sub := strings.Contains(system, "You are a subagent")
 	last := conv[len(conv)-1]

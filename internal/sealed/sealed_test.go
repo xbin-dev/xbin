@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -100,8 +101,68 @@ func TestTableValidation(t *testing.T) {
 	if util.SealedComponentPath("xbin/"+long+"t") || !util.SealedComponentPath("xbin/"+long) {
 		t.Error("util.SealedComponentPath and the table disagree about the longest name")
 	}
-	if !fixtureTable && len(Table()) != 0 {
-		t.Error("the compiled-in table is not empty: a workspace in the wild would see a component appear (a release that ships one edits this test with it)")
+}
+
+// The release's table, pinned: one row, the workspace agent's, saying
+// exactly this. A row that appears, or one of these that changes, is a
+// component appearing or changing in every workspace in the wild — its
+// partition mode above all (switching it deletes data) — so a release that
+// means it edits this test with it.
+func TestTheReleasesTable(t *testing.T) {
+	if fixtureTable {
+		t.Skip("this build's table is the integration fixture's")
+	}
+	tab := Table()
+	if len(tab) != 1 {
+		t.Fatalf("the compiled-in table has %d rows, want the workspace agent's alone", len(tab))
+	}
+	sp := tab[0]
+	if sp.Name != "wsagent" || sp.Authored != "apps/agent" || !sp.Template || sp.Data != 1 {
+		t.Errorf("the row: name %q authored %q template %v data %d", sp.Name, sp.Authored, sp.Template, sp.Data)
+	}
+	if !slices.Equal(sp.Partition, []string{"user"}) {
+		t.Errorf("its partition mode: %v, want one backend per person and no shared instance", sp.Partition)
+	}
+	if !slices.Equal(sp.Slots, []string{"llm"}) || len(sp.Defaults) != 1 || sp.Defaults["llm"] != "xbin:llm" ||
+		len(sp.Providers) != 1 || !slices.Equal(sp.Providers["llm"], []string{"xbin:llm"}) {
+		t.Errorf("its slots: %v defaults %v providers %v, want the models' slot on xbind's connector and nothing else", sp.Slots, sp.Defaults, sp.Providers)
+	}
+	if len(sp.Env) != 1 || sp.Env["XBIN_AGENT_MODE"] != "workspace" || sp.Notify != "/delegate/notify" {
+		t.Errorf("its environment %v and notice path %q", sp.Env, sp.Notify)
+	}
+	if !slices.Equal(sp.FrameReads, []string{"/api/xbin/agents/connection"}) {
+		t.Errorf("its page's extra reads: %v, want the connection view alone", sp.FrameReads)
+	}
+	// sized for one person's backend, below a tile's defaults (table.go says why)
+	if sp.Limits != (Limits{Memory: 512 << 20, IdleStop: 3 * time.Minute}) {
+		t.Errorf("its limits: %+v", sp.Limits)
+	}
+	if !sp.Capabilities.Delegate || !sp.Capabilities.Agent {
+		t.Errorf("its capabilities: %+v", sp.Capabilities)
+	}
+	if len(sp.Grants) != 1 || sp.Grants[0].Target != "cap:open-links" {
+		t.Errorf("its grants: %v", sp.Grants)
+	}
+	s, err := Load(tab)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := s.Component("xbin/wsagent")
+	if !ok || c.Runtime != "go" || s.Agent() != "xbin/wsagent" {
+		t.Fatalf("the loaded row: %v %+v, agent %q", ok, c, s.Agent())
+	}
+	// the template's own block and its mode request are not the row's
+	if man := string(c.Files["xbin.json"]); strings.Contains(man, `"template"`) || strings.Contains(man, "partitionOnUpdate") {
+		t.Error("the rendered manifest still carries the template block")
+	}
+	if _, ok := c.Files["go.mod"]; !ok {
+		t.Error("the rendered tree has no go.mod (go.mod.tile is renamed for an instance)")
+	}
+	// xbin's own source cites no workspace path of the template's
+	for rel, b := range c.Files {
+		if strings.HasSuffix(rel, ".go") && strings.Contains(string(b), `"res:apps/agent/`) {
+			t.Errorf("%s still names the template's own path", rel)
+		}
 	}
 }
 
@@ -563,6 +624,9 @@ func TestTableEnvNotifyAndFrameReads(t *testing.T) {
 		"a variable with an equals sign":    {Name: "fix", Source: fixture(""), Env: map[string]string{"A=B": "x"}},
 		"a notify path without a slash":     {Name: "fix", Source: fixture(""), Notify: "notify"},
 		"a notify path with a query":        {Name: "fix", Source: fixture(""), Notify: "/notify?x=1"},
+		"a memory cap no backend runs in":   {Name: "fix", Source: fixture(""), Limits: Limits{Memory: 8 << 20}},
+		"an idle stop under a minute":       {Name: "fix", Source: fixture(""), Partition: []string{"user"}, Limits: Limits{IdleStop: 5 * time.Second}},
+		"an idle stop for a single backend": {Name: "fix", Source: fixture(""), Limits: Limits{IdleStop: 5 * time.Minute}},
 		"an agent that holds no delegation": {Name: "fix", Source: fixture(""), Capabilities: Capabilities{Agent: true}},
 		"a notify path with its method":     {Name: "fix", Source: fixture(""), Notify: "POST /delegate/notify"}, // xbind POSTs; the row is the path
 		"a notify path that climbs":         {Name: "fix", Source: fixture(""), Notify: "/a/../b"},
@@ -617,5 +681,68 @@ func TestTableNamesOneAgent(t *testing.T) {
 	}
 	if s, err := Load([]Spec{plain}); err != nil || s.Agent() != "" || (*Set)(nil).Agent() != "" {
 		t.Errorf("a table without an agent names one: %v", err)
+	}
+}
+
+// A component's partition mode is fixed for the life of the entry: the
+// stamp records the mode its data was made in, and a table that later gives
+// it another holds it — nothing of its data is touched, and the registry
+// is given the mode the data has, so nothing asks for a switch (a switch
+// deletes the data). A stamp from before modes were recorded takes the
+// running table's down, once.
+func TestPartitionModeIsFixed(t *testing.T) {
+	ws := t.TempDir()
+	row := func(partition ...string) Spec {
+		sp := spec("one")
+		sp.Partition = partition
+		return sp
+	}
+	opts := Options{Isolate: true, Dev: true}
+	s := open(t, ws, opts, row("user"))
+	if st, ok := s.Stamp("xbin/fix"); !ok || st.Mode != "user" {
+		t.Fatalf("the first boot's stamp: %+v", st)
+	}
+	// the same table again: no hold
+	if h, held := open(t, ws, opts, row("user")).Hold("xbin/fix"); held {
+		t.Fatalf("the same mode is held: %+v", h)
+	}
+	for name, next := range map[string]Spec{"a shared instance added": row("user", "global"), "unpartitioned": row()} {
+		s = open(t, ws, opts, next)
+		h, held := s.Hold("xbin/fix")
+		if !held || h.Code != HoldMode || !strings.Contains(h.Reason, "one backend per person") || !h.keepsData() {
+			t.Errorf("%s: hold %+v, want the mode hold", name, h)
+		}
+		reg := s.Registry()
+		if len(reg) != 1 || !slices.Equal(reg[0].Partition, []string{"user"}) || reg[0].NoData == "" {
+			t.Errorf("%s: the registry's row: partition %v, noData %q; want the data's mode and no resources", name, reg[0].Partition, reg[0].NoData)
+		}
+		if st, _ := s.Stamp("xbin/fix"); st.Mode != "user" {
+			t.Errorf("%s: the stamp's mode became %q", name, st.Mode)
+		}
+		if err := s.RestoreRefusal("xbin/fix", 1, "v1"); err == nil {
+			t.Errorf("%s: a restore passes while it is held for its mode", name)
+		}
+	}
+	// back to the mode its data has: it runs again
+	if h, held := open(t, ws, opts, row("user")).Hold("xbin/fix"); held {
+		t.Fatalf("the data's own mode is held: %+v", h)
+	}
+	// a stamp without a mode (written before modes were recorded)
+	ws2 := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws2, "data", "sealed"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stampPath(ws2, "fix"), []byte(`{"data":1,"release":"v0","digest":"x","at":"2026-11-15T00:00:00Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s = open(t, ws2, opts, row("user", "global"))
+	if _, held := s.Hold("xbin/fix"); held {
+		t.Fatal("a stamp without a mode holds the component")
+	}
+	if b, _ := os.ReadFile(stampPath(ws2, "fix")); !strings.Contains(string(b), `"mode": "user+global"`) || !strings.Contains(string(b), `"release": "v0"`) {
+		t.Errorf("the stamp after: %s", b)
+	}
+	if h, held := open(t, ws2, opts, row("user")).Hold("xbin/fix"); !held || h.Code != HoldMode {
+		t.Errorf("…and the next table's other mode: %+v", h)
 	}
 }

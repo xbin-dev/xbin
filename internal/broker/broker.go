@@ -401,7 +401,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.agentPage = srv
 	srv.RegisterAPI("POST /delegate/page/dismiss", b.apiAgentPageDismiss)
 	b.registerAgentLevels(srv) // what a person's agent may do in each tile, as approved (agentlevel.go)
-	srv.AgentWorld, srv.HolderNotify = b, b.NotifyHolder
+	srv.AgentWorld, srv.HolderNotify, srv.PeopleChanged = b, b.NotifyHolder, b.usersEvent
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
 		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
 		Primary:      b.primaryOf, Addressed: b.addressed, PartitionID: b.partitionID, PartitionLog: b.PartitionLog,

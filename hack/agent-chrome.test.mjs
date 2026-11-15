@@ -131,6 +131,27 @@ test('the dock\'s states and the chip', () => {
   assert.equal(W.dockState({ state: { ...on, agent: 'system/agent' }, llm: { configured: true } }), 'page');
   assert.equal(W.dockState({ state: on, llm: { configured: true } }), 'soon', 'on, and this xbin ships no agent yet');
   assert.equal(W.dockState({ state: null }), 'hidden', 'no delegation on this xbind');
+  // nobody has an agent until it is given to them: nothing of it shows, on or off, once set up or not
+  for (const st of [{ workspace: false, access: false }, { ...on, access: false }, { workspace: false, workspaceAt: 't', access: false }, { ...on, access: false, canAdminChanges: true }]) {
+    assert.equal(W.dockState({ state: st, me: {}, llm: { configured: true } }), 'hidden', JSON.stringify(st));
+    assert.equal(W.chip({ state: st, me: {}, llm: { configured: true } }).shown, false);
+  }
+  // an admin: the setup stays until someone was given one (the third step), then the page
+  const adminOn = { ...on, access: true, agent: 'xbin/wsagent' };
+  assert.equal(W.dockState({ state: { ...adminOn, who: { everyone: false, entries: 0, chosen: false } }, me: admin, llm: { configured: true } }), 'setup');
+  assert.equal(W.dockState({ state: { ...adminOn, who: { everyone: true, entries: 0, chosen: true } }, me: admin, llm: { configured: true } }), 'page');
+  assert.equal(W.dockState({ state: { ...on, access: true, agent: 'xbin/wsagent' }, me: {}, llm: { configured: true } }), 'page', 'a person who was given one');
+  const third = (who) => W.setupSteps({ llm: { configured: true }, state: { workspace: true, who } })[2];
+  assert.deepEqual(third({ everyone: false, entries: 0, chosen: false }).choices.map((c) => c.who), ['everyone', 'me']);
+  assert.equal(third({ everyone: false, entries: 0, chosen: false }).done, false);
+  assert.equal(third({ everyone: true, entries: 0, chosen: true }).done, true);
+  assert.match(third({ everyone: true, entries: 0, chosen: true }).text, /^Everyone in this workspace\./);
+  assert.match(third({ everyone: false, entries: 2, chosen: true }).text, /^2 people and orgs so far\./);
+  assert.deepEqual(third({ everyone: false, entries: 1, chosen: true }).choices, []);
+  assert.deepEqual(W.setupSteps({ llm: { configured: true }, state: { workspace: false } })[2].choices, [], 'no choice before the switch is on');
+  const other = W.stateWords('held', { held: 'unavailable', why: 'this install has no build of its backend.' });
+  assert.equal(other.title, 'Not available on this xbin.');
+  assert.match(other.text, /right now: this install has no build of its backend\. Your conversations/);
   assert.equal(W.dockState({ state: on, error: 'offline' }), 'offline');
   assert.deepEqual(W.chip({ state: { workspace: false }, me: {} }), { shown: false, label: '', spoken: '', count: 0, paused: false });
   assert.equal(W.chip({ state: { workspace: false }, me: admin }).label, 'set up workspace agent');

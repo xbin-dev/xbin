@@ -39,7 +39,20 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    project's own providers (OpenCode),
                                    whose config can leave the connector
                                    out — say "offered", not "on");
-                                   ?cwd=<p> one tile only. [] without
+                                   ?cwd=<p> one tile only. ?origin=agent:
+                                   only the sessions the person's
+                                   workspace agent opened. ?compact=1: a
+                                   short row each — {id, cwd, kind,
+                                   provider, mode, status, origin} and,
+                                   for an agent session, pending,
+                                   questions, turn (the turn it is on; 0
+                                   before its first prompt) and last
+                                   (the last line it wrote: in the
+                                   caller's own listing only); with
+                                   ?ids=a,b an id that isn't live any
+                                   more answers {id, status: "ended",
+                                   endedBy: "exit" | "restart", ended?}
+                                   (protocol/delegation.md). [] without
                                    terminal rights; a tile the caller may no
                                    longer open a terminal on is omitted.
                                    ?user=<id> admin: another user's. Every

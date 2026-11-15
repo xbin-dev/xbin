@@ -629,7 +629,11 @@ stay byte for byte what it was.
 
 A sealed component ([sealed.md](/docs/sealed.md)) is a row of the table
 `sealed.Table()` returns: its code is embedded in xbind and is the running
-release's, always. The table is empty today.
+release's, always. The table has one row, the workspace agent's
+(`xbin/wsagent`, `internal/sealed/table.go`): the agent template's own
+tree, `builtin-templates/agent`, started in workspace mode.
+`TestTheReleasesTable` pins what the row says — a row that appears, or one
+of its fields that changes, appears or changes in every workspace.
 
 **Adding a row.** Name (the path is `xbin/<name>`), an embedded source tree
 (`xbin.BuiltinTemplatesFS()` sub-tree, or one of its own under an embedded
@@ -685,6 +689,24 @@ someone who can write the install prefix (who can replace xbind). The SDK
 is a module of its own that xbind neither embeds nor ships a digest of, so
 the SDK and go version are recorded in the manifest and compared at release
 time (`--check --sdk`), not folded into the file name.
+
+**What the build needs.** The workspace agent's backend is the agent
+template's: its own module (`go.mod.tile`, `go.sum`) with dependencies
+(`modernc.org/sqlite` and what it pulls). `sealed-build` builds it with
+`-mod=readonly` against that `go.sum`, so the modules must be in the
+module cache or downloadable (`GOPROXY`): `make build`, `make sealed` and
+`deploy/publish-release.sh` need them, once per machine — the same
+modules `make tile-check` already fetches to test the template's backend,
+and the ones a workspace downloads to build an instance of it. `make
+check` builds no sealed backend and stays offline: the unit tests load the
+table and render its tree, and the tests that run the agent are the
+integration suites' (`test/isolated/wsagent_dev_test.go`: a development
+xbind compiles it from the checkout on first use;
+`test/isolated/wsagent_test.go`: an install-like xbind runs the release's
+build, end to end). The backend is
+about 45 MB per architecture (linux/amd64 44.8 MB, linux/arm64 41.9 MB;
+static, stripped) and adds about 16 MB to a release bundle (zstd: 16.4 MB
+and 15.1 MB); a warm build takes about ten seconds.
 
 - A **production** xbind (`--dev` and `--no-auth` both off) runs only that
   file. Without it the component is held (`no-build`); nothing compiles on
@@ -1194,11 +1216,25 @@ it (give a `--shots` run against that instance the switch too).
 `systemPage` drives `/xbin/system` (D227) against the real API, and
 `oldScaffold` checks the last release's shell and admin console show no
 tile, card or sidebar row for a system component while `/xbin/system` lists
-them. A default xbind has none, so both `SKIP` that part, said so; build
-the harness xbind with the fixture table to run it:
-`HARNESS_GO_TAGS=sealedfixture` (two fixture components,
-`internal/sealed/table_fixture.go`; `bin/xbind` is then a fixture build —
-rebuild it before using it for anything else).
+them. A default xbind has one, the workspace agent (`xbin/wsagent`): held
+without sandboxes, so run them with `HARNESS_ISOLATE=1` to have it up —
+`systemPage` first, since it checks that nobody but admins has it at
+first and `agentChrome` gives it to everyone. `HARNESS_GO_TAGS=sealedfixture`
+builds the harness xbind with the fixture table instead (two fixture
+components, `internal/sealed/table_fixture.go`; `bin/xbind` is then a
+fixture build — rebuild it before using it for anything else).
+`agentChrome` drives xbin's chrome for the workspace agent twice: a faked
+matrix (the delegation routes answered by the pass: every request kind,
+the states, a hostile page in the dock's frame, the sign-in step) and,
+with sandboxes, a **real-holder** section with nothing intercepted —
+setup by the chrome's own buttons, the holder's frame, a request filed by
+the scripted model (`hack/fakeopenai`'s `ws:` lines), the tray by live
+events, the sheet from the page's message and from the tray, the ticket
+used, pause, an admin change set. `wsAgentPage` is the agent's own page in
+the dock on that real backend — empty state, sessions, the scope panel, a
+scripted turn's cards, the notebook — in dark and light, at 1280 and 430.
+Both need `HARNESS_ISOLATE=1`; a development xbind compiles the agent's
+backend on first use (about 15 s warm).
 `limitsCaps` drives the tile limits (D203) end to end against the real API
 in both themes: the harness xbind enforces only the data disk quota (no
 cgroup delegation, VM runtime or tile sandboxes), so its tiles root their
@@ -1263,6 +1299,7 @@ hack/ui-harness/run.sh --restart          # rebuild xbind, same workspace, every
 HARNESS_ISOLATE=1 hack/ui-harness/run.sh --keep livereload   # xbind with --isolate on $XBIN_TEST_ROOTFS
 HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold  # no --dev-overlay: the workspace's own scaffold (below)
 HARNESS_GO_TAGS=sealedfixture HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold systemPage  # with two fixture system components
+HARNESS_ISOLATE=1 HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep systemPage oldScaffold agentChrome wsAgentPage  # the workspace agent, for real (this order)
 HARNESS_THEME=light hack/ui-harness/run.sh --shots appearance themeCanary  # a light system (default dark)
 hack/ui-harness/app-help-shots.sh         # the iOS app's help screenshots (native/AGENTS.md)
 (cd hack/ui-harness && node shots.js --list)

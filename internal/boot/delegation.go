@@ -106,6 +106,15 @@ func holderCallPolicy(srv *server.Server, brk *broker.Broker) llm.CallPolicy {
 		if c.Component == "" || !auth.HoldsDelegation(c.Component) {
 			return nil
 		}
+		if c.Listing {
+			// The list of models is no call: nothing of a conversation goes
+			// anywhere. A person's agent shows it so they can pick — and
+			// which of them a session may move to is xbind's to answer
+			// when it is asked (the connection view's whatIf, the PATCH).
+			// Holding the list to the session's own model left the agent's
+			// model picker empty.
+			return nil
+		}
 		const how = ": make one (POST /api/xbin/delegate/sessions) and send its id as " + llm.AgentSessionHeader
 		if c.User == "" || c.AgentSession == "" || srv.Delegation == nil {
 			return errors.New("a workspace agent's model calls run under an agent session" + how)
@@ -114,7 +123,16 @@ func holderCallPolicy(srv *server.Server, brk *broker.Broker) llm.CallPolicy {
 		if !ok {
 			return errors.New("no such agent session (it expired, or is another person's)" + how)
 		}
-		if want := (agentpolicy.ModelRef{Upstream: u.Name, Model: model}).ID(); h.Model != want {
+		// the session's model as the connector resolves it now: a session
+		// opened on a role's name ("xbin/agent": the agent role's model,
+		// which an agent uses when it knows no other) is on whatever that
+		// role names — compared literally, every call of such a session was
+		// refused
+		on := h.Model
+		if ref := brk.ResolveModel(h.Model); ref != nil && ref.Upstream != "" && ref.Model != "" {
+			on = ref.ID()
+		}
+		if want := (agentpolicy.ModelRef{Upstream: u.Name, Model: model}).ID(); on != want {
 			return fmt.Errorf("this agent session is on %s: its calls can't use %s — change the session's model (PATCH /api/xbin/delegate/sessions/%s), which the orgs whose data it has seen must allow", h.Model, want, h.ID)
 		}
 		for _, org := range h.Tainted {

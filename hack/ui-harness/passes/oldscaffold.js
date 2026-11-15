@@ -163,7 +163,7 @@ async function oldScaffold(browser) {
   const api = (method, p, data) => A.ctx.request.fetch(`${URL}/api/xbin${p}`, { method, data });
   const comp = async (tile) => ((await (await api('GET', `/components/${tile}`)).json().catch(() => ({}))).component || {});
   const errors = [];
-  let S;
+  let S, realAgent = null; // realAgent: xbind's own agent-page alert, when the admin has a workspace agent
   try {
     // ---- the tiles ----
     writeTile(PART, ['user', 'global']);
@@ -196,7 +196,11 @@ async function oldScaffold(browser) {
       const resp = await route.fetch();
       const j = await resp.json().catch(() => ({}));
       const llm = (j.alerts ?? []).some((x) => x.kind === 'llm-setup') ? [] : [LLM_SETUP];
-      await route.fulfill({ response: resp, json: { ...j, alerts: [...(j.alerts ?? []), LIMIT, ...llm, AGENT_PAGE] } });
+      // the workspace agent's notice: xbind's own once the admin has an agent (the agentChrome pass sets one up, under
+      // HARNESS_ISOLATE=1) — served with the same words where they have none
+      realAgent = (j.alerts ?? []).find((x) => x.kind === 'agent-page') || realAgent;
+      const agentPage = (j.alerts ?? []).some((x) => x.kind === 'agent-page') ? [] : [AGENT_PAGE];
+      await route.fulfill({ response: resp, json: { ...j, alerts: [...(j.alerts ?? []), LIMIT, ...llm, ...agentPage] } });
     });
     await openShell(S.page);
     const src = await S.page.evaluate(async () => (await (await fetch('/c/shell/bx-shell.js', { cache: 'no-store' })).text()).includes('bx-part-consent'));
@@ -216,7 +220,8 @@ async function oldScaffold(browser) {
     const setup = (await alerts.allInnerTexts()).find((x) => x.includes('No LLM is set up')) || '';
     check(setup.includes('/xbin/llm') && setup.includes('bx llm upstream add'), `the old shell's banner shows the LLM setup alert's words, /xbin/llm in them (${setup.slice(0, 240)})`);
     const agent = (await alerts.allInnerTexts()).find((x) => x.includes('Your workspace agent is on')) || '';
-    check(await S.page.locator('bx-shell button.chip.agent').count() === 0 && agent.includes('/xbin/agent'), `${OLD}'s shell has no workspace agent chip: its banner shows the alert that names /xbin/agent (${agent.slice(0, 200)})`);
+    check(await S.page.locator('bx-shell button.chip.agent').count() === 0 && agent.includes('/xbin/agent') && (!realAgent || realAgent.message === AGENT_PAGE.message),
+      `${OLD}'s shell has no workspace agent chip: its banner shows the alert that names /xbin/agent — ${realAgent ? 'xbind\'s own: the admin has an agent' : 'served: nobody has an agent here'} (${agent.slice(0, 200)})`);
     await shot(S.page, 'old-scaffold-shell');
     const scheme = (f) => f.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bx-scheme').trim() || 'none');
     const rootScheme = await scheme(S.page.mainFrame());
@@ -311,9 +316,11 @@ async function oldScaffold(browser) {
     // …and so does the workspace agent's chrome (D232): the old shell has no chip for it, /xbin/agent is the way in
     await S.page.goto(`${URL}/xbin/agent`);
     await S.page.waitForSelector('bx-agent-dock[full] header', { timeout: 15000 });
-    await S.page.waitForSelector('bx-agent-dock bx-agent-setup .st', { timeout: 15000 });
-    check((await S.page.locator('bx-agent-dock header h2').innerText()) === 'Workspace agent' && /Set up the workspace agent/.test(await S.page.locator('bx-agent-dock bx-agent-setup .st').innerText()),
-      '/xbin/agent works beside the old scaffold: the dock as a page, an admin\'s setup steps');
+    // an admin's setup steps — or, where the admin has an agent (realAgent), the agent's own page in the dock's frame
+    await S.page.waitForSelector('bx-agent-dock bx-agent-setup .st, bx-agent-dock iframe', { state: 'attached', timeout: 15000 });
+    const dockShows = await S.page.locator('bx-agent-dock iframe').count() ? 'the agent\'s page' : (await S.page.locator('bx-agent-dock bx-agent-setup .st').innerText());
+    check((await S.page.locator('bx-agent-dock header h2').innerText()) === 'Workspace agent' && (realAgent ? dockShows === 'the agent\'s page' : /Set up the workspace agent/.test(dockShows)),
+      `/xbin/agent works beside the old scaffold: the dock as a page, ${realAgent ? 'the admin\'s agent in its frame' : 'an admin\'s setup steps'} (${dockShows.slice(0, 60)})`);
     await shot(S.page, 'old-scaffold-agent-page');
     check(errors.length === 0, `no page error in the old shell or admin console (${errors.join(' | ')})`);
   } finally {

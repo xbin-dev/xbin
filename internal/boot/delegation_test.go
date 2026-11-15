@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/delegation"
@@ -64,6 +65,37 @@ func TestHolderModelCallsAreTheSessions(t *testing.T) {
 	} {
 		if why := call(c.c, c.u, c.model); !strings.Contains(why, c.want) {
 			t.Errorf("%s: %q, want a refusal with %q", name, why, c.want)
+		}
+	}
+	// a session opened on a role's name is on the model the connector
+	// resolves that role to: its calls on that model pass, on another not
+	role, err := store.NewAgentSession("bob", holder, nil, "xbin/agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	brk.AgentModels = func(id string) (agentpolicy.ModelRef, bool) {
+		if id == "xbin/agent" {
+			return agentpolicy.ModelRef{Upstream: "hosted", Model: "big"}, true
+		}
+		return agentpolicy.ModelRef{}, false
+	}
+	onRole := llm.Caller{Component: holder, Via: "component", User: "bob", AgentSession: role.ID}
+	if why := call(onRole, hosted, "big"); why != "" {
+		t.Errorf("a session on the agent role's name, calling the model that role names: %s", why)
+	}
+	if why := call(onRole, local, "llama"); !strings.Contains(why, "is on xbin/agent") {
+		t.Errorf("…and calling another model: %q", why)
+	}
+	brk.AgentModels = nil
+	// the LIST of models is no call: a holder is shown every model, with a
+	// session or without one, so its person can pick — a call on any of
+	// them but the session's own is still refused (above)
+	for name, c := range map[string]llm.Caller{"with a session": bob, "without one": {Component: holder, Via: "component", User: "bob"}} {
+		c.Listing = true
+		for _, m := range [][2]any{{local, "llama"}, {local, "mistral"}, {hosted, "big"}} {
+			if why := call(c, m[0].(llm.UpstreamInfo), m[1].(string)); why != "" {
+				t.Errorf("listing %s %s: %s", name, m[1], why)
+			}
 		}
 	}
 	// the session changes model: the connector follows it

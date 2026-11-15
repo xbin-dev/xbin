@@ -115,7 +115,10 @@ test('refusals from their fields: each kind its words and ways forward; the two 
   assert.equal(card('something-new').title, 'xbin refused this');
   // a request's and a brief's place is their callId: the page reads nothing of the tool's answer to find it
   assert.doesNotMatch(src('ws/place.js'), /Pending — request|Filed as request|Brief \(|\^Request \(/);
-  assert.equal([...src('_backend/ws_store.go').matchAll(/CallID +string +`json:"callId,omitempty"`/g)].length, 3, 'wsReq, wsBrief and wsRefused carry callId');
+  assert.equal([...src('_backend/ws_store.go').matchAll(/CallID +string +`json:"callId,omitempty"`/g)].length, 4, 'wsReq, wsAgentRow, wsBrief and wsRefused carry callId');
+  // a tile agent's place is the request that started it: the words of an outcome are read only for a row that names none
+  assert.match(src('_backend/ws_store.go'), /Request +int64 +`json:"request,omitempty"`/, 'a tile agent carries the request that started it');
+  assert.match(src('_backend/ws_notify.go'), /Request: r\.ID, CallID: r\.CallID/, 'a tile agent records the request that started it and its call');
   assert.match(src('_backend/ws_tools_agents.go'), /CallID: toolCallOf\(ctx\)/, 'a brief records the call that wrote it');
   assert.match(src('_backend/ws_tools_act.go'), /req\.CallID = toolCallOf\(ctx\)/, 'a request records the call that filed it');
   // the context of a sent message comes back on the run view's message (stream.go messageView)
@@ -132,7 +135,7 @@ test('every field the page reads is a JSON name the backend writes', () => {
     'archivedAt', 'agents', 'requests', 'activityMs', 'counts', 'tiles', 'orgs', 'notConnected', 'hidden', 'blocked', 'noAccess', 'whatIf', 'connects', 'disconnects', 'allowed', 'taintedOrgs',
     'code', 'reason', 'offer', 'kind', 'ref', 'tile', 'title', 'method', 'path', 'brief', 'state', 'createdMs', 'decidedMs', 'expiresMs', 'grant', 'grantUntilMs', 'by', 'via', 'resultStatus', 'result',
     'refusals', 'callId', 'tool', 'question', 'choices', 'context', 'connected', 'screen',
-    'session', 'harness', 'asks', 'waits', 'last', 'startedMs',
+    'session', 'harness', 'asks', 'waits', 'last', 'startedMs', 'request',
     'goal', 'doneWhen', 'leaveAlone', 'checkBy', 'edited', 'updatedMs', 'plan', 'text', 'started', 'heading', 'line', 'can', 'cant', 'hint', 'startersTitle', 'starters', 'blank',
     'pages', 'slug', 'version', 'updatedBy', 'rev', 'locked', 'lockedWhy', 'body', 'base', 'clearStamps', 'page', 'lastSession', 'defaults', 'harnesses', 'ticket', 'harnessName', 'needsTicket', 'scope', 'archived'];
   const missing = read.filter((n) => !names.has(n));
@@ -291,6 +294,25 @@ test('compose: each card where the conversation made it; nothing lost; the redun
   const v1 = at('cc1').replace[0].v;
   cards.requests[0].state = 'used';
   assert.notEqual(compose(blocks, cards, {}, { words: W.W }).at.get('cc1').replace[0].v, v1);
+  // a tile agent sits after the request that started it, by that request's id (its `request`) — whatever the
+  // request's outcome says, and whichever brief it names; one whose request is off the list sits after the
+  // tile_agent_start call that filed it (its `callId`); only a row from before those fields is matched by words
+  const byId = {
+    briefs: [{ id: 4, callId: 'b1', tile: 'sales/orders', state: 'started', createdMs: 0 }],
+    requests: [{ id: 12, kind: 'call', ref: 'rq-12', callId: 'c1', state: 'used', outcome: 'approved — tile agent #7 started in sales/orders', createdMs: 0 },
+      { id: 11, kind: 'session', ref: 'rq-11', callId: 'p2', brief: 4, state: 'used', outcome: 'approved', createdMs: 0 }],
+    agents: [{ id: 7, tile: 'sales/orders', brief: 4, request: 11, callId: 'p2', status: 'running', startedMs: 0 },
+      { id: 8, tile: 'sales/orders', request: 99, callId: 'a1', status: 'running', startedMs: 0 },
+      { id: 9, tile: 'sales/orders', status: 'idle', startedMs: 0 }],
+  };
+  const B = compose(blocks, byId, { status: 'idle' }, { words: W.W });
+  const where = (k) => [...B.at.entries()].filter(([, e]) => [...(e.replace || []), ...e.after].some((b) => b.k === k)).map(([id]) => id).join();
+  assert.equal(where('ws:req:11'), 'cp2', 'the start\'s request in place of the call that filed it');
+  assert.equal(where('ws:agent:7'), 'cp2', 'a tile agent after the request that started it, by the request\'s id — not after the request whose outcome names "#7"');
+  assert.equal(where('ws:agent:8'), 'ca1', 'its request not on the list: after the call that filed it');
+  assert.notEqual(where('ws:agent:9'), 'cc1', 'a row with neither field is not agent #7: the words of request 12 name another');
+  byId.agents[2].id = 7; byId.agents.shift();
+  assert.equal(compose(blocks, byId, {}, { words: W.W }).at.get('cc1').after.some((b) => b.k === 'ws:agent:7'), true, 'a row from before the fields: by the outcome\'s words, as before');
   // without a callId a card is not placed by the tool's words: by its brief, else by time
   const noIds = { briefs: [{ id: 4, tile: 'sales/orders', state: 'draft', createdMs: 0 }], requests: [{ id: 12, kind: 'call', ref: 'rq-12', state: 'pending', createdMs: 0 }] };
   const N = compose(blocks, noIds, { status: 'idle' }, { words: W.W });

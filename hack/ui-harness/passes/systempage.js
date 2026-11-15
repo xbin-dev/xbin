@@ -142,22 +142,26 @@ async function systemPage(browser) {
       const code = await A.page.evaluate(() => document.querySelector('meta[name="xbin-code"]')?.content ?? '');
       check(/^[0-9a-f]{24}$/.test(code), `its document names its code (${code})`);
       let sent = null;
-      const who = await A.page.evaluate(async (path) => {
-        const r = await window.xbin.fetch(`/api/${path}/who`);
+      // a route of the component's own: the fixtures answer /who; the workspace agent (the release's table) has a
+      // closed route list, and /ws/state is on it (its first call compiles and starts the admin's backend: no timeout)
+      const ownRoute = `/api/${P}/${P === 'xbin/wsagent' ? 'ws/state' : 'who'}`;
+      const who = await A.page.evaluate(async (url) => {
+        const r = await window.xbin.fetch(url);
         return r.status;
-      }, P);
+      }, ownRoute);
       check(who === 200, `a call from its own page passes (${who})`);
-      await A.page.route(`**/api/${P}/who`, (route) => {
+      await A.page.route(`**${ownRoute}`, (route) => {
+        if (sent !== null) return route.continue(); // once: the reloaded page may ask this route itself (the agent's does)
         sent = route.request().headers()['x-xbin-code'] ?? '';
         return route.fulfill({ status: 409, headers: { 'X-XBin-Reload': 'f'.repeat(24), 'Access-Control-Expose-Headers': 'X-XBin-Reload' }, body: '{}' });
       });
       await A.page.evaluate(() => { window.__before = true; });
       const nav = A.page.waitForNavigation({ timeout: 10000 }).then(() => true, () => false);
-      await A.page.evaluate((path) => { window.xbin.fetch(`/api/${path}/who`); }, P);
+      await A.page.evaluate((url) => { window.xbin.fetch(url); }, ownRoute);
       const reloaded = await nav;
       check(sent === code, `xbin.fetch names the page's code (${sent})`);
       check(reloaded && !(await A.page.evaluate(() => window.__before === true)), 'told its code is another release\'s, the page reloads');
-      await A.page.unroute(`**/api/${P}/who`);
+      await A.page.unroute(`**${ownRoute}`);
     }
     check(errors.length === 0, `no page error (${errors.join(' | ')})`);
   } finally {

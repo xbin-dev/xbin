@@ -46,6 +46,12 @@ type Caller struct {
 	// (the X-XBin-Agent-Session header): a delegation holder's calls are
 	// held to that session's model by the policy boot installs.
 	AgentSession string
+	// Listing: the policy is asked what GET /v1/models may show this
+	// caller, not whether a call may run. A policy that holds calls to
+	// something a list can't have (a session's one model) passes these;
+	// one that hides models from a caller (an org's private-only rule)
+	// judges them as it judges a call.
+	Listing bool
 	// Deployment is the tile deployment a component's credential acts in,
 	// or an LLM key was minted in or for ("" = main, or a session that
 	// follows the primary).

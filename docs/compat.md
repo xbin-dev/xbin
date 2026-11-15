@@ -434,8 +434,11 @@ differently.
 
 A release may ship **sealed components**: parts of xbin that run like
 tiles at `xbin/<name>`, with the release's own code
-([sealed.md](/docs/sealed.md)). The release that adds the facility ships
-none, so a workspace sees no change. When a later release adds one:
+([sealed.md](/docs/sealed.md)). The first is the workspace agent,
+`xbin/wsagent`: inert until an admin connects a model, turns workspace
+agents on and gives it to people, and reached by nobody's existing access
+(no pattern, `*` included, gives a system component) — so a workspace that
+does nothing sees no change. For every one a release adds:
 
 - **Nothing in the workspace is written or renamed** (rules 1, 9). The
   component has no directory in the workspace tree and no row in

@@ -251,7 +251,12 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   on the tile).
 - **The session directory**: `GET /term/sessions?origin=agent` lists the
   tile agents this agent started for the person; `&compact=1` answers
-  `[{id, cwd, kind, provider, mode, status, origin}]`. With `&ids=a,b` it
+  `[{id, cwd, kind, provider, mode, status, origin, pending, questions,
+  turn, last}]` — for an agent session, how many permission requests and
+  questions wait for its person, the number of the turn it is on (0
+  before its first prompt), and the last line it wrote (`last`: only in a
+  person's own listing, their agent's included — never in an admin's of
+  someone else's). With `&ids=a,b` it
   adds, for each id that isn't live any more, `{id, status: "ended",
   endedBy, ended?}`: `endedBy: "exit"` when xbind recorded the end (its
   history entry; `ended` is when), `"restart"` when it has no record of
@@ -304,14 +309,28 @@ GET    /delegate/state          the person, their agent's page, or their
                                  adminChanges, canAdminChanges,
                                  pendingRequests, standingApprovals,
                                  openChangeSets, workspaceAt?, pausedAt?,
-                                 agent?}: workspace is the workspace's
+                                 access?, agent?, held?, heldWhy?, who?}:
+                                 workspace is the workspace's
                                  switch (workspaceAt: when it was last
                                  set — absent: never); canAdminChanges
                                  whether the person is a workspace or org
-                                 admin; pausedAt while paused; agent the
-                                 component whose page is the agent's
-                                 conversation (absent: this xbind ships
-                                 none)
+                                 admin; pausedAt while paused. Where this
+                                 xbind ships an agent: access, whether
+                                 the person was given one (nobody is
+                                 until an access entry names the
+                                 component; an admin reads it as they
+                                 manage it); agent, the component whose
+                                 page is their agent's conversation —
+                                 only with access; held, why it can't
+                                 run now ("older": its data is a newer
+                                 xbin's; "locked": the vault is locked;
+                                 "unavailable", with xbind's reason in
+                                 heldWhy for an admin); who, for a
+                                 workspace admin: {everyone, entries,
+                                 chosen} — whether the workspace
+                                 defaults name the agent, how many
+                                 people and orgs have an entry of their
+                                 own, and whether anyone was given one
 PUT    /delegate/state          the person, or their agent's page —
                                  which may send {paused: true} and nothing
                                  else (403). {paused?, adminChanges?} → the
@@ -323,10 +342,22 @@ PUT    /delegate/state          the person, or their agent's page —
                                  the person's own session's; only a
                                  workspace or org admin turns adminChanges
                                  on (403)
-GET    /delegate/workspace      admin. {enabled, by?, at?}: off until an
-                                 admin turns it on
-PUT    /delegate/workspace      admin. {enabled}. Off refuses every
-                                 person's agent at once
+GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?}:
+                                 off until an admin turns it on; who as
+                                 in the state
+PUT    /delegate/workspace      admin. {enabled?, who?}, at least one.
+                                 Off refuses every person's agent at
+                                 once. who gives the agent to people —
+                                 access to the component, written where
+                                 access is kept: "everyone" (an entry in
+                                 the workspace defaults), "me" (the
+                                 admin's own entry, and the defaults'
+                                 goes), "chosen" (the defaults' entry
+                                 goes; entries of people's and orgs' own
+                                 stay). One person or org at a time is
+                                 an ordinary access entry that names the
+                                 component, at read. 409 where this
+                                 xbind ships no agent or has no accounts
 POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
                                  the alert that names /xbin/agent for
                                  them (§The chrome). {ok}

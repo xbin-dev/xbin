@@ -75,6 +75,11 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   ok('two tile agents: tile, coding agent, status as glyph and word, last line', agents.length === 2 && /Orders/.test(agents[0].t) && /Claude Code/.test(agents[0].t) && /working \d+:\d\d/.test(agents[0].t) && /3 of 5 cases pass/.test(agents[0].t), JSON.stringify(agents));
   ok('…the one that waits says so, and only the person can answer: Answer', agents[1] && /waiting for you/.test(agents[1].t) && /Only you can answer/.test(agents[1].t) && agents[1].btn === 'Answer', JSON.stringify(agents[1]));
   ok('…the other: Open', agents[0] && agents[0].btn === 'Open');
+  const started = await page.$$eval('.bxc-row', (rows) => rows.filter((r) => r.querySelector('.wsc-agent[data-agent="7"]')).map((r) => {
+    const req = r.querySelector('.wsc-req[data-req="11"]'), ag = r.querySelector('.wsc-agent[data-agent="7"]');
+    return { k: r.dataset.k, after: !!req && !!(req.compareDocumentPosition(ag) & Node.DOCUMENT_POSITION_FOLLOWING) };
+  }));
+  ok('a tile agent sits after the request that started it (its request id)', started.length === 1 && started[0].after, JSON.stringify(started));
   const ask = await page.$eval('.bxc-ask', (e) => ({ opts: [...e.querySelectorAll('.bxc-opt')].map((o) => o.innerText.trim()), other: !!e.querySelector('.bxc-other'), btns: [...e.querySelectorAll('button')].map((b) => b.innerText.trim()) })).catch(() => null);
   ok('the agent\'s question: its choices as rows, "something else", Answer and Skip', ask && ask.opts.length === 2 && ask.other && ask.btns.join('|') === 'Answer|Skip — let the agent look around first', JSON.stringify(ask));
   ok('…the journal\'s "asked: …" line is not drawn beside it', !(await page.$$eval('.bxc-notice', (n) => n.some((x) => /^asked:/.test(x.innerText.trim())))));

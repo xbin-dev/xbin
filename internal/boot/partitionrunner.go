@@ -11,7 +11,11 @@ package boot
 // and its events' routing (PublishPartitionState). While any start hook is
 // nil no person's partition starts (runner.ErrPartitionRefused).
 
-import "github.com/xbin-dev/xbin/internal/registry"
+import (
+	"time"
+
+	"github.com/xbin-dev/xbin/internal/registry"
+)
 
 // wirePartitionRunner installs the people's-partitions hooks, the running
 // caps (an admin's or a tile manager's limits over the runner's
@@ -31,7 +35,17 @@ func (st *State) wirePartitionRunner() {
 	run.RegisterPartitionInstance = st.registerPartitionInstance
 	run.PartitionEvent = brk.PublishPartitionState
 	run.PartitionExit = brk.NotePartitionExit // partition.json's crash metadata (F5)
-	run.PartitionCapsFor = brk.PartitionCaps
+	// a sealed component's row may give its partitions lower caps than the
+	// defaults (sealed.Limits): the running cap where nobody set one — an
+	// admin's or a manager's is theirs to set — and the idle stop
+	run.PartitionCapsFor = func(tile string) (perTile, workspace int) {
+		perTile, workspace = brk.PartitionCaps(tile)
+		if perTile == 0 {
+			perTile = st.Sealed.Limits(tile).MaxRunning
+		}
+		return perTile, workspace
+	}
+	run.PartitionIdleFor = func(tile string) time.Duration { return st.Sealed.Limits(tile).IdleStop }
 	run.PartitionTurnedAway = brk.IdlePartitionVolumes // the hold check above mounted them for a start admission refused (I2)
 	brk.SetPartitionCapDefaults(run.DefaultPartitionCaps)
 	brk.SetPartitionRunner(run.PartitionRunning, run.StopPartitions, st.Auth.RevokePartitionInstances)

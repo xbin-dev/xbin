@@ -80,3 +80,45 @@ func TestCoderKeyword(t *testing.T) {
 		t.Fatalf("title: %+v", p)
 	}
 }
+
+// A "ws:" line of a person's message is a script of tool calls (ws.go):
+// one a request, in order, then a summary of what each answered.
+func TestWsScript(t *testing.T) {
+	msg := "[context your person attached to this message: the tile \"Orders\" (apps/orders)]\nws: workspace_map ;; tile_call {\"tile\":\"apps/Orders\",\"method\":\"GET\",\"path\":\"/Note\"}"
+	conv := []turn{{Role: "user", Text: "hello"}, {Role: "assistant", Text: "Hello"}, {Role: "user", Text: msg}}
+	p := script(conv, "")
+	if len(p.Calls) != 1 || p.Calls[0].Name != "workspace_map" || len(p.Calls[0].Args) != 0 {
+		t.Fatalf("the first step: %+v", p)
+	}
+	conv = append(conv, turn{Role: "tool", Tool: "workspace_map", Text: "5 tiles\nmore"})
+	p = script(conv, "")
+	if len(p.Calls) != 1 || p.Calls[0].Name != "tile_call" || p.Calls[0].Args["tile"] != "apps/Orders" || p.Calls[0].Args["path"] != "/Note" {
+		t.Fatalf("the second step (arguments keep their case): %+v", p)
+	}
+	conv = append(conv, turn{Role: "tool", Tool: "tile_call", Text: "200 note=first"})
+	if p = script(conv, ""); len(p.Calls) != 0 || p.Text != "Done: 5 tiles | 200 note=first" {
+		t.Fatalf("the summary: %+v", p)
+	}
+	// a later message that is no script is answered as any other
+	conv = append(conv, turn{Role: "assistant", Text: p.Text}, turn{Role: "user", Text: "[workspace updates] a request was approved"})
+	if p = script(conv, ""); len(p.Calls) != 0 || !strings.HasPrefix(p.Text, "ok: ") {
+		t.Fatalf("a message after the script: %+v", p)
+	}
+	// the agent's own message landing after the script — at the turn's first
+	// step boundary, or between two steps — doesn't end it
+	mid := []turn{{Role: "user", Text: "ws: tile_agents ;; workspace_map"}, {Role: "user", Text: "[workspace updates] a tile agent waits"}}
+	if p = script(mid, ""); len(p.Calls) != 1 || p.Calls[0].Name != "tile_agents" {
+		t.Fatalf("a script with the agent's updates after it: %+v", p)
+	}
+	mid = append(mid, turn{Role: "tool", Tool: "tile_agents", Text: "none"}, turn{Role: "user", Text: "[workspace updates] it ended its turn"})
+	if p = script(mid, ""); len(p.Calls) != 1 || p.Calls[0].Name != "workspace_map" {
+		t.Fatalf("updates between two steps: %+v", p)
+	}
+	mid = append(mid, turn{Role: "tool", Tool: "workspace_map", Text: "5 tiles"})
+	if p = script(mid, ""); p.Text != "Done: none | 5 tiles" {
+		t.Fatalf("the summary past the updates: %+v", p)
+	}
+	if p = script([]turn{{Role: "user", Text: "ws: tile_call {not json"}}, ""); len(p.Calls) != 1 || p.Calls[0].Name != "invalid_ws_script" {
+		t.Fatalf("a script that doesn't parse: %+v", p)
+	}
+}

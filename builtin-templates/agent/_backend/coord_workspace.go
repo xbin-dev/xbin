@@ -32,6 +32,10 @@ var coordWorkspace *coordProfile
 const (
 	wsResearchMax     = 3
 	wsResearchTimeout = 10 * time.Minute
+	// wsWakeBurst is how many times a minute a conversation is woken at once
+	// for what its tile agents report (coord_wake.go): the first change
+	// after a quiet time never waits, a storm of them is spaced.
+	wsWakeBurst = 6
 )
 
 func init() {
@@ -47,7 +51,7 @@ func init() {
 			"research", "tile_create", "admin_propose", "admin_changes", "preview",
 			"plan", "notebook_search", "notebook_read", "notebook_write", "notebook_edit", "notebook_archive",
 		},
-		Limits: coordBounds{Research: wsResearchMax, ResearchTimeout: wsResearchTimeout},
+		Limits: coordBounds{Research: wsResearchMax, ResearchTimeout: wsResearchTimeout, Wakes: wsWakeBurst},
 		Is: func(d *DB, run *Run) bool {
 			return wsMode() && d.wsOne(`SELECT 1 FROM ws_sessions WHERE run_id=?`, run.ID) == 1
 		},
@@ -101,7 +105,7 @@ func wsData(from, what, s string) string {
 }
 
 // wsOwes: an outcome or a tile agent's change waits for run and asks to
-// wake it (the kit coalesces the wakes).
+// wake it — at once: the kit only spaces a storm of wakes (wsWakeBurst).
 func wsOwes(d *DB, run *Run) bool {
 	return d.wsOne(`SELECT EXISTS(SELECT 1 FROM ws_requests WHERE run_id=?1 AND owed=1)
 		OR EXISTS(SELECT 1 FROM ws_agents WHERE run_id=?1 AND owed=1 AND wake=1)`, run.ID) == 1

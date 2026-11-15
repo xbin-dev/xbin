@@ -39,8 +39,8 @@ func newCoordFix(t *testing.T) *coordFix {
 // from one test's database to the next).
 func coordWakerReset() {
 	coordWaker.Lock()
-	ids := make([]int64, 0, len(coordWaker.last)+len(coordWaker.timer))
-	for id := range coordWaker.last {
+	ids := make([]int64, 0, len(coordWaker.recent)+len(coordWaker.timer))
+	for id := range coordWaker.recent {
 		ids = append(ids, id)
 	}
 	for id := range coordWaker.timer {

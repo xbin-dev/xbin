@@ -34,7 +34,7 @@ export function toMs(v) {
   if (v == null || v === '') return 0;
   if (typeof v === 'number') return v > 1e12 ? v : v * 1000;
   const n = Date.parse(v);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0; // (xbind writes a time that was never set as year 1: "0001-01-01T00:00:00Z")
 }
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -79,7 +79,8 @@ const lastOf = (path) => { const s = String(path || '').split('/').filter(Boolea
 /** tile(req): {name, path, org} of the tile a request is about. */
 export const tile = tileOf;
 
-const LEVEL = { owner: 'you own it', admin: 'you manage it', write: 'you can write here', full: 'you can write here', read: 'you can only read here' };
+// (xbind's levels are read | write | terminal — terminal holds write)
+const LEVEL = { owner: 'you own it', admin: 'you manage it', terminal: 'you can write here', write: 'you can write here', full: 'you can write here', read: 'you can only read here' };
 /** levelWords(level): the person's own level on the tile, in words. */
 export const levelWords = (level) => LEVEL[level] || (level ? `your level: ${level}` : '');
 
@@ -118,7 +119,8 @@ export function sends(req) {
   }
   if (!size && !req.body) return { text: '', binary: false, note: 'nothing: the call has no body' };
   const text = String(req.body ?? '');
-  const shown = Number(req.bodyShown) || 0;
+  // xbind's bodyShown is a boolean — true: `body` is the whole body, as text (delegation.Request); a count is a part of it
+  const shown = req.bodyShown === true ? size : Number(req.bodyShown) || 0;
   const partial = shown > 0 && shown < size;
   return { text, binary: false, note: partial ? `showing the first ${bytes(shown)} of ${bytes(size)}` : `${bytes(size)} · shown in full` };
 }
@@ -352,19 +354,40 @@ export function needs({ requests = [], changesets = [], sessions = [] } = {}, no
  * icon, group: 'change' | 'refused' | 'read', at}. `strong` is the tile's
  * name inside the sentence, said after `text`.
  */
+// xbind's rows (delegation.Call): `effect` is a boolean — a side effect — and `under` is the standing approval a call ran under
+// ("approval:<id>"), "preference" (a tile agent started unasked) or, on a decision, the grant and its scope ("once", "hour call",
+// "always tile"). A word in `effect`, a scope in `under`, are read too.
+const GRANT = { once: 'once', hour: 'for one hour', always: 'until you take it back' };
+const grantWords = (u) => { const [g, sc] = String(u || '').split(' '); return GRANT[g] ? `${GRANT[g]}${sc === 'tile' ? ', every change' : sc === 'call' ? ', this action' : ''}` : ''; };
+const underWords = (row) => { const u = String(row.under || '');
+  return u === 'preference' ? 'without asking: your preference' : u.startsWith('approval:') ? 'under a standing approval of yours' : u ? `under “always, ${u === 'tile' ? 'every change' : 'this action'}”` : row.ticket ? 'you allowed it once' : ''; };
+// the agent's own asking and record-keeping at xbind — a request filed or withdrawn, a change set proposed, its session's
+// handle opened, kept and closed: nothing of the person's was changed ('' for a row that is none of these)
+function asking(row) {
+  const m = /^\/api\/xbin\/delegate\/(requests|changesets|sessions)(\/.*)?$/.exec(row.path || '');
+  if (!m || row.dryRun || !row.method || row.method === 'GET') return '';
+  const [, what, rest] = m;
+  if (what === 'sessions') return row.method === 'POST' && !rest ? 'Began a session' : row.method === 'DELETE' ? 'Ended a session' : "Updated its session's record";
+  if (row.method === 'POST' && !rest) return what === 'requests' ? 'Asked for your approval' : 'Proposed admin changes';
+  return row.method === 'DELETE' ? (what === 'requests' ? 'Withdrew a request' : 'Withdrew proposed admin changes') : '';
+}
+
 export function did(row) {
   const t = lastOf(row.tile) || '';
   const call = `${row.method || ''} ${row.path || ''}`.trim();
   const at = toMs(row.ts);
   const cls = String(row.class || '');
+  const effect = typeof row.effect === 'string' ? row.effect : '';
   if (cls.startsWith('decision:')) {
     const d = cls.slice(9);
-    return { text: d.startsWith('deny') ? 'You denied a request' : d.startsWith('revoke') ? 'You took an approval back' : 'You allowed a request', strong: '', detail: [t, row.effect || ''].filter(Boolean).join(' · '), icon: 'person', group: 'change', at };
+    return { text: d.startsWith('den') ? 'You denied a request' : d.startsWith('revoke') ? 'You took an approval back' : 'You allowed a request', strong: '', detail: [t, effect || grantWords(row.under)].filter(Boolean).join(' · '), icon: 'person', group: 'change', at };
   }
   if (cls.startsWith('changeset:')) return { text: 'Applied an admin change as you', strong: '', detail: `${kindTag(cls.slice(10))}${row.status >= 400 ? ' · failed' : ''}`, icon: 'shield', group: 'change', at };
   if (row.refused) return { text: 'Was refused: ', strong: t || call, detail: String(row.refused), icon: 'lock', group: 'refused', at };
-  const under = row.under ? `under “always, ${row.under === 'tile' ? 'every change' : 'this action'}”` : row.ticket ? 'you allowed it once' : '';
-  if (cls === 'session' || /\/term\/sessions$/.test(row.path || '')) return { text: 'Started a tile agent in ', strong: t, detail: [row.effect || '', under].filter(Boolean).join(' · '), icon: 'agent', group: 'change', at };
+  const under = underWords(row);
+  if (cls === 'session' || /\/term\/sessions$/.test(row.path || '')) return { text: 'Started a tile agent in ', strong: t, detail: [effect, under].filter(Boolean).join(' · '), icon: 'agent', group: 'change', at };
+  const own = asking(row);
+  if (own) return { text: own, strong: '', detail: '', icon: /session/.test(own) ? 'agent' : 'shield', group: 'read', at };
   const write = row.method && row.method !== 'GET' && !row.dryRun;
   if (write) return { text: 'Changed ', strong: t || call, detail: [call, under].filter(Boolean).join(' · '), icon: 'pencil', group: 'change', at };
   return { text: row.dryRun ? 'Checked what a change would do in ' : 'Read ', strong: t || call, detail: call + (row.n ? ` · ${row.n} more before this weren't listed` : ''), icon: 'eye', group: 'read', at };
@@ -392,21 +415,27 @@ export const DID_NOTE = "Kept by xbin for 13 months. Your agent and its page can
 /**
  * dockState({state, llm, me, error}): what the dock shows in place of the
  * agent's page, or 'page' —
- *   hidden       nothing at all (a non-admin before setup: no chip either)
- *   setup        an admin before setup: the three steps
+ *   hidden       nothing at all (a non-admin before setup, and anyone who
+ *                was not given an agent — state.access false: no chip either)
+ *   setup        an admin before setup: the three steps — until someone was
+ *                given an agent (state.who.chosen; who is an admin's alone)
  *   unavailable  it was on, and no language model is connected now
  *   off          an admin turned workspace agents off (it was set up once)
  *   paused       the person paused their agent
- *   held         the sealed component is held (state.held: 'locked' | 'older')
+ *   held         the sealed component is held (state.held: 'locked' | 'older',
+ *                or 'unavailable' with xbind's reason in state.heldWhy)
  *   offline      xbind can't be reached
  *   soon         everything is on, and this xbin ships no agent yet (state.agent is empty)
  *   page         the agent's page
  */
 export function dockState({ state = null, llm = null, me = null, error = '' } = {}) {
   if (error || !state) return error ? 'offline' : 'hidden';
-  const admin = !!(me && (me.admin || me.owner)) || !!state.canAdminChanges;
+  const wsAdmin = !!(me && (me.admin || me.owner)) || !!state.who;
+  const admin = wsAdmin || !!state.canAdminChanges;
+  if (state.access === false && !wsAdmin) return 'hidden'; // nobody without an agent sees anything of it
   const model = !llm || llm.configured !== false;
   if (!state.workspace) return state.workspaceAt ? 'off' : admin ? 'setup' : 'hidden';
+  if (state.who && !state.who.chosen) return 'setup'; // an admin: on, and nobody was given one yet (the third step)
   if (!model) return 'unavailable';
   if (state.paused) return 'paused';
   if (state.held) return 'held';
@@ -445,26 +474,36 @@ const STATES = {
   locked: { title: 'Locked after a restart.', text: "Your agent's conversations and notebook are encrypted, and the workspace was restarted. They stay locked until an admin unlocks the workspace. Nothing is lost.", more: 'An admin can fix this: {admins}.' },
   older: { title: 'Waiting for a newer xbin.', text: "This workspace is running an older xbin than the one that last saved your agent's data. To keep that data safe the agent stays off until xbin is updated again. Nothing has been changed or removed." },
   offline: { title: "Can't reach xbin.", text: 'Showing what was loaded before. Approvals need a connection.' },
+  heldOther: { title: 'Not available on this xbin.', text: "The workspace agent can't run here right now{why}. Your conversations and notebook are kept.", more: 'An admin can fix this: {admins}.' },
   soon: { title: 'Workspace agents are on.', text: "Approvals, what your agent did and your preferences work here already. The agent's own conversation is not part of this xbin yet: it arrives with an update." },
 };
 /** stateWords(kind, {admins, at, held}): a state's {title, text, more}. */
 export function stateWords(kind, x = {}) {
-  const w = STATES[kind === 'held' ? (x.held === 'older' ? 'older' : 'locked') : kind];
+  const w = STATES[kind === 'held' ? (x.held === 'older' ? 'older' : x.held === 'unavailable' ? 'heldOther' : 'locked') : kind];
   if (!w) return null;
   // (no route names the admins to a non-admin yet: without names the sentence ends at "this")
   const known = (x.admins || []).some(Boolean);
-  const fill = (s) => s.replace(': {admins}', known ? `: ${admins(x.admins)}` : '').replace('{at}', x.at ? ` at ${clock(toMs(x.at))}` : '');
+  const why = typeof x.why === 'string' && x.why ? `: ${x.why.replace(/\.$/, '')}` : '';
+  const fill = (s) => s.replace(': {admins}', known ? `: ${admins(x.admins)}` : '').replace('{at}', x.at ? ` at ${clock(toMs(x.at))}` : '').replace('{why}', why);
   return { title: fill(w.title), text: fill(w.text), more: w.more ? fill(w.more) : '' };
 }
 
-/** setupSteps({llm, state}): the three steps an admin sees before setup — each {title, text, done, enabled, action}. */
+/**
+ * setupSteps({llm, state}): the three steps an admin sees before setup — each
+ * {title, text, done, enabled, action}; the third has `choices` in place of
+ * an action: [{who, label, primary}] for PUT /delegate/workspace {who}.
+ */
 export function setupSteps({ llm = null, state = null } = {}) {
   const model = !!(llm && llm.configured), hosted = !!(llm && llm.host), on = !!(state && state.workspace);
+  const who = (state && state.who) || null, chosen = !!(who && who.chosen), n = who ? Number(who.entries) || 0 : 0;
   return [
     { id: 'model', title: 'Connect a language model', done: model, enabled: true, tag: hosted ? 'Set by your host' : '',
       text: model ? (hosted ? "Your host provides the models and sets the limits; those can't be changed here." : 'Connected.') : 'None is connected. Use a provider key, or a model your organisation runs itself.', action: model ? '' : 'Connect…' },
     { id: 'on', title: 'Turn workspace agents on', done: on, enabled: model, text: on ? 'On. You can turn it off again at any time; every agent stops at once.' : 'Off. You can turn it off again at any time; every agent stops at once.', action: on ? '' : 'Turn on' },
-    { id: 'who', title: 'Choose who gets one', done: false, enabled: on, text: 'Everyone, or the people and orgs you pick. Orgs can add their own rules.', action: on ? 'Choose…' : '' },
+    { id: 'who', title: 'Choose who gets one', done: chosen, enabled: on, action: '',
+      text: chosen ? (who.everyone ? 'Everyone in this workspace.' : `${n} ${n === 1 ? 'person or org' : 'people and orgs'} so far.`) + ' Change it under Admin → People: access to “Workspace agent”.'
+        : 'Nobody has one yet. Give everyone one, or start with yourself and add people and orgs later (Admin → People). Orgs can add their own rules.',
+      choices: on && !chosen ? [{ who: 'everyone', label: 'Everyone', primary: true }, { who: 'me', label: 'Just me for now', primary: false }] : [] },
   ];
 }
 export const SETUP_INTRO = { title: 'Set up the workspace agent', text: 'One agent per person that plans work across tiles and asks before anything changes. It is off until you finish these three steps. Nobody else sees it yet.' };

@@ -147,6 +147,22 @@ func Require(t testing.TB) *Assets {
 // removed when the test ends.
 func (a *Assets) WithSealedFixture(t testing.TB) *Assets {
 	t.Helper()
+	return a.withSealed(t, "sealedfixture")
+}
+
+// WithSealedBuilds is a copy of the assets as a release ships them: this
+// tree's xbind — its sealed table the release's own, the workspace agent
+// (xbin/wsagent) in it — with the prebuilt backends of that table beside
+// it (bin/sealed, by its own `sealed-build`). The plain assets have no
+// bin/sealed: a production xbind started from them holds every sealed
+// component for want of its build, as a damaged install would.
+func (a *Assets) WithSealedBuilds(t testing.TB) *Assets {
+	t.Helper()
+	return a.withSealed(t, "")
+}
+
+func (a *Assets) withSealed(t testing.TB, tags string) *Assets {
+	t.Helper()
 	dir, err := os.MkdirTemp("", "xbindtest-sealed-bin-*")
 	if err != nil {
 		t.Fatal(err)
@@ -160,17 +176,24 @@ func (a *Assets) WithSealedFixture(t testing.TB) *Assets {
 			t.Fatalf("%s: %v\n%s", strings.Join(argv, " "), err, b)
 		}
 	}
-	run(a.Repo, "go", "build", "-tags", "sealedfixture", "-o", filepath.Join(dir, "xbind"), "./cmd/xbind")
-	for _, b := range []string{"bx", "xbin-vmagent"} {
-		if err := os.Link(filepath.Join(a.Bin, b), filepath.Join(dir, b)); err != nil {
-			raw, rerr := os.ReadFile(filepath.Join(a.Bin, b))
+	link := func(name string) {
+		if err := os.Link(filepath.Join(a.Bin, name), filepath.Join(dir, name)); err != nil {
+			raw, rerr := os.ReadFile(filepath.Join(a.Bin, name))
 			if rerr != nil {
 				t.Fatal(rerr)
 			}
-			if err := os.WriteFile(filepath.Join(dir, b), raw, 0o755); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, name), raw, 0o755); err != nil {
 				t.Fatal(err)
 			}
 		}
+	}
+	if tags != "" {
+		run(a.Repo, "go", "build", "-tags", tags, "-o", filepath.Join(dir, "xbind"), "./cmd/xbind")
+	} else {
+		link("xbind")
+	}
+	for _, b := range []string{"bx", "xbin-vmagent"} {
+		link(b)
 	}
 	run(a.Repo, filepath.Join(dir, "xbind"), "sealed-build", "--out", filepath.Join(dir, "sealed"), "--sdk", filepath.Join(a.Repo, "sdk"))
 	b := *a

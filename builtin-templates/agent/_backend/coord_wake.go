@@ -1,10 +1,17 @@
 // coord_wake.go — what reaches a coordinator, whatever its profile
 // (coord_profile.go): the wake — an idle coordinator starts a turn when
 // something it started changed state and its profile says that asks for
-// one (Pending), at most once per coordWakeEvery, a timer poking it when
-// the minute is up — and the updates: what changed, as one message at a
-// step boundary (the profile's Deliver; deliverBoundary writes it beside
-// the notices and has it marked delivered with the message).
+// one (Pending) — and the updates: what changed, as one message at a step
+// boundary (the profile's Deliver; deliverBoundary writes it beside the
+// notices and has it marked delivered with the message).
+//
+// Wakes are coalesced, never held back for their own sake. What changed
+// together is one wake: a wake delivers everything owed in one message,
+// and what changes while the turn runs is read at its next step. The first
+// change after a quiet time wakes at once. What is bounded is a storm: a
+// coordinator takes at most its profile's Limits.Wakes wakes (one, when
+// the profile names none) within any coordWakeEvery; the next one waits
+// for the oldest of them to leave the window, a timer poking it then.
 package main
 
 import (
@@ -16,30 +23,31 @@ import (
 
 func init() { runDeletedHooks = append(runDeletedHooks, coordRunDeleted) }
 
-// coordWakeEvery is how often a coordinator may be woken for its updates (a
-// var so tests can shorten it).
+// coordWakeEvery is the window a coordinator's wakes are counted in (a var
+// so tests can shorten it).
 var coordWakeEvery atomic.Int64
 
 func init() { coordWakeEvery.Store(int64(60 * time.Second)) }
 
-// coordWaker remembers each coordinator's last wake, and the timer that
-// pokes it once its minute is up.
+// coordWaker remembers each coordinator's wakes of the last window, oldest
+// first, and the timer that pokes it once the oldest leaves it.
 var coordWaker = struct {
 	sync.Mutex
-	last  map[int64]time.Time
-	timer map[int64]*time.Timer
-}{last: map[int64]time.Time{}, timer: map[int64]*time.Timer{}}
+	recent map[int64][]time.Time
+	timer  map[int64]*time.Timer
+}{recent: map[int64][]time.Time{}, timer: map[int64]*time.Timer{}}
 
 // coordWakes: run is an idle (or sleeping) coordinator and something it
-// started asks to wake it (its profile's Pending) — at most one wake per
-// coordWakeEvery; within it, a timer pokes it when the minute is up (the
+// started asks to wake it (its profile's Pending) — at once, unless it was
+// woken its profile's Limits.Wakes times within coordWakeEvery already;
+// then a timer pokes it when the oldest of those leaves the window (the
 // idle-wake checks in actor.go ask).
 func coordWakes(d *DB, run *Run) bool {
 	p := coordOriginOf(run)
 	if p == nil || p.Pending == nil || !hooksOn(d, run.ID) {
 		return false
 	}
-	return p.Pending(d, run) && coordWakeAdmit(run.ID)
+	return p.Pending(d, run) && coordWakeAdmit(run.ID, p.Limits.Wakes)
 }
 
 // coordWakeCant: a coordinator in this status never takes a wake — one
@@ -47,16 +55,22 @@ func coordWakes(d *DB, run *Run) bool {
 // write (the actor wakes neither).
 func coordWakeCant(status string) bool { return status == statusWaiting || status == statusError }
 
-// coordWakeAdmit says whether coordinator id may be woken now, and arms its
-// timer when not.
-func coordWakeAdmit(id int64) bool {
+// coordWakeAdmit says whether coordinator id may be woken now — it was
+// woken fewer than burst times (at least one) within the window — and
+// arms its timer when not.
+func coordWakeAdmit(id int64, burst int) bool {
 	every := time.Duration(coordWakeEvery.Load())
 	now := time.Now()
 	coordWaker.Lock()
 	defer coordWaker.Unlock()
-	if last, ok := coordWaker.last[id]; ok && now.Sub(last) < every {
+	recent := coordWaker.recent[id]
+	for len(recent) > 0 && now.Sub(recent[0]) >= every {
+		recent = recent[1:]
+	}
+	if len(recent) >= max(burst, 1) {
+		coordWaker.recent[id] = recent
 		if coordWaker.timer[id] == nil {
-			coordWaker.timer[id] = time.AfterFunc(last.Add(every).Sub(now), func() {
+			coordWaker.timer[id] = time.AfterFunc(recent[0].Add(every).Sub(now), func() {
 				coordWaker.Lock()
 				delete(coordWaker.timer, id)
 				coordWaker.Unlock()
@@ -67,7 +81,7 @@ func coordWakeAdmit(id int64) bool {
 		}
 		return false
 	}
-	coordWaker.last[id] = now
+	coordWaker.recent[id] = append(recent[:len(recent):len(recent)], now)
 	return true
 }
 
@@ -78,7 +92,7 @@ func coordForget(id int64) {
 		tm.Stop()
 	}
 	delete(coordWaker.timer, id)
-	delete(coordWaker.last, id)
+	delete(coordWaker.recent, id)
 	coordWaker.Unlock()
 }
 

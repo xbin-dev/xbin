@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/util"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -145,7 +146,10 @@ func (u *User) IsAdmin() bool { return u.Role == RoleAdmin }
 // for any other '*' position — a single-glob match (`apps/bot-*`), so a
 // mid-string pattern is never a silent no-op (D32).
 func matchTile(t, path string) bool {
-	if t == "*" || t == path {
+	if t == path || util.SealedPath(path) {
+		return t == path // a sealed component is reached by an entry that names it, never by a pattern (sealed.go)
+	}
+	if t == "*" {
 		return true
 	}
 	if strings.HasSuffix(t, "/*") {

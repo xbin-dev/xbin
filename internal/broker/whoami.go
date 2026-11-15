@@ -199,3 +199,10 @@ func nativeView(st *users.Store) map[string]any {
 	}
 	return map[string]any{"runtime": server.NativeRuntimeVersion}
 }
+
+// VaultLocked reports a vault that has a barrier and is sealed: resources
+// that are encrypted under it — every person's partition — can't be opened
+// until an admin unlocks it.
+func (b *Broker) VaultLocked() bool {
+	return b.barrier != nil && b.barrier.Initialized() && b.barrier.Sealed()
+}
