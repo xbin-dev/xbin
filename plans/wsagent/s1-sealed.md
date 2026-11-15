@@ -557,6 +557,150 @@ instance, 16 MB per bundle) do not argue for revisiting it.
    schedule as data-only archives (my default), or stays out until a
    later PR.
 
+## Decision record
+
+`plans/DECISIONS.md` D227 as it stood on 2026-11-15, verbatim: the rules
+with their reasoning. (The rounds its last bullets summarise are in full
+under §Review rounds below.) The log keeps the rules in brief.
+
+- **D227 — Sealed components: code that is always the running release's
+  (2026-11-14; issue #51).** The owner, on where the workspace agent runs:
+  a sealed system component, as a general facility ("will be useful later
+  when we begin a hosted xbin offering": a component managing the hosted
+  instance, a platform inference gateway), with "a very clean auto-update
+  story (eg code always = builtin template code)". Spike and findings:
+  `plans/wsagent/s1-sealed.md`. The facility ships with an **empty table**;
+  `xbin/wsagent` is registered by the workspace agent's own work.
+  - **A compiled-in table declares them** (`internal/sealed`): name (path
+    `xbin/<name>`), embedded source, partition mode, the interface slots an
+    admin may bind, the grants and capabilities the release gives it
+    (`Capabilities.Delegate`, read by the delegation primitive through
+    `sealed.Lookup`), its data format. Nothing in a workspace declares one,
+    and what a workspace `xbin.json` says about one (a grant from or on it,
+    a binding of an undeclared slot, a binding naming it as provider) is
+    not read; the file is never rewritten for it.
+  - **No workspace can hold the path.** `xbin` has been a reserved
+    top-level name since before v0.1.0: the scan skips it, every creation
+    path refuses it, `/c/` refuses it. A name may not shadow an xbind route
+    or page: boot refuses, and a test walks the route table. That is why
+    the workspace agent is `xbin/wsagent`: `/api/xbin/agent/…` is xbind's.
+  - **The code is the binary's.** At boot the embedded tree is rendered as
+    a template instance is (`builtins.RenderTree`), hashed, and
+    materialized read-only under `.xbin/sealed/<name>/<digest>`, verified
+    file by file at every boot; other digests are removed. It is a tile
+    whose primary is permanently pinned to that tree: the frontend goes
+    through the pinned-checkpoint serving in all three asset modes, with
+    the one HTML transform. Serving from memory was weighed and left: the
+    backend needs files on disk anyway, and `.xbin` is as trusted as the
+    binary beside it.
+  - **Prebuilt in production** (owner). `make build` and
+    `deploy/publish-release.sh` produce `bin/sealed/<name>-<digest>` per
+    architecture (`xbind sealed-build`); the digest in the name is the
+    rendered source's, so a build of other source is never run. Only
+    `--dev`/`--no-auth` compile from the tree (against no workspace module
+    and no line of the root `go.work`). Measured for the agent template:
+    33 s cold on two cores, 60 MB (16 MB stripped and compressed in a
+    1.9 GB bundle), against 780 MB of caches and a module download per
+    workspace.
+  - **Holds, not fallbacks.** A component that can't run is held with a
+    reason its API, `/xbin/system` and `bx system` show: `no-build`,
+    `foreign-data`, `newer-data`, `stamp`, `needs-sandboxes`.
+  - **The data key and the stamp.** `util.ScopeKey` maps `xbin~x` and
+    `xbin/x` to one key. The sealed scope always holds it (a same-key
+    workspace scope loses its resources, D118's refusal); and
+    `data/sealed/<name>.json` says the data at the key is the component's
+    and in which format. Claimed at the first boot while nothing sits at
+    the key — data found there unclaimed holds the component and is never
+    read, moved or deleted (owner). Raised by the first admitted start of
+    a release with a higher format; a stamp above the running release's
+    format holds it (a downgrade). One mark for the whole component:
+    partitions migrate as they start. A restore is refused the same way
+    and never lowers it.
+  - **Partitions** work for a sealed scope (the partition key checks admit
+    one); the table's mode is the only one. Without `--isolate` a
+    partitioned component is held, except that a development xbind runs
+    one global instance (owner).
+  - **Never a target** (the delegation spike's threat T3): its roles,
+    provided interfaces and public endpoints are dropped, so no grant,
+    binding or route reaches it or a person's partition of it; its
+    resources, secrets and registrations pass only its own credentials.
+  - **What an admin may change** (owner): who has read access (the levels
+    above read don't exist on it, for admins too), enabled/disabled, its
+    limits, the bindings of its declared slots. Everything else is the
+    table's. Each of the 300-odd `/api/xbin` routes has a row saying what a
+    sealed path gets (`server/sealedclass.go`, a gate before the handler;
+    guards in `internal/apicheck` and `internal/boot`), as deployments and
+    partitions have theirs.
+  - **Compat.** Listings leave sealed rows out unless asked (`?sealed=1`),
+    so a shell, an admin console or an app that predates them never shows
+    a tile with a dead terminal; `/xbin/system` is the surface that is
+    always there. Backups are data only.
+  - **Words.** "Sealed component" in code, plans and builder docs (the
+    owner's term); people read "system component". No user-facing sentence
+    puts it beside the vault's sealed state, and `docs/sealed.md` says how
+    the two differ.
+  - **Second round (2026-11-15; the owner's answers;
+    `plans/wsagent/s1-sealed.md` §Review rounds has the reasoning).** An
+    access entry that names a sealed path above read is refused where
+    entries are written; a pattern is clamped. People's-partition
+    operations and data-only backups stay an admin's and read no
+    person's data. A row may bind a slot to a builtin provider by
+    default (`Defaults`); an admin's binding or unbinding wins. An open
+    page across a release: the page carries its code's id and its first
+    stale call is refused (`409`, `X-XBin-Reload`), which then sends the
+    `reload` event — not a signal at boot, which has nobody to reach.
+  - **Review rounds three to six (2026-11-15)** — two independent
+    security reviews, then meeting delegation (D228) and agent sessions,
+    notices and previews. The full record, with what was rejected and
+    why, is `plans/wsagent/s1-sealed.md` §Review rounds; the rules that
+    came out of them:
+    - *The route gate is an early answer, not the boundary.* A body can
+      read differently to the gate and to a handler, so every refusal is
+      made where the work is done, on the value acted on — and in
+      `registry.MutateWorkspace`, the one writer of the workspace file.
+      `TestSealedBoundaryWithoutTheGate` drives every refused, self and
+      handled row with the gate off; a route without a row refuses a
+      sealed path at runtime.
+    - *One spelling.* The sealed test asks the canonical form
+      (`util.SealedPath` over `util.CanonPath`); principals carry
+      canonical components; the API's edge refuses an odd spelling of a
+      sealed path. Tiles' forgiving spellings are left alone (compat).
+    - *A sealed component's frame token is a viewer's*: its page runs in
+      any reader's browser, so that credential reaches its own backend,
+      files, renewal, `whoami` and the events socket — plus a holder's
+      delegation API and the exact GET paths its row names
+      (`FrameReads`). Only the instance credential acts as the component.
+    - *Providers are the release's to name* (`Spec.Providers`), enforced
+      when a binding is set, written and read.
+    - *Restore is a write path*: only from a sealed archive that names
+      it, under a backup key this workspace created (not an imported
+      bundle); never while held; no member is read out of its backup.
+      Disaster recovery is the workspace's own directory restored.
+    - *What runs is verified at every start* (`SealedVerify` in the
+      spawn, non-latching): the tree against the release's bytes, the
+      prebuilt backend against `bin/sealed/sealed.json`; pages are
+      served from memory. Names are at most 18 characters and `xbin~*`
+      is reserved, so no tile shares its data key.
+    - *The reload signal* goes only to the person whose frame was stale.
+    - *Delegation.* Holders, their notice path and which row is the
+      agent xbin's chrome frames are the table's (`Capabilities.Delegate`,
+      `Notify`, `Capabilities.Agent`: one row at most; boot installs all three).
+      A person's agent does nothing in a sealed component, holder or
+      not; the two route tables class each other's routes, each pinned
+      by a golden. No preview shows one. Under `--no-auth` a holder's
+      single instance is the implicit owner's delegate, never the root
+      token. Left as found: the delegation package says "sealed system
+      component" in a few refusals.
+    - *Found on master too, fixed in commits of their own:* a restore
+      registered cron jobs naming other components; `res:/…` targets
+      looped forever; a terminal opened at any path its caller had
+      terminal level on (`cwd=.xbin`, `data`, `homes`), bound read-write
+      — it now opens only at, or inside, a registered tile; in-process
+      shutdown left backends running.
+  - **Not done here.** No entry point in the shell, the admin console or
+    the app (the workspace agent's UI work adds them). The real-binary
+    downgrade suite has nothing sealed to downgrade until a row exists.
+
 ## Review rounds
 
 The record `plans/DECISIONS.md` D227 points at: what each round after the

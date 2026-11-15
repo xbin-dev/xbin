@@ -86,8 +86,9 @@ test('a view imports by /vendor/ URL only, and reaches no host', () => {
 test('every kind of the model has a view, and the kit says its revision', () => {
   const views = code('chat/views.js');
   for (const kind of model.KINDS) assert.match(views, new RegExp(`case '${kind}':`), `blockView draws ${kind}`);
-  assert.equal(KIT, 4);
+  assert.equal(KIT, 5);
   assert.match(src('chat/rev.js'), /\n \* {3}3 {2}the views/);
+  assert.match(src('chat/rev.js'), /\n \* {3}5 {2}a plan in the host's words/);
 });
 
 test('/vendor/agent-cards.js and /vendor/agent-css.js keep their names', () => {

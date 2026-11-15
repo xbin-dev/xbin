@@ -397,10 +397,19 @@ export function agentView(b, ctx, depth = 0, child = () => nothing) {
 
 // ---- a plan's entries -------------------------------------------------------------------
 
-/** planView(b): a plan block — the agent's plan as it stands, an entry a line. */
+/**
+ * planView(b): a plan block — the agent's plan as it stands, an entry a
+ * line. A host may say more (revision 5): the block's `title` (default
+ * "plan"), `meta` (a line beside it: "you said go ahead · 10:02"), `note`
+ * (a line under the entries), `numbered` (an ordered list); an entry's
+ * `tag` ({text, icon?, tone?: ok | warn | bad} — what kind of step it is,
+ * or where it stands, as a word with a glyph at the line's end).
+ */
 export function planView(b) {
-  return html`<div class="bxc-plan"><div class="bxc-h">plan</div><ul>
-    ${(b.entries || []).map((en) => html`<li class="${en.status === 'completed' ? 'bxc-done' : ''}">${en.status === 'completed' ? html`<bx-icon name="check" label="done"></bx-icon>`
-      : en.status === 'in_progress' ? html`<bx-icon name="caret-right" label="in progress"></bx-icon>` : html`<span class="bxc-todo" role="img" aria-label="to do"></span>`}<span>${en.content}</span></li>`)}
-  </ul></div>`;
+  const tag = (t) => (t && t.text ? html`<span class="bxc-ptag ${t.tone ? 'bxc-' + t.tone : ''}">${t.icon ? html`<bx-icon name=${t.icon}></bx-icon>` : nothing}${t.text}</span>` : nothing);
+  const items = (b.entries || []).map((en, i) => html`<li class="${en.status === 'completed' ? 'bxc-done' : ''}">${b.numbered ? html`<span class="bxc-pn">${i + 1}</span>` : nothing}${en.status === 'completed' ? html`<bx-icon name="check" label="done"></bx-icon>`
+    : en.status === 'in_progress' ? html`<bx-icon name="caret-right" label="in progress"></bx-icon>` : html`<span class="bxc-todo" role="img" aria-label="to do"></span>`}<span class="bxc-pt">${en.content}</span>${tag(en.tag)}</li>`);
+  return html`<div class="bxc-plan"><div class="bxc-h"><span>${b.title || 'plan'}</span>${b.meta ? html`<span class="bxc-pmeta">${b.meta}</span>` : nothing}</div>
+    ${b.numbered ? html`<ol>${items}</ol>` : html`<ul>${items}</ul>`}
+    ${b.note ? html`<div class="bxc-pnote">${b.note}</div>` : nothing}</div>`;
 }
