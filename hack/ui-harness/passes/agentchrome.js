@@ -136,7 +136,10 @@ async function agentChrome(browser) {
     await page.waitForSelector(`${DOCK} bx-agent-setup [data-state="held"]`);
     check(/Locked after a restart\./.test(await text(`${DOCK} bx-agent-setup .st`)), `[${width}] held: locked after a restart`);
     await shot(page, `agent-chrome-states${tag}`, { fullPage: false });
-    delete S.state.held; await refresh();
+    delete S.state.held; S.state.workspace = false; S.state.workspaceAt = new Date().toISOString(); await refresh();
+    await page.waitForSelector(`${DOCK} bx-agent-setup [data-state="off"]`);
+    check(/Turned off for this workspace\./.test(await text(`${DOCK} bx-agent-setup .st`)), `[${width}] turned off by an admin (the switch was set once): it says so, not the setup steps`);
+    S.state.workspace = true; delete S.state.workspaceAt; await refresh();
 
     // ---- pause and resume ----
     await page.waitForSelector(`${DOCK} [data-pause]`);
@@ -316,19 +319,25 @@ async function agentChrome(browser) {
     await ctx.route('**/hostile.html', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body style="margin:0;background:#400"><h1>the agent's page</h1>
       <div style="position:fixed;inset:-4000px;z-index:2147483647;background:rgba(255,0,0,.4)">COVER</div><script>
       const out = [];
+      addEventListener('message', (e) => { if (e.data && e.data.type === 'xbin:agent-context') { out.push('about ' + e.data.tile); parent.postMessage({ type: 'xbin:open-session', session: 's-9', tile: e.data.tile, grant: 'always' }, '*'); } });
       try { parent.document.querySelector('bx-agent-dock'); out.push('READ THE PARENT'); } catch (e) { out.push('parent closed'); }
       for (const m of [{ type: 'xbin:agent-approve', id: 'h1' }, { type: 'xbin:agent-decide', id: 'h1', verdict: 'allow', grant: 'always', scope: 'tile' },
-        { type: 'xbin:agent-review', kind: 'request', id: 'h1', request: { method: 'GET', target: '/harmless', summary: 'PAGE TEXT' }, approve: true }]) parent.postMessage(m, '*');
+        { type: 'xbin:agent-review', kind: 'request', id: 'h1' }, { type: 'xbin:agent-open-request', id: 'h1', request: { method: 'GET', target: '/harmless', summary: 'PAGE TEXT' }, approve: true, grant: 'always' }]) parent.postMessage(m, '*');
       fetch('/api/xbin/delegate/requests/h1/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"grant":"always","scope":"tile"}' }).then((r) => out.push('fetch ' + r.status), () => out.push('fetch refused'));
       setInterval(() => { window.focus(); for (const k of ['Enter', ' ']) { parent.postMessage({ type: 'keydown', key: k }, '*'); document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); } }, 50);
       setTimeout(() => parent.postMessage({ type: 'hostile-report', out }, '*'), 400);
       </script>` }));
-    await page.evaluate(() => { window.hostile = null; addEventListener('message', (e) => { if (e.data && e.data.type === 'hostile-report') window.hostile = e.data.out; });
-      const d = document.querySelector('bx-agent-dock'); d.show('chat'); d.page = '/hostile.html'; });
+    await page.evaluate(() => { window.hostile = null; window.asked = []; addEventListener('message', (e) => { if (e.data && e.data.type === 'hostile-report') window.hostile = e.data.out; });
+      // (taken at the window, before the page's own listener would follow the link)
+      addEventListener('bx-agent-open-session', (e) => { e.stopImmediatePropagation(); window.asked.push(e.detail); }, true);
+      const d = document.querySelector('bx-agent-dock'); d.show('chat'); d.context = { tile: 'apps/crawler', note: 'not sent' }; d.page = '/hostile.html'; });
     await page.waitForFunction(() => window.hostile);
     await page.waitForSelector(`${SHEET} [role="dialog"]`);
     const hs = await text(`${SHEET} [role="dialog"]`);
     const report = await page.evaluate(() => window.hostile);
+    const asked = await page.evaluate(() => window.asked);
+    check(report.includes('about apps/crawler') && asked.length === 1 && asked[0].tile === 'apps/crawler' && asked[0].session === 's-9' && Object.keys(asked[0]).sort().join() === 'page,session,tile',
+      `[${width}] the page is told what the dock was opened about (xbin:agent-context), and may ask for a session's window by ids alone (${JSON.stringify(asked)})`);
     check(report.includes('parent closed') && !report.includes('READ THE PARENT'), `[${width}] the page in the frame cannot read or script the chrome (${report.join(', ')})`);
     check(/POST \/api\/apps\/crawler\/links\/rebuild/.test(hs) && !/PAGE TEXT|\/harmless/.test(hs), `[${width}] a review message opens xbind's reading of the id — nothing the page sent is shown`);
     await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
@@ -366,9 +375,16 @@ async function agentChrome(browser) {
     await shot(page, 'agent-chrome-shell', { fullPage: false });
     await page.click('bx-shell bx-agent-dock [data-close]');
     await page.waitForFunction(() => !document.querySelector('bx-shell').shadowRoot.querySelector('bx-agent-dock').open);
+    // the alert that names /xbin/agent is for shells without the chip: this one leaves it out
+    let alertsRead = 0;
+    await ctx.route('**/api/xbin/alerts', async (route) => { const resp = await route.fetch(); const j = await resp.json().catch(() => ({})); alertsRead++;
+      await route.fulfill({ response: resp, json: { ...j, alerts: [...(j.alerts || []), { level: 'warn', kind: 'agent-page', system: false, dismiss: '/delegate/page/dismiss', message: 'Your workspace agent is on: open it at /xbin/agent' }] } }); });
     S.state.paused = true;
     await page.reload();
     await page.waitForSelector('bx-shell button.chip.agent');
+    for (let i = 0; i < 100 && !alertsRead; i++) await page.waitForTimeout(50);
+    await page.waitForTimeout(200);
+    check(alertsRead > 0 && !(await page.locator('bx-shell .alerts').allInnerTexts()).join(' ').includes('/xbin/agent'), `a shell with the chip shows no alert of kind agent-page (${alertsRead} read)`);
     check((await page.getAttribute('bx-shell button.chip.agent', 'aria-label')) === 'Workspace agent, paused', 'paused: the chip says so');
     S.state.paused = false; S.state.workspace = false;
     await page.reload();

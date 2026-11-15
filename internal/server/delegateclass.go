@@ -307,6 +307,7 @@ var delegateClasses = map[string]delegateRow{
 	"PUT /delegate/state":                    dNever(neverApprove),
 	"GET /delegate/workspace":                dNever(neverApprove),
 	"PUT /delegate/workspace":                dNever(neverApprove),
+	"POST /delegate/page/dismiss":            dNever(neverApprove),
 	"GET /delegate/audit":                    dNever(neverApprove),
 	"POST /delegate/changesets/{id}/approve": dNever(neverApprove),
 	"POST /delegate/changesets/{id}/reject":  dNever(neverApprove),

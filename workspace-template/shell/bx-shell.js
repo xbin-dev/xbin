@@ -88,7 +88,7 @@ import { placeFixed } from './fixed-layout.js';
 import { gridItems, itemsOf } from './blocks.js'; // headings and text on a screen, no tile (D192)
 import { mutateItems, addBlock, blockTestApi } from './shell-blocks.js';
 import { followRoute, routeUpdated, routeBar } from './shell-route.js'; // the place shown, in the page's URL (#7)
-import { followAgent, agentChip, agentDock } from './shell-agent.js'; // the workspace agent: its chip, and xbind's dock beside the canvas (D232)
+import { followAgent, agentChip, agentDock, shownAlert } from './shell-agent.js'; // the workspace agent: its chip, and xbind's dock beside the canvas (D232)
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -1306,7 +1306,7 @@ export class BxShell extends LitElement {
     try {
       if (dismiss) await window.xbin?.fetch('/api/xbin' + dismiss, { method: 'POST' });
       const r = await window.xbin?.fetch('/api/xbin/alerts');
-      if (r?.ok) this._alerts = (await r.json()).alerts || [];
+      if (r?.ok) this._alerts = ((await r.json()).alerts || []).filter(shownAlert); // (not the one that names /xbin/agent: the chip is here)
     } catch { /* transient */ }
   }
 

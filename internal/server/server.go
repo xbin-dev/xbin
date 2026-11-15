@@ -63,6 +63,12 @@ type Server struct {
 	// ChangeSets previews admin change-set operations (changeset.go: the
 	// broker's); nil = change sets can't be proposed.
 	ChangeSets ChangePreviewer
+	// AgentHolder, if set, names the sealed component whose page is people's
+	// workspace agent in this workspace ("" none): what GET /delegate/state
+	// answers as agent — the frame xbin's chrome puts below its header
+	// (agentpage.go, D232). Boot's assignment, from the sealed-component
+	// table; nil: this xbind ships no agent.
+	AgentHolder func() string
 	// DelegationDev: xbind runs with --dev or --no-auth. Approving admin
 	// change sets then needs no recent sign-in, and under --no-auth — where
 	// nobody signs in — the implicit owner answers for the person a

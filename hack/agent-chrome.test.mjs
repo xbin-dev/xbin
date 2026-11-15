@@ -145,13 +145,18 @@ test('the dock\'s states and the chip', () => {
 });
 
 test('what the dock takes from the agent\'s page: a word and an id, nothing else', () => {
-  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-review', kind: 'request', id: 'abc-1', summary: 'approve me', html: '<b>x</b>' }), { type: 'review', kind: 'request', id: 'abc-1' });
-  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-review', kind: 'changeset', id: 'c9' }), { type: 'review', kind: 'changeset', id: 'c9' });
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-request', id: 'abc-1', summary: 'approve me', html: '<b>x</b>', grant: 'always' }), { type: 'review', kind: 'request', id: 'abc-1' });
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-changeset', id: 'c9', items: [1, 2] }), { type: 'review', kind: 'changeset', id: 'c9' });
+  assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 's-1', tile: '/apps/notes/', id: 7 }), { type: 'session', tile: 'apps/notes', session: 's-1' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'approvals' }), { type: 'open', view: 'approvals' });
-  for (const bad of [null, 'x', { type: 'xbin:agent-review', id: { toString: () => 'x' } }, { type: 'xbin:agent-review', id: '../x' }, { type: 'xbin:agent-review', id: 'a'.repeat(81) },
-    { type: 'xbin:agent-review', kind: 'grant', id: 'a' }, { type: 'xbin:agent-open', view: 'allow' }, { type: 'xbin:agent-approve', id: 'r1' }, { type: 'xbin:agent-decide', id: 'r1', verdict: 'allow' }]) {
+  for (const bad of [null, 'x', { type: 'xbin:agent-open-request', id: { toString: () => 'x' } }, { type: 'xbin:agent-open-request', id: '../x' }, { type: 'xbin:agent-open-request', id: 'a'.repeat(81) },
+    { type: 'xbin:agent-open-changeset' }, { type: 'xbin:open-session', session: 's1', tile: '../etc' }, { type: 'xbin:open-session', session: 'a b', tile: 'apps/x' },
+    { type: 'xbin:agent-open', view: 'allow' }, { type: 'xbin:agent-approve', id: 'r1' }, { type: 'xbin:agent-decide', id: 'r1', verdict: 'allow' }, { type: 'xbin:agent-review', kind: 'request', id: 'r1' }]) {
     assert.equal(W.pageMessage(bad), null, JSON.stringify(bad));
   }
+  assert.deepEqual(W.contextMessage({ tile: 'apps/notes', screen: 'Home', note: 'x' }), { type: 'xbin:agent-context', tile: 'apps/notes' });
+  assert.deepEqual(W.contextMessage({ screen: 'Home' }), { type: 'xbin:agent-context', screen: 'Home' });
+  assert.equal(W.contextMessage({ tile: '../x' }), null);
   assert.equal(W.clampDock(100, 1400), 360);
   assert.equal(W.clampDock(900, 1400), 720);
   assert.equal(W.clampDock(500, 600), 600, 'a narrow window: the whole page');

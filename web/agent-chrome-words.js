@@ -406,7 +406,7 @@ export function dockState({ state = null, llm = null, me = null, error = '' } = 
   if (error || !state) return error ? 'offline' : 'hidden';
   const admin = !!(me && (me.admin || me.owner)) || !!state.canAdminChanges;
   const model = !llm || llm.configured !== false;
-  if (!state.workspace) return state.workspaceBy || state.wasOn ? 'off' : admin ? 'setup' : 'hidden';
+  if (!state.workspace) return state.workspaceAt ? 'off' : admin ? 'setup' : 'hidden';
   if (!model) return 'unavailable';
   if (state.paused) return 'paused';
   if (state.held) return 'held';
@@ -470,20 +470,43 @@ export const SETUP_INTRO = { title: 'Set up the workspace agent', text: 'One age
 // ---- what the page may ask of the dock -----------------------------------------------------
 
 const ID = /^[A-Za-z0-9_.:-]{1,80}$/;
+const SESSION = /^[A-Za-z0-9_-]{1,64}$/;
+const tilePath = (v) => {
+  const t = typeof v === 'string' ? v.replace(/^\/+|\/+$/g, '') : '';
+  return t && t.length <= 512 && !t.split('/').some((x) => !x || x === '.' || x === '..') ? t : '';
+};
 /**
- * pageMessage(data): a message from the agent's page, read strictly —
- * {type: 'review', kind: 'request' | 'changeset', id} or {type: 'open',
- * view} — or null. An id and a word: nothing else of the message is ever
- * used (the dock fetches the request from xbind itself).
+ * pageMessage(data): a message from the agent's page, read strictly — the
+ * whole of what the page may ask of the chrome:
+ *
+ *   xbin:agent-open-request {id}      → {type: 'review', kind: 'request', id}
+ *   xbin:agent-open-changeset {id}    → {type: 'review', kind: 'changeset', id}
+ *   xbin:open-session {session, tile} → {type: 'session', tile, session}
+ *   xbin:agent-open {view}            → {type: 'open', view}  (approvals | activity | prefs)
+ *
+ * or null. Ids and a word: no other field of a message is ever read (the
+ * dock fetches the request from xbind itself), and none of them decides
+ * anything.
  */
 export function pageMessage(data) {
   if (!data || typeof data !== 'object') return null;
-  if (data.type === 'xbin:agent-review') {
-    const kind = data.kind === 'changeset' ? 'changeset' : data.kind === 'request' || data.kind == null ? 'request' : '';
-    return kind && typeof data.id === 'string' && ID.test(data.id) ? { type: 'review', kind, id: data.id } : null;
+  const id = typeof data.id === 'string' && ID.test(data.id) ? data.id : '';
+  if (data.type === 'xbin:agent-open-request') return id ? { type: 'review', kind: 'request', id } : null;
+  if (data.type === 'xbin:agent-open-changeset') return id ? { type: 'review', kind: 'changeset', id } : null;
+  if (data.type === 'xbin:open-session') {
+    const tile = tilePath(data.tile), session = typeof data.session === 'string' && SESSION.test(data.session) ? data.session : '';
+    return tile && session ? { type: 'session', tile, session } : null;
   }
   if (data.type === 'xbin:agent-open') return ['approvals', 'activity', 'prefs'].includes(data.view) ? { type: 'open', view: data.view } : null;
   return null;
+}
+
+/** contextMessage(context): what the dock tells the page it was opened about — xbin:agent-context {tile} or {screen} — or null. */
+export function contextMessage(context) {
+  if (!context || typeof context !== 'object') return null;
+  const tile = tilePath(context.tile);
+  if (tile) return { type: 'xbin:agent-context', tile };
+  return typeof context.screen === 'string' && context.screen && context.screen.length <= 200 ? { type: 'xbin:agent-context', screen: context.screen } : null;
 }
 
 /** clampDock(w, viewport): the dock's width — within its bounds, the whole page when the viewport is narrow. */

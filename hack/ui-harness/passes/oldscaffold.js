@@ -72,6 +72,14 @@ const LLM_SETUP = {
   message: 'No LLM is set up for this workspace: its agents, tiles and coding tools can share one provider setup, metered per person — a workspace admin adds a provider at /xbin/llm (the admin console\'s workspace → LLM, or `bx llm upstream add`). Dismiss this to leave it off',
 };
 
+// the notice that names the workspace agent's page as xbind words it
+// (internal/server agentpage.go): sent once an admin has turned workspace
+// agents on and this xbind has an agent to show — neither is so here
+const AGENT_PAGE = {
+  level: 'warn', kind: 'agent-page', system: false, dismiss: '/delegate/page/dismiss',
+  message: 'Your workspace agent is on: one agent of your own that plans work across tiles and asks before anything changes. Open it at /xbin/agent — the conversation, what waits for your approval, what it did, and its pause are all there. Dismiss this once you know the way',
+};
+
 async function until(fn, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
   for (;;) {
@@ -188,7 +196,7 @@ async function oldScaffold(browser) {
       const resp = await route.fetch();
       const j = await resp.json().catch(() => ({}));
       const llm = (j.alerts ?? []).some((x) => x.kind === 'llm-setup') ? [] : [LLM_SETUP];
-      await route.fulfill({ response: resp, json: { ...j, alerts: [...(j.alerts ?? []), LIMIT, ...llm] } });
+      await route.fulfill({ response: resp, json: { ...j, alerts: [...(j.alerts ?? []), LIMIT, ...llm, AGENT_PAGE] } });
     });
     await openShell(S.page);
     const src = await S.page.evaluate(async () => (await (await fetch('/c/shell/bx-shell.js', { cache: 'no-store' })).text()).includes('bx-part-consent'));
@@ -207,7 +215,8 @@ async function oldScaffold(browser) {
     check(await S.page.locator('bx-shell .alerts .achoice, bx-shell .alerts .achoices').count() === 0, '…and nothing of its action (an old shell has no raise buttons)');
     const setup = (await alerts.allInnerTexts()).find((x) => x.includes('No LLM is set up')) || '';
     check(setup.includes('/xbin/llm') && setup.includes('bx llm upstream add'), `the old shell's banner shows the LLM setup alert's words, /xbin/llm in them (${setup.slice(0, 240)})`);
-    check(await S.page.locator('bx-shell button.chip.agent').count() === 0, `${OLD}'s shell has no workspace agent chip (its way in is /xbin/agent)`);
+    const agent = (await alerts.allInnerTexts()).find((x) => x.includes('Your workspace agent is on')) || '';
+    check(await S.page.locator('bx-shell button.chip.agent').count() === 0 && agent.includes('/xbin/agent'), `${OLD}'s shell has no workspace agent chip: its banner shows the alert that names /xbin/agent (${agent.slice(0, 200)})`);
     await shot(S.page, 'old-scaffold-shell');
     const scheme = (f) => f.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bx-scheme').trim() || 'none');
     const rootScheme = await scheme(S.page.mainFrame());

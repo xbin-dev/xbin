@@ -23,6 +23,14 @@ store.subscribe(() => {
   const n = needs(store).length;
   document.title = `${n ? `(${n}) ` : ''}Workspace agent — xbin`;
 });
+// a waiting tile agent: this page has no canvas, so it is the link to the
+// tile and its session — followed only on a click (the tray's row, or one
+// inside the agent's page): a page can't navigate the workspace by itself
+dock.addEventListener('bx-agent-open-session', (e) => {
+  const { tile, session } = e.detail || {};
+  if (!tile || !session || !navigator.userActivation?.isActive) return;
+  location.assign(`/?tile=${encodeURIComponent(tile).replace(/%2F/gi, '/')}&session=${encodeURIComponent(session)}`);
+});
 customElements.whenDefined('bx-agent-dock').then(() => {
   const view = q.get('view');
   if (view) dock.show(view);

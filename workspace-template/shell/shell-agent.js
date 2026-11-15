@@ -29,6 +29,9 @@ import { deepActive } from '/vendor/bx-kit.js';
 
 const get = (path) => fetch('/api/xbin' + path, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
+/** shownAlert(a): false for the one alert that only names /xbin/agent (kind agent-page) — for shells without this chip. */
+export const shownAlert = (a) => !a || a.kind !== 'agent-page';
+
 export function followAgent(shell) {
   const a = shell._agent = { words: null, state: null, llm: null, open: false, loaded: false, context: null };
   const read = async () => {
@@ -45,11 +48,14 @@ export function followAgent(shell) {
     if (at && (at.isContentEditable || /^(input|textarea|select)$/i.test(at.localName) || at.closest?.('.xterm'))) return; // typing: the keys are theirs
     if (!chipOf(shell).shown) return;
     e.preventDefault();
-    openAgent(shell, null, !a.open);
+    openAgent(shell, about(shell), !a.open);
   };
   window.addEventListener('keydown', key);
   return () => { off(); window.removeEventListener('keydown', key); };
 }
+
+// what the person has in front when they open the dock: the active tile's window, if any (the page is told: "about <tile>")
+const about = (shell) => (typeof shell._front === 'string' && shell._front.startsWith('tile:') ? { tile: shell._front.slice(5) } : null);
 
 const chipOf = (shell) => {
   const a = shell._agent;
@@ -57,7 +63,7 @@ const chipOf = (shell) => {
   return a.words.chip({ state: a.state, llm: a.llm, me: shell._who, count: a.words.needCount(a.state) });
 };
 
-/** openAgent(shell, {tile}, open = true): show the dock (about a tile, when one is named), or close it. */
+/** openAgent(shell, {tile} | {screen} | null, open = true): show the dock (about a tile or a screen, when one is named), or close it. */
 export async function openAgent(shell, context = null, open = true) {
   const a = shell._agent;
   if (!a) return;
@@ -65,7 +71,7 @@ export async function openAgent(shell, context = null, open = true) {
     try { await import('/vendor/bx-agent-dock.js'); a.loaded = true; } catch { return; } // an older xbind: nothing to open
   }
   a.open = open;
-  if (context) a.context = context;
+  if (open) a.context = context;
   shell.requestUpdate();
 }
 
@@ -73,9 +79,14 @@ export function agentChip(shell) {
   const c = chipOf(shell), a = shell._agent;
   if (!c.shown) return nothing;
   return html`<button class="chip agent ${a.open ? 'on' : ''}" title=${c.spoken} aria-label=${c.spoken} aria-pressed=${a.open ? 'true' : 'false'}
-      @click=${() => openAgent(shell, null, !a.open)}><bx-icon name="agent"></bx-icon>${shell._mobile ? nothing : c.label}${c.paused ? html`<bx-icon name="pause" label="paused"></bx-icon>`
+      @click=${() => openAgent(shell, about(shell), !a.open)}><bx-icon name="agent"></bx-icon>${shell._mobile ? nothing : c.label}${c.paused ? html`<bx-icon name="pause" label="paused"></bx-icon>`
         : c.count ? html`<span class="agent-count" style="display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:6px;background:var(--bx-accent, #8C9BFF);color:var(--bx-accent-ink, #0B0C12);font:var(--bx-font-micro, 600 11px/14px system-ui, sans-serif)">${c.count}</span>` : nothing}</button>`;
 }
+
+// a waiting tile agent (the tray's row, or the agent's page asking): the
+// shell lands on the tile and its session as for a link (shell-route.js
+// takes bx-open-session; a tile the person doesn't list is refused there)
+const openSession = (d) => { if (d && d.tile && d.session) window.dispatchEvent(new CustomEvent('bx-open-session', { cancelable: true, detail: { from: 'agent', tile: d.tile, session: d.session } })); };
 
 export function agentDock(shell) {
   const a = shell._agent;
@@ -84,5 +95,5 @@ export function agentDock(shell) {
   const full = !!shell._mobile;
   return html`<bx-agent-dock ?open=${a.open} ?full=${full} .context=${a.context} style=${full ? 'position:absolute;inset:0;z-index:40' : nothing}
     @bx-agent-dock=${(e) => { if (a.open !== e.detail.open) { a.open = e.detail.open; shell.requestUpdate(); } }}
-    @bx-agent-open-session=${(e) => { if (e.detail.tile && !shell._isOpen(e.detail.tile)) shell._toggle(e.detail.tile); if (full) openAgent(shell, null, false); }}></bx-agent-dock>`;
+    @bx-agent-open-session=${(e) => { openSession(e.detail); if (full) openAgent(shell, null, false); }}></bx-agent-dock>`;
 }

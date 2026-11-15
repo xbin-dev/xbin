@@ -15,8 +15,10 @@
  *
  * THE RULE: a grant is drawn and sent only here, in a document that holds
  * the person's own session. The agent's page can say that something waits
- * and ask the dock to show it — a message carrying an id and nothing else
- * (agent-chrome-words.js pageMessage). The dock then reads the request from
+ * and ask the dock to show it — a message carrying an id and nothing else,
+ * taken only from this dock's own frame (agent-chrome-words.js pageMessage:
+ * xbin:agent-open-request {id}, xbin:agent-open-changeset {id},
+ * xbin:open-session {session, tile}). The dock then reads the request from
  * xbind itself and draws xbind's reading; what the page sent is never
  * shown, and nothing the page does reaches a button: it is another origin
  * (sandboxed, never chrome), it cannot draw outside its frame, and Allow
@@ -24,18 +26,19 @@
  *
  *   properties  open      shown (reflected)
  *               full      fill the page: no resize, no close (/xbin/agent, a narrow window)
- *               context   {tile}: what the person was looking at when they opened it — told to the page
+ *               context   {tile} | {screen}: what the person was looking at when they opened it — told to the page
+ *                         (xbin:agent-context {tile | screen})
  *               page      the agent's page, when it is not the holder's from the state (a test's)
  *   methods     toggle(), show(view), review(kind, id)
  *   events      bx-agent-dock {open, width}   the shell makes room
- *               bx-agent-open-session {tile, session}   a waiting tile agent: the shell opens it
+ *               bx-agent-open-session {tile, session, page?}   a waiting tile agent: the shell opens it (page: the agent's page asked)
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore, call } from '/vendor/agent-chrome-store.js';
 import { infoFor, frameSource, SANDBOX } from '/vendor/frame-info.js';
-import { CHOICES, clampDock, dockState, needs, pageMessage } from '/vendor/agent-chrome-words.js';
+import { CHOICES, clampDock, contextMessage, dockState, needs, pageMessage } from '/vendor/agent-chrome-words.js';
 import '/vendor/bx-agent-approve.js';
 import '/vendor/bx-agent-changes.js';
 import '/vendor/bx-agent-panels.js';
@@ -175,20 +178,23 @@ export class BxAgentDock extends LitElement {
     if (this._framed === src) this._frame = f.sandboxed ? f : null;
   }
 
-  // the page may ask for two things, each by a word and an id
+  // what the page may ask: to open a request or a change set by id, one of
+  // the person's sessions, a panel. Only from this dock's own frame.
   _message(e) {
     const frame = this.renderRoot.querySelector('iframe');
     if (!frame || e.source !== frame.contentWindow) return;
     const m = pageMessage(e.data);
     if (!m) return;
-    if (m.type === 'review') this.review(m.kind, m.id); else this.show(m.view);
+    if (m.type === 'review') this.review(m.kind, m.id);
+    else if (m.type === 'session') this.dispatchEvent(new CustomEvent('bx-agent-open-session', { detail: { tile: m.tile, session: m.session, page: true }, bubbles: true, composed: true }));
+    else this.show(m.view);
   }
 
   // what the person was looking at, for the page ("about <tile>")
   _tell() {
     const frame = this.renderRoot.querySelector('iframe');
-    const tile = this.context && typeof this.context.tile === 'string' ? this.context.tile : '';
-    if (frame && frame.contentWindow && tile) frame.contentWindow.postMessage({ type: 'xbin:agent-context', tile }, '*');
+    const m = contextMessage(this.context);
+    if (frame && frame.contentWindow && m) frame.contentWindow.postMessage(m, '*');
   }
 
   // ---- the person ----
