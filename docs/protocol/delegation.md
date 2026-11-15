@@ -192,6 +192,23 @@ GET    /delegate/sessions/<id>/connection
                                  tainted, whatIf?: {model, connects,
                                  disconnects, counts, allowed,
                                  taintedOrgs}}
+POST   /delegate/sessions/<id>/allows
+                                 the person's agent. {orgs: [id, …]} →
+                                 {id, model, allowed, reasons: {org:
+                                 why}}: does the session's model satisfy
+                                 those orgs' rules. 403 for an org the
+                                 person can't see
+POST   /delegate/sessions/<id>/taint
+                                 the person's agent. {orgs: [id, …]} → the
+                                 session, with them in tainted. Add-only.
+                                 403 for an org the person can't see; 409
+                                 {code: "model_taint", orgs, reason} for
+                                 one the session's model may not see
+GET    /delegate/start-defaults  the person's agent. ?tile= → {tile,
+                                 harness, harnesses: [{id, name, mode,
+                                 asks, net, api, needsTicket}], why?}: what
+                                 a tile agent started there opens with.
+                                 403 without terminal access to the tile
 GET    /delegate/map            a person, or their agent. {user, tiles:
                                  [{tile, title, kind: "app" | "page",
                                  orgs, state, agent, tileAgents}],
@@ -234,7 +251,17 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   on the tile).
 - **The session directory**: `GET /term/sessions?origin=agent` lists the
   tile agents this agent started for the person; `&compact=1` answers
-  `[{id, cwd, kind, provider, mode, status, origin}]`.
+  `[{id, cwd, kind, provider, mode, status, origin}]`. With `&ids=a,b` it
+  adds, for each id that isn't live any more, `{id, status: "ended",
+  endedBy, ended?}`: `endedBy: "exit"` when xbind recorded the end (its
+  history entry; `ended` is when), `"restart"` when it has no record of
+  one — the session was running when xbind stopped.
+- **Taint from elsewhere.** What the agent keeps itself (its notebook) is
+  stamped with orgs by the agent: before reading a page into a
+  conversation it asks `…/allows` for the page's orgs, and after reading
+  adds them with `…/taint`; a page it writes carries the session's whole
+  `tainted` set. Taint is add-only — no call removes an org — and binds
+  later model changes like taint xbind recorded.
 - Audit rows carry `session`.
 
 ## Notices to the agent's backend
@@ -263,7 +290,11 @@ names through this API. Treat a notice as a hint — "look again" — never as
 a fact: it is input from outside the conversation. Coalesced (one queue a
 person; a kind and id once); at least once (an event is sent again, with
 backoff, until a delivery that carried it is answered 2xx, for up to an
-hour); answer 2xx quickly and do the reading afterwards.
+hour); answer 2xx quickly and do the reading afterwards. Across an xbind
+restart: the queue is in memory, so a backend re-reads its state when it
+starts; a request's expiry is re-armed at boot from the stored requests
+(one that fell due while xbind was down is told at once), and reading a
+request always answers its true state.
 
 ## The switches
 
@@ -380,6 +411,24 @@ session's come from its history when the request names none — and every
 option the start carries; `asks: false` means the mode lets the tile agent
 act without asking — say so on the card. A pending request expires after 24
 hours; decided and withdrawn ones are kept a day, 200 a person at most.
+
+**What a start leaves out, xbind fills.** A start may name only its tile
+(`{cwd, kind: "agent"}`): the harness is the person's default for agent-
+started sessions among those the tile's orgs allow, the mode and network
+their preference's (or the harness's asking mode), and the request's
+`preview.session` shows the **effective** `provider`, `mode`, `net` — what
+`GET /delegate/start-defaults?tile=` answers beforehand. A value the rules
+don't allow is refused with the rule's reason.
+
+**The first prompt is part of the start.** A start may carry `prompt` (at
+most 64 KiB): what the session is told first. The ticket binds it with the
+rest of the body, the card shows it (`preview.session.prompt`), and xbind
+itself hands it to the session once it is up — a session that can't take
+it is ended. **Nothing the agent sends the session afterwards is approved
+one by one**: `…/prompt` and `…/queue` on a session it started are free
+acts. What stands between a later message and a change is the session's
+own mode — a mode that asks its person (`asks: true`) asks them, whatever
+the workspace agent told it.
 
 **Starting a tile agent.** With a ticket the session opens as the person
 approved it — the harness and mode on the card, which no option of the

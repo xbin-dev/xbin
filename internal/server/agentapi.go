@@ -116,9 +116,11 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		API                                                      *bool
 		VM                                                       bool
 		Options                                                  map[string]string
+		// Prompt: a workspace agent's start only — what the session is told first
+		Prompt string
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
-		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, api?, gpu?, vm?, name?, resume?}")
+		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, api?, gpu?, vm?, name?, resume?, prompt?}")
 		return
 	}
 	if body.Model != "" { // shorthand for options.model
@@ -147,9 +149,22 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusForbidden, "a workspace agent starting without asking takes the mode, network and API access from its person's preferences: leave them out, or ask for the person's approval of this start")
 		return
 	}
-	info, code, err := s.Term.OpenAgentWith(auth.PrincipalOf(r), term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
+	open := term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
 		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options,
-		Deployment: r.URL.Query().Get("deployment"), LLM: body.LLM, Delegate: start})
+		Deployment: r.URL.Query().Get("deployment"), LLM: body.LLM, Delegate: start}
+	open.Provider = term.DelegateProvider(open) // a delegate's start that names no harness: the one xbind resolved for it
+	if body.Prompt != "" && start == nil {
+		apiErr(w, http.StatusBadRequest, "prompt is for a workspace agent's start: send a session its first message with POST /term/sessions/<id>/prompt")
+		return
+	}
+	if len(body.Prompt) > maxStartPrompt {
+		apiErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("a start's first prompt is at most %d KiB", maxStartPrompt>>10))
+		return
+	}
+	// the brief the person approved with the start (the ticket binds the
+	// whole body, this text included): xbind sends it itself, as the
+	// session's first prompt
+	info, _, code, err := s.Term.OpenAgentPrompted(r.Context(), auth.PrincipalOf(r), open, body.Prompt)
 	if err != nil {
 		agentOpenErr(w, code, err)
 		return
@@ -743,3 +758,6 @@ func diffQuery(q url.Values) (tool string, turn int64, err error) {
 	}
 	return tool, turn, nil
 }
+
+// maxStartPrompt bounds the first prompt a workspace agent's start carries.
+const maxStartPrompt = 64 << 10

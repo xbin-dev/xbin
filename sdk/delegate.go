@@ -693,3 +693,54 @@ func PreviewTile(ctx context.Context, tile, at string) (PreviewResult, error) {
 	var out PreviewResult
 	return out, delegateCall(ctx, http.MethodPost, "/api/xbin/preview", map[string]any{"tile": tile, "at": at}, &out)
 }
+
+// StartHarness is one harness a tile agent started by the person's agent
+// may run on a tile, with what a start that names nothing opens with.
+type StartHarness struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Mode        string `json:"mode"`
+	Asks        bool   `json:"asks"` // the mode asks its person before it acts
+	Net         string `json:"net"`
+	API         bool   `json:"api"`
+	NeedsTicket bool   `json:"needsTicket"` // the person approves each start
+}
+
+// StartDefaults is what a start on Tile resolves to: Harness is the
+// default one; Why says why none may run there.
+type StartDefaults struct {
+	Tile      string         `json:"tile"`
+	Harness   string         `json:"harness"`
+	Harnesses []StartHarness `json:"harnesses"`
+	Why       string         `json:"why"`
+}
+
+// StartDefaultsOf reads what a tile agent started on tile would open with —
+// xbind resolves it from the person's preferences and the tile's rules;
+// the agent can't read either, and doesn't choose.
+func StartDefaultsOf(ctx context.Context, tile string) (StartDefaults, error) {
+	var out StartDefaults
+	return out, delegateCall(ctx, http.MethodGet, "/api/xbin/delegate/start-defaults?tile="+url.QueryEscape(tile), nil, &out)
+}
+
+// SessionAllows asks whether the session's model satisfies orgs' rules —
+// for what the agent keeps itself (a notebook page stamped with orgs is
+// readable in a session only if this says yes). reasons maps each org that
+// refuses to why.
+func SessionAllows(ctx context.Context, id string, orgs []string) (allowed bool, reasons map[string]string, err error) {
+	var out struct {
+		Allowed bool              `json:"allowed"`
+		Reasons map[string]string `json:"reasons"`
+	}
+	err = delegateCall(ctx, http.MethodPost, "/api/xbin/delegate/sessions/"+url.PathEscape(id)+"/allows", map[string]any{"orgs": orgs}, &out)
+	return out.Allowed, out.Reasons, err
+}
+
+// TaintSession adds orgs to the session's taint: the conversation took in
+// their data where xbind didn't see it (a notebook page stamped with
+// them). Add-only. ErrModelTaint when the session's model may not see one
+// of them — then the data must not be read into it.
+func TaintSession(ctx context.Context, id string, orgs []string) (AgentSession, error) {
+	var out AgentSession
+	return out, delegateCall(ctx, http.MethodPost, "/api/xbin/delegate/sessions/"+url.PathEscape(id)+"/taint", map[string]any{"orgs": orgs}, &out)
+}

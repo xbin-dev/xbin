@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -137,6 +138,20 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 		out := make([]map[string]any, 0, len(rows))
 		for _, si := range rows {
 			out = append(out, map[string]any{"id": si.ID, "cwd": si.Cwd, "kind": si.Kind, "provider": si.Provider, "mode": si.Mode, "status": si.Status, "origin": si.Origin})
+		}
+		// ?ids=a,b: sessions the caller knew of that aren't live any more,
+		// with how they ended — "exit" when xbind recorded the end (its
+		// history entry), "restart" when it has no record of one: the
+		// session was running when xbind stopped
+		for _, id := range strings.Split(q.Get("ids"), ",") {
+			if id = strings.TrimSpace(id); id == "" || len(id) > 64 || len(out) > 500 || slices.ContainsFunc(rows, func(si term.SessionInfo) bool { return si.ID == id }) {
+				continue
+			}
+			row := map[string]any{"id": id, "status": "ended", "endedBy": "restart"}
+			if at, recorded := s.Term.AgentEnded(personOf(p), id); recorded {
+				row["endedBy"], row["ended"] = "exit", at
+			}
+			out = append(out, row)
 		}
 		WriteJSON(w, http.StatusOK, out)
 		return

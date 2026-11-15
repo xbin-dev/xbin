@@ -290,13 +290,18 @@ var delegateClasses = map[string]delegateRow{
 	"DELETE /delegate/sessions/{id}":         dAct(),
 	"GET /delegate/sessions/{id}/connection": dRead(),
 	"GET /delegate/map":                      dRead(),
-	"GET /docs/search":                       dRead(),
-	"GET /docs/page":                         dRead(),
-	"GET /delegate/approvals":                dRead(),
-	"POST /delegate/changesets":              dAct(),
-	"GET /delegate/changesets":               dRead(),
-	"GET /delegate/changesets/{id}":          dRead(),
-	"DELETE /delegate/changesets/{id}":       dAct(),
+	// what a start would resolve to on a tile; whether the session's model
+	// satisfies some orgs' rules; taint for what the agent took in elsewhere
+	"GET /delegate/start-defaults":        dRead().on(byTileQuery),
+	"POST /delegate/sessions/{id}/allows": dAct(),
+	"POST /delegate/sessions/{id}/taint":  dAct(),
+	"GET /docs/search":                    dRead(),
+	"GET /docs/page":                      dRead(),
+	"GET /delegate/approvals":             dRead(),
+	"POST /delegate/changesets":           dAct(),
+	"GET /delegate/changesets":            dRead(),
+	"GET /delegate/changesets/{id}":       dRead(),
+	"DELETE /delegate/changesets/{id}":    dAct(),
 
 	// ---- never: answering itself ----
 	"GET /delegate/requests":                 dNever(neverApprove),

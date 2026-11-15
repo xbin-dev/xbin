@@ -10,8 +10,10 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
@@ -38,6 +40,9 @@ type AgentWorld interface {
 	AgentScreens(p auth.Principal, hide func(tile string) bool) []map[string]any
 	// AgentPersonOrgs lists the orgs p is a member of.
 	AgentPersonOrgs(p auth.Principal) []map[string]any
+	// AgentOrgVisible reports an org p can see: "workspace", one they are
+	// a member of, or one a tile they can read is under.
+	AgentOrgVisible(p auth.Principal, org string) bool
 }
 
 // delegateBootstrap are the routes a delegate may call without a handle:
@@ -57,6 +62,9 @@ func (s *Server) registerDelegateSessionsAPI() {
 	s.RegisterAPI("DELETE /delegate/sessions/{id}", s.apiAgentSessionDelete)
 	s.RegisterAPI("GET /delegate/sessions/{id}/connection", s.apiAgentSessionConnection)
 	s.RegisterAPI("GET /delegate/map", s.apiDelegateMap)
+	s.RegisterAPI("GET /delegate/start-defaults", s.apiStartDefaults)
+	s.RegisterAPI("POST /delegate/sessions/{id}/allows", s.apiAgentSessionAllows)
+	s.RegisterAPI("POST /delegate/sessions/{id}/taint", s.apiAgentSessionTaint)
 }
 
 // delegateHandle is the live handle a delegate's request names: this
@@ -414,4 +422,227 @@ func (s *Server) apiDelegateMap(w http.ResponseWriter, r *http.Request) {
 		out["orgs"] = s.AgentWorld.AgentPersonOrgs(personOf(p))
 	}
 	WriteJSON(w, http.StatusOK, out)
+}
+
+// ---- what a start resolves to (D228 C0, second round) ----
+
+// startHarness is one harness an agent session of the person's agent may
+// run on a tile, with what a start of it resolves to.
+type startHarness struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Mode        string `json:"mode"`        // the mode a start that names none opens in
+	Asks        bool   `json:"asks"`        // that mode asks its person before it acts
+	Net         string `json:"net"`         // "" the tile's default network
+	API         bool   `json:"api"`         // tile-API access
+	NeedsTicket bool   `json:"needsTicket"` // the person approves each start (their preference doesn't let it start unasked)
+}
+
+// startDefaultsView is GET /delegate/start-defaults' answer.
+type startDefaultsView struct {
+	Tile      string         `json:"tile"`
+	Harness   string         `json:"harness"` // the default: the first the person lets start unasked, else the first allowed
+	Harnesses []startHarness `json:"harnesses"`
+	Why       string         `json:"why,omitempty"` // no harness may run there: the rule's reason
+}
+
+func (d startDefaultsView) of(id string) (startHarness, bool) {
+	for _, h := range d.Harnesses {
+		if h.ID == id {
+			return h, true
+		}
+	}
+	return startHarness{}, false
+}
+func (d startDefaultsView) modeFor(id string) string { h, _ := d.of(id); return h.Mode }
+func (d startDefaultsView) netFor(id string) string  { h, _ := d.of(id); return h.Net }
+
+// startDefaults resolves what a start by p's agent on tile opens with when
+// it names nothing: per harness the tile's orgs' rules allow (the policy's
+// SessionAllows — their harness lists, and whether the harness can run
+// where the tile's sessions must), the mode, network and API access of the
+// person's preference for agent-started sessions (the policy's StartPrefs)
+// or, where they ask to approve each start, the harness's asking mode. One
+// place: the preview of a start request, the unasked start and
+// GET /delegate/start-defaults all read it.
+func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView {
+	out := startDefaultsView{Tile: tile, Harnesses: []startHarness{}}
+	pol := s.agentPolicy()
+	sub := delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}
+	for _, prov := range agent.Providers() {
+		if err := pol.SessionAllows(sub, prov.ID); err != nil {
+			if out.Why == "" {
+				out.Why = err.Error()
+			}
+			continue
+		}
+		h := startHarness{ID: prov.ID, Name: prov.Name, API: true, NeedsTicket: true}
+		if prefs, ok := pol.StartPrefs(p.UserID, tile, prov.ID); ok {
+			h.Mode, h.Net, h.API, h.NeedsTicket = prefs.Mode, prefs.Net, prefs.API, false
+		}
+		if m, err := prov.ResolveMode(h.Mode); err == nil { // "" is the harness's own default
+			h.Mode = m
+		}
+		if !prov.Safe(h.Mode) {
+			// a mode not known to ask its person (a harness that keeps its
+			// modes to itself, or a preference the catalog no longer
+			// vouches for): never unasked — the person sees it on a card
+			h.NeedsTicket = true
+		}
+		h.Asks = prov.Safe(h.Mode)
+		out.Harnesses = append(out.Harnesses, h)
+	}
+	for _, h := range out.Harnesses {
+		if !h.NeedsTicket {
+			out.Harness = h.ID
+			break
+		}
+	}
+	if out.Harness == "" && len(out.Harnesses) > 0 {
+		out.Harness = out.Harnesses[0].ID
+	}
+	if len(out.Harnesses) > 0 {
+		out.Why = ""
+	} else if out.Why == "" {
+		out.Why = "no coding agent may run on " + tile
+	}
+	return out
+}
+
+// byTileQuery is the tile a request names in ?tile=.
+func byTileQuery(_ *Server, _ auth.Principal, r *http.Request, _ string) string {
+	return strings.Trim(r.URL.Query().Get("tile"), "/")
+}
+
+// apiStartDefaults — GET /delegate/start-defaults?tile=: what a tile agent
+// started there by the person's agent would open with — {tile, harness,
+// harnesses: [{id, name, mode, asks, net, api, needsTicket}], why?} — so
+// the agent can say it truthfully before it asks. The person's terminal
+// level on the tile is needed to start one at all (403 otherwise).
+func (s *Server) apiStartDefaults(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.sessionCaller(w, r)
+	if !ok {
+		return
+	}
+	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
+	if tile == "" || !p.CanTerminalTileVia(tile) {
+		WriteError(w, http.StatusForbidden, p.UserID+" doesn't have terminal access there: their agent can't start a tile agent", delegationDocs)
+		return
+	}
+	WriteJSON(w, http.StatusOK, s.startDefaults(p, tile))
+}
+
+// sessionOrgs reads {orgs: […]} and checks each is one the person can see
+// ("workspace", an org of theirs, or one a tile they read is under): an
+// org they can't see is refused like one that isn't there.
+func (s *Server) sessionOrgs(w http.ResponseWriter, r *http.Request, p auth.Principal) ([]string, bool) {
+	var body struct {
+		Orgs []string `json:"orgs"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	if err := DecodeJSON(r, &body); err != nil || len(body.Orgs) == 0 || len(body.Orgs) > 200 {
+		WriteError(w, http.StatusBadRequest, "need {orgs: [id, …]} (1 to 200)", delegationDocs)
+		return nil, false
+	}
+	for _, o := range body.Orgs {
+		if o == "" || len(o) > 200 || s.AgentWorld == nil || !s.AgentWorld.AgentOrgVisible(personOf(p), o) {
+			WriteError(w, http.StatusForbidden, "no org "+strconv.Quote(o)+" that "+p.UserID+" can see", delegationDocs)
+			return nil, false
+		}
+	}
+	return body.Orgs, true
+}
+
+// apiAgentSessionAllows — POST /delegate/sessions/{id}/allows {orgs}: does
+// the session's model satisfy those orgs' rules? → {allowed, reasons:
+// {org: why}}. For what the agent keeps itself (its notebook): a page
+// stamped with orgs is readable in a session only if this says yes.
+func (s *Server) apiAgentSessionAllows(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.sessionCaller(w, r)
+	if !ok {
+		return
+	}
+	h, found := s.Delegation.AgentSession(p.UserID, p.Agent, r.PathValue("id"))
+	if !found {
+		s.writeSessionErr(w, delegation.ErrNoAgentSession)
+		return
+	}
+	orgs, ok := s.sessionOrgs(w, r, p)
+	if !ok {
+		return
+	}
+	reasons := map[string]string{}
+	for _, o := range orgs {
+		if err := s.AgentWorld.AgentModelAllowedIn(o, h.Model); err != nil {
+			reasons[o] = err.Error()
+		}
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"id": h.ID, "model": h.Model, "allowed": len(reasons) == 0, "reasons": reasons})
+}
+
+// apiAgentSessionTaint — POST /delegate/sessions/{id}/taint {orgs}: the
+// conversation took in data of those orgs through something xbind didn't
+// see (a notebook page stamped with them): add them to the session's
+// taint. Add-only — nothing takes an org out — and only orgs whose rules
+// the session's model satisfies: data it may not see isn't data it may
+// read (409 {code: "model_taint", orgs, reason} otherwise). → the session.
+func (s *Server) apiAgentSessionTaint(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.sessionCaller(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	h, found := s.Delegation.AgentSession(p.UserID, p.Agent, id)
+	if !found {
+		s.writeSessionErr(w, delegation.ErrNoAgentSession)
+		return
+	}
+	orgs, ok := s.sessionOrgs(w, r, p)
+	if !ok {
+		return
+	}
+	var refused []string
+	reason := ""
+	for _, o := range orgs {
+		if err := s.AgentWorld.AgentModelAllowedIn(o, h.Model); err != nil {
+			refused = append(refused, o)
+			if reason == "" {
+				reason = err.Error()
+			}
+		}
+	}
+	if len(refused) > 0 {
+		WriteJSON(w, http.StatusConflict, map[string]any{"code": "model_taint", "orgs": refused, "reason": reason, "docs": delegationDocs,
+			"error": "this session's model may not see data of " + strings.Join(refused, ", ") + ": it can't take it in"})
+		return
+	}
+	if err := s.Delegation.TaintAgentSession(p.UserID, p.Agent, id, orgs); err != nil {
+		s.writeSessionErr(w, err)
+		return
+	}
+	h, _ = s.Delegation.AgentSession(p.UserID, p.Agent, id)
+	WriteJSON(w, http.StatusOK, s.sessionView(p, h))
+}
+
+// RearmDelegateNotices schedules, at boot, the expiry notice of every
+// request that waits or is an unused ticket — the timers of the xbind that
+// stopped are gone. One that fell due meanwhile is told at once; reading
+// the request already answers "expired" either way (the store resolves
+// expiry on every read).
+func (s *Server) RearmDelegateNotices() {
+	if s.Delegation == nil || s.HolderNotify == nil {
+		return
+	}
+	for _, user := range s.Delegation.People() {
+		reqs, _ := s.Delegation.Requests(user, false)
+		for _, req := range reqs {
+			switch {
+			case req.Agent == "":
+			case req.State == delegation.Pending || req.State == delegation.Approved:
+				s.notifyAt(req.Expires, user, req.ID, req.Agent)
+			case req.State == "expired":
+				s.HolderNotify(req.Agent, user, "request", req.ID) // it expired while xbind was down, or just before (decided ones are kept a day)
+			}
+		}
+	}
 }

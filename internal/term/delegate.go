@@ -33,6 +33,7 @@ package term
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -64,6 +65,9 @@ type DelegateStart struct {
 	// anything else.
 	Approved       bool
 	Provider, Mode string
+	// Net is the network the person was shown, used when the request names
+	// none (xbind resolved it from their preferences: the request's preview).
+	Net string
 	// Prefs: the person's preferences for sessions their agent starts
 	// without asking; nil when they allow none.
 	Prefs *delegation.StartPrefs
@@ -162,8 +166,9 @@ func (m *Manager) delegateOpen(p auth.Principal, a *AgentOpen, rel string, prov 
 			mode = resumed.Mode
 		}
 		// what the person saw and approved: the caller checks the provider
-		// and the resolved mode against it; their own gates decide the rest
-		return mode, net, ""
+		// and the resolved mode against it; their own gates decide the rest.
+		// What the request left out is what the card showed in its place.
+		return cmp.Or(mode, d.Mode), cmp.Or(net, d.Net), ""
 	}
 	// the person's preferences: nothing the agent sent picks the sandbox
 	switch {
@@ -184,4 +189,44 @@ func (m *Manager) delegateOpen(p auth.Principal, a *AgentOpen, rel string, prov 
 	}
 	a.NoAPI = !d.Prefs.API
 	return mode, d.Prefs.Net, ""
+}
+
+// DelegateProvider is the harness a delegate's start opens when its
+// request names none: the one the gate resolved for it (the approved
+// card's, or the person's preference's).
+func DelegateProvider(a AgentOpen) string {
+	if a.Provider == "" && a.Resume == "" && a.Delegate != nil {
+		return a.Delegate.Provider
+	}
+	return a.Provider
+}
+
+// AgentEnded says how an agent session of p that is no longer live ended:
+// its history entry's end time and true, or false when xbind has no record
+// of an end — the session was running when xbind stopped (a session that
+// ends while xbind runs always leaves its entry).
+func (m *Manager) AgentEnded(p auth.Principal, id string) (ended string, recorded bool) {
+	meta, _, err := m.historyMetaFrom(HistoryOf(p), id)
+	if err != nil || meta.ID == "" {
+		return "", false
+	}
+	return meta.Ended, true
+}
+
+// OpenAgentPrompted is OpenAgentWith for a start that carries its first
+// prompt — the brief a person approved with a workspace agent's start: the
+// session is opened and xbind itself hands it prompt (prompted at once, or
+// held until the session is up). A session that can't take the brief it
+// was approved with doesn't run: it is ended and the start fails.
+func (m *Manager) OpenAgentPrompted(ctx context.Context, p auth.Principal, a AgentOpen, prompt string) (SessionInfo, QueueResult, int, error) {
+	info, code, err := m.OpenAgentWith(p, a)
+	if err != nil || prompt == "" {
+		return info, QueueResult{}, code, err
+	}
+	res, err := m.AgentQueue(ctx, info.ID, agent.Prompt{Text: prompt}, false)
+	if err != nil {
+		m.Kill(info.ID)
+		return SessionInfo{}, QueueResult{}, 502, fmt.Errorf("the session started but its first prompt couldn't be handed over, so it was ended: %w", err)
+	}
+	return info, res, code, nil
 }
