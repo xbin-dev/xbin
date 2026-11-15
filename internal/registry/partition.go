@@ -118,6 +118,9 @@ type PartitionAsk struct {
 	// record of (Invalid, nothing written) rather than read "no request": a
 	// typo or a store fault is never a switch request. "" when it was read.
 	Unread string
+	// Sealed: a sealed component (its code is the running release's, in
+	// every workspace): the store records its mode only once it is used.
+	Sealed bool
 }
 
 // PartitionMode is the mode store's answer for one tile.
@@ -430,7 +433,7 @@ func (r *Registry) settlePartitions(comps map[string]*Component, scopes map[stri
 	invalid := map[string]string{}
 	for _, rel := range slices.Sorted(maps.Keys(comps)) {
 		c := comps[rel]
-		ask := PartitionAsk{Tile: rel, Scope: c.Scope, RootsScope: c.Scope != "" && c.Scope == rel, Unread: c.partition.unread}
+		ask := PartitionAsk{Tile: rel, Scope: c.Scope, RootsScope: c.Scope != "" && c.Scope == rel, Unread: c.partition.unread, Sealed: c.Sealed}
 		err := errs[rel]
 		if q := asked[rel]; q != nil && err == nil {
 			err = partitionStructure(c, *q, asked, comps, scopes, ws.Grants)

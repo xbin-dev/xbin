@@ -403,6 +403,16 @@ func (b *Broker) settlePartition(ask registry.PartitionAsk) registry.PartitionMo
 	case rec == nil && ask.Requested == nil && ask.Invalid == "":
 		pm.setHeld(ask.Tile, registry.PartitionMode{}, "") // the zero state, a code that can't be read included
 		return registry.PartitionMode{}
+	case rec == nil && b.inertSealed(ask):
+		// a sealed component nobody has used: its own code's mode, recorded
+		// once a person's partition first starts (inertSealed)
+		mode = registry.PartitionMode{State: stateOf(registry.SpecOf(ask.Requested)), Recorded: registry.SpecOf(ask.Requested)}
+	case rec == nil && b.sealedFirstRecord(ask):
+		// …and then, the first record: its code's mode from the start. Its
+		// data — the first person's — was made in that mode (the sealed
+		// stamp holds a release whose mode differs, sealed.HoldMode), so it
+		// is never a switch from "unpartitioned"
+		mode = pm.decideFirst(b, ask)
 	case ask.Unread != "":
 		mode = registry.PartitionMode{State: registry.PartitionInvalid, Recorded: rec.recorded(),
 			Err: fmt.Sprintf("the code's partition request can't be read (%s); the tile waits, in its recorded mode (%s), until it can be", ask.Unread, rec.recorded())}
@@ -424,8 +434,21 @@ func unreadRecord(why string) registry.PartitionMode {
 // read, and records what changed. "Holds data" is asked without mu held.
 // Called under settleMu.
 func (pm *partitionModes) decide(b *Broker, rec *modeRecord, ask registry.PartitionAsk) registry.PartitionMode {
+	return pm.decideOn(b, rec, ask, false)
+}
+
+// decideFirst is decide for a sealed tile's first record: none of its data
+// can stand against its own code's mode (sealedFirstRecord).
+func (pm *partitionModes) decideFirst(b *Broker, ask registry.PartitionAsk) registry.PartitionMode {
+	return pm.decideOn(b, nil, ask, true)
+}
+
+func (pm *partitionModes) decideOn(b *Broker, rec *modeRecord, ask registry.PartitionAsk, firstSealed bool) registry.PartitionMode {
 	sealed := false
 	holds := func() bool {
+		if firstSealed {
+			return false
+		}
 		if b.switchHold(ask.Tile) != "" {
 			return true // a manager's switch is emptying it: never an auto record meanwhile
 		}
@@ -637,3 +660,57 @@ func (b *Broker) grantRefusal(g registry.Grant) error {
 
 // errNotExist reports a missing file or directory.
 func errNotExist(err error) bool { return errors.Is(err, fs.ErrNotExist) }
+
+// inertSealed reports a sealed component's tile that no one has used yet:
+// one whose code asks for people's partitions only (no shared instance),
+// with nothing under data/partitions/<tile> (a person's partition writes
+// its ledger there at its first start). It is in every workspace and does
+// nothing until a person has it (the workspace agent, D231): no mode
+// record, no data probe, no main volumes until then (inertSealedScope).
+// After its first use the tile settles, and provisions, like any other.
+func (b *Broker) inertSealed(ask registry.PartitionAsk) bool {
+	if !ask.Sealed || ask.Invalid != "" || ask.Unread != "" || ask.Requested == nil || !ask.Requested.User || ask.Requested.Global {
+		return false
+	}
+	return b.unusedTile(ask.Tile)
+}
+
+// sealedFirstRecord reports a used sealed tile (inertSealed's, a person's
+// partition has started) that has no mode record yet.
+func (b *Broker) sealedFirstRecord(ask registry.PartitionAsk) bool {
+	return ask.Sealed && ask.Invalid == "" && ask.Unread == "" && ask.Requested != nil && ask.Requested.User && !ask.Requested.Global
+}
+
+// inertSealedScope is inertSealed for the scope a sealed tile roots: its
+// main namespace's volumes aren't provisioned or mounted at a rescan while
+// no one has used it — a person's first partition mounts the ones it
+// reaches (holdReasonIn, PartitionEnv), and after it they mount as any
+// tile's do.
+func (b *Broker) inertSealedScope(scope string) bool {
+	if scope == "" {
+		return false
+	}
+	c, ok := b.Reg.Component(scope)
+	if !ok || !c.Sealed || c.Scope != scope {
+		return false
+	}
+	q := c.PartitionRequested()
+	return q != nil && q.User && !q.Global && b.unusedTile(scope)
+}
+
+// sealedPeopleOnly: scope is a sealed tile's that asks for people's
+// partitions only — whose main volumes a partition may mount on demand.
+func (b *Broker) sealedPeopleOnly(scope string) bool {
+	c, ok := b.Reg.Component(scope)
+	if !ok || !c.Sealed || c.Scope != scope {
+		return false
+	}
+	q := c.PartitionRequested()
+	return q != nil && q.User && !q.Global
+}
+
+// unusedTile: no person's partition of tile ever started (no ledger dir).
+func (b *Broker) unusedTile(tile string) bool {
+	_, err := os.Lstat(b.ledgerTileDir(tile)) // walk-ok: data/partitions is xbind's own
+	return errors.Is(err, fs.ErrNotExist)
+}

@@ -35,7 +35,7 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 		if info, code, err := m.OpenAgentWith(p, a); code != 403 || err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %d %v, want a 403 containing %q", name, code, err, want)
 			if err == nil {
-				m.Kill(info.ID)
+				endFake(t, r, info.ID)
 			}
 		}
 	}
@@ -114,7 +114,7 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 	if text, _ := edata(e.Event)["text"].(string); !strings.Contains(text, "HOME="+HomeDir(r.root, "alice")) {
 		t.Fatalf("the agent's home: %q", text)
 	}
-	m.Kill(id)
+	endFake(t, r, id)
 
 	// with a ticket: what the person approved, an explicit mode included
 	info, code, err = m.OpenAgentWith(delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Mode: "yolo", Delegate: &DelegateStart{Approved: true, Provider: "fake", Mode: "yolo"}})
@@ -124,7 +124,7 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 	if got := m.AgentOriginMode(info.ID); got != "yolo" {
 		t.Fatalf("the mode the person approved it in: %q", got)
 	}
-	m.Kill(info.ID)
+	endFake(t, r, info.ID)
 	// a preference may name a mode — one known to ask, checked here again
 	// whatever the store handed over (the second review's N5), and only
 	// for the harness the preference was asked about
@@ -157,7 +157,7 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 	if m.AgentOriginMode("nope") != "" {
 		t.Fatal("an unknown session has a start mode")
 	}
-	m.Kill(again.ID)
+	endFake(t, r, again.ID)
 	refused("a preference naming a mode that asks nothing", delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Provider: "fake", Prefs: &delegation.StartPrefs{Mode: "yolo", API: true}}}, "known to ask")
 	// "keeps asking" is the harness's ask or plan mode and no other: a mode
 	// that edits or runs on its own (auto here; Claude's acceptEdits and
@@ -170,7 +170,7 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 	if err != nil || code != 200 || info.Origin != "" || m.AgentOrigin(info.ID) != "" {
 		t.Fatalf("the person, in yolo: %d %v origin %q", code, err, info.Origin)
 	}
-	m.Kill(info.ID)
+	endFake(t, r, info.ID)
 }
 
 type sessionPolicy func(delegation.Subject, string) error
@@ -213,7 +213,7 @@ func TestDelegateStartIsWhatWasApproved(t *testing.T) {
 		t.Helper()
 		info, code, err := m.OpenAgentWith(delegate, a)
 		if err == nil {
-			m.Kill(info.ID)
+			endFake(t, r, info.ID)
 		}
 		if code != 403 || err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %d %v (mode %q), want a 403 containing %q", name, code, err, info.Mode, want)
@@ -253,12 +253,12 @@ func TestDelegateStartIsWhatWasApproved(t *testing.T) {
 	if err != nil || code != 200 || info.Mode != "ask" {
 		t.Fatalf("an approved start with options: %d %v %+v", code, err, info)
 	}
-	m.Kill(info.ID)
+	endFake(t, r, info.ID)
 	person := auth.Principal{UserID: "alice", User: alice, Via: "session"}
 	if info, _, err = m.OpenAgentWith(person, AgentOpen{Cwd: "apps/x", Provider: "fake"}); err != nil {
 		t.Fatal(err)
 	}
-	m.Kill(info.ID)
+	endFake(t, r, info.ID)
 	if !cfgs[0].Strict || cfgs[len(cfgs)-1].Strict { // the mode in force or no session; only a model or a thinking level set
 		t.Fatalf("Strict: the agent's open %v, the person's %v", cfgs[0].Strict, cfgs[len(cfgs)-1].Strict)
 	}
@@ -285,7 +285,7 @@ func TestDelegateStartCarriesItsFirstPrompt(t *testing.T) {
 	if err != nil || code != 200 || info.Provider != "fake" || info.Mode != "ask" || info.Origin != OriginAgent {
 		t.Fatalf("the start: %d %v %+v", code, err, info)
 	}
-	defer m.Kill(info.ID)
+	defer endFake(t, r, info.ID) // its history is written under the rig's TempDir: the teardown first
 	if res.Outcome == "" || res.Turn == 0 && res.ID == "" {
 		t.Fatalf("the first prompt was neither sent nor held: %+v", res)
 	}
@@ -295,5 +295,5 @@ func TestDelegateStartCarriesItsFirstPrompt(t *testing.T) {
 	if err != nil || res2 != (QueueResult{}) {
 		t.Fatalf("a start without a prompt: %v %+v", err, res2)
 	}
-	m.Kill(info2.ID)
+	endFake(t, r, info2.ID)
 }

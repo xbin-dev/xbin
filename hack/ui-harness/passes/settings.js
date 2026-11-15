@@ -166,7 +166,10 @@ async function adminSettings(browser) {
     check(!(await consent.isChecked()) && (await get()).partitionConsent === false, 'turning consent on asks first; nothing saved yet');
     await until(A.page, (x) => x.edges !== '' && x.edges !== 'loading', null, 'the edges preview');
     v = await read(A.page);
-    check(Number(v.edges) > 0 && v.edgesText.includes(`${EDGE.z} → ${EDGE.x}: 0 people`) && !v.edgesText.includes(EDGE.w),
+    // (the pending grant is w's: no edge from w. Every tile is an edge of the
+    // workspace agent's — xbin/wsagent → …, approved by delegation — so w is
+    // named as a target there)
+    check(Number(v.edges) > 0 && v.edgesText.includes(`${EDGE.z} → ${EDGE.x}: 0 people`) && !v.edgesText.includes(`${EDGE.w} → `),
       `the confirmation shows the real edge it would ask about, not the pending one (${v.edges}: ${v.edgesText})`);
     await A.page.locator('[data-setting-confirm] button', { hasText: 'cancel' }).click();
     await until(A.page, (x) => !x.asking && x.st.partitionConsent === 'off', null, 'cancel');

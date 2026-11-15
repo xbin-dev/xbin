@@ -475,7 +475,10 @@ async function agentChrome(browser) {
     await U.page.waitForSelector('bx-shell button.chip.settings');
     await U.page.waitForTimeout(500); // (a negative: the chip must not appear)
     check(!(await U.page.$('bx-shell button.chip.agent')), 'a non-admin before setup sees no chip');
-    const own = await sh(U.page, (t) => (t.openTiles || []).map((o) => o.path)[0] || '');
+    // a tile dev1 can read: the passes before this one leave dev1 a Home with
+    // the default tiles, and a card dev1 can't read has no tile menu at all
+    const mine = new Set((await (await U.ctx.request.get(`${URL}/api/xbin/components`)).json().catch(() => [])).map?.((c) => c.path) || []);
+    const own = (await sh(U.page, (t) => (t.openTiles || []).map((o) => o.path))).find((p) => mine.has(p)) || '';
     if (own) {
       await U.page.click(`.card[data-path="${own}"] button.wc[aria-label="tile menu"]`);
       await waitSel(U.page, 'bx-menu .panel.main .it');
