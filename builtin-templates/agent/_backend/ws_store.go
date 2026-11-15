@@ -157,6 +157,8 @@ func (d *DB) addWsSchema() error {
 		// why the conversation can't go on on its model ('': it can): xbind
 		// refused a new handle on it what the conversation holds (wsHeld)
 		`ALTER TABLE ws_sessions ADD COLUMN held TEXT NOT NULL DEFAULT ''`,
+		// why xbind refused the messages held for a tile agent ('': none): told once, then cleared
+		`ALTER TABLE ws_agents ADD COLUMN refused TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = d.q.Exec(q)
 	}
@@ -420,6 +422,7 @@ type wsAgentRow struct {
 	Last    string `json:"last,omitempty"`
 	Turn    int    `json:"turn,omitempty"`
 	Told    string `json:"-"`
+	Refused string `json:"-"` // why xbind refused the messages held for it, until the conversation is told
 	Owed    bool   `json:"-"`
 	Wake    bool   `json:"-"`
 	Started int64  `json:"startedMs"`
@@ -451,12 +454,12 @@ func (a *wsAgentRow) state() string {
 	return a.Status
 }
 
-const wsAgentCols = `id, run_id, session, tile, harness, mode, asks, brief_id, request_id, call_id, status, waiting, waits, last, turn, told, owed, wake, started_ms, updated_ms`
+const wsAgentCols = `id, run_id, session, tile, harness, mode, asks, brief_id, request_id, call_id, status, waiting, waits, last, turn, told, owed, wake, started_ms, updated_ms, refused`
 
 func scanWsAgent(scan func(...any) error) (*wsAgentRow, error) {
 	var a wsAgentRow
 	err := scan(&a.ID, &a.Run, &a.Session, &a.Tile, &a.Harness, &a.Mode, &a.Asks, &a.Brief, &a.Request, &a.CallID, &a.Status, &a.Waiting, &a.Waits, &a.Last, &a.Turn,
-		&a.Told, &a.Owed, &a.Wake, &a.Started, &a.Updated)
+		&a.Told, &a.Owed, &a.Wake, &a.Started, &a.Updated, &a.Refused)
 	return &a, err
 }
 

@@ -150,6 +150,12 @@ func wsDryWords(what string, d *wsDry) string {
 		return what + ": xbin gave no description."
 	}
 	if !d.Allowed {
+		switch d.Refusal { // a start xbind refuses whatever approves it: what to do instead
+		case "taint":
+			return what + " is refused. Nothing was asked and nothing ran. " + wsTaintedBriefWords(d.Error) + "."
+		case "command":
+			return what + " is refused. Nothing was asked and nothing ran. " + wsHarnessCommandWords + "."
+		}
 		return fmt.Sprintf("%s would be refused: %s. Nothing ran.", what, orStr(d.Error, orStr(d.Refusal, "the tile or its org doesn't allow it")))
 	}
 	var b strings.Builder

@@ -557,6 +557,13 @@ func (h wsHTTP) AgentStart(ctx context.Context, sid string, a wsAgentStart, tick
 	c := h.startCall(a)
 	c.Ticket, c.DryRun = ticket, dry
 	ans, err := h.Call(ctx, sid, c)
+	if err == nil && dry && ans.Dry != nil && !ans.Dry.Allowed {
+		// a start refused whatever approves it carries xbind's sentence only;
+		// it has two reasons (docs/protocol/delegation.md §Dry run): a first
+		// prompt that begins with a harness command, or the conversation's
+		// taint — told apart by the one this side can see
+		ans.Dry.Refusal = wsStartRefusal(a.Prompt)
+	}
 	if err != nil || dry {
 		return wsAgent{}, ans.Dry, err
 	}
@@ -570,6 +577,15 @@ func (h wsHTTP) AgentStart(ctx context.Context, sid string, a wsAgentStart, tick
 		ag.Tile = a.Tile
 	}
 	return h.named(ctx, sid, ag), nil, nil
+}
+
+// wsStartRefusal is the code of a start's dry-run refusal: "command" for a
+// first prompt that begins with "/", else "taint".
+func wsStartRefusal(prompt string) string {
+	if strings.HasPrefix(strings.TrimSpace(prompt), "/") {
+		return "command"
+	}
+	return "taint"
 }
 
 func (wsHTTP) createCall(t wsTileCreate) wsCall {

@@ -111,6 +111,12 @@ test('refusals from their fields: each kind its words and ways forward; the two 
   assert.match(card('hidden').text, /You left Ledger out of this session’s scope/);
   assert.equal(card('not-connected').title, 'Ledger isn’t connected in this session');
   assert.deepEqual(card('taint').ways, ['model']);
+  // what xbind refuses the agent tells tile agents: what happened and what to do instead, in plain words
+  assert.match(card('brief-taint', 'this conversation holds data of finance').title, /Ledger’s agent can’t be told this/);
+  assert.match(card('brief-taint').note, /Start the tile agent on the workspace’s connector, on a model the org allows — or ask from a new session/);
+  assert.match(card('mode').note, /only you can drive it now/);
+  assert.match(card('command').text, /begins with “\/”.*yours to give/);
+  assert.ok(card('no-agent').quiet && /an admin chooses who has one/.test(card('no-agent').text));
   for (const k of ['paused', 'off', 'slow']) assert.equal(card(k).quiet, true, k);
   assert.equal(card('something-new').title, 'xbin refused this');
   // a request's and a brief's place is their callId: the page reads nothing of the tool's answer to find it

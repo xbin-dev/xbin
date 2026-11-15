@@ -19,7 +19,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   model: `POST /runs/{id}/message` answers `409 {code: "agent-off",
   refusal, error, kept: true}`, the transcript gets a line (a step of kind
   `off`) naming the switch, who can change it and where, nothing is queued,
-  and the page keeps the words in the message box to send again.
+  and the page keeps the words in the message box to send again. xbind's
+  refusals of what the agent tells a tile agent — `taint`, `mode`,
+  `command`, and `no-agent` / `held` — reach the model once, with what to
+  do instead, and the person's card says the same (`cards.refusals[].kind`
+  `brief-taint`, `mode`, `command`, `no-agent`, `held`).
 
 - **Workspace agent: fixes from a security review**
   ([workspace-agent.md](/docs/workspace-agent.md),

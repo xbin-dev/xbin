@@ -42,11 +42,16 @@ type fakeXbin struct {
 	startAsk  bool  // starting a tile agent asks (false: the person's preference lets it through)
 	startDry  *bool // what a start's dry run answers for needsApproval, when it isn't startAsk (the preference changed in between)
 	paused    bool
-	off       string            // an off switch other than the pause, as xbind refuses it: workspace-off | no-agent | held
-	mapDown   bool              // the map can't be read (xbind unreachable for it)
-	pages     map[string]string // what a tile's page shows (a preview's snapshot)
-	noPreview bool              // previews are off on this xbind
-	harnesses []wsHarness       // what tiles allow, in xbind's order
+	off       string // an off switch other than the pause, as xbind refuses it: workspace-off | no-agent | held
+	mapDown   bool   // the map can't be read (xbind unreachable for it)
+	// what xbind refuses to let the agent tell a tile agent (delegatesend.go):
+	// briefTaint, an org whose data no tile agent's model here may be told;
+	// modeOff, the sessions their person switched to a mode that doesn't ask
+	briefTaint string
+	modeOff    map[string]bool
+	pages      map[string]string // what a tile's page shows (a preview's snapshot)
+	noPreview  bool              // previews are off on this xbind
+	harnesses  []wsHarness       // what tiles allow, in xbind's order
 
 	said  map[string][]string // messages delivered to each tile agent
 	calls []string            // every call made, in order ("Request r-1", "Call POST /api/…")
@@ -663,6 +668,12 @@ func (f *fakeXbin) AgentStart(_ context.Context, sid string, a wsAgentStart, tic
 		}
 		return wsAgent{}, nil, err
 	}
+	if why, code := f.sendRefusal(sid, a.Prompt, ""); why != "" { // refused whatever approves it, before a ticket is spent
+		if dry {
+			return wsAgent{}, &wsDry{Allowed: false, Tile: t.Path, Refusal: code, Error: why}, nil
+		}
+		return wsAgent{}, nil, &xbin.DelegateError{Status: 403, Refusal: code, Message: why}
+	}
 	c := fakeStartCall(a)
 	c.Ticket, c.DryRun = ticket, dry
 	ans, err := f.call(sid, c)
@@ -756,6 +767,10 @@ func (f *fakeXbin) AgentSay(_ context.Context, sid, id, text string) (string, er
 	if a == nil || !a.Mine {
 		return "", &xbin.DelegateError{Status: 403, Refusal: "not-delegated", Message: "an agent drives only the sessions it opened"}
 	}
+	if why, code := f.sendRefusal(sid, text, id); why != "" {
+		f.note("AgentSay refused %s %s", id, code)
+		return "", &xbin.DelegateError{Status: 403, Refusal: code, Message: why}
+	}
 	f.note("AgentSay %s", id)
 	f.said[id] = append(f.said[id], text)
 	if a.Status == "running" {
@@ -763,6 +778,23 @@ func (f *fakeXbin) AgentSay(_ context.Context, sid, id, text string) (string, er
 	}
 	a.Status = "running"
 	return "prompted", nil
+}
+
+// sendRefusal is xbind's rule for what the agent tells a tile agent (a
+// start's first prompt, a message to session id): never a harness command,
+// never to a session its person switched to a mode that doesn't ask, never
+// data of an org whose rules its model doesn't meet. why "": it may.
+func (f *fakeXbin) sendRefusal(sid, text, id string) (why, code string) {
+	switch {
+	case strings.HasPrefix(strings.TrimSpace(text), "/"):
+		return "a message from a workspace agent can't begin with \"/\": the coding agent reads that as one of its own commands", "command"
+	case id != "" && f.modeOff[id]:
+		return "this session is now in the mode \"bypassPermissions\", which doesn't ask before it acts, and alice didn't approve it in that mode", "mode"
+	}
+	if h := f.handles[sid]; h != nil && f.briefTaint != "" && hasStr(h.Tainted, f.briefTaint) {
+		return "this conversation holds data of " + f.briefTaint + ", so a tile agent it briefs must be on a model that org allows — Finance allows private models only", "taint"
+	}
+	return "", ""
 }
 
 func (f *fakeXbin) AgentCancel(_ context.Context, sid, id string) error {

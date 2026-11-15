@@ -5992,11 +5992,20 @@ beside them are the model's, and neither is parsed out of the other.
   answers. `kind`: `hidden` (outside the session's scope: the person's
   choice), `policy` (the tile's or its org's rule; `reason` is their
   sentence), `cannot` (not in what an agent may do, whatever is approved),
-  `paused`, `off`, `slow` (rate-limited), `taint` (the session's model may
-  not hold that data), `not-connected` (no such tile for this session:
+  `paused`, `off`, `no-agent` (its person wasn't given an agent), `held`,
+  `slow` (rate-limited), `taint` (the session's model may not hold that
+  data), `brief-taint` (xbind's `403 {refusal: "taint"}`: the conversation
+  holds data of an org whose model rule the tile agent's model doesn't
+  meet — the way forward is a start on the connector on an allowed model,
+  or a clean conversation), `mode` (`{refusal: "mode"}`: the tile agent's
+  person switched it to a mode that doesn't ask — only they drive it now),
+  `command` (`{refusal: "command"}`: the text began with `/`),
+  `not-connected` (no such tile for this session:
   xbind answers a tile that isn't there and one the person can't see
   alike). `tile` is the tile as the call named it. The tool's answer to the
-  model is unchanged.
+  model says what happened and what to do instead, and none of these is
+  retried: a message held behind a tile agent's question that xbind refuses
+  when it would go in is dropped, and the conversation told once.
 - **A question** (`cards.ask`, a session's `ask`, a `question` item of
   `/ws/needs`): `{callId, kind, question, choices?, tile?}`. `kind` is
   `ask_user`'s: `choices` (built from what it found), `redirect` (the
