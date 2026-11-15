@@ -82,14 +82,14 @@ export const chatCssText = `
   .bxc-plan li { list-style: none; margin: 2px 0; display: flex; gap: 6px; align-items: baseline; }
   .bxc-plan li bx-icon, .bxc-plan li .bxc-todo { flex: none; align-self: center; }
   .bxc-plan li .bxc-todo { width: 8px; height: 8px; margin: 0 4px; box-sizing: border-box; border: 1px solid var(--bx-border-strong, #666A7E); }
-  .bxc-plan .bxc-done { color: var(--bx-ok, #A3CF5E); text-decoration: line-through; }
+  .bxc-plan .bxc-done { color: var(--bx-ok, #A3CF5E); }
+  .bxc-plan .bxc-done > :not(.bxc-ptag) { text-decoration: line-through; }
   .bxc-plan .bxc-h { display: flex; gap: 8px; align-items: baseline; }
   .bxc-plan .bxc-h > span:first-child { flex: 1; }
   .bxc-plan .bxc-pmeta { font: ${F.meta}; letter-spacing: normal; text-transform: none; }
   .bxc-plan ol { margin: 0; padding: 0; }
   .bxc-plan .bxc-pn { flex: none; min-width: 16px; color: var(--bx-muted, #A3A6B6); font: ${F.meta}; font-variant-numeric: tabular-nums; }
   .bxc-plan .bxc-pt { flex: 1; min-width: 0; }
-  .bxc-plan .bxc-done .bxc-ptag { text-decoration: none; }
   .bxc-plan .bxc-ptag { flex: none; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px);
     padding: 0 6px; font: ${F.meta}; color: var(--bx-muted, #A3A6B6); white-space: nowrap; }
   .bxc-plan .bxc-ptag.bxc-ok { color: var(--bx-ok, #A3CF5E); }
