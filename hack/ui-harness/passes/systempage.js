@@ -14,7 +14,10 @@
 //      element does);
 //   2. an admin sees each component with its state, version and the
 //      "System component · managed by xbin" line — never the word
-//      "sealed"; nobody but admins has access at first;
+//      "sealed"; nobody but admins has access at first — the pass makes it
+//      so (the component's own access entries removed and, for the
+//      workspace agent, the everyone entry), and puts back what it found
+//      at the end, however it ends: it doesn't depend on what ran before;
 //   3. Give access to a person: the entry shows, GET /access has it at
 //      read; Remove takes it away;
 //   4. Turn off: the badge says Off and POST /lifecycle recorded disabled;
@@ -25,6 +28,7 @@
 //      and the shell shows none (shots: systempage-<theme>,
 //      systempage-phone-<theme>).
 const { URL, login, closeCtx, settle, shot, checker, THEME } = require('../lib');
+const { snapshot, putBack, putBackChecked, caller } = require('./wsagentpage'); // the component's access, read and put back
 
 async function until(fn, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
@@ -46,9 +50,16 @@ async function systemPage(browser) {
   const A = await login(browser, 'admin', 'admin');
   A.page.on('pageerror', (e) => errors.push(e.message));
   let D;
+  let found = null;
   try {
     const sealed = await (await A.ctx.request.get(`${URL}/api/xbin/sealed`)).json();
     const paths = (sealed.components ?? []).map((c) => c.path);
+    if (paths.length) {
+      // the start state the checks assume: nobody given the component (the workspace agent: nor everyone, by the defaults)
+      found = await snapshot(caller(A.ctx), paths[0]);
+      const bad = await putBack(caller(A.ctx), { ...found, entries: [], ...(found.agent ? { everyone: false } : {}) });
+      if (bad.length) throw new Error(`${paths[0]}: taking away the access entries found (${JSON.stringify(found.entries)}): ${bad.join(' | ')}`);
+    }
 
     // 1. served as it is, top-level only
     const resp = await A.page.goto(`${URL}/xbin/system`);
@@ -104,7 +115,7 @@ async function systemPage(browser) {
       const own = await D.ctx.request.get(`${URL}/c/${P}/`);
       check(own.status() === 200, `dev1, given access, loads its page (${own.status()})`);
 
-      await card.locator('button.rm', { hasText: 'Remove' }).click();
+      await card.locator('li', { hasText: 'dev1' }).locator('button.rm', { hasText: 'Remove' }).click();
       await until(async () => (await card.innerText()).includes('Nobody but workspace admins'), 'the entry is removed');
       acc = await (await A.ctx.request.get(`${URL}/api/xbin/access?tile=${encodeURIComponent(P)}`)).json();
       check(!acc.entries.some((e) => e.id === 'dev1'), 'GET /access no longer has dev1');
@@ -174,6 +185,7 @@ async function systemPage(browser) {
     }
     check(errors.length === 0, `no page error (${errors.join(' | ')})`);
   } finally {
+    if (found) await putBackChecked(browser, found, check);
     if (D) await closeCtx(D.ctx, D.page).catch(() => {});
     await closeCtx(A.ctx, A.page).catch(() => {});
   }

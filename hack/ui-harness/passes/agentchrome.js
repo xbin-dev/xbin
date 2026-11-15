@@ -510,8 +510,22 @@ async function agentChrome(browser) {
 // sends reaches xbind, and what it shows is what xbind and the agent's
 // backend answered. The model is hack/fakeopenai, scripted by the message
 // ("ws: tool {json} ;; …"); the tile the agent changes is apps/wsnote
-// (wsagentpage.js).
+// (wsagentpage.js). What it changes (the switch, who has one, pause, the
+// access entries) is put back as it found it, however it ends.
 async function realHolder(browser, check, skip) {
+  if (R.noHolder()) { await realHolderRun(browser, check, skip); return; }
+  const K = await login(browser, 'admin', 'admin');
+  const kcall = R.caller(K.ctx);
+  const found = (await R.shipped(kcall)) === R.AGENT ? await R.snapshot(kcall) : null;
+  await K.ctx.close();
+  try {
+    await realHolderRun(browser, check, skip);
+  } finally {
+    if (found) await R.putBackChecked(browser, found, check);
+  }
+}
+
+async function realHolderRun(browser, check, skip) {
   const why = R.noHolder();
   if (why) { skip(`the real holder (${R.AGENT}): ${why} — only the faked matrix ran`); return; }
   const stamp = Date.now().toString(36);
