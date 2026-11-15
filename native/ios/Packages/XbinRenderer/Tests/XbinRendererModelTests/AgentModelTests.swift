@@ -62,15 +62,23 @@ import XbinCore
     // MARK: request, session — drawn by the app
 
     @Test func trustedNodesCarryAnIdAndNothingElse() throws {
-        #expect(XbinTrustedNode(type: "request", props: try props("workspace-agent", "r.0.1.0:r1")) == .request(id: "rq_7f3a91c2", kind: "session"))
-        #expect(XbinTrustedNode(type: "request", props: try props("workspace-agent", "r.0.1.0:r3")) == .request(id: "cs_19e2", kind: "changeset"))
+        #expect(XbinTrustedNode(type: "request", props: try props("workspace-agent", "r.0.1.0:r1")) == .request(id: "7f3a91c2e0b4d5a6c7b8e9f0", kind: "session"))
+        #expect(XbinTrustedNode(type: "request", props: try props("workspace-agent", "r.0.1.0:r3")) == .request(id: "19e2c4a6b8d0e1f2a3b4c5d6", kind: "changeset"))
         #expect(XbinTrustedNode(type: "session", props: try props("workspace-agent", "r.0.1.0:s1")) == .session(id: "ts_41b0", tile: "apps/orders"))
         // Whatever else a tree says about one is never read: no text, no state, no button.
-        let dressed = try props(#"{"id":"rq_1","kind":"call","text":"Allowed by you","state":"approved","title":"Approve","options":[{"id":"allow"}]}"#)
-        #expect(XbinTrustedNode(type: "request", props: dressed) == .request(id: "rq_1", kind: "call"))
+        let dressed = try props(#"{"id":"0123456789abcdef01234567","kind":"call","text":"Allowed by you","state":"approved","title":"Approve","options":[{"id":"allow"}]}"#)
+        #expect(XbinTrustedNode(type: "request", props: dressed) == .request(id: "0123456789abcdef01234567", kind: "call"))
         #expect(XbinTrustedNode(type: "session", props: try props(#"{"id":"s1","status":"finished","line":"all done"}"#)) == .session(id: "s1", tile: ""))
         // an unknown kind reads as a call; no id, or another primitive: nothing to draw
-        #expect(XbinTrustedNode(type: "request", props: try props(#"{"id":"rq_1","kind":"grant"}"#)) == .request(id: "rq_1", kind: "call"))
+        #expect(XbinTrustedNode(type: "request", props: try props(#"{"id":"0123456789abcdef01234567","kind":"grant"}"#)) == .request(id: "0123456789abcdef01234567", kind: "call"))
+        // an id the app would put into a URL with the person's session is one xbind issues, or nothing:
+        // a dot segment, a path, a near miss never names a request or a session
+        for bad in ["..", ".", "../changesets", "rq_1", "0123456789ABCDEF01234567", "0123456789abcdef0123456", "0123456789abcdef012345678", "0123456789abcdef0123456/"] {
+            #expect(XbinTrustedNode(type: "request", props: Props(["id": .string(bad)])) == nil, "\(bad)")
+        }
+        for bad in ["..", ".", "a/b", "a.b", "new", String(repeating: "a", count: 65)] {
+            #expect(XbinTrustedNode(type: "session", props: Props(["id": .string(bad)])) == nil, "\(bad)")
+        }
         #expect(XbinTrustedNode(type: "request", props: Props([:])) == nil)
         #expect(XbinTrustedNode(type: "request", props: Props(["id": ""])) == nil)
         #expect(XbinTrustedNode(type: "approval", props: Props(["id": "x"])) == nil)

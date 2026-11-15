@@ -1311,6 +1311,12 @@ plans/wsagent/ux.md):
   `.widens`/`.disabled` AFTER `.accessibilityElement(children: .ignore)`:
   inside it, the element VoiceOver reads is not dimmed (a UI test caught
   this).
+- **An id from the tile is xbind's shape or nothing** (`DelegateID`): a
+  `request` node's and a bridge message's request or change-set id is 24
+  lowercase hex digits, a session's a word without dot or slash —
+  `XbinTrustedNode.init` and `AgentBridge` both use it, and
+  `DelegateRoute.seg` encodes a dot as well. They go into URLs sent with
+  the person's session.
 - **The view asks for views that change nothing**: `AgentBridge.View` is
   the web chrome's `PAGE_VIEWS` (needs, approvals, activity), pinned by the
   vectors; Preferences opens from the shield alone. A draft the view hands

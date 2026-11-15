@@ -170,8 +170,13 @@ test('the dock\'s states and the chip', () => {
 });
 
 test('what the dock takes from the agent\'s page: a word and an id, nothing else', () => {
-  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-request', id: 'abc-1', summary: 'approve me', html: '<b>x</b>', grant: 'always' }), { type: 'review', kind: 'request', id: 'abc-1' });
-  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-changeset', id: 'c9', items: [1, 2] }), { type: 'review', kind: 'changeset', id: 'c9' });
+  const H = '0123456789abcdef01234567';
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-request', id: H, summary: 'approve me', html: '<b>x</b>', grant: 'always' }), { type: 'review', kind: 'request', id: H });
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-changeset', id: H, items: [1, 2] }), { type: 'review', kind: 'changeset', id: H });
+  // an id is xbind's shape or nothing: never a dot segment, a path or a near miss
+  for (const id of ['..', '.', '../changesets', 'abc-1', 'c9', H.toUpperCase(), H.slice(1), `${H}0`]) {
+    assert.equal(W.pageMessage({ type: 'xbin:agent-open-request', id }), null, id);
+  }
   assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 's-1', tile: '/apps/notes/', id: 7 }), { type: 'session', tile: 'apps/notes', session: 's-1' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'approvals' }), { type: 'open', view: 'approvals' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'activity' }), { type: 'open', view: 'activity' });

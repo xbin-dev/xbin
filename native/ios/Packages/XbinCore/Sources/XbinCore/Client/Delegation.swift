@@ -351,7 +351,9 @@ public struct AgentSessionRow: Sendable, Equatable, Identifiable {
 /// Rows are paths below `/api/xbin`.
 public enum DelegateRoute {
     static let base = "/api/xbin/delegate"
-    private static func seg(_ s: String) -> String { URLComponent.encode(s) }
+    /// One path segment: percent-encoded, a dot too — so even an id that
+    /// slipped past ``DelegateID`` can't be `.` or `..` to a URL parser.
+    static func seg(_ s: String) -> String { URLComponent.encode(s).replacingOccurrences(of: ".", with: "%2E") }
 
     public static let state = APIRequest("GET", "\(base)/state")
     public static let requests = APIRequest("GET", "\(base)/requests")

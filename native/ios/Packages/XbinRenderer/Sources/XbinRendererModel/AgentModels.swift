@@ -194,14 +194,18 @@ public enum XbinTrustedNode: Sendable, Hashable {
     public static let requestKinds: Set<String> = ["call", "session", "template", "changeset"]
 
     /// From a `request` or `session` node; nil for any other primitive or
-    /// a node without an id.
+    /// a node whose id is not one xbind issues (``DelegateID``: a request's
+    /// 24 hex digits, a session's word) — the app puts it into a URL it
+    /// sends with the person's session, so `..` or a path never gets there.
     public init?(type: String, props p: Props) {
         guard let id = p.nonEmpty("id") else { return nil }
         switch type {
         case "request":
+            guard DelegateID.isRequest(id) else { return nil }
             let k = p.string("kind") ?? ""
             self = .request(id: id, kind: Self.requestKinds.contains(k) ? k : "call")
         case "session":
+            guard DelegateID.isSession(id), id != "new" else { return nil }
             self = .session(id: id, tile: p.string("tile") ?? "")
         default:
             return nil

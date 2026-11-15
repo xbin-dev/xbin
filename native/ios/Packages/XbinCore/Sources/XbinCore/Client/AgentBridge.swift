@@ -13,6 +13,32 @@ import Foundation
 // chrome's own `pageMessage()` (web/agent-chrome-words.js): the same shapes,
 // the same fields and no other.
 
+/// The ids the app reads by from what a tile says — a `request` or
+/// `session` node of the agent's tree, a message of its view — before any
+/// of them goes into a URL with the person's session. The shapes xbind
+/// issues and nothing else: a dot segment (`..`), a slash or any other
+/// path character never passes (the web chrome's `ID` and `SESSION`).
+public enum DelegateID {
+    /// A request's or a change set's id: 24 lowercase hex digits, as xbind
+    /// mints them (`util.RandomToken(12)`, internal/delegation).
+    public static func isRequest(_ s: String) -> Bool {
+        let u = s.unicodeScalars
+        return u.count == 24 && u.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+    }
+
+    /// A tile agent's session id, or `new`: letters, digits, `_` and `-`,
+    /// at most 64 (xbind's are 16 hex digits) — never a dot or a slash.
+    public static func isSession(_ s: String) -> Bool {
+        let u = s.unicodeScalars
+        return (1...64).contains(u.count) && u.allSatisfy { c in
+            switch c {
+            case "A"..."Z", "a"..."z", "0"..."9", "_", "-": return true
+            default: return false
+            }
+        }
+    }
+}
+
 /// The app's decision about one `agent` message of a native tile.
 public enum AgentBridge {
     /// The chrome's views a message may ask for — the ones that change
@@ -115,24 +141,8 @@ public enum AgentBridge {
 
     // MARK: The shapes (web/agent-chrome-words.js: ID, SESSION, tilePath, plainDraft)
 
-    /// `^[A-Za-z0-9_.:-]{1,80}$`
-    static func isID(_ s: String) -> Bool {
-        let u = s.unicodeScalars
-        return (1...80).contains(u.count) && u.allSatisfy { isWord($0) || $0 == "." || $0 == ":" }
-    }
-
-    /// `^[A-Za-z0-9_-]{1,64}$`
-    static func isSession(_ s: String) -> Bool {
-        let u = s.unicodeScalars
-        return (1...64).contains(u.count) && u.allSatisfy(isWord)
-    }
-
-    private static func isWord(_ c: Unicode.Scalar) -> Bool {
-        switch c {
-        case "A"..."Z", "a"..."z", "0"..."9", "_", "-": return true
-        default: return false
-        }
-    }
+    static func isID(_ s: String) -> Bool { DelegateID.isRequest(s) }
+    static func isSession(_ s: String) -> Bool { DelegateID.isSession(s) }
 
     /// A tile's path: slashes trimmed at the ends, at most 512 UTF-16
     /// units, no empty, `.` or `..` segment — or nil.

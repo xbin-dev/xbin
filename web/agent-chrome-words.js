@@ -589,7 +589,9 @@ export const neverAsks = (names) => `Not offered: ${names.join(', ')} — ${name
 
 // ---- what the page may ask of the dock -----------------------------------------------------
 
-const ID = /^[A-Za-z0-9_.:-]{1,80}$/;
+// a request's or change set's id, as xbind mints them (24 lowercase hex digits): nothing else — never a dot segment or a
+// path — is read from the page, and it goes into a URL the dock sends with the person's session
+const ID = /^[0-9a-f]{24}$/;
 const SESSION = /^[A-Za-z0-9_-]{1,64}$/;
 const tilePath = (v) => {
   const t = typeof v === 'string' ? v.replace(/^\/+|\/+$/g, '') : '';

@@ -13,7 +13,7 @@
         {"k":"r.0.1.0:b1.2","t":"toggle","p":{"label":"Tell me when it finishes","value":true},"e":["change"]},
         {"k":"r.0.1.0:b1.3","t":"button","p":{"role":"primary","label":"Review and start…"},"e":["tap"]}
       ]},
-      {"k":"r.0.1.0:r1","t":"request","p":{"id":"rq_7f3a91c2","kind":"session"}},
+      {"k":"r.0.1.0:r1","t":"request","p":{"id":"7f3a91c2e0b4d5a6c7b8e9f0","kind":"session"}},
       {"k":"r.0.1.0:s1","t":"session","p":{"id":"ts_41b0","tile":"apps/orders"}},
       {"k":"r.0.1.0:s2","t":"session","p":{"id":"ts_41b7","tile":"apps/calendar"}},
       {"k":"r.0.1.0:r2","t":"request","p":{"id":"rq_80aa13d4","kind":"call"}},
@@ -23,7 +23,7 @@
         {"k":"r.0.1.0:c1.2","t":"button","p":{"label":"Change the model…"},"e":["tap"]},
         {"k":"r.0.1.0:c1.3","t":"button","p":{"label":"Open scope"},"e":["tap"]}
       ]},
-      {"k":"r.0.1.0:r3","t":"request","p":{"id":"cs_19e2","kind":"changeset"}},
+      {"k":"r.0.1.0:r3","t":"request","p":{"id":"19e2c4a6b8d0e1f2a3b4c5d6","kind":"changeset"}},
       {"k":"r.0.1.0:c2","t":"card","p":{"title":"The workspace agent doesn’t open or edit code","tone":"muted"},"c":[
         {"k":"r.0.1.0:c2.0","t":"text","p":{"text":"Two ways forward:"}},
         {"k":"r.0.1.0:c2.1:hand","t":"row","p":{"title":"Hand this to Orders’ own agent","subtitle":"It opens in Orders with your message as written.","nav":true},"e":["tap"]},

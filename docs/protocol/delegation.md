@@ -818,7 +818,11 @@ of its own in those two modes.
 
 **What the agent's page may ask of the chrome** — `postMessage` to its
 parent; the chrome takes a message only from its own frame's window and
-reads the fields named here, as ids, and no other:
+reads the fields named here, as ids, and no other. An id is the shape
+xbind issues or the message is ignored: a request's or change set's is 24
+lowercase hex digits, a session's letters, digits, `_` and `-` (never a
+dot or a slash) — they go into URLs the chrome sends with the person's
+session:
 
 ```
 xbin:agent-open-request   {id}             open the approval of one request

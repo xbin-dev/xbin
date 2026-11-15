@@ -248,6 +248,11 @@ import Testing
 @Suite struct DelegationRouteTests {
     @Test func routes() {
         #expect(DelegateRoute.request("rq 1/x").path == "/api/xbin/delegate/requests/rq%201%2Fx")
+        // a dot is encoded too: no id, even one that slipped past DelegateID, is a dot segment to a URL parser
+        #expect(DelegateRoute.request("..").path == "/api/xbin/delegate/requests/%2E%2E")
+        #expect(DelegateRoute.approve(".", ["grant": "once"]).path == "/api/xbin/delegate/requests/%2E/approve")
+        #expect(DelegateRoute.changeset("..").path == "/api/xbin/delegate/changesets/%2E%2E")
+        #expect(DelegateRoute.apply("..", items: [1]).path == "/api/xbin/delegate/changesets/%2E%2E/approve")
         let a = DelegateRoute.approve("rq1", ["grant": "once"])
         #expect(a.method == "POST" && a.path == "/api/xbin/delegate/requests/rq1/approve")
         #expect(body(a) == ["grant": "once"])
@@ -327,11 +332,31 @@ import Testing
         }
     }
 
+    /// The ids a tile names — a tree's `request` and `session` nodes, the
+    /// view's messages — are the shapes xbind issues, or nothing: they go
+    /// into URLs the app sends with the person's session.
+    @Test func idsAreXbindsShapesAndNoPath() {
+        #expect(DelegateID.isRequest("0123456789abcdef01234567"))
+        for bad in ["", ".", "..", "../x", "rq1", "rq_call", "0123456789ABCDEF01234567", "0123456789abcdef0123456", "0123456789abcdef012345678",
+                    "0123456789abcdef0123456.", "0123456789abcdef/1234567"] {
+            #expect(!DelegateID.isRequest(bad), "\(bad)")
+        }
+        #expect(DelegateID.isSession("8f00b204e9800998") && DelegateID.isSession("new") && DelegateID.isSession("s_1-a"))
+        for bad in ["", ".", "..", "a.b", "a/b", "a b", String(repeating: "a", count: 65)] { #expect(!DelegateID.isSession(bad), "\(bad)") }
+        for bad in ["..", ".", "../changesets"] {
+            for type in ["xbin:agent-open-request", "xbin:agent-open-changeset"] {
+                if case .refuse = AgentBridge.decide(["type": .string(type), "id": .string(bad)], tile: "xbin/wsagent", holder: "xbin/wsagent") {} else {
+                    Issue.record("\(type) \(bad) was taken")
+                }
+            }
+        }
+    }
+
     /// Only the component xbind names as the person's agent may ask the
     /// chrome anything; what it may ask is to SHOW something by id.
     @Test func onlyTheHolderAsksAndOnlyToShow() {
-        let open: JSONValue = ["type": "xbin:agent-open-request", "id": "rq1"]
-        #expect(AgentBridge.decide(open, tile: "xbin/wsagent", holder: "xbin/wsagent") == .openRequest("rq1"))
+        let open: JSONValue = ["type": "xbin:agent-open-request", "id": "0123456789abcdef01234567"]
+        #expect(AgentBridge.decide(open, tile: "xbin/wsagent", holder: "xbin/wsagent") == .openRequest("0123456789abcdef01234567"))
         if case .refuse = AgentBridge.decide(open, tile: "apps/evil", holder: "xbin/wsagent") {} else { Issue.record("a foreign tile opened a review") }
         if case .refuse = AgentBridge.decide(open, tile: "xbin/wsagent", holder: nil) {} else { Issue.record("no agent, yet a review opened") }
         // there is no message that approves, denies, resumes or changes a preference

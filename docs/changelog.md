@@ -24,6 +24,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (`withdrawnBy: "xbin"`, additive); a pause or a hold keeps them to decide
   afterwards. The sheets say why in the place of Allow or Apply
   ([protocol/delegation.md](/docs/protocol/delegation.md) §The switches).
+  The chrome takes a request's or change set's id from the agent's page
+  (`xbin:agent-open-request`, `…-changeset`) and from the app's agent view
+  only in the shape xbind issues — 24 lowercase hex digits — and ignores
+  any other (§The chrome).
 - delegation: the workspace's switch (`PUT /delegate/workspace
   {enabled}`) now also sends a `delegate` event with `op: "state"` to the
   own sockets of every person who has an agent, and of the admin who turned

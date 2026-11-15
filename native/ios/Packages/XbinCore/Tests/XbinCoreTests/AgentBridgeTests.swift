@@ -20,11 +20,11 @@ import Testing
     // MARK: The wire
 
     @Test func theCallCarriesAMessage() throws {
-        let m = try BridgeMessage(parsing: #"{"op":"call","id":"c1","what":"agent","args":{"msg":{"type":"xbin:agent-open-request","id":"req_1"}}}"#)
+        let m = try BridgeMessage(parsing: #"{"op":"call","id":"c1","what":"agent","args":{"msg":{"type":"xbin:agent-open-request","id":"0123456789abcdef01234567"}}}"#)
         guard case .call(let c) = m else { Issue.record("not a call"); return }
         #expect(c.what == BridgeCall.agentWhat)
-        #expect(c.agentMessage == ["type": "xbin:agent-open-request", "id": "req_1"])
-        #expect(AgentBridge.decide(c, tile: holder, holder: holder) == .openRequest("req_1"))
+        #expect(c.agentMessage == ["type": "xbin:agent-open-request", "id": "0123456789abcdef01234567"])
+        #expect(AgentBridge.decide(c, tile: holder, holder: holder) == .openRequest("0123456789abcdef01234567"))
         // any other call, or an agent call without a message with a type, has none
         #expect(BridgeCall(id: 1, what: "copy", args: ["msg": ["type": "x"]]).agentMessage == nil)
         #expect(BridgeCall(id: 1, what: "agent", args: ["msg": "open"]).agentMessage == nil)
@@ -75,19 +75,21 @@ import Testing
     // MARK: Every message
 
     @Test func requestsAndChangeSetsById() {
-        #expect(decide(["type": "xbin:agent-open-request", "id": "r-1.a:b_C"]) == .openRequest("r-1.a:b_C"))
-        #expect(decide(["type": "xbin:agent-open-changeset", "id": "cs42"]) == .openChangeset("cs42"))
+        // an id is one xbind issues: 24 lowercase hex digits
+        #expect(decide(["type": "xbin:agent-open-request", "id": "0123456789abcdef01234567"]) == .openRequest("0123456789abcdef01234567"))
+        #expect(decide(["type": "xbin:agent-open-changeset", "id": "89abcdef0123456789abcdef"]) == .openChangeset("89abcdef0123456789abcdef"))
         // no other field is read
-        #expect(decide(["type": "xbin:agent-open-request", "id": "r1", "approve": true, "grant": "always"]) == .openRequest("r1"))
+        #expect(decide(["type": "xbin:agent-open-request", "id": "0123456789abcdef01234567", "approve": true, "grant": "always"]) == .openRequest("0123456789abcdef01234567"))
     }
 
     @Test func badIdsAreRefused() {
-        for bad: JSONValue in ["", "a b", "a/b", "../x", "a\nb", "é", "a?b", .string(String(repeating: "a", count: 81)), 7, .null, ["r1"]] {
+        for bad: JSONValue in ["", "a b", "a/b", "../x", "..", ".", "r-1.a:b_C", "cs42", "a\nb", "é", "a?b", .string(String(repeating: "g", count: 24)),
+                               .string(String(repeating: "a", count: 81)), 7, .null, ["r1"]] {
             #expect(refused(decide(["type": "xbin:agent-open-request", "id": bad])), "\(bad)")
             #expect(refused(decide(["type": "xbin:agent-open-changeset", "id": bad])), "\(bad)")
         }
-        #expect(decide(["type": "xbin:agent-open-request", "id": .string(String(repeating: "a", count: 80))])
-            == .openRequest(String(repeating: "a", count: 80)))
+        #expect(decide(["type": "xbin:agent-open-request", "id": .string(String(repeating: "f", count: 24))])
+            == .openRequest(String(repeating: "f", count: 24)))
         #expect(refused(decide(["type": "xbin:agent-open-request"])))
     }
 
@@ -165,7 +167,7 @@ import Testing
     // MARK: Whose view
 
     @Test func onlyThePersonsAgentMayAsk() {
-        let open: JSONValue = ["type": "xbin:agent-open-request", "id": "r1"]
+        let open: JSONValue = ["type": "xbin:agent-open-request", "id": "0123456789abcdef01234567"]
         // a native tile that is not the person's agent
         #expect(refused(AgentBridge.decide(open, tile: "apps/orders", holder: holder)))
         #expect(refused(AgentBridge.decide(open, tile: "xbin/wsagent2", holder: holder)))
@@ -177,6 +179,6 @@ import Testing
         #expect(refused(AgentBridge.decide(open, tile: holder, holder: nil)))
         #expect(refused(AgentBridge.decide(open, tile: "", holder: "")))
         // the holder itself
-        #expect(AgentBridge.decide(open, tile: holder, holder: holder) == .openRequest("r1"))
+        #expect(AgentBridge.decide(open, tile: holder, holder: holder) == .openRequest("0123456789abcdef01234567"))
     }
 }
