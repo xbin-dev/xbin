@@ -308,7 +308,9 @@ func (ag *Agent) wsLiveAgent(ctx context.Context, s *wsSession, name string) (*w
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { a, err = wsX.Agent(ctx, sid, row.Session); return }); err != nil {
 		return nil, err
 	}
-	ag.wsSeen(ctx, s, row, a, false)
+	if ag.wsSeen(ctx, s, row, a, false) {
+		ag.wsWake(s.Run) // read from inside a turn: its next step takes it
+	}
 	return ag.db.wsAgentOf(s.Run, name)
 }
 

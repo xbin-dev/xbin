@@ -23,6 +23,13 @@
 // workspace update, which wakes it at once (coord_wake.go). No tool call
 // waits on a request, so a conversation with requests open still takes its
 // tile agents' updates.
+//
+// A tile agent's change wakes the conversation at once too: a pass asks
+// for one wake for everything it found changed in a session (so tile
+// agents that changed together are told together), a change found while
+// the conversation is in a turn is read at its next step, and nothing
+// waits out a window. Only a storm is spaced: past wsWakeBurst wakes a
+// minute, the next waits (the kit's rule, coord_wake.go).
 package main
 
 import (
@@ -195,18 +202,34 @@ func (ag *Agent) wsReconcileSession(ctx context.Context, s *wsSession, boot bool
 			open = true
 		}
 	}
+	wake := false
 	for _, row := range ag.db.wsAgents(`WHERE run_id=? AND status IN ('starting','running','idle') ORDER BY id`, s.Run) {
 		var a wsAgent
 		if err := ag.wsWith(ctx, s, func(sid string) (err error) { a, err = wsX.Agent(ctx, sid, row.Session); return }); err != nil {
 			open = true // paused, off, unreachable: as it was
 			continue
 		}
-		ag.wsSeen(ctx, s, row, a, boot)
+		if ag.wsSeen(ctx, s, row, a, boot) {
+			wake = true
+		}
 		if cur, err := ag.db.wsAgentOf(s.Run, row.Session); err == nil && (cur.Status == "starting" || cur.Status == "running") {
 			open = true
 		}
 	}
+	if wake { // one wake for what the pass found: tile agents that changed together are told together
+		ag.wsWake(s.Run)
+	}
 	return open
+}
+
+// wsWake asks the engine to look at run now: news of a tile agent waits
+// for it. An idle conversation starts a turn on it at once (the kit spaces
+// only a storm of wakes, coord_wake.go); one in a turn reads it at its
+// next step.
+func (ag *Agent) wsWake(run int64) {
+	if e := projEng(); e != nil {
+		e.Poke(run)
+	}
 }
 
 // --- requests ------------------------------------------------------------------------
@@ -437,9 +460,10 @@ func (ag *Agent) wsOutcome(r *wsReq, state, outcome string) {
 
 // wsSettled records what came of r and owes it to the conversation as a
 // workspace update. A decision is its person's act, like a message of
-// theirs: it wakes the conversation now, whatever the coalescing window
-// (which is for tile agents' chatter) — an idle one starts a turn, one in
-// a turn reads it at its next step.
+// theirs: it wakes the conversation now, whatever its tile agents' news
+// woke it for lately (it doesn't count against wsWakeBurst, and gives the
+// count a new start) — an idle one starts a turn, one in a turn reads it
+// at its next step.
 func (ag *Agent) wsSettled(r *wsReq, d wsDone) {
 	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state=?, outcome=?, decided_ms=?, owed=1,
 		grant_scope=?, grant_until_ms=?, decided_by=?, decided_via=?, result_status=?, result=?
@@ -464,14 +488,18 @@ func (ag *Agent) wsSettled(r *wsReq, d wsDone) {
 
 // --- tile agents ---------------------------------------------------------------------
 
-// wsAddAgent records a tile agent a request started.
+// wsAddAgent records a tile agent a request started: with the request (and
+// the tile_agent_start call that filed it), which is where the page sets
+// its card. Its harness's name and whether its mode asks are xbind's
+// (a.Name, a.Asks: start-defaults); a harness xbind didn't name shows its id.
 func (ag *Agent) wsAddAgent(s *wsSession, r *wsReq, a wsAgent) *wsAgentRow {
-	row := &wsAgentRow{Run: s.Run, Session: a.ID, Tile: orStr(a.Tile, r.Tile), Harness: orStr(a.Name, a.Provider), Mode: a.Mode, Asks: a.Asks || a.Mode == "",
-		Brief: r.Brief, Status: orStr(a.Status, "starting"), Started: nowMs()}
+	row := &wsAgentRow{Run: s.Run, Session: a.ID, Tile: orStr(a.Tile, r.Tile), Harness: orStr(a.Name, a.Provider), Mode: a.Mode, Asks: a.Asks,
+		Brief: r.Brief, Request: r.ID, CallID: r.CallID, Status: orStr(a.Status, "starting"), Started: nowMs()}
 	_ = ag.db.Tx(func(t *DB) error {
-		if err := t.q.QueryRow(`INSERT INTO ws_agents (run_id, session, tile, harness, mode, asks, brief_id, status, told, started_ms, updated_ms)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session) DO UPDATE SET status=excluded.status, updated_ms=excluded.updated_ms RETURNING id`,
-			row.Run, row.Session, row.Tile, row.Harness, row.Mode, row.Asks, row.Brief, row.Status, row.state(), row.Started, row.Started).Scan(&row.ID); err != nil {
+		if err := t.q.QueryRow(`INSERT INTO ws_agents (run_id, session, tile, harness, mode, asks, brief_id, request_id, call_id, status, told, started_ms, updated_ms)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session) DO UPDATE SET status=excluded.status, updated_ms=excluded.updated_ms,
+			request_id=excluded.request_id, call_id=excluded.call_id RETURNING id`,
+			row.Run, row.Session, row.Tile, row.Harness, row.Mode, row.Asks, row.Brief, row.Request, row.CallID, row.Status, row.state(), row.Started, row.Started).Scan(&row.ID); err != nil {
 			return err
 		}
 		if r.Brief != 0 {
@@ -488,8 +516,9 @@ func (ag *Agent) wsAddAgent(s *wsSession, r *wsReq, a wsAgent) *wsAgentRow {
 // a change the conversation hasn't been told (each asks for a wake: a turn
 // that ended, a failure, an end, a question for the person — "working" is
 // never news), and delivers the messages held behind a question once the
-// person answered it.
-func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a wsAgent, boot bool) {
+// person answered it. True: the conversation is owed news of it and should
+// be woken (wsWake) — the caller's to ask, once for all it read.
+func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a wsAgent, boot bool) (wake bool) {
 	next := *row
 	next.Status = orStr(a.Status, "ended")
 	if a.EndedBy == "restart" && !a.live() { // xbind says its own restart ended it: cut off, not finished
@@ -503,17 +532,27 @@ func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a ws
 	if next.Waits {
 		next.Waiting = clip(a.Waiting, needTextMax)
 	}
-	if a.Last != "" {
+	// its last line and its turns are xbind's (the compact read): a live
+	// session's as read, an empty line too; one that left the directory
+	// keeps what was last read of it
+	if a.live() || a.Last != "" {
 		next.Last = clip(a.Last, 300)
-	}
-	if a.Name != "" {
-		next.Harness = a.Name
-	}
-	if a.Mode != "" {
-		next.Mode, next.Asks = a.Mode, a.Asks
 	}
 	if a.Turn > 0 {
 		next.Turn = a.Turn
+	}
+	// its harness's name and whether its mode asks are xbind's too
+	// (start-defaults, ws_xbin_http.go named): as read when xbind names the
+	// harness; when it doesn't, the row stays — but a mode it moved to is
+	// one nothing here vouches for
+	switch {
+	case a.Name != "":
+		next.Harness = a.Name
+		if a.Mode != "" {
+			next.Mode, next.Asks = a.Mode, a.Asks
+		}
+	case a.Mode != "" && a.Mode != row.Mode:
+		next.Mode, next.Asks = a.Mode, false
 	}
 	next.Owed, next.Wake = next.state() != row.Told, next.state() != row.Told
 	if next.state() == wsWorking {
@@ -521,17 +560,13 @@ func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a ws
 	}
 	if next == *row {
 		ag.wsFlushHeld(ctx, s, &next)
-		return
+		return false // nothing new: what is still owed was asked for when it was found (wsBoot asks again after a stop)
 	}
 	_, _ = ag.db.q.Exec(`UPDATE ws_agents SET status=?, waiting=?, waits=?, last=?, turn=?, harness=?, mode=?, asks=?, told=?, owed=?, wake=?, updated_ms=? WHERE id=?`,
 		next.Status, next.Waiting, next.Waits, next.Last, next.Turn, next.Harness, next.Mode, next.Asks, next.Told, next.Owed, next.Wake, nowMs(), row.ID)
 	ag.wsFlushHeld(ctx, s, &next)
 	ag.wsChanged(row.Run, "agent")
-	if next.Owed && next.Wake {
-		if e := projEng(); e != nil {
-			e.Poke(row.Run)
-		}
-	}
+	return next.Owed && next.Wake
 }
 
 // wsStartGrace is how long a session just opened may read idle before its

@@ -76,9 +76,17 @@ func main() {
 // wsEnv is a production xbind with people, and what the tests ask of it.
 type wsEnv struct {
 	*sealedEnv
-	t    *testing.T
-	fake string // hack/fakeopenai's base URL
+	t        *testing.T
+	fake     string               // hack/fakeopenai's base URL
+	signedIn map[string]time.Time // when each person's session (e.sess) signed in
 }
+
+// wsWakeWithin bounds how long after something it waits for changed — its
+// person's decision, a tile agent's ended turn — a conversation is woken
+// and has answered: seconds on an idle machine, with margin for a loaded
+// one. Nothing in the path waits out a window (the workspace agent's wake
+// rule: builtin-templates/agent/_backend/coord_wake.go).
+const wsWakeWithin = 15 * time.Second
 
 func wsPassword(id string) string { return "pw-" + id + "-5c2e81" }
 
@@ -119,7 +127,7 @@ func startWsAgent(t *testing.T) *wsEnv {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building hack/fakeacp: %v\n%s", err, out)
 	}
-	e := &wsEnv{sealedEnv: &sealedEnv{d: d, sess: map[string]string{}, frames: map[string]xbindtest.Header{}}, t: t}
+	e := &wsEnv{sealedEnv: &sealedEnv{d: d, sess: map[string]string{}, frames: map[string]xbindtest.Header{}}, t: t, signedIn: map[string]time.Time{}}
 	e.fake = xbindtest.FakeOpenAI(t, a)
 	d.Must(t, "PUT", "/api/xbin/llm/upstreams/fake", map[string]any{"baseURL": e.fake + "/v1", "key": "sk-fake-WSAGENT-0000"}, 200)
 	d.Must(t, "PUT", "/api/xbin/llm/config", map[string]any{"defaults": map[string]any{"model": wsModelA}}, 200)
@@ -136,7 +144,13 @@ const (
 func (e *wsEnv) person(id, role string, tiles map[string]string) {
 	e.t.Helper()
 	e.d.AddUser(e.t, id, wsPassword(id), role, tiles)
-	e.sess[id] = e.d.Login(e.t, id, wsPassword(id))
+	e.signIn(id)
+}
+
+// signIn signs person in anew: a session of theirs whose sign-in is now.
+func (e *wsEnv) signIn(id string) {
+	e.t.Helper()
+	e.sess[id], e.signedIn[id] = e.d.Login(e.t, id, wsPassword(id)), time.Now()
 }
 
 // staticTile writes a tile that is a page and an API.md, with no backend.
@@ -435,16 +449,16 @@ func wsTail(ms []wsMsg, n int) string {
 // /ws/sessions/{id}/cards).
 type wsCards struct {
 	Requests []struct {
-		ID, Brief                                            int64
-		Kind, Ref, Tile, Title, Method, Path, State, Outcome string
-		By, Via, Grant, Result                               string
-		ResultStatus                                         int
+		ID, Brief                                                    int64
+		Kind, Ref, CallID, Tile, Title, Method, Path, State, Outcome string
+		By, Via, Grant, Result                                       string
+		ResultStatus                                                 int
 	}
 	Agents []struct {
-		ID                                                  int64
-		Session, Tile, Harness, Mode, Status, Waiting, Last string
-		Asks, Waits                                         bool
-		Held                                                int
+		ID, Request                                                 int64 // Request: the request that started it
+		Session, CallID, Tile, Harness, Mode, Status, Waiting, Last string
+		Asks, Waits                                                 bool
+		Held, Turn                                                  int
 	}
 	Briefs []struct {
 		ID                                  int64
@@ -488,4 +502,78 @@ func (c *wsConv) transcript(t *testing.T) {
 		raw, _ := json.Marshal(c.cards())
 		t.Logf("%s's session %s, its last messages:%s\nits cards: %s", c.person, c.run, wsTail(c.messages(), 14), raw)
 	}
+}
+
+// --- the agent's own credential, from outside ------------------------------------------
+
+// wsDelegateCall is one call made with a holder's delegate credential.
+type wsDelegateCall struct {
+	Status int
+	Body   string
+}
+
+// asDelegate makes calls to xbind with the delegate credential of person's
+// workspace agent itself — "Authorization: XBin-Delegate <the instance
+// token of their partition of xbin/wsagent>" with the conversation's handle
+// (sdk/delegate.go), on xbind's gateway socket, the one place that
+// credential is one (internal/auth/delegate.go) — and returns each answer,
+// in order. The real backend has no route that relays a call of the
+// test's choosing, so the test makes them itself, from xbind's host: the
+// token is a secret xbind hands to the backend's process and keeps nowhere
+// else, so it is read where it lives — that process's environment — and
+// never leaves the script (it is not logged, and not returned).
+//
+// calls are "METHOD path [json body]" lines. The first must be a read the
+// agent may make: of the backend's generations found, the token whose read
+// answers 200 is the live one, and proves the credential is the real thing
+// before a refusal is read as one.
+func (e *wsEnv) asDelegate(person, handle string, calls ...string) []wsDelegateCall {
+	e.t.Helper()
+	for _, v := range append([]string{person, handle, e.d.Workspace()}, calls...) {
+		if strings.ContainsAny(v, "'\n") {
+			e.t.Fatalf("asDelegate: %q can't be quoted for the host's shell", v)
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "run=$(readlink -f -- '%s/.xbin/run') || { echo 'ERR no run dir'; exit 0; }\n", e.d.Workspace())
+	b.WriteString("sock=\"$run/gateway.sock\"; [ -S \"$sock\" ] || { echo 'ERR no gateway socket'; exit 0; }\n")
+	b.WriteString("command -v curl >/dev/null || { echo 'ERR no curl on the host'; exit 0; }\n")
+	// every generation of that partition's backend: the processes whose environment names the component and the partition
+	fmt.Fprintf(&b, `toks=$(for f in /proc/[0-9]*/environ; do tr '\0' '\n' < "$f" 2>/dev/null | awk -v c='XBIN_COMPONENT=%s' -v p='XBIN_PARTITION=user:%s' '$0==c{C=1} $0==p{P=1} /^XBIN_TOKEN=/{T=substr($0,12)} END{if(C&&P&&T!="")print T}'; done | sort -u)`+"\n", wsAgent, person)
+	b.WriteString("[ -n \"$toks\" ] || { echo 'ERR no process of that partition has a readable environment'; exit 0; }\n")
+	b.WriteString("out=$(mktemp) || { echo 'ERR mktemp'; exit 0; }\n")
+	fmt.Fprintf(&b, `call() { m=$1; u=$2; shift 2; curl -s -m 30 -o "$out" -w '%%{http_code}' --unix-socket "$sock" -X "$m" -H "Authorization: XBin-Delegate $tok" -H 'X-XBin-Agent-Session: %s' "$@" "http://xbin$u"; }`+"\n", handle)
+	first := strings.SplitN(calls[0], " ", 3)
+	fmt.Fprintf(&b, "tok=; for t in $toks; do tok=$t; [ \"$(call '%s' '%s')\" = 200 ] && break; tok=; done\n", first[0], first[1])
+	b.WriteString("[ -n \"$tok\" ] || { echo \"ERR none of the tokens found made the first call: $(head -c 300 \"$out\" | tr '\\n' ' ')\"; rm -f \"$out\"; exit 0; }\n")
+	for _, c := range calls {
+		f := strings.SplitN(c, " ", 3)
+		body := ""
+		if len(f) == 3 {
+			body = " -H 'Content-Type: application/json' -d '" + f[2] + "'"
+		}
+		fmt.Fprintf(&b, "code=$(call '%s' '%s'%s); echo \"CALL $code $(head -c 2000 \"$out\" | tr '\\n' ' ')\"\n", f[0], f[1], body)
+	}
+	b.WriteString("rm -f \"$out\"\n")
+	raw, err := e.d.HostSh(b.String())
+	if err != nil {
+		e.t.Fatalf("asDelegate: the host's script: %v\n%s", err, raw)
+	}
+	var out []wsDelegateCall
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		if why, bad := strings.CutPrefix(line, "ERR "); bad {
+			e.t.Fatalf("%s's agent's own credential couldn't be used from the host: %s", person, why)
+		}
+		if rest, ok := strings.CutPrefix(line, "CALL "); ok {
+			code, body, _ := strings.Cut(rest, " ")
+			var c wsDelegateCall
+			fmt.Sscan(code, &c.Status)
+			c.Body = body
+			out = append(out, c)
+		}
+	}
+	if len(out) != len(calls) {
+		e.t.Fatalf("asDelegate: %d answers for %d calls:\n%s", len(out), len(calls), raw)
+	}
+	return out
 }

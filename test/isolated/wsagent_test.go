@@ -14,6 +14,7 @@ package isolated
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -137,7 +138,11 @@ func TestWorkspaceAgent(t *testing.T) {
 
 		// the backend is told, makes that one call with the ticket, and wakes the conversation
 		told := alice.woken(after, time.Minute, "the approved call ran", "approved by your person", "PUT /note → 200", "written by user=alice agent="+wsAgent+" role=writer")
-		t.Logf("the update, %s after the approval: %s", time.Since(approved).Round(10*time.Millisecond), told)
+		wake := time.Since(approved)
+		t.Logf("the update, %s after the approval: %s", wake.Round(10*time.Millisecond), told)
+		if wake > wsWakeWithin {
+			t.Errorf("alice's approval reached the conversation after %s, want within %s", wake.Round(time.Millisecond), wsWakeWithin)
+		}
 		if got := e.seen("alice"); !strings.Contains(got, `note="by the agent"`) || !strings.Contains(got, "writes=1") ||
 			!strings.Contains(got, "last write by user=alice agent="+wsAgent+" role=writer") {
 			t.Errorf("the note after the approved call: %s, want one write, alice's, marked as her agent's", got)
@@ -192,23 +197,31 @@ func TestWorkspaceAgent(t *testing.T) {
 		briefAPI := fmt.Sprintf("%s/ws/sessions/%s/briefs/%d", wsAPI, alice.run, brief)
 		// alice picks the coding agent on the brief's card, among what xbind says the tile allows
 		type startDefaults struct {
-			Picked, Harness, Mode string
-			Asks, Ticket          bool
-			Defaults              struct {
+			Picked, Harness, HarnessName, Mode, Line string
+			Asks, Ticket                             bool
+			Defaults                                 struct {
 				Harnesses []struct {
-					ID, Mode          string
+					ID, Name, Mode    string
 					Asks, NeedsTicket bool
 				}
 			}
 		}
 		var sd startDefaults
 		d.Must(t, "GET", briefAPI+"/start-defaults", nil, 200, alice.fr).Decode(t, &sd)
-		offered := false
+		offered, fakeName := false, "" // the coding agent's name is xbind's: the backend keeps no catalog of them
 		for _, h := range sd.Defaults.Harnesses {
-			offered = offered || h.ID == "fake" && h.Mode == "ask" && h.Asks && h.NeedsTicket
+			if h.ID == "fake" && h.Mode == "ask" && h.Asks && h.NeedsTicket {
+				offered, fakeName = true, h.Name
+			}
 		}
-		if !offered || sd.Picked != "" {
-			t.Fatalf("what the brief's start would run on: %+v, want the fake coding agent offered in its asking mode, behind a ticket, and nothing picked yet", sd)
+		if !offered || sd.Picked != "" || fakeName == "" {
+			t.Fatalf("what the brief's start would run on: %+v, want the fake coding agent offered by name in its asking mode, behind a ticket, and nothing picked yet", sd)
+		}
+		// … and it is xbind's own answer, as alice's session reads the same catalog
+		var provs []struct{ ID, Name string }
+		d.Must(t, "GET", "/api/xbin/agent/providers", nil, 200, e.as("alice")...).Decode(t, &provs)
+		if i := slices.IndexFunc(provs, func(p struct{ ID, Name string }) bool { return p.ID == "fake" }); i < 0 || provs[i].Name != fakeName {
+			t.Errorf("the brief's card names the fake coding agent %q; xbind's providers: %+v", fakeName, provs)
 		}
 		if r := d.Call(t, "PUT", briefAPI, map[string]any{"harness": "no-such-agent"}, alice.fr); r.Status != 409 {
 			t.Errorf("picking a coding agent the tile doesn't offer: %d %s, want 409", r.Status, r)
@@ -216,8 +229,8 @@ func TestWorkspaceAgent(t *testing.T) {
 		d.Must(t, "PUT", briefAPI, map[string]any{"harness": "fake"}, 200, alice.fr)
 		sd = startDefaults{}
 		d.Must(t, "GET", briefAPI+"/start-defaults", nil, 200, alice.fr).Decode(t, &sd)
-		if sd.Picked != "fake" || sd.Harness != "fake" || sd.Mode != "ask" || !sd.Asks || !sd.Ticket {
-			t.Fatalf("the start after alice's pick: %+v, want the fake coding agent, asking, behind a ticket", sd)
+		if sd.Picked != "fake" || sd.Harness != "fake" || sd.Mode != "ask" || !sd.Asks || !sd.Ticket || sd.HarnessName != fakeName || !strings.HasPrefix(sd.Line, fakeName+" · asks") {
+			t.Fatalf("the start after alice's pick: %+v, want the fake coding agent by xbind's name for it (%q), asking, behind a ticket", sd, fakeName)
 		}
 
 		turn = alice.say(fmt.Sprintf(`ws: tile_agent_start {"brief": %d}`, brief))
@@ -225,10 +238,10 @@ func TestWorkspaceAgent(t *testing.T) {
 			t.Fatalf("tile_agent_start: %q, want a pending request", got)
 		}
 		cards = alice.cards()
-		if r := cards.Requests[0]; r.Kind != "session" || r.State != "pending" || r.Brief != brief || r.Ref == "" {
-			t.Fatalf("the start's card: %+v, want a pending session request of brief %d", r, brief)
+		if r := cards.Requests[0]; r.Kind != "session" || r.State != "pending" || r.Brief != brief || r.Ref == "" || r.CallID == "" {
+			t.Fatalf("the start's card: %+v, want a pending session request of brief %d, with the call that filed it", r, brief)
 		}
-		ref := cards.Requests[0].Ref
+		ref, startReq, startCall := cards.Requests[0].Ref, cards.Requests[0].ID, cards.Requests[0].CallID
 		req := e.request("alice", ref)
 		if s := req.Preview.Session; req.Kind != "session" || s.Tile != wsNoteTile || s.Provider != "fake" || !s.Asks || s.Mode != "ask" ||
 			!strings.Contains(s.Prompt, "Goal: List what is in the tile") {
@@ -270,8 +283,16 @@ func TestWorkspaceAgent(t *testing.T) {
 			return len(c.Agents) == 1 && c.Agents[0].Waits, fmt.Sprintf("%+v", c.Agents)
 		})
 		cards = alice.cards()
-		if a := cards.Agents[0]; a.Session != sess.ID || a.Tile != wsNoteTile || !a.Asks || a.Held != 0 {
-			t.Errorf("the tile agent's card: %+v, want xbind's session %s, asking, nothing held", a, sess.ID)
+		if a := cards.Agents[0]; a.Session != sess.ID || a.Tile != wsNoteTile || !a.Asks || a.Mode != "ask" || a.Held != 0 || a.Harness != fakeName {
+			t.Errorf("the tile agent's card: %+v, want xbind's session %s on %q (xbind's name for the coding agent), asking, nothing held", a, sess.ID, fakeName)
+		}
+		// where the page sets the card: after the request that started it, by that request's id — and the call that filed it
+		if a := cards.Agents[0]; a.Request != startReq || a.CallID != startCall {
+			t.Errorf("the tile agent's card names request %d and call %q, want the start's request %d and its call %q", a.Request, a.CallID, startReq, startCall)
+		}
+		// its turn and its last line are xbind's (the compact session read): on its first prompt — the brief — and nothing written yet
+		if a := cards.Agents[0]; a.Turn != 1 || a.Last != "" {
+			t.Errorf("the tile agent's card while it waits on its first prompt: turn %d, last line %q, want turn 1 and no line yet", a.Turn, a.Last)
 		}
 		tileAgent := cards.Agents[0].ID
 		var need *wsNeed
@@ -313,24 +334,42 @@ func TestWorkspaceAgent(t *testing.T) {
 				t.Errorf("%s answers the tile agent's permission request: %d %s, want 403 or 404", who, r.Status, r)
 			}
 		}
+		// nor the agent itself, with its own credential, from outside its backend: the delegate credential reads
+		// the session it started (so it is the real thing, and live) and is refused the answer — by the gate, as
+		// what an agent never does, whatever is approved
+		got := e.asDelegate("alice", alice.handle, "GET "+sessAPI, "POST "+answer+` {"optionId":"once"}`)
+		if got[0].Status != 200 || !strings.Contains(got[0].Body, sess.ID) {
+			t.Fatalf("the agent's credential reads the session it started: %d %s, want 200", got[0].Status, got[0].Body)
+		}
+		if got[1].Status != 403 || !strings.Contains(got[1].Body, `"refusal":"not-delegated"`) || !strings.Contains(got[1].Body, "answered by the person, never by their agent") {
+			t.Errorf("the agent's own credential answers the tile agent's permission request: %d %s, want 403 not-delegated, saying the person answers", got[1].Status, got[1].Body)
+		}
 		if got := e.tileAgents("alice"); len(got) != 1 || got[0].Status != "waiting_permission" || got[0].Pending != 1 {
 			t.Fatalf("the tile agent after the agent's message and two refused answers: %+v, want it still waiting for alice", got)
 		}
 
-		// alice answers it herself: the turn ends, the held message goes in, and her agent is told
+		// alice answers it herself: the turn ends, the held message goes in, and her agent is told — at once: the
+		// tile agent's ended turn wakes the conversation without waiting out any window, though the start's outcome
+		// and the tile agent's question woke it moments ago
 		after := alice.last()
 		d.Must(t, "POST", answer, map[string]any{"optionId": "once"}, 200, e.as("alice")...)
+		answered := time.Now()
+		told := alice.woken(after, time.Minute, "the tile agent ended its turn", fmt.Sprintf("#%d", tileAgent), "ended its turn")
+		wake := time.Since(answered)
+		t.Logf("the update, %s after alice answered the tile agent (%s after the start was approved): %s", wake.Round(10*time.Millisecond), time.Since(approved).Round(time.Second), told)
+		if wake > wsWakeWithin {
+			t.Errorf("the tile agent's ended turn woke the conversation %s after alice answered it, want within %s", wake.Round(time.Millisecond), wsWakeWithin)
+		}
 		xbindtest.Eventually(t, time.Minute, "the tile agent answered the message that was held, and is idle", func() (bool, string) {
 			c := alice.cards()
 			got := e.tileAgents("alice")
 			log := string(d.Call(t, "GET", sessAPI+"/events", nil, e.as("alice")...).Body)
+			// the card's turn and last line are xbind's own: two prompts taken (the brief, the held message), and the last line it wrote
 			return strings.Contains(log, "echo: go on, you may list it") && len(got) == 1 && got[0].Status == "idle" &&
-					len(c.Agents) == 1 && c.Agents[0].Held == 0 && !c.Agents[0].Waits && c.Agents[0].Status == "idle",
+					len(c.Agents) == 1 && c.Agents[0].Held == 0 && !c.Agents[0].Waits && c.Agents[0].Status == "idle" &&
+					c.Agents[0].Turn == 2 && c.Agents[0].Last == "echo: go on, you may list it",
 				fmt.Sprintf("%+v %+v", got, c.Agents)
 		})
-		// a tile agent's news wakes an idle conversation at most once a minute, and the start's outcome was the last wake
-		told := alice.woken(after, 2*time.Minute, "the tile agent ended its turn", fmt.Sprintf("#%d", tileAgent), "ended its turn")
-		t.Logf("the update, %s after the start was approved: %s", time.Since(approved).Round(time.Second), told)
 		turn = alice.say(fmt.Sprintf(`ws: tile_agent_status {"agent":"%d"} ;; tile_agent_result {"agent":"%d"} ;; tile_agents`, tileAgent, tileAgent))
 		if got := turn.tool("tile_agent_status", 0); !strings.Contains(got, "ended its turn") {
 			t.Errorf("tile_agent_status after alice answered: %q, want the ended turn", got)
@@ -639,13 +678,55 @@ func TestWorkspaceAgent(t *testing.T) {
 		if have := grants(); have[first] || have[second] {
 			t.Fatalf("a refused approval changed the grants: %v", have)
 		}
+		// The step-up: xbind applies an admin's change set only on a recent sign-in — under ten minutes old
+		// (auth.EnrollFreshLogin) — or with their password again. Which of the two this run meets is the clock's:
+		// xbind has no setting that shortens the limit and keeps sign-ins in memory only, so a real daemon's
+		// session is stale only once ten minutes passed (in process the rule is covered with a back-dated
+		// session: internal/broker/changeset_test.go). XBIN_E2E_STALE_SIGNIN=1 waits that long, so the stale
+		// case runs here too; without it this part takes whichever case the run's own length makes true, and
+		// checks xbind's choice against the sign-in's age either way.
+		const recent = 10 * time.Minute
+		if os.Getenv("XBIN_E2E_STALE_SIGNIN") != "" {
+			t.Logf("waiting until %s's sign-in (%s ago) is older than %s", wsAdmin, time.Since(e.signedIn[wsAdmin]).Round(time.Second), recent)
+			xbindtest.Eventually(t, recent+time.Minute, "the admin's sign-in is older than xbind's limit", func() (bool, string) {
+				age := time.Since(e.signedIn[wsAdmin])
+				return age > recent+3*time.Second, age.Round(time.Second).String()
+			})
+			e.agentPage(wsAdmin) // its backend may have stopped for idleness meanwhile: it answers again
+		}
 		after := ada.last()
 		body := map[string]any{"items": []int{1}} // the first line ticked, the second left out
+		age := time.Since(e.signedIn[wsAdmin])
 		r := d.Call(t, "POST", approve, body, e.as(wsAdmin)...)
-		if r.Status == 403 && strings.Contains(r.String(), `"stepUp"`) { // no sign-in recent enough: the chrome asks for the password and sends it again
-			t.Logf("xbind asked for a recent sign-in: %s", r)
+		steppedUp := r.Status == 403 && strings.Contains(r.String(), `"stepUp"`)
+		switch {
+		case steppedUp && age < recent-30*time.Second:
+			t.Errorf("xbind asked for a recent sign-in %s after the admin signed in: %s", age.Round(time.Second), r)
+		case !steppedUp && age > recent+time.Second:
+			t.Fatalf("approving with a sign-in %s old: %d %s, want the step-up (403 {stepUp})", age.Round(time.Second), r.Status, r)
+		}
+		if steppedUp {
+			// a stale sign-in: the password is asked for, nothing was applied, and the set is still open
+			t.Logf("the admin's sign-in is %s old; xbind asked for the step-up: %s", age.Round(time.Second), r)
+			if !strings.Contains(r.String(), `"stepUp":"password"`) || !strings.Contains(r.String(), "approve admin changes") {
+				t.Errorf("the step-up: %s, want {stepUp: password} saying what it is for", r)
+			}
+			body["password"] = "not-" + wsPassword(wsAdmin)
+			if r := d.Call(t, "POST", approve, body, e.as(wsAdmin)...); r.Status != 403 || !strings.Contains(r.String(), "wrong password") {
+				t.Errorf("the step-up with a wrong password: %d %s, want 403", r.Status, r)
+			}
+			if have := grants(); have[first] || have[second] {
+				t.Fatalf("a refused step-up changed the grants: %v", have)
+			}
+			d.Must(t, "GET", "/api/xbin/delegate/changesets", nil, 200, e.as(wsAdmin)...).Decode(t, &sets)
+			if len(sets.Changesets) != 1 || sets.Changesets[0].State != "proposed" {
+				t.Fatalf("the change set after a refused step-up: %+v, want it still proposed", sets.Changesets)
+			}
+			// the chrome asks for the password and sends the same choice again
 			body["password"] = wsPassword(wsAdmin)
 			r = d.Call(t, "POST", approve, body, e.as(wsAdmin)...)
+		} else {
+			t.Logf("the admin's sign-in is %s old, recent enough: no step-up (XBIN_E2E_STALE_SIGNIN=1 runs the stale case here)", age.Round(time.Second))
 		}
 		var applied changeSet
 		if r.Decode(t, &applied); r.Status != 200 || applied.State != "applied" || len(applied.Items) != 2 ||

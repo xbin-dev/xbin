@@ -691,11 +691,14 @@ func TestWsEvalModelChangeRefusedByTaint(t *testing.T) {
 
 // Scenario 12 — a notification storm coalesces. Hundreds of doorbells
 // while a reconcile runs cost one more pass, not one each; the three tile
-// agents that changed are told in one update, with one wake.
+// agents that changed are told in one update, with one wake. What changes
+// while that turn runs starts no second turn beside it — and is told the
+// moment the turn ends, not a window later (the window here is ten
+// minutes: a wake that waited for it would never come).
 func TestWsEvalNotificationStormCoalesces(t *testing.T) {
 	fx := newWsFix(t)
 	s := fx.main(t)
-	coordWakeEvery.Store(int64(400 * time.Millisecond))
+	coordWakeEvery.Store(int64(10 * time.Minute))
 	var sids []string
 	for _, tile := range []string{"apps/invoices", "apps/orders", "apps/calendar"} {
 		_, sid := fx.seedAgent(t, s, tile)
@@ -706,7 +709,8 @@ func TestWsEvalNotificationStormCoalesces(t *testing.T) {
 	f.on(forRun(s.Run, lastUser("[workspace updates")), func(LLMRequest) (LLMReply, error) {
 		<-gate
 		return LLMReply{Msg: wireMsg{Role: "assistant", Content: "All three have reported."}, Wire: "chat"}, nil
-	})
+	}).once()
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("And Invoices' agent failed."))
 	before := fx.x.count("Agent ")
 	fx.x.mu.Lock() // hold the first pass inside xbind while the storm arrives
 	fx.ring(t)
@@ -729,26 +733,28 @@ func TestWsEvalNotificationStormCoalesces(t *testing.T) {
 		t.Fatalf("%d session reads for 301 notifications", reads)
 	}
 	waitFor(t, "the wake", func() bool { return len(f.callsFor(s.Run)) == 1 })
-	// one more changes while the turn runs, and more doorbells: no second turn inside the window
+	// one more changes while the turn runs, and more doorbells: no second turn beside the one that runs
 	fx.x.setAgent(sids[0], func(a *wsAgent) { a.Status = "failed" })
 	for i := 0; i < 20; i++ {
 		fx.ring(t)
 	}
 	fx.settled(t)
-	close(gate)
-	fx.idle(t, s)
-	time.Sleep(100 * time.Millisecond)
-	if n := len(f.callsFor(s.Run)); n != 1 {
-		t.Fatalf("%d model calls inside the wake window, want 1", n)
+	if n := len(f.callsFor(s.Run)); n != 1 || f.inFlight() != 1 {
+		t.Fatalf("%d model calls (%d in flight) while the first wake's turn runs, want the one", n, f.inFlight())
 	}
 	msgs := fx.userMsgs(t, s)
 	if len(msgs) != 1 || strings.Count(msgs[0], "ended its turn") != 3 || strings.Count(msgs[0], "\n") != 3 {
 		t.Fatalf("the storm's update:\n%s", strings.Join(msgs, "\n---\n"))
 	}
-	waitFor(t, "the window's wake with the failure", func() bool { return len(f.callsFor(s.Run)) == 2 })
-	fx.idle(t, s)
+	// the turn ends: the failure is told at once, as one more update
+	close(gate)
+	waitFor(t, "the failure, told as the turn ends", func() bool { return fx.lastAssistant(t, s) == "And Invoices' agent failed." })
+	fx.rest(t, s)
 	if msgs = fx.userMsgs(t, s); len(msgs) != 2 || !strings.Contains(msgs[1], "tile agent #1 in apps/invoices (Claude Code) failed") {
 		t.Fatalf("the second update: %q", msgs)
+	}
+	if n := len(f.callsFor(s.Run)); n != 2 {
+		t.Fatalf("%d model calls for the storm and the failure, want 2", n)
 	}
 }
 

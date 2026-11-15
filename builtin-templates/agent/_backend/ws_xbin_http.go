@@ -23,10 +23,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
-	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // wsReadMax is the most of one answer that is read.
@@ -499,6 +499,54 @@ func (h wsHTTP) StartDefaults(ctx context.Context, sid, tile string) (wsStartDef
 	return out, nil
 }
 
+// wsDefaultsFresh is how long xbind's start-defaults for a tile are used
+// to name the harness of the tile agents running there (named) before they
+// are read again; wsDefaultsSeen what was last read, per conversation and
+// tile. The brief's card always reads them anew (StartDefaults).
+const wsDefaultsFresh = 30 * time.Second
+
+var wsDefaultsSeen sync.Map // sid + "\x00" + tile → wsDefaultsAt
+
+type wsDefaultsAt struct {
+	d  wsStartDefaults
+	at time.Time
+}
+
+// named fills what xbind says of a's harness — GET /delegate/start-defaults
+// for its tile, the row of a's provider: the name people call it, and
+// whether the mode the session is in asks its person before it acts. This
+// backend keeps no catalog of harnesses: a harness xbind doesn't list for
+// the tile (its rules moved, the read was refused) has no name here (the
+// caller keeps the one it had, or shows the id), and a mode that isn't the
+// one xbind names for the harness isn't known to ask.
+func (h wsHTTP) named(ctx context.Context, sid string, a wsAgent) wsAgent {
+	a.Name, a.Asks = "", false
+	if a.Provider == "" || a.Tile == "" {
+		return a
+	}
+	key := sid + "\x00" + a.Tile
+	var d wsStartDefaults
+	if c, ok := wsDefaultsSeen.Load(key); ok && time.Since(c.(wsDefaultsAt).at) < wsDefaultsFresh {
+		d = c.(wsDefaultsAt).d
+	} else {
+		var err error
+		if d, err = h.StartDefaults(ctx, sid, a.Tile); err != nil {
+			return a
+		}
+		wsDefaultsSeen.Range(func(k, v any) bool { // what went stale goes: a closed conversation's entries don't stay
+			if time.Since(v.(wsDefaultsAt).at) >= wsDefaultsFresh {
+				wsDefaultsSeen.Delete(k)
+			}
+			return true
+		})
+		wsDefaultsSeen.Store(key, wsDefaultsAt{d, time.Now()})
+	}
+	if hn, ok := d.of(a.Provider); ok {
+		a.Name, a.Asks = orStr(hn.Name, hn.ID), hn.Asks && (a.Mode == "" || a.Mode == hn.Mode)
+	}
+	return a
+}
+
 func (h wsHTTP) AskAgentStart(ctx context.Context, sid string, a wsAgentStart, summary string) (wsRequest, error) {
 	return h.Ask(ctx, sid, h.startCall(a), summary)
 }
@@ -521,7 +569,7 @@ func (h wsHTTP) AgentStart(ctx context.Context, sid string, a wsAgentStart, tick
 	if ag.Tile == "" {
 		ag.Tile = a.Tile
 	}
-	return ag, nil, nil
+	return h.named(ctx, sid, ag), nil, nil
 }
 
 func (wsHTTP) createCall(t wsTileCreate) wsCall {
@@ -547,10 +595,13 @@ func (h wsHTTP) TileCreate(ctx context.Context, sid string, t wsTileCreate, tick
 	return orStr(out.Path, t.Path), nil, nil
 }
 
-// wsSessionWire is a session row of xbind's directory.
+// wsSessionWire is a session row of xbind's directory. Turn and Last are
+// the compact read's, for the caller's own agent sessions: the prompts it
+// took so far and the last line it wrote since its last prompt.
 type wsSessionWire struct {
 	ID, Cwd, Kind, Provider, Mode, Status, Origin, Name string
-	Pending, Questions                                  int
+	Pending, Questions, Turn                            int
+	Last                                                string
 	// for an id no longer live (the compact read with ids): status "ended",
 	// and by what — "exit", or "restart" when xbind has no record of an end
 	EndedBy string
@@ -565,24 +616,15 @@ func (w wsSessionWire) endedBy() string {
 	return ""
 }
 
+// agent is the row as a tile agent. Its harness's name and whether its
+// mode asks are not the row's to say: named reads them from xbind.
 func (w wsSessionWire) agent() wsAgent {
-	a := wsAgent{ID: w.ID, Tile: w.Cwd, Provider: w.Provider, Name: wsHarnessName(w.Provider), Mode: w.Mode, Asks: true,
-		Status: wsAgentStatus(w.Status), Pending: w.Pending, Questions: w.Questions, Origin: w.Origin, Mine: w.Origin == "agent", EndedBy: w.endedBy()}
-	if p, ok := acp.Lookup(w.Provider); ok && w.Mode != "" {
-		a.Asks = p.Safe(w.Mode)
-	}
+	a := wsAgent{ID: w.ID, Tile: w.Cwd, Provider: w.Provider, Mode: w.Mode, Status: wsAgentStatus(w.Status), Pending: w.Pending, Questions: w.Questions,
+		Turn: w.Turn, Last: w.Last, Origin: w.Origin, Mine: w.Origin == "agent", EndedBy: w.endedBy()}
 	if w.Status == "waiting_permission" && !a.waits() {
 		a.Pending = 1
 	}
 	return a
-}
-
-// wsHarnessName is a harness as people call it ("Claude Code").
-func wsHarnessName(id string) string {
-	if p, ok := acp.Lookup(id); ok && p.Name != "" {
-		return p.Name
-	}
-	return id
 }
 
 // wsAgentStatus is xbind's session status in the agent's five words.
@@ -611,47 +653,51 @@ func (h wsHTTP) Agents(ctx context.Context, sid string) ([]wsAgent, error) {
 	var out []wsAgent
 	for _, r := range rows {
 		if r.Kind == "agent" {
-			out = append(out, r.agent())
+			out = append(out, h.named(ctx, sid, r.agent()))
 		}
 	}
 	return out, nil
 }
 
+// Agent is where one tile agent stands. Its status, the turns it took and
+// its last line are xbind's compact read of the session directory — which,
+// asked about an id that left the directory, says how it ended: by its own
+// exit, or by an xbind restart (no record of an end). Asked only about a
+// session this agent started: for an id that never existed xbind would
+// answer "restart" too. What a waiting session waits for is in the
+// session's own read, made only then.
 func (h wsHTTP) Agent(ctx context.Context, sid, id string) (wsAgent, error) {
+	var rows []wsSessionWire
+	if err := h.get(ctx, sid, "/api/xbin/term/sessions?origin=agent&compact=1&ids="+url.QueryEscape(id), &rows); err != nil {
+		return wsAgent{}, err
+	}
+	var row *wsSessionWire
+	for i := range rows {
+		if rows[i].ID == id {
+			row = &rows[i]
+		}
+	}
+	if row == nil {
+		return wsAgent{ID: id, Status: "ended"}, nil
+	}
+	a := row.agent()
+	if row.Kind == "" { // not in the live directory any more
+		a.Status = "ended"
+		return a, nil
+	}
+	a = h.named(ctx, sid, a)
+	if !a.waits() {
+		return a, nil
+	}
 	var out struct {
-		Session     wsSessionWire `json:"session"`
 		Permissions []struct {
 			ToolCall struct{ Title string } `json:"toolCall"`
 		} `json:"permissions"`
 		Elicitations []struct{ Message string } `json:"elicitations"`
 	}
-	err := h.get(ctx, sid, "/api/xbin/term/sessions/"+url.PathEscape(id), &out)
-	if err != nil {
-		var de *xbin.DelegateError
-		if errors.As(err, &de) && de.Status == http.StatusNotFound {
-			// it left the live directory: the compact read says how it ended —
-			// by its own exit, or by an xbind restart (no record of an end).
-			// Asked only about a session this agent started: for an id that
-			// never existed xbind would answer "restart" too.
-			var rows []wsSessionWire
-			if lerr := h.get(ctx, sid, "/api/xbin/term/sessions?origin=agent&compact=1&ids="+url.QueryEscape(id), &rows); lerr == nil {
-				for _, r := range rows {
-					if r.ID == id {
-						a := r.agent()
-						if a.live() { // listed live after all: read it again next time
-							return a, nil
-						}
-						a.Status = "ended"
-						return a, nil
-					}
-				}
-			}
-			return wsAgent{ID: id, Status: "ended"}, nil
-		}
-		return wsAgent{}, err
+	if err := h.get(ctx, sid, "/api/xbin/term/sessions/"+url.PathEscape(id), &out); err != nil {
+		return a, nil // it waits; for what is read next time
 	}
-	a := out.Session.agent()
-	a.Pending, a.Questions = max(a.Pending, len(out.Permissions)), max(a.Questions, len(out.Elicitations))
 	switch {
 	case len(out.Elicitations) > 0:
 		a.Waiting = out.Elicitations[0].Message

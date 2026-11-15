@@ -377,9 +377,9 @@ type wsAgent struct {
 	ID        string `json:"id"`
 	Tile      string `json:"tile"`
 	Provider  string `json:"provider,omitempty"`
-	Name      string `json:"name,omitempty"` // the harness as people call it
+	Name      string `json:"name,omitempty"` // the harness as people call it, by xbind's start-defaults for the tile ("": xbind doesn't list it there)
 	Mode      string `json:"mode,omitempty"`
-	Asks      bool   `json:"asks"`      // its mode asks before acting
+	Asks      bool   `json:"asks"`      // its mode asks before acting, by the same answer (false: not known to)
 	Status    string `json:"status"`    // starting | running | idle | ended | failed
 	Pending   int    `json:"pending"`   // permission requests waiting for the person
 	Questions int    `json:"questions"` // questions waiting for the person
@@ -387,8 +387,8 @@ type wsAgent struct {
 	Origin    string `json:"origin,omitempty"` // "agent": this person's agent started it
 	Mine      bool   `json:"mine,omitempty"`   // this handle started it: it may be driven
 	History   string `json:"history,omitempty"`
-	Last      string `json:"last,omitempty"` // its last line
-	Turn      int    `json:"turn,omitempty"`
+	Last      string `json:"last,omitempty"` // the last line it wrote since its last prompt (xbind's compact read)
+	Turn      int    `json:"turn,omitempty"` // the prompts it took so far (the same read)
 	// EndedBy is "restart" for a session an xbind restart ended (it did not
 	// finish: its history can be resumed); "" otherwise.
 	EndedBy string `json:"endedBy,omitempty"`

@@ -251,7 +251,12 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   on the tile).
 - **The session directory**: `GET /term/sessions?origin=agent` lists the
   tile agents this agent started for the person; `&compact=1` answers
-  `[{id, cwd, kind, provider, mode, status, origin}]`. With `&ids=a,b` it
+  `[{id, cwd, kind, provider, mode, status, origin, pending, questions,
+  turn, last}]` — for an agent session, how many permission requests and
+  questions wait for its person, the number of the turn it is on (0
+  before its first prompt), and the last line it wrote (`last`: only in a
+  person's own listing, their agent's included — never in an admin's of
+  someone else's). With `&ids=a,b` it
   adds, for each id that isn't live any more, `{id, status: "ended",
   endedBy, ended?}`: `endedBy: "exit"` when xbind recorded the end (its
   history entry; `ended` is when), `"restart"` when it has no record of

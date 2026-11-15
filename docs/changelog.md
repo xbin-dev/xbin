@@ -77,6 +77,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     can't run: `older`, `locked`, `unavailable`) and, for an admin, `who`;
     `agent` is there only for a person who has one, and so is the notice
     that names `/xbin/agent`.
+  - A system component's release may start it **below a tile's limits**
+    and its partition mode is fixed for good (a release that says
+    otherwise holds it: `partition-mode`). The agent: 512 MiB a backend,
+    stopped after three idle minutes, answering again in under a second.
+  - A tile agent's ended turn, question or failure reaches its person's
+    workspace agent **at once** (it could wait out a minute); bursts are
+    still folded into one wake.
+  - `GET /term/sessions?compact=1` rows of agent sessions add `pending`,
+    `questions`, `turn` and — in a person's own listing — `last`, the last
+    line the session wrote; a tile-agent card in the agent's page reads
+    them, takes the coding agent's name from `GET
+    /delegate/start-defaults`, and is placed by the request that started
+    it (`request`, `callId` in `GET /ws/sessions/{id}/cards`).
   - Releases carry its prebuilt backend (`bin/sealed/wsagent-<digest>`,
     about 45 MB, 16 MB in the bundle); `make build` needs the agent
     template's Go modules. A development xbind compiles it on first use.

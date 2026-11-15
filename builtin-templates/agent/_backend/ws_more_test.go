@@ -622,6 +622,7 @@ func TestWsHTTPShapes(t *testing.T) {
 		t.Skipf("no unix socket here: %v", err)
 	}
 	t.Setenv("XBIN_GATEWAY", sock)
+	wsDefaultsSeen.Range(func(k, _ any) bool { wsDefaultsSeen.Delete(k); return true })
 	type seen struct {
 		method, path, auth, session, ticket, dry string
 		body                                     string
@@ -704,9 +705,17 @@ func TestWsHTTPShapes(t *testing.T) {
 		case "POST /api/xbin/term/sessions":
 			reply(w, 200, map[string]any{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "starting", "origin": "agent"})
 		case "GET /api/xbin/term/sessions":
-			rows := []map[string]any{{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "idle", "origin": "agent"}}
+			// the compact read: a live session with the turns it took, what waits and its last line
+			rows := []map[string]any{{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "idle", "origin": "agent",
+				"pending": 0, "questions": 0, "turn": 1, "last": "Fixed the sender."}}
 			for _, id := range strings.Split(r.URL.Query().Get("ids"), ",") { // ids no longer live: how each ended
 				switch id {
+				case "s1": // asked about by id: by now it waits for its person
+					rows[0]["status"], rows[0]["pending"], rows[0]["turn"], rows[0]["last"] = "waiting_permission", 1, 2, "Running the tests."
+				case "s2": // a harness xbind doesn't list for the tile, in a mode of its own
+					rows = append(rows, map[string]any{"id": "s2", "cwd": "apps/mail", "kind": "agent", "provider": "vim", "mode": "insert", "status": "running", "origin": "agent", "turn": 3})
+				case "s3": // a listed harness the person moved to another mode
+					rows = append(rows, map[string]any{"id": "s3", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "bypass", "status": "running", "origin": "agent", "turn": 1})
 				case "s0":
 					rows = append(rows, map[string]any{"id": "s0", "status": "ended", "endedBy": "restart"})
 				case "s9":
@@ -833,9 +842,11 @@ func TestWsHTTPShapes(t *testing.T) {
 	if err != nil || ag.ID != "s1" || !ag.Mine || ag.Status != "starting" || ag.Name != "Claude Code" || !ag.Asks {
 		t.Fatalf("AgentStart: %+v %v", ag, err)
 	}
-	// the brief rides the start (xbind sends it); no harness unless the person picked one
-	if start := got[len(got)-1]; start.path != "/api/xbin/term/sessions" || start.body != `{"cwd":"apps/mail","kind":"agent","name":"fix","prompt":"the brief"}` || start.ticket != "r1" {
-		t.Fatalf("the start: %+v", start)
+	// the brief rides the start (xbind sends it); no harness unless the person picked one. The harness's name
+	// and whether its mode asks are then read from xbind's start-defaults for the tile — no catalog is kept here
+	if start, named := got[len(got)-2], got[len(got)-1]; start.path != "/api/xbin/term/sessions" || start.body != `{"cwd":"apps/mail","kind":"agent","name":"fix","prompt":"the brief"}` || start.ticket != "r1" ||
+		named.path != "/api/xbin/delegate/start-defaults?tile=apps%2Fmail" {
+		t.Fatalf("the start: %+v, then %+v", start, named)
 	}
 	if c := h.startCall(wsAgentStart{Tile: "apps/mail", Harness: "codex", Prompt: "b"}); string(c.Body) != `{"cwd":"apps/mail","kind":"agent","prompt":"b","provider":"codex"}` {
 		t.Fatalf("a start with the person's pick: %s", c.Body)
@@ -843,7 +854,8 @@ func TestWsHTTPShapes(t *testing.T) {
 	if c := h.startCall(wsAgentStart{Tile: "apps/mail", Resume: "s0", Prompt: "ignored"}); string(c.Body) != `{"cwd":"apps/mail","kind":"agent","resume":"s0"}` {
 		t.Fatalf("a resume: %s", c.Body)
 	}
-	if list, err := h.Agents(ctx, "h1"); err != nil || len(list) != 1 || list[0].Status != "idle" || got[len(got)-1].path != "/api/xbin/term/sessions?origin=agent&compact=1" {
+	if list, err := h.Agents(ctx, "h1"); err != nil || len(list) != 1 || list[0].Status != "idle" || list[0].Turn != 1 || list[0].Last != "Fixed the sender." || list[0].Name != "Claude Code" ||
+		got[len(got)-1].path != "/api/xbin/term/sessions?origin=agent&compact=1" { // (the tile's start-defaults were read a moment ago)
 		t.Fatalf("Agents: %+v %v", list, err)
 	}
 	// gone from the live directory: the compact read with its id says how it ended
@@ -853,8 +865,22 @@ func TestWsHTTPShapes(t *testing.T) {
 	if a, err := h.Agent(ctx, "h1", "s9"); err != nil || a.Status != "ended" || a.EndedBy != "" {
 		t.Fatalf("a session that exited: %+v %v", a, err)
 	}
-	if a, err := h.Agent(ctx, "h1", "s1"); err != nil || a.Status != "running" || a.Pending != 1 || a.Waiting != "permission: go test ./..." {
-		t.Fatalf("Agent: %+v %v", a, err)
+	// a live one: its status, turns and last line from the compact read, its harness from start-defaults — and,
+	// only because it waits, what it waits for from the session's own read
+	n := len(got)
+	if a, err := h.Agent(ctx, "h1", "s1"); err != nil || a.Status != "running" || a.Pending != 1 || a.Waiting != "permission: go test ./..." ||
+		a.Turn != 2 || a.Last != "Running the tests." || a.Name != "Claude Code" || !a.Asks || a.Mode != "default" ||
+		len(got) != n+2 || got[n].path != "/api/xbin/term/sessions?origin=agent&compact=1&ids=s1" || got[n+1].path != "/api/xbin/term/sessions/s1" {
+		t.Fatalf("Agent: %+v %v, read by %+v", a, err, got[n:])
+	}
+	// a harness xbind doesn't list for the tile has no name here and isn't known to ask; nor is a listed one
+	// in a mode that isn't the one xbind names for it. One read each: nothing waits
+	n = len(got)
+	if a, err := h.Agent(ctx, "h1", "s2"); err != nil || a.Status != "running" || a.Name != "" || a.Asks || a.Provider != "vim" || a.Turn != 3 || len(got) != n+1 {
+		t.Fatalf("a session on a harness xbind doesn't list: %+v %v", a, err)
+	}
+	if a, err := h.Agent(ctx, "h1", "s3"); err != nil || a.Name != "Claude Code" || a.Asks || a.Mode != "bypass" {
+		t.Fatalf("a session moved to another mode: %+v %v", a, err)
 	}
 	if a, err := h.Agent(ctx, "h1", "nope"); err != nil || a.Status != "ended" {
 		t.Fatalf("a session that left the directory: %+v %v", a, err)

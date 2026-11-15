@@ -3,8 +3,9 @@
 // (model/fold.js); what the agent started or asked for lives beside it, in
 // the session's cards (GET /ws/sessions/{id}/cards: requests, tile agents,
 // briefs, the plan). compose() puts each card where the conversation made
-// it — in place of the tool call that made it (the card's callId), or
-// after the line it follows in time — and says which rows the cards make
+// it — in place of the tool call that made it (the card's callId), after
+// the request that started it (a tile agent's `request`), or after the
+// line it follows in time — and says which rows the cards make
 // redundant (the journal's "asked: …" beside a question card, a plan's
 // later updates). The window of
 // rows stays the fold's (a row may draw several cards, or nothing), so the
@@ -175,11 +176,17 @@ export function compose(blocks, cards, run, opts = {}) {
     reqAt.set(q.id, a);
   }
 
-  // tile agents: after the request that started them (its outcome names "tile agent #N"), else their brief's card, else by time
+  // tile agents: after the request that started them — by its id (the agent's `request`), else after the
+  // tile_agent_start call that filed it (the agent's `callId`: the request may be off the list of the newest) —,
+  // else their brief's card, else by time. A row from before those fields names neither: its request is then
+  // found as it was before them, by its outcome's words ("tile agent #N started") or the brief it started from.
   for (const a of Array.isArray(c.agents) ? c.agents : []) {
     const blk = host('wsession', 'ws:agent:' + a.id, a);
-    const q = reqs.find((x) => num(/tile agent #(\d+) started/, x.outcome) === a.id) || reqs.find((x) => x.kind === 'session' && a.brief && x.brief === a.brief && x.state === 'used');
-    const anchor = q ? reqAt.get(q.id) : a.brief && briefAt.has(a.brief) ? briefAt.get(a.brief) : anchorAt(a.startedMs || 0);
+    const call = a.callId && byCall.get(a.callId);
+    const q = a.request ? reqs.find((x) => x.id === a.request)
+      : a.callId ? null
+      : reqs.find((x) => num(/tile agent #(\d+) started/, x.outcome) === a.id) || reqs.find((x) => x.kind === 'session' && a.brief && x.brief === a.brief && x.state === 'used');
+    const anchor = q ? reqAt.get(q.id) : call ? call.id : a.brief && briefAt.has(a.brief) ? briefAt.get(a.brief) : anchorAt(a.startedMs || 0);
     place(blk, anchor);
   }
 

@@ -230,7 +230,7 @@ export const CARDS = {
   refusals: [{ id: 1, callId: 'l1', tool: 'tile_call', kind: 'policy', reason: 'Finance allows private models only', tile: 'finance/ledger', createdMs: now - 100e3 }],
   ask: { callId: 'a1', kind: 'choices', question: 'Which customers should get the link first?', choices: ['The three with overdue invoices', 'Everyone with an open order'] },
   agents: [
-    { id: 7, session: 'ts-7', tile: 'sales/orders', harness: 'claude', asks: true, brief: 4, status: 'running', waits: false, last: 'Writing export_test.go — 3 of 5 cases pass', startedMs: now - 250e3 },
+    { id: 7, session: 'ts-7', tile: 'sales/orders', harness: 'claude', asks: true, brief: 4, request: 11, status: 'running', waits: false, last: 'Writing export_test.go — 3 of 5 cases pass', startedMs: now - 250e3 },
     { id: 8, session: 'ts-8', tile: 'sales/invoices', harness: 'claude', asks: true, status: 'running', waits: true, waiting: 'may I run the export tests?', startedMs: now - 200e3 },
   ],
 };
