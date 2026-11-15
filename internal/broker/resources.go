@@ -76,6 +76,9 @@ func (b *Broker) Provision() {
 	}
 	do("", b.Reg.Workspace().Resources)
 	for scope, sm := range b.Reg.Scopes() {
+		if b.inertSealedScope(scope) {
+			continue // a sealed tile no one has used yet: nothing of it at a rescan
+		}
 		res, err := b.declaredFrom(scope, sm, util.MainDeployment)
 		if err != nil {
 			slog.Warn("provision: main's declarations", "scope", scope, "err", err)

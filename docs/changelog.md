@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- **An unused workspace agent leaves no state and costs nothing at boot.**
+  xbind recorded the agent's partition mode and created and mounted its
+  three encrypted volumes at every boot of every workspace — even where
+  nobody has an agent — and the volumes' gocryptfs processes, started before
+  xbind set up its cgroup, kept it from enabling tile limits on a delegated
+  cgroup (so previews said "xbind's cgroup is not delegated"). Now both
+  wait for the first person's agent
+  ([workspace-agent.md](/docs/workspace-agent.md)).
 - **Workspace agent: its backend follows xbind's switches and refusals**
   ([workspace-agent.md](/docs/workspace-agent.md), the agent template's
   `API.md` §Workspace mode). While the agent is paused, turned off, held

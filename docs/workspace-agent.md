@@ -100,7 +100,7 @@ The agent's prompt carries a short map of xbin — components and tiles, screens
 
 ## Setting it up
 
-The workspace agent ships in xbind and is inert until a workspace admin does three things. An admin sees them as one list in xbin's chrome — the **set up workspace agent** chip in the top bar, or `/xbin/agent` — and nobody else sees anything until they are done.
+The workspace agent ships in xbind and is inert until a workspace admin does three things. Inert means a workspace holds nothing of it but its one data stamp (`data/sealed/wsagent.json`, written at boot so its data key is claimed): no partition mode record, no volumes, no mount — those come with the first person's agent. An admin sees them as one list in xbin's chrome — the **set up workspace agent** chip in the top bar, or `/xbin/agent` — and nobody else sees anything until they are done.
 
 1. **Connect a language model.** `/xbin/llm` ([llm.md](/docs/llm.md)): a provider key, or a model your organisation runs itself. The agent's model slot is bound to xbind's own connector and can be bound to nothing else; it uses the connector's default model (the `agent` role's, where one is set) unless a person picks another that the rules allow. Without a model the agent has nothing to think with: no session can be opened.
 2. **Turn workspace agents on.** One switch for the workspace (`PUT /api/xbin/delegate/workspace {enabled: true}`), off by default. While it is off xbind refuses every call any agent makes for anyone. Turning it off again stops every agent at once.

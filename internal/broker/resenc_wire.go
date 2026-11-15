@@ -221,6 +221,9 @@ func (b *Broker) holdReasonIn(tile, dep, pkey string, who *nsPartition) string {
 			if k.NS != "" && b.ensureVolume(k, rt.Scope, res.Type) || k.NS == "" && b.fsReady(k) {
 				continue
 			}
+			if k.NS == "" && b.sealedPeopleOnly(rt.Scope) && b.ensureVolume(k, rt.Scope, res.Type) {
+				continue // a sealed tile's shared volume, mounted at its first use (inertSealedScope)
+			}
 			why := "its decrypted view isn't mounted (xbind's log says why)"
 			switch {
 			case b.resenc == nil || !b.resenc.Available():
@@ -337,6 +340,9 @@ func (b *Broker) forEachFileRes(fn func(scope, name, rtype string)) {
 	}
 	do("", b.Reg.Workspace().Resources)
 	for scope, sm := range b.Reg.Scopes() {
+		if b.inertSealedScope(scope) {
+			continue // a sealed tile no one has used yet: its first partition mounts what it reaches
+		}
 		res, _ := b.declaredFrom(scope, sm, util.MainDeployment)
 		do(scope, res)
 	}
