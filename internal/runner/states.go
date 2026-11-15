@@ -47,8 +47,14 @@ func (r *Runner) Stop(comp string) {
 	wg.Wait()
 }
 
-// StopAll terminates all backends (xbind shutdown).
+// StopAll terminates all backends (xbind shutdown): starting ends first —
+// no generation is spawned after it, and the spawns under way have returned
+// — and then every generation the runner started and has not seen end is
+// stopped, the ones that never became a state's current one included (one
+// still waiting for health, one a swap is draining; live.go). Nothing of
+// the runner's is left running when it returns.
 func (r *Runner) StopAll() {
+	live := r.live.stop()
 	r.mu.Lock()
 	states := make([]*state, 0, len(r.states))
 	for _, s := range r.states {
@@ -68,6 +74,11 @@ func (r *Runner) StopAll() {
 			wg.Add(1)
 			go func() { defer wg.Done(); r.stopGen(inst, 5*time.Second) }()
 		}
+	}
+	wg.Wait()
+	for _, inst := range live { // what was started and is no state's current generation
+		wg.Add(1)
+		go func() { defer wg.Done(); r.stopLive(inst, 5*time.Second) }()
 	}
 	wg.Wait()
 }

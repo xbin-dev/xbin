@@ -46,6 +46,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // remote is how a remote daemon is reached beyond its URL.
@@ -258,12 +260,7 @@ func (d *Daemon) Forward(t testing.TB, addr string) string {
 	if tmpl == "" || !strings.Contains(tmpl, "{local}") || !strings.Contains(tmpl, "{remote}") {
 		t.Skip("reaching a port on a remote xbind's host needs XBIN_E2E_FORWARD (with {local} and {remote})")
 	}
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	local := l.Addr().String()
-	l.Close()
+	local := portlease.Addr(t)
 	command := strings.NewReplacer("{local}", local, "{remote}", addr).Replace(tmpl)
 	var out bytes.Buffer
 	cmd := exec.Command("sh", "-c", "exec "+command) // exec-ok: the test's own configured forward (XBIN_E2E_FORWARD), on the test's host

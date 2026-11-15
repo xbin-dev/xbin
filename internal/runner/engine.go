@@ -55,6 +55,7 @@ func (r *Runner) stopGen(inst *instance, deadline time.Duration) {
 	inst.retired.Store(true)
 	if e := r.engine; e != nil && e.stop != nil {
 		e.stop(inst, deadline)
+		r.live.forget(inst) // an engine's generation has no process whose end says so (live.go)
 		return
 	}
 	r.stop(inst, deadline)

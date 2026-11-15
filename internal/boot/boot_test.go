@@ -280,6 +280,7 @@ func bootOnce(t *testing.T, ws string) {
 		if err != nil {
 			t.Fatalf("boot returned %v", err)
 		}
+		noneLeftBehind(t, ws) // a stopped xbind leaves no backend running (leftbehind_test.go)
 	case <-time.After(30 * time.Second):
 		t.Fatal("boot did not stop after cancel")
 	}

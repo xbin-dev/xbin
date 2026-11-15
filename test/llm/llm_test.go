@@ -47,7 +47,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -58,6 +57,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/test/portlease"
 	"github.com/xbin-dev/xbin/test/xbindtest"
 )
 
@@ -79,12 +79,7 @@ func addrs(t *testing.T) (fake, xbind string) {
 		}
 		return fmt.Sprintf("127.0.0.1:%d", n), fmt.Sprintf("127.0.0.1:%d", n+2)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().String(), "" // xbind: xbindtest picks
+	return portlease.Addr(t), "" // xbind: xbindtest picks
 }
 
 // startFake builds hack/fakeopenai and runs it on addr until the test ends.

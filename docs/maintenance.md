@@ -136,6 +136,16 @@ suites whatever failed before; a balanced shard takes about a minute and a
 half of tests on a 4-vCPU runner — add a shard (the plan's `shards` and
 ci.yml's matrix, together) when the timing file says they grew past that.
 
+**Ports.** A test that picks a port for a program to bind later — an
+xbind's `--listen`, a fake upstream, a relay — takes it from
+`test/portlease` (`Addr(t)`, `Port(t)`; `Reserve()` where there is no
+`t`), never by listening on `:0` and closing: between that close and the
+program's bind the kernel hands the port to the next asker, and shards
+running side by side gave one port to two daemons. A lease is an flock'ed
+file per port in a directory every harness of the user shares, held until
+the test ends; `xbindtest`'s daemons hold one for as long as they live. A
+listener the test itself keeps open needs none.
+
 ## Exec guard (nothing runs as xbind on tile data)
 
 `internal/confine` `TestNoDirectExec` fails `make test` when daemon code

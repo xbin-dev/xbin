@@ -86,12 +86,27 @@ var (
 	}
 )
 
+// Skip skips t for a prerequisite this machine lacks — or, under
+// XBIN_E2E_REQUIRE=1, fails it: a run that must not pass by running nothing.
+func Skip(t testing.TB, why string) {
+	t.Helper()
+	if os.Getenv("XBIN_E2E_REQUIRE") == "1" {
+		t.Fatalf("XBIN_E2E_REQUIRE=1 and this machine can't run the test: %s", why)
+	}
+	t.Skip(why)
+}
+
 // Require returns the assets, skipping the test without user namespaces or
 // a base rootfs; the binaries are built on first use.
+//
+// A skip is silent in a plain `go test` (only -v shows it), so a run that
+// was meant to exercise the real binary can pass having run nothing. Set
+// XBIN_E2E_REQUIRE=1 to make a missing prerequisite a failure instead: the
+// run then either ran the test or says what the machine lacks (Skip).
 func Require(t testing.TB) *Assets {
 	t.Helper()
 	if !sandbox.Available() {
-		t.Skip("unprivileged user namespaces unavailable")
+		Skip(t, "unprivileged user namespaces unavailable (inside a tool sandbox they are; hack/dev-setup.sh --check says what a machine lacks)")
 	}
 	repo, err := repoRoot()
 	if err != nil {
@@ -108,7 +123,7 @@ func Require(t testing.TB) *Assets {
 		}
 	}
 	if a.Rootfs == "" {
-		t.Skip("no base rootfs ($XBIN_ROOTFS, $XBIN_TEST_ROOTFS or the repo's .rootfs; make rootfs)")
+		Skip(t, "no base rootfs ($XBIN_ROOTFS, $XBIN_TEST_ROOTFS or the repo's .rootfs; make rootfs)")
 	}
 	a.FuseOverlayfs = findTool("XBIN_FUSE_OVERLAYFS", filepath.Join(repo, "bin", "fuse-overlayfs"), "fuse-overlayfs")
 	a.Gocryptfs = findTool("XBIN_GOCRYPTFS", filepath.Join(repo, "bin", "gocryptfs"), "gocryptfs")

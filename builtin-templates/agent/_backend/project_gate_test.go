@@ -68,17 +68,50 @@ func TestGateParksAndResumes(t *testing.T) {
 	}
 }
 
-// A cancel always passes the gate: a parked task stops.
+// A cancel always passes the gate, and a parked task stops for good: the
+// start the gate kept in its inbox goes with the turn that never began, so
+// nothing parks it again at the gate's next look and nothing runs once the
+// workspace is ready. (Left there, the run was canceled only until its next
+// pass — any step of its workspace pokes it — and then sleeping again: the
+// cancel didn't stick, and the turn ran when the workspace was ready.)
 func TestGateLetsCancelThrough(t *testing.T) {
 	fx := newProjFix(t)
-	script, _ := holdSetup(fx)
+	script, release := holdSetup(fx)
 	p := fx.newProject(t, asAlice, map[string]any{"repos": []map[string]any{{"repo": "acme/web", "setup": script}}})
 	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "do the thing"})
 	waitStatus(t, fx.ag.db, runID, statusSleep)
 	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/cancel", runID), nil); w.Code != 200 {
 		t.Fatalf("cancel: %d %s", w.Code, w.Body)
 	}
-	waitStatus(t, fx.ag.db, runID, statusCanceled)
+	// the cancel's own note: a later park, were there one, leaves it alone
+	waitFor(t, "the cancel to stop the parked turn", func() bool {
+		steps, _ := fx.ag.db.steps(runID)
+		for _, s := range steps {
+			if s.Kind == "note" && strings.Contains(s.Detail, `"cancelled"`) {
+				return true
+			}
+		}
+		return false
+	})
+	// nothing of the parked turn waits any more: neither the cancel nor the
+	// start (which would park it again)
+	if rows := fx.ag.db.undelivered(runID); len(rows) != 0 {
+		t.Fatalf("after the cancel the task's inbox still holds %d rows (the first: %s %q): the gate parks it again", len(rows), rows[0].Kind, rows[0].Body.Text)
+	}
+	// the workspace becomes ready, and the gate looks again: still canceled
+	if err := os.WriteFile(release, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fx.waitWS(t, p.ID, 1, wsReady)
+	fx.ag.eng.Poke(runID) // its actor is there from here on, until the pass this asks for is done
+	waitFor(t, "the gate's look after the workspace was ready", func() bool {
+		fx.ag.eng.mu.Lock()
+		defer fx.ag.eng.mu.Unlock()
+		return fx.ag.eng.actors[runID] == nil
+	})
+	if r, _ := fx.ag.db.getRun(runID); r == nil || r.Status != statusCanceled || parsePending(r.Pending).Kind != "" {
+		t.Fatalf("the cancelled task after its workspace was ready: %+v", r)
+	}
 	if n := len(fakeOf(fx.ag).callsFor(runID)); n != 0 {
 		t.Fatalf("the model was called %d times", n)
 	}

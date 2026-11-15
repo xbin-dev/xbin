@@ -2,6 +2,7 @@ package confine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,5 +52,44 @@ func TestGitDirect(t *testing.T) {
 	_, err = Run(context.Background(), Cmd{Argv: []string{"sleep", "5"}, Timeout: 100 * time.Millisecond})
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("timeout: %v", err)
+	}
+}
+
+// XBIN_CONFINE_TRACE: every run, a failing one too, appends its line —
+// start and end in Unix nanoseconds, sandboxed or not, the tool — and
+// without the variable nothing is written.
+func TestTraceRuns(t *testing.T) {
+	trace := filepath.Join(t.TempDir(), "confine.trace")
+	t.Setenv("XBIN_CONFINE_TRACE", trace)
+	before := time.Now().UnixNano()
+	if _, err := Run(context.Background(), Cmd{Argv: []string{"true"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), Cmd{Argv: []string{"sh", "-c", "exit 3"}}); err == nil {
+		t.Fatal("exit 3 succeeded")
+	}
+	b, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("the trace: %q", b)
+	}
+	for i, tool := range []string{"true", "sh"} {
+		var start, end int64
+		var sb int
+		var got string
+		if n, _ := fmt.Sscanf(lines[i], "%d %d %d %s", &start, &end, &sb, &got); n != 4 || got != tool || sb != 0 ||
+			start < before || end < start || end > time.Now().UnixNano() {
+			t.Errorf("line %d: %q (want a direct run of %s)", i, lines[i], tool)
+		}
+	}
+	t.Setenv("XBIN_CONFINE_TRACE", "")
+	if _, err := Run(context.Background(), Cmd{Argv: []string{"true"}}); err != nil {
+		t.Fatal(err)
+	}
+	if b2, _ := os.ReadFile(trace); string(b2) != string(b) {
+		t.Errorf("a run without XBIN_CONFINE_TRACE traced: %q", b2)
 	}
 }
