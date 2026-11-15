@@ -213,14 +213,14 @@ func (r *Runner) startFor(c *registry.Component, dep, bin string, gen int) (*ins
 		r.sbxFail(c, sbx.Start, err)
 		return nil, err
 	}
-	// the one door every spawn passes: none begins once xbind is shutting
-	// down, and each is in the live set from here until its process ends,
-	// installed or not (live.go)
-	if c.Sealed && r.SealedVerify != nil {
+	if c.Sealed && r.SealedVerify != nil { // what runs is the release's, checked at every start (sealed.go)
 		if err := r.SealedVerify(c); err != nil {
 			return nil, fmt.Errorf("%w: %v", errRetryStart, err)
 		}
 	}
+	// the one door every spawn passes: none begins once xbind is shutting
+	// down, and each is in the live set from here until its process ends,
+	// installed or not (live.go)
 	if !r.live.beginSpawn() {
 		return nil, errStopping
 	}

@@ -63,6 +63,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   with this xbind yet: with workspace agents on, the dock shows approvals,
   the log and preferences, and says the conversation arrives with an
   update.
+- **`XBIN_CONFINE_TRACE`**: a file every confined tool run (git, go, … on
+  workspace data) appends a line to — its start and end, whether it ran in
+  a sandbox, the tool ([config.md](/docs/config.md)). A measurement aid: the
+  latency tests use it to tell an operation's sandbox runs from the rest.
+- **agent template: cancelling a project task that waits for its
+  workspace sticks.** `POST /runs/{id}/cancel` (or a cancel from its parent)
+  on a task the workspace gate held parked stopped it only until the gate's
+  next look: the start it was parked with stayed in its inbox, so the gate
+  parked it again and the turn ran once the workspace was ready. The cancel
+  now drops the input queued before it, as cancelling the task does; a
+  message sent afterwards starts it as usual (the template's `API.md`
+  §The workspace). An instance gets it with `git merge template/main`.
+- **coding-sandbox: an image's `sudo` gives `/dev/fuse` and `/dev/net/tun`
+  from the sandbox's first boot** (D182). The template wrote the guest's
+  device list (`/etc/xbin-vm-devices`) after a new sandbox had booted, and
+  the guest reads it only as it boots: a sandbox of a `sudo` image with no
+  setup script had both nodes 0600 until its first restart, where
+  the template's API.md (§Testing on xbind, 8) promises 0666 at the first boot.
+  The first start now sets the two modes itself as well. An instance gets
+  it with `git merge template/main`; a sandbox made before needs nothing
+  but a restart, as before.
 - **The workspace agent's backend: the agent template in workspace mode**
   (D231; [workspace-agent.md](/docs/workspace-agent.md), the template's
   `API.md` §Workspace mode). Started with `XBIN_AGENT_MODE=workspace` — by

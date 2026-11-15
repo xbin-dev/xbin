@@ -4083,7 +4083,11 @@ failed workspace, a refused cleanup; Needs reason `project`) — with
 and its messages left in its inbox; once the workspace is ready the turn
 goes on with them. A task waiting for a person this way keeps no process
 up and wakes no stopped space for itself: the person's act does. A cancel or an interrupt always passes, and a turn
-already under way is never stopped by it. A coordinator is never gated.
+already under way is never stopped by it. A cancel of a turn parked here
+(`POST /runs/{id}/cancel`, or one that reaches it from its parent) drops
+the messages it was parked with, as the task's own cancel does: the run
+stays `canceled` and doesn't start when the workspace is ready — a message
+sent afterwards starts it as usual. A coordinator is never gated.
 
 **At most `maxTasks` at work.** A task holds one of its project's slots
 while its conversation runs, waits on its subagents or its own work, is

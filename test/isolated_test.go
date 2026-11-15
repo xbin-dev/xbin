@@ -7,18 +7,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // The isolated daemon (15-test-plan §5.1). Pinned and non-primary backends
@@ -100,6 +101,10 @@ func startIsolatedDaemon(t *testing.T, opts isoOpts) *isoDaemon {
 	return d
 }
 
+// trace is the file the daemon's confined runs are traced to
+// (XBIN_CONFINE_TRACE), beside its log.
+func (d *isoDaemon) trace() string { return filepath.Join(filepath.Dir(d.logPath), "confine.trace") }
+
 // isolationOrSkip returns the rootfs for --rootfs (XBIN_TEST_ROOTFS, or the
 // repo's .rootfs from `make rootfs`), or skips the test with the reason: not
 // Linux, no rootfs with git (confined tool runs need it, D78), unprivileged
@@ -160,6 +165,18 @@ func (d *isoDaemon) start(t *testing.T) {
 			cmd.Env = append(cmd.Env, tool.env+"="+p)
 		}
 	}
+	// …and the VM guest agent, which xbind looks for beside itself: this
+	// suite's xbind is alone in a temporary directory, so without this its
+	// VM halves reported "no VM support: missing xbin-vmagent" on every
+	// machine and skipped. It is this tree's code: bin/'s when
+	// `make integration-deps` built it, else built here, once.
+	if os.Getenv("XBIN_VM_AGENT") == "" {
+		if agent := isoVMAgent(t); agent != "" {
+			cmd.Env = append(cmd.Env, "XBIN_VM_AGENT="+agent)
+		}
+	}
+	// every confined run, for the latency tests' hostNormalized
+	cmd.Env = append(cmd.Env, "XBIN_CONFINE_TRACE="+d.trace())
 	cmd.Env = append(cmd.Env, d.opts.Env...)
 	logf, err := os.OpenFile(d.logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -334,15 +351,44 @@ func isoTail(p string, n int) string {
 	return strings.Join(lines, "")
 }
 
-// isoFreeAddr is a loopback address with a port free a moment ago.
+// isoVMAgentBuilt is the guest agent built from this tree for the run.
+var isoVMAgentBuilt struct {
+	once sync.Once
+	path string
+	err  error
+}
+
+// isoVMAgent is the VM guest agent for an isolated daemon: the repo's
+// bin/xbin-vmagent, else one built from the tree beside this suite's xbind
+// (static, as `make integration-deps` builds it).
+func isoVMAgent(t *testing.T) string {
+	t.Helper()
+	if p := filepath.Join(repo, "bin", "xbin-vmagent"); isoExists(p) {
+		return p
+	}
+	b := &isoVMAgentBuilt
+	b.once.Do(func() {
+		out := filepath.Join(filepath.Dir(xbindBin), "vmagent", "xbin-vmagent") // not beside xbind: the shared daemon stays as it was
+		cmd := exec.Command("go", "build", "-o", out, "./cmd/xbin-vmagent")
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if msg, err := cmd.CombinedOutput(); err != nil {
+			b.err = fmt.Errorf("building xbin-vmagent: %v\n%s", err, msg)
+			return
+		}
+		b.path = out
+	})
+	if b.err != nil {
+		t.Fatal(b.err)
+	}
+	return b.path
+}
+
+// isoFreeAddr is a loopback address whose port is the test's until it ends
+// (a lease among the harnesses: test/portlease).
 func isoFreeAddr(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().String()
+	return portlease.Addr(t)
 }
 
 // isoExists says whether anything is at p (a dangling link counts).

@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -230,12 +231,17 @@ func (d *DB) dropQueued(pid, n int64) {
 
 // dropUntaken forgets the input waiting in a task run's inbox that it
 // hasn't taken up (cancel, close: a start the gate kept, say) — left, the
-// next pass would start the turn again, and it would hold a slot.
-func (d *DB) dropUntaken(runID int64) {
+// next pass would start the turn again, and it would hold a slot. before
+// != 0 keeps the rows queued after that one (a parked turn's cancel:
+// cancelParked).
+func (d *DB) dropUntaken(runID, before int64) {
 	if runID == 0 {
 		return
 	}
-	res, err := d.q.Exec(`DELETE FROM inbox WHERE run_id=? AND delivered_at=0 AND kind IN (?, ?, ?)`, runID, inboxUser, inboxHPrompt, inboxWake)
+	if before == 0 {
+		before = math.MaxInt64
+	}
+	res, err := d.q.Exec(`DELETE FROM inbox WHERE run_id=? AND delivered_at=0 AND id<? AND kind IN (?, ?, ?)`, runID, before, inboxUser, inboxHPrompt, inboxWake)
 	if err == nil && rowsAffected(res) > 0 {
 		if e := projEng(); e != nil {
 			e.emitInbox(d, runID, runID)

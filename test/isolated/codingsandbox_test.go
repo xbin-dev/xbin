@@ -420,14 +420,18 @@ func runCS(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 			Images, Sizes       []struct{ ID string }
 		}
 		cons(t).Call("GET", "/hello?protocol=1", nil, 200, &h)
-		// stdio: this tree's runtime has the sockets; a remote release may
-		// predate them
-		caps := "[exec files tar tty snapshots clone ports stdio partitions]"
-		if d.IsRemote() && !slices.Contains(h.Caps, "stdio") {
-			caps = "[exec files tar tty snapshots clone ports partitions]"
+		// llm and stdio: this tree's runtime forwards the LLM connector into
+		// a sandbox (D226) and has the stdio sockets, so the manager offers
+		// both; a remote release may predate either
+		var want []string
+		for _, c := range []string{"exec", "files", "tar", "tty", "snapshots", "clone", "llm", "ports", "stdio", "partitions"} {
+			if (c == "llm" || c == "stdio") && d.IsRemote() && !slices.Contains(h.Caps, c) {
+				continue
+			}
+			want = append(want, c)
 		}
-		if fmt.Sprint(h.Caps) != caps || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
-			t.Errorf("hello: %+v", h)
+		if !slices.Equal(h.Caps, want) || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
+			t.Errorf("hello: %+v (want the capabilities %v, egress [none internet], no notes)", h, want)
 		}
 		if len(h.Images) != 1 || h.Images[0].ID != "base" || len(h.Sizes) != 2 || h.Sizes[0].ID != "tiny" {
 			t.Errorf("hello's images and sizes: %+v", h)
@@ -867,11 +871,13 @@ func testCSImages(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 }
 
 // testCSSudo: an image's sudo (D182). In a VM the layout's user becomes root
-// with sudo, and /dev/fuse and /dev/net/tun are everyone's at every boot (a
-// restart's too); in a namespace sandbox the image's sudo gives nothing and
-// hello says why. sudo itself needs a rootfs whose special modes the VM
-// guest puts back (/etc/xbin-rootfs-modes): on an older one that part is
-// skipped, saying so.
+// with sudo, and /dev/fuse and /dev/net/tun are everyone's at every boot —
+// the first, which is before the manager wrote the guest's list, and a
+// restart's; in a namespace sandbox the image's sudo gives nothing and hello
+// says why. sudo itself needs a rootfs whose special modes the VM guest puts
+// back (/etc/xbin-rootfs-modes): on an older one the devices are still
+// checked and then the test is skipped, saying which rootfs and what wasn't
+// run — a failure under XBIN_E2E_REQUIRE=1 (xbindtest.Skip).
 func testCSSudo(t *testing.T, e *csEnv, mode string) {
 	c := e.target().As(t, csCons)
 	e.images(t, map[string]any{"id": "dev", "title": "Dev", "sudo": true})
@@ -899,9 +905,8 @@ func testCSSudo(t *testing.T, e *csEnv, mode string) {
 		}
 	}
 	devices("at the first boot")
-	if !ok("test -s /etc/xbin-rootfs-modes") {
-		t.Log("the rootfs predates /etc/xbin-rootfs-modes (D182): sudo itself isn't checked")
-	} else {
+	current := ok("test -s /etc/xbin-rootfs-modes")
+	if current {
 		if got := c.Sh(sb.ID, "sudo -n id -u"); got != "0\n" {
 			t.Errorf("sudo -n id -u: %q", got)
 		}
@@ -912,6 +917,10 @@ func testCSSudo(t *testing.T, e *csEnv, mode string) {
 	c.Call("POST", "/sandboxes/"+sb.ID+"/stop?wait=60", nil, 200, nil)
 	c.Call("POST", "/sandboxes/"+sb.ID+"/start?wait=60", nil, 200, nil)
 	devices("after a restart")
+	if !current {
+		xbindtest.Skip(t, "STALE ROOTFS: "+e.d.A.Rootfs+" has no /etc/xbin-rootfs-modes (an image built before D182; `make rootfs` builds a current one), "+
+			"so `sudo -n id -u` and the image's setuid and sticky bits were NOT checked — only the devices' modes at the first boot and after a restart were")
+	}
 }
 
 // testCSOperators: the tile's owner and the people with write access to it

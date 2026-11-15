@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // TestIngress verifies the whole publish path end to end against a dedicated
@@ -24,14 +26,7 @@ func TestIngress(t *testing.T) {
 	dir := t.TempDir()
 	iWS := filepath.Join(dir, "ws")
 
-	freePort := func() string {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer ln.Close()
-		return ln.Addr().String()
-	}
+	freePort := func() string { return portlease.Addr(t) }
 	consoleAddr := freePort()
 	ingressAddr := freePort()
 	echoAddr := freePort()

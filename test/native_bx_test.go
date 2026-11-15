@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // counterNative is plans/native.md §18.1 — used when examples/counter-go
@@ -68,9 +69,7 @@ func TestBxNative(t *testing.T) {
 		t.Fatalf("build bx: %s", out)
 	}
 	nws := filepath.Join(dir, "ws")
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := portlease.Addr(t)
 	base := "http://" + addr
 	cmd := exec.Command(xbindBin, "--workspace", nws, "--listen", addr, "--insecure-vault")
 	cmd.Env = append(os.Environ(), "XBIN_SDK_PATH="+filepath.Join(repo, "sdk"))

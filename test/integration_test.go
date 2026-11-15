@@ -12,7 +12,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,6 +20,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 var (
@@ -79,12 +80,10 @@ func TestMain(m *testing.M) {
 		panic("build xbind: " + string(out))
 	}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	addr, _, err := portlease.Reserve() // the shared daemon's, for the run
 	if err != nil {
 		panic(err)
 	}
-	addr := ln.Addr().String()
-	ln.Close()
 	baseURL = "http://" + addr
 
 	cmd := exec.Command(bin, "--workspace", ws, "--listen", addr, "--no-auth")
@@ -533,9 +532,7 @@ func frameToken(t *testing.T, comp string) (string, bool) {
 func TestMultiUser(t *testing.T) {
 	dir := t.TempDir()
 	muWS := filepath.Join(dir, "ws")
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := portlease.Addr(t)
 	base := "http://" + addr
 
 	// auth ON, real (non-dev) start; --insecure-vault so it boots without a

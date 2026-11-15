@@ -5,7 +5,6 @@ package test
 import (
 	"bytes"
 	"io/fs"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // covers D119f T11 PO-7 — the legacy fixture's variant with deployment state
@@ -108,10 +109,7 @@ func TestDeploymentStateBootsTwice(t *testing.T) {
 // fn, then stops it with SIGTERM and waits for it.
 func serveOnce(t *testing.T, ws string, fn func(a dlAPI)) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	must(t, err)
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := portlease.Addr(t)
 	cmd := exec.Command(xbindBin, "--workspace", ws, "--listen", addr, "--no-auth", "--insecure-vault")
 	cmd.Env = append(os.Environ(), "XBIN_SDK_PATH="+filepath.Join(repo, "sdk"))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

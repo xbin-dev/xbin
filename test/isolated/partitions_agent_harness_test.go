@@ -463,21 +463,16 @@ func phHalt(t *testing.T, e *phEnv, box agSandbox, id int64) {
 func phWake(t *testing.T, e *phEnv, box agSandbox, id int64) {
 	d := e.d
 	alice := e.target().As(t, agTile).Verified("alice")
+	const idleMin = 2
 	var cfg map[string]any
 	e.agm(t, 200, "", "GET", "/config", nil, false).Decode(t, &cfg)
-	cfg["harnessIdleMin"] = 2
+	cfg["harnessIdleMin"] = idleMin
 	e.agm(t, 200, "", "PUT", "/config", cfg, false)
-	time.Sleep(5 * time.Second) // her partition reads conf again (confTTL)
-	e.agm(t, 200, "alice", "POST", fmt.Sprintf("/runs/%d/message", id), map[string]string{"text": "quick one"}, false)
-	v := e.waitView(t, "alice", id, "the turn before the stop", 90*time.Second, func(v hView) bool {
-		return v.Run.Status != "running" && strings.Contains(v.lastAssistant(), "echo: quick one") && v.summary().State == "ready"
-	})
-	gen := v.summary().Gen
 	// the partition's own cron jobs (her page of the tile lists them; xbind's
 	// API, which starts no backend): the one `wake` at the idle stop's
 	// minute, registered while it idles — xbind revokes a stopping
 	// partition's token first, so its exit can't leave it (resume_keep.go)
-	jobs := func() (names []string, all string) {
+	jobs := func() (names []string, wake time.Time, all string) {
 		t.Helper()
 		var out struct {
 			Jobs []struct{ Name, Schedule, Path string }
@@ -485,30 +480,75 @@ func phWake(t *testing.T, e *phEnv, box agSandbox, id int64) {
 		d.Must(t, "GET", "/api/xbin/cron/jobs", nil, 200, xbindtest.FrameHeader(e.pageTok(t, agTile, "alice"))).Decode(t, &out)
 		for _, j := range out.Jobs {
 			names = append(names, j.Name)
-			if j.Name == "wake" && (!strings.HasPrefix(j.Schedule, "CRON_TZ=UTC ") || len(strings.Fields(j.Schedule)) != 6) {
+			if j.Name != "wake" {
+				continue
+			}
+			var mi, h, day, mo int
+			if n, _ := fmt.Sscanf(j.Schedule, "CRON_TZ=UTC %d %d %d %d *", &mi, &h, &day, &mo); n != 4 || len(strings.Fields(j.Schedule)) != 6 {
 				t.Errorf("the wake job's schedule: %q (want a 5-field UTC cron)", j.Schedule)
+				continue
+			}
+			now := time.Now().UTC()
+			wake = time.Date(now.Year(), time.Month(mo), day, h, mi, 0, 0, time.UTC)
+			if wake.Before(now.Add(-24 * time.Hour)) { // a wake across the new year
+				wake = wake.AddDate(1, 0, 0)
 			}
 		}
-		return names, fmt.Sprintf("%+v", out.Jobs)
+		return names, wake, fmt.Sprintf("%+v", out.Jobs)
 	}
-	xbindtest.Eventually(t, 30*time.Second, "her idle partition's wake job", func() (bool, string) {
-		names, all := jobs()
-		return slices.Equal(names, []string{"wake"}), all
-	})
+	// The new idle time reaches her partition through conf: the global
+	// instance mirrors it (retrying when a write fails), her partition
+	// caches what it read for confTTL, and a turn's end arms the reclaim —
+	// and the wake job — with the idle time her partition has then. How long
+	// that takes isn't the test's to assume (a fixed sleep here once left
+	// her partition on the old idle time under load: the wake job a quarter
+	// of an hour out, "not stopped in 5 min"). Nothing of her partition says
+	// which idle time it has but the wake job it leaves, so: a turn, its
+	// wake job, and another turn while that is later than the new idle time
+	// allows (the turn's end + idleMin, at the next whole minute).
+	var v hView
+	var wake time.Time
+	deadline := time.Now().Add(3 * time.Minute)
+	for turn := 1; ; turn++ {
+		text := fmt.Sprintf("quick one %d", turn)
+		e.agm(t, 200, "alice", "POST", fmt.Sprintf("/runs/%d/message", id), map[string]string{"text": text}, false)
+		v = e.waitView(t, "alice", id, "the turn before the stop", 90*time.Second, func(v hView) bool {
+			return v.Run.Status != "running" && strings.Contains(v.lastAssistant(), "echo: "+text) && v.summary().State == "ready"
+		})
+		var names []string
+		var all string
+		latest := time.Now().Add((idleMin + 1) * time.Minute)
+		for look := time.Now().Add(15 * time.Second); ; time.Sleep(100 * time.Millisecond) { // the keeper looks a second after the rest
+			names, wake, all = jobs()
+			if (slices.Equal(names, []string{"wake"}) && !wake.After(latest)) || time.Now().After(look) {
+				break
+			}
+		}
+		if slices.Equal(names, []string{"wake"}) && !wake.After(latest) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("her idle partition's wake job after %d turns: %s (want the one wake job, by %s: the turn's end + harnessIdleMin %d — "+
+				"a later one is the idle time from before the PUT, which never reached her partition)", turn, all, latest.Format("15:04:05"), idleMin)
+		}
+		t.Logf("turn %d: her partition's wake job is %s (want one by %s): it rested on the idle time from before the PUT; another turn", turn, all, latest.Format("15:04:05"))
+	}
+	gen := v.summary().Gen
 	stopped := time.Now()
 	d.Must(t, "POST", "/api/xbin/partitions/stop", map[string]string{"tile": agTile, "partition": "user:alice"}, 200,
 		xbindtest.H("Authorization", "Bearer "+e.sess["alice"]))
 	if x := harnessExec(t, alice, box.ID, id, gen); x == nil || x.State != "running" {
 		t.Fatalf("the idle adapter after her partition stopped: %+v (want running: let go, not killed)", x)
 	}
-	if names, all := jobs(); !slices.Equal(names, []string{"wake"}) {
+	if names, _, all := jobs(); !slices.Equal(names, []string{"wake"}) {
 		t.Errorf("her stopped partition's cron jobs: %s (want the one wake job: an idle coding agent is no resume work)", all)
 	}
 	// nobody uses the tile now: the wake brings the partition back, which
 	// stops the idle adapter
-	xbindtest.Eventually(t, 5*time.Minute, "the woken partition stops the idle adapter", func() (bool, string) {
+	// (by the wake job's minute, known now, plus the partition's start)
+	xbindtest.Eventually(t, time.Until(wake)+3*time.Minute, "the woken partition stops the idle adapter", func() (bool, string) {
 		x := harnessExec(t, alice, box.ID, id, gen)
-		return x == nil || x.State != "running", fmt.Sprintf("%+v, %s after the stop", x, time.Since(stopped).Round(time.Second))
+		return x == nil || x.State != "running", fmt.Sprintf("%+v, %s after the stop, the wake job at %s UTC", x, time.Since(stopped).Round(time.Second), wake.Format("15:04"))
 	})
 	t.Logf("the idle adapter was stopped %s after her partition stopped", time.Since(stopped).Round(time.Second))
 }
