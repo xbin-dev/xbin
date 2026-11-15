@@ -3,7 +3,6 @@ package broker
 import (
 	"bytes"
 	"context"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/confine"
-	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -235,26 +233,13 @@ func (b *Broker) apiCodeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rel := r.URL.Query().Get("file")
-	if _, _, err := util.SafeJoin(dir, rel); err != nil || rel == "" {
+	p, _, err := util.SafeJoin(dir, rel)
+	if err != nil {
 		server.WriteError(w, http.StatusBadRequest, "bad file path")
 		return
 	}
-	// A tile's directory is written by its own sandbox, its terminals and
-	// tile agents: any name in it may be a link. The read is xbind's — for
-	// the tile's readers, and for the tile's own code — so the file is
-	// opened BENEATH the tile, as the /c/ plane opens it (fsutil.OpenIn:
-	// one openat2(RESOLVE_BENEATH) from the workspace root; the component's
-	// own path is reached without a link). A link that leaves the tile — to
-	// data/users.json, .xbin/token, another tile, an absolute path, at any
-	// component — fails; a FIFO or device is no file and never blocks.
-	f, err := fsutil.OpenIn(b.Reg.Root, comp, rel)
-	if err != nil {
-		server.WriteError(w, http.StatusNotFound, "no such file")
-		return
-	}
-	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil || !fi.Mode().IsRegular() {
+	fi, err := os.Stat(p)
+	if err != nil || fi.IsDir() {
 		server.WriteError(w, http.StatusNotFound, "no such file")
 		return
 	}
@@ -262,13 +247,9 @@ func (b *Broker) apiCodeFile(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusOK, map[string]any{"path": rel, "truncated": true, "size": fi.Size()})
 		return
 	}
-	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1)) // the handle that was checked, never the name again
+	data, err := os.ReadFile(p)
 	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if int64(len(data)) > maxFileBytes { // it grew under the read
-		server.WriteJSON(w, http.StatusOK, map[string]any{"path": rel, "truncated": true, "size": len(data)})
 		return
 	}
 	if bytes.IndexByte(firstN(data, 8<<10), 0) >= 0 {
