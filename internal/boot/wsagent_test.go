@@ -365,7 +365,14 @@ func TestWorkspaceAgentHeldByNewerData(t *testing.T) {
 	if ft.Token == "" || resp.StatusCode < 400 { // (this xbind has no sandboxes either, which is the reason named first)
 		t.Errorf("its API while held: %d %s", resp.StatusCode, rb)
 	}
-	if b, err := os.ReadFile(stamp); err != nil || !strings.Contains(string(b), `"data":2`) {
+	// the stamp keeps its format and its writer (the mode its data was made
+	// in is taken down beside them: it had none)
+	var kept struct {
+		Data    int
+		Release string
+		Mode    string
+	}
+	if b, err := os.ReadFile(stamp); err != nil || json.Unmarshal(b, &kept) != nil || kept.Data != 2 || kept.Release != "v9.9.9" || kept.Mode != "user" {
 		t.Errorf("the stamp after the boot: %s %v", b, err)
 	}
 }

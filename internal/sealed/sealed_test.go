@@ -675,3 +675,66 @@ func TestTableNamesOneAgent(t *testing.T) {
 		t.Errorf("a table without an agent names one: %v", err)
 	}
 }
+
+// A component's partition mode is fixed for the life of the entry: the
+// stamp records the mode its data was made in, and a table that later gives
+// it another holds it — nothing of its data is touched, and the registry
+// is given the mode the data has, so nothing asks for a switch (a switch
+// deletes the data). A stamp from before modes were recorded takes the
+// running table's down, once.
+func TestPartitionModeIsFixed(t *testing.T) {
+	ws := t.TempDir()
+	row := func(partition ...string) Spec {
+		sp := spec("one")
+		sp.Partition = partition
+		return sp
+	}
+	opts := Options{Isolate: true, Dev: true}
+	s := open(t, ws, opts, row("user"))
+	if st, ok := s.Stamp("xbin/fix"); !ok || st.Mode != "user" {
+		t.Fatalf("the first boot's stamp: %+v", st)
+	}
+	// the same table again: no hold
+	if h, held := open(t, ws, opts, row("user")).Hold("xbin/fix"); held {
+		t.Fatalf("the same mode is held: %+v", h)
+	}
+	for name, next := range map[string]Spec{"a shared instance added": row("user", "global"), "unpartitioned": row()} {
+		s = open(t, ws, opts, next)
+		h, held := s.Hold("xbin/fix")
+		if !held || h.Code != HoldMode || !strings.Contains(h.Reason, "one backend per person") || !h.keepsData() {
+			t.Errorf("%s: hold %+v, want the mode hold", name, h)
+		}
+		reg := s.Registry()
+		if len(reg) != 1 || !slices.Equal(reg[0].Partition, []string{"user"}) || reg[0].NoData == "" {
+			t.Errorf("%s: the registry's row: partition %v, noData %q; want the data's mode and no resources", name, reg[0].Partition, reg[0].NoData)
+		}
+		if st, _ := s.Stamp("xbin/fix"); st.Mode != "user" {
+			t.Errorf("%s: the stamp's mode became %q", name, st.Mode)
+		}
+		if err := s.RestoreRefusal("xbin/fix", 1, "v1"); err == nil {
+			t.Errorf("%s: a restore passes while it is held for its mode", name)
+		}
+	}
+	// back to the mode its data has: it runs again
+	if h, held := open(t, ws, opts, row("user")).Hold("xbin/fix"); held {
+		t.Fatalf("the data's own mode is held: %+v", h)
+	}
+	// a stamp without a mode (written before modes were recorded)
+	ws2 := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws2, "data", "sealed"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stampPath(ws2, "fix"), []byte(`{"data":1,"release":"v0","digest":"x","at":"2026-11-15T00:00:00Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s = open(t, ws2, opts, row("user", "global"))
+	if _, held := s.Hold("xbin/fix"); held {
+		t.Fatal("a stamp without a mode holds the component")
+	}
+	if b, _ := os.ReadFile(stampPath(ws2, "fix")); !strings.Contains(string(b), `"mode": "user+global"`) || !strings.Contains(string(b), `"release": "v0"`) {
+		t.Errorf("the stamp after: %s", b)
+	}
+	if h, held := open(t, ws2, opts, row("user")).Hold("xbin/fix"); !held || h.Code != HoldMode {
+		t.Errorf("…and the next table's other mode: %+v", h)
+	}
+}

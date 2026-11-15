@@ -31,6 +31,8 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/util"
+	"strconv"
+	"strings"
 )
 
 // Stamp is a component's data stamp.
@@ -39,6 +41,33 @@ type Stamp struct {
 	Release string `json:"release"` // the xbind that wrote this stamp
 	Digest  string `json:"digest"`  // the code that release ran
 	At      string `json:"at"`      // RFC3339
+	// Mode is the partition mode the data was made in (modeName): "one",
+	// "user" or "user+global". Recorded when the stamp is claimed and never
+	// changed: a release whose table gives the component another mode holds
+	// it (HoldMode). "" in a stamp from before this was recorded: the
+	// running table's mode is taken down then.
+	Mode string `json:"mode,omitempty"`
+}
+
+// modeName names a row's partition mode for the stamp.
+func modeName(partition []string) string {
+	if len(partition) == 0 {
+		return "one"
+	}
+	return strings.Join(partition, "+")
+}
+
+// modeWords says a mode as a hold's message does.
+func modeWords(mode string) string {
+	switch mode {
+	case "one":
+		return "one backend for everyone"
+	case "user":
+		return "one backend per person"
+	case "user+global":
+		return "one backend per person and a shared one"
+	}
+	return "the mode " + strconv.Quote(mode)
 }
 
 func stampPath(ws, name string) string {
@@ -83,6 +112,19 @@ func (s *Set) settleData(c *Component) (Hold, bool) {
 		return Hold{HoldStamp, fmt.Sprintf("is held: its data stamp %s is damaged; nothing of its data was touched", rel(ws, stampPath(ws, c.Name)))}, true
 	}
 	s.stamps[c.Path] = st
+	switch want := modeName(c.Partition); {
+	case st.Mode == "": // a stamp from before modes were recorded: this table's is taken down
+		st.Mode = want
+		if b, err := json.MarshalIndent(st, "", "  "); err == nil && fsutil.WriteFileAtomic(stampPath(ws, c.Name), append(b, '\n'), 0o600) == nil {
+			s.stamps[c.Path] = st
+		}
+	case st.Mode != want:
+		// the registry is given the mode the data has, so nothing asks
+		// for a switch of it (Registry)
+		c.dataMode = st.Mode
+		return Hold{HoldMode, fmt.Sprintf("is held: its data was made with %s, and this xbin's table gives it %s. A system component's partition mode is fixed for the life of the component — switching it would delete its data — so this release can't run it: install one whose table has the mode its data was made in. Nothing was changed",
+			modeWords(st.Mode), modeWords(want))}, true
+	}
 	if st.Data > c.data() {
 		return newerData(st, c.data(), s.opts.Release), true
 	}
@@ -110,7 +152,10 @@ func rel(ws, p string) string {
 // writeStamp records data as c's data format, written by the running
 // release. Called with s.mu held.
 func (s *Set) writeStamp(c *Component, data int) error {
-	st := Stamp{Data: data, Release: s.opts.Release, Digest: c.Digest, At: time.Now().UTC().Format(time.RFC3339)}
+	st := Stamp{Data: data, Release: s.opts.Release, Digest: c.Digest, At: time.Now().UTC().Format(time.RFC3339), Mode: modeName(c.Partition)}
+	if old, ok := s.stamps[c.Path]; ok && old.Mode != "" {
+		st.Mode = old.Mode // the mode its data was made in never changes
+	}
 	b, _ := json.MarshalIndent(st, "", "  ")
 	p := stampPath(s.opts.Workspace, c.Name)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {

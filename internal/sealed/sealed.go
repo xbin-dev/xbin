@@ -255,6 +255,9 @@ type Component struct {
 	// prebuiltSum is Prebuilt's SHA-256, as the install's manifest gives
 	// it; noBuild is why there is no Prebuilt though a file may be there.
 	prebuiltSum, noBuild string
+	// dataMode is the partition mode its data was made in, when that is not
+	// the row's (the stamp's Mode; the component is then held: HoldMode).
+	dataMode string
 	// Partitioned says it runs one backend per person in this boot: the
 	// table's mode, unless a development xbind without sandboxes runs it as
 	// one instance.
@@ -532,6 +535,12 @@ func (s *Set) Registry() []registry.SealedCode {
 		}
 		if c.Partitioned {
 			sc.Partition = slices.Clone(c.Partition)
+		}
+		if c.dataMode != "" { // held for its mode (HoldMode): registered in the mode its data has, so nothing switches it
+			sc.Partition = nil
+			if c.dataMode != "one" && (s.opts.Isolate || !s.opts.NoAuth) {
+				sc.Partition = strings.Split(c.dataMode, "+")
+			}
 		}
 		if h, held := s.Hold(c.Path); held && h.keepsData() {
 			sc.NoData = "system component " + c.Path + " " + h.Reason

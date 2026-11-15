@@ -26,6 +26,12 @@ const (
 	// HoldStamp: its data stamp can't be read or written, so neither of the
 	// two above can be ruled out.
 	HoldStamp = "stamp"
+	// HoldMode: its data was made in another partition mode than this
+	// release's table gives it (one backend, or one per person). A row's
+	// mode is fixed for the life of the entry — switching it deletes the
+	// data — so a table that says otherwise is a release that can't run
+	// it. Left as it is, in the mode it was made.
+	HoldMode = "partition-mode"
 	// HoldNoBuild: this install has no build of its backend, and only a
 	// development xbind compiles one.
 	HoldNoBuild = "no-build"
@@ -44,7 +50,7 @@ type Hold struct {
 // keepsData reports the holds under which the component's data must not be
 // touched at all: its scope then declares no resources.
 func (h Hold) keepsData() bool {
-	return h.Code == HoldForeignData || h.Code == HoldNewerData || h.Code == HoldStamp
+	return h.Code == HoldForeignData || h.Code == HoldNewerData || h.Code == HoldStamp || h.Code == HoldMode
 }
 
 // Hold answers why the component at path can't run; false when it can, or
