@@ -105,7 +105,7 @@ func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall,
 	if ts.sbx == nil {
 		ts.sbx = &sbxTurn{}
 	}
-	ts.waits, ts.spawnedThisStep = nil, 0
+	ts.waits, ts.spawnedThisStep, ts.parked = nil, 0, nil
 	if !approved {
 		// A call that needs the owner's grant parks the whole step for them
 		// (grants.go); allowing it also approves the step's other calls.
@@ -386,6 +386,11 @@ func (e *Engine) parkIfWaiting(ts *turnState) bool {
 	var open int
 	_ = e.db.q.QueryRow(`SELECT count(*) FROM links WHERE parent_id=? AND mode='fg' AND delivered=0`, run.ID).Scan(&open)
 	if open == 0 && len(ts.waits) == 0 {
+		// a coordinator's calls waiting outside the engine (coord_park.go): a
+		// tool parks one only while nothing else of the step waits
+		if ts.parked = coordParked(e.db, run, ts.parked); len(ts.parked) > 0 {
+			return e.parkCoord(ts)
+		}
 		return false
 	}
 	var wake int64
