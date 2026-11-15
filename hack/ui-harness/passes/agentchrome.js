@@ -869,6 +869,10 @@ async function handOff(page, ctx, check, wasOpen, skip) {
   const hand = await fr(page, HAND_TILE, (f) => f.handoff);
   const shown = await page.$eval(`.card[data-path="${HAND_TILE}"] bx-frame [data-handoff] [data-draft]`, (e) => ({ text: e.textContent, markup: e.children.length }));
   check(hand.draft === DRAFT_SEEN && shown.text === DRAFT_SEEN && shown.markup === 0, `xbin:open-session {session: "new", draft}: the tile's window opens on a new session's launcher, the words as plain text (${JSON.stringify(shown)})`);
+  // the draft is the agent's page's — untrusted: labelled as what it suggests, to read and edit, never as the person's words
+  const said = await page.$eval(`.card[data-path="${HAND_TILE}"] bx-frame [data-handoff]`, (e) => ({ from: e.querySelector('[data-draft-from]')?.textContent || '', all: e.textContent }));
+  check(/^Suggested by your agent’s page — not your words\. Read it and change it as you like\./.test(said.from.trim()) && /nothing is sent until you press Send/.test(said.from)
+    && !/your (own )?words(?!\.)/i.test(said.all.replace('not your words', '')), `…labelled as text the agent's page suggests, for the person to read and edit, unsent — never as their own words (${said.from.trim()})`);
   await page.waitForTimeout(300); // (a negative: nothing may start by the message alone)
   check(sent.length === 0 && (await fr(page, HAND_TILE, (f) => f.tabs)).length === tabs0, `…and nothing is started or sent by the message alone (${sent.join(' ')})`);
   check(!(await page.evaluate(() => document.querySelector('bx-shell').shadowRoot.querySelector('bx-agent-dock').shadowRoot.querySelector('[data-handoff]'))), '…the shell took it: no link in the dock');
@@ -907,6 +911,9 @@ async function handOff(page, ctx, check, wasOpen, skip) {
   const link = await page.$eval(`${DOCK} [data-handoff] a`, (a) => a.getAttribute('href'));
   check(link === `/?tile=${HAND_TILE}` && (await text(page, `${DOCK} [data-handoff] [data-draft]`)) === DRAFT_SEEN.replace(/\s+/g, ' '),
     `a dock no shell answers gives the plain link to the tile, and the words (${link})`);
+  const linkSaid = { from: await text(page, `${DOCK} [data-handoff] [data-draft-from]`), copy: await text(page, `${DOCK} [data-handoff] [data-copy]`), all: await text(page, `${DOCK} [data-handoff]`) };
+  check(linkSaid.from === 'Suggested by your agent’s page — not your words' && linkSaid.copy === 'Copy the suggested text' && !/paste your words|copy your words/i.test(linkSaid.all),
+    `…the words labelled as the agent's page's suggestion there too (${JSON.stringify(linkSaid)})`);
   await shot(page, 'agent-chrome-handoff-link', { fullPage: false });
   await page.goto(`${URL}/`); // (the shell again, for what follows)
   await page.waitForSelector('bx-shell button.chip.agent');

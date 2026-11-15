@@ -184,7 +184,11 @@ test('what the dock takes from the agent\'s page: a word and an id, nothing else
   assert.deepEqual(W.contextMessage({ screen: 'Home' }), { type: 'xbin:agent-context', screen: 'Home' });
   assert.equal(W.contextMessage({ tile: '../x' }), null);
   assert.equal(W.clampDock(100, 1400), 360);
-  // a new session of the tile's own agent: the person's words as its draft — plain text, capped, never a command
+  // a new session of the tile's own agent: a draft the page suggests — plain text, capped, never a command,
+  // and labelled as the page's, never as the person's own words
+  assert.match(W.DRAFT_FROM.label, /^Suggested by your agent’s page — not your words$/);
+  assert.doesNotMatch(`${W.DRAFT_FROM.text} ${W.DRAFT_FROM.copy} ${W.DRAFT_FROM.paste}`, /your (own )?words/i);
+  assert.match(W.DRAFT_FROM.text, /nothing is sent until you press Send/);
   assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 'new', tile: 'apps/notes/', draft: '  change line 40\r\n<b>x</b>\u202e\u0007 ', send: true, grant: 'always' }),
     { type: 'new-session', tile: 'apps/notes', draft: 'change line 40\n<b>x</b>' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 'new', tile: 'apps/notes' }), { type: 'new-session', tile: 'apps/notes', draft: '' });

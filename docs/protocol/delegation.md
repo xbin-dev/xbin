@@ -707,8 +707,8 @@ xbin:open-session         {session, tile}  show one of the person's sessions
                                            in its tile's window
 xbin:open-session         {session: "new", a new session of the tile's own
                            tile, draft}    agent: its window opens on a new
-                                           session's launcher, draft (the
-                                           person's own words, at most 8000
+                                           session's launcher, draft (text
+                                           the page suggests, at most 8000
                                            characters) in the composer of the
                                            one they pick — never sent by the
                                            message
@@ -720,9 +720,12 @@ xbin:agent-open           {view}           needs | approvals | activity — a
 A new session's `draft` is read as plain text — line ends made `\n`,
 control and invisible (bidi) characters dropped, capped — and never
 interpreted: it is shown, and waits in the composer until the person
-presses Send. The chrome hands it to the shell (`bx-agent-new-session`);
-where no shell takes it (an older scaffold, `/xbin/agent`) the dock shows
-a plain link to the tile and the words to copy.
+presses Send. It comes from the agent's page, so it is untrusted: the
+chrome labels it as text the agent's page suggests, for the person to read
+and edit — never as their own words. The chrome hands it to the shell
+(`bx-agent-new-session`); where no shell takes it (an older scaffold,
+`/xbin/agent`) the dock shows a plain link to the tile and the suggested
+text to copy.
 
 The chrome reads the request or change set from xbind itself
 (`GET /delegate/requests/<id>`, `/delegate/changesets/<id>`) and draws

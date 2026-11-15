@@ -33,7 +33,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   matching ones said what they held). The chrome: the agent's page may
   open only views that change nothing (`xbin:agent-open {view}`: `needs`,
   `approvals`, `activity` — no longer `prefs`), and every control that
-  widens what the agent may do is armed like Allow.
+  widens what the agent may do is armed like Allow. A new session's draft
+  from the page (`xbin:open-session {session: "new", draft}`) is labelled
+  as text the agent's page suggests, never as the person's own words.
 
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),

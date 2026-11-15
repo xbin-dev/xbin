@@ -20,7 +20,7 @@ import { llmHint } from '/vendor/agent-fold.js';
 import { agentPrefs } from '/vendor/agent-prefs.js';
 import { loadDeployIfShown, launchBanner, launchTarget, targetQuery, targetRefused } from '/vendor/frame-deploy.js';
 import { mountedFrames } from '/vendor/events-socket.js';
-import { plainDraft } from '/vendor/agent-chrome-words.js';
+import { plainDraft, DRAFT_FROM } from '/vendor/agent-chrome-words.js';
 
 const prefs = makeStore();
 
@@ -183,7 +183,7 @@ export function handoff(f) {
   const pick = (p) => { f._handoff = null; f._startKind('agent', p.id, { draft: h.draft }); };
   return html`<div class="launcher lhandoff" role="dialog" aria-label=${`A new session of ${f.src}'s own agent`} data-handoff>
     <div class="lhead">A new session of ${f.src}’s own agent</div>
-    ${h.draft ? html`<div class="ldraft"><div class="lsub">Your words, from your workspace agent. They wait in the new session’s message box: nothing is sent until you press Send.</div>
+    ${h.draft ? html`<div class="ldraft"><div class="lsub" data-draft-from><b>${DRAFT_FROM.label}.</b> ${DRAFT_FROM.text}</div>
       <div class="ltext" data-draft>${h.draft}</div></div>` : html`<div class="lsub">Pick a coding agent: its session starts, and waits for your first message.</div>`}
     <div class="lcards">
       ${!f._providers ? html`<span class="lsub">loading agents…</span>` : provs.length

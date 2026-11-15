@@ -546,6 +546,20 @@ export const DRAFT_MAX = 8000;
 // control characters but newline and tab, and the invisible ones that reorder or hide text
 const UNSEEN = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 /**
+ * DRAFT_FROM: how a new session's draft from the agent's page is labelled
+ * wherever the chrome shows it. The page renders what a model wrote and
+ * its message is untrusted: the text is what the page SUGGESTS, for the
+ * person to read and edit — never presented as their own words — and it
+ * waits, unsent, until they press Send.
+ */
+export const DRAFT_FROM = Object.freeze({
+  label: 'Suggested by your agent’s page — not your words',
+  text: 'Read it and change it as you like. It waits in the new session’s message box: nothing is sent until you press Send.',
+  paste: 'paste the text your agent’s page suggests, once you have read it',
+  copy: 'Copy the suggested text',
+});
+
+/**
  * plainDraft(v): words for a new session's composer, as plain text — never
  * markup, never a command: line ends made \n, control and invisible
  * characters dropped, trimmed, at most DRAFT_MAX characters; '' for
