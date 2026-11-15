@@ -357,6 +357,7 @@ async function children(a, check, box, stamp) {
   const rows = await a.$$eval('#hboard .hbrow', (els) => els.map((e) => `${e.dataset.row}:${e.dataset.section}`));
   check(rows.length === 3, `the board lists the three (${rows.join(', ')})`);
   await shots(a, 'board');
+  let told = null; // the results the parent's chat held before the park was answered
   const f = await a.$('#hboard .hbfilter');
   check(!!f && /need/.test(await f.textContent()), `the board's "needs you" filter (${f ? (await f.textContent()).trim() : 'none'})`);
   if (f) {
@@ -365,6 +366,7 @@ async function children(a, check, box, stamp) {
     const only = await a.$$eval('#hboard .hbrow', (els) => els.map((e) => +e.dataset.row));
     check(only.length === 1 && only[0] === parked.id, `…shows only the one waiting for you (${only.join(', ')})`);
     await shots(a, 'board-needs');
+    told = await a.$$eval('#timeline .notice', (els) => els.length);
     await a.click(`#hboard .hbrow[data-row="${parked.id}"] .hask .bxc-btns button[data-option="once"]`);
     await until(a, (id) => ![...document.querySelectorAll('#hboard .hbrow')].some((e) => +e.dataset.row === id && e.dataset.section === 'needs'), parked.id, 20000).catch(() => {});
     await a.click('#hboard .hbfilter').catch(() => {});
@@ -374,6 +376,13 @@ async function children(a, check, box, stamp) {
   const cs = await a.$eval(`#timeline .hkid[data-child="${parked.id}"]`, (e) => e.dataset.state).catch(() => '');
   check(cs !== 'approval' && cr.status !== 'waiting_input', `answered from the board: the child goes on (${cs}, ${cr.status})`);
   await a.click('#hboard [data-act="close"]').catch(() => {});
+
+  // The allowed child's turn ends with its answer told to its parent — a message of its own, which wakes the
+  // parent for a turn. Steer only once that has landed and the parent rests: the fake model answers the last
+  // message it is given, and a result arriving inside the steer's turn is then the one it answers (this pass
+  // once waited 60 s for "Steered it." that way).
+  if (told != null) await until(a, (n) => document.querySelectorAll('#timeline .notice').length > n, told, 30000);
+  await resting(a, 30000);
 
   // "harness steer": the agent messages its newest coding agent
   await say(a, 'harness steer');
