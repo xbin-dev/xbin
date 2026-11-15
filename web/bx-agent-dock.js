@@ -19,7 +19,8 @@
  * taken only from this dock's own frame (agent-chrome-words.js pageMessage:
  * xbin:agent-open-request {id}, xbin:agent-open-changeset {id},
  * xbin:open-session {session, tile}, and {session: "new", tile, draft} for a
- * new session of a tile's own agent with the person's words, unsent). The dock then reads the request from
+ * new session of a tile's own agent with the person's words, unsent; xbin:agent-open {view} for a view that changes nothing — Needs you,
+ * Approvals, What my agent did: Preferences opens from this dock's own menu only). The dock then reads the request from
  * xbind itself and draws xbind's reading; what the page sent is never
  * shown, and nothing the page does reaches a button: it is another origin
  * (sandboxed, never chrome), it cannot draw outside its frame, and Allow
@@ -191,7 +192,8 @@ export class BxAgentDock extends LitElement {
   }
 
   // what the page may ask: to open a request or a change set by id, one of
-  // the person's sessions, a panel. Only from this dock's own frame.
+  // the person's sessions, a view that changes nothing (pageMessage: never
+  // Preferences). Only from this dock's own frame.
   _message(e) {
     const frame = this.renderRoot.querySelector('iframe');
     if (!frame || e.source !== frame.contentWindow) return;

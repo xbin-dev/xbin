@@ -211,6 +211,11 @@ async function agentChrome(browser) {
     check(true, `[${width}] …and the next request that waits is shown`);
 
     // ---- always this action; then the wider grant's second step ----
+    // the wider standing scope is armed like Allow: a click as the sheet appears doesn't pick it
+    await page.click(`${SHEET} [data-choice="tile"] input`, { force: true });
+    const early = { label: await text(`${SHEET} button[data-allow]`), armed: await page.$eval(`${SHEET} [data-choice="tile"] input`, (e) => e.getAttribute('aria-disabled')) };
+    check(early.label === 'Allow once' && early.armed === 'true', `[${width}] the wider scope ("every change") isn't armed as the sheet appears: a click then picks nothing (${JSON.stringify(early)})`);
+    await armed(['bx-agent-dock', 'bx-agent-approve', '[data-choice="tile"] input']);
     await page.click(`${SHEET} [data-choice="call"] input`);
     check((await text(`${SHEET} button[data-allow]`)) === 'Allow always' && (await page.$$(`${SHEET} .dur input`)).length === 2, `[${width}] "always, this exact action": the button follows, a duration is offered`);
     await page.click(`${SHEET} [data-choice="tile"] input`);
@@ -332,8 +337,25 @@ async function agentChrome(browser) {
     await page.waitForFunction(() => document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-activity').shadowRoot.querySelectorAll('li').length === 1);
     check(n1 === 1 && /Was refused: Ledger/.test(await text(`${DOCK} bx-agent-activity li`)) && /Kept by xbin for 13 months/.test(await text(`${DOCK} bx-agent-activity .pf`)), `[${width}] What my agent did: sentences, three filters`);
     await shot(page, `agent-chrome-activity${tag}`, { fullPage: false });
-    await page.evaluate(() => document.querySelector('bx-agent-dock').show('prefs'));
+    await page.click(`${DOCK} [data-menu]`); // Preferences: from the chrome's own menu (the agent's page can't open them)
+    await page.click(`${DOCK} .menu [data-view="prefs"]`);
     await page.waitForSelector(`${DOCK} bx-agent-prefs [data-admin-changes]`);
+    // what widens the agent's reach answers as Allow does: not at once, not a script's click, never Enter
+    const PREF = (s) => ['bx-agent-dock', 'bx-agent-prefs', s];
+    const unarmed = await page.$$eval(`${DOCK} bx-agent-prefs [data-widen]`, (els) => els.map((e) => `${Object.keys(e.dataset).filter((k) => k !== 'widen').join()}:${e.getAttribute('aria-disabled')}`));
+    await page.click(`${DOCK} bx-agent-prefs [data-start="allow"]`, { force: true });
+    await page.click(`${DOCK} bx-agent-prefs [data-net]`, { force: true });
+    await armed(PREF('[data-admin-changes]'));
+    await page.$eval(`${DOCK} bx-agent-prefs [data-api]`, (e) => { e.checked = false; }); // (as drawn unticked, so a click would widen)
+    await page.$eval(`${DOCK} bx-agent-prefs [data-api]`, (e) => e.click()); // a script's click
+    await page.focus(`${DOCK} bx-agent-prefs [data-admin-changes]`);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(150); // (a negative: nothing may be sent)
+    await page.$eval(`${DOCK} bx-agent-prefs [data-api]`, (e) => { e.checked = true; }); // (back as it is)
+    const held = await page.$$eval(`${DOCK} bx-agent-prefs [data-start="allow"], ${DOCK} bx-agent-prefs [data-net], ${DOCK} bx-agent-prefs [data-api], ${DOCK} bx-agent-prefs [data-admin-changes]`, (els) => els.map((e) => e.checked));
+    check(unarmed.length === 4 && unarmed.every((u) => u.endsWith(':true')) && sentTo(/PUT \/agent\/prefs/).length === 0 && !S.state.adminChanges && JSON.stringify(held) === '[false,true,true,false]',
+      `[${width}] Preferences: what widens the agent's reach — start without asking, the internet, other tiles, the admin opt-in — isn't armed at once, answers no script's click and no Enter (${unarmed.join(' ')}; ${JSON.stringify(held)})`);
+    await armed(PREF('[data-start="allow"]'));
     await page.click(`${DOCK} bx-agent-prefs [data-admin-changes]`);
     await page.click(`${DOCK} bx-agent-prefs [data-start="allow"]`);
     for (let i = 0; i < 50 && !(S.state.adminChanges === true && sentTo(/PUT \/agent\/prefs/).length); i++) await page.waitForTimeout(40);
@@ -366,7 +388,7 @@ async function agentChrome(browser) {
       const out = [];
       addEventListener('message', (e) => { if (e.data && e.data.type === 'xbin:agent-context') { out.push('about ' + e.data.tile); parent.postMessage({ type: 'xbin:open-session', session: 's-9', tile: e.data.tile, grant: 'always' }, '*'); } });
       try { parent.document.querySelector('bx-agent-dock'); out.push('READ THE PARENT'); } catch (e) { out.push('parent closed'); }
-      for (const m of [{ type: 'xbin:agent-approve', id: 'h1' }, { type: 'xbin:agent-decide', id: 'h1', verdict: 'allow', grant: 'always', scope: 'tile' },
+      for (const m of [{ type: 'xbin:agent-open', view: 'prefs' }, { type: 'xbin:agent-approve', id: 'h1' }, { type: 'xbin:agent-decide', id: 'h1', verdict: 'allow', grant: 'always', scope: 'tile' },
         { type: 'xbin:agent-review', kind: 'request', id: 'h1' }, { type: 'xbin:agent-open-request', id: 'h1', request: { method: 'GET', target: '/harmless', summary: 'PAGE TEXT' }, approve: true, grant: 'always' }]) parent.postMessage(m, '*');
       fetch('/api/xbin/delegate/requests/h1/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"grant":"always","scope":"tile"}' }).then((r) => out.push('fetch ' + r.status), () => out.push('fetch refused'));
       setInterval(() => { window.focus(); for (const k of ['Enter', ' ']) { parent.postMessage({ type: 'keydown', key: k }, '*'); document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); } }, 50);
@@ -384,6 +406,8 @@ async function agentChrome(browser) {
     check(report.includes('about apps/crawler') && asked.length === 1 && asked[0].tile === 'apps/crawler' && asked[0].session === 's-9' && Object.keys(asked[0]).sort().join() === 'page,session,tile',
       `[${width}] the page is told what the dock was opened about (xbin:agent-context), and may ask for a session's window by ids alone (${JSON.stringify(asked)})`);
     check(report.includes('parent closed') && !report.includes('READ THE PARENT'), `[${width}] the page in the frame cannot read or script the chrome (${report.join(', ')})`);
+    check(await page.evaluate(() => { const d = document.querySelector('bx-agent-dock').shadowRoot; return !d.querySelector('bx-agent-prefs') && !!d.querySelector('iframe'); }),
+      `[${width}] the page can't open Preferences (xbin:agent-open {view: prefs}): the dock stays on the conversation`);
     check(/POST \/api\/apps\/crawler\/links\/rebuild/.test(hs) && !/PAGE TEXT|\/harmless/.test(hs), `[${width}] a review message opens xbind's reading of the id — nothing the page sent is shown`);
     await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
     await page.waitForTimeout(400); // the page keeps posting, focusing and pressing: nothing may come of it
@@ -397,6 +421,12 @@ async function agentChrome(browser) {
     await page.click(`${SHEET} button[data-allow]`);
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     check(sentTo(/h1\/approve$/).filter((c) => c.top).length === 1, `[${width}] …and the person's own click still allows`);
+    // what a page may open: a view that changes nothing (Needs you), never Preferences
+    await ctx.route('**/opens.html', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body><script>
+      parent.postMessage({ type: 'xbin:agent-open', view: 'prefs' }, '*'); setTimeout(() => parent.postMessage({ type: 'xbin:agent-open', view: 'needs' }, '*'), 150);</script>` }));
+    await page.evaluate(() => { document.querySelector('bx-agent-dock').page = '/opens.html'; });
+    await page.waitForSelector(`${DOCK} [data-needs][aria-expanded="true"]`);
+    check(await page.evaluate(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-prefs')), `[${width}] …a page opens Needs you (xbin:agent-open {view: needs}), and still not Preferences`);
     await ctx.close();
   }
 
@@ -666,6 +696,7 @@ async function realHolder(browser, check, skip) {
   // ---- an admin's change set: proposed by the agent, reviewed, applied in xbin's dialog, undone ----
   await dock((d) => d.show('prefs'));
   await page.waitForSelector(`${DOCK} bx-agent-prefs [data-admin-changes]`);
+  await page.waitForFunction(() => document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-prefs').shadowRoot.querySelector('[data-admin-changes]').getAttribute('aria-disabled') === 'false'); // (armed, as Allow)
   if (!(await state()).adminChanges) await page.click(`${DOCK} bx-agent-prefs [data-admin-changes]`);
   await R.until(async () => (await state()).adminChanges === true, 'adminChanges is on at xbind');
   check(true, '[real] Preferences: "Let my agent propose admin changes" is the admin\'s own switch at xbind');

@@ -567,7 +567,7 @@ export const handoffLink = (tile) => `/?tile=${encodeURIComponent(tilePath(tile)
  *   xbin:open-session {session, tile} → {type: 'session', tile, session}
  *   xbin:open-session {session: "new", tile, draft}
  *                                     → {type: 'new-session', tile, draft}  (draft: plainDraft)
- *   xbin:agent-open {view}            → {type: 'open', view}  (approvals | activity | prefs)
+ *   xbin:agent-open {view}            → {type: 'open', view}  (needs | approvals | activity — never prefs)
  *
  * or null. Ids and a word — and a new session's draft, the person's own
  * words, kept as plain text for its composer: no other field of a message
@@ -584,9 +584,13 @@ export function pageMessage(data) {
     if (tile && session === 'new') return { type: 'new-session', tile, draft: plainDraft(data.draft) };
     return tile && session ? { type: 'session', tile, session } : null;
   }
-  if (data.type === 'xbin:agent-open') return ['approvals', 'activity', 'prefs'].includes(data.view) ? { type: 'open', view: data.view } : null;
+  // only views that change nothing: Preferences — where the agent's reach widens — opens from the chrome's own menu alone
+  if (data.type === 'xbin:agent-open') return PAGE_VIEWS.includes(data.view) ? { type: 'open', view: data.view } : null;
   return null;
 }
+
+/** PAGE_VIEWS: the dock's views the agent's page may ask for (xbin:agent-open {view}) — the ones that change nothing. */
+export const PAGE_VIEWS = Object.freeze(['needs', 'approvals', 'activity']);
 
 /** contextMessage(context): what the dock tells the page it was opened about — xbin:agent-context {tile} or {screen} — or null. */
 export function contextMessage(context) {

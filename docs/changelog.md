@@ -30,7 +30,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   Start: no request where the person lets starts through, one filed
   wherever xbind says it is needed. `notebook_search` counts the pages a
   session can't read whatever the words searched for (the count of the
-  matching ones said what they held).
+  matching ones said what they held). The chrome: the agent's page may
+  open only views that change nothing (`xbin:agent-open {view}`: `needs`,
+  `approvals`, `activity` — no longer `prefs`), and every control that
+  widens what the agent may do is armed like Allow.
 
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),

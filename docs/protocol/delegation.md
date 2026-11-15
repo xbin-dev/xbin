@@ -712,7 +712,9 @@ xbin:open-session         {session: "new", a new session of the tile's own
                                            characters) in the composer of the
                                            one they pick — never sent by the
                                            message
-xbin:agent-open           {view}           approvals | activity | prefs
+xbin:agent-open           {view}           needs | approvals | activity — a
+                                           view that changes nothing; never
+                                           Preferences
 ```
 
 A new session's `draft` is read as plain text — line ends made `\n`,
@@ -727,7 +729,18 @@ The chrome reads the request or change set from xbind itself
 xbind's reading: the call, its class, the body's text or its size and
 hash, the warnings. The agent's own sentence (`summary`, `why`) is shown
 quoted and labelled as the agent's. An id that isn't the person's opens
-nothing. No message approves, denies, resumes or changes a preference.
+nothing. No message approves, denies, resumes or changes a preference, and
+none opens Preferences: they open from the chrome's own menu only.
+
+**What widens the agent's reach is armed like Allow.** A page that baits
+a double-click, or scripts one, must not land it on a control that widens
+what the agent may do: Allow, the approval's wider standing scope, and in
+Preferences "start without asking", a wider network, other tiles' APIs and
+the admin opt-in each answer only the person's own click (`isTrusted`),
+not for 600 ms after the control appears, only while nothing covers it and
+the window has their attention — and never Enter. Until then it carries
+`aria-disabled="true"`. Narrowing (back to asking, no internet, the
+opt-in off) is never held up.
 
 **What the chrome tells the page**: `{type: "xbin:agent-context", tile}`
 or `{…, screen}` when the dock was opened about a tile or a screen — once

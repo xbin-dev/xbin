@@ -21,8 +21,9 @@
  * the person: Allow is not armed for 600 ms after the sheet (or its second
  * step) appears, and only while nothing covers it and the window has the
  * person's attention; a click must be the person's own (isTrusted); Enter
- * never allows — Deny and Escape ("not now") are always there. Focus lands
- * on the heading and stays in the sheet.
+ * never allows — Deny and Escape ("not now") are always there. The wider
+ * standing choice is held the same way (WidenGuard). Focus lands on the
+ * heading and stays in the sheet.
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
@@ -45,6 +46,42 @@ export function uncovered(el) {
     at = inner;
   }
   return !!at && (at === el || el.contains(at));
+}
+
+/**
+ * WidenGuard: a control that widens what the agent may do — start tile
+ * agents without asking, a wider network, the admin opt-in, a standing
+ * approval's wider scope — answers as Allow does, so a page that baits a
+ * double-click or scripts a click can't land one on it: not for
+ * CHOICES.armMs after it appears (or after rearm()), only the person's own
+ * click (isTrusted) while nothing covers it and the window has their
+ * attention, and never by Enter. Narrowing — back to asking, no internet,
+ * the opt-in off — is never held up. A host marks each such control
+ * data-widen ("on": checking it widens; "off": unchecking it does — a
+ * radio or a checkbox) and binds @click=${guard.click} @keydown=${guard.key};
+ * the control carries aria-disabled until it is armed.
+ */
+export class WidenGuard {
+  constructor(host) { this.host = host; this.seen = new WeakMap(); host.addController(this); }
+  hostUpdated() {
+    for (const el of this.host.renderRoot.querySelectorAll('[data-widen]')) {
+      if (this.seen.has(el)) continue;
+      this.seen.set(el, performance.now());
+      el.setAttribute('aria-disabled', 'true');
+      setTimeout(() => { if (this.seen.has(el) && this.armed(el)) el.setAttribute('aria-disabled', 'false'); }, CHOICES.armMs + 10);
+    }
+  }
+  /** rearm(): every control waits again — the host shows something new (another request, another step). */
+  rearm() { this.seen = new WeakMap(); this.host.requestUpdate(); }
+  armed(el) { const t = this.seen.get(el); return t != null && performance.now() - t >= CHOICES.armMs; }
+  click = (e) => {
+    const el = e.currentTarget;
+    if (!(el.dataset.widen === 'off' ? !el.checked : el.checked)) return; // (the click's toggle is applied already: this is where it would land)
+    if (e.isTrusted && this.armed(el) && document.hasFocus() && uncovered(el)) return;
+    e.preventDefault(); // the control stays as it was, and no change follows
+    e.stopImmediatePropagation();
+  };
+  key = (e) => { if (e.key === 'Enter') e.preventDefault(); };
 }
 
 export class BxAgentApprove extends LitElement {
@@ -80,6 +117,7 @@ export class BxAgentApprove extends LitElement {
     this._choice = 'once'; this._duration = ''; this._step = 'main'; this._armed = false; this._busy = false; this._err = ''; this._all = false;
     this._timer = 0;
     this.store = agentStore();
+    this._widen = new WidenGuard(this); // the wider standing choices
   }
 
   willUpdate(ch) {
@@ -95,6 +133,7 @@ export class BxAgentApprove extends LitElement {
   // Allow answers only after the sheet has been in front of the person for a moment
   _arm() {
     this._armed = false;
+    this._widen.rearm();
     clearTimeout(this._timer);
     this._timer = setTimeout(() => { this._armed = true; }, CHOICES.armMs);
   }
@@ -181,7 +220,8 @@ export class BxAgentApprove extends LitElement {
       <fieldset class="choices" role="radiogroup" aria-label="Allow">
         <legend><h3>Allow</h3></legend>
         ${choices.map((c) => html`<label class="choice ${this._choice === c.id ? 'on' : ''}" data-choice=${c.id}>
-          <input type="radio" name="grant" .checked=${this._choice === c.id} @change=${() => { this._choice = c.id; this._duration = ''; }}
+          <input type="radio" name="grant" .checked=${this._choice === c.id} data-widen=${c.wider ? 'on' : nothing} @click=${c.wider ? this._widen.click : nothing}
+            @keydown=${c.wider ? this._widen.key : nothing} @change=${() => { this._choice = c.id; this._duration = ''; }}
             aria-label=${`${c.label}${c.wider ? ', wider' : ''}. ${c.text}`}>
           <span class="ct"><b>${c.label}${c.wider ? html`<span class="tag warn"><bx-icon name="warning"></bx-icon>wider</span>` : nothing}</b><span class="small muted">${c.text}</span></span></label>`)}
       </fieldset>
