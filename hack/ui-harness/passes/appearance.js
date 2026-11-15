@@ -54,8 +54,12 @@ const FILES = {
 // document (about:blank) hands its window on to the page that replaces it.
 function firstFrame() {
   const doc = document;
-  requestAnimationFrame(() => {
-    if (doc !== document || !doc.documentElement) return; // replaced since
+  requestAnimationFrame(function look() {
+    if (doc !== document) return; // replaced since
+    // a frame can come before the parser made <html> (a slow answer): then
+    // nothing of the page is drawn yet, and the first frame is a later one
+    // (this once returned for good, and the record never came)
+    if (!doc.documentElement) { requestAnimationFrame(look); return; }
     const cs = getComputedStyle(doc.documentElement);
     doc.bxFirst = {
       scheme: cs.getPropertyValue('--bx-scheme').trim() || 'none',
