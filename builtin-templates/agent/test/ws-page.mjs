@@ -66,7 +66,8 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   ok('the brief: the four fields in its card', ['GOAL', 'DONE WHEN', 'LEAVE ALONE', 'CHECK BY'].every((w) => brief.toUpperCase().includes(w)) && brief.includes('Export open orders'), brief);
   const req = await page.$eval('.wsc-req[data-req="12"]', (e) => ({ t: e.innerText, btns: [...e.querySelectorAll('button')].map((b) => b.innerText.trim()) })).catch(() => null);
   ok('a request that waits: what, for which tile, how long it has, one Review…', req && req.t.includes('Waiting for your approval') && req.t.includes('Invoices') && /expires in/.test(req.t) && req.btns.join() === 'Review…', JSON.stringify(req));
-  ok('…in place of the call that filed it', (await page.$$eval('.bxc-row', (rows) => rows.filter((r) => r.querySelector('.wsc-req[data-req="12"]')).length)) === 1);
+  ok('…in place of the call that filed it (its callId)', (await page.$$eval('.bxc-row', (rows) => rows.filter((r) => r.querySelector('.wsc-req[data-req="12"]')).map((r) => r.dataset.k))).join() === 'cc1');
+  ok('the brief in place of the tile_agent_brief call that wrote it (its callId)', (await page.$$eval('.bxc-row', (rows) => rows.filter((r) => r.querySelector('.wsc-brief')).map((r) => r.dataset.k))).join() === 'cb1');
   const ref = await text(page, '[data-refusal="policy"]');
   ok('xbin\'s refusal (cards.refusals, kind policy): the tile, the org\'s sentence, the rule, two ways forward', ref.includes('Ledger is blocked by a rule') && ref.includes('Finance allows private models only') && ref.includes('not something the agent can work around') && ref.includes('Change the model…') && ref.includes('Open scope'), ref);
   ok('…after the call it answers', (await page.$$eval('.bxc-row', (rows) => rows.filter((r) => r.dataset.k === 'cl1' && r.querySelector('[data-refusal="policy"]')).length)) === 1);

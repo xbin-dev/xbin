@@ -220,10 +220,10 @@ export const CONVERSATION = {
 export const CARDS = {
   plan: [{ text: 'Read how Orders and Invoices work today', kind: 'reads', state: 'done' }, { text: 'Orders’ agent adds the CSV export', kind: 'asks', state: 'working' },
     { text: 'Rebuild the links on the 38 open invoices', kind: 'asks', state: 'waiting' }, { text: 'Check both and report back', kind: 'reads', state: 'todo' }],
-  briefs: [{ id: 4, tile: 'sales/orders', goal: 'Add “Export open orders (CSV)” to a customer’s page.', doneWhen: 'A CSV with order no., date, status and total downloads for one customer.',
+  briefs: [{ id: 4, callId: 'b1', tile: 'sales/orders', goal: 'Add “Export open orders (CSV)” to a customer’s page.', doneWhen: 'A CSV with order no., date, status and total downloads for one customer.',
     leaveAlone: 'The orders table and its existing API.', checkBy: 'Tests for the export; a preview of the customer page.', state: 'started', createdMs: now - 500e3, updatedMs: now - 500e3 }],
   requests: [
-    { id: 12, kind: 'call', ref: 'rq-12', tile: 'sales/invoices', title: 'Rebuild the order links on the 38 open invoices', method: 'POST', path: '/links/rebuild', state: 'pending', createdMs: now - 120e3, expiresMs: now - 120e3 + 86400e3 },
+    { id: 12, kind: 'call', ref: 'rq-12', callId: 'c1', tile: 'sales/invoices', title: 'Rebuild the order links on the 38 open invoices', method: 'POST', path: '/links/rebuild', state: 'pending', createdMs: now - 120e3, expiresMs: now - 120e3 + 86400e3 },
     { id: 11, kind: 'session', ref: 'rq-11', tile: 'sales/orders', title: 'start a tile agent in sales/orders', brief: 4, state: 'used', outcome: 'approved by your person — tile agent #7 started in sales/orders (claude, asks before acting).',
       createdMs: now - 480e3, decidedMs: now - 470e3, expiresMs: now - 480e3 + 86400e3, by: 'person', via: 'session', grant: 'once', result: 'tile agent #7 started in sales/orders (Claude Code)' },
   ],

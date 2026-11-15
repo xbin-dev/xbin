@@ -5858,7 +5858,7 @@ orgs, reason, offer: {newSession: {model}}}`.
 | `PATCH /ws/sessions/{id}` | `{name?, archived?, scope? ({orgs, tiles} or null: everything allowed), model?}` → `{session}`; `409` for Main's archive, a model change while it works, and `model_taint` |
 | `DELETE /ws/sessions/{id}` | not Main. Closes the handle and withdraws its pending requests; tile agents it started keep running, as their person's |
 | `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection: {counts, orgs: [{id, name, kind, state, reason?, tiles, connected}]}, summary, model, handle}`; with `whatIf` also `whatIf: {model, connects, disconnects, counts, summary, allowed, taintedOrgs}` and, when not allowed, `offer: {newSession: {model}}`. Totals and org-level reasons only: the page reads the tiles' names from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`) |
-| `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset, ref, tile, title, method, path, brief, state, outcome, createdMs, decidedMs, expiresMs?, grant?, grantUntilMs?, by?, via?, resultStatus?, result?}], agents: [{id, session, tile, harness, mode, asks, status, waits, waiting, last, held}], briefs: [{id, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}], refusals: [{id, callId, tool, kind, reason, tile, createdMs}], ask?}` — the fields are described under "In fields" below. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
+| `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset, ref, callId?, tile, title, method, path, brief, state, outcome, createdMs, decidedMs, expiresMs?, grant?, grantUntilMs?, by?, via?, resultStatus?, result?}], agents: [{id, session, tile, harness, mode, asks, status, waits, waiting, last, held}], briefs: [{id, callId?, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}], refusals: [{id, callId, tool, kind, reason, tile, createdMs}], ask?}` — the fields are described under "In fields" below. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
 | `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?, harness?}`: the person's edit, and their pick of a coding agent among what the tile allows (409 otherwise; `""`: xbind's default again). A request already filed for the old brief is withdrawn and filed again |
 | `GET /ws/sessions/{id}/briefs/{bid}/start-defaults` | what the brief's start would run on, from xbind: `{defaults, picked, harness, harnessName, line}` ("Claude Code · asks before acting") |
 | `POST /ws/sessions/{id}/briefs/{bid}/start` | "Review and start…" → `{request, id}` (the request to review; filed now when the agent hadn't asked), or `{started, id, outcome}` where the person's preferences let tile agents start without xbind asking — there the click is the confirmation |
@@ -5907,8 +5907,11 @@ beside them are the model's, and neither is parsed out of the other.
   connected?}` — `connected` absent when xbind couldn't be asked — or
   `{screen}`), and the model reads it as one labelled line
   before their words — `[context your person attached to this message: the
-  tile "Orders" (apps/orders)]`. A malformed context is dropped; outside a
-  workspace agent's session the field is ignored.
+  tile "Orders" (apps/orders)]`. The run view answers it back on the
+  message as `context`, in the stored shape (`GET /runs/{id}/view`, its
+  pages, and the `message` events of `/stream`): what the page draws the
+  sent message's "About …" chip from. A malformed context is dropped;
+  outside a workspace agent's session the field is ignored.
 - **A request's outcome** (`cards.requests[]`): `expiresMs` (when xbind
   lets it lapse); once decided, `by` (`person` \| `xbin` — it expired — \|
   `agent` — it withdrew it) and `via` (what the person decided it on:
@@ -5919,6 +5922,13 @@ beside them are the model's, and neither is parsed out of the other.
   agent #2 started in apps/orders (Claude Code)", "the tile apps/crm now
   exists", "2 of 3 changes applied", or why it failed). `outcome` stays the
   sentence the model was told.
+- **Where a card sits** (`cards.requests[].callId`, `cards.briefs[].callId`):
+  the id of the tool call that made it — the `tile_call`, `tile_agent_start`,
+  `tile_create` or `admin_propose` that filed a request, the
+  `tile_agent_brief` that wrote a brief — kept for the item's life: a
+  request asked again after its brief was edited, and one decided, keep
+  theirs. Absent where no tool call made it: a request the brief's Start
+  filed (the page draws it by its `brief`), or one filed before the field.
 - **A refusal** (`cards.refusals[]`, newest first, 50 at most): a tool call
   that xbind refused, or that named a tile the session isn't connected to —
   `{callId, tool, kind, reason, tile}`, `callId` being the tool call it
@@ -5993,7 +6003,8 @@ forward; banners for paused, a stopping quota, turned off, xbin updating
 and back, no connection; the conversation — the run view, drawn with the
 chat kit's rows and window, with the session's cards set where the
 conversation made them (`ws/place.js`: a request in place of the call that
-filed it, a brief in place of `tile_agent_brief`, a tile agent after the
+filed it, a brief in place of `tile_agent_brief` — both by their `callId`,
+else a request after its brief, else by time —, a tile agent after the
 request that started it, the plan in place of its first `plan` call, a
 refusal after the call it answers (`refusals[].callId`), an `ask_user` by
 its `kind` — choices as the kit's question form, a redirect's two ways
@@ -6013,7 +6024,7 @@ whole contract):
 | `xbin:agent-open-request {id}` | page → chrome | open the approval of xbind's request `id` (a request's `ref`; the brief's start answers one) |
 | `xbin:agent-open-changeset {id}` | page → chrome | open the review of an admin change set |
 | `xbin:open-session {session, tile}` | page → chrome | show a tile agent's session in its tile's window (`xbin.openSession`, D229) |
-| `xbin:open-session {session: "new", tile, draft}` | page → chrome | a redirect's "Hand this to <tile>'s own agent": a new session of the tile's own agent with the person's own words as its draft (at most 8000 characters); nothing is sent |
+| `xbin:open-session {session: "new", tile, draft}` | page → chrome | a redirect's "Hand this to <tile>'s own agent": a new session of the tile's own agent with the person's own words as its draft (at most 8000 characters, plain text) — the tile's window opens on a new session's launcher, and the words wait in the composer of the coding agent the person picks; nothing is started or sent by the message. A shell from before this gets a plain link to the tile |
 | `xbin:agent-context {tile}` \| `{screen}` | chrome → page | what the dock was opened about: the composer's context chip, one tap to remove, sent with the next message only, as its `context` field (`POST /runs/{id}/message {text, context}`) — the person's words stay their own; the chip above a sent message is drawn from the `context` the backend answers back |
 
 A message in is taken only from the framing window, and read strictly (a

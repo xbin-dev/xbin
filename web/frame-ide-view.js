@@ -36,7 +36,7 @@
 import { html, css, nothing, repeat } from 'lit';
 import '/vendor/bx-icons.js';
 import { dragPointer, clampBox } from '/vendor/bx-kit.js';
-import { launcher, resumeHistory } from '/vendor/frame-launcher.js';
+import { launcher, handoff, resumeHistory } from '/vendor/frame-launcher.js';
 import { hasLayout } from '/vendor/frame-deploy.js';
 import { sessionTarget } from '/vendor/deploy-state.js';
 import { layoutToPref, uid } from '/vendor/term-sessions.js';
@@ -282,7 +282,7 @@ function stage(f, placed) {
     return t.kind === 'agent'
       ? html`<bx-agent style=${style} data-key=${t.key} .ask=${(spec) => f._ask(spec)} @pointerdown=${focus} @focusin=${focus}
           component=${f.src} session=${t.id ?? nothing} provider=${t.history || t.restarting ? nothing : (t.provider || nothing)} ?ended=${!!t.ended} ?restarting=${!!t.restarting} ?vm=${!!t.vm}
-          history=${t.history || nothing} resume=${t.resume || nothing}
+          history=${t.history || nothing} resume=${t.resume || nothing} .draft=${t.draft || ''}
           @bx-session=${(ev) => f._gotSession(t.key, ev)}
           @bx-resume=${(ev) => resumeHistory(f, ev.detail, t.key)} @bx-new-agent=${(ev) => f._startKind('agent', ev.detail.provider)}
           @bx-open-terminal=${(ev) => f._signIn(ev)}
@@ -472,6 +472,7 @@ export function ideBody(f) {
           ${repeat(ordered, (r) => r.id, (r) => paneTpl(f, r, panes.length))}
           ${stage(f, placed)}
           ${dividers.map((d) => divTpl(f, d))}
+          ${handoff(f)}
           ${f._ideDrag ? dropLayer(f, panes) : nothing}
         </div>
         ${dockTpl(f)}

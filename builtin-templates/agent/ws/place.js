@@ -3,9 +3,10 @@
 // (model/fold.js); what the agent started or asked for lives beside it, in
 // the session's cards (GET /ws/sessions/{id}/cards: requests, tile agents,
 // briefs, the plan). compose() puts each card where the conversation made
-// it — in place of the tool call that made it, or after the line it follows
-// in time — and says which rows the cards make redundant (the journal's
-// "asked: …" beside a question card, a plan's later updates). The window of
+// it — in place of the tool call that made it (the card's callId), or
+// after the line it follows in time — and says which rows the cards make
+// redundant (the journal's "asked: …" beside a question card, a plan's
+// later updates). The window of
 // rows stays the fold's (a row may draw several cards, or nothing), so the
 // session's paging is untouched. Pure: node-tested.
 import { planBlock, refusalCard, clock } from './words.js';
@@ -152,24 +153,22 @@ export function compose(blocks, cards, run, opts = {}) {
   }
   for (const b of list) if (b.k === 'step' && b.kind === 'ask' && (!b.detail || b.detail.kind === 'ask_user' || !b.detail.kind)) slot(b.id).hide = true;
 
-  // briefs: in place of the call that wrote them ("Brief N for …"), else by time
+  // briefs: in place of the tile_agent_brief call that wrote them (their callId), else by time
   const briefAt = new Map(); // brief id → its card's anchor
   const briefs = Array.isArray(c.briefs) ? c.briefs : [];
-  const briefCalls = tools.filter((b) => b.name === 'tile_agent_brief');
   for (const br of briefs) {
-    const call = briefCalls.find((b) => num(/Brief (\d+) for /, b.result) === br.id);
+    const call = br.callId && byCall.get(br.callId);
     const blk = host('brief', 'ws:brief:' + br.id, br);
     if (call) { place(blk, call.id, 'replace'); briefAt.set(br.id, call.id); } else { const a = anchorAt(br.createdMs || 0); place(blk, a); briefAt.set(br.id, a); }
   }
 
-  // requests: in place of the call that filed them ("Pending — request N (…)"; an older backend parked the call on
-  // them: callId, "Filed as request N", "Request N (…):"), after
-  // their brief's card, else by time
+  // requests: in place of the tool call that filed them (their callId), else after their brief's card (the brief's
+  // Start filed it), else by time
   const reqAt = new Map();
   const reqs = (Array.isArray(c.requests) ? c.requests : []).slice().sort((a, b) => (a.createdMs || 0) - (b.createdMs || 0) || a.id - b.id);
   for (const q of reqs) {
     const blk = host('request', 'ws:req:' + q.id, q);
-    const call = (q.callId && byCall.get(q.callId)) || tools.find((b) => num(/(?:Filed as request|Pending — request) (\d+)/, b.result) === q.id || num(/^Request (\d+) \(/, b.result) === q.id);
+    const call = q.callId && byCall.get(q.callId);
     if (call && !(at.get(call.id) && at.get(call.id).replace)) { place(blk, call.id, 'replace'); reqAt.set(q.id, call.id); continue; }
     const a = call ? call.id : q.brief && briefAt.has(q.brief) ? briefAt.get(q.brief) : anchorAt(q.createdMs || 0);
     place(blk, a);

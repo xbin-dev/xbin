@@ -36,6 +36,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **The workspace agent's page, its backend and xbin's chrome meet** (D235;
+  [workspace-agent.md](/docs/workspace-agent.md), [protocol/delegation.md
+  §The chrome](/docs/protocol/delegation.md#the-chrome)): the run view
+  answers a sent message's `context` (its "About …" chip);
+  `cards.requests[]` and `cards.briefs[]` carry `callId`, the tool call
+  that made them, for the item's life, and the page places its cards by it
+  instead of the tool's words; `xbin:open-session {session: "new", tile,
+  draft}` opens the tile's window on a new session's launcher with the
+  person's words waiting, unsent, in the composer of the coding agent they
+  pick (`<bx-frame>` `open({session: "new", draft})`, the dock's
+  `bx-agent-new-session`; a shell from before it gets a plain link). A
+  tile's ⋯ menu has **Ask my agent about this tile** (the scaffold's
+  `shell/shell-agent.js`), which opens the dock about that tile.
+  Preferences pick the mode a tile agent your agent starts gets among the
+  modes that ask before acting, naming the ones that don't.
 - **The workspace agent's page draws from fields** (D235): the context
   chip is sent as the message's `context`; request cards, refusals
   (`cards.refusals`), the agent's question kinds (a redirect, can't), the

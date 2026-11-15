@@ -99,7 +99,7 @@ export async function showSession(session, tile, win = globalThis.window, draft)
   const msg = openSession(session, tile, draft);
   if (!msg) return false;
   const x = win && win.xbin;
-  if (x && typeof x.openSession === 'function' && !msg.draft) {
+  if (x && typeof x.openSession === 'function' && msg.session !== 'new') { // (a new session is the chrome's alone: the bare message)
     try { return await x.openSession({ tile: msg.tile, session: msg.session }); } catch { /* the bare message below */ }
   }
   return post(msg, win);

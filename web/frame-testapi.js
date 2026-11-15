@@ -55,6 +55,7 @@ export function testApi(f) {
     newTerm() { f._newTerm(); },
     newAgent() { f._newAgent(); },
     startKind(kind, provider, opts) { f._startKind(kind, provider, opts || {}); }, // launcher path (a provider eager-creates)
+    get handoff() { return f._handoff ? { draft: f._handoff.draft } : null; }, // a new session's launcher asked for: open({session: "new", draft})
     get notOffered() { return notOffered(f.src).map((p) => ({ id: p.id, why: p.unavailable })); }, // the harnesses the tile's rules keep out, and why (D229)
     launcherItems() { return launcherItems(f).map((it) => it.label || it.kind || (it.kind === 'sep' ? '—' : '')); },
     closeTab(i) { f._closeTerm(i | 0); },

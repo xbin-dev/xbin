@@ -23,7 +23,7 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
-import { needs, standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState } from '/vendor/agent-chrome-words.js';
+import { needs, standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, neverAsks } from '/vendor/agent-chrome-words.js';
 
 // an element that draws the store: it subscribes while it is in the page
 class StoreView extends LitElement {
@@ -107,11 +107,17 @@ export class BxAgentActivity extends StoreView {
 }
 
 export class BxAgentPrefs extends StoreView {
-  static properties = { _prefs: { state: true }, _err: { state: true } };
+  static properties = { _prefs: { state: true }, _provs: { state: true }, _err: { state: true } };
   static styles = [chromeCss, css`:host { display: flex; flex-direction: column; min-height: 0; flex: 1; } .sec { padding: 12px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--bx-border, #33353F); }
-    label.row { display: flex; gap: 8px; align-items: flex-start; } label.row input { margin-top: 3px; }`];
-  constructor() { super(); this._prefs = null; this._err = ''; }
-  connectedCallback() { super.connectedCallback(); this.store.prefs().then((p) => { this._prefs = p || {}; }); }
+    label.row { display: flex; gap: 8px; align-items: flex-start; } label.row input { margin-top: 3px; }
+    label.mode { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } label.mode .nm { flex: 1 1 120px; min-width: 0; }
+    label.mode select { flex: 1 1 160px; min-width: 0; max-width: 100%; }`];
+  constructor() { super(); this._prefs = null; this._provs = []; this._err = ''; }
+  connectedCallback() {
+    super.connectedCallback();
+    this.store.prefs().then((p) => { this._prefs = p || {}; });
+    this.store.providers().then((p) => { this._provs = p; });
+  }
 
   async _save(patch) {
     this._err = '';
@@ -135,9 +141,13 @@ export class BxAgentPrefs extends StoreView {
         <label class="row"><input type="radio" name="start" data-start="ask" .checked=${start === 'ask'} @change=${() => this._save({ start: 'ask' })}><span>Ask me each time</span></label>
         <label class="row"><input type="radio" name="start" data-start="allow" .checked=${start === 'allow'} @change=${() => this._save({ start: 'allow' })}>
           <span>Start without asking<div class="small muted">Only in a mode that asks before acting, with the network below. You are told in the chat.</div></span></label></div>
-      <div class="sec"><h3>Started tile agents get</h3>
-        <div>Mode: ${Object.keys(a.modes || {}).length ? Object.entries(a.modes).map(([h, m]) => html`<span class="mono">${h}: ${m}</span> `) : "each coding agent's asking mode"}
-          <div class="small muted">modes that never ask can't be saved here</div></div>
+      <div class="sec" data-modes><h3>Started tile agents get</h3>
+        <div class="small muted">The mode each coding agent starts in. Only modes that ask you before acting are offered.</div>
+        ${sessionModes(this._provs, a.modes).map((r) => html`<label class="mode"><span class="nm">${r.name}</span>
+          <select data-mode=${r.id} aria-label=${`Mode for ${r.name}`} @change=${(e) => this._save({ modes: { [r.id]: e.target.value || null } })}>
+            <option value="" ?selected=${!r.value}>Its own asking mode</option>
+            ${r.options.map((o) => html`<option value=${o.id} ?selected=${o.id === r.value}>${o.name}</option>`)}</select></label>
+          ${r.never.length ? html`<div class="small muted" data-never=${r.id}>${neverAsks(r.never)}</div>` : nothing}`)}
         <label class="row"><input type="checkbox" data-net .checked=${!a.net || a.net === 'none'} @change=${(e) => this._save({ net: e.target.checked ? 'none' : null })}><span>Its model only. No internet.</span></label>
         <label class="row"><input type="checkbox" data-api .checked=${a.api !== false} @change=${(e) => this._save({ api: e.target.checked })}><span>Other tiles: it may call the tile APIs its tile is granted</span></label></div>
       ${st.canAdminChanges ? html`<div class="sec" data-admin><h3>Admin changes</h3>

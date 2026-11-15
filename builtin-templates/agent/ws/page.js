@@ -150,7 +150,7 @@ function contextOf(kb) {
   const id = kb.$src && kb.$src.msgId;
   const v = id != null ? session.views.get(S.sel) : null;
   const m = v && v.messages.find((x) => x.id === id);
-  return m ? m.context || (m.meta && m.meta.context) || null : null;
+  return (m && m.context) || null; // the run view's message: {tile, name?, connected?} | {screen}
 }
 const aboutChip = (a, extra = nothing) => html`<span class="wsp-about">${icon(a.tile ? 'grid' : 'columns')}About ${a.tile ? '' : 'the '}<b>${a.tile ? a.name || a.tile : a.screen}</b>${a.tile ? '' : ' screen'}${extra}</span>`;
 

@@ -75,6 +75,7 @@ export class BxAgent extends LitElement {
     ended: { type: Boolean }, // the session is gone (the frame keeps the tab): no polling, the transcript stays
     restarting: { type: Boolean }, // the frame is restarting this tab's agent with other sandbox pickers (frame-launcher.js restartAgent)
     vm: { type: Boolean }, // set by the launcher: create the session in a VM sandbox (the tile's choice, frame-launcher.js wantVM)
+    draft: { attribute: false }, // set by the launcher (open({session: "new", draft})): the composer's first words — plain text, never sent by itself
     _historyMeta: { state: true },
     _providers: { state: true },
     _provider: { state: true },
@@ -186,7 +187,11 @@ export class BxAgent extends LitElement {
 
   // the window [start, end) of the loaded blocks is placed right before the
   // render and the reader's view corrected right after it (chat/window.js)
-  willUpdate() { this._win.place(this._blocks()); }
+  willUpdate(ch) {
+    // the launcher's draft goes into the composer once, as text the person edits and sends — or doesn't
+    if (ch.has('draft') && typeof this.draft === 'string' && this.draft && !this._draft && !this._drafted) { this._draft = this.draft.slice(0, 8000); this._drafted = true; }
+    this._win.place(this._blocks());
+  }
 
   updated(ch) {
     this._react(ch);

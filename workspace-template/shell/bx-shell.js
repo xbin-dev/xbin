@@ -88,7 +88,7 @@ import { placeFixed } from './fixed-layout.js';
 import { gridItems, itemsOf } from './blocks.js'; // headings and text on a screen, no tile (D192)
 import { mutateItems, addBlock, blockTestApi } from './shell-blocks.js';
 import { followRoute, routeUpdated, routeBar } from './shell-route.js'; // the place shown, in the page's URL (#7)
-import { followAgent, agentChip, agentDock, shownAlert } from './shell-agent.js'; // the workspace agent: its chip, and xbind's dock beside the canvas (D232)
+import { followAgent, agentChip, agentDock, agentTileItems, shownAlert } from './shell-agent.js'; // the workspace agent: its chip, and xbind's dock beside the canvas (D232)
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -990,7 +990,7 @@ export class BxShell extends LitElement {
     };
   }
   _canvasMenuItems(at) { return canvasMenuItems(this._menuState(), this._menuActions(at)); }
-  _tileMenuItems(path, at) { return tileMenuItems(path, this._menuState(), this._menuActions(at)); }
+  _tileMenuItems(path, at) { return agentTileItems(this, path, tileMenuItems(path, this._menuState(), this._menuActions(at))); }
   _openFromMenu(path, at = null) { if (!this._isOpen(path)) this._toggle(path, at); }
   _noteRecent(path) { this._recent = [path, ...(this._recent ?? []).filter((p) => p !== path)].slice(0, 20); }
 

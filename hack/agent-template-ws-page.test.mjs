@@ -113,8 +113,13 @@ test('refusals from their fields: each kind its words and ways forward; the two 
   assert.deepEqual(card('taint').ways, ['model']);
   for (const k of ['paused', 'off', 'slow']) assert.equal(card(k).quiet, true, k);
   assert.equal(card('something-new').title, 'xbin refused this');
-  // what the page still reads of the tool answers (no field links a request or a brief to its call yet)
-  for (const phrase of ['Brief %d for %s is in front of your person', 'Pending — request %d (']) assert.ok(backend.includes(phrase), `the backend says "${phrase}"`);
+  // a request's and a brief's place is their callId: the page reads nothing of the tool's answer to find it
+  assert.doesNotMatch(src('ws/place.js'), /Pending — request|Filed as request|Brief \(|\^Request \(/);
+  assert.equal([...src('_backend/ws_store.go').matchAll(/CallID +string +`json:"callId,omitempty"`/g)].length, 3, 'wsReq, wsBrief and wsRefused carry callId');
+  assert.match(src('_backend/ws_tools_agents.go'), /CallID: toolCallOf\(ctx\)/, 'a brief records the call that wrote it');
+  assert.match(src('_backend/ws_tools_act.go'), /req\.CallID = toolCallOf\(ctx\)/, 'a request records the call that filed it');
+  // the context of a sent message comes back on the run view's message (stream.go messageView)
+  assert.match(src('_backend/stream.go'), /v\["context"\] = meta\.Context/);
   assert.ok(backend.includes(`wsUpdatesHead = "${UPDATES}xbin and tile agents reporting, not your person]"`));
 });
 
@@ -260,8 +265,8 @@ test('compose: each card where the conversation made it; nothing lost; the redun
   ];
   const cards = {
     plan: [{ text: 'x', kind: 'asks', state: 'todo' }],
-    briefs: [{ id: 4, tile: 'sales/orders', state: 'started', createdMs: 0 }],
-    requests: [{ id: 12, kind: 'call', ref: 'rq-12', state: 'pending', createdMs: 0 }, { id: 11, kind: 'session', ref: 'rq-11', brief: 4, state: 'used', outcome: 'approved by your person — tile agent #7 started in sales/orders', createdMs: 0 }],
+    briefs: [{ id: 4, callId: 'b1', tile: 'sales/orders', state: 'started', createdMs: 0 }],
+    requests: [{ id: 12, kind: 'call', ref: 'rq-12', callId: 'c1', state: 'pending', createdMs: 0 }, { id: 11, kind: 'session', ref: 'rq-11', brief: 4, state: 'used', outcome: 'approved by your person — tile agent #7 started in sales/orders', createdMs: 0 }],
     refusals: [{ id: 3, callId: 'c1', tool: 'tile_call', kind: 'slow', reason: '', tile: '' }, { id: 2, callId: 'zz', tool: 'tile_call', kind: 'policy', reason: 'r', tile: 'f/l', createdMs: 0 }],
     agents: [{ id: 7, tile: 'sales/orders', brief: 4, status: 'running', startedMs: 0 }, { id: 9, tile: 'x/y', status: 'running', startedMs: 999_999_999 }],
   };
@@ -286,6 +291,14 @@ test('compose: each card where the conversation made it; nothing lost; the redun
   const v1 = at('cc1').replace[0].v;
   cards.requests[0].state = 'used';
   assert.notEqual(compose(blocks, cards, {}, { words: W.W }).at.get('cc1').replace[0].v, v1);
+  // without a callId a card is not placed by the tool's words: by its brief, else by time
+  const noIds = { briefs: [{ id: 4, tile: 'sales/orders', state: 'draft', createdMs: 0 }], requests: [{ id: 12, kind: 'call', ref: 'rq-12', state: 'pending', createdMs: 0 }] };
+  const N = compose(blocks, noIds, { status: 'idle' }, { words: W.W });
+  assert.equal(N.at.get('cb1'), undefined, 'a brief without a callId is not matched by "Brief 4 for"');
+  assert.ok(!(N.at.get('cc1') || { replace: null }).replace, 'a request without a callId is not matched by "Pending — request 12"');
+  // a callId of a call not in view (an older page of the transcript): by time
+  const far = compose(blocks, { requests: [{ id: 12, kind: 'call', ref: 'rq-12', callId: 'gone', state: 'pending', createdMs: 0 }] }, {}, { words: W.W });
+  assert.deepEqual([far.at.get('m1').after.map((b) => b.k), far.at.get('cc1')], [['ws:req:12'], undefined]);
   // no transcript yet: everything at the tail
   assert.equal(compose([], cards, {}, { words: W.W }).tail.length, 9);
   // a redirect: a card of its own, carrying the tile and the person's own words before it
