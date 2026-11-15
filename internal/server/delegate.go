@@ -187,10 +187,23 @@ func (s *Server) delegateVerdict(r *http.Request, p auth.Principal) delegateVerd
 			v.tile = comp.Path
 		}
 	}
-	if v.tile == "" {
-		v.deny = "no such tile"
-	}
+	// no tile at the path: answered like a tile the person can't read
+	// (noTileFor), never as "no such tile"
 	return v
+}
+
+// noTileFor is the gate's one answer for a tile a person's agent may not
+// name: it isn't there, or the person can't read it. The two are the same
+// refusal, status and words — an agent that could tell them apart would
+// map the workspace's tiles by asking — and neither names the tile.
+func noTileFor(user string) string {
+	return "nothing here for " + user + "'s agent: it reaches only tiles " + user + " can read"
+}
+
+// tileHidden reports a tile a delegate's request names that p's agent may
+// not know of: none resolved, none registered, or one p can't read.
+func (s *Server) tileHidden(p auth.Principal, tile string) bool {
+	return tile == "" || !s.tileExists(tile) || !p.CanReadTile(tile)
 }
 
 // ---- the gate's own state: the rate limit and the running calls ----
@@ -208,8 +221,9 @@ type delegateRuntime struct {
 	noise   map[string]*noiseBucket
 	calls   map[string]map[uint64]*runningCall
 	nextID  uint64
-	now     func() time.Time // tests (setClock)
-	recheck time.Duration    // tests (setRecheck); 0: delegateRecheck
+	pushed  map[string]time.Time // person + kind → the last "something waits" push
+	now     func() time.Time     // tests (setClock)
+	recheck time.Duration        // tests (setRecheck); 0: delegateRecheck
 }
 
 // setClock and setRecheck are the tests' knobs, set under the lock the
@@ -224,6 +238,31 @@ func (d *delegateRuntime) setRecheck(every time.Duration) {
 	d.mu.Lock()
 	d.recheck = every
 	d.mu.Unlock()
+}
+
+// delegatePushEvery spaces the "your agent waits for you" pushes of one
+// kind to one person: requests that pile up are one notification (the
+// same collapse key, a count), not one each.
+const delegatePushEvery = time.Minute
+
+// pushDue reports whether user is due a push of kind now, and notes it.
+func (d *delegateRuntime) pushDue(user, kind string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now, key := d.clock(), user+"\x00"+kind
+	if last, ok := d.pushed[key]; ok && now.Sub(last) < delegatePushEvery {
+		return false
+	}
+	if d.pushed == nil {
+		d.pushed = map[string]time.Time{}
+	}
+	for k, at := range d.pushed { // bounded by the people who were pushed to this minute
+		if now.Sub(at) >= delegatePushEvery {
+			delete(d.pushed, k)
+		}
+	}
+	d.pushed[key] = now
+	return true
 }
 
 func (d *delegateRuntime) recheckEvery() time.Duration {
@@ -536,6 +575,11 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 			refuse(http.StatusForbidden, "not-delegated", "this xbind has no tile routing for a person's agent")
 			return
 		}
+		if s.tileHidden(p, v.tile) { // before anything is said about the tile, a dry run included
+			row.Tile = ""
+			refuse(http.StatusForbidden, "tile", noTileFor(p.UserID))
+			return
+		}
 		level, role, readOnly, err := dp.DelegateTile(p, v.tile, v.effect)
 		if err != nil {
 			if dry {
@@ -559,8 +603,9 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		}
 		run.Agent, run.AgentModel = "", "" // the person's own view of this one GET (delegateclass.go)
 	case v.tile != "":
-		if !p.CanReadTile(v.tile) { // at the person's level, whatever the handler asks
-			refuse(http.StatusForbidden, "tile", p.UserID+" can't read "+v.tile+": their agent reaches only tiles they can read")
+		if s.tileHidden(p, v.tile) { // at the person's level, whatever the handler asks
+			row.Tile = ""
+			refuse(http.StatusForbidden, "tile", noTileFor(p.UserID))
 			return
 		}
 		if err := s.agentPolicy().TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: v.tile, Model: p.AgentModel}); err != nil {

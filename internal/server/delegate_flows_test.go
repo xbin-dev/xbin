@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -222,7 +223,7 @@ func TestDelegateTileCalls(t *testing.T) {
 	}
 	// asking for something that needs no approval, or isn't delegated, is refused
 	for _, c := range [][2]string{{"GET", "/api/apps/mail/inbox"}, {"POST", "/api/xbin/grants"}, {"POST", "/api/xbin/term/sessions/x/prompt"},
-		{"POST", "/c/apps/x/"}, {"POST", "http://evil.example/api/apps/mail/send"}, {"POST", "/api/apps/nope/x"}, {"POST", "/api/xbin/delegate/requests"}} {
+		{"POST", "/c/apps/x/"}, {"POST", "http://evil.example/api/apps/mail/send"}, {"POST", "/api/xbin/delegate/requests"}} {
 		in, _ := json.Marshal(map[string]string{"method": c[0], "path": c[1]})
 		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), bob); rec.Code != 400 {
 			t.Errorf("asking for %s %s: %d %s, want 400", c[0], c[1], rec.Code, rec.Body.String())
@@ -317,7 +318,7 @@ func TestDelegateTileCalls(t *testing.T) {
 	if rec := w.do(w.inv, "GET", "/api/~ticket/x", "", bob); rec.Code != 403 {
 		t.Errorf("a path ticket: %d", rec.Code)
 	}
-	if rec := w.do(w.inv, "GET", "/api/apps/nope/x", "", bob); rec.Code != 403 || !strings.Contains(rec.Body.String(), "no such tile") {
+	if rec := w.do(w.inv, "GET", "/api/apps/nope/x", "", bob); rec.Code != 403 || !strings.Contains(rec.Body.String(), noTileFor("bob")) || !strings.Contains(rec.Body.String(), `"refusal":"tile"`) {
 		t.Errorf("no such tile: %d %s", rec.Code, rec.Body.String())
 	}
 
@@ -350,7 +351,7 @@ func TestDelegateTileCalls(t *testing.T) {
 	}
 	w.policy.set(func(d *dPolicy) { delete(d.deny, "apps/x") })
 	// at the person's level, whatever the handler asks: a tile bob can't read
-	if rec := w.do(w.inv, "GET", "/api/xbin/components/apps/secret", "", bob); rec.Code != 403 || !strings.Contains(rec.Body.String(), "can't read") {
+	if rec := w.do(w.inv, "GET", "/api/xbin/components/apps/secret", "", bob); rec.Code != 403 || !strings.Contains(rec.Body.String(), noTileFor("bob")) {
 		t.Errorf("a component bob can't read: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := w.do(w.inv, "POST", "/api/xbin/grants", `{}`, bob, dry); rec.Code != 403 { // a dry run is no way round the cap
@@ -1104,4 +1105,110 @@ func TestDelegateTileCallIsExactlyWhatWasApproved(t *testing.T) {
 			t.Errorf("the redirect's target under the first call's ticket: %d", rec.Code)
 		}
 	})
+}
+
+// A tile the person can't read and a tile that isn't there answer a
+// delegate the same, byte for byte (the second review's N7): otherwise the
+// agent maps the workspace's tiles by asking.
+func TestDelegateTileRefusalIsNoOracle(t *testing.T) {
+	w := delegateWorld(t)
+	bob := delegateCred("d-bob")
+	if _, ok := w.invS.Reg.Component("apps/secret"); !ok {
+		t.Fatal("the fixture has no apps/secret")
+	}
+	same := func(name string, call func(tile string) *httptest.ResponseRecorder) {
+		t.Helper()
+		there, gone := call("apps/secret"), call("apps/nosuch")
+		norm := func(rec *httptest.ResponseRecorder, tile string) string {
+			return fmt.Sprint(rec.Code, " ", strings.ReplaceAll(rec.Body.String(), tile, "<tile>"))
+		}
+		if a, b := norm(there, "apps/secret"), norm(gone, "apps/nosuch"); a != b {
+			t.Errorf("%s tells a tile bob can't read from one that isn't there:\n  %s\n  %s", name, a, b)
+		}
+		if there.Code/100 == 2 {
+			t.Errorf("%s on a tile bob can't read: %d", name, there.Code)
+		}
+	}
+	same("a read", func(tile string) *httptest.ResponseRecorder { return w.do(w.inv, "GET", "/api/"+tile+"/x", "", bob) })
+	same("a write", func(tile string) *httptest.ResponseRecorder { return w.do(w.inv, "POST", "/api/"+tile+"/x", "{}", bob) })
+	same("a dry run", func(tile string) *httptest.ResponseRecorder {
+		return w.do(w.inv, "POST", "/api/"+tile+"/x", "{}", bob, header(HeaderDryRun, "1"))
+	})
+	same("asking for approval", func(tile string) *httptest.ResponseRecorder {
+		in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/" + tile + "/x", "body": "{}"})
+		return w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), bob)
+	})
+	same("a tile's status", func(tile string) *httptest.ResponseRecorder {
+		return w.do(w.full, "GET", "/api/xbin/components/"+tile, "", bob)
+	})
+}
+
+// A body the person can't read is never approved as if they had (the
+// second review's N7): the request says it is binary, with its size and
+// hash in xbind's words; approving it takes saying so, and the approval
+// records that it was given unseen.
+func TestDelegateBinaryBodyIsApprovedKnowingly(t *testing.T) {
+	w := delegateWorld(t)
+	bob, person := delegateCred("d-bob"), w.cookie("bob")
+	for name, raw := range map[string][]byte{
+		"not UTF-8":            {0xff, 0xfe, 0x00, 'P', 'K'},
+		"UTF-8 with a NUL":     []byte("{\"to\":\"x\"}\x00rm -rf"),
+		"UTF-8 with an escape": []byte("ok\x1b[2J\x1b[Hall fine"),
+	} {
+		in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/apps/mail/import", "bodyBase64": base64.StdEncoding.EncodeToString(raw), "contentType": "application/octet-stream"})
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), bob)
+		req := decode[delegation.Request](t, rec)
+		body, _ := req.Preview["body"].(map[string]any)
+		if rec.Code != 200 || !req.BodyBinary || req.BodyShown || req.Body != "" || body["binary"] != true || body["size"] != float64(len(raw)) || body["sha256"] != req.BodySHA256 {
+			t.Fatalf("%s: the request %d %+v (preview.body %v)", name, rec.Code, req, body)
+		}
+		// approving it like any other is refused, and says why
+		rec = w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"once"}`, person)
+		if rec.Code != 409 || !strings.Contains(rec.Body.String(), `"unseen":true`) || !strings.Contains(rec.Body.String(), req.BodySHA256) {
+			t.Fatalf("%s: approved without saying it is unseen: %d %s", name, rec.Code, rec.Body.String())
+		}
+		if got, _ := w.store.Request("bob", req.ID); got.State != delegation.Pending {
+			t.Fatalf("%s: the request is %s", name, got.State)
+		}
+		rec = w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"once","unseen":true}`, person)
+		out := decode[struct{ Request delegation.Request }](t, rec)
+		if rec.Code != 200 || !out.Request.ApprovedUnseen {
+			t.Fatalf("%s: approved knowingly: %d %s", name, rec.Code, rec.Body.String())
+		}
+		if rec := w.do(w.inv, "POST", "/api/apps/mail/import", string(raw), bob, header(HeaderTicket, req.ID), header("Content-Type", "application/octet-stream")); rec.Code != 200 {
+			t.Fatalf("%s: the ticketed call: %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	// a text body is shown, and "unseen" is nothing to say about it
+	req := w.ask(bob, "POST", "/api/apps/mail/send", "{\"to\":\"x\"}\n\tok")
+	if req.BodyBinary || !req.BodyShown || req.Preview["body"] != nil {
+		t.Fatalf("a text body: %+v", req)
+	}
+	w.approve(person, req.ID, "once")
+	if got, _ := w.store.Request("bob", req.ID); got.ApprovedUnseen {
+		t.Fatal("a text body approved 'unseen'")
+	}
+}
+
+// Requests that pile up are one notification, not twenty (N7).
+func TestDelegateRequestPushesCollapse(t *testing.T) {
+	w := delegateWorld(t)
+	bob := delegateCred("d-bob")
+	now := time.Now()
+	w.s.delegateRT.setClock(func() time.Time { return now })
+	type push struct{ body, collapse string }
+	var pushes []push
+	w.s.DelegatePush = func(user, kind, title, body, link, collapse string) { pushes = append(pushes, push{body, collapse}) }
+	for i := 0; i < 5; i++ {
+		w.ask(bob, "POST", "/api/apps/mail/send", fmt.Sprintf(`{"n":%d}`, i))
+		now = now.Add(2 * time.Second)
+	}
+	if len(pushes) != 1 {
+		t.Fatalf("5 requests in 10 s pushed %d times", len(pushes))
+	}
+	now = now.Add(2 * time.Minute)
+	w.ask(bob, "POST", "/api/apps/mail/send", `{"n":6}`)
+	if len(pushes) != 2 || pushes[0].collapse != pushes[1].collapse || !strings.Contains(pushes[1].body, "6 requests") {
+		t.Fatalf("the later push: %+v", pushes)
+	}
 }

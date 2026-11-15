@@ -36,6 +36,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -414,6 +415,10 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusForbidden, "this xbind has no tile routing for a person's agent", delegationDocs)
 			return
 		}
+		if s.tileHidden(p, v.tile) {
+			WriteError(w, http.StatusForbidden, noTileFor(p.UserID), delegationDocs)
+			return
+		}
 		level, role, _, err := dp.DelegateTile(p, v.tile, true)
 		if err != nil {
 			WriteError(w, http.StatusForbidden, err.Error(), delegationDocs)
@@ -438,6 +443,11 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	default:
 		req.Kind = delegation.KindTemplate
 	}
+	if len(body) > 0 && !delegation.TextBody(body) {
+		// xbind's words for what can't be shown: the person approves this
+		// many bytes with this hash, unread, or doesn't
+		preview["body"] = map[string]any{"binary": true, "size": len(body), "sha256": delegation.BodyHash(body)}
+	}
 	req.Preview = preview
 	out, err := s.Delegation.NewRequest(req, body)
 	switch {
@@ -453,8 +463,15 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	if out.Kind == delegation.KindSession {
 		what = "start a tile agent on " + out.Tile
 	}
-	s.delegatePush(a.user, p.Agent, "agent.approval", "Your agent asks for your approval",
-		"It wants to "+what+". Open your agent to see exactly what, and approve or deny it.", "agent-approval:"+out.ID)
+	// one notification for what waits, not one a request: the same
+	// collapse key, a count, and at most one a minute
+	if s.delegateRT.pushDue(a.user, "agent.approval") {
+		text := "It wants to " + what + ". Open your agent to see exactly what, and approve or deny it."
+		if pend, _ := s.Delegation.Requests(a.user, true); len(pend) > 1 {
+			text = fmt.Sprintf("%d requests wait for your approval. Open your agent to see exactly what each is, and approve or deny it.", len(pend))
+		}
+		s.delegatePush(a.user, p.Agent, "agent.approval", "Your agent asks for your approval", text, "agent-approval")
+	}
 	WriteJSON(w, http.StatusOK, out)
 }
 
@@ -545,25 +562,32 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	grant, scope := "", ""
+	grant, scope, unseen := "", "", false
 	if strings.HasSuffix(r.URL.Path, "/approve") {
 		var body struct {
 			Grant string `json:"grant"`
 			Scope string `json:"scope"`
+			// Unseen: "I approve a body I couldn't be shown" — needed, and
+			// only meaningful, for a request whose body is binary
+			Unseen bool `json:"unseen"`
 		}
 		if r.ContentLength != 0 {
 			if err := DecodeJSON(r, &body); err != nil {
-				WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile"}`, delegationDocs)
+				WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true}`, delegationDocs)
 				return
 			}
 		}
-		grant, scope = body.Grant, body.Scope
+		grant, scope, unseen = body.Grant, body.Scope, body.Unseen
 		if grant == "" {
 			grant = delegation.GrantOnce
 		}
 	}
-	req, ap, err := s.Delegation.Decide(a.user, r.PathValue("id"), grant, scope, a.via)
+	req, ap, err := s.Delegation.DecideWith(a.user, r.PathValue("id"), grant, scope, a.via, unseen)
 	switch {
+	case errors.Is(err, delegation.ErrUnseenBody):
+		// say what would be approved: bytes of this size and hash, unread
+		WriteJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "unseen": true, "bodySize": req.BodySize, "bodySha256": req.BodySHA256, "docs": delegationDocs})
+		return
 	case errors.Is(err, delegation.ErrNoRequest):
 		WriteError(w, http.StatusNotFound, err.Error(), delegationDocs)
 		return

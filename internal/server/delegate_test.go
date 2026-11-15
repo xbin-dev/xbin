@@ -133,7 +133,7 @@ func delegateWorld(t *testing.T) *dWorld {
 	s.Term.AgentPolicy = w.policy
 
 	root := t.TempDir()
-	for _, tile := range []string{"apps/x", "apps/mail"} {
+	for _, tile := range []string{"apps/x", "apps/mail", "apps/secret"} {
 		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(tile)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -307,8 +307,8 @@ func TestDelegateAuthzMatrix(t *testing.T) {
 		return func(_, p string) bool {
 			row := delegateClasses[p]
 			switch {
-			case p == "GET /components/{path...}" && !admin:
-				return false // the matrix asks for a/b, a tile bob can't read: refused at the person's level
+			case p == "GET /components/{path...}":
+				return false // the matrix asks for a/b, which is no tile: refused like one the person can't read
 
 			case delegateUnconverted[p] != "", row.ticket: // a ticketed act without a ticket or a preference
 				return false

@@ -104,10 +104,16 @@ type Request struct {
 	// pending or approved so the person sees what they approve; BodySHA256
 	// binds the ticket to it. A body that isn't text is kept out of the
 	// listing (BodyShown false) and still bound.
-	Body       string `json:"body,omitempty"`
-	BodyShown  bool   `json:"bodyShown"`
-	BodySize   int    `json:"bodySize"`
-	BodySHA256 string `json:"bodySha256"`
+	Body      string `json:"body,omitempty"`
+	BodyShown bool   `json:"bodyShown"`
+	// BodyBinary: the call carries a body that can't be shown as text (not
+	// UTF-8, or with control characters): the person sees its size and
+	// hash, and approves it only by saying they approve it unseen —
+	// ApprovedUnseen records that they did.
+	BodyBinary     bool   `json:"bodyBinary,omitempty"`
+	ApprovedUnseen bool   `json:"approvedUnseen,omitempty"`
+	BodySize       int    `json:"bodySize"`
+	BodySHA256     string `json:"bodySha256"`
 	// Summary is the agent's own words, shown as such.
 	Summary string `json:"summary,omitempty"`
 	// Preview is xbind's description of the call, computed when it was
@@ -167,14 +173,17 @@ type approvalsDoc struct {
 
 // Refusals.
 var (
-	ErrNoRequest    = errors.New("no such request")
-	ErrNotPending   = errors.New("the request is no longer pending")
-	ErrTooMany      = fmt.Errorf("%d requests are already waiting for this person: they answer or the agent withdraws some first", MaxPending)
-	ErrNoTicket     = errors.New("no such ticket: the request doesn't exist, isn't approved, expired or was already used")
-	ErrTicketBound  = errors.New("the ticket was approved for another call: its method, path, body and content type must be exactly what the person saw")
-	ErrBadGrant     = errors.New(`grant is "once", "hour" or "always"`)
-	ErrBadScope     = errors.New(`scope is "call" (this method and path) or "tile" (every write to the tile)`)
-	ErrNoStore      = errors.New("this xbind keeps no delegation state")
+	ErrNoRequest   = errors.New("no such request")
+	ErrNotPending  = errors.New("the request is no longer pending")
+	ErrTooMany     = fmt.Errorf("%d requests are already waiting for this person: they answer or the agent withdraws some first", MaxPending)
+	ErrNoTicket    = errors.New("no such ticket: the request doesn't exist, isn't approved, expired or was already used")
+	ErrTicketBound = errors.New("the ticket was approved for another call: its method, path, body and content type must be exactly what the person saw")
+	ErrBadGrant    = errors.New(`grant is "once", "hour" or "always"`)
+	ErrBadScope    = errors.New(`scope is "call" (this method and path) or "tile" (every write to the tile)`)
+	ErrNoStore     = errors.New("this xbind keeps no delegation state")
+	// ErrUnseenBody: the request's body can't be shown, and the approval
+	// didn't say it approves it unseen.
+	ErrUnseenBody   = errors.New("this request carries a body that can't be shown as text: approving it means approving bytes nobody read — say so ({unseen: true}) or deny it")
 	ErrStandingKind = errors.New("a standing approval covers a tile's API: a session start or a tile create is approved each time")
 )
 
@@ -257,9 +266,14 @@ func (s *Store) NewRequest(r Request, body []byte) (Request, error) {
 	r.ID, r.State, r.Grant = util.RandomToken(12), Pending, ""
 	r.Created, r.Decided, r.Expires, r.DecidedVia = now, time.Time{}, now.Add(PendingTTL), ""
 	r.BodySize, r.BodySHA256 = len(body), BodyHash(body)
-	r.Body, r.BodyShown = "", false
-	if utf8.Valid(body) {
+	r.Body, r.BodyShown, r.BodyBinary, r.ApprovedUnseen = "", false, false, false
+	switch {
+	case len(body) == 0:
+		r.BodyShown = true // nothing to show is shown
+	case TextBody(body):
 		r.Body, r.BodyShown = string(body), true
+	default:
+		r.BodyBinary = true
 	}
 	if len(r.Summary) > maxSummaryLen {
 		r.Summary = r.Summary[:maxSummaryLen]
@@ -312,6 +326,28 @@ func (s *Store) Request(user, id string) (Request, bool) {
 // returned: of that one call (scope "call", or "": the default) or of
 // every write to the tile (scope "tile").
 func (s *Store) Decide(user, id, grant, scope, via string) (Request, *Approval, error) {
+	return s.DecideWith(user, id, grant, scope, via, false)
+}
+
+// TextBody reports a body a person can read on an approval card: valid
+// UTF-8 without control characters (tabs and line breaks apart) — a NUL or
+// an escape sequence hides what follows it as surely as other bytes do.
+func TextBody(body []byte) bool {
+	if !utf8.Valid(body) {
+		return false
+	}
+	for _, c := range string(body) {
+		if c < 0x20 && c != '\t' && c != '\n' && c != '\r' || c == 0x7f || c >= 0x80 && c < 0xa0 {
+			return false
+		}
+	}
+	return true
+}
+
+// DecideWith is Decide where the person may approve a body they can't be
+// shown: unseen says they know (ErrUnseenBody without it), and the request
+// records it (ApprovedUnseen).
+func (s *Store) DecideWith(user, id, grant, scope, via string, unseen bool) (Request, *Approval, error) {
 	if s == nil {
 		return Request{}, nil, ErrNoStore
 	}
@@ -341,8 +377,12 @@ func (s *Store) Decide(user, id, grant, scope, via string) (Request, *Approval, 
 	if (grant == GrantHour || grant == GrantAlways) && (r.Kind != KindCall || r.Tile == "") {
 		return *r, nil, ErrStandingKind
 	}
+	if grant != "" && r.BodyBinary && !unseen {
+		return *r, nil, ErrUnseenBody
+	}
 	now := s.now().UTC().Truncate(time.Second)
 	r.Decided, r.DecidedVia, r.Grant = now, via, grant
+	r.ApprovedUnseen = grant != "" && r.BodyBinary
 	var ap *Approval
 	if grant == "" {
 		r.State, r.Body = Denied, ""
