@@ -39,6 +39,11 @@ func TestLLMKeyFor(t *testing.T) {
 			w.WriteHeader(204)
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/xbin/llm/keys" && r.URL.Query().Get("label") == "codex run 12":
 			w.WriteHeader(204)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/xbin/llm/keys/lk_1/renew":
+			_, _ = w.Write([]byte(`{"id":"lk_1","expires":"2026-11-16T12:00:00Z"}`))
+		case req.User == "many":
+			w.WriteHeader(429)
+			_, _ = w.Write([]byte(`{"error":"too many live LLM keys for kim on apps/agent","code":"xbin_llm_keys"}`))
 		case r.Method != http.MethodPost || r.URL.Path != "/api/xbin/llm/keys":
 			w.WriteHeader(404)
 			_, _ = w.Write([]byte("404 page not found\n"))
@@ -88,9 +93,22 @@ func TestLLMKeyFor(t *testing.T) {
 	if err := RevokeLLMKeysLabeled(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
+	// a longer run's key is renewed; one that ended is gone; the cap is its own error
+	if exp, err := RenewLLMKey(ctx, "lk_1", 48*time.Hour); err != nil || exp.Format(time.RFC3339) != "2026-11-16T12:00:00Z" {
+		t.Fatalf("renew: %v %v", exp, err)
+	}
+	if _, err := RenewLLMKey(ctx, "lk_gone", 0); !errors.Is(err, ErrLLMKeyGone) {
+		t.Fatalf("renewing a key that ended: %v", err)
+	}
+	if _, err := LLMKeyFor(ctx, LLMKeyOpts{User: "many"}); !errors.Is(err, ErrLLMKeyLimit) || !strings.Contains(err.Error(), "too many live LLM keys") {
+		t.Fatalf("at the cap: %v", err)
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(seen) != 6 || seen[5] != "DELETE /api/xbin/llm/keys Bearer tok " || seen[0] != `POST /api/xbin/llm/keys Bearer tok {"label":"codex run 12","sandbox":"sb-1","ttlSec":5400,"user":"kim"}` ||
+	if seen[6] != `POST /api/xbin/llm/keys/lk_1/renew Bearer tok {"ttlSec":172800}` {
+		t.Fatalf("the renew: %q", seen[6])
+	}
+	if len(seen) != 9 || seen[5] != "DELETE /api/xbin/llm/keys Bearer tok " || seen[0] != `POST /api/xbin/llm/keys Bearer tok {"label":"codex run 12","sandbox":"sb-1","ttlSec":5400,"user":"kim"}` ||
 		seen[3] != "DELETE /api/xbin/llm/keys/lk_1 Bearer tok " || seen[4] != "DELETE /api/xbin/llm/keys/other%2F..%2Fx Bearer tok " {
 		t.Fatalf("requests: %q", seen)
 	}

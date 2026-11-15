@@ -26,8 +26,9 @@ type LLMKeyOpts struct {
 	// (and, in a backend that serves everyone, makes a key metered to the
 	// tile alone). Naming anyone else is refused: ErrLLMKeyForbidden.
 	User string
-	// TTL is how long the key lives (0: a day; xbind caps it at 30 days).
-	// Revoke it when the run ends, long before.
+	// TTL is how long the key lives: a day, which is also the most xbind
+	// gives (0: a day). Revoke it when the run ends, long before; a run
+	// that goes on longer keeps its key alive with RenewLLMKey.
 	TTL time.Duration
 	// Label says what it is for — the harness and the run — and Sandbox
 	// names the sandbox it is handed to. Both are kept for xbind's log
@@ -49,12 +50,19 @@ type LLMKey struct {
 }
 
 // ErrLLMKeyForbidden: xbind refused the key — the tile's llm slot isn't
-// bound to xbin:llm, or User is not the person this credential acts for.
-// ErrLLMUnavailable: this workspace has no LLM connector to give keys for
-// (an xbind from before it, none configured, or switched off).
+// bound to xbin:llm, User is not the person this credential acts for, or
+// the caller is not the tile's backend (a frame, a terminal and an agent
+// session get none). ErrLLMUnavailable: this workspace has no LLM connector
+// to give keys for (an xbind from before it, none configured, or switched
+// off). ErrLLMKeyLimit: too many of this tile's keys are alive (64 for one
+// person, 512 for the tile) — end the ones no longer in use. ErrLLMKeyGone:
+// RenewLLMKey's key ended or expired (or this xbind can't renew): ask for a
+// new one.
 var (
 	ErrLLMKeyForbidden = errors.New("llm key: refused")
 	ErrLLMUnavailable  = errors.New("llm key: no LLM connector")
+	ErrLLMKeyLimit     = errors.New("llm key: too many live keys")
+	ErrLLMKeyGone      = errors.New("llm key: no such key")
 )
 
 // LLMKeyFor asks xbind for an LLM key for a coding tool this tile runs for
@@ -95,6 +103,36 @@ func LLMKeyFor(ctx context.Context, o LLMKeyOpts) (LLMKey, error) {
 	return k, nil
 }
 
+// RenewLLMKey keeps a key this backend asked for alive: its life becomes ttl
+// from now (0, or more than a day: a day), never shorter than it was (POST
+// /api/xbin/llm/keys/<id>/renew). A run that may go on past a day renews
+// its key well before it expires — a key nobody renews is dead within a day
+// of its backend going away. It answers the new expiry; ErrLLMKeyGone when
+// the key ended or expired.
+func RenewLLMKey(ctx context.Context, id string, ttl time.Duration) (time.Time, error) {
+	body, _ := json.Marshal(map[string]any{"ttlSec": int64(ttl / time.Second)})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://xbin/api/xbin/llm/keys/"+url.PathEscape(id)+"/renew", bytes.NewReader(body))
+	if err != nil {
+		return time.Time{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	raw, status, err := llmKeyCall(req)
+	if err != nil {
+		return time.Time{}, err
+	}
+	switch status {
+	case http.StatusOK:
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		return time.Time{}, ErrLLMKeyGone
+	default:
+		return time.Time{}, llmKeyErr(status, raw)
+	}
+	var out struct{ Expires string }
+	_ = json.Unmarshal(raw, &out)
+	exp, _ := time.Parse(time.RFC3339, out.Expires)
+	return exp, nil
+}
+
 // RevokeLLMKey ends a key this tile asked for (DELETE
 // /api/xbin/llm/keys/<id>). Ending one that is already dead is no error.
 func RevokeLLMKey(ctx context.Context, id string) error {
@@ -115,8 +153,9 @@ func RevokeLLMKey(ctx context.Context, id string) error {
 	return nil
 }
 
-// RevokeLLMKeysLabeled ends every key this tile asked for with Label label
-// for the person this backend acts for (DELETE /api/xbin/llm/keys?label=).
+// RevokeLLMKeysLabeled ends every key this backend asked for with Label
+// label, in its own deployment, for the person it acts for (DELETE
+// /api/xbin/llm/keys?label=).
 // A tile that names a run in the label needn't keep key ids: before it
 // starts the run again, and when the run ends — in this process or its
 // successor after a restart — it ends the run's keys by name.
@@ -167,6 +206,8 @@ func llmKeyErr(status int, raw []byte) error {
 		return fmt.Errorf("%w: %s", ErrLLMKeyForbidden, text)
 	case http.StatusNotFound, http.StatusServiceUnavailable, http.StatusMethodNotAllowed:
 		return fmt.Errorf("%w: %s", ErrLLMUnavailable, text)
+	case http.StatusTooManyRequests:
+		return fmt.Errorf("%w: %s", ErrLLMKeyLimit, text)
 	}
 	return fmt.Errorf("llm key: %d: %s", status, text)
 }
