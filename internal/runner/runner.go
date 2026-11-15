@@ -194,6 +194,7 @@ type Runner struct {
 
 	mu     sync.Mutex
 	states map[string]*state
+	live   liveSet  // live.go: every generation started and not ended; the end of starting at shutdown
 	engine *engine  // engine.go: nil = today's build, start, health, stop and clock
 	ao     alwaysOn // alwayson.go
 	netmux *netMux

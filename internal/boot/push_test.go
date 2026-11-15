@@ -63,6 +63,7 @@ func TestPushInProcess(t *testing.T) {
 		cancel()
 		select {
 		case <-done:
+			noneLeftBehind(t, ws) // a stopped xbind leaves no backend running (leftbehind_test.go)
 		case <-time.After(30 * time.Second):
 			t.Error("boot did not stop")
 		}

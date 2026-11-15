@@ -350,6 +350,7 @@ func dsServe(t *testing.T, ws string, fn func(url string)) {
 		cancel()
 		select {
 		case <-done:
+			noneLeftBehind(t, ws) // a stopped xbind leaves no backend running (leftbehind_test.go)
 		case <-time.After(30 * time.Second):
 			t.Error("the daemon did not stop")
 		}
