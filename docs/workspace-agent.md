@@ -45,6 +45,20 @@ While a request waits, the conversation waits for its person. If they write a me
 
 Admin changes are never calls. An admin's agent proposes a change set (grants, bindings, org shares, limits); xbind writes each line, its before and after and its warnings; the person ticks what to apply.
 
+## Using it
+
+A person meets their agent in **the dock**: a panel beside the canvas, opened with the **workspace agent** chip in the top bar (or Ctrl+J / ⌘J when no field or terminal has the keys). The chip carries the number of things that wait for them; on a narrow screen the dock is the whole page. A workspace whose shell has no chip — a scaffold from before it — uses **`/xbin/agent`**, the same dock as a page of xbind's own; such a shell shows one alert that names the page, per person, until they dismiss it.
+
+The dock's header is xbin's, and so is everything a person decides in it; the agent's own conversation is a page in a frame below, and it can draw nothing in the header or over it.
+
+- **Needs you** lists what waits: requests for approval, proposed admin changes, and tile agents the person's sessions wait on.
+- **An approval** opens as a sheet from the header. It shows what xbind read of the request — the tile and the person's level on it, the exact call, what is sent (text, or "binary", its size and hash), whether it can be undone — with the agent's own sentence quoted below as the agent's. The choices: **Allow once**, **always allow this exact action**, or — marked as wider, with a second step whose first button is *Go back* — **every change to this tile** for a time. A tile agent's start shows the coding agent, the model, the mode ("asks before acting", or the wording of a mode that doesn't — there *Deny* is the first button), the network and the brief exactly as sent. Allow answers only to the person's own click, a moment after the sheet shows; Enter never allows, Esc leaves it for later.
+- **Admin changes** open as a dialog over the workspace: a line an item with its before and after; an item with a warning (it makes something public, opens a port, lets a tile reach the internet) starts unticked; an item xbind would refuse is shown with the reason and can't be ticked. Applying asks for a recent sign-in when there is none. The results name what was applied, what failed and what was out of date; **Undo** proposes a new set to review — it undoes nothing by itself.
+- **Approvals** lists the standing approvals, each with **Take back**. **What my agent did** is the person's log in sentences (changes, refusals, everything). **Preferences** holds whether the agent may start tile agents without asking and, for an admin, whether it may propose admin changes.
+- **Pause** stops the agent's every call at once; only the person resumes it.
+
+In place of the conversation the dock says why there is none: not set up (an admin sees the three steps), no language model connected, turned off for the workspace, paused, or held after a restart or a downgrade.
+
 ## For tile authors
 
 A workspace agent's call to your tile's API looks like its person's — `X-XBin-From: user:<id>`, `X-XBin-User`, their level, role `reader` or `writer` and never `admin` — plus **`X-XBin-Agent`**, the sealed component's path.

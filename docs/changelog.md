@@ -12,6 +12,34 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **The workspace agent's chrome: the dock, approvals, admin change sets,
+  `/xbin/agent`** (D232; [workspace-agent.md](/docs/workspace-agent.md)
+  §Using it, [protocol/delegation.md](/docs/protocol/delegation.md) §The
+  chrome, [frontend-kit.md](/docs/frontend-kit.md) §Shell-only modules,
+  [compat.md](/docs/compat.md)). Everything a person decides about their
+  agent is drawn and sent by xbin's own chrome, in a document that holds
+  their session: a dock beside the canvas (`/vendor/bx-agent-dock.js`; a
+  **workspace agent** chip in the scaffold shell's top bar with what waits,
+  Ctrl+J / ⌘J) whose header — Needs you, Pause / Resume, Approvals, What my
+  agent did, Preferences — is xbin's, with the agent's own page in a
+  sandboxed frame below. An approval is a sheet drawn from xbind's reading
+  of the request, the agent's sentence quoted as the agent's; a change set
+  is a dialog with warnings unticked and blocked items shown.
+  **`/xbin/agent`** is the same dock as a page of xbind's own, for a shell
+  without the chip and for direct links (`?request=`, `?changes=`,
+  `?view=`). New wire, all additive: `GET /delegate/state` answers
+  `agent`, `pausedAt` and `workspaceAt`; alert kind `agent-page` (one a
+  person, naming `/xbin/agent`, for shells without the chip) and its
+  `POST /api/xbin/delegate/page/dismiss`. **For whoever builds an agent's
+  page:** ask the chrome with `postMessage` —
+  `xbin:agent-open-request {id}`, `xbin:agent-open-changeset {id}`,
+  `xbin:open-session {session, tile}` — and listen for
+  `xbin:agent-context {tile | screen}`; ids only, the chrome reads
+  everything else from xbind. **For a shell of your own:**
+  `shell/shell-agent.js` in the scaffold is the pattern. No agent ships
+  with this xbind yet: with workspace agents on, the dock shows approvals,
+  the log and preferences, and says the conversation arrives with an
+  update.
 - **The workspace agent's backend: the agent template in workspace mode**
   (D231; [workspace-agent.md](/docs/workspace-agent.md), the template's
   `API.md` §Workspace mode). Started with `XBIN_AGENT_MODE=workspace` — by

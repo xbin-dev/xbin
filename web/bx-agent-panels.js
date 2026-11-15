@@ -176,7 +176,7 @@ export class BxAgentSetup extends StoreView {
           <span class="tx"><b>${x.title}</b>${x.done ? html` <span class="tag ok">${x.tag || 'done'}</span>` : nothing}<div class="small muted">${x.text}</div></span>
           ${!x.action || !x.enabled ? nothing : x.id === 'model' ? html`<a href="/xbin/llm" target="_top">${x.action}</a>`
             : x.id === 'on' ? html`<button class="primary" ?disabled=${this._busy} @click=${(e) => this._do(e, () => s.setWorkspace(true))}>${x.action}</button>`
-              : html`<a href="/docs/auth.md#delegation-a-persons-workspace-agent" target="_blank" rel="noopener">${x.action}</a>`}</li>`)}</ol>
+              : html`<a href="/docs/workspace-agent.md#running-it" target="_blank" rel="noopener">${x.action}</a>`}</li>`)}</ol>
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}</div>`;
     }
     const st = s.state || {};
