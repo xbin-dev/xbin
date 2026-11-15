@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- **Workspace agent: its backend follows xbind's switches and refusals**
+  ([workspace-agent.md](/docs/workspace-agent.md), the agent template's
+  `API.md` §Workspace mode). While the agent is paused, turned off, held
+  or not given to its person, a message to it is answered without the
+  model: `POST /runs/{id}/message` answers `409 {code: "agent-off",
+  refusal, error, kept: true}`, the transcript gets a line (a step of kind
+  `off`) naming the switch, who can change it and where, nothing is queued,
+  and the page keeps the words in the message box to send again.
+
 - **Workspace agent: fixes from a security review**
   ([workspace-agent.md](/docs/workspace-agent.md),
   [protocol/delegation.md](/docs/protocol/delegation.md#the-chrome)).

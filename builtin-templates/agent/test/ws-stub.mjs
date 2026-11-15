@@ -132,7 +132,7 @@ export function WS_STUB(seed) {
         o.signal && o.signal.addEventListener('abort', () => { streams.delete(c); try { c.close(); } catch { /* closed */ } });
       },
     }), { headers: { 'Content-Type': 'text/event-stream' } }))],
-    ['POST', /\/runs\/(\d+)\/message$/, () => json({ ok: 'true', inboxId: 1, queued: false })],
+    ['POST', /\/runs\/(\d+)\/message$/, () => (S.offAnswer ? json(S.offAnswer, 409) : json({ ok: 'true', inboxId: 1, queued: false }))],
     ['POST', /\/runs\/(\d+)\/interrupt$/, () => json({ ok: 'true' })],
     ['GET', /\/api\/xbin\/agents\/connection\?session=([^&]+)(?:&whatIf=([^&]+))?$/, (m) => {
       if (!S.full) return json({ error: 'not here' }, 403);

@@ -5891,6 +5891,18 @@ proposed, never another session's); `preview`; `plan`; `notebook_search`,
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
 
+**When the agent's switch is off** — its person paused it, workspace
+agents are off, it is held, or its person wasn't given one — xbind refuses
+its every call and its model turns, and says which (the refusal of its
+state read: `paused`, `workspace-off`, `held`, `no-agent`, `no-sandbox`).
+The backend then answers its person without the model: `POST
+/runs/{id}/message` in a workspace session answers `409 {code:
+"agent-off", refusal, error, kept: true}` and queues nothing; the
+transcript gets a step of kind `off` (`{text, switch}`: the switch, who
+can change it and where); a turn the agent is woken for stops before its
+model call with the same words. The page keeps the words in the message
+box: they run only when the person sends them again.
+
 **A request is pending, never a wait.** `tile_call` with a method other
 than GET/HEAD, `tile_agent_start` and `tile_create` ask xbind what the call
 would be (a dry run), file it for the person's approval exactly as it will

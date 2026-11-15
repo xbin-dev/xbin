@@ -29,9 +29,12 @@ func TestWsMessageContext(t *testing.T) {
 	send("and this one", map[string]any{"tile": "apps/nowhere"})
 	send("no context", nil)
 	fx.x.mu.Lock()
-	fx.x.paused = true // xbind can't be asked: the context is kept as given, and nothing is said about the connection
+	fx.x.mapDown = true // xbind can't be asked: the context is kept as given, and nothing is said about the connection
 	fx.x.mu.Unlock()
 	send("while paused", map[string]any{"tile": "apps/orders"})
+	fx.x.mu.Lock()
+	fx.x.mapDown = false
+	fx.x.mu.Unlock()
 
 	rows, err := fx.ag.db.q.Query(`SELECT content, meta FROM messages WHERE run_id=? AND role='user' ORDER BY seq`, s.Run)
 	if err != nil {
@@ -156,8 +159,9 @@ func TestWsStateFields(t *testing.T) {
 		q["raise"] != "an admin of sales, or a workspace admin" {
 		t.Fatalf("the quota: %v", q)
 	}
-	if d := st["delegation"].(map[string]any); d["paused"] != true || d["pausedAt"] != "2026-11-15T08:00:00Z" {
-		t.Fatalf("the paused delegation: %v", d)
+	// paused, xbind refuses the backend's read of its state: the page reads its own (ws/api.js)
+	if _, has := st["delegation"]; has || !strings.Contains(fmt.Sprint(st["delegationError"]), "paused") {
+		t.Fatalf("the state while paused: %v", st)
 	}
 	// a call that goes through lifts it; a quota past its reset is gone by itself
 	wsLLMStatus(LLMRequest{}, 200, nil)

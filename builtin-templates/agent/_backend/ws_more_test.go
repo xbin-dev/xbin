@@ -355,11 +355,12 @@ func TestWsLookingAndCreating(t *testing.T) {
 		t.Fatalf("while paused: %q", got)
 	}
 	var state struct {
-		Delegation wsState
+		Delegation      *wsState
+		DelegationError string
 	}
 	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/state", nil), 200, &state)
-	if !state.Delegation.Paused {
-		t.Fatal("the state doesn't say paused")
+	if state.Delegation != nil || !strings.Contains(state.DelegationError, "paused") {
+		t.Fatalf("the state while paused: %+v", state)
 	}
 	fx.x.mu.Lock()
 	fx.x.paused = false

@@ -131,6 +131,21 @@ const STATE = { user: 'ana', mode: 'workspace', delegation: { workspace: true, p
   await ctx.close();
 }
 
+// ---- the agent's switch is off: the backend answers without the model, the words stay ---------------------
+{
+  const OFF = 'You haven’t been given a workspace agent. An admin chooses who has one. Nothing was sent to the agent or its model. Your message is still in the message box: send it again once it runs.';
+  const { ctx, page, errors } = await openWs(browser, base({ state: fresh(STATE), offAnswer: { error: OFF, code: 'agent-off', refusal: 'no-agent', kept: true } }));
+  await page.fill('bx-chat-composer textarea', 'Which invoices are overdue?');
+  await page.keyboard.press('Enter');
+  await until(async () => (await calls(page, 'POST', /\/runs\/1\/message$/)).length === 1);
+  await until(async () => (await text(page, '.wsc-err')).includes('haven’t been given'));
+  const c = await composer(page);
+  ok('switch off (409 agent-off): the backend\'s words shown, the message kept in the box, unsent', (await text(page, '.wsc-err')) === OFF && c.v === 'Which invoices are overdue?', JSON.stringify(c));
+  ok('…and the state read again, for the banners', (await calls(page, 'GET', /\/ws\/state$/)).length >= 2);
+  ok('no page errors (switch off)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
 // ---- held: xbin won't let a new handle on its model hold what the conversation holds --------------------
 {
   const sessions = fresh(SESSIONS);

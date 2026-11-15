@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -41,6 +42,8 @@ type fakeXbin struct {
 	startAsk  bool  // starting a tile agent asks (false: the person's preference lets it through)
 	startDry  *bool // what a start's dry run answers for needsApproval, when it isn't startAsk (the preference changed in between)
 	paused    bool
+	off       string            // an off switch other than the pause, as xbind refuses it: workspace-off | no-agent | held
+	mapDown   bool              // the map can't be read (xbind unreachable for it)
 	pages     map[string]string // what a tile's page shows (a preview's snapshot)
 	noPreview bool              // previews are off on this xbind
 	harnesses []wsHarness       // what tiles allow, in xbind's order
@@ -339,11 +342,15 @@ func (f *fakeXbin) Models(context.Context) (wsModels, error) {
 func (f *fakeXbin) State(context.Context) (wsState, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	st := f.state
-	if st.Paused = f.paused; st.Paused {
-		st.PausedAt = "2026-11-15T08:00:00Z"
+	// as xbind: the off switches refuse the agent's read of its state too
+	// (403 {refusal}) — a paused agent learns it from the refusal
+	switch {
+	case f.paused:
+		return wsState{}, errFakePaused
+	case f.off != "":
+		return wsState{}, &xbin.DelegateError{Status: 403, Refusal: f.off, Message: "xbind's words for " + f.off}
 	}
-	return st, nil
+	return f.state, nil
 }
 
 func (f *fakeXbin) Map(_ context.Context, sid string) (wsMap, error) {
@@ -354,6 +361,9 @@ func (f *fakeXbin) Map(_ context.Context, sid string) (wsMap, error) {
 		return wsMap{}, err
 	}
 	f.note("Map")
+	if f.mapDown {
+		return wsMap{}, errors.New("xbind can't be reached")
+	}
 	var m wsMap
 	for _, t := range f.tiles {
 		if state, _ := f.blocked(t, h.Scope, h.Model); state == "" {
