@@ -283,7 +283,9 @@ func (s *Server) previewAdmits(r *http.Request, sc *previewScope, label string, 
 // /api/xbin/prefs/<key> and /api/xbin/frame-token (for a tile on the screen)
 // are admitted beside it. Deliberately absent, though the shell asks:
 // /status, /backends and /vault-status (admin-only: a member's shell gets
-// 403 for them anyway).
+// 403 for them anyway), and the workspace agent chip's /delegate/state and
+// /llm (D232: a preview draws the screen, not the person's agent — the
+// refused reads leave the chip hidden, as on an xbind without an agent).
 var shellReads = map[string]bool{
 	"/api/xbin/whoami": true, "/api/xbin/components": true, "/api/xbin/screens": true, "/api/xbin/branding": true,
 	"/api/xbin/tile-report": true, "/api/xbin/limits": true, "/api/xbin/alerts": true, "/api/xbin/prefs": true,

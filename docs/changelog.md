@@ -12,6 +12,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **A screen preview leaves the workspace agent out.** The shell's agent
+  chip reads `/delegate/state` and `/llm`; a preview render refuses both
+  and names them in `leftOut`, beside the admin-only status reads, and the
+  picture has no agent chip ([preview.md](/docs/protocol/preview.md)).
 - **A backend started on demand right after a save is not restarted for
   that same save.** A request (or a bus push, a cron tick) that reached a
   just-saved tile before xbind had finished handling the save started the
