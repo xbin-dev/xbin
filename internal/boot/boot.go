@@ -458,7 +458,14 @@ func (st *State) stepTerminals() error {
 	tm.Sandboxes = st.Sbx
 	tm.HasDeploymentRecord = st.Deployments.HasRecord   // the checkpoint fetch remote in sessions
 	tm.TileDeployments = st.Deployments.TileDeployments // a session's target deployment (D127p)
-	wireDeploymentSessions(st.Deployments, tm)          // protect and reassignment move sessions (deploywire.go)
+	tm.TileAt = func(rel string) (string, bool) {       // a session opens on a registered tile (term/sessiondir.go)
+		c, _, ok := reg.Resolve(rel)
+		if !ok || c == nil {
+			return "", false
+		}
+		return c.Path, true
+	}
+	wireDeploymentSessions(st.Deployments, tm) // protect and reassignment move sessions (deploywire.go)
 	return nil
 }
 

@@ -146,6 +146,11 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		// no terminal level exists on a sealed component (CanTerminalTileVia); say why (D227)
 		return SessionInfo{}, 400, errors.New(util.SealedRefusal(rel, "it has no terminal and no agent sessions"))
 	}
+	if err == nil && rel != "" {
+		if why := m.sessionDir(rel); why != "" {
+			return SessionInfo{}, 403, errors.New(why)
+		}
+	}
 	if err != nil || rel == "" || !p.CanTerminalTileVia(rel) {
 		return SessionInfo{}, 403, errors.New("your account doesn't have terminal access to this tile")
 	}
