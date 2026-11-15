@@ -19,6 +19,10 @@
  *   agentDock(shell)    the dock, after <main>: it pushes the canvas; on a
  *                       narrow screen it is the whole page
  *   openAgent(shell, {tile})  open it about a tile
+ *   agentTileItems(shell, path, items)  the tile menu with "Ask my agent
+ *                       about this tile" in it (before its admin section):
+ *                       the dock, opened about that tile — not where the
+ *                       chip is hidden, before setup or while turned off
  *
  * Ctrl+J / ⌘J toggles the dock unless the person is typing somewhere (a
  * terminal, a field): there the keys are theirs.
@@ -73,6 +77,18 @@ export async function openAgent(shell, context = null, open = true) {
   a.open = open;
   if (open) a.context = context;
   shell.requestUpdate();
+}
+
+export function agentTileItems(shell, path, items) {
+  const a = shell._agent, c = chipOf(shell);
+  if (!c.shown || !a.words) return items;
+  const st = a.words.dockState({ state: a.state, llm: a.llm, me: shell._who });
+  if (st === 'setup' || st === 'off') return items; // no agent to ask yet, or none now
+  const item = { icon: 'agent', label: 'Ask my agent about this tile', action: () => openAgent(shell, { tile: path }) };
+  const at = items.findIndex((x) => x.kind === 'header' && x.label === 'admin');
+  const out = [...items];
+  if (at > 0 && out[at - 1].kind === 'sep') out.splice(at - 1, 0, item); else out.push(item);
+  return out;
 }
 
 export function agentChip(shell) {

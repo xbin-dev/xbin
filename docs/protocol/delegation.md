@@ -696,7 +696,10 @@ nothing. No message approves, denies, resumes or changes a preference.
 
 **What the chrome tells the page**: `{type: "xbin:agent-context", tile}`
 or `{…, screen}` when the dock was opened about a tile or a screen — once
-the frame has loaded, and when it changes.
+the frame has loaded, and when it changes. A shell opens it about a tile
+from the chip (the window in front) and from a tile's menu, **Ask my agent
+about this tile** — shown where the chip is, and not before setup or while
+workspace agents are off.
 
 **A shell without the agent's chip** — a scaffold from before it — learns
 of the page through one alert: once an admin has turned workspace agents

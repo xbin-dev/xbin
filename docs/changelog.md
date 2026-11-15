@@ -22,7 +22,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   draft}` opens the tile's window on a new session's launcher with the
   person's words waiting, unsent, in the composer of the coding agent they
   pick (`<bx-frame>` `open({session: "new", draft})`, the dock's
-  `bx-agent-new-session`; a shell from before it gets a plain link).
+  `bx-agent-new-session`; a shell from before it gets a plain link). A
+  tile's ⋯ menu has **Ask my agent about this tile** (the scaffold's
+  `shell/shell-agent.js`), which opens the dock about that tile.
 - **The workspace agent's page draws from fields** (D235): the context
   chip is sent as the message's `context`; request cards, refusals
   (`cards.refusals`), the agent's question kinds (a redirect, can't), the

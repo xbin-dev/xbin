@@ -49,7 +49,7 @@ Admin changes are never calls. An admin's agent proposes a change set (grants, b
 
 ## Using it
 
-A person meets their agent in **the dock**: a panel beside the canvas, opened with the **workspace agent** chip in the top bar (or Ctrl+J / ⌘J when no field or terminal has the keys). The chip carries the number of things that wait for them; on a narrow screen the dock is the whole page. A workspace whose shell has no chip — a scaffold from before it — uses **`/xbin/agent`**, the same dock as a page of xbind's own; such a shell shows one alert that names the page, per person, until they dismiss it.
+A person meets their agent in **the dock**: a panel beside the canvas, opened with the **workspace agent** chip in the top bar (or Ctrl+J / ⌘J when no field or terminal has the keys), or about one tile with **Ask my agent about this tile** in that tile's ⋯ menu. The chip carries the number of things that wait for them; on a narrow screen the dock is the whole page. A workspace whose shell has no chip — a scaffold from before it — uses **`/xbin/agent`**, the same dock as a page of xbind's own; such a shell shows one alert that names the page, per person, until they dismiss it.
 
 The dock's header is xbin's, and so is everything a person decides in it; the agent's own conversation is a page in a frame below, and it can draw nothing in the header or over it.
 

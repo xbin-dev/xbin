@@ -21,12 +21,14 @@
 // resume; the tray's count; Approvals, What my agent did, Preferences; the
 // states shown in place of the page; and that a hostile page in the dock's
 // frame cannot grant — forged messages, an overlay, focus and keys.
-// In the shell: the page's "Hand this to <tile>'s own agent" opens the tile's window on a new session's
+// In the shell: a tile's ⋯ menu "Ask my agent about this tile" opens the
+// dock about it (not for a non-admin before setup); the page's "Hand this
+// to <tile>'s own agent" opens the tile's window on a new session's
 // launcher with the words as plain text, nothing started until a coding
 // agent is picked, whose composer then holds them, unsent — and where no
 // shell takes it (/xbin/agent) the dock gives a plain link.
 // Run it in both themes (HARNESS_THEME=light). Screenshots: out/agent-chrome-*.png.
-const { URL, login, shot, checker, log, sh, fr, waitFor, usePersonalScreen, openTile, closeTile } = require('../lib');
+const { URL, login, shot, checker, log, sh, fr, waitFor, waitSel, usePersonalScreen, openTile, closeTile } = require('../lib');
 
 const NOW = Date.now();
 const iso = (ms) => new Date(NOW + ms).toISOString();
@@ -404,13 +406,21 @@ async function agentChrome(browser) {
     await U.page.waitForSelector('bx-shell button.chip.settings');
     await U.page.waitForTimeout(500); // (a negative: the chip must not appear)
     check(!(await U.page.$('bx-shell button.chip.agent')), 'a non-admin before setup sees no chip');
+    const own = await sh(U.page, (t) => (t.openTiles || []).map((o) => o.path)[0] || '');
+    if (own) {
+      await U.page.click(`.card[data-path="${own}"] button.wc[aria-label="tile menu"]`);
+      await waitSel(U.page, 'bx-menu .panel.main .it');
+      const ls = await U.page.locator('bx-menu .panel.main .it .lb').allTextContents();
+      check(ls.length > 0 && !ls.some((l) => /Ask my agent/.test(l)), `…nor "Ask my agent about this tile" in a tile's menu (${ls.join(' · ')})`);
+      await U.page.keyboard.press('Escape');
+    } else check(false, 'dev1 has a tile on their screen to open the menu of');
     await U.ctx.close();
   }
   log('agentChrome: the delegation state was faked by route interception (no holder on this xbind): re-run against a real one');
   done();
 }
 
-// ---- the page's "Hand this to <tile>'s own agent" ----
+// ---- the tile menu's "Ask my agent about this tile", and the page's "Hand this to <tile>'s own agent" ----
 // (the shell, as admin with the delegation faked: the chip is shown)
 const HAND_TILE = 'apps/crawler';
 const DRAFT = 'In export.go change line 40 to use a semicolon.\n<b>not markup</b>\u202e';
@@ -426,7 +436,7 @@ const dockFrame = (page, inShell) => page.evaluate((inShell) => {
   d.shadowRoot.querySelector('iframe').contentWindow.postMessage('hand-off', '*');
 }, inShell);
 
-// the dock with the test page in its frame, HAND_TILE on the screen; → whether the tile was open before
+// the dock with the test page in its frame, about HAND_TILE; → whether the tile was open before
 async function dockAbout(page, ctx, check) {
   await ctx.route('**/harness-hand.html', (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: HAND_PAGE }));
   await page.evaluate(() => { window.harnessContexts = []; addEventListener('message', (e) => { if (e.data && e.data.type === 'harness-context') window.harnessContexts.push(e.data.context); }); });
@@ -435,11 +445,24 @@ async function dockAbout(page, ctx, check) {
   if (!wasOpen) await openTile(page, HAND_TILE);
   await page.locator(`.card[data-path="${HAND_TILE}"]`).evaluate((el) => el.scrollIntoView({ block: 'start' }));
   await page.evaluate(() => { const d = document.querySelector('bx-shell').shadowRoot.querySelector('bx-agent-dock'); if (d) d.page = '/harness-hand.html'; });
-  await page.click('bx-shell button.chip.agent');
+  await askAbout(page, check);
+  return wasOpen;
+}
+
+async function askAbout(page, check) {
+  // the tile menu: the entry sits before the admin section and opens the dock about that tile
+  await page.click(`.card[data-path="${HAND_TILE}"] button.wc[aria-label="tile menu"]`);
+  await waitSel(page, 'bx-menu .panel.main .it');
+  const labels = await page.locator('bx-menu .panel.main .it .lb').allTextContents();
+  const at = labels.indexOf('Ask my agent about this tile');
+  check(at >= 0 && (labels.indexOf('Access…') < 0 || at < labels.indexOf('Access…')), `the tile menu offers "Ask my agent about this tile", before its admin section (${labels.join(' · ')})`);
+  await page.locator('bx-menu .panel.main .it', { hasText: 'Ask my agent about this tile' }).click();
   await page.waitForSelector('bx-shell bx-agent-dock[open] header');
   await page.evaluate(() => { document.querySelector('bx-shell').shadowRoot.querySelector('bx-agent-dock').page = '/harness-hand.html'; });
-  await page.waitForTimeout(300); // (the frame loads)
-  return wasOpen;
+  await page.waitForFunction((p) => (window.harnessContexts || []).some((c) => c.tile === p), HAND_TILE, { timeout: 10000 });
+  const told = await page.evaluate(() => window.harnessContexts);
+  check(told.some((c) => c.tile === HAND_TILE) && told.every((c) => Object.keys(c).sort().join() === 'tile,type'), `…which opens the dock about that tile: the agent's page is told xbin:agent-context {tile} (${JSON.stringify(told)})`);
+  await shot(page, 'agent-chrome-ask-about', { fullPage: false });
 }
 
 async function handOff(page, ctx, check, wasOpen) {
