@@ -134,7 +134,7 @@ build_arch() {
   # component that can't run: checked here against the table (host-run).
   mkdir -p "$stage/bin/sealed"
   if [ -d "$repo/bin/sealed" ]; then cp -a "$repo/bin/sealed/." "$stage/bin/sealed/"; fi
-  env -u GOOS -u GOARCH CGO_ENABLED=0 go run ./cmd/xbind sealed-build --check --out "$stage/bin/sealed" \
+  env -u GOOS -u GOARCH CGO_ENABLED=0 go run ./cmd/xbind sealed-build --check --os linux --arch "$arch" --out "$stage/bin/sealed" \
     || die "[$arch] bin/sealed doesn't hold this source's sealed backends"
   mv "$bdir/rootfs" "$stage/rootfs"
   cp -a "$repo/sdk" "$stage/sdk"

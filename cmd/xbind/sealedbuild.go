@@ -49,7 +49,7 @@ func sealedBuild(args []string) error {
 		}
 		return nil
 	case *check:
-		n, err := set.CheckBuilds(*out, *sdk)
+		n, err := set.CheckBuilds(*out, *sdk, sealed.BuildOptions{GOOS: *goos, GOARCH: *goarch})
 		if err != nil {
 			return err
 		}

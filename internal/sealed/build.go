@@ -132,7 +132,12 @@ func TreeDigest(dir string) (string, error) {
 // its manifest says — the file's hash, the source it was built from — and
 // built against the SDK at sdk (when given): what a release bundle must
 // hold. It answers how many backends that is.
-func (s *Set) CheckBuilds(dir, sdk string) (int, error) {
+//
+// With target set, each build must also be for that OS and architecture
+// and by the go version target's go command is: a bundle for arm64 holding
+// amd64 backends, or ones an older toolchain left there, fails the release
+// instead of the install.
+func (s *Set) CheckBuilds(dir, sdk string, target ...BuildOptions) (int, error) {
 	man, err := ReadManifest(dir)
 	if err != nil {
 		return 0, err
@@ -152,6 +157,14 @@ func (s *Set) CheckBuilds(dir, sdk string) (int, error) {
 			return 0, err
 		}
 	}
+	goVersion, goos, goarch := "", "", ""
+	if len(target) > 0 && len(want) > 0 {
+		v, t, err := goTarget(target[0])
+		if err != nil {
+			return 0, err
+		}
+		goVersion, goos, goarch = v, t[0], t[1]
+	}
 	for _, c := range s.comps {
 		if c.Runtime != "go" {
 			continue
@@ -163,8 +176,15 @@ func (s *Set) CheckBuilds(dir, sdk string) (int, error) {
 		if why, _ := man.mismatch(c, filepath.Join(dir, n)); why != "" {
 			return 0, fmt.Errorf("%s: %s %s", dir, n, why)
 		}
-		if e := man.Builds[n]; sdkSum != "" && e.SDK != sdkSum {
+		e := man.Builds[n]
+		if sdkSum != "" && e.SDK != sdkSum {
 			return 0, fmt.Errorf("%s: %s was built against another xbin SDK than the one at %s: rebuild it (make sealed)", dir, n, sdk)
+		}
+		if goVersion != "" && (e.OS != goos || e.Arch != goarch) {
+			return 0, fmt.Errorf("%s: %s was built for %s/%s, and this bundle is for %s/%s: rebuild it (make sealed)", dir, n, e.OS, e.Arch, goos, goarch)
+		}
+		if goVersion != "" && e.Go != goVersion {
+			return 0, fmt.Errorf("%s: %s was built by %s, and the release's toolchain is %s: rebuild it (make sealed)", dir, n, e.Go, goVersion)
 		}
 		delete(have, n)
 	}

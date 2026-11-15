@@ -332,8 +332,9 @@ func (st *State) stepRegistry() error {
 }
 
 // sealedDev reports a development xbind for sealed components (--dev or
-// --no-auth): it compiles a backend the install has no build of, and runs a
-// partitioned component as one instance when it has no sandboxes.
+// --no-auth): it compiles a backend the install has no build of. (One
+// shared instance of a partitioned component, without sandboxes, is
+// --no-auth's alone: sealed.Options.NoAuth.)
 func (st *State) sealedDev() bool { return st.Cfg.Dev || st.Cfg.NoAuth }
 
 // openSealed opens the sealed components of this xbind on the workspace:
@@ -351,7 +352,7 @@ func (st *State) openSealed() (*sealed.Set, error) {
 		}
 	}
 	return sealed.Open(specs, sealed.Options{
-		Workspace: st.WS, Isolate: st.Cfg.Isolate, Dev: st.sealedDev(),
+		Workspace: st.WS, Isolate: st.Cfg.Isolate, Dev: st.sealedDev(), NoAuth: st.Cfg.NoAuth,
 		BinDir: bin, Release: st.Cfg.Version,
 	})
 }

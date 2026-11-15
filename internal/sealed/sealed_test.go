@@ -308,13 +308,19 @@ func TestHolds(t *testing.T) {
 		if got := s.Registry()[0].Partition; len(got) != 1 {
 			t.Errorf("held, it still asks for its partition mode: %v", got)
 		}
-		// a development xbind runs one global instance instead
+		// --dev with real users and no sandboxes: unavailable too — one
+		// instance would hold everyone's data together
 		s = open(t, t.TempDir(), Options{Dev: true}, part())
+		if h, _ := s.Hold("xbin/fix"); h.Code != HoldNeedsSandboxes || !s.Components()[0].Partitioned {
+			t.Fatalf("--dev with users, no sandboxes: %+v (partitioned %v)", h, s.Components()[0].Partitioned)
+		}
+		// only where there are no people (--no-auth) it runs as one instance
+		s = open(t, t.TempDir(), Options{Dev: true, NoAuth: true}, part())
 		if h, held := s.Hold("xbin/fix"); held {
-			t.Fatalf("development: %+v", h)
+			t.Fatalf("--no-auth: %+v", h)
 		}
 		if s.Components()[0].Partitioned || s.Registry()[0].Partition != nil {
-			t.Error("development without sandboxes: want one unpartitioned instance")
+			t.Error("--no-auth without sandboxes: want one unpartitioned instance")
 		}
 		// with sandboxes it is partitioned in both
 		if s = open(t, t.TempDir(), Options{Dev: true, Isolate: true}, part()); !s.Components()[0].Partitioned {

@@ -2,6 +2,7 @@ package sealed
 
 import (
 	"debug/elf"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -94,6 +95,24 @@ func TestBuildNamesAndTargets(t *testing.T) {
 	if _, err := set.CheckBuilds(out, t.TempDir()); err == nil || !strings.Contains(err.Error(), "another xbin SDK") {
 		t.Errorf("CheckBuilds against another SDK tree: %v", err)
 	}
+	// …for the bundle's OS and architecture, by the release's toolchain
+	if n, err := set.CheckBuilds(out, "../../sdk", BuildOptions{GOOS: "linux", GOARCH: runtime.GOARCH}); err != nil || n != 1 {
+		t.Errorf("CheckBuilds for its own target: %d %v", n, err)
+	}
+	if _, err := set.CheckBuilds(out, "../../sdk", BuildOptions{GOOS: "linux", GOARCH: other}); err == nil || !strings.Contains(err.Error(), "was built for linux/"+runtime.GOARCH) {
+		t.Errorf("CheckBuilds for another architecture: %v", err)
+	}
+	stale, _ := ReadManifest(out)
+	entry := stale.Builds[want[0]]
+	entry.Go = "go1.0"
+	stale.Builds[want[0]] = entry
+	sb, _ := json.Marshal(stale)
+	fresh, _ := os.ReadFile(filepath.Join(out, ManifestName))
+	_ = os.WriteFile(filepath.Join(out, ManifestName), sb, 0o644)
+	if _, err := set.CheckBuilds(out, "../../sdk", BuildOptions{GOOS: "linux", GOARCH: runtime.GOARCH}); err == nil || !strings.Contains(err.Error(), "was built by go1.0") {
+		t.Errorf("CheckBuilds with builds of another toolchain: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(out, ManifestName), fresh, 0o644)
 
 	// the install that holds it runs it; other code's build is not it
 	ws := t.TempDir()

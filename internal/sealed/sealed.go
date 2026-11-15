@@ -154,9 +154,15 @@ type Options struct {
 	// partitions need them.
 	Isolate bool
 	// Dev says this is a development xbind (--dev or --no-auth): it
-	// compiles a component whose build the install lacks, and runs a
-	// partitioned component as one instance when it has no sandboxes.
+	// compiles a component whose build the install lacks.
 	Dev bool
+	// NoAuth says there are no people here (--no-auth): every request is
+	// the owner's. Only then does a partitioned component without
+	// sandboxes run as one shared instance — there is nobody to keep
+	// apart. With real users and no sandboxes (--dev alone) it is
+	// unavailable, as in production: one instance would hold everyone's
+	// data together.
+	NoAuth bool
 	// BinDir is the release's directory of prebuilt backends (bin/sealed
 	// beside xbind); "" = none.
 	BinDir string
@@ -291,7 +297,7 @@ func Open(specs []Spec, o Options) (*Set, error) {
 		man, manErr = ReadManifest(o.BinDir)
 	}
 	for _, c := range s.comps {
-		c.Partitioned = len(c.Partition) > 0 && (o.Isolate || !o.Dev)
+		c.Partitioned = len(c.Partition) > 0 && (o.Isolate || !o.NoAuth)
 		if o.BinDir != "" && c.Runtime == "go" {
 			// the release's build: the file the install's manifest lists
 			// for this source, with the hash it gives (build.go)
