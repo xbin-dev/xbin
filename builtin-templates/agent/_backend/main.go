@@ -89,7 +89,7 @@ func main() {
 		stopHosting(0)
 	}()
 
-	xbin.Serve(gateReady(ready, mux))
+	xbin.Serve(agentRuled(mux, gateReady(ready, mux))) // a person's workspace agent: the routes in agentMay, whatever guards a route (wsagent.go)
 	// Serve returns at SIGTERM without waiting for anything; the engine gets
 	// a bounded moment to unwind and hand over.
 	select {

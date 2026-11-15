@@ -468,12 +468,12 @@ func (m *Manager) llmArm(o *openOpts, rel string, prov *agent.Provider, revokeTo
 	}, nil
 }
 
-// llmDoorNet gives the sandbox of a session with no network a relay that
-// reaches nothing (its policy stays empty) when the session holds an LLM
-// key: the relay is what the door hangs on (llmDoorRelay). It reports
-// whether it did.
+// llmDoorNet sets the network of the sandbox of a session with no network:
+// none — or, when the session holds an LLM key, a relay that reaches
+// nothing (its policy stays empty): the relay is what the door hangs on
+// (llmDoorRelay). It reports whether it gave it the relay.
 func (m *Manager) llmDoorNet(o openOpts, spec *sandbox.Spec) bool {
-	if m.llmDoor(o) == "" {
+	if spec.Net = "none"; m.llmDoor(o) == "" {
 		return false
 	}
 	spec.Net = "relay"

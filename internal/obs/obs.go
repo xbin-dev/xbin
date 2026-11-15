@@ -21,6 +21,10 @@ type Plane struct {
 	Hub          *events.Hub               // status events out, build-start events in
 	IsAdmin      func(auth.Principal) bool // who may report for any tile and read every status
 	HasComponent func(path string) bool    // whether a path is a registered component (logs)
+	// AgentHides reports a tile a status listing leaves out for p: p is a
+	// person's workspace agent and the tile's org keeps it out (the server's
+	// DelegateHides); nil: nothing is left out.
+	AgentHides func(p auth.Principal, tile string) bool
 
 	// The deployment input (D127h): Primary names a tile's primary deployment;
 	// Addressed answers which deployment of a tile a request by p reaches

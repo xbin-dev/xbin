@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -137,9 +138,18 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusForbidden, "an agent session cannot open agent sessions from its sandbox")
 		return
 	}
+	// a person's workspace agent: how the delegate gate authorised the start
+	// (delegate.go). Starting on the person's preference, the mode and the
+	// pickers are the preference's — sending them is asking for something
+	// else, which needs the person's approval.
+	start := delegateStartOf(r)
+	if start != nil && !start.Approved && (body.Mode != "" || body.Net != "" || body.API != nil) {
+		apiErr(w, http.StatusForbidden, "a workspace agent starting without asking takes the mode, network and API access from its person's preferences: leave them out, or ask for the person's approval of this start")
+		return
+	}
 	info, code, err := s.Term.OpenAgentWith(auth.PrincipalOf(r), term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
 		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options,
-		Deployment: r.URL.Query().Get("deployment"), LLM: body.LLM})
+		Deployment: r.URL.Query().Get("deployment"), LLM: body.LLM, Delegate: start})
 	if err != nil {
 		agentOpenErr(w, code, err)
 		return
@@ -275,7 +285,11 @@ func (s *Server) apiAgentHistory(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	WriteJSON(w, http.StatusOK, s.Term.ListHistory(h, r.URL.Query().Get("cwd"), may))
+	rows := s.Term.ListHistory(h, r.URL.Query().Get("cwd"), may)
+	if p := auth.PrincipalOf(r); p.Agent != "" { // a person's agent: not the tiles whose org keeps it out
+		rows = slices.DeleteFunc(rows, func(m term.HistoryMeta) bool { return s.delegateHides(p, m.Cwd) })
+	}
+	WriteJSON(w, http.StatusOK, rows)
 }
 
 // apiAgentHistoryEvents is a past session's transcript, {meta, events} in
@@ -353,6 +367,9 @@ func (s *Server) apiAgentDelete(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, agentStatus(err), err.Error())
 		return
 	}
+	if !s.delegateDrives(w, r, id) { // a person's agent ends only the sessions it opened
+		return
+	}
 	if !s.Term.Kill(id) {
 		apiErr(w, http.StatusNotFound, "no such session")
 		return
@@ -370,7 +387,7 @@ const maxPromptBody = 32 << 20
 // limits.
 func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.driveOther(w, r)
-	if !ok {
+	if !ok || !s.delegateDrives(w, r, id) { // a person's agent drives only the sessions it opened
 		return
 	}
 	release, err := s.Term.ReservePrompt(id)
@@ -402,7 +419,7 @@ func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
 // attachment limits (one prompt's, or the held messages' together).
 func (s *Server) apiAgentQueue(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.driveOther(w, r)
-	if !ok {
+	if !ok || !s.delegateDrives(w, r, id) { // a person's agent drives only the sessions it opened
 		return
 	}
 	release, err := s.Term.ReserveQueue(id)
@@ -431,7 +448,7 @@ func (s *Server) apiAgentQueue(w http.ResponseWriter, r *http.Request) {
 // longer held (sent, or taken back elsewhere).
 func (s *Server) apiAgentUnqueue(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.driveOther(w, r)
-	if !ok {
+	if !ok || !s.delegateDrives(w, r, id) { // a person's agent drives only the sessions it opened
 		return
 	}
 	items, err := s.Term.AgentUnqueue(id, r.PathValue("qid"))
@@ -502,7 +519,7 @@ func decodePromptWith(body io.Reader, interrupt *bool) (agent.Prompt, int, error
 
 func (s *Server) apiAgentCancel(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.drive(w, r)
-	if !ok {
+	if !ok || !s.delegateDrives(w, r, id) { // a person's agent drives only the sessions it opened
 		return
 	}
 	if err := s.Term.AgentCancel(id); err != nil {

@@ -9,6 +9,22 @@ every route below is a few lines of `backend/main.go`. The builtin
 contract ([docs/sandbox-manager.md](../../docs/sandbox-manager.md)), sharing,
 people, images, quotas.
 
+
+## A person's workspace agent: off
+
+The manifest says `"agent": "off"`: a person's workspace agent
+(`/docs/auth.md` §Delegation) can't call this API for them, reads included.
+The reason is what the API is. A `writer` starts commands and opens
+terminals in sandboxes; xbind would ask the person before each write an
+agent makes, but it approves a *call*, and "`POST …/execs`, always" is an
+agent with a shell — every later command would run unasked. Reads are off
+too: an exec's output and a sandbox's files are whatever the commands left
+there. A person's agent that needs a sandbox gets one through a tile agent
+session, which xbind asks its person about (the harness, the mode). If you
+build a manager from this example and want agents to see a list of
+sandboxes, say `"read"` and refuse the output and file routes to a caller
+with `xbin.Caller(r).ByAgent()` (`/docs/elements.md` "A person's agent").
+
 ## Set it up
 
 Needs `xbind --isolate`. Import it, then, as a workspace admin:

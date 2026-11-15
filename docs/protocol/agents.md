@@ -21,8 +21,13 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    provider, mode, model?, status, pending
                                    — unanswered permission requests —
                                    questions — unanswered elicitations —
-                                   and, where the workspace's LLM connector
-                                   is offered to agent sessions, llm:
+                                   origin:"agent" when the person's
+                                   workspace agent opened the session for
+                                   them — set by xbind only, absent when
+                                   they opened it themselves
+                                   (protocol/delegation.md) — and, where
+                                   the workspace's LLM connector is
+                                   offered to agent sessions, llm:
                                    "connector" | "own" — who serves its
                                    model calls, once its sandbox settled
                                    it (llm.md §Coding agents and
@@ -422,6 +427,8 @@ GET    /agent/history             terminal-level. Your past agent sessions,
                                    never-prompted sessions are not kept).
                                    ?cwd= narrows to a tile. loadable: the
                                    agent can reopen it (resume). An entry of
+                                   a session the person's workspace agent
+                                   opened carries origin:"agent". An entry of
                                    a session that had a named target carries
                                    deployment. A session on a partitioned
                                    tile's entry is kept with its person's

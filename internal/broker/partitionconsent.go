@@ -374,6 +374,12 @@ func (b *Broker) edgeTile(target string) string {
 // use) on to, or a granted use of one of to's per-partition resources.
 // Asked through resolveTarget, the single evaluation point.
 func (b *Broker) edgeGranted(from, to string) bool {
+	if auth.HoldsDelegation(from) && from != to {
+		// a person's workspace agent reaches their partition of every tile
+		// they can read, with no grant (delegation.go): the edge is an
+		// approved one, so the person is asked for it like any other
+		return true
+	}
 	dep := b.primaryOf(from)
 	if b.resolveTarget(from, dep, to).Deny == nil {
 		return true

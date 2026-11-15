@@ -13674,6 +13674,129 @@ Deviations and refinements made while implementing; all deliberate:
     step, which says what failed. The `[project starter` marker is defused
     in text from outside, like the coordinator's other markers.
 
+- **D228 — Delegation: a sealed component acts as its person, under a cap,
+  with xbind-verified approvals and admin change sets (2026-11-14; issue
+  #51).** The workspace agent needs "the access of its user clicking
+  through the UI". Spike S2 (`plans/wsagent/s2-delegation.md`) found the
+  shape; the owner decided its nine questions the same day. Contract:
+  `docs/auth.md` §Delegation, `docs/protocol/delegation.md`.
+  - **Who**: only a sealed system component marked for it (one lookup, set
+    at boot from the sealed-component table). Never a workspace's
+    `xbin.json`, a grant or an approval.
+  - **The credential** is the instance token of the person's partition
+    under another scheme (`Authorization: XBin-Delegate`), honoured on the
+    gateway socket and on `/api/` only; with isolation off (outside
+    `--dev`/`--no-auth`) delegation refuses to run. It resolves to the
+    person's principal (`Via: "delegate"`, `Agent`), **never an admin**.
+  - **The cap** is a table naming every route xbind mounts (read, act,
+    admin-read, never, refused), kept exhaustive by a test over the route
+    inventory. Never delegated: answering a tile agent, a session's
+    settings, terminals, deletes, code writes, the account and devices,
+    other identities, the person's consents, tile stores, the admin API.
+  - **Approvals are xbind's, not the agent's.** A side effect (a non-GET
+    tile call, a session start, a tile create) needs a one-shot ticket the
+    person approved — bound to method, path with query, and body — or a
+    standing approval of a tile's API the person can list and revoke. A
+    stolen token is read-only. Rejected: approval only in the engine (a
+    token taken from the sandbox would then write).
+  - **Tiles** see `From: user:<id>`, the person's level as the role
+    (`reader`/`writer`), and a new `X-XBin-Agent`. `From` is not the
+    component's path: the agent template in the wild treats another
+    component as a tile manager. Consequence, stated in the changelog:
+    `user:<id>` no longer implies an admin. A tile opts down with
+    `"agent": "off" | "read" | "full"`; absent is full.
+  - **Tile agents it starts** take mode and pickers from the ticket the
+    person approved or from their preferences, on the default deployment;
+    the agent drives only sessions it opened and never answers one. A
+    reduced `$HOME` for such sessions waits for the sign-in store.
+  - **Admin changes** are change sets: a closed list of kinds (grants,
+    bindings, org shares, limits), each previewed by the handler's own
+    checks without writing, approved only by the person whose agent
+    proposed it after a step-up, applied in order as that person through
+    the ordinary handlers; stale items are not applied; an undo set.
+    An opted-in admin's agent also reads grants, bindings, orgs and limits.
+  - **Org rules** live in one place, `Org.Agents` (another package);
+    delegation asks through `delegation.Policy` and refuses without one.
+    No new policy deny kind.
+  - **Also**: per-person audit log, 13 months, every act and tile call and
+    no listing read; the person's pause cuts running calls; 30 acts a
+    minute; no grant or binding may target a sealed holder; each delegate
+    tile call is counted in the partition's egress ledger and its edges
+    count as approved for the consent prompt.
+  - **After the security review (2026-11-15).** Nine findings, fixed on the
+    branch, each with the case that passed before as a test. What changed
+    in the design: (1) a session-start card shows the harness, mode and
+    options the session *will* run with (history included), the ticket
+    binds them, and an agent resumes only sessions it started; (2) change
+    sets are closed by what a kind can *express*, not only by its name —
+    nothing on a holder, no `xbin`/`cap:`/`gpu:`/`code` targets, no `@`
+    slots, workspace default or host network, no share of a tile that
+    holds such grants; a binding's line states its route and xbind writes
+    PUBLIC / OPEN PORT / EGRESS warnings; an item whose warnings changed
+    is stale; (3) the plane is primary-only; (4) `?xbin-partition=global`
+    takes the same consent and ledger as the person's partition; (5) a
+    standing approval is of one call (tile, method, path) by default, the
+    whole tile a separate explicit scope — and the shipped infrastructure
+    says `"agent"` (`off`; the agent template `read`, with a closed rule in
+    its backend; apps say nothing — see below). The review's "the agent can answer a
+    harness's permission through the template's API" did not reproduce:
+    every route there needs the `admin` role and a delegate's call never
+    carries it — an accident, so the explicit rule went in anyway; (6)
+    the audit log rate-limits what isn't an act that ran, stores are
+    per-person locked and bounded; (7) running calls are re-judged (3 s,
+    and at once on a sweep), method-override headers are stripped, a
+    ticket binds the content type and the tile; (8) the cap's classes are
+    pinned by a golden file; (9) `Subject.Model` has one source.
+    Rejected: letting an agent message or start conversations in the
+    agent template under `"agent": "full"` — a message answers a parked
+    question and a start picks a harness and mode; each needs its own
+    design.
+  - **Wired to the agent rules (2026-11-15, with D229 merged).** The
+    delegation policy xbind runs with is `Broker.DelegationPolicy`: the
+    orgs' rules (`AgentTileAllows`, `AgentSessionAllows`) and people's
+    agent preferences (`agentprefs.Store.StartPrefs`), installed by boot;
+    a server, broker or terminal manager given none still refuses
+    everything, and `delegation.OpenPolicy` is the tests'. `GET /alerts`
+    and `GET /screens` are delegated reads, filtered by the same
+    `DelegateHides` as every listing. The routes D229 and D226 added are
+    classed and none is in the cap: the agent rules and preferences
+    (`PUT /agent/prefs` is what an agent may do unasked — the person's),
+    the LLM connector (a component calls it as itself), and **the
+    connection view** (`GET /agents/connection`) — its handler expects the
+    workspace agent as a caller, but it names the tiles the rules block,
+    which an agent's listings leave out; opening it is a decision of its
+    own. Owner's calls: the agent template's closed rule stands for this
+    release (messaging a template instance's conversation under tickets
+    is a possible later addition); `"agent": "off"` for infrastructure
+    (the gateways, sandboxes, ingress, bridges, and a new workspace's
+    admin, organisations and tile-manager consoles), `read` for
+    prometheus-viewer and the agent template, and **nothing** in the chat
+    tile, the starter template and the examples — apps are what a
+    workspace agent acts on, under tickets; the starter's `AGENTS.md`
+    tells a builder when to narrow it and how to keep a route human-only.
+    Kept for the sealed-components merge: under `--dev --no-auth` the
+    holder's single global instance is the implicit owner's delegate
+    (`TestDelegateNoAuthGlobalHolder`, skipped until then).
+  - **After the second review (2026-11-15).** What changed in the design:
+    a tile's agent level is xbind's record, raised only by a person who
+    manages the tile (`data/agent-levels.json`; the manifest lowers, never
+    raises; the consoles' level is the release's); a delegate's tile call
+    forwards an allowlist of request headers, a ticket binds the whole
+    `Content-Type`, a tile's redirect headers are dropped and `AsPerson()`
+    follows none; a missing tile and an unreadable one are one refusal; a
+    binary body is approved only as `unseen`; applying a change set takes
+    an explicit non-empty list, its names are validated before they reach
+    a line, and sets are capped (50 decided, 30 days, 256 KiB); every
+    audit field is bounded and a bad line is skipped and counted; a
+    delegate's session start is strict (`acp.Config.Strict`: the mode in
+    force or no session, only a model or thinking level set) and a
+    preference is its harness's; the cap's golden pins the audit flag and
+    tile function and is not regenerated in CI; the agent template's rule
+    lists reads too and covers the adapters, bus and mailbox. **A holder
+    is never trusted chrome**: "the person's own session" is a request
+    with the person's session and no component, which is exactly what
+    chrome's documents send — `trustedChrome` is false for a holder,
+    `PUT /chrome` refuses one, and boot stops on a conflict.
 - **D224 — One chat kit for the Agent tab, the agent template and the
   workspace agent; a newer template needs its xbind (2026-11-14; issue
   #51).** The Agent tab (`web/agent-*.js`), the agent template

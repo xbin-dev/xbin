@@ -9,4 +9,9 @@
   // Without this flag a tile frame is an opaque origin and raw fetch would
   // 401. Only ever set on components you trust as fully as the shell itself.
   "chrome": true,
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — the organisations console: who is in an org and
+  // what it may do.
+  "agent": "off"
 }

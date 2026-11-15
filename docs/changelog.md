@@ -199,7 +199,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   connector (the runtime's `caps` carry `llm`), and the conformance suite
   (`sdk/sandboxcontract`) gained the section `llm`. A manager that offers
   it accepts `XBIN_LLM_URL` and `XBIN_LLM_KEY` in a command's `env`.
-  (`sandbox-terminal` v10 is its tests' copy of the fake manager following
+  (`sandbox-terminal` v11 is its tests' copy of the fake manager following
   this; nothing changes for people or managers.)
 - **Agent template: coding agents start on the workspace's LLM connector**
   when they have no sign-in (D226; the template's API.md §Coding agents).
@@ -217,6 +217,104 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   who serves a session ([sdk.md](/docs/sdk.md) §Driving a coding agent).
   `acp.Fake` takes a connector too, and the scripted agent (`acptest`)
   gains the `llm-call` script.
+- **Delegation: a person's workspace agent acts as them, under a cap
+  (D228).** The auth primitive the workspace agent will run on; nothing
+  uses it until an xbind ships that sealed component and an admin turns
+  workspace agents on, so an upgrade changes no tile's behaviour today.
+  What a tile builder should know now ([auth.md
+  §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)):
+  - **A new header, `X-XBin-Agent`.** A call made by a person's workspace
+    agent for them carries it (the sealed component's path) beside
+    `X-XBin-User`, with `X-XBin-From: user:<id>` and `X-XBin-Role:
+    reader | writer` — the person's level on your tile. Stripped inbound
+    like every `X-XBin-*`. SDK: `xbin.Caller(r).Agent` and `.ByAgent()`.
+  - **`X-XBin-From: user:<id>` no longer implies an admin.** Until now
+    only an admin could call a tile's API in person, so a backend saw
+    `user:<id>` only with role `admin`. An agent's call arrives as
+    `user:<id>` at `reader` or `writer`. If your backend treats the `user:`
+    prefix as "an admin", change it to read `X-XBin-Role` or
+    `X-XBin-User-Level` (`xbin.Role(…)`, `Caller(r).UserCanWrite()` already
+    do). The shipped tiles and templates judge by level.
+  - **A new manifest key, `"agent"`**: `"full"` (the default), `"read"`
+    (an agent may only `GET`/`HEAD` your API) or `"off"`
+    ([elements.md](/docs/elements.md)). `GET /api/xbin/components` rows
+    carry `agent` when it isn't full.
+  - **Every write an agent makes was approved by its person, and xbind
+    checks it**: a one-shot ticket bound to the exact method, path, body
+    and content type, or a standing approval the person gave and can
+    revoke — of that call (method and path), or of every write to your
+    tile when they chose that. Your tile needs no code for this.
+  - No tile can be granted or bound to a sealed component that acts for
+    people: `POST /grants` and `POST /bindings` answer 409 for such a
+    target.
+  - **Decide what an agent may do in your tile**
+    ([elements.md → A person's agent](/docs/elements.md)): xbind approves a
+    *call*, and only your tile knows what the call means. A route that
+    answers an approval, a permission request, a question or a sign-in must
+    refuse a caller with `ByAgent()`, or the manifest says `"read"` or
+    `"off"`. A backend written before this release treats an agent's call
+    as its person's.
+  - **The infrastructure that ships with xbind now says `"agent"`.**
+    `off`: egress-approver, llm-gw, s3-archiver, sandbox-terminal, traefik,
+    webhooks, the agent-messaging-bridge, coding-sandbox and scm-github
+    templates, and a new workspace's admin console, organisations console
+    and tile manager. `read`: prometheus-viewer and the agent template.
+    **Apps stay unspecified** — the chat tile, the starter template, the
+    examples: an app is what a workspace agent is for, and without the key
+    a person's agent may use it fully, each write under their approval. The
+    starter template gained an `AGENTS.md` that tells its builder when to
+    narrow that and how to keep a route human-only. Each changed builtin
+    tile is one version up (`bx builtin updates`); a template's instances
+    get it with `git merge template/main`.
+  - **The agent template refuses a person's agent everything but reads**
+    (and stopping a run, marking one read) in its backend too
+    (`_backend/wsagent.go`; API.md "A person's workspace agent"). **An
+    instance made before this release can't tell the agent from the
+    person**: unmodified, its routes all need the `admin` role, which an
+    agent's call never has, so it refuses the agent outright; if you opened
+    routes to `writer`, merge the template's update or add `"agent": "off"`
+    to the instance's `xbin.json`. Letting a person's agent message a
+    conversation in a template instance is a possible later addition, under
+    tickets; this release has none.
+- **API: `/api/xbin/delegate/…`** ([protocol/delegation.md](/docs/protocol/delegation.md)):
+  the workspace's switch and a person's pause, approval requests and
+  tickets (bound to the call's method, path, query, body and content
+  type), standing approvals — of one call (`scope: "call"`, the default) or,
+  as a separate explicit choice, of every write to a tile (`scope:
+  "tile"`) — admin change sets (an admin's agent proposes grants, bindings,
+  org shares and limit raises, none of them on an agent itself or of
+  workspace-level power; the person approves after a recent sign-in; xbind
+  applies them as the person), and the person's audit log of what their
+  agent did. A `delegate` event on `/ws/events`;
+  push kinds `agent.approval` and `agent.changeset`.
+- **A tile's `"agent"` level is raised only by a person**
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §A tile's agent
+  level). A manifest lowers the level at once; one that states more than
+  xbind has on record, or drops the key after stating less, changes nothing
+  until someone who manages the tile approves it (`GET` / `PUT
+  /api/xbin/agent-levels`; an `agent-level` alert; `agentRequested` on
+  `/components` rows). A tile that never stated a level is `full`, and its
+  first value is taken as is. A workspace's consoles are `off` whatever
+  their copy of the manifest says.
+- **A delegate's call to a tile carries a fixed list of request headers**
+  (Accept…, Content-Type, the conditionals, Range, Cache-Control,
+  User-Agent) and a tile's answer to it no `Location`: write a tile's API
+  so an agent needs neither a custom header nor a redirect.
+- **SDK: `xbin.AsPerson()` and the delegate helpers** (`RequestApproval`,
+  `RequestApprovalAs`, `ApprovalOf`, `StandingApprovals`, `WithTicket`,
+  `WithAgentModel`, `DryRun`, `ProposeChanges`,
+  `ChangeSetOf`, `DelegateRefusal` and its `Err…` values) — for xbind's own
+  workspace-agent component; from any other tile they answer 401
+  ([sdk.md](/docs/sdk.md)). `AsPerson()` follows no redirect. `sdk/acp`:
+  `Config.Strict` — a start whose mode the harness refuses, or that asks
+  for an option other than a model or a thinking level, fails (xbind sets
+  it for sessions a workspace agent opens).
+- **Agent sessions: `origin`.** A session row, and its history entry,
+  carries `origin: "agent"` when the person's workspace agent opened it
+  (`GET /term/sessions`, `GET /agent/history`). Absent otherwise.
+- **`GET /tile-status`** also answers a person's workspace agent for a tile
+  that person can read.
+
 - **The LLM connector has a page and an admin console tab** (D226;
   [llm.md](/docs/llm.md)). `/xbin/llm` — xbind's own page, there whatever
   scaffold a workspace runs — is where a workspace admin sets the connector

@@ -29,6 +29,7 @@ import (
 	"github.com/creack/pty"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/gpu"
 	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -125,6 +126,10 @@ type Manager struct {
 	// broker by main. nil ⇒ the pre-D54 rules (termNet → internet, host
 	// admin-only).
 	TermNet func(p auth.Principal, component string) TermNet
+	// AgentPolicy answers the orgs' rules when a person's workspace agent
+	// opens a tile agent session (delegate.go); nil refuses every such open
+	// (delegation.NoPolicy).
+	AgentPolicy delegation.Policy
 
 	// HiddenTiles lists the component dirs to mask out of this principal's
 	// terminals (D17a — source visibility scoped to the allow-list): every
@@ -197,8 +202,7 @@ type Manager struct {
 	TilePartitioned    func(path string) (tile string, partitioned bool)
 	PersonPartitionKey func(userID string) string
 
-	LLMHook // the workspace's LLM connector for sessions: LLM, Prefs (llmhook.go, D226)
-
+	LLMHook // the workspace's LLM connector for sessions: LLM, Credentials, LLMDoor (llmhook.go, D226)
 	// SigninLife is how long a guided sign-in's shell (?purpose=signin,
 	// purpose.go) lives before xbind ends it. 0 ⇒ 15 minutes.
 	SigninLife time.Duration
@@ -686,8 +690,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	case o.netHost:
 		spec.HostNet = true // owner escape hatch — LAN + host services, interfaces visible
 	case o.net == NetNone:
-		spec.Net = "none"                // isolated netns, default-deny egress
-		relayNet = m.llmDoorNet(o, spec) // …but for the LLM connector's door, when the session holds a key (llmhook.go)
+		relayNet = m.llmDoorNet(o, spec) // isolated netns, default-deny egress — but for the LLM connector's door, when the session holds a key (llmhook.go)
 	default:
 		spec.Net = "relay" // own netns; the egress relay enforces the rules
 		relayNet = true

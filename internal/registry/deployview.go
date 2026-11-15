@@ -5,8 +5,9 @@ package registry
 //
 //   - tile-level fields (existence, path, scope membership, uses, interfaces,
 //     deps) request authority and come from the work tree;
-//   - the inbound surface (template, exposes, expose, provides, chrome) comes
-//     from the primary's code, since only the primary receives inbound edges;
+//   - the inbound surface (template, exposes, expose, provides, chrome,
+//     agent) comes from the primary's code, since only the primary receives
+//     inbound edges;
 //   - deployment-level fields (runtime, entry, setup, alwaysOn, vm, inject,
 //     native, partition, partitionMail, partitionNote, scope.json's
 //     resources and importMap) come from the deployment's own code.
@@ -158,6 +159,7 @@ func composeManifest(tile, inbound, code Manifest) Manifest {
 		Expose:   inbound.Expose,
 		Provides: inbound.Provides,
 		Chrome:   inbound.Chrome,
+		Agent:    inbound.Agent, // what a person's agent may use of the API the primary serves
 		// deployment-level
 		Runtime:  code.Runtime,
 		Entry:    code.Entry,

@@ -61,7 +61,13 @@ type Manifest struct {
 	Deps    []string `json:"deps,omitempty"`    // source visibility (deps/ symlinks)
 	Uses    []Use    `json:"uses,omitempty"`    // runtime call grant requests
 	Expose  *Expose  `json:"expose,omitempty"`
-	Inject  *bool    `json:"inject,omitempty"` // false disables D4 HTML injection
+	// Agent says how much of the tile's API a person's workspace agent may
+	// use for them (AgentAccess): "off", "read" (GET and HEAD only) or
+	// "full". Absent is "full" — at the person's level, and every side
+	// effect still needs their approval. A word this xbind doesn't know
+	// reads as "off".
+	Agent  string `json:"agent,omitempty"`
+	Inject *bool  `json:"inject,omitempty"` // false disables D4 HTML injection
 	// Chrome ASKS for the component to be trusted workspace chrome
 	// (plans/auth.md §6): frames NOT sandboxed, so its frontend keeps the
 	// ambient session cookie and acts as whoever opens it (like the shell

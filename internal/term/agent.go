@@ -18,6 +18,7 @@ package term
 // of the session's own (llmhook.go).
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -145,6 +146,11 @@ type AgentOpen struct {
 	// the workspace has an LLM connector: "connector", "own", or "" — the
 	// person's saved default, then the workspace's (llmhook.go).
 	LLM string
+	// Delegate says how a delegate's open was authorised (delegate.go): the
+	// server's delegate gate fills it; nil for everyone else, and a
+	// delegate's open without it is refused.
+	Delegate *DelegateStart
+	origin   string // a restart: the session's origin carries over
 }
 
 // OpenAgentWith is OpenAgent with the sandbox pickers.
@@ -161,6 +167,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	// (history.go) — its provider, mode and name carry over; the agent must
 	// have advertised loadSession, else 409 and the UI offers a fresh start
 	var resumeID string
+	var resumeFrom *HistoryMeta
 	var fromPart bool // the entry is partition history (resumeHere)
 	if resume != "" {
 		var meta HistoryMeta
@@ -175,7 +182,8 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 			return SessionInfo{}, 409, agent.ErrResumeUnsupported
 		}
 		providerID, resumeID = meta.Provider, meta.ACPSessionID
-		if mode == "" {
+		resumeFrom = &meta
+		if mode == "" && p.Agent == "" { // a delegate's mode is its ticket's or the person's preference
 			mode = meta.Mode
 		}
 		if name == "" {
@@ -186,8 +194,20 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if !ok {
 		return SessionInfo{}, 400, fmt.Errorf("unknown provider %q (GET /api/xbin/agent/providers lists them)", providerID)
 	}
+	if p.Agent != "" { // a person's workspace agent: narrowed beyond the person's own gates (delegate.go)
+		var why string
+		if mode, netMode, why = m.delegateOpen(p, &a, rel, prov, mode, netMode, resumeFrom); why != "" {
+			return SessionInfo{}, 403, errors.New(why)
+		}
+	}
 	if mode, err = prov.ResolveMode(mode); err != nil {
 		return SessionInfo{}, 400, err
+	}
+	if d := a.Delegate; p.Agent != "" && d != nil && d.Approved && (d.Provider != prov.ID || d.Mode != mode) {
+		// what would open now isn't what the person was shown (the history
+		// entry it resumes changed, or the catalog did)
+		return SessionInfo{}, 403, fmt.Errorf("a workspace agent opens exactly the session its person approved (%s in mode %s): this would be %s in mode %s — ask again",
+			d.Provider, d.Mode, prov.ID, mode)
 	}
 	if err := m.HarnessAllowed(p, rel, prov.ID); err != nil { // the tile's orgs' harness rules (D229)
 		if resume != "" {
@@ -200,6 +220,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
+	o.origin = cmp.Or(p.Agent, a.origin) // a delegate's open; a restart keeps its session's (delegate.go)
 	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
@@ -301,6 +322,9 @@ func (m *Manager) AgentToken(tok string) bool {
 	}
 	return false
 }
+
+// onAgentConfig sees each agent session's driver config (tests).
+var onAgentConfig func(agent.Config)
 
 // createAgent is create() for the agent kind: pipes instead of a PTY, the
 // driver started in the background (the session reports `starting` until
@@ -410,7 +434,17 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return &agent.Process{Stdin: stdin, Stdout: stdout, Stderr: stderr, Kill: s.kill}, nil
 	}
 	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: start, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
-		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel}}
+		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel},
+		// a session a person's workspace agent opened: its mode is the one
+		// its person approved, and no option may move it (an agent's config
+		// option of category mode is set after the mode; delegate.go)
+		SkipModeOptions: o.origin != "",
+		// a workspace agent's start is the harness and mode its person
+		// approved (or their preference) or it isn't at all (acp.Config.Strict)
+		Strict: o.origin != ""}
+	if onAgentConfig != nil {
+		onAgentConfig(cfg)
+	}
 	go s.agentPump(m, func() {
 		unlist()
 		st.mu.Lock()
