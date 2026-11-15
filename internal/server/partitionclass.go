@@ -499,7 +499,7 @@ var partitionClasses = map[string]PartitionClass{
 	"PUT /agents/policy":         GlobalOnlyRefused,
 	"PUT /orgs/{org}/agents":     GlobalOnlyRefused,
 	"PUT /orgs/{org}/agents/pin": GlobalOnlyRefused,
-	"GET /agents/connection":     GlobalOnlyRefused,
+	"GET /agents/connection":     PartitionNeutral, // ?session=: a holder page's one read, from its frame in its person's partition; the handler refuses every other tile credential
 	"GET /agent/prefs":           PersonOnly,
 	"PUT /agent/prefs":           PersonOnly,
 	// ---- the LLM connector's calls (D226): a person's partition calls as
