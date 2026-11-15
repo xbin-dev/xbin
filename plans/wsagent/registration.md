@@ -47,13 +47,21 @@ split). It extends D231 (the workspace agent) on D227 (sealed components).
   workspace admin, `who {everyone, entries, chosen}`; the setup state stays
   for an admin until someone was chosen. The notice that names
   `/xbin/agent` goes only to people who have an agent.
-- **Limits: the defaults, measured.** Idle, a person's backend holds 56–68
-  MiB after a first turn (three partitions measured), beside its encrypted
-  volumes. Nothing is set on the row: a partition stops after ten idle
-  minutes (PD-18), at most 32 run at once (the partition limits' default),
-  and the memory and disk caps are a tile's (2 GiB memory by default).
-  Open: whether a row should be able to ask for a lower cap than a tile's
-  default — the table has no field for limits, and D203's asks only raise.
+- **A row may ask for limits below a tile's (`Spec.Limits`), and the
+  agent's does.** Memory 512 MiB for each person's backend (a tile: 2
+  GiB): measured on an install-like xbind, 57–63 MiB idle and 74 MiB
+  after a 216-tool-call conversation and a compaction, so the cap is
+  about seven times its heaviest measured use, and a quarter of what the
+  32 partitions that may run at once could otherwise claim. Idle stop
+  three minutes (a partition: ten): a stopped partition answers again in
+  0.1 s, 0.4 s when its volumes mount anew, so stopping early costs a
+  person nothing they notice. The running cap is left at the default. The
+  memory cap is where an admin's raise starts (D203), not a ceiling.
+- **The partition mode is fixed for the life of the entry.** The data
+  stamp records the mode the data was made in; a table that later gives
+  the component another mode holds it (`partition-mode`), touches nothing
+  and registers it in the mode its data has, so nothing asks for the
+  switch that would delete it.
 - **The build.** `make build` / `make sealed` / the release scripts build
   `bin/sealed/wsagent-<digest>` with the agent template's own `go.sum`
   (`-mod=readonly`): they need its modules in the module cache or a

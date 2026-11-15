@@ -94,6 +94,12 @@ API):
   archive.
 - **Its limits.** Memory, disk and the rest, as for a tile
   ([isolation.md](/docs/isolation.md) → Resource limits; `/xbin/limits`).
+  The release may start a component *below* a tile's defaults — its
+  memory cap, how long a person's idle backend is kept, how many people's
+  backends run at once — and you raise from there as for a tile. The
+  workspace agent starts at 512 MiB of memory for each person's backend (a
+  tile: 2 GiB) and stops a person's idle backend after three minutes (a
+  per-person tile: ten); it answers again in a fraction of a second.
 - **What its slots are bound to.** Only the slots the release declares,
   and only to the providers the release names for each
   (`bx bind xbin/<name> <slot>=<provider>`, the Interfaces tab,
@@ -197,6 +203,14 @@ answers with the reason, and `/xbin/system` shows it.
 | `newer-data` | Its data was written by a newer release, in a format this one can't read (after a downgrade). | Install the release named in the message, or a later one. Nothing was changed. |
 | `stamp` | Its data stamp can't be read or written. | Fix `data/sealed/<name>.json` (permissions, disk), then restart. |
 | `needs-sandboxes` | It keeps each person's data apart, and xbind runs without `--isolate`. | Run xbind with `--isolate`. |
+| `partition-mode` | Its data was made in another partition mode (one backend, or one per person) than this release gives it. | Install a release whose mode is the one its data was made in (the message names both). Nothing was changed. |
+
+**A system component's partition mode never changes.** Whether it runs as
+one backend or one per person is fixed for the life of the component:
+switching the mode of a component that holds data deletes that data, so
+xbind records the mode beside the data's format and holds a component
+whose release says otherwise, instead of switching. The workspace agent
+is one backend per person, with no shared instance, for good.
 
 ### Partitions need sandboxes
 
