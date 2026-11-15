@@ -6036,7 +6036,14 @@ agent writes is stamped with every org its session is tainted with at that
 moment, added to the stamps it had; a session reads, searches and is shown
 a page only when its model is allowed by every stamped org (xbind's
 `…/sessions/{id}/allows`), and reading or being shown one adds its stamps
-to the session's taint (`…/taint`) first. Nothing takes a stamp off a page:
+to the session's taint (`…/taint`) first. That holds for every way a
+tool or the prompt reaches a page — read, search, the list, the index and
+`preferences` in the prompt, an edit, an archive, a save over it — and
+for every way the page came to be; a search says how many pages it can't
+read whatever its words, so its count tells nothing of what they hold.
+`GET /ws/notebook/{slug}` answers the body to the person's own page
+whatever the session: their pages, shown in their notebook, and never a
+model's input. Nothing takes a stamp off a page:
 `PUT /ws/notebook/{slug}` — the person's own route, which the page's own
 credential reaches, and the page renders what a model wrote — keeps a
 page's stamps, a page deleted and written again by that route included.

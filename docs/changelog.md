@@ -28,7 +28,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   lists the change sets its own conversation proposed, no other
   session's. A tile agent's start follows xbind's dry run at the brief's
   Start: no request where the person lets starts through, one filed
-  wherever xbind says it is needed.
+  wherever xbind says it is needed. `notebook_search` counts the pages a
+  session can't read whatever the words searched for (the count of the
+  matching ones said what they held).
 
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),

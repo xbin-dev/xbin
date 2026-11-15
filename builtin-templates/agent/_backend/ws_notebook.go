@@ -288,12 +288,14 @@ func wsNotebookSearch(ctx context.Context, ag *Agent, s *wsSession, c coordCall)
 		return "", wsNotebookErr(err)
 	}
 	var b strings.Builder
-	n, hidden := 0, 0
+	n := 0
+	// the pages it may not read are counted whatever the words: a count of
+	// the closed pages that match would say what they hold
+	_, _, hidden := wsPageList(ag.db, s, store)
 	var shown []wsStamp
 	for _, h := range hits {
 		st := ag.db.wsStamp(store, h.Slug)
 		if !wsReadable(s, st) {
-			hidden++
 			continue
 		}
 		if n++; n > min(limit, 20) {
