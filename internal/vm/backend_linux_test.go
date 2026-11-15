@@ -84,7 +84,7 @@ func harnessAt(t *testing.T, root, accel string) *Manager {
 	m.Debug = os.Getenv("XBIN_SANDBOX_DEBUG") != "" // echoes the guest console
 	st := m.Status()
 	if !st.Available {
-		t.Skipf("%s VMs unavailable here: %s", accel, st.Reason)
+		skipOrFail(t, "%s VMs unavailable here: %s", accel, st.Reason)
 	}
 	return m
 }
