@@ -118,9 +118,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   until the page can open Settings. Likewise the Automations page: a
   form opened while its list was still being read (New schedule, right
   after opening the page) is no longer closed when the read lands.
-- **The agent template's chat is drawn with the chat kit; a tool call's
-  card says what it came to** (D224; [frontend-kit.md](/docs/frontend-kit.md)
-  §The chat kit). The kit (`/vendor/chat/…`, revision 4 in
+- **BREAKING for patched instances of the agent template: its chat is
+  drawn with the chat kit; a tool call's card says what it came to**
+  (D224; [frontend-kit.md](/docs/frontend-kit.md) §The chat kit;
+  migration:
+  [changes/2026-11-15-agent-chat-on-the-kit.md](/docs/changes/2026-11-15-agent-chat-on-the-kit.md)
+  — every old class inside a card with its new name; nothing breaks until
+  an instance merges the template). The kit (`/vendor/chat/…`, revision 4 in
   `/vendor/chat/rev.js`) has a second host: the agent template hands its
   blocks to the kit's views (`model/fold.js` `blockOf`, `chat-kit.js`), so
   a coding agent's calls and the template's own tools are one card, in the
@@ -185,7 +189,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     `.bxc-reject textarea` for `.hfb`, `.bxc-field[data-field]` for
     `.hfield`). `harness-ask.js` still exports `permissionTpl` and
     `questionTpl` (they draw the run's park; the card model argument is
-    ignored), `chat-cards.js` no longer exports `approvalTpl`. A
+    ignored), and `chat-cards.js` still exports `approvalTpl` (drawn by
+    the kit). A
     message, a thought, a notice, a journal line and a subagent's card
     keep `.msg.user` / `.msg.assistant` (`.live`, `.other`), `.think`,
     `.notice`, `.step.<kind>` and `.acard` with their state classes on the
