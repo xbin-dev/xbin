@@ -229,14 +229,32 @@ async function appearance(browser) {
       await sleep(300); // a negative: nothing may change
       check((await now(old)).scheme === 'dark', 'live: a frame that didn\'t opt in hears it and stays Night');
       // anything but the parent posting to the probe — the frame itself, a
-      // sibling (another tile's frame): ignored
-      await probe.evaluate(() => window.postMessage({ type: 'xbin:appearance', theme: 'dark', density: 'compact' }, '*'));
-      const siblings = await old.evaluate(() => {
-        let n = 0;
-        for (let i = 0; i < parent.frames.length; i++) if (parent.frames[i] !== window) { parent.frames[i].postMessage({ type: 'xbin:appearance', theme: 'dark', density: 'compact' }, '*'); n++; }
-        return n;
+      // sibling (another tile's frame): ignored. xbind's own relay posts too,
+      // on the frame's load: a late load (a busy run) set it back to the
+      // system's Night inside the look. Parent messages are counted, and a
+      // look that one fell into is taken again, the parent's Day put back.
+      // (counted in the document: a new one, a reload, counts afresh)
+      const fromParent = () => probe.evaluate(() => {
+        if (window.bxFromParent === undefined) {
+          window.bxFromParent = 0;
+          addEventListener('message', (e) => { if (e.source === parent && e.data?.type === 'xbin:appearance') window.bxFromParent++; });
+        }
+        return `${performance.timeOrigin}:${window.bxFromParent}`;
       });
-      await sleep(300); // a negative: nothing may change
+      let siblings = 0;
+      for (let tries = 0; ; tries++) {
+        const n0 = await fromParent();
+        await probe.evaluate(() => window.postMessage({ type: 'xbin:appearance', theme: 'dark', density: 'compact' }, '*'));
+        siblings = await old.evaluate(() => {
+          let n = 0;
+          for (let i = 0; i < parent.frames.length; i++) if (parent.frames[i] !== window) { parent.frames[i].postMessage({ type: 'xbin:appearance', theme: 'dark', density: 'compact' }, '*'); n++; }
+          return n;
+        });
+        await sleep(300); // a negative: nothing may change
+        if (await fromParent() === n0 || tries === 3) break;
+        await post(probe, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
+        await until(async () => (await now(probe)).scheme === 'light', 'the probe back to Day');
+      }
       check((await now(probe)).scheme === 'light', `live: an xbin:appearance from the frame itself is ignored${siblings ? `, and from ${siblings} sibling frame(s)` : ' (no sibling could post: frames in shadow roots aren\'t in window.frames)'}`);
       await L.page.screenshot({ path: `${OUT}/appearance-live.png` });
       await post(probe, { type: 'xbin:appearance', theme: 'system', density: 'compact' });
