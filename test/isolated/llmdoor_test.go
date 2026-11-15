@@ -50,21 +50,36 @@ func llmDoor(t *testing.T, vm bool) {
 	d.Must(t, "PUT", "/api/xbin/llm/upstreams/fake", map[string]any{"baseURL": fake + "/v1", "key": "sk-fake-DOOR-TEST-0000"}, 200)
 	d.Must(t, "PUT", "/api/xbin/llm/config", map[string]any{"defaults": map[string]any{"model": "fake/fake-chat"}}, 200)
 
-	// the consumer: a page with a sandboxes slot and an llm slot, both bound
+	// the consumer: a tile with a sandboxes slot and an llm slot, both
+	// bound, whose BACKEND asks for the keys (the SDK's LLMKeyFor) — the
+	// one credential that may
 	const tile = "apps/llmc"
 	if err := d.WriteFiles(tile, map[string]string{
-		"xbin.json": `{"interfaces": {"sandboxes": {"kind": "http", "service": "sandbox-manager", "multi": true},
-			"llm": {"kind": "http", "service": "openai"}}}`,
-		"index.html": "<!doctype html><title>an LLM consumer</title>",
+		"go.mod":          "module llmc\n\ngo 1.24\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n",
+		"backend/main.go": llmConsumerSource,
+		"index.html":      "<!doctype html><title>an LLM consumer</title>",
 	}); err != nil {
 		t.Fatal(err)
 	}
+	d.WriteTile(t, tile, map[string]string{"xbin.json": `{"runtime": "go", "interfaces": {"sandboxes": {"kind": "http", "service": "sandbox-manager", "multi": true},
+			"llm": {"kind": "http", "service": "openai"}}}`})
 	d.WaitComponent(t, tile)
 	d.Bind(t, tile, "sandboxes", csTile)
 	frame := func() xbindtest.Header { return xbindtest.FrameHeader(e.pageTok(t, tile, "alice")) }
+	type minted struct{ ID, Token, User, Component, Error string }
+	// the backend's ask, through its own route (the owner calls it)
+	mint := func(body map[string]any) minted {
+		t.Helper()
+		var k minted
+		xbindtest.Eventually(t, 3*time.Minute, "the consumer's backend answers", func() (bool, string) {
+			r := d.Call(t, "POST", "/api/"+tile+"/key", body)
+			return r.Status == 200 && json.Unmarshal(r.Body, &k) == nil, r.String()
+		})
+		return k
+	}
 	// not bound to the connector yet: no key
-	if r := d.Call(t, "POST", "/api/xbin/llm/keys", map[string]any{"label": "door"}, frame()); r.Status != 403 {
-		t.Fatalf("a key for a tile that isn't bound to xbin:llm: %d %s", r.Status, r)
+	if k := mint(map[string]any{"label": "door"}); k.Token != "" || !strings.Contains(k.Error, "refused") {
+		t.Fatalf("a key for a tile that isn't bound to xbin:llm: %+v", k.Error)
 	}
 	d.Bind(t, tile, "llm", "xbin:llm")
 
@@ -82,14 +97,32 @@ func llmDoor(t *testing.T, vm bool) {
 		t.Fatalf("isolation %q, want a VM", sb.Isolation)
 	}
 
-	// the key: for alice, by the consumer's page alone
-	var key struct{ ID, Token, User, Component string }
-	d.Must(t, "POST", "/api/xbin/llm/keys", map[string]any{"user": "alice", "label": "door", "sandbox": sb.ID}, 200, frame()).Decode(t, &key)
-	if !strings.HasPrefix(key.Token, "xbl_") || key.User != "alice" || key.Component != tile {
+	// the key: by the consumer's backend alone — its page (a credential a
+	// browser holds), alice's own session and the owner get none — and for
+	// whom the backend acts: here everyone, so nobody is named and the
+	// tile is metered
+	for what, h := range map[string][]xbindtest.Header{"the tile's page": {frame()}, "the owner": nil} {
+		if r := d.Call(t, "POST", "/api/xbin/llm/keys", map[string]any{"label": "door", "sandbox": sb.ID}, h...); r.Status != 403 {
+			t.Fatalf("%s asking for an LLM key: %d %s", what, r.Status, r)
+		}
+	}
+	var key minted
+	xbindtest.Eventually(t, time.Minute, "the backend sees its binding", func() (bool, string) {
+		key = mint(map[string]any{"label": "door", "sandbox": sb.ID})
+		return key.Token != "", key.Error
+	})
+	if !strings.HasPrefix(key.Token, "xbl_") || key.User != "" || key.Component != tile {
 		t.Fatalf("the key's grant: user %q component %q", key.User, key.Component)
 	}
-	if r := d.Call(t, "POST", "/api/xbin/llm/keys", map[string]any{"user": "bob"}, frame()); r.Status != 403 {
-		t.Errorf("a key for someone else: %d %s", r.Status, r)
+	if k := mint(map[string]any{"user": "bob"}); k.Token != "" || !strings.Contains(k.Error, "refused") {
+		t.Errorf("a key for someone the backend doesn't act for: %+v", k.Error)
+	}
+	// kept alive by its backend; never by the page
+	if r := d.Call(t, "POST", "/api/xbin/llm/keys/"+key.ID+"/renew", nil, frame()); r.Status != 403 {
+		t.Errorf("the page renewing a key: %d %s", r.Status, r)
+	}
+	if r := d.Call(t, "POST", "/api/"+tile+"/renew/"+key.ID, nil); r.Status != 200 || !strings.Contains(r.String(), "expires") {
+		t.Errorf("the backend renewing its key: %d %s", r.Status, r)
 	}
 
 	// from inside the sandbox
@@ -143,7 +176,7 @@ func llmDoor(t *testing.T, vm bool) {
 	}
 
 	// metered to the person and the consumer
-	xbindtest.Eventually(t, 15*time.Second, "the call metered to alice and the consumer", func() (bool, string) {
+	xbindtest.Eventually(t, 15*time.Second, "the call metered to the consumer", func() (bool, string) {
 		var use struct {
 			Rows []struct {
 				User, Component, Model string
@@ -152,15 +185,65 @@ func llmDoor(t *testing.T, vm bool) {
 		}
 		r := d.Call(t, "GET", "/api/xbin/llm/usage?component="+url.QueryEscape(tile), nil)
 		_ = json.Unmarshal(r.Body, &use)
-		return len(use.Rows) == 1 && use.Rows[0].User == "alice" && use.Rows[0].Component == tile && use.Rows[0].Model == "fake/fake-chat" && use.Rows[0].Requests == 1, r.String()
+		return len(use.Rows) == 1 && use.Rows[0].User == "" && use.Rows[0].Component == tile && use.Rows[0].Model == "fake/fake-chat" && use.Rows[0].Requests == 1, r.String()
 	})
 
 	// ended by its label: the same call is refused
-	d.Must(t, "DELETE", "/api/xbin/llm/keys?label=door", nil, 204, frame())
+	if r := d.Call(t, "DELETE", "/api/xbin/llm/keys?label=door", nil, frame()); r.Status != 403 {
+		t.Errorf("the page ending the backend's keys: %d %s", r.Status, r)
+	}
+	d.Must(t, "DELETE", "/api/"+tile+"/keys?label=door", nil, 200)
 	if code, out := sh(sb.ID, status+`-H "Authorization: Bearer $K" "$U/models"`, env); code != 0 || out != "401" {
 		t.Errorf("the key after it was ended: exit %d, %q", code, out)
 	}
 }
+
+// llmConsumerSource is the consumer's backend: it asks xbind for LLM keys
+// with its own credential (the SDK), which is the only one that may.
+const llmConsumerSource = `package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
+)
+
+func main() {
+	mux := http.NewServeMux()
+	reply := func(w http.ResponseWriter, v any) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(v)
+	}
+	mux.HandleFunc("POST /key", func(w http.ResponseWriter, r *http.Request) {
+		var o struct{ User, Label, Sandbox string }
+		_ = json.NewDecoder(r.Body).Decode(&o)
+		k, err := xbin.LLMKeyFor(r.Context(), xbin.LLMKeyOpts{User: o.User, Label: o.Label, Sandbox: o.Sandbox})
+		if err != nil {
+			reply(w, map[string]string{"error": err.Error()})
+			return
+		}
+		reply(w, map[string]string{"id": k.ID, "token": k.Token, "user": k.User, "component": k.Component})
+	})
+	mux.HandleFunc("POST /renew/{id}", func(w http.ResponseWriter, r *http.Request) {
+		exp, err := xbin.RenewLLMKey(r.Context(), r.PathValue("id"), 0)
+		if err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
+		reply(w, map[string]string{"expires": exp.Format(time.RFC3339)})
+	})
+	mux.HandleFunc("DELETE /keys", func(w http.ResponseWriter, r *http.Request) {
+		if err := xbin.RevokeLLMKeysLabeled(r.Context(), r.URL.Query().Get("label")); err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
+		reply(w, map[string]string{"ok": "ended"})
+	})
+	xbin.Serve(mux)
+}
+` + "\n"
 
 // TestHarnessOnConnectorLive is the whole chain a coding agent of the agent
 // template takes to the workspace's models (D226): the template instance
@@ -257,5 +340,25 @@ func TestHarnessOnConnectorLive(t *testing.T) {
 	// printed by a tool of the agent's, it is masked
 	if got := e.say(t, "alice", id, "printenv XBIN_LLM_KEY", "printenv: ", 3*time.Minute); strings.Contains(got, "xbl_") {
 		t.Errorf("the key, printed by the agent, is not masked: %q", got)
+	}
+
+	// a sandbox with no egress at all still has the connector, and nothing
+	// else: the agent starts there on it, told that it alone serves
+	var sealed agSandbox
+	e.ag(t, "alice", "POST", "/sandboxes", map[string]any{"name": "sealed", "egress": "none", "size": "coder"}, 201, &sealed)
+	if got := asAlice.Get(sealed.ID); got.LLM == nil || got.Egress != "none" {
+		t.Fatalf("the sealed sandbox: llm %+v, egress %q", got.LLM, got.Egress)
+	}
+	asAlice.Put(sealed.ID, fakeACPPath, string(fake), "&mkdirs=1&mode=755")
+	e.ag(t, "alice", "POST", "/ask", map[string]any{"text": "llm-call hello", "harness": map[string]string{"provider": "fake"},
+		"sandbox": map[string]string{"ref": sealed.Ref}}, 200, &run)
+	v = e.waitView(t, "alice", run.ID, "the answer in a sandbox with no egress", 3*time.Minute, func(v hView) bool {
+		return strings.Contains(v.lastAssistant(), "llm: ") || v.Run.Status == "error" || v.summary().State == "failed"
+	})
+	if answer := v.lastAssistant(); !strings.Contains(answer, "llm: Hello from the fake model.") {
+		t.Fatalf("the coding agent in a sandbox with no egress: %q (%s)", answer, v.brief())
+	}
+	if got := e.say(t, "alice", run.ID, "printenv FAKEACP_LLM_ONLY", "printenv: ", 3*time.Minute); !strings.Contains(got, "printenv: 1") {
+		t.Errorf("the agent there is not told the connector alone serves: %q", got)
 	}
 }

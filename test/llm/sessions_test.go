@@ -20,12 +20,13 @@ package llm
 //     nothing but the model routes ever accepted it;
 //   - a person who is signed in keeps their sign-in (own-first), and asking
 //     for the connector is honoured;
-//   - a session with no network says the connector can't be reached, and
-//     asking for it there is refused;
+//   - a session with no network reaches the connector through its one door
+//     (the LLM-only listener at its sandbox's gateway);
 //   - under a model rule (the workspace allows private models only) a
 //     session runs on the connector alone, starts on a model the rule
 //     allows, and its key can't call another — whatever is asked with it;
-//     a harness the connector can't serve is not offered there;
+//     a model option outside the connector's is refused; a harness the
+//     connector can't serve is not offered there;
 //   - a session in a VM sandbox (Firecracker, where this box has KVM)
 //     reaches the connector the same way.
 
@@ -301,26 +302,34 @@ func TestSessionsOnConnector(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// ---- no network: no route to xbind, and the session says so ----
+	// ---- no network: the connector through its one door, and nothing else ----
+	before := int64(0)
+	if rows := usage("?component=" + tile); len(rows) == 1 {
+		before = rows[0].Requests
+	}
 	id, r = open(map[string]any{"net": "none"})
 	if r.Status != 200 {
 		t.Fatalf("open offline: %d %s", r.Status, r)
 	}
-	all = idle(id)
-	said = false
-	for _, e := range all {
-		text, _ := e.Data["text"].(string)
-		said = said || (e.Type == "notice" && strings.Contains(text, "net: none"))
+	idle(id)
+	if llm, net := row(id); llm != "connector" || net != "none" {
+		t.Errorf("an offline session's row: llm %q, net %q", llm, net)
 	}
-	if llm, net := row(id); !said || llm != "" || net != "none" {
-		t.Errorf("an offline session: said %v, llm %q, net %q — %+v", said, llm, net, all)
+	if url := strings.TrimPrefix(say(id, "printenv XBIN_LLM_URL"), "printenv: "); url != "http://10.0.2.2:4180/v1" {
+		t.Errorf("an offline session's XBIN_LLM_URL: %q, want the door's", url)
 	}
-	if got := say(id, "llm-call hello"); got != "llm: no connector" {
-		t.Errorf("an offline session's environment: %q", got)
+	if got := say(id, "llm-call hello"); got != "llm: Hello from the fake model." {
+		t.Fatalf("an offline session's call through the door: %q", got)
 	}
+	xbindtest.Eventually(t, 10*time.Second, "the offline session's call metered to alice", func() (bool, string) {
+		rows := usage("?component=" + tile)
+		return len(rows) == 1 && rows[0].User == "alice" && rows[0].Requests == before+1, fmt.Sprintf("%+v (before: %d)", rows, before)
+	})
 	must(204, "DELETE", "/api/xbin/term/sessions/"+id, nil, alice)
-	if _, r := open(map[string]any{"net": "none", "llm": "connector"}); r.Status != 409 || !strings.Contains(r.String(), "net: none") {
+	if id, r := open(map[string]any{"net": "none", "llm": "connector"}); r.Status != 200 {
 		t.Errorf("asking for the connector offline: %d %s", r.Status, r)
+	} else {
+		must(204, "DELETE", "/api/xbin/term/sessions/"+id, nil, alice)
 	}
 
 	// ---- a model rule: the connector alone, and only the models it allows ----
@@ -343,6 +352,16 @@ func TestSessionsOnConnector(t *testing.T) {
 	idle(id)
 	if model := strings.TrimPrefix(say(id, "printenv FAKEACP_LLM_MODEL"), "printenv: "); model != "house/fake-chat" {
 		t.Fatalf("the model the session starts on: %q, want the private upstream's (the default is not allowed)", model)
+	}
+	if only := say(id, "printenv FAKEACP_LLM_ONLY"); only != "printenv: 1" {
+		t.Errorf("the agent is not told the connector alone serves: %q", only)
+	}
+	// a model option outside the connector's: refused later, and at the start
+	if r := d.Call(t, "POST", "/api/xbin/term/sessions/"+id+"/options", map[string]any{"id": "model", "value": "fake-fast"}, alice); r.Status != 403 || !strings.Contains(r.String(), "not one of its models") {
+		t.Errorf("setting a model outside the connector's under the rule: %d %s", r.Status, r)
+	}
+	if _, r := open(map[string]any{"options": map[string]string{"model": "fake-fast"}}); r.Status != 403 || !strings.Contains(r.String(), "not one of its models") {
+		t.Errorf("starting on a model outside the connector's under the rule: %d %s", r.Status, r)
 	}
 	if got := say(id, "llm-call hello"); got != "llm: Hello from the fake model." {
 		t.Fatalf("the agent's call under the model rule: %q", got)
@@ -378,6 +397,16 @@ func TestSessionsOnConnector(t *testing.T) {
 		}
 		if got := say(id, "llm-call hello"); got != "llm: Hello from the fake model." {
 			t.Errorf("the agent's call from a VM sandbox: %q", got)
+		}
+		must(204, "DELETE", "/api/xbin/term/sessions/"+id, nil, alice)
+		// …and a VM with no network through the door
+		id, r = open(map[string]any{"vm": true, "net": "none"})
+		if r.Status != 200 {
+			t.Fatalf("open in a VM with no network: %d %s", r.Status, r)
+		}
+		idle(id)
+		if got := say(id, "llm-call hello"); got != "llm: Hello from the fake model." {
+			t.Errorf("the agent's call from a VM sandbox with no network: %q", got)
 		}
 		must(204, "DELETE", "/api/xbin/term/sessions/"+id, nil, alice)
 	}
