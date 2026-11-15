@@ -573,7 +573,7 @@ async function realHolderRun(browser, check, skip) {
     check(s2.who && s2.who.chosen === true && s2.who.everyone === false && s2.who.entries === 1 && s2.access === true, `[real] "Just me for now" gave the admin one (${JSON.stringify(s2.who)}): the setup steps make way for the page`);
     check((await state(dcall)).access === false && !(await agentAlert(dcall)), '[real] …and nobody else');
   } else {
-    skip('[real] the setup state\'s own buttons (Turn on; Just me for now): workspace agents were turned on in this workspace before — a fresh run clicks them');
+    skip('[real] the setup state\'s own buttons (Turn on; Just me for now): a first-run step — once workspace agents were ever turned on here, xbind keeps when (workspaceAt) and the chrome shows Off, never the setup again; a fresh workspace, with this pass before wsAgentPage, clicks them');
     await R.agentOn(call);
     await page.reload();
   }
