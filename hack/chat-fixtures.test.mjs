@@ -7,9 +7,12 @@
 // checkpoint. This test holds
 //   - the expectations to what hack/chat-fixtures/expect.mjs makes of the
 //     log (so they cannot be edited by hand out of step with the rules);
-//   - TODAY's web/agent-fold.js to them, through its adapter
-//     (hack/chat-fixtures/web.mjs) and the gaps expect.mjs lists for it;
-//   - the model's helpers (web/chat/blocks.js).
+//   - web/agent-fold.js to them, through its adapter
+//     (hack/chat-fixtures/web.mjs) and the gaps expect.mjs lists for it — a
+//     call's record is the kit's own (web/chat/tools.js mergeTool), kept by
+//     the fold;
+//   - the record's rules (web/chat/tools.js) where no log reaches them, and
+//     the model's helpers (web/chat/blocks.js).
 // The agent template's side is hack/chat-fixtures-agtt.test.mjs.
 //
 // Regenerating, in this order (review each diff):
@@ -30,15 +33,15 @@ import path from 'node:path';
 import { Fold } from '../web/agent-fold.js';
 import * as model from '../web/chat/blocks.js';
 import { KIT } from '../web/chat/rev.js';
-import { DIR, load, expectedFiles, shown, through, json, canon, each, GAPS } from './chat-fixtures/expect.mjs';
+import { records, ToolRecords, mergeTool, startsNewCall, lineCounts, textLines, OUTPUT_MAX } from '../web/chat/tools.js';
+import { DIR, load, expectedFiles, shown, through, json, canon, each, compact, GAPS } from './chat-fixtures/expect.mjs';
 import { webTranscript } from './chat-fixtures/web.mjs';
-import { records, mergeTool, startsNewCall, lineCounts, textLines, compact, OUTPUT_MAX } from './chat-fixtures/reference.mjs';
 
 const WRITE = !!process.env.CHAT_FIXTURES_WRITE;
 const all = load();
 
 test('the transcripts are there, each with its checkpoints', () => {
-  assert.deepEqual(all.map((t) => t.name), ['id-reuse', 'permission', 'plan', 'questions', 'signin', 'text', 'tools', 'xbind-shell']);
+  assert.deepEqual(all.map((t) => t.name), ['id-reuse', 'output', 'permission', 'plan', 'questions', 'signin', 'text', 'tools', 'xbind-shell']);
   for (const t of all) {
     assert.equal(t.log.name, t.name);
     assert.deepEqual(t.log.events.map((e) => e.seq), t.log.events.map((_, i) => i + 1), `${t.name}: seqs count from 1`);
@@ -151,21 +154,43 @@ test('every gap says why, and each of the Agent tab\'s is one the transcripts sh
 
 const ev = (seq, type, data) => ({ seq, ts: seq, type, data });
 
-test('a content list without diffs keeps the diffs (the Agent tab replaces the list whole: a gap)', () => {
+test('a content list without diffs keeps the diffs — in the Agent tab\'s record too (its card still draws the last list whole)', () => {
   const events = [
     ev(1, 'tool.call', { id: 'e', kind: 'edit', status: 'in_progress', content: [{ type: 'diff', path: 'a.txt', oldText: 'a\n', newText: 'b\n' }] }),
     ev(2, 'tool.update', { id: 'e', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'edited' } }] }),
   ];
   const [r] = records(events);
   assert.deepEqual([r.rec.text, r.rec.diffs.length, r.rec.files], ['edited', 1, ['a.txt']]);
-  const web = webTranscript(new Fold(events)).blocks[0].rec;
-  assert.deepEqual([web.text, web.diffs.length], ['edited', 0], 'today the Agent tab loses the diff here');
+  const fold = new Fold(events);
+  const web = webTranscript(fold).blocks[0].rec;
+  assert.deepEqual(web, r.rec, 'the fold keeps the kit\'s record');
+  assert.deepEqual(fold.blocks[0].content.map((it) => it.type), ['content'], 'the old record holds the last list: the card loses the diff until it reads the record');
+});
+
+test('the Agent tab\'s record: locations and files, what a call changed on disk, one output text', () => {
+  const fold = new Fold([
+    ev(1, 'tool.call', { id: 'r', kind: 'read', status: 'in_progress', title: 'Read a.go', locations: [{ path: 'a.go', line: 3 }, { path: 'b.go' }, {}] }),
+    ev(2, 'tool.update', { id: 'r', outputDelta: 'x' }),
+    ev(3, 'tool.update', { id: 'r', outputDelta: 'y', status: 'completed' }),
+    ev(4, 'files.changed', { toolCallId: 'r', changes: [{ path: 'a.go', status: 'modified', add: 1, del: 0 }], patch: { text: 'p', truncated: true } }),
+  ]);
+  const t = fold.blocks[0];
+  assert.deepEqual([t.rec.locations, t.rec.files], [[{ path: 'a.go', line: 3 }, { path: 'b.go' }], ['a.go', 'b.go']]);
+  assert.deepEqual(t.rec.changed, { files: [{ path: 'a.go', status: 'modified', add: 1, del: 0 }], patch: { text: 'p', truncated: true } });
+  assert.deepEqual([t.output, t.rec.output], ['xy', 'xy']);
+  // an event that carries a whole output and a delta: the whole output, then the delta — one text for both records (the transcript `output` pins it for sdk/acp too)
+  const both = new Fold([ev(1, 'tool.call', { id: 'o', kind: 'execute', outputDelta: 'a' }), ev(2, 'tool.update', { id: 'o', output: 'W', outputDelta: 'd' }), ev(3, 'tool.update', { id: 'o', outputDelta: '!' })]).blocks[0];
+  assert.deepEqual([both.output, both.rec.output], ['Wd!', 'Wd!']);
+  assert.equal(all.find((x) => x.name === 'output').records.records[0].rec.output, '$ make build\ncompiling\nlinking\ndone\n');
 });
 
 test('an id used again: after its call ended, or in a later turn (each reducer has one half today)', () => {
   // within one turn, after the first call ended: the template's backend starts a new call, the Agent tab's fold updates the old one
   const again = [ev(1, 'tool.call', { id: 'x', status: 'in_progress', title: 'one' }), ev(2, 'tool.update', { id: 'x', status: 'completed' }), ev(3, 'tool.call', { id: 'x', status: 'in_progress', title: 'two' })];
   assert.deepEqual(records(again).map((r) => [r.seq, r.rec.title, r.rec.status]), [[1, 'one', 'completed'], [3, 'two', 'in_progress']]);
+  const held = new ToolRecords();
+  assert.deepEqual(again.map((e) => held.apply(e).seq), [1, 1, 3], 'apply answers the entry an event touched');
+  assert.equal(held.apply(ev(4, 'message.delta', { text: 'hi' })), null);
   assert.equal(webTranscript(new Fold(again)).blocks.length, 1, 'today the Agent tab folds both into one card');
   // in a later turn, the first call never ended: the Agent tab's fold starts a new call, the template's backend updates the old one
   const later = [ev(1, 'tool.call', { id: 'x', status: 'in_progress', title: 'one' }), ev(2, 'turn.end', { turn: 1, stopReason: 'end_turn' }), ev(3, 'tool.call', { id: 'x', status: 'in_progress', title: 'two' })];
@@ -173,6 +198,12 @@ test('an id used again: after its call ended, or in a later turn (each reducer h
   assert.equal(webTranscript(new Fold(later)).blocks.filter((b) => b.kind === 'tool').length, 2);
   // an update never starts a call
   assert.equal(startsNewCall({ status: 'completed' }, 'tool.update'), false);
+});
+
+test('xbind\'s own lines — a notice, a gap — are blocks of the model (no agent\'s log has one: xbind writes them)', () => {
+  const tr = webTranscript(new Fold([ev(1, 'gap', {}), ev(2, 'notice', { text: 'The session moved\nto a new base' }), ev(3, 'message.delta', { role: 'agent', text: 'hi' })]));
+  assert.deepEqual(shown(tr, 3).blocks, [{ k: '1', kind: 'gap' }, { k: '2', kind: 'notice', text: 'The session moved\nto a new base' }, { k: '3', kind: 'assistant', text: 'hi' }]);
+  for (const b of tr.blocks) assert.ok(model.KINDS.includes(b.kind));
 });
 
 test('output: deltas append, a whole output replaces, a capping reducer keeps the newest bytes', () => {
@@ -197,8 +228,8 @@ test('a diff\'s counts are its changed lines', () => {
 // ---- the model's helpers --------------------------------------------------------------
 
 test('blocks.js: the kit\'s revision, kinds and a record\'s zero value', () => {
-  assert.equal(KIT, 1);
-  assert.equal(model.KINDS.length, 14);
+  assert.equal(KIT, 3);
+  assert.equal(model.KINDS.length, 15);
   const rec = model.newToolRecord('t');
   assert.deepEqual(compact(rec), { id: 't', kind: 'other', title: '', status: 'pending' });
   assert.deepEqual(['pending', 'in_progress', 'completed', 'failed', 'cancelled'].map((status) => model.toolState({ status })), ['pending', 'running', 'done', 'error', 'stopped']);

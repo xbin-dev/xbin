@@ -569,6 +569,15 @@ func TestSealedRouteAnswers(t *testing.T) {
 		}
 	})
 
+	t.Run("no agent level", func(t *testing.T) {
+		on("GET /agent-levels")
+		code, body := api("GET", "/agent-levels", nil)
+		expect(t, "the tiles whose agent level an admin decides", code, body, 200)
+		if lists(body) {
+			t.Errorf("GET /agent-levels lists a system component: %s", body)
+		}
+	})
+
 	// every handled row has a case above
 	for _, pat := range patterns {
 		if rules[pat].Class == server.SealedHandled && !covered[pat] {

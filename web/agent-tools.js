@@ -1,24 +1,35 @@
 /**
- * agent-tools.js — the Agent tab's model of a tool call (D77), pure and
- * dependency-free (node-tested: hack/agent-tools.test.mjs). The daemon lifts
- * the adapters' extras into plain event fields (internal/agent/acp/
- * toolmeta.go: name, label, parent, subagent, planReview, output/outputDelta,
- * exitCode); this folds a call's events into one record and derives what
- * the cards show: a human headline (the harness's own description, else a
- * deterministic reading of the command), whether it is a plan approval, the
- * plan text. The cards themselves are agent-cards.js.
+ * agent-tools.js — the Agent tab's model of a tool call (D77), at the URL it
+ * always had. The model itself is the chat kit's now (D224):
+ * /vendor/chat/tools.js reads a call's record, /vendor/chat/ask.js a
+ * question's form. This module keeps every export it had, saying what it
+ * said — the Swift port and old pages are held to it (hack/agent-tools.test.mjs,
+ * native/tools/agent-parity.mjs) — as re-exports, and as the adapter from
+ * the Agent tab's own record (its tool kind is `tk`, its content the last
+ * list an event carried) to the kit's.
+ *
+ * The record newTool makes carries the kit's too (`rec`, a ToolRecord kept
+ * by the kit's merge rules: locations, files, a diff that outlives a later
+ * content list): the cards move onto that one, and this shape stays for who
+ * reads it.
  */
+import { newToolRecord } from './chat/blocks.js';
+import * as kit from './chat/tools.js';
+
+export { firstLine, describeCommand, filesStat, stripAnsi, rawText, unifiedDiff } from './chat/tools.js';
+export { formFields, formContent, missingRequired } from './chat/ask.js';
 
 export function newTool(id) {
   return {
     kind: 'tool', id, title: '', tk: 'other', status: 'pending', content: null, rawInput: null, rawOutput: null,
     name: '', label: '', parent: '', subagent: false, planReview: false, output: '', exitCode: null,
-    files: null, children: null, t0: 0,
+    files: null, children: null, t0: 0, rec: newToolRecord(id),
   };
 }
 
 // foldTool merges one tool.call/tool.update event into the record: fields
-// replace, outputDelta appends, output replaces the accumulated output.
+// replace, output replaces the accumulated output, then outputDelta appends
+// — and into its ToolRecord by the kit's rules.
 export function foldTool(t, d) {
   if (d.title != null) t.title = d.title;
   if (d.kind != null) t.tk = d.kind;
@@ -31,217 +42,38 @@ export function foldTool(t, d) {
   if (d.parent) t.parent = d.parent;
   if (d.subagent) { t.subagent = true; if (!t.children) t.children = []; }
   if (d.planReview) t.planReview = true;
-  if (typeof d.outputDelta === 'string') t.output += d.outputDelta;
-  if (typeof d.output === 'string') t.output = d.output;
   if (d.exitCode != null) t.exitCode = d.exitCode;
+  // the output: a whole one replaces what was gathered, then a delta appends
+  // (an event may carry both) — the kit's rule and sdk/acp's, pinned by the
+  // shared transcript `output`; the record's text is this record's too
+  if (t.rec) {
+    kit.mergeTool(t.rec, d);
+    t.output = t.rec.output;
+  } else {
+    if (typeof d.output === 'string') t.output = d.output;
+    if (typeof d.outputDelta === 'string') t.output = (t.output || '') + d.outputDelta;
+  }
   return t;
 }
 
-export const firstLine = (s) => { const t = String(s ?? '').trim(); const i = t.indexOf('\n'); return i < 0 ? t : t.slice(0, i) + ' …'; };
+// the Agent tab's record — or a permission request's tool with `tk` set —
+// as the kit reads a call: its text is the content list's first that says
+// something
+const call = (t) => (t ? { id: t.id, title: t.title, label: t.label, name: t.name, status: t.status, rawInput: t.rawInput, planReview: t.planReview, kind: t.tk, text: kit.firstText(t.content) } : t);
 
 // the command of a shell call: rawInput.command (a string, or argv), else
 // .cmd/.script; a claude/opencode/codex execute call's title is the command.
-export function commandOf(t) {
-  const r = t && t.rawInput;
-  if (r && typeof r === 'object') {
-    const c = r.command ?? r.cmd ?? r.script;
-    if (typeof c === 'string') return c + (Array.isArray(r.args) ? ' ' + r.args.join(' ') : '');
-    if (Array.isArray(c)) return c.join(' ');
-  }
-  return t && t.tk === 'execute' ? String(t.title || '') : '';
-}
+export const commandOf = (t) => kit.commandOf(call(t));
 
-// the first text content item (a tool's prose: gemini's description, a plan)
-function contentText(t) {
-  for (const it of Array.isArray(t && t.content) ? t.content : []) {
-    const s = it && (it.content?.text ?? (it.type === 'text' ? it.text : undefined));
-    if (typeof s === 'string' && s.trim()) return s;
-  }
-  return '';
-}
-
-// headline: what a card is called. The harness's own description first
-// (claude's _meta.claudeCode.title / rawInput.description → label; gemini's
-// description is the pending call's text content), else a reading of the
-// command, else the title's first line.
-export function headline(t) {
-  if (!t) return '';
-  if (t.label) return t.label;
-  const desc = t.rawInput && typeof t.rawInput.description === 'string' ? t.rawInput.description : '';
-  if (desc) return desc;
-  const cmd = commandOf(t);
-  if (cmd) {
-    if (t.tk === 'execute' && (t.status === 'pending' || t.status === 'in_progress')) {
-      const c = contentText(t); // gemini: "[in dir] (description)" until the output replaces it
-      if (c && !c.includes('\n') && c.length < 160) return c;
-    }
-    return describeCommand(cmd);
-  }
-  return firstLine(t.title) || t.name || t.id || 'a tool call';
-}
-
-// describeCommand reads a shell command deterministically: a heredoc script
-// becomes "Python script (N lines) → main.go", sed -i/perl -pi/cat >/tee/>
-// name the file they write, rm/mkdir/mv say so; anything else is its first line.
-export function describeCommand(cmd) {
-  let c = String(cmd ?? '').trim();
-  const cd = c.match(/^cd\s+(\S+)\s*&&\s*/);
-  if (cd) c = c.slice(cd[0].length);
-  const here = c.match(/^([\w./-]*?(python3?|node|deno|bun|ruby|perl|php|bash|sh|zsh))\b[^\n]*?<<-?\s*(['"]?)(\w+)\3[^\n]*\n([\s\S]*?)\n\4\s*$/);
-  if (here) {
-    const lang = { python: 'Python', python3: 'Python', node: 'Node', deno: 'Deno', bun: 'Bun', ruby: 'Ruby', perl: 'Perl', php: 'PHP', bash: 'Shell', sh: 'Shell', zsh: 'Shell' }[here[2]] || here[2];
-    const body = here[5];
-    const n = body.split('\n').length;
-    return `${lang} script (${n} line${n === 1 ? '' : 's'})${targets(scriptTargets(body))}`;
-  }
-  const catW = c.match(/^cat\s+>>?\s*(['"]?)([^\s'"<>|;&]+)\1\s*<</);
-  if (catW) return `Write ${catW[2]}`;
-  const inPlace = c.match(/^(sed|perl)\b[^\n|;&]*\s-[a-zA-Z]*[ip][a-zA-Z]*\b[^\n|;&]*?\s(['"]?)([^\s'"|;&]+)\2\s*$/);
-  if (inPlace && /\s-[a-zA-Z]*i/.test(c)) return `Edit ${inPlace[3]} (${inPlace[1]})`;
-  const tee = c.match(/\|\s*tee\s+(?:-a\s+)?(['"]?)([^\s'"|;&]+)\1\s*$/);
-  if (tee) return `Write ${tee[2]}`;
-  const redir = c.match(/^[^\n]*?[^2&0-9]>>?\s*(['"]?)([^\s'"|;&<>]+)\1\s*$/);
-  if (redir && !c.includes('\n') && redir[2] !== '/dev/null') return `Write ${redir[2]}`;
-  const rm = c.match(/^rm\s+(?:-\w+\s+)*(.+)$/);
-  if (rm && !c.includes('\n')) return `Remove ${rm[1]}`;
-  const mk = c.match(/^mkdir\s+(?:-\w+\s+)*(.+)$/);
-  if (mk && !c.includes('\n')) return `Create ${mk[1]}`;
-  const mv = c.match(/^mv\s+(?:-\w+\s+)*(\S+)\s+(\S+)$/);
-  if (mv) return `Move ${mv[1]} → ${mv[2]}`;
-  return firstLine(c);
-}
-
-// the files a script body names (open('x'), Path('x'), p='x', read/writeFileSync)
-function scriptTargets(body) {
-  const out = [];
-  const re = /(?:open|Path|readFileSync|writeFileSync|readFile|writeFile|read_text|write_text)\(\s*(['"])([^'"\n]+)\1|(?:^|[\s;(])(?:p|path|fn|file|filename|target)\s*=\s*(['"])([^'"\n]+)\3/gm;
-  for (const m of body.matchAll(re)) {
-    const f = m[2] || m[4];
-    if (f && /[./]/.test(f) && !out.includes(f)) out.push(f);
-  }
-  return out;
-}
-
-const targets = (fs) => (!fs.length ? '' : ' → ' + fs.slice(0, 2).join(', ') + (fs.length > 2 ? ` +${fs.length - 2}` : ''));
+// headline: what a card is called — the harness's own description, else a
+// reading of the command, else the title's first line (the kit's headline
+// without its reading by kind: this export says what it always said).
+export const headline = (t) => kit.headline(call(t), { reading: false });
 
 // isPlanApproval: a mode switch (Claude's ExitPlanMode "Ready to code?",
 // Codex's "Implement this plan?"), or any request carrying a plan to approve.
-export function isPlanApproval(t) {
-  if (!t) return false;
-  return t.kind === 'switch_mode' || t.tk === 'switch_mode' || !!t.planReview ||
-    !!(t.rawInput && typeof t.rawInput === 'object' && typeof t.rawInput.plan === 'string');
-}
+export const isPlanApproval = (t) => !!t && (t.kind === 'switch_mode' || kit.isPlanApproval(call(t)));
 
 // planText: the plan's markdown — claude sends it as text content, codex
 // only in rawInput.plan.
-export function planText(t) {
-  return contentText(t) || (t && t.rawInput && typeof t.rawInput.plan === 'string' ? t.rawInput.plan : '');
-}
-
-// filesStat totals a files.changed record ({changes:[{add, del}]}).
-export function filesStat(f) {
-  const cs = (f && Array.isArray(f.changes)) ? f.changes : [];
-  let add = 0, del = 0;
-  for (const c of cs) { add += c.add || 0; del += c.del || 0; }
-  return { n: cs.length, add, del };
-}
-
-// formFields reads an elicitation's requested schema (a flat JSON Schema
-// object of primitives, ACP form mode) into what a form renders, in property
-// order: a single-select (`oneOf`/`enum`) → radio, a multi-select (array of
-// `anyOf`/`enum` items) → check, boolean, number/integer, else text. A text
-// field marked as another question's custom answer (the shared
-// `_askUserQuestionCustomAnswer` meta — Claude's and Codex's "Other" box)
-// rides on that question as `other` instead of standing alone.
-export function formFields(schema) {
-  const props = (schema && typeof schema === 'object' && schema.properties && typeof schema.properties === 'object') ? schema.properties : {};
-  const required = new Set(Array.isArray(schema && schema.required) ? schema.required : []);
-  const opts = (list) => (Array.isArray(list) ? list : []).map((o) => (o && typeof o === 'object'
-    ? { value: o.const ?? o.value ?? o.title, title: o.title ?? String(o.const ?? ''), description: o.description || '' }
-    : { value: o, title: String(o), description: '' }));
-  const fields = [];
-  const byKey = {};
-  const others = [];
-  for (const [key, p] of Object.entries(props)) {
-    if (!p || typeof p !== 'object') continue;
-    const custom = p._meta && p._meta._askUserQuestionCustomAnswer;
-    if (custom && custom.questionId) { others.push([custom.questionId, key, p]); continue; }
-    const f = { key, title: p.title || '', description: p.description || '', required: required.has(key), options: [], other: null, otherHint: '' };
-    if (p.type === 'array') { f.kind = 'check'; f.options = opts((p.items && (p.items.anyOf || p.items.oneOf || p.items.enum)) || []); }
-    else if (p.oneOf || p.enum) { f.kind = 'radio'; f.options = opts(p.oneOf || p.enum); }
-    else if (p.type === 'boolean') f.kind = 'bool';
-    else if (p.type === 'number' || p.type === 'integer') f.kind = 'number';
-    else f.kind = 'text';
-    fields.push(f); byKey[key] = f;
-  }
-  for (const [qid, key, p] of others) {
-    if (byKey[qid]) { byKey[qid].other = key; byKey[qid].otherHint = p.description || ''; }
-    else fields.push({ key, kind: 'text', title: p.title || 'Other', description: p.description || '', required: required.has(key), options: [], other: null, otherHint: '' });
-  }
-  return fields;
-}
-
-// formContent builds an accept's content from the form's values: empty
-// answers are left out (nothing in Claude's question form is required).
-export function formContent(fields, vals) {
-  const out = {};
-  const v = vals || {};
-  for (const f of fields) {
-    const x = v[f.key];
-    if (f.kind === 'check') { if (Array.isArray(x) && x.length) out[f.key] = x; }
-    else if (f.kind === 'bool') { if (typeof x === 'boolean') out[f.key] = x; }
-    else if (f.kind === 'number') { if (x !== '' && x != null && !Number.isNaN(Number(x))) out[f.key] = Number(x); }
-    else if (x != null && String(x).trim() !== '') out[f.key] = x;
-    if (f.other && v[f.other] != null && String(v[f.other]).trim() !== '') out[f.other] = String(v[f.other]).trim();
-  }
-  return out;
-}
-
-// missingRequired: the required fields a content leaves out.
-export function missingRequired(fields, content) {
-  return fields.filter((f) => f.required && !(f.key in content)).map((f) => f.title || f.key);
-}
-
-// stripAnsi drops terminal escapes (colour, cursor) from command output.
-// eslint-disable-next-line no-control-regex
-export const stripAnsi = (s) => String(s ?? '').replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g, '');
-
-// rawText renders a tool's rawInput for display: a shell command verbatim
-// (the common {command}/{cmd} shapes), else compact JSON.
-export function rawText(raw) {
-  if (raw == null) return '';
-  if (typeof raw === 'string') return raw;
-  if (typeof raw === 'object') {
-    const cmd = raw.command ?? raw.cmd ?? raw.script;
-    if (typeof cmd === 'string') return cmd + (Array.isArray(raw.args) ? ' ' + raw.args.join(' ') : '');
-    try { return JSON.stringify(raw, null, 1); } catch { return ''; }
-  }
-  return String(raw);
-}
-
-// unifiedDiff(path, old, new): a git-style unified diff from an ACP diff
-// block's whole old/new text, via a line LCS — so bx-code's diffHTML gives
-// the same +/- view the code panel uses. Bounded: very large inputs fall back
-// to replace-all instead of an O(nm) table.
-export function unifiedDiff(path, oldText, newText) {
-  const a = String(oldText ?? '').split('\n'), b = String(newText ?? '').split('\n');
-  const p = path || 'file';
-  if ((oldText ?? '') === (newText ?? '')) return `diff --git a/${p} b/${p}\n`;
-  const n = a.length, m = b.length;
-  let body;
-  if (n * m > 400000) {
-    body = a.map((l) => '-' + l).concat(b.map((l) => '+' + l));
-  } else {
-    const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
-    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-    body = []; let i = 0, j = 0;
-    while (i < n && j < m) {
-      if (a[i] === b[j]) { body.push(' ' + a[i]); i++; j++; }
-      else if (dp[i + 1][j] >= dp[i][j + 1]) { body.push('-' + a[i]); i++; }
-      else { body.push('+' + b[j]); j++; }
-    }
-    while (i < n) body.push('-' + a[i++]);
-    while (j < m) body.push('+' + b[j++]);
-  }
-  return `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n@@ -1,${n} +1,${m} @@\n` + body.join('\n') + '\n';
-}
+export const planText = (t) => kit.planText(call(t));

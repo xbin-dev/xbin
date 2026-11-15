@@ -19,6 +19,13 @@
 //	            selected → the edit completes, "edited hello.txt"
 //	todo…       (a prefix) three `plan` updates 200 ms apart (3 entries:
 //	            pending → one in progress → all completed), then "todo done"
+//	detach…     (a prefix; with --steer) a chunk "waiting for a steer", then
+//	            nothing until a steer comes: the prompt is answered end_turn
+//	            first, then the steer startedNewTurn (whatever idleBehavior
+//	            it asked for), and the steered text's script plays as a
+//	            turn of the agent's own, with no prompt to answer — codex-acp
+//	            when a steer lands just after its turn ended (a detached
+//	            turn: acp.DetachedTurn). session/cancel ends it as stall's
 //	stall…      (a prefix) a chunk "stalling", then nothing until
 //	            session/cancel (handoff and reattach tests)
 //	cards…      (a prefix) one completed call of each kind — read, edit (a
@@ -34,6 +41,12 @@
 //	chatty N    (a prefix) an execute call whose output streams as N
 //	            _meta.terminal_output_delta chunks back to back (the daemon
 //	            coalesces them), then completes
+//	recap…      (a prefix) an execute call (id "recap") whose output streams
+//	            as two deltas, then ONE update that carries the whole output
+//	            so far (terminal_output — with a first line no delta said)
+//	            and a further delta (terminal_output_delta) at once, then
+//	            exit 0 and "recap done": a tool record takes the whole
+//	            output and then the delta
 //	long N      (a prefix) N units back to back, a long transcript for the
 //	            Agent tab's windowing (D124): a markdown message (heading,
 //	            list, code fence), an edit tool_call carrying a ~30-line diff,

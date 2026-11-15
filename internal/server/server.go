@@ -23,6 +23,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/agentprefs"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/branding"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -48,9 +49,33 @@ type Server struct {
 	Brand *branding.Store
 	// Settings is the workspace settings file (D175, wssettings.go); nil = none.
 	Settings *wssettings.Store
+	// Delegation is what xbind keeps for people's workspace agents — the
+	// switches, approvals, change sets and the audit log (delegate.go;
+	// internal/delegation); nil = the closed state: nothing is approved.
+	Delegation *delegation.Store
+	// AgentPolicy answers the orgs' agent rules and people's agent
+	// preferences for the delegate gate; nil refuses (delegation.NoPolicy).
+	AgentPolicy delegation.Policy
+	// DelegatePush tells a person, on their devices, that their agent waits
+	// for them (an approval request, a change set); nil = no push.
+	DelegatePush func(user, kind, title, body, link, collapse string)
+	// ChangeSets previews admin change-set operations (changeset.go: the
+	// broker's); nil = change sets can't be proposed.
+	ChangeSets ChangePreviewer
+	// DelegationDev: xbind runs with --dev or --no-auth. Approving admin
+	// change sets then needs no recent sign-in, and under --no-auth — where
+	// nobody signs in — the implicit owner answers for the person a
+	// delegation route names (delegateapi.go). Never set in production.
+	DelegationDev bool
+	delegateRT    delegateRuntime // the gate's rate limit and running calls
 	// AgentPrefs is the people's agent preferences (D229, agentprefsapi.go);
 	// nil = none.
 	AgentPrefs *agentprefs.Store
+	// AgentLevel answers the level of a tile's API a person's workspace
+	// agent may use as it is in force (the broker's: the manifest's, never
+	// above what was last approved), and the raise its manifest asks for;
+	// nil: the manifest's own value.
+	AgentLevel func(c *registry.Component) (inForce, requested string)
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.
@@ -188,6 +213,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET "+LimitsPagePath, s.authed(http.HandlerFunc(s.handleLimitsPage)))   // the tile limits page, likewise (limitspage.go)
 	handle("GET "+DevicesPagePath, s.authed(http.HandlerFunc(s.handleDevicesPage))) // the devices page (devicespage.go, D204)
 	handle("GET "+SystemPagePath, s.authed(http.HandlerFunc(s.handleSystemPage)))   // the system components page (systempage.go, D227)
+	handle("GET "+LLMPagePath, s.authed(http.HandlerFunc(s.handleLLMPage)))         // the LLM connector's page (llmpage.go, D226)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 
@@ -280,7 +306,7 @@ func (s *Server) authed(next http.Handler) http.Handler {
 		}
 		// A sealed component's page holds a viewer's token: its own backend
 		// and nothing of xbind's or another tile's (sealed.go).
-		if SealedViewer(p) && !sealedViewerAllowed(r, p) {
+		if SealedViewer(p) && !s.sealedViewerAllowed(r, p) {
 			refuseSealedViewer(w, r, p)
 			return
 		}
@@ -327,7 +353,7 @@ func (s *Server) authedStatic(next http.Handler) http.Handler {
 			return
 		}
 		// a sealed component's viewer loads its own page's files (sealed.go)
-		if SealedViewer(p) && !sealedViewerAllowed(r, p) {
+		if SealedViewer(p) && !s.sealedViewerAllowed(r, p) {
 			refuseSealedViewer(w, r, p)
 			return
 		}

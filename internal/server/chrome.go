@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -114,6 +115,10 @@ func (s *Server) apiChromePut(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, path+" is the workspace chrome itself — there is nothing to approve")
 		return
 	}
+	if *body.Approved && auth.HoldsDelegation(path) {
+		apiErr(w, http.StatusConflict, path+" acts for people (it holds delegation): its page is never trusted chrome — it would approve its own agent's requests (docs/auth.md §Delegation)")
+		return
+	}
 	if *body.Approved {
 		if _, ok := s.Reg.Component(path); !ok {
 			apiErr(w, http.StatusNotFound, "no such component")
@@ -128,4 +133,39 @@ func (s *Server) apiChromePut(w http.ResponseWriter, r *http.Request) {
 		s.Hub.Publish(events.Event{Type: "grants", Component: path})
 	}
 	WriteJSON(w, http.StatusOK, s.chromeRow(path))
+}
+
+// DelegationChromeConflict is why this workspace must not start ("nil": it
+// may): a component is both a delegation holder and trusted chrome — the
+// implicit chrome (root, shell), shipped chrome, or a path an admin
+// approved whose manifest asks for chrome.
+//
+// The two can't be one component. "The person's own session" — the only
+// thing that approves a ticket, a standing approval, a change set, a
+// tile's agent level, and that reads the agent's log — is, in code, a
+// request that carries the person's session and no component
+// (delegateActorOf's own, the broker's personOwnSession). Trusted chrome is
+// code that makes exactly such requests: its documents run unsandboxed on
+// the workspace origin with the session cookie. A holder's page renders
+// what a model wrote; as chrome, one injected script would approve its own
+// agent's requests. So a holder's page holds a frame token and nothing
+// else: trustedChrome answers false for a holder whatever is approved,
+// PUT /chrome refuses to approve one (409), and boot calls this once the
+// holder lookup is installed (auth.SetDelegateHolders) and refuses to
+// start on a conflict.
+func (s *Server) DelegationChromeConflict() error {
+	paths := []string{"root", "shell"}
+	for p := range shippedChrome {
+		paths = append(paths, p)
+	}
+	if s.Auth != nil && s.Auth.Users != nil {
+		paths = append(paths, s.Auth.Users.ChromeTiles()...)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		if auth.HoldsDelegation(p) {
+			return fmt.Errorf("%s is a delegation holder (it acts for people) and trusted chrome (its page runs with the person's session): a component may not be both — a holder's page would approve its own agent's requests. Withdraw the chrome approval (PUT /api/xbin/chrome), or don't seal the component as a holder", p)
+		}
+	}
+	return nil
 }

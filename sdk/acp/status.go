@@ -50,7 +50,7 @@ func (c *Client) setStatusW(w *Wire, status, detail string) {
 		c.withCommands(d)
 	}
 	c.mu.Lock()
-	if isAuthError(detail) {
+	if SaysSignedOut(detail) {
 		c.authNeeded = true // signed out until a turn succeeds (prompt.go)
 	}
 	need := c.authNeeded

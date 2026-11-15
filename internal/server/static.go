@@ -371,6 +371,12 @@ func (s *Server) trustedChrome(compPath string, comp *registry.Component) bool {
 	if comp != nil && comp.Deployment != "" {
 		return false
 	}
+	if auth.HoldsDelegation(compPath) {
+		// a component that acts for people is never chrome, whatever is
+		// shipped or approved: its page must hold a frame token and no
+		// session (DelegationChromeConflict, chrome.go)
+		return false
+	}
 	if isChrome(compPath) {
 		return true
 	}

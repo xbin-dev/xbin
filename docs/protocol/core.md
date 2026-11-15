@@ -438,6 +438,18 @@ GET  /xbin/system                 the system components page (D227,
                                  whose shell and admin console predate
                                  them. Headers, sign-in and /vendor/ as
                                  /xbin/partitions
+GET  /xbin/llm                    the LLM connector's page (D226,
+                                 docs/llm.md): xbind's own static page —
+                                 web/llm.html as shipped, no transform —
+                                 where a workspace admin sets the
+                                 connector up (upstreams, default models,
+                                 quotas, usage) through /api/xbin/llm…
+                                 with their own session, and anyone else
+                                 reads their own usage and quota; the
+                                 surface a workspace whose admin console
+                                 predates the connector uses, named by
+                                 its alerts. Headers, sign-in and
+                                 /vendor/ as /xbin/partitions
 ANY  /api/<component-path>/<p>   → component backend (see below)
 ANY  /api/xbin/<p>              → xbind's own API (protocol.md §xbind API)
 ANY  /api/~<ticket>/<p>         → a path ticket's prefix of one tile's API

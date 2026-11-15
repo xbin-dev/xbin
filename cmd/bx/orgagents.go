@@ -3,10 +3,13 @@ package main
 // bx org agents / bx agent connection — org constraints on agents (D229,
 // docs/auth.md §Agent constraints):
 //
-//	bx org agents [<org>] [--workspace-agent on|off] [--harnesses any|none|<id,…>]
-//	              [--models any|private|none|<id,…>] [--credentials own-first|connector] [--json]
-//	    an org's rules for agents on its tiles; with no org, the workspace's
-//	    bounds (and its credential default, which only the workspace has)
+//	bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>]
+//	              [--models any|private|none|<id,…>]
+//	              [--credentials own-first|connector-first|connector-only] [--json]
+//	    an org's rules for agents on its tiles — with --pin, the rules a
+//	    workspace admin pins on it (its admins can't loosen those); with no
+//	    org, the workspace's bounds (and its credential mode, which only
+//	    the workspace has)
 //	bx agent connection [--model <upstream/model>] [--orgs <id,…>] [--tiles <tile,…>]
 //	                    [--what-if <upstream/model>] [--json]
 //	    what a workspace agent session with that model and scope is connected to
@@ -21,7 +24,7 @@ import (
 const noAgentPolicyMsg = "this xbind has no agent constraints (no /api/xbin/agents/policy); upgrade xbind"
 
 func init() {
-	dcUsage["org agents"] = "bx org agents [<org>] [--workspace-agent on|off] [--harnesses any|none|<id,…>] [--models any|private|none|<id,…>] [--credentials own-first|connector] [--json]"
+	dcUsage["org agents"] = "bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>] [--models any|private|none|<id,…>] [--credentials own-first|connector-first|connector-only] [--json]"
 	dcUsage["agent connection"] = "bx agent connection [--model <upstream/model>] [--orgs <id,…>] [--tiles <tile,…>] [--what-if <upstream/model>] [--json]"
 }
 
@@ -120,12 +123,24 @@ func printAgentRules(who string, r agentRules, bounds *agentRules) {
 
 func cmdOrgAgents(args []string) error {
 	cmd := "org agents"
-	pos, vals, asJSON, err := flagValues(cmd, args, "--workspace-agent", "--harnesses", "--models", "--credentials")
+	pin := false
+	rest := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--pin" {
+			pin = true
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	pos, vals, asJSON, err := flagValues(cmd, rest, "--workspace-agent", "--harnesses", "--models", "--credentials")
 	if err != nil {
 		return err
 	}
 	if len(pos) > 1 {
 		return usageError(cmd, "one org at most (none: the workspace's bounds)")
+	}
+	if pin && len(pos) == 0 {
+		return usageError(cmd, "--pin pins rules on an org: name it (the workspace's own rules are its bounds)")
 	}
 	body := map[string]any{}
 	if v, ok := vals["--workspace-agent"]; ok {
@@ -180,8 +195,9 @@ func cmdOrgAgents(args []string) error {
 		}
 		var out struct {
 			Orgs []struct {
-				ID     string
-				Agents *agentRules
+				ID        string
+				Agents    *agentRules
+				AgentsPin *agentRules
 			}
 		}
 		if err := decodeAnswer(b, &out); err != nil {
@@ -192,12 +208,16 @@ func cmdOrgAgents(args []string) error {
 				continue
 			}
 			if asJSON {
-				bs, _ := json.Marshal(map[string]any{"agents": o.Agents})
+				bs, _ := json.Marshal(map[string]any{"agents": o.Agents, "pin": o.AgentsPin})
 				printRaw(dcOut, bs)
 				return nil
 			}
+			if o.AgentsPin != nil {
+				printAgentRules("pinned on "+org+" by a workspace admin (its admins can't loosen these)", *o.AgentsPin, nil)
+			}
 			if o.Agents == nil {
-				fmt.Fprintf(dcOut, "%s: no rules of its own — its tiles follow the workspace's bounds (bx org agents)\n", org)
+				fmt.Fprintf(dcOut, "%s: no rules of its own — its tiles follow %s (bx org agents)\n", org,
+					map[bool]string{true: "its pin and the workspace's bounds", false: "the workspace's bounds"}[o.AgentsPin != nil])
 				return nil
 			}
 			printAgentRules(org+"'s rules for agents on its tiles", *o.Agents, nil)
@@ -205,7 +225,11 @@ func cmdOrgAgents(args []string) error {
 		}
 		return &dcError{code: exitFailed, msg: "no such org (or you don't manage it): " + org}
 	}
-	b, err := agentPolicyCall("PUT", "/api/xbin/orgs/"+url.PathEscape(org)+"/agents", body)
+	path := "/api/xbin/orgs/" + url.PathEscape(org) + "/agents"
+	if pin {
+		path += "/pin"
+	}
+	b, err := agentPolicyCall("PUT", path, body)
 	if err != nil {
 		return err
 	}
@@ -213,12 +237,20 @@ func cmdOrgAgents(args []string) error {
 		printRaw(dcOut, b)
 		return nil
 	}
-	var out struct{ Agents, Bounds agentRules }
+	var out struct{ Agents, Pin, Bounds agentRules }
 	if err := decodeAnswer(b, &out); err != nil {
 		return err
 	}
+	if pin || !agentRulesZero(out.Pin) {
+		printAgentRules("pinned on "+org+" by a workspace admin (its admins can't loosen these)", out.Pin, nil)
+	}
 	printAgentRules(org+"'s rules for agents on its tiles", out.Agents, &out.Bounds)
 	return nil
+}
+
+// agentRulesZero: rules that narrow nothing (or none at all in the answer).
+func agentRulesZero(r agentRules) bool {
+	return r.WorkspaceAgent != "off" && allowText(r.Harnesses) == "any" && allowText(r.Models) == "any"
 }
 
 func cmdAgentConnection(args []string) error {

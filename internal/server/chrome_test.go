@@ -230,3 +230,53 @@ func TestChromeAPI(t *testing.T) {
 		t.Fatalf("admin revoke: %d %v", code, out)
 	}
 }
+
+// A component that holds delegation is never trusted chrome. "The person's
+// own session" — who approves tickets, standing approvals, change sets and
+// agent levels — is a request with the person's session and no component;
+// trusted chrome is exactly code that makes such requests. A holder's page
+// renders what a model wrote: served as chrome it could approve its own
+// agent's requests. So its documents are always sandboxed (a frame token,
+// never the session cookie), approving it as chrome is refused, and a
+// workspace where a holder is chrome doesn't start.
+func TestDelegationHolderIsNeverChrome(t *testing.T) {
+	s, _ := chromeWorkspace(t)
+	sandboxed := func(url string) bool {
+		w := serveAs(s, "GET", url, auth.Principal{Owner: true}, nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d", url, w.Code)
+		}
+		return w.Header().Get("Content-Security-Policy") == sandboxCSP
+	}
+	if sandboxed("/c/apps/approved/") || sandboxed("/c/tiles/organisations/") {
+		t.Fatal("the fixture's chrome is sandboxed")
+	}
+	if err := s.DelegationChromeConflict(); err != nil {
+		t.Fatalf("no holder yet: %v", err)
+	}
+	for _, holder := range []string{"apps/approved", "tiles/organisations"} { // approved by an admin; shipped
+		restore := auth.TestSealDelegate(holder)
+		if !sandboxed("/c/" + holder + "/") {
+			t.Errorf("%s holds delegation and its page runs unsandboxed, with the session cookie", holder)
+		}
+		if c, _ := s.Reg.Component(holder); s.trustedChrome(holder, c) {
+			t.Errorf("%s holds delegation and is trusted chrome", holder)
+		}
+		if err := s.DelegationChromeConflict(); err == nil || !strings.Contains(err.Error(), holder) {
+			t.Errorf("a workspace where %s is both starts: %v", holder, err)
+		}
+		restore()
+	}
+	// and it can't be approved as chrome afterwards
+	restore := auth.TestSealDelegate("apps/asks")
+	defer restore()
+	h := s.Handler()
+	r := httptest.NewRequest("PUT", "/api/xbin/chrome", strings.NewReader(`{"path":"apps/asks","approved":true}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: s.Auth.NewSession("alice", "")})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "acts for people") {
+		t.Errorf("approving a holder as chrome: %d %s", w.Code, w.Body.String())
+	}
+}

@@ -132,6 +132,13 @@ A new, narrow primitive: **delegation**.
 - **Off switches.** Workspace setting off, org constraints (5.6), or the
   person pausing their agent: delegation stops at once.
 
+Decided and built as D228 (`docs/auth.md` §Delegation; findings in
+`plans/wsagent/s2-delegation.md`): approvals of side effects are kept and
+verified by xbind (one-shot tickets, standing approvals), not only by the
+engine. Follow-up, not built: a reduced `$HOME` for sessions the agent
+starts (it needs the sign-in store of 5.7, so the harness login can come
+from xbind instead of the shared home).
+
 Side effects are also gated in the engine (AgTT's approval machinery):
 reads run freely; a tile API write, a tile creation or starting a tile
 agent asks the person, with "once", "this tile for an hour" and "always for

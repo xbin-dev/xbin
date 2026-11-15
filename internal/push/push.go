@@ -15,6 +15,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // Notification kinds. A device registers the kinds it wants; a registered
@@ -524,20 +525,22 @@ func (s *Service) AgentEvent(user, session, tile string, ev agent.Event) {
 		if d.Meta != nil && d.Meta.Title != "" {
 			what = d.Meta.Title
 		}
+		need := acp.Need{Kind: acp.NeedApproval} // the words every surface uses (sdk/acp summary.go)
 		if what == "" {
-			what = "A tool call is waiting for your answer."
+			what = need.Text()
 		}
 		id := "agent:" + session + ":perm:" + rawID(d.PID)
-		s.hold(id, note{user: user, kind: KindAgentPermission, title: "Permission needed — " + base, body: what, link: link, collapse: id}, session)
+		s.hold(id, note{user: user, kind: KindAgentPermission, title: need.Heading() + " — " + base, body: what, link: link, collapse: id}, session)
 	case agent.EvPermissionResolved:
 		s.release("agent:" + session + ":perm:" + rawID(d.PID))
 	case agent.EvElicitRequest:
+		need := acp.Need{Kind: acp.NeedQuestion}
 		msg := d.Message
 		if msg == "" {
-			msg = "The agent is asking you something."
+			msg = need.Text()
 		}
 		id := "agent:" + session + ":q:" + rawID(d.EID)
-		s.hold(id, note{user: user, kind: KindAgentQuestion, title: "Question — " + base, body: msg, link: link, collapse: id}, session)
+		s.hold(id, note{user: user, kind: KindAgentQuestion, title: need.Heading() + " — " + base, body: msg, link: link, collapse: id}, session)
 	case agent.EvElicitResolved:
 		s.release("agent:" + session + ":q:" + rawID(d.EID))
 	case agent.EvTurnEnd:

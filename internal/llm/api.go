@@ -48,6 +48,7 @@ func (s *Service) mount(srv registrar) {
 	srv.RegisterAPI("GET /llm/usage", s.apiUsage)
 	srv.RegisterAPI("GET /llm/quotas", s.apiQuotas)
 	srv.RegisterAPI("PUT /llm/quotas", s.apiPutQuotas)
+	srv.RegisterAPI("POST /llm/setup/dismiss", s.apiDismissSetup) // SetupDismissRoute: the setup alert (alerts.go)
 }
 
 // apiError is a management refusal.
@@ -213,6 +214,9 @@ func (s *Service) apiStatus(w http.ResponseWriter, r *http.Request) {
 		v.Reason, v.Code = ref.err.Message, ref.err.Code.(string)
 		if id, _ := s.identify(r, snap); id.User != "" || id.Component != "" {
 			v.User, v.Component = id.User, id.Component
+		}
+		if q := s.ownQuota(r, snap); q != nil { // a person's limits are theirs to read, admitted or not (alerts.go)
+			v.User, v.Quota = q.User, q
 		}
 	} else {
 		v.Callable, v.User, v.Component, v.Admin = c.ReadOnly == "", c.User, c.Component, c.Admin

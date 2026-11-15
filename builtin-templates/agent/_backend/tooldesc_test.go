@@ -65,7 +65,7 @@ func TestToolDescriptionFirstSentences(t *testing.T) {
 			t.Errorf("%s's first sentence changed:\n got: %s\nwant: %s", name, f, w)
 		}
 	}
-	// a project's coordinator's tools (projects_coord_tools.go)
+	// a project's coordinator's tools (projects_coord_tools.go, registered with the project profile)
 	coord := map[string]string{
 		"task_create":  "Create tasks in this project — each its own conversation with a git worktree per repo — started now or queued behind the project's limit of tasks running at once.",
 		"task_list":    "List this project's tasks, newest activity first: number, title, state (queued, working, waiting for a person, awaiting CI or review, merged, closed, failed, cancelled), branch and PR.",
@@ -93,7 +93,7 @@ func TestToolDescriptionFirstSentences(t *testing.T) {
 			t.Errorf("%s's first sentence changed:\n got: %s\nwant: %s", name, f, w)
 		}
 	}
-	// the wiki's (project_wiki_tools.go) and a research subagent's git (projects_coord_research.go)
+	// the wiki's (coord_know_tools.go) and a research subagent's git (coord_reader.go)
 	wiki := map[string]string{
 		"wiki_search":  "Search this project's wiki — the notes its agents and people keep: how to build and test, traps, decisions — by words, for the best-matching pages with a snippet each.",
 		"wiki_read":    "Read a page of this project's wiki in full by its slug — notes that may be wrong, so verify what you rely on.",

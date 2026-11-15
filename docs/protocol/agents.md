@@ -20,7 +20,12 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    first (agent rows add kind:"agent",
                                    provider, mode, model?, status, pending
                                    — unanswered permission requests — and
-                                   questions — unanswered elicitations);
+                                   questions — unanswered elicitations; and
+                                   origin:"agent" when the person's
+                                   workspace agent opened the session for
+                                   them — set by xbind only, absent when
+                                   they opened it themselves;
+                                   protocol/delegation.md);
                                    ?cwd=<p> one tile only. [] without
                                    terminal rights; a tile the caller may no
                                    longer open a terminal on is omitted.
@@ -67,7 +72,14 @@ GET    /agent/providers           authenticated. the coding agents this daemon
                                    the workspace allow (D229,
                                    protocol/orgs.md §Agent constraints):
                                    what a launcher offers there; [] when
-                                   none is. Without cwd, or for a tile the
+                                   none is. A harness is left out when a
+                                   harness list excludes it, or when the
+                                   tile's sessions must run on the LLM
+                                   connector (a models rule on the tile, or
+                                   the workspace's connector-only) and it
+                                   can't. &all=1 keeps those rows, each
+                                   with unavailable: the reason to show.
+                                   Without cwd, or for a tile the
                                    caller can't read, the whole catalog
                                    (D74; explicit
                                    modes are never defaults; login is the
@@ -202,7 +214,13 @@ POST   /term/sessions/<id>/queue  creator or admin (not an agent sandbox's
                                    once one is held later ones queue behind
                                    it. interrupt: hold it and cancel the
                                    running turn — it goes in once that turn
-                                   has ended. The held messages are the
+                                   has ended. A steer the agent answers by
+                                   starting a turn of its own (codex-acp,
+                                   when the turn had just ended) is
+                                   "steered" too, and the session is
+                                   running until that turn ends (see
+                                   `turn.end` `detached` below): a message
+                                   meanwhile is held. The held messages are the
                                    session's (every client sees them: a
                                    `queue` event after each change, the tail
                                    page's state.queue now); a cancel keeps
@@ -246,7 +264,10 @@ POST   /term/sessions/<id>/restart
 POST   /term/sessions/<id>/cancel creator or admin → ok (the turn ends
                                    cancelled; pending permissions cancelled;
                                    a prompt still handing its files over
-                                   gets 409 and never starts)
+                                   gets 409 and never starts; a turn the
+                                   agent runs on its own ends for xbind —
+                                   `turn.end` with detached — the agent is
+                                   not asked: it has no prompt to cancel)
 POST   /term/sessions/<id>/permissions/<pid>
                                    creator or admin. {optionId} | {decision:
                                    allow_once|allow_always|reject_once|
@@ -345,6 +366,8 @@ GET    /agent/history             terminal-level. Your past agent sessions,
                                    never-prompted sessions are not kept).
                                    ?cwd= narrows to a tile. loadable: the
                                    agent can reopen it (resume). An entry of
+                                   a session the person's workspace agent
+                                   opened carries origin:"agent". An entry of
                                    a session that had a named target carries
                                    deployment. A session on a partitioned
                                    tile's entry is kept with its person's
@@ -405,9 +428,11 @@ xbind never starts a person's own session in a saved mode by itself.
 session — the agent can't read or write these routes — and checked again
 on every read: a stored mode this xbind doesn't know to keep asking is
 replaced by the harness's asking mode. `credentials` follows the
-precedence rule: the session's own choice, then this saved default, then
-the workspace's (`GET /agents/policy`) — unless the workspace forces the
-connector. A user id given to a new person keeps the launcher's
+precedence rule: the session's own choice, then this saved choice, then
+the workspace's mode (`GET /agents/policy`): `own-first` honours either
+choice, `connector-first` uses the connector unless one of them says
+`own`, `connector-only` ignores both — as does a tile whose orgs set a
+`models` rule, where every session is connector-only. A user id given to a new person keeps the launcher's
 conveniences and resets `agentSessions`.
 
 ### The connection view
@@ -420,13 +445,20 @@ every tile they can read, as one workspace agent session would see them:
  "scope": {"orgs": [], "tiles": []},
  "bounds": {"workspaceAgent": "on", "harnesses": "any", "models": "any"},
  "orgs": [{"id": "finance", "name": "Finance", "kind": "org",        // kind "workspace": the tiles in no org (id "workspace")
-           "state": "blocked", "reason": "Finance allows private models only", "rule": "models",
+           "state": "blocked", "reason": "Finance allows private models only (pinned by a workspace admin)",
+           "rule": "models", "pinned": true,                         // the blocking rule is a workspace admin's pin
            "tiles": 2, "connected": 0,                               // connected < tiles: partly connected
-           "rules": {"workspaceAgent": "on", "harnesses": "any", "models": "private"}}],
+           "rules": {"workspaceAgent": "on", "harnesses": ["claude", "gemini"], "models": "any"},   // its own
+           "pin": {"workspaceAgent": "on", "harnesses": "any", "models": "private"}}],             // pinned on it
  "tiles": [{"tile": "apps/ledger", "name": "Ledger", "org": "finance",   // org: the group it is listed under
             "orgs": ["eng", "finance"],                              // every org whose rules apply, when more than one
-            "state": "blocked", "reason": "Finance allows private models only", "by": "finance", "rule": "models",
-            "harnesses": ["claude"]}],                               // what an agent session there may run: "any" | [ids]
+            "state": "blocked", "reason": "Finance allows private models only (pinned by a workspace admin)",
+            "by": "finance", "rule": "models", "pinned": true,
+            "via": "apps/*",                                         // the share that put it under `by`, when not owned by it
+            "harnesses": ["claude", "gemini"],                       // the harness lists together: "any" | [ids]
+            "credentials": "connector-only",                         // what an agent session there runs on
+            "credentialsReason": "Finance allows private models only (pinned by a workspace admin)",
+            "unavailable": {"gemini": "… and gemini can't: its CLI speaks Google's wire only"}}],   // listed, but can't start
  "counts": {"tiles": 14, "orgs": 3, "notConnected": 6, "hidden": 2, "blocked": 4, "noAccess": 0,
             "summary": "14 tiles · 3 orgs connected · 6 not connected"},
  "whatIf": {"model": {…}, "connect": [/* tile rows */], "disconnect": [/* tile rows, with the reason */], "counts": {…}}}
@@ -450,6 +482,13 @@ every tile they can read, as one workspace agent session would see them:
   and disconnect, before anything changes.
 - A tile under several orgs is listed once, under the org that owns it
   (else the first it is shared into), and blocked by the strictest of them.
+  `reason` names a pin (`pinned by a workspace admin`) and the share that
+  put the tile under the org (`this tile is under Finance by its share
+  apps/*`).
+- `credentials` is what an agent session on the tile runs on: the
+  workspace's mode, or `connector-only` wherever a `models` rule applies
+  (`credentialsReason` is that rule). `unavailable` names the harnesses a
+  list allows that still can't start there, each with why.
 - The route answers the person its credential names: their own session, or
   their workspace agent's. An org the caller is no member of and none of
   whose tiles they read is never named.
@@ -505,12 +544,12 @@ them apart by `hasOlder`.
 | `plan` | `{entries:[{content, priority, status}]}` — the whole list, replacing the last |
 | `tool.call` | `{id, title, kind, status, content?, locations?, rawInput?, rawOutput?, name?, label?, parent?, subagent?, planReview?, output?, outputDelta?, exitCode?}` — kind: read \| edit \| delete \| move \| search \| execute \| think \| fetch \| switch_mode \| other; content items are `{type:"content", content:{type:"text", text}}` (often markdown — the adapters fence command output), `{type:"diff", path, oldText, newText}` or `{type:"terminal", terminalId}`. The rest is lifted from the adapter's `_meta` so a client needs no per-agent code: `name` the tool's own name (`Bash`, `ExitPlanMode`, …); `label` a human headline for the call when the harness wrote one (Claude's description of a shell command — the `title` is the command); `parent` the subagent call this one runs under; `subagent` true on a subagent (Task/Agent) call itself; `planReview` true on Codex's plan approval; `outputDelta` a chunk of a shell command's output (append), `output` its whole output (replace), `exitCode` its exit status |
 | `tool.update` | `{id, …}` — a partial update of that call (`status`: pending \| in_progress \| completed \| failed \| cancelled); `content`/`locations` replace, `outputDelta` appends to the output, `output` replaces it; a command's output chunks arrive in runs (`{id, outputDelta, parent?}` updates of one call are coalesced like the agent's text) |
-| `permission.request` | `{pid, toolCall:{id, title, kind, rawInput?, content?}, options:[{optionId, name, kind}], rule:{kind, title, scoped}, meta?}` — kind: allow_once \| allow_always \| reject_once \| reject_always; answer on `POST …/permissions/<pid>`. `rule` is what "allow for the session" would remember (`scoped:false` = no session rule is possible and the clients hide that choice: the call has neither kind nor title, or it is a `switch_mode` — a plan approval, whose allow_always options are modes, never remembered); `meta` is the adapter's presentation hint when it sends one (`{title, description, defaultToNo}`) |
+| `permission.request` | `{pid, toolCall:{id, title, kind, rawInput?, content?}, options:[{optionId, name, kind, explicit?}], rule:{kind, title, scoped}, meta?}` — kind: allow_once \| allow_always \| reject_once \| reject_always; answer on `POST …/permissions/<pid>`. `explicit: true` (absent otherwise) marks an option that raises the session's mode past the agent's own asks — a plan approval's "yes, and bypass permissions", or its "yes, and switch to ‹mode›" for a mode the provider catalog doesn't know as safe — unless that is the mode the session was opened with (`sdk/acp` `Provider.OptionRaises`). It is a hint for the client, which asks twice before sending such an answer; xbind answers the option like any other. The same options, flag included, are in `GET /term/sessions/<id>`'s `permissions` and the tail page's `state.permissions`. A client that doesn't know the field ignores it. `rule` is what "allow for the session" would remember (`scoped:false` = no session rule is possible and the clients hide that choice: the call has neither kind nor title, or it is a `switch_mode` — a plan approval, whose allow_always options are modes, never remembered); `meta` is the adapter's presentation hint when it sends one (`{title, description, defaultToNo}`) |
 | `files.changed` | `{toolCallId?, turn?, changes:[{path, oldPath?, status, add, del, binary?}], patch:{format:"git_patch", text, truncated}}` — what a finished tool call (`toolCallId`) or a whole turn (`turn`, after its `turn.end`) changed in the tile, from snapshots of the work tree (tiles that are git repos; the tile's own repo, index and HEAD are never touched). status: added \| modified \| deleted \| renamed \| typechange; `patch` is a git patch capped at 64 KiB per call, 192 KiB per turn (`truncated`) — `GET …/diff?toolCallId=|turn=` serves the whole of it (and one file of it) while the session lives. Not sent for edit/delete/move/read/search calls (an edit reports its own diff) nor when nothing changed |
 | `elicitation.request` | `{eid, toolCallId?, message, schema}` — the agent asks the user a question (ACP `elicitation/create`, form mode — Claude's AskUserQuestion, an MCP server's form); the session is `waiting_permission` until one client answers on `POST …/elicitations/<eid>`. `schema` is a flat JSON Schema object: a `oneOf`/`enum` string is a single choice (options `{const, title, description?}`), an array of `anyOf`/`enum` items is a multi-choice, plus plain string/number/integer/boolean fields; a string field whose `_meta._askUserQuestionCustomAnswer.questionId` names another field is that question's free-text "Other" answer. Cancelling the turn answers `cancel` |
 | `elicitation.resolved` | `{eid, action, by, content?}` — action: accept \| decline \| cancel (by `agent`: withdrawn); `content` the submitted values (with accept) |
 | `permission.resolved` | `{pid, optionId, by}` — by: `user:<id>`, `owner`, `auto` (a session rule), `cancel` |
-| `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
+| `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error. `{stopReason, detached: true}` (no `turn`) is xbind's, not the agent's: the end of a turn the agent ran on its own — codex-acp answers a steer that lands just after its turn ended by starting one (`sdk/acp` `SteerStartedNewTurn`), and no prompt's answer reports its end. xbind follows it as a running turn (a `status` `running` after the steer; a status the agent's client restates as idle meanwhile is served as `running`, or `waiting_permission` while a request waits) and ends it once the agent has sent nothing for 5 s with no request waiting (`end_turn`), or at a cancel (`cancelled`); an idle `status` follows and the held messages go in |
 | `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a sign-in: the provider's guided one when `GET /agent/providers` gives it a `signin` (D178: a link to open and a code to paste, the CLI running in a terminal session no tab shows), else — and on request — `command` run in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
 | `queue` | `{items:[{id, text, files?, at}], sent?, dropped?, reason?}` — xbin's, not the agent's (D197): the messages held for the running turn's end after a change (`POST`/`DELETE …/queue`) — the whole list, replacing the last; `text` is a preview (200 characters), `files` the attachments' names. `sent` lists the ids that just went in as a prompt (its user `message.delta` follows); `dropped` counts held messages that went without being sent, with `reason` (the session ended; a prompt refused for good — a `notice` says so too). A client that doesn't know the type skips it |

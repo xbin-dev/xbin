@@ -34,6 +34,7 @@ package broker
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -144,6 +145,44 @@ func sealedRefused(w http.ResponseWriter, err error) bool {
 	return true
 }
 
+// sealedBinding is validateBinding's rule for sealed components: one is
+// never the provider of a binding; and its own slots are the ones its
+// release declares, bound to the slot's default provider or one the table
+// names — who a sealed component talks to is the release's decision, a
+// model provider reads what people say to it
+// (registry.SealedCode.BindingAllowed; the workspace file's writer refuses
+// such a row again).
+func (b *Broker) sealedBinding(comp, slot string, refs []string) error {
+	for _, ref := range refs {
+		if util.SealedPath(ref) {
+			return errors.New(util.SealedRefusal(ref, "it is never the provider of a binding"))
+		}
+	}
+	if !util.SealedPath(comp) {
+		return nil
+	}
+	if strings.HasPrefix(slot, "@") {
+		return errors.New(util.SealedRefusal(comp, "only the interface slots its release declares are bound (its backups go to the workspace's archiver)"))
+	}
+	for _, ref := range refs {
+		if !b.Reg.SealedBindingAllowed(comp, slot, ref) {
+			return errors.New(util.SealedRefusal(comp, fmt.Sprintf("its release names the providers its %s slot may be bound to, and %s is not one", slot, ref)))
+		}
+	}
+	return nil
+}
+
+// sealedRefusal is err as a check's *refused when it is a sealed refusal
+// (grantCheck, bindingCheck: what a handler and a change set's preview
+// share); nil otherwise.
+func sealedRefusal(err error) *refused {
+	var se *sealedError
+	if errors.As(err, &se) {
+		return &refused{se.Status, se.Msg, server.SealedDocs}
+	}
+	return nil
+}
+
 // Texts of the refusals (the route gate's rows say the same).
 const (
 	sealedOwnRes   = "only it reads and writes its own resources"
@@ -159,4 +198,5 @@ const (
 	sealedNoCreate = "nothing is created under xbin/"
 	sealedNoClone  = "it can't be cloned, and nothing is created under xbin/"
 	sealedNoIface  = "it provides no interface and publishes no endpoint"
+	sealedNoAgent  = "a person's agent does nothing in it: nothing calls it but its own page"
 )

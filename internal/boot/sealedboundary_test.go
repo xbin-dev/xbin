@@ -125,6 +125,10 @@ func boundaryReqs() map[string][]boundaryReq {
 		// a manager names only its own sandboxes: the body's tile is not
 		// read, and nobody but a manager tile's backend creates one
 		"POST /sandboxes": {{body: map[string]any{"tile": P, "name": "x"}, other: "manager tiles only"}},
+		// a person's workspace agent does nothing in one (delegation, D228):
+		// no agent level is approved for it, no standing approval names it
+		"PUT /agent-levels":        {{body: map[string]any{"tile": P, "level": "full"}, person: true}},
+		"POST /delegate/approvals": {{body: map[string]any{"tile": P, "grant": "hour", "scope": "tile"}, person: true}},
 		// ---- deployments: one resolver, one judge ----
 		"GET /deployments":                     q,
 		"GET /deployments/backups":             q,

@@ -39,10 +39,99 @@ import '/vendor/bx-frame.js';
 | `/vendor/bx-icons.js` | `<bx-icon name="lock">` and `iconSvg(name, {size, label})`: the workspace's drawn glyphs, 16px in `currentColor` (§Theme › Icons). Dependency-free |
 | `/vendor/fonts/` | Instrument Sans, JetBrains Mono and Bricolage Grotesque (woff2, SIL OFL 1.1, the licences beside them); `theme.css` loads them, each URL with its version, which xbind serves as immutable — a reload draws them from the cache. Use the `--bx-sans`, `--bx-mono` and `--bx-display` tokens rather than naming them |
 | `/vendor/bx-scroll.js` | the scrollbar CSS for **shadow roots** (a document stylesheet does not reach them): `scrollCssText`, the same rules `theme.css` carries — a lit element puts `unsafeCSS(scrollCssText)` (or `/vendor/scroll-css.js`'s shared `scrollCss`) in its `static styles`. Importing it installs `installScrollFocus()` once per document: it keeps `data-bx-scroll` on the scroller the next scroll would move — the innermost scrollable under the mouse, the one a wheel actually latches onto (at its end, the next one out), or the focused element's on a scroll key — and hands off to/from framed documents (`xbin:scroll-focus`, [protocol.md](/docs/protocol.md)). Dependency-free |
-| `/vendor/chat/blocks.js`, `/vendor/chat/rev.js` | the **chat kit**'s first modules — the kit is what xbind's Agent tab and a tile's own chat will draw transcripts with. `blocks.js` is its contract, pure (no lit, no DOM, no imports): the block model a transcript is a list of — JSDoc typedefs of every kind (`user`, `assistant`, `draft`, `thought`, `tool`, `agent`, `changes`, `plan`, `perm`, `ask`, `signin`, `notice`, `turn`, `gap`), each with a key `k` and a version `v`; the one record of a tool call (`ToolRecord`, `newToolRecord(id)`, `toolDone(status)`, `toolState(rec, hint)`); what a view may ask of its host (`ChatCtx`); and a reducer's helpers — `block`, `up`, `bump`, `adopt`, `nest`, `inner`, `walk`, `find`, `Versions`, `plain`; `KINDS`, `TOOL_KINDS`, `TOOL_STATUS`, `TOOL_STATES`. `rev.js` exports `KIT`, the kit's revision (1): import it with a guarded dynamic `import()` — an xbind without the kit answers 404 — and compare before relying on a newer kit. The shapes only grow: a field or an export is never removed or re-shaped |
+| `/vendor/chat/blocks.js`, `/vendor/chat/rev.js` | the **chat kit**'s contract ([The chat kit](#the-chat-kit) below says how the modules fit) — the kit is what xbind's Agent tab draws its transcript with, and what a tile's own chat can. `blocks.js` is pure (no lit, no DOM, no imports): the block model a transcript is a list of — JSDoc typedefs of every kind (`user`, `assistant`, `draft`, `thought`, `tool`, `agent`, `changes`, `plan`, `perm`, `ask`, `signin`, `notice`, `turn`, `gap`, and `host`: a card the host draws itself), each with a key `k` and a version `v`; the one record of a tool call (`ToolRecord`, `newToolRecord(id)`, `toolDone(status)`, `toolState(rec, hint)`); what a view may ask of its host (`ChatCtx`); a reducer's helpers — `block`, `up`, `bump`, `adopt`, `nest`, `inner`, `walk`, `find`, `Versions`, `plain`, `cached(block, slot, fn)` (a value memoized per version); `usageBadge(usage)` (`ctx 26% · $0.41`, its tone and title); `KINDS`, `TOOL_KINDS`, `TOOL_STATUS`, `TOOL_STATES`. `rev.js` exports `KIT`, the kit's revision (3: the views; 2: `tools.js` and `ask.js`): import it with a guarded dynamic `import()` — an xbind without the kit answers 404 — and compare before relying on a newer kit. The shapes only grow: a field or an export is never removed or re-shaped |
+| `/vendor/chat/tools.js` | the chat kit's model of **one tool call**, read from its `ToolRecord` — pure (its one import is `blocks.js`), so a native view loads it too. The record from an agent's events: `mergeTool(rec, data, {cap})` (one `tool.call` / `tool.update`: fields replace, a content list is read into `text`, `diffs` and `terminal` and never loses the diffs or text a later list leaves out, `output` replaces then `outputDelta` appends, `files` = locations then diffs), `startsNewCall`, `ToolRecords` / `records(events)` (a whole log, the id-reuse rule included), `toolDiff`, `lineCounts`, `textLines`, `changeSet`, `firstText`, `OUTPUT_MAX`. Its words: `headline(rec)` — the harness's label, a `description` argument, a shell command read deterministically (`describeCommand`: "Python script (12 lines) → main.go", "Edit a.txt (sed)"), the title's first line, a reading by kind (`reading`: "Read a.go:10–49"), the tool's name — `subline(rec, said)` (an execute's `$ command` under a headline that says something else), `commandOf`, `inputCommand`, `inputPath`, `rawText`, `taskOf`, `placesOf`, `firstLine`, `oneLine`. What it came to: `outcome(rec)` (`exit 1`, `+3 −1`, `2 files …`, `12 lines`, `4 matches` as `{text, tone}`), `stateChip(rec, state)`, `diffTotals`. Output: `stripAnsi` (the one rule: CSI with any parameter byte, an OSC up to its own terminator — a hyperlink keeps its text — character-set designations, two-byte escapes), `outputTail(rec, n)` → `{text, cut, dropped}`, `OUTPUT_TAIL` (20 000). Diffs, as a patch or as the two texts: `diffFiles`, `diffPatch`, `unifiedDiff`, `joinPatches`, `patchLines` (a patch's lines with `bx-code.js` `diffHTML`'s classes, for drawing one plain), `filesStat`; a request's preview: `lineDiff`, `contentPreview`, `diffsPreview`, `patchOf`, `PREVIEW_LINES`. Plans: `isPlanApproval`, `planText`, `planPath` |
+| `/vendor/chat/ask.js` | the chat kit's model of **what an agent asks and what a person types to it** — pure. A permission request (a `perm` block) as its card: `permission(perm, {name, can, diffs, scopedOnly, where})` → `{plan, planText, planPath, lead, title, label, command, raw, preview, description, rule, options, hidden, reject}` — the agent's options in its order (rejections first when it defaults to no), an `explicit` one (it raises what the agent does without asking) only for who may raise, counted in `hidden` otherwise, what "always" will also allow in words; `decisions(perm)` (Allow once / Allow for the session / Deny for a host that takes a bare decision), `permAnswer(option, feedback)` → `{optionId \| decision, verdict, feedback}` (feedback only with a rejection), `optionConfirm`, `modeConfirm`, `isAllow`, `isReject`, `PERM_VERB`. A question (an `ask` block): `question(ask)` → a form (`fields`), a page to open (`mode: 'url'`, a link only when http(s)) or only its message; `formFields(schema)` (a single choice from `oneOf`, `anyOf` or `enum` with `enumNames`, a multiple one, boolean, number, text; each property's `default` as `dflt`; an "Other" box riding on its question), `formContent(fields, values)` (an untouched field answers its default), `missingRequired`, and for the native `question` primitive `nativeSchema` / `nativeContent`. The slash menu's one rule — names that start with what is typed, then names or descriptions containing it, at most `SLASH_MAX` (8): `slashCommands`, `slashQuery`, `matchCommands`, `slashMenu`, `commandHint`, `slashText`. The composer while a turn runs: `composerWords(state)`, `steerTracker(ms)`. `cleanCode(s)` (a pasted sign-in code) |
+| `/vendor/chat/views.js` | the chat kit's **views**: lit template functions of `(block, ctx)`. `rowsView(blocks, ctx)` — a transcript's rows, one keyed `<div class="bxc-row" data-k>` per block, each drawn again only when its block's `v`, the host's `ctx.rev(block)` or a highlighter changed; `rowView`, `blockView(block, ctx, depth)` (the host is asked first, `ctx.other`; then the kit's view of the kind); `userView`, `assistantView`, `draftView`, `thoughtView`, `noticeView`, `turnView`, `gapView`, `hostView`; `mdLive(text, block)` (a directive: streaming markdown, a block at a time); `activityView(blocks, ctx)` ("Running …" under a running transcript); `usageView(usage, {short})`. Imports lit by URL (`/vendor/lit-all.min.js`), so it loads on a page with no import map |
+| `/vendor/chat/cards.js` | the kit's **cards**: `toolView(block, ctx, depth, child)` (a tool call: its headline and status badge, folded; open, its command with a copy button, its terminal output's tail, its diffs, what it changed on disk a file at a time; a subagent's call with its blocks nested), `agentView` (a sub-conversation), `changesView` (a turn's change set), `filesView(block, set, ctx, label)`, `planView`, `commandView`, `contentView`, `textView`, `diffView(text, ctx, lang)`, `KIND_ICON`. Diffs are highlighted by `/vendor/bx-code.js` `diffHTML`, imported on the first diff drawn — `useDiffHighlighter(diffHTML, langFor)` hands it over when the host has it already — and drawn plain with the same line classes until it arrives or where it cannot load; `diffEpoch` moves when it does |
+| `/vendor/chat/asks.js` | the kit's views of **what an agent asks**: `permView` (a permission request with the agent's options; a plan's approval with a box for what should change; once answered, by whom), `askView` (a question: the form, a page to open with Done / Skip, or its words alone), `signinView` (the agent is signed out; `ctx.signin` fills it), `canOf(ctx)`, `bagOf(ctx, block)`, and the element `<bx-chat-form>` (`BxChatForm`: properties `block`, `ctx`, `fields`, `readonly`; methods `values()`, `submit()`, `skip()`; light DOM). An option that raises what the agent does without asking (`explicit`) is drawn as a caution, offered only to who may raise, and confirmed through `ctx.confirm` before `ctx.permit` is called |
+| `/vendor/chat/composer.js` | `<bx-chat-composer>` (`BxChatComposer`, light DOM) — the message box: text, files (a button, a paste, a drop; staged as chips until sent), the slash-command menu, pickers (`<select>`s the host describes: the agent, its mode, its model), the messages held while a turn runs with a × that takes one back, Send and Stop. Properties `draft`, `placeholder`, `sendLabel`, `sendTitle`, `stopTitle`, `disabled`, `sending`, `busy`, `commands`, `queue`, `queueHint`, `attach`, `limits`, `pickers`, `unavailable`, `fit`; events `bx-chat-draft {text}`, `bx-chat-send {text, files: [{name, mime, size, data}], interrupt, sent()}` (data is base64; the host calls `sent()` once the message went), `bx-chat-stop`, `bx-chat-take-back {id}`, `bx-chat-pick {id, value}`; methods `send(interrupt)`, `addFiles(files)`, `removeFile(i)`, `slashItems()`, `pickSlash(command)`, `focus()`, and `files`. It sends nothing itself |
+| `/vendor/chat/window.js` | `ChatWindow` — a long transcript as a window of its rows over `/vendor/scroll-window.js`: `place(blocks)` → `{start, end}` right before a render, `after(scroller)` right after; `fill()`, `older()`, `latest()`, `loadAll()`, `unload()`, `load(fn)`, `keepView()`, `toBottom()`, `pill()` ("3 new — jump to latest"), `reset()`, `detach()`, `atBottom`. The host passes a `source` (`version`, `hasOlder`, `hasNewer`, `fresh`, `loadOlder()`, `loadNewer()`, `latest()`, `keep(lo, hi, dropTail)`, `follow(atBottom)`) and `changed()`; options `keyOf`, `page`, `trim`, `unload`, `minMargin`, `growFirst`, `holdWhileBusy`, `retrim`, `paused`, `onUnload` |
+| `/vendor/chat/css.js` | `chatCssText` — the kit's one stylesheet as text: every class starts with `bxc-`, every colour and size is a theme token with Night's value as its fallback. Put it in a shadow root (`unsafeCSS(chatCssText)`) or in a document's `<style>`; it styles nothing outside its prefix (and the two elements above). Pure text — no lit |
 | `/vendor/scroll-window.js` | `ScrollWindow` — a long list that renders a window of its rows and never moves what the reader is looking at (D124, D130; the Agent tab's, framework-free): `attach(scroller)` (it sets `overflow-anchor: none`), then `before()` right before every render and `after()` right after it, in the same frame — the bottom stays pinned while the reader is there, else the first visible row keeps its place. Rows are the scroller's direct children with a key (`rows`: a selector, default `:scope > [data-k]`; `keyOf(el)`). `wantsAbove()` / `wantsBelow()` say when to render (or fetch) more rows, `trimAbove()` / `trimBelow()` the key of the last row to keep once more than 6 views of rows lie beyond the view (keep 2.5: never ping-pongs with the 1.5-view fill); `onScroll`, `onResize`, `atBottom`, `keepView`, `toBottom()`, `firstVisible()`, `rowsPerView()`. A touch scroll grows the window only once it settles. Dependency-free |
 | `/vendor/xb-native.js` | a tile's **native UI** for the xbin mobile app: `html`, `render`, `repeat`, `nothing` (lit-shaped), and `widget` (the tile's card on the app's screens) over the native vocabulary (`/vendor/xb/vocab.js`: `screen`, `section`, `row`, `field`, `button`, …). A tile's `native.js` imports it; the app runs that file in a hidden document with the tile's own identity and draws what it renders with platform UI, re-rendering by patches. Also exports `native` — in the app the same object as `xbin.native` (`caps`, `supports()`, `meta()`, `copy()`, `share()`, `open()`, `state`, `saveState()`, `widgetSize`, `on('widgetsize')`). Outside the app nothing loads `native.js`; browsers keep showing `index.html`. The reference — templates, every primitive, the rules — is [native.md](/docs/native.md). Worked examples: `examples/counter-go/native.js` (one round trip, and a widget) and `examples/calendar/native.js` (a list, a form, a bus refresh); the builtin chat, egress-approver, prometheus-viewer, s3-archiver and webhooks tiles ship one too — logic a page and its native view share lives in a plain module both import (chat's `chat-core.js`, the viewer's `prom.js`) |
 | `/vendor/xbin-client.js` | injected into every tile document by xbind — do not import it yourself. Besides `xbin.self` (the tile path in every deployment) it sets `xbin.deployment` only in a document of a tile deployment other than the primary (`/c/<tile>+<name>/`): its name; absent means the primary. Likewise `xbin.partition`, only in a partitioned tile's document: the partition the viewer reaches, `user:<id>` or `global` ([partitions.md](/docs/partitions.md)) |
+
+## The chat kit
+
+`/vendor/chat/…` is how xbind's Agent tab draws a conversation with a coding
+agent, offered to tiles as the same modules. It has three layers, and a tile
+can stop at any of them:
+
+1. **The model** (pure: no lit, no DOM) — `blocks.js` (what a transcript is),
+   `tools.js` (one tool call from its record), `ask.js` (a request's card, a
+   form, the slash menu). A native view imports these too.
+2. **The views** — `views.js`, `cards.js`, `asks.js`: lit template functions
+   of `(block, ctx)`, with `css.js` their one stylesheet.
+3. **The widgets** — `composer.js` (`<bx-chat-composer>`), `asks.js`'s
+   `<bx-chat-form>`, `window.js` (`ChatWindow`).
+
+A host is whatever owns the conversation: it makes the blocks (a *reducer*:
+the Agent tab folds its session's event log, `/vendor/agent-fold.js`
+`blockOf`; a tile folds its own rows), renders them with `rowsView(blocks,
+ctx)`, and answers what the views ask through **`ctx`** — the only way a
+view reaches it:
+
+```js
+import { html, render } from '/vendor/lit-all.min.js';
+import { rowsView } from '/vendor/chat/views.js';
+import { chatCssText } from '/vendor/chat/css.js';
+
+const open = new Set();
+const ctx = {
+  running: false, ended: false, agentName: 'Fable', role: 'owner',
+  isOpen: (b, slot, dflt) => !!dflt || open.has(b.k + ':' + slot),
+  setOpen: (b, slot, o) => { o ? open.add(b.k + ':' + slot) : open.delete(b.k + ':' + slot); paint(); },
+  rev: (b) => [...open].filter((k) => k.startsWith(b.k + ':')).length,
+  permit: (b, answer) => api(`permissions/${b.pid}`, answer),   // {optionId | decision, verdict, feedback}
+  answer: (b, answer) => api(`questions/${b.eid}`, answer),     // {action, content}
+  repaint: () => paint(),
+};
+const paint = () => render(html`<style>${chatCssText}</style><div class="scroller">${rowsView(blocks, ctx)}</div>`, el);
+```
+
+**`ChatCtx`** (the typedef in `blocks.js` is the reference; a member a host
+leaves out is simply not offered):
+
+| Member | What the views use it for |
+|---|---|
+| `running`, `ended`, `readonly` | a turn runs (a live thought stays open); the session is over; the reader only looks — requests are then drawn without their answers |
+| `agentName` | the agent in a card's words ("Fable asks to run a command") |
+| `me`, `role`, `can` | the reader: their id (another person's message carries its sender), `'owner'` \| `'participant'` \| `'viewer'`, or `{answer, raise}` outright. A viewer answers nothing; only who may `raise` is shown an `explicit` option |
+| `isOpen(block, slot, dflt)`, `setOpen(block, slot, open, dflt)` | the folds: a card's body (`body`), a change set's files (`files`), one file's diff (`f:<path>`), a diff shown whole (`…:all`) |
+| `rev(block)` | anything that changes when the host's state for the block does (its folds, a diff that loaded): the row is drawn again |
+| `state(block)` | a bag for the block's widgets (a form's values, a rejection's feedback) that outlives the row leaving a window |
+| `permit(block, answer)`, `answer(block, answer)` | send an answer; a promise keeps the buttons waiting |
+| `confirm(text)` | confirm an `explicit` option (default: the browser's `confirm`) |
+| `note(block)` | why the last answer was refused, under the card |
+| `sessionRules` | the host's "always" is its own rule: `allow_always` is offered only when the request says what the rule would cover |
+| `fileDiff(block, set, file)`, `openDiff(block, set, file)` | one file's diff of a change set (`{state: 'ok' \| 'loading' \| 'none', text, cut, note}`); show it in the host's own viewer |
+| `fileState(block, file)`, `openFile(block, file)` | a message's file: still there? open it |
+| `copy(text)` | the clipboard (default `navigator.clipboard`) |
+| `openAgent`, `loadAgent`, `agentError` | a sub-conversation's card: show it on its own, read its blocks, why that failed |
+| `signin(block)`, `host(block)`, `other(block, depth)` | the host's own drawing: the inside of the sign-in card; a `host` block's card; any block at all (asked first — `null` leaves it to the kit) |
+| `feedbackHint`, `agentLabel` | words: the plan-feedback box's placeholder, the agent's name over its messages |
+| `repaint()` | draw again (a highlighter arrived, a widget's state moved) |
+
+**A card of the host's own.** A block of kind `host` (`{kind: 'host', type,
+data, title}`) gets a row and a frame from the kit and its inside from
+`ctx.host(block)`. Use it for what only the host can say or may do — a
+session it started elsewhere, a request that trusted chrome must grant. The
+kit never draws an answer for one.
+
+**The stylesheet.** `chatCssText` uses only `bxc-` classes and the theme's
+`--bx-*` tokens; `--bxc-gap` (default 12px) is the space under a message.
+Rows are block elements: give them a scroller (`ChatWindow` wants
+`overflow-anchor: none` on it, which `ScrollWindow` sets). Inside a rendered
+diff the classes are `bx-code.js`'s (`fh`, `h`, `d`, `a`, `ctx`), inside
+markdown `chat/md.js`'s; both are styled under `.bxc-diff` and `.bxc-md`.
+The rule that keeps a host's own CSS safe: the kit never styles an element
+it did not write.
+
+**Rows, not elements.** The views are template functions so a selection
+spans rows and a host measures them as the scroller's children; only the
+widgets with state of their own are elements, and those are light DOM —
+they wear the stylesheet of the root they sit in.
 
 ## Shell-only modules
 
@@ -64,9 +153,20 @@ global instance's log or a person's shared one under the same echo rule
 server's echo is what it shows), `/vendor/bx-agent.js` (the pop-up's Agent
 tab, D74; its markdown is `/vendor/bx-md.js`, which is a tile's to import —
 the table above), `/vendor/agent-fold.js`, `/vendor/agent-pages.js` (the session log folded,
-and the pages of it the tab holds, D124/D130), `/vendor/agent-tools.js`,
-`/vendor/agent-cards.js`, `/vendor/agent-slash.js`,
-`/vendor/agent-css.js` (its styles), `/vendor/agent-testapi.js` (its test
+and the pages of it the tab holds, D124/D130), `/vendor/agent-tools.js`
+and `/vendor/agent-slash.js` (since D224 re-exports of the chat kit's
+`/vendor/chat/tools.js` and `/vendor/chat/ask.js` — the table above — under
+the names the tab always used, with the tab's old record of a call:
+`newTool`, `foldTool`, `headline`, `commandOf`, `isPlanApproval`,
+`planText`, `firstLine`, `describeCommand`, `filesStat`, `stripAnsi`,
+`rawText`, `unifiedDiff`, `formFields`, `formContent`, `missingRequired`;
+`slashQuery`, `matchCommands`, `commandHint`. New code imports the kit),
+`/vendor/agent-cards.js` (since D224 the chat kit's cards under the names
+the tab used — `toolCard`, `permCard`, `askCard`, `changesCard`,
+`filesBlock`, `diffStat`, `cardsCss`, `mdLive`, `KIND_ICON` — each taking
+the `<bx-agent>` element and one of its fold's blocks),
+`/vendor/agent-css.js` (the element's own chrome; what the transcript draws
+is `/vendor/chat/css.js`), `/vendor/agent-queue.js`, `/vendor/agent-testapi.js` (its test
 surface) and
 `/vendor/frame-titlebar.js` (the pop-up's title bar: the name, the path and
 the close), `/vendor/frame-ide.js` (the pop-up's layout as data — its panes,
@@ -98,7 +198,7 @@ every question; `target` — `primary`, a deployment's name or `off` — is the
 session in view's, whose row it tags `Dev API`) with `/vendor/deploy-panel.js` (the panel's pure view
 model, beside `deploy-state.js`), `/vendor/frame-panels.js` (before D202
 the terminal window's body; kept for what imports it, its exports now
-mapped onto the IDE), `/vendor/frame-css.js` (`<bx-frame>`'s own styles), `/vendor/agent-prefs.js` (the person's agent preferences as the launcher and the Agent tab use them, D229: `agentPrefs()` over `GET`/`PUT /api/xbin/agent/prefs`, with this browser's older record as the migration source and the fallback), `/vendor/win-resize.js`
+mapped onto the IDE), `/vendor/frame-css.js` (`<bx-frame>`'s own styles), `/vendor/org-agents.js` (`<bx-org-agents>`: the editor of an org's constraints on agents, its pin and the workspace's bounds, D229 — the admin console and the organisations tile), `/vendor/agent-prefs.js` (the person's agent preferences as the launcher and the Agent tab use them, D229: `agentPrefs()` over `GET`/`PUT /api/xbin/agent/prefs`, with this browser's older record as the migration source and the fallback), `/vendor/win-resize.js`
 (a floating window's resize corner over the kit's `dragResize`, D217),
 `/vendor/frame-testapi.js` (`<bx-frame>`'s
 test surface for the UI harness), and the shell's own siblings under

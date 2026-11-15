@@ -62,7 +62,10 @@ GET    /screens                   signed-in. {default: {tiles,blocks?,
                                    screen, your orgs' screens, and the
                                    shared sidebar folder sets you may see
                                    (ws always; each org you belong to;
-                                   ws-admins: every org) (D37/D55)
+                                   ws-admins: every org) (D37/D55). A
+                                   person's workspace agent reads it
+                                   without the tiles, and the folder
+                                   items, whose org keeps it out (D228)
 PUT    /screens/default           ws-admin. {tiles, blocks?, mode?,
                                    arrange?} — the seed screen new users
                                    start from (opaque; its mode and

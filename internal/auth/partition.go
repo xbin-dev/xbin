@@ -32,10 +32,18 @@ import (
 // global instance (plans/partitions/02 §6, 05 §6; S3): as the partition's
 // person, never as the tile itself. The broker's Route decides it, the
 // proxy sets it as the callee's X-XBin-User, -User-Level and -Role.
+//
+// A delegate's call (delegate.go) is attributed the same way — its person,
+// their level, the role clamped to it — and names the sealed component
+// acting for them in Agent.
 type Attribution struct {
 	UserID string // X-XBin-User
 	Level  string // X-XBin-User-Level: the person's level on the tile
 	Role   string // X-XBin-Role: clamped to that level, never self-admin
+	Agent  string // X-XBin-Agent: the sealed component acting for UserID; "" for F5
+	// ReadOnly: the tile lets a person's agent read only ("agent": "read"):
+	// the proxy refuses every method but GET and HEAD.
+	ReadOnly bool
 }
 
 // SetPartitionCoverage installs the broker's answer to "is this user

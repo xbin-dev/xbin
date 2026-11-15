@@ -8,13 +8,12 @@
 // The web's cards are test/harness-cards.mjs (a browser). Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
+import { installHooks } from './xbn/hooks.mjs';
 import { runNative } from './xbn/node.mjs';
 import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
-const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
-registerHooks({ resolve: (spec, ctx, next) => (spec === '/vendor/bx-kit.js' ? { url: KIT, shortCircuit: true } : next(spec, ctx)) });
+installHooks(); // /vendor/<name> as xbind serves it: the kit the template's modules import (web/<name>)
 
 const HH = await import(new URL('model/harness-heads.js', TPL));
 const H = await import(new URL('model/harness.js', TPL));
@@ -180,7 +179,7 @@ test('native: one call in full (↗); a parked call; a failed one opens by itsel
   assert.deepEqual(parked.p.chips, [{ text: 'needs approval', tone: 'warn' }]);
   assert.equal(parked.p.state, 'running');
 
-  const failed = card(r.snapshots.failed.root, '$ make test');
+  const failed = card(r.snapshots.failed.root, 'make test'); // no label, no title: the command as the kit reads it (describeCommand)
   assert.equal(failed.p.state, 'error');
   assert.equal(failed.p.open, true, 'a failed call opens by itself');
   assert.deepEqual(failed.p.chips, [{ text: 'failed', tone: 'danger' }]);

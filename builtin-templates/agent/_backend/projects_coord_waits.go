@@ -3,7 +3,8 @@
 // approval — quoted, with its age — is not the same as a task whose turn
 // ended with its answer ready, though both are needs-you on the board.
 // Only a person answers a question: task_message while one waits says so,
-// and the message is held (HoldPark) until they have.
+// and the message is held (HoldPark) until they have — every coordinator's
+// rule (coord_hold.go has it, and a park's words).
 package main
 
 import (
@@ -34,20 +35,6 @@ func (d *DB) taskWaitOf(run *Run) *taskWait {
 	return w
 }
 
-// coordQuote is a park's text as the coordinator reads it: one line,
-// redacted, its frames' markers defused, quoted.
-func coordQuote(s string) string {
-	return "«" + clip(coordPlain(projRedact(s)), 200) + "»"
-}
-
-// coordAsked is " (asked 2h ago)" ("" when the age isn't known).
-func coordAsked(since int64) string {
-	if since <= 0 {
-		return ""
-	}
-	return " (asked " + ago(since) + ")"
-}
-
 // coordWaitWords is v's state in the coordinator's words when its board
 // state alone would mislead ("": coordStateWords says it).
 func coordWaitWords(v TaskView) string {
@@ -63,24 +50,6 @@ func coordWaitWords(v TaskView) string {
 		return "its turn ended — its answer is ready (task_result); a message from you starts its next turn"
 	}
 	return ""
-}
-
-// parkCoordWords is a person's park in the coordinator's words, after
-// verb ("waiting for", "waits for").
-func parkCoordWords(pk runPark, verb string) string {
-	age := coordAsked(pk.Since)
-	switch pk.Kind {
-	case needApproval:
-		return verb + " a person to approve: " + coordQuote(pk.Text) + age
-	case needLogin:
-		return verb + " a person to sign in to its coding agent" + age
-	case "project":
-		return "its workspace " + verb + " a person: " + coordQuote(pk.Text) + age
-	}
-	if pk.Text == "" {
-		return verb + " a person to answer its question" + age
-	}
-	return verb + " a person to answer: " + coordQuote(pk.Text) + age
 }
 
 // coordHeldWords is task_message's answer for a message held behind a

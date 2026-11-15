@@ -63,6 +63,10 @@ type SealedCode struct {
 	// beside its default: slot → refs. A slot binds to nothing else,
 	// whoever asks (BindingAllowed).
 	Providers map[string][]string
+	// Env is fixed environment for its backend (KEY=VALUE), set before
+	// xbind's own variables. FrameReads are the exact GET paths under
+	// /api/xbin/ its page's credential may read beside a viewer's own.
+	Env, FrameReads []string
 	// Grants are the grants the table gives it, read as rows of the grant
 	// table (Workspace) that no workspace file holds.
 	Grants []Use
@@ -85,7 +89,7 @@ func (r *Registry) addSealed(comps map[string]*Component, scopes map[string]*Sco
 		if !util.SealedPath(sc.Path) {
 			continue // the table is checked where it is loaded; never register outside the namespace
 		}
-		c := &Component{Path: sc.Path, Dir: sc.Dir, Sealed: true, SealedID: sc.ID}
+		c := &Component{Path: sc.Path, Dir: sc.Dir, Sealed: true, SealedID: sc.ID, SealedEnv: sc.Env, SealedReads: sc.FrameReads}
 		if sc.Manifest != nil {
 			c.readManifest(sc.Manifest)
 		}

@@ -11,11 +11,10 @@
 // test/terminal.mjs) check the drawing. Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
+import { installHooks } from './xbn/hooks.mjs';
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
-const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
-registerHooks({ resolve: (spec, ctx, next) => (spec === '/vendor/bx-kit.js' ? { url: KIT, shortCircuit: true } : next(spec, ctx)) });
+installHooks(); // /vendor/<name> as xbind serves it: the kit the template's modules import (web/<name>)
 
 const S = await import(new URL('model/sandboxes.js', TPL).href);
 const T = await import(new URL('model/tool-heads.js', TPL).href);

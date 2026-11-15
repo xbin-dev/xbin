@@ -78,7 +78,7 @@ func handleGetHarness(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if agent.eng != nil {
+	if agent.eng != nil && workspaceAgent(r) == "" { // the page and code are the person's, never their agent's (wsagent.go)
 		if d := agent.eng.deviceFor(pathID(r), sbxUserOf(callerOf(r))); d != nil {
 			sum = withDevice(sum, d)
 		}

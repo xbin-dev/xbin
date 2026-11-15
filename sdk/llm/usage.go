@@ -48,17 +48,26 @@ func (u Usage) Add(v Usage) Usage {
 	return u
 }
 
+// InputDetails is the part of a usage block that breaks the input down
+// (prompt_tokens_details on the chat wire, input_tokens_details on the
+// Responses wire).
+type InputDetails struct {
+	CachedTokens int64 `json:"cached_tokens"`
+}
+
+// OutputDetails breaks the output down (completion_tokens_details,
+// output_tokens_details).
+type OutputDetails struct {
+	ReasoningTokens int64 `json:"reasoning_tokens"`
+}
+
 // ChatUsage is a Chat Completions usage block.
 type ChatUsage struct {
-	PromptTokens        int64 `json:"prompt_tokens"`
-	CompletionTokens    int64 `json:"completion_tokens"`
-	TotalTokens         int64 `json:"total_tokens"`
-	PromptTokensDetails *struct {
-		CachedTokens int64 `json:"cached_tokens"`
-	} `json:"prompt_tokens_details,omitempty"`
-	CompletionTokensDetails *struct {
-		ReasoningTokens int64 `json:"reasoning_tokens"`
-	} `json:"completion_tokens_details,omitempty"`
+	PromptTokens            int64          `json:"prompt_tokens"`
+	CompletionTokens        int64          `json:"completion_tokens"`
+	TotalTokens             int64          `json:"total_tokens"`
+	PromptTokensDetails     *InputDetails  `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *OutputDetails `json:"completion_tokens_details,omitempty"`
 	// PromptCacheHitTokens is DeepSeek's name for the cached part.
 	PromptCacheHitTokens int64 `json:"prompt_cache_hit_tokens,omitempty"`
 	// Cost is OpenRouter's (USD), when usage accounting is on.
@@ -82,15 +91,11 @@ func (u ChatUsage) Usage() Usage {
 
 // ResponsesUsage is a Responses API usage block.
 type ResponsesUsage struct {
-	InputTokens        int64 `json:"input_tokens"`
-	OutputTokens       int64 `json:"output_tokens"`
-	TotalTokens        int64 `json:"total_tokens"`
-	InputTokensDetails *struct {
-		CachedTokens int64 `json:"cached_tokens"`
-	} `json:"input_tokens_details,omitempty"`
-	OutputTokensDetails *struct {
-		ReasoningTokens int64 `json:"reasoning_tokens"`
-	} `json:"output_tokens_details,omitempty"`
+	InputTokens         int64          `json:"input_tokens"`
+	OutputTokens        int64          `json:"output_tokens"`
+	TotalTokens         int64          `json:"total_tokens"`
+	InputTokensDetails  *InputDetails  `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails *OutputDetails `json:"output_tokens_details,omitempty"`
 }
 
 // Usage is u in the shared shape.

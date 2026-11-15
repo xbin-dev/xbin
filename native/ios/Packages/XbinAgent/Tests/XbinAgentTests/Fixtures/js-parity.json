@@ -466,6 +466,29 @@
    "planText": "",
    "output": "",
    "raw": "fallback"
+  },
+  {
+   "events": [
+    {
+     "kind": "execute",
+     "title": "make build",
+     "status": "in_progress",
+     "outputDelta": "compiling\n"
+    },
+    {
+     "output": "$ make build\ncompiling\n",
+     "outputDelta": "done\n"
+    },
+    {
+     "outputDelta": "!"
+    }
+   ],
+   "headline": "make build",
+   "command": "make build",
+   "plan": false,
+   "planText": "",
+   "output": "$ make build\ncompiling\ndone\n!",
+   "raw": ""
   }
  ],
  "rawTexts": [
@@ -1873,11 +1896,11 @@
   },
   {
    "in": "\u001b[1;2:3mx",
-   "out": "\u001b[1;2:3mx"
+   "out": "x"
   },
   {
    "in": "a\u001b(Bb",
-   "out": "a\u001b(Bb"
+   "out": "ab"
   },
   {
    "in": "\u001b[?25lhidden\u001b[?25h",
@@ -1889,7 +1912,7 @@
   },
   {
    "in": "\u001b]8;;http://x\u001b\\link\u001b]8;;\u001b\\",
-   "out": ""
+   "out": "link"
   }
  ],
  "slash": {

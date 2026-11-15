@@ -41,6 +41,9 @@ type Options struct {
 	// serves its embedded web and docs and never compiles a sealed
 	// component (D227). With Auth.
 	Production bool
+	// TryAddrs are tried, in order, before a free port is picked: for the
+	// harness's own test of a taken port. Nothing else sets it.
+	TryAddrs []string
 	// Cgroup is a cgroup directory the daemon starts in (clone3's
 	// CLONE_INTO_CGROUP), every boot: a delegated cgroup of its own, where
 	// xbind makes its tiles' leaves ("" = the test's own; test/limits).
@@ -65,6 +68,7 @@ type Daemon struct {
 	log   *os.File
 	seen  map[int]string // every pid seen in its process tree, with its command line
 	boots int
+	lease *os.File // the port's reservation among harnesses (reserveAddr), held while the daemon lives
 }
 
 // Start boots an isolated xbind (--dev --no-auth --isolate) and waits for it
@@ -85,17 +89,78 @@ func Start(t testing.TB, a *Assets, o Options) *Daemon {
 		d.WS = o.WS
 	}
 	if d.Addr = o.Addr; d.Addr == "" {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		d.Addr = ln.Addr().String()
-		ln.Close()
+		d.pickAddr(t)
 	}
 	d.URL = "http://" + d.Addr
 	t.Cleanup(func() { d.cleanup(t) })
 	d.start(t)
 	return d
+}
+
+// A port for a daemon is picked before xbind binds it, and xbind takes
+// seconds to get there (it initializes the workspace first). In that window
+// the kernel may hand the same port to anyone — in practice to another
+// daemon of this harness, in a parallel test or a parallel `go test`: two
+// xbinds then want one port, one fails to bind, and the loser's test used
+// to carry on talking to the winner (its /healthz answered). Three things
+// close that, none of them a retry of the test:
+//
+//   - harnesses don't pick the same port: a port is reserved among them by
+//     a lock file held while the daemon lives (reserveAddr);
+//   - a boot is ready only when OUR xbind says it listens (its start-up
+//     line, after its bind) and is still running — never because something
+//     answered on the port;
+//   - a first boot that loses its port to a process outside the harness
+//     picks another and boots again; a restart, which keeps its address,
+//     waits for it.
+
+// portLocks is where harnesses reserve ports among themselves: one lock
+// file per port, flock'ed. Not under TMPDIR, which tests set per test.
+func portLocks() string { return fmt.Sprintf("/tmp/xbindtest-ports-%d", os.Getuid()) }
+
+// reserveAddr picks a free port on 127.0.0.1 that no other daemon of this
+// harness — in this process or another — holds or is about to bind.
+func reserveAddr() (string, *os.File, error) {
+	if err := os.MkdirAll(portLocks(), 0o700); err != nil {
+		return "", nil, err
+	}
+	for range 100 {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return "", nil, err
+		}
+		addr := ln.Addr().String()
+		_, port, _ := net.SplitHostPort(addr)
+		f, err := os.OpenFile(filepath.Join(portLocks(), port+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+		if err == nil && syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+			ln.Close()
+			return addr, f, nil
+		}
+		if f != nil {
+			f.Close()
+		}
+		ln.Close() // another harness holds it: its daemon is booting or running
+	}
+	return "", nil, errors.New("xbindtest: no free port that another harness doesn't hold")
+}
+
+// pickAddr gives the daemon an address of the harness's choosing.
+func (d *Daemon) pickAddr(t testing.TB) {
+	t.Helper()
+	if d.lease != nil {
+		d.lease.Close()
+		d.lease = nil
+	}
+	if len(d.o.TryAddrs) > 0 {
+		d.Addr, d.o.TryAddrs = d.o.TryAddrs[0], d.o.TryAddrs[1:]
+	} else {
+		addr, lease, err := reserveAddr()
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.Addr, d.lease = addr, lease
+	}
+	d.URL = "http://" + d.Addr
 }
 
 // Rootfs is the rootfs the daemon runs over.
@@ -117,8 +182,53 @@ func (d *Daemon) start(t testing.TB) {
 		}
 		d.log = f
 	}
+	first := d.boots == 0 // a first boot may move to another port; a restart keeps its address
+	ready := d.o.Ready
+	if ready == 0 {
+		ready = 60 * time.Second
+	}
+	for attempt := 1; ; attempt++ {
+		mark := d.spawn(t)
+		why := d.await(mark, ready)
+		if why == "" {
+			if d.o.Auth {
+				b, err := os.ReadFile(filepath.Join(d.WS, ".xbin", "token"))
+				if err != nil {
+					t.Fatalf("the owner token: %v", err)
+				}
+				d.token = strings.TrimSpace(string(b))
+			}
+			return
+		}
+		// our xbind didn't come up. Its port taken by someone else is the
+		// one failure the harness answers itself (the comment above)
+		if !strings.Contains(logSince(d.log, mark), "address already in use") || attempt >= 6 {
+			t.Fatalf("%s:\n%s", why, logTail(d.log, 60)) // d.mu is held: never LogTail
+		}
+		switch {
+		case first && d.o.Addr == "":
+			was := d.Addr
+			d.pickAddr(t)
+			t.Logf("xbindtest: %s was taken before xbind bound it: booting on %s", was, d.Addr)
+		default:
+			t.Logf("xbindtest: %s is taken: waiting for it (attempt %d)", d.Addr, attempt)
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+// listenLines are what xbind prints once it has bound its listener (boot's
+// serve): the proof that the daemon answering on the port is ours.
+var listenLines = []string{"xbin (no auth):", "xbin login URL:"}
+
+// spawn starts xbind and returns where this boot's log begins.
+func (d *Daemon) spawn(t testing.TB) (mark int64) {
+	t.Helper()
 	d.boots++
 	fmt.Fprintf(d.log, "\n===== xbindtest: boot %d =====\n", d.boots)
+	if fi, err := os.Stat(d.log.Name()); err == nil {
+		mark = fi.Size()
+	}
 	args := []string{"--isolate", "--rootfs", d.Rootfs(), "--workspace", d.WS, "--listen", d.Addr}
 	if !d.o.Production {
 		args = append([]string{"--dev"}, args...)
@@ -153,35 +263,51 @@ func (d *Daemon) start(t testing.TB) {
 	}
 	d.cmd, d.done = cmd, make(chan struct{})
 	go func(done chan struct{}) { _ = cmd.Wait(); close(done) }(d.done)
-	ready := d.o.Ready
-	if ready == 0 {
-		ready = 60 * time.Second
-	}
+	return mark
+}
+
+// await waits until the xbind spawn started is up: it is still running, it
+// has said it listens, and it answers /healthz. "" when it is; otherwise
+// why not (it exited, or didn't come up within ready). The order matters:
+// an answer on the port proves nothing while our xbind hasn't bound it.
+func (d *Daemon) await(mark int64, ready time.Duration) string {
 	deadline := time.Now().Add(ready)
 	for {
-		if r, err := http.Get(d.URL + "/healthz"); err == nil {
-			r.Body.Close()
-			if r.StatusCode == 200 {
-				if d.o.Auth {
-					b, err := os.ReadFile(filepath.Join(d.WS, ".xbin", "token"))
-					if err != nil {
-						t.Fatalf("the owner token: %v", err)
-					}
-					d.token = strings.TrimSpace(string(b))
-				}
-				return
-			}
-		}
 		select {
 		case <-d.done:
-			t.Fatalf("xbind exited while booting:\n%s", logTail(d.log, 60)) // d.mu is held: never LogTail
+			return "xbind exited while booting"
 		default:
 		}
+		if log := logSince(d.log, mark); strings.Contains(log, listenLines[0]) || strings.Contains(log, listenLines[1]) {
+			if r, err := http.Get(d.URL + "/healthz"); err == nil {
+				r.Body.Close()
+				if r.StatusCode == 200 {
+					select {
+					case <-d.done: // it answered and died, or never was ours
+						return "xbind exited while booting"
+					default:
+						return ""
+					}
+				}
+			}
+		}
 		if time.Now().After(deadline) {
-			t.Fatalf("xbind didn't answer /healthz within %s:\n%s", ready, logTail(d.log, 60))
+			return fmt.Sprintf("xbind didn't answer /healthz within %s", ready)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// logSince is the log from offset mark on.
+func logSince(f *os.File, mark int64) string {
+	if f == nil {
+		return ""
+	}
+	b, _ := os.ReadFile(f.Name())
+	if mark > int64(len(b)) {
+		return ""
+	}
+	return string(b[mark:])
 }
 
 func orNone(p string) string {
@@ -402,6 +528,9 @@ func (d *Daemon) cleanup(t testing.TB) {
 	}
 	if d.log != nil {
 		d.log.Close()
+	}
+	if d.lease != nil { // the port is anyone's again
+		d.lease.Close()
 	}
 	if d.own {
 		RemoveTree(filepath.Dir(d.WS))

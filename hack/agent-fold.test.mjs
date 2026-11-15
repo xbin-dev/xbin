@@ -8,8 +8,11 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { Fold, cached } from '../web/agent-fold.js';
 import { newTool, foldTool } from '../web/agent-tools.js';
+import { changeSet } from '../web/chat/tools.js';
 
-// bx-agent's _blocks() before D124, verbatim but for `this._events`
+// bx-agent's _blocks() before D124, verbatim but for `this._events` — and what
+// the fold keeps since for the chat kit (D224): a call's change set on its
+// record too, a question's mode and url
 function refFold(events) {
   const blocks = [];
   const tools = new Map();
@@ -54,7 +57,7 @@ function refFold(events) {
       }
       case 'files.changed': {
         const f = { changes: d.changes || [], patch: d.patch || null };
-        if (d.toolCallId) { const t = tools.get(turn + '/' + d.toolCallId) || byId.get(d.toolCallId); if (t) t.files = f; break; }
+        if (d.toolCallId) { const t = tools.get(turn + '/' + d.toolCallId) || byId.get(d.toolCallId); if (t) { t.files = f; t.rec.changed = changeSet(d); } break; }
         const blk = { kind: 'changes', turn: d.turn, ...f };
         const at = blocks.findLastIndex((b) => b.kind === 'turn' && b.turn === d.turn);
         if (at >= 0) blocks.splice(at, 0, blk); else blocks.push(blk);
@@ -68,17 +71,23 @@ function refFold(events) {
       case 'permission.request': {
         cur = null;
         const p = { kind: 'perm', pid: d.pid, tool: d.toolCall || {}, options: d.options || [], rule: d.rule || null, meta: d.meta || null, by: null, optionId: null };
+        const asked = p.tool.id ? byId.get(p.tool.id) : null; // (D224: the request names its call's label, the call says it waits)
+        if (asked) { p.label = asked.label || ''; asked.perm = d.pid; }
         perms.set(d.pid, p); blocks.push(p);
         break;
       }
       case 'elicitation.request': {
         cur = null;
-        const q = { kind: 'ask', eid: d.eid, toolCallId: d.toolCallId || '', message: d.message || '', schema: d.schema || null, action: null, by: null, content: null };
+        const q = { kind: 'ask', eid: d.eid, toolCallId: d.toolCallId || '', message: d.message || '', mode: d.mode === 'url' ? 'url' : 'form', url: d.url || '', schema: d.schema || null, action: null, by: null, content: null };
         asks.set(d.eid, q); blocks.push(q);
         break;
       }
       case 'elicitation.resolved': { const q = asks.get(d.eid); if (q) { q.action = d.action; q.by = d.by; q.content = d.content || null; } break; }
-      case 'permission.resolved': { const p = perms.get(d.pid); if (p) { p.by = d.by; p.optionId = d.optionId; } break; }
+      case 'permission.resolved': {
+        const p = perms.get(d.pid);
+        if (p) { p.by = d.by; p.optionId = d.optionId; const asked = p.tool.id ? byId.get(p.tool.id) : null; if (asked && asked.perm === d.pid) asked.perm = ''; }
+        break;
+      }
       case 'turn.end':
         if (cur && cur.kind === 'thought') cur.done = true;
         cur = null; plan = null;

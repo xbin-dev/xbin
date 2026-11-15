@@ -10,6 +10,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -271,8 +272,39 @@ func SealedViewer(p auth.Principal) bool {
 	return p.Via == "frame" && util.SealedPath(p.Component)
 }
 
-// sealedViewerAllowed reports whether a sealed component's viewer may send r.
-func sealedViewerAllowed(r *http.Request, p auth.Principal) bool {
+// sealedViewerAllowed reports whether a sealed component's viewer may send
+// r. Beside the short list every sealed page has, two extensions, both the
+// release's and neither a way to write as the component:
+//
+//   - a component that holds delegation (auth.HoldsDelegation, the table's
+//     Capabilities.Delegate): the delegation API, /api/xbin/delegate/… —
+//     its page is where the person approves what their agent asks, and
+//     those handlers take the page only as that person's own, signed-in
+//     frame (delegateActorOf);
+//   - the table's FrameReads for the component: exact paths under
+//     /api/xbin/, and only for GET or HEAD — an entry can't allow anything
+//     that writes, whatever it names.
+func (s *Server) sealedViewerAllowed(r *http.Request, p auth.Principal) bool {
+	if sealedViewerBase(r, p) {
+		return true
+	}
+	path := r.URL.Path
+	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") || strings.Contains(path, "//") {
+		return false
+	}
+	if auth.HoldsDelegation(p.Component) && strings.HasPrefix(path, "/api/xbin/delegate/") {
+		return true
+	}
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.Reg != nil {
+		if c, ok := s.Reg.Component(p.Component); ok && c.Sealed && slices.Contains(c.SealedReads, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// sealedViewerBase is what every sealed component's viewer may send.
+func sealedViewerBase(r *http.Request, p auth.Principal) bool {
 	path := r.URL.Path
 	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") || strings.Contains(path, "//") {
 		return false // only a path that reads one way

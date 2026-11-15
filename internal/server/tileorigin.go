@@ -266,7 +266,7 @@ func (s *Server) serveTileOriginAuthed(w http.ResponseWriter, r *http.Request, i
 		refuseSealedViewAs(w, r)
 		return
 	}
-	if SealedViewer(pr) && !sealedViewerAllowed(r, pr) { // a sealed component's own origin: the same viewer (sealed.go)
+	if SealedViewer(pr) && !s.sealedViewerAllowed(r, pr) { // a sealed component's own origin: the same viewer (sealed.go)
 		refuseSealedViewer(w, r, pr)
 		return
 	}

@@ -6,8 +6,9 @@
 // that gives the stubbed responses the text() the kit reads — the stubs speak
 // json() and may be swapped mid-test, so the shim sits on the property.
 import { readFileSync, existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
+import * as nodeModule from 'node:module';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [process.env.BX_KIT, join(here, '..', '..', '..', 'web', 'bx-kit.js')].filter(Boolean);
@@ -29,6 +30,28 @@ export const CHAT_DIR = [process.env.BX_CHAT, join(dirname(KIT_PATH), 'chat')].f
 if (!CHAT_DIR) {
   console.log('SKIP: /vendor/chat/ not found beside the kit (set BX_CHAT=<xbin checkout>/web/chat)');
   process.exit(0);
+}
+
+// The same files for a test that loads a model in node (the words, without
+// a page): the models import xbind's kit by its served URL
+// (model/harness-heads.js: /vendor/chat/tools.js), so /vendor/<name>
+// resolves to what the page is served — the chat kit's directory, else the
+// file beside the kit, else under its vendor/. A static import is resolved
+// before this module runs: load a model after it, dynamically —
+//   const { needOf } = await import('../model/project-pins.js');
+if (typeof nodeModule.registerHooks === 'function') {
+  const web = dirname(KIT_PATH);
+  nodeModule.registerHooks({
+    resolve(spec, context, next) {
+      if (typeof spec === 'string' && spec.startsWith('/vendor/')) {
+        const name = spec.slice('/vendor/'.length).split(/[?#]/)[0];
+        const hit = [name.startsWith('chat/') ? join(CHAT_DIR, name.slice('chat/'.length)) : '', join(web, name), join(web, 'vendor', name)]
+          .find((f) => f && !name.includes('..') && existsSync(f));
+        if (hit) return { url: pathToFileURL(hit).href, format: 'module', shortCircuit: true };
+      }
+      return next(spec, context);
+    },
+  });
 }
 
 // marked as most tests stub it — markdown passes through as written, and a

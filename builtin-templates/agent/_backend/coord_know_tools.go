@@ -1,8 +1,10 @@
-// project_wiki_tools.go — the wiki's tools (API.md §Project wiki):
+// coord_know_tools.go — the knowledge store's tools (API.md §Project wiki):
 // wiki_search, wiki_read, wiki_list, wiki_history (reading) and
-// wiki_write, wiki_edit, wiki_archive (writing; project_wiki.go has the
-// compare-and-swap). Who has them, decided on every call from the run as
-// it is stored, never from arguments:
+// wiki_write, wiki_edit, wiki_archive (writing; coord_know.go has the
+// compare-and-swap). Who has them, and on which store, is decided on every
+// call from the run as it is stored, never from arguments — by the
+// Knowledge hook of the coordinator profile whose origin the run has
+// (coord_profile.go). For Projects (project_wiki_role.go):
 //
 //   - a project's coordinator (depth 0) and its research subagents
 //     (Config.CodeRead, projects_coord_research.go): read and write;
@@ -95,67 +97,27 @@ func wikiToolSpecs(write bool) []toolSpec {
 	)
 }
 
-// wikiRole is what run may do with the wiki: its project, who it writes
-// as, and whether it may write now. ok false: no wiki tools at all.
+// wikiRole is what run may do with a knowledge store: which one (its
+// store id: a project's id for a project's wiki, DB.knowID's for any other
+// owner), who it writes as, and whether it may write now.
 type wikiRole struct {
-	p     *Project
+	store int64
 	actor wikiActor
 	write bool
 	why   string // a write refused: why
 }
 
-// wikiRoleOf resolves run's role in a project's wiki, from the database
-// (the coordinator through coordinatorOf, a research subagent through its
-// root coordinator, a task through its row).
+// wikiRoleOf resolves run's role in a knowledge store, from the database:
+// the Knowledge hook of the coordinator profile whose origin run has
+// (coord_profile.go) — for Projects, projWikiRole. errNoWiki: it has none.
 func (ag *Agent) wikiRoleOf(run *Run, cfg Config) (*wikiRole, error) {
-	d := ag.db
-	if run == nil || hostedID(run.ID) || !d.features {
+	if run == nil || hostedID(run.ID) || !ag.db.features {
 		return nil, errNoWiki
 	}
-	if cfg.CodeRead != nil { // a research subagent: its root must still be the project's coordinator
-		root, err := d.getRun(rootOf(run))
-		if err != nil || run.ParentID == 0 {
-			return nil, errNoWiki
+	if p := coordProfiles.byOrigin[run.Origin]; p != nil && p.Knowledge != nil {
+		if r, err := p.Knowledge(ag, run, cfg); r != nil || err != nil {
+			return r, err
 		}
-		rcfg, err := d.runConfig(root.ID)
-		if err != nil {
-			return nil, errNoWiki
-		}
-		p, err := ag.coordinatorOf(d, root, rcfg)
-		if err != nil {
-			return nil, err
-		}
-		if p.ID != cfg.CodeRead.Project {
-			return nil, errNoWiki
-		}
-		return &wikiRole{p: p, write: true, actor: wikiActor{By: researchBy(run, root.Owner), Run: run.ID, At: headsAt(cfg.CodeRead.Heads)}}, nil
-	}
-	if run.Depth != 0 || run.ParentID != 0 || run.Origin != originProject {
-		return nil, errNoWiki
-	}
-	ref := d.projectRefOf(run)
-	switch {
-	case ref.isCoordinator():
-		p, err := ag.coordinatorOf(d, run, cfg)
-		if err != nil {
-			return nil, err
-		}
-		return &wikiRole{p: p, write: true, actor: wikiActor{By: "coordinator (" + run.Owner + ")", Run: run.ID}}, nil
-	case ref.isTask():
-		if run.Engine == engineHarness {
-			return nil, errNoWiki // its files (project_wiki_sync.go)
-		}
-		p, k := d.projectOfRun(run)
-		if p == nil {
-			return nil, errNoWiki
-		}
-		r := &wikiRole{p: p, actor: wikiActor{By: fmt.Sprintf("task #%d", k.N), Run: run.ID, Task: k.N, At: d.taskAt(k)}}
-		if d.dreamOf(k.ID).Active { // its dream round's turn (project_dream.go)
-			r.write, r.actor.By = true, fmt.Sprintf("task #%d (dream)", k.N)
-		} else {
-			r.why = "a task writes the wiki only in its dream round, at the end of its work — note what you learn, and keep working"
-		}
-		return r, nil
 	}
 	return nil, errNoWiki
 }
@@ -169,7 +131,7 @@ func wikiToolsFor(cfg Config, run *Run) []toolSpec {
 	if ag == nil || run == nil || cfg.CodeRead != nil { // a research subagent's list is its own (codeReadToolSpecs)
 		return nil
 	}
-	if run.Depth != 0 || run.ParentID != 0 || run.Origin != originProject {
+	if run.Depth != 0 || run.ParentID != 0 || coordProfiles.byOrigin[run.Origin] == nil {
 		return nil
 	}
 	r, err := ag.wikiRoleOf(run, cfg)
@@ -192,9 +154,9 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 		return "", err
 	}
 	if wikiWrites[name] && !r.write {
-		return "", errors.New(orStr(r.why, "you can't change this project's wiki"))
+		return "", errors.New(orStr(r.why, "you can't change "+ag.db.knowName(r.store)))
 	}
-	d, pid := ag.db, r.p.ID
+	d, pid := ag.db, r.store
 	slugArg := func() (string, error) { return wikiSlug(str(args["slug"])) }
 	switch name {
 	case "wiki_search":
@@ -347,43 +309,6 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 	return "", fmt.Errorf("unknown tool %q", name)
 }
 
-// researchBy names a research subagent as an author: its number, what it
-// was asked (the call's label, its run's title), its coordinator's person.
-func researchBy(run *Run, owner string) string {
-	label := strings.TrimSpace(strings.TrimPrefix(run.Title, "research:"))
-	label = strings.ReplaceAll(oneLineTitle(label), `"`, "'")
-	if label == "" {
-		return fmt.Sprintf("research #%d (%s's coordinator)", run.ID, owner)
-	}
-	return fmt.Sprintf("research #%d \"%s\" (%s's coordinator)", run.ID, clip(label, 40), owner)
-}
-
-// headsAt is a research binding's heads ("acme/web 1234567") as a
-// revision's at: "web@1234567, api@89abcde".
-func headsAt(heads []string) string {
-	var out []string
-	for _, h := range heads {
-		repo, sha, ok := strings.Cut(strings.TrimSpace(h), " ")
-		if !ok || sha == "" || sha == "-" {
-			continue
-		}
-		out = append(out, repo[strings.LastIndexByte(repo, '/')+1:]+"@"+sha7(sha))
-	}
-	return strings.Join(out, ", ")
-}
-
-// taskAt is task k's checkouts' heads as last pushed (the refs check keeps
-// them): what its dream round's facts were read at, when it is known.
-func (d *DB) taskAt(k *ProjectTask) string {
-	var out []string
-	for _, c := range d.checkouts(k.ID) {
-		if c.RemoteSHA != "" && c.State != "removed" {
-			out = append(out, c.Repo+"@"+sha7(c.RemoteSHA))
-		}
-	}
-	return strings.Join(out, ", ")
-}
-
 // wikiWhen is ms as an absolute time and how long ago: "2026-11-09 10:41
 // UTC (3h ago)" — an age alone means nothing in a page read later.
 func wikiWhen(ms int64) string {
@@ -413,10 +338,8 @@ func wikiAge(ms int64) string {
 // wikiTurnEnd (turnEndHooks): a coordinator's turn ended — its prompt takes
 // the index as it is at its next turn.
 func wikiTurnEnd(t *DB, run *Run, why, outcome, result string) {
-	if run.ParentID != 0 || run.Origin != originProject || !t.features {
+	if !t.features || coordProfileOf(t, run) == nil {
 		return
 	}
-	if _, _, ok := coordOf(t, run); ok {
-		_, _ = t.q.Exec(`DELETE FROM wiki_snaps WHERE run_id=?`, run.ID)
-	}
+	_, _ = t.q.Exec(`DELETE FROM wiki_snaps WHERE run_id=?`, run.ID)
 }

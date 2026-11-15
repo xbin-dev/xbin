@@ -6,11 +6,11 @@ import (
 	"io"
 )
 
-// MaxSSELine is the longest stream line ReadSSE accepts: some providers
-// send a large tool call's arguments as one data line.
+// MaxSSELine is the longest stream line ReadSSE and ReadData accept: some
+// providers send a large tool call's arguments as one data line.
 const MaxSSELine = 8 << 20
 
-// ErrSSELineTooLong is ReadSSE's error for a line past MaxSSELine.
+// ErrSSELineTooLong is the readers' error for a line past MaxSSELine.
 var ErrSSELineTooLong = errors.New("llm: stream line too long")
 
 var (
@@ -25,12 +25,9 @@ var (
 // returns). The data slice is only valid during the call.
 func ReadSSE(r io.Reader, fn func(event string, data []byte) error) error {
 	var (
-		buf   []byte
-		name  string
-		data  []byte
-		has   bool
-		eof   bool
-		chunk = make([]byte, 32<<10)
+		name string
+		data []byte
+		has  bool
 	)
 	flush := func() (done bool, err error) {
 		if !has {
@@ -47,7 +44,7 @@ func ReadSSE(r io.Reader, fn func(event string, data []byte) error) error {
 		}
 		return false, fn(n, d)
 	}
-	line := func(l []byte) (done bool, err error) {
+	done, err := readLines(r, func(l []byte) (bool, error) {
 		l = bytes.TrimRight(l, "\r")
 		switch {
 		case len(l) == 0: // a blank line ends the event
@@ -62,7 +59,49 @@ func ReadSSE(r io.Reader, fn func(event string, data []byte) error) error {
 			name = string(bytes.TrimSpace(l[len(sseEvent):]))
 		}
 		return false, nil
+	})
+	if done || err != nil {
+		return err
 	}
+	_, err = flush()
+	return err
+}
+
+// ReadData reads a stream the way the two wires write one: a JSON value
+// per "data:" line. It calls fn with each line's payload until the
+// "[DONE]" payload, the end of the stream, or fn's error (which it
+// returns). Unlike ReadSSE it takes every data line by itself — it neither
+// waits for the blank line that ends an event nor joins an event's lines —
+// so it also reads a server that leaves the blank lines out; event names
+// are dropped (a Responses payload carries its own "type"). The data slice
+// is only valid during the call.
+func ReadData(r io.Reader, fn func(data []byte) error) error {
+	_, err := readLines(r, func(l []byte) (bool, error) {
+		d, ok := bytes.CutPrefix(bytes.TrimSpace(l), sseData)
+		if !ok {
+			return false, nil
+		}
+		d = bytes.TrimSpace(d)
+		if bytes.Equal(d, sseDone) {
+			return true, nil
+		}
+		if len(d) == 0 {
+			return false, nil
+		}
+		return false, fn(d)
+	})
+	return err
+}
+
+// readLines calls line with each line of r, its newline cut off (a last
+// line without one included), until line says done or fails, a read fails,
+// or a line passes MaxSSELine.
+func readLines(r io.Reader, line func(l []byte) (done bool, err error)) (done bool, err error) {
+	var (
+		buf   []byte
+		eof   bool
+		chunk = make([]byte, 32<<10)
+	)
 	for {
 		for {
 			i := bytes.IndexByte(buf, '\n')
@@ -72,27 +111,24 @@ func ReadSSE(r io.Reader, fn func(event string, data []byte) error) error {
 			done, err := line(buf[:i])
 			buf = buf[i+1:]
 			if done || err != nil {
-				return err
+				return done, err
 			}
 		}
 		if eof {
 			if len(buf) > 0 {
-				if done, err := line(buf); done || err != nil {
-					return err
-				}
+				return line(buf)
 			}
-			_, err := flush()
-			return err
+			return false, nil
 		}
 		if len(buf) > MaxSSELine {
-			return ErrSSELineTooLong
+			return false, ErrSSELineTooLong
 		}
 		n, err := r.Read(chunk)
 		buf = append(buf, chunk[:n]...)
 		if err == io.EOF {
 			eof = true
 		} else if err != nil {
-			return err
+			return false, err
 		}
 	}
 }

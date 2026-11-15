@@ -37,7 +37,15 @@ type Key struct {
 // "user:<id>") has no sandboxes: they are the global instance's alone
 // (plans/partitions PD-28; the API's partition gate refuses the routes
 // first), so it answers not-allowed — never the tile's key.
+//
+// A person's workspace agent (auth.Principal.Agent, a delegate: the
+// person's principal, not a tile's) drives no sandboxes: the delegation
+// cap refuses the routes first (internal/server/delegateclass.go), and it
+// answers not-allowed here too.
 func keyOf(p auth.Principal) (Key, error) {
+	if p.Agent != "" {
+		return Key{}, refuse(RefNotAllowed, "a person's workspace agent drives no tile sandboxes")
+	}
 	if p.Partition.IsUser() {
 		return Key{}, refuse(RefNotAllowed, "a person's partition (%s) has no tile sandboxes: they are the global instance's", p.Partition)
 	}

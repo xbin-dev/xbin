@@ -1,0 +1,354 @@
+# What a path under xbin/ gets on each /api/xbin route (internal/server/sealedclass.go).
+# route<TAB>class[<TAB>where the route names a tile]. Regenerate:
+# UPDATE_SEALED_CLASSES=1 go test ./internal/apicheck -run TestSealedRouteClassesGolden
+/sandboxes/{name}/ports/{port}/{path...}	no-tile
+DELETE /access-requests	handled
+DELETE /agent/history/{id}	no-tile
+DELETE /backup-schedule	handled
+DELETE /bindings	refused	body.provider body.providers
+DELETE /blob/{rest...}	self	path
+DELETE /bus/subscriptions/{name}	self	?component
+DELETE /cron/jobs/{name}	self	?component
+DELETE /delegate/approvals/{id}	no-tile
+DELETE /delegate/changesets/{id}	no-tile
+DELETE /delegate/requests/{id}	no-tile
+DELETE /devices/push/{deviceId}	no-tile
+DELETE /devices/push/{deviceId}/activities/{session}	no-tile
+DELETE /devices/{id}	no-tile
+DELETE /grants	refused	body.from body.target
+DELETE /kv/{rest...}	self	path
+DELETE /limits	handled
+DELETE /llm/upstreams/{name}	no-tile
+DELETE /net-sets/{name}	no-tile
+DELETE /orgs/{org}	no-tile
+DELETE /orgs/{org}/members/{user}	no-tile
+DELETE /partitions/binds	handled
+DELETE /partitions/consents	refused	?from ?to body.from body.to
+DELETE /partitions/share-log	handled
+DELETE /permission-sets/{name}	no-tile
+DELETE /prefs/{key}	no-tile
+DELETE /push/config	no-tile
+DELETE /push/devices/{user}	no-tile
+DELETE /push/devices/{user}/{deviceId}	no-tile
+DELETE /sandboxes/{name}	refused	?tile
+DELETE /sandboxes/{name}/execs/{id}	no-tile
+DELETE /sandboxes/{name}/snapshots/{sid}	no-tile
+DELETE /screens/org	no-tile
+DELETE /term/sessions/{id}	no-tile
+DELETE /term/sessions/{id}/queue	no-tile
+DELETE /term/sessions/{id}/queue/{qid}	no-tile
+DELETE /users/{id}	no-tile
+DELETE /users/{id}/sessions	no-tile
+DELETE /vault/{rest...}	self	path
+GET /access	handled
+GET /access-matrix	handled
+GET /access-requests	no-tile
+GET /access/{user}	no-tile
+GET /agent-levels	handled
+GET /agent/history	handled
+GET /agent/history/{id}/events	no-tile
+GET /agent/prefs	no-tile
+GET /agent/providers	no-tile
+GET /agents/connection	no-tile
+GET /agents/policy	no-tile
+GET /alerts	no-tile
+GET /app-tunnel	no-tile
+GET /app-tunnel/client	no-tile
+GET /auth-overview	handled
+GET /auth-settings	no-tile
+GET /backends	handled
+GET /backup-keys	no-tile
+GET /backup-schedule	no-tile
+GET /backups	handled
+GET /bindings	no-tile
+GET /blob/{rest...}	self	path
+GET /branding	no-tile
+GET /builtins	no-tile
+GET /builtins/updates	no-tile
+GET /bus/subscriptions	handled
+GET /checkpoints/{rest...}	refused	path
+GET /chrome	no-tile
+GET /code/file	refused	?component
+GET /code/pr	refused	?target
+GET /code/pr/series	refused	?target
+GET /code/prs	refused	?target ?from
+GET /code/prs/summary	no-tile
+GET /code/tree	refused	?component
+GET /components	handled
+GET /components/{path...}	handled
+GET /cron/jobs	handled
+GET /defaults	no-tile
+GET /delegate/approvals	no-tile
+GET /delegate/audit	no-tile
+GET /delegate/changesets	no-tile
+GET /delegate/changesets/{id}	no-tile
+GET /delegate/requests	no-tile
+GET /delegate/requests/{id}	no-tile
+GET /delegate/state	no-tile
+GET /delegate/workspace	no-tile
+GET /deployments	refused	?tile body.tile
+GET /deployments/backups	refused	?tile body.tile
+GET /deployments/diff	refused	?tile body.tile
+GET /deployments/log	refused	?tile body.tile
+GET /devices	no-tile
+GET /devices/limits	no-tile
+GET /devices/pairing/{id}	no-tile
+GET /devices/push	no-tile
+GET /frame-token	handled
+GET /git/activity	refused	?component
+GET /git/diff	refused	?component
+GET /git/log	refused	?component
+GET /git/remote-info	no-tile
+GET /go-build-versions	no-tile
+GET /gpus	no-tile
+GET /grants	handled
+GET /ingress	no-tile
+GET /ingress-routes	no-tile
+GET /kv/{rest...}	self	path
+GET /limits	handled
+GET /llm	no-tile
+GET /llm/config	no-tile
+GET /llm/preferred	no-tile
+GET /llm/quotas	no-tile
+GET /llm/usage	handled
+GET /llm/v1/models	no-tile
+GET /login/methods	no-tile
+GET /logs	handled
+GET /native-runtime	no-tile
+GET /net-sets	no-tile
+GET /openapi.json	no-tile
+GET /orgs	no-tile
+GET /orgs/{org}/policy	no-tile
+GET /owner	handled
+GET /owner/preview	refused	?tile
+GET /partitions	handled
+GET /partitions/backups	handled
+GET /partitions/binds	handled
+GET /partitions/consents	no-tile
+GET /partitions/edges	no-tile
+GET /partitions/ledger	handled
+GET /partitions/mail	no-tile
+GET /permission-sets	no-tile
+GET /policy	no-tile
+GET /prefs	no-tile
+GET /prefs/{key}	no-tile
+GET /push/config	no-tile
+GET /push/devices	no-tile
+GET /push/prefs	no-tile
+GET /resources	handled
+GET /runtime	handled
+GET /sandboxes	handled
+GET /sandboxes/policy	no-tile
+GET /sandboxes/runtime	no-tile
+GET /sandboxes/{name}	no-tile
+GET /sandboxes/{name}/execs	no-tile
+GET /sandboxes/{name}/execs/{id}	no-tile
+GET /sandboxes/{name}/execs/{id}/output	no-tile
+GET /sandboxes/{name}/execs/{id}/stdio	no-tile
+GET /sandboxes/{name}/execs/{id}/tty	no-tile
+GET /sandboxes/{name}/files/content	no-tile
+GET /sandboxes/{name}/files/list	no-tile
+GET /sandboxes/{name}/files/stat	no-tile
+GET /sandboxes/{name}/snapshots	no-tile
+GET /sandboxes/{name}/tar	no-tile
+GET /sandboxes/{name}/tty	no-tile
+GET /screens	no-tile
+GET /sealed	handled
+GET /sessions	no-tile
+GET /status	no-tile
+GET /templates	no-tile
+GET /templates/updates	no-tile
+GET /templates/{repo}/{rest...}	no-tile
+GET /term-net	refused	?tile
+GET /term/sessions	handled
+GET /term/sessions/{id}	no-tile
+GET /term/sessions/{id}/diff	no-tile
+GET /term/sessions/{id}/events	no-tile
+GET /term/sessions/{id}/log	no-tile
+GET /tile-assets	handled
+GET /tile-report	no-tile
+GET /tile-status	handled
+GET /users	no-tile
+GET /users-directory	no-tile
+GET /users/{id}/devices	no-tile
+GET /vault-status	no-tile
+GET /vault/{rest...}	self	path
+GET /vaults	handled
+GET /vm	no-tile
+GET /whoami	no-tile
+GET /workspace-policies	no-tile
+GET /workspace-settings	no-tile
+PATCH /auth-settings	no-tile
+PATCH /orgs/{org}	handled
+PATCH /sandboxes/{name}	no-tile
+PATCH /term/sessions/{id}	no-tile
+PATCH /users/{id}	handled
+POST /access-requests	handled
+POST /access-requests/approve	handled
+POST /account/password	no-tile
+POST /app-tunnel/relay-tokens	no-tile
+POST /app-tunnel/test	no-tile
+POST /auth-rotate-token	no-tile
+POST /auth-settings/sso/test	no-tile
+POST /backup	handled
+POST /backup-keys/export	no-tile
+POST /backup-keys/import	no-tile
+POST /backup-schedule	handled
+POST /backup/erase	handled
+POST /bindings	refused	body.provider body.providers
+POST /builtins/import	refused	body.path
+POST /builtins/update	refused	body.id
+POST /bus/publish	self	body.resource
+POST /clone	refused	body.from body.to
+POST /code/pr/comment	refused	body.target body.from
+POST /code/pr/state	refused	body.target body.from
+POST /code/prs	refused	body.target body.from
+POST /create	refused	body.path
+POST /delegate/approvals	refused	body.tile
+POST /delegate/changesets	no-tile
+POST /delegate/changesets/{id}/approve	no-tile
+POST /delegate/changesets/{id}/reject	no-tile
+POST /delegate/changesets/{id}/undo	no-tile
+POST /delegate/requests	no-tile
+POST /delegate/requests/{id}/approve	no-tile
+POST /delegate/requests/{id}/deny	no-tile
+POST /deployments/add	refused	?tile body.tile
+POST /deployments/always-on	refused	?tile body.tile
+POST /deployments/backup	refused	?tile body.tile
+POST /deployments/backup-schedule	refused	?tile body.tile
+POST /deployments/branch	refused	?tile body.tile
+POST /deployments/deliveries	refused	?tile body.tile
+POST /deployments/deploy	refused	?tile body.tile
+POST /deployments/edge	refused	?tile body.tile
+POST /deployments/limits	refused	?tile body.tile
+POST /deployments/live-reload/attach	refused	?tile body.tile
+POST /deployments/live-reload/now	refused	?tile body.tile
+POST /deployments/live-reload/pause	refused	?tile body.tile
+POST /deployments/live-reload/resume	refused	?tile body.tile
+POST /deployments/primary	refused	?tile body.tile
+POST /deployments/promote	refused	?tile body.tile
+POST /deployments/protect	refused	?tile body.tile
+POST /deployments/purge	refused	?tile body.tile
+POST /deployments/remove	refused	?tile body.tile
+POST /deployments/reset	refused	?tile body.tile
+POST /deployments/restore	refused	?tile body.tile
+POST /deployments/rollback	refused	?tile body.tile
+POST /deployments/run-now	refused	?tile body.tile
+POST /deployments/seed	refused	?tile body.tile
+POST /deployments/vault-copy	refused	?tile body.tile
+POST /devices/enroll	no-tile
+POST /devices/enroll-code	no-tile
+POST /devices/pairing/{id}/confirm	no-tile
+POST /devices/push	no-tile
+POST /devices/push/activities	no-tile
+POST /devices/{id}/tunnel	no-tile
+POST /git/import	refused	body.path
+POST /go-build-versions/check	no-tile
+POST /go-build-versions/dismiss	refused	body.tile
+POST /grants	refused	body.from body.target
+POST /impersonate	no-tile
+POST /impersonate/stop	no-tile
+POST /invite/check	no-tile
+POST /invite/redeem	no-tile
+POST /lifecycle	handled
+POST /limits	handled
+POST /limits/dismiss	no-tile
+POST /llm/setup/dismiss	no-tile
+POST /llm/upstreams/{name}/test	no-tile
+POST /llm/v1/chat/completions	no-tile
+POST /llm/v1/responses	no-tile
+POST /login	no-tile
+POST /notify	no-tile
+POST /orgs	handled
+POST /owner	refused	body.tile
+POST /partitions/binds	handled
+POST /partitions/consents	refused	?from ?to body.from body.to
+POST /partitions/credential-confirm	no-tile
+POST /partitions/limits	handled
+POST /partitions/mail	no-tile
+POST /partitions/mail/ack	no-tile
+POST /partitions/mode	refused	body.tile
+POST /partitions/purge	handled
+POST /partitions/reset	handled
+POST /partitions/restore	handled
+POST /partitions/reviewed	refused	body.tile
+POST /partitions/share-log	handled
+POST /partitions/stop	handled
+POST /path-tickets	no-tile
+POST /push/test	no-tile
+POST /restore	handled
+POST /sandboxes	refused	body.tile
+POST /sandboxes/copy	no-tile
+POST /sandboxes/{name}/execs	no-tile
+POST /sandboxes/{name}/execs/{id}/resize	no-tile
+POST /sandboxes/{name}/execs/{id}/signal	no-tile
+POST /sandboxes/{name}/execs/{id}/stdin	no-tile
+POST /sandboxes/{name}/files/mkdir	no-tile
+POST /sandboxes/{name}/files/move	no-tile
+POST /sandboxes/{name}/files/remove	no-tile
+POST /sandboxes/{name}/rebase	no-tile
+POST /sandboxes/{name}/reset	no-tile
+POST /sandboxes/{name}/run	no-tile
+POST /sandboxes/{name}/snapshots	no-tile
+POST /sandboxes/{name}/snapshots/{sid}/restore	no-tile
+POST /sandboxes/{name}/start	no-tile
+POST /sandboxes/{name}/stop	refused	?tile
+POST /templates/new	refused	body.path body.source
+POST /term/sessions	refused	body.cwd
+POST /term/sessions/{id}/cancel	no-tile
+POST /term/sessions/{id}/elicitations/{eid}	no-tile
+POST /term/sessions/{id}/options	no-tile
+POST /term/sessions/{id}/permissions/{pid}	no-tile
+POST /term/sessions/{id}/prompt	no-tile
+POST /term/sessions/{id}/queue	no-tile
+POST /term/sessions/{id}/restart	no-tile
+POST /tile-report	self	?component body.component
+POST /users	handled
+POST /users/{id}/invite	no-tile
+POST /vault-rekey	no-tile
+POST /vault-seal	no-tile
+POST /vault-unseal	no-tile
+POST /web-ticket	no-tile
+PUT /access	handled
+PUT /agent-levels	refused	body.tile
+PUT /agent/prefs	no-tile
+PUT /agents/policy	no-tile
+PUT /app-tunnel	no-tile
+PUT /blob/{rest...}	self	path
+PUT /branding	no-tile
+PUT /bus/subscriptions	self	body.component body.resource
+PUT /chrome	refused	body.path
+PUT /cron/jobs	self	body.component body.resource
+PUT /defaults	handled
+PUT /delegate/state	no-tile
+PUT /delegate/workspace	no-tile
+PUT /devices/limits	no-tile
+PUT /iface-instances	refused	body.component
+PUT /ingress-hosts	refused	body.component
+PUT /kv/{rest...}	self	path
+PUT /llm/config	no-tile
+PUT /llm/quotas	no-tile
+PUT /llm/upstreams/{name}	no-tile
+PUT /native-runtime	no-tile
+PUT /net-sets/{name}	no-tile
+PUT /orgs/{org}/agents	no-tile
+PUT /orgs/{org}/agents/pin	no-tile
+PUT /orgs/{org}/limits	no-tile
+PUT /orgs/{org}/members/{user}	no-tile
+PUT /orgs/{org}/policy	no-tile
+PUT /orgs/{org}/sso-groups	no-tile
+PUT /permission-sets/{name}	handled
+PUT /policy	no-tile
+PUT /prefs/{key}	no-tile
+PUT /push/config	no-tile
+PUT /push/prefs	no-tile
+PUT /sandboxes/policy	no-tile
+PUT /sandboxes/{name}/files/content	no-tile
+PUT /sandboxes/{name}/tar	no-tile
+PUT /screens/default	handled
+PUT /screens/folders	handled
+PUT /screens/org	handled
+PUT /vault/{rest...}	self	path
+PUT /vm/policy	no-tile
+PUT /workspace-policies	no-tile
+PUT /workspace-settings	no-tile

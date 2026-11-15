@@ -9,6 +9,12 @@
   // bytes in/out per IP since the last restart. A worked example of a
   // programmable net provider — the dataplane is the point, the UI validates it.
   "runtime": "go",
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — approving a destination is a person's answer: an
+  // agent that could give it would open its own way out.
+  "agent": "off",
+
   // This tile's OWN egress — the owner binds what provides internet to it
   // (usually the `internet` builtin): `bx bind apps/egress-approver net=internet`.
   // Client traffic it approves is forwarded out this egress.

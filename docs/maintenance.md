@@ -16,6 +16,7 @@ hack/dev-setup.sh       # once per machine (and after an upgrade): what the chec
 make check              # the guards (make guards: fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files website-guard), then test
 make integration-deps   # once, and after a pull: the helpers (prebuilt), Firecracker, xbind/bx/xbin-vmagent, .rootfs if missing
 make integration        # when the runner / sandbox / broker path changed
+make agent-ui-check     # when the agent template's page, or what it loads from web/, changed (Playwright)
 make hooks              # once per clone: the sub-second subset runs pre-commit
 ```
 
@@ -79,7 +80,10 @@ machine's cargo), and CI runs it as a job of its own; `make website-check` runs 
 guard and then every page of xbin.dev in Chromium (`hack/website-check.mjs`,
 Playwright from `PLAYWRIGHT_DIR`; six widths in light, dark and reduced motion:
 console errors, requests that leave the local server, horizontal overflow, layout
-shift, focus rings, missing images; `website/README.md` → "Checks").
+shift, focus rings, missing images; `website/README.md` → "Checks"); `make
+agent-ui-check` runs the agent template's browser scripts (Playwright from
+`PLAYWRIGHT_DIR` too; "Builtin tiles and templates" below), and CI runs it as
+a job of its own.
 
 ### Integration shards
 
@@ -564,6 +568,41 @@ stay byte for byte what it was.
   excluded); a changed hash with an unchanged version is a red line. After
   the bump, `UPDATE_TILE_VERSIONS=1 go test ./internal/builtins -run
   TestTileVersions` moves the baseline.
+- `make agent-ui-check` (`hack/agent-ui-check.mjs`; CI's `agent-ui` job)
+  runs the agent template's browser scripts —
+  `builtin-templates/agent/test/*.mjs`: the template's real page in Chromium
+  against the stubbed backend of `test/backend.mjs`, with `/vendor/` served
+  from this checkout's `web/` — every one, 8 at a time (at most the cores),
+  each in its own node and browser: about 40 scripts in 20 s. Run it when
+  the template's page changed, or anything of `web/` it loads (the kit, the
+  chat kit, `bx-terminal`, the native reference renderer): nothing else
+  drives those together. A script passes only when it exits 0, prints no
+  `SKIP` line and ends with `all … checks passed`; a script still running
+  after `AGENT_UI_TIMEOUT` (180 s) is stopped and fails. The scripts
+  `import('playwright')` as they do inside a workspace, where the rootfs has
+  it; `hack/playwright-dir.mjs` (a module hook the runner preloads) answers
+  that import from `PLAYWRIGHT_DIR`, and without Playwright, or its
+  Chromium, the target stops with what to install instead of skipping —
+  run by hand the scripts skipped quietly, which is how four of them went
+  stale unseen. `make agent-ui-check AGENT_UI="attach ci"` runs those;
+  `AGENT_UI_JOBS=1` one at a time. It is not in `make check`: that stays
+  browser-free. Rules for a script, each one a failure this target has
+  already had:
+  - It is every `.mjs` in `test/` that `NOT_SCRIPTS`
+    (`hack/agent-ui-check.mjs`) doesn't name: a new helper gets a line
+    there with what it is, or the target fails on it (no verdict line);
+    `hack/agent-ui-check.test.mjs` (`make js-test`) holds the list against
+    the directory and the runner against a fake template.
+  - Its last line is `all <what> checks passed` (`checker().done`), and it
+    exits non-zero otherwise.
+  - Wait for a condition, never read once or sleep. The page's load isn't
+    the app's — `boot.js` imports `agent.js` after asking which xbind this
+    is (D224) — so wait for something the app drew, or a request it made,
+    before the first click; and what follows an element leaving the page
+    (a terminal's socket closing) comes a task later.
+  - Serve what the page imports by following its imports
+    (`fake-tty.mjs` `serveTerminal`), not from a list of today's modules;
+    read a limit from the page's own module, not a copy of its number.
 - The pure cores have tests that run under `make tile-check`: traefik's
   static/dynamic config renderers are pinned verbatim, the egress approver's
   packet decoding likewise.
@@ -727,8 +766,19 @@ route gate).
 `hasIcon`) and `web/chat/md.js` the markdown renderer for untrusted text
 (`mdInto`, `mdCssText`, `closedFence`, `onHighlighter`, `useHighlighter`;
 D224 — the agent template's copy became a re-export, and a new copy would be
-a second sanitizing policy). `make js-check` refuses a second definition of
-any of them in the shipped trees — import from `/vendor/…` by absolute URL instead
+a second sanitizing policy), `web/chat/tools.js` the model of a tool call
+(`mergeTool`, `stripAnsi`, `outputTail`, `describeCommand`, `unifiedDiff`,
+`joinPatches`, `patchLines`, `diffFiles`, `diffTotals`, `contentPreview`,
+`diffsPreview`, `filesStat`, `rawText`) and `web/chat/ask.js` the model of
+what an agent asks (`formFields`, `formContent`, `missingRequired`,
+`nativeSchema`, `nativeContent`, `cleanCode`, `slashQuery`, `matchCommands`,
+`commandHint`, `optionConfirm`, `modeConfirm`, `composerWords`,
+`steerTracker`; D224 — the Agent tab and the agent template each had these
+and they had drifted: two escape rules, a form reader that labelled a plain
+enum's choices "false"). `make js-check` refuses a second definition of
+any of them in the shipped trees — a module that must keep an old name
+re-exports it (`export { stripAnsi } from '/vendor/chat/tools.js'`, which
+the check does not match); import from `/vendor/…` by absolute URL instead
 ([frontend-kit.md](/docs/frontend-kit.md) lists what tiles may import and
 why bare specifiers are banned).
 
@@ -813,7 +863,7 @@ held to one set of fixtures, `sdk/acp/testdata/transcripts/`:
 |---|---|---|
 | `<name>.json` — an event log, xbind's served shape, with checkpoints | `sdk/acp/acptest` `TestTranscripts`: the scripted agent through `acp.Client` (`xbind-shell.json`: the native capture's events) | the same test (`go test ./sdk/...`) fails when the client no longer emits it |
 | `<name>.agtt.json` — the agent template's run view at each checkpoint | the template backend's `TestChatTranscripts` (the log through `harness_map.go`) | the same test (`make tile-check`) |
-| `<name>.records.json`, `<name>.blocks.json` — the log's tool records and its blocks | `hack/chat-fixtures/expect.mjs` | `hack/chat-fixtures.test.mjs` (the Agent tab's fold) and `hack/chat-fixtures-agtt.test.mjs` (the template's), both in `make js-test` |
+| `<name>.records.json`, `<name>.blocks.json` — the log's tool records and its blocks | `hack/chat-fixtures/expect.mjs` — the records are what `web/chat/tools.js` (`records()`, the kit's merge rules) makes of the log | `hack/chat-fixtures.test.mjs` (the Agent tab's fold) and `hack/chat-fixtures-agtt.test.mjs` (the template's, and that the kit says each call the same from either side's record), both in `make js-test` |
 
 A reducer that cannot produce a field yet has a **gap** in
 `hack/chat-fixtures/expect.mjs` (`GAPS`: an id, the reason, what makes the
@@ -824,6 +874,17 @@ header of `hack/chat-fixtures.test.mjs` has the commands): the logs
 (`ACP_TRANSCRIPTS_WRITE=1`), the template's views
 (`CHAT_TRANSCRIPTS_WRITE=1`), the expectations (`CHAT_FIXTURES_WRITE=1`).
 The files are plain JSON so the Swift port and `sdk/acp` can read them.
+
+The kit's views (`web/chat/views.js`, `cards.js`, `asks.js`,
+`composer.js`, `css.js`) have a contract a host's own CSS and code rely on,
+held by `hack/chat-views.test.mjs` (`make js-test`): a view writes only
+`bxc-` classes and each has its rule in `css.js`; the stylesheet styles
+nothing outside that prefix and takes every colour from a theme token; a
+view imports by `/vendor/` URL only and never reaches into a host element
+or calls xbind's API. What they draw is driven by the UI harness:
+`agentTab` (the Agent tab, then the same functions in the shell's document
+with a plain `ChatCtx`, and on a page with no import map), `agentReview`,
+`agentLong`, `agentPolicy`.
 
 ## The native reference (`docs/native.md`)
 
@@ -853,6 +914,12 @@ VM health and the VM policy, `limits` for every tile's resource limits
 (D203: a thin wrapper around `<bx-limits-table>` from
 `/vendor/limits-table.js`, which the `/xbin/limits` page and the shell's ⚙
 share; an org's ceilings are `<bx-org-limits>` on its `orgs` page),
+`llm` for the LLM connector (D226: a thin wrapper around `<bx-llm-admin>`
+from `/vendor/llm-admin.js`, which the `/xbin/llm` page shares — its words
+in `/vendor/llm-kit.js`, every call in `/vendor/llm-client.js`; a person's
+quota is `<bx-llm-quota standalone>` in `users`, an org's on its `orgs`
+page, both asking `hasLLM()` first; the setup card is `alertBar`'s drawing
+of the `llm-setup` alert, in `shared.js`),
 `deployments` for every tile's deployment
 record and a tile manager's protect / reassign / deliveries / alwaysOn — its
 words and confirmations imported from `/vendor/deploy-state.js` and
@@ -1141,6 +1208,27 @@ list didn't predict. Without `bin/tunnelpair` or a sidecar the real halves
 `SKIP`, said so. `pairing` serves `web/devices.html` itself when xbind
 doesn't. `devices` gives the admin an own limit of 3 for its two classic
 devices (the workspace default is 1, D204) and clears it after.
+`llm` covers the LLM connector's UI (D226) end to end against the real API,
+with `hack/fakeopenai` as the one provider: `run.sh` starts the harness
+xbind with a deployment file (`XBIN_LLM_CONFIG=$HARNESS_DIR/llm-host.jsonc`,
+written empty — it sets and locks nothing — so no other pass is affected),
+and the pass writes a host's settings into it for its locks half (xbind
+reads a changed file again) and empties it after. The seed dismisses the
+setup card for the workspace, or it would sit on every admin page of every
+pass; `llm` re-arms it by removing `data/llm/setup.json` and dismisses it
+again — on a workspace whose connector was configured before (a `--shots`
+rerun) that half `SKIP`s, said so, as the card is then gone for good. It
+adds a provider through the form and checks the key is nowhere on the page
+afterwards (text, attributes, field values), runs Test, saves the default
+model, the people switch and three quotas, has dev1 call until an org's
+warning limit and then the default's stopping one are reached (limits are
+set relative to what was already counted today, so a rerun holds), reads
+the alerts, the usage tables and dev1's own page, and drives the admin
+console's tab and its users and organisations quota rows. Run it in both
+themes; it leaves the connector unconfigured. `oldScaffold` also checks
+that the last release's shell and admin console show the setup alert's
+words — `/xbin/llm` in them — with no tab and no card, and that the page
+works beside them.
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop

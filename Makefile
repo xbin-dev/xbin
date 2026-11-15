@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: guards sealed dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck app-check theme-check tile-check shellcheck pins pins-offline hooks release vulncheck sidecar-check xbin-iroh
+.PHONY: guards sealed dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check agent-ui-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck app-check theme-check tile-check shellcheck pins pins-offline hooks release vulncheck sidecar-check xbin-iroh
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -305,6 +305,15 @@ website-guard:
 # browser). WEBSITE_CHECK_FLAGS passes --dist, --page NAME or --shots DIR.
 website-check: website-guard
 	@PLAYWRIGHT_DIR="$(PLAYWRIGHT_DIR)" node hack/website-check.mjs $(WEBSITE_CHECK_FLAGS)
+
+# The agent template's browser scripts (builtin-templates/agent/test/*.mjs:
+# the real page in Chromium against a stubbed backend), every one, 8 at a
+# time (hack/agent-ui-check.mjs; Playwright from PLAYWRIGHT_DIR): a script
+# that fails, skips, ends without its verdict or runs past the timeout fails
+# the target. Not in make guards (it needs a browser); CI runs it as a job.
+# AGENT_UI="attach ci" runs those; AGENT_UI_JOBS, AGENT_UI_TIMEOUT (seconds).
+agent-ui-check:
+	@PLAYWRIGHT_DIR="$(PLAYWRIGHT_DIR)" node hack/agent-ui-check.mjs $(AGENT_UI)
 
 # Re-render the share card, website/og.png, from website/og.html (Playwright from
 # PLAYWRIGHT_DIR, over file://; website/README.md → "og.png").

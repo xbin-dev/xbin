@@ -5,15 +5,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/xbin-dev/xbin/sdk/llm"
 )
 
 func TestCostOf(t *testing.T) {
-	c := gwConfig{Pricing: map[string]price{"gpt-4o": {In: 2.5, Out: 10}}}
+	c := gwConfig{Pricing: llm.PriceTable{"gpt-4o": {In: 2.5, Out: 10}}}
 	// 1M in @ $2.5 + 0.5M out @ $10 = 2.5 + 5.0.
-	if got, want := costOf(c, "gpt-4o", 1_000_000, 500_000), 7.5; got != want {
+	if got, want := costOf(c, "gpt-4o", llm.Usage{InputTokens: 1_000_000, OutputTokens: 500_000}), 7.5; got != want {
 		t.Fatalf("cost: got %v want %v", got, want)
 	}
-	if costOf(c, "unpriced", 1000, 1000) != 0 {
+	if costOf(c, "unpriced", llm.Usage{InputTokens: 1000, OutputTokens: 1000}) != 0 {
 		t.Fatal("an unpriced model must cost 0, not error")
 	}
 }
@@ -60,8 +62,8 @@ func TestUsageOf(t *testing.T) {
 		{`{"data":[{"id":"gpt-5"}]}`, 0, 0},
 	}
 	for i, c := range cases {
-		if in, out := usageOf([]byte(c.body)); in != c.in || out != c.out {
-			t.Errorf("case %d: got %d/%d, want %d/%d", i, in, out, c.in, c.out)
+		if u, _ := llm.UsageFromTail([]byte(c.body)); u.InputTokens != c.in || u.OutputTokens != c.out {
+			t.Errorf("case %d: got %d/%d, want %d/%d", i, u.InputTokens, u.OutputTokens, c.in, c.out)
 		}
 	}
 }

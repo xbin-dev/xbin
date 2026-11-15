@@ -202,6 +202,23 @@ async function agentTab(browser) {
   check(/\[file screenshot\.png \d+B\]/.test(echoed) && /\[resource build\.log \d+B\]/.test(echoed), `the agent got the image inline and its file, and the log embedded (${echoed})`);
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-attachments');
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the attachments' });
+  // …and from the tab's own message box (the chat kit's composer, D224): a
+  // file staged there goes with the message — the session API took
+  // attachments all along, the tab never offered them
+  await fr(A.page, TILE, (f) => { const a = f.agent(); a.attach([{ name: 'notes.txt', text: 'remember the milk\n', mime: 'text/plain' }]); a.setDraft('and this one?'); });
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.staged || []).length === 1, null, { timeout: 5000, label: 'the file is staged in the message box' });
+  check(await A.page.locator(`bx-frame[src="${TILE}"] bx-agent .bxc-staged .bxc-qchip`).count() === 1 && await A.page.locator(`bx-frame[src="${TILE}"] bx-agent .bxc-compose .bxc-attach`).count() === 1,
+    'the message box has an attach button, and shows the staged file as a chip');
+  await fr(A.page, TILE, (f) => f.agent().sendBox());
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /\[resource notes\.txt \d+B\]/.test(b.text || '')), null, { timeout: 15000, label: 'the agent got the file staged in the message box' });
+  const fromBox = (await blocks(A.page)).filter((b) => b.kind === 'msg' && b.role === 'user' && b.files).pop();
+  const boxAfter = await fr(A.page, TILE, (f) => ({ staged: f.agent().staged.length, draft: f.agent().draft }));
+  check(fromBox?.text === 'and this one?' && fromBox.files.map((f) => f.name).join(' ') === 'notes.txt' && boxAfter.staged === 0 && boxAfter.draft === '',
+    `a message sent from the box carries its file; the box is empty again (${JSON.stringify(fromBox?.files)} ${JSON.stringify(boxAfter)})`);
+  await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the message with a file' });
+  // the usage badge (D224): the share of the context in use, where the tab said "42/1 000 tokens"
+  const usage = await fr(A.page, TILE, (f) => f.agent().usage);
+  check(usage && usage.text === 'ctx 4%' && usage.pct === 4 && /42 of 1 000 tokens of context/.test(usage.title), `the status line says how full the context is (${JSON.stringify(usage)})`);
 
   // ---- plan approval: a plan card, never a session rule ----
   const agentSel = `bx-frame[src="${TILE}"] bx-agent`;
@@ -212,18 +229,41 @@ async function agentTab(browser) {
   await fr(A.page, TILE, (f) => f.agent().send('plan one'));
   const plan1 = await pendingPlan('the plan approval is pending');
   check(plan1.scoped === false, `a plan approval is never scoped to a session rule (${JSON.stringify(plan1)})`);
-  const card = A.page.locator(`${agentSel} .plan-card`).last();
+  const card = A.page.locator(`${agentSel} .bxc-plan-card`).last();
   const cardText = await card.innerText();
-  check(await card.locator('.plan-md h1').count() === 1 && await card.locator('.plan-md strong').count() >= 1, 'the plan renders as markdown');
-  check(/Ready to code\?/.test(cardText) && !/"planFilePath"|"plan":/.test(cardText) && await card.locator('.rulenote').count() === 0,
+  check(await card.locator('.bxc-plan-md h1').count() === 1 && await card.locator('.bxc-plan-md strong').count() >= 1, 'the plan renders as markdown');
+  check(/Ready to code\?/.test(cardText) && !/"planFilePath"|"plan":/.test(cardText) && await card.locator('.bxc-rulenote').count() === 0,
     'the card is headed "Ready to code?" — no raw JSON, no "allow for the session" note');
-  check(await card.locator('button.allow').count() === 3 && await card.locator('button.allow.primary').count() === 1 && await card.locator('button.deny').count() === 1,
+  check(await card.locator('.bxc-btns button').count() === 3 && await card.locator('button.bxc-primary').count() === 1 && await card.locator('button.bxc-deny').count() === 1,
     'every option shows (three approvals, the first primary, one keep-planning)');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-plan');
-  await fr(A.page, TILE, (f, t, p) => f.agent().permit(p, null, 'auto'), plan1.pid);
-  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /plan approved: auto/.test(b.text || '')), null, { timeout: 15000, label: 'the plan was approved with "auto"' });
+  // an option that takes the agent past its own asks (`explicit`, D225) is
+  // drawn as a caution and confirmed before it is sent (D224): the window's
+  // own dialog — Cancel sends nothing, Allow it sends the option
+  const RAISE = 'exit-plan-clear-auto';
+  const optButtons = await fr(A.page, TILE, (f, t, p) => f.agent().optionButtons(p), plan1.pid);
+  check(plan1.explicit.includes(RAISE) && optButtons.find((o) => o.id === RAISE)?.explicit && optButtons.filter((o) => o.explicit).length === plan1.explicit.length,
+    `the option that raises the mode is marked (${JSON.stringify(plan1.explicit)}; ${JSON.stringify(optButtons)})`);
+  const dialog = A.page.locator(`bx-frame[src="${TILE}"] bx-dialog`);
+  const permPosts = []; // every answer this page sends (a refused confirmation must send none)
+  const onReq = (r) => { if (r.method() === 'POST' && /\/permissions\//.test(r.url())) permPosts.push(r.url()); };
+  A.page.on('request', onReq);
+  await fr(A.page, TILE, (f, t, p) => f.agent().choose(p.pid, p.opt), { pid: plan1.pid, opt: RAISE });
+  await dialog.waitFor({ timeout: 5000 });
+  check(await dialog.getByText(/Yes, clear context .* then stops asking before it edits files or runs commands/).count() === 1 && await dialog.getByText('Let the agent stop asking?').count() === 1,
+    'choosing it asks first, in the window\'s dialog: what the option is, and what the agent then does');
+  await dialog.locator('button', { hasText: 'Cancel' }).click();
+  await dialog.waitFor({ state: 'detached', timeout: 5000 });
+  await A.page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); // the click's own continuation has run
+  check(permPosts.length === 0 && (await fr(A.page, TILE, (f) => f.agent().pending)).some((p) => p.pid === plan1.pid), `Cancel sends nothing: the request still waits (${permPosts.length} answers sent)`);
+  await fr(A.page, TILE, (f, t, p) => f.agent().choose(p.pid, p.opt), { pid: plan1.pid, opt: RAISE });
+  await dialog.locator('button', { hasText: 'Allow it' }).click();
+  await waitFor(A.page, (t, pid) => !(t.frameFor('apps/crawler')?.testApi().agent()?.pending || []).some((p) => p.pid === pid), plan1.pid, { timeout: 15000, label: 'the confirmed option was sent' });
+  A.page.off('request', onReq);
+  check(permPosts.length === 1, `Allow it sends the option, once (${permPosts.length})`);
+  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /plan approved: exit-plan-clear-auto/.test(b.text || '')), null, { timeout: 15000, label: 'the plan was approved with the confirmed option' });
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the plan' });
-  // the same plan again: "Yes, and use auto mode" was allow_always — a mode,
+  // the same plan again: the option chosen was allow_always — a mode,
   // not "remember" — so it must be asked again, not approved unseen
   await fr(A.page, TILE, (f) => f.agent().send('plan two'));
   const plan2 = await pendingPlan('the second plan is asked again');
@@ -232,19 +272,19 @@ async function agentTab(browser) {
   // keep planning, with feedback: the reject ends the turn, then the feedback goes in
   await fr(A.page, TILE, (f, t, p) => f.agent().rejectPlan(p, 'reject', 'make it shorter'), plan2.pid);
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && b.role !== 'user' && /echo: make it shorter/.test(b.text || '')), null, { timeout: 20000, label: 'the plan feedback was sent as the next message' });
-  const kept = A.page.locator(`${agentSel} .plan-card.settled-card`).last();
+  const kept = A.page.locator(`${agentSel} .bxc-plan-card.bxc-settled`).last();
   check(/Kept planning/.test(await kept.innerText()), 'the rejected plan settles as "Kept planning"');
 
   // ---- thinking: open while it streams, then folded to its duration ----
   await fr(A.page, TILE, (f) => f.agent().send('think it over'));
-  const openThought = A.page.locator(`${agentSel} details.thought[open]`);
+  const openThought = A.page.locator(`${agentSel} details.bxc-thought[open]`);
   await openThought.first().waitFor({ timeout: 15000 });
   check(/Thinking…/.test(await openThought.first().locator('summary').innerText()), 'a streaming thought is open, marked "Thinking…"');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-thinking');
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /thought it through/.test(b.text || '')), null, { timeout: 15000, label: 'the thinking turn answered' });
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after thinking' });
   const th = (await blocks(A.page)).filter((b) => b.kind === 'thought').pop();
-  const lastThought = A.page.locator(`${agentSel} details.thought`).last();
+  const lastThought = A.page.locator(`${agentSel} details.bxc-thought`).last();
   const summary = await lastThought.locator('summary').innerText();
   check(th && th.done && th.ms >= 1000 && !(await lastThought.evaluate((el) => el.open)) && /Thought for \d+s/.test(summary),
     `the finished thought folds to its duration (${summary}, ${th && th.ms} ms)`);
@@ -256,13 +296,13 @@ async function agentTab(browser) {
   check(wrote.headline === 'Write made-by-agent.txt' && /hello-/.test(wrote.output) && wrote.exitCode === 0,
     `the shell call reads as what it does, with its output (${JSON.stringify({ h: wrote.headline, out: wrote.output, exit: wrote.exitCode })})`);
   check((wrote.files || []).includes('made-by-agent.txt'), `the call's snapshot diff names the file (${JSON.stringify(wrote.files)})`);
-  const wroteCard = A.page.locator(`${agentSel} details.tool.exec`).last();
+  const wroteCard = A.page.locator(`${agentSel} details.bxc-tool.bxc-exec`).last();
   await wroteCard.locator(':scope > summary').click();
-  await wroteCard.locator('details.files > summary').click();
+  await wroteCard.locator('details.bxc-files > summary').click();
   // a folded card's body renders once opened (D124), a file's diff once its row is (D210): wait for it
-  await wroteCard.locator('details.frow > summary').first().click();
-  await wroteCard.locator('pre.diff .d').first().waitFor({ timeout: 5000 }).catch(() => {});
-  check(await wroteCard.locator('pre.diff .d').count() >= 1, 'the card shows the file\'s diff (+ lines)');
+  await wroteCard.locator('details.bxc-frow > summary').first().click();
+  await wroteCard.locator('pre.bxc-diff .d').first().waitFor({ timeout: 5000 }).catch(() => {});
+  check(await wroteCard.locator('pre.bxc-diff .d').count() >= 1, 'the card shows the file\'s diff (+ lines)');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-shell-write');
 
   // ---- a subagent: what it does nests under its Task card ----
@@ -274,25 +314,25 @@ async function agentTab(browser) {
   check(kids.some((c) => c.kind === 'thought' && c.done) && kids.some((c) => c.kind === 'tool' && c.id === 'read1') && kids.some((c) => c.kind === 'msg' && /main starts/.test(c.text || '')),
     `the subagent's thought, call and text are its children (${JSON.stringify(kids)})`);
   check(!top.some((b) => b.kind === 'tool' && b.id === 'read1') && !top.some((b) => b.kind === 'msg' && /main starts/.test(b.text || '')), 'nothing of the subagent leaks to the top level');
-  const subCard = A.page.locator(`${agentSel} details.tool.sub`).last();
+  const subCard = A.page.locator(`${agentSel} details.bxc-tool.bxc-sub`).last();
   check(!(await subCard.evaluate((el) => el.open)), 'the finished subagent folds');
   await subCard.locator(':scope > summary').click();
-  await subCard.locator('.answer').waitFor({ timeout: 5000 }).catch(() => {});
-  check(await subCard.locator('.children details.tool').count() === 1 && /main\.go/.test(await subCard.locator('.answer').innerText()), 'opened: the nested call and the answer show');
+  await subCard.locator('.bxc-answer').waitFor({ timeout: 5000 }).catch(() => {});
+  check(await subCard.locator('.bxc-children details.bxc-tool').count() === 1 && /main\.go/.test(await subCard.locator('.bxc-answer').innerText()), 'opened: the nested call and the answer show');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-subagent');
 
   // ---- slash commands: "/" offers the agent's commands; Tab completes ----
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.commands || []).includes('review'), null, { timeout: 10000, label: "the agent's slash commands" });
-  const ta = A.page.locator(`${agentSel} .compose textarea`);
+  const ta = A.page.locator(`${agentSel} .bxc-compose textarea`);
   await ta.click();
   await A.page.keyboard.type('/re');
   await settle(A.page); // the tab renders once a frame (D124)
   const menu = await fr(A.page, TILE, (f) => f.agent().slashMenu);
-  check(menu[0] === 'review' && await A.page.locator(`${agentSel} .slash .sc`).count() === menu.length, `"/re" offers /review first (${JSON.stringify(menu)})`);
+  check(menu[0] === 'review' && await A.page.locator(`${agentSel} .bxc-slash .bxc-sc`).count() === menu.length, `"/re" offers /review first (${JSON.stringify(menu)})`);
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-slash');
   await A.page.keyboard.press('Tab');
   const drafted = await fr(A.page, TILE, (f) => f.agent().draft);
-  check(drafted === '/review ' && /what to focus on/.test(await A.page.locator(`${agentSel} .slash-hint`).innerText()), `Tab completes "/review " and shows its hint (${JSON.stringify(drafted)})`);
+  check(drafted === '/review ' && /what to focus on/.test(await A.page.locator(`${agentSel} .bxc-slash-hint`).innerText()), `Tab completes "/review " and shows its hint (${JSON.stringify(drafted)})`);
   await A.page.keyboard.type('tests');
   await A.page.keyboard.press('Enter');
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /echo: \/review tests/.test(b.text || '')), null, { timeout: 15000, label: 'the slash command went in as the prompt' });
@@ -305,18 +345,18 @@ async function agentTab(browser) {
   const qs = (await fr(A.page, TILE, (f) => f.agent().questions))[0];
   check(qs.fields.map((f) => `${f.key}:${f.kind}:${f.other}`).join(' ') === 'question_0:radio:question_0_custom question_1:check:question_1_custom',
     `the form reads single- and multi-select questions, each with its Other box (${JSON.stringify(qs.fields)})`);
-  const ask = A.page.locator(`${agentSel} .perm.ask`).last();
-  await ask.locator('label.opt', { hasText: 'SQLite' }).click();
-  await ask.locator('label.opt', { hasText: 'Metrics' }).click();
-  await ask.locator('.field').nth(1).locator('input.other').fill('Admin UI');
+  const ask = A.page.locator(`${agentSel} .bxc-perm.bxc-ask`).last();
+  await ask.locator('label.bxc-opt', { hasText: 'SQLite' }).click();
+  await ask.locator('label.bxc-opt', { hasText: 'Metrics' }).click();
+  await ask.locator('.bxc-field').nth(1).locator('input.bxc-other').fill('Admin UI');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-question');
-  await ask.locator('button.allow.primary').click();
+  await ask.locator('button.bxc-primary').click();
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'msg' && /^answers:/.test(b.text || '')), null, { timeout: 15000, label: 'the agent got the answers' });
   const got = (await blocks(A.page)).filter((b) => b.kind === 'msg' && /^answers:/.test(b.text || '')).pop().text;
   const sent = JSON.parse(got.replace(/^answers:\s*/, ''));
   check(sent.question_0 === 'SQLite' && JSON.stringify(sent.question_1) === '["Metrics"]' && sent.question_1_custom === 'Admin UI' && !('question_0_custom' in sent),
     `the agent got exactly the form's values (${got})`);
-  const settledAsk = A.page.locator(`${agentSel} .perm.ask.settled-card`).last();
+  const settledAsk = A.page.locator(`${agentSel} .bxc-perm.bxc-ask.bxc-settled`).last();
   check(/answered by/.test(await settledAsk.innerText()) && /SQLite/.test(await settledAsk.innerText()), 'the question settles showing the answers');
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the question' });
 
@@ -423,17 +463,21 @@ async function agentTab(browser) {
   // position: on the next listing tabsFrom re-sorts ended tabs after live
   // ones, so histIdx now points at the old (ended) agent.
   await waitFor(A.page, (t, a) => (t.frameFor('apps/crawler')?.testApi().tabs || []).some((tb) => tb.kind === 'agent' && !tb.history && !tb.ended && tb.id && !a.known.includes(tb.id)), { known: [idA, eagerId] }, { timeout: 15000, label: 'the resumed session is live' });
-  const resumedIdx = await fr(A.page, TILE, (f, t, a) => f.tabs.findIndex((tb) => tb.kind === 'agent' && !tb.history && !tb.ended && tb.id && !a.known.includes(tb.id)), { known: [idA, eagerId] });
-  const resumedId = await fr(A.page, TILE, (f, t, i) => f.agent(i).sessionId, resumedIdx);
+  // …and it is asked for by its id every time from here on: a tab's position
+  // is only good within one look at the tabs (a listing between two looks
+  // re-sorts them, and index i is then another tab — this pass once waited
+  // 15 s for "idle" on the ended tab that had moved into the resumed one's
+  // place, on a machine slow enough for a listing to land in between)
+  const resumedId = await fr(A.page, TILE, (f, t, a) => f.tabs.find((tb) => tb.kind === 'agent' && !tb.history && !tb.ended && tb.id && !a.known.includes(tb.id))?.id || null, { known: [idA, eagerId] });
   check(!!resumedId && resumedId !== eagerId, `resume replaced the read-only tab with a new live session (${resumedId})`);
   check((await fr(A.page, TILE, (f) => f.tabs)).every((tb) => !tb.history), 'the read-only tab was replaced, not duplicated');
-  await waitFor(A.page, (t, i) => t.frameFor('apps/crawler')?.testApi().agent(i)?.status === 'idle', resumedIdx, { timeout: 15000, label: 'the resumed session is idle' });
-  const resumedBlocks = await fr(A.page, TILE, (f, t, i) => f.agent(i).blocks, resumedIdx);
+  await waitFor(A.page, (t, id) => { const api = t.frameFor('apps/crawler')?.testApi(); return api?.agent(api.tabs.findIndex((tb) => tb.id === id))?.status === 'idle'; }, resumedId, { timeout: 15000, label: 'the resumed session is idle' });
+  const resumedBlocks = await fr(A.page, TILE, (f, t, id) => f.agent(f.tabs.findIndex((tb) => tb.id === id)).blocks, resumedId);
   check(resumedBlocks.some((b) => b.kind === 'msg' && b.role === 'user' && /resumed fake-1/.test(b.text)), `resume replayed the earlier turns into the live session (${resumedBlocks.length} blocks)`);
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-resumed');
 
   // ---- (l) a picker change restarts the agent and resumes the conversation ----
-  await fr(A.page, TILE, (f, t, i) => f.setActiveTab(i), resumedIdx);
+  await fr(A.page, TILE, (f, t, id) => f.setActiveTab(f.tabs.findIndex((tb) => tb.id === id)), resumedId);
   const netSel = A.page.locator(`bx-frame[src="${TILE}"] ${PICKERS} select.scope`).first();
   check((await netSel.locator('option').allTextContents()).some((o) => /offline/.test(o)), 'the agent tab offers the network scopes');
   await netSel.selectOption('none');
@@ -445,6 +489,209 @@ async function agentTab(browser) {
   check(restarted.blocks.some((b) => b.kind === 'msg' && b.role === 'user' && /resumed/.test(b.text || '')), 'the conversation resumed in the new session (the agent replayed it)');
   check((await fr(A.page, TILE, (f) => f.tabs)).filter((tb) => tb.kind === 'agent' && tb.ended && tb.id === resumedId).length === 0, 'no ghost tab for the old session');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-restarted');
+
+  // ---- (m) the chat kit's views in a DOCUMENT, with a plain ChatCtx (D224) ----
+  // What no agent sends this tab today (xbind does not advertise url
+  // questions; the scripted agent's form has no defaults), the kinds only
+  // another host emits (a draft, a sub-conversation, a host's own card), and
+  // the roles the tab does not have (a participant, a viewer) — drawn by the
+  // same functions the tab uses, in the shell's document: no shadow root, no
+  // <bx-agent>, the kit's one stylesheet in a <style>.
+  const kit = await A.page.evaluate(async () => {
+    const { blockView, usageView } = await import('/vendor/chat/views.js');
+    const { block, newToolRecord } = await import('/vendor/chat/blocks.js');
+    const { chatCssText } = await import('/vendor/chat/css.js');
+    const { render, html } = await import('/vendor/lit-all.min.js');
+    await import('/vendor/chat/composer.js');
+    const root = document.createElement('div');
+    root.id = 'kit-probe';
+    root.innerHTML = `<style>${chatCssText}</style>`;
+    document.body.append(root);
+    const log = [];
+    const open = new Set();
+    let confirmAnswer = false;
+    const mk = (more = {}) => ({
+      running: false, ended: false, agentName: 'Fable', role: 'owner',
+      isOpen: (b, slot, dflt) => !!dflt || open.has(b.k + ':' + slot), setOpen: (b, slot, o) => { if (o) open.add(b.k + ':' + slot); },
+      permit: async (b, ans) => { log.push(['permit', b.pid, ans]); return true; },
+      answer: async (b, ans) => { log.push(['answer', b.eid, ans]); return true; },
+      confirm: async (text) => { log.push(['confirm', text]); return confirmAnswer; },
+      host: (b) => (b.type === 'session' ? html`<b class="mine">session ${b.data.id}</b>` : null),
+      signin: () => html`<button class="mine">Sign in</button>`,
+      repaint: () => {}, ...more,
+    });
+    const draw = (b, ctx = mk()) => { const el = document.createElement('div'); root.append(el); render(blockView(b, ctx), el); return el; };
+    const tick = () => new Promise((r) => setTimeout(r, 30));
+    const out = {};
+    const ask = (more) => block('ask', 'q' + Math.random(), { eid: 'e-url', callId: '', message: 'Open the page', mode: 'form', schema: null, url: '', action: null, by: null, content: null, ...more });
+
+    // a question that is a page to open
+    const url = draw(ask({ mode: 'url', url: 'https://example.test/device' }));
+    const link = url.querySelector('a');
+    out.url = { href: link && link.getAttribute('href'), target: link && link.target, rel: link && link.rel, buttons: [...url.querySelectorAll('button')].map((x) => x.textContent.trim()), inputs: url.querySelectorAll('input').length };
+    url.querySelector('button').click();
+    await tick();
+    out.urlSent = log.splice(0);
+    const bad = draw(ask({ mode: 'url', url: 'javascript:alert(1)' }));
+    out.bad = { links: bad.querySelectorAll('a').length, text: bad.textContent.includes('javascript:alert(1)') };
+    out.settled = draw(ask({ mode: 'url', url: 'https://example.test/device', action: 'complete', by: 'agent' })).textContent.replace(/\s+/g, ' ').trim();
+    out.text = draw(ask({ mode: 'text', message: 'Which **branch**?' })).textContent.replace(/\s+/g, ' ').trim();
+
+    // a form: anyOf, enumNames, defaults, a required field
+    const formBlock = ask({ eid: 'e-form', message: 'Which?', schema: { type: 'object', required: ['name'], properties: {
+      db: { title: 'DB', anyOf: [{ const: 'pg', title: 'Postgres' }, { const: 'sqlite', title: 'SQLite' }], default: 'sqlite' },
+      region: { type: 'string', enum: ['eu', 'us'], enumNames: ['Europe', 'United States'] },
+      port: { type: 'integer', title: 'Port', default: 8080 }, name: { type: 'string', title: 'Name' } } } });
+    const form = draw(formBlock);
+    await form.querySelector('bx-chat-form').updateComplete;
+    out.form = { radios: [...form.querySelectorAll('input[type=radio]')].map((x) => x.checked), labels: [...form.querySelectorAll('.bxc-opt b')].map((x) => x.textContent), port: form.querySelector('input[type=number]').value };
+    form.querySelector('button.bxc-primary').click();
+    await tick();
+    out.form.missing = form.querySelector('.bxc-err')?.textContent || '';
+    out.form.sentEarly = log.splice(0).length;
+    const name = form.querySelector('[data-field="name"] input');
+    name.value = 'ledger'; name.dispatchEvent(new Event('input', { bubbles: true }));
+    form.querySelector('button.bxc-primary').click();
+    await tick();
+    out.form.answer = log.splice(0)[0];
+    const viewerForm = draw(formBlock, mk({ role: 'viewer' }));
+    await viewerForm.querySelector('bx-chat-form').updateComplete;
+    out.form.viewer = { buttons: viewerForm.querySelectorAll('button').length, note: /view only/.test(viewerForm.textContent), disabled: [...viewerForm.querySelectorAll('input')].every((x) => x.disabled) };
+
+    // a permission request with an option that stops the agent asking
+    const perm = () => block('perm', 'p' + Math.random(), { pid: 'p9', callId: 't1', tool: { title: 'rm -rf build', kind: 'execute', name: 'Bash', command: 'rm -rf build', rawInput: { command: 'rm -rf build' } },
+      options: [{ optionId: 'once', name: 'Allow', kind: 'allow_once' }, { optionId: 'bypass', name: 'Yes, and stop asking', kind: 'allow_always', explicit: true }, { optionId: 'no', name: 'Deny', kind: 'reject_once' }],
+      rule: null, description: '', defaultToNo: false, plan: null, by: null, optionId: null });
+    const owner = draw(perm());
+    const btn = (el, id) => el.querySelector(`button[data-option="${id}"]`);
+    out.perm = { owner: [...owner.querySelectorAll('button[data-option]')].map((x) => `${x.dataset.option}${x.classList.contains('bxc-explicit') ? '!' : ''}${x.classList.contains('bxc-primary') ? '*' : ''}`) };
+    confirmAnswer = false; btn(owner, 'bypass').click(); await tick();
+    out.perm.refused = log.splice(0);
+    confirmAnswer = true; btn(owner, 'bypass').click(); await tick();
+    out.perm.confirmed = log.splice(0);
+    btn(owner, 'once').click(); await tick();
+    out.perm.plain = log.splice(0);
+    const part = draw(perm(), mk({ role: 'participant' }));
+    out.perm.participant = { buttons: [...part.querySelectorAll('button[data-option]')].map((x) => x.dataset.option), note: part.querySelector('.bxc-note')?.textContent.replace(/\s+/g, ' ').trim() || '' };
+    const viewer = draw(perm(), mk({ role: 'viewer' }));
+    out.perm.viewer = { buttons: viewer.querySelectorAll('button[data-option]').length, note: /view only/.test(viewer.textContent) };
+
+    // the kinds only another host emits
+    const rec = { ...newToolRecord('sub1'), kind: 'read', title: 'Read a.go', status: 'completed', text: 'package a' };
+    const kinds = [
+      block('draft', 'd1', { text: 'Writing **now**' }),
+      block('agent', 'a1', { title: 'Bug hunt', ref: 7, state: 'approval', phase: 'reading', steps: 2, task: 'find the bug', answer: '', provider: 'Claude Code',
+        blocks: [block('assistant', 'a1m', { text: 'looking' }), block('tool', 'a1t', { rec, state: 'done', children: null })], tail: [perm()] }),
+      block('host', 'h1', { type: 'session', data: { id: 's-42' } }),
+      block('host', 'h2', { type: 'unknown', title: 'A card of a newer host' }),
+      block('signin', 'si', { provider: 'Codex', command: 'codex login' }),
+      block('notice', 'n1', { text: 'The session moved\nto a new base' }),
+      block('user', 'u1', { text: 'hi', sender: 'bob', files: [{ name: 'plan.md', path: 'notes/plan.md', sizeText: '2 KB' }] }),
+    ];
+    out.kinds = {};
+    for (const b of kinds) {
+      try { const el = draw(b, mk({ me: 'alice' })); out.kinds[b.k] = { cls: el.firstElementChild?.className || '', text: el.textContent.replace(/\s+/g, ' ').trim().slice(0, 160), mine: el.querySelectorAll('.mine').length }; } catch (e) { out.kinds[b.k] = { error: String(e.message || e) }; }
+    }
+    out.agentKids = root.querySelectorAll('.bxc-agent .bxc-children > *').length;
+
+    // the usage badge
+    const u = document.createElement('div'); root.append(u);
+    render(html`${usageView({ used: 52000, size: 200000, cost: { amount: 0.41, currency: 'USD' } })}${usageView({ used: 184000, size: 200000 })}${usageView({ used: 12400 })}`, u);
+    out.usage = [...u.querySelectorAll('.bxc-usage')].map((x) => `${x.textContent}|${x.className.replace('bxc-usage', '').trim()}|${x.title}`);
+
+    // the composer, on its own: files staged, a limit said, what Send hands the host
+    const c = document.createElement('bx-chat-composer');
+    c.attach = true; c.limits = { files: 2, bytes: 16, total: 24 };
+    root.append(c);
+    await c.updateComplete;
+    c.addFiles([new File(['hello'], 'a.txt', { type: 'text/plain' }), new File(['x'.repeat(40)], 'big.bin'), new File(['wor'], 'b.txt', { type: 'text/plain' }), new File(['z'], 'c.txt')]);
+    await c.updateComplete;
+    out.composer = { staged: c.files.map((f) => f.name), note: c.querySelector('.bxc-staged .bxc-err')?.textContent || '', chips: c.querySelectorAll('.bxc-staged .bxc-qchip').length, attachButton: !!c.querySelector('.bxc-attach') };
+    const sentP = new Promise((r) => c.addEventListener('bx-chat-send', (e) => r(e.detail), { once: true }));
+    c.draft = 'with files'; await c.updateComplete;
+    c.send();
+    const d = await sentP;
+    out.composer.sent = { text: d.text, files: d.files.map((f) => `${f.name}:${f.mime}:${f.size}:${atob(f.data)}`), interrupt: d.interrupt };
+    out.composer.keptUntilSent = c.files.length;
+    d.sent(); await c.updateComplete;
+    out.composer.afterSent = c.files.length;
+    out.styled = getComputedStyle(root.querySelector('.bxc-perm')).borderTopStyle; // the <style> in the document reaches the cards
+    root.remove();
+    return out;
+  });
+  check(kit.url.href === 'https://example.test/device' && kit.url.target === '_blank' && /noopener/.test(kit.url.rel) && kit.url.inputs === 0, `a url question is its link, opened in a new tab (${JSON.stringify(kit.url)})`);
+  check(kit.url.buttons.join('|') === 'Done|Skip' && JSON.stringify(kit.urlSent) === '[["answer","e-url",{"action":"accept","content":{}}]]', `…with Done (an accept without content) and Skip (${JSON.stringify(kit.urlSent)})`);
+  check(kit.bad.links === 0 && kit.bad.text, 'a url that is not http(s) is text, never a link');
+  check(/done by agent/.test(kit.settled), `a url question the agent completed says so (${kit.settled})`);
+  check(/Which branch\?/.test(kit.text) && /next message answers/.test(kit.text), `a question in words says the next message answers it (${kit.text})`);
+  check(JSON.stringify(kit.form.radios) === '[false,true,false,false]' && kit.form.port === '8080', `a form draws its schema's defaults chosen — an anyOf choice, a number (${JSON.stringify(kit.form.radios)} ${kit.form.port})`);
+  check(kit.form.labels.join('|') === 'Postgres|SQLite|Europe|United States', `anyOf titles and enumNames label the choices (${kit.form.labels})`);
+  check(/Answer Name first/.test(kit.form.missing) && kit.form.sentEarly === 0, `Submit without a required answer says which, and sends nothing (${kit.form.missing})`);
+  check(JSON.stringify(kit.form.answer) === '["answer","e-form",{"action":"accept","content":{"db":"sqlite","port":8080,"name":"ledger"}}]', `a form answers its defaults and what was typed (${JSON.stringify(kit.form.answer)})`);
+  check(kit.form.viewer.buttons === 0 && kit.form.viewer.note && kit.form.viewer.disabled, `a viewer sees the form without its buttons (${JSON.stringify(kit.form.viewer)})`);
+  check(kit.perm.owner.join(' ') === 'once* bypass! no', `an option that stops the agent asking is drawn as a caution, never the primary one (${kit.perm.owner})`);
+  check(kit.perm.refused.length === 1 && kit.perm.refused[0][0] === 'confirm' && /Yes, and stop asking: Fable then stops asking/.test(kit.perm.refused[0][1]), `choosing it asks first — refused, nothing is sent (${JSON.stringify(kit.perm.refused)})`);
+  check(kit.perm.confirmed.length === 2 && kit.perm.confirmed[1][0] === 'permit' && kit.perm.confirmed[1][2].optionId === 'bypass' && kit.perm.confirmed[1][2].verdict === 'allow', `confirmed, it is sent (${JSON.stringify(kit.perm.confirmed)})`);
+  check(kit.perm.plain.length === 1 && kit.perm.plain[0][0] === 'permit' && kit.perm.plain[0][2].optionId === 'once', 'an ordinary option is sent without a question');
+  check(kit.perm.participant.buttons.join(' ') === 'once no' && /One option that would stop Fable asking/.test(kit.perm.participant.note), `a participant is not offered it, and is told one is hidden (${JSON.stringify(kit.perm.participant)})`);
+  check(kit.perm.viewer.buttons === 0 && kit.perm.viewer.note, 'a viewer sees the request without its answers');
+  check(!Object.values(kit.kinds).some((k) => k.error), `every kind draws (${JSON.stringify(Object.fromEntries(Object.entries(kit.kinds).filter(([, v]) => v.error)))})`);
+  check(/bxc-draft/.test(kit.kinds.d1.cls) && /Writing now/.test(kit.kinds.d1.text), `a draft is a message being written (${JSON.stringify(kit.kinds.d1)})`);
+  check(/bxc-agent/.test(kit.kinds.a1.cls) && /Bug hunt/.test(kit.kinds.a1.text) && /needs approval/i.test(kit.kinds.a1.text) && kit.agentKids === 2, `a sub-conversation is a card with its blocks and what it waits on (${JSON.stringify(kit.kinds.a1)}, ${kit.agentKids} nested)`);
+  check(kit.kinds.h1.mine === 1 && /session s-42/.test(kit.kinds.h1.text) && /A card of a newer host/.test(kit.kinds.h2.text), `a host's own card is drawn by the host, its title when the host draws none (${JSON.stringify([kit.kinds.h1, kit.kinds.h2])})`);
+  check(/Not signed in to Codex/.test(kit.kinds.si.text) && kit.kinds.si.mine === 1, 'the sign-in card says so, and the host fills it');
+  check(/^bob/.test(kit.kinds.u1.text) && /plan\.md/.test(kit.kinds.u1.text), `another person's message carries their name (${kit.kinds.u1.text})`);
+  check(kit.usage.length === 3 && kit.usage[0] === 'ctx 26% · $0.41||52 000 of 200 000 tokens of context · $0.41' && /^ctx 92%\|bxc-bad\|/.test(kit.usage[1]) && /^12k tokens\|\|/.test(kit.usage[2]), `the usage badge: share of the context, cost, tint (${JSON.stringify(kit.usage)})`);
+  check(kit.composer.staged.join(' ') === 'a.txt b.txt' && kit.composer.chips === 2 && /big\.bin is 40 B/.test(kit.composer.note) && /c\.txt: at most 2 files/.test(kit.composer.note) && kit.composer.attachButton,
+    `the composer stages files and says what is past a limit (${JSON.stringify(kit.composer)})`);
+  check(kit.composer.sent.text === 'with files' && kit.composer.sent.files.join(' ') === 'a.txt:text/plain:5:hello b.txt:text/plain:3:wor' && kit.composer.keptUntilSent === 2 && kit.composer.afterSent === 0,
+    `Send hands the host the text and the files as base64, and keeps them until the host says they went (${JSON.stringify(kit.composer.sent)})`);
+  check(kit.styled === 'solid', 'the kit\'s stylesheet in a document styles the cards (no shadow root needed)');
+
+  // ---- (n) the highlighter is optional (D224): a page with no import map at all ----
+  // The sign-in page has none, so /vendor/bx-code.js (a lit element behind a
+  // bare `lit`) cannot load there — as on a tile page of a workspace whose
+  // import map lacks it. The kit's views still load (they import by URL
+  // only) and draw a diff plain, with the line classes the stylesheet styles.
+  const bare = await browser.newContext();
+  const barePage = await bare.newPage();
+  const bareErrors = [];
+  barePage.on('pageerror', (e) => bareErrors.push(e.message));
+  await barePage.goto(`${URL}/login`);
+  const plain = await barePage.evaluate(async () => {
+    const out = { importMap: !!document.querySelector('script[type=importmap]') };
+    out.code = await import('/vendor/bx-code.js').then(() => 'loaded', () => 'cannot load');
+    const { blockView } = await import('/vendor/chat/views.js');
+    const cards = await import('/vendor/chat/cards.js');
+    const { block, newToolRecord } = await import('/vendor/chat/blocks.js');
+    const { toolDiff } = await import('/vendor/chat/tools.js');
+    const { chatCssText } = await import('/vendor/chat/css.js');
+    const { render } = await import('/vendor/lit-all.min.js');
+    await import('/vendor/chat/composer.js');
+    await import('/vendor/chat/window.js');
+    const root = document.createElement('div');
+    root.innerHTML = `<style>${chatCssText}</style>`;
+    document.body.append(root);
+    let repaints = 0;
+    const ctx = { running: false, ended: false, agentName: 'Fable', isOpen: () => true, setOpen() {}, permit() {}, answer() {}, repaint: () => { repaints++; } };
+    const rec = { ...newToolRecord('e1'), kind: 'edit', title: 'Edit a.go', status: 'completed' };
+    rec.diffs = [toolDiff({ type: 'diff', path: 'a.go', oldText: 'package a\nvar x = 1\n', newText: 'package a\nvar x = 2\n' }, rec)];
+    const el = document.createElement('div'); root.append(el);
+    render(blockView(block('tool', 't1', { rec, state: 'done', children: null }), ctx), el);
+    await new Promise((r) => setTimeout(r, 100)); // (the import of bx-code.js was refused above: nothing arrives)
+    const pre = el.querySelector('pre.bxc-diff');
+    out.diff = pre ? { hljs: pre.classList.contains('hljs'), lines: [...pre.children].map((x) => x.className), text: pre.textContent,
+      addBg: getComputedStyle(pre.querySelector('.d')).backgroundColor, delBg: getComputedStyle(pre.querySelector('.a')).backgroundColor } : null;
+    out.epoch = cards.diffEpoch;
+    out.chip = el.querySelector('.bxc-chip')?.textContent.trim();
+    return out;
+  });
+  check(!plain.importMap && plain.code === 'cannot load', `a page without an import map cannot load the code highlighter (${plain.code})`);
+  check(plain.diff && !plain.diff.hljs && plain.diff.lines.join(' ') === 'fh fh fh h ctx a d ctx' && /-var x = 1/.test(plain.diff.text) && /\+var x = 2/.test(plain.diff.text) && plain.epoch === 0,
+    `the kit's views load there all the same and draw the diff plain, a class a line (${JSON.stringify(plain.diff)})`);
+  check(plain.diff && plain.diff.addBg !== plain.diff.delBg && plain.diff.addBg !== 'rgba(0, 0, 0, 0)', `…tinted by the one stylesheet (${plain.diff?.addBg} / ${plain.diff?.delBg})`);
+  check(/completed \+1\/-1/i.test(plain.chip || '') && bareErrors.length === 0, `the card says what it came to; no page errors (${plain.chip}; ${bareErrors.join(' | ')})`);
+  await bare.close();
 
   await settle(A.page);
   // tidy: close both browsers, then end the sessions opened here and drop the

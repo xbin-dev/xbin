@@ -63,7 +63,20 @@ type Principal struct {
 	// "session" (browser login) | "device" (the app's device-key session) |
 	// "app" (the app's password/SSO session, before a device is enrolled).
 	// session, device and app are the same human principal (sessions.go).
+	// "delegate": a person's partition of a sealed system component acting
+	// as that person (delegate.go) — Agent names the component.
 	Via string
+	// Agent is the sealed system component acting for UserID under
+	// delegation (delegate.go); set only with Via "delegate", from xbind
+	// state alone. Such a principal is the person's — Component is "" — but
+	// it is never an admin (IsAdmin), and it reaches only the routes the
+	// delegation cap lists (internal/server/delegateclass.go).
+	Agent string
+	// AgentModel is the model a delegate says its conversation is on now
+	// (X-XBin-Agent-Model on a delegate call): the sealed component's own
+	// statement, not verified, asked by the orgs' model rules. "" when it
+	// said nothing, and for everyone else.
+	AgentModel string
 	// DeviceID names the enrolled device behind a "device" session.
 	DeviceID string
 	// Gen is the credential generation this principal authenticated under —
@@ -113,7 +126,15 @@ func (p Principal) LoginFrame() bool {
 
 // IsAdmin reports admin privilege: the root token, or a user whose role is
 // admin. This unifies the old "owner only" gate with admin users.
+//
+// A delegate (Agent set) is never an admin, whoever its person is: an
+// admin's workspace agent holds the admin's tile levels (users.Access gives
+// an admin terminal level everywhere) and nothing of the admin API — admin
+// changes are proposed as change sets a person approves (delegate.go).
 func (p Principal) IsAdmin() bool {
+	if p.Agent != "" {
+		return false
+	}
 	return p.Owner || (p.User != nil && p.User.IsAdmin())
 }
 
@@ -262,6 +283,7 @@ type Auth struct {
 
 	covered        func(tile string, part util.Partition, uid string) bool // a user partition's coverage (partition.go); guarded by mu
 	tunnelRequired func() bool                                             // the app tunnel's iroh-only switch (transport.go); guarded by mu
+	delegation     func(component, userID string) error                    // delegation's off switches (delegate.go); guarded by mu
 
 	// clientIP resolves a request's client IP (trusted-proxy aware);
 	// installed by the server via SetClientIP. Nil → RemoteAddr.

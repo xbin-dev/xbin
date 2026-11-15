@@ -38,7 +38,7 @@ xbin.WriteError(w, http.StatusForbidden, "…") // {"error": "…"} — the shap
 
 ```go
 c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy, Deployment,
-                             //            Partition, PartitionID}
+                             //            Partition, PartitionID, Agent}
 c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // level (D29) — frame calls from your own UI run
                              // at full role even for read-level viewers
@@ -68,6 +68,11 @@ c.Partition                  // X-XBin-Partition: the partition the call acts
                              // display name
 c.PartitionID                // X-XBin-Partition-Id: key per-caller state on
                              // (From, Deployment, PartitionID) — partitions.md
+c.Agent, c.ByAgent()         // X-XBin-Agent: the call is User's workspace agent
+                             // acting for them (auth.md §Delegation), not
+                             // their own hand. From is then "user:<id>" and
+                             // Role "reader" | "writer" — their level here,
+                             // never admin: "user:" does NOT mean an admin
 ```
 
 Headers are trustworthy: xbind strips inbound `X-XBin-*` and injects
@@ -202,8 +207,10 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
 - **Answering.** A `permission.request` names a `pid`:
   `res, err := perms.Resolve(pid, optionID, decision, by)` then
   `c.RespondPermission(res)` (first answer wins; `allow_always` records a
-  session rule; a plan approval — kind `switch_mode` — never does). A
-  question: `c.RespondElicitation(eid, "accept"|"decline"|"cancel",
+  session rule; a plan approval — kind `switch_mode` — never does). An
+  option with `Explicit` (`explicit: true` in the event) raises the
+  session's mode — see "The session rules" below; the client refuses
+  nothing. A question: `c.RespondElicitation(eid, "accept"|"decline"|"cancel",
   content, by)`; `c.PendingElicitations()` lists the open ones. `c.Cancel()`
   interrupts the turn and answers everything pending as cancelled. A request
   the agent withdraws (`$/cancel_request`) is settled for you: a permission's
@@ -271,7 +278,7 @@ default:
 |---|---|
 | `Caps` | the `clientCapabilities` advertised (`acp.DefaultCaps()`: xbind's — text files and terminals, which its in-sandbox host serves, the adapters' tool-call extensions, form questions). The `Client` itself serves no `fs/*` or `terminal/*` request (it answers method-not-found); without a proxy in between that does, advertise them `false`. |
 | `Drop` | hands a prompt's file to where the agent runs, returns its path (none: files refused) |
-| `AuthHint` | the text of an error the agent answered "auth required" (-32000) to (the agent's message, then `the agent isn't signed in — run: <LoginCmd>`); the error still unwraps to the agent's `*acp.Error` |
+| `AuthHint` | the text of an error the agent answered "auth required" (-32000) to (the agent's message, then `p.SignInHint("")`: `the agent isn't signed in — run: <LoginCmd>`); the error still unwraps to the agent's `*acp.Error` |
 | `OnExt` | sees a notification the client does not handle itself — an extension — and says whether it handled it |
 | `InlineBudget` | bytes of images one prompt sends inline (`acp.MaxInlineImagesBytes`; negative: none) |
 | `IDPrefix` | request ids become strings `"<prefix>-N"` (numbers `1, 2, …`) — give each process that drives the same agent its own prefix |
@@ -342,6 +349,116 @@ successor):
   `stopReason: "error"`, `why` in its error). False when nothing waits on
   it (the agent answered).
 
+**The session rules** (D225). What a host does with the event stream is
+the same whoever hosts the session — xbind's tile agent sessions and the
+agent template's coding agents call these, and so can your backend. Each is
+pure: no I/O, no goroutine, no clock of its own.
+
+- **The tool record** (`toolrec.go`). `acp.ToolRecord` is one tool call,
+  its `tool.call` and `tool.update` events merged: `ID`, `Kind` (an ACP
+  kind; `other` when unknown), `Title`, `Label`, `Name`, `Status`, `Parent`,
+  `Subagent`, `PlanReview`, `RawInput`, `Locations`, `Files` (the
+  locations' paths, then the diffs', each once), `Text` (the content's text
+  items joined by a blank line), `Terminal`, `Output` + `OutputTruncated`,
+  `ExitCode`, `Diffs` (`acp.ToolDiff`: the two texts with line counts, or a
+  patch), `Changed` (an `acp.ChangeSet`, from an embedder's
+  `files.changed` — `acp.EvFilesChanged`). Its JSON leaves zero values out,
+  except `id`, `kind`, `title`, `status`.
+  - `var recs acp.ToolRecords` folds a session: `recs.Apply(ev)` returns
+    the `*acp.ToolEntry` (`Seq`, `Turn`, `N`: which call of its id, `Rec`)
+    a tool event landed on and whether it began it; it also reads
+    `files.changed` (a call's) and `turn.end`. `Entries()` lists them in
+    the order they began, `Newest(id)` is an id's current one.
+    `Observe(evType, id, status)` and `EndTurn(turn)` are the id rule
+    alone, for a reader that needs no records (a pager).
+  - `rec.Merge(acp.ToolEvent, acp.ToolPolicy)` is the merge itself
+    (`acp.ParseToolEvent(ev.Data)` reads an event; `Fields()` are the keys
+    it carried). A field an event carries replaces the record's;
+    `outputDelta` appends and `output` replaces; `parent` is the first one
+    said; a later `content` list without text keeps the text, one without
+    diffs keeps the diffs.
+  - **An id used again** — `acp.StartsToolRecord(evType, held, sameTurn)`:
+    a `tool.call` for an id whose record is over (`rec.Done()`,
+    `acp.ToolDone(status)`), or was made in an earlier turn, starts a new
+    record; a `tool.update` never starts a second one.
+  - `acp.ToolPolicy` is what your reducer keeps: `OutputMax` (the newest
+    bytes of output, cut between characters, the rest counted in
+    `OutputTruncated`; 0 keeps all), `TextMax`, and `Diff` to store an
+    edit your way (a patch instead of two texts). `rec.OutputTail(n)` is
+    the newest `n` bytes for a result line.
+  - `ToolEvent.OutputChunk()` says whether a `tool.update` is a bare output
+    chunk (`{id, outputDelta, parent?}`); `chunk.Add(next)` merges two of
+    one call — what a log does to keep a chatty command a few events.
+- **Mode escalation** (`escalation.go`): does a permission option take the
+  session past the agent's own asks?
+  `p.OptionRaises(option, callKind, sessionState, start)` — only an allow
+  can raise; its mode is its id when that names one of the agent's modes
+  (`p.ModeIDs(state)`: the catalog's and the session's), else the catalog's
+  `OptionModes` (claude's `exit-plan-bypass` is `bypassPermissions`); it
+  raises when `p.ModeOpen(mode, start)` is false — the mode is neither
+  `Safe` nor `start`, the mode the session began in. An `allow_always` of a
+  mode switch (`acp.KindSwitchMode`: a plan approval) that names no mode the
+  catalog knows raises too (default-deny). A `Client` marks the options of
+  every request it files (`PermissionOption.Explicit`, with `Config.Mode`
+  as the start) and refuses nothing: show a second confirmation, or keep
+  such an option to some people (the agent template: the conversation's
+  owner, judged with the mode its adapter started in).
+  `acp.ModeOption(options)` is an adapter's config option of category
+  `mode`; `state.Mode()` the session's current mode either way.
+- **Messages while a turn runs** (`queue.go`): what to do with a message
+  a person sends when the agent is busy. You keep the held messages and do
+  the sending; the decisions are `acp.QueueState{Status, Detached, Held,
+  Steering, Sending}`'s:
+  - `q.Message(interrupt)` → `acp.MessagePrompt` (nothing runs, nothing is
+    held: `c.Prompt`), `acp.MessageSteer` (a turn runs and the agent
+    steers: `c.Steer`) or `acp.MessageHold` (no steering, others already
+    held — never past them —, an interrupt, or the agent's own turn).
+  - `acp.SteerOutcome(outcome, err)` reads `c.Steer`'s answer →
+    `MessageDelivered` (injected; with `detached` true for
+    `SteerStartedNewTurn`), `MessagePrompt` (`SteerPromptRequired`: the
+    turn had ended), `MessageHold` (`ErrSteeringUnsupported`) or
+    `MessageRefused` (any other error: yours to judge).
+  - `q.Flush()` — the held messages go as a prompt now: the turn is over
+    (idle, or it failed), no detached turn runs, no prompt is on its way.
+  - **A detached turn**: codex-acp answers a steer that lands just after
+    its turn ended by starting a turn of its own, which no `turn.end`
+    reports and during which every status the client restates says idle.
+    `acp.DetachedTurn` follows it: `Begin(now)` at the steer's answer,
+    `Event(now)` for each event the agent sends, `Over(now)` /
+    `Deadline()` to know when it has been quiet for `Quiet`
+    (`acp.DetachedQuiet`, 5 s), `End()`. It keeps no timer — arm yours for
+    `Deadline()`. Treat the session as running meanwhile, hold messages,
+    and end the turn in your own view at an interrupt (the client has no
+    prompt to cancel). A request the agent makes outside a prompt leaves
+    the client `idle` again once answered (it stayed `waiting_permission`).
+- **Signed out?** (`authstate.go`): `acp.IsAuthRequired(err)` — the agent
+  answered a session or a prompt "auth required" (-32000; it sees through
+  the client's hint wrapping); `acp.SaysSignedOut(text)` — a status detail
+  or a turn's error reads as "sign in" (an adapter that fails in its own
+  words); `acp.AuthState{Needed, Injected, Refused}.SignedOut()` — whether
+  to treat the session as signed out when you may have put a credential of
+  your own in the agent's environment (`Needed`: `SessionState.AuthNeeded`;
+  with `Injected`, only the agent's own refusal counts — a status probe
+  can call an environment token's sign-in "none"). `p.SignInHint(where)`
+  is the one sentence for a person: "the agent isn't signed in — run:
+  ‹LoginCmd›", or "… — in ‹where›, run: …" when the reader may be elsewhere
+  (xbind: "a terminal on ‹tile›").
+- **Status words** (`summary.go`): a session in a word and in a line.
+  `acp.Busy(status)` — a turn runs (`running`, `waiting_permission`,
+  `cancelling`); `acp.TurnOver(status)` — it takes a prompt (`idle`,
+  `error`). `acp.StateOf(status, signedOut)` is the word a list shows:
+  `acp.StateStarting`, `StateReady`, `StateWorking`, `StateLogin`,
+  `StateFailed`, `StateStopped`. `acp.Summary{Status, Pending, Questions,
+  Turn}` is what an inbox compares (`==`) to know something changed —
+  xbind's `term` event with `op: "status"` carries exactly these — with
+  `Busy()` and `Waiting()` (it waits on a person). `acp.Need{Kind, Agent,
+  What}` is what it waits for (`acp.NeedApproval`, `NeedQuestion`,
+  `NeedLogin`) in words: `Heading()` ("Permission needed", "Question",
+  "Sign in to ‹agent›") and `Text()` ("‹agent› wants to run ‹what› —
+  approve or deny.", the question's own words, "‹agent› needs you to sign
+  in to it."; bounded). xbind's notifications and the agent template's
+  "Needs you" use them, so a person reads one wording.
+
 The codec is exported too — `acp.NewConn(r, w)` / `acp.NewConnWith(r, w,
 acp.ConnOptions{IDPrefix, Offset})` (`Call`, `CallCtx`, `Notify`, `Reply`,
 `Serve`, `Expect` to adopt a call an earlier process sent, `Offset`),
@@ -386,6 +503,11 @@ argv := acptest.Command("--require-login") // [the test binary, "acptest", flags
 | `--auto-mode` (`AutoMode`) | a mode `auto` between `ask` and `yolo` that skips an edit's permission request |
 | `--require-login` (`RequireLogin`) | signed in only while `$HOME/.fakeacp/credentials` exists; auth methods `fake-login` (terminal, `<agent> login` asks for the code `fake-code`), `fake-api-key` (`_meta["api-key"].apiKey`; `bad` is refused) and `fake-device` (a device code through URL elicitation, then `elicitation/complete`) |
 | `--persist` (`Persist`) | sessions kept in `$HOME/.fakeacp/sessions`; `session/load` replays exactly what a session sent |
+
+With `--steer`, a prompt starting `detach` plays codex-acp's detached turn:
+the turn waits for a steer, then ends (`end_turn`) before answering the
+steer `startedNewTurn`, and the steered text's script plays as a turn of the
+agent's own, with no prompt to answer.
 | `--device-ms=N` (`DeviceDelay`) | how long after the URL is accepted the device sign-in completes (1 s) |
 
 `Serve` returns when its reader ends (or `*acptest.ExitError` for
@@ -431,6 +553,15 @@ err = llm.ReadSSE(resp.Body, func(_ string, data []byte) error {
   / `Response` / `ResponsesEvent` (and the `Event…` type names),
   `ModelList` / `Model` (a provider's own members are kept in `Extra`;
   `ContextWindow()` reads the context size wherever the provider puts it).
+  They write as well as read: a chunk's choice is `ChatChunkChoice`, a usage
+  block's details `InputDetails` / `OutputDetails`, so a fake upstream or a
+  translating proxy builds its answers from them.
+- **Reading a stream**: `ReadSSE(r, fn)` reads events as the SSE format
+  defines them (an event ends at a blank line; its data lines are joined).
+  `ReadData(r, fn)` hands `fn` each `data:` line's payload by itself, which
+  is how both wires write a stream — a JSON value per line — and also reads
+  a server that leaves the blank lines out. Both stop at `[DONE]`, and both
+  refuse a line past `MaxSSELine` (8 MiB) with `ErrSSELineTooLong`.
 - **Usage** is one shape for both wires: `llm.Usage{InputTokens,
   OutputTokens, CachedTokens, ReasoningTokens, TotalTokens}`.
   `UsageFromBody` reads it from a whole answer or from one stream event; a
@@ -656,6 +787,93 @@ if err != nil || !a.CanRead() {        // fail closed: no answer is no
   didn't answer — don't let the credential in. Cache answers briefly (the
   sandbox-terminal tile keeps them 30 s) rather than asking on every
   packet.
+
+### Acting as a person — `xbin.AsPerson()` (xbind's own agent component)
+
+For the backend of the **workspace agent**: a sealed component that ships
+inside xbind, partitioned per person, which xbind lets act as its person
+([auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent),
+[protocol/delegation.md](/docs/protocol/delegation.md)). A tile of your own
+that calls these gets `401`: who may delegate is xbind's table, not a
+grant.
+
+```go
+xbin.Client()                 // the component itself: its kv, vault, bus, notify
+xbin.AsPerson()               // the person this partition belongs to: xbind's
+                              // API under the delegation cap, and /api/<tile>/…
+                              // where they can read the tile, at their level
+
+req, _ := http.NewRequestWithContext(ctx, "GET", "http://xbin/api/apps/mail/inbox", nil)
+xbin.WithAgentModel(req, model)      // the model the conversation is on: the
+                                     // orgs' model rules are asked with it
+resp, err := xbin.AsPerson().Do(req) // reads need nothing more
+if err := xbin.DelegateRefusal(resp); err != nil { … }  // nil for 2xx; else *DelegateError
+```
+
+Every **side effect** — a non-`GET` call to a tile's API, starting a tile
+agent (`POST /api/xbin/term/sessions`), creating a tile — needs the
+person's approval, and xbind checks it. Ask, wait, then send exactly what
+was approved:
+
+```go
+info, _ := xbin.DryRun(ctx, "POST", "/api/apps/mail/send") // what it would be: tile, level, role,
+                                                           // needsApproval — nothing runs
+ask, err := xbin.RequestApproval(ctx, "POST", "/api/apps/mail/send", body, "send the summary to Ada")
+// the person is told (an event, a push) and answers in their own session;
+// summary is shown as the agent's words, beside xbind's own description
+for {
+	a, err := xbin.ApprovalOf(ctx, ask.ID)
+	if err != nil || a.Decided() { return /* denied, expired, withdrawn */ }
+	if a.Approved() { break }
+	// wait: the person answers when they answer
+}
+req, _ = http.NewRequestWithContext(ctx, "POST", "http://xbin/api/apps/mail/send", bytes.NewReader(body))
+req.Header.Set("Content-Type", "application/json") // part of what was approved
+xbin.WithTicket(req, ask.ID)         // once, within 15 minutes; another method, path,
+resp, err = xbin.AsPerson().Do(req)  // query, body or content type is ErrBadTicket
+```
+
+`AsPerson()` follows no redirect — a tile's 3xx is the response you get,
+and `DelegateRefusal` reports it as an error: the call a person approved is
+one call. A body is approved as JSON (send exactly `Content-Type:
+application/json`, or the type you asked with: the whole header is bound); `xbin.RequestApprovalAs(ctx, method, path,
+contentType, body, summary)` asks for another content type.
+`xbin.StandingApprovals(ctx)` lists what the person lets their agent do
+without a ticket — each one call (`Scope "call"`: `Method` on `Path`) or
+every write to a tile (`Scope "tile"`); `a.Covers(method, path)` answers
+for one. `xbin.WithdrawApproval(ctx, id)` takes a request back. Starting a tile agent without a ticket works only when the person
+allowed it in their agent preferences, and then without `mode`, `net` or
+`api` in the body — those are the preference's.
+
+Admin changes are never calls: an admin's agent **proposes** them, the
+person approves, xbind applies.
+
+```go
+cs, err := xbin.ProposeChanges(ctx, "let the report read the calendar", []xbin.Change{
+	{Kind: "grant.add", Args: map[string]string{"from": "apps/report", "target": "apps/calendar", "role": "reader"},
+		Why: "the weekly report lists meetings"},
+})
+// cs.Items[i].Line, .Effects, .Warnings, .Blocked are xbind's description;
+// later: xbin.ChangeSetOf(ctx, cs.ID) → State and each item's Result
+```
+
+The refusals to tell apart (`errors.Is` on what `DelegateRefusal` and the
+helpers return; `*DelegateError` carries xbind's `Message`, fit to show):
+
+| Error | Meaning | Do |
+|---|---|---|
+| `ErrNotDelegated` | the route isn't in the delegation cap (the admin API, answering a tile agent, …) | don't retry; no approval changes it |
+| `ErrNeedsApproval` | a side effect without the person's approval | `RequestApproval`, then `WithTicket` |
+| `ErrBadTicket` | the ticket is unknown, unapproved, expired, used, or for another call | ask again |
+| `ErrPolicyRefused` | the tile, or the org that owns it, keeps the agent out — or the person can't read it; `Message` says why | tell the person; don't retry |
+| `ErrAgentPaused` | the person paused their agent | stop until they resume |
+| `ErrAgentOff` | workspace agents are off here | stop |
+| `ErrAdminRead` | admin state without the person's opt-in | propose nothing; say how to opt in |
+| `ErrRateLimited` | more than 30 acts a minute; `RetryAfter` says when | wait |
+
+A `*DelegateError` with an empty `Refusal` is the called tile's own
+refusal. Data that reaches the component from other tiles — bus events,
+partition mail, anything a tile's API returns — is untrusted input.
 
 ### Tile sandboxes, for manager tiles — `xbin.SandboxAPI()`
 

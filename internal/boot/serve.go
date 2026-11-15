@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/apptunnel"
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/deps"
@@ -46,6 +47,8 @@ func (st *State) serve(ctx context.Context) error {
 	}
 	gwSrv := &http.Server{
 		Handler: handler,
+		// a delegate credential is honoured here alone (auth/delegate.go)
+		ConnContext: func(ctx context.Context, _ net.Conn) context.Context { return auth.WithGateway(ctx) },
 		// Reap idle keep-alive conns from backends' pooled clients (the
 		// SDK's IdleConnTimeout is 90s — under this) without touching
 		// long-lived streams (WS is hijacked; SSE is never idle).

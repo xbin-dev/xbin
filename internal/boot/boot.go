@@ -18,6 +18,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/builtins"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/deps"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -59,10 +60,14 @@ type State struct {
 	Broker         *broker.Broker
 	Proxy          *proxy.Proxy
 	Server         *server.Server
-	VM             *vm.Manager      // VM sandboxes (vm.go); nil without isolation
-	Sbx            *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
-	TileSbx        *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
-	Push           *push.Service    // the push plane (push.go)
+	// AgentPolicy is the agent rules delegation asks (the orgs' agent rules,
+	// people's agent preferences). Left nil, boot installs the broker's
+	// DelegationPolicy (delegation.go); a test sets another before boot.
+	AgentPolicy delegation.Policy
+	VM          *vm.Manager      // VM sandboxes (vm.go); nil without isolation
+	Sbx         *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
+	TileSbx     *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
+	Push        *push.Service    // the push plane (push.go)
 	// AppTunnel is the xbin app's iroh tunnel (apptunnel.go, D204)
 	AppTunnel *apptunnel.Service
 	// LLM is the LLM connector (llm.go, D226)
@@ -295,6 +300,16 @@ func (st *State) stepRegistry() error {
 	// first scan, so the registry holds them from the start; their data
 	// stamps are read, and claimed, before the broker provisions anything.
 	set, err := st.openSealed()
+	if err == nil {
+		// Who holds delegation (D228) is this table's word, and nothing
+		// else's: installed here, before the server step refuses a holder
+		// that is trusted chrome (Server.DelegationChromeConflict). An
+		// empty table — a release build — delegates for nobody.
+		auth.SetDelegateHolders(func(component string) bool {
+			c, ok := set.Component(component)
+			return ok && c.Capabilities.Delegate
+		})
+	}
 	if err != nil {
 		return err
 	}
@@ -782,6 +797,12 @@ func (st *State) stepServer() error {
 		Settings:       st.settings,                                                 // workspace settings (D175)
 		AgentPrefs:     st.agentPrefs(),                                             // people's agent preferences (D229)
 	}
+	if st.Broker != nil && srv.AgentPrefs != nil {
+		// a person's saved credential choice for a harness: one of the
+		// inputs of Broker.AgentSessionLLM (D229)
+		prefs := srv.AgentPrefs
+		st.Broker.AgentSaved = func(user, harness string) string { return prefs.Get(user).Harnesses[harness].Credentials }
+	}
 	if st.Term != nil {
 		st.Term.OnChange = srv.TermChanged // the session directory's change stream (D73)
 		st.Term.OnEvent = srv.SessionEvent // agent session events (D74)
@@ -810,6 +831,10 @@ func (st *State) stepServer() error {
 	registerDeploymentsAPI(srv, st.Deployments, st.Broker) // the broker answers the state's vault, registrations, edges, disk
 	st.registerTileSandboxAPI(srv)
 	st.registerGoVersionsAPI(srv) // the D166 upgrade check's routes and admin alert
+	st.setupDelegation(srv)       // people's workspace agents (delegation.go, D228)
+	if err := srv.DelegationChromeConflict(); err != nil {
+		return err // a holder that is also trusted chrome: its page would approve its own agent's requests
+	}
 	if err := st.setupPush(srv); err != nil {
 		return err
 	}
@@ -843,6 +868,10 @@ func (st *State) stepWatch() error {
 			st.reconcileIngress()
 			if st.TileSbx != nil {
 				st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
+			}
+			if st.Server != nil {
+				st.Broker.ObserveAgentLevels() // a manifest that states or lowers its agent level: on record now (broker/agentlevel.go)
+				st.Server.SweepDelegation()    // a tile gone: its standing approvals and the agents' calls into it end (D228)
 			}
 		}, refreshViews)
 	}()

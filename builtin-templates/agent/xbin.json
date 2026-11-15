@@ -28,6 +28,18 @@
   "partitionNote": "Every conversation (private and shared), all memory and every schedule of this agent are deleted, for everyone, with its skills, triggers, channel links and settings. Sandboxes stay with their sandbox manager.",
 
   "runtime": "go",
+
+  // What a person's workspace agent (docs/auth.md §Delegation) may do here
+  // for them: read. It sees the conversations the person sees and may not
+  // write — xbind refuses its POST, PUT, PATCH and DELETE before they get
+  // here. That is deliberate: this tile's API answers permission requests,
+  // questions, approvals and sign-ins and sets what a run may do, and those
+  // are a person's answers. The backend refuses them to an agent too
+  // (_backend/wsagent.go), whatever this says — widen it to "full" only
+  // after reading that file: it lists what an agent may then do (stop a
+  // run, mark it read) and where a route is opened to it.
+  "agent": "read",
+
   // The backend lives in _backend/ (not the usual backend/): the underscore
   // keeps xbin's own `go build ./...` from sweeping this template payload —
   // which pulls modernc.org/sqlite — into the xbin module. Go's wildcard

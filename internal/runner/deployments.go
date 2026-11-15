@@ -303,7 +303,7 @@ func (r *Runner) spawnSetup(c *registry.Component, dep string, gen int) (genSpaw
 	sp.sock = filepath.Join(sp.dir, fmt.Sprintf("g%d.sock", gen))
 	_ = os.Remove(sp.sock)
 	sp.token = util.RandomToken(24)
-	sp.env = append(backendEnv(r.Isolate && sandboxable(c.Manifest.Runtime)),
+	sp.env = append(append(backendEnv(r.Isolate && sandboxable(c.Manifest.Runtime)), c.SealedEnv...), // a sealed row's fixed environment, before xbind's own
 		"XBIN_SOCKET="+sp.sock,
 		"XBIN_COMPONENT="+c.Path,
 	)

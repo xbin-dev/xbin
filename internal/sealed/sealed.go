@@ -93,6 +93,24 @@ type Spec struct {
 	// tile in says so here, in review. (The workspace agent's model slot
 	// allows only its default, xbind's own connector.)
 	Providers map[string][]string
+	// Env is fixed environment for its backend, set before xbind's own
+	// variables (which win): how one source runs in the mode a row wants
+	// (the workspace agent's backend starts in workspace mode from
+	// XBIN_AGENT_MODE=workspace). Names are upper-case identifiers and
+	// none xbind sets itself.
+	Env map[string]string
+	// Notify is a path on its backend ("/…", no query) that xbind delivers
+	// holder notifications to (the delegation side: a request decided, an
+	// approval revoked); "" = none. NotifyPath answers it.
+	Notify string
+	// FrameReads extends what its page's credential may send (a viewer's:
+	// its own backend, its files, its renewal, whoami, the events socket —
+	// server/sealed.go) by reads of xbind's API: exact paths under
+	// /api/xbin/, GET only — an entry can't allow anything that writes,
+	// whatever it names, and names no wildcard, query, data route or
+	// component API. (The workspace agent's page reads the connector's
+	// state: /api/xbin/agents/connection.)
+	FrameReads []string
 	// Grants are the cross-scope grants the release gives it (its own
 	// scope's resources need none). No admin adds to or removes from them.
 	Grants []registry.Use
@@ -142,6 +160,54 @@ func Table() []Spec { return table() }
 // partition-mail doorbell's). The first segments of xbind's own /api/xbin/
 // routes are refused where the routes are known (server.SealedAPIClash).
 var reservedNames = map[string]bool{"cron": true, "bus": true, "mail": true}
+
+var envNameRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// reservedEnv are the variables xbind itself gives a backend (the runner
+// and the broker set them after a row's Env, so theirs win anyway; a row
+// that names one is a mistake).
+var reservedEnv = map[string]bool{
+	"XBIN_SOCKET": true, "XBIN_COMPONENT": true, "XBIN_TOKEN": true, "XBIN_GATEWAY": true, "XBIN_PARTITION": true,
+	"XBIN_DEPLOYMENT": true, "XBIN_SDK_PATH": true, "HOME": true, "PATH": true,
+}
+
+// envList is env as KEY=VALUE lines, in key order.
+func envList(env map[string]string) []string {
+	out := make([]string, 0, len(env))
+	for k, v := range env {
+		out = append(out, k+"="+v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// frameReadRefusal says why path can't be a FrameReads entry ("" when it
+// can): an exact path of xbind's own API, never a route that carries data
+// or another component's API, and never one of a sealed component.
+func frameReadRefusal(path string) string {
+	rest, ok := strings.CutPrefix(path, "/api/xbin/")
+	switch {
+	case !ok || rest == "":
+		return "is not a path under /api/xbin/"
+	case strings.ContainsAny(path, "?#*{}") || "/"+util.CanonPath(path) != path:
+		return "is not an exact path (no query, wildcard or odd spelling)"
+	}
+	first, _, _ := strings.Cut(rest, "/")
+	for _, data := range []string{"kv", "blob", "vault", "bus", "cron", "llm", "delegate", "users", "sandboxes", "term", "deployments", "backup", "restore", "partitions"} {
+		if first == data {
+			return "is a route that carries data, credentials or other people's state: no page reads it as a viewer"
+		}
+	}
+	return "" // (a sealed component's own API under /api/xbin/<name> is refused where the call is judged: broker.Policy)
+}
+
+// NotifyPath is the path on the backend of the sealed component at path
+// that holder notifications are delivered to ("" = none, or no such
+// component), from the compiled-in table.
+func NotifyPath(path string) string {
+	sp, _ := Lookup(path)
+	return sp.Notify
+}
 
 // nameRe is a sealed component's name: at most util.SealedNameMax
 // characters, so that its key is never a cut-short one (util.CompKey).
@@ -257,6 +323,19 @@ func Load(specs []Spec) (*Set, error) {
 			}
 			if ref == "" || strings.Contains(ref, "/") {
 				return nil, fmt.Errorf("sealed component %s: slot %q defaults to %q — a default is a builtin provider's ref, never a tile's path", p, slot, ref)
+			}
+		}
+		for k := range sp.Env {
+			if !envNameRe.MatchString(k) || reservedEnv[k] {
+				return nil, fmt.Errorf("sealed component %s: Env names %q — an upper-case identifier that xbind doesn't set itself", p, k)
+			}
+		}
+		if n := sp.Notify; n != "" && (!strings.HasPrefix(n, "/") || strings.ContainsAny(n, "?#") || "/"+util.CanonPath(n) != n) {
+			return nil, fmt.Errorf("sealed component %s: Notify %q is not a path on its backend (\"/…\", no query)", p, n)
+		}
+		for _, fr := range sp.FrameReads {
+			if why := frameReadRefusal(fr); why != "" {
+				return nil, fmt.Errorf("sealed component %s: FrameReads %q %s", p, fr, why)
 			}
 		}
 		for slot, refs := range sp.Providers {
@@ -435,6 +514,7 @@ func (s *Set) Registry() []registry.SealedCode {
 			Path: c.Path, ID: c.ID(), Dir: c.Dir, Files: c.Files, Title: c.Title,
 			Manifest: c.Files["xbin.json"], Scope: c.Files["scope.json"],
 			Slots: slices.Clone(c.Slots), Grants: slices.Clone(c.Grants), Defaults: maps.Clone(c.Defaults), Providers: maps.Clone(c.Providers),
+			Env: envList(c.Env), FrameReads: slices.Clone(c.FrameReads),
 		}
 		if c.Partitioned {
 			sc.Partition = slices.Clone(c.Partition)

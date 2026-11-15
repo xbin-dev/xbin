@@ -17,9 +17,15 @@
 //
 // NEEDS: raise `kit` when the page starts to use something a later kit
 // revision brought (rev.js lists them), and `xbind` to the first release
-// that serves it. The native view (native.js) imports none of the kit and
-// needs no check.
-export const NEEDS = Object.freeze({ kit: 1, xbind: 'v0.3.80' });
+// that serves it. Revision 2: the models say a coding agent's calls and
+// requests with the kit's /vendor/chat/tools.js and /vendor/chat/ask.js
+// (model/harness-heads.js, model/harness-ask.js).
+//
+// The native view (native.js) imports those models too, and a module can't
+// ask first: on an older xbind its import of the kit is a 404, native.js
+// fails to load, and the app shows this page instead (/docs/native.md →
+// Fallback) — which says which xbind it needs.
+export const NEEDS = Object.freeze({ kit: 2, xbind: 'v0.3.80' });
 
 // kitRevision(): the KIT this xbind serves; 0 when it serves none.
 export async function kitRevision(load = () => import('/vendor/chat/rev.js')) {

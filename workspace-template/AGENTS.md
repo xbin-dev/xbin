@@ -632,7 +632,9 @@ node/python: no SDK needed — listen on `process.env.XBIN_SOCKET` /
 `X-XBin-User`/`X-XBin-User-Level` — the signed-in human driving the call,
 D29; `X-XBin-Viewed-By` when an admin is viewing as that user, D64;
 `X-XBin-Partition`/`X-XBin-Partition-Id` when a partitioned tile calls you
-for a person — see Auth) headers,
+for a person; `X-XBin-Agent` when the call is that user's workspace agent
+acting for them — `X-XBin-From` is then `user:<id>` at role `reader` or
+`writer`, so never read `user:` as "an admin" — see Auth) headers,
 call outbound via the `XBIN_GATEWAY` unix socket with
 `Authorization: Bearer $XBIN_TOKEN`. `bx new` scaffolds working skeletons.
 `cgi` was removed (it ran tile code outside the sandbox): a tile declaring it

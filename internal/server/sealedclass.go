@@ -79,6 +79,10 @@ type SealedRule struct {
 	What  string   // why, completing "<path> is a system component, managed by xbin: …"
 }
 
+// sealedNoAgentWhat completes the refusal of a sealed component as what a
+// person's workspace agent would act in.
+const sealedNoAgentWhat = "a person's agent does nothing in it: nothing calls it but its own page"
+
 // SealedDocs is the page a sealed-component refusal points at.
 const SealedDocs = "/docs/sealed.md"
 
@@ -150,7 +154,9 @@ func (s *Server) sealedGate(r2 *http.Request) http.HandlerFunc {
 				io.Reader
 				io.Closer
 			}{io.MultiReader(bytes.NewReader(b), body), body}
-			mentions = bytes.Contains(b, []byte(util.SealedPrefix)) || bytes.Contains(b, []byte(`xbin\/`))
+			for _, form := range []string{`"xbin/`, `"/xbin/`, `"res:xbin/`, `"code:xbin/`, `"xbin\/`, `"\/xbin\/`, `"res:xbin\/`} {
+				mentions = mentions || bytes.Contains(b, []byte(form)) // a JSON string that begins as a sealed path
+			}
 		}
 		if mentions {
 			return refusal(http.StatusBadRequest, "this route has no rule for system components yet (server/sealedclass.go): it takes no path under xbin/")
@@ -651,6 +657,36 @@ var sealedRules = map[string]SealedRule{
 	"GET /agents/policy":              {Class: SealedNoTile},
 	"PUT /agents/policy":              {Class: SealedNoTile},
 	"PUT /orgs/{org}/agents":          {Class: SealedNoTile},
-	"GET /agent/prefs":                {Class: SealedNoTile},
-	"PUT /agent/prefs":                {Class: SealedNoTile},
+	"PUT /orgs/{org}/agents/pin":      {Class: SealedNoTile},
+	"POST /llm/setup/dismiss":         {Class: SealedNoTile},
+	// ---- people's workspace agents (delegation, D228) ----
+	// A person's agent acts on tiles. A request, a change set and the audit
+	// name calls by method and URL path, judged when the call runs (the
+	// delegate gate asks broker.DelegateTile, which refuses every sealed
+	// component); the two routes that name a tile outright refuse one.
+	"PUT /agent-levels":                      {Class: SealedRefused, Body: []string{"tile"}, What: sealedNoAgentWhat},
+	"POST /delegate/approvals":               {Class: SealedRefused, Body: []string{"tile"}, What: sealedNoAgentWhat},
+	"GET /agent-levels":                      {Class: SealedHandled, What: "never listed: it has no agent level"},
+	"GET /delegate/approvals":                {Class: SealedNoTile},
+	"DELETE /delegate/approvals/{id}":        {Class: SealedNoTile},
+	"GET /delegate/requests":                 {Class: SealedNoTile},
+	"POST /delegate/requests":                {Class: SealedNoTile},
+	"GET /delegate/requests/{id}":            {Class: SealedNoTile},
+	"POST /delegate/requests/{id}/approve":   {Class: SealedNoTile},
+	"POST /delegate/requests/{id}/deny":      {Class: SealedNoTile},
+	"DELETE /delegate/requests/{id}":         {Class: SealedNoTile},
+	"GET /delegate/changesets":               {Class: SealedNoTile},
+	"POST /delegate/changesets":              {Class: SealedNoTile},
+	"GET /delegate/changesets/{id}":          {Class: SealedNoTile},
+	"DELETE /delegate/changesets/{id}":       {Class: SealedNoTile},
+	"POST /delegate/changesets/{id}/approve": {Class: SealedNoTile},
+	"POST /delegate/changesets/{id}/reject":  {Class: SealedNoTile},
+	"POST /delegate/changesets/{id}/undo":    {Class: SealedNoTile},
+	"GET /delegate/audit":                    {Class: SealedNoTile},
+	"GET /delegate/state":                    {Class: SealedNoTile},
+	"PUT /delegate/state":                    {Class: SealedNoTile},
+	"GET /delegate/workspace":                {Class: SealedNoTile},
+	"PUT /delegate/workspace":                {Class: SealedNoTile},
+	"GET /agent/prefs":                       {Class: SealedNoTile},
+	"PUT /agent/prefs":                       {Class: SealedNoTile},
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/creack/pty"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/gpu"
 	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -125,6 +126,10 @@ type Manager struct {
 	// broker by main. nil ⇒ the pre-D54 rules (termNet → internet, host
 	// admin-only).
 	TermNet func(p auth.Principal, component string) TermNet
+	// AgentPolicy answers the orgs' rules when a person's workspace agent
+	// opens a tile agent session (delegate.go); nil refuses every such open
+	// (delegation.NoPolicy).
+	AgentPolicy delegation.Policy
 
 	// HiddenTiles lists the component dirs to mask out of this principal's
 	// terminals (D17a — source visibility scoped to the allow-list): every
@@ -182,8 +187,7 @@ type Manager struct {
 	// (wired to the deployments plane by main); nil ⇒ no tile has one, and
 	// sessions get today's env.
 	HasDeploymentRecord func(tile string) bool
-	// TileAt: the registered tile a path is or lies in (sessiondir.go).
-	TileAt func(rel string) (tile string, ok bool)
+	TileAt              func(rel string) (tile string, ok bool) // the registered tile a path is or lies in (sessiondir.go)
 	// TileDeployments answers what a session's target choice needs to know
 	// of a tile (D127p, target.go); nil: the zero state for every tile.
 	TileDeployments TileDeploymentsFunc

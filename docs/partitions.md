@@ -99,6 +99,7 @@ never from the URL, and never from a header the caller controls:
 | xbind's cron and bus deliveries | the partition that registered them |
 | xbind's mail doorbell | the instance whose inbox holds the mail ([below](#partition-mail)) |
 | an admin viewing the workspace as a person | no partition: view-as never opens a person's partition. It reaches the global instance only by an explicit call to it ([below](#the-global-instance-and-peoples-partitions)) |
+| a person's workspace agent (a delegate call, [auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)) | **that person's** partition, if they can read the tile — and, when the workspace asks people first, have allowed *agent → tile*. Never anyone else's; the call carries `X-XBin-Agent` |
 
 A person who can no longer read the tile, is disabled or is deleted stops
 reaching their partition, and its cron jobs and deliveries stop with them.

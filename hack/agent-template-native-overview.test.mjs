@@ -12,8 +12,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
 import { PHONE, FULL, OLD } from './agent-template-native-caps.mjs';
-import { moreSeed, coordMsgs, overviewSeed } from '../builtin-templates/agent/test/projects-more-stub.mjs';
-import { coordPlaceholder, TIPS } from '../builtin-templates/agent/model/project-overview.js';
+import { installHooks } from './xbn/hooks.mjs';
+
+installHooks(); // /vendor/<name> as xbind serves it: the kit the template's models import (web/<name>)
+const { moreSeed, coordMsgs, overviewSeed } = await import('../builtin-templates/agent/test/projects-more-stub.mjs');
+const { coordPlaceholder, TIPS } = await import('../builtin-templates/agent/model/project-overview.js');
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url).pathname;
 const NOW = Date.UTC(2026, 8, 21, 12);

@@ -307,7 +307,10 @@ func (rd runtimeReads) tileStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "specify ?component= (or call from a tile terminal)", http.StatusBadRequest)
 		return
 	}
-	if !rd.isAdmin(p) && p.Component != comp {
+	// a tile reads its own; a person's workspace agent (a delegate: the
+	// person's principal, never an admin) reads a tile its person can read —
+	// what their browser reads through the tile's frame
+	if !rd.isAdmin(p) && p.Component != comp && !(p.Agent != "" && p.Component == "" && p.CanReadTile(comp)) {
 		http.Error(w, "you can only read your own tile's status", http.StatusForbidden)
 		return
 	}

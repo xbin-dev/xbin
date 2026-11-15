@@ -38,54 +38,54 @@ async function agentReview(browser) {
   await sleep(300);
 
   // (a) folded; opened: the files, no diff
-  const card = page.locator(`${agentSel} .turn-changes`).last();
-  const files = card.locator('details.files');
+  const card = page.locator(`${agentSel} .bxc-changes`).last();
+  const files = card.locator('details.bxc-files');
   check(!(await files.evaluate((el) => el.open)), 'the turn\'s changes are folded');
   check(/This turn changed 31 files \+12000/.test(await files.locator(':scope > summary').innerText()), `its summary counts them (${await files.locator(':scope > summary').innerText()})`);
   const t0 = Date.now();
   await files.locator(':scope > summary').click();
-  await card.locator('details.frow').first().waitFor({ timeout: 5000 });
+  await card.locator('details.bxc-frow').first().waitFor({ timeout: 5000 });
   log(`agent-review: the 31-file card opened in ${Date.now() - t0} ms`);
-  check(await card.locator('details.frow').count() === 31, `opened, it lists the files (${await card.locator('details.frow').count()})`);
-  check(await card.locator('pre.diff').count() === 0, 'opened, it renders no diff');
+  check(await card.locator('details.bxc-frow').count() === 31, `opened, it lists the files (${await card.locator('details.bxc-frow').count()})`);
+  check(await card.locator('pre.bxc-diff').count() === 0, 'opened, it renders no diff');
   await files.evaluate((el) => el.scrollIntoView({ block: 'start' }));
   await sleep(200);
   await shotEl(page, `bx-frame[src="${TILE}"] .pop`, 'agent-review-list');
 
   // (b) a file the inline patch holds: no request
-  const row = (name) => card.locator('details.frow', { has: page.locator(`.fp[title="${GEN}/${name}"]`) });
+  const row = (name) => card.locator('details.bxc-frow', { has: page.locator(`.bxc-fp[title="${GEN}/${name}"]`) });
   await row('f01.txt').locator(':scope > summary').click();
-  await row('f01.txt').locator('pre.diff').waitFor({ timeout: 5000 });
+  await row('f01.txt').locator('pre.bxc-diff').waitFor({ timeout: 5000 });
   check((await ag((a) => a.diffLoads)).length === 0, 'a file the turn\'s patch holds opens from it (no request)');
-  check(await row('f01.txt').locator('pre.diff > span').count() === 301, `its whole diff shows (its hunk: the row names the file) (${await row('f01.txt').locator('pre.diff > span').count()} lines)`);
+  check(await row('f01.txt').locator('pre.bxc-diff > span').count() === 301, `its whole diff shows (its hunk: the row names the file) (${await row('f01.txt').locator('pre.bxc-diff > span').count()} lines)`);
   await row('f01.txt').locator(':scope > summary').click(); // fold it again
 
   // (c) past the cap: the route; 400 lines, then all of them
   const t1 = Date.now();
   await row('zz-big.txt').locator(':scope > summary').click();
-  await row('zz-big.txt').locator('pre.diff').waitFor({ timeout: 10000 });
+  await row('zz-big.txt').locator('pre.bxc-diff').waitFor({ timeout: 10000 });
   log(`agent-review: the 3000-line file opened in ${Date.now() - t1} ms`);
   const loads = await ag((a) => a.diffLoads);
   check(loads.length === 1 && /\/diff\?turn=\d+&path=review-gen%2Fzz-big\.txt$/.test(loads[0]), `the file past the patch's cap loads from the route (${JSON.stringify(loads)})`);
-  check(await row('zz-big.txt').locator('pre.diff > span').count() === 400, `it shows its first 400 lines (${await row('zz-big.txt').locator('pre.diff > span').count()})`);
-  const more = row('zz-big.txt').locator('button.more');
+  check(await row('zz-big.txt').locator('pre.bxc-diff > span').count() === 400, `it shows its first 400 lines (${await row('zz-big.txt').locator('pre.bxc-diff > span').count()})`);
+  const more = row('zz-big.txt').locator('button.bxc-more');
   check(/Show all 3001 lines/.test(await more.innerText().catch(() => '')), `"Show all" counts the rest (${await more.innerText().catch(() => 'none')})`);
   await row('zz-big.txt').evaluate((el) => el.scrollIntoView({ block: 'start' })); // (its summary sticks: scroll to the row)
   await sleep(200);
   await shotEl(page, `bx-frame[src="${TILE}"] .pop`, 'agent-review-turn');
   await more.click();
-  await row('zz-big.txt').locator('button.more').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
-  check(await row('zz-big.txt').locator('pre.diff > span').count() === 3001 && await row('zz-big.txt').locator('button.more').count() === 0, `Show all shows every line (${await row('zz-big.txt').locator('pre.diff > span').count()})`);
+  await row('zz-big.txt').locator('button.bxc-more').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+  check(await row('zz-big.txt').locator('pre.bxc-diff > span').count() === 3001 && await row('zz-big.txt').locator('button.bxc-more').count() === 0, `Show all shows every line (${await row('zz-big.txt').locator('pre.bxc-diff > span').count()})`);
 
   // (d) the shell call's own card: its change set by toolCallId
-  const call = page.locator(`${agentSel} details.tool.exec`).last();
+  const call = page.locator(`${agentSel} details.bxc-tool.bxc-exec`).last();
   await call.locator(':scope > summary').click();
-  await call.locator('details.files > summary').click();
-  await call.locator('details.frow').first().waitFor({ timeout: 5000 });
-  check(await call.locator('pre.diff').count() === 0, 'the call\'s files open as a list too');
-  const callRow = call.locator('details.frow', { has: page.locator(`.fp[title="${GEN}/f30.txt"]`) });
+  await call.locator('details.bxc-files > summary').click();
+  await call.locator('details.bxc-frow').first().waitFor({ timeout: 5000 });
+  check(await call.locator('pre.bxc-diff').count() === 0, 'the call\'s files open as a list too');
+  const callRow = call.locator('details.bxc-frow', { has: page.locator(`.bxc-fp[title="${GEN}/f30.txt"]`) });
   await callRow.locator(':scope > summary').click();
-  await callRow.locator('pre.diff').waitFor({ timeout: 10000 });
+  await callRow.locator('pre.bxc-diff').waitFor({ timeout: 10000 });
   const loads2 = await ag((a) => a.diffLoads);
   check(loads2.length === 2 && /\/diff\?toolCallId=[^&]+&path=review-gen%2Ff30\.txt$/.test(loads2[1]), `a file past the call's cap loads by its toolCallId (${JSON.stringify(loads2)})`);
   await shotEl(page, `bx-frame[src="${TILE}"] .pop`, 'agent-review-call');
