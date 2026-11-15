@@ -132,6 +132,32 @@ func (b *Broker) PreviewChange(p auth.Principal, op delegation.ChangeOp) (delega
 	return pv, err
 }
 
+// lineNames checks the names an operation's arguments carry before any of
+// them is written into the line a person reads: xbind's sentence is built
+// from them, so each must be a name and nothing else — 1 to 200 bytes of
+// letters, digits and the punctuation paths, refs, hostnames and
+// addresses are made of. No space, quote, line break, control or
+// non-ASCII character (a bidi override reads as another sentence): a
+// "name" that carries text would put the agent's words in xbind's mouth.
+// Pairs are (what, value); an empty value is an argument left out.
+func lineNames(pairs ...string) error {
+	for i := 0; i+1 < len(pairs); i += 2 {
+		what, v := pairs[i], pairs[i+1]
+		if len(v) > 200 {
+			return fmt.Errorf("%s is %d bytes long: a name is at most 200", what, len(v))
+		}
+		for _, c := range []byte(v) {
+			switch {
+			case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+			case strings.IndexByte("._~:@#/*+=,[]-", c) >= 0:
+			default:
+				return fmt.Errorf("%s is not a name: it holds %q", what, string(rune(c)))
+			}
+		}
+	}
+	return nil
+}
+
 // notOnAgent refuses an operation on a workspace agent (the file comment).
 func notOnAgent(what, tile string) error {
 	if auth.HoldsDelegation(strings.Trim(tile, "/")) {
@@ -195,6 +221,9 @@ func (b *Broker) previewGrant(p auth.Principal, op delegation.ChangeOp) (delegat
 		Role   string `json:"role"`
 	}
 	if err := strictArgs(op.Args, &a); err != nil {
+		return delegation.ChangePreview{}, err
+	}
+	if err := lineNames("from", a.From, "target", a.Target, "role", a.Role); err != nil {
 		return delegation.ChangePreview{}, err
 	}
 	g := registry.Grant{From: a.From, Target: a.Target, Role: a.Role}
@@ -282,6 +311,16 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp) (deleg
 	if !remove && body.Provider == "" && len(body.Providers) == 0 {
 		return delegation.ChangePreview{}, errors.New("binding.set names a provider (to unbind, use binding.remove)")
 	}
+	names := []string{"component", body.Component, "slot", body.Slot, "provider", body.Provider, "host", strings.TrimSpace(body.Host), "zone", strings.TrimSpace(body.Zone), "listen", strings.TrimSpace(body.Listen)}
+	for _, ref := range body.Providers {
+		names = append(names, "provider", ref)
+	}
+	if err := lineNames(names...); err != nil {
+		return delegation.ChangePreview{}, err
+	}
+	if len(body.Providers) > 32 {
+		return delegation.ChangePreview{}, errors.New("a binding names at most 32 providers")
+	}
 	if body.Provider != "" && len(body.Providers) > 0 {
 		return delegation.ChangePreview{}, errors.New("a binding names provider or providers, not both")
 	}
@@ -299,7 +338,7 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp) (deleg
 		if err := notOnAgent("a binding to", prov); err != nil {
 			return delegation.ChangePreview{}, err
 		}
-		if !remove && b.refIsHostNet(prov) {
+		if !remove && b.refIsHostNet(body.Component, prov) {
 			return delegation.ChangePreview{}, fmt.Errorf("%s is the host's own network: a tile gets it on the Network page, by an admin — never by a change set", prov)
 		}
 	}
@@ -349,7 +388,15 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp) (deleg
 	}
 	if !plan.del && b.isHTTPSlot(body.Component, body.Slot) {
 		for _, e := range plan.delta {
+			if e.Ref == LLMRef { // xbind's own LLM connector, not a tile
+				pv.Effects = append(pv.Effects, body.Component+"'s code, and everyone who can change it, can call the workspace's LLM connector")
+				pv.Warnings = append(pv.Warnings, "SPEND: "+body.Component+"'s calls to the LLM connector spend the workspace's LLM quota, on the models the connector serves — and send them whatever "+body.Component+" sends")
+				continue
+			}
 			prov, _ := splitRef(e.Ref)
+			if power := b.powerOf(prov); len(power) > 0 {
+				pv.Warnings = append(pv.Warnings, fmt.Sprintf("%s holds %s: whatever its API does with that, %s can now ask it to do", prov, strings.Join(power, ", "), body.Component))
+			}
 			pv.Effects = append(pv.Effects, body.Component+"'s code, and everyone who can change it, can call "+prov)
 			if warn := b.partitionGrantWarning(body.Component, prov); warn != "" && !slices.Contains(pv.Warnings, warn) {
 				pv.Warnings = append(pv.Warnings, warn)
@@ -380,6 +427,9 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 		return delegation.ChangePreview{}, err
 	}
 	a.Tile = strings.Trim(a.Tile, "/")
+	if err := lineNames("org", a.Org, "tile", a.Tile, "level", a.Level); err != nil {
+		return delegation.ChangePreview{}, err
+	}
 	if a.Org == "" || a.Tile == "" {
 		return delegation.ChangePreview{}, errors.New("org.share names an org and a tile")
 	}
@@ -442,6 +492,9 @@ func (b *Broker) previewLimit(p auth.Principal, op delegation.ChangeOp) (delegat
 	if err := strictArgs(op.Args, &a); err != nil {
 		return delegation.ChangePreview{}, err
 	}
+	if err := lineNames("tile", a.Tile, "kind", a.Kind); err != nil {
+		return delegation.ChangePreview{}, err
+	}
 	if a.Tile == "" {
 		return delegation.ChangePreview{}, errors.New("limits.set names a tile")
 	}
@@ -481,19 +534,25 @@ func (b *Broker) previewLimit(p auth.Principal, op delegation.ChangeOp) (delegat
 	return pv, nil // no inverse: a limit goes back to its default on the limits page (DELETE /limits)
 }
 
-// refIsHostNet reports a net ref that is the host's own network: host, or
-// a network set whose rules say host.
-func (b *Broker) refIsHostNet(prov string) bool {
-	if prov == "host" {
+// refIsHostNet reports a net ref that gives comp the host's own network:
+// host, a network set whose rules say host, or — org and personal, which
+// follow their owner's sets live — sets that say host now.
+func (b *Broker) refIsHostNet(comp, prov string) bool {
+	switch {
+	case prov == "host":
 		return true
-	}
-	if strings.HasPrefix(prov, NetRefSet) && b.Users != nil {
-		if name, ok := netSetName(prov); ok {
-			if ns, ok := b.Users.NetSet(name); ok {
-				_, host := netSetMaterial(ns.Rules)
-				return host
-			}
-		}
+	case b.Users == nil:
+		return false
+	case strings.HasPrefix(prov, NetRefSet):
+		_, host, ok := b.netSetRuleTargets(prov)
+		return ok && host
+	case prov == NetRefOrg:
+		_, host := netRuleTargets(b.Users.Ceiling(comp).NetRules())
+		return host
+	case prov == NetRefPersonal:
+		_, _, rules := b.personalNet(comp)
+		_, host := netRuleTargets(rules)
+		return host
 	}
 	return false
 }

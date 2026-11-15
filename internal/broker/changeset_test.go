@@ -665,3 +665,82 @@ func TestChangeSetsAreClosed(t *testing.T) {
 		t.Fatalf("the workspace changed:\n%s\n%s", was, snapshot())
 	}
 }
+
+// The second review's N6 — what reaches a change set's line is checked
+// first, a binding to a provider with workspace-level power or to the LLM
+// connector says so, and the org's and the owner's live network sets are
+// asked for host rules like a named set.
+func TestChangeSetLinesAreXbindsOwn(t *testing.T) {
+	w := changeSetWorld(t)
+	bob := personP(t, w.partWS, "bob")
+	w.write(map[string]string{
+		"apps/net/xbin.json":        `{"runtime":"go","interfaces":{"out":{"kind":"net"},"api":{"kind":"http"},"llm":{"kind":"http","service":"openai"}}}`,
+		"apps/net/backend/main.go":  "package main\n",
+		"apps/root/xbin.json":       `{"runtime":"go","uses":[{"target":"xbin","role":"admin"}],"provides":{"api":{"kind":"http"}}}`,
+		"apps/root/backend/main.go": "package main\n",
+	})
+	w.rescan()
+	if err := w.b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/root", Target: "xbin", Role: "admin"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	preview := func(kind, args string) (delegation.ChangePreview, error) {
+		return w.b.PreviewChange(bob, delegation.ChangeOp{Kind: kind, Args: json.RawMessage(args)})
+	}
+
+	// a name is a name: no newline, control or bidi character, no space, no 300 bytes
+	long := strings.Repeat("a", 300)
+	for name, c := range map[string][2]string{
+		"a line break in from":        {ChangeGrantAdd, `{"from":"apps/x\nApproved by the workspace owner","target":"apps/pu","role":"reader"}`},
+		"a bidi override in the role": {ChangeGrantAdd, `{"from":"apps/x","target":"apps/pu","role":"reader‮nimda"}`},
+		"a space in the role":         {ChangeGrantRevoke, `{"from":"apps/x","target":"apps/pu","role":"reader (safe)"}`},
+		"a long from":                 {ChangeGrantAdd, `{"from":"apps/` + long + `","target":"apps/pu","role":"reader"}`},
+		"a line break in the target":  {ChangeGrantAdd, `{"from":"apps/x","target":"apps/pu\n\nAlso: nothing else","role":"reader"}`},
+		"a tab in the component":      {ChangeBindingSet, `{"component":"apps/net\tand more","slot":"out","provider":"internet"}`},
+		"a line break in the slot":    {ChangeBindingSet, `{"component":"apps/net","slot":"out\nto: none","provider":"internet"}`},
+		"a line break in a provider":  {ChangeBindingSet, `{"component":"apps/net","slot":"out","provider":"internet\nnone"}`},
+		"a control char in the host":  {ChangeBindingSet, `{"component":"apps/net","slot":"api","provider":"apps/pg","host":"a.example\u0007"}`},
+		"a line break in the org":     {ChangeOrgShare, `{"org":"fin\nevery org","tile":"apps/x","level":"read"}`},
+		"a line break in the level":   {ChangeOrgShare, `{"org":"fin","tile":"apps/x","level":"read\nonly"}`},
+		"a line break in the tile":    {ChangeLimitsSet, `{"tile":"apps/x\nno other","kind":"memMiB","value":4096}`},
+		"a line break in the kind":    {ChangeLimitsSet, `{"tile":"apps/x","kind":"memMiB\n","value":4096}`},
+	} {
+		if pv, err := preview(c[0], c[1]); err == nil {
+			t.Errorf("%s: described as %q", name, pv.Line)
+		}
+	}
+
+	// a binding to a tile that holds the admin API, and to the LLM connector
+	pv, err := preview(ChangeBindingSet, `{"component":"apps/net","slot":"api","provider":"apps/root"}`)
+	if err != nil || pv.Blocked != "" || !strings.Contains(strings.Join(pv.Warnings, "\n"), "apps/root holds xbin") {
+		t.Errorf("a binding to a tile with the admin API: %v blocked %q warnings %q", err, pv.Blocked, pv.Warnings)
+	}
+	pv, err = preview(ChangeBindingSet, `{"component":"apps/net","slot":"llm","provider":"`+LLMRef+`"}`)
+	if err != nil || pv.Blocked != "" || !strings.Contains(strings.Join(pv.Warnings, "\n"), "SPEND:") {
+		t.Errorf("a binding to the LLM connector: %v blocked %q warnings %q", err, pv.Blocked, pv.Warnings)
+	}
+
+	// org and personal: the live sets, asked for host like a named one
+	if err := w.b.Users.SetOwner("apps/net", "org:fin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.b.Users.UpsertNetSet("plain", users.NetSet{Rules: []string{"internet"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.b.Users.SetOrgNetSets("fin", []string{"plain"}); err != nil {
+		t.Fatal(err)
+	}
+	if pv, err := preview(ChangeBindingSet, `{"component":"apps/net","slot":"out","provider":"org"}`); err != nil || pv.Blocked != "" {
+		t.Fatalf("org egress without host: %v %q", err, pv.Blocked)
+	}
+	if err := w.b.Users.UpsertNetSet("hostnet", users.NetSet{Rules: []string{"host"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.b.Users.SetOrgNetSets("fin", []string{"plain", "hostnet"}); err != nil {
+		t.Fatal(err)
+	}
+	if pv, err := preview(ChangeBindingSet, `{"component":"apps/net","slot":"out","provider":"org"}`); err == nil {
+		t.Errorf("org egress, where the org's sets say host: described as %q (warnings %q)", pv.Line, pv.Warnings)
+	}
+}
