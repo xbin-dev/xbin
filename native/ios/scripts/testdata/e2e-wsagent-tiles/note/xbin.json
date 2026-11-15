@@ -1,0 +1,9 @@
+{
+  // The workspace agent's UI tests' own tile (XbinWorkspaceAgentTests, D233):
+  // one note with a Go backend. "agent": "full" lets a person's workspace
+  // agent call it — a GET runs, a PUT asks the person first.
+  "title": "Note",
+  "runtime": "go",
+  "agent": "full",
+  "expose": {"roles": {"reader": "read", "writer": "write"}}
+}

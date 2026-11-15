@@ -265,6 +265,12 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusConflict, delegation.ErrSetNotOpen.Error(), delegationDocs)
 		return
 	}
+	// applying is refused while the agent is stopped, as allowing a request
+	// is (rejecting never is)
+	if refusal, msg := s.decideRefusal(a.user, cs.Agent); refusal != "" {
+		refuseDecision(w, refusal, msg)
+		return
+	}
 	chosen := body.Items
 	if len(chosen) == 0 {
 		WriteError(w, http.StatusBadRequest, "say which operations to apply: {items: [n, …]} — nothing is applied by default (to turn the set down: …/reject)", delegationDocs)
@@ -298,6 +304,19 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		WriteError(w, http.StatusConflict, delegation.ErrSetNotOpen.Error(), delegationDocs)
+		return
+	}
+	if refusal, msg := s.decideRefusal(a.user, cs.Agent); refusal != "" {
+		// stopped while the step-up ran: the set waits again, nothing applied
+		// (a stop for good withdraws it the moment it is open again)
+		_, _ = s.Delegation.UpdateChangeSet(a.user, id, func(c *delegation.ChangeSet) error {
+			c.State, c.Decided = delegation.SetProposed, time.Time{}
+			return nil
+		})
+		if refusal == "workspace-off" || refusal == "no-agent" {
+			s.delegationStopped(a.user, false) // the stop's own withdrawal missed it while it was claimed
+		}
+		refuseDecision(w, refusal, msg)
 		return
 	}
 	s.applyChangeSet(r.Context(), a.p, &cs, chosen)

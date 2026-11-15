@@ -19,59 +19,52 @@ import { html, render, nothing } from '/vendor/lit-all.min.js';
 import { chatCssText } from '/vendor/chat/css.js';
 import { rowsView, blockView, noticeView } from '/vendor/chat/views.js';
 import '/vendor/chat/composer.js';
-import { Session } from '../model/session.js';
 import { blockOf, busy } from '../model/fold.js';
 import { ChatWindow } from '../chat-window.js';
 import { copyAnswer } from '../chat-copy.js';
 import { md } from '../chat-md.js';
-import { ws, state as readState } from './api.js';
 import * as dock from './dock.js';
-import { W, CHOICES, quotaOf, composerState, aboutOf, blankAt, clock, slug as slugOf, agentCard, requestCard, possessive } from './words.js';
-import { compose, UPDATES } from './place.js';
+import { W, CHOICES, aboutOf, blankAt } from './words.js';
+import { UPDATES } from './place.js';
 import { hostCard } from './cards.js';
 import { chipView, panelView } from './scope.js';
-import * as SM from './scope-model.js';
 import { sessionsView, emptyView, notebookView, bannersView } from './panels.js';
 import { WS_CSS } from './css.js';
+import { createStore } from './store.js';
 try { await import('/vendor/bx-icons.js'); } catch { /* an older xbind: words without glyphs */ }
 
 const icon = (name) => (name ? html`<bx-icon name=${name} aria-hidden="true"></bx-icon>` : nothing);
-const errOf = (r, dflt) => (r && r.data && r.data.error) || dflt || `error ${r ? r.status : ''}`;
 
-// ---- the page's state ----------------------------------------------------------------------
+// ---- the page's state: the model both views stand on (ws/store.js) ------------------------------
 
-const S = {
-  state: null, sessions: [], sel: null, err: '', heldErr: '',
-  cards: null, conn: null, full: null, fullErr: '', empty: null, sd: new Map(),
-  view: 'chat', pop: '', whatCan: false,
-  scope: { view: 'tree', filter: 'all', ticks: new Set(), expanded: new Set(), pick: '', what: null, refused: null, busy: false, err: '', focus: '' },
-  ses: { renaming: null, err: '' },
-  nb: { pages: [], open: '', page: null, editing: false, draft: null, confirm: false, err: '', busy: false },
-  context: null, drafts: new Map(), sending: false, sendErr: '',
-  conn0: 'live', lostAt: 0, updating: false, afterUpdate: null, loadedAt: 0,
-  bags: new Map(), rev: 0, narrow: false, said: '',
-};
-const session = new Session(`/api/${globalThis.xbin?.self ?? ''}`, {
-  change: () => connChanged(),
-  runs: () => soon('sessions'),
-  event: (ev) => { if (ev.type === 'run') { if (ev.run === S.sel) soon('cards'); soon('sessions'); } },
-  reset: () => soon('cards'),
-}, { deltas: true, page: 50 });
-const win = new ChatWindow(session);
-let layout = { at: new Map(), tail: [], live: {}, plan: null };
 let root = null;
-
-// a refresh asked for by several events in a row is one read
-const timers = {};
-function soon(what, ms = 120) {
-  clearTimeout(timers[what]);
-  timers[what] = setTimeout(() => (what === 'cards' ? loadCards() : what === 'sessions' ? loadSessions() : loadState()), ms);
-}
+let win = null;
+const store = createStore({
+  paint: () => paint(),
+  post: (msg) => dock.post(msg),
+  hooks: {
+    reset: () => win && win.reset(),
+    // a filled composer takes the cursor: in a starter's blank, else at its end
+    filled: (text) => requestAnimationFrame(() => {
+      const c = composer();
+      const ta = c && c.querySelector('textarea');
+      if (!ta) return;
+      ta.focus();
+      const at = blankAt(text);
+      if (at) ta.setSelectionRange(at[0], at[1]); else ta.setSelectionRange(text.length, text.length);
+    }),
+    context: () => requestAnimationFrame(() => composer()?.focus()),
+    renaming: () => requestAnimationFrame(() => root.querySelector('.wsp-rename')?.select()),
+    whatCan: () => requestAnimationFrame(() => root.querySelector('#wsp-empty-h')?.scrollIntoView({ block: 'nearest' })),
+  },
+});
+const { S, session, bag, current, send, fill, offline, tileName, banners, composerNow, hasUserMessage } = store;
+win = new ChatWindow(session);
+let layout = { at: new Map(), tail: [], live: {}, plan: null };
 
 // ---- the ChatCtx the kit's views reach the page through ---------------------------------------
 
 const slotKey = (b, slot) => (slot === 'body' ? b.k : `${b.k}:${slot}`);
-const bag = (k) => { let b = S.bags.get(k); if (!b) { if (S.bags.size > 60) S.bags.delete(S.bags.keys().next().value); S.bags.set(k, (b = {})); } return b; };
 const act = {
   now: () => Date.now(),
   tileName,
@@ -79,14 +72,14 @@ const act = {
   bag,
   repaint: () => { S.rev++; paint(); },
   openSession: (a) => dock.showSession(a.session, a.tile),
-  review: (q) => { dock.post(q.kind === 'changeset' ? dock.openChangeset(q.ref) : dock.openRequest(q.ref)); announce('xbin shows the request to review.'); },
+  review: (q) => store.review(q),
   send: (text) => send(text),
   fill: (text) => fill(text),
   // a redirect's way forward: a new session of the tile's own agent, the person's own words as its draft
   handTo: (tile, draft) => dock.showSession('new', tile, globalThis.window, draft),
-  briefSave, briefStart, startDefaults,
-  openScope: (o) => openScope(o),
-  whatCan: () => showWhatCan(),
+  briefSave: store.briefSave, briefStart: store.briefStart, startDefaults: store.startDefaults,
+  openScope: (o) => store.openScope(o),
+  whatCan: () => store.showWhatCan(),
   md: (s) => md(s),
 };
 const ctx = {
@@ -155,299 +148,29 @@ function contextOf(kb) {
 }
 const aboutChip = (a, extra = nothing) => html`<span class="wsp-about">${icon(a.tile ? 'grid' : 'columns')}About ${a.tile ? '' : 'the '}<b>${a.tile ? a.name || a.tile : a.screen}</b>${a.tile ? '' : ' screen'}${extra}</span>`;
 
-// ---- loading ---------------------------------------------------------------------------------
-
-async function loadState() {
-  const r = await readState();
-  if (r.ok) S.state = r.data;
-  paint();
-}
-
-async function loadSessions() {
-  const r = await ws.sessions();
-  if (!r.ok) { S.err = errOf(r, 'The sessions could not be read.'); paint(); return; }
-  S.sessions = r.data.sessions || [];
-  paint();
-}
-
-async function loadCards() {
-  if (S.sel == null) return;
-  const id = S.sel;
-  const r = await ws.cards(id);
-  if (!r.ok || S.sel !== id) return;
-  const before = S.cards;
-  S.cards = r.data;
-  sayChanges(before, S.cards);
-  paint();
-}
-
-async function loadConnection() {
-  const s = current();
-  if (!s) return;
-  const [b, f] = await Promise.all([ws.connection(s.id), s.handle ? ws.fullConnection(s.handle) : Promise.resolve(null)]);
-  if (S.sel !== s.id) return;
-  if (b.ok) S.conn = b.data;
-  if (f && f.ok) { S.full = f.data; S.fullErr = ''; S.rev++; /* the cards say tiles by xbind's names */ } else S.fullErr = f ? errOf(f, 'xbin could not say which tiles are connected.') : '';
-  paint();
-}
-
-async function loadEmpty() {
-  const id = S.sel;
-  const r = await ws.empty(id);
-  if (S.sel === id) { S.empty = r.ok ? r.data : null; paint(); }
-}
-
-const current = () => S.sessions.find((s) => s.id === S.sel) || null;
-
-async function select(id) {
-  S.sel = id;
-  S.cards = null; S.conn = null; S.full = null; S.empty = null; S.sd.clear(); S.pop = ''; S.view = 'chat'; S.whatCan = false;
-  win.reset();
-  paint();
-  try { await session.select(id); } catch (e) { S.err = String(e.message || e); }
-  S.loadedAt = Date.now();
-  ws.putPrefs({ lastSession: id });
-  await Promise.all([loadCards(), loadConnection(), loadEmpty()]);
-}
-
-async function boot() {
-  const [st, list, prefs] = await Promise.all([readState(), ws.sessions(), ws.prefs()]);
-  if (st.ok) S.state = st.data;
-  let sessions = list.ok ? list.data.sessions || [] : [];
-  if (!sessions.some((s) => s.main)) {
-    const m = await ws.main();
-    if (!m.ok) { S.err = errOf(m, 'Your agent could not start a session.'); paint(); return; }
-    sessions = [m.data.session, ...sessions];
-  }
-  S.sessions = sessions;
-  const last = prefs.ok && prefs.data.lastSession;
-  await session.start();
-  await select(sessions.some((s) => s.id === last) ? last : sessions.find((s) => s.main).id);
-}
-
-// ---- the conversation's changes, said once (a polite live region) --------------------------------
-
-// (the region is lit's: its text changes by a paint, never by hand)
-function announce(text) { S.said = text; paint(); }
-function sayChanges(before, after) {
-  if (!before) return;
-  const old = new Map((before.requests || []).map((q) => [q.id, q.state]));
-  for (const q of after.requests || []) {
-    if (!old.has(q.id) && (q.state === 'pending' || q.state === 'proposed')) return announce(`A request waits for your approval: ${q.title || q.kind}.`);
-    if (old.has(q.id) && old.get(q.id) !== q.state && q.state !== 'running') return announce(`${q.title || 'A request'}: ${requestCard(q, Date.now(), tileName).head}`);
-  }
-  const was = new Map((before.agents || []).map((a) => [a.id, `${a.status}:${a.waits}`]));
-  for (const a of after.agents || []) {
-    if (was.get(a.id) !== `${a.status}:${a.waits}`) { const w = agentCard(a, Date.now(), tileName); return announce(`${w.tile}: ${w.word}.`); }
-  }
-}
-
-// ---- the connection: reconnecting, xbin updating, back --------------------------------------------
-
-{
-  const chunk = session.live.chunk.bind(session.live);
-  session.live.chunk = (t) => { const r = chunk(t); if (r === 'bye') { S.updating = true; paint(); } return r; };
-}
-function connChanged() {
-  const c = session.conn;
-  if (c !== S.conn0) {
-    if (c === 'reconnecting') S.lostAt = Date.now();
-    if (c === 'live') {
-      if (S.updating) { S.updating = false; S.afterUpdate = { at: Date.now() }; }
-      S.lostAt = 0;
-      soon('cards'); soon('sessions'); soon('state');
-    }
-    S.conn0 = c;
-  }
-  paint();
-}
-const offline = () => !S.updating && session.conn !== 'live' && S.lostAt && Date.now() - S.lostAt > CHOICES.offlineAfterMs;
-
 // ---- the composer ------------------------------------------------------------------------------
 
 const composer = () => root && root.querySelector('bx-chat-composer');
-function fill(text, focus = true) {
-  S.drafts.set(S.sel, text);
-  paint();
-  if (!focus) return;
-  requestAnimationFrame(() => {
-    const c = composer();
-    const ta = c && c.querySelector('textarea');
-    if (!ta) return;
-    ta.focus();
-    const at = blankAt(text);
-    if (at) ta.setSelectionRange(at[0], at[1]); else ta.setSelectionRange(text.length, text.length);
-  });
-}
-
-async function send(text) {
-  text = String(text || '').trim();
-  if (!text || S.sel == null || S.sending) return false;
-  const cs = composerNow();
-  if (cs.disabled || cs.hold) return false;
-  const c = S.context && !S.context.none ? (S.context.tile ? { tile: S.context.tile } : { screen: S.context.screen }) : null;
-  S.sending = true; S.sendErr = ''; paint();
-  const r = await ws.send(S.sel, text, Math.random().toString(36).slice(2), c);
-  S.sending = false;
-  if (r.status === 409 && r.data && r.data.code === 'agent-off') {
-    // the agent's switch is off (xbind said which): the transcript has the line, the words stay here, unsent
-    S.sendErr = r.data.error || 'Your agent is off: nothing was sent.';
-    await loadState();
-    paint();
-    return false;
-  }
-  if (!r.ok) { S.sendErr = errOf(r, 'The message was not sent.'); paint(); return false; }
-  S.context = null;
-  if ((S.drafts.get(S.sel) || '').trim() === text) S.drafts.set(S.sel, '');
-  S.whatCan = false;
-  paint();
-  return true;
-}
-
-function composerNow() {
-  const v = session.current();
-  const blocks = v ? session.shown().blocks : [];
-  return composerState({
-    paused: !!(S.state && S.state.delegation && S.state.delegation.paused),
-    off: !!(S.state && S.state.delegation && S.state.delegation.workspace === false),
-    quota: quotaOf(S.state), conn: session.conn, updating: S.updating, offline: offline(),
-    empty: !blocks.some((b) => b.k === 'user'), asking: !!(layout.live && layout.live.ask), brief: !!(layout.live && layout.live.brief),
-  });
-}
 
 // ---- the context chip (xbin:agent-context) ---------------------------------------------------------
 
-function tileName(path) {
-  const t = S.full && (S.full.tiles || []).find((x) => x.tile === path);
-  return (t && t.name) || path;
-}
-function onContext(c) {
-  // (the tile's name is read when it is drawn and sent: the chrome may say this before xbind's view of the tiles is here)
-  S.context = c.none ? null : c.tile ? { tile: c.tile } : { screen: c.screen };
-  paint();
-  requestAnimationFrame(() => composer()?.focus());
-}
 function contextChip() {
-  const c = S.context;
+  const c = store.contextNow();
   if (!c) return nothing;
-  const t = c.tile && S.full ? (S.full.tiles || []).find((x) => x.tile === c.tile) : null;
-  const not = t && t.state !== 'connected';
-  const chip = not
-    ? html`<button class="wsp-about not" title="open the scope panel" @click=${() => openScope({})}>${icon('grid')}About <b>${t.name || c.tile}</b> — not connected${t.reason ? ` (${t.reason})` : ''}</button>`
-    : aboutChip({ ...c, name: c.name || tileName(c.tile) });
-  return html`<div class="wsp-ctx">${chip}<button class="x quiet" aria-label="remove the context" title="don't send it with the next message" @click=${() => { S.context = null; paint(); }}>${icon('xmark')}</button></div>`;
+  const chip = c.not
+    ? html`<button class="wsp-about not" title="open the scope panel" @click=${() => store.openScope({})}>${icon('grid')}About <b>${c.name}</b> — not connected${c.reason ? ` (${c.reason})` : ''}</button>`
+    : aboutChip(c);
+  return html`<div class="wsp-ctx">${chip}<button class="x quiet" aria-label="remove the context" title="don't send it with the next message" @click=${() => store.dropContext()}>${icon('xmark')}</button></div>`;
 }
 
-// ---- briefs ------------------------------------------------------------------------------------
+// ---- the scope panel: the model's moves (ws/store.js), this page's keys and pop-over ------------------
 
-function startDefaults(b) {
-  const key = `${b.id}:${b.harness || ''}:${b.updatedMs || 0}`;
-  if (S.sd.has(key)) return S.sd.get(key);
-  S.sd.set(key, null);
-  ws.startDefaults(S.sel, b.id).then((r) => { if (r.ok) { S.sd.set(key, r.data); S.rev++; paint(); } });
-  return null;
-}
-async function briefSave(b, vals) {
-  const r = await ws.putBrief(S.sel, b.id, vals);
-  if (!r.ok) return errOf(r, 'The brief was not saved.');
-  await loadCards();
-  return '';
-}
-async function briefStart(b) {
-  if (b.state === 'asked') {
-    const q = ((S.cards && S.cards.requests) || []).find((x) => x.brief === b.id && x.state === 'pending' && x.ref && !/^(brief|resume):/.test(x.ref));
-    if (q) { act.review(q); return ''; }
-  }
-  const r = await ws.startBrief(S.sel, b.id);
-  if (!r.ok) return errOf(r, 'It could not be started.');
-  if (r.data.request) dock.post(dock.openRequest(r.data.request));
-  await loadCards();
-  return r.data.started === false && r.data.outcome ? r.data.outcome : '';
-}
-
-// ---- the scope panel -----------------------------------------------------------------------------
-
-async function openScope(o = {}) {
-  S.pop = 'scope';
-  const sc = S.scope;
-  Object.assign(sc, { view: o.models ? 'models' : 'tree', err: '', what: null, refused: null, pick: '', busy: false });
-  paint();
-  if (!S.full) await loadConnection();
-  sc.ticks = SM.initialTicks(S.full);
-  sc.expanded = new Set(SM.tree(S.full, sc.ticks).filter((x) => x.box === 'mixed' || x.state === 'blocked').map((x) => x.id).slice(0, 3));
-  sc.err = S.fullErr;
-  paint();
-}
-const models = () => {
-  const s = current();
-  const list = ((S.state && S.state.models && S.state.models.models) || []).slice();
-  if (s && s.model && !list.some((m) => m.id === s.model)) list.unshift({ id: s.model });
-  return list;
-};
-async function pickModel(id) {
-  const sc = S.scope, s = current();
-  Object.assign(sc, { pick: id, what: null, err: '', view: 'whatif' });
-  paint();
-  if (!s || id === s.model) return;
-  const [b, f] = await Promise.all([ws.connection(s.id, id), s.handle ? ws.fullConnection(s.handle, id) : Promise.resolve(null)]);
-  if (sc.pick !== id) return;
-  if (!b.ok) { sc.err = errOf(b, 'xbin could not say what would change.'); paint(); return; }
-  sc.what = SM.whatIf(b.data, f && f.ok ? f.data : null, s.model);
-  if (sc.what.refused) { sc.refused = sc.what.refused; sc.view = 'refused'; }
-  paint();
-}
-async function switchModel() {
-  const sc = S.scope, s = current();
-  if (!s || !sc.pick) return;
-  sc.busy = true; paint();
-  const r = await ws.patch(s.id, { model: sc.pick });
-  sc.busy = false;
-  if (r.status === 409 && r.data.code === 'model_taint') {
-    sc.refused = SM.refusedWords({ model: r.data.model || sc.pick, orgs: r.data.orgs || [], reason: r.data.reason || '', current: s.model });
-    sc.view = 'refused';
-  } else if (!r.ok) sc.err = errOf(r, 'The model was not changed.');
-  else { S.pop = ''; await loadSessions(); await loadConnection(); }
-  paint();
-}
-async function moveHeld(model) {
-  const s = current();
-  if (!s) return;
-  const r = await ws.patch(s.id, { model });
-  S.heldErr = r.ok ? '' : errOf(r, 'The session could not move.');
-  await loadSessions();
-  paint();
-}
-async function newSessionOn(model) {
-  const r = await ws.newSession(S.sel, { model });
-  if (!r.ok) { S.scope.err = errOf(r, 'A new session could not be started.'); paint(); return; }
-  S.sessions = [...S.sessions, r.data.session];
-  await select(r.data.session.id);
-}
-async function applyScope() {
-  const sc = S.scope, s = current();
-  sc.busy = true; paint();
-  const r = await ws.patch(s.id, { scope: SM.scopeOf(S.full, sc.ticks) });
-  sc.busy = false;
-  if (!r.ok) { sc.err = errOf(r, 'The scope was not changed.'); paint(); return; }
-  S.pop = '';
-  await loadSessions(); await loadConnection(); loadEmpty();
-}
 const scopeAct = {
-  toggle: () => (S.pop === 'scope' ? closePop() : openScope({})),
+  ...store.scope,
+  toggle: () => (S.pop === 'scope' ? closePop() : store.openScope({})),
   close: () => closePop(),
   key: (e) => { if (e.key === 'Escape') { e.stopPropagation(); closePop(); } },
-  filter: (k) => { S.scope.filter = k; paint(); },
-  selectAll: () => { S.scope.ticks = SM.allAllowed(S.full); paint(); },
-  expand: (id) => { const x = S.scope.expanded; if (x.has(id)) x.delete(id); else x.add(id); S.scope.focus = 'o:' + id; paint(); },
-  tickOrg: (id) => { S.scope.ticks = SM.toggleOrg(S.scope.ticks, S.full, id); S.scope.focus = 'o:' + id; paint(); },
-  tickTile: (t) => { S.scope.ticks = SM.toggleTile(S.scope.ticks, S.full, t); S.scope.focus = 't:' + t; paint(); },
   treeKey: (e) => treeKey(e),
-  models: () => { S.scope.view = 'models'; paint(); },
-  back: () => { Object.assign(S.scope, { view: 'tree', pick: '', what: null }); paint(); },
-  pick: (id) => pickModel(id),
-  switchModel: () => switchModel(),
-  newOn: (m) => newSessionOn(m),
-  apply: () => applyScope(),
 };
 // the tree's keys (the ARIA tree pattern): arrows move, right/left unfold and fold, space ticks
 function treeKey(e) {
@@ -475,116 +198,16 @@ function treeKey(e) {
   }
 }
 
-// ---- sessions -----------------------------------------------------------------------------------
+// ---- sessions, the notebook: the model's (ws/store.js), with this page's keys ----------------------------
 
-const sessAct = {
-  key: (e) => { if (e.key === 'Escape') { e.stopPropagation(); closePop(); } },
-  pick: (id) => { S.pop = ''; if (id !== S.sel) select(id); else paint(); },
-  create: async () => {
-    const r = await ws.newSession(S.sel);
-    if (!r.ok) { S.ses.err = errOf(r, 'A new session could not be started.'); paint(); return; }
-    S.sessions = [...S.sessions, r.data.session];
-    await select(r.data.session.id);
-  },
-  renaming: (id) => { S.ses.renaming = id; paint(); requestAnimationFrame(() => root.querySelector('.wsp-rename')?.select()); },
-  rename: async (id, name) => {
-    if (S.ses.renaming !== id) return;
-    S.ses.renaming = null;
-    name = String(name || '').trim();
-    const s = S.sessions.find((x) => x.id === id);
-    if (name && s && name !== s.name) { const r = await ws.patch(id, { name }); if (!r.ok) S.ses.err = errOf(r); await loadSessions(); }
-    paint();
-  },
-  archive: async (id, on) => {
-    const r = await ws.patch(id, { archived: on });
-    if (!r.ok) { S.ses.err = errOf(r); paint(); return; }
-    await loadSessions();
-    if (on && id === S.sel) select(S.sessions.find((s) => s.main).id);
-  },
-};
-
-// ---- the notebook ----------------------------------------------------------------------------------
-
-async function openNotebook() {
-  S.view = 'notebook'; S.pop = '';
-  Object.assign(S.nb, { open: '', page: null, editing: false, draft: null, confirm: false, err: '' });
-  paint();
-  const r = await ws.notebook(S.sel);
-  S.nb.pages = r.ok ? r.data.pages || [] : [];
-  S.nb.err = r.ok ? '' : errOf(r, 'The notebook could not be read.');
-  paint();
-}
-const nbAct = {
-  close: () => { S.view = 'chat'; paint(); },
-  list: () => openNotebook(),
-  add: () => { Object.assign(S.nb, { open: '+', page: null, editing: true, draft: {}, err: '' }); paint(); },
-  read: async (slug) => {
-    Object.assign(S.nb, { open: slug, page: null, editing: false, draft: null, confirm: false, err: '' });
-    paint();
-    const r = await ws.page(slug, S.sel);
-    if (r.ok) S.nb.page = r.data.page; else S.nb.err = errOf(r, 'The page could not be read.');
-    paint();
-  },
-  edit: () => { Object.assign(S.nb, { editing: true, draft: {} }); paint(); },
-  cancel: () => { if (S.nb.open === '+') return openNotebook(); Object.assign(S.nb, { editing: false, draft: null }); paint(); },
-  confirm: (on) => { S.nb.confirm = on; paint(); },
-  save: async () => {
-    const n = S.nb, p = n.page, d = n.draft || {};
-    const title = (d.title ?? (p ? p.title : '')).trim();
-    const body = d.body ?? (p ? p.body || '' : '');
-    if (!title && n.open === '+') { n.err = 'Give the page a title.'; paint(); return; }
-    n.busy = true; paint();
-    const slug = n.open === '+' ? slugOf(title) : n.open;
-    const r = await ws.putPage(slug, { title, body, base: p ? p.version : 0 });
-    n.busy = false;
-    if (r.status === 409) { n.err = 'The page changed since you opened it. Your text is still here: read the page again before you save.'; paint(); return; }
-    if (!r.ok) { n.err = errOf(r, 'The page was not saved.'); paint(); return; }
-    await nbAct.read(slug);
-  },
-  drop: async () => {
-    const r = await ws.dropPage(S.nb.open);
-    if (!r.ok) { S.nb.err = errOf(r); paint(); return; }
-    openNotebook();
-  },
-  md: (s) => md(s),
-};
-
-function showWhatCan() { S.whatCan = true; S.pop = ''; S.view = 'chat'; if (!S.empty) loadEmpty(); paint(); requestAnimationFrame(() => root.querySelector('#wsp-empty-h')?.scrollIntoView({ block: 'nearest' })); }
+const sessAct = { ...store.sessions, key: (e) => { if (e.key === 'Escape') { e.stopPropagation(); closePop(); } } };
+const nbAct = { ...store.notebook, md: (s) => md(s) };
 
 // ---- pop-overs ---------------------------------------------------------------------------------------
 
 let opener = null;
 function openPop(name, e) { opener = e && e.currentTarget; S.pop = S.pop === name ? '' : name; paint(); if (S.pop) requestAnimationFrame(() => root.querySelector('.wsp-pop button, .wsp-pop [tabindex="0"]')?.focus()); }
 function closePop() { S.pop = ''; S.ses.renaming = null; paint(); if (opener && opener.isConnected) opener.focus(); opener = null; }
-
-// ---- the page's states --------------------------------------------------------------------------------
-
-function banners() {
-  const out = [];
-  const d = (S.state && S.state.delegation) || {};
-  if (d.workspace === false) out.push({ key: 'off', tone: 'bad', icon: 'power', bold: 'Turned off for this workspace.', text: 'An admin turned workspace agents off. Nothing an agent started is running on your behalf. Your conversations and notebook are kept for when it is turned on again.' });
-  if (d.paused) out.push({ key: 'paused', tone: 'warn', icon: 'pause', bold: `Paused by you${d.pausedAt ? ` at ${clock(Date.parse(d.pausedAt))}` : ''}.`, text: 'Your agent can’t read or change anything in the workspace until you resume. Tile agents that are already running keep going; their questions still come to you.' });
-  const q = quotaOf(S.state);
-  if (q) out.push({ key: 'quota', tone: 'warn', icon: 'clock', bold: 'Today’s limit is used up.', text: q.words, more: q.raise });
-  const held = current() && current().held;
-  if (held) { // it can't go on on its model: why, and the ways forward (the backend refuses every call meanwhile)
-    const h = SM.heldWords(held);
-    out.push({ key: 'held', tone: 'bad', icon: 'lock', bold: h.bold, text: h.text, more: S.heldErr || '',
-      buttons: [...(h.back ? [{ key: 'back', label: h.back.label, act: () => moveHeld(h.back.model) }] : []), { key: 'new', label: h.fresh.label, act: () => newSessionOn(h.fresh.model) }] });
-  }
-  if (S.updating) out.push({ key: 'updating', tone: 'info', icon: 'refresh', bold: 'xbin is updating.', text: 'Back in about a minute. Running tile agents are stopped and continue afterwards.' });
-  else if (offline()) out.push({ key: 'offline', tone: 'warn', icon: 'signal', bold: 'Can’t reach the workspace.', text: `Showing what was loaded at ${clock(S.loadedAt)}. Trying again… Approvals can’t be given until it’s back.`, button: { label: 'Try now', act: () => session.live.resync() } });
-  if (S.afterUpdate) {
-    const ag = (S.cards && S.cards.agents) || [];
-    const cut = ag.filter((a) => a.status === 'stopped' || a.status === 'lost');
-    const went = ag.filter((a) => ['starting', 'running', 'idle'].includes(a.status));
-    const n = cut.length + went.length;
-    out.push({ key: 'updated', tone: 'info', icon: 'refresh', bold: `xbin was updated at ${clock(S.afterUpdate.at)}.`,
-      text: n ? `${went.length} of ${n} tile agents continued.${cut.length ? ` ${cut.map((a) => possessive(tileName(a.tile))).join(', ')} could not.` : ''}` : '',
-      button: { label: 'OK', act: () => { S.afterUpdate = null; paint(); } } });
-  }
-  return out;
-}
 
 // ---- drawing ---------------------------------------------------------------------------------------
 
@@ -605,24 +228,23 @@ function paint() {
 
 function pageTpl() {
   const s = current();
-  const conn = (S.conn && S.conn.connection) || (s && s.connection) || {};
-  const counts = { ...(conn.counts || {}), summary: (S.conn && S.conn.summary) || (s && s.summary) || '' };
+  const counts = store.counts();
   const cs = composerNow();
   const v = session.current();
   return html`<div class="wsp">
     <div class="wsp-strip" role="toolbar" aria-label="this session">
       <button class="wsp-sess" aria-haspopup="dialog" aria-expanded=${S.pop === 'sessions' ? 'true' : 'false'} title="sessions" @click=${(e) => openPop('sessions', e)}>
         <span class="nm">${s ? s.name || (s.main ? 'Main' : 'New session') : '…'}</span>${icon('chevron-down')}</button>
-      ${s ? chipView({ counts, model: s.model, private: !!(S.full && S.full.model && S.full.model.private), narrow: S.narrow, open: S.pop === 'scope' }, { toggle: () => scopeAct.toggle() }) : nothing}
+      ${s ? chipView({ counts, model: s.model, private: store.isPrivate(), narrow: S.narrow, open: S.pop === 'scope' }, { toggle: () => scopeAct.toggle() }) : nothing}
       <button class="wsp-menu-b" aria-label="more" aria-haspopup="menu" aria-expanded=${S.pop === 'menu' ? 'true' : 'false'} @click=${(e) => openPop('menu', e)}>${icon('ellipsis')}</button>
       ${S.pop === 'sessions' ? sessionsView({ list: S.sessions, current: S.sel, renaming: S.ses.renaming, err: S.ses.err }, sessAct) : nothing}
-      ${S.pop === 'scope' ? panelView({ ...S.scope, full: S.full, counts, model: s && s.model, private: !!(S.full && S.full.model && S.full.model.private), models: models(), err: S.scope.err || (S.full ? '' : S.fullErr) }, scopeAct) : nothing}
+      ${S.pop === 'scope' ? panelView({ ...S.scope, full: S.full, counts, model: s && s.model, private: store.isPrivate(), models: store.models(), err: S.scope.err || (S.full ? '' : S.fullErr) }, scopeAct) : nothing}
       ${S.pop === 'menu' ? html`<div class="wsp-pop wsp-menu" role="menu" @keydown=${(e) => { if (e.key === 'Escape') closePop(); }}>
-        <button role="menuitem" @click=${() => openNotebook()}>${icon('doc')}Notebook</button>
-        <button role="menuitem" @click=${() => showWhatCan()}>${icon('question')}${W.whatCanItDo}</button></div>` : nothing}
+        <button role="menuitem" @click=${() => store.openNotebook()}>${icon('doc')}Notebook</button>
+        <button role="menuitem" @click=${() => store.showWhatCan()}>${icon('question')}${W.whatCanItDo}</button></div>` : nothing}
     </div>
     ${bannersView(banners())}
-    ${S.err ? html`<div class="wsp-banner bad" role="alert">${icon('warning')}<div class="wsp-bt">${S.err}</div><button @click=${() => { S.err = ''; boot(); }}>Try again</button></div>` : nothing}
+    ${S.err ? html`<div class="wsp-banner bad" role="alert">${icon('warning')}<div class="wsp-bt">${S.err}</div><button @click=${() => { S.err = ''; store.boot(); }}>Try again</button></div>` : nothing}
     <main class="wsp-main" aria-label="conversation with your workspace agent" aria-busy=${v ? 'false' : 'true'}>
       ${S.view === 'notebook' ? notebookView(S.nb, nbAct) : chatTpl(v)}
     </main>
@@ -633,8 +255,8 @@ function pageTpl() {
         .queueHint=${'go in when the agent’s turn ends'}
         @bx-chat-draft=${(e) => S.drafts.set(S.sel, e.detail.text)}
         @bx-chat-send=${(e) => send(e.detail.text)}
-        @bx-chat-stop=${() => ws.stop(S.sel)}
-        @bx-chat-take-back=${(e) => { const q = session.queued().find((x) => String(x.id) === String(e.detail.id)); if (q) { ws.takeBack(S.sel, q.id); fill(q.text || '', true); } }}></bx-chat-composer>
+        @bx-chat-stop=${() => store.stop()}
+        @bx-chat-take-back=${(e) => store.takeBack(e.detail.id)}></bx-chat-composer>
       ${S.sendErr ? html`<p class="wsc-err" role="alert">${S.sendErr}</p>` : nothing}
       ${cs.note ? html`<p class="wsp-hint" role="status">${cs.note}</p>` : !hasUserMessage() && !cs.disabled ? html`<p class="wsp-hint">${(S.empty && S.empty.hint) || W.hint}</p>` : nothing}
     </div>` : nothing}
@@ -642,17 +264,16 @@ function pageTpl() {
   </div>`;
 }
 
-const hasUserMessage = () => { const v = session.current(); return !!(v && session.shown().blocks.some((b) => b.k === 'user')); };
-
 function chatTpl(v) {
   if (!v) return html`<div class="wsc-muted" role="status">Loading…</div>`;
-  const s = session.shown();
-  layout = compose(s.blocks, S.cards, s.run, { words: W });
+  const placed = store.place();
+  const s = placed.shown;
+  layout = placed.layout;
   const w = win.place(s);
   const rows = w.start || w.end < s.blocks.length ? s.blocks.slice(w.start, w.end) : s.blocks;
   const atEnd = w.end >= s.blocks.length && !s.hasNewer;
   const empty = !s.blocks.length && !s.hasOlder;
-  const agents = ((S.cards && S.cards.agents) || []).filter((a) => a.status === 'running' || a.status === 'starting').length;
+  const agents = store.working();
   return html`
     ${w.start || s.hasOlder ? html`<div class="wsp-earlier">… earlier messages <button class="quiet" @click=${() => w.older()}>load earlier</button></div>` : nothing}
     ${empty ? emptyView(S.empty, { starter: (st) => fill(st.text) }) : nothing}
@@ -684,14 +305,12 @@ export function mount(doc = document) {
   globalThis.addEventListener('resize', narrow);
   doc.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.pop) closePop(); });
   doc.addEventListener('pointerdown', (e) => { if (S.pop && !e.target.closest('.wsp-pop, .wsp-strip button')) closePop(); });
-  dock.listen(onContext);
-  // xbind's own events: a request decided, a change set, the switches — read again what they name
-  try { globalThis.xbin?.events?.on((ev) => { if (ev && ev.type === 'delegate') { const op = ev.data && ev.data.op; if (op === 'state') soon('state'); else { soon('cards'); soon('sessions'); } } }); } catch { /* no events here */ }
-  // running times move; a dropped connection becomes "can't reach" after a while
-  setInterval(() => { if (offline() || session.conn !== 'live' || ((S.cards && S.cards.agents) || []).some((a) => a.status === 'running')) paint(); }, CHOICES.tick);
+  dock.listen(store.onContext);
+  // xbind's own events (a request decided, a change set, the switches), and the tick of running times (ws/store.js)
+  store.wire();
   globalThis.wsAgentPage = { testApi };
   paint();
-  boot().then(() => paint());
+  store.boot().then(() => paint());
 }
 
 if (typeof document !== 'undefined') mount(document);

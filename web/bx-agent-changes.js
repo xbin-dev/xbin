@@ -17,6 +17,10 @@
  *
  *   properties  set      the change set, as GET /delegate/changesets/<id> answered
  *               person   who is asked
+ * While the agent is stopped (off, paused, held, no agent: the state, or a
+ * 409 {refusal} to an Apply from a dialog opened before) Apply is replaced
+ * by why; Reject all stays.
+ *
  *   events      bx-agent-done {id, verdict: 'applied' | 'rejected' | 'later'}
  *               bx-agent-review {kind: 'changeset', id}   (Undo made a new set: review it)
  */
@@ -24,8 +28,8 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
-import { uncovered } from '/vendor/bx-agent-approve.js';
-import { CHOICES, kindTag, warning, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp } from '/vendor/agent-chrome-words.js';
+import { uncovered, shown, hiddenLine } from '/vendor/bx-agent-approve.js';
+import { CHOICES, kindTag, warning, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp, stopRefusal, stopWords, endedWords, knownState, UNKNOWN_STATE } from '/vendor/agent-chrome-words.js';
 
 const KEEP = 'xbin-agent-ticks:'; // sessionStorage: a set's ticks, kept across signing in again
 
@@ -33,6 +37,7 @@ export class BxAgentChanges extends LitElement {
   static properties = {
     set: { attribute: false }, person: { type: String },
     _ticks: { state: true }, _view: { state: true }, _step: { state: true }, _busy: { state: true }, _err: { state: true }, _armed: { state: true },
+    _stopped: { state: true },
   };
 
   static styles = [chromeCss, css`
@@ -67,6 +72,7 @@ export class BxAgentChanges extends LitElement {
     super();
     this.set = null; this.person = '';
     this._ticks = []; this._view = 'review'; this._step = null; this._busy = false; this._err = ''; this._armed = false;
+    this._stopped = '';
     this._timer = 0;
     this.store = agentStore();
   }
@@ -75,7 +81,7 @@ export class BxAgentChanges extends LitElement {
     if (!ch.has('set') || !this.set) return;
     const cs = this.set;
     this._view = cs.state === 'proposed' ? 'review' : 'results';
-    this._step = null; this._err = '';
+    this._step = null; this._err = ''; this._stopped = '';
     let kept = null;
     try { kept = JSON.parse(sessionStorage.getItem(KEEP + cs.id) || 'null'); } catch { /* none kept */ }
     const ok = new Set((cs.items || []).filter(tickable).map((it) => it.n));
@@ -85,7 +91,17 @@ export class BxAgentChanges extends LitElement {
 
   updated(ch) { if (ch.has('set') || ch.has('_view') || ch.has('_step')) this.renderRoot.querySelector('h2')?.focus(); }
 
-  disconnectedCallback() { super.disconnectedCallback(); clearTimeout(this._timer); }
+  connectedCallback() { super.connectedCallback(); this._unsub = this.store.subscribe(() => this.requestUpdate()); }
+  disconnectedCallback() { super.disconnectedCallback(); clearTimeout(this._timer); if (this._unsub) this._unsub(); }
+
+  /** stopped: why nothing can be applied now ('' when it can) — xbind's 409, else the state. */
+  get stopped() { return this._stopped || stopRefusal(this.store.state); }
+
+  _stop() {
+    const w = stopWords(this.stopped, 'changeset');
+    return html`<div class="banner warn stopped" role="status" data-stopped=${this.stopped}><bx-icon name="pause"></bx-icon>
+      <span><b>${w.title}.</b> ${w.text} ${w.still}</span></div>`;
+  }
 
   _arm() { this._armed = false; clearTimeout(this._timer); this._timer = setTimeout(() => { this._armed = true; }, CHOICES.armMs); }
 
@@ -98,13 +114,20 @@ export class BxAgentChanges extends LitElement {
 
   async _apply(e, password = '') {
     if (!e || !e.isTrusted || !this._armed || this._busy || !document.hasFocus() || !uncovered(e.currentTarget)) return;
-    if (!this._ticks.length) return this._reject(e); // "Apply none" ends the set rejected
+    if (!this._ticks.length) return this._reject(e);
+    if (this.stopped) return; // "Apply none" ends the set rejected
     this._busy = true; this._err = '';
     const r = await this.store.apply(this.set.id, this._ticks, password);
     this._busy = false;
     if (r.ok) {
       try { sessionStorage.removeItem(KEEP + this.set.id); } catch { /* nothing kept */ }
       this.set = r.set; this._view = 'results'; this._step = null;
+      return;
+    }
+    if (r.stopped) { // never sent again: the reason shows where Apply was, and focus moves to Reject all
+      this._stopped = r.stopped; this._step = null;
+      await this.updateComplete;
+      this.renderRoot.querySelector('button[data-reject]')?.focus();
       return;
     }
     if (r.stepUp) { this._step = { kind: r.stepUp, error: r.error || '' }; this._arm(); return; }
@@ -167,7 +190,7 @@ export class BxAgentChanges extends LitElement {
         ${res && res.text ? html`<div class="small ${res.tone === 'bad' ? 'err' : 'muted'}">${res.text}</div>` : nothing}
         ${it.before != null || it.after != null ? html`<div class="ba mono small"><div class="b"><span class="lb">Before</span>${it.before ?? '—'}</div><div class="a"><span class="lb">After</span>${it.after ?? '—'}</div></div>` : nothing}
         ${(it.effects || []).length ? html`<div class="small">${[].concat(it.effects).join(' ')}</div>` : nothing}
-        ${it.why ? html`<div class="quote"><span class="ql">Agent's reason — not checked by xbin</span><span class="qt">${it.why}</span></div>` : nothing}
+        ${it.why ? html`<div class="quote"><span class="ql">Agent's reason — not checked by xbin</span>${hiddenLine(it.why)}<span class="qt">${shown(it.why)}</span></div>` : nothing}
       </div></li>`;
   }
 
@@ -176,14 +199,14 @@ export class BxAgentChanges extends LitElement {
     const items = cs.items || [];
     return html`<div class="in">
         <h2 id="h" tabindex="-1">${w.heading}</h2>
-        ${cs.title ? html`<div class="quote"><span class="ql">The agent's title — not checked by xbin</span><span class="qt">${cs.title}</span></div>` : nothing}
+        ${cs.title ? html`<div class="quote"><span class="ql">The agent's title — not checked by xbin</span>${hiddenLine(cs.title)}<span class="qt">${shown(cs.title)}</span></div>` : nothing}
         <p class="muted">${w.intro}</p>
         <ul class="items">${items.map((it, i) => this._item(it, i, items.length, true))}</ul>
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
       </div>
       <div class="foot"><span class="fw small muted" aria-live="polite">${w.footer}</span>
         <button data-reject ?disabled=${this._busy} @click=${this._reject}>Reject all</button>
-        <button class="primary" data-apply aria-disabled=${this._armed && !this._busy ? 'false' : 'true'} @click=${this._apply}>${w.apply}</button></div>`;
+        ${this.stopped ? this._stop() : html`<button class="primary" data-apply aria-disabled=${this._armed && !this._busy ? 'false' : 'true'} @click=${this._apply}>${w.apply}</button>`}</div>`;
   }
 
   _stepUp(cs) {
@@ -198,7 +221,7 @@ export class BxAgentChanges extends LitElement {
       </div></div>
       <div class="foot"><span class="fw"></span>
         <button data-notnow @click=${() => { this._step = null; this._arm(); }}>Not now</button>
-        ${s.password ? html`<button class="primary" data-apply aria-disabled=${this._armed && !this._busy ? 'false' : 'true'}
+        ${this.stopped ? this._stop() : s.password ? html`<button class="primary" data-apply aria-disabled=${this._armed && !this._busy ? 'false' : 'true'}
             @click=${(e) => this._apply(e, this.renderRoot.getElementById('pw').value)}>${s.action}</button>`
           : html`<button class="primary" data-signin @click=${() => this._signIn()}>${s.action}</button>`}</div>`;
   }
@@ -206,9 +229,9 @@ export class BxAgentChanges extends LitElement {
   _results(cs) {
     const w = resultsWords(cs);
     const items = cs.items || [];
-    const state = cs.state === 'rejected' ? 'Rejected by you. Nothing was applied.' : cs.state === 'expired' ? 'Expired. Nothing was applied.' : cs.state === 'withdrawn' ? 'Withdrawn by the agent. Nothing was applied.' : '';
+    const state = endedWords(cs);
     return html`<div class="in">
-        <h2 id="h" tabindex="-1">${state ? 'Nothing was applied' : w.title}</h2>
+        <h2 id="h" tabindex="-1">${!knownState(cs, 'changeset') ? UNKNOWN_STATE.pageTitle : state ? 'Nothing was applied' : w.title}</h2>
         ${state ? html`<p class="muted">${state}</p>` : nothing}
         ${w.banner ? html`<div class="banner warn" role="status"><bx-icon name="warning"></bx-icon><span>${w.banner}</span></div>` : nothing}
         <ul class="items">${items.map((it, i) => this._item(it, i, items.length, false))}</ul>

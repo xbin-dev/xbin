@@ -159,10 +159,12 @@ import XbinCore
         #expect(rev2 == Set(XbinVocabulary.primitives.filter { $0.value >= 2 }.keys))
         #expect(rev3 == Set(XbinVocabulary.primitives.filter { $0.value >= 3 }.keys))
         // the navigation revision (D189), button's copyFormat (#34), the
-        // document reader's canvas (D208)
-        #expect(rev2 == ["screen", "toolbar", "list", "actions", "sheet", "split", "menu", "transcript", "button", "canvas"])
-        // split's halves (D208)
-        #expect(rev3 == ["split"])
+        // document reader's canvas (D208), the workspace agent's question,
+        // plan and composer (D233)
+        #expect(rev2 == ["screen", "toolbar", "list", "actions", "sheet", "split", "menu", "transcript", "button", "canvas",
+                         "question", "plan", "composer"])
+        // split's halves (D208), the transcript's empty slot (D233)
+        #expect(rev3 == ["split", "transcript"])
     }
 
     /// D208: a report beside its conversation — a halves split, columns on

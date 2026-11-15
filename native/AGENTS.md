@@ -41,8 +41,9 @@ native/
     Packages/XbinRenderer/  XbinRendererModel (tests on Linux) + the SwiftUI views, one per primitive,
                             a #Preview per fixture; Tests/XbinRendererTests = the snapshot tests (CI)
     App/                    the app target: Model/ (workspaces, sessions, transport, device keys),
-                            Shell/ (root, switcher, navigator, add-workspace, inbox, settings),
-                            Tiles/ (scheme handler, web tiles, native tiles), Terminal/, Agent/, Push/
+                            Shell/ (root, switcher, navigator, add-workspace, inbox, settings; Agent*.swift:
+                            the workspace agent's chrome, D233), Tiles/ (scheme handler, web tiles, native
+                            tiles, AgentTile: the workspace agent's native view), Terminal/, Agent/, Push/
     Shared/                 compiled into the app AND the notification extension (push crypto, Keychain)
     NotificationService/    the Notification Service Extension (decrypts pushes)
     Widgets/                the widget extension: the agent turn's Live Activity (Shared/: also in the app)
@@ -900,7 +901,22 @@ or IrohLib pin — store-check.py fails until the list matches the pins.
 
 **App Review Notes** for a submission are drafted in
 `Support/review-notes.md`: not a VPN, plain http, the Local Network prompt,
-how to test pairing (with a demo workspace's details filled in at submission).
+how to test pairing (with a demo workspace's details filled in at submission),
+and every feature a reviewer must be told about (guideline 2.5.19) — the
+workspace agent among them: it runs on the person's own server, the app runs
+no model and downloads no code for it, and every approval is the person's
+tap in the app's own sheet. App Store Connect's field takes 4000 characters:
+store-check.py counts what follows the file's rule and fails when the app
+has a feature the notes don't name. A new feature of that kind gets its
+paragraph there in the same change.
+
+**Face ID** (D233) gates the wider grant and applying admin changes
+(`AgentGate`, through `AppLock.unlock`: `.deviceOwnerAuthentication`, so the
+passcode stands in). `NSFaceIDUsageDescription` — already declared for the device key
+— now names those approvals too; no new permission, entitlement or background
+mode came with the workspace agent, and it collects nothing (the privacy
+table above is unchanged). Not built: notification actions, a Live Activity
+for it, dictation (a microphone and a speech permission when it comes).
 
 ### The help screenshots
 
@@ -1055,6 +1071,51 @@ in on a fresh start can forget what it added: `E2E.forgetFreshWorkspaces`
 (a Debug fresh start forgets the previous one's workspaces as Remove does
 — test09's two same-server workspaces, left behind, stalled the next
 test's native widget).
+`XbinWorkspaceAgentTests` (D233; skipped unless the xbind was started with
+`XBIN_E2E_WSAGENT=1`, which needs `XBIN_E2E_XBIND_ARGS="--isolate --rootfs
+…"` and gocryptfs: e2e-xbind.sh then connects `hack/fakeopenai` as the LLM
+connector's upstream, turns workspace agents on for everyone, adds
+`apps/note` — a tile with a small backend the agent may write to,
+`scripts/testdata/e2e-wsagent-tiles/` — and waits for the e2e account's
+agent, which a `--dev` xbind compiles from the checkout the first time; its
+`smoke` also checks that approving with the agent's frame token is refused
+while the person's session approves) drive the person's workspace agent:
+Home's row and the bar's last button on Home, a screen and a tile, the
+context chip when opened from a tile; a request filed through the scripted
+model (`ws: tile_call …` sent to the agent's own API) → the app-drawn card
+→ Review… → the approval sheet, Allow unarmed at first (Debug's
+`-XbinAgentArmSeconds` stretches the 600 ms so a test sees it for certain;
+it never shortens it) → Allow once → the card settled and the note
+changed; Deny; the wider grant's second sheet — Go back first, then
+`-XbinAgentGate allow` (Debug: the Face ID gate's answer; `deny` approves
+nothing) → the standing approval under the shield → Take back; a tile
+agent's start (the Mode row leading) → its card → Open → the app's agent
+screen; Needs you; the scope panel; Pause and Resume; that the next
+request opens on Once with Allow unarmed; that a screen the view pushes
+keeps the cards; on an iPad (`XBIN_SIM_ENSURE=xbin-e2e-w2-ipad`) the
+trailing column and an approval over it; and `test10Gallery`
+(`wsagent-<light|dark>-NN-<screen>.png`). `XbinWorkspaceAgentStatesTests` cover the states and rules those don't.
+Demo tests (`…Demo…`, `-XbinAgentDemo`): an admin before setup, turned off
+/ no model / locked / older xbin / held, an admin without an agent, an
+admin batch with a warned item unticked and a blocked one → Face ID → the
+password step (a wrong one, then the right one) → partial results and
+Undo, starts in a mode that never asks and in one xbind doesn't vouch for
+(danger wording, Deny first), the arming of every widening control, the
+spoken label of every control of the grant sheets and their order, and
+the sheets at the largest accessibility text size (nothing cut, Deny and
+Allow stacked and reachable). Live tests (`…Live…`, the e2e xbind): who
+has an agent (an admin who gave another account one; nobody chosen),
+the workspace's switch turned while the agent is open, a typed draft
+through a pause, an admin batch proposed by the scripted model, applied
+and undone, a lost connection (Debug's offline demo cuts the chrome's
+requests after a trip to the background), an ask for Preferences that
+opens nothing, and a handed-over draft labelled as the page's suggestion.
+`test20Gallery`: `wsagent2-<light|dark>-NN-<state>.png`. The seeded
+conversations use hack/fakeopenai's phrases ("Set the note in <tile> to
+…"), so a shot shows a turn a person would read. Not covered: real Face
+ID, VoiceOver's own speech (the tests read labels, traits and order), and
+the Duo layout, which only compiles (`mac-remote.sh build --device` with
+the 27.1 Xcode and `XBIN_SDK_27_1`): no simulator draws it.
 `XbinAgentReviewTests` (D210) make apps/welcome a git repo (snapshot
 diffs need one), have the fake agent's `run:` write 31 files and 12 000
 lines, and review the turn on the Agent screen: the card folded, its first
@@ -1166,6 +1227,20 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   crashed"`). Not your app's pid: not your bug — run again. (2026-09-27:
   Xbins with pids 4638, 7163 and 7305, none of them the run's own app,
   failed test04 and test05 this way.)
+- **An e2e run ends when the Mac says so, not when ssh does** (2026-11-16):
+  ssh returns only once every forwarded connection has closed, and after
+  an iPad pass something on the Mac kept one open to the tunnelled port —
+  the run sat for over three hours with no xcodebuild left. `mac-remote.sh
+  e2e` now waits for a line its Mac side prints when the command returned
+  and then ends its own ssh (`remote_until_done`); `XBIN_E2E_TIMEOUT`
+  (default 3600 s) bounds a run that never says it. Give a run you start a
+  ceiling of your own too (`timeout 40m mac-remote.sh e2e …`) and never
+  wait on one without.
+- **No simulator draws an iPhone Duo** (checked 2026-11-16: Xcode 27.0's
+  device types end at iPhone 18 Pro / Pro Max, its only runtime is iOS
+  27.0; Xcode-beta's CoreSimulator was never installed): the Duo paths —
+  the vertical bar's items, `XbinTwoPanes`' halves — are compiled for a
+  device with the 27.1 SDK and have never been drawn.
 - **A link into the running app**: `XCUIApplication.open(url)` relaunches
   the app (a cold start with the link); `XCUIDevice.shared.system.open(url)`
   hands it to the running app as a notification's tap does
@@ -1177,6 +1252,101 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   tunnel yourself. Under an ssh ControlMaster `mac-remote.sh tunnel`
   returns at once — the forward lives on the master connection; drop it
   with `ssh -O cancel -R 127.0.0.1:P:127.0.0.1:P <mac>`.
+
+### The workspace agent's chrome (D233)
+
+What the app shows of a person's workspace agent, and where each part is
+(docs/workspace-agent.md §In the xbin app is the behaviour; the design is
+plans/wsagent/ux.md):
+
+- **XbinCore `Client/Delegation.swift`, `DelegationWords.swift`,
+  `AgentBridge.swift`** — xbind's delegation as the app reads it, what the
+  chrome says, and what the agent's view may ask. The words are a port of
+  `web/agent-chrome-words.js`, held to it by vectors: after changing that
+  file run `node native/tools/delegation-words.mjs >
+  native/ios/Packages/XbinCore/Tests/XbinCoreTests/Resources/delegation-words.json`
+  and port the change (`make js-test` fails while the vectors are stale,
+  `swift test` while the port differs). The vectors hold every shape the
+  port decides — the sheets' words, the cards the app draws for `request`
+  and `session` nodes (`requestCard`, `changeSetCard`, `sessionCard`,
+  `homeStatus`), and what `pageMessage()` makes of a corpus of messages
+  (ids, sessions, drafts), which `AgentBridge.decide` must match — so a
+  test of the port never writes its own expectations. The design's open choices are
+  `AgentChoices`, one place.
+- **`App/Model/WorkspaceAgentModel.swift`** (`workspace.agent`) — the state,
+  the requests and change sets that wait, the standing approvals; read with
+  the device's session, refreshed by the `delegate` events. Every grant
+  goes out from here.
+- **`App/Shell/AgentChrome.swift`** — the bar button (`PanelBar` adds it
+  last, `preferVerticalBar()`), Home's row, the container (`AgentSheet`
+  with its detents on a compact width; `XbinTwoPanes` in `WorkspaceView` on
+  a regular one), the shield menu (leading, beside Close: the trailing end
+  is the view's own), the paused bar, the states. The bar button is added
+  from an overlay AFTER the panel's content, at `.primaryAction`: a bar
+  lays its items out in the order their views come, and an ancestor's item
+  would land before the panel's own Edit or ⋯.
+  **`AgentApproval.swift`**, **`AgentChangeSet.swift`** — the grants;
+  **`AgentPanels.swift`** — Approvals, What my agent did, Preferences;
+  **`AgentCards.swift`** — the `request` and `session` nodes, drawn from
+  xbind. **`App/Tiles/AgentTile.swift`** — the sealed component's native
+  view in the container, with the `AgentHost` that answers its asks.
+- **The rules a change there must keep**: a sheet is drawn only from what
+  xbind answers for an id (never from the tree, never from a message's
+  other fields); the agent's text is `AgentReveal` in a labelled quote —
+  verbatim, but each character that reorders or hides text drawn as its
+  escape, `⟨U+202E⟩` (`DelegationWords.reveal`, pinned to the web's);
+  Allow is armed by `AgentArming` (600 ms after the sheet is shown, again
+  after the choice changes or the app comes back to the front) and no
+  default action allows; Deny left, Allow right, at the bottom; the wider
+  grant is a second sheet whose primary button is Go back; while the agent
+  is stopped (`DelegationWords.stopRefusal` of the state, or xbind's `409
+  {refusal}` — `DelegateOutcome.stopped`) the sheet says why where Allow or
+  Apply would be (`AgentDecisionBar.stopped`) and never sends it again;
+  `trustedNode`
+  and the `agent` caps go only to the component `GET /delegate/state`
+  names as the person's agent (`NativeTileRuntime.isAgent`), and only
+  while the agent's container shows it.
+- **The holder never enters the catalog**: its row is read with
+  `GET /components?sealed=1` by `WorkspaceAgentModel.readHolder` alone, so
+  Home, search and the switcher never list it; an xbind without
+  `/delegate/state` gives no state and no button.
+- **What widens is armed like Allow** (`ArmingClock`, `AgentWidening` in
+  XbinCore; `.widens(armed:)` in the app): a standing choice, the longer
+  duration, Preferences' "Start without asking" and the admin opt-in ON. A
+  new control that gives the agent more (a network, other tiles' APIs)
+  goes through the same gate; one that gives it less never does. Put
+  `.widens`/`.disabled` AFTER `.accessibilityElement(children: .ignore)`:
+  inside it, the element VoiceOver reads is not dimmed (a UI test caught
+  this).
+- **A state the app doesn't know is not actionable**: `DelegateRequest.State`
+  and `AdminChangeSet.State` read anything else as `.unknown` — no Allow,
+  no Apply, not in Needs you, and `DelegationWords.unknownState`'s line
+  ("This app is older than the workspace — open it on the web.").
+- **An id from the tile is xbind's shape or nothing** (`DelegateID`): a
+  `request` node's and a bridge message's request or change-set id is 24
+  lowercase hex digits, a session's a word without dot or slash —
+  `XbinTrustedNode.init` and `AgentBridge` both use it, and
+  `DelegateRoute.seg` encodes a dot as well. They go into URLs sent with
+  the person's session.
+- **The view asks for views that change nothing**: `AgentBridge.View` is
+  the web chrome's `PAGE_VIEWS` (needs, approvals, activity), pinned by the
+  vectors; Preferences opens from the shield alone. A draft the view hands
+  a tile agent's launcher is labelled with `AgentBridge.draftLabel` until
+  the person edits or sends it (`AgentSuggestedDraft`), and a launcher the
+  view opened creates no session by itself, even with one coding agent
+  there (`AgentLaunch`, `WorkspaceModel.markOpenedByAgentView`): only the
+  person's Start does.
+- Debug builds' `-XbinAgentGate allow|deny` answers the Face ID gate (a
+  simulator has no face); `-XbinAgentArmSeconds N` stretches the arming
+  delay (never shortens it); `-XbinAgentDemo <state>` answers the chrome's
+  own reads from canned xbind JSON with no network (`App/Model/
+  AgentDemo.swift`; states: setup, setup-who, off, nomodel, locked, older,
+  held, none, paused, grants, offline) for what a test xbind can't be put
+  in — the data is the delegation words' corpus, generated (`node
+  native/tools/delegation-words.mjs --demo-swift >
+  native/ios/App/Model/AgentDemoData.swift`; `make js-test` fails while it
+  is stale); `-XbinAgentDebugAsk prefs|approvals|needs|draft` sends an ask
+  as the view would. A Release build has none of them.
 
 ### Footage (the promo video, the website)
 

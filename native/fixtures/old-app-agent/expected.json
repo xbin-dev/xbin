@@ -1,0 +1,14 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Workspace agent","subtitle":"an app from before D233","style":"scroll"},"c":[
+  {"k":"r.0","t":"connection","p":{"connected":"14 tiles · 3 orgs","model":"big"},"e":["tap"]},
+  {"k":"r.1","t":"transcript","p":{"follow":true,"empty":{"title":"Ask for an outcome","text":"The workspace agent plans the work and asks you before anything changes."}},"e":["suggestion"],"c":[
+    {"k":"r.1.0","t":"plan","p":{"title":"Plan","numbered":true,"entries":[{"text":"Look at Orders’ export","status":"completed"},{"text":"Rebuild the customer links in Invoices","status":"pending"}],"tags":[{"text":"done","icon":"check","tone":"ok"},{"text":"asks you","icon":"shield","tone":"warn"}],"note":"Each step that changes something asks when it is reached.","meta":"you said go ahead · 10:02"}},
+    {"k":"r.1.1","t":"card","p":{"title":"Ledger is blocked by a rule","note":"This is a rule set by an admin."},"c":[
+      {"k":"r.1.1.0","t":"text","p":{"text":"Finance allows private models only."}},
+      {"k":"r.1.1.1","t":"button","p":{"label":"Open scope"},"e":["tap"]}
+    ]},
+    {"k":"r.1.2","t":"request","p":{"id":"rq_80aa13d4","kind":"call"}},
+    {"k":"r.1.3","t":"session","p":{"id":"ts_41b0","tile":"apps/orders"}},
+    {"k":"r.1.4","t":"question","p":{"title":"Which one do you mean?","schema":{"type":"object","properties":{"which":{"type":"string","title":"Which invoices?","enum":["The three that are overdue","Everything since Monday"]},"other":{"type":"string","title":"Something else"}}},"style":"rows","other":{"which":"other"},"paged":true,"submitLabel":"Answer","skipLabel":"Skip"},"e":["submit","skip"]}
+  ]},
+  {"k":"r.2","t":"composer","p":{"value":"","context":[{"id":"apps/orders","label":"About Orders","icon":"box","tone":"accent"}],"replies":[{"id":"go","label":"Go ahead"}],"hint":"Say what you want and how you’ll know it’s done."},"e":["context","remove-context","reply"]}
+]}}

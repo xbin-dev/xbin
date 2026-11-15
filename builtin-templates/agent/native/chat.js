@@ -10,8 +10,10 @@
 // Feature modules draw into it through the seams (ctx.ext, native/ext.js):
 // a block their way, the transcript's end, the toolbar, the menu, the composer.
 import { html, repeat, nothing } from '/vendor/xb-native.js';
-import { ui, ctx, fail, guard, push, secs, clip, base, cardState, FAMILY_ICON, thumb, raw, IMAGE, draftKey, draftOf, setDraft, clearer } from './ui.js';
-import { argsShown } from '../model/tool-heads.js';
+import { ui, ctx, fail, guard, push, clip, base, thumb, raw, IMAGE, draftKey, draftOf, setDraft, clearer } from './ui.js';
+import { isOpen, thinkTpl, assistantTpl, draftTpl, noticeTpl, toolTpl, agentTpl } from './blocks.js'; // the rows both native views draw
+import { KEEP, winOf, more, anchors, scrolled, edge, pillOf, jump, chatDrawn } from './win.js'; // the window of rows it draws (D130)
+export { chatDrawn };
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
 import { openRender, openLive } from './tools.js';
@@ -23,17 +25,7 @@ import { hostedNoticeTpl, hostedComposer, hostedButtonsTpl } from './hosted.js';
 import { steerWords } from '../model/harness-ask.js'; // a coding harness's queued chips
 import { activityStill } from '../model/harness.js'; // …and its activity line
 
-const CUT = 1200; // a long result is cut here; the card's ↗ opens all of it
-
 // --- blocks → the chat family -----------------------------------------------------
-
-// isOpen/setOpen keep a card's open state where the web keeps it (the
-// session's ui map), so a streamed token never folds what you opened.
-const isOpen = (id, dflt) => ctx.app.session.ui.isOpen(id, dflt);
-const setOpen = (id) => (e) => { ctx.app.session.open.set(id, !!e.open); ctx.paint(); };
-
-// The engine's and the automations' notices fold like the web's (↵ head).
-const NOTICE_ICON = { Scheduled: 'clock', 'Watcher check': 'eye', 'Learn a skill': 'doc', Triggered: 'bolt' };
 
 export function blockTpl(b, depth = 0) {
   return ctx.ext.block(b, depth) || builtInTpl(b, depth);
@@ -43,13 +35,11 @@ function builtInTpl(b, depth) {
   switch (b.k) {
     case 'user': return userTpl(b);
     case 'notice': return noticeTpl(b);
-    case 'think': return html`<thinking text=${b.text} ?live=${b.live} seconds=${b.live ? nothing : b.ms ? secs(b.ms) : nothing}
-      open=${isOpen(b.id, b.live)} @toggle=${setOpen(b.id)}/>`;
-    case 'assistant': return html`<message role="assistant" markdown text=${b.text}>
-      <actions><button icon="copy" copy=${b.text} copyFormat=${rev2('button') ? 'markdown' : nothing}>Copy</button></actions></message>`;
-    case 'draft': return html`<message role="assistant" markdown streaming text=${b.text}/>`;
-    case 'tool': return toolTpl(b, depth);
-    case 'agent': return agentTpl(b, depth);
+    case 'think': return thinkTpl(b);
+    case 'assistant': return assistantTpl(b);
+    case 'draft': return draftTpl(b);
+    case 'tool': return toolTpl(b, depth, blockTpl);
+    case 'agent': return agentTpl(b, depth, blockTpl, { approval: approvalTpl, open: openChild });
     case 'step': return stepTpl(b);
   }
   return nothing;
@@ -99,89 +89,6 @@ const linked = (v, msgId, f) => !!(v && ((v.messageFiles || {})[msgId] || []).in
 export function openFile(runId, path) {
   push({ kind: 'files', run: runId });
   push({ kind: 'file', run: runId, path });
-}
-
-function noticeTpl(b) {
-  const lines = b.text.split('\n');
-  const head = lines[0].replace(/^\[|\]$/g, '').replace(/ — .*$/, '');
-  const label = head.split(' · ')[0];
-  return html`<toolcard title=${'↵ ' + head} icon=${NOTICE_ICON[label] || 'mail'} family="notice"
-      open=${isOpen(b.id, false)} @toggle=${setOpen(b.id)}>
-    <text selectable>${lines.slice(1).join('\n')}</text>
-  </toolcard>`;
-}
-
-// argRows: short arguments as one "key: value" block, long ones each their
-// own — parsed once per block object (the fold hands back the same block
-// until its call changes; a call being written is a new one each time).
-const argMemo = new WeakMap();
-function argRows(b) {
-  let t = argMemo.get(b);
-  if (t) return t;
-  const short = [], long = [];
-  for (const [k, v] of Object.entries(argsShown(b.args))) {
-    const s = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
-    (s.length > 80 || s.includes('\n') ? long : short).push([k, s]);
-  }
-  t = html`${short.length ? html`<text mono selectable>${short.map(([k, s]) => `${k}: ${s}`).join('\n')}</text>` : nothing}
-    ${repeat(long, ([k]) => k, ([k, s]) => html`<text style="caption" tone="muted">${k}</text><code text=${clip(s, CUT * 4)}/>`)}`;
-  argMemo.set(b, t);
-  return t;
-}
-
-// A sandbox call's outcome (model/tool-heads.js outcome) as a chip's tone.
-const OUTCOME_TONE = { ok: 'ok', bad: 'danger', run: 'accent' };
-
-function toolTpl(b, depth = 0) {
-  const { state, chip } = cardState(b.state);
-  const long = b.result && b.result.length > CUT;
-  const done = b.result && b.state !== 'running';
-  // a sandbox call (▣) says what it came to on the card, and its command inside
-  const oc = b.outcome ? [{ text: b.outcome.text, ...(OUTCOME_TONE[b.outcome.tone] ? { tone: OUTCOME_TONE[b.outcome.tone] } : {}) }] : [];
-  const chips = [...oc, ...(chip ? [chip] : [])];
-  return html`<toolcard title=${b.headline} icon=${FAMILY_ICON[b.fam] || 'wrench'} family=${b.fam} state=${state}
-      chips=${chips.length ? chips : nothing} open=${isOpen(b.id, false)} @toggle=${setOpen(b.id)}
-      @open=${long ? () => push({ kind: 'call', run: ctx.app.sel, id: b.id }) : nothing}>
-    <text style="caption" tone="muted" mono>${b.name}</text>
-    ${b.sub ? html`<text mono selectable>${b.sub}</text>` : nothing}
-    ${argRows(b)}
-    ${done ? html`<code text=${long ? b.result.slice(0, CUT) + '…' : b.result}/>` : nothing}
-    ${done && long ? html`<text style="footnote" tone="muted">${`cut at ${CUT} of ${b.result.length} characters — ↗ shows all`}</text>` : nothing}
-    ${b.kids ? html`<transcript>${repeat(b.kids, (x) => x.id, (x) => blockTpl(x, depth + 1))}</transcript>` : nothing}
-  </toolcard>`;
-}
-
-// A delivered child result starts with "--- #id title (outcome) ---".
-const stripHead = (s) => String(s || '').replace(/^--- #\d+ .*? ---\n/, '');
-
-function agentTpl(b, depth) {
-  const running = b.state === 'running' || b.state === 'approval';
-  const open = isOpen(b.id, running);
-  const child = b.child || {};
-  const title = b.link && b.link.label ? b.link.label : b.headline;
-  const phase = b.link && b.link.phase ? b.link.phase : child.status || '';
-  const steps = child.llmCalls ? `${child.llmCalls} step${child.llmCalls === 1 ? '' : 's'}` : '';
-  if (open && b.childId && !b.blocks) ctx.app.session.ui.act.loadChild(b.childId); // once: a failed read waits (model/session.js Failures)
-  const readErr = open && b.childId && !b.blocks ? ctx.app.session.ui.readError(b.childId) : '';
-  const chips = [
-    ...(b.childId ? [{ text: '#' + b.childId }] : []),
-    ...(b.state === 'done' ? [{ text: steps || 'done' }] : phase ? [{ text: phase, tone: b.state === 'approval' ? 'warn' : 'accent' }] : []),
-    ...(b.state === 'error' ? [{ text: 'failed', tone: 'danger' }] : b.state === 'stopped' ? [{ text: 'stopped' }] : []),
-  ];
-  const state = { running: 'running', approval: 'running', error: 'error', stopped: 'canceled', done: 'ok' }[b.state] || 'running';
-  const answer = !running && b.result && !b.result.startsWith('(') ? stripHead(b.result) : '';
-  return html`<toolcard title=${title} icon="branch" family="agent" state=${state} chips=${chips}
-      open=${open} @toggle=${(e) => { if (e.open && b.childId) ctx.app.session.failed.clear(b.childId); setOpen(b.id)(e); }}
-      @open=${b.childId ? () => openChild(b.childId) : nothing}>
-    ${b.task ? html`<text style="footnote" tone="muted" lines=${isOpen(b.id + ':task', false) ? nothing : 3}>${'task: ' + b.task}</text>` : nothing}
-    <transcript>
-      ${b.blocks ? repeat(b.blocks, (x) => x.id, (x) => blockTpl(x, depth + 1))
-        : readErr ? html`<notice tone="danger" text=${`Couldn't read its steps: ${readErr} — fold the card and open it again to retry.`}/>`
-        : html`<progress label="loading…"/>`}
-      ${b.pendingApproval ? approvalTpl(b.pendingApproval, b.childId, 'The subagent wants to run') : nothing}
-    </transcript>
-    ${answer ? html`<text style="caption" tone="muted">answer</text><markdown source=${answer}/>` : nothing}
-  </toolcard>`;
 }
 
 // openChild pushes a subagent's session full screen (the web's "open ↗"):
@@ -266,154 +173,6 @@ function parentScreen(c) {
   if (parentMemo.size > 8) parentMemo.clear(); // only the chain under the open conversation is drawn
   parentMemo.set(c.id, { blocks, title, tpl });
   return tpl;
-}
-
-// --- a window of the transcript (D130) ------------------------------------------------
-//
-// The chat renders a window of its blocks: the tail when it opens, growing a
-// page of rows at a time as the loader at its top fires `more` (a page is read
-// from the backend when no held rows are left above it). The app's transcript
-// keeps its bottom still while it follows it, so rows above go — the window
-// trimmed from the top, and the messages far above let go (Session.keep) —
-// only while the reader is at the bottom, as `scrolled` says; scrolled up,
-// the window only grows.
-//
-// Where the app's transcript has the anchors of vocabulary rev 2 (D189), the
-// reader far up lets the live end go too, as the web's window does
-// (chat.jumpLatest): while they are away from the end (its `edge`), the row
-// the window grew up from is the transcript's `anchor` — kept in place while
-// rows come and go around it — so the window is cut below it too, and the
-// messages there are let go (the live tail with them: what arrives is
-// counted). The composer's "↓ N new — jump to latest" reads the newest page
-// again and `scrollTo`s the end; reading down to the window's end grows it
-// back a page at a time. From an app of rev 1 nothing below the window goes
-// (that would move what the reader looks at) and there is no pill.
-const PAGE = 40;  // rows the window opens on, and grows by
-const TRIM = 120; // a window longer than this is cut back to KEEP rows — at the bottom from the top; away, below the anchor
-const KEEP = 60;
-
-const anchors = () => rev2('transcript');
-
-// winOf: the window of s.blocks for the open run, placed for this render.
-function winOf(s, run) {
-  let w = ui.win;
-  if (!w || w.run !== run) w = ui.win = { run, fromKey: null, toKey: null, atBottom: true, anchor: null, jumps: 0, start: 0, end: 0, n: 0 };
-  const blocks = s.blocks, n = blocks.length;
-  w.start = startOf(w, blocks);
-  w.end = endOf(w, blocks);
-  if (w.end <= w.start) { w.toKey = null; w.end = n; }
-  w.n = n;
-  w.fromKey = n ? blocks[w.start].id : null;
-  return w;
-}
-
-// startOf: where window w starts in blocks — at its first row, else on the
-// tail; at the bottom, a window grown past TRIM rows is cut back to KEEP.
-function startOf(w, blocks) {
-  const n = blocks.length;
-  let start = w.fromKey == null ? -1 : blocks.findIndex((b) => b.id === w.fromKey);
-  if (start < 0) start = Math.max(0, n - PAGE);
-  if (w.atBottom && n - start > TRIM) start = n - KEEP;
-  return start;
-}
-
-// endOf: where it ends — its last row (cut below the anchor), else the end.
-function endOf(w, blocks) {
-  if (w.toKey == null) return blocks.length;
-  const i = blocks.findIndex((b) => b.id === w.toKey);
-  return i < 0 ? blocks.length : i + 1;
-}
-
-// more: the loader at the transcript's top is on screen — a page of held
-// rows joins the window, else the next older page is read and joins it. The
-// row it grew up from keeps its place (rev 2: the anchor, while away).
-const more = guard(async () => {
-  const w = ui.win, s = ctx.app.session;
-  if (!w || w.run !== ctx.app.sel) return;
-  const blocks = s.shown().blocks;
-  if (anchors() && !w.atBottom && w.fromKey != null) w.anchor = w.fromKey;
-  if (w.start > 0) { w.fromKey = blocks[Math.max(0, w.start - PAGE)].id; return; }
-  if (!s.shown().hasOlder) return;
-  await s.loadOlder();
-  const now = s.shown().blocks, i = now.findIndex((b) => b.id === w.fromKey);
-  if (i > 0) w.fromKey = now[Math.max(0, i - PAGE)].id;
-});
-
-// atEnd: the reader is at the live end (true) or left it — the model counts
-// what arrives meanwhile (Session.follow); at the end no row is anchored.
-function atEnd(w, at) {
-  if (at === w.atBottom) return;
-  w.atBottom = at;
-  if (at) w.anchor = null;
-  ctx.app.session.follow(at);
-  ctx.paint();
-}
-
-// scrolled (rev 1): the reader left the bottom, or came back to it (the
-// window is trimmed at the next render).
-function scrolled(e) {
-  const w = ui.win;
-  if (w) atEnd(w, !!e.atBottom);
-}
-
-// edge (rev 2): the transcript's end came into view or left it. The end of a
-// window cut below (or of the held pages, the live tail let go) is not the
-// live end: the window grows a page down, read back when need be.
-function edge(e) {
-  const w = ui.win, s = ctx.app.session;
-  if (!w || e.edge !== 'end' || w.run !== ctx.app.sel) return;
-  const v = s.shown();
-  if (e.at && (w.end < v.blocks.length || v.hasNewer || v.detached)) return below(w, v);
-  atEnd(w, !!e.at);
-}
-
-const below = guard(async (w, v) => {
-  const n = v.blocks.length;
-  if (w.end < n) { const e = w.end + PAGE; w.toKey = e < n ? v.blocks[e - 1].id : null; return; }
-  if (v.hasNewer) await ctx.app.session.loadNewer();
-  else await ctx.app.session.latest();
-  w.toKey = null;
-});
-
-// jump: "↓ N new — jump to latest" — the newest page again when the tail was
-// let go, the window back on it, scrolled to the end and followed.
-const jump = guard(async () => {
-  const w = ui.win, s = ctx.app.session;
-  if (!w) return;
-  const v = s.shown();
-  if (v.hasNewer || v.detached) await s.latest();
-  w.fromKey = w.toKey = w.anchor = null;
-  w.jumps++;
-  atEnd(w, true);
-});
-
-// pillOf: the pill's words while the reader is away and something is below ('' else).
-function pillOf(w, v) {
-  if (!anchors() || w.atBottom || !(v.fresh || v.hasNewer || v.detached || w.end < v.blocks.length)) return '';
-  return `↓ ${v.fresh ? `${v.fresh} new — ` : ''}jump to latest`;
-}
-
-// chatDrawn (native.js, after a render): at the bottom, what lies far above
-// the window is let go (a page or more at a time); away from it with a row
-// anchored (rev 2), a window grown long is cut below the anchor and what lies
-// below it let go — the live tail too: what arrives is counted.
-export function chatDrawn() {
-  const w = ui.win, app = ctx.app;
-  if (!w || app.sel !== w.run) return;
-  const blocks = app.session.shown().blocks;
-  if (!w.atBottom) {
-    if (!anchors() || w.anchor == null) return;
-    const a = blocks.findIndex((b) => b.id === w.anchor);
-    if (a < 0 || endOf(w, blocks) - a <= TRIM) return;
-    const e = Math.min(blocks.length, a + KEEP);
-    w.toKey = blocks[e - 1].id;
-    if (!app.session.keep(0, e, true)) ctx.paint();
-    return;
-  }
-  const i = startOf(w, blocks); // where the render this paint asked for places it
-  if (i <= KEEP) return;
-  w.fromKey = blocks[i].id;
-  app.session.keep(i - KEEP, blocks.length, false);
 }
 
 export function chatScreen(v) {

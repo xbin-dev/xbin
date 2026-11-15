@@ -1,6 +1,6 @@
 // hack/xbn/worker.mjs — runs one tile native.js in a worker thread against a
 // scripted `xbin` stub, on a virtual clock, and posts back the rendered tree.
-// Started by node.mjs (runNative); workerData: {entry, data, steps, caps, state, widget}.
+// Started by node.mjs (runNative); workerData: {entry, data, steps, caps, state, widget, agent}.
 // See node.mjs for the data/steps formats.
 import { workerData, parentPort } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
@@ -10,14 +10,17 @@ import { VOCAB, fullCaps } from '../../web/xb/vocab.js';
 
 installHooks();
 
-const { entry, data = {}, steps = [], state, widget } = workerData;
+const { entry, data = {}, steps = [], state, widget, agent } = workerData;
 // widget: the run plays an app that shows widgets (caps list the feature;
 // widgetSize is the initial size class) — the widget tree comes back too.
-const caps = widget ? (() => {
+const caps0 = widget ? (() => {
   const c = workerData.caps ?? fullCaps();
   const features = [...new Set([...(c.features || []), VOCAB.widget.feature])];
   return { ...c, features, widgetSize: VOCAB.widget.sizes.includes(widget) ? widget : c.widgetSize ?? 'small' };
 })() : workerData.caps;
+// agent: the run plays the app showing this tile as the person's workspace
+// agent (D233): the caps list the wire feature "agent".
+const caps = agent ? (() => { const c = caps0 ?? fullCaps(); return { ...c, features: [...new Set([...(c.features || []), 'agent'])] }; })() : caps0;
 const own = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
 const realImmediate = setImmediate;
 let activity = 0;
@@ -275,6 +278,7 @@ async function step(s) {
   else if (own(s, 'widgetSize')) { activity++; rt.xbn.widgetSize(s.widgetSize); }
   else if (own(s, 'navigate')) { activity++; rt.xbn.navigate(s.navigate); }
   else if (own(s, 'width')) { activity++; rt.xbn.width(s.width); }
+  else if (own(s, 'agent')) { activity++; rt.xbn.agent(s.agent); }
   else if (own(s, 'resolve')) rt.xbn.resolve(...s.resolve);
   else throw new Error(`unknown step ${JSON.stringify(s)}`);
   return settle();

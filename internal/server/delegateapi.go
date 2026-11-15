@@ -360,11 +360,19 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 	if !ws.Enabled {
 		s.CutDelegateStreams("")
 	}
-	for _, u := range s.Delegation.People() { // every person's agent: delegation went on or off
-		s.notifyHolders(u, "state", "")
+	// Every person's agent: delegation went on or off. Their backend is told,
+	// and so are their own sockets (a `delegate` state event): the chrome and
+	// the app show the switch at once, not at their next read.
+	told := map[string]bool{}
+	for _, u := range s.Delegation.People() {
+		told[u] = true
+		s.delegateEvent(u, "state", "")
 		if !ws.Enabled { // off: nothing approved before the switch is waiting when it is on again
 			s.delegationStopped(u, false)
 		}
+	}
+	if !told[p.UserID] { // the admin who turned it, with no record of their own yet
+		s.delegateEvent(p.UserID, "state", "")
 	}
 	WriteJSON(w, http.StatusOK, s.delegateWorkspaceView(p))
 }
@@ -696,6 +704,15 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		if grant == "" {
 			grant = delegation.GrantOnce
 		}
+		// allowing is refused while the agent is stopped (denying never is):
+		// a ticket or a standing approval given now would be live the moment
+		// it runs again
+		if cur, found := s.Delegation.Request(a.user, r.PathValue("id")); found && cur.State == delegation.Pending {
+			if refusal, msg := s.decideRefusal(a.user, cur.Agent); refusal != "" {
+				refuseDecision(w, refusal, msg)
+				return
+			}
+		}
 	}
 	req, ap, err := s.Delegation.DecideWith(a.user, r.PathValue("id"), grant, scope, a.via, unseen)
 	switch {
@@ -714,6 +731,18 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if req.State == delegation.Approved {
+		// a stop that began between the check above and this approval: what
+		// it would have voided goes now (the stop sets its switch before it
+		// voids, so one of the two sees the other)
+		if refusal, msg := s.decideRefusal(a.user, req.Agent); refusal != "" {
+			_, _ = s.Delegation.VoidTickets(a.user)
+			if ap != nil {
+				_, _ = s.Delegation.DropApprovals(a.user, func(x delegation.Approval) bool { return x.ID == ap.ID })
+			}
+			s.delegateEvent(a.user, "request", req.ID)
+			refuseDecision(w, refusal, msg)
+			return
+		}
 		s.notifyAt(req.Expires, a.user, req.ID, req.Agent) // a ticket nobody used
 	}
 	out := map[string]any{"request": req}
@@ -809,6 +838,10 @@ func (s *Server) apiDelegateApprovalAdd(w http.ResponseWriter, r *http.Request) 
 	}
 	if !known || !a.p.CanReadTile(tile) {
 		WriteError(w, http.StatusNotFound, "no tile "+tile+" that you can read", delegationDocs)
+		return
+	}
+	if refusal, msg := s.decideRefusal(a.user, ""); refusal != "" { // as for allowing a request "always"
+		refuseDecision(w, refusal, msg)
 		return
 	}
 	ap, err := s.Delegation.AddApproval(delegation.Approval{User: a.user, Tile: tile, Scope: body.Scope, Method: body.Method, Path: body.Path}, body.Grant, a.via)

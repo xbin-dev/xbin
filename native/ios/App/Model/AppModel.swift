@@ -367,5 +367,5 @@ final class AppModel {
     }
 
     /// Needs-you counts across workspaces (the switcher and the inbox).
-    var needsYouCount: Int { workspaces.reduce(0) { $0 + $1.needsYou.count } }
+    var needsYouCount: Int { workspaces.reduce(0) { $0 + $1.needsYouCount } }
 }

@@ -47,6 +47,8 @@
 //   {width: "compact"|"regular"} (the screen's width class changed; the first
 //   is caps.width)
 //   {navigate: "#c=42"} (the app opens a deep link: xbn.navigate)
+//   {agent: {type, …}} (the app's chrome tells the workspace agent's view
+//   something: xbn.agent — heard only with `agent: true`)
 //   target: "widget" on a tap/input/event/snapshot step (or as an event's own
 //   field, or the array form's 5th item) acts on the widget tree
 //   {snapshot: name} (r.snapshots[name] = the tree now) · {call: [export, …args]} (data.setup's)
@@ -57,6 +59,10 @@
 // widget: true | "small" | "wide" — play an app that shows widgets: the caps
 // list the "widget" feature (widgetSize: the initial size, default small) and
 // r.widget is the widget tree (native/spec/tree.md §13).
+// agent: true — play the app showing this tile as the person's workspace agent
+// (D233): the caps list the wire feature "agent", so xbin.native.agent(msg)
+// sends its call (answered from data.calls.agent) and {agent: msg} steps reach
+// xbin.native.on('agent').
 import { Worker } from 'node:worker_threads';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -69,13 +75,13 @@ const posixLocale = (l) => `${String(l).replace(/-/g, '_')}.UTF-8`;
 const sameZone = (tz) => !tz || process.env.TZ === tz || here().timeZone === tz;
 const sameLocale = (l) => !l || here().locale === l;
 
-export function runNative({ entry, data = {}, steps = [], caps, state = null, widget = false, timeout = 30000, quiet = true } = {}) {
+export function runNative({ entry, data = {}, steps = [], caps, state = null, widget = false, agent = false, timeout = 30000, quiet = true } = {}) {
   if (!entry) return Promise.reject(new Error('runNative: entry (a native.js path) is required'));
   const file = String(entry).startsWith('file:') ? fileURLToPath(entry) : resolvePath(String(entry));
-  if (!sameZone(data.tz) || !sameLocale(data.locale)) return runInChild({ entry: file, data, steps, caps, state, widget, timeout, quiet });
+  if (!sameZone(data.tz) || !sameLocale(data.locale)) return runInChild({ entry: file, data, steps, caps, state, widget, agent, timeout, quiet });
   return new Promise((res, rej) => {
     const w = new Worker(new URL('./worker.mjs', import.meta.url), {
-      workerData: { entry: file, data, steps, caps, state, widget },
+      workerData: { entry: file, data, steps, caps, state, widget, agent },
       env: data.tz ? { ...process.env, TZ: data.tz } : process.env,
       stdout: quiet, stderr: quiet, // quiet: the tile's console stays in the worker (diagnostics come back as messages)
     });

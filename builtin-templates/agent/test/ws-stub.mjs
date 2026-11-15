@@ -132,7 +132,16 @@ export function WS_STUB(seed) {
         o.signal && o.signal.addEventListener('abort', () => { streams.delete(c); try { c.close(); } catch { /* closed */ } });
       },
     }), { headers: { 'Content-Type': 'text/event-stream' } }))],
-    ['POST', /\/runs\/(\d+)\/message$/, () => (S.offAnswer ? json(S.offAnswer, 409) : json({ ok: 'true', inboxId: 1, queued: false }))],
+    ['POST', /\/runs\/(\d+)\/message$/, (m) => {
+      if (!S.offAnswer) return json({ ok: 'true', inboxId: 1, queued: false });
+      // the agent's switch is off: as the backend does, the switch's line in the transcript (a step of kind off), then 409
+      const run = +m[1];
+      const step = { id: 900 + ++seq, runId: run, kind: 'off', detail: JSON.stringify({ text: S.offAnswer.error, switch: S.offAnswer.refusal }), created: Math.floor(Date.now() / 1000) };
+      const v = (S.views[run] = S.views[run] || {});
+      (v.steps = v.steps || []).push(step);
+      window.__push({ type: 'step', run, data: step });
+      return json(S.offAnswer, 409);
+    }],
     ['POST', /\/runs\/(\d+)\/interrupt$/, () => json({ ok: 'true' })],
     ['GET', /\/api\/xbin\/agents\/connection\?session=([^&]+)(?:&whatIf=([^&]+))?$/, (m) => {
       if (!S.full) return json({ error: 'not here' }, 403);

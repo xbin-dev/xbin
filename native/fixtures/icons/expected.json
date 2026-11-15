@@ -242,7 +242,7 @@
       ]}
     ]}
   ]},
-  {"k":"r.1:Status","t":"section","p":{"title":"Status","badge":"6"},"c":[
+  {"k":"r.1:Status","t":"section","p":{"title":"Status","badge":"8"},"c":[
     {"k":"r.1:Status.0","t":"stack","p":{"axis":"h","wrap":true,"gap":"l"},"c":[
       {"k":"r.1:Status.0.0.0","t":"stack","p":{"gap":"xs","align":"center"},"c":[
         {"k":"r.1:Status.0.0.0.0","t":"icon","p":{"name":"info"}},
@@ -267,6 +267,30 @@
       {"k":"r.1:Status.0.0.5","t":"stack","p":{"gap":"xs","align":"center"},"c":[
         {"k":"r.1:Status.0.0.5.0","t":"icon","p":{"name":"eye-slash"}},
         {"k":"r.1:Status.0.0.5.1","t":"text","p":{"style":"caption2","tone":"muted","text":"eye-slash"}}
+      ]},
+      {"k":"r.1:Status.0.0.6","t":"stack","p":{"gap":"xs","align":"center"},"c":[
+        {"k":"r.1:Status.0.0.6.0","t":"icon","p":{"name":"hand"}},
+        {"k":"r.1:Status.0.0.6.1","t":"text","p":{"style":"caption2","tone":"muted","text":"hand"}}
+      ]},
+      {"k":"r.1:Status.0.0.7","t":"stack","p":{"gap":"xs","align":"center"},"c":[
+        {"k":"r.1:Status.0.0.7.0","t":"icon","p":{"name":"plug"}},
+        {"k":"r.1:Status.0.0.7.1","t":"text","p":{"style":"caption2","tone":"muted","text":"plug"}}
+      ]}
+    ]}
+  ]},
+  {"k":"r.1:Ticks","t":"section","p":{"title":"Ticks","badge":"3"},"c":[
+    {"k":"r.1:Ticks.0","t":"stack","p":{"axis":"h","wrap":true,"gap":"l"},"c":[
+      {"k":"r.1:Ticks.0.0.0","t":"stack","p":{"gap":"xs","align":"center"},"c":[
+        {"k":"r.1:Ticks.0.0.0.0","t":"icon","p":{"name":"square"}},
+        {"k":"r.1:Ticks.0.0.0.1","t":"text","p":{"style":"caption2","tone":"muted","text":"square"}}
+      ]},
+      {"k":"r.1:Ticks.0.0.1","t":"stack","p":{"gap":"xs","align":"center"},"c":[
+        {"k":"r.1:Ticks.0.0.1.0","t":"icon","p":{"name":"check-square"}},
+        {"k":"r.1:Ticks.0.0.1.1","t":"text","p":{"style":"caption2","tone":"muted","text":"check-square"}}
+      ]},
+      {"k":"r.1:Ticks.0.0.2","t":"stack","p":{"gap":"xs","align":"center"},"c":[
+        {"k":"r.1:Ticks.0.0.2.0","t":"icon","p":{"name":"minus-square"}},
+        {"k":"r.1:Ticks.0.0.2.1","t":"text","p":{"style":"caption2","tone":"muted","text":"minus-square"}}
       ]}
     ]}
   ]},

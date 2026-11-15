@@ -47,7 +47,7 @@ const stale = (kind, run) => { for (const s of ui.stack) if (s.kind === kind && 
 const SCREENS = { task: taskTpl, memory: memoryTpl, files: filesTpl, file: fileTpl, skills: skillsTpl, skill: skillTpl, tree: treeTpl, call: callTpl, render: renderTpl, live: liveTpl, ports: portsTpl };
 
 // toolScreen: a tool entry of the stack (native/nav.js) as its screen — over
-// the conversation, a project, the list… (native.js draws the stack). opts:
+// the conversation, a project, the list… (native/main.js draws the stack). opts:
 // how it is shown — {close} when it sits beside its conversation (the render
 // preview in halves, D208) rather than pushed.
 export function toolScreen(s, opts = {}) {
@@ -439,7 +439,7 @@ function portsTpl(s) {
 // for it — the PDF or the workbook to act on. Before rev 2: the island at its
 // largest height, − / + re-render the page scaled by CSS, and the linked
 // files are rows under it, each sharing its file. On a wide screen with split
-// rev 3 the reader sits beside its conversation (native.js layout()), with a
+// rev 3 the reader sits beside its conversation (native/main.js layout()), with a
 // Close of its own (opts.close).
 
 // The zoom is the web's (model/preview-zoom.js, D207): its steps, and kept

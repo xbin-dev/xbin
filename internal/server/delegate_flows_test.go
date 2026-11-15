@@ -505,8 +505,28 @@ func TestDelegateRateLimitAndOffSwitches(t *testing.T) {
 			t.Errorf("%s turned the workspace's switch: %d", name, rec.Code)
 		}
 	}
+	// …and every person with an agent hears it on their own sockets (a
+	// `delegate` state event), as does the admin who turned it: the chrome
+	// and the app follow the switch without a read of their own
+	swCh, swCancel := w.s.Hub.Subscribe(func(e events.Event) bool { return e.Type == "delegate" })
 	if rec := w.do(w.full, "PUT", "/api/xbin/delegate/workspace", `{"enabled":false}`, w.cookie("alice")); rec.Code != 200 {
 		t.Fatalf("off: %d %s", rec.Code, rec.Body.String())
+	}
+	heard := map[string]bool{}
+drain:
+	for {
+		select {
+		case ev := <-swCh:
+			if c, ok := ev.Data.(delegateChange); ok && c.Op == "state" {
+				heard[c.User] = true
+			}
+		default:
+			break drain
+		}
+	}
+	swCancel()
+	if !heard["bob"] || !heard["alice"] {
+		t.Errorf("the switch's state event reached %v, want bob (who has an agent) and alice (who turned it)", heard)
 	}
 	for _, c := range []cred{bob, alice} {
 		if rec := w.do(w.inv, "GET", "/api/xbin/components", "", c); rec.Code != 403 || !strings.Contains(rec.Body.String(), "hasn't turned workspace agents on") || !strings.Contains(rec.Body.String(), `"refusal":"workspace-off"`) {
@@ -760,6 +780,9 @@ func TestDelegationDevOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := delegation.OpenStore(t.TempDir())
+	if _, err := store.SetWorkspace(true, "test"); err != nil { // nothing is allowed while workspace agents are off
+		t.Fatal(err)
+	}
 	s := &Server{Auth: a, Delegation: store, DelegationDev: true, Hub: events.NewHub()}
 	h := s.Handler()
 	do := func(method, path, body string) (int, string) {

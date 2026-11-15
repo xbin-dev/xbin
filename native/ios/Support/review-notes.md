@@ -36,6 +36,18 @@ app connects only through an encrypted tunnel. To test it:
    same six digits; click **Codes match** there. The workspace opens in the
    app.
 
+**Workspace agent.** Where the workspace's administrator has turned it on,
+each person has a workspace agent: an assistant that runs on their own server,
+never in the app. The last button of every screen's top bar, and a row on
+Home, open its conversation — a sheet on iPhone, beside the content on iPad.
+The agent can ask to change something in one of the person's apps or to start
+a coding session there. The app then shows its own approval sheet with the
+exact request as the server reports it, and nothing happens until the person
+taps Allow or Deny. Allowing every change to an app, and applying
+administrator changes, ask for Face ID first. Pause stops the agent at once.
+The app runs no model and downloads no code for this. The demo account has an
+agent.
+
 **Not a VPN.** The tunnel carries only this app's own traffic to the user's
 own workspace. The app uses no NetworkExtension, installs no VPN
 configuration and routes nothing for the system or other apps. While the app

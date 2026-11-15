@@ -24,6 +24,9 @@ public enum XbinIcons {
         "branch": "arrow.triangle.branch", "eye": "eye", "eye-slash": "eye.slash", "external": "arrow.up.right.square",
         "back": "chevron.left", "forward": "chevron.right", "expand": "chevron.down", "collapse": "chevron.up",
         "power": "power", "sun": "sun.max", "moon": "moon", "agent": "person.crop.circle.badge.checkmark",
+        // D233: a tick box's three states, a connection, "waits for you"
+        "square": "square", "check-square": "checkmark.square.fill", "minus-square": "minus.square.fill", "plug": "powerplug",
+        "hand": "hand.raised",
     ]
 
     /// What an unknown icon name draws.

@@ -42,6 +42,14 @@ public func XCTAssertFalse(_ expression: @autoclosure () throws -> Bool, _ messa
                            file: StaticString = #filePath, line: UInt = #line) {}
 public func XCTAssertEqual<T: Equatable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
                                          _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
+public func XCTAssertLessThan<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
+                                            _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
+public func XCTAssertGreaterThan<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
+                                               _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
+public func XCTAssertGreaterThanOrEqual<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
+                                                      _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
+public func XCTAssertNotNil(_ expression: @autoclosure () throws -> Any?, _ message: @autoclosure () -> String = "",
+                            file: StaticString = #filePath, line: UInt = #line) {}
 public func XCTFail(_ message: String = "", file: StaticString = #filePath, line: UInt = #line) {}
 public func XCTUnwrap<T>(_ expression: @autoclosure () throws -> T?, _ message: @autoclosure () -> String = "",
                          file: StaticString = #filePath, line: UInt = #line) throws -> T {
@@ -249,3 +257,13 @@ open class XCUIDevice {
 open class XCUISystem {
     open func open(_ url: URL) {}
 }
+
+// A radio row's selected trait (the workspace agent's grant choices, D233).
+extension XCUIElement {
+    public var isSelected: Bool { false }
+}
+
+public func XCTAssertLessThanOrEqual<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
+                                                    _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
+public func XCTAssertNil(_ expression: @autoclosure () throws -> Any?, _ message: @autoclosure () -> String = "",
+                         file: StaticString = #filePath, line: UInt = #line) {}

@@ -29,6 +29,7 @@ export const W = Object.freeze({
   paused: 'Resume to send a message',
   reconnecting: 'Reconnecting…',
   keptOffline: 'Your message is kept here and is not sent until you’re connected.',
+  keptPaused: 'Kept here, unsent. Resume your agent to send it.',
   answer: 'Answer',
   skip: 'Skip — let the agent look around first',
   skipSent: '(Skipped the question: look around first, and ask again only if you still need to.)',
@@ -48,6 +49,24 @@ export const W = Object.freeze({
   // a page's org marks: nothing takes them off — the way to is to delete the page and have it written again (API.md §Workspace mode)
   marksNote: (orgs) => `Marked with ${orgs.join(', ')}: it may hold their data, so sessions on a model their rules keep out can’t read it. Your edits keep the marks. To clear them, delete the page and have a session that holds none of their data write it again.`,
   whatCanItDo: 'What can it do?',
+  // the app's native view (native/ws.js; D233)
+  itCan: 'It can',
+  itCant: 'It can’t',
+  answerBelow: 'Answer in the message box.',
+  replaced: 'A newer question replaced this one.',
+  updateToReview: 'Something waits for your approval. Update the app to review it.',
+  needsApp: 'That opens in xbin’s own panels: update the app, or use xbin on the web.',
+  startFromBrief: 'Start it from the brief.',
+  readyToStart: 'Ready to start',
+  askAgain: 'Ask again',
+  updates: 'Updates from xbin and your tile agents',
+  needsYou: 'Needs you',
+  // the agent's switch, where xbind says it can't act (GET /ws/empty → off) and no other banner says so: a
+  // notice's title above the backend's sentence (which switch, who changes it, where); offWhy when it gave none
+  offTitle: Object.freeze({ 'no-agent': 'No workspace agent for you yet', held: 'Your agent is held on this xbin', 'no-sandbox': 'Your agent can’t act on this xbin' }),
+  offWhy: Object.freeze({ 'no-agent': 'An admin chooses who has one: Admin → People → access, or the workspace agent’s set-up in the dock.',
+    held: 'It does nothing until that is cleared. An admin can see why and clear it: Admin → Runtime, or the workspace agent’s dock.',
+    'no-sandbox': 'This xbin runs tiles without sandboxes, where a workspace agent can’t act. An admin can run it with sandboxes.' }),
 });
 
 // ---- time ----------------------------------------------------------------------------
@@ -282,6 +301,13 @@ export function aboutOf(c) {
   return null;
 }
 
+/** aboutLabel(c): the chip's words in one line — "About Orders", "About the Sales desk screen", "About Ledger — not connected" (c: aboutOf's, or the composer's {tile, name, not}). */
+export function aboutLabel(c) {
+  if (!c) return '';
+  if (!c.tile) return `About the ${c.screen} screen`;
+  return `About ${c.name || c.tile}${c.not || c.connected === false ? ' — not connected' : ''}`;
+}
+
 /** blankAt(text): where a starter's blank is ([start, end] of "___"), or null. */
 export function blankAt(text) {
   const i = String(text || '').indexOf('___');
@@ -295,7 +321,9 @@ export function sessionRow(s, now = Date.now()) {
   const c = (s.connection && s.connection.counts) || {};
   const scope = [c.tiles != null ? `${c.tiles} tiles` : '', c.orgs != null ? `${c.orgs} orgs` : '', short(s.model)].filter(Boolean).join(' · ');
   let status;
-  if (s.status === 'waiting_input' || s.requests > 0) status = { glyph: 'bell', word: 'waiting for you', tone: 'warn' };
+  // held (GET /ws/sessions → held): nothing runs in it until it moves — its banner says why and the ways forward
+  if (s.held) status = { glyph: 'lock', word: `held: can’t go on on ${short(s.held.model || s.model)}`, tone: 'bad' };
+  else if (s.status === 'waiting_input' || s.requests > 0) status = { glyph: 'bell', word: 'waiting for you', tone: 'warn' };
   else if (['running', 'awaiting', 'sleeping'].includes(s.status)) status = { glyph: 'clock', word: `working${s.agents ? ` · ${s.agents} tile agent${s.agents === 1 ? '' : 's'}` : ''}`, tone: '' };
   else if (s.agents) status = { glyph: 'clock', word: `${s.agents} tile agent${s.agents === 1 ? '' : 's'} working`, tone: '' };
   else status = { glyph: '', word: `idle${s.activityMs ? ' · ' + day(s.activityMs) : ''}`, tone: '' };

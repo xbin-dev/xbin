@@ -170,6 +170,9 @@ const text = (f, sel) => f.textContent(sel).then((t) => (t || '').replace(/\s+/g
 const doneKeys = (f) => f.$$eval('.wsp-main .bxc-row[data-kind="assistant"]', (els) => els.filter((e) => /^\s*Done: /.test(e.textContent)).map((e) => e.dataset.k));
 
 /** say(f, script): type a message into the page's own box and send it; → the scripted model's "Done: …" answer once the turn ended. */
+/** PENDING: how the scripted model answers a tool result that says a request waits for the person (hack/fakeopenai wsPendingWords). */
+const PENDING = /That needs your approval\. Nothing has run yet\./;
+
 async function say(f, message, timeout = 90000) {
   const before = await doneKeys(f);
   await f.fill(TA, message);
@@ -302,7 +305,7 @@ async function wsAgentPage(browser) {
   const reqs = ((await call('GET', '/delegate/requests')).data || {}).requests || [];
   log(`wsAgentPage: the turn's answer: ${turn.slice(0, 300)}`);
   log(`wsAgentPage: rows: ${JSON.stringify(await f.$$eval('.wsp-main .bxc-row', (els) => els.map((e) => `${e.dataset.kind}:${(e.firstElementChild && (e.firstElementChild.className || e.firstElementChild.localName)) || ''}:${(e.querySelector('.bxc-title') || {}).textContent || ''}`)))}`);
-  check(/^Done: /.test(turn) && /GET \/note → 200/.test(turn) && /Pending — request/.test(turn), `the scripted model ran its tools and answered (${turn.slice(0, 140)})`);
+  check(/^Done: /.test(turn) && /GET \/note → 200/.test(turn) && PENDING.test(turn), `the scripted model ran its tools and answered (${turn.slice(0, 140)})`);
   const tools = await f.$$eval('.wsp-main details.bxc-tool', (els) => els.map((e) => `${e.querySelector('.bxc-title').textContent.trim()}:${e.dataset.state}`));
   check(tools.join(' ') === 'workspace_map:done tile_call:done tile_call:error', `tool cards for what it looked at, and for the call xbin refused (${tools.join(', ')})`);
   const planText = await text(f, '.wsp-main .bxc-plan');
@@ -444,4 +447,4 @@ async function wsAgentPage(browser) {
   done();
 }
 
-module.exports = { shipped, wsAgentPage, AGENT, NOTE, DOCK, SHEET, TA, until, caller, noHolder, connectModel, agentOn, noteTile, nothingWaits, agentFrame, say, armed, pickMain };
+module.exports = { shipped, wsAgentPage, PENDING, AGENT, NOTE, DOCK, SHEET, TA, until, caller, noHolder, connectModel, agentOn, noteTile, nothingWaits, agentFrame, say, armed, pickMain };

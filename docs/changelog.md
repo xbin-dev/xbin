@@ -12,6 +12,76 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- delegation, the workspace agent's chrome (web and app): **nothing can
+  be allowed while the agent is stopped.** Approving a request (once,
+  hour, always), `POST /delegate/approvals` and applying a change set
+  answer `409 {error, refusal}` — `workspace-off`, `paused`, `held`,
+  `no-agent` — unless workspace agents are on, the person has an agent and
+  it is neither paused nor held; before, a ticket or an "always" given then
+  was live the moment the agent ran again. Deny and Reject always work.
+  Switching workspace agents off, taking a person's agent away, or
+  disabling them withdraws their pending requests and proposed change sets
+  (`withdrawnBy: "xbin"`, additive); a pause or a hold keeps them to decide
+  afterwards. The sheets say why in the place of Allow or Apply
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §The switches).
+  The chrome takes a request's or change set's id from the agent's page
+  (`xbin:agent-open-request`, `…-changeset`) and from the app's agent view
+  only in the shape xbind issues — 24 lowercase hex digits — and ignores
+  any other (§The chrome).
+  Characters that reorder or hide text (bidi controls, zero-width ones,
+  other control and format characters) in anything the agent wrote are
+  shown on the sheets as escapes, `⟨U+202E⟩`, under "contains hidden
+  characters — shown as ⟨U+…⟩" — `reveal()` in
+  `/vendor/agent-chrome-words.js`.
+  A body or a brief longer than 4000 characters (code points, the same in
+  the app) says "first 4000 of N characters" with Show all; "shown in full"
+  only when it is (`sends(req, all)`, `clipText()`).
+  A state the chrome doesn't know reads as not decidable (it read as
+  pending in the app) — `knownState()`, `UNKNOWN_STATE`.
+  A new session's draft cut at its 8000-character cap no longer keeps half
+  of an emoji (`plainDraft()`).
+- delegation: the workspace's switch (`PUT /delegate/workspace
+  {enabled}`) now also sends a `delegate` event with `op: "state"` to the
+  own sockets of every person who has an agent, and of the admin who turned
+  it ([protocol/delegation.md](/docs/protocol/delegation.md) §Events and
+  pushes). Before, only the agents' backends were told, so xbin's chrome
+  and the app showed the switch at their next read. Additive: clients
+  already refetch on that event.
+- The workspace agent's chrome, web and app: a tile agent's start is "asks
+  before acting" only where xbind's preview says `asks: true`
+  (`/vendor/agent-chrome-words.js` read anything but `false` as asking); a
+  preview without the word now leads with the danger wording and Deny. In
+  the app, what widens the agent's reach is armed like Allow, the agent's
+  view can't open Preferences, and a draft it hands a tile agent is
+  labelled as its suggestion — as on the web
+  ([workspace-agent.md](/docs/workspace-agent.md#in-the-xbin-app)).
+- **The workspace agent in the xbin app** (D233;
+  [workspace-agent.md](/docs/workspace-agent.md#in-the-xbin-app)): the iOS
+  app has a person's workspace agent as its own chrome — a button at the
+  end of every panel's bar (a vertical-bar item on an open iPhone Duo) and a
+  row on Home, the agent as a sheet (a trailing column on an iPad), native
+  approval sheets drawn from xbind's reading of a request (Allow armed
+  after 600 ms; Face ID for the wider grant and for admin changes), the
+  agent's requests in Needs you. Nothing changes for a workspace without
+  the agent or an app from before it.
+- native: the workspace agent's nodes (D233;
+  [native.md](/docs/native.md) §The workspace agent's nodes) — `card`,
+  `connection`, and `request` and `session`, which a tile places by id and
+  **the app draws** from xbind's own reading (anywhere but the person's
+  agent they are an inert line); `transcript` rev 3 (an `empty` slot with
+  suggestions), `question` rev 2 (choices as rows, "Something else",
+  pages), `plan` rev 2 (numbers, a tag a step, a note), `composer` rev 2
+  (context chips, quick replies, a hint); five icons (`square`,
+  `check-square`, `minus-square`, `plug`, `hand`); `xbin.native.agent(msg)`
+  and `xbin.native.on('agent', fn)` for the tile the app shows as the
+  person's agent. Additive: an older app gets the tile's web page unless
+  the tile branches with `xbin.native.supports()`.
+- agent template: a workspace agent has a native view in the xbin app
+  (`native/ws.js`, loaded by `native.js` in workspace mode) over the same
+  model as its page (`ws/store.js`); requests and tile agents are
+  `request`/`session` nodes the app draws by xbind's id, and the view asks
+  the app's chrome with `xbin.native.agent`. An instance's own native view
+  is unchanged (`native/main.js`, what `native.js` was).
 - **An unused workspace agent leaves no state and costs nothing at boot.**
   xbind recorded the agent's partition mode and created and mounted its
   three encrypted volumes at every boot of every workspace — even where

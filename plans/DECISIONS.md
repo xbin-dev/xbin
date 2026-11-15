@@ -4932,6 +4932,114 @@ here: cut from the old end, never reword.
     start preference is set); naming the admins in "An admin can fix
     this" (no route lists admins to a non-admin); the setup's "Choose who
     gets one" step links the docs rather than an editor.
+- **D233 — The workspace agent in the iOS app (2026-11-16; issue #51;
+  `plans/wsagent/ux.md` §1, §6, §9, §13.4–13.5; package E1).** The first
+  stage on the phone: the entry, the conversation, the native grants, the
+  inbox. The Live Activity and its pushes, notification actions, dictation,
+  Handoff and widgets are later stages; the seams are where the app already
+  has them (the push kinds `agent.approval` / `agent.changeset` open the
+  agent by its link today).
+  - **Two layers, as on the web — and the app is the trusted one.** The
+    conversation is the sealed component's own native view
+    (`builtin-templates/agent/native/ws.js`, drawn by XbinRenderer like any
+    native tile, on the tile's frame token in the hidden runtime document).
+    Everything that grants is `App/Shell/Agent*.swift`, drawn from what
+    xbind answers for an id with the device's session — which
+    `docs/protocol/delegation.md` already names as the person's own ("a
+    browser session, the app's session or a device's"); no xbind route was
+    added for it. Rejected: the web page in a web view with the dock around
+    it (the grant would be web chrome inside the app, and the phone's most
+    important screen a page); grants as rev-1 `approval` nodes (a tile's
+    tree would describe a grant).
+  - **`request` and `session` are placed by id and drawn by the app.** The
+    design's V1/V2 gave the tile a sentence on the request and the status
+    and last line on the session; both were dropped: the node carries an id
+    (and a hint — the kind, the tile), the app reads the rest from xbind
+    (`GET /delegate/requests/<id>`, `/delegate/changesets/<id>`, the compact
+    session directory). The renderer asks `XbinServices.trustedNode`, which
+    only the agent's container supplies; with none it draws an inert line,
+    so the nodes are harmless in any other tile and in previews.
+  - **Only the holder may ask the chrome, and only to show.**
+    `xbin.native.agent(msg)` is one new `call` of the bridge behind the
+    wire feature `agent`, which the app lists in the caps of exactly one
+    runtime: the component `agent` of `GET /delegate/state` names
+    (`NativeTileRuntime.isAgent`). The messages are the web page's own
+    (`xbin:agent-open-request {id}`, `-changeset {id}`, `xbin:open-session`,
+    `xbin:agent-open {view}`), read as strictly as the dock reads them
+    (`AgentBridge.decide` mirrors `pageMessage()`), and the other way is
+    `xbn.agent(msg)` with `xbin:agent-context`. Rejected: a deep link the
+    tile opens (it would need `cap:open-links` and leave the app's own
+    routing); a `present` prop on the request node (a tree could then open
+    a sheet by re-rendering).
+  - **The vocabulary grew by what the conversation needs, additively**
+    (transcript rev 3, question rev 2, plan rev 2, composer rev 2; `card`,
+    `connection`; five icons). The scope panel, sessions and the notebook
+    are the agent's own screens from existing primitives (Q9: scope is
+    focus, not permission); a generic tri-state tree was not added — an
+    org is a collapsible section whose first row is its tick. Dictation
+    (`composer.dictation`) waits for its stage.
+  - **The words are the web chrome's**, ported (`DelegationWords.swift`)
+    and held to `web/agent-chrome-words.js` by generated vectors, so the
+    dock and the app can't drift apart sentence by sentence. Rejected:
+    running the JS in the app (JavaScriptCore for strings), and writing the
+    app's own copy deck.
+  - **ux.md §15, as built** (`AgentChoices`, one place): a sheet with
+    medium and large detents, opened large, the button in the panel bar
+    (Q1); no iPad sidebar — the same item opens a trailing column (Q2);
+    nothing is allowed from the lock screen (Q3: no notification actions
+    in this stage at all); Face ID for the wider grant and for applying
+    admin changes, as a local gate that never stands in for the server's
+    recent sign-in (Q4); both durations offered, "until I take it back"
+    for the exact action and "for one hour" for the whole tile (Q5);
+    answering a tile agent happens in its session (Q6); warned items start
+    unticked (Q7); no composer while paused — the app draws Resume there
+    (Q10).
+  - **The container keeps the panels as they are.** A sheet never joins
+    the panel stack; on a regular width `XbinTwoPanes` puts the agent
+    beside the `PanelStack` without rebuilding it (the primary keeps its
+    identity whether the column shows or not). On an open Duo the same
+    view gives halves where the system draws its vertical bar. Rejected
+    there: the system's `ArrangementView`, which would rebuild the panels
+    each time the agent opens or closes — and which no simulator can show.
+  - **Shipped apps and old workspaces see nothing.** The holder's row is
+    read with `GET /components?sealed=1` by the agent's model alone and
+    never enters the catalog; an xbind without `/delegate/state` yields no
+    state, so no button; an app from before this ignores the new nodes
+    because the only tile that renders them is one it never lists. The
+    template's view falls back by `supports()` for an app that knows the
+    agent but not a later revision.
+  - **Not tested on hardware that doesn't exist**: the Duo layout compiles
+    against the iOS 27.1 SDK and has never been drawn.
+  - **After the security review's fixes on the web side (second round,
+    2026-11-16).** The app takes the same rules, each held to the web's:
+    only xbind's `asks: true` is "asks before acting" (the words module and
+    its Swift port changed together — `asks !== false` had given a preview
+    without the word the green tag); the agent's view may ask the chrome
+    for views that change nothing, never Preferences (`AgentBridge.View` is
+    `PAGE_VIEWS`, pinned by the vectors); every control that widens what
+    the agent may do is armed like Allow (`ArmingClock` / `AgentWidening`,
+    pure and tested in XbinCore — the web's WidenGuard as a rule, not a
+    port of its DOM handling); a draft from the view is labelled as the
+    page's suggestion until the person edits or sends it; an admin without
+    an agent has none in the app either, and a `403 no-agent` on any read
+    ends the reading. Home's agent row lost its count plate: the count is
+    on Needs you and on the bar item (the owner's review of the shots, over
+    ux.md §1.1).
+  - **One xbind change came out of it**: the workspace's switch now sends
+    people's own sockets the `delegate` state event (it told only the
+    agents' backends), so the dock and the app follow it as it is turned.
+    Additive; found by the UI test that turns the switch with the agent
+    open. Rejected: a refresh on a timer in the app (the chrome polls
+    nothing), and leaving it to the view's banner (the view heard nothing
+    either until a message was refused).
+  - **States a test xbind can't be in are Debug demos** (`-XbinAgentDemo`,
+    after `-XbinPairingDemo`): the chrome's own reads answered from the
+    vectors' corpus, generated into the app and pinned by `make js-test`,
+    so a demo shows exactly what the words' tests pin. Live where the e2e
+    xbind can make the state. Rejected: a second, slower xbind per state
+    (a held vault, an older data stamp, a non-`--dev` xbind for the
+    password step) for screens whose every word is already pinned.
+
 - **D234 — Previews: xbind renders a tile or a screen as a person,
   read-only, in a confined browser (2026-11-15; issue #51).** The workspace
   agent has to see what its person sees, and a person (or `bx`) wants a

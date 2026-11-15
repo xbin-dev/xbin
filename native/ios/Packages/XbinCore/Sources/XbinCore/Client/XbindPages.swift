@@ -19,6 +19,12 @@ import Foundation
 /// One of xbind's own pages.
 public enum XbindPage: String, Sendable, Hashable, Codable, CaseIterable {
     case partitions
+    /// The workspace agent's page (`/xbin/agent`, docs/workspace-agent.md):
+    /// xbin's dock as a page of its own. The app has the agent natively
+    /// (D233) — a link to this page opens that — and shows the page itself
+    /// only for what lives on the web: an admin's setup. Served wherever
+    /// `GET /delegate/state` answers.
+    case agent
 
     /// The page's path on the workspace's origin.
     public var path: String { "/xbin/\(rawValue)" }
@@ -30,13 +36,16 @@ public enum XbindPage: String, Sendable, Hashable, Codable, CaseIterable {
     public var title: String {
         switch self {
         case .partitions: return "Your partitions"
+        case .agent: return "Workspace agent"
         }
     }
 
-    /// The word in the feature list that says this xbind serves the page.
+    /// The word in the feature list that says this xbind serves the page
+    /// ("": the probe answering 200 is enough — the page came with the route).
     public var feature: String {
         switch self {
         case .partitions: return "partitions-page/1"
+        case .agent: return ""
         }
     }
 
@@ -44,6 +53,7 @@ public enum XbindPage: String, Sendable, Hashable, Codable, CaseIterable {
     public var featuresPath: String {
         switch self {
         case .partitions: return "/api/xbin/partitions"
+        case .agent: return "/api/xbin/delegate/state"
         }
     }
 
@@ -70,7 +80,8 @@ public enum XbindPageAvailability: Sendable, Equatable {
     public static func from(_ response: APIResponse?, page: XbindPage) -> XbindPageAvailability {
         guard let r = response else { return .unknown }
         if r.status == 404 { return .notServed }
-        guard r.isSuccess else { return .unknown }
+        guard r.isSuccess else { return r.status == 403 && page.feature.isEmpty ? .notServed : .unknown }
+        if page.feature.isEmpty { return .served }
         guard let j = try? r.json(), let list = j["features"]?.arrayValue else { return .notServed }
         return list.contains { $0.stringValue == page.feature } ? .served : .notServed
     }

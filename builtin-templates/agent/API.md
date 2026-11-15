@@ -6125,6 +6125,59 @@ message"); resuming is the chrome's. `globalThis.wsAgentPage.testApi()` is
 what the browser scripts read (`test/ws-page.mjs`, `ws-scope.mjs`,
 `ws-states.mjs`, against `test/ws-stub.mjs`).
 
+**The native view** (`native/ws.js`; D233). In the xbin app the agent's
+conversation is drawn with platform controls: `native.js` asks the same
+question as `boot.js` (`model/mode.js`) and loads `native/ws.js` in place of
+the template's own native view. It is a second view over **one model**:
+`ws/store.js` holds the page's state and everything it does that isn't
+drawing — the sessions and the one in view, the cards and where they sit
+(`ws/place.js`), the scope's staged ticks, a model's what-if and its
+refusal, briefs, the notebook, the banners, what the composer takes, the
+quick replies, xbind's events — and `ws/page.js` and `native/ws.js` both
+draw it (`createStore({paint, post, hooks})`: `post` is how a view asks
+xbin's chrome; `hooks` what only a view can do, such as putting the cursor
+in a filled composer). The run's rows are `model/session.js` and
+`model/fold.js`, as on the page.
+
+| What | In the app |
+|---|---|
+| the session in view | the screen's title; **Sessions** in the bar and a sheet: rows with Rename / Archive, Older folded |
+| the connection line | the `connection` node above the transcript (xbind's numbers, the model); a tap opens the scope panel, its model part the models |
+| the scope panel | a sheet: four totals, the model, All · Connected · Not connected, an org a collapsible section whose first row ticks all of it (a mixed box: some), a tile a row with its state as a word — a blocked one disabled, the org's sentence once —, **Apply** and **Cancel** in the bottom bar; the what-if and "This session can't move to …" as its other screens |
+| the conversation | `transcript` rev 3: the plan as `plan` rev 2 (numbers, a tag per step, the note), a question as `question` rev 2 (choices as rows, "Something else", "Skip — let the agent look around first"), a brief, a redirect, a "can't" and a refusal as `card`s, the empty state in the transcript's `empty` slot (three lines of each list and three starters on a phone; a starter fills the composer) |
+| a request, a change set | `<request id kind>` — the request's `ref`, xbind's id, and nothing else: **the app** draws what waits and what came of it from xbind's own reading, and its Review… presents the app's own sheet |
+| a tile agent | `<session id tile>` — xbind's session id: the app draws its status and last line from xbind's session directory, and Open goes to the app's agent screen |
+| the composer | `composer` rev 2: the "About …" context chip (`context`; not connected: a warn chip whose tap opens the scope panel), quick replies (`replies`: the waiting question's choices, "Go ahead" / "Change the plan"), the standing hint |
+| the notebook, one tool call in full | screens pushed over the conversation |
+| what stops it | a `notice` per state above the transcript; a held session's ways forward ("Move back to …", "New session on …") a row of `button`s under it; the agent's switch where xbind says it can't act (`off` of `GET /ws/empty`: no agent given, held, no sandboxes) a notice with the backend's sentence once the conversation has rows (an empty one says it in its `empty` slot, alone). A message the switch refused (`409 agent-off`) stays the composer's `value`, unsent, its reason a warn `notice` right above the composer, and the transcript's step of kind `off` a warn `step`. **Paused, there is no composer** — the app's own chrome draws Resume where it was |
+
+It grants nothing, like the page. What the page posts to the dock the
+native view asks of the app with `xbin.native.agent(msg)` — the same
+messages, built by `ws/dock.js`: `xbin:agent-open-request {id}` (a brief's
+"Review and start…", once the backend filed the start),
+`xbin:agent-open-changeset {id}`, `xbin:open-session {session: "new", tile,
+draft}` (a redirect's hand-off), and `xbin:agent-open {view}` — `needs`
+| `approvals` | `activity`, the app's own panels that change nothing, from
+the view's ⋯ (the web dock has them in its header; the chrome refuses any
+other view: Preferences are the app's own, in its shield menu). The app tells the view what it was opened
+about with `xbin:agent-context {tile}` | `{screen}` (`xbin.native.on('agent',
+…)`), read as strictly as the page reads it. An app that doesn't list the
+`agent` feature for the tile has no chrome to ask: the view says so in a
+notice and sends nothing. There is no Allow, Deny, Pause or Resume in the
+view's tree, and it never uses the vocabulary's `approval` card.
+
+Addresses the app may open the view with, or navigate to (`#…`):
+`s=<session id>`, `about=<tile path>` and `screen=<name>` (the context
+chip), `scope`, `models`, `sessions`, `notebook`, `can`.
+
+**An older app.** Every node of this vocabulary is asked for first
+(`xbin.native.supports`), and has a fallback: a waiting request is a notice
+("Something waits for your approval. Update the app to review it."), a
+decided one and a tile agent their words; a card is markdown with its
+buttons among the composer's chips; the plan's tags ride in its lines; the
+question is the rev-1 form; the connection line is a badge in the bar; the
+empty state is text with the starters as chips.
+
 **The prompt** is `ws_prompt.go` plus a short map of xbin generated from
 xbin's docs (`ws_model.md`; regenerate with the xbin repository's
 `hack/wsagent-model.sh`). The scripted evaluation is `ws_eval_test.go`;
@@ -6257,8 +6310,11 @@ home sends the draft (`POST /ask {draft, files}`).
 
 | The native view | What it draws |
 |---|---|
-| `native.js` | the entry: the conversation list (the root) and the stack's screens — conversations (a subagent's over its parent: back goes up), the new chat screen, the Automations screens, Projects, the tools pushed over any of them — plus the sheets; `layout()`: where the app has the collapsing `split` of rev 2 (`nav.rev2('split')`) the list is its primary column and the stack a `nav` in its detail one (iPad, Duo: side by side, the new chat screen while nothing is open; a phone: the list with the stack pushed over it), else one `nav` of the list and the stack On a compact width (`xbin.native.width`, an iPhone; D190) the bar keeps its title and at most two items — the list New chat and ⋯, a conversation New chat and ⋯ with the model, sandbox and other modules' items folded into ⋯ as submenus (`native/pick.js`, `ext.toolbar(v, {fold})`), New chat ⋯ alone — and the list's subtitle heads the list; a regular width keeps the full bar. |
+| `native.js` | the entry the app loads: it decides which view this instance has, as `boot.js` does for the page — `native/main.js`, or for a person's workspace agent `native/ws.js` (`model/mode.js` `pageMode()`: asked only on a sealed component's path) — and loads that one alone |
+| `native/main.js` | the template's own view: the conversation list (the root) and the stack's screens — conversations (a subagent's over its parent: back goes up), the new chat screen, the Automations screens, Projects, the tools pushed over any of them — plus the sheets; `layout()`: where the app has the collapsing `split` of rev 2 (`nav.rev2('split')`) the list is its primary column and the stack a `nav` in its detail one (iPad, Duo: side by side, the new chat screen while nothing is open; a phone: the list with the stack pushed over it), else one `nav` of the list and the stack On a compact width (`xbin.native.width`, an iPhone; D190) the bar keeps its title and at most two items — the list New chat and ⋯, a conversation New chat and ⋯ with the model, sandbox and other modules' items folded into ⋯ as submenus (`native/pick.js`, `ext.toolbar(v, {fold})`), New chat ⋯ alone — and the list's subtitle heads the list; a regular width keeps the full bar. |
 | `native/nav.js` | the navigation stack (D190): route entries in `ui.stack` — places (`{kind: 'chat', run}`, `new`, `auto`, `projects`, `project` {pid}) and tool screens over them; `open` (back to a place on the stack, else pushed), `cut`, `follow` (the model's single selection follows the top place), `wire` (a conversation the model opens anywhere is pushed; one deleted or revoked leaves), `link` (deep links `#c=`, `#auto`, `#proj`, `#join=` build the stack through `model/router.js`), `saved`/`restore` (a restarted runtime, `xbin.native.state.nav`) |
+| `native/blocks.js`, `native/win.js` | what both native views draw a conversation with: a block as its row (thinking, the answer and the one being written, a tool call, a subagent's card, a folded notice), and the window of rows a transcript shows (D130) |
+| `native/ws.js`, `native/ws-chat.js`, `native/ws-panels.js` | a workspace agent's view (§Workspace mode → The native view) |
 | `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the window of the transcript and jump to latest (rev 2 anchors), the composer (its draft per place — each conversation's, the new chat screen's: `native/ui.js`; attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
 | `native/convs.js`, `native/home.js`, `native/share.js` | the conversation list, the stack's root: search, Needs you, the scope, pinned, by date, a row's swipe actions and menu; New chat and the main ⋯ (Automations, Projects, Coding agents, Settings, the brake) in its bar; the new chat screen (greeting, Try, the class, model and sandbox pickers, the composer); new chat with options, rename; the share sheet |
 | `native/homes.js` | a person's partition (two homes): the Share a copy sheet (`POST /runs/{id}/publish`), the share sheet's Copy to my own space (`POST /copy`), Use my private resources… (the warning's sheet, `POST /hosting`; its host's Take them back), Add a copy of my files… (`POST /copyin`), and Who can see it in new chat with options — the web's `homes-ui.js` and `hosted-ui.js` in sheets |
@@ -6365,6 +6421,10 @@ view puts a `confirm` on the button, before calling a model action);
 `hack/agent-template-model.test.mjs` runs the model in node against a
 scripted backend to keep it that way. The native view imports only the
 model, `/vendor/xb-native.js` and the kit — never lit or the web's views.
+A workspace agent's two views are held level the same way (the `ws` area of
+`model/features.js`), over model files of their own under `ws/` (`store.js`,
+`words.js`, `place.js`, `scope-model.js`, `dock.js`, `api.js`),
+which the same test holds to the model's rule: no lit, no chat kit.
 
 **Testing the native view.** `hack/agent-template-native.test.mjs` renders
 `native.js` in node (`hack/xbn/node.mjs`) against the web tests' fake backend
@@ -6376,6 +6436,12 @@ runtime, the tile's `native.js`, the reference renderer as the app) and
 walks the list (the root), New chat, a pushed conversation and back, a streamed answer, sending, Files, the render
 preview and an approval. `node test/native-shots.mjs` draws the key screens
 with the reference renderer at 390×844, light and dark — look at them.
+`hack/agent-template-native-ws.test.mjs` does the same for a workspace
+agent's view, against the web page's own fake (`test/ws-stub.mjs` WS_STUB,
+through `test/ws-native-stub.mjs`): the cards where the conversation made
+them, a request and a tile agent as nodes the app draws by xbind's id, the
+scope panel's staged ticks and what-if, a refused model change, the states,
+what the view asks of the app's chrome, and an app from before these nodes.
 
 ## JavaScript sandbox (REPL)
 

@@ -128,7 +128,16 @@ type Request struct {
 	// DecidedVia names the credential that decided: "session", "device",
 	// "app" ("dev" on an xbind run with --no-auth).
 	DecidedVia string `json:"decidedVia,omitempty"`
+	// WithdrawnBy is "xbin" for a request xbind withdrew itself because its
+	// person's agent stopped for good (WithdrawPending); "" when the agent
+	// or the person took it back.
+	WithdrawnBy string `json:"withdrawnBy,omitempty"`
 }
+
+// WithdrawnByXbin marks a request or change set xbind withdrew because the
+// person's agent stopped for good: workspace agents switched off, the
+// person no longer given an agent, disabled or deleted.
+const WithdrawnByXbin = "xbin"
 
 // Path is the request's path without its query: what a standing approval
 // of "this call" is for.
@@ -626,4 +635,34 @@ func (s *Store) VoidTickets(user string) (int, error) {
 		return 0, nil
 	}
 	return n, s.saveRequests(p, user, doc)
+}
+
+// WithdrawPending withdraws every pending request of user (WithdrawnBy
+// "xbin"): their agent stopped for good — workspace agents switched off,
+// the person no longer given an agent, disabled or deleted — so nothing
+// is left waiting that a person could approve the moment it runs again.
+// A pause or a hold keeps them (the person decides after resuming). It
+// answers the ids it withdrew.
+func (s *Store) WithdrawPending(user string) ([]string, error) {
+	if s == nil {
+		return nil, ErrNoStore
+	}
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	doc, _, err := s.requests(p, user)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now().UTC().Truncate(time.Second)
+	var ids []string
+	for i := range doc.Requests {
+		if r := &doc.Requests[i]; r.State == Pending {
+			r.State, r.Body, r.Decided, r.WithdrawnBy = Withdrawn, "", now, WithdrawnByXbin
+			ids = append(ids, r.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return ids, s.saveRequests(p, user, doc)
 }

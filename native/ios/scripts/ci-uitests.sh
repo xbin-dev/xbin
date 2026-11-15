@@ -102,8 +102,10 @@ TEST_RUNNER_XBIN_E2E_PASSWORD=$XBIN_E2E_PASSWORD
 TEST_RUNNER_XBIN_E2E_TUNNEL_FORWARD=${XBIN_E2E_TUNNEL_FORWARD:-}
 # 1: the xbind runs its app tunnel and relay (XbinTunnelTests, D204)
 TEST_RUNNER_XBIN_E2E_TUNNEL=${XBIN_E2E_TUNNEL:-}
+# …and the workspace agent's (XbinWorkspaceAgentTests, D233): the xbind has one set up.
+TEST_RUNNER_XBIN_E2E_WSAGENT=${XBIN_E2E_WSAGENT:-}
 export TEST_RUNNER_E2E_DIR TEST_RUNNER_XBIN_E2E_URL TEST_RUNNER_XBIN_E2E_USER TEST_RUNNER_XBIN_E2E_PASSWORD \
-  TEST_RUNNER_XBIN_E2E_TUNNEL_FORWARD TEST_RUNNER_XBIN_E2E_TUNNEL
+  TEST_RUNNER_XBIN_E2E_TUNNEL_FORWARD TEST_RUNNER_XBIN_E2E_TUNNEL TEST_RUNNER_XBIN_E2E_WSAGENT
 shots=$TEST_RUNNER_E2E_DIR
 rm -rf "$shots"
 mkdir -p "$shots"
@@ -149,6 +151,13 @@ for devs in json.load(sys.stdin).get("devices", {}).values():
     ci_endgroup
   fi
 fi
+
+# An app the last run left running (XBIN_E2E_ERASE=0 keeps the simulator)
+# is ended before this run installs its build: the install replaces the
+# binary under the live process, whose death then raced the first test's
+# launch — "Simulator device failed to launch dev.xbin.app. No such
+# process" (2026-11-15, the first test of a run, once).
+if [ -n "${udid:-}" ]; then xcrun simctl terminate "$udid" dev.xbin.app >/dev/null 2>&1 || true; fi
 
 only=()
 for t in ${XBIN_E2E_ONLY:-}; do only+=("-only-testing:$t"); done

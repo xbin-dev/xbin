@@ -27,7 +27,14 @@ struct TranscriptNodeView: View {
                        onMore: cx?.action(node, "more"),
                        onScrolled: cx?.action(node, "scrolled") { (atBottom: Bool) in ["atBottom": .bool(atBottom)] },
                        anchor: anchor, jump: jump, onEdge: onEdge) {
-            ForEach(node.children) { NodeView(node: $0) }
+            // Rev 3 (D233): with no children, the `empty` slot — a heading,
+            // short lists, suggestions that report `suggestion {id}`.
+            if node.children.isEmpty, let empty = TranscriptEmpty(props: p) {
+                TranscriptEmptyView(empty: empty,
+                                    onSuggestion: cx?.action(node, "suggestion") { (id: String) in ["id": .string(id)] })
+            } else {
+                ForEach(node.children) { NodeView(node: $0) }
+            }
         }
         .environment(\.xbinPlacement, .chat)
     }
@@ -150,7 +157,9 @@ struct DiffNodeView: View {
 /// `composer`: `value` is controlled (`input`, `send`); `stop` while busy;
 /// attachments are uploaded by the app (``XbinServices/attach``) and
 /// handed over as `uploaded {name, response}`; `remove {id}`; its button
-/// children are chips.
+/// children are chips. Rev 2 (D233): `context` chips in the box (`context
+/// {id}` on a tap, `remove-context {id}` on its ✕), quick `replies` above
+/// it (`reply {id}`), a `hint` under it.
 struct ComposerNodeView: View {
     let node: XbinNode
     @Environment(\.xbin) private var cx
@@ -171,12 +180,16 @@ struct ComposerNodeView: View {
             // An unbound composer clears itself; a bound one waits for the tile.
             context?.model.setRendererValue(n.key, "value", "")
         }
+        let byID: @Sendable (String) -> JSONValue = { id in ["id": .string(id)] }
+        let extras = ComposerExtras(onContext: cx?.action(node, "context", byID),
+                                    onRemoveContext: cx?.action(node, "remove-context", byID),
+                                    onReply: cx?.action(node, "reply", byID))
         if node.children.isEmpty {
             ComposerView(composer: composer, text: text, onSend: send, onStop: stop, onAttach: attachAction(p),
-                         onRemoveAttachment: remove)
+                         onRemoveAttachment: remove, extras: extras)
         } else {
             ComposerView(composer: composer, text: text, onSend: send, onStop: stop, onAttach: attachAction(p),
-                         onRemoveAttachment: remove) {
+                         onRemoveAttachment: remove, extras: extras) {
                 ForEach(node.children) { NodeView(node: $0) }
                     .environment(\.xbinPlacement, .chips)
             }

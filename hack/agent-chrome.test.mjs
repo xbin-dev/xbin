@@ -15,7 +15,7 @@ test('a tile call: its heading, what it sends, the three choices and what each a
   const r = call();
   assert.deepEqual(W.heading(r), { before: 'Your agent wants to change something in ', strong: 'Invoices', after: '' });
   assert.equal(W.needTitle(r), 'Approve a change to Invoices');
-  assert.deepEqual(W.sends(r), { text: '{"all":true}', binary: false, note: '12 bytes · shown in full' });
+  assert.deepEqual(W.sends(r), { text: '{"all":true}', binary: false, clipped: false, note: '12 bytes · shown in full' });
   assert.equal(W.sends(call({ bodySize: 14336, bodyShown: 2048 })).note, 'showing the first 2 KiB of 14 KiB');
   assert.equal(W.levelWords('write'), 'you can write here');
   assert.equal(W.undoWords(r), "xbin can't undo this. Whether Invoices can is up to Invoices.");
@@ -36,7 +36,7 @@ test('a tile call: its heading, what it sends, the three choices and what each a
 
 test('a body nobody can read says so, and is approved only as unseen', () => {
   const r = call({ body: undefined, bodyBinary: true, bodySize: 3355443, bodySha256: 'ab12', preview: { tile: 'apps/invoices', body: { binary: true, size: 3355443, sha256: 'ab12' } } });
-  assert.deepEqual(W.sends(r), { text: '', binary: true, note: 'not text — 3.2 MiB, sha256 ab12' });
+  assert.deepEqual(W.sends(r), { text: '', binary: true, clipped: false, note: 'not text — 3.2 MiB, sha256 ab12' });
   assert.deepEqual(W.approveBody(r, 'once'), { grant: 'once', unseen: true });
 });
 
@@ -170,8 +170,13 @@ test('the dock\'s states and the chip', () => {
 });
 
 test('what the dock takes from the agent\'s page: a word and an id, nothing else', () => {
-  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-request', id: 'abc-1', summary: 'approve me', html: '<b>x</b>', grant: 'always' }), { type: 'review', kind: 'request', id: 'abc-1' });
-  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-changeset', id: 'c9', items: [1, 2] }), { type: 'review', kind: 'changeset', id: 'c9' });
+  const H = '0123456789abcdef01234567';
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-request', id: H, summary: 'approve me', html: '<b>x</b>', grant: 'always' }), { type: 'review', kind: 'request', id: H });
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-changeset', id: H, items: [1, 2] }), { type: 'review', kind: 'changeset', id: H });
+  // an id is xbind's shape or nothing: never a dot segment, a path or a near miss
+  for (const id of ['..', '.', '../changesets', 'abc-1', 'c9', H.toUpperCase(), H.slice(1), `${H}0`]) {
+    assert.equal(W.pageMessage({ type: 'xbin:agent-open-request', id }), null, id);
+  }
   assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 's-1', tile: '/apps/notes/', id: 7 }), { type: 'session', tile: 'apps/notes', session: 's-1' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'approvals' }), { type: 'open', view: 'approvals' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'activity' }), { type: 'open', view: 'activity' });
@@ -213,4 +218,69 @@ test('preferences: the modes a started tile agent may get — only ones that ask
   assert.equal(W.sessionModes(provs, { claude: 'bypassPermissions' })[0].value, '', 'a mode that never asks is never the picked one');
   assert.deepEqual(W.sessionModes(null, null), []);
   assert.match(W.neverAsks(['Bypass permissions']), /^Not offered: Bypass permissions — it acts without asking you first/);
+});
+
+test('while the agent is stopped nothing can be allowed: the reason in the place of Allow, Deny and Reject stay', () => {
+  const on = { workspace: true, access: true, agent: 'xbin/wsagent', paused: false };
+  assert.equal(W.stopRefusal(on), '');
+  assert.equal(W.stopRefusal(null), '');
+  assert.equal(W.stopRefusal({ ...on, workspace: false }), 'workspace-off');
+  assert.equal(W.stopRefusal({ ...on, access: false, agent: '' }), 'no-agent');
+  assert.equal(W.stopRefusal({ ...on, paused: true }), 'paused');
+  assert.equal(W.stopRefusal({ ...on, held: 'locked' }), 'held');
+  // the switch outranks the person's own pause, as xbind's refusal does
+  assert.equal(W.stopRefusal({ ...on, workspace: false, paused: true }), 'workspace-off');
+  assert.equal(W.stopWords(''), null);
+  const p = W.stopWords('paused');
+  assert.match(p.text, /Resume it first/);
+  assert.equal(p.still, 'You can still deny it.');
+  assert.equal(W.stopWords('workspace-off', 'changeset').still, 'You can still reject it.');
+  assert.equal(W.stopWords('workspace-off', 'changeset').title, "Can't be applied now");
+  // a refusal this page doesn't know is still a refusal: said in general words, never taken for "allowed"
+  assert.match(W.stopWords('no-sandbox').text, /can't act on this xbin/);
+  // withdrawn by xbin, not by the agent
+  assert.equal(W.settled({ state: 'withdrawn', withdrawnBy: 'xbin' }), 'Withdrawn by xbin when your agent was stopped');
+  assert.equal(W.endedWords({ state: 'withdrawn', withdrawnBy: 'xbin' }), 'Withdrawn by xbin when your agent was stopped. Nothing was applied.');
+  assert.equal(W.endedWords({ state: 'applied' }), '');
+});
+
+test('the agent\'s text in a sheet: every hidden character a visible escape, nothing interpreted, newline and tab kept', () => {
+  assert.deepEqual(W.reveal('pay \u202Eevil\u202C now'), { parts: [{ text: 'pay ' }, { hidden: 'U+202E' }, { text: 'evil' }, { hidden: 'U+202C' }, { text: ' now' }], hidden: 2 });
+  for (const c of ['\u202A', '\u202D', '\u2066', '\u2069', '\u200B', '\u200F', '\u2060', '\uFEFF', '\u0000', '\u001B', '\r', '\u00AD']) {
+    assert.equal(W.reveal(`a${c}b`).hidden, 1, `U+${c.codePointAt(0).toString(16)}`);
+  }
+  assert.equal(W.reveal('a\nb\tc é 中 😀').hidden, 0);
+  assert.equal(W.revealed('x\u202Ey'), 'x⟨U+202E⟩y');
+  assert.equal(W.HIDDEN_NOTE, 'contains hidden characters — shown as ⟨U+…⟩');
+});
+
+test('a long body: the note says how much is shown — "shown in full" only when it is; one clip length, in characters', () => {
+  assert.equal(W.CLIP, 4000);
+  const body = 'é😀ab'.repeat(1100); // 4400 characters, 4 of them an emoji's two UTF-16 units each
+  const req = { kind: 'call', body, bodySize: Buffer.byteLength(body), bodyShown: true };
+  const s = W.sends(req);
+  assert.equal(s.clipped, true);
+  assert.equal([...s.text].length, 4000, 'the first 4000 characters, never half an emoji');
+  assert.match(s.note, /· first 4000 of 4400 characters$/);
+  const all = W.sends(req, true);
+  assert.equal(all.text, body);
+  assert.match(all.note, /· shown in full$/);
+  assert.match(W.sends({ kind: 'call', body: 'x'.repeat(4000), bodySize: 4000, bodyShown: true }).note, /shown in full$/, 'exactly CLIP is whole');
+  assert.equal(W.clipNote(W.clipText('x'.repeat(4001))), 'first 4000 of 4001 characters');
+});
+
+test('a state the chrome doesn\'t know is never one that can be decided', () => {
+  const r = { id: 'x', kind: 'call', state: 'deferred', created: '2026-11-16T10:00:00Z', expires: '2026-11-17T10:00:00Z' };
+  assert.equal(W.settled(r), W.UNKNOWN_STATE.page, 'not "Waiting for your approval"');
+  assert.deepEqual(W.needs({ requests: [r], changesets: [{ id: 'c', state: 'scheduled', items: [] }] }), [], 'nothing of it waits in Needs you');
+  assert.equal(W.endedWords({ state: 'scheduled' }), W.UNKNOWN_STATE.page);
+  assert.equal(W.knownState({ state: 'pending' }), true);
+  assert.equal(W.knownState({ state: 'scheduled' }, 'changeset'), false);
+  assert.equal(W.settled({ state: 'pending' }), 'Waiting for your approval');
+});
+
+test('a draft cut at its cap never keeps half an emoji', () => {
+  const d = W.plainDraft(`${'a'.repeat(7999)}😀😀`);
+  assert.equal(d, 'a'.repeat(7999), 'the pair that does not fit goes whole');
+  assert.equal(W.plainDraft(`${'a'.repeat(7998)}😀😀`), `${'a'.repeat(7998)}😀`);
 });

@@ -46,6 +46,7 @@
 // Run it in both themes (HARNESS_THEME=light). Screenshots: out/agent-chrome-*.png.
 const { URL, login, closeCtx, shot, checker, log, openShell, usePersonalScreen, openTile, closeTile, sh, settle, fr, waitFor, waitSel } = require('../lib');
 const R = require('./wsagentpage'); // the real holder's plumbing: the scripted model, the note tile, the page's frame
+const { sheetChecks } = require('./agentchrome-sheets');
 
 const NOW = Date.now();
 const iso = (ms) => new Date(NOW + ms).toISOString();
@@ -68,7 +69,7 @@ const changeSet = (id) => ({ id, user: 'admin', agent: 'system/agent', title: 'W
 // the fake of docs/protocol/delegation.md, for one browser context
 async function fakeDelegation(ctx) {
   const S = { state: { user: 'admin', workspace: true, paused: false, adminChanges: false, canAdminChanges: true }, llm: { configured: true, enabled: true }, requests: [], approvals: [], changesets: [],
-    audit: [], prefs: { agentSessions: { start: 'ask' } }, sent: [], stepUp: '', n: 0 };
+    audit: [], prefs: { agentSessions: { start: 'ask' } }, sent: [], stepUp: '', n: 0, refuse: '' };
   const json = (route, v, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(v) });
   const state = () => ({ ...S.state, pendingRequests: S.requests.filter((r) => r.state === 'pending').length, standingApprovals: S.approvals.length, openChangeSets: S.changesets.filter((c) => c.state === 'proposed').length });
   await ctx.route('**/api/xbin/llm', (route) => (route.request().method() === 'GET' ? json(route, S.llm) : route.fallback()));
@@ -95,6 +96,8 @@ async function fakeDelegation(ctx) {
       if (seg.length === 2) return json(route, r);
       if (r.state !== 'pending') return json(route, { error: 'no longer pending' }, 409);
       if (seg[2] === 'deny') { r.state = 'denied'; r.decided = new Date().toISOString(); return json(route, { request: r }); }
+      // as xbind does while the agent is stopped: nothing is allowed (409 {refusal}); deny still works
+      if (S.refuse) return json(route, { error: 'the agent is stopped', refusal: S.refuse }, 409);
       r.state = 'approved'; r.grant = body.grant || 'once'; r.decided = new Date().toISOString();
       if (body.grant && body.grant !== 'once') S.approvals.push({ id: `a${++S.n}`, user: 'admin', tile: r.tile, scope: body.scope, ...(body.scope === 'call' ? { method: r.method, path: '/links/rebuild' } : {}), created: new Date().toISOString(), ...(body.grant === 'hour' ? { until: iso(3600000) } : {}) });
       return json(route, { request: r });
@@ -110,6 +113,7 @@ async function fakeDelegation(ctx) {
       if (seg.length === 2) return json(route, c);
       if (seg[2] === 'reject') { c.state = 'rejected'; return json(route, c); }
       if (seg[2] === 'undo') { const u = { ...changeSet(`u${++S.n}`), title: '', undoOf: c.id, items: c.items.filter((it) => it.result === 'applied').map((it, i) => ({ n: i + 1, kind: it.kind, args: {}, line: `Undo: ${it.line}`, before: it.after, after: it.before })) }; S.changesets.push(u); return json(route, u); }
+      if (S.refuse) return json(route, { error: 'the agent is stopped', refusal: S.refuse }, 409);
       if (S.stepUp && !(S.stepUp === 'password' && body.password === 'right')) return json(route, { error: body.password ? 'wrong password' : 'a recent sign-in is needed', stepUp: S.stepUp }, 403);
       // apply: item 1 applies, a later binding fails, what follows is skipped; the rest is left out
       let failed = false;
@@ -135,6 +139,11 @@ async function agentChrome(browser) {
     const tag = width < 640 ? '-430' : '';
     const { ctx, page } = await login(browser, 'admin', 'admin', { viewport: { width, height: 900 } });
     const S = await fakeDelegation(ctx);
+    // the chrome never navigates by itself: a navigation in the middle of the matrix is a bug, said where it happened
+    page.on('framenavigated', (f) => { if (f === page.mainFrame()) log(`[${width}] navigated: ${f.url()}`); });
+    page.on('crash', () => log(`[${width}] the page crashed`));
+    page.on('domcontentloaded', () => log(`[${width}] a document loaded: ${page.url()}`));
+    page.on('console', (m) => { if (m.type() !== 'error') log(`[${width}] console.${m.type()}: ${m.text().slice(0, 200)}`); });
     const refresh = () => page.evaluate(() => import('/vendor/agent-chrome-store.js').then((m) => m.agentStore().refresh()));
     const sentTo = (re) => S.sent.filter((c) => re.test(`${c.m} ${c.p}`));
     const armed = (sel) => page.waitForFunction((s) => { const q = (root, parts) => parts.reduce((r, p) => r && (r.shadowRoot || r).querySelector(p), root);
@@ -313,6 +322,9 @@ async function agentChrome(browser) {
     await page.keyboard.press('Escape');
     S.stepUp = '';
 
+    // ---- the sheets' own rules: stopped, hidden characters, a long body, an unknown state (agentchrome-sheets.js) ----
+    await sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot, width, tag, iso, callReq, changeSet, SHEET, DLG });
+
     // ---- Approvals, What my agent did, Preferences ----
     await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
     log('before the menu: ' + JSON.stringify(await page.evaluate(() => { const d = document.querySelector('bx-agent-dock'); const b = d.shadowRoot.querySelector('[data-menu]');
@@ -382,15 +394,15 @@ async function agentChrome(browser) {
     await shot(page, `agent-chrome-prefs${tag}`, { fullPage: false });
 
     // ---- a hostile page in the dock's frame cannot grant ----
-    S.requests = [callReq('h1')]; S.sent.length = 0;
+    S.requests = [callReq('0123456789abcdef0123abcd')]; S.sent.length = 0;
     await ctx.route('**/hostile.html', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body style="margin:0;background:#400"><h1>the agent's page</h1>
       <div style="position:fixed;inset:-4000px;z-index:2147483647;background:rgba(255,0,0,.4)">COVER</div><script>
       const out = [];
       addEventListener('message', (e) => { if (e.data && e.data.type === 'xbin:agent-context') { out.push('about ' + e.data.tile); parent.postMessage({ type: 'xbin:open-session', session: 's-9', tile: e.data.tile, grant: 'always' }, '*'); } });
       try { parent.document.querySelector('bx-agent-dock'); out.push('READ THE PARENT'); } catch (e) { out.push('parent closed'); }
-      for (const m of [{ type: 'xbin:agent-open', view: 'prefs' }, { type: 'xbin:agent-approve', id: 'h1' }, { type: 'xbin:agent-decide', id: 'h1', verdict: 'allow', grant: 'always', scope: 'tile' },
-        { type: 'xbin:agent-review', kind: 'request', id: 'h1' }, { type: 'xbin:agent-open-request', id: 'h1', request: { method: 'GET', target: '/harmless', summary: 'PAGE TEXT' }, approve: true, grant: 'always' }]) parent.postMessage(m, '*');
-      fetch('/api/xbin/delegate/requests/h1/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"grant":"always","scope":"tile"}' }).then((r) => out.push('fetch ' + r.status), () => out.push('fetch refused'));
+      for (const m of [{ type: 'xbin:agent-open', view: 'prefs' }, { type: 'xbin:agent-approve', id: '0123456789abcdef0123abcd' }, { type: 'xbin:agent-decide', id: '0123456789abcdef0123abcd', verdict: 'allow', grant: 'always', scope: 'tile' },
+        { type: 'xbin:agent-review', kind: 'request', id: '0123456789abcdef0123abcd' }, { type: 'xbin:agent-open-request', id: '0123456789abcdef0123abcd', request: { method: 'GET', target: '/harmless', summary: 'PAGE TEXT' }, approve: true, grant: 'always' }]) parent.postMessage(m, '*');
+      fetch('/api/xbin/delegate/requests/0123456789abcdef0123abcd/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"grant":"always","scope":"tile"}' }).then((r) => out.push('fetch ' + r.status), () => out.push('fetch refused'));
       setInterval(() => { window.focus(); for (const k of ['Enter', ' ']) { parent.postMessage({ type: 'keydown', key: k }, '*'); document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); } }, 50);
       setTimeout(() => parent.postMessage({ type: 'hostile-report', out }, '*'), 400);
       </script>` }));
@@ -420,7 +432,7 @@ async function agentChrome(browser) {
     await shot(page, `agent-chrome-hostile${tag}`, { fullPage: false });
     await page.click(`${SHEET} button[data-allow]`);
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
-    check(sentTo(/h1\/approve$/).filter((c) => c.top).length === 1, `[${width}] …and the person's own click still allows`);
+    check(sentTo(/0123456789abcdef0123abcd\/approve$/).filter((c) => c.top).length === 1, `[${width}] …and the person's own click still allows`);
     // what a page may open: a view that changes nothing (Needs you), never Preferences
     await ctx.route('**/opens.html', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body><script>
       parent.postMessage({ type: 'xbin:agent-open', view: 'prefs' }, '*'); setTimeout(() => parent.postMessage({ type: 'xbin:agent-open', view: 'needs' }, '*'), 150);</script>` }));
@@ -575,8 +587,8 @@ async function realHolder(browser, check, skip) {
   await waitCount(1);
   const p1 = await pending();
   const id1 = p1.length ? p1[0].id : '';
-  check(/Pending — request/.test(turn1) && p1.length === 1 && p1[0].agent === R.AGENT && p1[0].kind === 'call' && p1[0].target === `/api/${R.NOTE}/note` && p1[0].body === `"${body1}"`,
-    `[real] the agent's tile_call filed a request at xbind, exactly as it will be sent (${id1}: ${p1[0] && p1[0].method} ${p1[0] && p1[0].target})`);
+  check(R.PENDING.test(turn1) && p1.length === 1 && p1[0].agent === R.AGENT && p1[0].kind === 'call' && p1[0].target === `/api/${R.NOTE}/note` && p1[0].body === `"${body1}"`,
+    `[real] the agent's tile_call filed a request at xbind, exactly as it will be sent (${id1}: ${p1[0] && p1[0].method} ${p1[0] && p1[0].target}; ${p1.length} pending, body ${p1[0] && JSON.stringify(p1[0].body)}; the turn: ${turn1.slice(0, 160)})`);
   check((await count()) === '1' && /^\(1\) /.test(await page.title()), `[real] Needs you counts it without a reload — xbind's delegate event (${await page.title()})`);
   check((await note()).includes(`writes=${w0}`), '[real] nothing ran: the note is as it was');
   await f.waitForSelector(`.wsc-req[data-ref="${id1}"][data-state="pending"]`);
@@ -672,7 +684,7 @@ async function realHolder(browser, check, skip) {
   f = await R.agentFrame(page);
   const turn5 = await R.say(f, put(`asks again ${stamp}`, 'a fifth change'));
   await waitCount(1);
-  check(/Pending — request/.test(turn5) && (await note()).includes(`writes=${w0 + 3}`), '[real] …and the next such change asks again');
+  check(R.PENDING.test(turn5) && (await note()).includes(`writes=${w0 + 3}`), `[real] …and the next such change asks again (${turn5.slice(0, 120)}; ${await note()})`);
   await R.nothingWaits(call);
   await waitCount(0);
   await dock((d) => d.show('activity'));

@@ -61,8 +61,9 @@ for (const [view, implemented] of Object.entries(VIEWS)) {
 test('the native view imports the model and the runtime, not the web view', async () => {
   const { readFileSync, readdirSync } = await import('node:fs');
   const files = ['native.js', 'native-features.js', ...readdirSync(TPL + 'native').filter((f) => f.endsWith('.js')).map((f) => 'native/' + f)];
-  // what a native module may import: the model, other native modules, the runtime and the kit
-  const allowed = (spec) => ['/vendor/xb-native.js', '/vendor/bx-kit.js'].includes(spec) || /^(model|native)\//.test(spec);
+  // what a native module may import: the model, other native modules, the runtime and the kit — and the
+  // workspace agent's model files (WS_MODEL below), which its native view shares with its web page
+  const allowed = (spec) => ['/vendor/xb-native.js', '/vendor/bx-kit.js'].includes(spec) || /^(model|native)\//.test(spec) || WS_MODEL.includes(spec);
   for (const f of files) {
     const src = readFileSync(TPL + f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
     assert.doesNotMatch(src, /lit-all/, `${f}: no lit`);
@@ -73,6 +74,24 @@ test('the native view imports the model and the runtime, not the web view', asyn
     // render-doc.js parses the model's HTML with DOMParser: an inert document, never shown
     if (f === 'native/render-doc.js') continue;
     assert.doesNotMatch(src, /\b(document|window)\.|\b(alert|confirm|prompt)\(|localStorage|innerHTML|querySelector/, `${f}: no DOM`);
+  }
+});
+
+// The workspace agent's page has model files of its own under ws/ (D233,
+// D235): what both of its views — ws/page.js and native/ws.js — stand on.
+// They are held to the model's rule: no lit, and nothing of the web's views.
+const WS_MODEL = ['ws/api.js', 'ws/words.js', 'ws/place.js', 'ws/scope-model.js', 'ws/dock.js', 'ws/store.js'];
+test('the workspace agent\'s model files (ws/) import the model only: no lit, no web view', async () => {
+  const { readFileSync } = await import('node:fs');
+  for (const f of WS_MODEL) {
+    const src = readFileSync(TPL + f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+    assert.doesNotMatch(src, /lit-all|\/vendor\/chat\//, `${f}: no lit, no chat kit`);
+    for (const [, spec] of src.matchAll(/from '([^']+)'/g)) {
+      const rel = spec.startsWith('.') ? new URL(spec, 'file:///t/' + f).pathname.slice(3) : spec;
+      assert.ok(spec === '/vendor/bx-kit.js' || /^model\//.test(rel) || WS_MODEL.includes(rel), `${f} imports ${spec}: a model file imports the model`);
+    }
+    // ws/dock.js posts to and listens on the framing window (its builders are pure); the others touch no DOM
+    if (f !== 'ws/dock.js') assert.doesNotMatch(src, /\b(document|window)\.|\b(alert|confirm|prompt)\(|localStorage|innerHTML|querySelector/, `${f}: no DOM`);
   }
 });
 

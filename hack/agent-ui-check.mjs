@@ -48,6 +48,7 @@ export const NOT_SCRIPTS = {
   'native-ext-probe': 'a feature module for hack/agent-template-harness.test.mjs',
   'native-shots': 'draws screenshots to look at; it asserts nothing',
   'ws-stub': 'the workspace agent\'s page served against a stubbed backend in workspace mode, and its fixtures',
+  'ws-native-stub': 'the same stubbed backend for the workspace agent\'s native view in node (hack/agent-template-native-ws.test.mjs)',
 };
 
 // scriptsIn(dir): the scripts of <dir>/test, by name.

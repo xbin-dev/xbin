@@ -8,7 +8,8 @@
       {"title": "Navigation", "icons": ["back", "forward", "expand", "collapse", "home", "list", "ellipsis", "link"]},
       {"title": "Things", "icons": ["gear", "wrench", "terminal", "box", "key", "lock", "unlock", "shield", "bolt", "clock", "calendar", "chart", "paperclip", "folder", "file", "doc", "photo", "archive", "tag", "pin", "bell", "mail", "chat", "star", "heart", "sparkles"]},
       {"title": "People", "icons": ["person", "people", "agent"]},
-      {"title": "Status", "icons": ["info", "question", "warning", "error", "eye", "eye-slash"]},
+      {"title": "Status", "icons": ["info", "question", "warning", "error", "eye", "eye-slash", "hand", "plug"]},
+      {"title": "Ticks", "icons": ["square", "check-square", "minus-square"]},
       {"title": "Infrastructure", "icons": ["globe", "cloud", "server", "database", "cpu", "network", "code", "branch"]},
       {"title": "Appearance", "icons": ["sun", "moon"]}
     ]}}

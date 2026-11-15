@@ -5,6 +5,13 @@
 > specification and static mockups for the owner's review; no product code.
 > Packages D (web) and E (iOS) of `plans/workspace-agent.md` build from it.
 > Nothing here is decided until the owner has answered section 15.
+>
+> Built so far: the web chrome (D232) and page (D235); the iOS app's first
+> stage — entry, conversation, native grants, inbox — is D233 (package E1),
+> which records where it left this document (the `request` and `session`
+> nodes carry ids only; the scope panel is the agent's own screen; no
+> `ArrangementView` at the root). Section 15 is still unanswered: both
+> build to its recommendations.
 
 Reads with: `plans/workspace-agent.md` (§4, §5.1–5.3, §5.6, §5.8–5.10),
 `plans/wsagent/chat-kit-spec.md`, D229 (constraints, the connection view,

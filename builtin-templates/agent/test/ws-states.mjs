@@ -142,6 +142,8 @@ const STATE = { user: 'ana', mode: 'workspace', delegation: { workspace: true, p
   const c = await composer(page);
   ok('switch off (409 agent-off): the backend\'s words shown, the message kept in the box, unsent', (await text(page, '.wsc-err')) === OFF && c.v === 'Which invoices are overdue?', JSON.stringify(c));
   ok('…and the state read again, for the banners', (await calls(page, 'GET', /\/ws\/state$/)).length >= 2);
+  ok('…and the transcript has the switch\'s line (the backend\'s step of kind off), as a warning',
+    await until(async () => (await page.$$eval('.bxc-notice.bxc-warn', (ns) => ns.map((n) => n.textContent.replace(/\s+/g, ' ').trim()))).includes(OFF)));
   ok('no page errors (switch off)', errors.length === 0, errors.join(' | '));
   await ctx.close();
 }

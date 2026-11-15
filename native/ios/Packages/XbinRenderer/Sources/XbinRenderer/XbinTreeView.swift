@@ -184,7 +184,7 @@ struct NodeView: View {
     static let controls: Set<String> = ["button", "toggle", "field", "picker", "menu"]
     static let chat: Set<String> = [
         "transcript", "message", "thinking", "toolcard", "approval", "question", "plan", "diff", "activity",
-        "step", "composer",
+        "step", "composer", "card", "connection", "request", "session",
     ]
 
     var body: some View {
@@ -289,6 +289,10 @@ private struct ChatNode: View {
         case "diff": DiffNodeView(node: node)
         case "activity": ActivityView(activity: ChatActivity(props: node.props))
         case "step": StepView(step: ChatStep(props: node.props))
+        case "card": CardNodeView(node: node)
+        case "connection": ConnectionNodeView(node: node)
+        case "request": TrustedNodeView(node: node)
+        case "session": TrustedNodeView(node: node)
         default: ComposerNodeView(node: node)
         }
     }

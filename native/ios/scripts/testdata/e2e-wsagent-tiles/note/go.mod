@@ -1,0 +1,5 @@
+module ws/note
+
+go 1.24
+
+require github.com/xbin-dev/xbin/sdk v0.0.0

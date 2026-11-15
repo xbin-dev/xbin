@@ -25,7 +25,17 @@ final class AgentScreenModel {
     /// open): why, shown over the composer while the feed retries.
     var streamProblem: String?
     var draft = ""
+    /// The draft as the workspace agent's view handed it over (D233): text
+    /// its page SUGGESTS — what a model wrote, untrusted — never the
+    /// person's own words. While the composer still holds exactly this, the
+    /// screen labels it so (``suggestionShown``); the person editing it, or
+    /// sending it, makes it theirs.
+    var suggested: String?
+    var suggestionShown: Bool { suggested.map { !$0.isEmpty && $0 == draft } ?? false }
     var starting = false
+    /// The workspace agent's view opened this launcher (D233): nothing is
+    /// created here until the person taps Start or Send (AgentLaunch).
+    let openedByAgentView: Bool
     /// Open cards nested in a subagent's (a row's own is `AgentRow.isOpen`).
     var openNested: Set<String> = []
     var detail: ToolCall?
@@ -55,6 +65,16 @@ final class AgentScreenModel {
         self.cwd = cwd
         self.sessionID = sessionID
         reviews = ReviewLoader(client: workspace.agents)
+        openedByAgentView = sessionID == nil && (cwd.map { workspace.takeOpenedByAgentView($0) } ?? false)
+        // The person's own words handed over by their workspace agent's
+        // conversation (D233): they wait in the composer of the session the
+        // person starts here — shown, never sent by being handed over.
+        // (the launcher shows it; the session the person then starts is a new
+        // screen, which takes it again by the session's id: create())
+        if let words = sessionID.flatMap({ workspace.takePendingDraft(session: $0) }) ?? (sessionID == nil ? cwd.flatMap { workspace.takePendingDraft($0) } : nil) {
+            draft = words
+            suggested = words
+        }
     }
 
     var client: AgentClient { workspace.agents }
@@ -81,8 +101,11 @@ final class AgentScreenModel {
             } else if let cwd {
                 history = (try? await client.history(cwd: cwd)) ?? []
                 // Eager: the session exists before the first prompt, so the
-                // pickers and slash commands load while the user types (§13).
-                if providers.count == 1 { await create(provider: providers[0].id) }
+                // pickers and slash commands load while the user types (§13)
+                // — never for a launcher the workspace agent's view opened.
+                if AgentLaunch.startsAtOnce(providers: providers.count, openedByAgentView: openedByAgentView) {
+                    await create(provider: providers[0].id)
+                }
             }
         } catch {
             self.error = workspace.describe(error)
@@ -96,6 +119,10 @@ final class AgentScreenModel {
         do {
             let info = try await client.create(CreateAgentSession(cwd: cwd, provider: provider, resume: resume))
             providerID = provider
+            // What the workspace agent's view suggested goes with the person
+            // to the session they just started — into its composer, still
+            // labelled, still unsent (the session's screen is a new one).
+            if suggestionShown { workspace.setPendingDraft(draft, session: info.id) }
             sessionID = info.id
             attach(info.id)
             // This window shows the new session, if it still shows the launcher.
@@ -239,6 +266,8 @@ final class AgentScreenModel {
             Haptics.failed()
             return
         }
+        suggested = nil // the person pressed Send: the words are theirs now
+        if let sessionID { _ = workspace.takePendingDraft(session: sessionID) } // (nothing of it waits for a later screen)
         draft = ""
         attachments = []
         do {
@@ -428,6 +457,9 @@ struct AgentScreen: View {
             if let e = m.error {
                 Text(verbatim: e).font(.footnote).foregroundStyle(XbinColor.danger).padding(.horizontal).onTapGesture { m.error = nil }
             }
+            // a draft the workspace agent's view handed over: labelled as its
+            // suggestion until the person edits or sends it (D233)
+            AgentSuggestedDraft(model: m)
             composer(m)
         }
         .modifier(AttachPickers(picker: m.picker))
@@ -697,6 +729,41 @@ struct ToolDetailSheet: View {
     }
 }
 
+/// A draft that came from the workspace agent's view (D233): what a model
+/// wrote, so the app says whose it is — "Suggested by your agent's page —
+/// not your words" — wherever it shows it, until the person edits it or
+/// presses Send. Nothing sends it.
+struct AgentSuggestedDraft: View {
+    let model: AgentScreenModel
+    /// The launcher has no composer yet: the text itself shows here.
+    var showsText = false
+
+    var body: some View {
+        if model.suggestionShown {
+            VStack(alignment: .leading, spacing: 4) {
+                Label {
+                    Text(verbatim: AgentBridge.draftLabel).font(.caption.weight(.bold))
+                } icon: {
+                    Image(systemName: "exclamationmark.bubble").font(.caption)
+                }
+                .foregroundStyle(XbinColor.warn)
+                if showsText {
+                    Text(verbatim: model.draft).font(.callout).lineLimit(8).frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8).background(XbinColor.surface2, in: .xbinPlate)
+                }
+                Text(verbatim: AgentBridge.draftNote).font(.caption).foregroundStyle(XbinColor.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(XbinColor.warnBackground)
+            .overlay(alignment: .leading) { Rectangle().fill(XbinColor.warn).frame(width: 3) }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("agent-draft-suggested")
+        }
+    }
+}
+
 /// No session yet: pick the agent (created eagerly), or resume one from
 /// history (D75).
 struct AgentLauncher: View {
@@ -706,6 +773,10 @@ struct AgentLauncher: View {
         List {
             if model.cwd == nil {
                 Text("Open an agent from a tile (its menu → Agent here).").foregroundStyle(.secondary)
+            }
+            if model.suggestionShown {
+                // what waits for the session picked below — shown, never sent by being handed over
+                Section { AgentSuggestedDraft(model: model, showsText: true).listRowInsets(EdgeInsets()) }
             }
             Section("Start") {
                 ForEach(model.providers) { p in

@@ -34,6 +34,9 @@ export async function call(path, { method = 'GET', body } = {}) {
   }
 }
 
+// the refusal of a 409 that says the agent is stopped ('' for any other answer)
+const stopOf = (r) => (r.status === 409 && r.data && typeof r.data.refusal === 'string' ? r.data.refusal : '');
+
 const say = (r, dflt) => (r.data && r.data.error) || (r.status ? `${dflt} (${r.status})` : "xbin can't be reached");
 
 class AgentStore {
@@ -145,7 +148,10 @@ class AgentStore {
   async approve(id, body) {
     const r = await call(`/delegate/requests/${encodeURIComponent(id)}/approve`, { method: 'POST', body });
     this.readState(); this.readRequests(); if (body && body.grant !== 'once') this.readApprovals();
-    return r.ok ? { ok: true, request: r.data && r.data.request } : { ok: false, gone: r.status === 409 || r.status === 404, error: say(r, "It couldn't be approved") };
+    if (r.ok) return { ok: true, request: r.data && r.data.request };
+    // 409 {refusal}: the agent is stopped (off, paused, held, no agent) — nothing can be allowed now; the sheet says why
+    const stopped = stopOf(r);
+    return { ok: false, stopped, gone: !stopped && (r.status === 409 || r.status === 404), error: say(r, "It couldn't be approved") };
   }
 
   async deny(id) {
@@ -172,7 +178,7 @@ class AgentStore {
     this.readState(); this.readChangesets();
     if (r.ok) return { ok: true, set: r.data };
     if (r.status === 403 && r.data && r.data.stepUp) return { ok: false, stepUp: r.data.stepUp, error: password ? say(r, 'That password was not accepted') : '' };
-    return { ok: false, error: say(r, "The changes couldn't be applied") };
+    return { ok: false, stopped: stopOf(r), error: say(r, "The changes couldn't be applied") };
   }
 
   async reject(id) {

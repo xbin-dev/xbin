@@ -26,7 +26,7 @@
 //                   started chat) pushes the conversation (wire(): the
 //                   'select' event); app.home() on its own (the conversation
 //                   was deleted, revoked, could not be read) takes it off
-//   pop             the nav's back (native.js) cuts the stack; the model
+//   pop             the nav's back (native/main.js) cuts the stack; the model
 //                   follows the new top
 //   link(address)   a deep link (#c=, #auto, #proj, #join=) builds the stack
 //                   afresh: #c=42 is [list, chat 42] (its parents under a
@@ -34,7 +34,7 @@
 //   saved()/restore a restarted runtime comes back to the same stack
 //                   (xbin.native.saveState: {hash, nav})
 //
-// How it is drawn is native.js's (layout()): where the app has the split
+// How it is drawn is native/main.js's (layout()): where the app has the split
 // of vocabulary rev 2 (rev2('split')) the list is its primary column and
 // the stack a nav in its detail one — side by side on an iPad or a Duo,
 // collapsed to the list with the stack pushed over it on a phone; from an
@@ -124,7 +124,7 @@ export function abovePlace() {
 
 let driving = 0; // the model's events while this layer drives it are its own echo
 let quiet = 0;   // a restored conversation is being opened: a failure to read it is not shown
-// quietly: the model's error is a restored stack's (native.js: not a notice).
+// quietly: the model's error is a restored stack's (native/main.js: not a notice).
 export const quietly = () => quiet > 0;
 function drive(fn) {
   driving++;
@@ -132,7 +132,7 @@ function drive(fn) {
 }
 
 // follow: the model goes where the top place is — idempotent, run before each
-// paint draws (native.js), so every way the stack moved is followed.
+// paint draws (native/main.js), so every way the stack moved is followed.
 export function follow() {
   const app = ctx.app;
   if (!app) return;

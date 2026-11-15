@@ -47,7 +47,7 @@ struct RootView: View {
         .sheet(item: $scene.addRequest) { request in
             AddWorkspaceSheet(request: request).environment(scene)
         }
-        .sheet(isPresented: $scene.showInbox) { InboxView().environment(scene) }
+        .sheet(isPresented: $scene.showInbox, onDismiss: { scene.inboxDismissed() }) { InboxView().environment(scene) }
         .sheet(isPresented: $scene.showSettings) { SettingsView().environment(scene) }
         // Links and Handoff go to a window already open (the one in front)
         // rather than making a new one; a dragged tile still makes its own.
@@ -162,7 +162,47 @@ struct WorkspaceView: View {
     @Environment(AppModel.self) private var app
     @Environment(SceneModel.self) private var scene
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    /// The agent has an agent to show (or its setup, for an admin) and the
+    /// person opened it.
+    private var agentOpen: Bool { scene.showAgent && workspace.agent.chip.shown }
+
     var body: some View {
+        // The workspace agent beside the panels (D233): a trailing column
+        // on a regular width (an iPad; the second pane of an open Duo); on a
+        // compact one it is a sheet over them, below.
+        let wide = sizeClass == .regular
+        XbinTwoPanes(showsSecondary: agentOpen && wide, fraction: AgentChoices.iPadColumnFraction) {
+            panels
+        } secondary: {
+            AgentPane(workspace: workspace, asSheet: false)
+                .environment(\.horizontalSizeClass, .compact)
+                .environment(nav)
+        }
+        .environment(nav)
+        .sheet(isPresented: Binding(get: { agentOpen && !wide }, set: { if !$0 { scene.showAgent = false } })) {
+            AgentSheet(workspace: workspace).environment(scene).environment(nav)
+        }
+        // xbin's own sheets for the agent (an approval, an admin batch, the
+        // panels) come from the window unless the agent's sheet is up and
+        // presents them itself.
+        .modifier(AgentChromeSheets(workspace: workspace, active: !(agentOpen && !wide)))
+        // The person has no agent any more (access taken back, an admin's
+        // own entry gone): its container closes and stays closed.
+        .onChange(of: workspace.agent.chip.shown) { _, shown in if !shown { scene.showAgent = false } }
+        .overlay(alignment: .bottom) {
+            if let p = workspace.signInProblem {
+                SignInProblemBar(workspace: workspace, problem: p)
+            }
+        }
+        .task { if workspace.whoami == nil { await workspace.refresh() } }
+        .onChange(of: nav.surface) { _, s in
+            if let s { app.visited(workspace, s, title: s.title) }
+        }
+    }
+
+    private var panels: some View {
         PanelStack(nav: nav, enabled: !scene.showSwitcher && !app.locked) { panel in
             switch panel {
             case .home:
@@ -180,16 +220,6 @@ struct WorkspaceView: View {
                         .navigationDestination(for: PushedWindow.self) { w in WindowScreen(workspace: workspace, window: w) }
                 }
             }
-        }
-        .environment(nav)
-        .overlay(alignment: .bottom) {
-            if let p = workspace.signInProblem {
-                SignInProblemBar(workspace: workspace, problem: p)
-            }
-        }
-        .task { if workspace.whoami == nil { await workspace.refresh() } }
-        .onChange(of: nav.surface) { _, s in
-            if let s { app.visited(workspace, s, title: s.title) }
         }
     }
 
@@ -268,6 +298,24 @@ struct PanelBar: ViewModifier {
                         .accessibilityIdentifier("panel-back")
                     }.preferVerticalBar()
                 }
+            }
+            // The workspace agent (D233): the trailing-most item of every
+            // panel's bar — on an open Duo, of the vertical bar, always in
+            // view. Not there at all for a person without an agent, or on an
+            // xbind that has none. Its item comes from a view AFTER the
+            // panel's content, in the placement the panels' own trailing
+            // items use: a bar lays its items out in the order their views
+            // come (an ancestor's first — which would put it before the
+            // panel's own Edit or ⋯).
+            .overlay(alignment: .topTrailing) {
+                Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
+                    .toolbar {
+                        if workspace.agent.chip.shown {
+                            ToolbarItem(placement: .primaryAction) {
+                                AgentBarButton(workspace: workspace)
+                            }.preferVerticalBar()
+                        }
+                    }
             }
     }
 

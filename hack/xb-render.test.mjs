@@ -325,6 +325,89 @@ test('rev 2: the scroll anchor keeps its child in place; scrollTo jumps; edges r
 
 // A message's image files are thumbnails that open full screen; other files
 // are chips (native/fixtures/message-files).
+// D233: the workspace agent's nodes. `request` and `session` are the app's to
+// draw from xbind's own reading; here they are placeholders with no control.
+test('D233: the workspace agent\'s nodes are drawn; request and session are placeholders without a button', { skip }, async () => {
+  const { p, ctx, errors } = await page();
+  await p.goto(`${base}/vendor/xb/fixture.html`);
+  await p.waitForFunction(() => window.xbnFixture);
+  const tree = fixtureTree('workspace-agent');
+  await p.evaluate((t) => window.xbnFixture.load(t), tree);
+  const root = p.locator('xb-view');
+  const drawn = await p.evaluate(() => {
+    const r = document.querySelector('xb-view').shadowRoot;
+    return { keys: [...r.querySelectorAll('[data-k]')].map((e) => e.dataset.k), unknown: r.querySelectorAll('xb-unknown, .ic-unknown').length,
+      stubs: [...r.querySelectorAll('xb-request, xb-session')].map((e) => [e.querySelectorAll('button, a, input').length, e.textContent.includes('Drawn by the xbin app')]) };
+  });
+  const have = new Set(drawn.keys);
+  assert.deepEqual([...visible(tree.root)].filter((k) => !have.has(k)), [], 'nodes not drawn');
+  assert.equal(drawn.unknown, 0, 'no placeholder primitive or icon');
+  assert.equal(drawn.stubs.length, 6);
+  assert.ok(drawn.stubs.every(([controls, says]) => controls === 0 && says), 'a request or session draws no control here');
+  // the plan: numbers, a tag a step, the quiet line beside the title
+  assert.equal(await root.locator('xb-plan .pl-tag').count(), 5);
+  assert.equal((await root.locator('xb-plan .pl-n').allTextContents()).join(''), '1.2.3.4.5.');
+  assert.match(await root.locator('xb-plan .pl-count').textContent(), /you said go ahead/);
+  // a card's buttons sit in its actions row; its fields report as anywhere
+  assert.equal(await root.locator('xb-card').count(), 6);
+  assert.equal(await root.locator('xb-card .wc-actions xb-button').count(), 6);
+  await root.locator('xb-card .wc-actions button', { hasText: 'Open scope' }).click();
+  // the line: its tap and its model segment
+  await root.locator('xb-connection .cn-main').click();
+  await root.locator('xb-connection .cn-model.tap').click();
+  // the composer: a chip, its ✕, a quick reply
+  await root.locator('xb-composer .cm-ctx .cm-cl', { hasText: 'About Ledger' }).click();
+  await root.locator('xb-composer .cm-ctx', { hasText: 'About Orders' }).locator('.cm-ax').click();
+  await root.locator('xb-composer .cm-reply', { hasText: 'Stop the tile agents' }).click();
+  assert.match(await root.locator('xb-composer .cm-hint-line').textContent(), /how you’ll know/);
+  // the pending question: rows over two pages, "Something else" riding on the second
+  const q = root.locator('xb-question.rows');
+  assert.equal((await q.locator('.q-page').textContent()).trim(), '1 of 2');
+  assert.equal(await q.locator('select').count(), 0, 'rows, not a menu');
+  await q.locator('.q-choice', { hasText: 'Everything exported since Monday' }).click();
+  await q.locator('button', { hasText: 'Next' }).click();
+  assert.equal((await q.locator('.q-page').textContent()).trim(), '2 of 2');
+  await q.locator('.q-choice', { hasText: 'Nobody yet' }).click();
+  await q.locator('.q-other input').fill('Ruth, by mail');
+  assert.equal(await q.locator('.q-choice.on').count(), 0, 'typing clears the choice');
+  await q.locator('button', { hasText: 'Answer' }).click();
+  await q.locator('.q-skip', { hasText: 'Skip — let the agent look around first' }).click();
+  // the settled one shows what was answered, in a menu (style form)
+  assert.equal(await root.locator('xb-question.settled select').evaluate((e) => e.selectedOptions[0].textContent), 'This conversation');
+  const evs = await p.evaluate(() => window.xbnFixture.events.map((e) => [e[1], e[2]]).filter(([t]) => t !== 'edge' && t !== 'scrolled'));
+  assert.deepEqual(evs, [
+    ['tap', {}], ['tap', {}], ['model', {}],
+    ['context', { id: 'apps/ledger' }], ['remove-context', { id: 'apps/orders' }], ['reply', { id: 'stop' }],
+    ['submit', { content: { which: 'Everything exported since Monday', notifyOther: 'Ruth, by mail' } }], ['skip', {}],
+  ]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('D233: an empty transcript shows its empty slot, and a suggestion reports its id', { skip }, async () => {
+  const { p, ctx, errors } = await page();
+  await p.goto(`${base}/vendor/xb/fixture.html`);
+  await p.waitForFunction(() => window.xbnFixture);
+  await p.evaluate((t) => window.xbnFixture.load(t), fixtureTree('workspace-agent-empty'));
+  const root = p.locator('xb-view');
+  assert.equal(await root.locator('.te-title').textContent(), 'Ask for an outcome');
+  assert.equal(await root.locator('.te-list').count(), 2);
+  assert.equal(await root.locator('.te-list li').count(), 6);
+  assert.deepEqual(await root.locator('.te-kind').allTextContents(), ['Ask', 'Fix', 'Change']);
+  assert.equal(await root.locator('.te-title').isVisible(), true);
+  assert.equal(await root.locator('xb-transcript').evaluate((e) => e.scrollTop), 0, 'read from its top, not followed to its end');
+  await root.locator('.te-s', { hasText: 'Add ___ to Invoices' }).click();
+  // a disabled line takes no tap; it is one group for a screen reader
+  assert.equal(await root.locator('xb-connection .cn-main').isDisabled(), true);
+  assert.match(await root.locator('xb-connection').getAttribute('aria-label'), /^Scope: 18 tiles/);
+  assert.equal(await root.locator('xb-connection .cn-priv').count(), 1);
+  assert.equal(await root.locator('xb-composer .cm-ctx').count(), 3);
+  const evs = await p.evaluate(() => window.xbnFixture.events.map((e) => [e[1], e[2]]).filter(([t]) => t !== 'edge' && t !== 'scrolled'));
+  assert.deepEqual(evs, [['suggestion', { id: 'change' }]]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test('message thumbnails open the image preview', { skip }, async () => {
   const { p, ctx, errors } = await page();
   await p.goto(`${base}/vendor/xb/fixture.html`);

@@ -105,25 +105,81 @@ export function heading(req) {
   return { before: 'Your agent wants to change something in ', strong: t, after: '' };
 }
 
+/** CLIP: the most of a body or a brief a sheet shows before Show all, in characters (code points) — the app's too. */
+export const CLIP = 4000;
+
+/** clipText(text, all): {text, clipped, shown, total} — all of it, or its first CLIP characters (all: the person asked for all). */
+export function clipText(text, all = false) {
+  const cps = [...String(text ?? '')];
+  if (all || cps.length <= CLIP) return { text: cps.join(''), clipped: false, shown: cps.length, total: cps.length };
+  return { text: cps.slice(0, CLIP).join(''), clipped: true, shown: CLIP, total: cps.length };
+}
+
+/** clipNote(c): "first 4000 of 9321 characters" for clipped text ('' for text shown whole). */
+export const clipNote = (c) => (c.clipped ? `first ${c.shown} of ${c.total} characters` : '');
+
 /**
- * sends(req): what the call carries — {text, note, binary}: the body as
- * text with "48 bytes · shown in full" (or how much of it is shown), or,
- * for bytes nobody can read, no text and "not text — 3.2 MiB, sha256 …".
+ * sends(req, all): what the call carries — {text, note, binary, clipped}:
+ * the body as text — its first CLIP characters unless all — with "48 bytes
+ * · shown in full" only when it is ("14 KiB · first 4000 of 9321
+ * characters" when not), or, for bytes nobody can read, no text and "not
+ * text — 3.2 MiB, sha256 …".
  */
-export function sends(req) {
+export function sends(req, all = false) {
   const size = Number(req.bodySize) || 0;
   const pb = req.preview && req.preview.body;
   if (req.bodyBinary || (pb && pb.binary)) {
     const sha = (pb && pb.sha256) || req.bodySha256 || '';
-    return { text: '', binary: true, note: `not text — ${bytes((pb && pb.size) || size)}${sha ? `, sha256 ${sha}` : ''}` };
+    return { text: '', binary: true, clipped: false, note: `not text — ${bytes((pb && pb.size) || size)}${sha ? `, sha256 ${sha}` : ''}` };
   }
-  if (!size && !req.body) return { text: '', binary: false, note: 'nothing: the call has no body' };
-  const text = String(req.body ?? '');
+  if (!size && !req.body) return { text: '', binary: false, clipped: false, note: 'nothing: the call has no body' };
   // xbind's bodyShown is a boolean — true: `body` is the whole body, as text (delegation.Request); a count is a part of it
   const shown = req.bodyShown === true ? size : Number(req.bodyShown) || 0;
   const partial = shown > 0 && shown < size;
-  return { text, binary: false, note: partial ? `showing the first ${bytes(shown)} of ${bytes(size)}` : `${bytes(size)} · shown in full` };
+  const c = clipText(req.body, all);
+  return { text: c.text, binary: false, clipped: c.clipped,
+    note: partial ? `showing the first ${bytes(shown)} of ${bytes(size)}` : `${bytes(size)} · ${c.clipped ? clipNote(c) : 'shown in full'}` };
 }
+
+// ---- the agent's text, as a sheet shows it -------------------------------------------------
+
+/**
+ * What a sheet never draws as it is, in anything the agent wrote (a call's
+ * body, a brief, a summary, a set's title, an item's reason): control
+ * characters but newline and tab, and every format character (Unicode Cf) —
+ * the bidi embeddings, overrides and isolates (U+202A–202E, U+2066–2069),
+ * the zero-width ones (U+200B–200F), the word joiner (U+2060), the byte
+ * order mark (U+FEFF) and the rest. Drawn as they are they reorder or hide
+ * what the person reads; a sheet shows each as a visible escape, ⟨U+202E⟩,
+ * never interpreted.
+ */
+const HIDDEN = /[\p{Cc}\p{Cf}]/u;
+const hidden = (c) => c !== '\n' && c !== '\t' && HIDDEN.test(c);
+/** HIDDEN_NOTE: the line above text that holds any. */
+export const HIDDEN_NOTE = 'contains hidden characters — shown as ⟨U+…⟩';
+/** hiddenCode(c): "U+202E" for one character. */
+export const hiddenCode = (c) => `U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+
+/**
+ * reveal(text): the text in parts — [{text} | {hidden: 'U+202E'}], runs of
+ * what is drawn as it is between the hidden characters, each of those a
+ * part of its own — and how many are hidden. Nothing else is changed.
+ */
+export function reveal(text) {
+  const parts = [];
+  let run = '', n = 0;
+  for (const c of String(text ?? '')) {
+    if (!hidden(c)) { run += c; continue; }
+    if (run) { parts.push({ text: run }); run = ''; }
+    parts.push({ hidden: hiddenCode(c) });
+    n++;
+  }
+  if (run) parts.push({ text: run });
+  return { parts, hidden: n };
+}
+
+/** revealed(text): the text with each hidden character written as its escape, ⟨U+202E⟩ — for what reads it aloud. */
+export const revealed = (text) => reveal(text).parts.map((p) => (p.hidden ? `⟨${p.hidden}⟩` : p.text)).join('');
 
 /** undoWords(req): what xbin can say about undoing it. */
 export const undoWords = (req) => `xbin can't undo this. Whether ${tileOf(req).name || 'the tile'} can is up to ${tileOf(req).name || 'the tile'}.`;
@@ -150,7 +206,7 @@ export const DURATIONS = Object.freeze([{ id: 'hour', label: 'For one hour' }, {
 
 /** allowLabel(req, choice): the Allow button's words — they follow the choice. */
 export function allowLabel(req, choice = 'once') {
-  if (req.kind === 'session') return req.preview && req.preview.session && req.preview.session.asks === false ? 'Start without asking' : 'Start';
+  if (req.kind === 'session') return req.preview && req.preview.session && req.preview.session.asks === true ? 'Start' : 'Start without asking'; // only xbind's word that the mode asks
   if (req.kind === 'template') return 'Create the tile';
   return choice === 'once' ? 'Allow once' : choice === 'call' ? 'Allow always' : `Allow every change to ${tileOf(req).name || 'the tile'}`;
 }
@@ -193,7 +249,9 @@ export function widerWords(req) {
 export function sessionRows(req) {
   const s = (req.preview && req.preview.session) || {};
   const t = tileOf(req).name || 'the tile';
-  const asks = s.asks !== false;
+  // only xbind's word that the mode asks (a harness's ask or plan mode) earns the green tag: any other mode, and one
+  // xbind doesn't vouch for, leads with the danger wording
+  const asks = s.asks === true;
   const who = s.providerName || s.provider || 'A coding agent';
   const model = s.model ? ` · model ${s.model}` : '';
   const cred = s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';
@@ -219,9 +277,64 @@ export function settled(req) {
     case 'used': return `Allowed by you, and used${at}`;
     case 'denied': return `Denied by you${at}`;
     case 'expired': return 'Expired — not approved within 24 hours.';
-    case 'withdrawn': return 'Withdrawn by the agent';
+    case 'withdrawn': return req.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped' : 'Withdrawn by the agent';
+    case 'pending': return 'Waiting for your approval';
   }
-  return 'Waiting for your approval';
+  return UNKNOWN_STATE.page; // a newer xbind's state: never read as one that can be decided
+}
+
+const REQUEST_STATES = ['pending', 'approved', 'denied', 'used', 'expired', 'withdrawn'];
+const SET_STATES = ['proposed', 'applying', 'applied', 'partial', 'rejected', 'expired', 'withdrawn'];
+/**
+ * UNKNOWN_STATE: a request or change set in a state this chrome doesn't
+ * know (a newer xbind's) is never read as one that can be decided — no
+ * Allow, no Apply — and says so: on the web, reload (page); in the app,
+ * which can be older than the workspace, the web (app).
+ */
+export const UNKNOWN_STATE = Object.freeze({
+  pageTitle: "A state this page doesn't know", page: 'This page is older than the workspace — reload it to decide.',
+  title: "A state this app doesn't know", app: 'This app is older than the workspace — open it on the web.',
+});
+/** knownState(x, kind): x's state is one this chrome knows ('request' | 'changeset'). */
+export const knownState = (x, kind = 'request') => (kind === 'changeset' ? SET_STATES : REQUEST_STATES).includes(x && x.state);
+
+// ---- when nothing can be allowed ---------------------------------------------------------
+
+/**
+ * stopRefusal(state): why the person can't ALLOW anything for their agent
+ * now, read from GET /delegate/state — the refusal xbind answers Allow,
+ * Always and Apply with then (409 {refusal}): 'workspace-off', 'no-agent',
+ * 'paused', 'held'; '' when nothing stops it. Deny and Reject always work.
+ */
+export function stopRefusal(state) {
+  if (!state) return '';
+  if (!state.workspace) return 'workspace-off';
+  if (state.access === false) return 'no-agent';
+  if (state.paused) return 'paused';
+  if (state.held) return 'held';
+  return '';
+}
+
+const STOPPED = {
+  'workspace-off': 'Workspace agents are turned off for this workspace, so nothing can be allowed until an admin turns them on again.',
+  paused: 'Your agent is paused. Resume it first; then this can be allowed.',
+  held: 'Your agent is held on this xbin right now, so nothing can be allowed.',
+  'no-agent': 'You no longer have a workspace agent, so nothing can be allowed for it.',
+};
+/**
+ * stopWords(refusal, kind): what a sheet says in place of Allow (kind
+ * 'request') or Apply ('changeset') while its agent is stopped —
+ * {title, text, still}, or null for no refusal. Any refusal xbind names
+ * (a 409's) is said; one this page doesn't know, in general words.
+ */
+export function stopWords(refusal, kind = 'request') {
+  if (!refusal) return null;
+  const sets = kind === 'changeset';
+  return {
+    title: sets ? "Can't be applied now" : "Can't be allowed now",
+    text: STOPPED[refusal] || "Your agent can't act on this xbin right now, so nothing can be allowed.",
+    still: sets ? 'You can still reject it.' : 'You can still deny it.',
+  };
 }
 
 // ---- standing approvals ------------------------------------------------------------------
@@ -312,6 +425,16 @@ export function resultsWords(cs) {
   }
   const undoable = applied.filter((it) => it.inverse).length;
   return { title, banner, undo: undoable ? `Undo the ${undoable} applied…` : '' };
+}
+
+/** endedWords(cs): how a set that was not applied ended ('' for one applied, in part or whole, or still waiting). */
+export function endedWords(cs) {
+  switch (cs && cs.state) {
+    case 'rejected': return 'Rejected by you. Nothing was applied.';
+    case 'expired': return 'Expired. Nothing was applied.';
+    case 'withdrawn': return cs.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped. Nothing was applied.' : 'Withdrawn by the agent. Nothing was applied.';
+  }
+  return knownState(cs, 'changeset') ? '' : UNKNOWN_STATE.page;
 }
 
 /** stepUp(kind): the recent-sign-in step, as the server asked for it. */
@@ -409,6 +532,87 @@ export function didByDay(rows, filter = 'change') {
   return out;
 }
 export const DID_NOTE = "Kept by xbin for 13 months. Your agent and its page can't read or change this list. It never holds what was sent, only what was called.";
+
+// ---- the cards the app draws for the agent's `request` and `session` nodes -------------------------------
+
+/**
+ * requestCard(req, now): a request as the card the xbin app draws for a
+ * `request` node of the agent's view (D233) — {head, what, line, glyph,
+ * tone, waits, button}, from xbind's reading of it. (The agent's web page
+ * draws its cards from its backend's records; these are the words the
+ * app's port, DelegationWords.requestCard, is held to.)
+ */
+export function requestCard(req, now = Date.now()) {
+  const what = needTitle(req);
+  const card = (head, line, glyph, tone, waits = false, button = '') => ({ head, what, line, glyph, tone, waits, button });
+  switch (req.state) {
+    case 'pending': return card('Waiting for your approval', asked(req, now), 'shield', 'warn', true, 'Review…');
+    case 'approved': return card(settled(req), 'running now…', 'clock', '');
+    case 'used': return card(settled(req), req.kind === 'call' ? `${req.method} ${req.target}` : '', 'check', 'ok');
+    case 'denied': case 'withdrawn': return card(settled(req), '', 'xmark', '');
+    case 'expired': return card(settled(req), '', 'clock', '');
+  }
+  return card(UNKNOWN_STATE.title, UNKNOWN_STATE.app, 'info', ''); // never one that can be decided
+}
+
+/** changeSetCard(cs, now): a proposal as the app's card for a `request` node of kind changeset. */
+export function changeSetCard(cs, now = Date.now()) {
+  const w = needChangeTitle(cs);
+  const card = (head, line, glyph, tone, waits = false, button = '') => ({ head, what: '', line, glyph, tone, waits, button });
+  switch (cs.state) {
+    case 'proposed': {
+      const e = toMs(cs.expires);
+      return card(w.title, [w.note, e ? (e > now ? `expires in ${left(e - now)}` : 'expired') : ''].filter(Boolean).join(' · '), 'shield', 'warn', true, 'Review…');
+    }
+    case 'applying': return card(w.title, 'applying now…', 'clock', '');
+    case 'applied': case 'partial':
+      return card(resultsWords(cs).title, '', cs.state === 'applied' ? 'check' : 'warning', cs.state === 'applied' ? 'ok' : 'warn', false, 'Results');
+    case 'rejected': return card('Rejected by you', '', 'xmark', '');
+    case 'expired': return card('Expired — not approved within 7 days.', '', 'clock', '');
+    case 'withdrawn': return card(cs.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped' : 'Withdrawn by the agent', '', 'xmark', '');
+  }
+  return card(UNKNOWN_STATE.title, UNKNOWN_STATE.app, 'info', '');
+}
+
+/**
+ * sessionCard(row, tileName, harnessName): a tile agent's session — a row
+ * of GET /term/sessions?origin=agent&compact=1 — as the app's card for a
+ * `session` node: {tile, harness, glyph, word, tone, line, note, button,
+ * waits}; Answer when it waits for the person (only they can).
+ */
+export function sessionCard(s, tileName = '', harnessName = '') {
+  const harness = harnessName || s.provider || 'Coding agent';
+  const waits = s.status !== 'ended' && ((s.pending || 0) > 0 || (s.questions || 0) > 0 || s.status === 'waiting_permission');
+  const c = { tile: tileName, harness, glyph: 'pause', word: 'stopped', tone: '', line: s.last || '', note: '', button: 'Open', waits: false };
+  if (waits) {
+    return { ...c, glyph: 'bell', word: 'waiting for you', tone: 'warn', waits: true, button: 'Answer', note: 'Only you can answer.',
+      line: (s.questions || 0) > 0 && !(s.pending > 0) ? 'It asks you a question.' : 'It asks your permission.' };
+  }
+  switch (s.status) {
+    case 'starting': return { ...c, glyph: 'clock', word: 'starting' };
+    case 'running': case 'cancelling': return { ...c, glyph: 'clock', word: 'working' };
+    case 'idle': return { ...c, glyph: 'check', word: 'finished', tone: 'ok' };
+    case 'error': return { ...c, glyph: 'error', word: 'failed', tone: 'danger' };
+    case 'ended': case 'exited':
+      return s.endedBy === 'restart'
+        ? { ...c, glyph: 'pause', word: 'stopped for the update', tone: 'warn', line: "It didn't finish. Its transcript is kept, and it can continue where it stopped." }
+        : { ...c, glyph: 'check', word: 'finished', tone: 'ok' };
+  }
+  return c;
+}
+
+/** homeStatus(dock, {tileAgents, working, count}): the app's Home row under the agent's name — "working · 2 tile agents · 2 need you", "idle", "paused". */
+export function homeStatus(dock, { tileAgents = 0, working = 0, count = 0 } = {}) {
+  switch (dock) {
+    case 'paused': return 'paused';
+    case 'setup': return 'not set up yet';
+    case 'off': return 'turned off for this workspace';
+    case 'unavailable': case 'held': case 'soon': return 'not available right now';
+    case 'offline': return "can't reach xbin";
+    case 'page': return [working > 0 ? 'working' : 'idle', tileAgents > 0 ? plural(tileAgents, 'tile agent') : '', count > 0 ? `${count} need${count === 1 ? 's' : ''} you` : ''].filter(Boolean).join(' · ');
+  }
+  return '';
+}
 
 // ---- the dock's own state ----------------------------------------------------------------
 
@@ -538,7 +742,9 @@ export const neverAsks = (names) => `Not offered: ${names.join(', ')} — ${name
 
 // ---- what the page may ask of the dock -----------------------------------------------------
 
-const ID = /^[A-Za-z0-9_.:-]{1,80}$/;
+// a request's or change set's id, as xbind mints them (24 lowercase hex digits): nothing else — never a dot segment or a
+// path — is read from the page, and it goes into a URL the dock sends with the person's session
+const ID = /^[0-9a-f]{24}$/;
 const SESSION = /^[A-Za-z0-9_-]{1,64}$/;
 const tilePath = (v) => {
   const t = typeof v === 'string' ? v.replace(/^\/+|\/+$/g, '') : '';
@@ -569,7 +775,11 @@ export const DRAFT_FROM = Object.freeze({
  * anything that isn't a string.
  */
 export function plainDraft(v) {
-  return typeof v === 'string' ? v.replace(/\r\n?/g, '\n').replace(UNSEEN, '').trim().slice(0, DRAFT_MAX) : '';
+  if (typeof v !== 'string') return '';
+  const t = v.replace(/\r\n?/g, '\n').replace(UNSEEN, '').trim();
+  // at most DRAFT_MAX UTF-16 units, never half a surrogate pair (a lone half is no character)
+  const end = t.length > DRAFT_MAX && /[\uD800-\uDBFF]/.test(t[DRAFT_MAX - 1]) ? DRAFT_MAX - 1 : DRAFT_MAX;
+  return t.slice(0, end);
 }
 
 /** handoffLink(tile): the plain link to a tile, for a shell that can't open a new session of its agent itself. */

@@ -16,10 +16,11 @@ set -euo pipefail
 cat >"$bin/ssh" <<'SH'
 #!/bin/sh
 echo "ssh $*" >>"$FAKE_LOG"
-nocmd=0 nostdin=0
+nocmd=0 nostdin=0 forward=0
 while [ $# -gt 0 ]; do
   case $1 in
-  -o | -R | -L | -p | -i | -F | -l | -J | -E) shift 2 ;;
+  -R) forward=1; shift 2 ;;
+  -o | -L | -p | -i | -F | -l | -J | -E) shift 2 ;;
   -N) nocmd=1; shift ;;
   -n) nostdin=1; shift ;;
   -*) shift ;;
@@ -31,6 +32,18 @@ shift # the host
 cd "$FAKE_REMOTE_HOME" || exit 1
 cmd=$(printf '%s' "$*" | sed 's#/bin/bash #bash #g')
 if [ "$nostdin" = 1 ]; then exec sh -c "$cmd" </dev/null; fi
+# FAKE_SSH_LINGER=<seconds>: a session with a forward stays up that long
+# after its command returned — a forwarded connection something on the Mac
+# still holds (ssh waits for those).
+if [ "$forward" = 1 ] && [ -n "${FAKE_SSH_LINGER:-}" ]; then
+  rc=0
+  sh -c "$cmd" || rc=$?
+  sleep "$FAKE_SSH_LINGER" &
+  lp=$!
+  trap 'kill "$lp" 2>/dev/null; exit 143' TERM INT
+  wait "$lp"
+  exit "$rc"
+fi
 exec sh -c "$cmd"
 SH
 # pgrep: FAKE_PGREP=0 — every pattern matches; FAKE_PGREP_MATCH — the
@@ -668,6 +681,18 @@ eq "mac-remote e2e: pulls the screenshots" "$(find "$tmp/pull/e2e" -name '*.png'
 XBIN_SIM_ENSURE=xbin-e2e-mine XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-owner-secret run "$S/mac-remote.sh" e2e
 has "mac-remote e2e: XBIN_SIM_ENSURE passes through" "$(cat "$FAKE_LOG")" " XBIN_SIM_ENSURE=xbin-e2e-mine /bin/bash"
 has "mac-remote e2e: …and names the run's own simulator" "$(cat "$FAKE_LOG")" "xcrun simctl create xbin-e2e-mine"
+hasnt "mac-remote e2e: the line that says the Mac's run ended is not shown" "$out" "mac-remote-done"
+# ssh held up by a forwarded connection after the tests ended (it once sat
+# for hours): the run returns when the Mac says its command returned, with
+# that command's status, and ends its own ssh.
+t0=$SECONDS
+FAKE_SSH_LINGER=300 XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-owner-secret run "$S/mac-remote.sh" e2e
+eq "mac-remote e2e: a held-up ssh doesn't hold the run" "$rc" 0
+if [ $((SECONDS - t0)) -lt 60 ]; then ok "mac-remote e2e: …it returns within a minute"; else bad "mac-remote e2e: took $((SECONDS - t0))s with ssh held up"; fi
+has "mac-remote e2e: …and says it ended its ssh" "$out" "ssh stayed up on a forwarded connection"
+eq "mac-remote e2e: …having pulled the screenshots" "$(find "$tmp/pull/e2e" -name '*.png' | wc -l | tr -d ' ')" 3
+FAKE_XCODEBUILD_STATUS=65 FAKE_SSH_LINGER=300 XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-owner-secret run "$S/mac-remote.sh" e2e
+if [ "$rc" != 0 ]; then ok "mac-remote e2e: a failed run's status comes through a held-up ssh ($rc)"; else bad "mac-remote e2e: a failed run read as passed"; fi
 XBIN_E2E_URL=http://127.0.0.1:9871 run "$S/mac-remote.sh" e2e
 eq "mac-remote e2e: a URL without an account fails" "$rc" 2
 # never as the runner's user: its jobs could reach the tunnel and the password

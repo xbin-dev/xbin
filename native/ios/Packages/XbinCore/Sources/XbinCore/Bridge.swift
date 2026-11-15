@@ -312,7 +312,8 @@ public struct BridgeCall: Sendable, Equatable {
     /// The runtime's id for the call, echoed verbatim in the answer.
     public var id: JSONValue
     /// What is asked: `copy {text}`, `share {text?, url?, file?}`,
-    /// `open {url}` (https only), or a later addition.
+    /// `open {url}` (https only), `agent {msg}` (``agentWhat``), or a later
+    /// addition.
     public var what: String
     /// The arguments as the runtime sent them.
     public var args: JSONValue
@@ -321,6 +322,19 @@ public struct BridgeCall: Sendable, Equatable {
         self.id = id
         self.what = what
         self.args = args
+    }
+
+    /// `xbin.native.agent(msg)` (D233): the workspace agent's view asks the
+    /// app's chrome to show something of its own, by id. The app decides
+    /// with ``AgentBridge/decide(_:tile:holder:)``.
+    public static let agentWhat = "agent"
+
+    /// The message of an `agent` call: `args.msg`, a JSON object with a
+    /// string `type` — nil for any other call or shape.
+    public var agentMessage: JSONValue? {
+        guard what == Self.agentWhat, case .object(let a) = args, case .object(let m)? = a["msg"],
+              case .string? = m["type"] else { return nil }
+        return .object(m)
     }
 
     /// The first argument: `args[0]` when args is an array, else args
@@ -389,6 +403,12 @@ public enum RuntimeCall: Sendable, Equatable {
     /// caps, ``NativeCaps/width``). A runtime older than the call has no
     /// such function: it does nothing.
     case width(WidthClass)
+    /// `xbn.agent(msg)` — the app's chrome tells the workspace agent's view
+    /// something (D233): what it was opened about
+    /// (``AgentBridge/context(tile:screen:)``). Only for the tile whose caps
+    /// list ``NativeCaps/agentFeature``. A runtime older than the call has
+    /// no such function: it does nothing.
+    case agent(JSONValue)
 
     /// The call expression, e.g. `xbn.event("r.0.1","tap",{})`.
     public var javaScript: String {
@@ -417,6 +437,8 @@ public enum RuntimeCall: Sendable, Equatable {
             return "xbn.navigate?.(\(JSONValue.string(TileScheme.hash(hash)).jsLiteral()))"
         case .width(let w):
             return "xbn.width?.(\(JSONValue.string(w.rawValue).jsLiteral()))"
+        case .agent(let msg):
+            return "xbn.agent?.(\(msg.jsLiteral()))"
         }
     }
 
@@ -503,6 +525,23 @@ public struct NativeCaps: Sendable, Equatable {
 
     /// Whether these caps ask for the widget tree.
     public var drawsWidgets: Bool { features.contains(Self.widgetFeature) }
+
+    /// The wire feature the app lists for the ONE tile it shows as the
+    /// person's workspace agent (D233; tree.md §8) — never in the caps
+    /// every tile gets: with it `xbin.native.agent(msg)` asks the app's
+    /// chrome and `xbn.agent(msg)` reaches the tile; without it the
+    /// runtime rejects the one and ignores the other.
+    public static let agentFeature = "agent"
+
+    /// These caps for the tile shown as the person's workspace agent.
+    public func withAgent() -> NativeCaps {
+        var c = self
+        if !c.features.contains(Self.agentFeature) { c.features.append(Self.agentFeature) }
+        return c
+    }
+
+    /// Whether these caps show the tile as the person's workspace agent.
+    public var isAgent: Bool { features.contains(Self.agentFeature) }
 
     public var json: JSONValue {
         var o: [String: JSONValue] = [

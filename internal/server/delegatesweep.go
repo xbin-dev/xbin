@@ -5,7 +5,9 @@ package server
 // "What each switch stops"; D228).
 
 import (
+	"errors"
 	"log/slog"
+	"net/http"
 
 	"github.com/xbin-dev/xbin/internal/delegation"
 )
@@ -83,10 +85,30 @@ func (s *Server) DelegationPersonGone(user string) {
 // queued for tile agents it started are taken back. Standing approvals go
 // too unless keepApprovals: a pause keeps them — the person resumes on
 // purpose — a switch-off or the person's end does not.
+//
+// A stop for good (keepApprovals false: the switch off, the person no
+// longer given an agent, disabled or deleted) also withdraws what waits for
+// the person — pending requests and proposed change sets — so nothing is
+// left for them to approve that would run the moment the agent is back.
+// The agent's backend hears of each once, as of any request or set that
+// changed. A pause or a hold keeps them pending: the person decides after
+// resuming (and can't allow them before: decideRefusal).
 func (s *Server) delegationStopped(user string, keepApprovals bool) {
 	s.CutDelegateStreams(user)
 	if s.Delegation == nil {
 		return
+	}
+	if !keepApprovals {
+		// before the tickets are voided: an approval racing this one then
+		// lands on a withdrawn request (409), never on a ticket left behind
+		ids, _ := s.Delegation.WithdrawPending(user)
+		for _, id := range ids {
+			s.delegateEvent(user, "request", id)
+		}
+		sets, _ := s.Delegation.WithdrawOpenSets(user)
+		for _, id := range sets {
+			s.delegateEvent(user, "changeset", id)
+		}
 	}
 	changed := false
 	if n, _ := s.Delegation.VoidTickets(user); n > 0 {
@@ -103,4 +125,44 @@ func (s *Server) delegationStopped(user string, keepApprovals bool) {
 	if changed {
 		s.delegateEvent(user, "request", "")
 	}
+}
+
+// decideRefusal is why user may not ALLOW anything for their agent now —
+// approve a request (once or always), give a standing approval, apply a
+// change set: the workspace's switch is off, they paused it, they have no
+// agent, it is held (or delegation can't run here at all). It answers the
+// refusal the delegate gate gives for the same switch ("workspace-off",
+// "paused", "no-agent", "held", "no-sandbox") and xbind's sentence, or ""
+// when they may. Denying is never refused: it widens nothing. holder is
+// the agent that asked ("": the one this xbind ships).
+//
+// Without this, a ticket or an "always" given while the agent was stopped
+// was live the moment it was back: a stop voids only what was approved
+// before it.
+func (s *Server) decideRefusal(user, holder string) (refusal, msg string) {
+	if s.Delegation == nil {
+		return "", ""
+	}
+	const deny = " — denying it works now"
+	switch {
+	case !s.Delegation.Workspace().Enabled:
+		return "workspace-off", "workspace agents are turned off for this workspace: nothing can be allowed until an admin turns them on again" + deny
+	case s.Delegation.State(user).Paused:
+		return "paused", "you paused your agent: resume it first, then allow this" + deny
+	}
+	if holder == "" {
+		holder = s.agentHolder()
+	}
+	var off *OffError
+	if err := s.DelegationOff(holder, user); errors.As(err, &off) {
+		return off.Code, off.Msg + deny
+	} else if err != nil {
+		return "off", err.Error() + deny
+	}
+	return "", ""
+}
+
+// refuseDecision writes decideRefusal's 409: {error, refusal, docs}.
+func refuseDecision(w http.ResponseWriter, refusal, msg string) {
+	WriteJSON(w, http.StatusConflict, map[string]string{"error": msg, "refusal": refusal, "docs": delegationDocs})
 }

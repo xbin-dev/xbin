@@ -12,7 +12,9 @@
 #                              sudo, the runner token)
 #   toolchain                  ci-toolchain.sh (Xcode, SDKs, simulators)
 #   packages [Pkg…]            swift test (ci-swift-test.sh)
-#   build                      xcodegen + build the app for a simulator
+#   build [--device]           xcodegen + build the app for a simulator
+#                              (--device: for generic/platform=iOS, as the
+#                              duo job does — compile only)
 #   snapshots                  the renderer snapshots, package + hosted
 #   uitests                    build the UI tests (compile only)
 #   run [--url L] [--wait S]   build, boot a simulator, install, launch (open
@@ -46,8 +48,16 @@
 #   XBIN_MAC_SSH_OPTS  extra ssh options, e.g. "-p 2222 -i ~/.ssh/mini"
 #   XBIN_SIM, XBIN_SIGNING, XBIN_XCODE, XBIN_SWIFT_CONDITIONS, XBIN_SIM_GUI=1,
 #   XBIN_E2E_ERASE, XBIN_E2E_WARMUP, XBIN_SIM_ENSURE, XBIN_E2E_TUNNEL_FORWARD,
+#   XBIN_E2E_TIMEOUT   e2e: seconds a run may take in all (default 3600; 0:
+#                      no limit). A run ends when the Mac says its command
+#                      returned — never when ssh's forwarded connections
+#                      close, which something on the Mac can hold open for
+#                      hours (remote_until_done)
 #   XBIN_E2E_TUNNEL (1: e2e-xbind.sh runs the app tunnel and its relay,
 #                      whose port the ssh carries too; XbinTunnelTests run)
+#   XBIN_E2E_WSAGENT (1: e2e-xbind.sh sets the workspace agent up — it needs
+#                      --isolate in XBIN_E2E_XBIND_ARGS — and
+#                      XbinWorkspaceAgentTests run, D233)
 #                      passed through (pick-sim.sh, ci-*.sh; GUI: show the
 #                      simulator on the Mac's screen: Simulator.app, or
 #                      DeviceHub.app from Xcode 27 on; ENSURE: a
@@ -95,7 +105,10 @@ on_mac() {
   packages) "$S/ci-swift-test.sh" "$@" ;;
   build)
     xcodegen_on_path
-    dest=$("$S/pick-sim.sh")
+    # --device: for a device, no simulator — what ios.yml's duo job builds
+    # (with XBIN_XCODE the 27.1 Xcode and XBIN_SWIFT_CONDITIONS=XBIN_SDK_27_1:
+    # a beta Xcode's simulators may not run here).
+    if [ "${1:-}" = --device ]; then dest="generic/platform=iOS"; else dest=$("$S/pick-sim.sh"); fi
     "$S/ci-build-app.sh" "$dest"
     ;;
   uitests)
@@ -190,8 +203,12 @@ on_mac() {
 
 if [ "${1:-}" = --on-mac ]; then
   shift
-  on_mac "$@"
-  exit $?
+  rc=0
+  on_mac "$@" || rc=$?
+  # (the run's end, said: remote_until_done on the other side waits for this
+  # line, not for ssh — which a forwarded connection can hold up)
+  if [ -n "${XBIN_MAC_SENTINEL:-}" ]; then echo "$XBIN_MAC_SENTINEL $rc"; fi
+  exit "$rc"
 fi
 
 # ======================================================================
@@ -238,12 +255,71 @@ remote() {
   while [ $# -gt 0 ] && [ "$1" != -- ]; do opts+=("$1"); shift; done
   [ $# -gt 0 ] && shift
   local v
-  for v in XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_E2E_WARMUP XBIN_SIM_ENSURE \
-    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL; do
+  for v in XBIN_MAC_SENTINEL XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_E2E_WARMUP XBIN_SIM_ENSURE \
+    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL XBIN_E2E_WSAGENT; do
     if [ -n "${!v:-}" ]; then envs="$envs $v=$(printf '%q' "${!v}")"; fi
   done
-  ssh ${ssh_opts[@]+"${ssh_opts[@]}"} ${opts[@]+"${opts[@]}"} "$XBIN_MAC" \
-    "cd $(printf '%q' "$rtree") && env${envs} /bin/bash native/ios/scripts/mac-remote.sh --on-mac $(q "$@")"
+  REMOTE_SSH=(ssh ${ssh_opts[@]+"${ssh_opts[@]}"} ${opts[@]+"${opts[@]}"} "$XBIN_MAC"
+    "cd $(printf '%q' "$rtree") && env${envs} /bin/bash native/ios/scripts/mac-remote.sh --on-mac $(q "$@")")
+  [ "${REMOTE_BUILD_ONLY:-0}" = 1 ] || "${REMOTE_SSH[@]}"
+}
+
+# remote_until_done [ssh options] -- <command> [args]: `remote`, for a run
+# that carries port forwards (e2e). ssh does not return while a forwarded
+# connection is open, and something on the Mac can keep one open long after
+# the tests ended — a simulator's networking process with the app's sockets
+# (keep-alive requests, the events socket), another booted simulator's app.
+# A run once sat for hours that way with nothing left running on the Mac.
+# So the end is said, not inferred: the Mac's side prints a line once its
+# command returned (its status in it), and when that line arrives ssh gets a
+# few seconds to end by itself and is then ended here — this run's own ssh,
+# by its pid; the forwards go with it. Without the line (ssh died, the Mac
+# went away) the status is ssh's. XBIN_E2E_TIMEOUT (seconds, default 3600;
+# 0: none) ends a run that says nothing at all for that long in total.
+REMOTE_PID=""
+remote_until_done() {
+  local fifo line rc="" i=0 deadline=${XBIN_E2E_TIMEOUT:-3600} started=$SECONDS
+  XBIN_MAC_SENTINEL="mac-remote-done-$$-$RANDOM"
+  export XBIN_MAC_SENTINEL
+  REMOTE_BUILD_ONLY=1 remote "$@"
+  fifo=$(mktemp -u "${TMPDIR:-/tmp}/mac-remote-out.XXXXXX")
+  mkfifo "$fifo"
+  "${REMOTE_SSH[@]}" <&0 >"$fifo" 2>&1 &
+  REMOTE_PID=$!
+  exec 9<"$fifo"
+  rm -f "$fifo"
+  while :; do
+    if IFS= read -r -t 20 line <&9; then
+      case $line in
+      "$XBIN_MAC_SENTINEL "*) rc=${line#"$XBIN_MAC_SENTINEL "}; break ;;
+      *) printf '%s\n' "$line" ;;
+      esac
+    else
+      # nothing for 20 s, or the end of ssh's output: which, ssh says
+      kill -0 "$REMOTE_PID" 2>/dev/null || break
+      sleep 1 # (ssh closing its output a moment before it exits: no spinning)
+      if [ "$deadline" -gt 0 ] && [ $((SECONDS - started)) -ge "$deadline" ]; then
+        say "the Mac's run said nothing final within ${deadline}s (XBIN_E2E_TIMEOUT): ending it"
+        rc=124
+        break
+      fi
+    fi
+  done
+  exec 9<&-
+  if [ -n "$rc" ]; then
+    # the command returned (or ran out of time): ssh may stay up on a forward
+    while kill -0 "$REMOTE_PID" 2>/dev/null && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+    if kill -0 "$REMOTE_PID" 2>/dev/null; then
+      [ "$rc" = 124 ] || say "the Mac's run ended (status $rc) and ssh stayed up on a forwarded connection: ending this run's ssh ($REMOTE_PID)"
+      kill "$REMOTE_PID" 2>/dev/null || true
+    fi
+    wait "$REMOTE_PID" 2>/dev/null || true
+  else
+    wait "$REMOTE_PID" 2>/dev/null
+    rc=$?
+  fi
+  REMOTE_PID=""
+  return "$rc"
 }
 
 sync_tree() {
@@ -323,6 +399,8 @@ e2e)
     password=$(sed -n 's/^XBIN_E2E_PASSWORD=//p' "$e2e_dir/env")
     if [ "$keep" = 0 ]; then trap 'XBIN_E2E_DIR=$e2e_dir "$here/e2e-xbind.sh" stop' EXIT; fi
   fi
+  # (this run's ssh never outlives it — a signal, a timeout around the script)
+  trap '[ -z "$REMOTE_PID" ] || kill "$REMOTE_PID" 2>/dev/null || true; exit 143' INT TERM
   [ -n "$user" ] && [ -n "$password" ] || { say "e2e: XBIN_E2E_URL without XBIN_E2E_USER and XBIN_E2E_PASSWORD"; exit 2; }
   # A loopback xbind reaches the Mac through a reverse tunnel on the same
   # port (the workspace's origin stays http://127.0.0.1:P on both sides).
@@ -339,7 +417,7 @@ e2e)
   relay=$(sed -n 's/^XBIN_E2E_RELAY_PORT=//p' "${e2e_dir:-/nonexistent}/env" 2>/dev/null || true)
   [ -n "$relay" ] && tunnel+=(-R "127.0.0.1:$relay:127.0.0.1:$relay")
   sync_tree
-  printf '%s\n%s\n' "$user" "$password" | remote ${tunnel[@]+"${tunnel[@]}"} -- e2e --url "$url" ${only[@]+"${only[@]}"} || status=$?
+  remote_until_done ${tunnel[@]+"${tunnel[@]}"} -- e2e --url "$url" ${only[@]+"${only[@]}"} < <(printf '%s\n%s\n' "$user" "$password") || status=$?
   pull e2e
   if [ "$started" = 1 ] && [ "$keep" = 1 ]; then say "the xbind stays up: $url (e2e-xbind.sh stop)"; fi
   exit "$status"

@@ -309,6 +309,8 @@ API — each member is app UI acting on data your tile hands it.
 | `xbin.native.on('widgetsize', fn)` | `fn(size)` runs when the app shows your widget at another size class — re-render it there; returns a function that stops listening |
 | `xbin.native.width` | the horizontal size class of the screen your view is drawn on: `"compact"` (a phone, an iPad's narrow Split View) or `"regular"` (an iPad); `null` when the app doesn't say (older apps, previews) — lay out for a phone's narrow bar with it (at most two items in a compact bar keeps its title) |
 | `xbin.native.on('width', fn)` | `fn(width)` runs when the screen changes width class (Split View, a rotation) — re-render for it; returns a function that stops listening |
+| `xbin.native.agent(msg)` | only for the tile the app shows as the person's workspace agent (`supports('agent')`, D233): asks the app's chrome to show an approval, a change set, a session or a panel **by id** — `{type: 'xbin:agent-open-request', id}`, … (§The workspace agent's nodes) → a promise of `true` when it was shown, `false` when there was nothing to show; rejects without the feature. It decides nothing |
+| `xbin.native.on('agent', fn)` | `fn(msg)` runs when the app's chrome tells that tile something — `{type: 'xbin:agent-context', tile}` or `{…, screen}`: what the agent was opened about; returns a function that stops listening |
 
 `xbin.native` exists only in the runtime document (the app, and the
 previews `bx` draws); your web page does not have it.
@@ -525,7 +527,12 @@ The app draws these with the same components as its own agent screen.
 
 - **`transcript`**: `follow` sticks to the bottom as content grows; `older`
   shows a loader at the top that fires `@more`; `@scrolled {atBottom}`
-  reports the user scrolling away.
+  reports the user scrolling away. Rev 3: `empty` is what it shows while it
+  has no children — `{title, text, lists: [{title, items}],
+  suggestionsTitle, suggestions: [{id, kind, text}]}`: a heading, a
+  sentence, short titled lists, and suggestions (a kind in small caps and a
+  line each) that fire `@suggestion {id}`. Fill your composer's `value`
+  with the suggestion; a suggestion never sends.
 - **`message`**: `role` is `user` (a bubble), `assistant` or `system`;
   `markdown` makes `text` markdown (§Markdown); set `streaming` while it
   grows; `time` is ms since the epoch or a string; `files` are
@@ -547,9 +554,20 @@ The app draws these with the same components as its own agent screen.
   `oneOf` consts, `format` `email`·`uri`·`date`·`date-time`, `required`,
   `default`, `title`, `description`. `@submit {content}` carries the answers
   keyed by property; `@skip` when the user skips; a non-null `settled`
-  shows it answered.
+  shows it answered. Rev 2: `style="rows"` draws a property's choices as
+  full-width rows, one tap each, instead of a menu; `other` (`{<choice
+  property>: <string property>}`) makes that string property the free text
+  riding on the choices — "Something else": its `title` is the label, its
+  `description` the placeholder, typing in it clears the choice and choosing
+  clears it — so `content` carries one or the other; `paged` shows several
+  questions one a page ("1 of 2", Back and Next at the bottom, the submit
+  button on the last); `submitLabel` and `skipLabel` are the two buttons'
+  words. Skipping is never an answer.
 - **`plan`** entries have a `status` of `pending`, `in_progress` or
-  `completed`. **`diff`**: `files` `[{path, status, add, del}]` plus a
+  `completed`. Rev 2: a `title`, `numbered` steps, `tags` — one per entry,
+  by position, `{text, icon, tone}`: what the step does or where it stands
+  ("reads only", "asks you", "done") —, a `note` under the entries and a
+  quiet `meta` line beside the title. **`diff`**: `files` `[{path, status, add, del}]` plus a
   unified `patch`; `@open-file {path}`. **`activity`** is a status line,
   **`step`** a glyph and a line.
 - **`composer`**: bind `value` with `@input`, send on `@send {value}`;
@@ -572,27 +590,132 @@ The app draws these with the same components as its own agent screen.
   read): you still get `@uploaded` for it, with `response` `{error, status:
   413}`, and the app tells the user.
   Show the files as `attachments` `[{id, name, mime, progress}]`;
-  `@remove {id}` when the user drops one.
+  `@remove {id}` when the user drops one. Rev 2: `context` `[{id, label,
+  icon, tone}]` are chips in the box for what the next message is about
+  ("About Orders") — a tap fires `@context {id}`, a chip's ✕
+  `@remove-context {id}` (drop it from the list); `replies` `[{id, label}]`
+  are quick replies in a row above the box (`@reply {id}` — send or fill, as
+  you choose); `hint` is a quiet line under the box.
+- **`card`**, **`connection`**, **`request`** and **`session`** are the
+  workspace agent's (below).
 
 <!-- generated:prims-chat (node hack/native-docs.mjs --write) -->
 | Primitive | What | Props | Events | Children |
 |---|---|---|---|---|
-| `transcript` (rev 2) | a chat transcript (stick to bottom with follow) | `follow` bool, `older` bool, `anchor` (rev 2+), `scrollTo` (rev 2+) | `more`, `scrolled` {atBottom}, `edge` {edge, at} (rev 2+) | `message`, `thinking`, `toolcard`, `approval`, `question`, `plan`, `diff`, `activity`, `step`, `notice`, `text`, `markdown`, `image`, `progress` |
+| `transcript` (rev 3) | a chat transcript (stick to bottom with follow) | `follow` bool, `older` bool, `anchor` (rev 2+), `scrollTo` (rev 2+), `empty` {title, text, lists, suggestionsTitle, suggestions} (rev 3+) | `more`, `scrolled` {atBottom}, `edge` {edge, at} (rev 2+), `suggestion` {id} (rev 3+) | `message`, `thinking`, `toolcard`, `approval`, `question`, `plan`, `diff`, `activity`, `step`, `notice`, `text`, `markdown`, `image`, `progress`, `card` (rev 3+), `request` (rev 3+), `session` (rev 3+) |
 | `message` | one chat message (a user bubble, assistant text, a system line) | `role` user·assistant·system, `sender`, `text`, `markdown` bool, `streaming` bool, `time` string\|number, `files` [{name, mime, src}], `queued` bool | `tap`, `link` {href} | `actions` |
 | `thinking` | the model's reasoning, folded to "Thought for Ns" | `text`, `live` bool, `seconds` number, `open` bool | `toggle` {open} | — |
 | `toolcard` | a tool call: title, state, chips; its children show when open | `title`, `icon` *icon*, `family`, `state` writing·running·ok·error·canceled, `chips` [{text, tone}], `open` bool | `toggle` {open}, `open` | `code`, `text`, `diff`, `image`, `transcript`, `markdown`, `notice` |
 | `approval` | a permission request: the options to choose from, optional feedback | `title`, `text`, `options` [{id, label, kind}], `note`, `feedback` bool, `settled` {by, id} | `choose` {id, feedback} | — |
-| `question` | a form built from a flat JSON Schema | `title`, `schema` JSON, `settled` JSON | `submit` {content}, `skip` | — |
-| `plan` | a checklist of plan entries | `entries` [{text, status}] | — | — |
+| `question` (rev 2) | a form built from a flat JSON Schema | `title`, `schema` JSON, `settled` JSON, `style` form·rows (rev 2+), `other` JSON (rev 2+), `paged` bool (rev 2+), `submitLabel` (rev 2+), `skipLabel` (rev 2+) | `submit` {content}, `skip` | — |
+| `plan` (rev 2) | a checklist of plan entries | `entries` [{text, status}], `title` (rev 2+), `numbered` bool (rev 2+), `tags` [{text, icon, tone}] (rev 2+), `note` (rev 2+), `meta` (rev 2+) | — | — |
 | `diff` | changed files (+/-) and a unified patch | `files` [{path, status, add, del}], `patch` | `open-file` {path} | — |
 | `activity` | a status line, shimmering while `live` | `text`, `live` bool | — | — |
 | `step` | a glyph and a line of text | `glyph`, `text`, `tone` *tone* | — | — |
-| `composer` | the message composer; attachments are uploaded by the app | `value`, `placeholder`, `busy` bool, `disabled` bool, `attachments` [{id, name, mime, progress}], `accept`, `upload` {method, path}, `slash` [{name, hint, description}] | `input` {value}, `send` {value}, `stop`, `uploaded` {name, response}, `remove` {id} | `button` |
+| `composer` (rev 2) | the message composer; attachments are uploaded by the app | `value`, `placeholder`, `busy` bool, `disabled` bool, `attachments` [{id, name, mime, progress}], `accept`, `upload` {method, path}, `slash` [{name, hint, description}], `context` [{id, label, icon, tone}] (rev 2+), `replies` [{id, label}] (rev 2+), `hint` (rev 2+) | `input` {value}, `send` {value}, `stop`, `uploaded` {name, response}, `remove` {id}, `context` {id} (rev 2+), `remove-context` {id} (rev 2+), `reply` {id} (rev 2+) | `button` |
+| `card` | a card of the tile's own in a transcript: a title, then text, fields and rows, its buttons in a row at the bottom | `title`, `subtitle`, `icon` *icon*, `tone` *noticeTone*, `badge`, `note` | — | `text`, `markdown`, `field`, `picker`, `toggle`, `button`, `notice`, `row`, `step`, `badge` |
+| `connection` | the line that says what a conversation is connected to, above its transcript; a tap is the tile's to answer (its scope panel) | `connected`, `not`, `model`, `private` bool, `label`, `disabled` bool | `tap`, `model` | — |
+| `request` | an approval request of the person's workspace agent, by id. THE APP draws it — what waits, for which tile, what came of it, and Review… — from xbind's own reading of the request, and presents its own sheet; a tile names the id and nothing else | `id`, `kind` call·session·template·changeset | — | — |
+| `session` | a tile agent's session, by id. THE APP draws it — the tile, the coding agent, its status and last line — from xbind's session directory; Open (Answer when it waits for the person) goes to the app's own agent screen | `id`, `tile` | — | — |
 
 - `transcript` `anchor`: the key of a child (its key=, or its wire key): the view opens at it, and it keeps its place on screen when children are inserted or trimmed around it (a transcript stops following its end meanwhile).
 - `transcript` `scrollTo`: scroll to a child by key, or to `start`/`end`, whenever the value changes — the first value is where the view starts, not a jump (text after a # is ignored: `end#3` jumps again).
+- `transcript` `empty`: what a transcript with no children shows: a heading, a sentence, short titled lists, and suggestions (each a kind in small caps and a line) that report `suggestion` — fill your composer with it.
 - `message` `tokens` is set by the runtime, never by a tile.
+- `question` `style`: `rows`: a property with choices (`enum`, `oneOf`) draws them as full-width rows, one tap each, instead of a menu; `form` (the default): as rev 1.
+- `question` `other`: `{<choice property>: <string property>}`: that string property is the free text riding on the choices ("Something else": its `title` the label, its `description` the placeholder) — typing in it clears the choice, choosing clears it; it is not drawn as a field of its own.
+- `question` `paged`: several questions: one a page ("1 of 2"), Back and Next at the bottom, submit on the last.
+- `question` `submitLabel`: the submit button's words (default: Submit — Answer with `style="rows"`).
+- `question` `skipLabel`: the skip button's words (default: Skip); skipping is never an answer.
+- `plan` `numbered`: the entries are numbered steps.
+- `plan` `tags`: a tag per entry, by position (what the step does or where it stands: "reads only", "asks you"); an item without `text` is no tag.
+- `plan` `note`: a sentence under the entries.
+- `plan` `meta`: a quiet line beside the title.
+- `composer` `context`: what the next message is about, as chips in the box ("About Orders"): a tap reports `context`, its remove button `remove-context`.
+- `composer` `replies`: quick replies in a row above the box (they scroll sideways and stay with the keyboard down): a tap reports `reply`.
+- `composer` `hint`: a quiet line under the box.
+- `card` `note`: a quiet sentence above the buttons.
+- `connection` `connected`: what is connected ("14 tiles · 3 orgs").
+- `connection` `not`: what is not ("6 not connected"); absent: nothing is left out.
+- `connection` `private`: the model is marked private.
+- `connection` `label`: the whole line as one sentence, for VoiceOver.
+- `session` `tile`: the tile it runs in (named while the session is being looked up).
 <!-- /generated:prims-chat -->
+
+### The workspace agent's nodes
+
+Four primitives and the revisions above came with the workspace agent in
+the app (D233; [workspace-agent.md](/docs/workspace-agent.md)). Two of them
+are ordinary and any tile may use them; two are **placed by a tile and drawn
+by the app**.
+
+- **`card`** is a card of your own in a transcript (or anywhere): a `title`
+  with an `icon` and a `badge`, a `subtitle`, then its children one under
+  another — `text`, `markdown`, `field`, `picker`, `toggle`, `notice`,
+  `row`, `step`, `badge` — a quiet `note`, and its `button` children in a
+  row at the bottom. `tone` marks it (`warn` and `danger` for something
+  refused or failed, `ok` for a result, `accent` for the one that waits for
+  the person). An editable brief, a redirect with two ways forward, a
+  report with its next steps are all cards.
+- **`connection`** is the line above a transcript that says what the
+  conversation is connected to: `connected` ("14 tiles · 3 orgs"), `not`
+  ("6 not connected" — leave it out when nothing is), the `model`, with
+  `private` when it is one; `label` is the whole line as one sentence for
+  VoiceOver. `@tap` is yours to answer — a sheet of your own that says why
+  for each — and `@model` is the model segment's own tap, when you listen
+  to it.
+- **`request`** is an approval request of the person's workspace agent, and
+  **`session`** a tile agent's session. A tile names them **by id** —
+  `<request id=… kind="call|session|template|changeset"/>`, `<session id=…
+  tile=…/>` — and says nothing else: the app reads the request
+  (`GET /api/xbin/delegate/requests/<id>`, or the change set) and the
+  session directory itself, with the person's own session, and draws what
+  waits, for which tile, what came of it, and the one button. Review… opens
+  the app's own approval sheet; Open (Answer, when the session waits for the
+  person) the app's own agent screen. **A tile's tree cannot describe a
+  grant**: these two take no text, no state and no children, an id that
+  isn't the person's draws nothing, and the app draws them only for the tile
+  it shows as the person's workspace agent — anywhere else they are an inert
+  line. Previews draw a placeholder that says so.
+
+**The agent bridge.** For that one tile the app lists the wire feature
+`agent` (`xbin.native.supports('agent')`), and two calls exist — the native
+form of the messages a workspace agent's page exchanges with xbin's chrome
+([protocol/delegation.md](/docs/protocol/delegation.md) §The chrome):
+
+```js
+// ask the app's chrome to show something of its own, by id
+await xbin.native.agent({ type: 'xbin:agent-open-request', id });       // an approval
+await xbin.native.agent({ type: 'xbin:agent-open-changeset', id });     // an admin change set
+await xbin.native.agent({ type: 'xbin:open-session', session, tile });  // one of the person's sessions
+await xbin.native.agent({ type: 'xbin:agent-open', view: 'approvals' }); // needs | approvals | activity
+// …and hear what the chrome says: what the agent was opened about
+xbin.native.on('agent', (m) => { if (m.type === 'xbin:agent-context') about = m.tile ?? m.screen; });
+```
+
+`agent()` resolves `true` when the app showed it and `false` when it had
+nothing to show (an id that isn't the person's); it rejects in an app, or
+for a tile, without the feature. It can only ask: the app reads whatever it
+then shows from xbind, and no message approves, denies, resumes or changes
+a preference — or opens Preferences, where the agent's reach widens: only
+views that change nothing open for a message. A new session's `draft`
+(`session: "new"`) is shown labelled as the view's suggestion, never as the
+person's own words, and waits unsent.
+
+**Older apps.** An app released before these shows your web page as soon as
+the tree uses one of them (§Fallback, versions and older apps), so branch
+with `supports()` and draw the older way:
+
+| New | Ask | Without it |
+|---|---|---|
+| `request` | `supports('request')` | a `notice`: "Something waits for your approval. Update the app to review it." |
+| `session` | `supports('session')` | a `notice` with the tile's name |
+| `card` | `supports('card')` | `markdown` and `button`s (a composer's chips) |
+| `connection` | `supports('connection')` | a `toolbar` `badge` with the line |
+| `question` rev 2 | `supports('question', 2)` | rev 1: the choices as a menu, "Something else" as a field of its own |
+| `plan` rev 2 | `supports('plan', 2)` | rev 1: the tag written into the entry's text |
+| `composer` rev 2 | `supports('composer', 2)` | chips and quick replies as child `button`s |
+| `transcript` rev 3 `empty` | `supports('transcript', 3)` | an `empty` node and `button`s beside the transcript |
 
 ### Escape hatches
 
@@ -763,12 +886,12 @@ renderer.
 <!-- generated:tokens (node hack/native-docs.mjs --write) -->
 | Token set | Values | What | Used by |
 |---|---|---|---|
-| `tone` | `muted`, `accent`, `ok`, `warn`, `danger` | a semantic colour; the renderer picks the shade for text, icons or fills | `row tone`, `text tone`, `icon tone`, `badge tone`, `toolcard chips[].tone`, `step tone` |
-| `noticeTone` | `info`, `muted`, `accent`, `ok`, `warn`, `danger` | `tone` plus `info`, a neutral banner | `notice tone` |
+| `tone` | `muted`, `accent`, `ok`, `warn`, `danger` | a semantic colour; the renderer picks the shade for text, icons or fills | `row tone`, `text tone`, `icon tone`, `badge tone`, `toolcard chips[].tone`, `plan tags[].tone`, `step tone`, `composer context[].tone` |
+| `noticeTone` | `info`, `muted`, `accent`, `ok`, `warn`, `danger` | `tone` plus `info`, a neutral banner | `notice tone`, `card tone` |
 | `type` | `largeTitle`, `title`, `title2`, `title3`, `headline`, `body`, `callout`, `subheadline`, `footnote`, `caption`, `caption2`, `mono` | a type role (Dynamic Type text styles on iOS, so text scales with the user's setting) | `text style` |
 | `gap` | `none` 0, `xs` 4, `s` 8, `m` 12, `l` 16, `xl` 24, `xxl` 32 | the space between a stack's children | `stack gap` |
 | `height` | `xs` 48, `s` 96, `m` 160, `l` 240, `xl` 360 | the height of an image, chart or canvas | `image height`, `chart height`, `canvas height` |
-| `icon` | 72 names (Icons below) | a curated icon name; an unknown one draws a neutral placeholder | `screen suggestions[].icon`, `row icon`, `tab icon`, `icon name`, `empty icon`, `button icon`, `picker options[].icon`, `menu icon`, `toolcard icon` |
+| `icon` | 77 names (Icons below) | a curated icon name; an unknown one draws a neutral placeholder | `screen suggestions[].icon`, `row icon`, `tab icon`, `icon name`, `empty icon`, `button icon`, `picker options[].icon`, `menu icon`, `toolcard icon`, `plan tags[].icon`, `composer context[].icon`, `card icon` |
 <!-- /generated:tokens -->
 
 `tone` means: `muted` secondary, `accent` the accent (cobalt; periwinkle in dark), `ok` success,
@@ -804,6 +927,8 @@ values are points (the reference renderer draws them as px).
 | `external` | `arrow.up.right.square` | `back` | `chevron.left` | `forward` | `chevron.right` |
 | `expand` | `chevron.down` | `collapse` | `chevron.up` | `power` | `power` |
 | `sun` | `sun.max` | `moon` | `moon` | `agent` | `person.crop.circle.badge.checkmark` |
+| `square` | `square` | `check-square` | `checkmark.square.fill` | `minus-square` | `minus.square.fill` |
+| `plug` | `powerplug` | `hand` | `hand.raised` |  |  |
 <!-- /generated:icons -->
 
 ### Feature flags
@@ -822,6 +947,11 @@ html`<chart kind=${xbin.native.supports('chart.area') ? 'area' : 'line'} series=
 | `chart.area` | `<chart kind="area">` |
 | `markdown.tables` | markdown tables; without it the runtime sends each table as a `code` block of its source |
 <!-- /generated:features -->
+
+Two more names answer `supports()` without being vocabulary features — they
+are about the messages, not a primitive: `widget` (the app shows widgets,
+§Widgets) and `agent` (the app shows this tile as the person's workspace
+agent, §The workspace agent's nodes).
 
 ## Markdown
 
@@ -873,6 +1003,11 @@ renders natively — web and iOS agree on what a document is:
   other prop is ordinary UI state — it shows up in previews, `bx native
   tree` output and diagnostics — and so does `saveState`: keep secrets out
   of both.
+- **A tile cannot draw a grant.** An approval of a workspace agent's request
+  is the app's own sheet, built from xbind's reading of the request and
+  answered with the person's own session; a tile's tree can place a
+  `request` by id and nothing more, and its runtime has no route to an
+  approval (your frame token is refused by every route that decides, D233).
 - **Leaving the app** (`xbin.native.open`, markdown links) takes `https:` and
   the `cap:open-links` grant, as new tabs do on the web (ND11).
 - **Images and uploads** go to and from your own paths (`/c/<self>/…`,

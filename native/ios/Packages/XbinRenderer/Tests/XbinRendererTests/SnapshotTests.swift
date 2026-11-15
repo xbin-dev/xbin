@@ -153,6 +153,59 @@ import XbinRendererModel
         }
         #expect(Snapshot.png(of: view, size: Self.size, scale: 1, scheme: .light, type: .large) != nil)
     }
+
+    /// The workspace agent's components (D233) without a tree, as the app's
+    /// own chrome may build them — at the default size and at an
+    /// accessibility size, where a card's buttons, the connection line's
+    /// segments and a question's buttons stack (a crash and layout test;
+    /// the fixtures `workspace-agent` and `workspace-agent-empty` are what
+    /// eyes compare).
+    @Test func workspaceAgentComponentsStandAlone() throws {
+        let schema = try JSONValue(parsing: #"{"x-order":["which","whichOther","notify"],"properties":{"which":{"type":"string","title":"Which invoices?","enum":["The three that are overdue","Everything since Monday"]},"whichOther":{"type":"string","title":"Something else"},"notify":{"type":"string","title":"Who should hear?","enum":["Nobody yet","Finance"]}}}"#)
+        let form = QuestionForm(schema: schema)
+        let question = ChatQuestion(id: "q", title: "Before the links are rebuilt", form: form,
+                                    options: QuestionOptions(style: .rows, other: ["which": "whichOther"], paged: true,
+                                                             submitLabel: "Answer", skipLabel: "Skip — let the agent look around first"))
+        let plan = ChatPlan(entries: [.init(text: "Look at Orders’ export", status: .completed),
+                                      .init(text: "Rebuild the customer links in Invoices", status: .pending)],
+                            title: "Plan", numbered: true,
+                            tags: [.init(text: "done", icon: "check", tone: .ok), .init(text: "asks you", icon: "shield", tone: .warn)],
+                            note: "Saying go ahead starts step 1. It does not approve step 2: it asks when it is reached.")
+        let empty = TranscriptEmpty(title: "Ask for an outcome", text: "The workspace agent plans the work.",
+                                    lists: [.init(id: 0, title: "It can", items: ["Look across your 14 connected tiles"])],
+                                    suggestionsTitle: "Try one — from your tiles",
+                                    suggestions: [.init(id: "fix", kind: "Fix", text: "Team calendar’s last sync failed. Find out why.")])
+        let composer = ChatComposer(placeholder: "Ask for an outcome…",
+                                    context: [ChatContextChip(id: "apps/ledger", label: "About Ledger — not connected", tone: .warn)],
+                                    replies: [ChatReply(id: "go", label: "Go ahead"), ChatReply(id: "change", label: "Change the plan")],
+                                    hint: "Say what you want and how you’ll know it’s done.")
+        for type in [DynamicTypeSize.large, .accessibility2] {
+            let view = VStack(spacing: 0) {
+                ConnectionView(connection: ConnectionModel(connected: "14 tiles · 3 orgs", not: "6 not connected", model: "big", isPrivate: true),
+                               onTap: {}, onModel: {})
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        PlanView(plan: plan)
+                        CardView(card: CardModel(title: "Ledger is blocked by a rule", subtitle: "Finance allows private models only.",
+                                                 icon: "lock", tone: .warn, badge: "Finance", note: "A rule set by an admin."),
+                                 buttonCount: 2) {
+                            Text(verbatim: "big is not private.")
+                        } buttons: {
+                            Button("Change the model…") {}
+                            Button("Open scope") {}
+                        }
+                        QuestionView(question: question, onSubmit: { _ in }, onSkip: {})
+                        TranscriptEmptyView(empty: empty) { _ in }
+                    }
+                    .padding()
+                }
+                ComposerView(composer: composer, text: .constant(""), onSend: { _ in },
+                             extras: ComposerExtras(onContext: { _ in }, onRemoveContext: { _ in }, onReply: { _ in }))
+            }
+            .environment(\.dynamicTypeSize, type)
+            #expect(Snapshot.png(of: view, size: Self.size, scale: 1, scheme: .dark, type: type) != nil)
+        }
+    }
 }
 
 /// A widget fixture as a phone screen shows it: the card at its size in a
