@@ -619,6 +619,161 @@ stay byte for byte what it was.
   Response bodies go through `xbin.WriteJSON` / `xbin.WriteError` from the
   SDK — a backend defining its own `writeJSON` is a copy to delete.
 
+## Sealed components (`internal/sealed`, D227)
+
+A sealed component ([sealed.md](/docs/sealed.md)) is a row of the table
+`sealed.Table()` returns: its code is embedded in xbind and is the running
+release's, always. The table is empty today.
+
+**Adding a row.** Name (the path is `xbin/<name>`), an embedded source tree
+(`xbin.BuiltinTemplatesFS()` sub-tree, or one of its own under an embedded
+directory), `Authored` (the path the source calls itself by), the partition
+mode, the slots an admin may bind, the providers each slot may be bound to
+(`Providers`, beside its `Defaults` entry — a model slot's provider reads
+people's conversations, so a row that lets a workspace tile in says so in
+review), the grants and capabilities (`Delegate`: the row holds delegation,
+D228 — boot feeds `auth.SetDelegateHolders` from it; `Agent`: the one
+row that is people's workspace agent, whose page xbin's chrome frames —
+boot's `Server.AgentHolder`, D232), `Env` (fixed
+environment for the backend), `Notify` (the backend path holder
+notifications are delivered to — boot feeds `auth.SetDelegateNotify`
+from it), `FrameReads` (exact
+GET paths under `/api/xbin/` its page may read beside a viewer's list —
+never a write, a data route or another API; `Load` refuses those), and
+`Data`, the data format. The name
+is at most 18 characters (`util.SealedNameMax`): `xbin~<name>` must be
+shorter than the 24 characters `CompKey` keeps of a path, or the cut form
+of every longer tile path beginning with it has the same readable part
+and only 32 hash bits to grind. Top-level tile names starting `xbin~` are
+reserved at creation for the same reason. What a row may never do:
+
+- **take a name xbind uses.** `/api/xbin/<name>/…` is the component's API,
+  so the name can't be the first segment of an xbind route, nor an xbind
+  page (`/xbin/<name>`), nor `cron`, `bus` or `mail`. Boot refuses a table
+  that does; `internal/apicheck` `TestSealedNamesShadowNoRoute` walks the
+  route table. Adding a *route* whose first segment is a sealed name fails
+  the same way.
+- **change its partition mode** once released: a mode switch of a component
+  that holds data deletes the data.
+- **lower `Data`**, or raise it without a forward migration in the
+  backend. Raise it only when a release's migrations leave a store the
+  previous release's code can't read: a downgrade below it holds the
+  component (`newer-data`).
+
+**The build.** `make build` ends with `make sealed`, which runs `xbind
+sealed-build` with the host's go and builds every Go row's backend into
+`bin/sealed/<name>-<digest>` for the target `GOOS`/`GOARCH` (static,
+stripped, `-trimpath`, the SDK replaced by the checkout's). The digest is
+the rendered source's, computed by the code that looks the file up at boot:
+a build of other source has another name and is never run. The directory is
+made to hold exactly the table's builds and `sealed.json`, the manifest of
+what each was built from (source digest, SDK tree digest, go version) and
+its SHA-256. xbind runs only a file the manifest lists for its source with
+that hash: checked at boot (a definite mismatch holds the component) and
+where a backend is spawned (`sealed.Set.Verify`, the runner's
+`SealedVerify` hook in `startFor`) — never per request, and a failed check
+there fails that start alone, to be tried again by the next one.
+The manifest sits beside the binaries: it catches a build of other source
+or another SDK, a damaged or replaced file and a half-finished install, not
+someone who can write the install prefix (who can replace xbind). The SDK
+is a module of its own that xbind neither embeds nor ships a digest of, so
+the SDK and go version are recorded in the manifest and compared at release
+time (`--check --sdk`), not folded into the file name.
+
+- A **production** xbind (`--dev` and `--no-auth` both off) runs only that
+  file. Without it the component is held (`no-build`); nothing compiles on
+  the host.
+- A **development** xbind uses the file when `bin/sealed/` beside it has
+  it, and otherwise compiles the materialized source through the tile
+  build (against no workspace module and no line of the root `go.work`).
+  `make dev` (`go run`) has no `bin/sealed/` beside it and compiles.
+- `deploy/publish-release.sh` copies `bin/sealed/` into each
+  architecture's bundle and runs `xbind sealed-build --check` on it: a
+  missing or stray file, one that isn't the file the manifest lists, or a
+  build against another SDK tree than the checkout's fails the release.
+  `deploy/install.sh` replaces `$PREFIX/bin/sealed` whole.
+- `make vulncheck` scans a sealed backend as the builtin template or tile
+  its source is. A row whose source is neither needs a target of its own in
+  `hack/vulncheck`.
+
+**Where it is kept sealed.** Three layers, and the first is not the
+boundary:
+
+1. *The route gate* (`internal/server/sealedclass.go`) answers early, with
+   the reason, from a request's parameters. It reads the request beside
+   the handler, and two readers of one body can disagree, so nothing rests
+   on it.
+2. *The code that acts* refuses on the value it acts on:
+   `internal/broker/sealedguard.go` lists the places (resources and
+   secrets, registrations, grants, bindings, owner, partitions, creation,
+   source, restore), the deployments plane refuses in its judge and its
+   record writer, and `registry.MutateWorkspace` — the one writer of the
+   workspace file — takes no row about a sealed component the file may not
+   hold. **A new function that acts on a component named by a request
+   refuses a sealed one itself** (`sealedOwn` for what is the component's
+   own, `sealedNone` for what doesn't exist for one).
+3. *The credential*: a sealed component's frame token (and its origin's
+   cookie) is a viewer's, allowed its own backend and little else
+   (`server.sealedViewerAllowed`, called where a credential becomes a
+   request's principal). A new way for a credential to become a principal
+   calls it too, and `sealedViewAs` beside it.
+
+**One spelling of a path.** `util.SealedPath` (and `SealedTarget`) ask a
+path's canonical form (`util.CanonPath`), so every sealed test sees
+`/xbin/x`, `xbin//x` and `a/../xbin/x` as what the code after it would
+make of them. Never test a sealed path with `strings.HasPrefix(p,
+"xbin/")`. Three more places keep spellings apart: no credential yields a
+principal whose component isn't canonical (`auth.canonicalComponent`);
+what stores a component's name — a registration, a restore — takes it as
+xbind stores one (`broker.componentNamed`); and the API's edge refuses an
+odd spelling of a sealed path outright (`util.SealedSpelledOddly` in the
+route gate).
+
+**The guards.**
+
+- `internal/boot` `TestSealedBoundaryWithoutTheGate` runs every refused and
+  self row **with the route gate switched off**, as a request its handler
+  would act on for a tile (`boundaryReqs`), as the root token, an admin, a
+  reader, another tile's backend, the component's page and its backend. A
+  new refused or self row needs a request there, and the refusal must come
+  from layer 2. The same test drives the rows the handler decides (every
+  change an admin may make, and the ones nobody may) as each kind of
+  principal. `TestSealedNoTileRowsTakeNoSealedPath` sends the no-tile
+  rows a sealed path in every wildcard, query and body name, and
+  `TestSealedPathSpellings` sends every refused and self route each
+  spelling of the path, gate on and off. A route without a row refuses a
+  sealed path at runtime too (`TestSealedGateOnUnclassifiedRoutesAndSpellings`).
+- `internal/server/sealedclass.go` has a row for every `/api/xbin` route:
+  what a path under `xbin/` gets on it (`no-tile`, `refused`, `self`,
+  `handled`). `internal/apicheck` `TestSealedRouteClasses` fails for a
+  route without one; `internal/boot` `TestSealedRouteAnswers` drives every
+  refused and self row from the table through a production-mode daemon
+  (one request per parameter the row names) and needs a case for every
+  handled row. A new route that takes a tile path gets a row *and*, when
+  the handler decides, a case.
+- `internal/boot` `TestSealedUpgradeAndDowngrade` is the upgrade contract:
+  new code and build, the stamp raised at the first start, a downgrade held
+  with data and stamp untouched, a release without the component, forward
+  again.
+- A loop over `Registry.Components()` sees sealed components
+  (`c.Sealed`). That is what lets limits, cron, bus, partitions and
+  bindings work for them unasked; a loop that treats `c.Dir` as a work
+  tree — writes into it, runs git in it, binds it into a terminal — must
+  skip them. `c.Dir` of a sealed component is xbind's read-only tree under
+  `.xbin/sealed/`, verified and rewritten at every boot and before every
+  start of its backend. Nothing served to a browser is read from it
+  (`server/sealedfile.go` answers the release's bytes from memory).
+- `test/isolated` `TestSealedComponentsOnAProductionXbind` runs the real
+  binary (built with `-tags sealedfixture`, its backends by its own
+  `sealed-build`). It needs user namespaces, the base rootfs and gocryptfs,
+  and **skips silently without them** in a plain `go test`: run it with
+  `XBIN_E2E_REQUIRE=1`, which turns a missing prerequisite into a failure
+  (`xbindtest.Skip`), and outside a tool sandbox.
+- Run the sealed suites both ways: the default build (an empty table) and
+  `-tags sealedfixture` (`internal/sealed`, `cmd/xbind`).
+- User-facing strings say "system component", never "sealed" (the vault's
+  word); `internal/sealed`'s tests check the hold reasons.
+
 ## Frontend kit and the theme guard
 
 `web/bx-kit.js` is the one home of the helpers every frontend used to copy
@@ -1030,6 +1185,14 @@ a tile limits alert (D203) and checks the old shell and admin console show
 its words, `/xbin/limits` in them. Under the overlay
 — the default run — it `SKIP`s, said so, so only a run with the switch covers
 it (give a `--shots` run against that instance the switch too).
+`systemPage` drives `/xbin/system` (D227) against the real API, and
+`oldScaffold` checks the last release's shell and admin console show no
+tile, card or sidebar row for a system component while `/xbin/system` lists
+them. A default xbind has none, so both `SKIP` that part, said so; build
+the harness xbind with the fixture table to run it:
+`HARNESS_GO_TAGS=sealedfixture` (two fixture components,
+`internal/sealed/table_fixture.go`; `bin/xbind` is then a fixture build —
+rebuild it before using it for anything else).
 `limitsCaps` drives the tile limits (D203) end to end against the real API
 in both themes: the harness xbind enforces only the data disk quota (no
 cgroup delegation, VM runtime or tile sandboxes), so its tiles root their
@@ -1093,6 +1256,7 @@ hack/ui-harness/run.sh --shots windows    # one pass against the running instanc
 hack/ui-harness/run.sh --restart          # rebuild xbind, same workspace, every pass
 HARNESS_ISOLATE=1 hack/ui-harness/run.sh --keep livereload   # xbind with --isolate on $XBIN_TEST_ROOTFS
 HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold  # no --dev-overlay: the workspace's own scaffold (below)
+HARNESS_GO_TAGS=sealedfixture HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold systemPage  # with two fixture system components
 HARNESS_THEME=light hack/ui-harness/run.sh --shots appearance themeCanary  # a light system (default dark)
 hack/ui-harness/app-help-shots.sh         # the iOS app's help screenshots (native/AGENTS.md)
 (cd hack/ui-harness && node shots.js --list)
@@ -1219,11 +1383,13 @@ are all "one segment"; `?query` suffixes are ignored — which is why an
 *optional* query goes in the row as `?frame=<token>`, never `[?frame=…]`
 (the bracket would turn the segment into a wildcard).
 
-Adding a route is therefore four edits in one commit — `RegisterAPI` (or
+Adding a route is therefore six edits in one commit — `RegisterAPI` (or
 `Handler`), an `openapi.go` row, a row in its `docs/protocol/<topic>.md`
-page, and a row in `internal/server/deployclass.go` (its class for a
-non-primary tile deployment's credentials, docs/protocol/deployments.md) —
-and `make test` says which one you forgot.
+page, a row in `internal/server/deployclass.go` (its class for a
+non-primary tile deployment's credentials, docs/protocol/deployments.md),
+one in `partitionclass.go` (a person's partition's) and one in
+`sealedclass.go` (what a sealed component's path gets on it, Sealed
+components above) — and `make test` says which one you forgot.
 
 ## Pins (`hack/check-pins.sh`)
 
@@ -1385,7 +1551,7 @@ add it there. `make fmt` rewrites in place.
 
 ## Build output that must not be committed
 
-`bin/`, `dist/` (release bundles), the root `bx`, `website/dist/`, packed
+`bin/` (with `bin/sealed/`, the sealed components' backends), `dist/` (release bundles), the root `bx`, `website/dist/`, packed
 helper sets (`*.tar.zst`), the iroh sidecar's `sidecar/xbin-iroh/target/`
 and the gzip xbind embeds (`internal/apptunnel/sidecar/embedded/`), and
 `*/backend/backend` / `*/_backend/_backend` build leftovers are ignored; `make large-files` (in `check` and the

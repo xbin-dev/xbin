@@ -64,6 +64,34 @@ import Testing
         #expect(TileResource.apiPath("up", tile: "a/../b") == nil)
     }
 
+    // A system (sealed) component, xbin/<name> (D227): its own paths resolve
+    // once xbind listed it (it is in `known`), and only then; nothing else
+    // under xbin/ ever does. hack/xb-tile-resource.test.mjs replays these.
+    @Test func sealedComponentResolvesOnlyWhenListed() {
+        let known = ["apps/x", "xbin/wsagent"]
+        #expect(TileResource.apiPath("up", tile: "xbin/wsagent", known: known) == "/api/xbin/wsagent/up")
+        #expect(TileResource.apiPath("/api/xbin/wsagent/runs/5?name={name}", tile: "xbin/wsagent", known: known, name: "a b")
+            == "/api/xbin/wsagent/runs/5?name=a%20b")
+        #expect(TileResource.assetPath("logo.png", tile: "xbin/wsagent", known: known) == "/c/xbin/wsagent/logo.png")
+        #expect(TileResource.pagePath("/c/xbin/wsagent/page.html#top", tile: "xbin/wsagent", known: known)
+            == "/c/xbin/wsagent/page.html#top")
+        for r in ["/api/xbin/grants", "/api/xbin/frame-token", "/api/xbin/other/x", "/api/xbin", "../grants",
+                  "/api/xbin/wsagent/../grants", "/api/xbin/wsagent%2f..%2fgrants", "/api/apps/x/up"] {
+            #expect(TileResource.apiPath(r, tile: "xbin/wsagent", known: known) == nil, "\(r) should be refused")
+            #expect(TileResource.assetPath(r, tile: "xbin/wsagent", known: known) == nil, "\(r) should be refused")
+        }
+        #expect(TileResource.assetPath("/c/xbin/other/x", tile: "xbin/wsagent", known: known) == nil)
+        #expect(TileResource.pagePath("/c/xbin/", tile: "xbin/wsagent", known: known) == nil)
+        // not listed: refused as it always was
+        #expect(TileResource.apiPath("up", tile: "xbin/wsagent") == nil)
+        #expect(TileResource.apiPath("up", tile: "xbin/wsagent", known: ["apps/x"]) == nil)
+        #expect(TileResource.assetPath("logo.png", tile: "xbin/wsagent", known: ["xbin/other"]) == nil)
+        // and no other shape under xbin, listed or not
+        for tile in ["xbin", "xbin/", "xbin/a/b", "xbin/Grants", "xbin/grants.x", "xbin/-a", "xbin/9a"] {
+            #expect(TileResource.apiPath("up", tile: tile, known: [tile, "xbin"]) == nil, "\(tile) should be refused")
+        }
+    }
+
     @Test func nestedTilesOwnTheirPaths() {
         let known = ["apps", "apps/other", "apps/x"]
         #expect(TileResource.apiPath("other/up", tile: "apps", known: known) == nil)

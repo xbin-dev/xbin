@@ -45,6 +45,9 @@ func (b *Broker) registerCode(srv *server.Server) {
 // component validates the ?component= query param and returns its OS dir.
 func (b *Broker) component(w http.ResponseWriter, r *http.Request) (string, string, bool) {
 	comp := strings.Trim(r.URL.Query().Get("component"), "/")
+	if sealedRefused(w, sealedNone(comp, sealedNoSource)) {
+		return "", "", false
+	}
 	if !util.ComponentPathOK(comp) {
 		server.WriteError(w, http.StatusBadRequest, "bad component path")
 		return "", "", false
@@ -113,6 +116,9 @@ func gitInitComponent(dir string) error {
 // are versioned; existing ones are migrated on first sight.
 func (b *Broker) EnsureComponentRepos() {
 	for _, c := range b.Reg.Components() {
+		if c.Sealed {
+			continue // xbind's own read-only tree, no repo (D227)
+		}
 		if err := gitInitComponent(c.Dir); err != nil {
 			slog.Debug("git init component", "path", c.Path, "err", err)
 		}
@@ -137,6 +143,9 @@ func componentRemote(dir string) string {
 // the grant side of requireCodeRead and the /c/ static plane alike — a
 // code-granted backend reads sibling source through either.
 func (b *Broker) codeGrantAllows(from, target string) bool {
+	if util.SealedPath(target) {
+		return false // no code grant covers a sealed component, the bare "code" included (sealedguard.go)
+	}
 	for _, t := range []string{"code", "code:" + target} {
 		if role, ok := b.grantedRole(from, t); ok && roleSatisfies(role, "reader", nil) {
 			return true
@@ -154,6 +163,9 @@ func (b *Broker) codeGrantAllows(from, target string) bool {
 // capability (plans/auth.md).
 func (b *Broker) requireCodeRead(w http.ResponseWriter, r *http.Request, comp string) bool {
 	p := auth.PrincipalOf(r)
+	if sealedRefused(w, sealedNone(comp, sealedNoSource)) {
+		return false
+	}
 	if b.IsAdmin(p) || (p.Component != "" && p.Component == comp) {
 		return true
 	}

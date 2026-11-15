@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -843,6 +844,7 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next, delta, del := plan.next, plan.delta, plan.del
+	sealedDefault, _ := b.Reg.SealedDefault(body.Component, body.Slot) // before the registry's lock is taken below
 	// Restart both the old and new provider (roster change) + the component.
 	oldProvider := b.netProvider(body.Component)
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
@@ -850,6 +852,16 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 			ws.Bindings = map[string]map[string]registry.Binding{}
 		}
 		if len(next) == 0 {
+			if sealedDefault != "" {
+				// a sealed component's slot with a default (D227): the
+				// unbind is the admin's choice too, kept as an empty entry so
+				// the default doesn't come back by itself
+				if ws.Bindings[body.Component] == nil {
+					ws.Bindings[body.Component] = map[string]registry.Binding{}
+				}
+				ws.Bindings[body.Component][body.Slot] = registry.Binding{}
+				return
+			}
 			delete(ws.Bindings[body.Component], body.Slot)
 			return
 		}
@@ -908,6 +920,9 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 	routeCfg := false
 	for _, br := range binding {
 		routeCfg = routeCfg || br.Host != "" || br.Zone != "" || br.Listen != ""
+	}
+	if err := b.sealedBinding(comp, slot, refs); err != nil { // never a provider; its own slots: the release's providers (sealedguard.go)
+		return err
 	}
 	if strings.HasPrefix(slot, "@") { // pseudo-slots are single-valued
 		if len(refs) > 1 {
@@ -1061,6 +1076,9 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	comp := body.Component
+	if sealedRefused(w, cmp.Or(sealedNone(comp, sealedNoIface), sealedNone(p.Component, sealedNoIface))) {
+		return // not an admin for it, and not the component for itself (sealedguard.go)
+	}
 	switch {
 	case p.Component != "":
 		if comp != "" && comp != p.Component {

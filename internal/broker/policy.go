@@ -385,6 +385,15 @@ func (b *Broker) attributedAccess(userID string) *users.Access {
 // container (apps/o/sales) above existing org tiles — and paths whose scope
 // data key another scope has (registry.ScopeKeyClash).
 func (b *Broker) guardNewComponentTree(path string) error {
+	if err := sealedNone(path, sealedNoCreate); err != nil {
+		return err // every creation path passes here: create, clone, import, template, builtin (sealedguard.go)
+	}
+	if top, _, _ := strings.Cut(path, "/"); strings.HasPrefix(top, "xbin~") {
+		// "/" and "~" map to one data key: a tile here would share the key
+		// (and the readable part of the log, build and archive names) of a
+		// sealed component xbin/<name>, shipped now or by a later release
+		return fmt.Errorf("%s: top-level names starting with xbin~ are reserved (they would share a system component's data key) — pick another path", path)
+	}
 	if owner, _, ok := b.Reg.Resolve(path); ok && owner != nil {
 		if owner.Path == path {
 			return fmt.Errorf("%s already exists", path)

@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -515,5 +516,36 @@ func TestRestoreSweepsOnlyStaleLeftovers(t *testing.T) {
 	b.sweepRestoreLeftovers(dir)
 	if _, err := os.Lstat(old); err != nil {
 		t.Fatalf("a sweep took the layer a swap had just moved aside: %v", err)
+	}
+}
+
+// A restored archive registers its own component's cron jobs and no other's:
+// a job calls its component's backend at a path and with a role the row
+// chooses, and the manifest is whatever the archiver served.
+func TestRestoreRegistersOnlyItsOwnCronJobs(t *testing.T) {
+	b := testBroker(t)
+	if b.cron == nil {
+		t.Skip("this broker runs no scheduler")
+	}
+	job := func(comp, name string) json.RawMessage {
+		raw, _ := json.Marshal(cronJob{Name: name, Schedule: "@every 1h", Component: comp, Path: "/tick", Role: "admin"})
+		return raw
+	}
+	m := backup.Manifest{Component: "apps/calendar", Scope: "apps/calendar", Includes: []string{"source"},
+		CronJobs: []json.RawMessage{job("apps/calendar", "mine"), job("apps/email", "planted")}}
+	if _, err := b.restore("apps/calendar", safetyArchive(t, m, archiveEntry{"source/x", "x"}), nil); err != nil {
+		t.Fatal(err)
+	}
+	b.cron.mu.Lock()
+	defer b.cron.mu.Unlock()
+	got := map[string]string{}
+	for _, j := range b.cron.jobs {
+		got[j.Name] = j.Component
+	}
+	if got["mine"] != "apps/calendar" {
+		t.Errorf("its own job was not restored: %v", got)
+	}
+	if c, ok := got["planted"]; ok {
+		t.Errorf("an archive of apps/calendar registered a job of %s", c)
 	}
 }

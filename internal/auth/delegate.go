@@ -41,6 +41,10 @@ import (
 	"sync/atomic"
 )
 
+// noAuthPerson is who a holder's single instance acts for under --no-auth
+// (delegateOf): the delegation API's own name for the caller there.
+const noAuthPerson = "owner"
+
 // DelegateScheme is the Authorization scheme of a delegate call.
 const DelegateScheme = "XBin-Delegate"
 
@@ -157,6 +161,24 @@ func (a *Auth) DelegateRecheck(r *http.Request) func() (Principal, error) {
 func (a *Auth) delegateOf(tok string) (Principal, error) {
 	id, ok := a.lookupInstance(tok) // a user partition's: 401 once it isn't covered (partition.go)
 	userID, isUser := id.partition.User()
+	if ok && a.noAuth && !isUser && id.deployment == "" && HoldsDelegation(id.component) {
+		// --no-auth: no people sign in, so nobody has a partition, and a
+		// holder runs as one instance (sealed.Options.NoAuth). That instance
+		// is the delegate of the one person there is — the implicit owner,
+		// as a person: named, never the root token's principal, never an
+		// admin, so the cap, tickets and the audit log apply as for anyone.
+		// Where people sign in, a global instance stays nobody's delegate.
+		a.mu.RLock()
+		gate := a.delegation
+		a.mu.RUnlock()
+		if gate == nil {
+			return Principal{}, ErrDelegateOff
+		}
+		if why := gate(id.component, noAuthPerson); why != nil {
+			return Principal{}, errors.Join(ErrDelegateOff, why)
+		}
+		return Principal{UserID: noAuthPerson, Via: "delegate", Agent: id.component}, nil
+	}
 	switch {
 	case !ok, !isUser, id.uid == "":
 		return Principal{}, ErrNotDelegate // the global instance and every unpartitioned tile: nobody's delegate

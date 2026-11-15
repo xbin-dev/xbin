@@ -873,7 +873,7 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 			}
 			m := &Message{RunID: run.ID, Role: "user", Content: text + attachmentNote(files)}
 			if b := r.Body; b.Sender != "" || (b.Source != "" && b.Source != "human" && b.Source != "parent") {
-				meta := msgMeta{Sender: b.Sender, OriginID: b.OriginID, Label: b.Label}
+				meta := msgMeta{Sender: b.Sender, OriginID: b.OriginID, Label: b.Label, Context: b.Context}
 				if b.Source != "human" {
 					meta.Origin = b.Source
 				}

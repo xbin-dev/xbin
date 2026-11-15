@@ -126,6 +126,8 @@ type Runner struct {
 	// as (auth tier 2, per-scope uids). nil = same-user (tier 1).
 	SpawnUser func(c *registry.Component) *syscall.Credential
 
+	SealedHooks // a sealed component's backend: the release's build, or a development compile (sealed.go, D227)
+
 	// Isolate + Rootfs enable per-component sandboxing (auth tier 3): each
 	// backend runs in its own user/mount/pid/net namespaces over an overlay of
 	// Rootfs, with default-deny egress (plans/isolation.md). Off by default.
@@ -254,12 +256,9 @@ func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *stat
 
 		err := r.runCurrent(c, s)
 
-		s.mu.Lock()
-		s.building = false
-		s.phase = ""
-		s.lastErr = err
-		close(s.buildDone)
-		s.mu.Unlock()
+		if s.built(err) {
+			return nil, err // a start to try again: this request's answer, never a loop here (sealed.go)
+		}
 		// Loop: re-check (another change may have arrived mid-build).
 	}
 }

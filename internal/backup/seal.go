@@ -216,11 +216,16 @@ func archiveAEAD(subkey, salt []byte) (cipher.AEAD, error) {
 // ErrTampered for a sealed archive that doesn't authenticate — which a
 // sealed body's Next may also answer mid-way, at the chunk that fails.
 func Open(r io.Reader, keys KeyFunc) (*Reader, error) {
-	body, _, err := OpenSealed(r, keys)
+	body, h, err := OpenSealed(r, keys)
 	if err != nil {
 		return nil, err
 	}
-	return NewReader(body)
+	rd, err := NewReader(body)
+	if err != nil {
+		return nil, err
+	}
+	rd.Seal = h
+	return rd, nil
 }
 
 // OpenSealed answers a sealed archive's plaintext stream and its header, or

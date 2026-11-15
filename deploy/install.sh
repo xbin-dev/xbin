@@ -1011,6 +1011,18 @@ install_files() {
     else vm_missing="$vm_missing $b"; fi
   done
   [ -z "$vm_missing" ] || warn "this bundle has no$vm_missing — VM sandboxes may report unavailable"
+  # The sealed components' backends (bin/sealed/<name>-<digest>, D227): the
+  # release's own builds, replaced whole so no other release's remain. A
+  # bundle from before sealed components has none.
+  rm -rf "$PREFIX/bin/sealed.new"
+  install -d -m 0755 "$PREFIX/bin/sealed.new"
+  if [ -d "$XBIN_PREBUILT_BIN/sealed" ]; then
+    for b in "$XBIN_PREBUILT_BIN/sealed"/*; do
+      # (sealed.json is the manifest of their hashes: xbind runs only a file it lists)
+      [ -f "$b" ] && install -m 0755 "$b" "$PREFIX/bin/sealed.new/$(basename "$b")"
+    done
+  fi
+  rm -rf "$PREFIX/bin/sealed"; mv "$PREFIX/bin/sealed.new" "$PREFIX/bin/sealed"
   info "installing base rootfs (this copies a few GB)"
   rm -rf "$PREFIX/rootfs.new"
   cp -a "$XBIN_ROOTFS_DIR" "$PREFIX/rootfs.new"

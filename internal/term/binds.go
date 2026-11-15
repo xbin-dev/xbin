@@ -66,7 +66,12 @@ func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind, hide []string)
 		binds = append(binds, sandbox.Bind{Src: homeDir, Dst: homeDir}) // this user's $HOME: read-write (nests over the homes mask)
 	}
 	comp := filepath.Join(root, filepath.FromSlash(rel))
-	binds = append(binds, sandbox.Bind{Src: comp, Dst: comp}) // this component: read-write
+	if util.ComponentPathOK(rel) {
+		binds = append(binds, sandbox.Bind{Src: comp, Dst: comp}) // this component: read-write
+	}
+	// (anything else — .xbin, data, homes, a path with ".." — gets no
+	// read-write bind over the masks above; sessionDir refuses such a
+	// session before it comes to this)
 	// D17a: mask unreadable tiles' source. Sealed (RO) covers — nothing may
 	// nest back on top. Anything overlapping the session's own component is
 	// skipped defensively (can't happen while levels stay monotone — terminal

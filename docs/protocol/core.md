@@ -424,6 +424,20 @@ GET  /xbin/devices                the devices page (D204,
                                  requires the tunnel, pairs through.
                                  Headers, sign-in and /vendor/ as
                                  /xbin/partitions
+GET  /xbin/system                 the system components page (D227,
+                                 docs/sealed.md): xbind's own static page
+                                 — web/system.html as shipped, no
+                                 transform — showing an admin each system
+                                 (sealed) component: its state and why it
+                                 is held, its logs, who has access, its
+                                 limits and what its slots are bound to;
+                                 reading /api/xbin/sealed and acting
+                                 through /access, /lifecycle and
+                                 /bindings with the signed-in person's
+                                 session. The surface for a workspace
+                                 whose shell and admin console predate
+                                 them. Headers, sign-in and /vendor/ as
+                                 /xbin/partitions
 GET  /xbin/llm                    the LLM connector's page (D226,
                                  docs/llm.md): xbind's own static page —
                                  web/llm.html as shipped, no transform —

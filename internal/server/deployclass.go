@@ -310,6 +310,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /vaults":                            PrimaryOnly,
 	"GET /resources":                         PrimaryOnly,
 	"GET /auth-overview":                     PrimaryOnly,
+	"GET /sealed":                            PrimaryOnly, // the admins' read of sealed components (D227)
 	"GET /backends":                          PrimaryOnly,
 	"GET /runtime":                           PrimaryOnly,
 	"GET /ingress":                           PrimaryOnly,

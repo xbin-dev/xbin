@@ -112,6 +112,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   may use. A normal instance of the template is unchanged: without the
   variable none of this exists, and an unknown value refuses to serve. The
   template's coordinator kit gained the profile hooks `System` and `Specs`.
+  What its page draws is answered in fields beside the model's sentences
+  (`API.md` §Workspace mode, "In fields"): a message's `context`, a
+  request's outcome, refusals and questions with a `kind`, the stopping
+  quota and the pause's time.
 - **Agent sessions: a workspace agent's conversation is a handle xbind
   issues** (D228 part C0;
   [protocol/delegation.md](/docs/protocol/delegation.md) §Agent sessions).
@@ -737,6 +741,153 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     the tile's edge policy: read-clamped by default (models, no calls).
   - Not yet: an admin console section, the connector in terminals and
     agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
+
+- **BREAKING for a habit, not for tiles — fixed: a terminal could be
+  opened on xbind's own directories**
+  ([changes/2026-11-15-terminals-on-tiles.md](/docs/changes/2026-11-15-terminals-on-tiles.md):
+  what to do instead of a terminal at a non-tile folder). A
+  terminal or agent session's directory only had to be one the caller had
+  terminal level on, and an admin has that everywhere, so
+  `/ws/term?cwd=.xbin`, `cwd=data` and `cwd=homes` opened with that
+  directory writable: the shell could not read the owner token or the
+  secrets there, but could replace them, rewrite the users file and write
+  into other people's homes. **A terminal now opens only on a registered
+  tile or a directory inside one** (403 otherwise). A path that is not a
+  tile — a plain folder such as `apps`, a directory with no manifest and
+  no `index.html` — takes no terminal: open it on a tile.
+- **`GET /api/xbin/frame-token`** answers `404` for a path in xbind's own
+  namespace (`xbin/…`, `.xbin`, `data`, …) that is no registered
+  component, and `400` for a path written with a leading,
+  trailing or doubled slash. A cron job or bus subscription is registered
+  only for a component's path as xbind stores it (`400` otherwise), and a
+  restore takes the same.
+- **Top-level names starting with `xbin~` are reserved** when a tile is
+  created, cloned, imported or instantiated: they would share a system
+  component's data key. An existing directory of such a name keeps
+  running ([compat.md](/docs/compat.md) → Sealed components; the same
+  [migration note](/docs/changes/2026-11-15-terminals-on-tiles.md)).
+- **Fixed: a backend that was still starting when xbind shut down kept
+  running.** Shutdown stopped the backends that were up; one that was
+  being built, spawned or waited for at that moment was started (or
+  finished starting) afterwards and nobody stopped it. Under systemd the
+  unit's cgroup ended it; run by hand, or from a test, it stayed behind.
+  xbind now starts nothing once it is shutting down and stops every
+  backend it started, healthy yet or not.
+- **Fixed: a restore could register another tile's cron jobs.** Restoring
+  a tile registered every cron job its archive's manifest listed, whatever
+  component a job named; the bus subscriptions beside them were always
+  checked. A restore now registers only the jobs of the archive's own
+  component. In a workspace without sealed backups the manifest is the
+  archiver tile's word, so this let an archiver plant a job that calls
+  another tile's backend at a chosen path and role.
+- **Fixed: `GET /api/xbin/kv/res:/x/y` never answered.** A resource target
+  whose path starts with `/` made the scope lookup loop forever, holding a
+  CPU per request, for any authenticated caller. It now answers 404.
+- **`POST /api/xbin/restore` with `file`** refuses (409) an archive whose
+  manifest names another component than the one asked for.
+- **Sealed components (system components): the facility, with none shipped
+  yet** (D227). A release can now ship parts of xbin that run like tiles —
+  in the tile sandbox, with limits, logs, cron, bus and people's
+  partitions — whose code is always the running release's: no directory in
+  the workspace, nothing to edit, clone, deploy or merge, updated by
+  upgrading xbin. They live at `xbin/<name>` (a reserved name no tile can
+  take), and nothing in a workspace declares one. **This release adds none:
+  no workspace changes.** What is new for builders and admins, described in
+  [sealed.md](/docs/sealed.md) and
+  [protocol/sealed.md](/docs/protocol/sealed.md):
+  - `GET /api/xbin/sealed` (admins): each one, its code digest, state,
+    hold reason, partition mode, data format, slots and grants. The page
+    `/xbin/system` and `bx system` show it.
+  - Listings (`/components`, `/auth-overview`, `/grants`, `/backends`,
+    `/runtime`, `/access-matrix`, `/resources`, `/cron/jobs`,
+    `/bus/subscriptions`) answer as before and leave sealed components out
+    unless asked with `?sealed=1`; a row then carries `sealed: true`. A
+    client that shows one must not offer a terminal, source, deployments,
+    ownership or grants on it.
+  - An admin decides four things about one, with the routes a tile has:
+    who has read access (`read` or none — an entry naming it at `write` or
+    `terminal` is 400 on every route that writes entries; a pattern gives
+    read), enabled/disabled/hidden (`POST /lifecycle`), its limits, and the
+    bindings of the slots the release declares. A slot may have a default
+    binding to a built-in provider (`xbin:llm` once the LLM connector is
+    configured): it applies while no admin has bound or unbound the slot,
+    and is never written to `xbin.json`. Every other
+    route that names a tile answers a path under `xbin/` with a refusal
+    whose text starts "`<path>` is a system component, managed by xbin:"
+    (400; 403 for its resources, secrets and registrations, which only the
+    component itself touches). No tile can be granted a call into one or
+    bind a slot to one.
+  - The app's and `bx preview --native`'s confinement of what a tile's
+    native UI may name (`web/xb/tile-resource.js`, XbinCore) resolves a
+    sealed component's own `/c/xbin/<name>/…` and `/api/xbin/<name>/…`
+    once xbind listed it to that client, and still nothing else under
+    `xbin/`. Its link is a tile link (`c/xbin/<name>/…`).
+  - Its backend is the release's own build (`bin/sealed/<name>-<digest>`
+    in the bundle; `make build` and `xbind sealed-build` make it). A
+    production xbind never compiles one: without the build the component
+    is *held* and says why. Other holds: data at its key it didn't write,
+    data newer than the release reads (after a downgrade), a partitioned
+    one without `--isolate`.
+  - A sealed component's page left open across an xbind restart onto
+    another release reloads onto the new code at its first call: its
+    documents carry `<meta name="xbin-code">`, `xbin.fetch`/`xbin.ws`/
+    `xbin.url` name it on calls to the component's own API (`X-XBin-Code`,
+    `xbin-code=`), and a call naming other code is answered `409` with
+    `X-XBin-Reload` and a `reload` event. Tiles' documents and calls are
+    unchanged.
+  - A sealed component's **page holds a viewer's credential**: its frame
+    token (and its origin's cookie under `--tile-assets=origins`) reaches
+    the component's own backend, its own files, its renewal, `whoami` and
+    the events socket — nothing else (403). Only the backend's instance
+    credential uses the component's resources, secrets, registrations and
+    status; an admin and the root token don't. A tile's frame token is
+    unchanged.
+  - A sealed component's slot binds only to its default provider or one
+    the release names for it; another provider is refused (400). The
+    workspace `importMap` doesn't apply to its documents.
+  - Its backup is made and restored only as a sealed (encrypted,
+    authenticated) archive: nothing of it is archived in a workspace
+    without a vault barrier, a plain archive is refused at restore (409),
+    and nothing is restored while it is held for its data.
+  - `bin/sealed/sealed.json` lists each prebuilt backend's SHA-256, source
+    digest, SDK digest and go version; xbind runs only a file it lists,
+    checked at boot and before every start (`no-build` otherwise). Its
+    files on disk are checked before every start too, and its pages are
+    served from the release's bytes in memory.
+  - A JSON body that names a tile field twice is refused (400) on the
+    routes that refuse a sealed component.
+  - A row of the table may give its backend fixed environment (`Env`), a
+    path xbind delivers holder notifications to (`Notify`), and reads its
+    page may make beside a viewer's own (`FrameReads`: exact paths under
+    `/api/xbin/`, GET only). A component whose row holds delegation
+    (D228) keeps the delegation API for its page. A person's agent does
+    nothing in a system component: `PUT /agent-levels` and `POST
+    /delegate/approvals` refuse one, and so does every delegate call.
+    xbind's notices to a holder's backend go to its row's `Notify` path
+    and nowhere else; the fixture holder's page reads
+    `GET /agents/connection?session=` through its row's `FrameReads`.
+    Which component is the agent xbin's chrome frames (`agent` in
+    `GET /delegate/state`) is the one row the table marks.
+  - No preview shows a system component: `POST /preview {tile:
+    "xbin/<name>"}` answers 400, and a screen render leaves it out.
+  - A sealed path has one spelling, `xbin/<name>`: a leading, trailing or
+    doubled slash, `./` or `a/../` in it is refused (400) on every route.
+  - A sealed component's backup restores only under a backup key this
+    workspace created for it — not one from an imported key bundle. To
+    move one to another host, restore the workspace's own directory.
+  - A view-as session opens nothing of a sealed component, an admin's
+    event stream carries none of its bus events, a person's own bind of
+    its slot takes only the providers the release names, and a
+    partitioned one without `--isolate` runs as one shared instance only
+    under `--no-auth`.
+  - Backups of one are its data only; the manifest's `sealedData` is the
+    data format, and a restore into a release that reads only an older
+    format is refused.
+  - A directory or tile literally named `xbin~<name>` shares a data key
+    with a sealed component `xbin/<name>` and would lose its declared
+    resources once a release ships that component
+    ([compat.md](/docs/compat.md) → Sealed components).
+
 - **Agent sessions: one sign-in hint (D225).** When a coding agent
   refuses a session or a prompt because it is signed out, the error and
   the `status` event's `detail` end with one sentence everywhere,

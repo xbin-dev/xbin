@@ -175,6 +175,9 @@ func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (vaultCall,
 		return vaultCall{}, false
 	}
 	p := auth.PrincipalOf(r)
+	if sealedRefused(w, sealedOwn(p, c.Path, sealedOwnVault)) {
+		return vaultCall{}, false // a sealed component's secrets: its backend's alone (sealedguard.go)
+	}
 	// Who reaches a vault at all (D30): the element's own BACKEND (instance
 	// token) and its tile TERMINALS (management from the shell), plus
 	// admin-capable principals (owner or a xbin:admin tile) who may MANAGE

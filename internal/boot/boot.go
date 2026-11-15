@@ -30,6 +30,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/sbx"
+	"github.com/xbin-dev/xbin/internal/sealed"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/tilesbx"
@@ -51,12 +52,15 @@ type State struct {
 	Auth   *auth.Auth
 	Users  *users.Store
 	Reg    *registry.Registry
-	Hub    *events.Hub
-	Run    *runner.Runner
-	Term   *term.Manager
-	Broker *broker.Broker
-	Proxy  *proxy.Proxy
-	Server *server.Server
+	Sealed *sealed.Set // the sealed components of this xbind (stepRegistry)
+	// sealedDefaults follows what sealed components' default bindings bind (sealeddefaults.go)
+	sealedDefaults sealedDefaults
+	Hub            *events.Hub
+	Run            *runner.Runner
+	Term           *term.Manager
+	Broker         *broker.Broker
+	Proxy          *proxy.Proxy
+	Server         *server.Server
 	// AgentPolicy is the agent rules delegation asks (the orgs' agent rules,
 	// people's agent preferences). Left nil, boot installs the broker's
 	// DelegationPolicy (delegation.go); a test sets another before boot.
@@ -164,9 +168,20 @@ var Steps = []Step{
 // (a signal, in main; the test's cancel). Every failure is an error — no
 // os.Exit — and the console listener is cfg.Listener when given.
 func Run(ctx context.Context, cfg *Config) error {
-	d, err := cfg.Validate()
+	st, err := prepare(cfg)
 	if err != nil {
 		return err
+	}
+	return st.serve(ctx)
+}
+
+// prepare runs the boot steps for cfg: everything Run does before it
+// serves. A test that needs the built state (the route table, the sealed
+// set) calls it and then serves itself.
+func prepare(cfg *Config) (*State, error) {
+	d, err := cfg.Validate()
+	if err != nil {
+		return nil, err
 	}
 	st := &State{Cfg: cfg, WS: d.ws, trusted: d.trusted, externalURL: d.externalURL, overlay: d.overlay,
 		Started: time.Now(), priv: cfg.Privileges}
@@ -178,10 +193,10 @@ func Run(ctx context.Context, cfg *Config) error {
 	}
 	for _, s := range Steps {
 		if err := s.Run(st); err != nil {
-			return fmt.Errorf("%s: %w", s.Name, err)
+			return nil, fmt.Errorf("%s: %w", s.Name, err)
 		}
 	}
-	return st.serve(ctx)
+	return st, nil
 }
 
 // ---- the steps, in order ----
@@ -284,13 +299,43 @@ func (st *State) stepHomes() error {
 }
 
 func (st *State) stepRegistry() error {
-	reg, err := registry.Open(st.WS)
+	// Sealed components (internal/sealed, D227): the running binary's own
+	// code, rendered from its embedded trees into .xbin/sealed/ before the
+	// first scan, so the registry holds them from the start; their data
+	// stamps are read, and claimed, before the broker provisions anything.
+	set, err := st.openSealed()
+	if err == nil {
+		// Who holds delegation (D228) is this table's word, and nothing
+		// else's: installed here, before the server step refuses a holder
+		// that is trusted chrome (Server.DelegationChromeConflict). An
+		// empty table — a release build — delegates for nobody.
+		auth.SetDelegateHolders(func(component string) bool {
+			c, ok := set.Component(component)
+			return ok && c.Capabilities.Delegate
+		})
+		// …and where on a holder's backend xbind delivers its notices: the
+		// row's Notify, nothing a workspace or a request says
+		auth.SetDelegateNotify(func(component string) string {
+			if c, ok := set.Component(component); ok && c.Capabilities.Delegate {
+				return c.Notify
+			}
+			return ""
+		})
+	}
+	if err != nil {
+		return err
+	}
+	st.Sealed = set
+	reg, err := registry.OpenSealed(st.WS, set.Registry)
 	if err != nil {
 		return err
 	}
 	st.Reg = reg
 	st.Hub = events.NewHub()
 	st.Run = runner.New(st.WS, st.Auth, st.Hub, reg)
+	st.Run.SealedPrebuilt = sealedPrebuilt(set)
+	st.Run.SealedVerify = func(c *registry.Component) error { return set.Verify(c.Path) } // at every spawn, and only there
+	st.Run.SealedCompile = st.sealedDev()                                                 // only a development xbind compiles one (D227)
 	st.Sbx = sbx.New()
 	st.Run.Sandboxes = st.Sbx
 	st.bootGoVersions() // before any build: an earlier xbind's builds say the check is due (goversions.go)
@@ -311,6 +356,45 @@ func (st *State) stepRegistry() error {
 		slog.Warn("go.work", "err", err)
 	}
 	return nil
+}
+
+// sealedDev reports a development xbind for sealed components (--dev or
+// --no-auth): it compiles a backend the install has no build of. (One
+// shared instance of a partitioned component, without sandboxes, is
+// --no-auth's alone: sealed.Options.NoAuth.)
+func (st *State) sealedDev() bool { return st.Cfg.Dev || st.Cfg.NoAuth }
+
+// openSealed opens the sealed components of this xbind on the workspace:
+// the compiled-in table (a test's, with Config.Sealed), the release's
+// prebuilt backends from bin/sealed beside xbind (Config.SealedBin).
+func (st *State) openSealed() (*sealed.Set, error) {
+	specs := st.Cfg.Sealed
+	if specs == nil {
+		specs = sealed.Table()
+	}
+	bin := st.Cfg.SealedBin
+	if bin == "" {
+		if exe, err := os.Executable(); err == nil {
+			bin = filepath.Join(filepath.Dir(exe), "sealed")
+		}
+	}
+	return sealed.Open(specs, sealed.Options{
+		Workspace: st.WS, Isolate: st.Cfg.Isolate, Dev: st.sealedDev(), NoAuth: st.Cfg.NoAuth,
+		BinDir: bin, Release: st.Cfg.Version,
+	})
+}
+
+// sealedPrebuilt answers a sealed component's prebuilt backend: the
+// release's bin/sealed/<name>-<digest>, the digest being that of the source
+// this binary embeds — a file built from any other source has another name
+// and is never run.
+func sealedPrebuilt(set *sealed.Set) func(*registry.Component) (string, bool) {
+	return func(c *registry.Component) (string, bool) {
+		if sc, ok := set.Component(c.Path); ok && sc.Prebuilt != "" {
+			return sc.Prebuilt, true
+		}
+		return "", false
+	}
 }
 
 func (st *State) stepTerminals() error {
@@ -357,7 +441,7 @@ func (st *State) stepTerminals() error {
 	tm.HiddenTiles = func(p auth.Principal) []string {
 		var hide []string
 		for _, c := range reg.Components() {
-			if !p.CanReadTile(c.Path) {
+			if !c.Sealed && !p.CanReadTile(c.Path) { // a sealed component has no directory to mask
 				hide = append(hide, c.Path)
 			}
 		}
@@ -381,7 +465,7 @@ func (st *State) stepTerminals() error {
 	tm.TermView = func(p auth.Principal) ([]string, map[string][]byte) {
 		var readable []string
 		for _, c := range reg.Components() {
-			if p.CanReadTile(c.Path) {
+			if !c.Sealed && p.CanReadTile(c.Path) { // nor one to bind
 				readable = append(readable, c.Path)
 			}
 		}
@@ -403,7 +487,14 @@ func (st *State) stepTerminals() error {
 	tm.Sandboxes = st.Sbx
 	tm.HasDeploymentRecord = st.Deployments.HasRecord   // the checkpoint fetch remote in sessions
 	tm.TileDeployments = st.Deployments.TileDeployments // a session's target deployment (D127p)
-	wireDeploymentSessions(st.Deployments, tm)          // protect and reassignment move sessions (deploywire.go)
+	tm.TileAt = func(rel string) (string, bool) {       // a session opens on a registered tile (term/sessiondir.go)
+		c, _, ok := reg.Resolve(rel)
+		if !ok || c == nil || c.Sealed { // (a sealed component has no terminal, D227)
+			return "", false
+		}
+		return c.Path, true
+	}
+	wireDeploymentSessions(st.Deployments, tm) // protect and reassignment move sessions (deploywire.go)
 	return nil
 }
 
@@ -612,7 +703,8 @@ func (st *State) stepProxy() error {
 			run.ChangedTile(c)
 		}
 	}
-	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
+	brk.Sealed = broker.SealedHooks{DataFormat: st.Sealed.DataFormat, RestoreRefusal: st.Sealed.RestoreRefusal} // backups of sealed components (D227)
+	brk.StopBackend = run.Stop                                                                                  // lifecycle: disabling stops the backend now
 	brk.WakeBackends = run.WakeAlwaysOn
 	// A component may spawn only if enabled AND its encrypted tile state is
 	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md
@@ -621,6 +713,11 @@ func (st *State) stepProxy() error {
 	run.HoldReason = func(comp string) string {
 		if s := reg.LifecycleState(comp); s != registry.StateEnabled {
 			return "is " + s
+		}
+		// a sealed component's own holds (D227), before anything of its
+		// data is looked at: no build, foreign or newer data, no sandboxes
+		if why := st.sealedAdmit(comp); why != "" {
+			return why
 		}
 		if why := brk.PartitionHoldReason(comp); why != "" {
 			return why
@@ -632,7 +729,7 @@ func (st *State) stepProxy() error {
 	// the partition hold is the primary's alone (non-primary deployments keep
 	// running while a mode switch is pending).
 	run.ShouldRunDeployment = func(tile, dep string) bool {
-		return reg.LifecycleState(tile) == registry.StateEnabled && !brk.DeploymentEncryptionHold(tile, dep) &&
+		return reg.LifecycleState(tile) == registry.StateEnabled && st.sealedAdmit(tile) == "" && !brk.DeploymentEncryptionHold(tile, dep) &&
 			(dep != st.Deployments.Primary(tile) || brk.PartitionHoldReason(tile) == "")
 	}
 	brk.SetPartitionStop(func(tile string) { run.StopDeployment(tile, st.Deployments.Primary(tile)) })
@@ -703,6 +800,7 @@ func (st *State) stepServer() error {
 		Reg: st.Reg, Auth: st.Auth, Hub: st.Hub, Term: st.Term,
 		WebFS: st.webFS, DocsFS: st.docsFS,
 		ComponentAPI: st.Proxy, Version: st.Cfg.Version,
+		SealedGateOff:  st.Cfg.sealedGateOff,
 		TrustedProxies: st.trusted,
 		ExternalURL:    st.externalURL,
 		Overlay:        st.overlay,
@@ -740,12 +838,14 @@ func (st *State) stepServer() error {
 	st.Auth.SetClientIP(srv.ClientIP)
 	st.Broker.Register(srv)
 	st.registerRuntimeAPI(srv)
+	st.registerSealedAPI(srv) // the admins' read of sealed components (sealedapi.go, D227)
 	st.registerVMAPI(srv)
 	st.registerSandboxAPI(srv)
 	registerDeploymentsAPI(srv, st.Deployments, st.Broker) // the broker answers the state's vault, registrations, edges, disk
 	st.registerTileSandboxAPI(srv)
-	st.registerGoVersionsAPI(srv) // the D166 upgrade check's routes and admin alert
-	st.setupDelegation(srv)       // people's workspace agents (delegation.go, D228)
+	st.registerGoVersionsAPI(srv)     // the D166 upgrade check's routes and admin alert
+	st.setupDelegation(srv)           // people's workspace agents (delegation.go, D228)
+	srv.AgentHolder = st.Sealed.Agent // which component is the agent here: the table's row (D232), "" in a release without one
 	if err := srv.DelegationChromeConflict(); err != nil {
 		return err // a holder that is also trusted chrome: its page would approve its own agent's requests
 	}
@@ -758,6 +858,7 @@ func (st *State) stepServer() error {
 	if err := st.setupLLM(srv); err != nil { // the LLM connector (llm.go, D226)
 		return err
 	}
+	st.wireSealedDefaults() // a sealed component's slot may default to the connector (sealeddefaults.go)
 	st.Server = srv
 	return nil
 }

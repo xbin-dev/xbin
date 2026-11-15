@@ -164,6 +164,7 @@ GET /sandboxes/{name}/snapshots	refused
 GET /sandboxes/{name}/tar	refused
 GET /sandboxes/{name}/tty	refused
 GET /screens	read
+GET /sealed	never
 GET /sessions	never
 GET /status	refused
 GET /templates	read

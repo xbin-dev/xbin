@@ -69,6 +69,116 @@ var ReservedTop = map[string]bool{
 	"ingress": true, "runtime": true, "owner": true,
 }
 
+// SealedPrefix is the path prefix of sealed components (internal/sealed):
+// components whose code is the running xbind's own, declared in a
+// compiled-in table and never by anything in the workspace. "xbin" is a
+// ReservedTop name, so no workspace directory, clone, import or template
+// instance can sit at, or below, such a path; the rule is structural — a
+// path under xbin/ is xbind's or nothing.
+const SealedPrefix = "xbin/"
+
+// SealedPath reports whether p lies in the sealed components' namespace —
+// in ANY spelling something downstream could read as a path there. A
+// request's parameter is trimmed, joined to the workspace root or resolved
+// against the registry by code that forgives a leading slash, a doubled
+// one, "./" or "a/../": if this test saw only the exact prefix, "/xbin/x"
+// would pass as "no sealed path" and still become one a few calls later.
+// So the question is asked of the path's canonical form (CanonPath), and
+// every sealed test in xbind goes through here (SealedTarget, the
+// principal's component, the route gate, the decision points).
+func SealedPath(p string) bool { return strings.HasPrefix(CanonPath(p), SealedPrefix) }
+
+// CanonPath is the one spelling of a workspace-relative path: surrounding
+// space trimmed, no leading or trailing slash, no empty, "." or ".."
+// segment (path.Clean's result, rooted: a path that climbs out of the
+// workspace, "../x", is cut at the root — the conservative reading for the
+// sealed test, and SafeJoin refuses such a path anyway). Case, percent-escapes
+// and look-alike characters are not folded: nothing in xbind folds them, so
+// a path that differs in them is another path (and never a sealed one).
+func CanonPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	p = path.Clean("/" + strings.ReplaceAll(p, "\\", "/"))
+	return strings.TrimPrefix(p, "/")
+}
+
+// SealedSpelledOddly reports a path that lies in the sealed namespace but
+// is not written canonically ("/xbin/x", "xbin//x", "./xbin/x/"): what the
+// API refuses at its edge, so that nothing behind it ever holds two
+// spellings of one sealed component.
+func SealedSpelledOddly(p string) bool {
+	t := strings.TrimSpace(p)
+	for _, scheme := range []string{"res:", "code:"} {
+		if rest, ok := strings.CutPrefix(t, scheme); ok {
+			t = rest
+			break
+		}
+	}
+	return SealedPath(t) && (CanonPath(t) != t || strings.TrimSpace(p) != p)
+}
+
+// SealedTarget reports whether t — a grant target, or any name a request
+// gives for a component or a resource — names something in the sealed
+// components' namespace: a path there (a call), a resource of one
+// ("res:xbin/…") or one's source ("code:xbin/…").
+func SealedTarget(t string) bool {
+	t = strings.TrimSpace(t)
+	for _, scheme := range []string{"res:", "code:"} {
+		if rest, ok := strings.CutPrefix(t, scheme); ok {
+			t = rest
+			break
+		}
+	}
+	return SealedPath(t)
+}
+
+// SealedRefusal is the text of a refusal about the sealed component (or
+// name under xbin/) path; what completes the sentence. Users read "system
+// component" (D227).
+func SealedRefusal(path, what string) string {
+	return path + " is a system component, managed by xbin: " + what
+}
+
+// SealedNameMax is the longest name of a sealed component: with it
+// "xbin~<name>" is SHORTER than the 24 characters CompKey keeps of a path.
+// CompKey is that readable part and 32 bits of a hash — few enough to
+// grind a path into a chosen value — so what keeps a tile's key from being
+// a sealed component's is the readable part: a tile path cut to 24
+// characters never equals a 23-character one, and the only tile path whose
+// whole readable part is "xbin~<name>" is the top-level tile of that name
+// (reserved at every creation path, broker.guardNewComponentTree; its hash
+// is compared when the table loads, sealed.Load). At exactly 24 the cut
+// form of every path beginning "xbin~<name>" would be the same.
+const SealedNameMax = 18
+
+// SealedComponentPath reports whether p has the shape of a sealed
+// component's own path: xbin/<name>, the name lowercase letters, digits
+// and "-", starting with a letter, at most SealedNameMax characters. Such
+// a path is its component's scope too (a sealed component always roots
+// one).
+func SealedComponentPath(p string) bool {
+	name, ok := strings.CutPrefix(p, SealedPrefix) // the exact spelling: a shape test, not a membership one
+	if !ok || name == "" || len(name) > SealedNameMax || name[0] < 'a' || name[0] > 'z' {
+		return false
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// PartitionScopeOK reports whether scope may have people's partitions: a
+// workspace path (ComponentPathOK), or a sealed component's scope. The
+// partition namespaces are keyed by the scope's injective escape, so a
+// sealed scope's can be nothing else's.
+func PartitionScopeOK(scope string) bool {
+	return ComponentPathOK(scope) || SealedComponentPath(scope)
+}
+
 // IgnoredDirs are never watched, scanned, or served as component internals.
 var IgnoredDirs = map[string]bool{
 	".git": true, ".xbin": true, "node_modules": true, "deps": true,

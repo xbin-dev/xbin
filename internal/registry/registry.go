@@ -320,6 +320,9 @@ func (r *Registry) LifecycleState(comp string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if s := r.workspace.Lifecycle[comp]; s != "" {
+		if util.SealedPath(comp) && IsOffloaded(s) {
+			return StateDisabled // a sealed component is never offloaded (sealedView)
+		}
 		return s
 	}
 	return StateEnabled
@@ -354,6 +357,19 @@ type Component struct {
 	CodeRoot   string        // the host directory holding the view's code when it isn't Dir (a materialized checkpoint); "" = Dir
 	WorkTree   *WorkTreeScan // the work tree's own scan while the primary is pinned
 	Kept       bool          // registered for its pinned primary though the work tree has neither xbin.json nor index.html, or a broken xbin.json
+
+	// Sealed marks a sealed component (sealed.go): its code is the running
+	// xbind's own, Dir a read-only tree xbind materialized from its embedded
+	// source — never a directory of the workspace, never a work tree.
+	Sealed bool
+	// SealedID names a sealed component's code (the short digest of its
+	// tree): its documents carry it, and a request from a page of other
+	// code is turned away (server/sealed.go).
+	SealedID string
+	// SealedEnv is a sealed component's fixed environment (KEY=VALUE) and
+	// SealedReads the GET paths its page may read beside a viewer's own
+	// (the table's Env and FrameReads; never a manifest's).
+	SealedEnv, SealedReads []string
 
 	// PartitionErr says why the primary's partition request is invalid
 	// (also in ManifestErr); partition is the settled mode (partition.go).
@@ -430,18 +446,35 @@ type Registry struct {
 	// mode on every rescan (partition.go); nil: nothing is recorded.
 	PartitionModes func(PartitionAsk) PartitionMode
 
+	// Sealed, set at boot before the first scan, lists the sealed
+	// components of the running xbind (sealed.go): every Rescan registers
+	// them at their reserved paths, which no walk of the workspace reaches.
+	// nil: none.
+	Sealed func() []SealedCode
+	// SealedProvider, set at boot, reports whether a builtin provider a
+	// sealed component's slot defaults to is available now ("xbin:llm":
+	// the LLM connector is configured). Workspace() asks it under the
+	// registry's lock: it must not read the registry. nil: no default
+	// applies.
+	SealedProvider func(ref string) bool
+
 	mu         sync.RWMutex
 	components map[string]*Component
 	scopes     map[string]*ScopeManifest // scope path → manifest
 	workspace  WorkspaceManifest
+	sealed     []SealedCode  // the sealed components of the last scan (sealed.go)
 	keys       scopeKeys     // who holds each scope data key (scopekeys.go)
 	wsBadRes   string        // invalid workspace resource names last warned about (resnames.go)
 	views      viewCache     // deployment views and the checkpoints they read (deployview.go)
 	partScan   partitionScan // serializes Rescan; what it logged (partition.go)
 }
 
-func Open(root string) (*Registry, error) {
-	r := &Registry{Root: root}
+func Open(root string) (*Registry, error) { return OpenSealed(root, nil) }
+
+// OpenSealed is Open with the sealed components of the running xbind, there
+// from the first scan on.
+func OpenSealed(root string, sealed func() []SealedCode) (*Registry, error) {
+	r := &Registry{Root: root, Sealed: sealed}
 	if err := r.Rescan(); err != nil {
 		return nil, err
 	}
@@ -490,22 +523,7 @@ func (r *Registry) Rescan() error {
 		hasManifest, parsed := false, false
 		if b, err := os.ReadFile(filepath.Join(p, "xbin.json")); err == nil {
 			hasManifest = true
-			perr := jsonc.Unmarshal(b, &c.Manifest)
-			parsed = perr == nil
-			if perr != nil {
-				c.ManifestErr, c.partition.unread = perr.Error(), "its xbin.json doesn't parse"
-			} else if err := ValidateRuntime(c.Manifest); err != nil {
-				// A removed runtime: files still serve, the backend never runs.
-				c.ManifestErr = err.Error()
-			} else if err := ValidateExposes(c.Manifest); err != nil {
-				// Surfaced like a parse error (bx ls/doctor, status API); the
-				// component keeps serving — publishing just refuses at bind.
-				c.ManifestErr = err.Error()
-			} else if err := ValidateInterfaces(c.Manifest); err != nil {
-				c.ManifestErr = err.Error() // the same; binding refuses the slot
-			} else if err := ValidateLimits(c.Manifest); err != nil {
-				c.ManifestErr = err.Error() // informational: the values that parsed still ask
-			}
+			parsed = c.readManifest(b)
 		}
 		if _, err := os.Stat(filepath.Join(p, "index.html")); err == nil {
 			c.HasIndex = true
@@ -525,6 +543,7 @@ func (r *Registry) Rescan() error {
 		return err
 	}
 	composePinnedScopes(scopes, comps, pinned)
+	sealed := r.addSealed(comps, scopes) // after the walk: nothing in the workspace takes their paths (sealed.go)
 
 	ws := WorkspaceManifest{Schema: 1}
 	if b, err := os.ReadFile(filepath.Join(r.Root, "xbin.json")); err == nil {
@@ -538,11 +557,11 @@ func (r *Registry) Rescan() error {
 		c.Scope = nearestScope(scopes, c.Path)
 	}
 
-	r.settlePartitions(comps, scopes, ws) // before the lock: the mode store may read the registry
+	r.settlePartitions(comps, scopes, sealedView(ws, sealed, nil)) // before the lock: the mode store may read the registry
 
 	r.mu.Lock()
 	r.warnWorkspaceResources(ws)
-	r.keys.resolve(r.Root, scopes) // one holder per data key (D118)
+	r.keys.resolve(r.Root, scopes, sealedScopes(comps)) // one holder per data key (D118)
 	for _, c := range comps {
 		if sm := scopes[c.Scope]; sm != nil && sm.Err != "" {
 			if c.ManifestErr != "" {
@@ -551,9 +570,31 @@ func (r *Registry) Rescan() error {
 			c.ManifestErr += sm.Err
 		}
 	}
-	r.components, r.scopes, r.workspace = comps, scopes, ws
+	r.components, r.scopes, r.workspace, r.sealed = comps, scopes, ws, sealed
 	r.mu.Unlock()
 	return nil
+}
+
+// readManifest parses b, an xbin.json, into c.Manifest and records what
+// xbind refuses in it as c.ManifestErr; false when it doesn't parse.
+func (c *Component) readManifest(b []byte) (parsed bool) {
+	if perr := jsonc.Unmarshal(b, &c.Manifest); perr != nil {
+		c.ManifestErr, c.partition.unread = perr.Error(), "its xbin.json doesn't parse"
+		return false
+	}
+	if err := ValidateRuntime(c.Manifest); err != nil {
+		// A removed runtime: files still serve, the backend never runs.
+		c.ManifestErr = err.Error()
+	} else if err := ValidateExposes(c.Manifest); err != nil {
+		// Surfaced like a parse error (bx ls/doctor, status API); the
+		// component keeps serving — publishing just refuses at bind.
+		c.ManifestErr = err.Error()
+	} else if err := ValidateInterfaces(c.Manifest); err != nil {
+		c.ManifestErr = err.Error() // the same; binding refuses the slot
+	} else if err := ValidateLimits(c.Manifest); err != nil {
+		c.ManifestErr = err.Error() // informational: the values that parsed still ask
+	}
+	return true
 }
 
 func nearestScope(scopes map[string]*ScopeManifest, compPath string) string {
@@ -622,7 +663,7 @@ func (r *Registry) Scopes() map[string]*ScopeManifest {
 func (r *Registry) Workspace() WorkspaceManifest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	ws := r.workspace
+	ws := sealedView(r.workspace, r.sealed, r.SealedProvider) // the table's word on sealed components, never the file's (sealed.go)
 	ws.Resources = validResources(ws.Resources)
 	return ws
 }
@@ -633,8 +674,13 @@ func (r *Registry) ImportMapFor(c *Component) map[string]string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := map[string]string{}
-	for k, v := range r.workspace.ImportMap {
-		out[k] = v
+	// A sealed component's documents get xbind's own map and its embedded
+	// scope's, never the workspace file's: a key there ("lit", "/c/xbin/…/")
+	// would point the release's frontend at a workspace's code (D227).
+	if c == nil || !c.Sealed {
+		for k, v := range r.workspace.ImportMap {
+			out[k] = v
+		}
 	}
 	if c != nil && c.Scope != "" {
 		if sm, ok := r.scopes[c.Scope]; ok {
@@ -648,10 +694,30 @@ func (r *Registry) ImportMapFor(c *Component) map[string]string {
 
 // MutateWorkspace applies fn to the workspace manifest and persists it as
 // formatted JSON. Used for grant changes; the file is machine-managed.
+//
+// A change that would add a row about a sealed component that the file may
+// not hold (sealedRows) is undone and refused with a *SealedRowError: this
+// is where such a row would be written, so it is where it is refused,
+// whatever the caller checked.
 func (r *Registry) MutateWorkspace(fn func(*WorkspaceManifest)) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	had := sealedRows(r.workspace, r.sealed)
+	snap, err := json.Marshal(r.workspace)
+	if err != nil {
+		return err
+	}
 	fn(&r.workspace)
+	for row := range sealedRows(r.workspace, r.sealed) {
+		if !had[row] {
+			var prev WorkspaceManifest
+			if err := json.Unmarshal(snap, &prev); err != nil {
+				return err
+			}
+			r.workspace = prev
+			return &SealedRowError{Row: row}
+		}
+	}
 	b, err := jsonMarshalIndent(r.workspace)
 	if err != nil {
 		return err

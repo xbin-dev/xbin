@@ -211,7 +211,7 @@ func TestDelegateStartIsWhatWasApproved(t *testing.T) {
 	for _, d := range []*DelegateStart{ask, {Approved: true, Provider: "fake", Mode: "yolo"}, {Provider: "fake", Prefs: &delegation.StartPrefs{}}} {
 		refused("resuming the person's own session", AgentOpen{Cwd: "apps/x", Provider: "fake", Resume: "hers", Delegate: d}, "resumes only the sessions it started")
 	}
-	refused("a sealed component", AgentOpen{Cwd: holder, Provider: "fake", Delegate: ask}, "sealed system component")
+	refused("a sealed component", AgentOpen{Cwd: holder, Provider: "fake", Delegate: ask}, "system component") // (sessionDir answers before the delegate's own rule: no session opens on one at all)
 
 	// no option moves the mode of a session the agent opens
 	var cfgs []agent.Config

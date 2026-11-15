@@ -423,7 +423,7 @@ test('the preview host confines images and uploads as the app does', { skip }, a
     '/c/apps/t/logo.png': 'blob', 'logo.png': 'blob',
   });
   // the tile list is read once; only the tile's own paths are fetched
-  assert.deepEqual(got.fetched, ['/api/xbin/components', '/c/apps/t/logo.png', '/c/apps/t/logo.png',
+  assert.deepEqual(got.fetched, ['/api/xbin/components?sealed=1', '/c/apps/t/logo.png', '/c/apps/t/logo.png',
     '/api/apps/t/upload?name=a%20b.png', '/api/apps/t/u']);
   await ctx.close();
 });

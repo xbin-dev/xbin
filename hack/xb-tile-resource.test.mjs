@@ -42,6 +42,33 @@ test('upload targets refused', () => {
   for (const tile of ['xbin', 'xbin/x', '', 'a/../b']) assert.equal(apiPath('up', tile), null, tile);
 });
 
+// a system (sealed) component, xbin/<name> (D227): its own paths resolve
+// once xbind listed it (it is in `known`), and only then; nothing else
+// under xbin/ ever does
+test('a sealed component resolves only when xbind listed it', () => {
+  const known = ['apps/x', 'xbin/wsagent'];
+  assert.equal(apiPath('up', 'xbin/wsagent', known), '/api/xbin/wsagent/up');
+  assert.equal(apiPath('/api/xbin/wsagent/runs/5?name={name}', 'xbin/wsagent', known, 'a b'), '/api/xbin/wsagent/runs/5?name=a%20b');
+  assert.equal(assetPath('logo.png', 'xbin/wsagent', known), '/c/xbin/wsagent/logo.png');
+  assert.equal(pagePath('/c/xbin/wsagent/page.html#top', 'xbin/wsagent', known), '/c/xbin/wsagent/page.html#top');
+  // never xbind's own API, another sealed component, or a climb out
+  for (const r of ['/api/xbin/grants', '/api/xbin/frame-token', '/api/xbin/other/x', '/api/xbin', '../grants', '/api/xbin/wsagent/../grants',
+    '/api/xbin/wsagent%2f..%2fgrants', '/api/apps/x/up']) {
+    assert.equal(apiPath(r, 'xbin/wsagent', known), null, r);
+    assert.equal(assetPath(r, 'xbin/wsagent', known), null, r);
+  }
+  assert.equal(assetPath('/c/xbin/other/x', 'xbin/wsagent', known), null);
+  assert.equal(pagePath('/c/xbin/', 'xbin/wsagent', known), null);
+  // not listed: refused as it always was
+  assert.equal(apiPath('up', 'xbin/wsagent'), null);
+  assert.equal(apiPath('up', 'xbin/wsagent', ['apps/x']), null);
+  assert.equal(assetPath('logo.png', 'xbin/wsagent', ['xbin/other']), null);
+  // and no other shape under xbin, listed or not
+  for (const tile of ['xbin', 'xbin/', 'xbin/a/b', 'xbin/Grants', 'xbin/grants.x', 'xbin/-a', 'xbin/9a']) {
+    assert.equal(apiPath('up', tile, [tile, 'xbin']), null, tile);
+  }
+});
+
 test('nested tiles own their paths', () => {
   const known = ['apps', 'apps/other', 'apps/x'];
   assert.equal(apiPath('other/up', 'apps', known), null);

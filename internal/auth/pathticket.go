@@ -141,6 +141,9 @@ func (a *Auth) VerifyPathTicket(tok string) (Principal, string, bool) {
 		return Principal{}, "", false
 	}
 	p := Principal{Component: c.Tile, UserID: c.User, Via: "frame", Gen: c.Gen, Impersonator: c.Imp, Deployment: c.Dep}
+	if !canonicalComponent(p) {
+		return Principal{}, "", false
+	}
 	if c.User != "" {
 		if _, found := a.userSnapshot(c.User); !found {
 			return Principal{}, "", false

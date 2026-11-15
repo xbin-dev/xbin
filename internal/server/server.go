@@ -94,6 +94,11 @@ type Server struct {
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.
 	ComponentAPI http.Handler
+	// SealedGateOff switches the sealed route gate (sealedclass.go) off.
+	// Tests only: the gate is the early answer, never the boundary, and the
+	// boundary is tested without it. Nothing sets it from a flag, a file or
+	// the environment.
+	SealedGateOff bool
 	// BackendState answers a tile's primary backend's state for /components
 	// (D196: idle, building, starting, healthy, failed; "" when never run).
 	// nil (tests): no row carries one.
@@ -225,6 +230,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET "+PersonPagePath, s.authed(http.HandlerFunc(s.handlePersonPage)))   // the partitions page, top-level only (personpage.go)
 	handle("GET "+LimitsPagePath, s.authed(http.HandlerFunc(s.handleLimitsPage)))   // the tile limits page, likewise (limitspage.go)
 	handle("GET "+DevicesPagePath, s.authed(http.HandlerFunc(s.handleDevicesPage))) // the devices page (devicespage.go, D204)
+	handle("GET "+SystemPagePath, s.authed(http.HandlerFunc(s.handleSystemPage)))   // the system components page (systempage.go, D227)
 	handle("GET "+LLMPagePath, s.authed(http.HandlerFunc(s.handleLLMPage)))         // the LLM connector's page (llmpage.go, D226)
 	handle("GET "+AgentPagePath, s.authed(http.HandlerFunc(s.handleAgentPage)))     // the workspace agent's chrome (agentpage.go, D232)
 
@@ -264,10 +270,10 @@ func nullOriginCORS(next http.Handler) http.Handler {
 		}
 		w.Header().Set("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Origin", "null")
-		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
+		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id, "+SealedReloadHeader)
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+auth.FrameTokenHeader+", Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+auth.FrameTokenHeader+", Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID, "+SealedCodeHeader)
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -314,6 +320,16 @@ func (s *Server) authed(next http.Handler) http.Handler {
 			refuseReadOnly(w, r)
 			return
 		}
+		if s.sealedViewAs(r, p) { // a view-as session opens nothing of a sealed component (sealed.go)
+			refuseSealedViewAs(w, r)
+			return
+		}
+		// A sealed component's page holds a viewer's token: its own backend
+		// and nothing of xbind's or another tile's (sealed.go).
+		if SealedViewer(p) && !s.sealedViewerAllowed(r, p) {
+			refuseSealedViewer(w, r, p)
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
 	})
 }
@@ -350,6 +366,15 @@ func (s *Server) authedStatic(next http.Handler) http.Handler {
 				return
 			}
 			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
+			return
+		}
+		if s.sealedViewAs(r, p) { // nor does a view-as session load its page (sealed.go)
+			refuseSealedViewAs(w, r)
+			return
+		}
+		// a sealed component's viewer loads its own page's files (sealed.go)
+		if SealedViewer(p) && !s.sealedViewerAllowed(r, p) {
+			refuseSealedViewer(w, r, p)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
@@ -600,6 +625,23 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // to the component reverse proxy.
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/")
+	if !strings.HasPrefix(rest, util.SealedPrefix) && rest != "xbin" && util.SealedPath(rest) {
+		// /api//xbin/<name>/…, /api/./xbin/…: a sealed component's API has
+		// one address (util.SealedPath sees every spelling; the proxy
+		// would forgive this one)
+		WriteError(w, http.StatusBadRequest, sealedSpelling, SealedDocs)
+		return
+	}
+	if s.sealedOwned(rest) && s.ComponentAPI != nil {
+		// /api/xbin/<name>/… of a sealed component is its backend's, as
+		// /api/<tile>/… is a tile's (sealed.go); no route of xbind's own
+		// begins with a sealed name (SealedAPIClash, checked at boot).
+		if s.sealedStale(w, r, rest) {
+			return // a page of another release's code: told to reload (sealed.go)
+		}
+		s.ComponentAPI.ServeHTTP(w, r)
+		return
+	}
 	if rest == "xbin" || strings.HasPrefix(rest, "xbin/") {
 		r2 := r.Clone(r.Context())
 		if !xbinInner(r.URL, r2.URL) {
@@ -617,6 +659,11 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		dep, deny := s.classGate(r2) // non-primary principals: default-deny (deployclass.go)
 		if deny == nil {
 			r2, deny = s.partitionGate(r2) // a person's partition: default-deny too (partitionclass.go)
+		}
+		// what a sealed component has no such thing as (sealedclass.go):
+		// the same answer whoever asks, so it goes before the others'
+		if d := s.sealedGate(r2); d != nil {
+			deny = d
 		}
 		if deny != nil {
 			h = deny
@@ -722,7 +769,7 @@ func (s *Server) eventFilter(p auth.Principal) events.Filter {
 		if e.Type != "bus" {
 			return true
 		}
-		if p.IsAdmin() && e.Partition == "" { // a partition's bus: no blanket pass (G2)
+		if p.IsAdmin() && e.Partition == "" && !util.SealedTarget(e.Topic) { // a partition's bus: no blanket pass (G2); nor a sealed component's (its bus is its backend's alone, D227)
 			return true
 		}
 		return s.policy().BusAllows(p, e)

@@ -262,6 +262,14 @@ func (s *Server) serveTileOriginAuthed(w http.ResponseWriter, r *http.Request, i
 		refuseReadOnly(w, r)
 		return
 	}
+	if s.sealedViewAs(r, pr) {
+		refuseSealedViewAs(w, r)
+		return
+	}
+	if SealedViewer(pr) && !s.sealedViewerAllowed(r, pr) { // a sealed component's own origin: the same viewer (sealed.go)
+		refuseSealedViewer(w, r, pr)
+		return
+	}
 	if doc && hasQueryKey(r.URL.RawQuery, "frame") { // the cookie suffices: keep tokens out of location
 		s.cleanRedirect(w, r)
 		return

@@ -140,6 +140,16 @@ public enum TileResource {
 
     // MARK: - resolution
 
+    /// A sealed component's own path: `xbin/<name>` (a lowercase letter,
+    /// then letters, digits or "-", at most 24), and one xbind listed.
+    static func isSealedTile(_ segs: [String], tile: String, known: [String]) -> Bool {
+        guard segs.count == 2, let first = segs[1].unicodeScalars.first, first.value >= 0x61, first.value <= 0x7a,
+              segs[1].unicodeScalars.count <= 24,
+              segs[1].unicodeScalars.allSatisfy({ ($0.value >= 0x61 && $0.value <= 0x7a) || ($0.value >= 0x30 && $0.value <= 0x39) || $0 == "-" })
+        else { return false }
+        return known.contains(tile)
+    }
+
     struct Resolved: Equatable {
         var path: String
         var fragment: String?
@@ -151,9 +161,12 @@ public enum TileResource {
     static func resolve(_ ref: String, tile: String, known: [String], relativeTo: Base, allowed: [Base],
                         rootRelative: Base?) -> Resolved? {
         let tileSegs = tile.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        // `/api/xbin/…` is xbind's own API, whatever follows.
+        // `/api/xbin/…` is xbind's own API, whatever follows — but for a
+        // system (sealed) component, `xbin/<name>` (D227, docs/sealed.md),
+        // that xbind itself listed: it is in `known`, which has such a row
+        // only for a client that asked (`?sealed=1`).
         guard !tile.isEmpty, !tileSegs.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }),
-              tileSegs.first != "xbin" else { return nil }
+              tileSegs.first != "xbin" || isSealedTile(tileSegs, tile: tile, known: known) else { return nil }
         let s = ref.trimmingCharacters(in: .whitespaces)
         guard !s.isEmpty, !s.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f || $0 == "\\" }),
               !hasScheme(s), !s.hasPrefix("//") else { return nil }

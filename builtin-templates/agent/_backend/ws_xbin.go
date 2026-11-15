@@ -63,6 +63,8 @@ type wsXbin interface {
 	Ask(ctx context.Context, sid string, c wsCall, summary string) (wsRequest, error)
 	Request(ctx context.Context, sid, id string) (wsRequest, error)
 	Withdraw(ctx context.Context, sid, id string) error
+	// Standing are the person's standing approvals for this agent.
+	Standing(ctx context.Context, sid string) ([]wsStanding, error)
 
 	// Starting a tile agent and making a tile from a template are calls of
 	// the same kind, built here so the call asked for and the call made are
@@ -128,6 +130,7 @@ type wsHandleChange struct {
 type wsConnection struct {
 	Counts wsCounts    `json:"counts"`
 	Orgs   []wsOrgConn `json:"orgs,omitempty"`
+	Model  *wsModelRef `json:"model,omitempty"` // the session's model, with xbind's private mark
 }
 
 // wsCounts are a connection's totals: Tiles and Orgs count what is
@@ -197,15 +200,39 @@ type wsModels struct {
 	Models  []wsModel `json:"models"`
 }
 
+// wsModel is a model the person may put a session on. Upstream is the
+// connector's upstream it runs on. Private — the upstream keeps prompts
+// inside the organisation — and Where ("your organisation's own server",
+// "hosted") are set only when xbind says: nil and "" mean it didn't.
 type wsModel struct {
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
+	ID       string `json:"id"`
+	Name     string `json:"name,omitempty"`
+	Upstream string `json:"upstream,omitempty"`
+	Private  *bool  `json:"private,omitempty"`
+	Where    string `json:"where,omitempty"`
+}
+
+// wsWhere is where a model runs, in the page's words.
+func wsWhere(private bool) string {
+	if private {
+		return "your organisation's own server"
+	}
+	return "hosted"
+}
+
+// wsModelRef is the model a connection view was computed for, as xbind
+// names it: its upstream, and whether that upstream is private.
+type wsModelRef struct {
+	Upstream string `json:"upstream,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Private  bool   `json:"private"`
 }
 
 type wsState struct {
 	User            string `json:"user"`
 	Workspace       bool   `json:"workspace"`
 	Paused          bool   `json:"paused"`
+	PausedAt        string `json:"pausedAt,omitempty"` // RFC 3339, while paused
 	AdminChanges    bool   `json:"adminChanges"`
 	CanAdminChanges bool   `json:"canAdminChanges"`
 }
@@ -325,9 +352,25 @@ type wsRequest struct {
 	Tile    string         `json:"tile,omitempty"`
 	Preview map[string]any `json:"preview,omitempty"`
 	Expires int64          `json:"expires,omitempty"` // unix seconds
+	Decided int64          `json:"decided,omitempty"` // unix seconds
+	Via     string         `json:"via,omitempty"`     // what decided it: session | app | device
 }
 
 func (r wsRequest) decided() bool { return r.State != "pending" && r.State != "approved" }
+
+// wsStanding is a standing approval the person gave: of one call (Scope
+// "call": Method on Path of Tile) or of every write to Tile ("tile"),
+// until Until (0: until they take it back). Request is the request it was
+// given on.
+type wsStanding struct {
+	ID      string `json:"id"`
+	Tile    string `json:"tile"`
+	Scope   string `json:"scope"`
+	Method  string `json:"method,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Until   int64  `json:"until,omitempty"` // unix seconds
+	Request string `json:"request,omitempty"`
+}
 
 // wsAgent is a tile agent session.
 type wsAgent struct {
@@ -484,6 +527,10 @@ var errWsUnavailable = errors.New("not available on this xbin yet")
 // wsRefusal is err as a tool answers it: xbind's own words where it gave
 // them, and what to do about each kind of refusal.
 func wsRefusal(err error) string {
+	var ww *wsWords
+	if errors.As(err, &ww) {
+		return ww.msg
+	}
 	var te *wsTaintError
 	if errors.As(err, &te) {
 		return te.Error()

@@ -167,6 +167,9 @@ func (b *Broker) SetBusDispatch(fn BusDispatch) {
 // body, bounded by ctx. Only the first 4 KiB of the answer are kept.
 func DispatchBodyViaProxy(h http.Handler) BusDispatch {
 	return func(ctx context.Context, p auth.Principal, comp, path string, body []byte) (int, string) {
+		if comp == "" || util.CanonPath(comp) != comp {
+			return http.StatusBadRequest, "not a component's path" // a row from a hand-edited file: never "/api//xbin/…" (sealedguard.go)
+		}
 		req, _ := http.NewRequestWithContext(auth.WithPrincipal(ctx, p), "POST", "/api/"+comp+path, bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := &capRecorder{h: http.Header{}, code: 200}
@@ -539,7 +542,9 @@ func (b *Broker) apiBusSubsList(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, code, err.Error(), "/docs/resources.md")
 		return
 	}
-	keep := func(comp string) bool { return admin || (p.Component != "" && p.Component == comp) }
+	keep := func(comp string) bool {
+		return admin && listSealed(r, comp) || (p.Component != "" && p.Component == comp)
+	}
 	out := []busSubView{}
 	if dep == util.MainDeployment {
 		b.bus.mu.Lock()
@@ -568,6 +573,13 @@ func (b *Broker) apiBusSubsPut(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Component == "" {
 		server.WriteError(w, http.StatusBadRequest, "a subscription belongs to a component — admins name it with \"component\"", docs)
+		return
+	}
+	if sealedRefused(w, cmp.Or(sealedOwn(p, s.Component, sealedOwnRegs), sealedOwn(p, s.Resource, sealedOwnRegs))) {
+		return // a sealed component's deliveries are its backend's to register (sealedguard.go)
+	}
+	if !b.componentNamed(s.Component) { // its deliveries go to /api/<component>/…: one spelling, a real path
+		server.WriteError(w, http.StatusBadRequest, fmt.Sprintf("%q is not a component's path", s.Component), docs)
 		return
 	}
 	if b.partitionParamRefused(w, r, s.Component) || b.globalAddressRegRefused(w, s.Component, s.Path, "bus") {
@@ -631,6 +643,9 @@ func (b *Broker) apiBusSubsDelete(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	if !b.IsAdmin(p) {
 		comp = p.Component // only your own
+	}
+	if sealedRefused(w, sealedOwn(p, comp, sealedOwnRegs)) {
+		return
 	}
 	if b.partitionParamRefused(w, r, comp) {
 		return

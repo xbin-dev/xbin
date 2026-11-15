@@ -28,6 +28,19 @@ import (
 func (r *Runner) build(c *registry.Component) (string, error) {
 	switch c.Manifest.Runtime {
 	case "go":
+		if c.Sealed {
+			// the release's own build of the release's own code: no compile
+			// and no module download on this host (D227). Only a development
+			// xbind builds one from its materialized source, below.
+			if r.SealedPrebuilt != nil {
+				if bin, ok := r.SealedPrebuilt(c); ok {
+					return bin, nil
+				}
+			}
+			if !r.SealedCompile {
+				return "", &BuildError{Output: c.Path + ": this xbin install has no build of this system component, and it is never compiled on the host"}
+			}
+		}
 		entry := goEntry(c.Manifest)
 		out := filepath.Join(r.Root, ".xbin", "build", util.CompKey(c.Path), "bin")
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
@@ -40,7 +53,7 @@ func (r *Runner) build(c *registry.Component) (string, error) {
 			if err := r.buildConfined(c, entry, out); err != nil {
 				return "", err
 			}
-			r.GoVersions.Built(c.Path)
+			r.builtGo(c)
 			return out, nil
 		}
 		// the build's own workspace here too (D166): the same module graph
@@ -74,6 +87,14 @@ func (r *Runner) build(c *registry.Component) (string, error) {
 		return p, nil
 	default:
 		return "", fmt.Errorf("unknown runtime %q", c.Manifest.Runtime)
+	}
+}
+
+// builtGo tells the D166 upgrade check of a tile's Go build; never of a
+// sealed component's, whose versions are the release's.
+func (r *Runner) builtGo(c *registry.Component) {
+	if !c.Sealed {
+		r.GoVersions.Built(c.Path)
 	}
 }
 
@@ -121,6 +142,10 @@ type goBuild struct {
 // no c/ and gets today's binds.
 func (r *Runner) buildConfined(c *registry.Component, entry, out string) error {
 	g := goBuild{out: out, outDir: filepath.Dir(out)}
+	if c.Sealed {
+		// its tree is xbind's own, under the masked .xbin: shown read-only
+		g.extra = append(g.extra, confine.RO(c.Dir))
+	}
 	if arts := filepath.Join(g.outDir, "c"); realDir(arts) {
 		g.extra = append(g.extra, confine.Mask(arts))
 	}

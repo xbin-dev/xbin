@@ -533,6 +533,11 @@ func (b *Broker) apiConsentsAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	from, to, ok := consentBody(r)
+	// no tile reaches a person's partition of a sealed component, with or
+	// without their consent, and a sealed component asks for none
+	if sealedRefused(w, cmp.Or(sealedNone(to, sealedNoReach), sealedNone(from, sealedNoReach))) {
+		return
+	}
 	switch {
 	case !ok:
 		server.WriteError(w, http.StatusBadRequest, "need {from, to}: two different tile paths", consentsDocs)
@@ -593,6 +598,9 @@ func (b *Broker) apiConsentsRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	from, to, ok := consentBody(r)
+	if sealedRefused(w, cmp.Or(sealedNone(to, sealedNoReach), sealedNone(from, sealedNoReach))) {
+		return
+	}
 	if !ok {
 		server.WriteError(w, http.StatusBadRequest, "need {from, to}: two different tile paths", consentsDocs)
 		return

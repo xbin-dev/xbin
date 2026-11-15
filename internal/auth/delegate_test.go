@@ -182,12 +182,10 @@ func TestDelegateOnlyOnTheGateway(t *testing.T) {
 // Developing an agent on a single-user xbind (--dev --no-auth): nobody
 // signs in and there are no user partitions, so the holder runs as ONE
 // global instance — and that instance is the implicit owner's delegate.
-// Today delegateOf refuses a global instance outright (the global instance
-// is nobody's delegate), which is right while holders are partitioned per
-// person only. The case is kept here, as it is meant to hold, for the
-// change that brings the sealed-component table in.
+// Under --no-auth nobody signs in, so nobody has a partition: a holder runs
+// as one instance (sealed.Options.NoAuth), and that instance is the delegate
+// of the one person there is — the implicit owner, as a person.
 func TestDelegateNoAuthGlobalHolder(t *testing.T) {
-	t.Skip("until the sealed-components branch lands: under --no-auth there are no user partitions, so the holder's single global instance (under --dev) becomes the implicit owner's delegate — auth.delegateOf refuses every global instance today; un-skip with that change (see boot/delegation.go, auth.SetDelegateHolders)")
 	a, err := Load(t.TempDir(), true) // --no-auth
 	if err != nil {
 		t.Fatal(err)

@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -499,6 +500,9 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	comp := body.Component
+	if sealedRefused(w, cmp.Or(sealedNone(comp, sealedNoIface), sealedNone(p.Component, sealedNoIface))) {
+		return
+	}
 	switch {
 	case p.Component != "":
 		if comp != "" && comp != p.Component {

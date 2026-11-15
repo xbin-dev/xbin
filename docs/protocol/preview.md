@@ -149,6 +149,9 @@ ended.
   caller has never opened answers **409** ("open it once first"): a
   preview mints no partition identity, creates no volume and starts no
   first instance.
+- **A system component is never drawn.** A preview of `xbin/<name>`
+  answers 400 ([sealed.md](/docs/sealed.md)), and a screen it sits on is
+  drawn without it: its files and calls answer 403 inside the render.
 - An admin's view-as session can't ask for a preview, and a preview is
   never of someone else: admins look through
   [view-as](/docs/auth.md).
@@ -157,7 +160,7 @@ ended.
 
 | Status | When |
 |---|---|
-| 400 | a body that doesn't parse, or `tile` that is no tile path |
+| 400 | a body that doesn't parse, `tile` that is no tile path, or a system component (`xbin/<name>`) |
 | 403 | the caller is not a person for themselves: the root token, a tile or its frame, a view-as session, a terminal asking for another tile or a screen; a non-primary tile deployment's credential (a preview shows the primary) |
 | 404 | no such tile among the ones the caller can open; no such screen among theirs (the error names them) |
 | 409 | a partitioned tile the caller never opened |

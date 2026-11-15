@@ -241,6 +241,35 @@ async function oldScaffold(browser) {
     await settle(S.page);
     check(await S.page.locator('bx-shell .pm, bx-shell .pchip, bx-shell .pover').count() === 0,
       'the old shell ignores the new fields: no marker, no chip, no card overlay');
+    // system (sealed) components (D227): the listings an old shell reads
+    // leave them out, so it offers no tile with a terminal that isn't there
+    const sealedPaths = ((await (await api('GET', '/sealed')).json()).components ?? []).map((c) => c.path);
+    if (sealedPaths.length === 0) skip('this xbind has no sealed component (a default build): what an old scaffold shows of one needs HARNESS_GO_TAGS=sealedfixture');
+    // (its "interfaces to bind" prompt may name one whose declared slot is
+    // unbound: binding there is what an admin may do, and works)
+    if (sealedPaths.length > 0) {
+      const tiles = await S.page.evaluate(() => {
+        const out = [];
+        const walk = (root) => root.querySelectorAll('*').forEach((el) => {
+          const p = el.dataset?.path ?? el.getAttribute?.('src') ?? '';
+          if (typeof p === 'string' && p.startsWith('xbin/')) out.push(`${el.tagName.toLowerCase()}[${p}]`);
+          if (el.shadowRoot) walk(el.shadowRoot);
+        });
+        walk(document);
+        return out;
+      });
+      check(tiles.length === 0, `the old shell has no tile, card or sidebar row for a system component: it would offer a terminal and a source view that don't exist (${tiles.join(', ')})`);
+      const side = await S.page.locator('bx-shell').evaluate((sh) => {
+        const names = [];
+        const walk = (root) => root.querySelectorAll('*').forEach((el) => {
+          if (/side/i.test(el.tagName) || el.classList?.contains('side')) names.push(el.innerText || el.shadowRoot?.textContent || '');
+          if (el.shadowRoot) walk(el.shadowRoot);
+        });
+        walk(sh.shadowRoot ?? sh);
+        return names.join('\n');
+      });
+      check(side.length > 0 && !/Fixture (probe|people)|xbin\//.test(side), 'its sidebar lists none');
+    }
     await shotEl(S.page, `bx-canvas .card[data-path="${PEND}"]`, 'old-scaffold-pending');
     await shotEl(S.page, `bx-canvas .card[data-path="${PART}"]`, 'old-scaffold-partitioned');
 
@@ -254,12 +283,25 @@ async function oldScaffold(browser) {
     for (const t of [PART, PEND]) {
       check(await S.page.locator(`text=${t}`).count() > 0, `the old admin console renders and lists ${t}`);
     }
+    for (const p of sealedPaths) {
+      check(await S.page.locator(`text=${p}`).count() === 0, `nor does the old admin console (${p})`);
+    }
     const bar = await S.page.locator('.al', { hasText: 'OOM-killed' }).allInnerTexts();
     check(bar.length === 1 && bar[0].includes('/xbin/limits'), `the old admin console's alert bar shows the limits alert's words (${(bar[0] ?? '').slice(0, 200)})`);
     const lbar = await S.page.locator('.al', { hasText: 'No LLM is set up' }).allInnerTexts();
     check(lbar.length === 1 && lbar[0].includes('/xbin/llm'), `the old admin console's alert bar shows the LLM setup alert's words (${(lbar[0] ?? '').slice(0, 200)})`);
     check(await S.page.locator('text=/^\\s*LLM\\s*$/').count() === 0 && await S.page.locator('[data-llm-setup]').count() === 0, `${OLD}'s admin console has no LLM tab and draws no card`);
     await shot(S.page, 'old-scaffold-admin');
+    if (sealedPaths.length > 0) {
+      // …and the surface that is there whatever the scaffold's age
+      await S.page.goto(`${URL}/xbin/system`);
+      const listed = await until(async () => {
+        const cs = await S.page.evaluate(() => document.querySelector('bx-system-page')?.testApi().components() ?? []);
+        return cs.length === sealedPaths.length ? cs : null;
+      }, '/xbin/system lists them');
+      check(sealedPaths.every((p) => listed.some((c) => c.path === p)), `/xbin/system, xbind's own page, lists them beside the old scaffold (${JSON.stringify(listed)})`);
+      await shot(S.page, 'old-scaffold-system');
+    }
     // xbind's own page needs no scaffold: it works beside the old one
     await S.page.goto(`${URL}/xbin/llm`);
     await S.page.waitForSelector('bx-llm-page main[data-mode=admin] bx-llm-admin [data-status]', { timeout: 15000 });

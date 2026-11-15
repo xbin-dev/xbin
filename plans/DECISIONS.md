@@ -15264,7 +15264,8 @@ Deviations and refinements made while implementing; all deliberate:
     `TestModelIsCurrent` fails when a quoted passage changed and the file
     wasn't regenerated. It compares the output, not a hash of the pages:
     an edit elsewhere in a page costs nobody a regeneration.
-  - **Evaluation.** Fourteen scripted scenarios (`ws_eval_test.go`) run
+  - **Evaluation.** Fourteen scripted scenarios (`ws_eval_test.go`; the
+    fields' own tests are `ws_fields_test.go`) run
     in the template's suite — two came with the follow-up: pending
     requests interleaving with a finishing tile agent, and an end by
     restart offered for resume. They check what a scripted model can't
@@ -15275,6 +15276,25 @@ Deviations and refinements made while implementing; all deliberate:
     wake row the first build's park left behind when a pass raced its
     commit. What a real model does is twenty-one scenarios for a manual
     run (`testdata/ws-real-model-scenarios.md`); no provider was called.
+  - **Fields beside the words.** The page draws from fields, the model
+    reads sentences, and neither is parsed out of the other
+    (`ws_context.go`): a message's `context` (the tile or screen the
+    person attached; the tile's name and whether the session is connected
+    are xbind's answer, and the model reads one labelled line before their
+    words, the stored message staying theirs); a request's outcome
+    (`grant` once | call | tile and until when, `by`, `via`,
+    `resultStatus`, `result`, `expiresMs`); a refusal as a card of its own
+    with a `kind` and xbind's sentence (`ws_refusals`); `ask_user`'s
+    `kind` (choices | redirect, with its tile | cant); and on
+    `/ws/state` the stopping `quota` (from the connector's 429), `pausedAt`
+    and each model's `private` and `where`. All additive; no sentence the
+    model is told changed. *Rejected*: deriving the cards from the tool
+    results' wording (the page did, and every reword would break it);
+    asking the model to restate a refusal (it is xbind's fact, not the
+    model's). *Open*: the connector's model list carries no `private` per
+    model, so only a model one of the person's sessions is on is marked
+    (from xbind's connection view); a tile outside the map is `hidden` or
+    `policy` only where xbind's dry run says so, else `not-connected`.
   - **Not here.** The page (D, E) and anything in the template's
     frontend; attachments (the class has no file tools: a file a person
     attaches would be unreadable — open); a preview's picture (the tool gives the model
@@ -15283,3 +15303,48 @@ Deviations and refinements made while implementing; all deliberate:
     tile agents by itself after an xbind update (it is told they stopped
     and may ask to continue one, which asks the person); the reduced
     `$HOME` for started sessions (5.7).
+- **D227 — Sealed components: code that is always the running release's
+  (2026-11-14; issue #51).** The owner, on where the workspace agent runs:
+  a sealed system component, as a general facility, with "a very clean
+  auto-update story (eg code always = builtin template code)". **The
+  full record** — each rule's reasoning, what was weighed and rejected,
+  the owner's answers, four review rounds — is
+  `plans/wsagent/s1-sealed.md` §Decision record (moved there verbatim on
+  2026-11-15: this log is at its size guard). The rules:
+  - **A compiled-in table declares them** (`internal/sealed`; empty in a
+    release until `xbin/wsagent` is registered). Nothing in a workspace
+    declares one or is read about one. The path is `xbin/<name>`: `xbin`
+    is reserved, names are at most 18 characters, `xbin~*` is reserved,
+    and a name may not shadow an xbind route or page.
+  - **The code is the binary's**: rendered, hashed and materialized under
+    `.xbin/sealed`, verified before every start, pages served from
+    memory. Backends are prebuilt per release (`bin/sealed`, listed in
+    `sealed.json`); only `--dev`/`--no-auth` compile.
+  - **Holds, not fallbacks** (`no-build`, `foreign-data`, `newer-data`,
+    `stamp`, `needs-sandboxes`), shown by `/xbin/system` and `bx system`.
+  - **Its data key is its own**, claimed by a stamp with the data format;
+    unclaimed data at the key holds it and is never read, moved or
+    deleted; a newer format holds it (a downgrade).
+  - **Never a target**: no grant, binding or route reaches it or a
+    person's partition of it; only its instance credential acts as it;
+    its page's frame token is a viewer's (its own backend and files,
+    plus the exact GET paths its row names and, for a holder, the
+    delegation API).
+  - **What an admin may change**: who has read access (no level above
+    read exists on it), enabled, limits, the bindings of its declared
+    slots to providers the release names. Everything else is the table's.
+  - **The boundary is where the work is done**, on the canonical path
+    (`util.SealedPath`); the route table (`server/sealedclass.go`, pinned
+    by a golden) is the early answer. One spelling: an odd one is refused.
+  - **Restore is a write path**: only a sealed archive that names it,
+    under a backup key this workspace created; never while held.
+  - **Delegation** (D228, D232): holders, their notice path and the one
+    row that is the agent xbin's chrome frames are the table's
+    (`Capabilities.Delegate`, `Notify`, `Capabilities.Agent`). A person's
+    agent does nothing in a sealed component; no preview shows one.
+  - **Compat and words.** Listings leave sealed rows out unless asked
+    (`?sealed=1`). "Sealed component" in code and builder docs; people
+    read "system component", never beside the vault's sealed state.
+  - **Not done here.** No entry point in the shell, the admin console or
+    the app (the workspace agent's UI work adds them). The real-binary
+    downgrade suite has nothing sealed to downgrade until a row exists.

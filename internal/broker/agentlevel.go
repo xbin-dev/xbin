@@ -202,7 +202,7 @@ func personOwnSession(p auth.Principal) bool {
 func (b *Broker) agentLevelRows(p auth.Principal) []agentLevelRow {
 	out := []agentLevelRow{}
 	for _, c := range b.Reg.Components() {
-		if c.IsTemplate() || !b.mayManageTile(p, c.Path) {
+		if c.IsTemplate() || c.Sealed || !b.mayManageTile(p, c.Path) { // (a sealed component has no agent level: no agent acts in it)
 			continue
 		}
 		level, requested := b.agentLevel(c)
@@ -247,6 +247,9 @@ func (b *Broker) apiAgentLevelsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tile := strings.Trim(body.Tile, "/")
+	if sealedRefused(w, sealedNone(tile, sealedNoAgent)) {
+		return
+	}
 	c, ok := b.Reg.Component(tile)
 	switch {
 	case !personOwnSession(p):

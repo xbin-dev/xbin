@@ -221,6 +221,9 @@ func (a *deploymentsAPI) resolve(ref string) (tileRef, *dpe) {
 	if !cleanRel(ref) {
 		return tileRef{}, noTile(ref)
 	}
+	if util.SealedPath(ref) {
+		return tileRef{}, sealedTile(ref)
+	}
 	if c, ok := a.dp.Reg.Component(ref); ok {
 		return a.ref(c, "", false), nil
 	}
@@ -246,6 +249,9 @@ func (a *deploymentsAPI) resolveQuery(v string) (tileRef, *dpe) {
 	}
 	if !cleanRel(ref) {
 		return tileRef{}, noTile(ref)
+	}
+	if util.SealedPath(ref) {
+		return tileRef{}, sealedTile(ref)
 	}
 	if c, ok := a.dp.Reg.Component(ref); ok {
 		return a.ref(c, "", false), nil
@@ -699,6 +705,13 @@ func (a *deploymentsAPI) withState(ctx context.Context, pr auth.Principal, body 
 func cleanRel(p string) bool {
 	return p != "" && path.Clean(p) == p && !path.IsAbs(p) && p != ".." && !strings.HasPrefix(p, "../") &&
 		!strings.ContainsRune(p, 0)
+}
+
+// sealedTile refuses a sealed component (or any name under xbin/) as a
+// deployments route's tile: every resolution of a tile ref passes resolve
+// or resolveQuery, and the plane refuses it again where it acts (D227).
+func sealedTile(ref string) *dpe {
+	return &dpe{Status: http.StatusBadRequest, Msg: util.SealedRefusal(ref, deployments.SealedWhat)}
 }
 
 func noTile(ref string) *dpe { return &dpe{Status: http.StatusNotFound, Msg: "no such tile: " + ref} }

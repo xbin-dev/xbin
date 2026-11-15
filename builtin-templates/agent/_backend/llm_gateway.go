@@ -106,6 +106,10 @@ type wireCodec interface {
 // (LLMRequest.Run); registered at init, none in a normal instance's calls.
 var llmHeaderHooks []func(req LLMRequest, h http.Header)
 
+// llmStatusHooks hear how a model call was answered: its status, and the
+// body of a refusal (nil for a 200). Registered at init.
+var llmStatusHooks []func(req LLMRequest, status int, body []byte)
+
 func (g *gatewayLLM) Chat(ctx context.Context, req LLMRequest, onEvent func(LLMEvent)) (LLMReply, error) {
 	// the provider a reference names; requests (and replies, and the
 	// transcript) carry the bare model id
@@ -224,11 +228,17 @@ func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		for _, f := range llmStatusHooks {
+			f(req, resp.StatusCode, raw)
+		}
 		msg := strings.TrimSpace(string(raw))
 		if w.unsupported(resp.StatusCode, msg) {
 			return LLMReply{}, false, fmt.Errorf("%w (llm-gw %s: %s)", errWireUnsupported, resp.Status, msg)
 		}
 		return LLMReply{}, retryableLLM(resp.StatusCode), fmt.Errorf("llm-gw %s: %s", resp.Status, msg)
+	}
+	for _, f := range llmStatusHooks {
+		f(req, resp.StatusCode, nil)
 	}
 	if !req.Stream {
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))

@@ -70,7 +70,7 @@ func (s *Server) sandboxDocument(w http.ResponseWriter, r *http.Request, compPat
 func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	rel := strings.TrimPrefix(r.URL.Path, "/c/")
 	_, cleaned, err := util.SafeJoin(s.Reg.Root, rel)
-	if err != nil || !pathAllowed(cleaned) {
+	if err != nil || !pathAllowed(cleaned) && !s.sealedOwned(cleaned) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
@@ -559,9 +559,9 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 		"\n%s<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"xbin-component\" content=\"%s\">\n"+
 			"%s%s<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
-			"%s%s%s%s"+
+			"%s%s%s%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
-		assetHead, im, htmlEscape(compPath), s.appearanceMetas(r), depMeta, frameTok, partMeta, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
+		assetHead, im, htmlEscape(compPath), s.appearanceMetas(r), depMeta, frameTok, partMeta, ifaceMeta, sandboxMeta, appWSOriginMeta(r), sealedCodeMeta(comp))
 }
 
 // mayMintFrameToken: the injection mints compPath's frame token only for a

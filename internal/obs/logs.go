@@ -46,6 +46,11 @@ func (o *Plane) canReadLogs(p auth.Principal, comp string) bool {
 	// CanTerminalTile: admins everywhere; session humans by their resolved
 	// (org/team-aware) level; element principals always false there — only
 	// the explicit self case admits them.
+	if util.SealedPath(comp) {
+		// a sealed component has no terminal level (auth.CanTerminalTile):
+		// its logs are its own and the admins'
+		return p.Component == comp || p.IsAdmin()
+	}
 	return p.Component == comp || p.CanTerminalTile(comp)
 }
 

@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bytes"
+	"cmp"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -38,6 +39,9 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 	}
 	from := strings.Trim(strings.TrimSpace(body.From), "/")
 	to := strings.Trim(strings.TrimSpace(body.To), "/")
+	if sealedRefused(w, cmp.Or(sealedNone(from, sealedNoClone), sealedNone(to, sealedNoClone))) {
+		return
+	}
 	if from == "" || to == "" || from == to {
 		server.WriteError(w, http.StatusBadRequest, "need {from, to} with distinct paths")
 		return
@@ -63,6 +67,11 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 	src, ok := b.Reg.Component(from)
 	if !ok {
 		server.WriteError(w, http.StatusNotFound, "no such component: "+from)
+		return
+	}
+	if src.Sealed {
+		// its code is xbind's own and never becomes a tree of the workspace
+		server.WriteError(w, http.StatusBadRequest, server.SealedRefusal(from, "it can't be cloned, and nothing is created under xbin/"), server.SealedDocs)
 		return
 	}
 	if !util.ComponentPathOK(to) || util.ReservedTop[strings.Split(to, "/")[0]] {

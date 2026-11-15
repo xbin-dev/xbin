@@ -18,7 +18,18 @@
  *   uploadMethod(m)                    PUT (default), POST, PATCH — else null
  *
  * `known` is the workspace's tile paths (GET /api/xbin/components).
+ *
+ * A system (sealed) component lives at `xbin/<name>` (D227,
+ * /docs/sealed.md), inside xbind's own /api/xbin/. Its paths resolve like a
+ * tile's only when xbind itself listed it — it is in `known`, which has
+ * such a row only for a caller that asked with ?sealed=1. Any other tile
+ * path beginning `xbin` is refused as before, so nothing a tile hands over
+ * reaches xbind's API.
  */
+
+// a sealed component's own path: xbin/<name>, and listed by xbind
+const SEALED_NAME = /^[a-z][a-z0-9-]{0,23}$/;
+const sealedTile = (segs, tile, known) => segs.length === 2 && SEALED_NAME.test(segs[1]) && (known ?? []).includes(tile);
 
 const PATH_SAFE = new Set([...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~!$&\'()*+,;=:@'].map((c) => c.charCodeAt(0)));
 const QUERY_SAFE = new Set([...PATH_SAFE, '/'.charCodeAt(0), '?'.charCodeAt(0)]);
@@ -64,8 +75,10 @@ const trim = (s) => s.replace(/^[\t\p{Zs}]+|[\t\p{Zs}]+$/gu, '');
 // base) goes, or null (refused)
 function resolve(ref, tile, known, relativeTo, allowed, rootRelative) {
   const tileSegs = String(tile ?? '').split('/');
-  // `/api/xbin/…` is xbind's own API, whatever follows
-  if (!tile || tileSegs.some((x) => x === '' || x === '.' || x === '..') || tileSegs[0] === 'xbin') return null;
+  // `/api/xbin/…` is xbind's own API, whatever follows — but for a sealed
+  // component xbind listed (sealedTile)
+  if (!tile || tileSegs.some((x) => x === '' || x === '.' || x === '..')) return null;
+  if (tileSegs[0] === 'xbin' && !sealedTile(tileSegs, tile, known)) return null;
   const s = trim(String(ref ?? ''));
   if (!s || ctl(s) || s.includes('\\') || hasScheme(s) || s.startsWith('//')) return null;
 

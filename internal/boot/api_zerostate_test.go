@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/sealed"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -88,7 +89,8 @@ func zsBootWith(t *testing.T, ws string, tune func(*Config)) *zsDaemon {
 		t.Fatal(err)
 	}
 	cfg := &Config{Workspace: ws, Listener: ln, Listen: ln.Addr().String(), InsecureVault: true,
-		Privileges: NoPrivileges{}, Stdout: io.Discard, Version: "test", LimitMem: "2G"}
+		Privileges: NoPrivileges{}, Stdout: io.Discard, Version: "test", LimitMem: "2G",
+		Sealed: []sealed.Spec{}} // a release's table, whatever the test binary's tags
 	if tune != nil {
 		tune(cfg)
 	}
