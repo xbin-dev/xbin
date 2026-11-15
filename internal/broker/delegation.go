@@ -61,7 +61,7 @@ func (b *Broker) DelegateTile(p auth.Principal, tile string, write bool) (level,
 	case tile == p.Agent:
 		return "", "", false, fmt.Errorf("%s calls itself with its own credential, not as %s", p.Agent, p.UserID)
 	case auth.HoldsDelegation(tile):
-		return "", "", false, fmt.Errorf("%s is a sealed system component: nothing calls it but its own pages", tile)
+		return "", "", false, fmt.Errorf("%s is a system component: nothing calls it but its own pages", tile)
 	case util.SealedPath(tile):
 		// every sealed component, holder or not (D227): a person's agent
 		// acts on tiles, with the person's access to them
@@ -127,7 +127,7 @@ func holderRefusal(caller, target string) string {
 	if caller == "" || caller == target || !auth.HoldsDelegation(target) {
 		return ""
 	}
-	return fmt.Sprintf("%s is a sealed system component that acts for people: no tile calls it, holds a grant on it or binds to it", target)
+	return fmt.Sprintf("%s is a system component that acts for people: no tile calls it, holds a grant on it or binds to it", target)
 }
 
 // DelegateTile is DelegateTile for the server's delegate gate
