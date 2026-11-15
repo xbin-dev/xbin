@@ -5907,8 +5907,11 @@ beside them are the model's, and neither is parsed out of the other.
   connected?}` — `connected` absent when xbind couldn't be asked — or
   `{screen}`), and the model reads it as one labelled line
   before their words — `[context your person attached to this message: the
-  tile "Orders" (apps/orders)]`. A malformed context is dropped; outside a
-  workspace agent's session the field is ignored.
+  tile "Orders" (apps/orders)]`. The run view answers it back on the
+  message as `context`, in the stored shape (`GET /runs/{id}/view`, its
+  pages, and the `message` events of `/stream`): what the page draws the
+  sent message's "About …" chip from. A malformed context is dropped;
+  outside a workspace agent's session the field is ignored.
 - **A request's outcome** (`cards.requests[]`): `expiresMs` (when xbind
   lets it lapse); once decided, `by` (`person` \| `xbin` — it expired — \|
   `agent` — it withdrew it) and `via` (what the person decided it on:

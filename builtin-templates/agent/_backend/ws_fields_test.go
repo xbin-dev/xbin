@@ -65,6 +65,22 @@ func TestWsMessageContext(t *testing.T) {
 	if a := abouts[4]; a == nil || a.Tile != "apps/orders" || a.Name != "" || a.Connected != nil {
 		t.Fatalf("a context while xbind can't be asked: %+v", a)
 	}
+	// the run view answers each message's context as stored, for the page's "About …" chip
+	var view struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	fx.json(t, fx.call(t, wsAlice, "GET", fmt.Sprintf("/runs/%d/view", s.Run), nil), 200, &view)
+	var seen []string
+	for _, m := range view.Messages {
+		if m["role"] != "user" {
+			continue
+		}
+		c, _ := json.Marshal(m["context"])
+		seen = append(seen, string(c))
+	}
+	if got := strings.Join(seen, "|"); got != `{"connected":true,"name":"Orders","tile":"apps/orders"}|{"screen":"Sales desk [x]"}|{"connected":false,"tile":"apps/nowhere"}|null|{"tile":"apps/orders"}` {
+		t.Fatalf("the view's contexts: %s", got)
+	}
 	// what the model read
 	calls := f.callsFor(s.Run)
 	last := calls[len(calls)-1]
