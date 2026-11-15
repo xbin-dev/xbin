@@ -77,6 +77,7 @@ func (st *State) setupDelegation(srv *server.Server) {
 		}
 		st.AgentPolicy = st.Broker.DelegationPolicy(startPrefs)
 	}
+	srv.RearmDelegateNotices()     // the expiry notices of requests that waited across the restart
 	st.Broker.ObserveAgentLevels() // what each tile's manifest says agents may do, against what was approved
 	srv.AgentPolicy = st.AgentPolicy
 	st.Broker.AgentPolicy = st.AgentPolicy

@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Workspace agents: a start carries its first prompt; xbind resolves a
+  start's defaults; taint from the agent's own store** (D228 C0;
+  [protocol/delegation.md](/docs/protocol/delegation.md)). A delegate's
+  `POST /term/sessions` takes `prompt` (bound by the ticket, shown on the
+  card, sent by xbind as the session's first prompt) and may name only its
+  tile — the card shows the effective harness, mode and network. New:
+  `GET /delegate/start-defaults?tile=`, `POST
+  /delegate/sessions/<id>/allows` and `…/taint`, `&ids=` on the compact
+  session read (`endedBy: exit | restart`). SDK: `StartDefaultsOf`,
+  `SessionAllows`, `TaintSession`.
 - **The workspace agent's backend: the agent template in workspace mode**
   (D231; [workspace-agent.md](/docs/workspace-agent.md), the template's
   `API.md` §Workspace mode). Started with `XBIN_AGENT_MODE=workspace` — by

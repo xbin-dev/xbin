@@ -965,6 +965,13 @@ sess, err = xbin.SetSessionModel(ctx, sess.ID, "hosted/big") // errors.Is(err, x
                                                              // seen data of err.(*xbin.DelegateError).Orgs — open a new one
 ```
 
+`xbin.StartDefaultsOf(ctx, tile)` says what a tile agent started there
+would open with (xbind resolves harness, mode and network; a start may
+name only its tile, and carry its first `prompt`). For what the backend
+keeps itself, `xbin.SessionAllows(ctx, id, orgs)` asks whether the
+session's model may see those orgs' data and `xbin.TaintSession(ctx, id,
+orgs)` records that the conversation took it in (add-only).
+
 The holder's own model calls (`xbin.Client()` to its `llm` binding) send
 the same id as `xbin.AgentSessionHeader`: the connector serves them on the
 session's model only ([llm.md](/docs/llm.md)). xbind tells the backend when
