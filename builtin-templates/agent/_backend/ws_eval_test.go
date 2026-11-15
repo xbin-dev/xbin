@@ -363,6 +363,9 @@ func TestWsEvalChangeSetProposed(t *testing.T) {
 	if fx.x.count("Propose") != 1 {
 		t.Fatalf("proposals: %v", fx.x.calls)
 	}
+	if reqs := fx.ag.db.wsReqs(`WHERE run_id=? AND kind='changeset'`, s.Run); len(reqs) != 1 || reqs[0].CallID != "a2" {
+		t.Fatalf("the change set's card names the call that proposed it: %+v", reqs)
+	}
 	// the person applies one of two
 	fx.x.mu.Lock()
 	for _, cs := range fx.x.sets {

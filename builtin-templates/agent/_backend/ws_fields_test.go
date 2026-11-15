@@ -212,6 +212,9 @@ func TestWsRequestOutcomeFields(t *testing.T) {
 		fx.rest(t, s)
 	}
 	file(1)
+	if r := cards()[1]; r["callId"] != "k1" {
+		t.Fatalf("a request's callId: %v", r)
+	}
 	if r := cards()[1]; r["state"] != "pending" || r["grant"] != nil || r["by"] != nil || r["expiresMs"].(float64) <= float64(nowMs()) || r["resultStatus"] != nil {
 		t.Fatalf("a pending request: %v", r)
 	}
@@ -219,6 +222,9 @@ func TestWsRequestOutcomeFields(t *testing.T) {
 	if r := cards()[1]; r["state"] != "used" || r["grant"] != "once" || r["grantUntilMs"] != nil || r["by"] != "person" || r["via"] != "session" ||
 		r["resultStatus"] != 200.0 || r["result"] != "POST /send → 200" {
 		t.Fatalf("approved once: %v", r)
+	}
+	if r := cards()[1]; r["callId"] != "k1" {
+		t.Fatalf("a decided request keeps the call that filed it: %v", r)
 	}
 	file(2)
 	before := nowMs()
@@ -236,6 +242,9 @@ func TestWsRequestOutcomeFields(t *testing.T) {
 	fx.say(t, s, "void 3")
 	fx.idle(t, s)
 	decide(3, "denied", "")
+	if r := cards()[3]; r["callId"] != "k3" {
+		t.Fatalf("a denied request's callId: %v", r)
+	}
 	if r := cards()[3]; r["state"] != "denied" || r["grant"] != nil || r["by"] != "person" || r["via"] != "session" || r["resultStatus"] != nil || r["result"] != nil {
 		t.Fatalf("denied: %v", r)
 	}

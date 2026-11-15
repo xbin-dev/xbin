@@ -130,6 +130,25 @@ func TestWsBriefCard(t *testing.T) {
 	if len(cards.Briefs) != 1 || cards.Briefs[0].State != "asked" || len(cards.Requests) != 1 || cards.Requests[0].Ref != first.ID || cards.Requests[0].State != "pending" {
 		t.Fatalf("the cards: %+v", cards)
 	}
+	// each card names the tool call that made it: where the page draws it
+	if cards.Briefs[0].CallID != "b1" || cards.Requests[0].CallID != "b3" {
+		t.Fatalf("the cards' calls: brief %q, request %q", cards.Briefs[0].CallID, cards.Requests[0].CallID)
+	}
+	callIDs := func() (briefs, reqs []string) {
+		t.Helper()
+		var c struct {
+			Requests []wsReq
+			Briefs   []wsBrief
+		}
+		fx.json(t, fx.call(t, wsAlice, "GET", base+"/cards", nil), 200, &c)
+		for _, b := range c.Briefs {
+			briefs = append(briefs, b.CallID)
+		}
+		for i := len(c.Requests) - 1; i >= 0; i-- { // newest first: oldest first here
+			reqs = append(reqs, c.Requests[i].CallID)
+		}
+		return
+	}
 	var defs struct {
 		Defaults    wsStartDefaults
 		Picked      string
@@ -167,6 +186,10 @@ func TestWsBriefCard(t *testing.T) {
 	}
 	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "tile agent #1 started in apps/orders (Codex, asks before acting)") {
 		t.Fatalf("the start's update: %q", up)
+	}
+	// asked again after the edit and approved: the same request, the same call
+	if b, r := callIDs(); strings.Join(b, ",") != "b1" || strings.Join(r, ",") != "b3" {
+		t.Fatalf("after the edit and the start: briefs %q, requests %q", b, r)
 	}
 
 	// their preferences let a tile agent start without xbind asking: the click on the brief confirms
@@ -210,6 +233,10 @@ func TestWsBriefCard(t *testing.T) {
 	fx.json(t, fx.call(t, wsAlice, "POST", base+"/briefs/3/start", nil), 200, &start)
 	if third := fx.x.pending(t); start.Request != third.ID || third.Kind != "session" {
 		t.Fatalf("the card's own request: %+v", start)
+	}
+	// the card's own request was filed by no tool call: it has none (the page draws it by its brief)
+	if b, r := callIDs(); strings.Join(b, ",") != "b1,b4,b6" || strings.Join(r, ",") != "b3,b5," {
+		t.Fatalf("the cards' calls: briefs %q, requests %q", b, r)
 	}
 	// the list the agent reads
 	f.on(forRun(s.Run, lastUser("where are we")), callTools(tc("b7", "tile_agents", `{}`))).once()

@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS ws_requests (
   run_id     INTEGER NOT NULL,
   kind       TEXT    NOT NULL,            -- call | session | template | changeset
   ref        TEXT    NOT NULL,            -- xbind's id for it
-  call_id    TEXT    NOT NULL DEFAULT '', -- unused (a call once waited on its request)
+  call_id    TEXT    NOT NULL DEFAULT '', -- the tool call that filed it ('': the page's Start, or older): where the page draws it
   tile       TEXT    NOT NULL DEFAULT '',
   title      TEXT    NOT NULL DEFAULT '', -- what it is, in the agent's words
   method     TEXT    NOT NULL DEFAULT '',
@@ -146,6 +146,7 @@ func (d *DB) addWsSchema() error {
 		`ALTER TABLE ws_requests ADD COLUMN result_status INTEGER NOT NULL DEFAULT 0`,  // the call's HTTP status, when one ran
 		`ALTER TABLE ws_requests ADD COLUMN result TEXT NOT NULL DEFAULT ''`,           // one line of what came of it
 		`ALTER TABLE ws_requests ADD COLUMN expires_ms INTEGER NOT NULL DEFAULT 0`,     // when a pending request lapses
+		`ALTER TABLE ws_briefs ADD COLUMN call_id TEXT NOT NULL DEFAULT ''`,            // the tile_agent_brief call that wrote it: where the page draws it
 	} {
 		_, _ = d.q.Exec(q)
 	}
@@ -254,8 +255,8 @@ type wsReq struct {
 	ID      int64  `json:"id"`
 	Run     int64  `json:"run"`
 	Kind    string `json:"kind"`
-	Ref     string `json:"ref"` // xbind's id: what the approval chrome is opened with
-	CallID  string `json:"callId,omitempty"`
+	Ref     string `json:"ref"`              // xbind's id: what the approval chrome is opened with
+	CallID  string `json:"callId,omitempty"` // the tool call that filed it, for its life ("": the page's Start filed it)
 	Tile    string `json:"tile,omitempty"`
 	Title   string `json:"title"`
 	Method  string `json:"method,omitempty"`
@@ -443,15 +444,16 @@ type wsBrief struct {
 	State      string `json:"state"`
 	Session    string `json:"session,omitempty"`
 	Edited     bool   `json:"edited,omitempty"`
+	CallID     string `json:"callId,omitempty"` // the tile_agent_brief call that wrote it
 	Created    int64  `json:"createdMs"`
 	Updated    int64  `json:"updatedMs"`
 }
 
-const wsBriefCols = `id, run_id, tile, goal, done_when, leave_alone, check_by, known, state, session, edited, created_ms, updated_ms, harness`
+const wsBriefCols = `id, run_id, tile, goal, done_when, leave_alone, check_by, known, state, session, edited, created_ms, updated_ms, harness, call_id`
 
 func scanWsBrief(scan func(...any) error) (*wsBrief, error) {
 	var b wsBrief
-	err := scan(&b.ID, &b.Run, &b.Tile, &b.Goal, &b.DoneWhen, &b.LeaveAlone, &b.CheckBy, &b.Known, &b.State, &b.Session, &b.Edited, &b.Created, &b.Updated, &b.Harness)
+	err := scan(&b.ID, &b.Run, &b.Tile, &b.Goal, &b.DoneWhen, &b.LeaveAlone, &b.CheckBy, &b.Known, &b.State, &b.Session, &b.Edited, &b.Created, &b.Updated, &b.Harness, &b.CallID)
 	return &b, err
 }
 
