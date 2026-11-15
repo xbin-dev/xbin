@@ -278,7 +278,9 @@ func statusReadAt(pid int64) int64 {
 
 func handleProjectStatus(w http.ResponseWriter, r *http.Request) {
 	p, _ := projectOf(r)
-	noteStatusRead(p.ID)
+	if !previewCall(r) { // a preview's read opens no page: no fetches for it (D234)
+		noteStatusRead(p.ID)
+	}
 	st := ProjectStatus{Repos: []StatusRepo{}, Creds: []StatusCred{}, Warnings: []ProjectWarning{}}
 	st.Sandbox.Ref = p.SandboxRef
 	if p.SandboxRef != "" {

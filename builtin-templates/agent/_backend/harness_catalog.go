@@ -580,7 +580,10 @@ func handleHarnesses(w http.ResponseWriter, r *http.Request) {
 	loadClasses(agent.db) // fresh: another process may have saved
 	mgrs := harnessManagers(ctx)
 	out := map[string]any{}
-	if ref != "" {
+	switch {
+	case ref != "" && previewCall(r): // D234: a preview runs nothing in a sandbox and records nothing
+		out["probe"] = hcProbe{Ref: ref, Error: "a preview doesn't ask a sandbox"}
+	case ref != "":
 		out["probe"] = probeHarnesses(ctx, c, ref, mgrs)
 	}
 	var visible func(string) bool

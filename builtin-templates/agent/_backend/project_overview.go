@@ -151,7 +151,9 @@ func handleProjectOverview(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "range: day or week")
 		return
 	}
-	noteStatusRead(p.ID) // its page is open: its repos are fetched meanwhile, as for the status
+	if !previewCall(r) { // (a preview's read opens no page, D234)
+		noteStatusRead(p.ID) // its page is open: its repos are fetched meanwhile, as for the status
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	xbin.WriteJSON(w, 200, projectOverview(ctx, projAg().db, p, callerOf(r), rng, time.Now()))

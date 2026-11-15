@@ -103,6 +103,21 @@ func mine(h func(http.ResponseWriter, *http.Request, *xbin.SandboxInfo)) http.Ha
 	}
 }
 
+// noPreview refuses a GET that would start something when the call comes
+// from a preview — xbind rendering the person's own view in its browser
+// (xbin.Caller(r).Preview, D234): nobody opened anything, so a preview's
+// read changes nothing. xbind refuses a preview's other methods itself; what
+// it can't see is a GET with an effect, here a terminal (it starts a shell,
+// or types into one) and — stoppedOnly — a read of a stopped sandbox's
+// files, which starts it.
+func noPreview(w http.ResponseWriter, r *http.Request, in *xbin.SandboxInfo, stoppedOnly bool) bool {
+	if !xbin.Caller(r).Preview || r.Method != http.MethodGet || (stoppedOnly && in.State == "running") {
+		return false
+	}
+	xbin.WriteSandboxError(w, &xbin.SandboxError{Status: 409, Refusal: "state", State: in.State, Message: "a preview starts nothing: no terminal, and no stopped sandbox"})
+	return true
+}
+
 func runtimeInfo(w http.ResponseWriter, r *http.Request) {
 	rt, err := sbx.Runtime(r.Context())
 	reply(w, 200, rt, err)
@@ -240,7 +255,7 @@ func execForward(route func(string) xbin.SandboxRoute, keys ...string) func(http
 // ttyAttach relays the caller's terminal WebSocket to tty exec {eid}.
 func ttyAttach(w http.ResponseWriter, r *http.Request, in *xbin.SandboxInfo) {
 	eid, ok := execID(w, r)
-	if !ok {
+	if !ok || noPreview(w, r, in, false) {
 		return
 	}
 	sbx.Sandbox(in.Name).RelayTTY(w, r, eid, xbin.TTYOptions{SandboxID: in.Name, ForUser: xbin.Caller(r).User})
@@ -249,6 +264,9 @@ func ttyAttach(w http.ResponseWriter, r *http.Request, in *xbin.SandboxInfo) {
 // ttyStart starts a tty exec (the login shell unless ?cmd=) and relays the
 // caller's terminal WebSocket to it.
 func ttyStart(w http.ResponseWriter, r *http.Request, in *xbin.SandboxInfo) {
+	if noPreview(w, r, in, false) {
+		return
+	}
 	q := r.URL.Query()
 	rows, _ := strconv.Atoi(q.Get("rows"))
 	cols, _ := strconv.Atoi(q.Get("cols"))
@@ -260,11 +278,17 @@ func ttyStart(w http.ResponseWriter, r *http.Request, in *xbin.SandboxInfo) {
 
 // files forwards files/{op}: FilesRoute refuses an op that isn't one.
 func files(w http.ResponseWriter, r *http.Request, in *xbin.SandboxInfo) {
+	if noPreview(w, r, in, true) {
+		return
+	}
 	sbx.Sandbox(in.Name).Forward(w, r, xbin.FilesRoute(xbin.FilesOp(r.PathValue("op"))),
 		pick(r, "path", "offset", "length", "limit", "mode", "mkdirs", "ifMatch", "ifNoneMatch"))
 }
 
 func tar(w http.ResponseWriter, r *http.Request, in *xbin.SandboxInfo) {
+	if noPreview(w, r, in, true) {
+		return
+	}
 	sbx.Sandbox(in.Name).Forward(w, r, xbin.TarRoute(), pick(r, "path", "exclude", "mkdirs"))
 }
 

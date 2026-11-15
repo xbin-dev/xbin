@@ -146,12 +146,18 @@ func handleSandboxTerminal(w http.ResponseWriter, r *http.Request, ref string) {
 }
 
 // notTerminalUpgrade answers a request that isn't a WebSocket upgrade (400)
-// — before anything is asked of a manager.
+// — before anything is asked of a manager — and a preview's (403, D234): a
+// terminal is a process started, or typed into, in a sandbox, and a preview
+// starts nothing.
 func notTerminalUpgrade(w http.ResponseWriter, r *http.Request) bool {
-	if r.Method == http.MethodGet && ws.IsUpgrade(r) {
+	switch {
+	case r.Method != http.MethodGet || !ws.IsUpgrade(r):
+		xbin.WriteError(w, http.StatusBadRequest, "a terminal is a WebSocket upgrade")
+	case previewCall(r):
+		xbin.WriteError(w, http.StatusForbidden, "a preview opens no terminal")
+	default:
 		return false
 	}
-	xbin.WriteError(w, http.StatusBadRequest, "a terminal is a WebSocket upgrade")
 	return true
 }
 
