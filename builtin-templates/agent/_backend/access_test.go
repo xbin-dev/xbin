@@ -16,6 +16,11 @@ type caller struct {
 	preview                     bool // xbind's preview of the person's own view (D234)
 }
 
+// The callers. An instance's copy of this file names its own tile where this
+// one says apps/agent, so a template change on a line next to those lines
+// conflicts in every renamed instance's `git merge template/main`
+// (TestPartitionsTemplateMerge): a new caller goes after asNobody, and takes
+// the tile from asAlice.
 var (
 	asSystem   = caller{from: "owner"}
 	asCron     = caller{from: "xbin/cron"}
@@ -25,9 +30,9 @@ var (
 	asDave     = caller{from: "apps/agent", user: "dave", level: "read"}
 	asMgr      = caller{from: "apps/agent", user: "mgr", level: "write"}
 	asViewAs   = caller{from: "apps/agent", user: "alice", level: "read", viewedBy: "mgr"}
-	asPreview  = caller{from: "apps/agent", user: "alice", level: "read", preview: true}
 	asElement  = caller{from: "apps/other"}
 	asNobody   = caller{}
+	asPreview  = caller{from: asAlice.from, user: "alice", level: "read", preview: true}
 	allCallers = map[string]caller{"system": asSystem, "cron": asCron, "alice": asAlice, "bob": asBob, "carol": asCarol,
 		"dave": asDave, "mgr": asMgr, "view-as-alice": asViewAs, "element": asElement, "nobody": asNobody}
 )
