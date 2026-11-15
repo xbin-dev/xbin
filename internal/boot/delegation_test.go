@@ -66,6 +66,17 @@ func TestHolderModelCallsAreTheSessions(t *testing.T) {
 			t.Errorf("%s: %q, want a refusal with %q", name, why, c.want)
 		}
 	}
+	// the LIST of models is no call: a holder is shown every model, with a
+	// session or without one, so its person can pick — a call on any of
+	// them but the session's own is still refused (above)
+	for name, c := range map[string]llm.Caller{"with a session": bob, "without one": {Component: holder, Via: "component", User: "bob"}} {
+		c.Listing = true
+		for _, m := range [][2]any{{local, "llama"}, {local, "mistral"}, {hosted, "big"}} {
+			if why := call(c, m[0].(llm.UpstreamInfo), m[1].(string)); why != "" {
+				t.Errorf("listing %s %s: %s", name, m[1], why)
+			}
+		}
+	}
 	// the session changes model: the connector follows it
 	if _, err := store.UpdateAgentSession("bob", holder, h.ID, func(a *delegation.AgentSession) error { a.Model = "hosted/big"; return nil }); err != nil {
 		t.Fatal(err)

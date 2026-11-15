@@ -373,6 +373,14 @@ func (h wsHTTP) Call(ctx context.Context, sid string, c wsCall) (wsAnswer, error
 		if err := json.NewDecoder(io.LimitReader(resp.Body, wsReadMax)).Decode(&d); err != nil {
 			return wsAnswer{}, err
 		}
+		// A dry run xbind answers with allowed: false carries the refusal in
+		// words — `refusal` is the sentence of the tile's or its org's rule,
+		// with no code and no `error` (every other refusal is a 403, above).
+		// Here it is a refusal like the others: the code "tile", the words
+		// in Error.
+		if !d.Allowed && d.Error == "" && d.Refusal != "" {
+			d.Error, d.Refusal = d.Refusal, "tile"
+		}
 		return wsAnswer{Status: resp.StatusCode, Dry: &d}, nil
 	}
 	// xbind's own refusal (a code) is an error; a tile's own answer, whatever

@@ -51,32 +51,43 @@ func wsSteps(text string) (steps []call, ok bool) {
 	return steps, len(steps) > 0
 }
 
-// wsScript answers a conversation whose last message from a person is a
-// "ws:" script: the next step's call, or the summary once every step ran.
+// wsDone starts the summary a finished script is answered with.
+const wsDone = "Done: "
+
+// wsScript answers a conversation whose last "ws:" script isn't finished:
+// the next step's call, or the summary once every step ran. The script is
+// the last one a message carries, and a message without one after it does
+// not end it: the agent writes its own "[workspace updates — …]" message
+// into the transcript at a step boundary — right after the person's
+// message, or between two steps — and a model goes on with what it was
+// asked. Once the summary is said the script is over, and what comes after
+// is answered as any other message ("ok: <text>").
 func wsScript(conv []turn) (plan, bool) {
 	at := -1
-	for i := len(conv) - 1; i >= 0; i-- {
-		if conv[i].Role == "user" {
-			at = i
-			break
+	var steps []call
+	for i := len(conv) - 1; i >= 0 && at < 0; i-- {
+		if conv[i].Role != "user" {
+			continue
+		}
+		text, _ := cutReminder(conv[i].Text)
+		if s, ok := wsSteps(text); ok {
+			at, steps = i, s
 		}
 	}
 	if at < 0 {
 		return plan{}, false
 	}
-	text, _ := cutReminder(conv[at].Text)
-	steps, ok := wsSteps(text)
-	if !ok {
-		return plan{}, false
-	}
 	var results []string
 	for _, t := range conv[at+1:] {
-		if t.Role == "tool" {
+		switch {
+		case t.Role == "tool":
 			results = append(results, answerLine(t.Text))
+		case t.Role == "assistant" && strings.HasPrefix(t.Text, wsDone):
+			return plan{}, false // summarized already: the script is over
 		}
 	}
 	if len(results) < len(steps) {
 		return plan{Fast: true, Calls: []call{steps[len(results)]}}, true
 	}
-	return plan{Fast: true, Text: "Done: " + strings.Join(results, " | ")}, true
+	return plan{Fast: true, Text: wsDone + strings.Join(results, " | ")}, true
 }

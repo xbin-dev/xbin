@@ -106,6 +106,15 @@ func holderCallPolicy(srv *server.Server, brk *broker.Broker) llm.CallPolicy {
 		if c.Component == "" || !auth.HoldsDelegation(c.Component) {
 			return nil
 		}
+		if c.Listing {
+			// The list of models is no call: nothing of a conversation goes
+			// anywhere. A person's agent shows it so they can pick — and
+			// which of them a session may move to is xbind's to answer
+			// when it is asked (the connection view's whatIf, the PATCH).
+			// Holding the list to the session's own model left the agent's
+			// model picker empty.
+			return nil
+		}
 		const how = ": make one (POST /api/xbin/delegate/sessions) and send its id as " + llm.AgentSessionHeader
 		if c.User == "" || c.AgentSession == "" || srv.Delegation == nil {
 			return errors.New("a workspace agent's model calls run under an agent session" + how)

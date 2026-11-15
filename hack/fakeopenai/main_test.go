@@ -104,6 +104,20 @@ func TestWsScript(t *testing.T) {
 	if p = script(conv, ""); len(p.Calls) != 0 || !strings.HasPrefix(p.Text, "ok: ") {
 		t.Fatalf("a message after the script: %+v", p)
 	}
+	// the agent's own message landing after the script — at the turn's first
+	// step boundary, or between two steps — doesn't end it
+	mid := []turn{{Role: "user", Text: "ws: tile_agents ;; workspace_map"}, {Role: "user", Text: "[workspace updates] a tile agent waits"}}
+	if p = script(mid, ""); len(p.Calls) != 1 || p.Calls[0].Name != "tile_agents" {
+		t.Fatalf("a script with the agent's updates after it: %+v", p)
+	}
+	mid = append(mid, turn{Role: "tool", Tool: "tile_agents", Text: "none"}, turn{Role: "user", Text: "[workspace updates] it ended its turn"})
+	if p = script(mid, ""); len(p.Calls) != 1 || p.Calls[0].Name != "workspace_map" {
+		t.Fatalf("updates between two steps: %+v", p)
+	}
+	mid = append(mid, turn{Role: "tool", Tool: "workspace_map", Text: "5 tiles"})
+	if p = script(mid, ""); p.Text != "Done: none | 5 tiles" {
+		t.Fatalf("the summary past the updates: %+v", p)
+	}
 	if p = script([]turn{{Role: "user", Text: "ws: tile_call {not json"}}, ""); len(p.Calls) != 1 || p.Calls[0].Name != "invalid_ws_script" {
 		t.Fatalf("a script that doesn't parse: %+v", p)
 	}
