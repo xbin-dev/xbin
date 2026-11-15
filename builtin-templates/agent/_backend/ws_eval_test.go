@@ -52,11 +52,23 @@ func (fx *wsFix) lastAssistant(t *testing.T, s *wsSession) string {
 	return c
 }
 
+// updates are the workspace updates s was given, in order.
+func (fx *wsFix) updates(t *testing.T, s *wsSession) []string {
+	t.Helper()
+	var out []string
+	for _, m := range fx.userMsgs(t, s) {
+		if strings.HasPrefix(m, wsUpdatesHead) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // Scenario 1 — start a tile agent → wake on its status → summarise. The
-// brief is what the person approves and what the tile agent is told; the
-// harness and mode are xbind's; the turn parks on the approval and goes on
-// from the tool's result; the tile agent's end wakes the conversation with
-// one framed update; its result is a stat, never code.
+// brief is what the person approves and what xbind tells the tile agent
+// first; the harness and mode are xbind's; the start is pending, not a
+// wait — the turn ends, the approval's outcome wakes the conversation, and
+// so does the tile agent's end; its result is a stat, never code.
 func TestWsEvalStartWakeSummarise(t *testing.T) {
 	fx := newWsFix(t)
 	s := fx.main(t)
@@ -65,38 +77,48 @@ func TestWsEvalStartWakeSummarise(t *testing.T) {
 	f.on(forRun(s.Run, lastTool("workspace_map")), callTools(
 		tc("c2", "tile_agent_brief", `{"tile":"apps/invoices","goal":"An overdue filter on the invoice list","done_when":"Choosing Overdue shows only unpaid invoices past their due date","leave_alone":"The PDF export","check_by":"go test ./..."}`),
 		tc("c3", "tile_agent_start", `{"brief":1}`))).once()
-	f.on(forRun(s.Run, lastTool("tile_agent_start")), say("I've asked Invoices' own agent to add the filter. I'll tell you when it reports.")).once()
+	f.on(forRun(s.Run, lastTool("tile_agent_start")), say("I've written a brief for Invoices' own agent. It starts once you allow it.")).once()
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("Invoices' agent has started on the filter. I'll tell you when it reports.")).once()
 	f.on(forRun(s.Run, lastUser("[workspace updates")), callTools(tc("c4", "tile_agent_result", `{"agent":"#1"}`))).once()
 	f.on(forRun(s.Run, lastTool("tile_agent_result")), say("**The overdue filter is in.** Checked: its tests ran and passed. Not checked: how it looks on the page.")).once()
 
 	fx.say(t, s, "Add an overdue filter to Invoices")
-	waitStatus(t, fx.ag.db, s.Run, statusWaiting)
-	run, _ := fx.ag.db.getRun(s.Run)
-	if p := parsePending(run.Pending); p.Kind != pendKindCoord || len(p.ToolCalls) != 1 || p.ToolCalls[0].ID != "c3" || !strings.HasPrefix(run.Result, "Waiting for your approval") {
-		t.Fatalf("the park: %s / %q", run.Pending, run.Result)
+	fx.idle(t, s) // the start is pending: nothing waits on it
+	if got := fx.toolResult(t, s, "tile_agent_brief"); !strings.Contains(got, "It would run on Claude Code, asks before acting") {
+		t.Fatalf("the brief's result: %q", got)
 	}
-	if got := fx.toolResult(t, s, "tile_agent_start"); !isPlaceholder(got) || !strings.Contains(got, "your person to decide in xbin") {
-		t.Fatalf("the parked call's placeholder: %q", got)
+	if got := fx.toolResult(t, s, "tile_agent_start"); !strings.HasPrefix(got, "Pending — request 1 (start a tile agent in apps/invoices) waits for your person's decision in xbin") || !strings.Contains(got, "Nothing has run.") {
+		t.Fatalf("the start's result: %q", got)
+	}
+	var list struct {
+		Sessions []struct {
+			Status, Waiting string
+			Requests        int
+		}
+	}
+	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/sessions", nil), 200, &list)
+	if it := list.Sessions[0]; it.Status != statusIdle || it.Requests != 1 || it.Waiting != "Waiting for your approval: start a tile agent in apps/invoices" {
+		t.Fatalf("the session while the start is pending: %+v", it)
 	}
 	req := fx.x.pending(t)
 	var asked wsAgentStart
 	_ = json.Unmarshal(req.call.Body, &asked)
-	// the call names the tile and a harness the tile allows (the backend's
-	// pick, not the model's) — no mode, network or option; the brief is what
-	// the person reads beside it
-	if req.Kind != "session" || asked.Tile != "apps/invoices" || asked.Harness != "claude" || asked.Prompt != "" || strings.Contains(string(req.call.Body), "mode") ||
-		!strings.Contains(req.summary, "Goal: An overdue filter") || !strings.Contains(req.summary, "Leave alone: The PDF export") {
+	// the ticket is of the tile and the brief: no harness, mode or network —
+	// xbind resolves those — and the brief is what the session is told first
+	if req.Kind != "session" || asked.Tile != "apps/invoices" || asked.Harness != "" || strings.Contains(string(req.call.Body), "mode") ||
+		!strings.Contains(asked.Prompt, "Goal: An overdue filter") || !strings.Contains(asked.Prompt, "Leave alone: The PDF export") || req.summary != "An overdue filter on the invoice list" {
 		t.Fatalf("the start asked for: %s\n%s", req.call.Body, req.summary)
 	}
-	if fx.x.count("Call POST /api/xbin/term/sessions") != 0 {
+	if fx.x.count("AgentStart") != 0 {
 		t.Fatal("a session started before the person approved")
 	}
 
 	fx.x.decide(req.ID, "approved")
 	fx.notify(t)
+	waitFor(t, "the start's outcome", func() bool { return strings.Contains(fx.lastAssistant(t, s), "has started on the filter") })
 	fx.idle(t, s)
-	if got := fx.toolResult(t, s, "tile_agent_start"); !strings.Contains(got, "approved by your person — tile agent #1 started in apps/invoices (Claude Code, asks before acting)") {
-		t.Fatalf("the start's result: %q", got)
+	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "request 1 (start a tile agent in apps/invoices): approved by your person — tile agent #1 started in apps/invoices (Claude Code, asks before acting) and was told the brief.") {
+		t.Fatalf("the start's update: %q", up)
 	}
 	agents := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)
 	if len(agents) != 1 || agents[0].Brief != 1 || agents[0].Tile != "apps/invoices" {
@@ -106,23 +128,22 @@ func TestWsEvalStartWakeSummarise(t *testing.T) {
 		t.Fatalf("the brief: %+v", b)
 	}
 	sid := agents[0].Session
-	if said := fx.x.said[sid]; len(said) != 1 || "What the tile agent will be told:\n\n"+said[0] != req.summary {
-		t.Fatalf("the tile agent was told: %q", said)
+	if said := fx.x.said[sid]; len(said) != 1 || said[0] != asked.Prompt || fx.x.count("AgentSay") != 0 {
+		t.Fatalf("the tile agent was told: %q (the backend sent %d messages itself)", said, fx.x.count("AgentSay"))
 	}
 
 	// it works, then ends its turn: one update, one wake
 	fx.x.setAgent(sid, func(a *wsAgent) { a.Status, a.Last = "idle", "Added the filter; 5 tests pass" })
 	fx.x.mu.Lock()
-	fx.x.reports[sid] = wsAgentReport{Status: "end_turn", Answer: "Added an Overdue option to the list filter.\nfunc secret() { return 42 }", Turn: 1,
+	fx.x.reports[sid] = wsAgentReport{Status: "end_turn", Answer: "Added an Overdue option to the list filter.", Turn: 1,
 		Files: []wsFileStat{{Path: "list.go", Add: 12, Del: 3}, {Path: "list_test.go", Add: 40}}, Verified: []string{"go test ./... → exit 0"}}
 	fx.x.mu.Unlock()
 	fx.notify(t)
 	waitFor(t, "the summary", func() bool { return strings.Contains(fx.lastAssistant(t, s), "The overdue filter is in") })
 	fx.idle(t, s)
-	msgs := fx.userMsgs(t, s)
-	upd := msgs[len(msgs)-1]
-	if !strings.HasPrefix(upd, wsUpdatesHead+"\ntile agent #1 in apps/invoices (Claude Code) ended its turn.") || strings.Count(upd, "\n") != 1 {
-		t.Fatalf("the update:\n%s", upd)
+	up := fx.updates(t, s)
+	if len(up) != 2 || !strings.HasPrefix(up[1], wsUpdatesHead+"\ntile agent #1 in apps/invoices (Claude Code) ended its turn.") || strings.Count(up[1], "\n") != 1 {
+		t.Fatalf("the updates:\n%s", strings.Join(up, "\n---\n"))
 	}
 	res := fx.toolResult(t, s, "tile_agent_result")
 	for _, want := range []string{"[untrusted — from tile agent #1 in apps/invoices", "Files changed (2):", "- list.go (+12 −3)", "- go test ./... → exit 0"} {
@@ -130,8 +151,8 @@ func TestWsEvalStartWakeSummarise(t *testing.T) {
 			t.Errorf("the result lacks %q:\n%s", want, res)
 		}
 	}
-	if n := len(f.callsFor(s.Run)); n != 5 {
-		t.Fatalf("%d model calls, want 5", n)
+	if n := len(f.callsFor(s.Run)); n != 6 {
+		t.Fatalf("%d model calls, want 6", n)
 	}
 }
 
@@ -223,9 +244,10 @@ func TestWsEvalNeverAnswersPermission(t *testing.T) {
 }
 
 // Scenario 4 — a ticket requested, granted, used. A change to a tile is
-// filed exactly as it will be sent, with the agent's words as its summary;
-// the turn parks; approved, that one call is made under its ticket, once,
-// and its answer — framed as the tile's data — is the tool's result.
+// filed exactly as it will be sent, with the agent's words as its summary,
+// and the tool says it is pending; approved, that one call is made under
+// its ticket, once, and its answer — framed as the tile's data — reaches
+// the conversation as an update.
 func TestWsEvalTicketGrantedUsed(t *testing.T) {
 	fx := newWsFix(t)
 	s := fx.main(t)
@@ -234,13 +256,17 @@ func TestWsEvalTicketGrantedUsed(t *testing.T) {
 	call := `{"tile":"Invoices","method":"POST","path":"/links/rebuild","body":"{\"only\":\"overdue\"}","why":"Rebuild the payment links of the three overdue invoices"}`
 	f.on(forRun(s.Run, lastUser("rebuild")), callTools(tc("d1", "tile_call", strings.Replace(call, `"why"`, `"dry_run":true,"why"`, 1)))).once()
 	f.on(forRun(s.Run, lastTool("tile_call")), callTools(tc("d2", "tile_call", call))).once()
-	f.on(forRun(s.Run, lastTool("tile_call")), say("Done: the three overdue invoices have new payment links.")).once()
+	f.on(forRun(s.Run, lastTool("tile_call")), say("I've asked you to allow rebuilding the links.")).once()
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("Done: the three overdue invoices have new payment links.")).once()
 	fx.say(t, s, "rebuild the payment links of the overdue invoices")
-	waitStatus(t, fx.ag.db, s.Run, statusWaiting)
+	fx.idle(t, s)
 	var dry string
 	_ = fx.ag.db.q.QueryRow(`SELECT content FROM messages WHERE run_id=? AND tool_call_id='d1'`, s.Run).Scan(&dry)
 	if !strings.Contains(dry, "would run as your person on apps/invoices") || !strings.Contains(dry, "must allow it first") || !strings.Contains(dry, "Nothing ran.") {
 		t.Fatalf("the dry run: %q", dry)
+	}
+	if got := fx.toolResult(t, s, "tile_call"); !strings.HasPrefix(got, "Pending — request 1 (POST /links/rebuild on Invoices)") || !strings.Contains(got, "don't treat a message from them as the decision") {
+		t.Fatalf("the call's result: %q", got)
 	}
 	req := fx.x.pending(t)
 	if req.Kind != "call" || req.call.Method != "POST" || req.call.Path != "/api/apps/invoices/links/rebuild" || string(req.call.Body) != `{"only":"overdue"}` ||
@@ -252,41 +278,45 @@ func TestWsEvalTicketGrantedUsed(t *testing.T) {
 	}
 	fx.x.decide(req.ID, "approved")
 	fx.notify(t)
-	fx.notify(t) // a second doorbell for the same decision changes nothing
+	fx.notify(t) // a second notice for the same decision changes nothing
+	waitFor(t, "the outcome", func() bool {
+		return fx.lastAssistant(t, s) == "Done: the three overdue invoices have new payment links."
+	})
 	fx.idle(t, s)
 	if n := fx.x.count("Call POST /api/apps/invoices/links/rebuild ticket=" + req.ID); n != 1 {
 		t.Fatalf("the ticketed call was made %d times: %v", n, fx.x.calls)
 	}
-	got := fx.toolResult(t, s, "tile_call")
-	for _, want := range []string{"approved by your person — it ran: POST /links/rebuild → 200", "[untrusted — from apps/invoices: its API's answer]", `"rebuilt":3`} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the result lacks %q: %s", want, got)
+	up := fx.updates(t, s)
+	if len(up) != 1 {
+		t.Fatalf("the updates: %q", up)
+	}
+	for _, want := range []string{"request 1 (POST /links/rebuild on Invoices): approved by your person — it ran: POST /links/rebuild → 200", "[untrusted — from apps/invoices: its API's answer]", `"rebuilt":3`} {
+		if !strings.Contains(up[0], want) {
+			t.Errorf("the update lacks %q: %s", want, up[0])
 		}
 	}
 	if r := fx.ag.db.wsReqs(`WHERE run_id=?`, s.Run); len(r) != 1 || r[0].State != "used" || r[0].Owed {
 		t.Fatalf("the request's row: %+v", r)
 	}
-	if fx.lastAssistant(t, s) != "Done: the three overdue invoices have new payment links." {
-		t.Fatalf("the reply: %q", fx.lastAssistant(t, s))
-	}
 }
 
-// Scenario 5 — a ticket denied. The refusal is the tool's result, nothing
-// runs, and nothing is filed again.
+// Scenario 5 — a ticket denied. The refusal reaches the conversation,
+// nothing runs, and nothing is filed again.
 func TestWsEvalTicketDenied(t *testing.T) {
 	fx := newWsFix(t)
 	s := fx.main(t)
 	f := fakeOf(fx.ag)
 	f.on(forRun(s.Run, lastUser("mark them paid")), callTools(tc("d1", "tile_call", `{"tile":"apps/invoices","method":"POST","path":"/invoices/paid","body":"{\"ids\":[1,2]}","why":"Mark invoices 1 and 2 as paid"}`))).once()
-	f.on(forRun(s.Run, lastTool("tile_call")), say("You denied marking them paid, so nothing changed. What would you like instead?")).once()
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("You denied marking them paid, so nothing changed. What would you like instead?")).once()
 	fx.say(t, s, "mark them paid")
-	waitStatus(t, fx.ag.db, s.Run, statusWaiting)
+	fx.idle(t, s)
 	req := fx.x.pending(t)
 	fx.x.decide(req.ID, "denied")
 	fx.notify(t)
+	waitFor(t, "the denial", func() bool { return strings.HasPrefix(fx.lastAssistant(t, s), "You denied marking them paid") })
 	fx.idle(t, s)
-	if got := fx.toolResult(t, s, "tile_call"); !strings.Contains(got, "denied by your person. Nothing ran.") || !strings.Contains(got, "Don't ask for it again") {
-		t.Fatalf("the result: %q", got)
+	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "denied by your person. Nothing ran.") || !strings.Contains(up[0], "Don't ask for it again") {
+		t.Fatalf("the update: %q", up)
 	}
 	if fx.x.count("Call POST") != 0 || fx.x.count("Ask") != 1 {
 		t.Fatalf("after a denial: %v", fx.x.calls)
@@ -439,7 +469,7 @@ func TestWsEvalVagueRequestYieldsChoices(t *testing.T) {
 		t.Fatalf("ask_user as offered: %+v", ask)
 	}
 	run, _ := fx.ag.db.getRun(s.Run)
-	if run.Result != "Which one do you mean?" || parsePending(run.Pending).Kind == pendKindCoord {
+	if run.Result != "Which one do you mean?" {
 		t.Fatalf("the question's park: %q %s", run.Result, run.Pending)
 	}
 	var args string
@@ -607,7 +637,7 @@ func TestWsEvalModelChangeRefusedByTaint(t *testing.T) {
 	f.on(forRun(n.Run, lastUser("what do you remember")), callTools(tc("n1", "notebook_search", `{}`), tc("n2", "notebook_read", `{"slug":"ledger-balance"}`))).once()
 	fx.say(t, n, "what do you remember?")
 	fx.idle(t, n)
-	if got := fx.toolResult(t, n, "notebook_search"); strings.Contains(got, "ledger-balance") || !strings.Contains(got, "1 more page(s) hold data of an org this session isn't connected to") {
+	if got := fx.toolResult(t, n, "notebook_search"); strings.Contains(got, "ledger-balance") || !strings.Contains(got, "1 more page(s) hold data of an org that doesn't allow this session's model") {
 		t.Fatalf("the list in the other session: %q", got)
 	}
 	if got := fx.toolResult(t, n, "notebook_read"); !strings.Contains(got, "there is no page \"ledger-balance\" this session can read") {
@@ -682,5 +712,151 @@ func TestWsEvalNotificationStormCoalesces(t *testing.T) {
 	fx.idle(t, s)
 	if msgs = fx.userMsgs(t, s); len(msgs) != 2 || !strings.Contains(msgs[1], "tile agent #1 in apps/invoices (Claude Code) failed") {
 		t.Fatalf("the second update: %q", msgs)
+	}
+}
+
+// requestWith is the fake's request whose body holds part.
+func (f *fakeXbin) requestWith(t *testing.T, part string) *fakeRequest {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.requests {
+		if strings.Contains(string(r.call.Body), part) {
+			return r
+		}
+	}
+	t.Fatalf("no request with %q", part)
+	return nil
+}
+
+// Scenario 13 — two pending requests and a finishing tile agent interleave.
+// A request that waits for its person holds nothing up: the conversation
+// takes a tile agent's update while both wait (the person may be away for
+// hours), a message from the person is not a decision, and each decision
+// reaches it as its own update the moment it is made — whatever the
+// coalescing window, which is for tile agents — with each ticket used once.
+func TestWsEvalPendingRequestsDoNotBlockUpdates(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	coordWakeEvery.Store(int64(10 * time.Minute))
+	fx.x.api["POST /api/apps/invoices/send"] = func(body []byte) (int, string) { return 200, `{"sent":` + string(body) + `}` }
+	_, sid := fx.seedAgent(t, s, "apps/orders")
+	f := fakeOf(fx.ag)
+	send := func(id int) string {
+		return fmt.Sprintf(`{"tile":"apps/invoices","method":"POST","path":"/send","body":"{\"id\":%d}","why":"Send the reminder for invoice %d"}`, id, id)
+	}
+	f.on(forRun(s.Run, lastUser("send both reminders")), callTools(tc("k1", "tile_call", send(7)), tc("k2", "tile_call", send(8)))).once()
+	f.on(forRun(s.Run, lastTool("tile_call")), say("Two reminders wait for your go-ahead.")).once()
+	fx.say(t, s, "send both reminders")
+	fx.idle(t, s)
+	if fx.x.count("Ask") != 2 || statusOf(fx.ag.db, s.Run) != statusIdle {
+		t.Fatalf("after filing two: %s, %v", statusOf(fx.ag.db, s.Run), fx.x.calls)
+	}
+
+	// a tile agent finishes while both wait: the conversation is woken for it
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("Orders' agent has finished. The two reminders still wait for you.")).once()
+	fx.x.setAgent(sid, func(a *wsAgent) { a.Status = "idle" })
+	fx.notify(t)
+	waitFor(t, "the tile agent's update while requests wait", func() bool { return strings.HasPrefix(fx.lastAssistant(t, s), "Orders' agent has finished") })
+	fx.idle(t, s)
+	up := fx.updates(t, s)
+	if len(up) != 1 || !strings.Contains(up[0], "tile agent #1 in apps/orders (Claude Code) ended its turn") || strings.Contains(up[0], "request") {
+		t.Fatalf("the first update: %q", up)
+	}
+
+	// the person writes: not a decision
+	f.on(forRun(s.Run, lastUser("which invoices")), say("Invoices 7 and 8. Both requests are still open for you.")).once()
+	fx.say(t, s, "which invoices are those?")
+	fx.idle(t, s)
+	if fx.x.count("Call POST") != 0 || len(fx.ag.db.wsReqs(`WHERE run_id=? AND state='pending'`, s.Run)) != 2 {
+		t.Fatalf("a message was taken for a decision: %v", fx.x.calls)
+	}
+
+	// the second is allowed, then the first denied: one update each, at once
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("The reminder for invoice 8 was sent.")).once()
+	fx.x.decide(fx.x.requestWith(t, `"id":8`).ID, "approved")
+	fx.notify(t)
+	waitFor(t, "the approval's update inside the wake window", func() bool { return fx.lastAssistant(t, s) == "The reminder for invoice 8 was sent." })
+	fx.idle(t, s)
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("You denied the reminder for invoice 7; it was not sent.")).once()
+	fx.x.decide(fx.x.requestWith(t, `"id":7`).ID, "denied")
+	fx.notify(t)
+	waitFor(t, "the denial's update", func() bool { return strings.HasPrefix(fx.lastAssistant(t, s), "You denied the reminder for invoice 7") })
+	fx.idle(t, s)
+	up = fx.updates(t, s)
+	if len(up) != 3 || !strings.Contains(up[1], "request 2 (POST /send on Invoices): approved by your person — it ran: POST /send → 200") || strings.Contains(up[1], "request 1 ") ||
+		!strings.Contains(up[2], "request 1 (POST /send on Invoices): denied by your person. Nothing ran.") || strings.Contains(up[2], "request 2 ") {
+		t.Fatalf("the decisions' updates:\n%s", strings.Join(up, "\n---\n"))
+	}
+	if fx.x.count("Call POST /api/apps/invoices/send ticket=") != 1 || fx.x.count("Ask") != 2 {
+		t.Fatalf("the tickets: %v", fx.x.calls)
+	}
+	if n := len(f.callsFor(s.Run)); n != 6 {
+		t.Fatalf("%d model calls, want 6", n)
+	}
+
+	// a call a standing approval covers runs at once, and says so
+	fx.x.mu.Lock()
+	fx.x.standing["POST /api/apps/invoices/send"] = true
+	fx.x.mu.Unlock()
+	f.on(forRun(s.Run, lastUser("number 9")), callTools(tc("k3", "tile_call", send(9)))).once()
+	fx.say(t, s, "number 9 too")
+	fx.idle(t, s)
+	if got := fx.toolResult(t, s, "tile_call"); !strings.Contains(got, "→ 200 (ran under a standing approval your person gave: no request was shown)") || fx.x.count("Ask") != 2 {
+		t.Fatalf("under a standing approval: %q", got)
+	}
+}
+
+// Scenario 14 — a tile agent ended by an xbin restart. xbind marks it; the
+// conversation is told it was cut off, not finished, with the offer to
+// continue it; continuing asks the person again, resumes that session's
+// history and sends no new brief.
+func TestWsEvalEndedByRestartOffersResume(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	_, sid := fx.seedAgent(t, s, "apps/orders")
+	f := fakeOf(fx.ag)
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("Orders' agent was cut off when xbin restarted, before it finished. Shall I continue it where it stopped?")).once()
+	fx.x.setAgent(sid, func(a *wsAgent) { a.Status, a.EndedBy = "ended", "restart" })
+	fx.notify(t)
+	waitFor(t, "the offer", func() bool { return strings.Contains(fx.lastAssistant(t, s), "Shall I continue it") })
+	fx.idle(t, s)
+	up := fx.updates(t, s)
+	if len(up) != 1 || !strings.Contains(up[0], "tile agent #1 in apps/orders (Claude Code) was cut off by an xbin restart before it finished") || !strings.Contains(up[0], `tile_agent_start {"resume": "#1"}`) {
+		t.Fatalf("the update: %q", up)
+	}
+	if rows := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run); rows[0].Status != "stopped" {
+		t.Fatalf("the row: %+v", rows[0])
+	}
+	// a session that simply ended is not offered as cut off
+	_, other := fx.seedAgent(t, s, "apps/invoices")
+	fx.x.setAgent(other, func(a *wsAgent) { a.Status = "ended" })
+	fx.notify(t)
+	if rows := fx.ag.db.wsAgents(`WHERE run_id=? AND session=?`, s.Run, other); rows[0].Status != "ended" {
+		t.Fatalf("an ordinary end: %+v", rows[0])
+	}
+	waitFor(t, "the ordinary end's update", func() bool { return len(fx.updates(t, s)) == 2 })
+	fx.idle(t, s)
+	if up = fx.updates(t, s); strings.Contains(up[1], "cut off") || !strings.Contains(up[1], "tile agent #2 in apps/invoices (Claude Code) ended.") {
+		t.Fatalf("an ordinary end's update: %q", up[1])
+	}
+
+	f.on(forRun(s.Run, lastUser("yes, continue")), callTools(tc("u1", "tile_agent_start", `{"resume":"#1"}`))).once()
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("Orders' agent is working again.")).once()
+	fx.say(t, s, "yes, continue it")
+	fx.idle(t, s)
+	req := fx.x.pending(t)
+	var asked wsAgentStart
+	_ = json.Unmarshal(req.call.Body, &asked)
+	if req.Kind != "session" || asked.Resume != sid || asked.Prompt != "" || asked.Tile != "apps/orders" {
+		t.Fatalf("the resume asked for: %s", req.call.Body)
+	}
+	fx.x.decide(req.ID, "approved")
+	fx.notify(t)
+	waitFor(t, "the resumed session", func() bool { return fx.lastAssistant(t, s) == "Orders' agent is working again." })
+	fx.idle(t, s)
+	rows := fx.ag.db.wsAgents(`WHERE run_id=? AND tile='apps/orders' ORDER BY id`, s.Run)
+	if len(rows) != 2 || rows[1].Status != "running" || fx.x.count("AgentStart "+rows[1].Session+" resume="+sid) != 1 || len(fx.x.said[rows[1].Session]) != 0 {
+		t.Fatalf("after the resume: %+v / %v", rows, fx.x.calls)
 	}
 }

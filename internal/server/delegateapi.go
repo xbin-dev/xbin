@@ -184,15 +184,16 @@ func (s *Server) notifyHolders(user, kind, id string) {
 	}
 }
 
-// notifyAt tells user's holders at t that request id changed: a pending
-// request or a ticket expires without anyone acting, and the backend
-// should hear of that too.
-func (s *Server) notifyAt(t time.Time, user, id string) {
-	if s.HolderNotify == nil {
+// notifyAt tells holder — the agent that asked — at t that user's request
+// id changed: a pending request or a ticket expires without anyone acting,
+// and the backend should hear of that too. The request names its holder,
+// so this doesn't depend on an agent session being alive by then.
+func (s *Server) notifyAt(t time.Time, user, id, holder string) {
+	if s.HolderNotify == nil || holder == "" {
 		return
 	}
 	if d := time.Until(t) + time.Second; d > 0 && d < 48*time.Hour {
-		time.AfterFunc(d, func() { s.notifyHolders(user, "request", id) })
+		time.AfterFunc(d, func() { s.HolderNotify(holder, user, "request", id) })
 	}
 }
 
@@ -494,7 +495,7 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.delegateEvent(a.user, "request", out.ID)
-	s.notifyAt(out.Expires, a.user, out.ID)
+	s.notifyAt(out.Expires, a.user, out.ID, out.Agent)
 	what := method + " " + strings.TrimPrefix(u.Path, "/api/")
 	if out.Kind == delegation.KindSession {
 		what = "start a tile agent on " + out.Tile
@@ -525,9 +526,30 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 		API                                                      *bool
 		VM                                                       bool
 		Options                                                  map[string]string
+		Prompt                                                   string
 	}
-	if json.Unmarshal(body, &b) != nil || b.Cwd == "" || b.Provider == "" && b.Resume == "" {
-		return nil, "a session start names its tile and harness: {cwd, kind:\"agent\", provider, …}"
+	if json.Unmarshal(body, &b) != nil || b.Cwd == "" {
+		return nil, "a session start names its tile: {cwd, kind:\"agent\", provider?, …}"
+	}
+	if len(b.Prompt) > maxStartPrompt {
+		return nil, fmt.Sprintf("a start's first prompt is at most %d KiB", maxStartPrompt>>10)
+	}
+	// what the request leaves out, xbind fills from the person's
+	// preferences for sessions their agent starts and the tile's orgs'
+	// rules (startDefaults) — and shows: the card says the EFFECTIVE values
+	if def := s.startDefaults(p, strings.Trim(b.Cwd, "/")); b.Resume == "" {
+		if b.Provider == "" {
+			if def.Harness == "" {
+				return nil, def.Why
+			}
+			b.Provider = def.Harness
+		}
+		if b.Net == "" {
+			b.Net = def.netFor(b.Provider)
+		}
+		if b.Mode == "" {
+			b.Mode = def.modeFor(b.Provider)
+		}
 	}
 	if s.Term == nil {
 		return nil, "terminals are not enabled"
@@ -554,7 +576,11 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 		// model or a thinking level is set
 		"asks":    eff.Provider.Safe(eff.Mode),
 		"options": options, // every setting the start carries; none of them can change the mode
-		"net":     b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": options["model"], "name": b.Name, "resume": eff.Resumes,
+		// what the session will be told first: sent by xbind itself once the
+		// session is up, and bound by the ticket with the rest of the body.
+		// Nothing the agent sends the session later is approved one by one.
+		"prompt": b.Prompt,
+		"net":    b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": options["model"], "name": b.Name, "resume": eff.Resumes,
 	}, ""
 }
 
@@ -639,7 +665,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if req.State == delegation.Approved {
-		s.notifyAt(req.Expires, a.user, req.ID) // a ticket nobody used
+		s.notifyAt(req.Expires, a.user, req.ID, req.Agent) // a ticket nobody used
 	}
 	out := map[string]any{"request": req}
 	if ap != nil {

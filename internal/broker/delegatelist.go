@@ -246,3 +246,26 @@ func (b *Broker) AgentPersonOrgs(p auth.Principal) []map[string]any {
 	slices.SortFunc(out, func(a, c map[string]any) int { return strings.Compare(a["id"].(string), c["id"].(string)) })
 	return out
 }
+
+// AgentOrgVisible reports an org p can see: "workspace", one they are a
+// member of (or administer), or one a tile they can read is under.
+func (b *Broker) AgentOrgVisible(p auth.Principal, org string) bool {
+	if org == agentpolicy.WorkspaceID {
+		return true
+	}
+	if b.Users == nil {
+		return false
+	}
+	if _, ok := b.Users.Org(org); !ok {
+		return false
+	}
+	if _, member := b.membershipsOf(p)[org]; member || b.IsAdmin(p) {
+		return true
+	}
+	for _, c := range b.Reg.Components() {
+		if !c.IsTemplate() && p.CanReadTile(c.Path) && slices.Contains(b.AgentOrgsOf(c.Path), org) {
+			return true
+		}
+	}
+	return false
+}

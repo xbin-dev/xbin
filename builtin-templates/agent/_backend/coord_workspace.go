@@ -51,14 +51,12 @@ func init() {
 		Is: func(d *DB, run *Run) bool {
 			return wsMode() && d.wsOne(`SELECT 1 FROM ws_sessions WHERE run_id=?`, run.ID) == 1
 		},
-		Resolve:   wsResolve,
-		Pending:   wsOwes,
-		Deliver:   wsDeliver,
-		Prompt:    (*Agent).wsPromptFor,
-		System:    func(*Agent, *Run, Config) string { return wsSystem() },
-		Specs:     wsSpecs,
-		ParkWords: wsParkWords,
-		Unpark:    wsUnpark,
+		Resolve: wsResolve,
+		Pending: wsOwes,
+		Deliver: wsDeliver,
+		Prompt:  (*Agent).wsPromptFor,
+		System:  func(*Agent, *Run, Config) string { return wsSystem() },
+		Specs:   wsSpecs,
 	})
 	coordWorkspace.mustRegister(wsLookTools()...)
 	coordWorkspace.mustRegister(wsActTools()...)
@@ -151,7 +149,7 @@ func wsAgentLine(a *wsAgentRow) string {
 	case a.Status == "failed":
 		return who + " failed" + wsLast(a) + ". Its transcript is kept; tell your person, and offer to continue it (tile_agent_start with resume) or to leave it."
 	case a.Status == "stopped":
-		return who + " was stopped when xbin restarted. Its transcript is kept; tell your person, and offer to continue it (tile_agent_start with resume)."
+		return who + fmt.Sprintf(" was cut off by an xbin restart before it finished. Its transcript is kept. Tell your person, and offer to continue it where it stopped: tile_agent_start {\"resume\": \"#%d\"} asks them to allow that.", a.ID)
 	}
 	return who + " ended" + wsLast(a) + ". tile_agent_result reads what it left."
 }
@@ -176,29 +174,17 @@ func wsWaitsWords(a *wsAgentRow) string {
 	return "waits for your person: " + wsQuote(a.Waiting) + "."
 }
 
-// --- parks -----------------------------------------------------------------------
-
-// wsParkWords is what a session parked on its person's decision says it
-// waits for (the conversation's status line).
-func wsParkWords(d *DB, run *Run, calls []toolCall) string {
+// wsWaitingWords is what a session's open requests wait for, in a line
+// for the list of sessions ("" when none is open).
+func wsWaitingWords(d *DB, runID int64) string {
 	var titles []string
-	for _, tc := range calls {
-		for _, r := range d.wsReqs(`WHERE run_id=? AND call_id=?`, run.ID, tc.ID) {
-			titles = append(titles, r.Title)
-		}
+	for _, r := range d.wsReqs(`WHERE run_id=? AND state IN ('pending','proposed') ORDER BY id LIMIT 5`, runID) {
+		titles = append(titles, r.Title)
 	}
 	if len(titles) == 0 {
-		return "Waiting for your approval"
+		return ""
 	}
 	return "Waiting for your approval: " + clip(strings.Join(titles, "; "), 200)
-}
-
-// wsUnpark answers a call still parked when the person wrote instead of
-// deciding: the request stays open, and its outcome is owed as an update.
-func wsUnpark(t *DB, run *Run, tc toolCall) string {
-	_, _ = t.q.Exec(`UPDATE ws_requests SET call_id='' WHERE run_id=? AND call_id=?`, run.ID, tc.ID)
-	return "(not decided yet: your person wrote a message instead of deciding. The request stays open for them and nothing has run; " +
-		"its outcome will reach you as a workspace update. Read their message first — if they want something else, say so and go on from there; don't file the same request again.)"
 }
 
 // --- the tool list -----------------------------------------------------------------
