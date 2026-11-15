@@ -186,7 +186,16 @@ type vmBackend struct {
 }
 
 func newVMBackend(t *testing.T) *vmBackend {
-	b := &vmBackend{ws: t.TempDir()}
+	// not t.TempDir(): its name carries the test's (forty characters of
+	// "TestVMBackendListensemulatecdir2cpu…"), and the backend binds a unix
+	// socket under it — past sun_path's 107 bytes once $TMPDIR is a few
+	// directories deep, the bind fails with EINVAL in the guest
+	ws, err := os.MkdirTemp("", "vmb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(ws) })
+	b := &vmBackend{ws: ws}
 	b.tile = filepath.Join(b.ws, "tiles", "b")
 	b.run = filepath.Join(b.ws, "run", "b")
 	for _, d := range []string{b.tile, b.run} {
@@ -196,6 +205,9 @@ func newVMBackend(t *testing.T) *vmBackend {
 	}
 	b.sock = filepath.Join(b.run, "backend.sock")
 	b.gw = filepath.Join(b.ws, "gateway.sock")
+	if len(b.sock) > 107 {
+		t.Fatalf("the backend's socket path is %d bytes, over a unix socket's 107: %s — run with a shorter $TMPDIR (%s)", len(b.sock), b.sock, os.TempDir())
+	}
 	gl, err := net.Listen("unix", b.gw)
 	if err != nil {
 		t.Fatal(err)
