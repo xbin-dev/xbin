@@ -5,7 +5,9 @@ repo (daemon, CLI, SDK, core elements, builtin tiles, docs). For building
 tiles *inside* a workspace, the reference is `workspace-template/AGENTS.md` —
 the file every workspace ships to its own agents. Design docs live in
 `ARCHITECTURE.md` and `plans/` (with `plans/DECISIONS.md` recording every
-decision + rationale — **check it before re-litigating a choice**).
+decision + rationale — the recent entries there, the older ones in the
+archives it indexes, `plans/decisions/D<first>-D<last>.md`; **check it
+before re-litigating a choice**).
 
 ## Layout
 
@@ -164,7 +166,7 @@ the same commit as the change**, per this table:
 |---|---|
 | HTTP/WS surface (any `/api/xbin/*`, `/ws/*`) | its topic page `docs/protocol/<topic>.md` (`docs/protocol.md` is the entry: the shared conventions and the index of the topic pages — a new area gets a new page and a row in its Topics table) **and** `internal/server/openapi.go` — `make test` fails on drift (`internal/apicheck`; rules in `docs/maintenance.md`) |
 | builder-visible behavior | the relevant `docs/*.md`, `workspace-template/AGENTS.md`, and the welcome tile notes (`workspace-template/apps/welcome/notes.js`) if it teaches that area |
-| a design decision | `plans/<area>.md` + an entry in `plans/DECISIONS.md` |
+| a design decision | `plans/<area>.md` + an entry at the end of `plans/DECISIONS.md` (never in an archive under `plans/decisions/`; when the log passes about 450 KB, move its oldest whole entries into a new archive, as its index says) |
 | a guard, budget or check | `docs/maintenance.md` (what it protects, how to satisfy it) |
 | the upgrade contract | `docs/compat.md` — and a changelog line when a rule gains a warned transition |
 | `bx` | `docs/bx.md` + the usage strings in `cmd/bx` |

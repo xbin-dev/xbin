@@ -2,7 +2,9 @@
 
 Self-modifying browser workspace. Design: `ARCHITECTURE.md` + `plans/`
 (implementation plan, auth design, `plans/DECISIONS.md` for every decision
-with rationale — check there before re-litigating a choice). Builder-facing
+with rationale — the recent entries, plus an index of the archives in
+`plans/decisions/` that hold the older ones; check there before
+re-litigating a choice). Builder-facing
 docs: `docs/` (embedded into xbind, served at `/docs/`; keep them true —
 they are the contract `bx`, SDKs, and workspace builders rely on). Dev
 practices in full: `AGENTS.md`.
