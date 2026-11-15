@@ -19,6 +19,18 @@ import (
 
 const wsAgentPath = "xbin/wsagent"
 
+// releaseTable is the release's own table — the workspace agent's row. A
+// test binary built with the integration fixture's table (-tags
+// sealedfixture) has other rows: these tests are about the release's.
+func releaseTable(t *testing.T) []sealed.Spec {
+	t.Helper()
+	tab := sealed.Table()
+	if len(tab) != 1 || tab[0].Name != "wsagent" {
+		t.Skip("this build's sealed table is not the release's (the fixture's, with -tags sealedfixture)")
+	}
+	return tab
+}
+
 // The release's table registers the workspace agent in every xbind — and a
 // workspace that does nothing sees nothing new. Until an admin has turned
 // workspace agents on AND given someone access, a person who isn't an admin
@@ -35,7 +47,7 @@ func TestWorkspaceAgentIsInertUntilSetUp(t *testing.T) {
 	ws := probeWorkspace(t)
 	// a production xbind whose install has no build of the agent: the row is
 	// there and held, as it is in a workspace run without sandboxes
-	d := startSealed(t, ws, sealed.Table(), production(filepath.Join(t.TempDir(), "no-sealed-bin")))
+	d := startSealed(t, ws, releaseTable(t), production(filepath.Join(t.TempDir(), "no-sealed-bin")))
 	admin := d.addUser("adm", nil)
 	if code, body := d.do("PATCH", "/api/xbin/users/adm", map[string]any{"role": "admin"}); code != 200 {
 		t.Fatalf("making an admin: %d %s", code, body)
@@ -190,7 +202,7 @@ func TestWorkspaceAgentIsInertUntilSetUp(t *testing.T) {
 // changed: what the next release's row is, as far as xbind can tell.
 func agentRelease(t *testing.T, mark string) []sealed.Spec {
 	t.Helper()
-	tab := sealed.Table()
+	tab := releaseTable(t)
 	if mark == "" {
 		return tab
 	}
@@ -332,7 +344,7 @@ func TestWorkspaceAgentHeldByNewerData(t *testing.T) {
 	if err := os.WriteFile(stamp, []byte(`{"data":2,"release":"v9.9.9","digest":"feedface","at":"2026-11-15T00:00:00Z"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	d := startSealed(t, ws, sealed.Table(), production(filepath.Join(t.TempDir(), "no-sealed-bin")))
+	d := startSealed(t, ws, releaseTable(t), production(filepath.Join(t.TempDir(), "no-sealed-bin")))
 	code, body := d.do("GET", "/api/xbin/sealed", nil)
 	if code != 200 || !strings.Contains(body, `"code":"`+sealed.HoldNewerData+`"`) {
 		t.Fatalf("GET /sealed with a newer stamp: %d %s", code, body)
@@ -390,7 +402,7 @@ func TestWorkspaceAgentRowLimits(t *testing.T) {
 	}
 	quiet(t)
 	ws := probeWorkspace(t)
-	d := startSealed(t, ws, sealed.Table(), production(filepath.Join(t.TempDir(), "no-sealed-bin")))
+	d := startSealed(t, ws, releaseTable(t), production(filepath.Join(t.TempDir(), "no-sealed-bin")))
 	st := d.st
 	if got, _ := st.limitDefault(wsAgentPath, limits.MemMiB); got != 512 {
 		t.Errorf("the agent's memory cap: %d MiB, want the row's 512", got)
