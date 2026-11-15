@@ -19,7 +19,9 @@
 //      workspace agent, the everyone entry), and puts back what it found
 //      at the end, however it ends: it doesn't depend on what ran before;
 //   3. Give access to a person: the entry shows, GET /access has it at
-//      read; Remove takes it away;
+//      read; Remove takes it away; given to everyone (the workspace agent's
+//      who: everyone, a workspace default) the card says "Everyone in this
+//      workspace" and where it was set, never "nobody"; taken back, nobody;
 //   4. Turn off: the badge says Off and POST /lifecycle recorded disabled;
 //      Turn on: Ready again;
 //   5. a person who isn't an admin gets "Only workspace admins manage
@@ -119,6 +121,21 @@ async function systemPage(browser) {
       await until(async () => (await card.innerText()).includes('Nobody but workspace admins'), 'the entry is removed');
       acc = await (await A.ctx.request.get(`${URL}/api/xbin/access?tile=${encodeURIComponent(P)}`)).json();
       check(!acc.entries.some((e) => e.id === 'dev1'), 'GET /access no longer has dev1');
+      if (found.agent) {
+        // everyone given it by the workspace defaults (the agent's who: everyone): the card says so, never "nobody"
+        const who = async (w) => (await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { who: w } })).status();
+        check((await who('everyone')) === 200, `${P}: PUT /delegate/workspace {who: "everyone"}`);
+        acc = await (await A.ctx.request.get(`${URL}/api/xbin/access?tile=${encodeURIComponent(P)}`)).json();
+        check(JSON.stringify(acc.defaults) === '[{"level":"read","source":"exact"}]', `GET /access names the workspace default that gives it everyone (${JSON.stringify(acc.defaults)})`);
+        await A.page.evaluate(() => document.querySelector('bx-system-page').testApi().reload());
+        await until(async () => (await card.innerText()).includes('Everyone in this workspace'), 'the card says everyone');
+        const said = await card.innerText();
+        check(!said.includes('Nobody but workspace admins') && said.includes('Workspace agents: who gets one'), `${P}: given to everyone, the card says so and where it was set, never "nobody" (${said.replace(/\s+/g, ' ').slice(0, 160)})`);
+        check((await who('chosen')) === 200, `${P}: PUT /delegate/workspace {who: "chosen"} takes it back`);
+        await A.page.evaluate(() => document.querySelector('bx-system-page').testApi().reload());
+        await until(async () => !(await card.innerText()).includes('Everyone in this workspace'), 'the everyone line goes');
+        check((await card.innerText()).includes('Nobody but workspace admins'), `${P}: taken back, nobody but admins again`);
+      } else skip(`${P} isn't the workspace agent here: the everyone line (its who: everyone) is the release table's to drive`);
 
       // 4. off and on
       await card.locator('button', { hasText: 'Turn off' }).click();

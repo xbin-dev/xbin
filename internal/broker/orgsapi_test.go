@@ -226,6 +226,55 @@ func TestAccessAPIGates(t *testing.T) {
 	}
 }
 
+// GET /access says what reaches everyone without an entry: the workspace
+// defaults — for a system component the entry that names it (the workspace
+// agent's `who: everyone`), never a pattern, which gives nothing there; and a
+// person's pattern entry isn't listed on it either, for the same reason.
+func TestAccessGetDefaults(t *testing.T) {
+	b, st := orgFixture(t)
+	admin := principalFor(t, st, "root2")
+	read := func(tile string) (out struct {
+		Entries  []accessEntry  `json:"entries"`
+		Defaults []defaultEntry `json:"defaults"`
+	}) {
+		t.Helper()
+		w := call(t, b.apiAccessGet, admin, "GET", "/access?tile="+tile, "", nil)
+		if w.Code != 200 {
+			t.Fatalf("GET /access?tile=%s: %d %s", tile, w.Code, w.Body.String())
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	const agent = "xbin/wsagent"
+	if err := st.SetDefaultTiles(map[string]string{"*": "read", "apps/*": "write"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetUserTile("alice", "*", "read"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(agent); len(got.Defaults) != 0 || len(got.Entries) != 0 {
+		t.Fatalf("patterns give a system component nothing, so GET /access lists none: %+v", got)
+	}
+	if err := st.SetSealedEveryone(agent, true); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := st.Access("dave"); !a.Given(agent) {
+		t.Fatal("fixture: the defaults' entry gives everyone the agent")
+	}
+	if got := read(agent); len(got.Defaults) != 1 || got.Defaults[0] != (defaultEntry{Level: "read", Source: "exact"}) {
+		t.Fatalf("everyone has it by the workspace defaults; GET /access must say so: %+v", got.Defaults)
+	}
+	got := read("apps/calendar")
+	if len(got.Defaults) != 2 || got.Defaults[0].Source != "pattern:*" || got.Defaults[1] != (defaultEntry{Level: "write", Source: "pattern:apps/*"}) {
+		t.Fatalf("a tile's defaults: %+v", got.Defaults)
+	}
+	if got := read("apps/email"); len(got.Defaults) != 0 { // org-owned: the workspace plane stops at it (D31)
+		t.Fatalf("an org-owned tile gets no workspace default: %+v", got.Defaults)
+	}
+}
+
 // --- D26: delegated grant/binding approval -----------------------------------
 
 func TestDelegatedGrantApproval(t *testing.T) {

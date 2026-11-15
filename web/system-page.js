@@ -89,6 +89,8 @@ export class BxSystemPage extends LitElement {
   static properties = {
     _data: { state: true },    // GET /sealed {release, components}; null until loaded
     _access: { state: true },  // path → GET /access entries
+    _defaults: { state: true }, // path → GET /access defaults: what reaches everyone in the workspace
+    _agent: { state: true },   // the component that is the workspace agent here ('' when none)
     _people: { state: true },  // {users: [{id, name}], orgs: [{id, name}]}
     _denied: { state: true },  // not an admin
     _err: { state: true },
@@ -101,6 +103,8 @@ export class BxSystemPage extends LitElement {
     try { this._framed = window.top !== window.self; } catch { this._framed = true; }
     this._data = null;
     this._access = {};
+    this._defaults = {};
+    this._agent = '';
     this._people = { users: [], orgs: [] };
   }
 
@@ -125,12 +129,16 @@ export class BxSystemPage extends LitElement {
       if (r.status === 403) { this._denied = true; this._data = { components: [] }; return; }
       if (!r.ok) throw new Error(r.body.error || `error ${r.status}`);
       this._data = r.body;
-      const access = {};
+      const access = {}, defaults = {};
       await Promise.all((r.body.components || []).map(async (c) => {
         const a = await req(`/access?tile=${encodeURIComponent(c.path)}`);
         access[c.path] = a.ok ? (a.body.entries || []) : [];
+        defaults[c.path] = a.ok ? (a.body.defaults || []) : [];
       }));
       this._access = access;
+      this._defaults = defaults;
+      const ws = await req('/delegate/workspace');
+      this._agent = ws.ok ? (ws.body.agent || '') : '';
       const [u, o] = await Promise.all([req('/users-directory'), req('/orgs')]);
       const list = (r, key) => (!r.ok ? [] : Array.isArray(r.body) ? r.body : Array.isArray(r.body[key]) ? r.body[key] : []);
       this._people = { users: list(u, 'users'), orgs: list(o, 'orgs') };
@@ -163,6 +171,7 @@ export class BxSystemPage extends LitElement {
 
   _renderAccess(c) {
     const entries = this._access[c.path] || [];
+    const everyone = (this._defaults[c.path] || []).length > 0;
     const has = new Set(entries.filter((e) => e.source === 'exact').map((e) => `${e.kind}:${e.id}`));
     const pick = [
       ...this._people.users.map((u) => ({ v: `user:${u.id}`, t: u.name && u.name !== u.id ? `${u.name} (${u.id})` : u.id })),
@@ -170,12 +179,16 @@ export class BxSystemPage extends LitElement {
     ].filter((p) => !has.has(p.v));
     return html`
       <h3>Who has access</h3>
+      ${everyone ? html`<div class="everyone">Everyone in this workspace
+          <span class="small muted">— ${c.path === this._agent ? html`set by Workspace agents: who gets one (Everyone), which` : 'the workspace\'s default access'}
+            gives it to every person. Change it in the admin console, <a href="/c/tiles/admin/#orgs">organisations → workspace defaults</a>${c.path === this._agent
+              ? html`, or with <span class="mono">PUT /api/xbin/delegate/workspace {who}</span> (<a href="/docs/workspace-agent.md#setting-it-up">how</a>)` : nothing}.</span></div>` : nothing}
       ${entries.length ? html`<ul>${entries.map((e) => html`<li>
           <span class="grow">${e.kind === 'org' ? 'Organisation' : 'Person'} <b>${e.id}</b>
             <span class="small muted">${e.source === 'exact' ? '' : `· from the pattern ${String(e.source).replace(/^pattern:/, '')}`}</span></span>
           ${e.source === 'exact' && e.level !== 'none'
             ? html`<button class="rm" @click=${() => this._setAccess(c, e.kind, e.id, '')}>Remove</button>` : nothing}
-        </li>`)}</ul>` : html`<div class="empty">Nobody but workspace admins.</div>`}
+        </li>`)}</ul>` : everyone ? nothing : html`<div class="empty">Nobody but workspace admins.</div>`}
       ${pick.length ? html`<form class="row" @submit=${(e) => this._grant(c, e)}>
           <select name="who" aria-label="Who gets access to ${c.title || c.path}">
             ${pick.map((p) => html`<option value=${p.v}>${p.t}</option>`)}
