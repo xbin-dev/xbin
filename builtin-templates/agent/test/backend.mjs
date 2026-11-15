@@ -634,7 +634,11 @@ export function STUB(seed) {
   };
 }
 
-// launch starts a browser, or exits 0 (SKIP) without playwright.
+// launch starts a browser, or exits 0 (SKIP) without playwright. (No network
+// to guard here: every request of these pages is answered by a route above,
+// so none waits for a socket, and Chromium's ERR_NETWORK_CHANGED — what it
+// does to waiting requests when an interface changes on the machine — has
+// nothing to fail.)
 export async function launch() {
   let chromium;
   try {
