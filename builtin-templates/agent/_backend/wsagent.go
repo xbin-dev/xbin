@@ -28,6 +28,11 @@
 // code (handleGetHarness) — the agent sees that one waits, as everyone
 // else in the conversation does.
 //
+// Not yet: messaging a conversation here as a person's agent, each message
+// under the person's ticket. A message answers a parked question, and a
+// start picks a class, a harness and a mode — each needs its own design
+// before its route goes into agentMay.
+//
 // The manifest says "agent": "read", so xbind refuses an agent's writes
 // before they get here; this file is what holds if someone widens that.
 // (Every route also needs the admin role, which xbind never gives an

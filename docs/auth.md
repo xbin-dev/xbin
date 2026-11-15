@@ -949,8 +949,11 @@ only) or `"off"`. xbind's approval is of a *call*; what the call means is
 the tile's to know. A tile whose API answers its own approvals, questions
 or sign-ins, or hands out secrets, must refuse those routes to a caller
 with `X-XBin-Agent` itself, or say `"read"` or `"off"`:
-[elements.md → A person's agent](/docs/elements.md). Every tile and
-template that ships with xbind says one of the three.
+[elements.md → A person's agent](/docs/elements.md). The infrastructure
+that ships with xbind says one: `off` for the gateways, sandboxes, ingress
+and consoles, `read` for the metrics viewer and the agent template. Apps —
+the chat tile, the starter template, what you build — say nothing, and are
+an agent's to use under its person's tickets.
 
 > **Tiles written before workspace agents can't tell the agent from the
 > person.** A backend that doesn't look at `X-XBin-Agent` treats an agent's

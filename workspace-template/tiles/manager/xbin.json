@@ -6,5 +6,10 @@
   // request reappears in the grants panel).
   "uses": [
     { "target": "xbin", "role": "writer" }
-  ]
+  ],
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — the tile manager: creating, wiring and removing
+  // tiles.
+  "agent": "off"
 }

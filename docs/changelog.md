@@ -86,12 +86,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     refuse a caller with `ByAgent()`, or the manifest says `"read"` or
     `"off"`. A backend written before this release treats an agent's call
     as its person's.
-  - **Every builtin tile and template now says `"agent"`.** `read`: chat,
-    prometheus-viewer, the agent and starter templates. `off`:
-    egress-approver, llm-gw, s3-archiver, sandbox-terminal, traefik,
-    webhooks, and the agent-messaging-bridge, coding-sandbox and scm-github
-    templates. Each builtin tile is one version up (`bx builtin updates`);
-    a template's instances get it with `git merge template/main`.
+  - **The infrastructure that ships with xbind now says `"agent"`.**
+    `off`: egress-approver, llm-gw, s3-archiver, sandbox-terminal, traefik,
+    webhooks, the agent-messaging-bridge, coding-sandbox and scm-github
+    templates, and a new workspace's admin console, organisations console
+    and tile manager. `read`: prometheus-viewer and the agent template.
+    **Apps stay unspecified** — the chat tile, the starter template, the
+    examples: an app is what a workspace agent is for, and without the key
+    a person's agent may use it fully, each write under their approval. The
+    starter template gained an `AGENTS.md` that tells its builder when to
+    narrow that and how to keep a route human-only. Each changed builtin
+    tile is one version up (`bx builtin updates`); a template's instances
+    get it with `git merge template/main`.
   - **The agent template refuses a person's agent everything but reads**
     (and stopping a run, marking one read) in its backend too
     (`_backend/wsagent.go`; API.md "A person's workspace agent"). **An
@@ -99,7 +105,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     person**: unmodified, its routes all need the `admin` role, which an
     agent's call never has, so it refuses the agent outright; if you opened
     routes to `writer`, merge the template's update or add `"agent": "off"`
-    to the instance's `xbin.json`.
+    to the instance's `xbin.json`. Letting a person's agent message a
+    conversation in a template instance is a possible later addition, under
+    tickets; this release has none.
 - **API: `/api/xbin/delegate/…`** ([protocol/delegation.md](/docs/protocol/delegation.md)):
   the workspace's switch and a person's pause, approval requests and
   tickets (bound to the call's method, path, query, body and content

@@ -66,6 +66,11 @@ agent's writes before they arrive; and the backend's own rule
 is added to `agentMay`) holds whatever the manifest says. To let a
 person's agent do more here, widen both, route by route.
 
+Messaging a conversation here from a person's workspace agent — each
+message under the person's ticket — is a possible later addition; this
+release has none (a message answers a parked question, and a start picks a
+class, a harness and a mode: each needs its own design).
+
 An instance made before this rule existed has neither. Its routes all need
 the `admin` role, which an agent's call never carries (`reader` or
 `writer`), so an unmodified one refuses the agent everything; merge the

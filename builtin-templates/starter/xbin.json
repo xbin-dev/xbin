@@ -6,12 +6,5 @@
     "title": "Starter",
     "description": "A blank static component — the simplest thing that shows up as a tile. Clone it and build.",
     "defaultName": "starter"
-  },
-
-  // What a person's workspace agent may do through this tile's API for
-  // them (docs/auth.md §Delegation): "off", "read" (GET and HEAD) or "full"
-  // (writes too — each still asks the person). Read until you have decided:
-  // once the tile has a backend, go through docs/elements.md "A person's
-  // agent" before you write "full".
-  "agent": "read"
+  }
 }

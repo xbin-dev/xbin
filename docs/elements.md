@@ -1153,8 +1153,11 @@ in it, decide:
    with the reason in a comment. Absent means `full`. `read` if agents
    should see what the person sees and change nothing; `off` if the API
    hands out secrets or is itself a control surface (firewall rules,
-   tokens, routes, terminals). Every tile and template that ships with
-   xbind says one of the three.
+   tokens, routes, terminals). An ordinary app can leave the key out: that
+   is what a workspace agent is for, and each write still asks the person.
+   The infrastructure that ships with xbind says `off` (`read` for the
+   metrics viewer and the agent template); the chat tile and the starter
+   template say nothing.
 2. **Refuse an agent the answers that are a person's.** With `full`, any
    route that *answers* something a person was asked — an approval, a
    permission request, a question, a consent, a sign-in — or that changes

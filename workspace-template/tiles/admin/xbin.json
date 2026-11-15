@@ -13,5 +13,10 @@
     // frame may only do that with cap:open-links (ND11). Pre-approved by
     // the template like xbin:admin above.
     { "target": "cap:open-links", "role": "writer" }
-  ]
+  ],
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — the admin console: every answer here is an
+  // admin's.
+  "agent": "off"
 }
