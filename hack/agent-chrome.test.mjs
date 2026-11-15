@@ -171,3 +171,14 @@ test('what the dock takes from the agent\'s page: a word and an id, nothing else
   assert.equal(W.clampDock(900, 1400), 720);
   assert.equal(W.clampDock(500, 600), 600, 'a narrow window: the whole page');
 });
+
+test('preferences: the modes a started tile agent may get — only ones that ask; the rest named, with why', () => {
+  const provs = [{ id: 'claude', name: 'Claude Code', modes: [{ id: 'default', name: 'Ask before acting' }, { id: 'plan', name: 'Plan' }, { id: 'bypassPermissions', name: 'Bypass permissions', explicit: true }] },
+    { id: 'bare', name: 'No table', modes: [] }, { id: 'codex', name: 'Codex', modes: [{ id: 'read-only', name: 'Read only' }] }, null];
+  const rows = W.sessionModes(provs, { claude: 'plan', codex: 'full-access' });
+  assert.deepEqual(rows.map((r) => [r.id, r.value, r.options.map((o) => o.id).join(), r.never.join()]), [['claude', 'plan', 'default,plan', 'Bypass permissions'], ['codex', '', 'read-only', '']],
+    'a coding agent with no modes has no row; a stored mode that is not offered reads as the asking mode');
+  assert.equal(W.sessionModes(provs, { claude: 'bypassPermissions' })[0].value, '', 'a mode that never asks is never the picked one');
+  assert.deepEqual(W.sessionModes(null, null), []);
+  assert.match(W.neverAsks(['Bypass permissions']), /^Not offered: Bypass permissions — it acts without asking you first/);
+});

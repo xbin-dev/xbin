@@ -469,6 +469,31 @@ export function setupSteps({ llm = null, state = null } = {}) {
 }
 export const SETUP_INTRO = { title: 'Set up the workspace agent', text: 'One agent per person that plans work across tiles and asks before anything changes. It is off until you finish these three steps. Nobody else sees it yet.' };
 
+// ---- Preferences: the mode a tile agent your agent starts gets -------------------------------
+
+/**
+ * sessionModes(providers, modes): the Preferences picker for the modes of
+ * tile agents the agent starts (agentSessions.modes of GET /agent/prefs),
+ * one row per coding agent of GET /agent/providers that lists modes —
+ * {id, name, value, options: [{id, name}], never: [name]}. options are the
+ * modes that ask before acting (the catalog's non-explicit ones: the only
+ * ones xbind saves there); never names the ones that don't, which xbind
+ * refuses — shown with why, never offered. value '' is the coding agent's
+ * own asking mode (also for a stored mode that isn't offered).
+ */
+export function sessionModes(providers, modes) {
+  const saved = modes && typeof modes === 'object' ? modes : {};
+  return (Array.isArray(providers) ? providers : []).filter((p) => p && p.id && Array.isArray(p.modes) && p.modes.length).map((p) => {
+    const ms = p.modes.filter((m) => m && m.id);
+    const options = ms.filter((m) => !m.explicit).map((m) => ({ id: m.id, name: m.name || m.id }));
+    const cur = typeof saved[p.id] === 'string' ? saved[p.id] : '';
+    return { id: p.id, name: p.name || p.id, value: options.some((o) => o.id === cur) ? cur : '', options, never: ms.filter((m) => m.explicit).map((m) => m.name || m.id) };
+  });
+}
+
+/** neverAsks(names): why those modes aren't offered for tile agents the agent starts. */
+export const neverAsks = (names) => `Not offered: ${names.join(', ')} — ${names.length === 1 ? 'it acts' : 'they act'} without asking you first, and xbin doesn't let a tile agent your agent starts run that way.`;
+
 // ---- what the page may ask of the dock -----------------------------------------------------
 
 const ID = /^[A-Za-z0-9_.:-]{1,80}$/;

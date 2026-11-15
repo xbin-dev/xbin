@@ -26,7 +26,8 @@
 // to <tile>'s own agent" opens the tile's window on a new session's
 // launcher with the words as plain text, nothing started until a coding
 // agent is picked, whose composer then holds them, unsent — and where no
-// shell takes it (/xbin/agent) the dock gives a plain link.
+// shell takes it (/xbin/agent) the dock gives a plain link; Preferences'
+// mode picker offers only modes that ask (xbind refuses the others).
 // Run it in both themes (HARNESS_THEME=light). Screenshots: out/agent-chrome-*.png.
 const { URL, login, shot, checker, log, sh, fr, waitFor, waitSel, usePersonalScreen, openTile, closeTile } = require('../lib');
 
@@ -318,6 +319,25 @@ async function agentChrome(browser) {
     await page.click(`${DOCK} bx-agent-prefs [data-start="allow"]`);
     for (let i = 0; i < 50 && !(S.state.adminChanges === true && sentTo(/PUT \/agent\/prefs/).length); i++) await page.waitForTimeout(40);
     check(S.state.adminChanges === true && sentTo(/PUT \/agent\/prefs/).some((c) => c.body.agentSessions.start === 'allow'), `[${width}] Preferences: the admin opt-in and the start preference are sent`);
+    // the mode a started tile agent gets: a picker of the modes that ask before acting (GET /agent/providers, real);
+    // the ones that don't are named with why, and xbind refuses them anyway
+    await page.waitForSelector(`${DOCK} bx-agent-prefs select[data-mode="claude"]`);
+    const modeOpts = await page.$$eval(`${DOCK} bx-agent-prefs select[data-mode="claude"] option`, (os) => os.map((o) => o.value));
+    const never = await text(`${DOCK} bx-agent-prefs [data-never="claude"]`);
+    check(modeOpts[0] === '' && modeOpts.includes('plan') && !modeOpts.includes('bypassPermissions') && /Bypass permissions/.test(never) && /without asking you first/.test(never),
+      `[${width}] Preferences: the modes for agent-started sessions are a picker of the ones that ask, the others named with why (${modeOpts.join(' ')} · ${never})`);
+    await page.selectOption(`${DOCK} bx-agent-prefs select[data-mode="claude"]`, 'plan');
+    for (let i = 0; i < 50 && !sentTo(/PUT \/agent\/prefs/).some((c) => c.body.agentSessions.modes); i++) await page.waitForTimeout(40);
+    check(JSON.stringify(sentTo(/PUT \/agent\/prefs/).filter((c) => c.body.agentSessions.modes).map((c) => c.body.agentSessions.modes)) === '[{"claude":"plan"}]'
+      && (await page.$eval(`${DOCK} bx-agent-prefs select[data-mode="claude"]`, (s) => s.value)) === 'plan', `[${width}] …picking one writes the preferences route ({agentSessions: {modes: {claude: plan}}}) and shows it`);
+    await page.selectOption(`${DOCK} bx-agent-prefs select[data-mode="claude"]`, '');
+    for (let i = 0; i < 50 && sentTo(/PUT \/agent\/prefs/).filter((c) => c.body.agentSessions.modes).length < 2; i++) await page.waitForTimeout(40);
+    check(JSON.stringify(sentTo(/PUT \/agent\/prefs/).filter((c) => c.body.agentSessions.modes).pop().body.agentSessions.modes) === '{"claude":null}', `[${width}] …and "its own asking mode" clears it`);
+    const fits = await page.$eval(`${DOCK} bx-agent-prefs select[data-mode="claude"]`, (sel) => { const d = document.querySelector('bx-agent-dock').getBoundingClientRect(), r = sel.getBoundingClientRect(); return r.right <= d.right + 1 && r.left >= d.left - 1; });
+    check(fits, `[${width}] …the picker fits the dock`);
+    const refused = await ctx.request.put(`${URL}/api/xbin/agent/prefs`, { data: { agentSessions: { modes: { claude: 'bypassPermissions' } } } }); // (the real route: page routes don't reach ctx.request)
+    const refusedWhy = (await refused.json().catch(() => ({}))).error || '';
+    check(refused.status() === 400 && /can't be saved/.test(refusedWhy), `[${width}] …and xbind itself refuses a mode that never asks (${refused.status()} ${refusedWhy})`);
     await shot(page, `agent-chrome-prefs${tag}`, { fullPage: false });
 
     // ---- a hostile page in the dock's frame cannot grant ----

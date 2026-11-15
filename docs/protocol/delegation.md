@@ -701,6 +701,12 @@ from the chip (the window in front) and from a tile's menu, **Ask my agent
 about this tile** — shown where the chip is, and not before setup or while
 workspace agents are off.
 
+**Preferences** set the mode a tile agent the person's agent starts gets
+(`agentSessions.modes` of `/agent/prefs`, [agents.md](/docs/protocol/agents.md)):
+the chrome offers, per coding agent of `GET /agent/providers`, only the
+modes that ask before acting, and names the ones that don't with why —
+xbind refuses those (400) whatever sends them.
+
 **A shell without the agent's chip** — a scaffold from before it — learns
 of the page through one alert: once an admin has turned workspace agents
 on and this xbind has an agent to show, `GET /alerts` carries kind
