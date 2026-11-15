@@ -21,8 +21,12 @@
 // resume; the tray's count; Approvals, What my agent did, Preferences; the
 // states shown in place of the page; and that a hostile page in the dock's
 // frame cannot grant — forged messages, an overlay, focus and keys.
-// Screenshots: out/agent-chrome-*.png.
-const { URL, login, shot, checker, log } = require('../lib');
+// In the shell: the page's "Hand this to <tile>'s own agent" opens the tile's window on a new session's
+// launcher with the words as plain text, nothing started until a coding
+// agent is picked, whose composer then holds them, unsent — and where no
+// shell takes it (/xbin/agent) the dock gives a plain link.
+// Run it in both themes (HARNESS_THEME=light). Screenshots: out/agent-chrome-*.png.
+const { URL, login, shot, checker, log, sh, fr, waitFor, usePersonalScreen, openTile, closeTile } = require('../lib');
 
 const NOW = Date.now();
 const iso = (ms) => new Date(NOW + ms).toISOString();
@@ -375,6 +379,8 @@ async function agentChrome(browser) {
     await shot(page, 'agent-chrome-shell', { fullPage: false });
     await page.click('bx-shell bx-agent-dock [data-close]');
     await page.waitForFunction(() => !document.querySelector('bx-shell').shadowRoot.querySelector('bx-agent-dock').open);
+    const wasOpen = await dockAbout(page, ctx, check);
+    await handOff(page, ctx, check, wasOpen);
     // the alert that names /xbin/agent is for shells without the chip: this one leaves it out
     let alertsRead = 0;
     await ctx.route('**/api/xbin/alerts', async (route) => { const resp = await route.fetch(); const j = await resp.json().catch(() => ({})); alertsRead++;
@@ -403,5 +409,88 @@ async function agentChrome(browser) {
   log('agentChrome: the delegation state was faked by route interception (no holder on this xbind): re-run against a real one');
   done();
 }
+
+// ---- the page's "Hand this to <tile>'s own agent" ----
+// (the shell, as admin with the delegation faked: the chip is shown)
+const HAND_TILE = 'apps/crawler';
+const DRAFT = 'In export.go change line 40 to use a semicolon.\n<b>not markup</b>\u202e';
+const DRAFT_SEEN = 'In export.go change line 40 to use a semicolon.\n<b>not markup</b>'; // plain text: the bidi control dropped, nothing interpreted
+// the agent's page, as a test page in the dock's frame: it reports what the dock tells it and, asked, hands the words on
+const HAND_PAGE = `<!doctype html><body style="margin:0"><p>the agent's page</p><script>
+  addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'xbin:agent-context') parent.postMessage({ type: 'harness-context', context: e.data }, '*');
+    if (e.data === 'hand-off') parent.postMessage({ type: 'xbin:open-session', session: 'new', tile: ${JSON.stringify(HAND_TILE)}, draft: ${JSON.stringify(DRAFT)} }, '*');
+  });</script>`;
+const dockFrame = (page, inShell) => page.evaluate((inShell) => {
+  const d = inShell ? document.querySelector('bx-shell').shadowRoot.querySelector('bx-agent-dock') : document.querySelector('bx-agent-dock');
+  d.shadowRoot.querySelector('iframe').contentWindow.postMessage('hand-off', '*');
+}, inShell);
+
+// the dock with the test page in its frame, HAND_TILE on the screen; → whether the tile was open before
+async function dockAbout(page, ctx, check) {
+  await ctx.route('**/harness-hand.html', (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: HAND_PAGE }));
+  await page.evaluate(() => { window.harnessContexts = []; addEventListener('message', (e) => { if (e.data && e.data.type === 'harness-context') window.harnessContexts.push(e.data.context); }); });
+  await usePersonalScreen(page);
+  const wasOpen = await sh(page, (t, p) => t.isOpen(p), HAND_TILE);
+  if (!wasOpen) await openTile(page, HAND_TILE);
+  await page.locator(`.card[data-path="${HAND_TILE}"]`).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await page.evaluate(() => { const d = document.querySelector('bx-shell').shadowRoot.querySelector('bx-agent-dock'); if (d) d.page = '/harness-hand.html'; });
+  await page.click('bx-shell button.chip.agent');
+  await page.waitForSelector('bx-shell bx-agent-dock[open] header');
+  await page.evaluate(() => { document.querySelector('bx-shell').shadowRoot.querySelector('bx-agent-dock').page = '/harness-hand.html'; });
+  await page.waitForTimeout(300); // (the frame loads)
+  return wasOpen;
+}
+
+async function handOff(page, ctx, check, wasOpen) {
+  const sent = [];
+  page.on('request', (r) => { if (r.method() === 'POST' && /\/api\/xbin\/term\/sessions($|\/[^/]+\/queue)/.test(new globalThis.URL(r.url()).pathname)) sent.push(new globalThis.URL(r.url()).pathname); });
+  // "Hand this to <tile>'s own agent": the tile's window on a new session's launcher, the words beside it as text, nothing started
+  const tabs0 = (await fr(page, HAND_TILE, (f) => f.tabs)).length;
+  await dockFrame(page, true);
+  await waitFor(page, (t, p) => { const f = t.frameFor(p)?.testApi(); return !!f && f.terminalOpen && !!f.handoff; }, HAND_TILE, { timeout: 10000, label: 'the window opens on a new session\'s launcher' });
+  const hand = await fr(page, HAND_TILE, (f) => f.handoff);
+  const shown = await page.$eval(`.card[data-path="${HAND_TILE}"] bx-frame [data-handoff] [data-draft]`, (e) => ({ text: e.textContent, markup: e.children.length }));
+  check(hand.draft === DRAFT_SEEN && shown.text === DRAFT_SEEN && shown.markup === 0, `xbin:open-session {session: "new", draft}: the tile's window opens on a new session's launcher, the words as plain text (${JSON.stringify(shown)})`);
+  await page.waitForTimeout(300); // (a negative: nothing may start by the message alone)
+  check(sent.length === 0 && (await fr(page, HAND_TILE, (f) => f.tabs)).length === tabs0, `…and nothing is started or sent by the message alone (${sent.join(' ')})`);
+  check(!(await page.evaluate(() => document.querySelector('bx-shell').shadowRoot.querySelector('bx-agent-dock').shadowRoot.querySelector('[data-handoff]'))), '…the shell took it: no link in the dock');
+  // the launcher draws from the theme's tokens, in this theme
+  const tokens = await page.$eval(`.card[data-path="${HAND_TILE}"] bx-frame [data-handoff]`, (el) => {
+    const probe = document.createElement('div'); probe.style.cssText = 'background: var(--bx-panel); color: var(--bx-text)'; el.append(probe);
+    const want = getComputedStyle(probe), got = getComputedStyle(el); const r = [got.backgroundColor, want.backgroundColor, got.color, want.color]; probe.remove(); return r;
+  });
+  check(tokens[0] === tokens[1] && tokens[2] === tokens[3], `…drawn in the theme's own panel and text colours (${tokens.join(' / ')})`);
+  await shot(page, 'agent-chrome-handoff', { fullPage: false });
+  const fake = await page.$(`.card[data-path="${HAND_TILE}"] bx-frame [data-handoff] [data-provider="fake"]`);
+  if (!fake) check(false, 'the launcher offers the scripted "fake" coding agent (XBIN_AGENT_FAKE)');
+  else {
+    await fake.click();
+    await waitFor(page, (t, p) => { const f = t.frameFor(p)?.testApi(); const g = f && f.agent(f.tabs.length - 1); return !!g && g.status === 'idle' && !f.handoff; }, HAND_TILE, { timeout: 20000, label: 'the picked agent\'s session is idle' });
+    const after = await fr(page, HAND_TILE, (f) => { const i = f.tabs.length - 1; return { tab: f.tabs[i], draft: f.agent(i).draft, n: f.tabs.length }; });
+    await page.waitForTimeout(300); // (a negative: the words wait for Send)
+    check(after.n === tabs0 + 1 && after.tab.provider === 'fake' && after.draft === DRAFT_SEEN && !sent.some((p) => /\/queue$/.test(p)),
+      `picking a coding agent starts its session with the words in its composer, unsent (${JSON.stringify({ n: after.n, provider: after.tab.provider, draft: after.draft, sent })})`);
+    if (after.tab.id) await ctx.request.delete(`${URL}/api/xbin/term/sessions/${encodeURIComponent(after.tab.id)}`);
+  }
+  await fr(page, HAND_TILE, (f) => f.closeTerminal());
+  if (!wasOpen) await closeTile(page, HAND_TILE);
+
+  // where no shell takes it (/xbin/agent, an older shell): the plain link to the tile, the words to copy
+  await page.goto(`${URL}/xbin/agent`);
+  await page.waitForSelector(`${DOCK} header`);
+  await page.evaluate(() => { document.querySelector('bx-agent-dock').page = '/harness-hand.html'; });
+  await page.waitForFunction(() => document.querySelector('bx-agent-dock').shadowRoot.querySelector('iframe'));
+  await page.waitForTimeout(300); // (the frame loads)
+  await dockFrame(page, false);
+  await page.waitForSelector(`${DOCK} [data-handoff]`);
+  const link = await page.$eval(`${DOCK} [data-handoff] a`, (a) => a.getAttribute('href'));
+  check(link === `/?tile=${HAND_TILE}` && (await text(page, `${DOCK} [data-handoff] [data-draft]`)) === DRAFT_SEEN.replace(/\s+/g, ' '),
+    `a dock no shell answers gives the plain link to the tile, and the words (${link})`);
+  await shot(page, 'agent-chrome-handoff-link', { fullPage: false });
+  await page.goto(`${URL}/`); // (the shell again, for what follows)
+  await page.waitForSelector('bx-shell button.chip.agent');
+}
+const text = (page, sel) => page.textContent(sel).then((t) => (t || '').replace(/\s+/g, ' ').trim());
 
 module.exports = { agentChrome };

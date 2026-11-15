@@ -88,6 +88,18 @@ export function agentChip(shell) {
 // takes bx-open-session; a tile the person doesn't list is refused there)
 const openSession = (d) => { if (d && d.tile && d.session) window.dispatchEvent(new CustomEvent('bx-open-session', { cancelable: true, detail: { from: 'agent', tile: d.tile, session: d.session } })); };
 
+// a new session of a tile's own agent with the person's words in its
+// composer, unsent (the agent's page: "Hand this to <tile>'s own agent"):
+// taken here — the dock shows a plain link to a shell that doesn't — and
+// landed on as a session link is, the tile's window opening on a new
+// session's launcher (bx-frame open({session: "new", draft}))
+const newSession = (e) => {
+  const d = e.detail;
+  if (!d || !d.tile) return;
+  e.preventDefault();
+  window.dispatchEvent(new CustomEvent('bx-open-session', { cancelable: true, detail: { from: 'agent', tile: d.tile, session: 'new', draft: typeof d.draft === 'string' ? d.draft : '' } }));
+};
+
 export function agentDock(shell) {
   const a = shell._agent;
   if (!a || !a.loaded) return nothing;
@@ -95,5 +107,6 @@ export function agentDock(shell) {
   const full = !!shell._mobile;
   return html`<bx-agent-dock ?open=${a.open} ?full=${full} .context=${a.context} style=${full ? 'position:absolute;inset:0;z-index:40' : nothing}
     @bx-agent-dock=${(e) => { if (a.open !== e.detail.open) { a.open = e.detail.open; shell.requestUpdate(); } }}
-    @bx-agent-open-session=${(e) => { openSession(e.detail); if (full) openAgent(shell, null, false); }}></bx-agent-dock>`;
+    @bx-agent-open-session=${(e) => { openSession(e.detail); if (full) openAgent(shell, null, false); }}
+    @bx-agent-new-session=${(e) => { newSession(e); if (full && e.defaultPrevented) openAgent(shell, null, false); }}></bx-agent-dock>`;
 }

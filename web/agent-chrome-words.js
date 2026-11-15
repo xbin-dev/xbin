@@ -477,6 +477,23 @@ const tilePath = (v) => {
   const t = typeof v === 'string' ? v.replace(/^\/+|\/+$/g, '') : '';
   return t && t.length <= 512 && !t.split('/').some((x) => !x || x === '.' || x === '..') ? t : '';
 };
+/** DRAFT_MAX: the most of a person's words a new session's draft carries, in characters. */
+export const DRAFT_MAX = 8000;
+// control characters but newline and tab, and the invisible ones that reorder or hide text
+const UNSEEN = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+/**
+ * plainDraft(v): words for a new session's composer, as plain text — never
+ * markup, never a command: line ends made \n, control and invisible
+ * characters dropped, trimmed, at most DRAFT_MAX characters; '' for
+ * anything that isn't a string.
+ */
+export function plainDraft(v) {
+  return typeof v === 'string' ? v.replace(/\r\n?/g, '\n').replace(UNSEEN, '').trim().slice(0, DRAFT_MAX) : '';
+}
+
+/** handoffLink(tile): the plain link to a tile, for a shell that can't open a new session of its agent itself. */
+export const handoffLink = (tile) => `/?tile=${encodeURIComponent(tilePath(tile)).replace(/%2F/gi, '/')}`;
+
 /**
  * pageMessage(data): a message from the agent's page, read strictly — the
  * whole of what the page may ask of the chrome:
@@ -484,11 +501,14 @@ const tilePath = (v) => {
  *   xbin:agent-open-request {id}      → {type: 'review', kind: 'request', id}
  *   xbin:agent-open-changeset {id}    → {type: 'review', kind: 'changeset', id}
  *   xbin:open-session {session, tile} → {type: 'session', tile, session}
+ *   xbin:open-session {session: "new", tile, draft}
+ *                                     → {type: 'new-session', tile, draft}  (draft: plainDraft)
  *   xbin:agent-open {view}            → {type: 'open', view}  (approvals | activity | prefs)
  *
- * or null. Ids and a word: no other field of a message is ever read (the
- * dock fetches the request from xbind itself), and none of them decides
- * anything.
+ * or null. Ids and a word — and a new session's draft, the person's own
+ * words, kept as plain text for its composer: no other field of a message
+ * is ever read (the dock fetches the request from xbind itself), and none
+ * of them decides anything — a draft is never sent by being handed over.
  */
 export function pageMessage(data) {
   if (!data || typeof data !== 'object') return null;
@@ -497,6 +517,7 @@ export function pageMessage(data) {
   if (data.type === 'xbin:agent-open-changeset') return id ? { type: 'review', kind: 'changeset', id } : null;
   if (data.type === 'xbin:open-session') {
     const tile = tilePath(data.tile), session = typeof data.session === 'string' && SESSION.test(data.session) ? data.session : '';
+    if (tile && session === 'new') return { type: 'new-session', tile, draft: plainDraft(data.draft) };
     return tile && session ? { type: 'session', tile, session } : null;
   }
   if (data.type === 'xbin:agent-open') return ['approvals', 'activity', 'prefs'].includes(data.view) ? { type: 'open', view: data.view } : null;
