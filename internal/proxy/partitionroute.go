@@ -112,6 +112,9 @@ func (px *Proxy) identifyPartition(r *http.Request, d Decision) {
 		if a.Level != "" {
 			r.Header.Set(HeaderUserLevel, a.Level)
 		}
+		if a.Agent != "" { // a delegate's call: the person's workspace agent, never the person's own hand
+			r.Header.Set(HeaderAgent, a.Agent)
+		}
 	}
 }
 

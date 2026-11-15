@@ -5,6 +5,12 @@
   // docs/auth.md — that's how the settings panel talks to /config and to
   // this component's own vault key without any extra grant).
   "runtime": "go",
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — provider tokens and limits; an agent reaches
+  // models through its own tile's llm binding.
+  "agent": "off",
+
   "uses": [
     { "target": "res:apps/llm-gw/state", "role": "writer" }
   ],

@@ -18,6 +18,11 @@
   "partitionNote": "A full switch forgets every person's GitHub sign-in (they sign in again). A full switch, or removing global, deletes the App's keys and secrets, the identity directory, subscriptions and undelivered events: paste the keys again, or make a new private key in the App's settings.",
 
   "runtime": "go",
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — repository tokens, pushes and pull requests.
+  "agent": "off",
+
   // The backend lives in _backend/ (not backend/): the underscore keeps xbin's
   // own `go build ./...` from sweeping this template payload into the xbin
   // module. Instances build it from here.

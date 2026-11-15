@@ -57,6 +57,9 @@ POST   /grants                     admin — any. An org admin may approve on
                                    delegable (D120). body
                                    {from,target,role} — approve/add; the
                                    stored row records approvedBy/approvedAt.
+                                   409 for a target that is a sealed xbind
+                                   component acting for people (a workspace
+                                   agent): no tile calls one.
                                    → {ok, warning?}: warning is the pending
                                    row's approval warning (GET /grants) when
                                    a partitioned tile's grant reaches
@@ -191,7 +194,9 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    {component, slot, providers:[…]} (the full
                                    set for a multi:true http slot). Refs are
                                    provider[#instance]; an instances-provide
-                                   binds to a specific instance only. — bind
+                                   binds to a specific instance only; 409 for
+                                   a provider that is a sealed xbind
+                                   component acting for people. — bind
                                    a requested interface to a provider (a builtin
                                    id like internet/host/lan:<cidr>/
                                    internet:<spec>, `org` — the owning org's

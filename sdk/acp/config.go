@@ -35,6 +35,22 @@ type Config struct {
 	// category mode — the mode is Mode's alone (an embedder that keeps some
 	// modes to some people); such an entry is skipped and logged.
 	SkipModeOptions bool
+	// Strict: the session is opened for someone who isn't there to watch
+	// it start (xbind: a person's workspace agent, whose start the person
+	// approved as "this harness, in this mode"). Then the start is what was
+	// asked for or it fails:
+	//   - Mode must be in force: a session/set_mode the agent refuses ends
+	//     the start (otherwise it is logged and the session runs in the
+	//     agent's own mode);
+	//   - Options sets only what can't change what the session does
+	//     unasked — an option the agent reports under category "model" or
+	//     "thought_level". One of any other category (mode, model_config,
+	//     an adapter's own, none) ends the start; one the agent doesn't
+	//     offer is skipped, as ever.
+	// The shipped harnesses' options by category: claude-agent-acp model;
+	// codex-acp model and reasoning effort (thought_level); opencode model
+	// and its agents (mode); gemini none.
+	Strict bool
 }
 
 // Process is a spawned agent as the client sees it: its stdio and a way to

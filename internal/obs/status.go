@@ -55,7 +55,7 @@ func (o *Plane) apiStatusList(w http.ResponseWriter, r *http.Request) {
 		if isDepKey(comp) { // a non-primary deployment's: never listed (D127h)
 			continue
 		}
-		if admin || p.CanReadTile(comp) {
+		if (admin || p.CanReadTile(comp)) && !(o.AgentHides != nil && o.AgentHides(p, comp)) {
 			out[comp] = rec
 		}
 	}

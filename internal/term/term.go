@@ -29,6 +29,7 @@ import (
 	"github.com/creack/pty"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/gpu"
 	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -125,6 +126,10 @@ type Manager struct {
 	// broker by main. nil ⇒ the pre-D54 rules (termNet → internet, host
 	// admin-only).
 	TermNet func(p auth.Principal, component string) TermNet
+	// AgentPolicy answers the orgs' rules when a person's workspace agent
+	// opens a tile agent session (delegate.go); nil refuses every such open
+	// (delegation.NoPolicy).
+	AgentPolicy delegation.Policy
 
 	// HiddenTiles lists the component dirs to mask out of this principal's
 	// terminals (D17a — source visibility scoped to the allow-list): every

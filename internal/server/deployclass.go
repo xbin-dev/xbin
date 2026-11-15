@@ -323,6 +323,7 @@ var routeClasses = map[string]RouteClass{
 	"POST /impersonate/stop":                 PrimaryOnly,
 	"PUT /native-runtime":                    PrimaryOnly,
 	"PUT /chrome":                            PrimaryOnly,
+	"PUT /agent-levels":                      PrimaryOnly,
 	"PUT /branding":                          PrimaryOnly,
 	"PUT /workspace-policies":                PrimaryOnly,
 	"POST /partitions/limits":                PrimaryOnly, // admins and tile managers judged in the handler; never tile code (06 §6)
@@ -371,6 +372,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /term-net":             Neutral,
 	"GET /native-runtime":       Neutral,
 	"GET /chrome":               Neutral,
+	"GET /agent-levels":         Neutral,
 	"GET /branding":             Neutral,
 	"GET /workspace-policies":   Neutral, // people and admins; the handler refuses tile code (PD-55)
 	"GET /workspace-settings":   Neutral,
@@ -451,6 +453,31 @@ var routeClasses = map[string]RouteClass{
 	"POST /partitions/mail":     PrimaryOnly,
 	"GET /partitions/mail":      PrimaryOnly,
 	"POST /partitions/mail/ack": PrimaryOnly,
+	// ---- delegation (D228, delegateapi.go): primary-only. Its callers are
+	// people, a sealed holder's page and the delegate gate; a sealed
+	// component has no deployments, and no tile credential bound to a
+	// non-primary deployment has any business with a person's approvals ----
+	"GET /delegate/state":                    PrimaryOnly,
+	"PUT /delegate/state":                    PrimaryOnly,
+	"GET /delegate/workspace":                PrimaryOnly,
+	"PUT /delegate/workspace":                PrimaryOnly,
+	"GET /delegate/audit":                    PrimaryOnly,
+	"POST /delegate/requests":                PrimaryOnly,
+	"GET /delegate/requests":                 PrimaryOnly,
+	"GET /delegate/requests/{id}":            PrimaryOnly,
+	"POST /delegate/requests/{id}/approve":   PrimaryOnly,
+	"POST /delegate/requests/{id}/deny":      PrimaryOnly,
+	"DELETE /delegate/requests/{id}":         PrimaryOnly,
+	"GET /delegate/approvals":                PrimaryOnly,
+	"POST /delegate/approvals":               PrimaryOnly,
+	"DELETE /delegate/approvals/{id}":        PrimaryOnly,
+	"POST /delegate/changesets":              PrimaryOnly,
+	"GET /delegate/changesets":               PrimaryOnly,
+	"GET /delegate/changesets/{id}":          PrimaryOnly,
+	"DELETE /delegate/changesets/{id}":       PrimaryOnly,
+	"POST /delegate/changesets/{id}/approve": PrimaryOnly,
+	"POST /delegate/changesets/{id}/reject":  PrimaryOnly,
+	"POST /delegate/changesets/{id}/undo":    PrimaryOnly,
 }
 
 // classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.
