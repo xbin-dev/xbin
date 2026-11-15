@@ -28,7 +28,7 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
-import { uncovered } from '/vendor/bx-agent-approve.js';
+import { uncovered, shown, hiddenLine } from '/vendor/bx-agent-approve.js';
 import { CHOICES, kindTag, warning, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp, stopRefusal, stopWords, endedWords } from '/vendor/agent-chrome-words.js';
 
 const KEEP = 'xbin-agent-ticks:'; // sessionStorage: a set's ticks, kept across signing in again
@@ -190,7 +190,7 @@ export class BxAgentChanges extends LitElement {
         ${res && res.text ? html`<div class="small ${res.tone === 'bad' ? 'err' : 'muted'}">${res.text}</div>` : nothing}
         ${it.before != null || it.after != null ? html`<div class="ba mono small"><div class="b"><span class="lb">Before</span>${it.before ?? '—'}</div><div class="a"><span class="lb">After</span>${it.after ?? '—'}</div></div>` : nothing}
         ${(it.effects || []).length ? html`<div class="small">${[].concat(it.effects).join(' ')}</div>` : nothing}
-        ${it.why ? html`<div class="quote"><span class="ql">Agent's reason — not checked by xbin</span><span class="qt">${it.why}</span></div>` : nothing}
+        ${it.why ? html`<div class="quote"><span class="ql">Agent's reason — not checked by xbin</span>${hiddenLine(it.why)}<span class="qt">${shown(it.why)}</span></div>` : nothing}
       </div></li>`;
   }
 
@@ -199,7 +199,7 @@ export class BxAgentChanges extends LitElement {
     const items = cs.items || [];
     return html`<div class="in">
         <h2 id="h" tabindex="-1">${w.heading}</h2>
-        ${cs.title ? html`<div class="quote"><span class="ql">The agent's title — not checked by xbin</span><span class="qt">${cs.title}</span></div>` : nothing}
+        ${cs.title ? html`<div class="quote"><span class="ql">The agent's title — not checked by xbin</span>${hiddenLine(cs.title)}<span class="qt">${shown(cs.title)}</span></div>` : nothing}
         <p class="muted">${w.intro}</p>
         <ul class="items">${items.map((it, i) => this._item(it, i, items.length, true))}</ul>
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}

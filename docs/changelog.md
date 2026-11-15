@@ -28,6 +28,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (`xbin:agent-open-request`, `…-changeset`) and from the app's agent view
   only in the shape xbind issues — 24 lowercase hex digits — and ignores
   any other (§The chrome).
+  Characters that reorder or hide text (bidi controls, zero-width ones,
+  other control and format characters) in anything the agent wrote are
+  shown on the sheets as escapes, `⟨U+202E⟩`, under "contains hidden
+  characters — shown as ⟨U+…⟩" — `reveal()` in
+  `/vendor/agent-chrome-words.js`.
 - delegation: the workspace's switch (`PUT /delegate/workspace
   {enabled}`) now also sends a `delegate` event with `op: "state"` to the
   own sockets of every person who has an agent, and of the admin who turned

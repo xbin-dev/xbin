@@ -36,8 +36,13 @@ import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, asked, settled,
-  stopRefusal, stopWords,
+  stopRefusal, stopWords, reveal, HIDDEN_NOTE,
 } from '/vendor/agent-chrome-words.js';
+
+/** shown(text): the agent's text as parts — each hidden character (bidi, zero-width, control) a chip, ⟨U+202E⟩, never interpreted. */
+export const shown = (text) => reveal(text).parts.map((p) => (p.hidden ? html`<span class="hid" title=${`hidden character ${p.hidden}`}>⟨${p.hidden}⟩</span>` : p.text));
+/** hiddenLine(text): above text that holds a hidden character, the line that says so (nothing for text that holds none). */
+export const hiddenLine = (text) => (reveal(text).hidden ? html`<div class="small hidnote" data-hidden><bx-icon name="warning"></bx-icon><span>${HIDDEN_NOTE}</span></div>` : nothing);
 
 /** uncovered(el): the person can see el and nothing is drawn over its middle — through every shadow root on the way. */
 export function uncovered(el) {
@@ -208,7 +213,7 @@ export class BxAgentApprove extends LitElement {
   }
 
   _quote(text, label = "The agent's own words — not checked by xbin") {
-    return text ? html`<div class="quote"><span class="ql">${label}</span><span class="qt">${text}</span></div>` : nothing;
+    return text ? html`<div class="quote"><span class="ql">${label}</span>${hiddenLine(text)}<span class="qt">${shown(text)}</span></div>` : nothing;
   }
 
   _tileRow(req) {
@@ -224,7 +229,7 @@ export class BxAgentApprove extends LitElement {
     return html`<dl class="rows">
         ${this._tileRow(req)}
         <dt>Action</dt><dd class="mono" data-row="action">${req.method} ${req.target}</dd>
-        <dt>Sends</dt><dd data-row="sends">${s.text ? html`<pre class="body">${long ? s.text.slice(0, 2048) : s.text}</pre>` : nothing}
+        <dt>Sends</dt><dd data-row="sends">${s.text ? html`${hiddenLine(s.text)}<pre class="body">${shown(long ? s.text.slice(0, 2048) : s.text)}</pre>` : nothing}
           <div class="small muted">${s.note}${long ? html` — <button class="link" @click=${() => { this._all = true; }}>Show all</button>` : nothing}</div>
           ${s.binary ? html`<div class="small err">Nobody can read this before it is sent: allowing it approves bytes you have not seen.</div>` : nothing}</dd>
         <dt>Undo</dt><dd>${undoWords(req)}</dd>
@@ -271,7 +276,7 @@ export class BxAgentApprove extends LitElement {
         <dt>Coding agent</dt><dd>${r.agent}</dd>
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>Other tiles</dt><dd>${r.others}</dd>
-        <dt>What it will be told</dt><dd><pre class="body brief" data-row="brief">${r.brief || '(nothing: it starts without a message)'}</pre><div class="small muted">sent exactly like this</div></dd>
+        <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="body brief" data-row="brief">${r.brief ? shown(r.brief) : '(nothing: it starts without a message)'}</pre><div class="small muted">sent exactly like this</div></dd>
       </dl>
       ${this._quote(req.summary)}
       <p class="small muted">${r.comes}</p>`;
@@ -285,7 +290,7 @@ export class BxAgentApprove extends LitElement {
         <dt>Template</dt><dd class="mono">${b.source || b.template || '(the default)'}</dd>
         <dt>Name and place</dt><dd class="mono">${b.path || b.name || req.target}</dd>
         <dt>Owner</dt><dd>${p.owner || 'you'}</dd>
-        <dt>Sends</dt><dd><pre class="body">${req.body || ''}</pre><div class="small muted">${sends(req).note}</div></dd>
+        <dt>Sends</dt><dd>${hiddenLine(req.body)}<pre class="body">${shown(req.body || '')}</pre><div class="small muted">${sends(req).note}</div></dd>
       </dl>
       ${this._quote(req.summary)}`;
   }

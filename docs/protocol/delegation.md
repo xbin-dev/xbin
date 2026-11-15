@@ -855,7 +855,13 @@ The chrome reads the request or change set from xbind itself
 (`GET /delegate/requests/<id>`, `/delegate/changesets/<id>`) and draws
 xbind's reading: the call, its class, the body's text or its size and
 hash, the warnings. The agent's own sentence (`summary`, `why`) is shown
-quoted and labelled as the agent's. An id that isn't the person's opens
+quoted and labelled as the agent's. Nothing the agent wrote — a body, a
+brief, a summary, a set's title, a reason — is drawn with the characters
+that reorder or hide text: control characters but newline and tab, and
+every format character (bidi embeddings, overrides and isolates, the
+zero-width ones, the word joiner, the byte order mark) show as their
+escape, `⟨U+202E⟩`, never interpreted, under a line that says the text
+holds hidden characters. An id that isn't the person's opens
 nothing. No message approves, denies, resumes or changes a preference, and
 none opens Preferences: they open from the chrome's own menu only.
 

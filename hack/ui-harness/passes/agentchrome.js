@@ -349,6 +349,21 @@ async function agentChrome(browser) {
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     S.refuse = ''; S.requests = S.requests.filter((r) => r.id !== 'p1'); S.changesets = S.changesets.filter((c) => c.id !== 'p2'); await refresh();
 
+    // ---- what the agent wrote, never drawn as it came: characters that reorder or hide text are escapes, as chips ----
+    S.requests.push(callReq('h2', { created: iso(-500), body: '{"note":"pay \u202Eevil\u202C now"}', bodySize: 33, bodyShown: true, summary: 'Pay \u2066the\u2069 invoice\u200B' }));
+    await refresh();
+    await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 'h2'));
+    await page.waitForSelector(`${SHEET} [data-row="sends"] .hid`);
+    const hid = await page.$$eval(`${SHEET} .hid`, (els) => els.map((e) => e.textContent));
+    const raw = await page.$eval(`${SHEET} [role="dialog"]`, (d) => /[\u202A-\u202E\u2066-\u2069\u200B-\u200F]/.test(d.shadowRoot ? '' : d.textContent));
+    check(JSON.stringify(hid) === JSON.stringify(['⟨U+202E⟩', '⟨U+202C⟩', '⟨U+2066⟩', '⟨U+2069⟩', '⟨U+200B⟩']) && !raw
+      && (await page.$$(`${SHEET} [data-hidden]`)).length === 2 && /contains hidden characters — shown as ⟨U\+…⟩/.test(await text(`${SHEET} [data-row="sends"]`)),
+      `[${width}] hidden characters in the body and the agent's words: each an escape, as a chip, with the line above (${hid.join(' ')})`);
+    await shot(page, `agent-chrome-hidden${tag}`, { fullPage: false });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    S.requests = S.requests.filter((r) => r.id !== 'h2'); await refresh();
+
     // ---- Approvals, What my agent did, Preferences ----
     await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
     log('before the menu: ' + JSON.stringify(await page.evaluate(() => { const d = document.querySelector('bx-agent-dock'); const b = d.shadowRoot.querySelector('[data-menu]');

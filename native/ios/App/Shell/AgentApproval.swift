@@ -103,14 +103,55 @@ struct AgentQuote: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(verbatim: label).font(.caption2.weight(.bold)).foregroundStyle(XbinColor.muted)
-            Text(verbatim: text).font(.callout).italic()
+            AgentHiddenNote(text: text)
+            Text(AgentReveal.attributed(text, font: .callout.italic()))
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(XbinColor.surface2)
         .overlay(alignment: .leading) { Rectangle().fill(XbinColor.borderStrong).frame(width: 3) }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "\(label.replacingOccurrences(of: " — ", with: ", ")): \(text)"))
+        .accessibilityLabel(Text(verbatim: "\(label.replacingOccurrences(of: " — ", with: ", ")): "
+            + (DelegationWords.reveal(text).hidden > 0 ? "\(DelegationWords.hiddenNote). " : "") + DelegationWords.revealed(text)))
+    }
+}
+
+/// What the agent wrote is never drawn as it came: each character that
+/// reorders or hides text (bidi controls, zero-width ones, other controls
+/// and format characters) is its escape, ⟨U+202E⟩, a chip of its own —
+/// never interpreted (DelegationWords.reveal, the web chrome's rule).
+enum AgentReveal {
+    static func attributed(_ text: String, font: Font) -> AttributedString {
+        var out = AttributedString()
+        for p in DelegationWords.reveal(text).parts {
+            switch p {
+            case .text(let t):
+                var a = AttributedString(t)
+                a.font = font
+                out += a
+            case .hidden(let code):
+                var a = AttributedString("⟨\(code)⟩")
+                a.font = .caption2.monospaced().weight(.bold)
+                a.foregroundColor = XbinColor.warn
+                a.backgroundColor = XbinColor.warnBackground
+                out += a
+            }
+        }
+        return out
+    }
+}
+
+/// Above text of the agent's that holds a hidden character: the line that
+/// says so (nothing when it holds none).
+struct AgentHiddenNote: View {
+    let text: String
+
+    var body: some View {
+        if DelegationWords.reveal(text).hidden > 0 {
+            Label { Text(verbatim: DelegationWords.hiddenNote).font(.caption.weight(.semibold)) } icon: { Image(systemName: "exclamationmark.triangle") }
+                .foregroundStyle(XbinColor.warn)
+                .accessibilityIdentifier("agent-hidden-note")
+        }
     }
 }
 
@@ -335,14 +376,14 @@ struct AgentApprovalSheet: View {
     @State private var problem: String?
     @State private var wider = false
     @State private var showAll = false
+
+    /// How much of a long body shows before "Show all".
+    private static let clip = 4000
     /// A 409's refusal: the agent stopped while the sheet was open.
     @State private var refusal = ""
 
     /// Why nothing can be allowed now ("" when it can): xbind's 409, else the state.
     private var stop: String { refusal.isEmpty ? DelegationWords.stopRefusal(workspace.agent.state) : refusal }
-
-    /// How much of a long body shows before "Show all".
-    private static let clip = 4000
 
     var body: some View {
         VStack(spacing: 0) {
@@ -450,8 +491,9 @@ struct AgentApprovalSheet: View {
             ApprovalRow(label: "Sends") {
                 if !sends.text.isEmpty {
                     let long = sends.text.count > Self.clip && !showAll
-                    Text(verbatim: long ? String(sends.text.prefix(Self.clip)) + "…" : sends.text)
-                        .font(XbinFont.code).textSelection(.enabled)
+                    AgentHiddenNote(text: sends.text)
+                    Text(AgentReveal.attributed(long ? String(sends.text.prefix(Self.clip)) + "…" : sends.text, font: XbinFont.code))
+                        .textSelection(.enabled)
                         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
                         .background(XbinColor.surface2, in: .xbinPlate)
                     if long { Button("Show all") { showAll = true }.font(.caption) }
@@ -540,8 +582,9 @@ struct AgentApprovalSheet: View {
         }
         VStack(alignment: .leading, spacing: 4) {
             Text("What it will be told — sent exactly like this").font(.caption.weight(.semibold)).foregroundStyle(XbinColor.muted)
-            Text(verbatim: s.brief.isEmpty ? "Nothing: it starts without a first message." : s.brief)
-                .font(XbinFont.code).textSelection(.enabled)
+            AgentHiddenNote(text: s.brief)
+            Text(AgentReveal.attributed(s.brief.isEmpty ? "Nothing: it starts without a first message." : s.brief, font: XbinFont.code))
+                .textSelection(.enabled)
                 .padding(8).frame(maxWidth: .infinity, alignment: .leading)
                 .background(XbinColor.surface2, in: .xbinPlate)
         }

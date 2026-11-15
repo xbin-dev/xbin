@@ -48,6 +48,11 @@ export const chromeCss = css`
   .banner.warn { border-color: var(--bx-warn, #F2994A); background: var(--bx-warn-bg, #382F2C); }
   .banner.bad { border-color: var(--bx-danger, #FF7A7A); background: var(--bx-danger-bg, #3A2B32); }
   .banner bx-icon { flex: none; margin-top: 1px; }
+  /* a character of the agent's text that is never drawn as it is (bidi, zero-width, control): its escape, as a chip */
+  .hid { display: inline-block; padding: 0 3px; margin: 0 1px; border: 1px solid var(--bx-warn, #F2994A); border-radius: var(--bx-radius, 2px);
+    background: var(--bx-warn-bg, #382F2C); color: var(--bx-warn, #F2994A); font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif);
+    font-style: normal; white-space: nowrap; unicode-bidi: isolate; }
+  .hidnote { display: flex; gap: 4px; align-items: center; color: var(--bx-warn, #F2994A); margin-bottom: 2px; }
   /* in place of Allow / Apply while the agent is stopped: why, and that Deny / Reject still work */
   .banner.stopped { flex: 1 1 220px; min-width: 0; }
   .banner.warn bx-icon { color: var(--bx-warn, #F2994A); } .banner.bad bx-icon { color: var(--bx-danger, #FF7A7A); }

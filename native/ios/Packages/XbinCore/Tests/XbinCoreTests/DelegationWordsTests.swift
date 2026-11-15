@@ -180,6 +180,20 @@ import Testing
         #expect(pw.heading == s(small["stepUp"]?[0], "heading") && pw.text == s(small["stepUp"]?[0], "text") && pw.action == s(small["stepUp"]?[0], "action") && pw.password)
         #expect(si.heading == s(small["stepUp"]?[1], "heading") && si.text == s(small["stepUp"]?[1], "text") && si.action == s(small["stepUp"]?[1], "action") && !si.password)
         #expect(AgentChoices.armSeconds * 1000 == small["arm"]?.doubleValue)
+        // the agent's text in a sheet: the web's parts, escape by escape
+        let reveals = small["reveal"]?.arrayValue ?? []
+        #expect(reveals.count >= 12)
+        for c in reveals {
+            let text = s(c, "text")
+            let got = DelegationWords.reveal(text)
+            let want: [DelegationWords.RevealPart] = (c["parts"]?.arrayValue ?? []).map { p in
+                p["hidden"]?.stringValue.map { .hidden($0) } ?? .text(p["text"]?.stringValue ?? "")
+            }
+            #expect(got.parts == want, "\(DelegationWords.revealed(text))")
+            #expect(got.hidden == Int(c["hidden"]?.intValue ?? -1), "\(text.unicodeScalars.map(\.value))")
+            #expect(DelegationWords.revealed(text) == s(c, "revealed"))
+        }
+        #expect(DelegationWords.hiddenNote == small["hiddenNote"]?.stringValue)
         // in place of Allow / Apply while the agent is stopped: the web's words, refusal by refusal
         let stops = small["stops"]?.arrayValue ?? []
         #expect(stops.count == 12)

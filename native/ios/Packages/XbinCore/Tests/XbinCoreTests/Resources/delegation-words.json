@@ -1692,11 +1692,11 @@
     "method": "POST",
     "target": "xbin/term/sessions",
     "tile": "apps/orders",
-    "body": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "body": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: export the ‮invoices‬.\\nDone when: the test passes.\"}",
     "bodyShown": true,
     "bodySize": 96,
     "bodySha256": "cd34",
-    "summary": "Start Claude Code on the export.",
+    "summary": "Start it ⁦in a mode⁩ xbin doesn’t vouch for.​",
     "state": "pending",
     "created": "2026-11-16T10:02:00Z",
     "expires": "2026-11-17T10:02:00Z",
@@ -1726,7 +1726,7 @@
     "after": "?"
    },
    "sends": {
-    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: export the ‮invoices‬.\\nDone when: the test passes.\"}",
     "binary": false,
     "note": "96 bytes · shown in full"
    },
@@ -1780,7 +1780,7 @@
     },
     "network": "Its model only. No internet.",
     "others": "It can call the tile APIs this tile is granted.",
-    "brief": "Goal: add CSV export.\nDone when: the export test passes.",
+    "brief": "Goal: export the ‮invoices‬.\nDone when: the test passes.",
     "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them."
    },
@@ -4240,6 +4240,243 @@
     null
    ]
   ],
+  "reveal": [
+   {
+    "text": "plain words",
+    "parts": [
+     {
+      "text": "plain words"
+     }
+    ],
+    "hidden": 0,
+    "revealed": "plain words"
+   },
+   {
+    "text": "pay ‮evil‬ now",
+    "parts": [
+     {
+      "text": "pay "
+     },
+     {
+      "hidden": "U+202E"
+     },
+     {
+      "text": "evil"
+     },
+     {
+      "hidden": "U+202C"
+     },
+     {
+      "text": " now"
+     }
+    ],
+    "hidden": 2,
+    "revealed": "pay ⟨U+202E⟩evil⟨U+202C⟩ now"
+   },
+   {
+    "text": "⁦iso⁩ ⁧x⁨",
+    "parts": [
+     {
+      "hidden": "U+2066"
+     },
+     {
+      "text": "iso"
+     },
+     {
+      "hidden": "U+2069"
+     },
+     {
+      "text": " "
+     },
+     {
+      "hidden": "U+2067"
+     },
+     {
+      "text": "x"
+     },
+     {
+      "hidden": "U+2068"
+     }
+    ],
+    "hidden": 4,
+    "revealed": "⟨U+2066⟩iso⟨U+2069⟩ ⟨U+2067⟩x⟨U+2068⟩"
+   },
+   {
+    "text": "zero​width‌‍‎‏",
+    "parts": [
+     {
+      "text": "zero"
+     },
+     {
+      "hidden": "U+200B"
+     },
+     {
+      "text": "width"
+     },
+     {
+      "hidden": "U+200C"
+     },
+     {
+      "hidden": "U+200D"
+     },
+     {
+      "hidden": "U+200E"
+     },
+     {
+      "hidden": "U+200F"
+     }
+    ],
+    "hidden": 5,
+    "revealed": "zero⟨U+200B⟩width⟨U+200C⟩⟨U+200D⟩⟨U+200E⟩⟨U+200F⟩"
+   },
+   {
+    "text": "joiner⁠bom﻿",
+    "parts": [
+     {
+      "text": "joiner"
+     },
+     {
+      "hidden": "U+2060"
+     },
+     {
+      "text": "bom"
+     },
+     {
+      "hidden": "U+FEFF"
+     }
+    ],
+    "hidden": 2,
+    "revealed": "joiner⟨U+2060⟩bom⟨U+FEFF⟩"
+   },
+   {
+    "text": "lines\nand\ttabs stay",
+    "parts": [
+     {
+      "text": "lines\nand\ttabs stay"
+     }
+    ],
+    "hidden": 0,
+    "revealed": "lines\nand\ttabs stay"
+   },
+   {
+    "text": "cr\r\nlf",
+    "parts": [
+     {
+      "text": "cr"
+     },
+     {
+      "hidden": "U+000D"
+     },
+     {
+      "text": "\nlf"
+     }
+    ],
+    "hidden": 1,
+    "revealed": "cr⟨U+000D⟩\nlf"
+   },
+   {
+    "text": "nul\u0000bel\u0007esc\u001b[31m del c1",
+    "parts": [
+     {
+      "text": "nul"
+     },
+     {
+      "hidden": "U+0000"
+     },
+     {
+      "text": "bel"
+     },
+     {
+      "hidden": "U+0007"
+     },
+     {
+      "text": "esc"
+     },
+     {
+      "hidden": "U+001B"
+     },
+     {
+      "text": "[31m del"
+     },
+     {
+      "hidden": "U+007F"
+     },
+     {
+      "text": " c1"
+     },
+     {
+      "hidden": "U+0085"
+     }
+    ],
+    "hidden": 5,
+    "revealed": "nul⟨U+0000⟩bel⟨U+0007⟩esc⟨U+001B⟩[31m del⟨U+007F⟩ c1⟨U+0085⟩"
+   },
+   {
+    "text": "soft­hyphen",
+    "parts": [
+     {
+      "text": "soft"
+     },
+     {
+      "hidden": "U+00AD"
+     },
+     {
+      "text": "hyphen"
+     }
+    ],
+    "hidden": 1,
+    "revealed": "soft⟨U+00AD⟩hyphen"
+   },
+   {
+    "text": "tag󠁁s",
+    "parts": [
+     {
+      "text": "tag"
+     },
+     {
+      "hidden": "U+E0041"
+     },
+     {
+      "text": "s"
+     }
+    ],
+    "hidden": 1,
+    "revealed": "tag⟨U+E0041⟩s"
+   },
+   {
+    "text": "emoji 😀 é 中文",
+    "parts": [
+     {
+      "text": "emoji 😀 é 中文"
+     }
+    ],
+    "hidden": 0,
+    "revealed": "emoji 😀 é 中文"
+   },
+   {
+    "text": "",
+    "parts": [],
+    "hidden": 0,
+    "revealed": ""
+   },
+   {
+    "text": "‪‫‭",
+    "parts": [
+     {
+      "hidden": "U+202A"
+     },
+     {
+      "hidden": "U+202B"
+     },
+     {
+      "hidden": "U+202D"
+     }
+    ],
+    "hidden": 3,
+    "revealed": "⟨U+202A⟩⟨U+202B⟩⟨U+202D⟩"
+   }
+  ],
+  "hiddenNote": "contains hidden characters — shown as ⟨U+…⟩",
   "standingNote": "Starting a tile agent and creating a tile are asked every time. Taking an approval back stops a change that is running under it.",
   "didNote": "Kept by xbin for 13 months. Your agent and its page can't read or change this list. It never holds what was sent, only what was called.",
   "arm": 600,

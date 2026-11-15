@@ -243,3 +243,13 @@ test('while the agent is stopped nothing can be allowed: the reason in the place
   assert.equal(W.endedWords({ state: 'withdrawn', withdrawnBy: 'xbin' }), 'Withdrawn by xbin when your agent was stopped. Nothing was applied.');
   assert.equal(W.endedWords({ state: 'applied' }), '');
 });
+
+test('the agent\'s text in a sheet: every hidden character a visible escape, nothing interpreted, newline and tab kept', () => {
+  assert.deepEqual(W.reveal('pay \u202Eevil\u202C now'), { parts: [{ text: 'pay ' }, { hidden: 'U+202E' }, { text: 'evil' }, { hidden: 'U+202C' }, { text: ' now' }], hidden: 2 });
+  for (const c of ['\u202A', '\u202D', '\u2066', '\u2069', '\u200B', '\u200F', '\u2060', '\uFEFF', '\u0000', '\u001B', '\r', '\u00AD']) {
+    assert.equal(W.reveal(`a${c}b`).hidden, 1, `U+${c.codePointAt(0).toString(16)}`);
+  }
+  assert.equal(W.reveal('a\nb\tc é 中 😀').hidden, 0);
+  assert.equal(W.revealed('x\u202Ey'), 'x⟨U+202E⟩y');
+  assert.equal(W.HIDDEN_NOTE, 'contains hidden characters — shown as ⟨U+…⟩');
+});

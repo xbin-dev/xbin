@@ -1287,7 +1287,9 @@ plans/wsagent/ux.md):
   view in the container, with the `AgentHost` that answers its asks.
 - **The rules a change there must keep**: a sheet is drawn only from what
   xbind answers for an id (never from the tree, never from a message's
-  other fields); the agent's text is `Text(verbatim:)` in a labelled quote;
+  other fields); the agent's text is `AgentReveal` in a labelled quote —
+  verbatim, but each character that reorders or hides text drawn as its
+  escape, `⟨U+202E⟩` (`DelegationWords.reveal`, pinned to the web's);
   Allow is armed by `AgentArming` (600 ms after the sheet is shown, again
   after the choice changes or the app comes back to the front) and no
   default action allows; Deny left, Allow right, at the bottom; the wider

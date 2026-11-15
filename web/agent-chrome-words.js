@@ -125,6 +125,46 @@ export function sends(req) {
   return { text, binary: false, note: partial ? `showing the first ${bytes(shown)} of ${bytes(size)}` : `${bytes(size)} · shown in full` };
 }
 
+// ---- the agent's text, as a sheet shows it -------------------------------------------------
+
+/**
+ * What a sheet never draws as it is, in anything the agent wrote (a call's
+ * body, a brief, a summary, a set's title, an item's reason): control
+ * characters but newline and tab, and every format character (Unicode Cf) —
+ * the bidi embeddings, overrides and isolates (U+202A–202E, U+2066–2069),
+ * the zero-width ones (U+200B–200F), the word joiner (U+2060), the byte
+ * order mark (U+FEFF) and the rest. Drawn as they are they reorder or hide
+ * what the person reads; a sheet shows each as a visible escape, ⟨U+202E⟩,
+ * never interpreted.
+ */
+const HIDDEN = /[\p{Cc}\p{Cf}]/u;
+const hidden = (c) => c !== '\n' && c !== '\t' && HIDDEN.test(c);
+/** HIDDEN_NOTE: the line above text that holds any. */
+export const HIDDEN_NOTE = 'contains hidden characters — shown as ⟨U+…⟩';
+/** hiddenCode(c): "U+202E" for one character. */
+export const hiddenCode = (c) => `U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+
+/**
+ * reveal(text): the text in parts — [{text} | {hidden: 'U+202E'}], runs of
+ * what is drawn as it is between the hidden characters, each of those a
+ * part of its own — and how many are hidden. Nothing else is changed.
+ */
+export function reveal(text) {
+  const parts = [];
+  let run = '', n = 0;
+  for (const c of String(text ?? '')) {
+    if (!hidden(c)) { run += c; continue; }
+    if (run) { parts.push({ text: run }); run = ''; }
+    parts.push({ hidden: hiddenCode(c) });
+    n++;
+  }
+  if (run) parts.push({ text: run });
+  return { parts, hidden: n };
+}
+
+/** revealed(text): the text with each hidden character written as its escape, ⟨U+202E⟩ — for what reads it aloud. */
+export const revealed = (text) => reveal(text).parts.map((p) => (p.hidden ? `⟨${p.hidden}⟩` : p.text)).join('');
+
 /** undoWords(req): what xbin can say about undoing it. */
 export const undoWords = (req) => `xbin can't undo this. Whether ${tileOf(req).name || 'the tile'} can is up to ${tileOf(req).name || 'the tile'}.`;
 

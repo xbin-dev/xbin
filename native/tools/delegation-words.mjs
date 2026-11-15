@@ -40,7 +40,9 @@ export const requests = [
   session({ asks: false, mode: 'bypassPermissions', net: 'internet', api: false, model: '', credentials: 'own' }, { id: 'rq_never' }),
   session({ resume: 'ses_1', providerName: '', model: '' }, { id: 'rq_resume' }),
   // a mode xbind doesn't vouch for (no `asks`): never the green tag
-  session({ asks: undefined, mode: 'acceptEdits' }, { id: 'rq_unknown_mode' }),
+  // …whose words hold characters that reorder or hide text: the sheets show each as its escape
+  session({ asks: undefined, mode: 'acceptEdits' }, { id: 'rq_unknown_mode', summary: 'Start it \u2066in a mode\u2069 xbin doesn’t vouch for.\u200B',
+    body: JSON.stringify({ cwd: 'apps/orders', kind: 'agent', prompt: 'Goal: export the \u202Einvoices\u202C.\nDone when: the test passes.' }) }),
   session({ asks: 'yes', mode: 'odd' }, { id: 'rq_odd_asks' }),
   session({}, { id: 'rq_tmpl', kind: 'template', tile: '', target: 'xbin/templates/new', preview: { class: 'act' } }),
 ];
@@ -152,6 +154,11 @@ out.small = {
   draftFrom: { ...W.DRAFT_FROM },
   // what a sheet says in place of Allow / Apply while the agent is stopped, for each refusal xbind answers (and one it doesn't know)
   stops: ['workspace-off', 'paused', 'held', 'no-agent', 'no-sandbox', ''].flatMap((r) => ['request', 'changeset'].map((k) => [r, k, W.stopWords(r, k)])),
+  // the agent's text in a sheet: each hidden character (bidi, zero-width, control but \n and \t, any Cf) its own escape
+  reveal: ['plain words', 'pay \u202Eevil\u202C now', '\u2066iso\u2069 \u2067x\u2068', 'zero\u200Bwidth\u200C\u200D\u200E\u200F', 'joiner\u2060bom\uFEFF',
+    'lines\nand\ttabs stay', 'cr\r\nlf', 'nul\u0000bel\u0007esc\u001B[31m del\u007F c1\u0085', 'soft\u00ADhyphen', 'tag\u{E0041}s', 'emoji 😀 é 中文', '', '\u202A\u202B\u202D']
+    .map((text) => ({ text, ...W.reveal(text), revealed: W.revealed(text) })),
+  hiddenNote: W.HIDDEN_NOTE,
   standingNote: W.STANDING_NOTE, didNote: W.DID_NOTE, arm: W.CHOICES.armMs, duration: W.CHOICES.duration,
 };
 // ---- the app's Debug demo (-XbinAgentDemo <state>, native/AGENTS.md): the same corpus, as xbind would answer it ----

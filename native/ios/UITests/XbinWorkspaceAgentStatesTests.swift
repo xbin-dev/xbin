@@ -263,6 +263,14 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
             XCTAssertTrue(mode.exists && tile.exists, "the Mode and Tile rows")
             XCTAssertLessThan(mode.frame.minY, tile.frame.minY, "\(id): the mode leads the rows")
             XCTAssertLessThan(danger.frame.minY, mode.frame.minY, "\(id): the warning comes first of all")
+            if id == "rq_unknown_mode" {
+                // its brief and the agent's words hold characters that reorder or hide text: each is shown as its escape
+                let noted = e.app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "contains hidden characters — shown as ⟨U+…⟩"))
+                XCTAssertGreaterThanOrEqual(noted.count, 2, "the line that says so, with the brief and with the agent's words")
+                XCTAssertTrue(e.containing("export the ⟨U+202E⟩invoices⟨U+202C⟩.").exists, "the brief, its bidi controls as escapes")
+                XCTAssertTrue(e.containing("⟨U+2066⟩in a mode⟨U+2069⟩").exists, "the agent's words, likewise")
+                XCTAssertFalse(e.containing("\u{202E}").exists, "no bidi control is drawn as it is")
+            }
             e.shot("wsagent2-\(14 + n)-start-\(id == "rq_never" ? "never-asks" : "unknown-mode")")
             e.app.buttons.matching(identifier: "approval-later").firstMatch.tap()
             XCTAssertTrue(e.until(10) { !heading.exists })
@@ -928,6 +936,11 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
             e.app.buttons.matching(identifier: "inbox-request:rq_never").firstMatch.tap()
             e.expect(e.element("approval-danger"), 30, "a start that never asks")
             shot(e, "start-never-asks")
+            e.app.buttons.matching(identifier: "approval-later").firstMatch.tap()
+            XCTAssertTrue(e.until(10) { !e.element("approval-heading").exists })
+            e.wsInbox("inbox-request:rq_unknown_mode")
+            e.expect(e.containing("contains hidden characters"), 30, "text with hidden characters")
+            shot(e, "start-hidden-characters")
             e.app.buttons.matching(identifier: "approval-later").firstMatch.tap()
             XCTAssertTrue(e.until(10) { !e.element("approval-heading").exists })
             e.wsInbox("inbox-changeset:cs_1")

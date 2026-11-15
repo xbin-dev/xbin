@@ -151,7 +151,9 @@ struct AgentChangeSetSheet: View {
                     .font(.callout).foregroundStyle(XbinColor.warn)
             }
             if !item.why.isEmpty {
-                Text(verbatim: "Agent's reason: “\(item.why)”").font(.caption).italic().foregroundStyle(XbinColor.muted)
+                AgentHiddenNote(text: item.why)
+                Text(AgentReveal.attributed("Agent's reason: “\(item.why)”", font: .caption.italic())).foregroundStyle(XbinColor.muted)
+                    .accessibilityLabel(Text(verbatim: "Agent's reason: \(DelegationWords.revealed(item.why))"))
             }
         }
         .padding(12)

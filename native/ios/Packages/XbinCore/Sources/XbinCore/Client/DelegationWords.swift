@@ -228,6 +228,58 @@ public enum DelegationWords {
         return (r.body, "\(bytes(r.bodySize)) · shown in full", false)
     }
 
+    // MARK: The agent's text, as a sheet shows it
+
+    /// One part of the agent's text: drawn as it is, or a character never
+    /// drawn as it is — its escape, "U+202E".
+    public enum RevealPart: Sendable, Equatable {
+        case text(String)
+        case hidden(String)
+    }
+
+    /// The line above text that holds a hidden character.
+    public static let hiddenNote = "contains hidden characters — shown as ⟨U+…⟩"
+
+    /// Whether `c` is never drawn as it is in the agent's text: a control
+    /// character but newline and tab, or any format character (Cf) — the
+    /// bidi embeddings, overrides and isolates, the zero-width ones, the
+    /// word joiner, the byte order mark (the web's `reveal`).
+    public static func isHidden(_ c: Unicode.Scalar) -> Bool {
+        if c == "\n" || c == "\t" { return false }
+        switch c.properties.generalCategory {
+        case .control, .format: return true
+        default: return false
+        }
+    }
+
+    /// The agent's text in parts: runs drawn as they are between the hidden
+    /// characters, each of those a part of its own.
+    public static func reveal(_ text: String) -> (parts: [RevealPart], hidden: Int) {
+        var parts: [RevealPart] = []
+        var run = String.UnicodeScalarView()
+        var n = 0
+        for c in text.unicodeScalars {
+            guard isHidden(c) else { run.append(c); continue }
+            if !run.isEmpty { parts.append(.text(String(run))); run = String.UnicodeScalarView() }
+            let hex = String(c.value, radix: 16, uppercase: true)
+            parts.append(.hidden("U+" + String(repeating: "0", count: max(0, 4 - hex.count)) + hex))
+            n += 1
+        }
+        if !run.isEmpty { parts.append(.text(String(run))) }
+        return (parts, n)
+    }
+
+    /// The text with each hidden character as its escape, ⟨U+202E⟩ — what
+    /// VoiceOver reads.
+    public static func revealed(_ text: String) -> String {
+        reveal(text).parts.map { p in
+            switch p {
+            case .text(let t): return t
+            case .hidden(let code): return "⟨\(code)⟩"
+            }
+        }.joined()
+    }
+
     public static func undoWords(_ r: DelegateRequest) -> String {
         let t = tile(r).name.isEmpty ? "the tile" : tile(r).name
         return "xbin can't undo this. Whether \(t) can is up to \(t)."
