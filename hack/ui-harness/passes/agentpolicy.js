@@ -214,12 +214,15 @@ async function agentPolicy(browser) {
     const scoped = (await a.get(`/agents/connection?orgs=${ORG}`)).body;
     check(scoped?.tiles?.some((x) => x.state === 'hidden') && scoped.tiles.find((x) => x.tile === TILE)?.state === 'blocked', 'a scope hides the rest; blocked still says blocked');
     // the models rule binds the tile's own agent sessions: connector-only, and
-    // this xbind has no LLM connector, so nothing is offered — and says why
-    check(row?.credentials === 'connector-only' && row.credentialsReason === 'Devs allows private models only' && /no LLM connector/.test(row.unavailable?.claude || ''),
+    // the workspace's LLM connector serves no agent sessions here (xbind's own
+    // connector, D226, has no upstream for them; before it, there was no
+    // connector at all), so nothing is offered — and says why
+    const noConnector = /the workspace's LLM connector is not set up for agent sessions|this xbind has no LLM connector set up/;
+    check(row?.credentials === 'connector-only' && row.credentialsReason === 'Devs allows private models only' && noConnector.test(row.unavailable?.claude || ''),
       `the connection view says what a session there runs on (${row?.credentials}; ${JSON.stringify(row?.unavailable)})`);
     check((await a.get(`/agent/providers?cwd=${enc(TILE)}`)).body.length === 0, 'no harness is offered on a tile whose sessions must run on a connector there isn\'t');
     const allRows = (await a.get(`/agent/providers?cwd=${enc(TILE)}&all=1`)).body;
-    check(allRows.length > 1 && allRows.every((p) => p.unavailable) && /Devs allows private models only, so a coding agent here runs on the workspace's LLM connector — and claude can't: this xbind has no LLM connector set up/.test(allRows.find((p) => p.id === 'claude').unavailable),
+    check(allRows.length > 1 && allRows.every((p) => p.unavailable) && /^Devs allows private models only, so a coding agent here runs on the workspace's LLM connector — and claude can't: /.test(allRows.find((p) => p.id === 'claude').unavailable) && noConnector.test(allRows.find((p) => p.id === 'claude').unavailable),
       `&all=1 keeps them with the reason (${allRows.find((p) => p.id === 'claude')?.unavailable})`);
     await waitFor(A.page, (t, a) => (t.frameFor(a)?.testApi().notOffered || []).some((x) => x.id === 'claude' && /LLM connector/.test(x.why)), TILE, { timeout: 10000, label: 'the chooser knows why' });
     const li = await fr(A.page, TILE, (f) => f.launcherItems());
