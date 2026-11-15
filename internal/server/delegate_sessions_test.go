@@ -361,6 +361,13 @@ func TestDelegatePreview(t *testing.T) {
 			t.Errorf("%s: %d %s, want a 403 with %q", name, code, body, c[1])
 		}
 	}
+	// a tile whose agent level is off (the consoles are) isn't rendered for
+	// an agent either: a preview is a read of the tile, through the same gate
+	w.policy.set(func(d *dPolicy) { d.tileOff = map[string]bool{"apps/x": true} })
+	if code, body := post(`{"tile":"apps/x"}`, bob); code != 403 || !strings.Contains(body, `agent level is \"off\"`) {
+		t.Errorf("a preview of a tile that is off for agents: %d %s", code, body)
+	}
+	w.policy.set(func(d *dPolicy) { d.tileOff = nil })
 	// blocked by an org's rule: its reason
 	w.policy.set(func(d *dPolicy) { d.deny["apps/x"] = errors.New("Finance allows private models only") })
 	if code, body := post(`{"tile":"apps/x"}`, bob); code != 403 || !strings.Contains(body, "Finance allows private models only") {
