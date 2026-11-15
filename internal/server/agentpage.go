@@ -50,7 +50,8 @@ func (s *Server) agentHolder() string {
 // they get none (the broker's GET /alerts asks, and judges who the person
 // behind a request is).
 func (s *Server) AgentPageNotice(user string) (message string, ok bool) {
-	if user == "" || s.Delegation == nil || s.agentHolder() == "" || !s.Delegation.Workspace().Enabled || s.Delegation.State(user).PageSeen {
+	if user == "" || s.Delegation == nil || s.agentHolder() == "" || !s.Delegation.Workspace().Enabled || s.Delegation.State(user).PageSeen ||
+		!s.userHasAgent(user, s.agentHolder()) { // nobody without an agent is told of its page (agentwho.go)
 		return "", false
 	}
 	return agentPageAlertMessage, true

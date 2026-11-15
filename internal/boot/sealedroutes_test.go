@@ -306,11 +306,18 @@ func TestSealedRouteAnswers(t *testing.T) {
 		_ = json.Unmarshal([]byte(was), &defaults)
 		code, body = api("PUT", "/defaults", map[string]any{"defaultTiles": map[string]string{"xbin/*": "terminal"}})
 		expect(t, "PUT /defaults with a pattern", code, body, 200)
+		// a pattern gives nothing on a system component: it is reached by
+		// an entry that names it (users/sealed.go)
+		if code, body = api("GET", "/frame-token?component="+probePath, nil, nobody); code != 403 {
+			t.Errorf("a default pattern over xbin/* reaches a system component: %d %s", code, body)
+		}
+		code, body = api("PUT", "/defaults", map[string]any{"defaultTiles": map[string]string{"*": "terminal", probePath: "read"}})
+		expect(t, "PUT /defaults with an entry that names it", code, body, 200)
 		if code, body = api("GET", "/frame-token?component="+probePath, nil, nobody); code != 200 {
-			t.Errorf("a default pattern over xbin/* gives nobody read: %d %s", code, body)
+			t.Errorf("a default entry that names it gives nobody read: %d %s", code, body)
 		}
 		if code, body = d.do("GET", "/ws/term?cwd="+probePath, nil, nobody); code != 403 {
-			t.Errorf("…and a terminal, at its terminal level: %d %s", code, body)
+			t.Errorf("…and a terminal, with a terminal pattern beside it: %d %s", code, body)
 		}
 		code, body = api("PUT", "/defaults", map[string]any{"defaultTiles": defaults.DefaultTiles})
 		expect(t, "putting the defaults back", code, body, 200)

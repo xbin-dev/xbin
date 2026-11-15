@@ -100,8 +100,64 @@ func TestTableValidation(t *testing.T) {
 	if util.SealedComponentPath("xbin/"+long+"t") || !util.SealedComponentPath("xbin/"+long) {
 		t.Error("util.SealedComponentPath and the table disagree about the longest name")
 	}
-	if !fixtureTable && len(Table()) != 0 {
-		t.Error("the compiled-in table is not empty: a workspace in the wild would see a component appear (a release that ships one edits this test with it)")
+}
+
+// The release's table, pinned: one row, the workspace agent's, saying
+// exactly this. A row that appears, or one of these that changes, is a
+// component appearing or changing in every workspace in the wild — its
+// partition mode above all (switching it deletes data) — so a release that
+// means it edits this test with it.
+func TestTheReleasesTable(t *testing.T) {
+	if fixtureTable {
+		t.Skip("this build's table is the integration fixture's")
+	}
+	tab := Table()
+	if len(tab) != 1 {
+		t.Fatalf("the compiled-in table has %d rows, want the workspace agent's alone", len(tab))
+	}
+	sp := tab[0]
+	if sp.Name != "wsagent" || sp.Authored != "apps/agent" || !sp.Template || sp.Data != 1 {
+		t.Errorf("the row: name %q authored %q template %v data %d", sp.Name, sp.Authored, sp.Template, sp.Data)
+	}
+	if !slices.Equal(sp.Partition, []string{"user"}) {
+		t.Errorf("its partition mode: %v, want one backend per person and no shared instance", sp.Partition)
+	}
+	if !slices.Equal(sp.Slots, []string{"llm"}) || len(sp.Defaults) != 1 || sp.Defaults["llm"] != "xbin:llm" ||
+		len(sp.Providers) != 1 || !slices.Equal(sp.Providers["llm"], []string{"xbin:llm"}) {
+		t.Errorf("its slots: %v defaults %v providers %v, want the models' slot on xbind's connector and nothing else", sp.Slots, sp.Defaults, sp.Providers)
+	}
+	if len(sp.Env) != 1 || sp.Env["XBIN_AGENT_MODE"] != "workspace" || sp.Notify != "/delegate/notify" {
+		t.Errorf("its environment %v and notice path %q", sp.Env, sp.Notify)
+	}
+	if !slices.Equal(sp.FrameReads, []string{"/api/xbin/agents/connection"}) {
+		t.Errorf("its page's extra reads: %v, want the connection view alone", sp.FrameReads)
+	}
+	if !sp.Capabilities.Delegate || !sp.Capabilities.Agent {
+		t.Errorf("its capabilities: %+v", sp.Capabilities)
+	}
+	if len(sp.Grants) != 1 || sp.Grants[0].Target != "cap:open-links" {
+		t.Errorf("its grants: %v", sp.Grants)
+	}
+	s, err := Load(tab)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := s.Component("xbin/wsagent")
+	if !ok || c.Runtime != "go" || s.Agent() != "xbin/wsagent" {
+		t.Fatalf("the loaded row: %v %+v, agent %q", ok, c, s.Agent())
+	}
+	// the template's own block and its mode request are not the row's
+	if man := string(c.Files["xbin.json"]); strings.Contains(man, `"template"`) || strings.Contains(man, "partitionOnUpdate") {
+		t.Error("the rendered manifest still carries the template block")
+	}
+	if _, ok := c.Files["go.mod"]; !ok {
+		t.Error("the rendered tree has no go.mod (go.mod.tile is renamed for an instance)")
+	}
+	// xbin's own source cites no workspace path of the template's
+	for rel, b := range c.Files {
+		if strings.HasSuffix(rel, ".go") && strings.Contains(string(b), `"res:apps/agent/`) {
+			t.Errorf("%s still names the template's own path", rel)
+		}
 	}
 }
 

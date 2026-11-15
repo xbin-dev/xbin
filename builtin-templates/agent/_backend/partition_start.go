@@ -8,7 +8,8 @@
 //   - A person's partition: its db numbers conversations from 2^40
 //     (seedPartitionIDs, in openDB), settings are read from conf (read once
 //     here, before the engine starts; until conf answers the brake is on —
-//     brake.go), and team is opened without migrating it.
+//     brake.go), and team is opened without migrating it. A workspace
+//     agent reads no conf: it has no shared instance to write one.
 package main
 
 import (
@@ -70,19 +71,28 @@ func startMode(db *DB) {
 		if err := db.addHostedSchema(); err != nil { // the conversations this person hosts (hosted.go)
 			logf("hosted table: %v", err)
 		}
-		var kv kvStore = emptyKV{}
-		if conf != "" {
-			kv = gatewayKV{res: conf}
-		}
-		c := newConfReader(kv, func() { wakeGlobal(context.Background()) })
-		c.parked = db.brakeParked
-		c.onHaltOff = func() { // brake.go: the runs parked on the brake move again
-			if agent != nil && agent.eng != nil {
-				agent.eng.recover()
+		if !wsMode() {
+			var kv kvStore = emptyKV{}
+			if conf != "" {
+				kv = gatewayKV{res: conf}
 			}
+			c := newConfReader(kv, func() { wakeGlobal(context.Background()) })
+			c.parked = db.brakeParked
+			c.onHaltOff = func() { // brake.go: the runs parked on the brake move again
+				if agent != nil && agent.eng != nil {
+					agent.eng.recover()
+				}
+			}
+			confInP.Store(c)
+			confIn().refresh() // before the engine starts: its first passes know the settings
 		}
-		confInP.Store(c)
-		confIn().refresh() // before the engine starts: its first passes know the settings
+		// (A workspace agent — ws_mode.go — is its person's partition and
+		// nothing else: xbin/wsagent has no shared instance, so there is no
+		// conf to read and no manager whose halt it could carry. Its
+		// settings are its own db's, and its brake is xbind's: the
+		// person's pause and the workspace's switch refuse its calls.
+		// Reading conf there parked every run for good: nothing ever
+		// writes it.)
 		if team != "" {
 			go func() {
 				t, err := openShared(context.Background(), team)
