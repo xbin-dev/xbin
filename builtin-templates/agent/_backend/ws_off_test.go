@@ -80,3 +80,28 @@ func TestWsOffAnswersWithoutTheModel(t *testing.T) {
 		}
 	}
 }
+
+// The empty state of a session whose agent can't act — its person (an
+// admin, say) wasn't given one, or it is paused — says so first, and lists
+// nothing it could do.
+func TestWsEmptyStateSaysTheSwitch(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	var e struct {
+		Line, Off string
+		Can       []string
+		Starters  []map[string]any
+	}
+	fx.json(t, fx.call(t, wsAlice, "GET", fmt.Sprintf("/ws/empty?session=%d", s.Run), nil), 200, &e)
+	if e.Off != "" || len(e.Can) == 0 || strings.Contains(e.Line, "asks you before anything changes") {
+		t.Fatalf("the empty state while the agent runs: %+v", e)
+	}
+	fx.x.mu.Lock()
+	fx.x.off = "no-agent"
+	fx.x.mu.Unlock()
+	e.Off, e.Can = "", nil
+	fx.json(t, fx.call(t, wsAlice, "GET", fmt.Sprintf("/ws/empty?session=%d", s.Run), nil), 200, &e)
+	if e.Off != "no-agent" || len(e.Can) != 0 || len(e.Starters) != 0 || !strings.Contains(e.Line, "An admin chooses who has one") {
+		t.Fatalf("the empty state without an agent: %+v", e)
+	}
+}

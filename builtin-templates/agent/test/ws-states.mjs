@@ -146,6 +146,17 @@ const STATE = { user: 'ana', mode: 'workspace', delegation: { workspace: true, p
   await ctx.close();
 }
 
+// ---- the empty state of an agent that can't act (an admin who wasn't given one, say): the switch, nothing else ----
+{
+  const line = 'You haven’t been given a workspace agent. An admin chooses who has one: Admin → People → access, or the workspace agent’s set-up in the dock.';
+  const { ctx, page, errors } = await openWs(browser, { sessions: fresh(SESSIONS).slice(0, 1).map((s) => ({ ...s, status: 'idle', requests: 0, agents: 0 })), full: FULL,
+    empty: { ...EMPTY, off: 'no-agent', line, can: [], starters: [] }, state: fresh(STATE) });
+  await until(async () => !!(await page.$('.wsp-empty [data-off]')));
+  ok('the empty state of an agent that can\'t act: the switch, and no list of what it could do', (await text(page, '.wsp-empty [data-off]')) === line && !(await page.$('.wsp-empty .wsp-cols')) && !(await page.$('.wsp-starter')));
+  ok('no page errors (empty, off)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
 // ---- held: xbin won't let a new handle on its model hold what the conversation holds --------------------
 {
   const sessions = fresh(SESSIONS);

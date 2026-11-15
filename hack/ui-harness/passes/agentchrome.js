@@ -503,7 +503,8 @@ async function realHolder(browser, check, skip) {
   const { ctx, page } = await login(browser, 'admin', 'admin', { viewport: { width: 1280, height: 900 } });
   const call = R.caller(ctx);
   const st0 = (await call('GET', '/delegate/state')).data || {};
-  if (st0.agent !== R.AGENT) { skip(`the real holder: this xbind ships no ${R.AGENT} (GET /delegate/state: agent ${JSON.stringify(st0.agent || '')}) — only the faked matrix ran`); await ctx.close(); return; }
+  const ships = await R.shipped(call); // (the state names the agent only to someone given one — an admin isn't, by the role alone)
+  if (ships !== R.AGENT) { skip(`the real holder: this xbind ships no ${R.AGENT} (GET /delegate/workspace: agent ${JSON.stringify(ships)}) — only the faked matrix ran`); await ctx.close(); return; }
   const D = await login(browser, 'dev1', 'devpass123', { viewport: { width: 1400, height: 900 } }); // a person who is no admin
   const dcall = R.caller(D.ctx);
   const text = (sel) => page.textContent(sel).then((t) => (t || '').replace(/\s+/g, ' ').trim());

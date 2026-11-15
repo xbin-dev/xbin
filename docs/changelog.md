@@ -25,7 +25,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   do instead, and the person's card says the same (`cards.refusals[].kind`
   `brief-taint`, `mode`, `command`, `no-agent`, `held`). "Asks before
   acting" is said only where xbind names the mode as asking (a harness's
-  ask or plan mode); a tile agent in a mode nobody named isn't.
+  ask or plan mode); a tile agent in a mode nobody named isn't. `GET
+  /ws/empty` adds `off` and says the switch first where the agent can't
+  act — an admin who wasn't given an agent included.
 
 - **Workspace agent: fixes from a security review**
   ([workspace-agent.md](/docs/workspace-agent.md),

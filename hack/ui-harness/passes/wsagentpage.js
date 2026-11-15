@@ -113,6 +113,13 @@ async function connectModel(call) {
 }
 
 /** agentOn(call): workspace agents on, the admin has one, not paused — by the API (the agentChrome pass does it by the chrome's own buttons, on a fresh workspace). → the state. */
+/** shipped(call): the component this xbind ships as the agent — the workspace switch's own read says it to an admin, given an agent
+ *  or not (the state's `agent` is there only for a person who was given one: administering it isn't having one). '' when none. */
+async function shipped(call) {
+  const ws = (await call('GET', '/delegate/workspace')).data || {};
+  return ws.agent || ((await call('GET', '/delegate/state')).data || {}).agent || '';
+}
+
 async function agentOn(call) {
   let st = (await call('GET', '/delegate/state')).data || {};
   if (!st.workspace) await call('PUT', '/delegate/workspace', { enabled: true });
@@ -194,8 +201,8 @@ async function wsAgentPage(browser) {
   const stamp = Date.now().toString(36);
   const { ctx, page } = await login(browser, 'admin', 'admin', { viewport: { width: 1280, height: 900 } });
   const call = caller(ctx);
-  const st = (await call('GET', '/delegate/state')).data || {};
-  if (st.agent !== AGENT) { skip(`the workspace agent's page: this xbind ships no ${AGENT} (GET /delegate/state says agent ${JSON.stringify(st.agent || '')})`); await ctx.close(); done(); return; }
+  const ships = await shipped(call);
+  if (ships !== AGENT) { skip(`the workspace agent's page: this xbind ships no ${AGENT} (GET /delegate/workspace says agent ${JSON.stringify(ships)})`); await ctx.close(); done(); return; }
   await connectModel(call);
   await agentOn(call);
   await nothingWaits(call);
@@ -437,4 +444,4 @@ async function wsAgentPage(browser) {
   done();
 }
 
-module.exports = { wsAgentPage, AGENT, NOTE, DOCK, SHEET, TA, until, caller, noHolder, connectModel, agentOn, noteTile, nothingWaits, agentFrame, say, armed, pickMain };
+module.exports = { shipped, wsAgentPage, AGENT, NOTE, DOCK, SHEET, TA, until, caller, noHolder, connectModel, agentOn, noteTile, nothingWaits, agentFrame, say, armed, pickMain };
