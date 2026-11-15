@@ -67,6 +67,9 @@ type PageState struct {
 	// "own" — on the tail page of a live session the workspace's LLM
 	// connector is offered to (term's llmhook.go, D226); "" otherwise.
 	LLM string `json:"llm,omitempty"`
+	// LLMOffered, with LLM "connector": the connector is offered to the CLI
+	// as its default, not held (term's SessionInfo.LLMOffered).
+	LLMOffered bool `json:"llmOffered,omitempty"`
 	// Queue is the messages held for the running turn's end now (the tail
 	// page of a live session; term's queue, D197): the items a `queue`
 	// event carries. A client takes it before the page's events, whose

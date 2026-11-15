@@ -180,6 +180,26 @@ test('what the dock takes from the agent\'s page: a word and an id, nothing else
   assert.deepEqual(W.contextMessage({ screen: 'Home' }), { type: 'xbin:agent-context', screen: 'Home' });
   assert.equal(W.contextMessage({ tile: '../x' }), null);
   assert.equal(W.clampDock(100, 1400), 360);
+  // a new session of the tile's own agent: the person's words as its draft — plain text, capped, never a command
+  assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 'new', tile: 'apps/notes/', draft: '  change line 40\r\n<b>x</b>\u202e\u0007 ', send: true, grant: 'always' }),
+    { type: 'new-session', tile: 'apps/notes', draft: 'change line 40\n<b>x</b>' });
+  assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 'new', tile: 'apps/notes' }), { type: 'new-session', tile: 'apps/notes', draft: '' });
+  assert.equal(W.pageMessage({ type: 'xbin:open-session', session: 'new', tile: '../x', draft: 'x' }), null);
+  assert.equal(W.pageMessage({ type: 'xbin:open-session', session: 'new', tile: 'apps/notes', draft: 'y'.repeat(9000) }).draft.length, W.DRAFT_MAX);
+  assert.equal(W.plainDraft({ toString: () => 'x' }), '');
+  assert.equal(W.plainDraft('a\tb\nc'), 'a\tb\nc', 'tabs and newlines are kept');
+  assert.equal(W.handoffLink('/apps/my notes/'), '/?tile=apps/my%20notes');
   assert.equal(W.clampDock(900, 1400), 720);
   assert.equal(W.clampDock(500, 600), 600, 'a narrow window: the whole page');
+});
+
+test('preferences: the modes a started tile agent may get — only ones that ask; the rest named, with why', () => {
+  const provs = [{ id: 'claude', name: 'Claude Code', modes: [{ id: 'default', name: 'Ask before acting' }, { id: 'plan', name: 'Plan' }, { id: 'bypassPermissions', name: 'Bypass permissions', explicit: true }] },
+    { id: 'bare', name: 'No table', modes: [] }, { id: 'codex', name: 'Codex', modes: [{ id: 'read-only', name: 'Read only' }] }, null];
+  const rows = W.sessionModes(provs, { claude: 'plan', codex: 'full-access' });
+  assert.deepEqual(rows.map((r) => [r.id, r.value, r.options.map((o) => o.id).join(), r.never.join()]), [['claude', 'plan', 'default,plan', 'Bypass permissions'], ['codex', '', 'read-only', '']],
+    'a coding agent with no modes has no row; a stored mode that is not offered reads as the asking mode');
+  assert.equal(W.sessionModes(provs, { claude: 'bypassPermissions' })[0].value, '', 'a mode that never asks is never the picked one');
+  assert.deepEqual(W.sessionModes(null, null), []);
+  assert.match(W.neverAsks(['Bypass permissions']), /^Not offered: Bypass permissions — it acts without asking you first/);
 });

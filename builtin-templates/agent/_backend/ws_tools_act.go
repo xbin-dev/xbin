@@ -126,6 +126,9 @@ func wsFile(ctx context.Context, ag *Agent, s *wsSession, req *wsReq, ask func(s
 		req.Ref, req.Expires = xr.ID, xr.Expires*1000
 	}
 	req.Run, req.State = s.Run, "pending"
+	if req.CallID == "" {
+		req.CallID = toolCallOf(ctx) // where the page draws it, for the request's life
+	}
 	if err := ag.db.wsAddReq(req); err != nil {
 		return "", err
 	}
@@ -433,7 +436,7 @@ func wsProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { cs, err = wsX.Propose(ctx, sid, a.Title, items); return }); err != nil {
 		return "", err
 	}
-	_ = ag.db.wsAddReq(&wsReq{Run: s.Run, Kind: wsReqChangeSet, Ref: cs.ID, Title: fmt.Sprintf("%d admin change(s): %s", len(cs.Items), a.Title), State: "proposed"})
+	_ = ag.db.wsAddReq(&wsReq{Run: s.Run, Kind: wsReqChangeSet, Ref: cs.ID, CallID: toolCallOf(ctx), Title: fmt.Sprintf("%d admin change(s): %s", len(cs.Items), a.Title), State: "proposed"})
 	wsArmPoll()
 	return wsChangeSetText(cs) + "\nProposed; nothing is applied. Your person reviews it in xbin (the lines above are xbin's, and what they see). Their decision reaches you as a workspace update — don't wait for it here.", nil
 }

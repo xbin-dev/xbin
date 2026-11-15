@@ -175,6 +175,9 @@ body.bx { margin: 0; overflow: hidden; background: var(--bx-panel); color: var(-
 .wsc-quiet { flex-direction: row; align-items: center; gap: 6px; color: var(--bx-muted); font: var(--bx-font-meta); }
 .bxc-host:has(.wsc-quiet), .bxc-host:has(.wsc-replies) { border: 0; padding: 0 0 0 0; background: transparent; }
 .wsc-replies { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+.wsc-ways { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.bx .wsc-way { display: flex; gap: 8px; align-items: flex-start; width: 100%; text-align: left; padding: 6px 8px; }
+.wsc-way > span { display: flex; flex-direction: column; min-width: 0; }
 
 /* narrow: the dock at its narrowest, a phone */
 @media (max-width: 480px) {

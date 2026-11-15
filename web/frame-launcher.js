@@ -20,6 +20,7 @@ import { llmHint } from '/vendor/agent-fold.js';
 import { agentPrefs } from '/vendor/agent-prefs.js';
 import { loadDeployIfShown, launchBanner, launchTarget, targetQuery, targetRefused } from '/vendor/frame-deploy.js';
 import { mountedFrames } from '/vendor/events-socket.js';
+import { plainDraft } from '/vendor/agent-chrome-words.js';
 
 const prefs = makeStore();
 
@@ -148,7 +149,8 @@ export async function openSession(f, id) {
 export function askOpenSession(f, d, reply) {
   const tile = typeof d.tile === 'string' ? d.tile.replace(/^\/+|\/+$/g, '') : '';
   const session = String(d.session ?? '');
-  if (!tile || tile.length > 512 || tile.split('/').some((s) => !s || s === '.' || s === '..') || !SESSION_ID.test(session)) return reply(false);
+  // (a new session with a draft is the workspace agent's dock's to ask for, through the shell — never a tile page's)
+  if (!tile || tile.length > 512 || tile.split('/').some((s) => !s || s === '.' || s === '..') || !SESSION_ID.test(session) || session === 'new') return reply(false);
   const ev = new CustomEvent('bx-open-session', { bubbles: true, composed: true, cancelable: true, detail: { from: f.src, tile, session } });
   if (!f.dispatchEvent(ev)) return reply(!ev.detail.refused); // the shell took it
   const there = [...mountedFrames].find((x) => x.src === tile && !x.deployment && typeof x.open === 'function');
@@ -156,6 +158,40 @@ export function askOpenSession(f, d, reply) {
   if (!navigator.userActivation?.isActive) return reply(false);
   reply(true);
   location.assign(`${location.pathname}?tile=${encodeURIComponent(tile).replace(/%2F/gi, '/')}&session=${session}`);
+}
+
+// openNew(f, draft) → Promise<true>: open({session: "new", draft}) — the
+// window shows a new session's launcher over its panes, the coding agents
+// the tile allows, with the person's words (draft: plain text, at most
+// 8000 characters — never interpreted) beside them. Nothing starts until
+// the person picks a coding agent; its composer then holds the words,
+// unsent, for them to edit and Send (the workspace agent's "Hand this to
+// the tile's own agent", D235).
+export async function openNew(f, draft) {
+  await f._restoring?.catch(() => { });
+  if (!f._providers) agentProviders(f.src).then((p) => { f._providers = p; });
+  f._handoff = { draft: plainDraft(draft) };
+  await f.updateComplete;
+  return true;
+}
+
+// handoff(f): that launcher, while it is asked for (nothing otherwise).
+export function handoff(f) {
+  const h = f._handoff;
+  if (!h) return nothing;
+  const provs = f._providers || [];
+  const pick = (p) => { f._handoff = null; f._startKind('agent', p.id, { draft: h.draft }); };
+  return html`<div class="launcher lhandoff" role="dialog" aria-label=${`A new session of ${f.src}'s own agent`} data-handoff>
+    <div class="lhead">A new session of ${f.src}’s own agent</div>
+    ${h.draft ? html`<div class="ldraft"><div class="lsub">Your words, from your workspace agent. They wait in the new session’s message box: nothing is sent until you press Send.</div>
+      <div class="ltext" data-draft>${h.draft}</div></div>` : html`<div class="lsub">Pick a coding agent: its session starts, and waits for your first message.</div>`}
+    <div class="lcards">
+      ${!f._providers ? html`<span class="lsub">loading agents…</span>` : provs.length
+        ? provs.map((p) => html`<button class="lcard" data-provider=${p.id} @click=${() => pick(p)}><span class="lname"><bx-icon name="agent"></bx-icon>${p.name}</span><span class="lsub">coding agent${llmHint(p) ? ` · ${llmHint(p)}` : ''}</span></button>`)
+        : html`<span class="lsub">No coding agent is offered on this tile.</span>`}
+    </div>
+    <button class="lresume" data-handoff-cancel @click=${() => { f._handoff = null; }}>Not now</button>
+  </div>`;
 }
 
 // resumeHistory reopens a past session live (POST /term/sessions {resume}:
@@ -335,5 +371,10 @@ export const launcherCss = css`
     border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); background: var(--bx-panel, #1F2028);
     color: var(--bx-text, #E9EAF0); cursor: pointer; }
   .launcher .lvm:hover { background: var(--bx-hover, #2A2B34); }
+  /* a new session's launcher asked for over the window's panes (openNew), the person's words in it as plain text */
+  .launcher.lhandoff { position: absolute; inset: 0; z-index: 25; }
+  .launcher .ldraft { display: flex; flex-direction: column; gap: 6px; width: min(460px, 100%); }
+  .launcher .ltext { max-height: 160px; overflow: auto; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere;
+    border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); background: var(--bx-panel-2, #262730); color: var(--bx-text, #E9EAF0); }
   .launcher .lvm.on { border-color: var(--bx-accent, #8C9BFF); background: var(--bx-selection, #262C5C); color: var(--bx-selection-text, #E9EAF0); }
 `;

@@ -11,15 +11,15 @@
 // only where the person's own preference lets tile agents start without
 // asking (the backend decides) is it "Start".
 import { html, nothing } from '/vendor/lit-all.min.js';
-import { agentCard, requestCard, briefCard, W } from './words.js';
+import { agentCard, requestCard, briefCard, refusalCard, possessive, W } from './words.js';
 
 const icon = (name, label) => (name ? html`<bx-icon name=${name} aria-hidden=${label ? nothing : 'true'} label=${label || nothing}></bx-icon>` : nothing);
 
 /**
  * hostCard(b, act): the inside of a host block — b.type: wsession,
- * request, brief, refusal, slow, replies, notice. act is the page's:
+ * request, brief, refusal, redirect, cant, replies, notice. act is the page's:
  * {now(), tileName(path), offline, bag(k), openSession(a), review(q),
- * send(text), fill(text), briefSave(b, vals), briefStart(b),
+ * send(text), fill(text), handTo(tile, draft), briefSave(b, vals), briefStart(b),
  * startDefaults(b) (the brief's start-defaults, read once), openScope(o),
  * whatCan(), repaint(), cards()}.
  */
@@ -29,7 +29,8 @@ export function hostCard(b, act) {
     case 'request': return requestView(b.data, act);
     case 'brief': return briefView(b, act);
     case 'refusal': return refusalView(b.data, act);
-    case 'slow': return html`<div class="wsc wsc-quiet" role="status">${icon('clock')}Slowing down — the agent is doing a lot at once.</div>`;
+    case 'redirect': return redirectView(b.data, act);
+    case 'cant': return cantView(b.data, act);
     case 'replies': return repliesView(b.data, act);
     case 'notice': return noticeCard(b.data);
   }
@@ -115,27 +116,48 @@ function briefView(blk, act) {
   </div>`;
 }
 
-// ---- refusals -----------------------------------------------------------------------------
+// ---- refusals (cards.refusals) -------------------------------------------------------------------
 
-function refusalView(r, act) {
-  if (r.kind === 'cannot') {
-    return html`<div class="wsc wsc-refusal" data-refusal="cannot">
-      <div class="wsc-row"><span class="wsc-name">${icon('info')}<b>Can’t do this</b></span></div>
-      <p class="wsc-p">${r.reason ? html`${r.reason}. ` : nothing}It’s yours to do yourself, in the tile.</p>
-      <div class="wsc-btns"><button @click=${() => act.whatCan()}>${W.whatCanItDo}</button></div></div>`;
-  }
-  if (r.kind === 'hidden') {
-    return html`<div class="wsc wsc-refusal" data-refusal="hidden">
-      <div class="wsc-row"><span class="wsc-name">${icon('eye-slash')}<b>Not connected in this session</b></span></div>
-      <p class="wsc-p">You left this tile out of this session’s scope. Widen the scope, or use another session.</p>
-      <div class="wsc-btns"><button @click=${() => act.openScope({})}>Open scope</button></div></div>`;
-  }
-  return html`<div class="wsc wsc-refusal wsc-policy" data-refusal="policy">
-    <div class="wsc-row"><span class="wsc-name">${icon('lock')}<b>Blocked by a rule</b></span></div>
-    <p class="wsc-p">${r.reason}.</p>
-    <p class="wsc-p wsc-muted">This is a rule set by a workspace admin, not something the agent can work around.</p>
-    <div class="wsc-btns">${r.private ? html`<button class="primary" @click=${() => act.openScope({ models: true })}>See what a private model connects…</button>` : nothing}
-      <button @click=${() => act.openScope({})}>Open scope</button></div></div>`;
+const WAYS = {
+  scope: (act, p) => html`<button class=${p ? 'primary' : ''} @click=${() => act.openScope({})}>Open scope</button>`,
+  model: (act, p) => html`<button class=${p ? 'primary' : ''} @click=${() => act.openScope({ models: true })}>Change the model…</button>`,
+  whatCan: (act, p) => html`<button class=${p ? 'primary' : ''} @click=${() => act.whatCan()}>${W.whatCanItDo}</button>`,
+};
+function refusalView(f, act) {
+  const r = refusalCard(f, act.tileName);
+  if (r.quiet) return html`<div class="wsc wsc-quiet" role="status" data-refusal=${r.kind}>${icon(r.icon)}${r.text}</div>`;
+  return html`<div class="wsc wsc-refusal ${r.kind === 'policy' || r.kind === 'taint' ? 'wsc-policy' : ''}" data-refusal=${r.kind}>
+    <div class="wsc-row"><span class="wsc-name">${icon(r.icon)}<b>${r.title}</b></span></div>
+    ${r.text ? html`<p class="wsc-p">${r.text}</p>` : nothing}
+    ${r.note ? html`<p class="wsc-p wsc-muted">${r.note}</p>` : nothing}
+    ${r.ways.length ? html`<div class="wsc-btns">${r.ways.map((w, i) => WAYS[w](act, i === 0))}</div>` : nothing}</div>`;
+}
+
+// ---- the agent's question, when it is a redirect or a "can't" ----------------------------------------
+
+// a request about code: the tile's own agent takes it as written, or the person says the outcome
+function redirectView(d, act) {
+  const tile = d.tile ? act.tileName(d.tile) || d.tile : '';
+  return html`<div class="wsc wsc-redirect" data-ask="redirect">
+    <div class="wsc-row"><span class="wsc-name">${icon('code')}<b>The workspace agent doesn’t open or edit code. Two ways forward:</b></span></div>
+    ${d.question ? html`<p class="wsc-p wsc-quote">${d.question}</p>` : nothing}
+    ${d.waits ? html`<div class="wsc-ways">
+      ${tile ? html`<button class="wsc-way" @click=${() => act.handTo(d.tile, d.draft)}>${icon('external')}<span><b>Hand this to ${possessive(tile)} own agent</b>
+        <span class="wsc-muted">It opens in ${tile} with your message as written.</span></span></button>` : nothing}
+      <button class="wsc-way" @click=${() => act.fill('The outcome I want: ')}>${icon('pencil')}<span><b>Tell me the outcome instead</b>
+        <span class="wsc-muted">Say what should be true when it’s done; the agent briefs the tile’s agent.</span></span></button></div>`
+      : html`<div class="wsc-line">${d.answer != null ? 'You answered in the conversation.' : 'A newer question replaced this one.'}</div>`}
+  </div>`;
+}
+
+// what it can't do, and the nearest things it can (each a reply)
+function cantView(d, act) {
+  return html`<div class="wsc wsc-refusal" data-ask="cant">
+    <div class="wsc-row"><span class="wsc-name">${icon('info')}<b>Can’t do this</b></span></div>
+    ${d.question ? html`<p class="wsc-p">${d.question}</p>` : nothing}
+    ${d.waits && d.choices.length ? html`<div class="wsc-ways">${d.choices.map((c) => html`<button class="wsc-way" @click=${() => act.send(c)}>${icon('caret-right')}<span>${c}</span></button>`)}</div>` : nothing}
+    ${d.answer != null ? html`<div class="wsc-line">You answered: ${d.answer}</div>` : nothing}
+    <div class="wsc-btns">${WAYS.whatCan(act)}</div></div>`;
 }
 
 // ---- quick replies ------------------------------------------------------------------------

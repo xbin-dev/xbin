@@ -441,7 +441,7 @@ func (ag *Agent) wsOutcome(r *wsReq, state, outcome string) {
 // (which is for tile agents' chatter) — an idle one starts a turn, one in
 // a turn reads it at its next step.
 func (ag *Agent) wsSettled(r *wsReq, d wsDone) {
-	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state=?, outcome=?, decided_ms=?, owed=1, call_id='',
+	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state=?, outcome=?, decided_ms=?, owed=1,
 		grant_scope=?, grant_until_ms=?, decided_by=?, decided_via=?, result_status=?, result=?
 		WHERE id=? AND state IN ('pending','approved','proposed','applying','running')`,
 		d.State, d.Outcome, nowMs(), d.Grant, d.Until, d.By, d.Via, d.Status, d.Result, r.ID)

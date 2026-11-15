@@ -27,7 +27,11 @@
  * terminal window opens on that session (bx-frame open({session})). The same
  * request comes from a tile's page (xbin.openSession → bx-open-session):
  * the tile is found or opened as for a link, its page left where it is. It
- * is taken once and never written into the URL.
+ * is taken once and never written into the URL. The workspace agent's dock
+ * (shell-agent.js) alone may ask for a NEW session — {session: "new",
+ * draft}: the window opens on a new session's launcher with the person's
+ * words for its composer, unsent (bx-frame open({session: "new", draft})).
+ * A link's session=new, or a tile page's, opens no session.
  *
  * The URL's grammar is route.js (pure: hack/shell-route.test.mjs); this is
  * the shell's ends of it: followRoute, routeUpdated and routeBar.
@@ -49,11 +53,15 @@ export function followRoute(s) {
   // the event tells the frame the shell has it (an older shell leaves it to
   // the frame). For a tile the viewer lists, land on it as a link would;
   // any other is refused, and the asking page is told
+  // A new session of the tile's own agent ({session: "new", draft}: the
+  // person's words for its composer) is the workspace agent's dock's alone
+  // to ask for (shell-agent.js); from anything else it is refused.
   const onSession = (e) => {
     const d = e.detail ?? {};
     e.preventDefault();
-    if (!validTile(d.tile) || !sessionId(d.session) || !s._components.some((c) => c.path === d.tile)) { d.refused = true; return; }
-    s._routeWant = { screen: '', tile: d.tile, at: null, session: d.session };
+    const fresh = d.session === 'new';
+    if (!validTile(d.tile) || !sessionId(d.session) || (fresh && d.from !== 'agent') || !s._components.some((c) => c.path === d.tile)) { d.refused = true; return; }
+    s._routeWant = { screen: '', tile: d.tile, at: null, session: d.session, ...(fresh ? { fresh: true, draft: typeof d.draft === 'string' ? d.draft : '' } : {}) };
     s.requestUpdate();
   };
   addEventListener('popstate', onPop);
@@ -95,7 +103,8 @@ function applyRoute(s, r) {
         else s._openOnPersonal(r.tile); // a shared screen never opens a draft from a link
       }
       s._routeTile = r.tile;
-      s._routeFocus = { path: r.tile, at: r.at, session: r.session, tries: 0 };
+      // (a link's session=new is no session: a new one is opened only when the agent's dock asked)
+      s._routeFocus = { path: r.tile, at: r.at, session: r.session === 'new' && !r.fresh ? '' : r.session, draft: r.draft, tries: 0 };
     }
   }
   s._routeMsg = msgs.length ? msgs : null;
@@ -118,8 +127,8 @@ function focusLinked(s) {
   if (f.at != null) fr.navigate?.(f.at); // (a session asked for from a tile's page leaves the page where it is)
   // the session the link names, in the tile's terminal window; a frame
   // from before open({session}) just opens its window
-  if (f.session) Promise.resolve(fr.open?.({ session: f.session })).then((ok) => {
-    if (ok === false) { s._routeMsg = [...(s._routeMsg ?? []), `The session in this link isn’t one of yours on ${f.path}, or it has been forgotten.`]; s.requestUpdate(); }
+  if (f.session) Promise.resolve(fr.open?.(f.session === 'new' ? { session: 'new', draft: f.draft || '' } : { session: f.session })).then((ok) => {
+    if (ok === false) { s._routeMsg = [...(s._routeMsg ?? []), f.session === 'new' ? `A new session of ${f.path}’s agent couldn’t be opened.` : `The session in this link isn’t one of yours on ${f.path}, or it has been forgotten.`]; s.requestUpdate(); }
   }, () => { });
 }
 

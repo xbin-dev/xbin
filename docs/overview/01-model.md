@@ -190,7 +190,8 @@ else's workspace it drops to the workspace owner's uid first (D13).
 The repository treats decisions as artifacts: every subsystem has a design
 doc in the repo's `plans` directory, and every settled choice gets a numbered
 entry with rationale in its `DECISIONS.md` (D-numbers for core decisions, and per-domain
-series: IFACE-*, ING-*, LC-*, ND-*). Overview and reference docs cite these
+series: IFACE-*, ING-*, LC-*, ND-*; the older entries sit in the archives
+that file indexes). Overview and reference docs cite these
 IDs inline so "why is it like this?" always has a one-hop answer — and so
 agents don't re-litigate settled trade-offs.
 

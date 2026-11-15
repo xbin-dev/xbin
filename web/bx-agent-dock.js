@@ -18,7 +18,8 @@
  * and ask the dock to show it — a message carrying an id and nothing else,
  * taken only from this dock's own frame (agent-chrome-words.js pageMessage:
  * xbin:agent-open-request {id}, xbin:agent-open-changeset {id},
- * xbin:open-session {session, tile}). The dock then reads the request from
+ * xbin:open-session {session, tile}, and {session: "new", tile, draft} for a
+ * new session of a tile's own agent with the person's words, unsent). The dock then reads the request from
  * xbind itself and draws xbind's reading; what the page sent is never
  * shown, and nothing the page does reaches a button: it is another origin
  * (sandboxed, never chrome), it cannot draw outside its frame, and Allow
@@ -32,13 +33,16 @@
  *   methods     toggle(), show(view), review(kind, id)
  *   events      bx-agent-dock {open, width}   the shell makes room
  *               bx-agent-open-session {tile, session, page?}   a waiting tile agent: the shell opens it (page: the agent's page asked)
+ *               bx-agent-new-session {tile, draft}   (cancelable) a new session of the tile's own agent, the draft in its
+ *                         composer, unsent: a shell that can opens the tile's window on it and takes the event
+ *                         (preventDefault); untaken — an older shell, /xbin/agent — the dock shows a plain link to the tile
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore, call } from '/vendor/agent-chrome-store.js';
 import { infoFor, refreshFrameInfo, frameSource, SANDBOX } from '/vendor/frame-info.js';
-import { CHOICES, clampDock, contextMessage, dockState, needs, pageMessage } from '/vendor/agent-chrome-words.js';
+import { CHOICES, clampDock, contextMessage, dockState, handoffLink, needs, pageMessage } from '/vendor/agent-chrome-words.js';
 import '/vendor/bx-agent-approve.js';
 import '/vendor/bx-agent-changes.js';
 import '/vendor/bx-agent-panels.js';
@@ -49,6 +53,7 @@ export class BxAgentDock extends LitElement {
   static properties = {
     open: { type: Boolean, reflect: true }, full: { type: Boolean, reflect: true }, context: { attribute: false }, page: { attribute: false },
     _w: { state: true }, _view: { state: true }, _tray: { state: true }, _menu: { state: true }, _sheet: { state: true }, _frame: { state: true }, _narrow: { state: true }, _err: { state: true },
+    _handoff: { state: true }, // {tile, draft}: a new session the shell couldn't open — the plain link instead
   };
 
   static styles = [chromeCss, css`
@@ -79,7 +84,7 @@ export class BxAgentDock extends LitElement {
   constructor() {
     super();
     this.open = false; this.full = false; this.context = null; this.page = '';
-    this._w = CHOICES.dockWidth; this._view = 'chat'; this._tray = false; this._menu = false; this._sheet = null; this._frame = null; this._narrow = false; this._err = '';
+    this._w = CHOICES.dockWidth; this._view = 'chat'; this._tray = false; this._menu = false; this._sheet = null; this._frame = null; this._narrow = false; this._err = ''; this._handoff = null;
     this._framed = ''; this._dialog = null; this._said = '';
     this.store = agentStore();
     this._onMsg = (e) => this._message(e);
@@ -194,7 +199,26 @@ export class BxAgentDock extends LitElement {
     if (!m) return;
     if (m.type === 'review') this.review(m.kind, m.id);
     else if (m.type === 'session') this.dispatchEvent(new CustomEvent('bx-agent-open-session', { detail: { tile: m.tile, session: m.session, page: true }, bubbles: true, composed: true }));
+    else if (m.type === 'new-session') this._newSession(m.tile, m.draft);
     else this.show(m.view);
+  }
+
+  // a new session of a tile's own agent, the person's words in its composer:
+  // the shell's to open; one that doesn't take it gets the plain link here
+  _newSession(tile, draft) {
+    this._handoff = null;
+    const ev = new CustomEvent('bx-agent-new-session', { detail: { tile, draft }, bubbles: true, composed: true, cancelable: true });
+    if (this.dispatchEvent(ev)) this._handoff = { tile, draft };
+  }
+
+  _handoffView() {
+    const h = this._handoff;
+    if (!h) return nothing;
+    const copy = (e) => { navigator.clipboard?.writeText(h.draft).then(() => { e.target.textContent = 'Copied'; }, () => { }); };
+    return html`<div class="banner" role="status" data-handoff><bx-icon name="info"></bx-icon><span>
+      <b>Start a session of ${h.tile}’s own agent there.</b> This workspace can’t open one for you from here: <a href=${handoffLink(h.tile)} target="_top">open ${h.tile}</a>, start a coding agent in its window, and paste your words.
+      ${h.draft ? html`<div class="small muted mono" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:120px;overflow:auto;margin-top:4px" data-draft>${h.draft}</div>` : nothing}
+      <div class="btns" style="justify-content:flex-start;margin-top:4px">${h.draft ? html`<button data-copy @click=${copy}>Copy your words</button>` : nothing}<button class="quiet" @click=${() => { this._handoff = null; }}>Dismiss</button></div></span></div>`;
   }
 
   // what the person was looking at, for the page ("about <tile>")
@@ -262,6 +286,7 @@ export class BxAgentDock extends LitElement {
       <div class="body" @bx-agent-review=${(e) => { e.stopPropagation(); this.review(e.detail.kind, e.detail.id); }} @bx-agent-back=${() => { this._view = 'chat'; }}>
         ${this._tray ? html`<div class="tray" @keydown=${this._key}><bx-agent-needs></bx-agent-needs></div>` : nothing}
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
+        ${this._handoffView()}
         ${this._view === 'approvals' ? html`<bx-agent-approvals></bx-agent-approvals>` : this._view === 'activity' ? html`<bx-agent-activity></bx-agent-activity>`
           : this._view === 'prefs' ? html`<bx-agent-prefs></bx-agent-prefs>`
             : this._frame && (st === 'page' || (this.page && st !== 'paused' && st !== 'hidden')) ? html`<iframe src=${this._frame.url} title="Your workspace agent" sandbox=${this._frame.sandbox}

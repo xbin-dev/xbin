@@ -43,6 +43,13 @@ type SessionInfo struct {
 	// has an LLM connector (llmhook.go): "connector" or "own"; absent
 	// without one, and until the session's sandbox settled it.
 	LLM string `json:"llm,omitempty"`
+	// LLMOffered, with LLM "connector": the connector is the CLI's default
+	// but nothing holds it there — no rule gives the session the connector
+	// alone, and the harness keeps the person's and the project's own
+	// providers (opencode), whose config can leave it out. Absent when the
+	// rule holds the session to the connector or the harness's connector
+	// configuration replaces theirs (codex).
+	LLMOffered bool `json:"llmOffered,omitempty"`
 	// Partition is what the session acts in on a partitioned tile:
 	// "user:<id>" or "global" (partition.go); absent on every other tile.
 	Partition string `json:"partition,omitempty"`
@@ -80,7 +87,7 @@ func (s *Session) info() SessionInfo {
 		st.mu.Lock()
 		si.Kind, si.Provider, si.Mode, si.Model, si.Status = KindAgent, st.provider.ID, st.mode, st.model, st.status
 		st.mu.Unlock()
-		si.LLM = st.llmServes()
+		si.LLM, si.LLMOffered = st.llmServes(), st.llmOffered()
 		si.Pending = st.perms.Count()
 		si.Questions = len(st.drv.PendingElicitations())
 	}

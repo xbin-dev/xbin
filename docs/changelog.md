@@ -10,8 +10,54 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-16
+
+- **Agent sessions: "offered" versus "on" the LLM connector**
+  ([llm.md](/docs/llm.md#agent-sessions),
+  [protocol/agents.md](/docs/protocol/agents.md)). A session's row and its
+  tail page's state add `llmOffered: true` beside `llm: "connector"` when
+  nothing holds the CLI to the connector: no rule gives it the connector
+  alone, and the harness keeps the person's and the project's own
+  providers (OpenCode), whose config can leave it out. Its first notice
+  carries `offered: true` and says the connector is offered as the default
+  model. The Agent tab's header says "on the workspace connector" only when
+  the rule holds the session there or the harness's settings replace the
+  person's (Codex), else "offered: workspace connector"; its launcher says
+  "on" only when the provider's row is `forced`. Before, both said "LLM by
+  xbin" whenever the connector was the default. Additive: a client that
+  ignores the new field reads what it did.
+- **docs: the changelog's older entries** moved, unchanged, to archive
+  pages: everything before 2026-10-01 is in `/docs/changelog/<YYYY-MM>.md`
+  (September in two, `2026-09a.md` and `2026-09b.md`), listed under
+  [Older entries](#older-entries) at the end of this page.
+  `/docs/changelog.md` still works and keeps the recent weeks, so its
+  `?raw=1` fetch returns only those; read an archive page for anything
+  older.
+
 ## 2026-11-15
 
+- **The workspace agent's page, its backend and xbin's chrome meet** (D235;
+  [workspace-agent.md](/docs/workspace-agent.md), [protocol/delegation.md
+  §The chrome](/docs/protocol/delegation.md#the-chrome)): the run view
+  answers a sent message's `context` (its "About …" chip);
+  `cards.requests[]` and `cards.briefs[]` carry `callId`, the tool call
+  that made them, for the item's life, and the page places its cards by it
+  instead of the tool's words; `xbin:open-session {session: "new", tile,
+  draft}` opens the tile's window on a new session's launcher with the
+  person's words waiting, unsent, in the composer of the coding agent they
+  pick (`<bx-frame>` `open({session: "new", draft})`, the dock's
+  `bx-agent-new-session`; a shell from before it gets a plain link). A
+  tile's ⋯ menu has **Ask my agent about this tile** (the scaffold's
+  `shell/shell-agent.js`), which opens the dock about that tile.
+  Preferences pick the mode a tile agent your agent starts gets among the
+  modes that ask before acting, naming the ones that don't.
+- **The workspace agent's page draws from fields** (D235): the context
+  chip is sent as the message's `context`; request cards, refusals
+  (`cards.refusals`), the agent's question kinds (a redirect, can't), the
+  quota banner and the pause time come from the backend's fields, never
+  its sentences. A redirect's "Hand this to <tile>'s own agent" posts
+  `xbin:open-session {session: "new", tile, draft}`.
+- **The workspace agent's page** (D235; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
 - **The workspace agent is in xbind: `xbin/wsagent`** (D231 on D227;
   [workspace-agent.md](/docs/workspace-agent.md#setting-it-up),
   [sealed.md](/docs/sealed.md)). The first system component: the agent

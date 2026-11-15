@@ -696,8 +696,22 @@ xbin:agent-open-request   {id}             open the approval of one request
 xbin:agent-open-changeset {id}             open the review of one change set
 xbin:open-session         {session, tile}  show one of the person's sessions
                                            in its tile's window
+xbin:open-session         {session: "new", a new session of the tile's own
+                           tile, draft}    agent: its window opens on a new
+                                           session's launcher, draft (the
+                                           person's own words, at most 8000
+                                           characters) in the composer of the
+                                           one they pick — never sent by the
+                                           message
 xbin:agent-open           {view}           approvals | activity | prefs
 ```
+
+A new session's `draft` is read as plain text — line ends made `\n`,
+control and invisible (bidi) characters dropped, capped — and never
+interpreted: it is shown, and waits in the composer until the person
+presses Send. The chrome hands it to the shell (`bx-agent-new-session`);
+where no shell takes it (an older scaffold, `/xbin/agent`) the dock shows
+a plain link to the tile and the words to copy.
 
 The chrome reads the request or change set from xbind itself
 (`GET /delegate/requests/<id>`, `/delegate/changesets/<id>`) and draws
@@ -708,7 +722,16 @@ nothing. No message approves, denies, resumes or changes a preference.
 
 **What the chrome tells the page**: `{type: "xbin:agent-context", tile}`
 or `{…, screen}` when the dock was opened about a tile or a screen — once
-the frame has loaded, and when it changes.
+the frame has loaded, and when it changes. A shell opens it about a tile
+from the chip (the window in front) and from a tile's menu, **Ask my agent
+about this tile** — shown where the chip is, and not before setup or while
+workspace agents are off.
+
+**Preferences** set the mode a tile agent the person's agent starts gets
+(`agentSessions.modes` of `/agent/prefs`, [agents.md](/docs/protocol/agents.md)):
+the chrome offers, per coding agent of `GET /agent/providers`, only the
+modes that ask before acting, and names the ones that don't with why —
+xbind refuses those (400) whatever sends them.
 
 **A shell without the agent's chip** — a scaffold from before it — learns
 of the page through one alert: once an admin has turned workspace agents

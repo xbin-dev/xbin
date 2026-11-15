@@ -64,7 +64,7 @@ export class Fold {
     if (!state) return this;
     if (state.status) foldStatus(this.st, { type: 'status', data: state.status });
     if (state.usage) this.st.usage = state.usage;
-    if (state.llm) this.st.llm = state.llm; // "connector" | "own" (D226)
+    if (state.llm) [this.st.llm, this.st.llmOffered] = [state.llm, !!state.llmOffered]; // "connector" | "own", and whether the connector is only offered (D226)
     if (state.turn) this.turn = state.turn + 0.5;
     return this;
   }
@@ -197,7 +197,26 @@ export class Fold {
 // llmHint(p): what a session of provider p would run on, in a few words —
 // from the row's `llm` (GET /agent/providers, D226: only while the
 // workspace's LLM connector is offered to agent sessions); '' otherwise.
-export const llmHint = (p) => ({ connector: 'LLM by xbin', 'own-first': 'your sign-in, else LLM by xbin', own: 'your sign-in', signin: 'needs a sign-in', unavailable: "can't run here" })[p?.llm?.use] || '';
+// "on the workspace connector" only where the rule gives it the connector
+// alone (forced): otherwise nothing has started to confirm it, and a
+// harness's own or project config can leave the connector out (docs/llm.md
+// §Agent sessions), so the connector is "offered".
+export const llmHint = (p) => {
+  const l = p?.llm;
+  if (l?.use === 'connector') return l.forced ? 'on the workspace connector' : 'offered: workspace connector';
+  return ({ 'own-first': 'your sign-in, else offered: workspace connector', own: 'your sign-in', signin: 'needs a sign-in', unavailable: "can't run here" })[l?.use] || '';
+};
+
+// llmLabel(st): a session's header word on who serves its model calls, from
+// its digest's llm and llmOffered (the page state, the connector's notice;
+// D226) — "on the workspace connector" when xbind holds the CLI to it (the
+// rule gives it the connector alone, or the harness's connector settings
+// replace the person's own: codex), "offered: workspace connector" when the
+// connector is only the CLI's default, which its own or the project's config
+// can leave out (opencode without the rule); null when it doesn't serve.
+export const llmLabel = (st) => (st?.llm !== 'connector' ? null : st.llmOffered
+  ? { text: 'offered: workspace connector', title: "this workspace's LLM connector is offered to the agent as its default model, metered to you — its own or the project's configuration can still pick another provider" }
+  : { text: 'on the workspace connector', title: "model calls go through this workspace's LLM connector, metered to you" });
 
 // the status digest: status/detail/currentMode/options/modes/commands each
 // from the last status that carried it, last = the last status's data (its
@@ -211,7 +230,7 @@ export function foldStatus(st, e) {
   const d = e.data || {};
   if (e.type === 'turn.end') { if (d.usage) st.usage = d.usage; return st; }
   if (e.type === 'queue') { st.queue = Array.isArray(d.items) ? d.items : []; return st; }
-  if (e.type === 'notice') { if (d.llm) st.llm = d.llm; return st; } // who serves the session's model calls (D226)
+  if (e.type === 'notice') { if (d.llm) [st.llm, st.llmOffered] = [d.llm, !!d.offered]; return st; } // who serves the session's model calls, and whether only offered (D226)
   if (e.type !== 'status') return st;
   if (d.status) st.status = d.status;
   if (d.detail) st.detail = d.detail;

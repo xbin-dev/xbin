@@ -3,12 +3,13 @@
 // (model/fold.js); what the agent started or asked for lives beside it, in
 // the session's cards (GET /ws/sessions/{id}/cards: requests, tile agents,
 // briefs, the plan). compose() puts each card where the conversation made
-// it — in place of the tool call that made it, or after the line it follows
-// in time — and says which rows the cards make redundant (the journal's
-// "asked: …" beside a question card, a plan's later updates). The window of
+// it — in place of the tool call that made it (the card's callId), or
+// after the line it follows in time — and says which rows the cards make
+// redundant (the journal's "asked: …" beside a question card, a plan's
+// later updates). The window of
 // rows stays the fold's (a row may draw several cards, or nothing), so the
 // session's paging is untouched. Pure: node-tested.
-import { planBlock, refusalOf, clock } from './words.js';
+import { planBlock, refusalCard, clock } from './words.js';
 
 /** UPDATES: how the backend heads what xbin and the tile agents report (coord_workspace.go wsUpdatesHead). */
 export const UPDATES = '[workspace updates — ';
@@ -27,17 +28,30 @@ const num = (re, s) => { const m = re.exec(String(s || '')); return m ? +m[1] : 
 const parse = (s) => { try { const v = JSON.parse(s || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; } };
 
 /**
+ * askOf(b, ask): an ask_user call's question in fields — {kind: choices |
+ * redirect | cant | question, question, choices, tile} — from the cards'
+ * `ask` when it is this call's, else from the call's own arguments; an
+ * unknown kind is read as choices (API.md §Workspace mode, "In fields").
+ */
+export function askOf(b, ask) {
+  const a = ask && ask.callId && ask.callId === b.callId ? ask : parse(b.args);
+  const choices = (Array.isArray(a.choices) ? a.choices : []).map((c) => String(c || '').trim()).filter(Boolean).slice(0, 4);
+  let kind = ['choices', 'redirect', 'cant', 'question'].includes(a.kind) ? a.kind : 'choices';
+  if (kind === 'choices' && !choices.length) kind = 'question';
+  return { kind, question: String(a.question || ''), choices, tile: kind === 'redirect' ? String(a.tile || '').replace(/^\/+|\/+$/g, '') : '', callId: b.callId || '' };
+}
+
+/**
  * askBlock(b, answer, live): an ask_user call (its question and choices)
  * as the kit's ask block — a form of the choices with "Something else"
  * riding on it when it has choices, else its words alone (the next message
  * answers it). answer: the person's next message ('' none yet); live: it
  * waits now.
  */
-export function askBlock(b, answer, live, words) {
-  const a = parse(b.args);
-  const choices = (Array.isArray(a.choices) ? a.choices : []).map((c) => String(c || '').trim()).filter(Boolean).slice(0, 4);
+export function askBlock(b, answer, live, words, q = askOf(b, null)) {
+  const choices = q.choices;
   const k = 'ws:ask:' + (b.callId || b.id);
-  const base = { k, v: hash([choices, a.question, answer, live]), kind: 'ask', eid: '', callId: b.callId || '', message: String(a.question || ''), park: '' };
+  const base = { k, v: hash([choices, q.question, answer, live]), kind: 'ask', eid: '', callId: b.callId || '', message: q.question, park: '' };
   const settled = !live && answer != null;
   if (!choices.length) {
     return { ...base, mode: 'text', schema: null, action: settled ? 'accept' : !live ? 'cancel' : null, by: settled ? 'you' : !live ? 'agent' : null, content: null };
@@ -113,36 +127,48 @@ export function compose(blocks, cards, run, opts = {}) {
   // questions (ask_user): the kit's question card in place of the call; the journal's "asked: …" goes
   // the newest question nobody answered yet waits — whatever the run does meanwhile, a message answers it;
   // an older one a newer question replaced is over
+  // A question's kind is a field (cards.ask for the newest, the call's own `kind` before it): choices, a redirect
+  // (the request was about code: the tile's own agent, or the outcome), can't (the nearest things it can), or a
+  // question with no choices.
   let live = null;
   const asks = tools.filter((b) => b.name === 'ask_user');
+  const person = (x) => x.k === 'user' && !String(x.text || '').startsWith(UPDATES);
   for (const b of asks) {
     const i = list.indexOf(b);
-    const next = list.slice(i + 1).find((x) => x.k === 'user' && !String(x.text || '').startsWith(UPDATES));
+    const next = list.slice(i + 1).find(person);
     const isLast = b === asks[asks.length - 1];
-    const ab = askBlock(b, next ? next.text : null, isLast && !next, words);
+    const waits = isLast && !next;
+    const q = askOf(b, c.ask);
+    if (q.kind === 'redirect' || q.kind === 'cant') {
+      // the person's own words, as they wrote them: what a redirect hands to the tile's agent
+      const before = list.slice(0, i).reverse().find(person);
+      const blk = host(q.kind, 'ws:ask:' + (b.callId || b.id), { ...q, draft: before ? before.text : '', answer: next ? next.text : null, waits });
+      place(blk, b.id, 'replace');
+      if (waits) live = blk;
+      continue;
+    }
+    const ab = askBlock(b, next ? next.text : null, waits, words, q);
     place(ab, b.id, 'replace');
     if (!ab.action && ab.mode) live = ab;
   }
   for (const b of list) if (b.k === 'step' && b.kind === 'ask' && (!b.detail || b.detail.kind === 'ask_user' || !b.detail.kind)) slot(b.id).hide = true;
 
-  // briefs: in place of the call that wrote them ("Brief N for …"), else by time
+  // briefs: in place of the tile_agent_brief call that wrote them (their callId), else by time
   const briefAt = new Map(); // brief id → its card's anchor
   const briefs = Array.isArray(c.briefs) ? c.briefs : [];
-  const briefCalls = tools.filter((b) => b.name === 'tile_agent_brief');
   for (const br of briefs) {
-    const call = briefCalls.find((b) => num(/Brief (\d+) for /, b.result) === br.id);
+    const call = br.callId && byCall.get(br.callId);
     const blk = host('brief', 'ws:brief:' + br.id, br);
     if (call) { place(blk, call.id, 'replace'); briefAt.set(br.id, call.id); } else { const a = anchorAt(br.createdMs || 0); place(blk, a); briefAt.set(br.id, a); }
   }
 
-  // requests: in place of the call that filed them ("Pending — request N (…)"; an older backend parked the call on
-  // them: callId, "Filed as request N", "Request N (…):"), after
-  // their brief's card, else by time
+  // requests: in place of the tool call that filed them (their callId), else after their brief's card (the brief's
+  // Start filed it), else by time
   const reqAt = new Map();
   const reqs = (Array.isArray(c.requests) ? c.requests : []).slice().sort((a, b) => (a.createdMs || 0) - (b.createdMs || 0) || a.id - b.id);
   for (const q of reqs) {
     const blk = host('request', 'ws:req:' + q.id, q);
-    const call = (q.callId && byCall.get(q.callId)) || tools.find((b) => num(/(?:Filed as request|Pending — request) (\d+)/, b.result) === q.id || num(/^Request (\d+) \(/, b.result) === q.id);
+    const call = q.callId && byCall.get(q.callId);
     if (call && !(at.get(call.id) && at.get(call.id).replace)) { place(blk, call.id, 'replace'); reqAt.set(q.id, call.id); continue; }
     const a = call ? call.id : q.brief && briefAt.has(q.brief) ? briefAt.get(q.brief) : anchorAt(q.createdMs || 0);
     place(blk, a);
@@ -157,16 +183,10 @@ export function compose(blocks, cards, run, opts = {}) {
     place(blk, anchor);
   }
 
-  // what xbin refused: a card after the call — from the session's cards (refusals[]: in fields, by the call each answers; the
-  // kinds the cards have words for), else from the tool's answer as an older backend worded it
-  const refused = new Map((Array.isArray(c.refusals) ? c.refusals : []).filter((x) => x && x.callId && ['hidden', 'policy', 'cannot', 'slow'].includes(x.kind)).map((x) => [x.callId, x]));
-  for (const b of tools) {
-    const f = b.callId ? refused.get(b.callId) : null;
-    const why = f ? String(f.reason || '').trim().replace(/\.$/, '') : '';
-    const ref = f ? { kind: f.kind, reason: f.kind === 'hidden' ? '' : why, tile: f.tile || '', ...(f.kind === 'policy' ? { private: /private/i.test(why) } : {}) }
-      : b.state !== 'writing' ? refusalOf(b.result) : null;
-    if (ref && ref.kind !== 'slow') place(host('refusal', 'ws:ref:' + b.id, ref), b.id);
-    else if (ref) place(host('slow', 'ws:slow:' + b.id, ref), b.id);
+  // what xbin refused (cards.refusals: the call it answers, its kind): a card after the call, else by time
+  for (const f of (Array.isArray(c.refusals) ? c.refusals : []).slice().reverse()) {
+    const call = f.callId && byCall.get(f.callId);
+    place(host('refusal', 'ws:ref:' + (f.id || f.callId), f), call ? call.id : anchorAt(f.createdMs || 0));
   }
 
   for (const [, e] of at) e.rev = [e.hide ? 'h' : '', ...(e.replace || []).map((x) => x.k + '@' + x.v), ...e.after.map((x) => x.k + '@' + x.v)].join(',');

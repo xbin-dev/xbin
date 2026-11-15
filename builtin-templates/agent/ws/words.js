@@ -1,5 +1,5 @@
 // ws/words.js — what the workspace agent's page says (docs/workspace-agent.md
-// §The agent's page; D232): the product's copy deck in the page's words,
+// §The agent's page; D235): the product's copy deck in the page's words,
 // and the pure readings of the backend's shapes that choose among them — a
 // tile agent's card, a request's state, a session's line, the scope chip,
 // the plan's steps, the states of the page (quota, paused, offline). No lit,
@@ -8,7 +8,7 @@ import { nameOf } from '../model/harness.js';
 
 /**
  * CHOICES — the design's recommendations for questions the owner has not
- * answered yet, each in one place (D232 lists them):
+ * answered yet, each in one place (D235 lists them):
  *   starterSends     a starter fills the composer instead of sending (Q8)
  *   typeWhilePaused  the composer takes no message while the agent is paused (Q10)
  *   sessionCap       no cap on sessions; archived ones fold under Older (Q17)
@@ -107,16 +107,19 @@ export function agentCard(a, now = Date.now(), tileName = (p) => p) {
 
 // ---- a request for the person's approval (cards → requests) -----------------------------
 
-// how the backend words an approval in an outcome (ws_notify.go: "approved by your person[, for an hour | , from now on]")
-const HOW = [[/approved by your person, for an hour/, 'Allowed for an hour by you'], [/approved by your person, from now on/, 'Allowed always by you'], [/approved by your person/, 'Allowed once by you']];
 const KIND_WORD = { call: 'change something in', session: 'start a tile agent in', template: 'create a tile', changeset: 'propose admin changes' };
+// where the person decided (a request's `via`)
+const VIA = { app: 'in the app', device: 'on a device', page: 'on the brief' };
 
 /**
  * requestCard(r, now, tileName): what a request's card says — {head, what,
- * glyph, tone, waits, settled, line, result, button, kind}. While it waits:
- * what, for which tile, how long it has, and Review… (the chrome opens it;
- * the page never draws an Allow). Settled: who allowed it, what ran, the
- * result — or Denied / Expired / Withdrawn.
+ * glyph, tone, waits, settled, line, result, button, kind}, from the
+ * request's fields (API.md §Workspace mode, "In fields"): while it waits,
+ * what, for which tile, when it expires (`expiresMs`), and Review… (the
+ * chrome opens it; the page never draws an Allow); settled, who decided
+ * (`by`), how wide the grant is (`grant`, `grantUntilMs`), where (`via`),
+ * and what ran (`resultStatus`, `result`) — or Denied / Expired /
+ * Withdrawn.
  */
 export function requestCard(r, now = Date.now(), tileName = (p) => p) {
   const tile = r.tile ? tileName(r.tile) || r.tile : '';
@@ -125,42 +128,43 @@ export function requestCard(r, now = Date.now(), tileName = (p) => p) {
   const what = r.title || (kind === 'template' ? 'Create a tile' : `${KIND_WORD[kind] || 'a request'}${tile ? ' ' + tile : ''}`);
   const call = r.method && r.path ? `${r.method} ${r.path}` : '';
   const out = { kind, tile, what, call, local, ref: r.ref || '', waits: false, settled: true, button: '', glyph: 'shield', tone: '', head: '', line: '', result: '' };
-  const left = r.createdMs ? 24 * 3600e3 - (now - r.createdMs) : 0;
+  const when = (ms) => [ms ? clock(ms) : '', VIA[r.via] || ''].filter(Boolean).join(' · ');
   switch (r.state) {
-    case 'pending':
+    case 'pending': {
+      const left = r.expiresMs ? r.expiresMs - now : 0;
       return { ...out, waits: true, settled: false, head: 'Waiting for your approval', tone: 'warn', button: local ? '' : W.review,
         line: [r.createdMs ? `asked ${clock(r.createdMs)}` : '', left > 0 ? `expires in ${inWords(left)}` : ''].filter(Boolean).join(' · ') };
-    case 'proposed':
-      return { ...out, waits: true, settled: false, head: r.title || 'Admin changes proposed', tone: 'warn', button: W.review, line: r.createdMs ? `proposed ${clock(r.createdMs)}` : '' };
-    case 'approved': case 'running': case 'applying':
-      return { ...out, head: 'Allowed by you', glyph: 'clock', line: 'running now…' };
-    case 'used': {
-      const how = (HOW.find(([re]) => re.test(r.outcome || '')) || [null, 'Allowed by you'])[1];
-      return { ...out, head: how, glyph: 'check', tone: 'ok', line: [r.decidedMs ? clock(r.decidedMs) : '', call].filter(Boolean).join(' · '), result: r.result ? firstLine(r.result) : resultOf(r.outcome) };
     }
+    case 'proposed': {
+      const left = r.expiresMs ? r.expiresMs - now : 0;
+      return { ...out, waits: true, settled: false, head: r.title || 'Admin changes proposed', tone: 'warn', button: W.review,
+        line: [r.createdMs ? `proposed ${clock(r.createdMs)}` : '', left > 0 ? `expires in ${inWords(left)}` : ''].filter(Boolean).join(' · ') };
+    }
+    case 'approved': case 'running': case 'applying':
+      return { ...out, head: grantWords(r, tile), glyph: 'clock', line: 'running now…' };
+    case 'used':
+      return { ...out, head: grantWords(r, tile), glyph: 'check', tone: 'ok', line: [when(r.decidedMs), call, r.resultStatus ? String(r.resultStatus) : ''].filter(Boolean).join(' · '), result: r.result || '' };
     case 'failed':
-      return { ...out, head: 'Allowed by you — it failed', glyph: 'error', tone: 'bad', line: [r.decidedMs ? clock(r.decidedMs) : '', call].filter(Boolean).join(' · '), result: failureOf(r.outcome) };
-    case 'denied': return { ...out, head: 'Denied by you', glyph: 'xmark', line: r.decidedMs ? clock(r.decidedMs) : '' };
+      return { ...out, head: `${grantWords(r, tile)} — it failed`, glyph: 'error', tone: 'bad', line: [when(r.decidedMs), call, r.resultStatus ? String(r.resultStatus) : ''].filter(Boolean).join(' · '), result: r.result || '' };
+    case 'denied': return { ...out, head: r.by === 'agent' ? 'Withdrawn by the agent' : 'Denied by you', glyph: 'xmark', line: when(r.decidedMs) };
     case 'expired': return { ...out, head: 'Expired — not approved within 24 hours.', glyph: 'clock', button: 'Ask again' };
     case 'withdrawn': return { ...out, head: 'Withdrawn by the agent', glyph: 'xmark' };
   }
-  // a change set's end (applied, partial, rejected, …): xbin's word for it, and the backend's one line of what came of it
-  // (`result`: "2 of 3 changes applied")
-  return { ...out, head: r.state ? `Decided — ${r.state}` : 'Decided', line: r.decidedMs ? clock(r.decidedMs) : '', result: r.result ? firstLine(r.result) : '' };
+  // a change set's end (applied, partial, rejected, …): its result line, else xbin's word
+  return { ...out, head: r.result || (r.state ? `Decided — ${r.state}` : 'Decided'), line: when(r.decidedMs) };
 }
 
-// what ran, from the outcome the backend wrote for the agent: "— it ran: <the tile's answer>"
-function resultOf(outcome) {
-  const s = String(outcome || '');
-  const i = s.indexOf(' — it ran: ');
-  if (i >= 0) return firstLine(s.slice(i + 11));
-  const t = s.indexOf(' — tile agent #');
-  if (t >= 0) return firstLine(s.slice(t + 3).replace(/\. It is your person's session.*$/s, ''));
-  const c = s.indexOf(' — the tile ');
-  return c >= 0 ? firstLine(s.slice(c + 3).replace(/\. It is your person's\..*$/s, '')) : '';
+/** grantWords(r, tile): who allowed a request and how wide — "Allowed once by you", "Allowed always, this exact action, by you", "Allowed every change to Invoices until 11:02, by you". */
+export function grantWords(r, tile = '') {
+  const who = r.by === 'xbin' ? 'by xbin' : 'by you';
+  const until = r.grantUntilMs ? ` until ${clock(r.grantUntilMs)}` : '';
+  switch (r.grant) {
+    case 'call': return `Allowed always, this exact action${until}, ${who}`;
+    case 'tile': return `Allowed every change to ${tile || 'the tile'}${until}, ${who}`;
+    case 'once': return `Allowed once ${who}`;
+  }
+  return `Allowed ${who}`;
 }
-const failureOf = (outcome) => firstLine(String(outcome || '').replace(/^approved by your person[^,]*, but /, ''));
-const firstLine = (s) => { const l = String(s || '').trim().split('\n')[0]; return l.length > 200 ? l.slice(0, 199) + '…' : l; };
 
 // ---- the brief ("scope, then hand off") --------------------------------------------------
 
@@ -226,46 +230,46 @@ function stepTag(s) {
   return s.kind === 'asks' ? { text: 'asks you', icon: 'shield', tone: 'warn' } : { text: 'reads only', icon: '' };
 }
 
-// ---- refusals said in a tool's answer (ws_xbin.go wsRefusal) -------------------------------
+// ---- refusals (cards → refusals) ---------------------------------------------------------
 
 /**
- * refusalOf(text): what a tool's answer says xbin refused, as the card the
- * page shows — {kind: 'policy' | 'cannot' | 'hidden' | 'slow', reason} — or
- * null. The phrases are the backend's (wsRefusal); a node test pins them.
+ * refusalCard(r, tileName): a tool call xbin refused, or that named a tile
+ * the session isn't connected to ({callId, tool, kind, reason, tile}), as
+ * its card — {kind, icon, title, text, note, ways: [what]} with the ways
+ * forward the page offers: 'scope' (Open scope), 'model' (Change the
+ * model…), 'whatCan' (What can it do?). paused, off and slow are a quiet
+ * line: the page's banner says the rest.
  */
-export function refusalOf(text) {
-  const s = String(text || '');
-  let m;
-  if ((m = /refused for this tile — (.+?)\. This is a rule/s.exec(s))) return { kind: 'policy', reason: m[1].trim(), private: /private/i.test(m[1]) };
-  if ((m = /an agent can't do this, whatever is approved — (.+?)\. Tell your person/s.exec(s))) return { kind: 'cannot', reason: m[1].trim() };
-  if (/this tile is outside what your person let this session see/.test(s)) return { kind: 'hidden', reason: '' };
-  if (/too many actions in a minute/.test(s)) return { kind: 'slow', reason: '' };
-  return null;
+export function refusalCard(r, tileName = (p) => p) {
+  const tile = r.tile ? tileName(r.tile) || r.tile : '';
+  const reason = String(r.reason || '').replace(/\.$/, '');
+  switch (r.kind) {
+    case 'policy': return { kind: 'policy', icon: 'lock', title: tile ? `${tile} is blocked by a rule` : 'Blocked by a rule', text: reason ? `${reason}.` : '',
+      note: 'This is a rule set by an admin, not something the agent can work around.', ways: ['model', 'scope'] };
+    case 'cannot': return { kind: 'cannot', icon: 'info', title: 'Can’t do this', text: `${reason ? reason + '. ' : ''}It’s yours to do yourself${tile ? `, in ${tile}` : ''}.`, ways: ['whatCan'] };
+    case 'hidden': return { kind: 'hidden', icon: 'eye-slash', title: 'Not connected in this session', text: `You left ${tile || 'this tile'} out of this session’s scope. Widen the scope, or use another session.`, ways: ['scope'] };
+    case 'not-connected': return { kind: 'not-connected', icon: 'plug', title: `${tile || 'That tile'} isn’t connected in this session`, text: 'It isn’t there, or this session can’t see it.', ways: ['scope'] };
+    case 'taint': return { kind: 'taint', icon: 'lock', title: 'This session’s model can’t hold that data', text: reason ? `${reason}.` : '', note: 'A session on a model that is allowed can.', ways: ['model'] };
+    case 'paused': return { kind: 'paused', quiet: true, icon: 'pause', text: 'Paused — nothing was read or changed.' };
+    case 'off': return { kind: 'off', quiet: true, icon: 'power', text: 'Workspace agents are turned off — nothing was read or changed.' };
+    case 'slow': return { kind: 'slow', quiet: true, icon: 'clock', text: 'Slowing down — the agent is doing a lot at once.' };
+  }
+  return { kind: r.kind || 'refused', icon: 'lock', title: 'xbin refused this', text: reason ? `${reason}.` : '', ways: [] };
 }
 
 // ---- the context chip ---------------------------------------------------------------------
 
 /**
- * aboutLine(ctx) / splitAbout(text): what the chip adds to the message it
- * goes with — one line before the person's words, "About tile "Orders"
- * (sales/orders):" or "About the screen "Sales desk":" — and the message
- * split back into the chip and the words (the transcript shows the chip
- * above them). The backend's message route takes text only, so the line is
- * the context the agent reads.
+ * aboutOf(c): a message's context as the chip draws it — the page sends
+ * {tile} or {screen} (POST /runs/{id}/message {context}); the backend
+ * answers it back on the message (`context`: {tile, name?, connected?} |
+ * {screen}), resolved by xbind. null: none.
  */
-export function aboutLine(c) {
-  if (!c) return '';
-  const q = (s) => String(s || '').replace(/["\n]/g, '’').slice(0, 200);
-  if (c.tile) return `About tile "${q(c.name || c.tile)}" (${String(c.tile).replace(/[()\n]/g, '')}):`;
-  if (c.screen) return `About the screen "${q(c.screen)}":`;
-  return '';
-}
-const ABOUT = /^About (?:tile "([^"\n]{1,200})" \(([^()\n]{1,512})\)|the screen "([^"\n]{1,200})"):\n/;
-export function splitAbout(text) {
-  const s = String(text || '');
-  const m = ABOUT.exec(s);
-  if (!m) return { about: null, text: s };
-  return { about: m[1] ? { tile: m[2], name: m[1] } : { screen: m[3] }, text: s.slice(m[0].length) };
+export function aboutOf(c) {
+  if (!c || typeof c !== 'object') return null;
+  if (c.tile) return { tile: String(c.tile), name: String(c.name || c.tile), connected: c.connected };
+  if (c.screen) return { screen: String(c.screen) };
+  return null;
 }
 
 /** blankAt(text): where a starter's blank is ([start, end] of "___"), or null. */
@@ -309,25 +313,19 @@ export function chipWords(counts, model, narrow = false, priv = false) {
 // ---- the page's states (docs/workspace-agent.md §The agent's page) ------------------------------------------
 
 /**
- * quotaOf(state, run): a stopping quota that holds the agent — from the
- * state's `quota` when the backend says it ({stopped, resets, limit,
- * used}), else from the run's last error, which carries the connector's
- * code (xbin_llm_quota_exceeded, "resets …") — as {resets, words, until}; null when none.
+ * quotaOf(state): the stopping quota that holds the agent (`state.quota`:
+ * {stopped, limitWords, resets, raise, …}) as {resets, words, until, raise};
+ * null when none.
  */
-export function quotaOf(state, run) {
+export function quotaOf(state) {
   const q = state && state.quota;
-  let resets = 0, limit = '';
-  if (q && q.stopped) { resets = Date.parse(q.resets) || 0; limit = q.limitWords || ''; }
-  else {
-    const err = String((run && run.status === 'error' && (run.result || run.error)) || '');
-    if (!/quota/i.test(err) || !/(exceeded|insufficient_quota|used up|reached)/i.test(err)) return null;
-    const m = /resets?(?: at)?[ "=:]+(\d{4}-\d\d-\d\dT[\d:.]+Z?)/i.exec(err);
-    resets = m ? Date.parse(m[1]) || 0 : 0;
-  }
+  if (!q || !q.stopped) return null;
+  const resets = Date.parse(q.resets) || 0;
   const at = resets ? clock(resets) : '';
   return {
     resets, until: at ? `Sending resumes at ${at}` : 'Sending resumes when the limit resets',
-    words: `${limit ? `You've used ${limit}. ` : ''}${at ? `It resets at ${at}. ` : ''}You can still read everything here; tile agents on your own sign-in keep working.`,
+    words: `${q.limitWords ? `You've used ${q.limitWords}. ` : ''}${at ? `It resets at ${at}. ` : ''}You can still read everything here; tile agents on your own sign-in keep working.`,
+    raise: q.raise ? `${q.raise[0].toUpperCase()}${q.raise.slice(1)} can raise your limit.` : 'An admin can raise your limit.',
   };
 }
 

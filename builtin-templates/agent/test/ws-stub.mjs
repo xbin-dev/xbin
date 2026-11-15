@@ -202,7 +202,7 @@ export const EMPTY = {
 // a conversation in progress: a plan, a brief, a question, a call to a tile, two tile agents
 export const CONVERSATION = {
   messages: [
-    msg(1, 'user', 'About tile "Orders" (sales/orders):\nCustomers keep asking for a list of their open orders. Add a CSV export to Orders.'),
+    msg(1, 'user', 'Customers keep asking for a list of their open orders. Add a CSV export to Orders.', { context: { tile: 'sales/orders', name: 'Orders', connected: true } }),
     msg(2, 'assistant', 'That touches Orders and Invoices. Here is the plan.', { toolCalls: [call('p1', 'plan', { steps: [] })] }),
     msg(3, 'tool', 'The plan is in front of your person.', { toolCallId: 'p1', name: 'plan' }),
     msg(4, 'user', 'Go ahead'),
@@ -220,12 +220,15 @@ export const CONVERSATION = {
 export const CARDS = {
   plan: [{ text: 'Read how Orders and Invoices work today', kind: 'reads', state: 'done' }, { text: 'Orders’ agent adds the CSV export', kind: 'asks', state: 'working' },
     { text: 'Rebuild the links on the 38 open invoices', kind: 'asks', state: 'waiting' }, { text: 'Check both and report back', kind: 'reads', state: 'todo' }],
-  briefs: [{ id: 4, tile: 'sales/orders', goal: 'Add “Export open orders (CSV)” to a customer’s page.', doneWhen: 'A CSV with order no., date, status and total downloads for one customer.',
+  briefs: [{ id: 4, callId: 'b1', tile: 'sales/orders', goal: 'Add “Export open orders (CSV)” to a customer’s page.', doneWhen: 'A CSV with order no., date, status and total downloads for one customer.',
     leaveAlone: 'The orders table and its existing API.', checkBy: 'Tests for the export; a preview of the customer page.', state: 'started', createdMs: now - 500e3, updatedMs: now - 500e3 }],
   requests: [
-    { id: 12, kind: 'call', ref: 'rq-12', tile: 'sales/invoices', title: 'Rebuild the order links on the 38 open invoices', method: 'POST', path: '/links/rebuild', state: 'pending', createdMs: now - 120e3 },
-    { id: 11, kind: 'session', ref: 'rq-11', tile: 'sales/orders', title: 'start a tile agent in sales/orders', brief: 4, state: 'used', outcome: 'approved by your person — tile agent #7 started in sales/orders (claude, asks before acting).', createdMs: now - 480e3, decidedMs: now - 470e3 },
+    { id: 12, kind: 'call', ref: 'rq-12', callId: 'c1', tile: 'sales/invoices', title: 'Rebuild the order links on the 38 open invoices', method: 'POST', path: '/links/rebuild', state: 'pending', createdMs: now - 120e3, expiresMs: now - 120e3 + 86400e3 },
+    { id: 11, kind: 'session', ref: 'rq-11', tile: 'sales/orders', title: 'start a tile agent in sales/orders', brief: 4, state: 'used', outcome: 'approved by your person — tile agent #7 started in sales/orders (claude, asks before acting).',
+      createdMs: now - 480e3, decidedMs: now - 470e3, expiresMs: now - 480e3 + 86400e3, by: 'person', via: 'session', grant: 'once', result: 'tile agent #7 started in sales/orders (Claude Code)' },
   ],
+  refusals: [{ id: 1, callId: 'l1', tool: 'tile_call', kind: 'policy', reason: 'Finance allows private models only', tile: 'finance/ledger', createdMs: now - 100e3 }],
+  ask: { callId: 'a1', kind: 'choices', question: 'Which customers should get the link first?', choices: ['The three with overdue invoices', 'Everyone with an open order'] },
   agents: [
     { id: 7, session: 'ts-7', tile: 'sales/orders', harness: 'claude', asks: true, brief: 4, status: 'running', waits: false, last: 'Writing export_test.go — 3 of 5 cases pass', startedMs: now - 250e3 },
     { id: 8, session: 'ts-8', tile: 'sales/invoices', harness: 'claude', asks: true, status: 'running', waits: true, waiting: 'may I run the export tests?', startedMs: now - 200e3 },

@@ -1,5 +1,5 @@
 // ws/page.js — the workspace agent's own page (docs/workspace-agent.md §The
-// agent's page; D232): what xbin's dock frames when it shows a person's
+// agent's page; D235): what xbin's dock frames when it shows a person's
 // workspace agent. boot.js loads it in place of agent.js when the backend
 // says it is in workspace mode (GET /ws/state → mode "workspace"); the
 // template's normal page is never loaded here, and nothing of this tree is
@@ -26,7 +26,7 @@ import { copyAnswer } from '../chat-copy.js';
 import { md } from '../chat-md.js';
 import { ws, state as readState } from './api.js';
 import * as dock from './dock.js';
-import { W, CHOICES, quotaOf, composerState, aboutLine, splitAbout, blankAt, clock, slug as slugOf, agentCard, requestCard, possessive } from './words.js';
+import { W, CHOICES, quotaOf, composerState, aboutOf, blankAt, clock, slug as slugOf, agentCard, requestCard, possessive } from './words.js';
 import { compose, UPDATES } from './place.js';
 import { hostCard } from './cards.js';
 import { chipView, panelView } from './scope.js';
@@ -82,6 +82,8 @@ const act = {
   review: (q) => { dock.post(q.kind === 'changeset' ? dock.openChangeset(q.ref) : dock.openRequest(q.ref)); announce('xbin shows the request to review.'); },
   send: (text) => send(text),
   fill: (text) => fill(text),
+  // a redirect's way forward: a new session of the tile's own agent, the person's own words as its draft
+  handTo: (tile, draft) => dock.showSession('new', tile, globalThis.window, draft),
   briefSave, briefStart, startDefaults,
   openScope: (o) => openScope(o),
   whatCan: () => showWhatCan(),
@@ -125,9 +127,9 @@ function plainOther(kb) {
       const nl = text.indexOf('\n');
       return noticeView({ k: kb.k, v: kb.v, kind: 'notice', icon: 'info', fold: true, title: 'Updates from xbin and your tile agents', text: `updates\n${nl >= 0 ? text.slice(nl + 1) : ''}` }, ctx);
     }
-    const { about, text: rest } = splitAbout(text);
+    const about = aboutOf(contextOf(kb));
     if (!about) return null;
-    return html`<div class="bxc-msg bxc-user"><div class="bxc-bubble">${aboutChip(about)}<div class="bxc-text">${rest}</div></div></div>`;
+    return html`<div class="bxc-msg bxc-user"><div class="bxc-bubble">${aboutChip(about, about.connected === false ? html` — not connected` : nothing)}<div class="bxc-text">${text}</div></div></div>`;
   }
   if (kb.kind === 'step') {
     const d = kb.detail || {};
@@ -142,6 +144,13 @@ function plainOther(kb) {
     return say('', d.text || d.summary || '');
   }
   return null;
+}
+// the context the backend answers back on the person's message (`context`; API.md §Workspace mode, "In fields")
+function contextOf(kb) {
+  const id = kb.$src && kb.$src.msgId;
+  const v = id != null ? session.views.get(S.sel) : null;
+  const m = v && v.messages.find((x) => x.id === id);
+  return (m && m.context) || null; // the run view's message: {tile, name?, connected?} | {screen}
 }
 const aboutChip = (a, extra = nothing) => html`<span class="wsp-about">${icon(a.tile ? 'grid' : 'columns')}About ${a.tile ? '' : 'the '}<b>${a.tile ? a.name || a.tile : a.screen}</b>${a.tile ? '' : ' screen'}${extra}</span>`;
 
@@ -177,7 +186,7 @@ async function loadConnection() {
   const [b, f] = await Promise.all([ws.connection(s.id), s.handle ? ws.fullConnection(s.handle) : Promise.resolve(null)]);
   if (S.sel !== s.id) return;
   if (b.ok) S.conn = b.data;
-  if (f && f.ok) { S.full = f.data; S.fullErr = ''; } else S.fullErr = f ? errOf(f, 'xbin could not say which tiles are connected.') : '';
+  if (f && f.ok) { S.full = f.data; S.fullErr = ''; S.rev++; /* the cards say tiles by xbind's names */ } else S.fullErr = f ? errOf(f, 'xbin could not say which tiles are connected.') : '';
   paint();
 }
 
@@ -275,9 +284,9 @@ async function send(text) {
   if (!text || S.sel == null || S.sending) return false;
   const cs = composerNow();
   if (cs.disabled || cs.hold) return false;
-  const about = S.context && !S.context.none ? aboutLine(S.context.tile ? { ...S.context, name: tileName(S.context.tile) } : S.context) : '';
+  const c = S.context && !S.context.none ? (S.context.tile ? { tile: S.context.tile } : { screen: S.context.screen }) : null;
   S.sending = true; S.sendErr = ''; paint();
-  const r = await ws.send(S.sel, about ? `${about}\n${text}` : text, Math.random().toString(36).slice(2));
+  const r = await ws.send(S.sel, text, Math.random().toString(36).slice(2), c);
   S.sending = false;
   if (!r.ok) { S.sendErr = errOf(r, 'The message was not sent.'); paint(); return false; }
   S.context = null;
@@ -293,7 +302,7 @@ function composerNow() {
   return composerState({
     paused: !!(S.state && S.state.delegation && S.state.delegation.paused),
     off: !!(S.state && S.state.delegation && S.state.delegation.workspace === false),
-    quota: quotaOf(S.state, v && v.run), conn: session.conn, updating: S.updating, offline: offline(),
+    quota: quotaOf(S.state), conn: session.conn, updating: S.updating, offline: offline(),
     empty: !blocks.some((b) => b.k === 'user'), asking: !!(layout.live && layout.live.ask), brief: !!(layout.live && layout.live.brief),
   });
 }
@@ -545,11 +554,10 @@ function closePop() { S.pop = ''; S.ses.renaming = null; paint(); if (opener && 
 function banners() {
   const out = [];
   const d = (S.state && S.state.delegation) || {};
-  const v = session.current();
   if (d.workspace === false) out.push({ key: 'off', tone: 'bad', icon: 'power', bold: 'Turned off for this workspace.', text: 'An admin turned workspace agents off. Nothing an agent started is running on your behalf. Your conversations and notebook are kept for when it is turned on again.' });
-  if (d.paused) out.push({ key: 'paused', tone: 'warn', icon: 'pause', bold: `Paused by you${d.pausedMs || d.pausedAt ? ` at ${clock(d.pausedMs || Date.parse(d.pausedAt))}` : ''}.`, text: 'Your agent can’t read or change anything in the workspace until you resume. Tile agents that are already running keep going; their questions still come to you.' });
-  const q = quotaOf(S.state, v && v.run);
-  if (q) out.push({ key: 'quota', tone: 'warn', icon: 'clock', bold: 'Today’s limit is used up.', text: q.words, more: 'An admin can raise your limit.' });
+  if (d.paused) out.push({ key: 'paused', tone: 'warn', icon: 'pause', bold: `Paused by you${d.pausedAt ? ` at ${clock(Date.parse(d.pausedAt))}` : ''}.`, text: 'Your agent can’t read or change anything in the workspace until you resume. Tile agents that are already running keep going; their questions still come to you.' });
+  const q = quotaOf(S.state);
+  if (q) out.push({ key: 'quota', tone: 'warn', icon: 'clock', bold: 'Today’s limit is used up.', text: q.words, more: q.raise });
   if (S.updating) out.push({ key: 'updating', tone: 'info', icon: 'refresh', bold: 'xbin is updating.', text: 'Back in about a minute. Running tile agents are stopped and continue afterwards.' });
   else if (offline()) out.push({ key: 'offline', tone: 'warn', icon: 'signal', bold: 'Can’t reach the workspace.', text: `Showing what was loaded at ${clock(S.loadedAt)}. Trying again… Approvals can’t be given until it’s back.`, button: { label: 'Try now', act: () => session.live.resync() } });
   if (S.afterUpdate) {

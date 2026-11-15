@@ -148,14 +148,14 @@ func wsBriefTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (str
 		}
 	}
 	b := &wsBrief{Run: s.Run, Tile: t.Path, Goal: a.Goal, DoneWhen: a.DoneWhen, LeaveAlone: strings.TrimSpace(a.LeaveAlone),
-		CheckBy: strings.TrimSpace(a.CheckBy), Known: strings.TrimSpace(a.Known), State: "draft", Created: nowMs()}
+		CheckBy: strings.TrimSpace(a.CheckBy), Known: strings.TrimSpace(a.Known), State: "draft", CallID: toolCallOf(ctx), Created: nowMs()}
 	err = ag.db.Tx(func(tx *DB) error {
 		// a newer brief for the tile replaces drafts nobody started
 		if _, err := tx.q.Exec(`UPDATE ws_briefs SET state='replaced', updated_ms=? WHERE run_id=? AND tile=? AND state='draft'`, nowMs(), s.Run, t.Path); err != nil {
 			return err
 		}
-		return tx.q.QueryRow(`INSERT INTO ws_briefs (run_id, tile, goal, done_when, leave_alone, check_by, known, state, created_ms, updated_ms)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?) RETURNING id`, s.Run, b.Tile, b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy, b.Known, b.Created, b.Created).Scan(&b.ID)
+		return tx.q.QueryRow(`INSERT INTO ws_briefs (run_id, tile, goal, done_when, leave_alone, check_by, known, state, call_id, created_ms, updated_ms)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?) RETURNING id`, s.Run, b.Tile, b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy, b.Known, b.CallID, b.Created, b.Created).Scan(&b.ID)
 	})
 	if err != nil {
 		return "", err

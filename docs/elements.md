@@ -531,7 +531,11 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   or `false` when the id is neither (not theirs, another tile's, gone). A
   tile's page asks for it with `xbin.openSession` (below), which reaches
   the frame as the cancelable event `bx-open-session` `{from, tile,
-  session}` for the embedder to take.
+  session}` for the embedder to take. `open({session: "new", draft?})`
+  opens a new session's launcher instead, with `draft` as plain text for
+  the composer of the session the person then picks — never sent by
+  itself; only xbin's chrome for the workspace agent asks for it (a tile
+  page's `session: "new"` is refused).
 - **Auto-height**: the framed document reports its size via xbin-client
   (with hysteresis, so no resize loops). Set `height` for a fixed frame.
   The mode follows the element live (D187): setting or removing `height`

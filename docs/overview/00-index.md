@@ -5,7 +5,8 @@ they are shaped the way they are, and where each boundary actually is. It
 complements the reference docs (which stay the endpoint/field-level truth —
 every file links its own) and the design records in the xbin source repository (cited by
 decision ID, e.g. D4, D18a, ING-5 → the decision log, `DECISIONS.md` in the
-repo's `plans` directory).
+repo's `plans` directory, which holds the recent entries and indexes the
+archives in the `decisions` directory beside it with the older ones).
 
 **Start here** if you're meeting the system: read 01 → 02 → 03, then follow
 your interest. Each file stands alone.

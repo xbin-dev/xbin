@@ -48,7 +48,8 @@ export const ws = {
   prefs: () => call('/ws/prefs'),
   putPrefs: (body) => call('/ws/prefs', { method: 'PUT', body }),
   // the conversation (the template's run routes, open in workspace mode)
-  send: (run, text, clientId) => call(`/runs/${run}/message`, { method: 'POST', body: { text, ...(clientId ? { clientId } : {}) } }),
+  // context: what the person attached ({tile} | {screen}); the backend resolves it and answers it back on the message
+  send: (run, text, clientId, context) => call(`/runs/${run}/message`, { method: 'POST', body: { text, ...(clientId ? { clientId } : {}), ...(context ? { context } : {}) } }),
   stop: (run) => call(`/runs/${run}/interrupt`, { method: 'POST', body: {} }),
   takeBack: (run, iid) => call(`/runs/${run}/inbox/${iid}`, { method: 'DELETE' }),
   // xbind's own: the full view of what a session is connected to, for this page's frame only

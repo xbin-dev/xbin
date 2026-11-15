@@ -19,6 +19,10 @@
  *   agentDock(shell)    the dock, after <main>: it pushes the canvas; on a
  *                       narrow screen it is the whole page
  *   openAgent(shell, {tile})  open it about a tile
+ *   agentTileItems(shell, path, items)  the tile menu with "Ask my agent
+ *                       about this tile" in it (before its admin section):
+ *                       the dock, opened about that tile — not where the
+ *                       chip is hidden, before setup or while turned off
  *
  * Ctrl+J / ⌘J toggles the dock unless the person is typing somewhere (a
  * terminal, a field): there the keys are theirs.
@@ -75,6 +79,18 @@ export async function openAgent(shell, context = null, open = true) {
   shell.requestUpdate();
 }
 
+export function agentTileItems(shell, path, items) {
+  const a = shell._agent, c = chipOf(shell);
+  if (!c.shown || !a.words) return items;
+  const st = a.words.dockState({ state: a.state, llm: a.llm, me: shell._who });
+  if (st === 'setup' || st === 'off') return items; // no agent to ask yet, or none now
+  const item = { icon: 'agent', label: 'Ask my agent about this tile', action: () => openAgent(shell, { tile: path }) };
+  const at = items.findIndex((x) => x.kind === 'header' && x.label === 'admin');
+  const out = [...items];
+  if (at > 0 && out[at - 1].kind === 'sep') out.splice(at - 1, 0, item); else out.push(item);
+  return out;
+}
+
 export function agentChip(shell) {
   const c = chipOf(shell), a = shell._agent;
   if (!c.shown) return nothing;
@@ -88,6 +104,18 @@ export function agentChip(shell) {
 // takes bx-open-session; a tile the person doesn't list is refused there)
 const openSession = (d) => { if (d && d.tile && d.session) window.dispatchEvent(new CustomEvent('bx-open-session', { cancelable: true, detail: { from: 'agent', tile: d.tile, session: d.session } })); };
 
+// a new session of a tile's own agent with the person's words in its
+// composer, unsent (the agent's page: "Hand this to <tile>'s own agent"):
+// taken here — the dock shows a plain link to a shell that doesn't — and
+// landed on as a session link is, the tile's window opening on a new
+// session's launcher (bx-frame open({session: "new", draft}))
+const newSession = (e) => {
+  const d = e.detail;
+  if (!d || !d.tile) return;
+  e.preventDefault();
+  window.dispatchEvent(new CustomEvent('bx-open-session', { cancelable: true, detail: { from: 'agent', tile: d.tile, session: 'new', draft: typeof d.draft === 'string' ? d.draft : '' } }));
+};
+
 export function agentDock(shell) {
   const a = shell._agent;
   if (!a || !a.loaded) return nothing;
@@ -95,5 +123,6 @@ export function agentDock(shell) {
   const full = !!shell._mobile;
   return html`<bx-agent-dock ?open=${a.open} ?full=${full} .context=${a.context} style=${full ? 'position:absolute;inset:0;z-index:40' : nothing}
     @bx-agent-dock=${(e) => { if (a.open !== e.detail.open) { a.open = e.detail.open; shell.requestUpdate(); } }}
-    @bx-agent-open-session=${(e) => { openSession(e.detail); if (full) openAgent(shell, null, false); }}></bx-agent-dock>`;
+    @bx-agent-open-session=${(e) => { openSession(e.detail); if (full) openAgent(shell, null, false); }}
+    @bx-agent-new-session=${(e) => { newSession(e); if (full && e.defaultPrevented) openAgent(shell, null, false); }}></bx-agent-dock>`;
 }

@@ -231,6 +231,12 @@ class AgentStore {
     return r.ok ? r.data : null;
   }
 
+  /** providers() → the coding agents this xbind runs, with their modes (GET /agent/providers: [{id, name, modes: [{id, name, explicit?}], …}]); [] when unread. */
+  async providers() {
+    const r = await call('/agent/providers');
+    return r.ok && Array.isArray(r.data) ? r.data : [];
+  }
+
   async setPrefs(patch) {
     const r = await call('/agent/prefs', { method: 'PUT', body: patch });
     return r.ok ? { ok: true, prefs: r.data } : { ok: false, error: say(r, "That couldn't be saved") };
