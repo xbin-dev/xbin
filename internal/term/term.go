@@ -163,6 +163,11 @@ type Manager struct {
 	BxPath   string
 	OnEvent  func(cwd string, ev SessionEvent)
 	OnStatus func(cwd string, st StatusChange) // an agent session's status/pending counts changed (agentstatus.go)
+	// AgentGate answers why an agent session of harness (a provider id) may
+	// not open, resume or restart on tile for p — the harness rules of the
+	// tile's orgs and the workspace (D229; the broker's, wired by boot). A
+	// running session is never asked again. nil ⇒ every harness may run.
+	AgentGate func(p auth.Principal, tile, harness string) error
 
 	// Cgroup, when set (main wires it under cgroup delegation), puts each
 	// RESTRICTED session's sandbox into a resource-limited leaf (D17d) so a

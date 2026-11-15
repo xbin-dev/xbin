@@ -172,7 +172,10 @@ func boxMetaKey(bucket string) []byte { return []byte("box:" + bucket) }
 // mailState is a broker's mail: a lock per tile for every open, read,
 // write and removal of its stores (each operation opens its store and
 // closes it, so a switch's wipe or a reset never meets an open file, and
-// one tile's mail never waits on another's), and the doorbells.
+// one tile's mail never waits on another's), and the doorbells. What mail
+// does on its own — a ring, a start's look at its inbox, a sweep — is counted
+// while in flight, so the broker's close ends with none of it still reading
+// or opening a store (closeMail).
 type mailState struct {
 	locksMu  sync.Mutex
 	locks    map[string]*sync.Mutex // by TileKey: all of a tile's deployments' stores
@@ -182,13 +185,9 @@ type mailState struct {
 	started  bool        // the boot load ran (loadMailBells)
 	closed   bool        // the broker closed: nothing rings or sweeps again
 	sweeper  *time.Timer
-	// rings counts the doorbell goroutines in flight (added under bellMu
-	// while !closed); stop ends their dispatches. closeMail cancels and
-	// waits, so nothing of the broker reads or writes a mail store after
-	// Close returns.
-	rings sync.WaitGroup
-	ctx   context.Context
-	stop  context.CancelFunc
+	ctx      context.Context // a ring's delivery is bounded by it: closeMail ends it
+	stop     context.CancelFunc
+	flying   sync.WaitGroup // rings, starts' looks and sweeps in flight; added to under bellMu while not closed
 }
 
 var mailStates sync.Map // *Broker → *mailState
@@ -204,6 +203,19 @@ func (b *Broker) mail() *mailState {
 		ms.stop()
 	}
 	return v.(*mailState)
+}
+
+// begin counts one act of mail's own as in flight — the caller calls
+// flying.Done when it ends — or answers false once the broker closed: the
+// act doesn't run.
+func (ms *mailState) begin() bool {
+	ms.bellMu.Lock()
+	defer ms.bellMu.Unlock()
+	if ms.closed {
+		return false
+	}
+	ms.flying.Add(1)
+	return true
 }
 
 // lockKey takes the lock of the tile whose TileKey is key — every store of

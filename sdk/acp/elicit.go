@@ -244,13 +244,21 @@ func (c *Client) withdrawElicit(w *Wire, rpcID json.RawMessage) {
 
 // afterAnswer is the status once nothing waits for an answer any more: a
 // turn runs on. Said before the reply goes, so it can't follow the end of a
-// turn the answer let finish.
+// turn the answer let finish. A request the agent made outside a prompt of
+// this client's (a turn it runs on its own: SteerStartedNewTurn) leaves the
+// session idle again — it would otherwise say waiting_permission for good.
 func (c *Client) afterAnswer(w *Wire) {
 	c.mu.Lock()
 	busy, st := c.busy, c.status
 	c.mu.Unlock()
-	if busy && st != StatusCancelling && c.cfg.Perms.Count() == 0 && c.elicits.count() == 0 {
+	if c.cfg.Perms.Count() != 0 || c.elicits.count() != 0 {
+		return
+	}
+	switch {
+	case busy && st != StatusCancelling:
 		c.setStatusW(w, StatusRunning, "")
+	case !busy && st == StatusWaiting:
+		c.setStatusW(w, StatusIdle, "")
 	}
 }
 

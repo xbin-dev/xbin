@@ -51,6 +51,12 @@ make check          # the definition of done: the guards (fmt-check vet
                     # `make guards`) and test — CI runs the same split over
                     # parallel jobs, with integration's shards
 make hooks          # once per clone: fmt-check + js-check run pre-commit
+make agent-ui-check # the agent template's browser scripts (builtin-templates/
+                    # agent/test/*.mjs: its real page in Chromium, a stubbed
+                    # backend), all ~40 at once in 20 s; needs Playwright
+                    # (PLAYWRIGHT_DIR, hack/dev-setup.sh). Not in `check`;
+                    # CI runs it. Run it when the template's page or what it
+                    # loads from web/ changed
 make sidecar-check  # the app tunnel's iroh sidecar (Rust, sidecar/xbin-iroh,
                     # D204): cargo fmt, clippy, test in its pinned builder
                     # image (docker); `make build` embeds the binary in xbind
@@ -101,6 +107,13 @@ make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing
   `go.mod.tile` in a scratch copy, the way a workspace builds it (CI runs
   it; `hack/tile-check.sh traefik` for one). Never copy `go.mod.tile` to
   `go.mod` in place.
+- The agent template's page has browser scripts of its own,
+  `builtin-templates/agent/test/*.mjs`: `make agent-ui-check` runs them all
+  (`AGENT_UI="attach ci"` for some) and fails on a script that fails, skips,
+  ends without `all … checks passed` or runs past its timeout. Don't run
+  them with a bare `node test/x.mjs` in this checkout: without Playwright
+  beside them they print SKIP and exit 0. Writing one:
+  `docs/maintenance.md` → "Builtin tiles and templates".
 - Verify before pushing: `make check` (every guard, under a minute) — and
   `make integration` when you touched the runner/sandbox/broker path. The
   guards and what each protects: `docs/maintenance.md`.

@@ -58,18 +58,17 @@ func researchWikiPrompt(d *DB, p *Project, run *Run) string {
 	return "\n\n# Project wiki\n" + strings.TrimRight(wikiPromptIndex(v, body), "\n")
 }
 
-// coordWikiPrompt is the coordinator's part about research and the wiki.
-func coordWikiPrompt(d *DB, p *Project, run *Run) string {
-	var b strings.Builder
-	b.WriteString(`
-- Use research for any question about the code — what it does, where a thing is, how to build or test it, what a task changed: a research subagent reads the repos (or a task's worktree) and answers. Give it the question and the facts it needs; don't guess about code nobody read.
-- The project wiki keeps what the project's agents verified: search and read it before you research, and keep it true — update the page a fact belongs on (wiki_read it first), archive what is wrong, keep the index page (slug ` + "`index`" + `) a short map of the pages. Tasks see the index in their brief; when their work goes to review they add what they learned to the pages, and to the index only a line for a page they create.
-  ` + wikiProvenance)
+// coordWikiRules are the coordinator's rules about research and the wiki
+// (the last bullets of its "How you work"), and the wiki's index as its
+// prompt shows it.
+func coordWikiRules(d *DB, p *Project, run *Run) (rules []string, index string) {
+	rules = []string{
+		coordRuleResearch("what it does, where a thing is, how to build or test it, what a task changed", "the repos (or a task's worktree)"),
+		"The project wiki keeps what the project's agents verified: search and read it before you research, and keep it true — update the page a fact belongs on (wiki_read it first), archive what is wrong, keep the index page (slug `index`) a short map of the pages. Tasks see the index in their brief; when their work goes to review they add what they learned to the pages, and to the index only a line for a page they create.\n  " + wikiProvenance,
+	}
 	v, body, ok := d.wikiIndexFor(p.ID, run.ID)
 	if ok {
-		b.WriteString("\n" + strings.TrimRight(wikiPromptIndex(v, body), "\n"))
-	} else {
-		b.WriteString("\nThe wiki has no index page yet: write one (slug `index`) once there are pages to map.")
+		return rules, strings.TrimRight(wikiPromptIndex(v, body), "\n")
 	}
-	return b.String()
+	return rules, "The wiki has no index page yet: write one (slug `index`) once there are pages to map."
 }

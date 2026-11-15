@@ -16,14 +16,31 @@
  */
 import { html, css, nothing } from 'lit';
 import { uid, makeStore } from '/vendor/term-sessions.js';
+import { agentPrefs } from '/vendor/agent-prefs.js';
 import { loadDeployIfShown, launchBanner, launchTarget, targetQuery, targetRefused } from '/vendor/frame-deploy.js';
+import { mountedFrames } from '/vendor/events-socket.js';
 
 const prefs = makeStore();
 
-// The agent providers offered in the launcher (id,name,login,modes,…),
-// fetched once and shared across all frames (like the GPU inventory).
-let _providersP = null;
-export const agentProviders = () => (_providersP ||= fetch('/api/xbin/agent/providers').then((r) => (r.ok ? r.json() : [])).catch(() => []));
+// The agent providers offered in a tile's launcher (id,name,login,modes,…):
+// the harnesses the tile's orgs and the workspace allow there (?cwd=, D229;
+// an xbind before it answers the whole catalog), fetched once per tile and
+// shared by its frames — again after the rules change (an `agents` event).
+// The harnesses that can't start there come along (&all=1), each with the
+// reason in `unavailable`: notOffered(cwd) has them, for the chooser to say.
+const _providers = new Map(), _rows = new Map();
+export function agentProviders(cwd = '') {
+  if (!_providers.has(cwd)) {
+    _providers.set(cwd, fetch(`/api/xbin/agent/providers${cwd ? `?cwd=${encodeURIComponent(cwd)}&all=1` : ''}`).then((r) => (r.ok ? r.json() : [])).catch(() => [])
+      .then((rows) => { _rows.set(cwd, rows); return rows.filter((p) => !p.unavailable); }));
+  }
+  return _providers.get(cwd);
+}
+export const notOffered = (cwd) => (_rows.get(cwd) || []).filter((p) => p.unavailable);
+export function reloadProviders(f) {
+  _providers.delete(f.src);
+  if (f._providers) agentProviders(f.src).then((p) => { if (f.isConnected) f._providers = p; });
+}
 
 // The tile's past agent sessions, newest first — per frame, refetched when
 // the directory changes (a session that ended is history now).
@@ -48,6 +65,8 @@ export function loadTileState(f) {
   loadHistory(f);
   loadEnvStatus(f);
   prefs.loadVM(f.src).then((on) => { if (f.isConnected) { f._vmPref = on; f.requestUpdate(); } });
+  agentPrefs().load().then(() => { if (f.isConnected) f.requestUpdate(); }); // the launcher's "last" entry (D229)
+  agentProviders().then((all) => { _catalog = all; });
   loadDeployIfShown(f); // the live reload state: the chip, the offer, the banner below
 }
 
@@ -61,10 +80,11 @@ export function rememberVM(f, on) {
   f.requestUpdate();
 }
 
-// LAST_KIND: the launcher's remembered choice (per browser).
-const LAST_KIND = 'bx-term-lastkind';
-export const lastKind = () => { try { return JSON.parse(localStorage.getItem(LAST_KIND) || 'null'); } catch { return null; } };
-export const rememberKind = (k) => { try { localStorage.setItem(LAST_KIND, JSON.stringify(k)); } catch { } };
+// The launcher's remembered choice: the person's, kept on the server
+// (agent-prefs.js, D229) — in this browser too, as before it, for an xbind
+// that keeps none.
+export const lastKind = () => agentPrefs().lastKind();
+export const rememberKind = (k) => agentPrefs().rememberKind(k);
 
 // ago: a short relative time for a listing ("now", "3m", "2h", "4d").
 function ago(iso) {
@@ -75,13 +95,66 @@ function ago(iso) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 const rowTitle = (r) => r.name || r.preview || `${r.provider} session`;
-const provName = (f, id) => (f._providers || []).find((p) => p.id === id)?.name || id;
+// a harness's name: among the tile's, else in the whole catalog — a past
+// session of one the tile no longer allows still reads by its name
+let _catalog = [];
+const provName = (f, id) => [...(f._providers || []), ..._catalog].find((p) => p.id === id)?.name || id;
 
 // openHistory shows a past session read-only: a <bx-agent> in history mode
 // (no process, no id — never absorbed into a live row, term-sessions.js).
 export function openHistory(f, row) {
   f._sessions = [...f._sessions, { key: uid(), ref: uid(), id: null, kind: 'agent', history: row.id, name: row.name || '', ended: true }];
   f._setActive(f._sessions.length - 1);
+}
+
+// openSession(f, id) → Promise<boolean>: show one of the person's sessions
+// on this tile in the window (open({session}), D229) — its tab when it is
+// live, its transcript (read-only, as Recent sessions opens it) when it has
+// ended; false when it is neither (not theirs, another tile's, gone). A
+// frame still restoring its window waits for that first: the restore
+// would otherwise put the pref's tab back in view.
+const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+export async function openSession(f, id) {
+  id = String(id ?? '');
+  if (!SESSION_ID.test(id)) return false;
+  await f._restoring?.catch(() => { });
+  const live = () => f._sessions.findIndex((t) => t.id === id && !t.ended);
+  if (live() < 0) await f._relist();
+  let i = live();
+  if (i < 0) i = f._sessions.findIndex((t) => t.id === id || t.history === id); // its tab stayed after it ended, or its transcript is open
+  if (i < 0) {
+    const row = (await agentHistory(f.src)).find((r) => r.id === id);
+    if (!row || !f.isConnected) return false;
+    openHistory(f, row);
+    i = f._sessions.length - 1;
+  }
+  f._setActive(i);
+  await f.updateComplete; // (the frame then brings its tab to the front of its pane: open())
+  return true;
+}
+
+// A tile's page asked for a session of another tile (or its own) to be
+// shown — xbin.openSession, the message xbin:open-session {tile, session}.
+// The shell answers when it can (bx-open-session, cancelable: taking it
+// says the shell has the request — it finds or opens the tile and calls
+// open({session}), or sets detail.refused for a tile its viewer doesn't
+// list). A shell that doesn't take it — an older scaffold — still gets
+// the session when the tile is on the page,
+// and otherwise the link, which it follows as a plain link to the tile:
+// only on the click that asked, so a page can't navigate the workspace by
+// itself. Only a well-formed tile path and session id go up; whoever opens
+// the window lists the viewer's own sessions, so the request grants nothing.
+export function askOpenSession(f, d, reply) {
+  const tile = typeof d.tile === 'string' ? d.tile.replace(/^\/+|\/+$/g, '') : '';
+  const session = String(d.session ?? '');
+  if (!tile || tile.length > 512 || tile.split('/').some((s) => !s || s === '.' || s === '..') || !SESSION_ID.test(session)) return reply(false);
+  const ev = new CustomEvent('bx-open-session', { bubbles: true, composed: true, cancelable: true, detail: { from: f.src, tile, session } });
+  if (!f.dispatchEvent(ev)) return reply(!ev.detail.refused); // the shell took it
+  const there = [...mountedFrames].find((x) => x.src === tile && !x.deployment && typeof x.open === 'function');
+  if (there) return Promise.resolve(there.open({ session })).then((ok) => reply(ok !== false), () => reply(false));
+  if (!navigator.userActivation?.isActive) return reply(false);
+  reply(true);
+  location.assign(`${location.pathname}?tile=${encodeURIComponent(tile).replace(/%2F/gi, '/')}&session=${session}`);
 }
 
 // resumeHistory reopens a past session live (POST /term/sessions {resume}:
@@ -189,12 +262,15 @@ export function launcher(f) {
         ? provs.map((p) => card(p.name, (vm ? 'coding agent, in a VM' : 'coding agent') + target, () => f._startKind('agent', p.id), 'agent'))
         : html`<span class="lsub">loading agents…</span>`}
     </div>
+    ${notOffered(f.src).length ? html`<div class="lnot" role="note">
+      ${notOffered(f.src).map((p) => html`<div><b>${p.name}</b> isn’t offered here: ${p.unavailable}</div>`)}
+    </div>` : nothing}
     ${recent.length ? html`<div class="lrecent">
       <div class="lhead">Recent sessions</div>
       ${recent.map((r) => html`<div class="lrow">
         <button class="lopen" title="open the transcript (read-only)" @click=${() => openHistory(f, r)}>
           <span class="lname">${rowTitle(r)}</span>
-          <span class="lsub">${provName(f, r.provider)} · ${r.turns} turn${r.turns === 1 ? '' : 's'} · ${ago(r.ended)}</span></button>
+          <span class="lsub">${provName(f, r.provider)} · ${r.turns} turn${r.turns === 1 ? '' : 's'} · ${ago(r.ended)}${r.origin === 'agent' ? ' · started by your agent' : ''}</span></button>
         ${r.loadable
           ? html`<button class="lresume" title="continue this conversation: the agent reopens it and replays the turns" @click=${() => resumeHistory(f, r)}>Resume</button>`
           : html`<span class="lsub" title="this agent cannot reopen a session">read-only</span>`}
@@ -229,6 +305,9 @@ export const launcherCss = css`
   .launcher .lname { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
   .launcher .lname bx-icon { color: var(--bx-muted, #A3A6B6); }
   .launcher .lsub { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
+  .launcher .lnot { display: flex; flex-direction: column; gap: 4px; width: min(460px, 100%); color: var(--bx-muted, #A3A6B6);
+    font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
+  .launcher .lnot b { color: var(--bx-text, #E9EAF0); font-weight: 600; }
   .launcher .lrecent { display: flex; flex-direction: column; gap: 6px; width: min(460px, 100%); }
   .launcher .lrow { display: flex; align-items: center; gap: 8px; }
   .launcher .lopen { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; padding: 6px 10px;

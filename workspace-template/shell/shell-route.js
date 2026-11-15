@@ -22,13 +22,20 @@
  * read or is offloaded — says so in a strip above the canvas; the rest of the
  * link still applies. `/c/root/` with no query is the workspace as before.
  *
+ * A link can also ask for one of the viewer's sessions on the tile —
+ * `?tile=apps/notes&session=<id>` (D229): once the tile is in front, its
+ * terminal window opens on that session (bx-frame open({session})). The same
+ * request comes from a tile's page (xbin.openSession → bx-open-session):
+ * the tile is found or opened as for a link, its page left where it is. It
+ * is taken once and never written into the URL.
+ *
  * The URL's grammar is route.js (pure: hack/shell-route.test.mjs); this is
  * the shell's ends of it: followRoute, routeUpdated and routeBar.
  */
 import { html, nothing } from 'lit';
 import { frontWindow } from './zorder.js';
 import { offloaded } from './menus.js';
-import { parseRoute, buildRoute, sameRoute, validTile, cleanAt } from './route.js';
+import { parseRoute, buildRoute, sameRoute, validTile, cleanAt, sessionId } from './route.js';
 
 // followRoute(shell) → stop: take the page's URL as the place to land on once
 // the layout and the components are in, and every back/forward after.
@@ -38,9 +45,21 @@ export function followRoute(s) {
   const onPop = () => { s._routeWant = parseRoute(location.search); s._routeReplace = true; s.requestUpdate(); };
   // a tile's page moved: the URL's `at` follows the tile it names
   const onLoc = (e) => { if (e.detail?.path && e.detail.path === s._routeTile) s.requestUpdate(); };
+  // a tile's page asks for a session's window (xbin.openSession): taking
+  // the event tells the frame the shell has it (an older shell leaves it to
+  // the frame). For a tile the viewer lists, land on it as a link would;
+  // any other is refused, and the asking page is told
+  const onSession = (e) => {
+    const d = e.detail ?? {};
+    e.preventDefault();
+    if (!validTile(d.tile) || !sessionId(d.session) || !s._components.some((c) => c.path === d.tile)) { d.refused = true; return; }
+    s._routeWant = { screen: '', tile: d.tile, at: null, session: d.session };
+    s.requestUpdate();
+  };
   addEventListener('popstate', onPop);
+  addEventListener('bx-open-session', onSession);
   s.addEventListener('bx-location', onLoc);
-  return () => { removeEventListener('popstate', onPop); s.removeEventListener('bx-location', onLoc); };
+  return () => { removeEventListener('popstate', onPop); removeEventListener('bx-open-session', onSession); s.removeEventListener('bx-location', onLoc); };
 }
 
 const ready = (s) => s._layoutLoaded && s._compsLoaded;
@@ -76,7 +95,7 @@ function applyRoute(s, r) {
         else s._openOnPersonal(r.tile); // a shared screen never opens a draft from a link
       }
       s._routeTile = r.tile;
-      s._routeFocus = { path: r.tile, at: r.at, tries: 0 };
+      s._routeFocus = { path: r.tile, at: r.at, session: r.session, tries: 0 };
     }
   }
   s._routeMsg = msgs.length ? msgs : null;
@@ -96,7 +115,12 @@ function focusLinked(s) {
   frontWindow(`tile:${f.path}`);
   s._routeFront = `tile:${f.path}`;
   fr.closest('.card, .float')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  fr.navigate?.(f.at);
+  if (f.at != null) fr.navigate?.(f.at); // (a session asked for from a tile's page leaves the page where it is)
+  // the session the link names, in the tile's terminal window; a frame
+  // from before open({session}) just opens its window
+  if (f.session) Promise.resolve(fr.open?.({ session: f.session })).then((ok) => {
+    if (ok === false) { s._routeMsg = [...(s._routeMsg ?? []), `The session in this link isn’t one of yours on ${f.path}, or it has been forgotten.`]; s.requestUpdate(); }
+  }, () => { });
 }
 
 // the place the page shows now
@@ -116,7 +140,8 @@ export function routeUpdated(s) {
   if (s._routeWant) { const r = s._routeWant; s._routeWant = null; applyRoute(s, r); s.requestUpdate(); return; }
   if (s._routeFocus) { focusLinked(s); return; }
   const cur = current(s), shown = parseRoute(location.search);
-  if (sameRoute(cur, shown)) { s._routeReplace = false; return; }
+  // (a link's session was a request, taken on landing: it leaves the URL)
+  if (sameRoute(cur, shown) && !shown.session) { s._routeReplace = false; return; }
   const url = location.pathname + buildRoute(cur, location.search) + location.hash;
   const moved = cur.screen !== shown.screen || cur.tile !== shown.tile;
   try {

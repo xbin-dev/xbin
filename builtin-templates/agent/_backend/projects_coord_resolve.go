@@ -14,7 +14,9 @@
 // active, the owner still a participant, no internal reach), and
 // projectTaskOf finds a task by its project-local number — never a run id,
 // never a ParentID walk — refusing one whose run has internal reach anyway.
-// The tools (projects_coord_tools.go) go through both on every call.
+// The tools go through both on every call: the kit resolves the
+// coordinator before any of them runs (coord_tools.go, the project
+// profile's Resolve), and each names its tasks through projectTaskOf.
 package main
 
 import (
@@ -40,8 +42,9 @@ func coordRoutes() []routeDef {
 	}
 }
 
-// coordDeny are the tools a coordinator never has; coordWebTools only while
-// its project's policy.coordinator.web is off.
+// coordDeny are the tools a project's coordinator never has (the profile's
+// Deny); coordWebTools only while its project's policy.coordinator.web is
+// off.
 var (
 	coordDeny     = []string{"schedule", "unschedule", "skill_manage"}
 	coordWebTools = []string{"web_search", "web_fetch"}
@@ -177,21 +180,20 @@ func (ag *Agent) ensureCoordinator(w who, p *Project) (run *Run, made bool, err 
 	case p.State != projActive:
 		return nil, false, perr(409, "this project is %s: its coordinator starts when it is active", p.State)
 	}
-	cls, ok := currentClasses().find(classWeb)
-	if !ok || cls.has(tsInternal) {
+	cls, err := coordProject.forcedClass() // the profile's class (the built-in web class), as it stands
+	if err != nil {
 		return nil, false, &projErr{code: 409, refusal: refusalClassInternal, msg: errCoordClassInternal.Error()}
 	}
 	if !cls.usableBy(w) { // as POST /ask checks a class: a web class kept for managers is theirs
 		return nil, false, perr(403, "the coordinator's class (%s) is for the agent's managers only", orStr(cls.Name, cls.ID))
 	}
 	pol := policyOf(p.Policy)
-	cfg := parseConfig(ag.db.getSetting("config"))
-	cfg.setClass(cls, false)
-	cfg.Project = &ProjectRef{ID: p.ID, Role: projRoleCoordinator}
-	cfg.Deny = append(append([]string(nil), cfg.Deny...), coordDeny...)
+	var web []string
 	if !pol.Coordinator.Web {
-		cfg.Deny = append(cfg.Deny, coordWebTools...)
+		web = coordWebTools
 	}
+	cfg := coordProject.forcedConfig(parseConfig(ag.db.getSetting("config")), cls, web...)
+	cfg.Project = &ProjectRef{ID: p.ID, Role: projRoleCoordinator}
 	if m := strings.TrimSpace(pol.Coordinator.Model); m != "" && validPick(m) {
 		cfg.Pick = m
 	}
@@ -289,7 +291,7 @@ func handleCoordinatorOf(w http.ResponseWriter, r *http.Request) {
 // order. The gate's own parks (kind project) keep their inbox: they wait
 // for the workspace, not for an answer.
 func coordHoldPark(t *DB, runID int64, status string) {
-	if status != statusWaiting {
+	if !coordHolds(status) {
 		return
 	}
 	k := t.taskByRun(runID)
@@ -303,7 +305,7 @@ func coordHoldPark(t *DB, runID int64, status string) {
 	moved := false
 	for _, row := range t.inboxRows(`WHERE run_id=? AND delivered_at=0 AND kind IN (?, ?) ORDER BY id DESC`, runID, inboxUser, inboxHPrompt) {
 		src := row.Body.Source
-		if (src != srcCoordinator && src != srcEvent && src != srcDream) || len(row.Body.Files) > 0 || row.ClientID == startClientID(k.ProjectID, k.N) {
+		if !coordHeldSource(src) || len(row.Body.Files) > 0 || row.ClientID == startClientID(k.ProjectID, k.N) {
 			continue
 		}
 		text := row.Body.Text

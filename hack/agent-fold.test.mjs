@@ -8,8 +8,11 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { Fold, cached } from '../web/agent-fold.js';
 import { newTool, foldTool } from '../web/agent-tools.js';
+import { changeSet } from '../web/chat/tools.js';
 
-// bx-agent's _blocks() before D124, verbatim but for `this._events`
+// bx-agent's _blocks() before D124, verbatim but for `this._events` — and what
+// the fold keeps since for the chat kit (D224): a call's change set on its
+// record too, a question's mode and url
 function refFold(events) {
   const blocks = [];
   const tools = new Map();
@@ -54,7 +57,7 @@ function refFold(events) {
       }
       case 'files.changed': {
         const f = { changes: d.changes || [], patch: d.patch || null };
-        if (d.toolCallId) { const t = tools.get(turn + '/' + d.toolCallId) || byId.get(d.toolCallId); if (t) t.files = f; break; }
+        if (d.toolCallId) { const t = tools.get(turn + '/' + d.toolCallId) || byId.get(d.toolCallId); if (t) { t.files = f; t.rec.changed = changeSet(d); } break; }
         const blk = { kind: 'changes', turn: d.turn, ...f };
         const at = blocks.findLastIndex((b) => b.kind === 'turn' && b.turn === d.turn);
         if (at >= 0) blocks.splice(at, 0, blk); else blocks.push(blk);
@@ -73,7 +76,7 @@ function refFold(events) {
       }
       case 'elicitation.request': {
         cur = null;
-        const q = { kind: 'ask', eid: d.eid, toolCallId: d.toolCallId || '', message: d.message || '', schema: d.schema || null, action: null, by: null, content: null };
+        const q = { kind: 'ask', eid: d.eid, toolCallId: d.toolCallId || '', message: d.message || '', mode: d.mode === 'url' ? 'url' : 'form', url: d.url || '', schema: d.schema || null, action: null, by: null, content: null };
         asks.set(d.eid, q); blocks.push(q);
         break;
       }

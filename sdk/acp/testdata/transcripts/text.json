@@ -1,0 +1,387 @@
+{
+ "name": "text",
+ "about": "a turn of thinking then text (six thought chunks, then the answer); a turn whose answer streams as three chunks of one message; each turn ends with its usage",
+ "source": "sdk/acp/acptest TestTranscripts: the scripted agent through acp.Client; seq and ts are the test's (ts = 2026-01-01T00:00:00Z + 100 ms per event)",
+ "flags": [],
+ "steps": [
+  "prompt: think about it",
+  "prompt: paras 3"
+ ],
+ "checkpoints": [
+  8,
+  20,
+  24
+ ],
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1767225600100,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1767225600200,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1767225600300,
+   "type": "status",
+   "data": {
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1767225600400,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "think about it"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1767225600500,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1767225600600,
+   "type": "thought.delta",
+   "data": {
+    "text": "**step 0** — weighing it. "
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1767225600700,
+   "type": "thought.delta",
+   "data": {
+    "text": "**step 1** — weighing it. "
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1767225600800,
+   "type": "thought.delta",
+   "data": {
+    "text": "**step 2** — weighing it. "
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1767225600900,
+   "type": "thought.delta",
+   "data": {
+    "text": "**step 3** — weighing it. "
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1767225601000,
+   "type": "thought.delta",
+   "data": {
+    "text": "**step 4** — weighing it. "
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1767225601100,
+   "type": "thought.delta",
+   "data": {
+    "text": "**step 5** — weighing it. "
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1767225601200,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "thought it through"
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1767225601300,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 14,
+   "ts": 1767225601400,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "title": "fake: think about it"
+   }
+  },
+  {
+   "seq": 15,
+   "ts": 1767225601500,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 1,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 16,
+   "ts": 1767225601600,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 17,
+   "ts": 1767225601700,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "paras 3"
+   }
+  },
+  {
+   "seq": 18,
+   "ts": 1767225601800,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 19,
+   "ts": 1767225601900,
+   "type": "message.delta",
+   "data": {
+    "messageId": "paras",
+    "role": "agent",
+    "text": "Paragraph 1 of the answer, streamed.\n\n"
+   }
+  },
+  {
+   "seq": 20,
+   "ts": 1767225602000,
+   "type": "message.delta",
+   "data": {
+    "messageId": "paras",
+    "role": "agent",
+    "text": "Paragraph 2 of the answer, streamed.\n\n"
+   }
+  },
+  {
+   "seq": 21,
+   "ts": 1767225602100,
+   "type": "message.delta",
+   "data": {
+    "messageId": "paras",
+    "role": "agent",
+    "text": "Paragraph 3 of the answer, streamed.\n\n"
+   }
+  },
+  {
+   "seq": 22,
+   "ts": 1767225602200,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 23,
+   "ts": 1767225602300,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 2,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 24,
+   "ts": 1767225602400,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ]
+}

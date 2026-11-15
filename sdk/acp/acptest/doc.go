@@ -19,6 +19,13 @@
 //	            selected → the edit completes, "edited hello.txt"
 //	todo…       (a prefix) three `plan` updates 200 ms apart (3 entries:
 //	            pending → one in progress → all completed), then "todo done"
+//	detach…     (a prefix; with --steer) a chunk "waiting for a steer", then
+//	            nothing until a steer comes: the prompt is answered end_turn
+//	            first, then the steer startedNewTurn (whatever idleBehavior
+//	            it asked for), and the steered text's script plays as a
+//	            turn of the agent's own, with no prompt to answer — codex-acp
+//	            when a steer lands just after its turn ended (a detached
+//	            turn: acp.DetachedTurn). session/cancel ends it as stall's
 //	stall…      (a prefix) a chunk "stalling", then nothing until
 //	            session/cancel (handoff and reattach tests)
 //	cards…      (a prefix) one completed call of each kind — read, edit (a

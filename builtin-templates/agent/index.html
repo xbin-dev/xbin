@@ -17,6 +17,8 @@
   <meta charset="utf-8">
   <title>AI Agent</title>
   <link rel="stylesheet" href="/vendor/theme.css">
+  <!-- the app's modules are fetched while boot.js asks xbind for the chat kit's revision -->
+  <link rel="modulepreload" href="agent.js">
   <style>
     /* Base Two (D184): the page follows the person's light or dark theme
        (data-bx-theme="auto") and draws on theme.css's tokens only. body.bx
@@ -331,6 +333,13 @@
     .badge.error { color: var(--bx-danger); border-color: var(--bx-danger); }
     .badge.idle { color: var(--bx-muted); }
     .muted { color: var(--bx-muted); }
+    /* an image in model text is its source text, never loaded (chat-md.js) */
+    .md-img { color: var(--bx-muted); }
+    /* an xbind older than the page needs (boot.js): this, in place of the app */
+    .needs { box-sizing: border-box; max-width: 480px; margin: 48px auto; padding: 16px; border: 1px solid var(--bx-border);
+             border-radius: var(--bx-radius); background: var(--bx-panel); color: var(--bx-text); }
+    .needs p { margin: 8px 0 0; color: var(--bx-muted); }
+    .needs a { color: var(--bx-link); }
     .mono { font-family: var(--bx-mono); font-size: var(--bx-mono-size, 12px); }
     .ask { background: var(--bx-warn-bg); border: 1px solid var(--bx-warn); border-radius: var(--bx-radius); padding: 8px 12px; margin: 8px 0; }
     .ask .btn { margin: 4px 4px 0 0; }
@@ -793,6 +802,8 @@
   <dialog id="sbxdlg" class="sbxdlg"></dialog>
   <div id="sbxterm"></div>
 
-  <script type="module" src="agent.js"></script>
+  <!-- boot.js loads agent.js once it knows this xbind serves the chat kit
+       the page is built on (or says which xbind the page needs) -->
+  <script type="module" src="boot.js"></script>
 </body>
 </html>

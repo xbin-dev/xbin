@@ -153,16 +153,17 @@ func byHistory(s *Server, p auth.Principal, _ *http.Request, rest string) string
 
 // The never-list's reasons (docs/auth.md §Delegation).
 const (
-	neverAnswer   = "a tile agent's permission requests and questions are answered by the person, never by their agent"
-	neverSettings = "a tile agent's mode and settings decide what it asks its person: they are the person's to change"
-	neverDelete   = "deleting, disabling or offloading is the person's act"
-	neverCode     = "an agent doesn't write code or decide pull requests: it asks a tile agent, whose changes its person reviews"
-	neverAccount  = "passwords, devices, enrolment and sign-in tickets are the person's own"
-	neverIdentity = "a credential for another identity (a tile's frame, a path ticket, view-as) is never minted for an agent"
-	neverConsent  = "a person's consents, access requests and partition decisions are their own acts"
-	neverAdmin    = "the admin API is never delegated: an admin's agent proposes a change set, which the person approves"
-	neverData     = "a tile's stores and registrations are the tile's: an agent reads and writes a tile's data through the tile's API"
-	neverApprove  = "approving, pausing and the agent's own log are the person's: their agent asks, they answer"
+	neverAnswer     = "a tile agent's permission requests and questions are answered by the person, never by their agent"
+	neverSettings   = "a tile agent's mode and settings decide what it asks its person: they are the person's to change"
+	neverDelete     = "deleting, disabling or offloading is the person's act"
+	neverCode       = "an agent doesn't write code or decide pull requests: it asks a tile agent, whose changes its person reviews"
+	neverAccount    = "passwords, devices, enrolment and sign-in tickets are the person's own"
+	neverIdentity   = "a credential for another identity (a tile's frame, a path ticket, view-as) is never minted for an agent"
+	neverConsent    = "a person's consents, access requests and partition decisions are their own acts"
+	neverAdmin      = "the admin API is never delegated: an admin's agent proposes a change set, which the person approves"
+	neverData       = "a tile's stores and registrations are the tile's: an agent reads and writes a tile's data through the tile's API"
+	neverApprove    = "approving, pausing and the agent's own log are the person's: their agent asks, they answer"
+	neverAgentRules = "what a person's agent may do without asking is the person's to set, never the agent's"
 )
 
 // Why the rest isn't delegated.
@@ -171,6 +172,8 @@ const (
 	noSandboxes   = "tile sandboxes are driven by the tile that owns them"
 	noDeployments = "a tile's deployments are the work of the people on it"
 	noNotYet      = "not delegated: nothing a workspace agent does needs it"
+	noLLM         = "a component calls the LLM connector as itself, through its llm binding: never as a person"
+	noAgentRules  = "the agent rules and the connection view are read by the person and applied by xbind: an agent's listings already leave out what the rules keep it from"
 )
 
 // DelegateClassOf is the class of the route RegisterAPI mounted as pattern.
@@ -583,4 +586,32 @@ var delegateClasses = map[string]delegateRow{
 	"GET /push/prefs":                                      dNever(neverAccount),
 	"PUT /push/prefs":                                      dNever(neverAccount),
 	"POST /push/test":                                      dNever(neverAccount),
+	// ---- the agent rules themselves (D229) and the LLM connector (D226) ----
+	// What an agent may do unasked is the person's to set, and what agents
+	// may do in an org its admins': never the agent's. The connection view
+	// names the tiles an org keeps agents out of, with the reason — it is
+	// for the person's own page; an agent's listings leave those tiles out
+	// (delegateHides). A component calls the LLM connector as itself,
+	// through its own llm binding, never as a person.
+	"GET /agent/prefs":                dNo(noAgentRules),
+	"PUT /agent/prefs":                dNever(neverAgentRules),
+	"GET /agents/policy":              dNo(noAgentRules),
+	"PUT /agents/policy":              dNever(neverAdmin),
+	"PUT /orgs/{org}/agents":          dNever(neverAdmin),
+	"PUT /orgs/{org}/agents/pin":      dNever(neverAdmin),
+	"GET /agents/connection":          dNo(noAgentRules),
+	"GET /llm":                        dNo(noLLM),
+	"GET /llm/config":                 dNo(noLLM),
+	"PUT /llm/config":                 dNever(neverAdmin),
+	"GET /llm/preferred":              dNo(noLLM),
+	"GET /llm/quotas":                 dNo(noLLM),
+	"PUT /llm/quotas":                 dNever(neverAdmin),
+	"GET /llm/usage":                  dNo(noLLM),
+	"PUT /llm/upstreams/{name}":       dNever(neverAdmin),
+	"DELETE /llm/upstreams/{name}":    dNever(neverAdmin),
+	"POST /llm/upstreams/{name}/test": dNever(neverAdmin),
+	"POST /llm/setup/dismiss":         dNo(noLLM),
+	"GET /llm/v1/models":              dNo(noLLM),
+	"POST /llm/v1/chat/completions":   dNo(noLLM),
+	"POST /llm/v1/responses":          dNo(noLLM),
 }

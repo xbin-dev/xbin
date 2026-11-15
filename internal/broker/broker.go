@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/delegation"
@@ -90,6 +91,14 @@ type Broker struct {
 	// only, whatever tile they name: the Go build versions alert (D166),
 	// which names tiles and their dependency versions.
 	AdminAlerts func() []Alert
+	// AdminShellAlerts, if set, is a source of alerts GET /alerts also
+	// shows an admin's shell: a trusted chrome frame minted under a
+	// workspace admin's own login (AdminShell), whose token is otherwise
+	// no admin's. The LLM connector's notices (D226) — a quota reached,
+	// nothing set up — so an admin meets them where they work, in a shell
+	// of any age; the admin's own session and the admin console get them
+	// through AdminAlerts.
+	AdminShellAlerts func() []Alert
 
 	// OnStructureChange, if set, is called after the broker changes the
 	// component tree (e.g. a tile import) so the host can reconcile deps/
@@ -149,6 +158,22 @@ type Broker struct {
 	// release; a restore swaps a rebuilt layer in meanwhile. Wired to
 	// term.Manager.HoldEnv by boot.
 	HoldTermEnv func(component string) (release func(), err error)
+
+	// AgentModels answers what the LLM connector knows about a model id
+	// ("upstream/model"): its upstream, and whether that upstream is marked
+	// private — what an org's "private models only" rule asks (D229,
+	// agentpolicy.go). nil ⇒ no connector: no model is private.
+	AgentModels func(id string) (agentpolicy.ModelRef, bool)
+	// AgentConnector answers why a harness (a provider id) can't run on the
+	// LLM connector now — its CLI speaks no wire the connector serves, or
+	// the connector isn't set up — and nil when it can. nil func ⇒ no
+	// connector on this xbind: wherever a tile's sessions must run on it
+	// (AgentSessionLLM), no harness starts.
+	AgentConnector func(harness string) error
+	// AgentSaved answers a person's saved credential choice for a harness
+	// ("own", "connector" or ""), from their agent preferences; wired by
+	// boot. nil ⇒ nobody saved one.
+	AgentSaved func(userID, harness string) string
 	// rmTree stands in for the confined removal of a terminal layer
 	// (removeTree) in tests; nil = confine.RemoveAll.
 	rmTree func(dir string) error
@@ -171,6 +196,10 @@ type Broker struct {
 
 	// Version is the xbind version, stamped into backup manifests.
 	Version string
+
+	// LLMOffered reports whether the LLM connector is configured, so pickers
+	// offer it for openai slots (builtin_http.go, D226); nil = never.
+	LLMOffered func() bool
 
 	// AllowInsecureVault permits storing secrets as plaintext at rest when no
 	// encryption barrier is configured (dev / --insecure-vault only). When
@@ -198,12 +227,14 @@ func (b *Broker) Close() {
 	if b.disk != nil {
 		b.disk.close()
 	}
+	// partition mail's doorbells and sweep, waited for (partitionmail_bell.go):
+	// before the flushes, so a ring's last delivery is in what they save
+	b.closeMail()
 	if b.kv != nil {
 		b.kv.close() // kv.db and every namespace's file (deploydata.go)
 	}
 	b.flushLedgers()   // counts not yet saved (partitionledger.go)
 	b.flushLimitHits() // hits not yet saved (tilelimits.go)
-	b.closeMail()      // partition mail's doorbells and sweep (partitionmail_bell.go)
 }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {

@@ -270,3 +270,61 @@ func TestAgentQueueDroppedWhenTheSessionEnds(t *testing.T) {
 		t.Fatalf("notice: %q", txt)
 	}
 }
+
+// A permission option that raises the session's mode says so (`explicit`,
+// sdk/acp Provider.OptionRaises) — in the request's event and wherever a
+// client reads the waiting requests again (the list, the tail page's
+// state): a plan approval's "yes, and switch to ‹mode›" the catalog can't
+// place is one, the plain approval and the reject are not. xbind refuses
+// nothing: the flagged option is answered like any other.
+func TestAgentPermissionOptionExplicit(t *testing.T) {
+	r := newAgentRig(t)
+	m := r.m
+	id := openFake(t, r, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := m.AgentPrompt(ctx, id, "plan the work"); err != nil {
+		t.Fatal(err)
+	}
+	req := r.until(t, ofType(agent.EvPermissionRequest))
+	want := map[string]bool{"exit-plan-default": false, "exit-plan-clear-auto": true, "auto": false, "reject": false}
+	var d struct {
+		PID     string                   `json:"pid"`
+		Options []map[string]interface{} `json:"options"`
+	}
+	if err := json.Unmarshal(req.Data, &d); err != nil || len(d.Options) != len(want) {
+		t.Fatalf("the request: %s (%v)", req.Data, err)
+	}
+	for _, o := range d.Options {
+		oid, _ := o["optionId"].(string)
+		explicit, has := o["explicit"]
+		if w, known := want[oid]; !known || (w && explicit != true) || (!w && has) {
+			t.Errorf("option %q: explicit %v (present %v), want %v — an option that doesn't raise carries no field", oid, explicit, has, want[oid])
+		}
+	}
+	check := func(where string, opts []agent.PermissionOption) {
+		t.Helper()
+		if len(opts) != len(want) {
+			t.Fatalf("%s: %d options", where, len(opts))
+		}
+		for _, o := range opts {
+			if o.Explicit != want[o.OptionID] {
+				t.Errorf("%s: option %q explicit %v", where, o.OptionID, o.Explicit)
+			}
+		}
+	}
+	pend, err := m.AgentPending(id)
+	if err != nil || len(pend) != 1 {
+		t.Fatalf("pending: %v %v", pend, err)
+	}
+	check("GET …/sessions/{id}", pend[0].Options)
+	page, err := m.AgentPage(id, 0, 50)
+	if err != nil || len(page.State.Permissions) != 1 {
+		t.Fatalf("the tail page's state: %+v %v", page.State, err)
+	}
+	check("the tail page", page.State.Permissions[0].Options)
+	if err := m.AgentPermit(id, d.PID, "exit-plan-clear-auto", "", "user:test"); err != nil {
+		t.Fatalf("the explicit option is answered like any other: %v", err)
+	}
+	r.until(t, agentSays("plan approved: exit-plan-clear-auto"))
+}

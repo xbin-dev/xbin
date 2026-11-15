@@ -74,6 +74,7 @@ export function agentTestApi(a) {
     // the guided sign-in strip (agent-signin.js, D178), when it shows; the note after it worked
     get signin() { return a.renderRoot?.querySelector('bx-agent-signin')?.testApi() || null; },
     get signedNote() { return a._signedNote || ''; },
+    get error() { return a._error || ''; }, // what the tab says went wrong (a refused start's reason)
     setOption(id, value) { a._setOption(id, value); },
     start() { return a._create(); },
     send(text) { a._draft = text; return a._submit(); },

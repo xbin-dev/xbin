@@ -30,6 +30,7 @@ required). JSON text frames:
 {"type":"native"}                                    // the native-runtime switch changed (D101): re-read whoami (native.runtime)
 {"type":"policies"}                                  // a partitioned tiles' switch changed (PD-55; kept for clients before D180, beside workspace-settings): re-read GET /workspace-policies
 {"type":"limits","component":"apps/x"}               // a tile's limits changed — a decision, a cap hit, a new manifest ask (D203): re-read GET /limits (and /alerts)
+{"type":"agents","data":{"org":"finance"}}           // an org's constraints on agents changed (D229; org "": the workspace's bounds): re-read GET /agent/providers?cwd=, GET /agents/connection
 {"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets (never apps/x's frames,
  "data":{"op":"consent-needed","from":"apps/z","to":"apps/x"}}     //   terminals or instance): apps/z's call into their apps/x data was refused (partitionConsent on; once a day)
 {"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets, likewise: their consent changed

@@ -878,7 +878,10 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   binds it to whatever tile provides that service; you discover the endpoint at
   runtime — `xbin.iface('llm').url` in a frontend, `$XBIN_IFACE_LLM_URL` in a
   backend — and the binding is also your call grant. This makes providers
-  **swappable** (Ollama ↔ a cloud proxy) with no code change.
+  **swappable** (Ollama ↔ a cloud proxy) with no code change. An `openai`
+  slot can also be bound to xbind's own LLM connector (`xbin:llm`, a
+  workspace admin's bind; `/docs/llm.md`): same slot, same code, the URL is
+  then `…/api/xbin/llm` and calls are metered to the person using your tile.
 - **Providing a standard API?** Declare it so others can bind you:
   `"provides": { "openai": { "kind": "http", "service": "openai", "role": "writer" } }`
   (`role` = the exposed role a binding grants callers).

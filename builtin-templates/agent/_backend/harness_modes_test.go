@@ -138,7 +138,7 @@ func TestHarnessOptionRaises(t *testing.T) {
 		{house, "default", opt("implement_plan", acp.AllowOnce), acp.KindSwitchMode, false},
 		{house, "default", opt("exit-plan-clear-auto", acp.AllowAlways), acp.KindSwitchMode, true},
 	} {
-		if got := optionRaises(x.prov, st, x.start, x.o, x.kind); got != x.want {
+		if got := x.prov.OptionRaises(x.o, x.kind, st, x.start); got != x.want {
 			t.Errorf("%s %s (%s, %s): raises %v, want %v", x.prov.ID, x.o.OptionID, x.o.Kind, x.kind, got, x.want)
 		}
 	}

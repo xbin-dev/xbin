@@ -64,14 +64,14 @@ func postedFinishSpec() toolSpec {
 // runToolSpecs is toolSpecs for run: a top-level run whose result is posted
 // (a channel's, a trigger's) gets postedFinishSpec's finish.
 func runToolSpecs(cfg Config, run *Run, mcp []toolSpec) []toolSpec {
-	if cfg.CodeRead != nil { // a coordinator's research subagent: its own list (projects_coord_research.go)
+	if cfg.CodeRead != nil { // a coordinator's research subagent: its own list (coord_reader.go)
 		return codeReadToolSpecs(cfg, run)
 	}
 	// no coding agent at the global instance, nor in a hosted conversation (harness_partition.go)
 	cfg.noHarness = harnessBarred(run) != ""
 	specs := hostedToolSpecs(run, toolSpecs(cfg, run.Depth, mcp)) // a hosted conversation's lack (hosted_tools.go)
-	specs = append(specs, coordToolsFor(cfg, run)...)             // a project's coordinator, at depth 0 (projects_coord_tools.go)
-	specs = append(specs, wikiToolsFor(cfg, run)...)              // a project's wiki: its coordinator and built-in tasks (project_wiki_tools.go)
+	specs = append(specs, coordToolsFor(cfg, run)...)             // a coordinator's own, by its profile, at depth 0 (coord_tools.go)
+	specs = append(specs, wikiToolsFor(cfg, run)...)              // a knowledge store's, by the run's role in it (coord_know_tools.go)
 	if run.ParentID == 0 && (run.Origin == "channel" || run.Origin == "trigger") {
 		for i := range specs {
 			if specs[i].Function.Name == "finish" {
@@ -332,7 +332,7 @@ func sideEffect(name string, cfg Config) bool {
 	case "xbin_call":
 		return true
 	}
-	return strings.HasPrefix(name, "mcp:") || sandboxSideEffect(name, cfg) || coordWrites[name] // a coordinator starting or steering tasks (projects_coord_tools.go)
+	return strings.HasPrefix(name, "mcp:") || sandboxSideEffect(name, cfg) || coordWrites[name] // a coordinator starting or steering work (coord_tools.go)
 }
 
 // runTool executes a non-control tool and returns its textual result.
@@ -340,7 +340,7 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 	if cfg.denied(name) {
 		return "", fmt.Errorf("%s is not available in this conversation", name)
 	}
-	if cfg.CodeRead != nil { // a research subagent: its tools only, whatever its class (projects_coord_research.go, D222)
+	if cfg.CodeRead != nil { // a research subagent: its tools only, whatever its class (coord_reader.go, D222)
 		return ag.runCodeReadTool(ctx, run, cfg, name, args)
 	}
 	// The class's toolsets (classes.go), whatever the model was offered: a
@@ -504,10 +504,10 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 	if threadToolNames[name] {
 		return ag.runThreadTool(ctx, run, cfg, name, args)
 	}
-	if coordToolNames[name] { // a project's coordinator (projects_coord_tools.go)
+	if coordToolNames[name] { // a coordinator's, by its profile (coord_tools.go)
 		return ag.runCoordTool(ctx, run, cfg, name, args)
 	}
-	if wikiToolNames[name] { // a project's wiki (project_wiki_tools.go)
+	if wikiToolNames[name] { // a knowledge store's — a project's wiki (coord_know_tools.go)
 		return ag.runWikiTool(ctx, run, cfg, name, args)
 	}
 	if sandboxToolNames[name] {

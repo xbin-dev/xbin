@@ -29,6 +29,7 @@ func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("PATCH /auth-settings", b.apiAuthSettingsUpdate)
 	srv.RegisterAPI("POST /auth-settings/sso/test", func(w http.ResponseWriter, r *http.Request) { b.apiSSOTest(srv, w, r) })
 	b.registerOrgs(srv)
+	b.registerAgentPolicy(srv) // org constraints on agents (D229; agentpolicy.go)
 	b.registerRequests(srv)
 	b.registerDevices(srv) // the app's enrolled devices (devicesapi.go)
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin"
+	"github.com/xbin-dev/xbin/internal/agentprefs"
 	"github.com/xbin-dev/xbin/internal/apptunnel"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/branding"
@@ -22,6 +23,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/deps"
 	"github.com/xbin-dev/xbin/internal/events"
 	ingressPkg "github.com/xbin-dev/xbin/internal/ingress"
+	"github.com/xbin-dev/xbin/internal/llm"
 	"github.com/xbin-dev/xbin/internal/proxy"
 	"github.com/xbin-dev/xbin/internal/push"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -64,8 +66,10 @@ type State struct {
 	Push        *push.Service    // the push plane (push.go)
 	// AppTunnel is the xbin app's iroh tunnel (apptunnel.go, D204)
 	AppTunnel *apptunnel.Service
-	held      *push.Holder // non-primary notifications, kept as would-notify (push.go)
-	Started   time.Time
+	// LLM is the LLM connector (llm.go, D226)
+	LLM     *llm.Service
+	held    *push.Holder // non-primary notifications, kept as would-notify (push.go)
+	Started time.Time
 	// Deployments is the deployments plane: its methods are the registry's,
 	// runner's, broker's and terminal manager's deployment hooks (D119c).
 	Deployments *deployments.Plane
@@ -519,6 +523,9 @@ func (st *State) stepBroker() error {
 	// D54: a terminal's network on an org-owned tile is the org's network
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
+	// D229: the harnesses an agent session may run on a tile are its orgs'
+	// and the workspace's to say; the broker knows both.
+	st.Term.AgentGate = func(_ auth.Principal, tile, harness string) error { return brk.AgentHarnessGate(tile, harness) }
 	brk.HoldTermEnv = st.Term.HoldEnv // a restore swaps the terminal layer in whole (WP-9)
 	brk.ExternalURL = st.externalURL
 	brk.SweepNamespaces()               // crashed data acts become partial, unclaimed namespaces orphaned (08-data §9.3)
@@ -669,6 +676,23 @@ func (st *State) stepIngress() error {
 	return nil
 }
 
+// agentPrefs is the people's agent preferences store (D229): a person's
+// "my workspace agent may start sessions" is theirs only while the account
+// is the one that set it (its creation stamp).
+func (st *State) agentPrefs() *agentprefs.Store {
+	ap := agentprefs.New(st.WS)
+	if us := st.Users; us != nil {
+		ap.Person = func(id string) (int64, bool) {
+			u, ok := us.Get(id)
+			if !ok || u.Disabled {
+				return 0, false
+			}
+			return u.Created, true
+		}
+	}
+	return ap
+}
+
 func (st *State) stepServer() error {
 	srv := &server.Server{
 		Reg: st.Reg, Auth: st.Auth, Hub: st.Hub, Term: st.Term,
@@ -681,6 +705,13 @@ func (st *State) stepServer() error {
 		TilesDomain:    st.Cfg.tilesDomain(),
 		Brand:          branding.New(filepath.Join(st.WS, "data", "branding.json")), // the workspace's title + icon (D76)
 		Settings:       st.settings,                                                 // workspace settings (D175)
+		AgentPrefs:     st.agentPrefs(),                                             // people's agent preferences (D229)
+	}
+	if st.Broker != nil && srv.AgentPrefs != nil {
+		// a person's saved credential choice for a harness: one of the
+		// inputs of Broker.AgentSessionLLM (D229)
+		prefs := srv.AgentPrefs
+		st.Broker.AgentSaved = func(user, harness string) string { return prefs.Get(user).Harnesses[harness].Credentials }
 	}
 	if st.Term != nil {
 		st.Term.OnChange = srv.TermChanged // the session directory's change stream (D73)
@@ -714,6 +745,9 @@ func (st *State) stepServer() error {
 		return err
 	}
 	if err := st.setupAppTunnel(srv); err != nil { // after push and the D166 alert: it chains their hooks
+		return err
+	}
+	if err := st.setupLLM(srv); err != nil { // the LLM connector (llm.go, D226)
 		return err
 	}
 	st.Server = srv

@@ -143,7 +143,7 @@ func projectPump(pid int64) {
 				_, _ = t.q.Exec(`DELETE FROM project_queue WHERE id=?`, in.ID)
 				continue
 			}
-			if in.HoldPark && run.Status == statusWaiting {
+			if in.HoldPark && coordHolds(run.Status) {
 				continue // the person answers first
 			}
 			if dreamHolds(t, k, run, in, held) {

@@ -1,0 +1,214 @@
+{
+ "about": "the run's view (GET /runs/{id}/view: run, messages, steps, links, drafts) after each checkpoint of id-reuse.json, as the agent template's backend maps the log (its transcripts_test.go)",
+ "name": "id-reuse",
+ "views": [
+  {
+   "seq": 25,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "chatty 2",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"yes | head\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:chatty",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "exitCode": 0,
+       "kind": "execute",
+       "output": "line 1\nline 2\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "yes | head"
+      },
+      "compacted": false,
+      "content": "line 1\nline 2\n\n[exit 0]",
+      "created": 6,
+      "id": 4,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:chatty"
+     },
+     {
+      "compacted": false,
+      "content": "chatty: 2 lines",
+      "created": 13,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "chatty 3",
+      "created": 15,
+      "id": 6,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 5,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 17,
+      "id": 7,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 6,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"yes | head\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:chatty#2",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "exitCode": 0,
+       "kind": "execute",
+       "output": "line 1\nline 2\nline 3\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "yes | head"
+      },
+      "compacted": false,
+      "content": "line 1\nline 2\nline 3\n\n[exit 0]",
+      "created": 17,
+      "id": 8,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 7,
+      "toolCallId": "h1:chatty#2"
+     },
+     {
+      "compacted": false,
+      "content": "chatty: 3 lines",
+      "created": 24,
+      "id": 9,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 8,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "idle"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 2
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "ready",
+      "steering": false,
+      "title": "fake: chatty 2",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "idle",
+     "title": "id-reuse"
+    },
+    "steps": []
+   }
+  }
+ ]
+}

@@ -464,7 +464,11 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    what each had (GET /go-build-versions).
                                    dismiss: the route a POST to which
                                    dismisses the alert
-                                   (/go-build-versions/dismiss).
+                                   (/go-build-versions/dismiss). Kinds
+                                   llm, llm-quota and llm-setup (D226,
+                                   protocol/llm.md): the LLM connector's,
+                                   to admins and to the shell an admin
+                                   drives.
                                    An alert about a deployment's data beyond
                                    the primary's main carries deployment (the
                                    data's deployment; tile is then the data's

@@ -1,13 +1,31 @@
 // model/harness-heads.js — a coding harness's tool call (`acp:<kind>`,
 // D147 §4.3.5) in a few words, as tool-heads.js says a
-// built-in call: its family (the card's icon), a reading of its arguments
-// when it has no summary, the command under a summary, what it came to, and
-// its state. tool-heads.js hands every `acp:*` name here.
+// built-in call: its family (the card's icon), its headline, the command
+// under it, what it came to, and its state. tool-heads.js hands every
+// `acp:*` name here.
 //
-// A call's arguments are rawInput's own fields plus `summary` (the adapter's
-// label, else its title, else the kind); its tool row's `acp` (the lift of
-// Meta.harness) says the rest: status, exit code and output, diffs,
-// locations, the subagent it runs under. Pure (no imports, no DOM).
+// The words are xbind's chat kit's (/vendor/chat/tools.js, D224 — the Agent
+// tab says a call the same way). This module is the adapter from the
+// template's row shape to the kit's tool record, and keeps every export it
+// had: a call's arguments are rawInput's own fields plus `summary` (the
+// adapter's label, else its title, else the kind); its tool row's `acp`
+// (the lift of Meta.harness) says the rest — status, exit code and output,
+// diffs, locations, the subagent it runs under — under the record's own
+// field names, so the kit reads an `acp` as it reads a record (acpRecord
+// makes the whole one). Pure (no DOM).
+import { newToolRecord } from '/vendor/chat/blocks.js';
+import { headline, reading, subline, outcome, oneLine } from '/vendor/chat/tools.js';
+
+// What the kit says of a record, said of a tool row's `acp`: its output
+// (ANSI stripped; the last n characters — {text, cut, dropped}), its diffs
+// ({path, status, add, del, patch, truncated} each; their totals; as one
+// unified diff; a patch's lines with their classes), its places, a subagent
+// call's task, its status as a chip. pathOf / commandOf pick what adapters
+// name them among a call's arguments.
+export {
+  stripAnsi, outputTail, diffTotals, diffFiles, joinPatches, patchLines, placesOf, taskOf,
+  stateChip as acpChip, inputPath as pathOf, inputCommand as commandOf,
+} from '/vendor/chat/tools.js';
 
 // ACP's ToolKinds and the family each is drawn as.
 export const ACP_FAMILY = {
@@ -28,90 +46,113 @@ export function acpKind(name) {
 }
 export const acpFamily = (name) => ACP_FAMILY[acpKind(name)];
 
-const one = (s, n = 90) => {
-  const t = String(s ?? '').replace(/\s+/g, ' ').trim();
-  return t.length > n ? t.slice(0, n - 1) + '…' : t;
-};
-// pathOf / commandOf pick what adapters name them in rawInput.
-export function pathOf(a) {
-  const p = a && (a.file_path ?? a.path ?? a.filePath ?? a.notebook_path ?? a.abs_path);
-  return typeof p === 'string' ? p : '';
+// --- the row as the kit's record ---------------------------------------------------------
+
+// callIdOf: the agent's own id of a stored call id — "h<gen>:<id>", and
+// "h<gen>:<id>#<n>" for its n-th use (an id that itself ends in #<n> can't
+// be told from a reuse).
+export const callIdOf = (stored) => String(stored || '').replace(/^h\d+:/, '').replace(/#\d+$/, '');
+
+// rawInputOf: a call's (parsed) arguments back as the agent's rawInput — its
+// fields without `summary`; a rawInput `summary` is stored as rawSummary; one
+// that isn't an object as {summary, rawInput}. No arguments and an empty
+// object are both null.
+export function rawInputOf(a) {
+  const { summary: _s, rawSummary, ...rest } = (a && typeof a === 'object') ? a : {};
+  if ('rawInput' in rest && Object.keys(rest).length === 1 && (rest.rawInput == null || typeof rest.rawInput !== 'object' || Array.isArray(rest.rawInput))) return rest.rawInput;
+  if (rawSummary !== undefined) rest.summary = rawSummary;
+  return Object.keys(rest).length ? rest : null;
 }
-export function commandOf(a) {
-  const c = a && (a.command ?? a.cmd);
-  return Array.isArray(c) ? c.join(' ') : typeof c === 'string' ? c : '';
+
+const over = (s) => s === 'completed' || s === 'failed' || s === 'cancelled';
+
+// the call's text content, read back from its tool row: the row holds it
+// only when it has nothing better to say (an edit's row is "edited …", a
+// command's its output; a failed call's is "error: …")
+function textOf(result, acp) {
+  if (typeof acp.text === 'string') return acp.text;
+  const c = String(result || '');
+  if (!over(acp.status) || acp.status === 'cancelled') return '';
+  if (acp.status === 'failed') {
+    const m = c.startsWith('error: ') ? c.slice(7) : '';
+    return m === 'the call failed' || (acp.output && acp.output.endsWith(m)) ? '' : m;
+  }
+  if ((acp.diffs && acp.diffs.length) || acp.output || acp.exitCode != null) return '';
+  return c === (acp.title || 'done') ? '' : c;
+}
+
+// acpRecord: a harness call as the kit's ToolRecord — b: its {name, callId,
+// acp, result} (the fold's tool block, or those parts of it), a: its parsed
+// arguments. The summary is the adapter's label, else its title, else the
+// kind: one that is neither the title nor the kind is the label (a row
+// whose lift doesn't say it).
+export function acpRecord(b, a = {}) {
+  const acp = (b && b.acp) || {};
+  const kind = acp.kind || acpKind(b && b.name);
+  const said = typeof a.summary === 'string' ? a.summary.trim() : '';
+  const rec = newToolRecord(callIdOf(b && b.callId));
+  rec.kind = kind in ACP_FAMILY ? kind : 'other';
+  rec.title = acp.title || '';
+  rec.label = acp.label || (said && said !== (acp.title || kind) ? said : '');
+  rec.name = acp.tool || '';
+  rec.status = acp.status || 'pending';
+  rec.parent = callIdOf(acp.parent);
+  rec.subagent = !!acp.subagent;
+  rec.planReview = !!acp.planReview;
+  rec.rawInput = acp.rawInput !== undefined ? acp.rawInput : rawInputOf(a);
+  rec.locations = (acp.locations || []).filter((l) => l && l.path).map((l) => (l.line != null ? { path: l.path, line: l.line } : { path: l.path }));
+  rec.files = [...(acp.files || [])];
+  rec.text = textOf(b && b.result, acp);
+  rec.terminal = typeof acp.output === 'string'; // (all a row knows of one: output came)
+  rec.output = acp.output || '';
+  rec.outputTruncated = Number(acp.outputTruncated) || 0;
+  rec.exitCode = acp.exitCode ?? null;
+  rec.diffs = (acp.diffs || []).map((d) => ({ path: d.path, status: d.status || 'modified', add: d.add || 0, del: d.del || 0, patch: d.patch || '', truncated: !!d.truncated }));
+  return rec;
+}
+
+// --- its words ---------------------------------------------------------------------------
+
+// acpHeadline: what a call's card is called (the kit's headline: the
+// adapter's label, a description among the arguments, a shell command read
+// deterministically, the title's first line, a reading by kind) — from its
+// tool row's acp; without one (a row not lifted) its summary, else the reading.
+export function acpHeadline(name, a = {}, acp = null) {
+  if (!acp) {
+    const s = typeof a.summary === 'string' ? a.summary.trim() : '';
+    return s ? oneLine(s, 100) : acpReading(name, a);
+  }
+  return oneLine(headline(acpRecord({ name, acp }, a)), 100);
+}
+
+// acpWords: a call's headline and the command under it, together — the
+// subline is judged against the whole headline, not its first hundred
+// characters (a long command that is its own headline has none).
+export function acpWords(name, a = {}, acp = null) {
+  if (!acp) return { headline: acpHeadline(name, a), sub: acpSubline(name, a) };
+  const rec = acpRecord({ name, acp }, a);
+  const said = headline(rec);
+  return { headline: oneLine(said, 100), sub: subline(rec, said) };
 }
 
 // acpReading describes a call from its arguments (its tool row's acp when
-// known) — the headline when the call carries no summary.
+// known) — the headline when nothing better says it.
 export function acpReading(name, a = {}, acp = null) {
-  const kind = acpKind(name);
-  const path = pathOf(a) || (acp && acp.locations && acp.locations[0] && acp.locations[0].path) || '';
-  switch (kind) {
-    case 'execute': { const c = commandOf(a); return c ? `$ ${one(c, 90)}` : acp?.title || 'Run a command'; }
-    case 'read': {
-      const from = Number(a.offset) || 0, n = Number(a.limit) || 0;
-      return `Read ${path || 'a file'}${n ? `:${from || 1}–${(from || 1) + n - 1}` : from ? `:${from}–` : ''}`;
-    }
-    case 'edit': return `Edit ${path || 'a file'}`;
-    case 'delete': return `Delete ${path || 'a file'}`;
-    case 'move': return `Move ${a.source || a.from || path || '?'} → ${a.destination || a.to || '?'}`;
-    case 'search': return `Search /${one(a.pattern ?? a.query ?? '', 50)}/${a.path ? ` in ${a.path}` : ''}`;
-    case 'fetch': return one(a.url || a.query || acp?.title || 'Fetch', 90);
-    case 'think': return one(a.description || acp?.title || 'Think', 90);
-    case 'switch_mode': return 'Switch mode';
-  }
-  return one(acp?.title || acp?.tool || 'tool', 90);
+  return reading({ kind: acpKind(name), rawInput: a, locations: acp ? acp.locations : null, title: acp ? acp.title : '', name: acp ? acp.tool : '' });
 }
 
-// acpSubline: an execute's command under a headline that is the adapter's
-// summary ('' when the headline already says it).
-export function acpSubline(name, a = {}) {
-  if (acpKind(name) !== 'execute') return '';
-  const c = commandOf(a);
-  const s = typeof a.summary === 'string' ? a.summary.trim() : '';
-  return c && s && s !== c ? `$ ${one(c, 90)}` : '';
-}
-
-// diffTotals: the files an edit changed and the lines added and deleted
-// (the backend's exact counts per file).
-export function diffTotals(acp) {
-  const ds = (acp && Array.isArray(acp.diffs)) ? acp.diffs : [];
-  return { files: ds.length, add: ds.reduce((n, d) => n + (Number(d.add) || 0), 0), del: ds.reduce((n, d) => n + (Number(d.del) || 0), 0) };
+// acpSubline: an execute's command under a headline that says something
+// else — `said`: the headline (default: the adapter's summary); '' when it
+// is the command itself.
+export function acpSubline(name, a = {}, said = undefined) {
+  return subline({ kind: acpKind(name), rawInput: a }, said !== undefined ? said : typeof a.summary === 'string' ? a.summary : '');
 }
 
 // acpOutcome: what a finished harness call came to — an exit code, +a −d, a
 // count — as {text, tone: ok | bad | ''}, or null (nothing to say; a
 // failure is already the card's state).
 export function acpOutcome(name, content, acp) {
-  if (!acp || acp.status !== 'completed') return null;
-  switch (acpKind(name)) {
-    case 'execute': {
-      if (acp.exitCode == null) return null;
-      const n = Number(acp.exitCode);
-      return { text: `exit ${n}`, tone: n === 0 ? 'ok' : 'bad' };
-    }
-    case 'edit': {
-      const t = diffTotals(acp);
-      if (!t.files) return null;
-      return { text: `${t.files > 1 ? `${t.files} files ` : ''}+${t.add} −${t.del}`, tone: '' };
-    }
-    case 'delete': {
-      const t = diffTotals(acp);
-      return t.del ? { text: `−${t.del}`, tone: '' } : null;
-    }
-    case 'read': {
-      const c = String(content ?? '').replace(/\n+$/, '');
-      if (!c) return null;
-      const n = c.split('\n').length;
-      return { text: `${n} line${n === 1 ? '' : 's'}`, tone: '' };
-    }
-    case 'search': {
-      const n = Array.isArray(acp.locations) ? acp.locations.length : 0;
-      return n ? { text: `${n} match${n === 1 ? '' : 'es'}`, tone: '' } : null;
-    }
-  }
-  return null;
+  return acp ? outcome({ ...acp, kind: acpKind(name), text: content }) : null;
 }
 
 // acpState: the card's state (model/fold.js) — the tool row's placeholder
@@ -123,36 +164,7 @@ export function acpState(acp, state) {
   return state;
 }
 
-// ANSI: an execute's output keeps its colour codes (§4.3.5); a view that
-// draws plain text strips them.
-const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
-export const stripAnsi = (s) => String(s ?? '').replace(ANSI, '');
-
-// outputTail: an execute's output, ANSI stripped, its last n characters —
-// {text, cut, dropped}: cut the characters left out here, dropped the bytes
-// the backend kept out (outputTruncated: it keeps the last 64 KiB).
-export function outputTail(acp, n = 20000) {
-  const t = stripAnsi(acp && acp.output);
-  const dropped = Number(acp && acp.outputTruncated) || 0;
-  return t.length > n ? { text: t.slice(-n), cut: t.length - n, dropped } : { text: t, cut: 0, dropped };
-}
-
 // --- the cards (harness-cards.js on the web, native/harness-cards.js) --------------------
-
-// acpChip: a call's status as its card's chip — {text, tone: warn | bad |
-// run | ''} — or null once it completed (its outcome says what it came to).
-// The tool row's placeholder says it is parked on your approval; ACP's
-// status says pending, running, failed and cancelled.
-export function acpChip(acp, state) {
-  const s = acp && acp.status;
-  if (state === 'approval') return { text: 'needs approval', tone: 'warn' };
-  if (s === 'failed' || state === 'error') return { text: 'failed', tone: 'bad' };
-  if (s === 'cancelled' || state === 'stopped') return { text: 'cancelled', tone: '' };
-  if (state === 'writing') return { text: 'writing', tone: 'run' };
-  if (s === 'pending') return { text: 'pending', tone: '' };
-  if (s === 'in_progress' || state === 'running') return { text: 'running', tone: 'run' };
-  return null;
-}
 
 // isSubagentCall: a harness-internal subagent (a Claude Task) — the call
 // says so, or blocks run under it (the fold's kids).
@@ -162,62 +174,6 @@ export const isSubagentCall = (b) => !!(b && ((b.acp && b.acp.subagent) || (b.ki
 export function stepsWords(kids) {
   const n = (kids || []).filter((k) => k.k === 'tool' || k.k === 'agent').length;
   return n ? `${n} step${n === 1 ? '' : 's'}` : '';
-}
-
-// taskOf: what a subagent call was asked (Task's prompt, else its description).
-export function taskOf(a) {
-  const t = a && (a.prompt ?? a.task ?? a.description);
-  return typeof t === 'string' ? t : '';
-}
-
-// diffFiles: an edit's diffs (§4.3.5), each {path, status, add, del, patch,
-// truncated} with every field present.
-export function diffFiles(acp) {
-  return ((acp && Array.isArray(acp.diffs)) ? acp.diffs : []).filter((d) => d && d.path).map((d) => ({
-    path: String(d.path), status: d.status || 'modified', add: Number(d.add) || 0, del: Number(d.del) || 0,
-    patch: typeof d.patch === 'string' ? d.patch : '', truncated: !!d.truncated,
-  }));
-}
-
-// joinPatches: an edit's patches as one unified diff (the native `diff`
-// takes one), whole files only while it stays under max characters —
-// {patch, files, left}: left the files whose patch was left out.
-export function joinPatches(acp, max = Infinity) {
-  const files = diffFiles(acp);
-  let patch = '', left = 0;
-  for (const d of files) {
-    if (!d.patch) continue;
-    const p = d.patch.endsWith('\n') ? d.patch : d.patch + '\n';
-    if (patch && patch.length + p.length > max) { left++; continue; }
-    if (!patch && p.length > max) { left++; continue; }
-    patch += p;
-  }
-  return { patch, files, left };
-}
-
-// patchLines: a unified diff's lines, each with its class — fh (a file
-// header), h (a hunk header), d (added), a (deleted), ctx — the classes
-// /vendor/bx-code.js's diffHTML gives them, so one stylesheet draws both.
-export function patchLines(patch) {
-  const out = [];
-  for (const raw of String(patch || '').replace(/\n$/, '').split('\n')) {
-    let cls = 'fh';
-    if (/^(--- |\+\+\+ )(a\/|b\/|\/dev\/null)|^(diff --git|index |new file|deleted file|similarity |rename )/.test(raw)) cls = 'fh';
-    else if (raw.startsWith('@@')) cls = 'h';
-    else if (raw[0] === '+') cls = 'd';
-    else if (raw[0] === '-') cls = 'a';
-    else if (raw[0] === ' ' || raw === '') cls = 'ctx';
-    out.push({ cls, text: raw });
-  }
-  return out;
-}
-
-// placesOf: the paths (and lines) a call touched — "path:line" for each of
-// its locations, else its files.
-export function placesOf(acp) {
-  const locs = (acp && Array.isArray(acp.locations)) ? acp.locations.filter((l) => l && l.path) : [];
-  if (locs.length) return locs.map((l) => (l.line ? `${l.path}:${l.line}` : l.path));
-  return (acp && Array.isArray(acp.files)) ? acp.files.map(String) : [];
 }
 
 // resultText: what a finished call answered — '' while the tool row holds

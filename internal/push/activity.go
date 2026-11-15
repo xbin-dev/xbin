@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // Live Activities (native/spec/push.md §7; the relay: relay/README.md §Live
@@ -193,9 +194,7 @@ func (ls *liveSession) stopTimers() {
 	}
 }
 
-func busyStatus(s string) bool {
-	return s == agent.StatusRunning || s == agent.StatusWaiting || s == agent.StatusCancelling
-}
+func busyStatus(s string) bool { return acp.Busy(s) }
 
 func (ls *liveSession) compute() ActivityState {
 	if !ls.busy {
@@ -203,7 +202,7 @@ func (ls *liveSession) compute() ActivityState {
 	}
 	n := min(len(ls.pids)+len(ls.eids), 99)
 	ph := PhaseRunning
-	if ls.status == agent.StatusWaiting || n > 0 {
+	if (acp.Summary{Status: ls.status, Pending: n}).Waiting() {
 		ph = PhaseWaiting
 	}
 	return ActivityState{Phase: ph, Since: ls.since, Pending: n}

@@ -15,31 +15,23 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // statusCoalesce folds the events of one change (a resolution, then the
 // status it leads to) into one published summary.
 const statusCoalesce = 40 * time.Millisecond
 
-// StatusChange is an agent session's summary after a change: its status
-// (starting | idle | running | waiting_permission | cancelling | error |
-// exited), how many permission requests and questions wait for an answer,
-// and how many turns it took — so a turn that ran and ended between two
-// summaries still shows (idle → idle with a higher turn).
+// StatusChange is an agent session's summary after a change — sdk/acp's
+// Summary (the same numbers the agent template's lists show of a coding
+// agent): its status (starting | idle | running | waiting_permission |
+// cancelling | error | exited), how many permission requests and questions
+// wait for an answer, and how many turns it took — so a turn that ran and
+// ended between two summaries still shows (idle → idle with a higher turn).
 type StatusChange struct {
-	User      string `json:"user"`
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	Pending   int    `json:"pending"`   // unanswered permission requests
-	Questions int    `json:"questions"` // unanswered questions (elicitation.request)
-	Turn      uint64 `json:"turn"`      // prompts taken so far (POST …/prompt's {turn})
-}
-
-// statusKey is what makes two summaries different.
-type statusKey struct {
-	status             string
-	pending, questions int
-	turn               uint64
+	User string `json:"user"`
+	ID   string `json:"id"`
+	acp.Summary
 }
 
 // movesStatus reports whether a logged event can change the summary.
@@ -55,14 +47,14 @@ func movesStatus(typ string) bool {
 // since the last one sent (the pump goroutine only).
 func (s *Session) publishStatus(m *Manager) {
 	st := s.agent
-	k := statusKey{pending: st.perms.Count(), questions: len(st.drv.PendingElicitations())}
+	k := acp.Summary{Pending: st.perms.Count(), Questions: len(st.drv.PendingElicitations())}
 	st.mu.Lock()
-	k.status, k.turn = st.status, st.turn
+	k.Status, k.Turn = st.status, st.turn
 	same := st.published == k
 	st.published = k
 	st.mu.Unlock()
 	if same || m.OnStatus == nil {
 		return
 	}
-	m.OnStatus(s.Cwd, StatusChange{User: s.homeKey, ID: s.ID, Status: k.status, Pending: k.pending, Questions: k.questions, Turn: k.turn})
+	m.OnStatus(s.Cwd, StatusChange{User: s.homeKey, ID: s.ID, Summary: k})
 }

@@ -1744,12 +1744,15 @@ The tile's frontend is **one model, thin views** — see **The frontend** below.
 The chat's state is `model/session.js` (fed by `model/stream.js`),
 `model/fold.js` (pure: messages, links and drafts → blocks), `chat-cards.js`
 (lit templates), `model/tool-heads.js` (a tool call's headline and icon) and
-`chat-md.js` (markdown); `agent.js` is the page around it. The tile's other
+`chat-md.js` (markdown: xbind's renderer, `/vendor/chat/md.js`); `agent.js`
+is the page around it, loaded by `boot.js` once it knows this xbind serves
+the chat kit the page needs (below, **The frontend**). The tile's other
 browser tests (`test/layout.mjs`, `chat`, `home`, `sidebar`, `attach`) drive
 the real page against `test/backend.mjs`, a stubbed transport with a
 scriptable event stream; `test/kit.mjs` serves the frontend kit and vendored
 lit from the xbin checkout the template lives in (in an instance:
-`BX_KIT=/path/to/bx-kit.js`, `BX_VENDOR=/path/to/vendor`). Each needs
+`BX_KIT=/path/to/bx-kit.js`, `BX_VENDOR=/path/to/vendor`,
+`BX_CHAT=/path/to/web/chat`). Each needs
 Playwright with a Chromium build and skips without it. The backend: `go vet
 ./_backend && go test ./_backend` with a `go.mod` copied from `go.mod.tile`.
 
@@ -4689,6 +4692,47 @@ per-person budget, collapsed on the device per project and kind
 `ci-stuck` (CI kept failing past the day's fixes) and `all-done` (every
 task of the project finished).
 
+**Profiles (for whoever changes the backend).** Nothing above is a route
+or a behaviour of its own: it is how the coordinator is built. A
+coordinator is one layer, the **coordinator kit** (`_backend/coord_*.go`),
+with a **profile** per kind of coordinator; the project coordinator is the
+profile `project` (`projects_coord_profile.go`), and `workspace` is a
+registered, empty slot (`coord_workspace.go`: no class, no tools, no hooks,
+and nothing stamps a conversation with its origin).
+
+- **The kit owns the invariants.** Which run is whose coordinator (a
+  top-level run of the profile's `Origin` that its `Is` accepts); that a
+  tool is registered only under a name on the profile's `Allow` list and is
+  one kind of tool in every profile that has it; that every call runs the
+  profile's `Resolve` again and then holds the lane (a class with internal
+  reach acts on nothing); the wake's coalescing (`coordWakes`); the updates
+  message (`deliverCoordUpdates`); the never-answers rule's predicate and a
+  park's words (`coord_hold.go`).
+- **A profile supplies** its forced class and denials, its allowlist and
+  tools (`register`), limits, status words, and the hooks `Is`, `Resolve`,
+  `Pending`, `Deliver`, `Prompt` and `Knowledge`. Its block of the system
+  prompt is assembled from parts (`coordAssemble`: heading, role, its own
+  sections, the rules — its own and the ones every coordinator shares,
+  worded once — and the knowledge store's index).
+- **Research** is the kit's (`coord_research.go`): a profile decides a
+  `CodeReadBinding` and a base prompt, `researchSpawn` makes the run, and
+  the subagent's tools are defined against the `codeReader` interface
+  (`coord_reader.go`) — `read`, `ls`, `glob`, `grep`, and `git` only for a
+  reader kind that declares the subcommands it runs. A project's sandbox is
+  the first kind (`projects_coord_reader.go`).
+- **The wiki's store is a knowledge store with an owner**
+  (`coord_know*.go`): `knowOwner{Kind, Key}` — `project` and the project's
+  id here — resolved by `DB.knowID` to the id the wiki's tables carry in
+  `project_id`. A project's is its own id (its rows are as they always
+  were); any other kind of owner gets a negative id from `wiki_owners`. A
+  kind registers how the store is named in refusals and who is told of a
+  write (`registerKnowKind`).
+
+To add a kind of coordinator: fill a profile (never the kit's tables), add
+the code that makes its conversation with the profile's origin, and test
+that its allowlist is exactly what it registers
+(`coord_profile_test.go` has the pattern).
+
 ### Project wiki
 
 A project's **wiki** (D222) is the shared memory of its agents and people:
@@ -5704,6 +5748,28 @@ web view is the files you know (`agent.js`, `chat-cards.js`, `sidebar.js`,
 platform controls (`/vendor/xb-native.js`, docs/frontend-kit.md). Both draw
 the same model.
 
+**The page needs the xbind it shipped with.** The web view is drawn with
+xbind's chat kit (`/vendor/chat/…`, docs/frontend-kit.md — its markdown
+renderer, behind `chat-md.js`; its model of a coding agent's tool call and
+of what it asks, `/vendor/chat/tools.js` and `/vendor/chat/ask.js`, behind
+`model/harness-heads.js`, `model/harness-ask.js` and `cleanCode` in
+`model/harness-signins.js`, which keep their exports and are the adapters
+from this tile's rows to the kit), and an instance of this template is a copy
+in a workspace that can be newer than the xbind under it. So `index.html`
+starts `boot.js`, not `agent.js`: it imports `/vendor/chat/rev.js`, guarded,
+and compares its `KIT` with `NEEDS.kit`. When xbind serves that revision or
+a later one it imports `agent.js`; otherwise the page is one panel, "This
+agent needs xbind ≥ v… — update xbind", with a link to how to update, and
+nothing else loads. A failure in `agent.js` itself is an uncaught error as
+before, never that panel. When you start using something a later kit
+revision brought, raise `NEEDS` in `boot.js` (the revision, and the first
+xbind release that serves it). The native view imports the same models, so
+it stands on the kit too, and a module cannot ask first: on an older xbind
+`native.js` fails to load, whole, and the app shows this page instead
+(docs/native.md → Fallback) — which says what it needs.
+`test/needs-xbind.mjs` pins the page; xbind's
+`hack/agent-template-boot.test.mjs` the native view.
+
 | `model/` | What it holds |
 |---|---|
 | `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the class for new asks (`classes`, `classId`, `pickClass`; `toolset` is its lane), what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
@@ -5718,10 +5784,10 @@ the same model.
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
-| `harness.js`, `harness-heads.js`, `harness-store.js` | coding agents (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — §Coding agents): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one; `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
+| `harness.js`, `harness-heads.js`, `harness-store.js` | coding agents (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — §Coding agents): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one — `harness-heads.js` is the adapter from its row (the name, the arguments with `summary`, the tool row's `acp`) to xbind's chat kit's tool record (`acpRecord`), and the headline (`acpHeadline`: the agent's label, else its command read deterministically, else its title's first line, else a reading by kind), the command under it, the outcome and state chips, the output's tail and the diffs are the kit's (`/vendor/chat/tools.js`); `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
 | `harness-manage.js` | the Coding agents catalog as the managers' view says it (`catalogRows`, `modesWords`, `probeTargets`); the class editor's toolset and checklist are `classes.js`'s (`harnessNames`, `harnessWhy`) |
 | `harness-start.js` | starting a conversation with a coding agent: "Who answers" (`agentPicker`), the sandbox it starts in (`sandboxOptions`, `preferredSandbox`, `createPrefill`), the home's setup card (`setupOf`), a row's kind and the top bar's chip (`kindOf`, `topChip`), the new-chat dialog's part of the ask (`newChatPick`); `keepSandbox` keeps the next chat's sandbox one the coding agent picked fits (wired by `createApp`; `app.newClassId()` is the class a new ask starts in) |
-| `harness-ask.js` | a coding harness asking and driven, in words both views draw (below): a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
+| `harness-ask.js` | a coding harness asking and driven, in words both views draw (below) — the cards' words, the form, the slash menu's rule and the composer's words are xbind's chat kit's (`/vendor/chat/ask.js`); this module converts a park to the kit's blocks (`permBlock`, `askBlock`) and keeps its exports: a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`: names that start with what is typed, then names or descriptions containing it, at most eight), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
 | `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the sandbox badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`), a project's new sandbox (`projectSandbox`: the manager's defaults, internet when offered); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 | `homes.js`, `home-api.js`, `moves.js` | a partitioned instance's two homes (a person's own partition, the shared space): a conversation's home by its id, calls and streams sent there; a shared conversation that moved to your own space, followed (`movedTo`) |

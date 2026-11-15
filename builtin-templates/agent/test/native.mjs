@@ -161,13 +161,16 @@ ok('…and the composer empties', await page.waitForFunction(() => window.xbnPre
 await view.locator('xb-menu button[aria-label="More"]:visible').first().click();
 await view.locator('.pop button:has-text("Files (1)")').click();
 ok('Files is pushed', await titled('Files'));
-// an HTML file renders as a no-script island that loads nothing external
+// an HTML file renders as a no-script island that loads nothing external.
+// The view listens for its links (canvas rev 2, D208), so the reference
+// renderer keeps the frame same-origin to catch a click — sandboxed still,
+// and never with scripts: that is what "island" promises here
 await view.locator('xb-row:has-text("q3.html") .row-more').click();
 await view.locator('.pop button:has-text("Render")').click();
 ok('the render preview is pushed', await titled('q3.html'));
 ok('it draws the file', await page.waitForFunction(() => {
   const f = window.xbnPreview.view.shadowRoot.querySelector('xb-canvas iframe');
-  return f && f.contentDocument === null && f.srcdoc.includes('Q3 plan');
+  return f && f.hasAttribute('sandbox') && !f.sandbox.contains('allow-scripts') && f.srcdoc.includes('Q3 plan');
 }).then(() => true, () => false));
 const island = await page.evaluate(() => window.xbnPreview.view.shadowRoot.querySelector('xb-canvas iframe').srcdoc);
 // the renderer wraps an island in the app's own document (CanvasDocument.wrap, web/xb canvasDocument): ours is its body

@@ -4,10 +4,10 @@
  * org's page laid out as titled panels — members with role presets and
  * single-row membership writes (D53), IdP-group rules, delegation sets plus
  * the org's extra allowances, network sets (D54), owned tiles, its policy
- * ceiling, its tiles' resource ceilings (D203), deletion — with the
- * workspace-wide knobs under the list: default
+ * ceiling, its tiles' resource ceilings (D203), its constraints on agents
+ * (D229), deletion — with the workspace-wide knobs under the list: default
  * visibility (D27), new-account defaults + tile creation (D52), the
- * workspace policy ceiling (D20). Orgs are flat member lists with org-wide
+ * workspace policy ceiling (D20), the workspace's bounds on agents (D229). Orgs are flat member lists with org-wide
  * roles on org-OWNED tiles; the ws-admin delegates approval via
  * allowances/permission sets. This is the workspace-admin console — org
  * admins use tiles/organisations. Data arrives as properties; the drill-in
@@ -20,8 +20,10 @@ import { ruleLabel } from '/vendor/bx-netrules.js';
 import { parseAllow, fmtAllow, allowProblem, describeAllow } from '/vendor/bx-allow.js';
 import '/vendor/bx-multiselect.js';
 import '/vendor/limits-table.js'; // <bx-org-limits>: the org's per-tile resource ceilings (D203)
+import '/vendor/org-agents.js'; // <bx-org-agents>: an org's constraints on agents, its pin, the workspace's bounds (D229)
 import { base, orgsCss } from '../admin-css.js';
 import { targetDatalist, serviceDatalist, groupsDatalist, allowRows, WithDrafts, WithRouter, PRESETS, presetOf } from '../shared.js';
+import { hasLLM, xfetch } from './llm.js'; // <bx-llm-quota>: an org's LLM quota (D226)
 
 export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
   static properties = {
@@ -42,8 +44,10 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
     _polEdit: { state: true }, // policy-editor drafts, keyed '' (workspace) / org id
     _drafts: { state: true },  // click-through editor drafts (orgallow:<org>, ws:defaults, ws:newusers:*)
     _err: { state: true },     // the last API refusal (also reported to the router's slot)
+    _llm: { state: true },     // the LLM connector has a provider: an org's page has its quota (D226)
   };
   static styles = [base, orgsCss];
+  connectedCallback() { super.connectedCallback(); hasLLM().then((on) => { this._llm = on; }); }
 
   // The harness surface (routed here by the admin router's testApi).
   testApi() { return { ...this.draftApi(), org: this._org ?? null, openOrg: (id) => this._open(id) }; }
@@ -302,6 +306,8 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
       ${this._panel('workspace policy', 'pattern-keyed ceiling on what tiles may be granted, applied to EVERY tile (D20)', html`
         ${this._policyEditor('', this.wsPolicy)}
         <div class="foot">org and permission-set rows add on top; any deny wins; deny beats every allowance.</div>`)}
+      ${this._panel('agents', 'the workspace\'s bounds on agents, for EVERY tile — an org can only narrow them (D229)', html`
+        <bx-org-agents @org-agents-saved=${() => this._emit('bx-admin-refresh')}></bx-org-agents>`)}
       <p class="muted hint" style="margin-top:12px; max-width:70ch">
         Effective access is a union: workspace admin · tile OWNER (terminal) · org member level /
         org-admin terminal on org-owned tiles · org shares · a user's own entries · workspace
@@ -351,6 +357,15 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
       ${this._panel('resource ceilings', 'the most the org\'s admins may approve for each of its tiles — memory, disk, VM and sandbox sizes (D203); empty: no raise above the default', html`
         <bx-org-limits org=${o.id} .limits=${o.limits ?? {}} .fetcher=${(u, i) => window.xbin.fetch(u, i)}
           @org-limits-saved=${() => this._emit('bx-admin-refresh')}></bx-org-limits>`)}
+
+      ${this._panel('agents', 'what agents may do on this org\'s tiles — the workspace agent, the coding agents an agent session may run, the models that may see their data (D229)', html`
+        <bx-org-agents org=${o.id} .rules=${o.agents ?? null} .pin=${o.agentsPin ?? null} @org-agents-saved=${() => this._emit('bx-admin-refresh')}></bx-org-agents>`)}
+
+      ${this._panel('agents: pinned', 'rules a workspace admin pins on this org — its own admins can narrow them, never loosen them (D229)', html`
+        <bx-org-agents org=${o.id} pinned .pin=${o.agentsPin ?? null} @org-agents-saved=${() => this._emit('bx-admin-refresh')}></bx-org-agents>`)}
+
+      ${this._llm ? this._panel('LLM quota', 'what each member may use of the workspace\'s LLMs — it replaces the default for them; someone in several orgs gets the most generous (D226)', html`
+        <bx-llm-quota subject=${`org:${o.id}`} standalone .fetcher=${xfetch}></bx-llm-quota>`) : nothing}
 
       ${this._panel('danger zone', '', html`<div class="kv">
         <button class="act rm" @click=${() => this._deleteOrg(o)}>delete org…</button>

@@ -311,6 +311,92 @@ policies), which are now the *defaults*.
   one ignores `data/tile-limits.json`), and its next write of `users.json`
   drops the orgs' ceilings.
 
+## The LLM connector (D226)
+
+A workspace that never configures the connector runs exactly as before:
+its routes answer "not configured", no picker offers `xbin:llm`, and
+nothing is written under `data/llm/`.
+
+- **One thing an admin sees after the upgrade**: the setup card. While no
+  upstream exists and no admin has changed the connector, `GET /alerts`
+  carries one alert of kind `llm-setup` for workspace admins and the shell
+  an admin drives — nobody else gets it — whose words name `/xbin/llm` and
+  `bx llm upstream add`: a banner in an admin's shell, a card in the admin
+  console. Its `dismiss` route ends it for the workspace, for good; adding
+  an upstream ends it too. A host whose file locks every setting never
+  shows it.
+- **Old shells and admin consoles** (rule 4) have no LLM tab and no card.
+  They show the alert as a line of text, which is why the text names the
+  page; `/xbin/llm` is xbind's own page and needs no scaffold: a workspace
+  admin configures everything there (providers, default models, who may
+  call, quotas, usage), and everyone else reads their own usage and quota.
+  A shell or console that knows an alert's `dismiss` route dismisses it
+  with that (xbind accepts the post from the shell an admin drives); one
+  that doesn't shows the line until an admin stops the reminder on
+  `/xbin/llm` (*Stop reminding*) or adds a provider. Quota alerts
+  (`llm-quota`) are lines of text in the same way.
+- **The console's new files are siblings**: `tabs/llm.js`, imported
+  relatively; `admin.js`, `plain-tabs.js`, `shared.js` and the users and
+  organisations tabs keep their names. The tab's elements are xbind's
+  (`/vendor/llm-admin.js`, `/vendor/llm-quotas.js` and the modules they
+  import); those URLs are frozen like every `/vendor/` module a scaffold
+  imports (rule 3).
+- **Additive wire.** New: `POST /api/xbin/llm/setup/dismiss`, the page
+  `/xbin/llm`, alert kinds `llm-setup` and `llm-quota`; `GET /api/xbin/llm`
+  now answers `user` and `quota` to a person whose direct calls aren't
+  admitted, too (rule 2). The connector's alert kinds (`llm` with them)
+  are the first admin notices an admin's shell is answered: every other admin-only alert stays with
+  the admin's own sign-in and the admin console, as before.
+- **State.** `data/llm/setup.json` marks the card dismissed; an older xbind
+  ignores it. **Downgrading** below the connector leaves `data/llm/`
+  unread.
+
+## Agent constraints, preferences and session links (D229)
+
+With no rule set, nothing changes for anyone: every harness starts
+everywhere, `users.json` is byte for byte what it was, and no route answers
+differently.
+
+- **xbind-owned state, no migration.** An org's rules are `org.agents` and
+  the workspace's bounds a top-level `agents` key in `data/users.json`,
+  written only when they narrow something; a person's agent preferences are
+  `data/agent-prefs/<user>.json`, absent until their first write (rules 1,
+  9). `bx org agents` and `bx agent connection` are new commands (rule 6).
+- **Additive wire.** New routes (`/api/xbin/agents/policy`,
+  `PUT /orgs/<org>/agents`, `PUT /orgs/<org>/agents/pin`, `/api/xbin/agents/connection`,
+  `/api/xbin/agent/prefs`), a new optional query (`GET
+  /agent/providers?cwd=`: without it the answer is what it always was), new
+  optional fields (`agents` and `agentsPin` on an org; `origin` on a
+  session row and a history entry; `unavailable` on a provider row asked
+  with `&all=1`), a new event type (`agents`), a new frame
+  message (`xbin:open-session`) and `xbin.openSession` (rule 2). The one
+  new refusal — 403 from `POST /term/sessions` and `…/restart` for a
+  harness the tile's orgs don't allow, or one that can't run on the LLM
+  connector where a `models` rule or `connector-only` requires it — exists
+  only once an admin sets a rule, and carries the reason; a session
+  already running is never ended.
+- **The shipped app and older frames** ask `GET /agent/providers` without
+  `cwd`, list every harness, and show the refusal's reason when one is
+  picked that the tile doesn't allow. They ignore `origin`.
+- **The launcher's remembered choice** moves from the browser
+  (`localStorage['bx-term-lastkind']`) to the server on the first window a
+  person opens; the browser's record is still written and still answers
+  for the root token, `--no-auth` and — after a downgrade — an xbind
+  without the route.
+- **Old shells and admin consoles** (rule 4). `?tile=…&session=<id>` is a
+  plain link to the tile for a shell before D229 (it keeps the parameter it
+  doesn't know); `xbin.openSession` still opens a session whose tile is on
+  the page, and otherwise follows that link. The admin console's and the
+  organisations tile's agents panels arrive with `bx builtin update`; until
+  then `bx org agents` and the API set the same rules. The editor itself is
+  xbind's (`/vendor/org-agents.js`); the scaffold gained one file
+  (`tiles/organisations/agents.js`, imported relatively) and no entry file
+  moved.
+- **Downgrading** an xbind ignores the rules (every harness starts
+  everywhere again, as before D229) and the preferences file; an older
+  xbind that rewrites `users.json` drops the `agents` keys, as it drops
+  every key it doesn't know.
+
 ## What this does *not* promise
 
 - Undocumented internals: `.xbin/` contents, the on-disk shape of
@@ -325,6 +411,24 @@ policies), which are now the *defaults*.
 - Behaviour that `docs/changelog.md` marks **BREAKING** with a linked
   migration note under `/docs/changes/` — that note is the one place a
   workspace has to act after an upgrade.
+- A newer agent template on an older xbind. An instance of the agent
+  template is a copy in the workspace, and no upgrade rewrites it: an
+  instance you have keeps working on every later xbind, since nothing it
+  imports is removed or re-shaped (rules 2, 3 and 8). The other direction is
+  not promised. Template code written against a later xbind needs that
+  xbind: its backend may call SDK functions an older xbind's SDK lacks (it
+  then doesn't build), and its page is drawn with the chat kit xbind serves
+  (`/vendor/chat/…`, D224). The page asks for the kit's revision
+  (`/vendor/chat/rev.js`) before it loads anything from it; on an xbind
+  that serves none, or an older one, it shows "This agent needs xbind ≥ v…
+  — update xbind" in place of the app, and loads once xbind is updated. The
+  template's native view stands on the kit too (its models import
+  `/vendor/chat/tools.js` and `/vendor/chat/ask.js`), and a native view
+  cannot ask first: on such an xbind its `native.js` does not load, and the
+  app shows the tile's web page ([native.md](/docs/native.md) → Fallback),
+  which says the same. Update xbind before you
+  merge a newer template into an instance
+  ([frontend-kit.md](/docs/frontend-kit.md) `/vendor/chat/rev.js`).
 - Building Go tiles after a downgrade to an xbind older than a `go` line
   the workspace's modules use. xbind v0.3.64 and older write `go 1.24`
   into the root `go.work` and build every Go tile with it. Once any

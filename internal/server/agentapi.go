@@ -56,9 +56,39 @@ func (s *Server) SessionEvent(cwd string, ev term.SessionEvent) {
 	s.Hub.Publish(events.Event{Type: "session", Topic: "session." + ev.ID, Component: cwd, Data: ev})
 }
 
-// apiAgentProviders lists what this daemon can run.
+// apiAgentProviders lists what this daemon can run — with ?cwd=<tile>, what
+// an agent session may run on that tile: the harnesses its orgs and the
+// workspace allow, and that can run where the tile's sessions must (D229;
+// a harness left out is refused by POST /term/sessions with the reason).
+// With &all=1 the rest stay in the list, each carrying `unavailable`: the
+// reason — what a launcher shows instead of offering it. A tile the
+// caller can't read is answered as no tile: the whole catalog.
 func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
-	WriteJSON(w, http.StatusOK, agent.Providers())
+	provs := agent.Providers()
+	p := auth.PrincipalOf(r)
+	// (a tile's own credentials ask about their tile only: CanReadTile passes
+	// every element)
+	cwd := strings.Trim(r.URL.Query().Get("cwd"), "/")
+	if cwd == "" || s.Term == nil || !p.CanReadTile(cwd) || (p.Component != "" && p.Component != cwd) {
+		WriteJSON(w, http.StatusOK, provs)
+		return
+	}
+	type row struct {
+		agent.Provider
+		Unavailable string `json:"unavailable,omitempty"`
+	}
+	all := r.URL.Query().Get("all") == "1"
+	out := make([]row, 0, len(provs))
+	for _, pr := range provs {
+		err := s.Term.HarnessAllowed(p, cwd, pr.ID)
+		switch {
+		case err == nil:
+			out = append(out, row{Provider: pr})
+		case all:
+			out = append(out, row{Provider: pr, Unavailable: err.Error()})
+		}
+	}
+	WriteJSON(w, http.StatusOK, out)
 }
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,

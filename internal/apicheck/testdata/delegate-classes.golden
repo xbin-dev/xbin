@@ -19,6 +19,7 @@ DELETE /devices/{id}	never
 DELETE /grants	never
 DELETE /kv/{rest...}	never
 DELETE /limits	never
+DELETE /llm/upstreams/{name}	never
 DELETE /net-sets/{name}	never
 DELETE /orgs/{org}	never
 DELETE /orgs/{org}/members/{user}	never
@@ -46,7 +47,10 @@ GET /access-requests	never
 GET /access/{user}	refused
 GET /agent/history	read
 GET /agent/history/{id}/events	read
+GET /agent/prefs	refused
 GET /agent/providers	read
+GET /agents/connection	refused
+GET /agents/policy	refused
 GET /alerts	read	unconverted: refused until its listing is filtered
 GET /app-tunnel	never
 GET /app-tunnel/client	never
@@ -102,6 +106,12 @@ GET /ingress	never
 GET /ingress-routes	never
 GET /kv/{rest...}	never
 GET /limits	admin-read
+GET /llm	refused
+GET /llm/config	refused
+GET /llm/preferred	refused
+GET /llm/quotas	refused
+GET /llm/usage	refused
+GET /llm/v1/models	refused
 GET /login/methods	refused
 GET /logs	read
 GET /native-runtime	refused
@@ -242,6 +252,10 @@ POST /invite/redeem	never
 POST /lifecycle	never
 POST /limits	never
 POST /limits/dismiss	never
+POST /llm/setup/dismiss	refused
+POST /llm/upstreams/{name}/test	never
+POST /llm/v1/chat/completions	refused
+POST /llm/v1/responses	refused
 POST /login	never
 POST /notify	never
 POST /orgs	never
@@ -295,6 +309,8 @@ POST /vault-seal	never
 POST /vault-unseal	never
 POST /web-ticket	never
 PUT /access	never
+PUT /agent/prefs	never
+PUT /agents/policy	never
 PUT /app-tunnel	never
 PUT /blob/{rest...}	never
 PUT /branding	never
@@ -308,8 +324,13 @@ PUT /devices/limits	never
 PUT /iface-instances	never
 PUT /ingress-hosts	never
 PUT /kv/{rest...}	never
+PUT /llm/config	never
+PUT /llm/quotas	never
+PUT /llm/upstreams/{name}	never
 PUT /native-runtime	never
 PUT /net-sets/{name}	never
+PUT /orgs/{org}/agents	never
+PUT /orgs/{org}/agents/pin	never
 PUT /orgs/{org}/limits	never
 PUT /orgs/{org}/members/{user}	never
 PUT /orgs/{org}/policy	never

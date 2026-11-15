@@ -146,9 +146,26 @@ says so):
    blocks) under `sdk/acp/testdata/`, read by Go, node and Swift tests. A
    spike on the `agentlongperf` harness pass settles templates vs elements
    for rows and records today's numbers.
-2. **F1 — markdown.** One module, one `Marked` instance.
+2. **F1 — markdown.** One module, one `Marked` instance. *Landed (D224),
+   with one change to the table above:* the renderer is
+   `/vendor/chat/md.js` (lazy highlighter) and `/vendor/bx-md.js` is that
+   module with the highlighter loaded up front — scaffold copies of
+   `shell-blocks.js` in workspaces call `md()` once and can't follow a
+   lazy highlighter. `chat-md.js` re-exports `/vendor/chat/md.js`.
+   rt-markdown has its own instance and keeps its stricter link rule (one
+   shared rule would change output). The guard (`/vendor/chat/rev.js`,
+   the template's `boot.js`) landed here rather than in F4.
 3. **F2 — models.** `chat/tools.js`, `chat/ask.js`; old modules re-export;
-   Swift fixtures regenerated.
+   Swift fixtures regenerated. *Landed (D224 "F2",
+   `plans/wsagent/chat-kit-spec.md` §10), with these changes to the table
+   above:* `patchLines` stays, in the kit (`bx-code.js` needs lit and
+   highlight.js, so a tile page draws a patch plain first); plan feedback
+   is `permAnswer` → `{verdict, feedback}` and each host still sends it its
+   own way; the Agent tab's cards keep reading its old record until F3 —
+   the fold already holds the kit's record beside it — so the bypass
+   confirmation and the reading by kind in a headline reach the tab with
+   its views. Three `stripAnsi` outputs of the Swift parity corpus changed
+   and the port's regex with them.
 4. **F3 — views.** The kit; `<bx-agent>` moves onto it. `agent-cards.js`
    and `agent-css.js` stay as re-exports.
 5. **F4 — AgTT onto the kit**, one view at a time (tool cards, asks,
@@ -235,6 +252,17 @@ shared fixtures)
 | `guided.go`: the guided sign-in driver over an `Exec` interface | `harness_guided.go` | a new server-side `/agent/signin` | `harness_guided.go` becomes an adapter | see B4 |
 | provider table: how to point each CLI at the LLM connector | new | session spawn | harness spawn | OpenCode works by default |
 
+Status (2026-11-14, branch `wsagent/a2-core`, D225): the first five rows
+are in — `toolrec.go`, `escalation.go`, `queue.go`, `authstate.go`,
+`summary.go`, each adopted by both hosts — with one addition to the table:
+`permission.request`'s `explicit` is set by the client itself (so the
+pending list and the page state carry it), and tile agents end a detached
+turn with a `turn.end` marked `detached`. Sizes: the template's backend
+lost 123 lines net (313 out, 190 in; `harness_map.go` 896 → 828), xbind's
+existing files stayed level (142 out, 146 in) and gained the 158 lines of
+`agentdetached.go`; the five SDK files are 1,094 lines. `guided.go` and the
+provider table wait for B4 and the connector.
+
 **B2 — `sdk/llm`** (standard library only): wire types and usage extraction
 for Chat Completions and Responses, streaming included, and the price-table
 type. Used by the new connector (`internal/llm`), llm-gw's `stats.go`,
@@ -248,6 +276,41 @@ shares with the Projects coordinator becomes one layer with two profiles
 behind a person's question, status words, the wiki as notebook, and the
 research sub-agent with a `codeReader` interface (sandbox files for
 Projects, `/code/*` through delegation for the workspace).
+
+Status (2026-11-15, branch `wsagent/c1-coordkit`): done as a
+behaviour-neutral refactor — Projects' prompts, tool lists and refusals
+are byte-identical to the base build's, and its tests pass unmodified.
+
+- **Profiles** (`_backend/coord_profile.go`): `coordProfile` — origin,
+  forced class, denials, tool allowlist, limits, status words, and the
+  hooks `Is`, `Resolve`, `Pending`, `Deliver`, `Prompt`, `Knowledge`.
+  `project` is the first (`projects_coord_profile.go`); `workspace` is
+  registered empty (`coord_workspace.go`) and nothing stamps its origin.
+  The kit resolves the coordinator and holds the lane on every call
+  (`coord_tools.go`), coalesces wakes and writes the updates message
+  (`coord_wake.go`), words a park (`coord_hold.go`) and assembles the
+  prompt block from parts (`coord_prompt.go`).
+- **Research** (`coord_research.go`, `coord_reader.go`): `researchSpawn`
+  for any binding; the child's tools are defined against `codeReader`
+  (`Read`, `Ls`, `Glob`, `Grep`, `Git`), with git only for a reader kind
+  that declares its subcommands. `CodeReadBinding` gained `kind`; the
+  sandbox reader is kind `""` (`projects_coord_reader.go`).
+- **Knowledge store** (`coord_know*.go`): `knowOwner{Kind, Key}` →
+  `DB.knowID`. A project's store id is its project id, so no row, index or
+  table changed and **no migration runs**; other owners get negative ids
+  from the new `wiki_owners` table. (Adding an owner column was rejected:
+  an FTS5 table can't gain a column, and the unique `(project_id, slug)`
+  index would have had to be replaced — one an older build re-creates at
+  start and could then fail on.)
+- **Left for the workspace package**: the `workspace` class and the code
+  that makes the conversation (with origin `workspace`); its allowlist,
+  tools and hooks; a remote `codeReader` kind and its binding fields; a
+  notebook `knowKind`, its `Knowledge` hook, and the wording of the wiki
+  tools' descriptions and of `errNoWiki` for a notebook (they still say
+  "this project's wiki"); how a message to a tile agent session is held
+  behind its question (`coordHolds` is the predicate; Projects' queue is
+  not reusable for a session that lives in xbind); `coordMarkers` if its
+  updates wear a header of their own.
 
 **B4 — sign-in.** xbind runs the guided flow server-side with
 `acp/guided.go` and holds per-user sign-ins (`plans/workspace-agent.md`

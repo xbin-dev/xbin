@@ -3,6 +3,8 @@
 // GPT-5/o-series model's reasoning — as summaries — and, with store:false plus
 // include:[reasoning.encrypted_content], hands back reasoning items that are
 // replayed on the next turn so the model keeps its chain across tool calls.
+// The wire's types — the request, its input items, an answer, a stream event
+// and its names, a usage block — are the SDK's (sdk/llm, D226).
 package main
 
 import (
@@ -11,12 +13,14 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/xbin-dev/xbin/sdk/llm"
 )
 
 type responsesCodec struct{}
 
 func (responsesCodec) name() string { return "responses" }
-func (responsesCodec) path() string { return "/v1/responses" }
+func (responsesCodec) path() string { return llm.PathResponses }
 
 // unsupported recognises a gateway or upstream that has no Responses API, so
 // the call can fall back to Chat Completions.
@@ -34,47 +38,6 @@ func (responsesCodec) unsupported(code int, body string) bool {
 		}
 	}
 	return false
-}
-
-type respTool struct {
-	Type        string         `json:"type"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters"`
-}
-
-type respReasoning struct {
-	Effort  string `json:"effort,omitempty"`
-	Summary string `json:"summary,omitempty"`
-}
-
-type respBody struct {
-	Model        string         `json:"model"`
-	Instructions string         `json:"instructions,omitempty"`
-	Input        []any          `json:"input"`
-	Tools        []respTool     `json:"tools,omitempty"`
-	Stream       bool           `json:"stream,omitempty"`
-	Reasoning    *respReasoning `json:"reasoning,omitempty"`
-	Store        bool           `json:"store"`
-	Include      []string       `json:"include,omitempty"`
-}
-
-type respMsg struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"`
-}
-
-type respFuncCall struct {
-	Type      string `json:"type"` // function_call
-	CallID    string `json:"call_id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
-
-type respFuncOutput struct {
-	Type   string `json:"type"` // function_call_output
-	CallID string `json:"call_id"`
-	Output string `json:"output"`
 }
 
 // respContent maps a chat-shaped message content (a string, or a parts array
@@ -117,15 +80,15 @@ func respContent(c any) any {
 }
 
 func (responsesCodec) encode(req LLMRequest) ([]byte, error) {
-	b := respBody{Model: req.Model, Stream: req.Stream, Input: []any{}}
+	b := llm.ResponsesRequest{Model: req.Model, Stream: req.Stream, Input: []any{}}
 	if isReasoningModel(req.Model) || req.ReasoningEffort != "" {
 		// Only a reasoning model accepts these; a non-reasoning model forced
 		// onto this wire would 400 on them.
-		b.Reasoning = &respReasoning{Effort: req.ReasoningEffort, Summary: "auto"}
+		b.Reasoning = &llm.Reasoning{Effort: req.ReasoningEffort, Summary: "auto"}
 		b.Include = []string{"reasoning.encrypted_content"}
 	}
 	for _, t := range req.Tools {
-		b.Tools = append(b.Tools, respTool{Type: "function", Name: t.Function.Name,
+		b.Tools = append(b.Tools, llm.ResponsesTool{Type: "function", Name: t.Function.Name,
 			Description: t.Function.Description, Parameters: t.Function.Parameters})
 	}
 	sawSystem := false
@@ -137,9 +100,9 @@ func (responsesCodec) encode(req LLMRequest) ([]byte, error) {
 				b.Instructions = asString(m.Content)
 				continue
 			}
-			b.Input = append(b.Input, respMsg{Role: "developer", Content: asString(m.Content)})
+			b.Input = append(b.Input, llm.InputMessage{Role: "developer", Content: asString(m.Content)})
 		case "user":
-			b.Input = append(b.Input, respMsg{Role: "user", Content: respContent(m.Content)})
+			b.Input = append(b.Input, llm.InputMessage{Role: "user", Content: respContent(m.Content)})
 		case "assistant":
 			if r := m.Replay; r != nil && r.Wire == "responses" && r.Model == req.Model && len(r.ReasoningRaw) > 0 {
 				var items []json.RawMessage
@@ -150,63 +113,42 @@ func (responsesCodec) encode(req LLMRequest) ([]byte, error) {
 				}
 			}
 			if t := asString(m.Content); t != "" {
-				b.Input = append(b.Input, respMsg{Role: "assistant", Content: t})
+				b.Input = append(b.Input, llm.InputMessage{Role: "assistant", Content: t})
 			}
 			for _, tc := range m.ToolCalls {
-				b.Input = append(b.Input, respFuncCall{Type: "function_call", CallID: tc.ID,
+				b.Input = append(b.Input, llm.FunctionCall{Type: "function_call", CallID: tc.ID,
 					Name: tc.Function.Name, Arguments: tc.Function.Arguments})
 			}
 		case "tool":
-			b.Input = append(b.Input, respFuncOutput{Type: "function_call_output", CallID: m.ToolCallID, Output: asString(m.Content)})
+			b.Input = append(b.Input, llm.FunctionCallOutput{Type: "function_call_output", CallID: m.ToolCallID, Output: asString(m.Content)})
 		}
 	}
 	return json.Marshal(b)
 }
 
-type respUsage struct {
-	InputTokens         int `json:"input_tokens"`
-	OutputTokens        int `json:"output_tokens"`
-	TotalTokens         int `json:"total_tokens"`
-	OutputTokensDetails *struct {
-		ReasoningTokens int `json:"reasoning_tokens"`
-	} `json:"output_tokens_details"`
-}
-
-func (u *respUsage) block() usageBlock {
-	b := usageBlock{PromptTokens: u.InputTokens, CompletionTokens: u.OutputTokens, TotalTokens: u.TotalTokens}
+// respUsageBlock is a usage block as its provider counted it, with the
+// total summed when it gave none.
+func respUsageBlock(u *llm.ResponsesUsage) usageBlock {
+	b := usageBlock{PromptTokens: int(u.InputTokens), CompletionTokens: int(u.OutputTokens), TotalTokens: int(u.TotalTokens)}
 	if b.TotalTokens == 0 {
-		b.TotalTokens = u.InputTokens + u.OutputTokens
+		b.TotalTokens = b.PromptTokens + b.CompletionTokens
 	}
 	if u.OutputTokensDetails != nil {
-		b.ReasoningTokens = u.OutputTokensDetails.ReasoningTokens
+		b.ReasoningTokens = int(u.OutputTokensDetails.ReasoningTokens)
 	}
 	return b
 }
 
-// respItem is one element of a response's `output` array.
-type respItem struct {
-	Type      string `json:"type"`
-	ID        string `json:"id"`
-	CallID    string `json:"call_id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-	Summary   []struct {
-		Text string `json:"text"`
-	} `json:"summary"`
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
+// respResponse and respEvent are the wire's answer and stream event with
+// the answer's error member kept as it came (upstreamError, llm_chat.go).
+type respResponse struct {
+	llm.Response
+	Error json.RawMessage `json:"error"`
 }
 
-type respResponse struct {
-	Status            string            `json:"status"`
-	Output            []json.RawMessage `json:"output"`
-	Usage             *respUsage        `json:"usage"`
-	IncompleteDetails *struct {
-		Reason string `json:"reason"`
-	} `json:"incomplete_details"`
-	Error json.RawMessage `json:"error"`
+type respEvent struct {
+	llm.ResponsesEvent
+	Response *respResponse `json:"response"`
 }
 
 // respAcc accumulates one reply from Responses events or an output array.
@@ -259,7 +201,7 @@ func (a *respAcc) emitCall(pos int) {
 // item folds a finished output item: reasoning is kept raw for replay (and its
 // summaries shown if no deltas carried them), calls get their final arguments.
 func (a *respAcc) item(outputIndex int, raw json.RawMessage, streamed bool) {
-	var it respItem
+	var it llm.OutputItem
 	if json.Unmarshal(raw, &it) != nil {
 		return
 	}
@@ -295,7 +237,7 @@ func (a *respAcc) item(outputIndex int, raw json.RawMessage, streamed bool) {
 
 func (a *respAcc) complete(r *respResponse) {
 	if r.Usage != nil {
-		a.usage = r.Usage.block()
+		a.usage = respUsageBlock(r.Usage)
 	}
 	if r.IncompleteDetails != nil && r.IncompleteDetails.Reason != "" {
 		a.finish = r.IncompleteDetails.Reason
@@ -320,19 +262,6 @@ func (a *respAcc) reply() LLMReply {
 	return rep
 }
 
-type respEvent struct {
-	Type         string          `json:"type"`
-	OutputIndex  int             `json:"output_index"`
-	SummaryIndex int             `json:"summary_index"`
-	ContentIndex int             `json:"content_index"`
-	Delta        string          `json:"delta"`
-	Arguments    *string         `json:"arguments"`
-	Item         json.RawMessage `json:"item"`
-	Response     *respResponse   `json:"response"`
-	Message      string          `json:"message"`
-	Code         any             `json:"code"`
-}
-
 func (responsesCodec) parseStream(r io.Reader, emit func(LLMEvent)) (LLMReply, error) {
 	a := newRespAcc(emit)
 	err := sseData(r, func(data []byte) error {
@@ -341,41 +270,41 @@ func (responsesCodec) parseStream(r io.Reader, emit func(LLMEvent)) (LLMReply, e
 			return nil
 		}
 		switch ev.Type {
-		case "response.output_text.delta":
+		case llm.EventOutputTextDelta:
 			if ev.Delta != "" {
 				a.text.WriteString(ev.Delta)
 				a.emit(LLMEvent{Kind: "text", Text: a.text.String()})
 			}
-		case "response.reasoning_summary_text.delta":
+		case llm.EventReasoningSummaryDelta:
 			a.addThought(fmt.Sprintf("%d.%d", ev.OutputIndex, ev.SummaryIndex), ev.Delta)
-		case "response.reasoning_text.delta":
+		case llm.EventReasoningTextDelta:
 			a.addThought(fmt.Sprintf("%d.r%d", ev.OutputIndex, ev.ContentIndex), ev.Delta)
-		case "response.output_item.added":
-			var it respItem
+		case llm.EventOutputItemAdded:
+			var it llm.OutputItem
 			if json.Unmarshal(ev.Item, &it) == nil && it.Type == "function_call" {
 				tc, pos := a.call(ev.OutputIndex)
 				tc.ID, tc.Function.Name = it.CallID, it.Name
 				tc.Function.Arguments += it.Arguments
 				a.emitCall(pos)
 			}
-		case "response.function_call_arguments.delta":
+		case llm.EventFunctionArgsDelta:
 			tc, pos := a.call(ev.OutputIndex)
 			tc.Function.Arguments += ev.Delta
 			a.emitCall(pos)
-		case "response.function_call_arguments.done":
+		case llm.EventFunctionArgsDone:
 			if ev.Arguments != nil {
 				tc, _ := a.call(ev.OutputIndex)
 				tc.Function.Arguments = *ev.Arguments
 			}
-		case "response.output_item.done":
+		case llm.EventOutputItemDone:
 			if len(ev.Item) > 0 {
 				a.item(ev.OutputIndex, ev.Item, true)
 			}
-		case "response.completed", "response.incomplete":
+		case llm.EventCompleted, llm.EventIncomplete:
 			if ev.Response != nil {
 				a.complete(ev.Response)
 			}
-		case "response.failed":
+		case llm.EventFailed:
 			msg := "the model's response failed"
 			if ev.Response != nil {
 				if e := upstreamError(ev.Response.Error); e != nil {
@@ -383,7 +312,7 @@ func (responsesCodec) parseStream(r io.Reader, emit func(LLMEvent)) (LLMReply, e
 				}
 			}
 			return &streamError{msg: "llm upstream error: " + msg}
-		case "error":
+		case llm.EventError:
 			msg := ev.Message
 			if msg == "" {
 				msg = string(data)

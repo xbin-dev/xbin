@@ -39,14 +39,15 @@ import (
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // The needs a push is sent for (GET /needs reasons).
 const (
-	needQuestion = "question"
-	needApproval = "approval"
+	needQuestion = acp.NeedQuestion
+	needApproval = acp.NeedApproval
 	needFailed   = "failed"
-	needLogin    = "login" // a coding agent waits for a sign-in (D147 §4.3.9)
+	needLogin    = acp.NeedLogin // a coding agent waits for a sign-in (D147 §4.3.9)
 )
 
 type needsPusher struct {
@@ -138,10 +139,7 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 			ownerOnly = pend.Grant != ""
 		} else {
 			state = needQuestion
-			body = clip(plainText(run.Result), 240)
-			if body == "" {
-				body = "The agent is waiting for your answer."
-			}
+			body = acp.Need{Kind: acp.NeedQuestion, What: plainText(run.Result)}.Text() // the question, else "The agent is waiting for your answer."
 			fp = run.Result
 		}
 	case run.Status == statusIdle && run.ParentID == 0:
@@ -260,18 +258,22 @@ func harnessNeed(run *Run, p pendingState) (state, body, fp string) {
 }
 
 // harnessNeedOf is harnessNeed for the coding agent called name.
+// The words are sdk/acp's (Need: the ones xbind's notifications use for a
+// tile agent session).
 func harnessNeedOf(name string, p pendingState) (state, body, fp string) {
+	n := acp.Need{Kind: acp.NeedQuestion, Agent: name}
 	switch p.Kind {
 	case "login":
-		return needLogin, name + " needs you to sign in to it.", p.Park
+		n.Kind = acp.NeedLogin
 	case "approval":
-		what := "a command"
+		n.Kind = acp.NeedApproval
 		if t := p.Harness.Tool; t != nil {
-			what = orStr(t.Title, orStr(t.Label, orStr(t.Kind, what)))
+			n.What = orStr(t.Title, orStr(t.Label, t.Kind))
 		}
-		return needApproval, clip(name+" wants to run "+what, 200) + " — approve or deny.", p.Park
+	default:
+		n.What = plainText(p.Harness.Message)
 	}
-	return needQuestion, clip(orStr(plainText(p.Harness.Message), name+" is waiting for your answer."), 240), p.Park
+	return n.Kind, n.Text(), p.Park
 }
 
 // person: an owner or member that is a person (not unowned, not a component).
