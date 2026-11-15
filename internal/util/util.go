@@ -142,15 +142,16 @@ func SealedRefusal(path, what string) string {
 }
 
 // SealedNameMax is the longest name of a sealed component: with it
-// "xbin~<name>" is at most the 24 characters CompKey keeps of a path, so
-// the readable part of a sealed component's key is never cut short. A
-// longer name would share that part with every tile path beginning
-// "xbin~<its first 19 characters>", and CompKey's other part is 32 bits of
-// a hash — few enough to grind a tile path into the same key (its log,
-// build and archive names). Uncut, exactly one tile path has the same
-// readable part: the top-level "xbin~<name>", whose hash the table check
-// compares (sealed.Load).
-const SealedNameMax = 19
+// "xbin~<name>" is SHORTER than the 24 characters CompKey keeps of a path.
+// CompKey is that readable part and 32 bits of a hash — few enough to
+// grind a path into a chosen value — so what keeps a tile's key from being
+// a sealed component's is the readable part: a tile path cut to 24
+// characters never equals a 23-character one, and the only tile path whose
+// whole readable part is "xbin~<name>" is the top-level tile of that name
+// (reserved at every creation path, broker.guardNewComponentTree; its hash
+// is compared when the table loads, sealed.Load). At exactly 24 the cut
+// form of every path beginning "xbin~<name>" would be the same.
+const SealedNameMax = 18
 
 // SealedComponentPath reports whether p has the shape of a sealed
 // component's own path: xbin/<name>, the name lowercase letters, digits

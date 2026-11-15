@@ -537,3 +537,40 @@ func TestSealedSpellingsWhereNamesAreKept(t *testing.T) {
 		}
 	}
 }
+
+// A tile whose path maps to a sealed component's data key ("/" and "~" are
+// one key: xbin~fix beside xbin/fix) declares nothing, in any deployment —
+// a deployment's own scope.json used to bring its names back over the
+// sealed scope's data — and no such tile is created.
+func TestSealedDataKeyIsNoTilesInAnyDeployment(t *testing.T) {
+	b := sealedBroker(t)
+	dir := filepath.Join(b.Reg.Root, "xbin~fix")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"index.html": "<html></html>", "scope.json": `{"resources":{"state":{"type":"kv"},"files":{"type":"blob"}}}`} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if b.Reg.HoldsScopeKey("xbin~fix") || !b.Reg.HoldsScopeKey("xbin/fix") {
+		t.Fatal("the sealed scope doesn't hold the key it shares with xbin~fix")
+	}
+	theirs := &registry.ScopeManifest{Resources: map[string]registry.Resource{"state": {Type: "kv"}, "files": {Type: "blob"}}}
+	for _, dep := range []string{"", "main", "dev"} {
+		if got, err := b.declaredFrom("xbin~fix", theirs, dep); len(got) != 0 {
+			t.Errorf("xbin~fix declares %v in deployment %q (%v): over the sealed scope's data", got, dep, err)
+		}
+	}
+	if got, _ := b.declaredIn("xbin/fix", "main"); got["state"].Type != "kv" {
+		t.Errorf("the sealed scope's own declarations: %v", got)
+	}
+	for path, ok := range map[string]bool{"xbin~new": false, "xbin~fix/sub": false, "xbin~": false, "apps/xbin~x": true, "xbinx": true, "apps/fresh": true} {
+		if err := b.guardNewComponentTree(path); (err == nil) != ok {
+			t.Errorf("guardNewComponentTree(%q) = %v, want allowed=%v", path, err, ok)
+		}
+	}
+}

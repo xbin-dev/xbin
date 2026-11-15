@@ -53,19 +53,19 @@ func open(t *testing.T, ws string, o Options, specs ...Spec) *Set {
 
 func TestTableValidation(t *testing.T) {
 	bad := map[string]Spec{
-		"a reserved identity":        {Name: "cron", Source: fixture("")},
-		"the mail doorbell's":        {Name: "mail", Source: fixture("")},
-		"an uppercase name":          {Name: "Fix", Source: fixture("")},
-		"a nested name":              {Name: "a/b", Source: fixture("")},
-		"no name":                    {Source: fixture("")},
-		"a name CompKey would cut":   {Name: "abcdefghijklmnopqrst", Source: fixture("")}, // 20 characters
-		"a provider for no slot":     {Name: "fix", Source: fixture(""), Providers: map[string][]string{"llm": {"apps/gw"}}},
-		"a sealed provider":          {Name: "fix", Source: fixture(""), Slots: []string{"llm"}, Providers: map[string][]string{"llm": {"xbin/other"}}},
-		"a provider's instance":      {Name: "fix", Source: fixture(""), Slots: []string{"llm"}, Providers: map[string][]string{"llm": {"apps/gw#a"}}},
-		"a slot it doesn't have":     {Name: "fix", Source: fixture(""), Slots: []string{"mcp"}},
-		"global without user":        {Name: "fix", Source: fixture(""), Partition: []string{"global"}},
-		"a grant without a role":     {Name: "fix", Source: fixture(""), Grants: []registry.Use{{Target: "cap:open-links"}}},
-		"a source without xbin.json": {Name: "fix", Source: fstest.MapFS{"index.html": {Data: []byte("x")}}},
+		"a reserved identity":             {Name: "cron", Source: fixture("")},
+		"the mail doorbell's":             {Name: "mail", Source: fixture("")},
+		"an uppercase name":               {Name: "Fix", Source: fixture("")},
+		"a nested name":                   {Name: "a/b", Source: fixture("")},
+		"no name":                         {Source: fixture("")},
+		"a name as long as CompKey's cut": {Name: "abcdefghijklmnopqrs", Source: fixture("")}, // 19: xbin~<name> is 24
+		"a provider for no slot":          {Name: "fix", Source: fixture(""), Providers: map[string][]string{"llm": {"apps/gw"}}},
+		"a sealed provider":               {Name: "fix", Source: fixture(""), Slots: []string{"llm"}, Providers: map[string][]string{"llm": {"xbin/other"}}},
+		"a provider's instance":           {Name: "fix", Source: fixture(""), Slots: []string{"llm"}, Providers: map[string][]string{"llm": {"apps/gw#a"}}},
+		"a slot it doesn't have":          {Name: "fix", Source: fixture(""), Slots: []string{"mcp"}},
+		"global without user":             {Name: "fix", Source: fixture(""), Partition: []string{"global"}},
+		"a grant without a role":          {Name: "fix", Source: fixture(""), Grants: []registry.Use{{Target: "cap:open-links"}}},
+		"a source without xbin.json":      {Name: "fix", Source: fstest.MapFS{"index.html": {Data: []byte("x")}}},
 	}
 	for what, sp := range bad {
 		if _, err := Load([]Spec{sp}); err == nil {
@@ -79,14 +79,22 @@ func TestTableValidation(t *testing.T) {
 	// top-level xbin~<name> shares its readable part, and that one's hash
 	// differs (Load checks it) — a tile path can't be ground into a sealed
 	// component's key.
-	long := "abcdefghijklmnopqrs" // util.SealedNameMax characters
+	long := "abcdefghijklmnopqr" // util.SealedNameMax characters
 	set, err := Load([]Spec{{Name: long, Source: fixture("")}})
 	if err != nil || len(long) != util.SealedNameMax {
 		t.Fatalf("a name of the longest length: %v", err)
 	}
 	key := util.CompKey(set.Components()[0].Path)
-	if !strings.HasPrefix(key, "xbin~"+long+"-") || key == util.CompKey("xbin~"+long) || key == util.CompKey("xbin~"+long+"/x") || key == util.CompKey("xbin~"+long+"x") {
-		t.Errorf("its key %s is cut, or a tile's", key)
+	if !strings.HasPrefix(key, "xbin~"+long+"-") || key == util.CompKey("xbin~"+long) {
+		t.Errorf("its key %s is cut, or the same-named tile's", key)
+	}
+	// no longer tile path shares its readable part, whatever its hash: the
+	// cut form of such a path is 24 characters, the sealed one's 23
+	readable := func(k string) string { return k[:strings.LastIndexByte(k, '-')] }
+	for _, tile := range []string{"xbin~" + long + "x", "xbin~" + long + "/x", "xbin~" + long + "~x", "xbin~" + long + "xyzxyzxyz/deep"} {
+		if readable(util.CompKey(tile)) == readable(key) {
+			t.Errorf("the tile path %s has the sealed component's readable key part %q", tile, readable(key))
+		}
 	}
 	if util.SealedComponentPath("xbin/"+long+"t") || !util.SealedComponentPath("xbin/"+long) {
 		t.Error("util.SealedComponentPath and the table disagree about the longest name")

@@ -145,7 +145,7 @@ var reservedNames = map[string]bool{"cron": true, "bus": true, "mail": true}
 
 // nameRe is a sealed component's name: at most util.SealedNameMax
 // characters, so that its key is never a cut-short one (util.CompKey).
-var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,18}$`)
+var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,17}$`)
 
 // Options is what a boot knows that decides how the table's components run.
 type Options struct {
