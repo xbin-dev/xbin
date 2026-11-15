@@ -32,6 +32,7 @@ package term
 // everything they ask.
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"strings"
@@ -172,12 +173,14 @@ func (m *Manager) delegateOpen(p auth.Principal, a *AgentOpen, rel string, prov 
 		// an agent's settings can carry its permission mode under another id
 		return "", "", who + "starting without asking may choose the tile agent's model: every other option needs the person's approval"
 	}
-	mode = d.Prefs.Mode
-	if mode == "" {
-		mode = prov.DefaultMode
-		if !prov.Safe(mode) {
-			return "", "", who + "starting without asking needs a mode known to ask its person: choose one for " + prov.ID + " in the agent preferences"
-		}
+	if d.Provider != prov.ID {
+		// the preference was read for the harness the request named; what
+		// opens (a resumed session's harness, say) is another
+		return "", "", who + "starts without asking only the harness its person's preference is for: that preference is for " + cmp.Or(d.Provider, "none") + ", and this would open " + prov.ID
+	}
+	mode = cmp.Or(d.Prefs.Mode, prov.DefaultMode)
+	if !prov.Safe(mode) { // whatever the store handed over: never a mode that asks nothing, unasked
+		return "", "", who + "starting without asking needs a mode known to ask its person: choose one for " + prov.ID + " in the agent preferences"
 	}
 	a.NoAPI = !d.Prefs.API
 	return mode, d.Prefs.Net, ""

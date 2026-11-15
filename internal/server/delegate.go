@@ -834,7 +834,7 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 			return nil, http.StatusForbidden, "needs-approval", "starting a tile agent needs its person's approval" + ask
 		}
 		row.Under = "preference"
-		return &term.DelegateStart{Prefs: &prefs}, 0, "", ""
+		return &term.DelegateStart{Prefs: &prefs, Provider: provider}, 0, "", "" // the harness the preference was read for: what opens must be it
 	}
 	return nil, http.StatusForbidden, "needs-approval", "this needs its person's approval" + ask
 }

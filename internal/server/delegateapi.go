@@ -512,8 +512,12 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	}
 	return map[string]any{
 		"tile": eff.Tile, "provider": eff.Provider.ID, "providerName": eff.Provider.Name, "mode": eff.Mode,
-		"asks":    eff.Provider.Safe(eff.Mode), // false: this mode lets the tile agent act without asking
-		"options": options,                     // every setting the start carries; none of them can change the mode
+		// false: this mode lets the tile agent act without asking. The mode
+		// alone decides it: a delegate's start is strict (acp.Config.Strict)
+		// — the mode is in force or the session ends, and no option but a
+		// model or a thinking level is set
+		"asks":    eff.Provider.Safe(eff.Mode),
+		"options": options, // every setting the start carries; none of them can change the mode
 		"net":     b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": options["model"], "name": b.Name, "resume": eff.Resumes,
 	}, ""
 }

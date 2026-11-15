@@ -29,7 +29,7 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 	delegate := auth.Principal{UserID: "alice", User: alice, Via: "delegate", Agent: holder, AgentModel: "m1"}
 	reader := &users.User{ID: "rita", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelRead}}
 	approved := &DelegateStart{Approved: true, Provider: "fake", Mode: "ask"}
-	prefs := &DelegateStart{Prefs: &delegation.StartPrefs{}}
+	prefs := &DelegateStart{Provider: "fake", Prefs: &delegation.StartPrefs{}}
 	refused := func(name string, p auth.Principal, a AgentOpen, want string) {
 		t.Helper()
 		if info, code, err := m.OpenAgentWith(p, a); code != 403 || err == nil || !strings.Contains(err.Error(), want) {
@@ -122,12 +122,17 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 		t.Fatalf("approved, in yolo: %d %v %+v", code, err, info)
 	}
 	m.Kill(info.ID)
-	// a preference may name a mode
-	info, code, err = m.OpenAgentWith(delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Prefs: &delegation.StartPrefs{Mode: "yolo", API: true}}})
-	if err != nil || code != 200 || info.Mode != "yolo" {
+	// a preference may name a mode — one known to ask, checked here again
+	// whatever the store handed over (the second review's N5), and only
+	// for the harness the preference was asked about
+	info, code, err = m.OpenAgentWith(delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Provider: "fake", Prefs: &delegation.StartPrefs{Mode: "ask", API: true}}})
+	if err != nil || code != 200 || info.Mode != "ask" {
 		t.Fatalf("a preference's mode: %d %v %+v", code, err, info)
 	}
 	m.Kill(info.ID)
+	refused("a preference naming a mode that asks nothing", delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Provider: "fake", Prefs: &delegation.StartPrefs{Mode: "yolo", API: true}}}, "known to ask")
+	refused("a preference asked about another harness", delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Provider: "claude", Prefs: &delegation.StartPrefs{}}}, "preference is for claude")
+	refused("a preference asked about no harness", delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Prefs: &delegation.StartPrefs{}}}, "preference is for")
 	// the person's own sessions carry no origin
 	info, code, err = m.OpenAgentWith(person, AgentOpen{Cwd: "apps/x", Provider: "fake", Mode: "yolo"})
 	if err != nil || code != 200 || info.Origin != "" || m.AgentOrigin(info.ID) != "" {
@@ -203,7 +208,7 @@ func TestDelegateStartIsWhatWasApproved(t *testing.T) {
 	refused("a resume whose history mode isn't the approved one", AgentOpen{Cwd: "apps/x", Provider: "fake", Resume: "mine", Delegate: ask}, "exactly the session its person approved")
 	refused("another mode than the approved one", AgentOpen{Cwd: "apps/x", Provider: "fake", Mode: "yolo", Delegate: ask}, "exactly the session its person approved")
 	// the person's own past session: never, whatever the ticket says
-	for _, d := range []*DelegateStart{ask, {Approved: true, Provider: "fake", Mode: "yolo"}, {Prefs: &delegation.StartPrefs{}}} {
+	for _, d := range []*DelegateStart{ask, {Approved: true, Provider: "fake", Mode: "yolo"}, {Provider: "fake", Prefs: &delegation.StartPrefs{}}} {
 		refused("resuming the person's own session", AgentOpen{Cwd: "apps/x", Provider: "fake", Resume: "hers", Delegate: d}, "resumes only the sessions it started")
 	}
 	refused("a sealed component", AgentOpen{Cwd: holder, Provider: "fake", Delegate: ask}, "sealed system component")
@@ -222,6 +227,9 @@ func TestDelegateStartIsWhatWasApproved(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Kill(info.ID)
+	if !cfgs[0].Strict || cfgs[len(cfgs)-1].Strict { // the mode in force or no session; only a model or a thinking level set
+		t.Fatalf("Strict: the agent's open %v, the person's %v", cfgs[0].Strict, cfgs[len(cfgs)-1].Strict)
+	}
 	if len(cfgs) != 2 || !cfgs[0].SkipModeOptions || cfgs[0].Mode != "ask" || cfgs[1].SkipModeOptions {
 		t.Fatalf("SkipModeOptions: the agent's open %v, the person's %v", cfgs[0].SkipModeOptions, cfgs[len(cfgs)-1].SkipModeOptions)
 	}

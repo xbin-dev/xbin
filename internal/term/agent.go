@@ -414,7 +414,10 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		// a session a person's workspace agent opened: its mode is the one
 		// its person approved, and no option may move it (an agent's config
 		// option of category mode is set after the mode; delegate.go)
-		SkipModeOptions: o.origin != ""}
+		SkipModeOptions: o.origin != "",
+		// a workspace agent's start is the harness and mode its person
+		// approved (or their preference) or it isn't at all (acp.Config.Strict)
+		Strict: o.origin != ""}
 	if onAgentConfig != nil {
 		onAgentConfig(cfg)
 	}

@@ -81,6 +81,9 @@ func (c *Client) openSession(ctx context.Context) error {
 	c.mu.Unlock()
 	if want := c.cfg.Mode; want != "" && (sess.Modes == nil || sess.Modes.CurrentModeID != want) && !modeOptionIs(sess.ConfigOptions, want) {
 		if err := c.conn.Call(MSessionSetMode, SetModeParams{SessionID: sess.SessionID, ModeID: want}, nil); err != nil {
+			if c.cfg.Strict { // not "in the agent's own mode instead"
+				return fmt.Errorf("the session can't be put in mode %s (%v): it isn't started in another", want, err)
+			}
 			c.logf("set_mode %s: %v", want, err)
 		} else {
 			c.mu.Lock()
@@ -105,6 +108,8 @@ func (c *Client) openSession(ctx context.Context) error {
 				c.logf("option %s: the agent does not offer it", id)
 			}
 			continue
+		} else if c.cfg.Strict && cur.Category != "model" && cur.Category != "thought_level" {
+			return fmt.Errorf("option %s (category %q) is not one this session may be started with: only a model and a thinking level are", id, cur.Category)
 		} else if cur.Category == "mode" && c.cfg.SkipModeOptions {
 			c.logf("option %s: it is the agent's mode — not set as an option", id)
 			continue
