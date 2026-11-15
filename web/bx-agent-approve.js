@@ -58,7 +58,7 @@ export class BxAgentApprove extends LitElement {
     .sheet { display: flex; flex-direction: column; max-height: 100%; background: var(--bx-panel-2, #262730); border: 2px solid var(--bx-text, #E9EAF0);
       box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6)); }
     .in { display: flex; flex-direction: column; gap: 12px; padding: 12px; overflow: auto; min-height: 0; }
-    h2:focus { outline: none; }
+    h2[tabindex]:focus, h2[tabindex]:focus-visible { outline: none; } /* where focus lands: read, not acted on */
     h2 b { font-weight: 700; }
     .choices { display: flex; flex-direction: column; gap: 4px; border: 0; margin: 0; padding: 0; min-width: 0; }
     .choices legend { padding: 0; margin-bottom: 4px; }

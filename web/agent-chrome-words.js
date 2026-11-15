@@ -297,7 +297,7 @@ const num = (n) => NUM[n] || String(n);
 /** resultsWords(cs): the results' title, the banner of a partial outcome, and the Undo button ('' when nothing can be undone). */
 export function resultsWords(cs) {
   const items = (cs && cs.items) || [];
-  const chosen = items.filter((it) => it.result && it.result !== 'rejected');
+  const chosen = items.filter((it) => ['applied', 'failed', 'skipped', 'stale'].includes(it.result)); // what the person ticked (not what they left out, nor what xbind blocked)
   const applied = items.filter((it) => it.result === 'applied');
   const failed = chosen.filter((it) => it.result === 'failed').length, skipped = chosen.filter((it) => it.result === 'skipped').length;
   const title = !applied.length ? 'Nothing was applied' : applied.length === chosen.length ? `All ${applied.length} change${applied.length === 1 ? '' : 's'} applied`

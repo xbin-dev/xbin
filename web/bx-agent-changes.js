@@ -42,7 +42,7 @@ export class BxAgentChanges extends LitElement {
       background: var(--bx-panel-2, #262730); border: 2px solid var(--bx-text, #E9EAF0); box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6)); }
     @media (max-width: 640px) { .dlg { width: 100vw; height: 100vh; max-height: none; border-width: 0; } }
     .in { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px; overflow: auto; min-height: 0; flex: 1; }
-    h2:focus { outline: none; }
+    h2[tabindex]:focus, h2[tabindex]:focus-visible { outline: none; } /* where focus lands: read, not acted on */
     .items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
     .item { display: flex; gap: 12px; align-items: flex-start; padding: 8px 12px; border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); background: var(--bx-panel, #1F2028); }
     .item.blocked { opacity: .85; border-style: dashed; }

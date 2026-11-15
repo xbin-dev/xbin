@@ -104,6 +104,7 @@ export class BxAgentDock extends LitElement {
       this.dispatchEvent(new CustomEvent('bx-agent-dock', { detail: { open: this.open, width: this.open ? this._w : 0 }, bubbles: true, composed: true }));
     }
     if (ch.has('open') && this.open) { this._resolveFrame(); this.store.refresh(); }
+    if (ch.has('page')) this._resolveFrame();
     if (ch.has('context') || ch.has('_frame')) this._tell();
   }
 

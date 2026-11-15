@@ -22,6 +22,8 @@
 //     the old admin console's alert bar by its words, which name
 //     /xbin/llm; the old console has no LLM tab and draws no card; and
 //     /xbin/llm, xbind's own page, works beside the old scaffold;
+//     /xbin/agent — the workspace agent's chrome (D232) — likewise, and the
+//     old shell shows no chip for it;
 //   - the old admin console opens and lists both tiles;
 //   - the theme (D184): with the admin's light theme on a light system the
 //     old root, shell and admin console, which never opted in, stay Night;
@@ -205,6 +207,7 @@ async function oldScaffold(browser) {
     check(await S.page.locator('bx-shell .alerts .achoice, bx-shell .alerts .achoices').count() === 0, '…and nothing of its action (an old shell has no raise buttons)');
     const setup = (await alerts.allInnerTexts()).find((x) => x.includes('No LLM is set up')) || '';
     check(setup.includes('/xbin/llm') && setup.includes('bx llm upstream add'), `the old shell's banner shows the LLM setup alert's words, /xbin/llm in them (${setup.slice(0, 240)})`);
+    check(await S.page.locator('bx-shell button.chip.agent').count() === 0, `${OLD}'s shell has no workspace agent chip (its way in is /xbin/agent)`);
     await shot(S.page, 'old-scaffold-shell');
     const scheme = (f) => f.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bx-scheme').trim() || 'none');
     const rootScheme = await scheme(S.page.mainFrame());
@@ -254,6 +257,13 @@ async function oldScaffold(browser) {
     await settle(S.page);
     check(await S.page.locator('bx-llm-admin bx-llm-upstreams [data-add]').count() === 1, '/xbin/llm works beside the old scaffold: the admin\'s page, with Add a provider');
     await shot(S.page, 'old-scaffold-llm-page');
+    // …and so does the workspace agent's chrome (D232): the old shell has no chip for it, /xbin/agent is the way in
+    await S.page.goto(`${URL}/xbin/agent`);
+    await S.page.waitForSelector('bx-agent-dock[full] header', { timeout: 15000 });
+    await S.page.waitForSelector('bx-agent-dock bx-agent-setup .st', { timeout: 15000 });
+    check((await S.page.locator('bx-agent-dock header h2').innerText()) === 'Workspace agent' && /Set up the workspace agent/.test(await S.page.locator('bx-agent-dock bx-agent-setup .st').innerText()),
+      '/xbin/agent works beside the old scaffold: the dock as a page, an admin\'s setup steps');
+    await shot(S.page, 'old-scaffold-agent-page');
     check(errors.length === 0, `no page error in the old shell or admin console (${errors.join(' | ')})`);
   } finally {
     sc.restore();
