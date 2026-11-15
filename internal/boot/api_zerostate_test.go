@@ -374,8 +374,10 @@ func TestZeroStateListings(t *testing.T) {
 	// /components: today's key set on every row; the fixture's rows exact.
 	comps := get("/api/xbin/components", owner)
 	allowed := map[string]bool{}
-	// title, icon (D194) and backend (D196) are additive keys every tile may carry
-	for _, k := range strings.Split("path,scope,runtime,hasIndex,template,state,roles,uses,deps,manifestError,owner,chrome,chromeRequested,sandbox,native,origin,title,icon,backend", ",") {
+	// title, icon (D194) and backend (D196) are additive keys every tile may
+	// carry; agent (D228) a tile whose manifest narrows what a person's
+	// workspace agent may do — a new workspace's consoles say "off"
+	for _, k := range strings.Split("path,scope,runtime,hasIndex,template,state,roles,uses,deps,manifestError,owner,chrome,chromeRequested,sandbox,native,origin,title,icon,backend,agent", ",") {
 		allowed[k] = true
 	}
 	for _, k := range strings.Split(zsKeys(t, comps), ",") {
