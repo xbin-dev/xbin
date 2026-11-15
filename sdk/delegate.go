@@ -42,7 +42,9 @@ import (
 // to: the same gateway socket and instance token, under the delegate
 // scheme ("Authorization: XBin-Delegate …"). Use Client for the
 // component's own calls (its kv, vault, bus), AsPerson for everything it
-// does for its person. Shared, like Client; no overall timeout.
+// does for its person. Shared, like Client; no overall timeout. It follows
+// no redirect: a 3xx comes back as the response (DelegateRefusal reports
+// it as an error).
 func AsPerson() *http.Client {
 	personOnce.Do(func() {
 		tr := &http.Transport{
@@ -50,7 +52,15 @@ func AsPerson() *http.Client {
 			MaxIdleConns:    16,
 			IdleConnTimeout: 90 * time.Second,
 		}
-		personClient = &http.Client{Transport: &delegateTransport{base: tr, token: os.Getenv("XBIN_TOKEN")}}
+		personClient = &http.Client{
+			Transport: &delegateTransport{base: tr, token: os.Getenv("XBIN_TOKEN")},
+			// A redirect is an answer, never an instruction: what the agent
+			// asked for, and its person approved, is one call. Following a
+			// tile's 307 would send the same method, body and credential to
+			// a path the tile chose — another tile's write under a standing
+			// approval, a session's /cancel. The caller gets the 3xx.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
 	})
 	return personClient
 }
