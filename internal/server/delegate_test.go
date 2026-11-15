@@ -300,7 +300,7 @@ func TestDelegateAuthzMatrix(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	w.invS.delegateRT.now = func() time.Time { now = now.Add(time.Minute); return now } // the matrix is no burst of acts
+	w.invS.delegateRT.setClock(func() time.Time { now = now.Add(time.Minute); return now }) // the matrix is no burst of acts
 	readOnly := func(m string) bool { return m == "GET" || m == "HEAD" }
 	personOnly := func(p string) bool { return PartitionClassOf(p) == PersonOnly }
 	delegated := func(adminReads, admin bool) func(string, string) bool {

@@ -208,7 +208,31 @@ type delegateRuntime struct {
 	noise   map[string]*noiseBucket
 	calls   map[string]map[uint64]*runningCall
 	nextID  uint64
-	now     func() time.Time // tests
+	now     func() time.Time // tests (setClock)
+	recheck time.Duration    // tests (setRecheck); 0: delegateRecheck
+}
+
+// setClock and setRecheck are the tests' knobs, set under the lock the
+// gate reads them under.
+func (d *delegateRuntime) setClock(now func() time.Time) {
+	d.mu.Lock()
+	d.now = now
+	d.mu.Unlock()
+}
+
+func (d *delegateRuntime) setRecheck(every time.Duration) {
+	d.mu.Lock()
+	d.recheck = every
+	d.mu.Unlock()
+}
+
+func (d *delegateRuntime) recheckEvery() time.Duration {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.recheck > 0 {
+		return d.recheck
+	}
+	return delegateRecheck
 }
 
 type actBucket struct {
@@ -344,8 +368,10 @@ func (s *Server) CutDelegateStreams(user string) int {
 }
 
 // delegateRecheck is how often a delegate call in flight is asked whether
-// it may still run (var: tests shrink it).
-var delegateRecheck = 3 * time.Second
+// it may still run. A constant: what tests change is a field of their own
+// server's delegateRuntime (setRecheck, setClock), under its lock — never
+// a package variable a gate goroutine of another test could be reading.
+const delegateRecheck = 3 * time.Second
 
 // SweepDelegation re-judges what delegation holds, now: every delegate call
 // in flight (it ends if its person was disabled or deleted, lost the tile,
@@ -598,7 +624,7 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		return
 	}
 	go func() { // a call that runs long is asked again
-		tk := time.NewTicker(delegateRecheck)
+		tk := time.NewTicker(s.delegateRT.recheckEvery())
 		defer tk.Stop()
 		for {
 			select {
@@ -612,7 +638,14 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 			}
 		}
 	}()
-	dw := &delegateWriter{ResponseWriter: w, status: http.StatusOK}
+	if v.tileAPI { // the tile is sent the headers on the list and no other (delegateForwards)
+		for h := range r.Header {
+			if !delegateForwards[h] {
+				r.Header.Del(h)
+			}
+		}
+	}
+	dw := &delegateWriter{ResponseWriter: w, status: http.StatusOK, tile: v.tileAPI}
 	next.ServeHTTP(dw, r.WithContext(auth.WithPrincipal(ctx, run)))
 	row.Status = dw.status
 	if v.effect || v.audit {
@@ -625,6 +658,22 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 // delegate call is judged — read or write, ticket or none — by its method,
 // so none of them reaches a handler.
 var methodOverrideHeaders = []string{"X-HTTP-Method-Override", "X-HTTP-Method", "X-Method-Override"}
+
+// delegateForwards is every request header a delegate's call to a tile's
+// API carries to the tile (canonical names); xbind then adds its own
+// X-XBin-* attribution. Everything else the agent sent is dropped. A person
+// approves a method, a path, a query, a body and a Content-Type: a header a
+// tile could act on — a cookie, an origin, a forwarded address, a
+// framework's X-… switch, a Content-Encoding that changes how the approved
+// bytes are read — would be a part of the call nobody was shown. What is
+// left negotiates the answer (Accept…), conditions the call without
+// widening it (If-…, Range) or names the body that was approved.
+var delegateForwards = map[string]bool{
+	"Accept": true, "Accept-Encoding": true, "Accept-Language": true,
+	"Content-Type": true, "Content-Length": true,
+	"If-Match": true, "If-None-Match": true, "If-Modified-Since": true, "If-Unmodified-Since": true, "Range": true,
+	"Cache-Control": true, "User-Agent": true,
+}
 
 // delegateStill answers whether a call the gate let through may still run
 // ("" yes, else why not): its credential still resolves (the person lives,
@@ -666,17 +715,22 @@ func (s *Server) delegateStill(recheck func() (auth.Principal, error), was auth.
 	}
 }
 
-// contentTypeOf is the media type a request's body is sent as, lower case
-// and without parameters ("" none): what a ticket binds beside the body.
+// contentTypeOf is a request's Content-Type in one spelling — the media
+// type lower-cased and its parameters in order ("" none): what a ticket
+// binds beside the body. The whole of it: "application/json" and
+// "application/json; charset=utf-7" are different calls.
 func contentTypeOf(header string) string {
 	if strings.TrimSpace(header) == "" {
 		return ""
 	}
-	mt, _, err := mime.ParseMediaType(header)
+	mt, params, err := mime.ParseMediaType(header)
 	if err != nil {
 		return strings.ToLower(strings.TrimSpace(header)) // not one: it must still be the same
 	}
-	return mt
+	if full := mime.FormatMediaType(mt, params); full != "" {
+		return full // the type and every parameter (sorted): a charset or a boundary is part of how the body reads
+	}
+	return strings.ToLower(strings.TrimSpace(header))
 }
 
 // delegateApproval settles step 6 for a side effect that needs the
@@ -786,11 +840,34 @@ func (s *Server) delegateAudit(c delegation.Call) {
 type delegateWriter struct {
 	http.ResponseWriter
 	status int
+	tile   bool // a tile's answer: its redirect goes nowhere
 }
+
+// redirectHeaders are how an answer sends a client on to another URL. A
+// tile's answer to a delegate carries none: the call a person approved is
+// one call, and a client that followed would repeat it — method, body,
+// credential — at a path the tile chose. The status stays (the agent sees
+// the tile answered 3xx); every request that arrives is judged on its own
+// anyway, by its own method, path, ticket or approval.
+var redirectHeaders = []string{"Location", "Content-Location", "Refresh"}
 
 func (d *delegateWriter) WriteHeader(code int) {
 	d.status = code
+	if d.tile {
+		for _, h := range redirectHeaders {
+			d.Header().Del(h)
+		}
+	}
 	d.ResponseWriter.WriteHeader(code)
+}
+
+func (d *delegateWriter) Write(b []byte) (int, error) {
+	if d.tile { // an answer that never called WriteHeader: the same rule
+		for _, h := range redirectHeaders {
+			d.Header().Del(h)
+		}
+	}
+	return d.ResponseWriter.Write(b)
 }
 
 func (d *delegateWriter) Flush() {

@@ -422,7 +422,7 @@ func TestDelegateRateLimitAndOffSwitches(t *testing.T) {
 	w := delegateWorld(t)
 	bob, alice := delegateCred("d-bob"), delegateCred("d-alice")
 	now := time.Now()
-	w.invS.delegateRT.now = func() time.Time { return now }
+	w.invS.delegateRT.setClock(func() time.Time { return now })
 	for i := 0; i < delegateActBurst; i++ {
 		if rec := w.do(w.inv, "POST", "/api/xbin/term/sessions/x/cancel", "", bob); rec.Code != 200 {
 			t.Fatalf("act %d: %d %s", i, rec.Code, rec.Body.String())
@@ -850,13 +850,13 @@ func TestDelegateReviewHardening(t *testing.T) {
 		if rec := w.do(w.inv, "POST", "/api/apps/mail/send", send, bob, header(HeaderTicket, id), form); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"refusal":"ticket"`) {
 			t.Fatalf("the same bytes as a form: %d %s", rec.Code, rec.Body.String())
 		}
-		if rec := w.do(w.inv, "POST", "/api/apps/mail/send", send, bob, header(HeaderTicket, id), header("Content-Type", "Application/JSON; charset=utf-8")); rec.Code != 200 {
-			t.Fatalf("as JSON, with a parameter: %d %s", rec.Code, rec.Body.String())
+		if rec := w.do(w.inv, "POST", "/api/apps/mail/send", send, bob, header(HeaderTicket, id), header("Content-Type", "Application/JSON")); rec.Code != 200 {
+			t.Fatalf("as JSON, in another case: %d %s", rec.Code, rec.Body.String())
 		}
 	})
 	t.Run("an agent in a loop grows no log", func(t *testing.T) {
 		now := time.Now()
-		w.invS.delegateRT.now = func() time.Time { return now }
+		w.invS.delegateRT.setClock(func() time.Time { return now })
 		before, _ := w.store.Audit.Read("bob", time.Time{}, 1000)
 		for i := 0; i < 500; i++ {
 			w.do(w.inv, "POST", "/api/xbin/grants", "{}", bob)                         // refused
@@ -888,7 +888,7 @@ func TestDelegateReviewHardening(t *testing.T) {
 		if last, _ := w.store.Audit.Read("bob", time.Time{}, 1); last[0].Ticket != id {
 			t.Fatalf("the act isn't the last row: %+v", last[0])
 		}
-		w.invS.delegateRT.now = nil
+		w.invS.delegateRT.setClock(nil)
 	})
 	t.Run("a non-primary deployment has no part in this plane", func(t *testing.T) {
 		tok := w.s.Auth.MintFrameTokenDeployment(dHolder, "bob", "dev", time.Minute)
@@ -914,10 +914,8 @@ func TestDelegateReviewHardening(t *testing.T) {
 // without one. And a pause that lands between the gate's check and the
 // call's start still stops it.
 func TestDelegateCallsEndWithWhatAllowedThem(t *testing.T) {
-	old := delegateRecheck
-	delegateRecheck = 20 * time.Millisecond
-	t.Cleanup(func() { delegateRecheck = old })
 	w := delegateWorld(t)
+	w.invS.delegateRT.setRecheck(20 * time.Millisecond) // this server's own, before its first call
 	bob := delegateCred("d-bob")
 	block := func() (cut chan error) {
 		started := make(chan struct{})
@@ -1019,4 +1017,91 @@ func TestDelegateCallsEndWithWhatAllowedThem(t *testing.T) {
 	if rec.Code != 403 || ran {
 		t.Fatalf("a call paused between the gate's check and its start: %d ran=%v %s", rec.Code, ran, rec.Body.String())
 	}
+}
+
+// The second review, at the gate: what a tile sees of a delegate's call is
+// what its person approved and nothing else — the full Content-Type, an
+// allowlist of request headers — and what a tile answers can't send the
+// call anywhere else.
+func TestDelegateTileCallIsExactlyWhatWasApproved(t *testing.T) {
+	w := delegateWorld(t)
+	bob, person := delegateCred("d-bob"), w.cookie("bob")
+	var seen http.Header
+	w.invS.ComponentAPI = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Clone()
+		if strings.HasSuffix(r.URL.Path, "/hop") { // "do it over there": another tile's write, a query of this tile's choosing
+			rw.Header().Set("Location", "/api/apps/x/notes?to=evil")
+			rw.Header().Set("Refresh", "0; url=/api/apps/x/notes")
+			rw.WriteHeader(http.StatusTemporaryRedirect)
+			return
+		}
+		rw.WriteHeader(200)
+	})
+
+	t.Run("the request headers a tile sees are a list", func(t *testing.T) {
+		rec := w.do(w.inv, "GET", "/api/apps/mail/inbox", "", bob,
+			header("Accept", "application/json"), header("If-None-Match", `"v1"`), header("User-Agent", "agent/1"),
+			header("X-Confirm", "yes"), header("X-Admin", "1"), header("Cookie", "sid=1"), header("X-Forwarded-For", "10.0.0.1"),
+			header("Origin", "https://evil.example"), header("Content-Encoding", "gzip"), header("Prefer", "handling=lenient"), header("X-Requested-With", "x"))
+		if rec.Code != 200 {
+			t.Fatal(rec.Code, rec.Body.String())
+		}
+		for _, h := range []string{"X-Confirm", "X-Admin", "Cookie", "X-Forwarded-For", "Origin", "Content-Encoding", "Prefer", "X-Requested-With", "Authorization", HeaderTicket, HeaderDryRun, HeaderAgentModel} {
+			if v := seen.Values(h); len(v) > 0 {
+				t.Errorf("the tile was sent %s: %q", h, v)
+			}
+		}
+		for h, want := range map[string]string{"Accept": "application/json", "If-None-Match": `"v1"`, "User-Agent": "agent/1"} {
+			if seen.Get(h) != want {
+				t.Errorf("the tile's %s: %q, want %q", h, seen.Get(h), want)
+			}
+		}
+		for h := range seen {
+			if !delegateForwards[h] && !strings.HasPrefix(h, "X-Xbin-") {
+				t.Errorf("the tile was sent %s, which isn't in delegateForwards", h)
+			}
+		}
+	})
+	t.Run("a ticket binds the whole Content-Type", func(t *testing.T) {
+		const body = `{"to":"x"}`
+		ask := func(ctype string) string {
+			t.Helper()
+			in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/apps/mail/send", "body": body, "contentType": ctype})
+			rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), bob)
+			var req delegation.Request
+			if json.Unmarshal(rec.Body.Bytes(), &req); rec.Code != 200 {
+				t.Fatal(rec.Code, rec.Body.String())
+			}
+			w.approve(person, req.ID, "once")
+			return req.ID
+		}
+		id := ask("application/json")
+		for _, sent := range []string{"application/json; charset=utf-7", "application/json; profile=other", "application/json;boundary=x"} {
+			if rec := w.do(w.inv, "POST", "/api/apps/mail/send", body, bob, header(HeaderTicket, id), header("Content-Type", sent)); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"refusal":"ticket"`) {
+				t.Errorf("approved as application/json, sent as %q: %d %s", sent, rec.Code, rec.Body.String())
+			}
+		}
+		if rec := w.do(w.inv, "POST", "/api/apps/mail/send", body, bob, header(HeaderTicket, id), header("Content-Type", "Application/JSON")); rec.Code != 200 {
+			t.Errorf("the same type, another case: %d %s", rec.Code, rec.Body.String())
+		}
+		id = ask("text/plain; charset=utf-8")
+		if rec := w.do(w.inv, "POST", "/api/apps/mail/send", body, bob, header(HeaderTicket, id), header("Content-Type", "text/plain")); rec.Code != 403 {
+			t.Errorf("approved with a charset, sent without: %d", rec.Code)
+		}
+		if rec := w.do(w.inv, "POST", "/api/apps/mail/send", body, bob, header(HeaderTicket, id), header("Content-Type", "text/plain;charset=utf-8")); rec.Code != 200 {
+			t.Errorf("the same parameters, spaced otherwise: %d %s", rec.Code, rec.Body.String())
+		}
+	})
+	t.Run("a tile's redirect goes nowhere", func(t *testing.T) {
+		req := w.ask(bob, "POST", "/api/apps/mail/hop", `{}`)
+		w.approve(person, req.ID, "once")
+		rec := w.do(w.inv, "POST", "/api/apps/mail/hop", `{}`, bob, header(HeaderTicket, req.ID))
+		if rec.Code != http.StatusTemporaryRedirect || rec.Header().Get("Location") != "" || rec.Header().Get("Refresh") != "" {
+			t.Errorf("a tile's 307 to a delegate: %d Location %q Refresh %q", rec.Code, rec.Header().Get("Location"), rec.Header().Get("Refresh"))
+		}
+		// and the place it pointed at is judged as any request that arrives: it needs its own approval
+		if rec := w.do(w.inv, "POST", "/api/apps/x/notes?to=evil", `{}`, bob, header(HeaderTicket, req.ID)); rec.Code != 403 {
+			t.Errorf("the redirect's target under the first call's ticket: %d", rec.Code)
+		}
+	})
 }

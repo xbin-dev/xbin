@@ -321,12 +321,16 @@ func (s *Server) apiDelegateAudit(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = limit*10 + int(c-'0')
 	}
-	rows, err := s.delegateAuditLog().Read(user, before, limit)
+	rows, skipped, err := s.delegateAuditLog().ReadCounted(user, before, limit)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "the log can't be read", delegationDocs)
 		return
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{"user": user, "calls": rows})
+	out := map[string]any{"user": user, "calls": rows}
+	if skipped > 0 {
+		out["skipped"] = skipped // lines of the files read that were no row: say so, don't hide them
+	}
+	WriteJSON(w, http.StatusOK, out)
 }
 
 // ---- approval requests ----
