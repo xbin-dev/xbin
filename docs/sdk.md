@@ -1040,7 +1040,10 @@ helpers return; `*DelegateError` carries xbind's `Message`, fit to show):
 | `ErrModelTaint` | the session can't change to that model: orgs it has seen data of (`Orgs`) don't allow it | open a new session on that model |
 | `ErrPolicyRefused` | the tile, or the org that owns it, keeps the agent out — or the person can't read it; `Message` says why | tell the person; don't retry |
 | `ErrAgentPaused` | the person paused their agent | stop until they resume |
-| `ErrAgentOff` | workspace agents are off here | stop |
+| `ErrAgentOff` | workspace agents are off here, this person wasn't given one (`Refusal: "no-agent"`), or the agent is held (`"held"`) | stop |
+| `ErrTaintedBrief` | a start, prompt or queued message was refused: the conversation holds data of an org whose model rule the tile agent's model source doesn't satisfy (`Message` names the org and the rule) | tell the person; a new conversation that hasn't seen that data may brief it |
+| `ErrSessionMode` | the tile agent session is now in a mode that doesn't ask before it acts, and its person didn't approve it in that mode | tell the person; they switch it back or send the message themselves |
+| `ErrHarnessCommand` | the text begins with `/`, which the coding agent reads as one of its own commands | say it in words |
 | `ErrAdminRead` | admin state without the person's opt-in | propose nothing; say how to opt in |
 | `ErrRateLimited` | more than 30 acts a minute; `RetryAfter` says when | wait |
 

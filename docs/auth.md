@@ -992,7 +992,14 @@ harness and mode the session will really run in (a resumed session's
 included), and the agent resumes only sessions it started. The agent
 prompts, cancels and ends only sessions it started; whatever any session
 asks, the person answers. An admin's agent opens sessions in the sandbox tier of an ordinary
-user.
+user. What it sends such a session is bounded three ways
+([protocol/delegation.md §Agent sessions](/docs/protocol/delegation.md#agent-sessions)):
+never text that begins with `/` (a harness command is the person's to
+give); nothing once the person has switched the session to a mode that
+doesn't ask before it acts, unless that is the mode they approved it in;
+and nothing — a start's first prompt included — to a session whose model
+source doesn't satisfy the model rule of every org whose data the
+conversation holds.
 
 **What a tile sees.** `X-XBin-From: user:<id>`, `X-XBin-User` and
 `X-XBin-User-Level` as for the person, `X-XBin-Role` their level on the
@@ -1046,8 +1053,10 @@ an agent's to use under its person's tickets.
 > own rule), or add `"agent": "off"` to the instance's `xbin.json`.
 
 **Who else decides.** In order, on every call: the workspace's switch (off
-until an admin turns it on); the person's pause, which stops their agent
-at once, calls in flight included; the tile's manifest; the workspace
+until an admin turns it on); that the person was GIVEN an agent — an
+access entry that names the component reaches them; the admin role reads
+the component and is no agent acting as the admin; the person's pause,
+which stops their agent at once, calls in flight included; the tile's manifest; the workspace
 policy ceiling — a `mayCall` row on the component's path narrows every
 agent; and the rules of the **org that owns the tile** (agents on or off
 there, which models, which harnesses), asked with the model the agent says

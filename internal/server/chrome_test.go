@@ -246,7 +246,8 @@ func TestDelegationHolderIsNeverChrome(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("%s: %d", url, w.Code)
 		}
-		return w.Header().Get("Content-Security-Policy") == sandboxCSP
+		csp := w.Header().Get("Content-Security-Policy")
+		return csp == sandboxCSP || csp == sandboxCSP+"; "+holderFrameAncestors // a holder's page also says who frames it (tilenav.go)
 	}
 	if sandboxed("/c/apps/approved/") || sandboxed("/c/tiles/organisations/") {
 		t.Fatal("the fixture's chrome is sandboxed")

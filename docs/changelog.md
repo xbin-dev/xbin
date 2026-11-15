@@ -36,6 +36,44 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Workspace agents: the final security review** (D228;
+  [protocol/delegation.md](/docs/protocol/delegation.md),
+  [auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)).
+  Nothing of this is in a release yet; each line changes what a delegate
+  call answers.
+  - **"Asks before acting" is the harness's ask or plan mode**, nothing
+    else (`sdk/acp` `Provider.Asks`, additive): a start in any other mode
+    needs a ticket whose card says what the mode does; `asks` and
+    `needsTicket` in request previews and `GET /delegate/start-defaults`
+    follow; the preference for agent-started sessions saves only such
+    modes (`400` otherwise).
+  - **Taint binds what the agent tells tile agents**: a start, `…/prompt`
+    or `…/queue` is `403 {refusal: "taint"}` unless the session's model
+    source satisfies the model rule of every org the conversation holds
+    data of. A message that begins with `/` is `403 {refusal:
+    "command"}`; one to a session its person switched to a mode that
+    doesn't ask is `403 {refusal: "mode"}`. SDK: `ErrTaintedBrief`,
+    `ErrHarnessCommand`, `ErrSessionMode`.
+  - **The off switches** also stop the agent's model turns (the LLM
+    connector asks them), void approved-but-unused tickets and take back
+    messages queued for tile agents; standing approvals survive a pause
+    only (the table in §The switches).
+  - **A dry run of a start tells the truth**: `needsApproval: false,
+    under: "preference"` when the person's preference starts it unasked;
+    `allowed: false` with the reason when nothing would.
+  - **The admin role is no agent**: `access` in `GET /delegate/state` is
+    false for an admin who wasn't given one, and a delegate call in their
+    name is `403 {refusal: "no-agent"}`; `who: "me"` gives them theirs.
+  - **A deleted account's delegation records go with it**
+    (`data/delegation/deleted/`, kept for the log's 13 months): an account
+    made later under the same id inherits no approval, ticket, session,
+    change set or log.
+  - **Only xbin's chrome frames the agent's page**, in every asset mode:
+    in `legacy` and `tokens` a framed load of `/c/xbin/wsagent/…` that
+    isn't same-origin is `403`, and the page carries `frame-ancestors
+    'self'`.
+  - A preview of a tile whose manifest says `"agent": "off"` is refused
+    to the agent, as a read of it is.
 - **Security — reading a tile's code could return any file the server can
   read.** `GET /api/xbin/code/file` (the tile window's Files tab) and the
   `apiDoc` of `GET /api/xbin/components/<tile>` (the tile's `API.md`)

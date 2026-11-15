@@ -32,6 +32,10 @@ type AgentWorld interface {
 	AgentOrgsOf(tile string) []string
 	// AgentModelAllowedIn is why model may not see org's tiles (nil: it may).
 	AgentModelAllowedIn(org, model string) error
+	// AgentBriefAllowed is why a conversation holding org's data may not
+	// send text to a tile agent session on tile, served as served
+	// (agentpolicy.Served…) on model ("" unknown); nil: it may.
+	AgentBriefAllowed(org, tile, served, model string) error
 	// AgentConnectionFor is the connection view of person p for a scope and
 	// a model, and what changing to whatIf ("" none) would do.
 	AgentConnectionFor(p auth.Principal, orgs, tiles []string, model, whatIf string) (agentpolicy.View, *agentpolicy.Change)

@@ -121,6 +121,9 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 	if err != nil || code != 200 || info.Mode != "yolo" || info.Origin != OriginAgent {
 		t.Fatalf("approved, in yolo: %d %v %+v", code, err, info)
 	}
+	if got := m.AgentOriginMode(info.ID); got != "yolo" {
+		t.Fatalf("the mode the person approved it in: %q", got)
+	}
 	m.Kill(info.ID)
 	// a preference may name a mode — one known to ask, checked here again
 	// whatever the store handed over (the second review's N5), and only
@@ -129,7 +132,32 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 	if err != nil || code != 200 || info.Mode != "ask" {
 		t.Fatalf("a preference's mode: %d %v %+v", code, err, info)
 	}
-	m.Kill(info.ID)
+	// the mode it was started in stays the session's record, whatever its
+	// person switches it to — across their restart of it too (the server
+	// refuses the agent's messages to a session that has left it)
+	r.until(t, func(e SessionEvent) bool {
+		return e.ID == info.ID && e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
+	})
+	if err := m.AgentSetOption(context.Background(), info.ID, "mode", "yolo"); err != nil {
+		t.Fatalf("the person switches the mode: %v", err)
+	}
+	r.until(t, func(e SessionEvent) bool {
+		return e.ID == info.ID && e.Type == agent.EvStatus && edata(e.Event)["currentMode"] == "yolo"
+	})
+	if si, _ := m.Info(info.ID); si.Mode != "yolo" || m.AgentOriginMode(info.ID) != "ask" {
+		t.Fatalf("after the switch: mode %q, started in %q", si.Mode, m.AgentOriginMode(info.ID))
+	}
+	again, _, code, err := m.RestartAgent(person, info.ID, "", "", true, nil)
+	if err != nil || code != 200 {
+		t.Fatalf("the person's restart: %d %v", code, err)
+	}
+	if again.Mode != "yolo" || m.AgentOrigin(again.ID) != holder || m.AgentOriginMode(again.ID) != "ask" {
+		t.Fatalf("after the restart: mode %q, origin %q, started in %q", again.Mode, m.AgentOrigin(again.ID), m.AgentOriginMode(again.ID))
+	}
+	if m.AgentOriginMode("nope") != "" {
+		t.Fatal("an unknown session has a start mode")
+	}
+	m.Kill(again.ID)
 	refused("a preference naming a mode that asks nothing", delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Provider: "fake", Prefs: &delegation.StartPrefs{Mode: "yolo", API: true}}}, "known to ask")
 	// "keeps asking" is the harness's ask or plan mode and no other: a mode
 	// that edits or runs on its own (auto here; Claude's acceptEdits and

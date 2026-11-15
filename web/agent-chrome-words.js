@@ -416,7 +416,9 @@ export const DID_NOTE = "Kept by xbin for 13 months. Your agent and its page can
  * dockState({state, llm, me, error}): what the dock shows in place of the
  * agent's page, or 'page' —
  *   hidden       nothing at all (a non-admin before setup, and anyone who
- *                was not given an agent — state.access false: no chip either)
+ *                was not given an agent — state.access false: no chip either;
+ *                an admin too, once the setup is done: the admin role reads
+ *                the component's system page and is no agent of their own)
  *   setup        an admin before setup: the three steps — until someone was
  *                given an agent (state.who.chosen; who is an admin's alone)
  *   unavailable  it was on, and no language model is connected now
@@ -436,6 +438,7 @@ export function dockState({ state = null, llm = null, me = null, error = '' } = 
   const model = !llm || llm.configured !== false;
   if (!state.workspace) return state.workspaceAt ? 'off' : admin ? 'setup' : 'hidden';
   if (state.who && !state.who.chosen) return 'setup'; // an admin: on, and nobody was given one yet (the third step)
+  if (state.access === false) return 'hidden'; // an admin who gave others one and not themselves: administering it isn't having one
   if (!model) return 'unavailable';
   if (state.paused) return 'paused';
   if (state.held) return 'held';

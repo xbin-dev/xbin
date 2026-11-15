@@ -50,7 +50,9 @@ Authorization: XBin-Delegate <XBIN_TOKEN>
 - `403 {error, refusal}` while delegation is off: `paused` — the person
   paused their agent; `workspace-off` — the workspace's switch; `no-sandbox`
   — an xbind that runs tiles without sandboxes (`--isolate` off; `--dev`
-  and `--no-auth` excepted).
+  and `--no-auth` excepted); `no-agent` — the person wasn't given an agent
+  (§The switches: the admin role alone gives none); `held` — the agent
+  is held on this xbind (`held` of `GET /delegate/state`).
 - A request that carries the scheme is judged as the delegate's or refused,
   whatever else it carries.
 - A call to a tile's API carries **these request headers and no other**
@@ -135,6 +137,15 @@ ticket is needed now (`false` with `under: "approval:<id>"` when a standing
 approval covers it); `allowed: false` with `refusal` when the tile or its
 org would refuse it. A call the cap refuses is refused as without the
 header.
+
+A dry run of a session start (`POST /term/sessions`, with the body the
+start would send) answers for that start: `tile`; `needsApproval: false`
+with `under: "preference"` when the person's preference lets that harness
+start there without asking and the body names no mode, network, API
+access, VM or resume of its own; `allowed: false` with the reason when the
+start would be refused whatever approves it (its first prompt begins with
+a harness command, or the conversation's taint keeps it from briefing a
+session on that tile — §Agent sessions).
 
 ### What a tile sees
 
@@ -261,6 +272,33 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   endedBy, ended?}`: `endedBy: "exit"` when xbind recorded the end (its
   history entry; `ended` is when), `"restart"` when it has no record of
   one — the session was running when xbind stopped.
+- **Taint binds what the agent tells tile agents.** What a conversation
+  sends a tile agent — a start's first prompt, `…/prompt`, `…/queue` —
+  goes to THAT session's model. So each is refused (`403 {refusal:
+  "taint"}`, with the org and its rule) unless the session's model source
+  satisfies the model rule of every org in the handle's `tainted`: the
+  session's own tile is under that org's rule (its sessions run on the LLM
+  connector alone, which asks the rule for every call), or the session is
+  held to the connector — not merely offered it — on a model the rule
+  allows. A session on its person's own sign-in is refused wherever a
+  tainted org has a model rule other than `any`: nobody can say which
+  model it calls. A session that isn't started yet has no model to judge,
+  so a start passes only on a tile under the rule. An org with no model
+  rule binds nothing. Reading a session — its row, events, log or diff —
+  adds its tile's orgs to the taint like any other read. A session's
+  person changing its model later is their own act: it isn't judged again.
+- **What a session the agent started takes from it.** Besides the taint
+  rule, a prompt or a queued message is refused:
+  `403 {refusal: "command"}` when its text begins with `/` (after any
+  white space) — every shipped harness reads that as one of its own
+  commands (a model change, a sign-out, a project command that carries its
+  own tool permissions, a restore of files), and those are the person's to
+  give; a start's first prompt alike, approved or not, and a request for
+  such a start isn't taken. `403 {refusal: "mode"}` when the session's
+  CURRENT mode doesn't ask before every edit and command and isn't the
+  mode its person approved the start in: one they have since switched to
+  such a mode takes no more of the agent's messages until they switch it
+  back. The person's own messages are never judged by these.
 - **Taint from elsewhere.** What the agent keeps itself (its notebook) is
   stamped with orgs by the agent: before reading a page into a
   conversation it asks `…/allows` for the page's orgs, and after reading
@@ -318,14 +356,18 @@ GET    /delegate/state          the person, their agent's page, or their
                                  xbind ships an agent: access, whether
                                  the person was given one (nobody is
                                  until an access entry names the
-                                 component; an admin reads it as they
-                                 manage it); agent, the component whose
-                                 page is their agent's conversation —
-                                 only with access; held, why it can't
-                                 run now ("older": its data is a newer
-                                 xbin's; "locked": the vault is locked;
+                                 component — an admin too: the role
+                                 reads the component as they manage it
+                                 and is no agent of their own); agent,
+                                 the component whose page is their
+                                 agent's conversation — only with
+                                 access; held, why it can't run now
+                                 ("older": its data is a newer xbin's;
+                                 "locked": the vault is locked;
                                  "unavailable", with xbind's reason in
-                                 heldWhy for an admin); who, for a
+                                 heldWhy for an admin — who reads held
+                                 without an agent of their own); who,
+                                 for a
                                  workspace admin: {everyone, entries,
                                  chosen} — whether the workspace
                                  defaults name the agent, how many
@@ -370,7 +412,28 @@ POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
 | the person pauses | refused | cut | refused at the LLM connector | void | taken back | **kept** (the person resumes on purpose) | kept |
 | the workspace's switch off | refused | cut | refused | void | taken back | dropped | kept |
 | the person disabled or deleted | refused (no credential) | cut | refused | void | taken back | dropped | kept until they expire |
+| the agent is held (a newer xbin's data, a locked vault) | refused (`held`) | cut at the next check | refused | void | taken back | **kept** (for when it clears) | kept |
+| the person is no longer given an agent | refused (`no-agent`) | cut | refused | void | taken back | dropped | kept until they expire |
 | the person loses a tile | refused for that tile | cut | — | refused at use (the tile is judged again) | — | dropped for that tile | refused at use |
+
+**Having an agent is being given one.** The delegate gate, the LLM
+connector's holder rule and `access` all ask the same thing: an access
+entry that names the component reaches the person — their own, an org's
+share, the workspace defaults. The admin role doesn't count: an admin who
+wasn't given one reads the component (its system page, `held`, `who`) and
+gets `403 {refusal: "no-agent"}` for a delegate call made in their name.
+`who: "me"` is the entry that gives an admin theirs.
+
+**A deleted account takes its records with it.** Requests and tickets,
+standing approvals, agent sessions, change sets, the pause and the admin
+opt-in, the audit log: all are kept by user id, and an account made later
+under the same id inherits none of them. When a person is deleted their
+directory under `data/delegation/` moves to `data/delegation/deleted/`,
+where no id reaches it; it stays there for the audit log's retention (13
+months) and is then removed. The directory also records the creation
+stamp of the account it belongs to, so a deletion xbind didn't see (the
+users file edited while it was down) is caught the next time people
+change, and at boot.
 
 Resuming, or switching back on, brings nothing back: a ticket that was
 void stays void, and a dropped approval is given again by the person.
@@ -706,6 +769,20 @@ agent's own page — the `agent` of `GET /delegate/state` — in a sandboxed
 frame on its tile credential; a holder is never trusted chrome. The page
 can't draw over the chrome, read it, or send a decision: every route that
 decides refuses its credential.
+
+**Only the chrome frames the agent's page**, in every asset mode. In
+`origins` mode the page has an origin of its own and its
+`frame-ancestors` names itself and the workspace, where no tile document
+runs. In `legacy` and `tokens` every tile's document is served from the
+workspace origin, and `frame-ancestors` matches a framing document by its
+URL — so there xbind looks at who started the load: a framed load of
+`/c/<agent>/…` (`Sec-Fetch-Dest: iframe | frame | embed | object`) that
+isn't `Sec-Fetch-Site: same-origin` is `403` — a tile's sandboxed document
+has an opaque origin, so its frames arrive cross-site, as another site's
+do — and the page carries `frame-ancestors 'self'`. Opened as a page of
+its own, or by a client that sends no Fetch Metadata (the native app, bx),
+it is served as before. The agent's page therefore can't frame documents
+of its own in those two modes.
 
 **What the agent's page may ask of the chrome** — `postMessage` to its
 parent; the chrome takes a message only from its own frame's window and

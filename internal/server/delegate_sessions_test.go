@@ -34,6 +34,20 @@ func (fakeWorld) AgentModelAllowedIn(org, model string) error {
 	}
 	return nil
 }
+
+// AgentBriefAllowed: Finance's rule holds for a session on Finance's own
+// tile (the connector asks it for every call) and for one held to the
+// connector on a local model; nothing else is vouched for.
+func (fakeWorld) AgentBriefAllowed(org, tile, served, model string) error {
+	if org != "fin" {
+		return nil
+	}
+	bound := tile == "apps/mail" && (served == agentpolicy.ServedUnknown || served == agentpolicy.ServedConnector)
+	if bound || served == agentpolicy.ServedConnector && strings.HasPrefix(model, "local/") {
+		return nil
+	}
+	return errors.New("Finance allows private models only: not this session (" + served + " " + model + ")")
+}
 func (f fakeWorld) AgentConnectionFor(p auth.Principal, orgs, tiles []string, model, whatIf string) (agentpolicy.View, *agentpolicy.Change) {
 	if whatIf != "" {
 		return f.view, &agentpolicy.Change{Connect: []agentpolicy.TileState{{Tile: "apps/secret", Name: "Payroll"}}}

@@ -46,7 +46,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -412,67 +411,6 @@ func (s *Server) CutDelegateStreams(user string) int {
 // a package variable a gate goroutine of another test could be reading.
 const delegateRecheck = 3 * time.Second
 
-// SweepDelegation re-judges what delegation holds, now: every delegate call
-// in flight (it ends if its person was disabled or deleted, lost the tile,
-// paused, or revoked the approval it runs under), and every standing
-// approval (it goes when its tile is gone or its person can no longer read
-// it — an approval never comes back with a tile recreated at the path, or
-// with access given again). Boot calls it when people or tiles change; the
-// calls in flight are also asked every delegateRecheck.
-func (s *Server) SweepDelegation() {
-	for _, c := range s.delegateRT.running("") {
-		if c.still() != "" {
-			c.cancel()
-		}
-	}
-	if s.Delegation == nil || s.Auth == nil || s.Auth.Users == nil {
-		return
-	}
-	for _, user := range s.Delegation.People() {
-		acc, ok := s.Auth.Users.Access(user)
-		u, live := s.Auth.Users.Get(user)
-		gone := func(a delegation.Approval) bool {
-			return !ok || !live || u.Disabled || !s.tileExists(a.Tile) || !acc.CanReadTile(a.Tile)
-		}
-		if n, _ := s.Delegation.DropApprovals(user, gone); n > 0 {
-			s.delegateEvent(user, "approval", "")
-		}
-		if !ok || !live || u.Disabled { // the person is gone or disabled: nothing approved before carries over
-			s.delegationStopped(user, false)
-		}
-	}
-}
-
-// delegationStopped ends what was set in motion for user's agent before it
-// was stopped — by a pause, the workspace's switch going off, or the person
-// being disabled or deleted (docs/protocol/delegation.md "What each switch
-// stops"): the calls in flight are cut, every approved-but-unused ticket is
-// void (resuming doesn't bring it back), and the messages the agent had
-// queued for tile agents it started are taken back. Standing approvals go
-// too unless keepApprovals: a pause keeps them — the person resumes on
-// purpose — a switch-off or the person's end does not.
-func (s *Server) delegationStopped(user string, keepApprovals bool) {
-	s.CutDelegateStreams(user)
-	if s.Delegation == nil {
-		return
-	}
-	changed := false
-	if n, _ := s.Delegation.VoidTickets(user); n > 0 {
-		changed = true
-	}
-	if !keepApprovals {
-		if n, _ := s.Delegation.DropApprovals(user, func(delegation.Approval) bool { return true }); n > 0 {
-			changed = true
-		}
-	}
-	if s.Term != nil {
-		s.Term.DropAgentQueues(user, "")
-	}
-	if changed {
-		s.delegateEvent(user, "request", "")
-	}
-}
-
 // DelegationOff is why user's agent holder may not act now ("" nil: it
 // may) — the gate's off switches (paused, the workspace's switch, no
 // sandbox), for callers that aren't the delegate gate: the LLM connector
@@ -536,22 +474,6 @@ func (s *Server) delegateHides(p auth.Principal, tile string) bool {
 
 // DelegateHides is delegateHides for the listings other packages serve.
 func (s *Server) DelegateHides(p auth.Principal, tile string) bool { return s.delegateHides(p, tile) }
-
-// delegateDrives lets a delegate drive only the sessions it opened: a
-// session the person opened themselves may be in a mode that asks nothing,
-// and prompting it would be acting unasked. Everyone else passes. It
-// answers the refusal itself.
-func (s *Server) delegateDrives(w http.ResponseWriter, r *http.Request, id string) bool {
-	p := auth.PrincipalOf(r)
-	if p.Agent == "" || s.Term == nil {
-		return true
-	}
-	if _, live := s.Term.Info(id); live && s.Term.AgentOrigin(id) != p.Agent {
-		WriteError(w, http.StatusForbidden, "a workspace agent drives the sessions it started: this one is its person's own", "/docs/auth.md")
-		return false
-	}
-	return true
-}
 
 // ---- the gate ----
 
@@ -692,6 +614,16 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 			}
 		}
 		preview["allowed"] = true
+		if v.pattern == "POST /term/sessions" { // what THIS start would need: the person's preference may start it unasked
+			body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, delegation.MaxBody))
+			ask := sessionAskOf(body)
+			row.Tile, preview["tile"] = ask.Cwd, ask.Cwd
+			if _, why := s.startRefusal(p, ask.Cwd, ask.Prompt); why != "" {
+				preview["allowed"], preview["refusal"] = false, why
+			} else if s.startsUnasked(p, ask) {
+				preview["needsApproval"], preview["under"] = false, "preference"
+			}
+		}
 		s.writeDryRun(w, &row, preview)
 		return
 	}
@@ -863,7 +795,11 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		r.ContentLength = int64(len(body))
 	}
 	if session {
-		row.Tile, _ = sessionAsk(body)
+		asked := sessionAskOf(body)
+		row.Tile = asked.Cwd
+		if refusal, why := s.startRefusal(p, asked.Cwd, asked.Prompt); why != "" { // before a ticket is spent
+			return nil, http.StatusForbidden, refusal, why
+		}
 	}
 	const ask = " — ask for one: POST /api/xbin/delegate/requests {method, path, body}, then send its id as X-XBin-Ticket once the person approved"
 	switch {
@@ -895,7 +831,8 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		row.Under = "approval:" + a.ID
 		return nil, 0, "", ""
 	case session:
-		cwd, provider := sessionAsk(body)
+		asked := sessionAskOf(body)
+		cwd, provider := asked.Cwd, asked.Provider
 		if provider == "" { // no harness named: the person's default for this tile (startDefaults)
 			provider = s.startDefaults(p, cwd).Harness
 		}
@@ -907,14 +844,6 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		return &term.DelegateStart{Prefs: &prefs, Provider: provider}, 0, "", "" // the harness the preference was read for: what opens must be it
 	}
 	return nil, http.StatusForbidden, "needs-approval", "this needs its person's approval" + ask
-}
-
-// sessionAsk reads the tile and provider a POST /term/sessions body asks
-// for ("" what it doesn't say).
-func sessionAsk(body []byte) (cwd, provider string) {
-	var b struct{ Cwd, Provider string }
-	_ = json.Unmarshal(body, &b)
-	return strings.Trim(b.Cwd, "/"), b.Provider
 }
 
 // writeDryRun answers a dry run and records it when it described an act.

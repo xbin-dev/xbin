@@ -140,6 +140,19 @@ var (
 	// ErrRateLimited: too many acts in a minute; DelegateError.RetryAfter
 	// says when to try again.
 	ErrRateLimited = errors.New("acting too fast")
+	// ErrTaintedBrief: a start, a prompt or a queued message was refused
+	// because the conversation holds data of an org whose model rule the
+	// tile agent session's model source doesn't satisfy (Message says which
+	// org and why). Telling that session less doesn't help: the taint is
+	// the conversation's.
+	ErrTaintedBrief = errors.New("the conversation's taint keeps it from briefing that tile agent")
+	// ErrSessionMode: the tile agent session is in a mode that doesn't ask
+	// before it acts, and its person didn't approve it in that mode: it
+	// takes no messages from their agent until they switch it back.
+	ErrSessionMode = errors.New("the session's mode takes no messages from the agent")
+	// ErrHarnessCommand: the text begins with "/", which the coding agent
+	// reads as one of its own commands — those are the person's to give.
+	ErrHarnessCommand = errors.New("a harness command is the person's to give")
 )
 
 // DelegateError is a refused delegate call.
@@ -182,8 +195,14 @@ func (e *DelegateError) Is(target error) bool {
 		return target == ErrPolicyRefused
 	case "paused":
 		return target == ErrAgentPaused
-	case "workspace-off", "no-sandbox", "off":
+	case "workspace-off", "no-sandbox", "off", "no-agent", "held":
 		return target == ErrAgentOff
+	case "taint":
+		return target == ErrTaintedBrief
+	case "mode":
+		return target == ErrSessionMode
+	case "command":
+		return target == ErrHarnessCommand
 	case "admin-read":
 		return target == ErrAdminRead
 	case "rate-limited":

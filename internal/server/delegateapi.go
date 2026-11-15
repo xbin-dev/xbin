@@ -245,7 +245,7 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 		if admin {
 			out["who"] = who // an admin: who was given one (the third setup step)
 		}
-		if access && s.AgentHeld != nil {
+		if (access || admin) && s.AgentHeld != nil { // an admin without one of their own still reads why nobody's runs
 			if kind, why := s.AgentHeld(); kind != "" {
 				out["held"] = kind // the chrome says why there is no conversation
 				if admin || s.devOwner(a.p) {
@@ -579,6 +579,9 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	}
 	if len(b.Prompt) > maxStartPrompt {
 		return nil, fmt.Sprintf("a start's first prompt is at most %d KiB", maxStartPrompt>>10)
+	}
+	if _, why := s.startRefusal(p, strings.Trim(b.Cwd, "/"), b.Prompt); why != "" {
+		return nil, why // no approval makes it startable: don't put it in front of the person
 	}
 	// what the request leaves out, xbind fills from the person's
 	// preferences for sessions their agent starts and the tile's orgs'
