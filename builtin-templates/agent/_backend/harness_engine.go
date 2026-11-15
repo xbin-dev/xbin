@@ -476,8 +476,10 @@ func (e *Engine) harnessUse(ctx context.Context, run *Run, cfg Config) (*sbxUse,
 	if !ok {
 		return nil, prov, &harnessFail{fmt.Sprintf("%s's image doesn't have %s", name, harnessName(h.Provider))}
 	}
-	if u.Box.effectiveEgress() == "none" {
-		return nil, prov, &harnessFail{fmt.Sprintf("%s must reach its provider — %s's egress is none", prov.Name, name)}
+	if u.Box.effectiveEgress() == "none" { // …unless the workspace's LLM connector is reachable there (harness_connector.go)
+		if err := noEgressFail(ctx, u.Box, prov, name); err != nil {
+			return nil, prov, &harnessFail{err.Error()}
+		}
 	}
 	return u, prov, nil
 }
@@ -554,14 +556,28 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	}
 	// a saved sign-in of the person's, through the gate (harness_creds.go):
 	// its secret in the adapter's environment only — never stored
-	cred, credNote := e.db.credPick(run, cfg, h.Ref, u.Box)
+	// (a sandbox with no egress reaches nothing but the workspace's LLM
+	// connector: no sign-in of the person's could be used there)
+	onlyConnector := u.Box.effectiveEgress() == "none"
+	var cred *hSignin
+	credNote := ""
+	if !onlyConnector {
+		cred, credNote = e.db.credPick(run, cfg, h.Ref, u.Box)
+	}
 	env, secret, err := credEnv(prov.Env, cred)
 	if err != nil {
 		return nil, &harnessFail{err.Error()}
 	}
 	if cred == nil { // no saved sign-in: the workspace's LLM connector, where it serves (harness_connector.go)
-		if key, note := e.connectorEnv(ctx, run, u, prov, env); key != "" {
-			secret, credNote = key, note
+		key, note, err := e.connectorEnv(ctx, run, u, prov, env, onlyConnector)
+		if err != nil {
+			return nil, &harnessFail{err.Error()}
+		}
+		if key != "" {
+			secret = key
+		}
+		if note != "" {
+			credNote = note
 		}
 	}
 	env = withProjectEnv(env, run, u.Box.Home) // a project task's ports, branch and credentials' env (project_gate.go)
