@@ -24,15 +24,45 @@ package boot
 // delegate call (delegation.NoPolicy): boot is the only place one is made.
 
 import (
+	"errors"
+	"fmt"
 	"path/filepath"
+
+	"github.com/xbin-dev/xbin/internal/agentpolicy"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/broker"
+	"github.com/xbin-dev/xbin/internal/llm"
 
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/term"
 )
 
 func (st *State) setupDelegation(srv *server.Server) {
 	store := delegation.OpenStore(filepath.Join(st.WS, "data", "delegation"))
 	srv.Delegation = store
+	// an agent session, for the connection view its holder's page reads
+	st.Broker.AgentHandle = func(user, holder, id string) (orgs, tiles []string, scoped bool, model string, ok bool) {
+		h, ok := store.AgentSession(user, holder, id)
+		if !ok {
+			return nil, nil, false, "", false
+		}
+		if h.Scope != nil {
+			return h.Scope.Orgs, h.Scope.Tiles, true, h.Model, true
+		}
+		return nil, nil, false, h.Model, true
+	}
+	if st.Term != nil { // a session a holder started changed status: its backend is told (an id, no more)
+		status, tm, brk := st.Term.OnStatus, st.Term, st.Broker
+		st.Term.OnStatus = func(cwd string, ch term.StatusChange) {
+			if status != nil {
+				status(cwd, ch)
+			}
+			if holder := tm.AgentOrigin(ch.ID); holder != "" {
+				brk.NotifyHolder(holder, ch.User, "session", ch.ID)
+			}
+		}
+	}
 	// the off switches, asked on every delegate call: sandboxes on (--dev
 	// and --no-auth excepted), the workspace's switch, the person's pause
 	st.Auth.SetDelegationGate(server.DelegationGate(store, st.Cfg.Isolate, st.Cfg.Dev || st.Cfg.NoAuth))
@@ -52,5 +82,39 @@ func (st *State) setupDelegation(srv *server.Server) {
 	st.Broker.AgentPolicy = st.AgentPolicy
 	if st.Term != nil {
 		st.Term.AgentPolicy = st.AgentPolicy
+	}
+}
+
+// holderCallPolicy is the LLM connector's side of an agent session (D228
+// part C0): a model call from a delegation holder — the workspace agent's
+// backend, in a person's partition — runs only under a live agent session
+// of that person and that holder (X-XBin-Agent-Session), and only on that
+// session's model. So the model the delegate gate asks the orgs' rules
+// with is the model the conversation's text really goes to: the agent
+// can't hold a session on a private model and call a hosted one. A model
+// an org whose data the session has touched no longer allows is refused
+// too (the rules changed since). Every other caller passes, as before.
+func holderCallPolicy(srv *server.Server, brk *broker.Broker) llm.CallPolicy {
+	return func(c llm.Caller, u llm.UpstreamInfo, model string) error {
+		if c.Component == "" || !auth.HoldsDelegation(c.Component) {
+			return nil
+		}
+		const how = ": make one (POST /api/xbin/delegate/sessions) and send its id as " + llm.AgentSessionHeader
+		if c.User == "" || c.AgentSession == "" || srv.Delegation == nil {
+			return errors.New("a workspace agent's model calls run under an agent session" + how)
+		}
+		h, ok := srv.Delegation.AgentSession(c.User, c.Component, c.AgentSession)
+		if !ok {
+			return errors.New("no such agent session (it expired, or is another person's)" + how)
+		}
+		if want := (agentpolicy.ModelRef{Upstream: u.Name, Model: model}).ID(); h.Model != want {
+			return fmt.Errorf("this agent session is on %s: its calls can't use %s — change the session's model (PATCH /api/xbin/delegate/sessions/%s), which the orgs whose data it has seen must allow", h.Model, want, h.ID)
+		}
+		for _, org := range h.Tainted {
+			if err := brk.AgentModelAllowedIn(org, h.Model); err != nil {
+				return fmt.Errorf("this agent session has seen data of %s, which %s may no longer see: %w", org, h.Model, err)
+			}
+		}
+		return nil
 	}
 }

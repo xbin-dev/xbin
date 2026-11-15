@@ -33,8 +33,11 @@ func (st *State) setupLLM(srv *server.Server) error {
 		// in the clear only in the plaintext vault mode, like every vault file
 		Vault: brk.Barrier(), AllowPlaintext: brk.AllowInsecureVault,
 		IsAdmin: brk.IsAdmin, AdminShell: brk.AdminShell,
-		Bound: brk.LLMBound, // the binding is the authorization, asked per call
-		Edge:  brk.LLMEdge,  // …and a non-primary deployment uses it by the tile's edge policy
+		// a delegation holder's calls: only under an agent session, and only
+		// on that session's model (delegation.go)
+		Policy: holderCallPolicy(srv, brk),
+		Bound:  brk.LLMBound, // the binding is the authorization, asked per call
+		Edge:   brk.LLMEdge,  // …and a non-primary deployment uses it by the tile's edge policy
 		// an LLM key stands while its person exists, is enabled and can
 		// still open the tile it was minted for
 		KeyOwner: func(user, component string) bool {

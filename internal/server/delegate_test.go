@@ -126,6 +126,11 @@ func delegateWorld(t *testing.T) *dWorld {
 	}
 	for _, u := range []string{"alice", "bob", "dave"} {
 		s.Auth.RegisterInstancePartition("d-"+u, dHolder, "", util.UserPartition(u), "uid-"+u)
+		h, err := w.store.NewAgentSession(u, dHolder, nil, "local/test") // an unscoped conversation, for the tests that aren't about handles
+		if err != nil {
+			t.Fatal(err)
+		}
+		testHandles.Store("d-"+u, h.ID)
 	}
 	s.Auth.RegisterInstance("i-main", "apps/x")
 	s.Auth.RegisterInstanceDeployment("i-dev", "apps/x", "dev")
@@ -195,7 +200,22 @@ func bearer(tok string) cred {
 
 // delegateCred is a delegate call as a sandbox makes it: the scheme, on the
 // gateway socket.
+// testHandles are the agent sessions delegateWorld opened, by instance
+// token: delegateCred sends a call under its person's (delegateCredBare
+// sends none).
+var testHandles sync.Map
+
 func delegateCred(tok string) cred {
+	bare := delegateCredBare(tok)
+	return func(r *http.Request) {
+		bare(r)
+		if id, ok := testHandles.Load(tok); ok {
+			r.Header.Set(HeaderAgentSession, id.(string))
+		}
+	}
+}
+
+func delegateCredBare(tok string) cred {
 	return func(r *http.Request) {
 		r.Header.Set("Authorization", auth.DelegateScheme+" "+tok)
 		*r = *r.WithContext(auth.WithGateway(r.Context()))
@@ -430,8 +450,8 @@ func TestDelegateNeverList(t *testing.T) {
 		want string
 	}{
 		{"acts that need the person's approval", tickets, "POST /templates/new\nPOST /term/sessions"},
-		{"acts that need none (driving its own sessions, asking)", acts, "DELETE /delegate/changesets/{id}\nDELETE /delegate/requests/{id}\nDELETE /term/sessions/{id}\n" +
-			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPOST /delegate/changesets\nPOST /delegate/requests\n" +
+		{"acts that need none (driving its own sessions, asking)", acts, "DELETE /delegate/changesets/{id}\nDELETE /delegate/requests/{id}\nDELETE /delegate/sessions/{id}\nDELETE /term/sessions/{id}\n" +
+			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPATCH /delegate/sessions/{id}\nPOST /delegate/changesets\nPOST /delegate/requests\nPOST /delegate/sessions\n" +
 			"POST /term/sessions/{id}/cancel\nPOST /term/sessions/{id}/prompt\nPOST /term/sessions/{id}/queue"},
 		{"admin reads", admin, "GET /bindings\nGET /grants\nGET /limits\nGET /orgs"},
 	} {

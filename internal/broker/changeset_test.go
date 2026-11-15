@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,6 +58,11 @@ func changeSetWorldWith(t *testing.T, noAuth, dev bool) *csWorld {
 	}
 	for _, u := range []string{"alice", "bob"} {
 		a.RegisterInstancePartition("d-"+u, "apps/q", "", util.UserPartition(u), "uid-"+u)
+		h, err := store.NewAgentSession(u, "apps/q", nil, "local/test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		csHandles.Store(u, h.ID)
 	}
 	return &csWorld{partWS: w, h: srv.Handler(), a: a, store: store}
 }
@@ -75,8 +81,15 @@ func (w *csWorld) session(user string) (string, func(*http.Request)) {
 	return sid, func(r *http.Request) { r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: sid}) }
 }
 
+// csHandles are the agent sessions changeSetWorldWith opened, by user:
+// agentOf's calls run under them.
+var csHandles sync.Map
+
 func agentOf(user string) func(*http.Request) {
 	return func(r *http.Request) {
+		if id, ok := csHandles.Load(user); ok {
+			r.Header.Set(server.HeaderAgentSession, id.(string))
+		}
 		r.Header.Set("Authorization", auth.DelegateScheme+" d-"+user)
 		*r = *r.WithContext(auth.WithGateway(context.Background()))
 	}

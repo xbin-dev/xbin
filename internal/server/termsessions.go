@@ -125,6 +125,22 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 	if p.Agent != "" { // a person's agent: not the tiles whose org keeps it out (delegate.go)
 		rows = slices.DeleteFunc(rows, func(si term.SessionInfo) bool { return s.delegateHides(p, si.Cwd) })
 	}
+	q := r.URL.Query()
+	if q.Get("origin") == term.OriginAgent {
+		// the sessions a workspace agent started for this person — for the
+		// agent itself, the ones IT started (another holder's are not its)
+		rows = slices.DeleteFunc(rows, func(si term.SessionInfo) bool {
+			return si.Origin != term.OriginAgent || p.Agent != "" && s.Term.AgentOrigin(si.ID) != p.Agent
+		})
+	}
+	if q.Get("compact") != "" { // what a status poll needs, and no more
+		out := make([]map[string]any, 0, len(rows))
+		for _, si := range rows {
+			out = append(out, map[string]any{"id": si.ID, "cwd": si.Cwd, "kind": si.Kind, "provider": si.Provider, "mode": si.Mode, "status": si.Status, "origin": si.Origin})
+		}
+		WriteJSON(w, http.StatusOK, out)
+		return
+	}
 	if homeKey != term.HomeKey(p) || p.ReadOnly() {
 		for i := range rows {
 			if rows[i].Personal() {

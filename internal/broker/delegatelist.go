@@ -13,7 +13,10 @@ package broker
 import (
 	"encoding/json"
 	"errors"
+	"slices"
+	"strings"
 
+	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 )
@@ -161,4 +164,85 @@ func (o orgAgentRules) StartPrefs(user, _, provider string) (delegation.StartPre
 		return delegation.StartPrefs{}, false
 	}
 	return delegation.StartPrefs{Mode: mode, Net: net, API: api}, true
+}
+
+// ---- what the server asks for agent sessions (server.AgentWorld) ----
+
+// AgentOrgsOf lists the orgs whose agent rules apply to tile: its owning
+// org and the orgs it is shared into; "workspace" for a tile in none.
+func (b *Broker) AgentOrgsOf(tile string) []string {
+	if b.Users != nil {
+		if _, orgs, _ := b.Users.TileOrgVia(strings.Trim(tile, "/")); len(orgs) > 0 {
+			return orgs
+		}
+	}
+	return []string{agentpolicy.WorkspaceID}
+}
+
+// AgentModelAllowedIn is why a conversation on model may not hold org's
+// tiles' data (nil: it may): the org's model rule and the workspace's.
+func (b *Broker) AgentModelAllowedIn(org, model string) error {
+	if b.Users == nil {
+		return nil
+	}
+	return agentpolicy.Check(b.Users.OrgAgentLayers(org), agentpolicy.Ask{WorkspaceAgent: true, Model: b.ResolveModel(model)}).Err()
+}
+
+// AgentConnectionFor is the connection view of person p for a scope and a
+// model, and what changing to whatIf ("" none) would do.
+func (b *Broker) AgentConnectionFor(p auth.Principal, orgs, tiles []string, model, whatIf string) (agentpolicy.View, *agentpolicy.Change) {
+	scope := agentpolicy.Scope{Orgs: orgs, Tiles: tiles}
+	view := b.AgentConnection(p, scope, b.ResolveModel(model))
+	if to := b.ResolveModel(whatIf); to != nil {
+		ch := b.AgentWhatIf(p, scope, b.ResolveModel(model), to)
+		return view, &ch
+	}
+	return view, nil
+}
+
+// AgentScreens lists the screens p sees — the workspace's default and
+// their orgs' — with the tiles each holds, less the ones hide reports.
+func (b *Broker) AgentScreens(p auth.Principal, hide func(tile string) bool) []map[string]any {
+	out := []map[string]any{}
+	d, err := b.screensRead()
+	if err != nil {
+		return out
+	}
+	paths := func(raw json.RawMessage) []string {
+		var rows []struct {
+			Path string `json:"path"`
+		}
+		_ = json.Unmarshal(raw, &rows)
+		res := []string{}
+		for _, r := range rows {
+			if r.Path != "" && !hide(r.Path) {
+				res = append(res, r.Path)
+			}
+		}
+		return res
+	}
+	if len(d.Default) > 0 {
+		var def struct {
+			Tiles json.RawMessage `json:"tiles"`
+		}
+		_ = json.Unmarshal(d.Default, &def)
+		out = append(out, map[string]any{"id": "default", "name": "Default", "tiles": paths(def.Tiles)})
+	}
+	memb := b.membershipsOf(p)
+	for _, sc := range d.Org {
+		if m, ok := memb[sc.Org]; ok && !m.Suspended || b.IsAdmin(p) {
+			out = append(out, map[string]any{"id": sc.ID, "name": sc.Name, "org": sc.Org, "tiles": paths(sc.Tiles)})
+		}
+	}
+	return out
+}
+
+// AgentPersonOrgs lists the orgs p is a member of.
+func (b *Broker) AgentPersonOrgs(p auth.Principal) []map[string]any {
+	out := []map[string]any{}
+	for id, m := range b.membershipsOf(p) {
+		out = append(out, map[string]any{"id": id, "name": m.Name, "level": m.Level, "admin": m.Admin, "suspended": m.Suspended})
+	}
+	slices.SortFunc(out, func(a, c map[string]any) int { return strings.Compare(a["id"].(string), c["id"].(string)) })
+	return out
 }

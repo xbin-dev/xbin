@@ -49,3 +49,19 @@ func TestSealDelegate(component string) (restore func()) {
 	SetDelegateHolders(func(c string) bool { return c == component || prev != nil && (*prev)(c) })
 	return func() { delegateHolders.Store(prev) }
 }
+
+// TestDelegateNotify makes component's notice path path until the returned
+// function runs (delegate.go). Test-only.
+func TestDelegateNotify(component, path string) (restore func()) {
+	prev := delegateNotify.Load()
+	SetDelegateNotify(func(c string) string {
+		if c == component {
+			return path
+		}
+		if prev != nil {
+			return (*prev)(c)
+		}
+		return ""
+	})
+	return func() { delegateNotify.Store(prev) }
+}

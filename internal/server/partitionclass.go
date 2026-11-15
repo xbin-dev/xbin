@@ -547,6 +547,8 @@ var partitionClasses = map[string]PartitionClass{
 
 	// ---- reads of workspace facts ----
 	"GET /whoami":               PartitionNeutral,
+	"GET /docs/search":          PartitionNeutral,
+	"GET /docs/page":            PartitionNeutral,
 	"GET /status":               PartitionNeutral,
 	"GET /components":           PartitionNeutral,
 	"GET /components/{path...}": PartitionNeutral,
@@ -613,6 +615,12 @@ var partitionClasses = map[string]PartitionClass{
 	// person, so PersonOnly would refuse them) answers as the person in
 	// development. The workspace's switch is an admin's ----
 	"GET /delegate/state":                    PartitionNeutral,
+	"POST /delegate/sessions":                PartitionNeutral,
+	"GET /delegate/sessions/{id}":            PartitionNeutral,
+	"PATCH /delegate/sessions/{id}":          PartitionNeutral,
+	"DELETE /delegate/sessions/{id}":         PartitionNeutral,
+	"GET /delegate/sessions/{id}/connection": PartitionNeutral,
+	"GET /delegate/map":                      PartitionNeutral,
 	"PUT /delegate/state":                    PartitionNeutral,
 	"GET /delegate/workspace":                GlobalOnlyRefused,
 	"PUT /delegate/workspace":                GlobalOnlyRefused,

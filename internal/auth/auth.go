@@ -77,6 +77,10 @@ type Principal struct {
 	// statement, not verified, asked by the orgs' model rules. "" when it
 	// said nothing, and for everyone else.
 	AgentModel string
+	// AgentSession is the agent session (handle) a delegate's call runs
+	// under — xbind's record of the conversation's scope and model; set by
+	// the delegate gate, "" for the calls made before there is one.
+	AgentSession string
 	// DeviceID names the enrolled device behind a "device" session.
 	DeviceID string
 	// Gen is the credential generation this principal authenticated under —

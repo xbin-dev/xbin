@@ -68,6 +68,7 @@ type Server struct {
 	// delegation route names (delegateapi.go). Never set in production.
 	DelegationDev bool
 	delegateRT    delegateRuntime // the gate's rate limit and running calls
+	docsIx        docsIndex       // the docs search index, built at first use (docsapi.go)
 	// AgentPrefs is the people's agent preferences (D229, agentprefsapi.go);
 	// nil = none.
 	AgentPrefs *agentprefs.Store
@@ -76,6 +77,12 @@ type Server struct {
 	// above what was last approved), and the raise its manifest asks for;
 	// nil: the manifest's own value.
 	AgentLevel func(c *registry.Component) (inForce, requested string)
+	// AgentWorld answers tiles' orgs, the orgs' model rules, the connection
+	// view and the screens for agent sessions (the broker); nil: no orgs.
+	AgentWorld AgentWorld
+	// HolderNotify tells a holder's backend, in its person's partition, that
+	// something it waits on changed (kind, id only); nil: nobody is told.
+	HolderNotify func(holder, user, kind, id string)
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.

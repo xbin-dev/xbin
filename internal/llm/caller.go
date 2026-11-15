@@ -42,6 +42,10 @@ type Caller struct {
 	Admin bool
 	// Label is an LLM key's label ("" otherwise), for the log.
 	Label string
+	// AgentSession is the agent session (handle) a component's call names
+	// (the X-XBin-Agent-Session header): a delegation holder's calls are
+	// held to that session's model by the policy boot installs.
+	AgentSession string
 	// ReadOnly, when set, is why this caller may read (models, status) and
 	// not call: a tile's non-primary deployment under the read clamp of its
 	// edge policy (docs/auth.md, the edge policy).
@@ -107,6 +111,9 @@ func (s *Service) identify(r *http.Request, snap *snapshot) (Caller, *refusal) {
 				p.Component+" is not bound to the workspace's LLM connector: a workspace admin binds its llm slot to xbin:llm (bx bind "+p.Component+" <slot>=xbin:llm)")
 		}
 		c := Caller{Component: p.Component, Via: "component", User: actor(p)}
+		if id := r.Header.Get(AgentSessionHeader); len(id) <= 64 {
+			c.AgentSession = id // a workspace agent's backend: the conversation this call is for (Options.Policy judges it)
+		}
 		if s.opt.Edge != nil { // a non-primary deployment uses the binding by the tile's edge policy
 			switch mode, why := s.opt.Edge(p); mode {
 			case EdgeFull:
@@ -220,3 +227,7 @@ func (s *Service) BindingChanged(component string) int {
 	}
 	return s.llmKeys.RevokeWhere(func(g KeyGrant) bool { return g.Bound && g.Component == component })
 }
+
+// AgentSessionHeader names the agent session a delegation holder's model
+// call is for (docs/llm.md §Workspace agents).
+const AgentSessionHeader = "X-XBin-Agent-Session"
