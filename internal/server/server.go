@@ -274,6 +274,10 @@ func (s *Server) authed(next http.Handler) http.Handler {
 			refuseReadOnly(w, r)
 			return
 		}
+		if s.sealedViewAs(r, p) { // a view-as session opens nothing of a sealed component (sealed.go)
+			refuseSealedViewAs(w, r)
+			return
+		}
 		// A sealed component's page holds a viewer's token: its own backend
 		// and nothing of xbind's or another tile's (sealed.go).
 		if SealedViewer(p) && !sealedViewerAllowed(r, p) {
@@ -316,6 +320,10 @@ func (s *Server) authedStatic(next http.Handler) http.Handler {
 				return
 			}
 			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
+			return
+		}
+		if s.sealedViewAs(r, p) { // nor does a view-as session load its page (sealed.go)
+			refuseSealedViewAs(w, r)
 			return
 		}
 		// a sealed component's viewer loads its own page's files (sealed.go)
@@ -715,7 +723,7 @@ func (s *Server) eventFilter(p auth.Principal) events.Filter {
 		if e.Type != "bus" {
 			return true
 		}
-		if p.IsAdmin() && e.Partition == "" { // a partition's bus: no blanket pass (G2)
+		if p.IsAdmin() && e.Partition == "" && !util.SealedTarget(e.Topic) { // a partition's bus: no blanket pass (G2); nor a sealed component's (its bus is its backend's alone, D227)
 			return true
 		}
 		return s.policy().BusAllows(p, e)

@@ -131,8 +131,13 @@ func sealedCodeMeta(c *registry.Component) string {
 
 // sealedStale answers a call to a sealed component's API from a page of
 // other code than the running release's (true: answered), and takes the
-// xbin-code parameter off a URL that carries the current one. rest is the
-// path after /api/.
+// xbin-code parameter off the URL. rest is the path after /api/.
+//
+// Only the component's own page is ever told to reload: the code a request
+// names counts when the caller is that component's frame principal, and
+// the reload event goes to that person's own sockets (sealedReloadFor) —
+// once it went to everyone, before any access check, so any credential
+// with a made-up X-XBin-Code reloaded every open frame once a second.
 func (s *Server) sealedStale(w http.ResponseWriter, r *http.Request, rest string) bool {
 	c, _, ok := s.Reg.Resolve(rest)
 	if !ok || !c.Sealed {
@@ -147,40 +152,94 @@ func (s *Server) sealedStale(w http.ResponseWriter, r *http.Request, rest string
 		q.Del(SealedCodeQuery) // xbind's own, like ?frame=: the backend never sees it
 		r.URL.RawQuery = q.Encode()
 	}
-	if code == "" || code == c.SealedID {
-		return false
+	p := auth.PrincipalOf(r)
+	if code == "" || code == c.SealedID || p.Via != "frame" || p.Component != c.Path {
+		return false // no page of this component: nothing to compare
 	}
-	s.sealedReload(c.Path)
+	s.sealedReload(c.Path, p)
 	w.Header().Set(SealedReloadHeader, c.SealedID)
 	WriteError(w, http.StatusConflict, c.Path+" was updated with xbin: its page reloads onto the new version", SealedDocs)
 	return true
 }
 
-// sealedReloads spaces the reload events of a component: a stale page may
-// fire many requests before it is gone.
+// sealedReloadFor is a reload event's audience: the person whose page was
+// stale (the root token's own pages for owner), nobody else's frames.
+type sealedReloadFor struct {
+	user  string
+	owner bool
+}
+
+func (f sealedReloadFor) VisibleTo(p auth.Principal) bool {
+	if f.owner {
+		return p.UserID == "" && (p.Owner || p.Via == "frame")
+	}
+	return f.user != "" && p.UserID == f.user
+}
+
+func (sealedReloadFor) MarshalJSON() ([]byte, error) { return []byte("{}"), nil }
+
+// sealedReloads spaces the reload events of a component for one person: a
+// stale page may fire many requests before it is gone.
 var sealedReloads struct {
 	sync.Mutex
 	last map[string]time.Time
 }
 
-// sealedReload tells the open frames of the sealed component at path to
-// load its page again (at most once a second per component).
-func (s *Server) sealedReload(path string) {
+// sealedReload tells the caller's open frames of the sealed component at
+// path to load its page again (at most once a second per person).
+func (s *Server) sealedReload(path string, p auth.Principal) {
 	if s.Hub == nil {
 		return
 	}
+	key := path + "\x00" + p.UserID
 	sealedReloads.Lock()
 	if sealedReloads.last == nil {
 		sealedReloads.last = map[string]time.Time{}
 	}
-	recent := time.Since(sealedReloads.last[path]) < time.Second
+	recent := time.Since(sealedReloads.last[key]) < time.Second
 	if !recent {
-		sealedReloads.last[path] = time.Now()
+		sealedReloads.last[key] = time.Now()
+		for k, at := range sealedReloads.last { // (bounded: entries older than a minute go)
+			if time.Since(at) > time.Minute {
+				delete(sealedReloads.last, k)
+			}
+		}
 	}
 	sealedReloads.Unlock()
 	if !recent {
-		s.Hub.Publish(events.Event{Type: "reload", Component: path})
+		s.Hub.Publish(events.Event{Type: "reload", Component: path, Data: sealedReloadFor{user: p.UserID, owner: p.UserID == ""}})
 	}
+}
+
+// Viewing the workspace as someone (an admin's view-as session) opens
+// nothing of a sealed component: not its page, not its backend, not a
+// token of it. What people keep in one is theirs; an admin who looks
+// through a person's eyes would otherwise read that person's partition, or
+// a one-instance component's conversation with them, read-only but in full.
+func (s *Server) sealedViewAs(r *http.Request, p auth.Principal) bool {
+	if !p.ReadOnly() {
+		return false
+	}
+	if util.SealedPath(p.Component) {
+		return true // a token minted in such a session
+	}
+	path := r.URL.Path
+	for _, plane := range []string{"/api/", "/c/"} {
+		if rest, ok := strings.CutPrefix(path, plane); ok && s.sealedOwned(rest) {
+			return true
+		}
+	}
+	return path == "/api/xbin/frame-token" && util.SealedPath(r.URL.Query().Get("component"))
+}
+
+// refuseSealedViewAs answers what sealedViewAs refuses.
+func refuseSealedViewAs(w http.ResponseWriter, r *http.Request) {
+	const msg = "viewing the workspace as someone opens nothing of a system component: what people keep in one is theirs"
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		WriteError(w, http.StatusForbidden, msg, SealedDocs)
+		return
+	}
+	http.Error(w, msg, http.StatusForbidden)
 }
 
 // A sealed component's frame token is a viewer's (D227). A tile's frame

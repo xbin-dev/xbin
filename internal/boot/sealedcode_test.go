@@ -1,6 +1,7 @@
 package boot
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/sealed"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -42,9 +44,21 @@ func TestSealedPageFollowsTheRelease(t *testing.T) {
 		}
 		return m[1]
 	}
+	// its page's calls carry its frame token (the root token's own page here)
+	pageToken := func(d *sealedDaemon) string {
+		t.Helper()
+		code, body := d.do("GET", "/api/xbin/frame-token?component=xbin/counter", nil)
+		var ft struct{ Token string }
+		if code != 200 || json.Unmarshal([]byte(body), &ft) != nil || ft.Token == "" {
+			t.Fatalf("its frame token: %d %s", code, body)
+		}
+		return ft.Token
+	}
+	var frameTok string
 	call := func(d *sealedDaemon, path, code string) (int, string, string) {
 		t.Helper()
 		req, _ := http.NewRequest("GET", d.base+path, nil)
+		req.Header.Set("X-XBin-Frame-Token", frameTok)
 		if code != "" {
 			req.Header.Set(server.SealedCodeHeader, code)
 		}
@@ -59,6 +73,7 @@ func TestSealedPageFollowsTheRelease(t *testing.T) {
 
 	// release 1: the page names its code, and its calls pass
 	d := startSealed(t, ws, release("code-1"))
+	frameTok = pageToken(d)
 	id1 := page(d)
 	if row := d.sealedRow("xbin/counter"); !strings.HasPrefix(row.Digest, id1) {
 		t.Errorf("the page's code id %s is not the component's digest %s", id1, row.Digest)
@@ -74,19 +89,47 @@ func TestSealedPageFollowsTheRelease(t *testing.T) {
 
 	// release 2 on the same workspace; the old page is still open somewhere
 	d = startSealed(t, ws, release("code-2"))
+	frameTok = pageToken(d)
 	id2 := page(d)
 	if id2 == id1 {
 		t.Fatal("two releases, one code id")
 	}
 	evs, cancel := d.st.Hub.Subscribe(func(e events.Event) bool { return e.Type == "reload" })
 	defer cancel()
+	// the event is for the person whose page was stale, nobody else's frames
 	reloaded := func() bool {
 		select {
 		case e := <-evs:
-			return e.Component == "xbin/counter"
+			to, ok := e.Data.(interface{ VisibleTo(auth.Principal) bool })
+			return e.Component == "xbin/counter" && ok && to.VisibleTo(auth.Principal{Owner: true, Via: "cookie"}) &&
+				!to.VisibleTo(auth.Principal{UserID: "someone", Via: "session"}) && !to.VisibleTo(auth.Principal{UserID: "someone", Component: "xbin/counter", Via: "frame"})
 		case <-time.After(2 * time.Second):
 			return false
 		}
+	}
+	// a code named by anything that is not this component's page counts for
+	// nothing: no 409, no reload for anyone (any credential with a made-up
+	// X-XBin-Code once reloaded every open frame, once a second)
+	for what, hdr := range map[string]string{"the root token": "Bearer " + d.token, "no page's token": ""} {
+		req, _ := http.NewRequest("GET", d.base+"/api/xbin/counter/hello?xbin-code=ffffffffffffffffffffffff", nil)
+		if hdr != "" {
+			req.Header.Set("Authorization", hdr)
+		}
+		req.Header.Set(server.SealedCodeHeader, "000000000000000000000000")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusConflict || strings.Contains(string(b), "xbin-code") {
+			t.Errorf("a made-up code from %s: %d %s", what, resp.StatusCode, b)
+		}
+	}
+	select {
+	case e := <-evs:
+		t.Errorf("a made-up code from no page reloaded frames: %+v", e)
+	case <-time.After(150 * time.Millisecond):
 	}
 
 	code, body, reload := call(d, "/api/xbin/counter/hello", id1)

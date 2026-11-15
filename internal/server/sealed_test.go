@@ -3,9 +3,16 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // The gate reads a body's tile names as the handlers' decoder does, or a
@@ -133,5 +140,79 @@ func TestSealedGateOnUnclassifiedRoutesAndSpellings(t *testing.T) {
 		if got := gate("POST", "/lifecycle", body); got != refused {
 			t.Errorf("POST /lifecycle %s: refused=%v, want %v", body, got, refused)
 		}
+	}
+}
+
+// A view-as session opens nothing of a sealed component, and an admin's
+// events socket carries no bus event of one.
+func TestSealedViewAsAndAdminBus(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "xbin.json"), []byte(`{"schema":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "apps", "a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "apps", "a", "index.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code := registry.SealedCode{Path: "xbin/probe", ID: "0123456789abcdef01234567", Dir: t.TempDir(), Manifest: []byte(`{}`),
+		Files: map[string][]byte{"xbin.json": []byte(`{}`), "index.html": []byte("<html></html>")}}
+	reg, err := registry.OpenSealed(root, func() []registry.SealedCode { return []registry.SealedCode{code} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Reg: reg}
+	viewAs := auth.Principal{UserID: "ann", Via: "session", Impersonator: "adm"}
+	own := auth.Principal{UserID: "ann", Via: "session"}
+	for target, refused := range map[string]bool{
+		"/api/xbin/probe/hello":                      true,
+		"/api/xbin/probe":                            true,
+		"/c/xbin/probe/":                             true,
+		"/c/xbin/probe/app.js":                       true,
+		"/api/xbin/frame-token?component=xbin/probe": true,
+		"/api/xbin/frame-token?component=apps/a":     false,
+		"/api/apps/a/x":                              false,
+		"/c/apps/a/":                                 false,
+		"/api/xbin/components?sealed=1":              false, // that it exists is no secret
+		"/api/xbin/sealed":                           false,
+	} {
+		r := httptest.NewRequest("GET", target, nil)
+		if got := s.sealedViewAs(r, viewAs); got != refused {
+			t.Errorf("view-as GET %s: refused=%v, want %v", target, got, refused)
+		}
+		if s.sealedViewAs(r, own) {
+			t.Errorf("a person's own session is refused %s as if it were a view-as one", target)
+		}
+	}
+	// a token minted inside such a session is refused everything
+	if !s.sealedViewAs(httptest.NewRequest("GET", "/api/xbin/whoami", nil), auth.Principal{Component: "xbin/probe", Via: "frame", UserID: "ann", Impersonator: "adm"}) {
+		t.Error("a view-as frame of the sealed component passes")
+	}
+
+	admin := auth.Principal{UserID: "adm", Via: "session", User: &users.User{ID: "adm", Role: users.RoleAdmin}}
+	owner := auth.Principal{Owner: true, Via: "bearer"}
+	for _, p := range []auth.Principal{admin, owner} {
+		f := s.eventFilter(p)
+		if f(events.Event{Type: "bus", Topic: "res:xbin/probe/events/t", Data: "its people's data"}) {
+			t.Errorf("%s receives a sealed component's bus event", p.From())
+		}
+		if f(events.Event{Type: "bus", Topic: "res:/xbin/probe/events/t"}) {
+			t.Errorf("%s receives it under another spelling", p.From())
+		}
+		if !f(events.Event{Type: "bus", Topic: "res:apps/a/events/t"}) {
+			t.Errorf("%s no longer receives a tile's bus event", p.From())
+		}
+		if !f(events.Event{Type: "reload", Component: "xbin/probe"}) {
+			t.Errorf("%s no longer receives its reload event", p.From())
+		}
+	}
+	// the reload a stale page triggers reaches that person's sockets alone
+	to := sealedReloadFor{user: "ann"}
+	if !to.VisibleTo(own) || to.VisibleTo(admin) || to.VisibleTo(owner) || to.VisibleTo(auth.Principal{UserID: "bob", Via: "session"}) {
+		t.Error("a person's reload event reaches someone else")
+	}
+	if rootTo := (sealedReloadFor{owner: true}); !rootTo.VisibleTo(owner) || rootTo.VisibleTo(own) {
+		t.Error("the root token's reload event reaches a person")
 	}
 }
