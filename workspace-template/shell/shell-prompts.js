@@ -48,7 +48,7 @@ export function followPrompts(s) {
   };
   const offs = [grantsStore().subscribe(update), bindingsStore().subscribe(update), limitsStore().subscribe(update),
     dismissalStore().subscribe(update), onConsents(update),
-    dismissalStore().onError(() => s._pushToast('dismissed', { level: 'error',
+    dismissalStore().onError(() => s._who?.readOnly || s._pushToast('dismissed', { level: 'error', // (a read-only session saves nothing)
       message: 'Couldn’t save your dismissal, so it shows again — try again (it is kept on your devices once saved).' }))];
   s._promptsUpdate = update;
   loadAccessRequests(s);

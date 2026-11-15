@@ -37,13 +37,15 @@ xbin.WriteError(w, http.StatusForbidden, "…") // {"error": "…"} — the shap
 ### Callers and roles
 
 ```go
-c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy, Deployment,
-                             //            Partition, PartitionID, Agent}
+c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy, Preview,
+                             //            Deployment, Partition, PartitionID, Agent}
 c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // level (D29) — frame calls from your own UI run
                              // at full role even for read-level viewers
 c.ViewedBy                   // an admin viewing as User (D64): hide User's
                              // private data from them
+c.Preview                    // xbind rendering User's own view (D234): show
+                             // them everything, change nothing — below
 xbin.AccessOf(ctx, user)     // that person's level on this tile NOW — for a
                              // credential kept past the call (below)
 xbin.Role("writer", h)       // middleware: 403 below writer
@@ -77,6 +79,38 @@ c.Agent, c.ByAgent()         // X-XBin-Agent: the call is User's workspace agent
 
 Headers are trustworthy: xbind strips inbound `X-XBin-*` and injects
 verified values ([auth.md](/docs/auth.md)).
+
+**A GET or a socket under `Preview` (or `ViewedBy`) changes nothing.**
+xbind can render a tile or a screen for the person who asks, in a browser
+of its own ([protocol/preview.md](/docs/protocol/preview.md)). Nobody is
+clicking then, and the render is read-only: xbind refuses every request of
+it that is not a GET, and on the calls it lets through — GETs and
+WebSocket upgrades — tells you so in every identity you could authorize
+on: `Role` is `reader` (a custom role with no read form is kept on a GET,
+and its sockets are refused), `UserLevel` is `read`, `UserCanWrite()` is
+false.
+What xbind cannot see is a handler of yours whose **GET or socket has an
+effect** — "mark as read when the list is fetched", presence, a `last
+opened` stamp, a cursor advanced by a `subscribe` message. Every call made
+during a preview carries `X-XBin-Preview: 1`; check it and skip the effect:
+
+```go
+mux.HandleFunc("GET /inbox", func(w http.ResponseWriter, r *http.Request) {
+    c := xbin.Caller(r)
+    if !c.Preview && c.ViewedBy == "" {
+        markSeen(c.User) // a person's own act: not a render's, not an admin's look
+    }
+    xbin.WriteJSON(w, 200, inbox(c.User)) // the data is theirs either way
+})
+```
+
+Unlike `ViewedBy`, a preview **is** the user — it is their own view, so
+show their private data; only side effects are off. Don't *draw* anything
+differently for it either: the mark suppresses effects, it is not a mode,
+and your page is not told (its `/whoami` says `readOnly`, nothing more). The header marks the
+calls the render's browser makes: a call your backend makes to another tile
+while answering one is your backend's own, and carries no mark — if that
+call has an effect there, don't make it for a preview.
 
 ### Calling other elements & xbin APIs
 

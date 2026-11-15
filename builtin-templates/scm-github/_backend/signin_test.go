@@ -58,6 +58,13 @@ func TestSigninDeviceFlow(t *testing.T) {
 		t.Fatalf("early poll: %+v, %d polls", st, e.devicePolls())
 	}
 	e.clock.advance(5 * time.Second)
+	// Due, but a preview of the page (D234) asks GitHub nothing: the state as it stands.
+	pv := pageC("alice")
+	pv.preview = true
+	decode(t, e.call(u, pv, "GET", "/scm/signin/"+poll, nil), &st)
+	if st.State != "pending" || st.Signin.PollID != poll || e.devicePolls() != 0 {
+		t.Fatalf("a preview's poll: %+v, %d polls", st, e.devicePolls())
+	}
 	decode(t, e.call(u, pageC("alice"), "GET", "/scm/signin/"+poll, nil), &st)
 	if st.State != "pending" || e.devicePolls() != 1 {
 		t.Fatalf("pending poll: %+v, %d polls", st, e.devicePolls())

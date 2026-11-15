@@ -12,6 +12,59 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Previews: xbind renders a tile or a screen as the person who asks**
+  (D234; [protocol/preview.md](/docs/protocol/preview.md),
+  [auth.md](/docs/auth.md) §Previews, [isolation.md](/docs/isolation.md)
+  §Previews). `POST /api/xbin/preview {tile | screen, viewport?}` opens the
+  page in a headless Chromium of xbind's own — a throwaway sandbox with no
+  network but one socket to xbind — as a one-shot **read-only** session of
+  the caller that nobody is handed, and answers with a PNG, a text
+  rendering (an accessibility tree per frame), console errors, failed
+  requests and a `notice` that the content is data, not instructions.
+  `GET /api/xbin/preview` says whether this xbind can render (it needs
+  `--isolate` and a rootfs with Chromium) and the limits in force:
+  `XBIN_PREVIEWS`, `XBIN_PREVIEW_PER_USER`, `XBIN_PREVIEW_TOTAL`,
+  `XBIN_PREVIEW_TIMEOUT`, `XBIN_PREVIEW_MEM` ([config.md](/docs/config.md)).
+  `bx preview <tile>` and `bx preview --screen <name>` save the picture.
+  **For tile builders:** every call a render makes to your backend carries
+  `X-XBin-Preview: 1` (`xbin.Caller(r).Preview`) — a GET or a socket
+  message of yours that has an effect (mark-as-read, presence) must skip
+  it then ([sdk.md](/docs/sdk.md)); xbind refuses the render's non-GET
+  requests itself, and on every call it lets through — GETs and WebSocket
+  upgrades — sends role `reader` and user level `read` (`UserCanWrite()` is
+  false in a preview). Don't draw differently for it: `/whoami` in a render
+  says `readOnly: true`, as in view-as, and nothing more. Without a
+  delegated cgroup (no enforceable memory cap) previews answer 503 unless
+  `XBIN_PREVIEWS=uncapped`.
+- **Builtin tiles and templates honour `X-XBin-Preview`** (D234): in a
+  preview their GETs and sockets change nothing. The agent template: a
+  project's status and overview reads start no repo fetches, the CI read
+  makes no watch and re-reads none, the team board and membership reads
+  apply no definition, a harness probe runs nothing in a sandbox, the
+  sandbox terminals answer 403, an SCM sign-in poll reads the state without
+  trading the code. scm-github: the device-flow poll and the App manifest
+  callback do nothing. coding-sandbox (and `examples/sandbox-go`): a file
+  read starts no stopped sandbox, and no terminal opens. sandbox-terminal
+  v12: the page is not a visit and re-checks nobody's access. A workspace's
+  instances get the template changes as template updates (`bx template
+  updates`).
+- **Client: `xbin.ready()`** (D234; [elements.md](/docs/elements.md)) — a
+  tile says "I have drawn"; with `<meta name="xbin-ready"
+  content="manual">` it is waited for. Additive: a tile that never calls it
+  behaves as before.
+- **Read-only sessions (view-as) no longer do three things a GET let them
+  do:** `GET /api/xbin/deployments/diff` with a work-tree side — the
+  default `to` — captured a checkpoint of the tile; it answers 403 now
+  (diff two checkpoints or deployments instead). `GET
+  /api/xbin/git/remote-info` dials out and is refused. And a partitioned
+  tile's frame calling another partitioned tile no longer starts the
+  person's first partition there or prompts them for consent (previews;
+  view-as was already refused).
+- **Shell: nothing is saved under `readOnly`** — the layout and settings
+  saves and the "couldn't save your dismissal" toast are skipped in a
+  view-as session and a preview (the server refused them before; now the
+  shell doesn't ask). Scaffolded shells get it with the next scaffold
+  update; a preview hides an older shell's toasts by itself.
 - **LLM connector for coding agents and terminals: a security pass**
   (D226; [llm.md](/docs/llm.md) §Coding agents and terminals). None of it
   changes a workspace with no connector configured.

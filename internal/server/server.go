@@ -25,6 +25,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/preview"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -141,6 +142,10 @@ type Server struct {
 	ssoProvIssuer string
 	ssoStateKey   []byte
 
+	// Preview renders pages as a person sees them (preview.go); nil = off.
+	Preview     *preview.Service
+	previewBase string
+
 	apiMux        *http.ServeMux // /api/xbin/… extensions (broker, grants, vault)
 	apiPatterns   []string       // every RegisterAPI pattern, in order (the route inventory)
 	corePatterns  []string       // the top-level mux patterns Handler mounted
@@ -218,6 +223,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
+	s.registerPreviewAPI() // previews (preview.go, D234)
 	s.registerBrandingAPI()
 	return logRequests(s.tunnelGate(s.tileOrigins(nullOriginCORS(mux)))) // tunnelgate.go: the app tunnel (D204)
 }
@@ -290,7 +296,7 @@ func (s *Server) authed(next http.Handler) http.Handler {
 		}
 		// An admin viewing as a user reads everything the user reads and
 		// changes nothing (impersonate.go).
-		if p.ReadOnly() && !readOnlyAllowed(r) {
+		if p.ReadOnly() && !readOnlyAllowed(r, p) {
 			refuseReadOnly(w, r)
 			return
 		}

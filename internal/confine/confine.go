@@ -92,6 +92,18 @@ type Cmd struct {
 	// their owner locked. Only for fixed tools whose argv no tree content
 	// steers. Isolation off: no effect (a direct run is xbind).
 	FSCaps bool
+
+	// TmpfsBytes sizes the sandbox's writable tmpfs mounts (/tmp, /dev/shm,
+	// the root's layer; sandbox.Spec.TmpfsBytes): for a run of untrusted
+	// code. 0 = the default. Isolation off: no effect.
+	TmpfsBytes int64
+
+	// Cgroup, when set, is a cgroup directory (open O_DIRECTORY:
+	// cgroup.Manager.Prepare) the sandbox is started straight into —
+	// clone3's CLONE_INTO_CGROUP — so its limits bind everything the run
+	// forks from its first instruction (the preview browser's memory cap,
+	// D234). It stays the caller's to close. Isolation off: no effect.
+	Cgroup *os.File
 }
 
 // Result is what a run printed.
@@ -181,6 +193,7 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 			HostGID:      os.Getgid(),
 			Unprivileged: true, // no capabilities, the syscall block-list: nothing to un-mask with
 			FileCaps:     c.FSCaps,
+			TmpfsBytes:   c.TmpfsBytes,
 		}
 		switch c.Net {
 		case NetHost:
@@ -194,6 +207,9 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 			return Result{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 		}
 		defer h.Cleanup()
+		if c.Cgroup != nil {
+			startInCgroup(cmd, c.Cgroup)
+		}
 	}
 	cmd.Stdin = c.Stdin
 	cmd.Stdout, cmd.Stderr = out, errb

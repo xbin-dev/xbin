@@ -433,6 +433,14 @@ func (a *deploymentsAPI) getDiff(w http.ResponseWriter, r *http.Request) {
 			o = deployments.OpDiffWorkTree
 		}
 		e = a.readGate(pr, t, o)
+		// The work-tree side is a read that writes: it captures a
+		// checkpoint (checkpoint.Diff). OpDiffWorkTree is a read to the
+		// authority table, so the view-as refusal there never sees it — a
+		// read-only session captures nothing, whoever it reads as.
+		if e == nil && (from.WorkTree || to.WorkTree) && pr.ReadOnly() {
+			e = &dpe{Status: http.StatusForbidden, Kind: deployments.KindAuthority,
+				Msg: "read-only: a diff of the work tree captures a checkpoint, which a read-only session doesn't do — diff two checkpoints or deployments instead"}
+		}
 	}
 	if e == nil && !t.active() { // nothing to diff, nothing captured, no store (D119c)
 		e = &dpe{Status: http.StatusConflict, Kind: deployments.KindState,

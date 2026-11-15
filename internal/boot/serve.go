@@ -32,7 +32,9 @@ import (
 // console listener, prints the login line, and serves until ctx is done.
 func (st *State) serve(ctx context.Context) error {
 	cfg, run, brk, px := st.Cfg, st.Run, st.Broker, st.Proxy
+	st.enablePreviews()
 	handler := st.Server.Handler()
+	st.Server.SetPreviewHandler(handler) // a render's requests enter where a browser's do
 
 	// Gateway socket: element backends call other elements / xbin APIs here
 	// with their instance tokens (plans/auth.md §3). Same handler, same auth.

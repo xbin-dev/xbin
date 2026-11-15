@@ -91,6 +91,68 @@ tree. In every sandbox, a bind that lands inside another bind's tree gets
 its mount point without following symlinks: a symlink or a file in the way
 fails the start and names the path.
 
+## Previews: a browser xbind runs for you (D234)
+
+A [preview](/docs/protocol/preview.md) renders tile code — which xbind
+treats as untrusted, like everything a tile ships — in a headless Chromium
+from the base rootfs. That browser is a confined tool run like the ones
+above, and tighter:
+
+- **A throwaway sandbox per render** over the base rootfs: its own user,
+  mount, pid and ipc namespaces, no capabilities, the backend syscall
+  block-list, a private `/tmp` and `/dev/shm` that hold the browser's
+  profile and die with it. No browser, profile or cache is ever reused —
+  not between people, not between two renders of one person.
+- **No network.** The network namespace is empty: one loopback interface,
+  nothing else. The only thing bound in from the host is a directory, read
+  only, holding the driver script and **one unix socket** that xbind serves
+  for that render alone. The driver listens on the sandbox's loopback and
+  pipes connections to the socket; Chromium resolves the workspace's own
+  names (and its tile origins') to that listener and no other name at all.
+  An `https://` workspace is opened as `https://`: xbind ends TLS on the
+  socket under a key made for the render, which the browser trusts by its
+  pin. A plain-`http://` workspace on a real name is opened with its origin
+  marked trustworthy, so in a preview its pages see `isSecureContext` true
+  though your own browser says false.
+- **Nothing comes back but one line.** The driver prints its answer —
+  picture, text, console — on stdout; xbind opens no file the sandbox wrote.
+  The picture is decoded and re-encoded by xbind before anyone gets it, and
+  every credential-shaped string is cut from the text.
+- **Bounded.** One render per person and two per workspace at a time, a
+  hard timeout that kills the sandbox's init (and so everything in it), and
+  a cgroup leaf with a memory and a pids cap the sandbox is started in
+  ([config.md](/docs/config.md): `XBIN_PREVIEW_*`). The cap needs xbind's
+  cgroup delegated; where it is not, previews are unavailable unless the
+  admin sets `XBIN_PREVIEWS=uncapped`. Either way the sandbox's scratch —
+  `/tmp`, `/dev/shm`, its root layer: tmpfs, so memory — is sized to the
+  cap, not left at the kernel's "half of RAM" each. The picture is decoded
+  by xbind, outside that cap, so xbind checks its size from the PNG header
+  first: about 8 megapixels at most.
+- **No isolation, no preview.** Without `--isolate` there is no sandbox to
+  put the browser in, and xbind never runs it on the host: the route
+  answers 503. So does a rootfs without Chromium.
+
+**What stands between a hostile page and your data.** Chromium's own
+renderer sandbox is **off** in there (`sandbox: "none"` in every answer):
+it refuses to start as uid 0, which a confined tool is inside its user
+namespace, and an unprivileged process there cannot map itself to another
+uid. So a page that exploits the browser owns the whole sandbox — and finds
+no network, no capability, a read-only socket to xbind that answers only
+reads **of the tile or screen being rendered**, and nothing else. What it
+could still do: read what that render shows and pass it to a tile backend
+it controls in a GET; if that backend has egress, the data can leave. A
+single-tile render admits one tile, so that is the tile leaking its own
+view; a screen render mixes tiles, and a tile on it that owns the browser
+reads its neighbours on that screen — and, of the person's own reads, only
+the fixed list the shell draws with (a member's view, for an admin too).
+Two things keep the window small: the rootfs **pins** its Playwright
+(`docker/rootfs.Dockerfile`, `PLAYWRIGHT_VERSION`; `make pins` fails if the
+pin goes; the pin takes effect with the next rootfs build — a rootfs built
+before it keeps the Chromium it was built with) so the browser's build is
+known and bumped on purpose — `GET /api/xbin/preview` tells an
+admin which Chromium is running — and a workspace that doesn't want the
+feature turns it off (`XBIN_PREVIEWS=off`).
+
 ## Pinned backends and tile deployments
 
 While a tile's live reload is paused, or when it has named deployments

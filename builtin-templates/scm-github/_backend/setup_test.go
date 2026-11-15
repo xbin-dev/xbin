@@ -109,6 +109,12 @@ func TestSetupIngressCallback(t *testing.T) {
 	e.gh.mu.Lock()
 	e.gh.manifests["code10"] = true
 	e.gh.mu.Unlock()
+	// A preview of that address (D234) spends nothing: the state is still good after it.
+	pv := adminAt
+	pv.preview = true
+	if r := e.call(e.gH, pv, "GET", "/setup/github?code=code10&state="+state2, nil); r.Code != 403 || !strings.Contains(r.Body.String(), "preview") {
+		t.Fatalf("a preview's callback: %d %s", r.Code, r.Body)
+	}
 	if r := e.call(e.gH, ownerC, "GET", "/setup/github?code=code10&state="+state2, nil); r.Code != 200 {
 		t.Fatalf("top level: %d", r.Code)
 	}

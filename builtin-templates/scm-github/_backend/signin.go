@@ -363,7 +363,9 @@ func (s *srv) handleSigninGet(w http.ResponseWriter, r *http.Request, c who) {
 	writeGET(w, r, signinState{State: "none"})
 }
 
-// handleSigninPoll answers a flow's state, asking GitHub once if due.
+// handleSigninPoll answers a flow's state, asking GitHub once if due — not
+// for a preview of the page (D234), which trades no code and stores no
+// sign-in: the state as it stands.
 func (s *srv) handleSigninPoll(w http.ResponseWriter, r *http.Request, c who) {
 	if err := s.needPerson(c); err != nil {
 		fail(w, err)
@@ -381,7 +383,7 @@ func (s *srv) handleSigninPoll(w http.ResponseWriter, r *http.Request, c who) {
 	cur := f.cur
 	due := cur != nil && cur.PollID == id && s.now().UnixMilli() >= cur.NextAt
 	f.mu.Unlock()
-	if due {
+	if due && !c.c.Preview {
 		s.pollOnce(r.Context(), id)
 	}
 	f.mu.Lock()

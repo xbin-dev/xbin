@@ -125,7 +125,7 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 	if p.Agent != "" { // a person's agent: not the tiles whose org keeps it out (delegate.go)
 		rows = slices.DeleteFunc(rows, func(si term.SessionInfo) bool { return s.delegateHides(p, si.Cwd) })
 	}
-	if homeKey != term.HomeKey(p) || p.ReadOnly() {
+	if homeKey != term.HomeKey(p) || p.ViewAs() {
 		for i := range rows {
 			if rows[i].Personal() {
 				rows[i].Name = ""

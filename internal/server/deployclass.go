@@ -320,6 +320,7 @@ var routeClasses = map[string]RouteClass{
 	"PUT /vm/policy":                         PrimaryOnly,
 	"POST /auth-rotate-token":                PrimaryOnly,
 	"POST /impersonate":                      PrimaryOnly,
+	"POST /preview":                          PrimaryOnly, // a preview shows what people see: the primary (D234)
 	"POST /impersonate/stop":                 PrimaryOnly,
 	"PUT /native-runtime":                    PrimaryOnly,
 	"PUT /chrome":                            PrimaryOnly,
@@ -360,6 +361,7 @@ var routeClasses = map[string]RouteClass{
 	"DELETE /push/devices/{user}/{deviceId}": PrimaryOnly,
 
 	// ---- reads of workspace facts ----
+	"GET /preview":              Neutral, // availability and limits (D234)
 	"GET /whoami":               Neutral, // gains deployment for a bound element principal (11-contract §7.7)
 	"GET /status":               Neutral,
 	"GET /components":           Neutral, // the primary summary only (11-contract §8)

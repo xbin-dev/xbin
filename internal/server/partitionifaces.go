@@ -30,7 +30,7 @@ func (s *Server) docInterfaces(r *http.Request, compPath string) map[string]any 
 		return s.policy().Interfaces(compPath)
 	}
 	p := auth.PrincipalOf(r)
-	if sv := s.servedDeployment(r, compPath); p.ReadOnly() || sv.dep != sv.primary {
+	if sv := s.servedDeployment(r, compPath); p.ViewAs() || sv.dep != sv.primary {
 		return s.policy().Interfaces(compPath)
 	}
 	part, err := s.addressedPartition(p, s.owningTile(compPath))

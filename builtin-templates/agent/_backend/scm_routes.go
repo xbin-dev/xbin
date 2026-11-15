@@ -276,7 +276,13 @@ func handleSCMSigninPoll(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusBadRequest, "no such sign-in")
 		return
 	}
-	st, err := api.SigninPoll(r.Context(), poll)
+	var st *scmSigninState
+	var err error
+	if previewCall(r) { // D234: a poll has the provider trade the code and keep the sign-in; a preview reads the state
+		st, err = api.SigninState(r.Context())
+	} else {
+		st, err = api.SigninPoll(r.Context(), poll)
+	}
 	if err != nil {
 		writeSCMErr(w, r, err)
 		return

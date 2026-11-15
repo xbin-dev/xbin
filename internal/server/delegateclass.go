@@ -234,7 +234,13 @@ var delegateUnconverted = map[string]string{}
 var delegateClasses = map[string]delegateRow{
 	// ---- reads the UI makes: who am I, what exists, how it is doing.
 	// Listings are filtered row by row (delegateHides) ----
-	"GET /whoami":               dRead(),
+	"GET /whoami": dRead(),
+	// Previews (D234). Refused until the workspace agent's preview tool is
+	// decided: a delegate previews AS ITS PERSON, and the one place that
+	// says who a preview renders as is previewPerson (preview.go) — the
+	// delegate's case goes there, with these rows, in the same change.
+	"POST /preview":             dNo("previews for a workspace agent are not decided yet (D234): the person asks for their own"),
+	"GET /preview":              dNo("previews for a workspace agent are not decided yet (D234)"),
 	"GET /components":           dRead(), // the tiles the person can read
 	"GET /components/{path...}": dRead().on(byComponentPath),
 	"GET /screens":              dRead(), // its tiles and folder items, filtered (the broker's delegatelist.go)

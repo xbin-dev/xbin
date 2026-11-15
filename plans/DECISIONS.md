@@ -14861,3 +14861,114 @@ Deviations and refinements made while implementing; all deliberate:
       and in their call's refusal); live updates (the connector emits no
       event; the page reloads after its own writes and has a Refresh on
       usage); per-component quotas.
+
+- **D234 — Previews: xbind renders a tile or a screen as a person,
+  read-only, in a confined browser (2026-11-15; issue #51).** The workspace
+  agent has to see what its person sees, and a person (or `bx`) wants a
+  picture of a tile without opening a browser. Spike S3
+  (`plans/wsagent/s3-preview.md`) showed it costs about 1.5 s and 0.4 GB a
+  render; this is the production form. Owner's calls are marked (O1–O8).
+  - **The route.** `POST /api/xbin/preview {tile | screen, shell?, at?,
+    viewport?, wait?, fullPage?}` → a PNG, a text rendering (an
+    accessibility tree per frame), console errors, failed requests, the
+    final URL, the browser's build and a fixed `notice`; `GET
+    /api/xbin/preview` → availability and limits. Classes: primary-only for
+    the POST (a preview shows what people see, so a non-primary
+    deployment's credential gets 403), partition-neutral (it renders as the
+    person behind the call).
+  - **Who (O5, O8).** `previewPerson` (internal/server/preview.go) is the
+    one function that decides: a person for themselves (browser session,
+    the app's bearers), a person's terminal for its own tile only; never
+    the root token, a tile, a view-as session. The delegate's case is added
+    there when delegation merges. Admins who want someone else's view use
+    view-as: a preview is never of another person.
+  - **The session (O1).** A view-as session whose viewer is the reserved
+    `~preview` (`auth.PreviewViewer`): `ReadOnly()` holds, so every write
+    gate and every derived credential is read-only with no new claim in any
+    wire form. `Principal.ViewAs()` separates "someone else is looking"
+    from "read-only": privacy gates (a partitioned tile's document, its
+    routing, its events, session history and names, personal binds) ask
+    `ViewAs`, write gates keep `ReadOnly`, and every remaining direct read
+    of `Impersonator` is classified act / carry / name in a test that fails
+    on a new one. No account can take the id; the reserved viewer mints and
+    redeems no view-as; a preview session is not listed, not persisted, has
+    no "stop" and expires on its own.
+  - **The transport.** One unix socket per render; xbind sets the session
+    on its requests, by the cookie jar's rules (not to a tile origin, not
+    on a request a sandboxed frame starts: `Sec-Fetch-Site`, or `Origin`
+    on a WebSocket handshake). The socket refuses non-GET, terminals and
+    sign-in routes whatever credential arrives, and any Host that is not
+    the workspace's. Read-only therefore holds by the credential alone and
+    by the transport alone (tested separately).
+  - **Scope (O4).** A tile render's socket admits that tile's files and its
+    frame's calls; a screen render's the shell, the person's own reads
+    minus tile source, git, checkpoints, backups and the vault, and the
+    tiles on that screen (resolved from the person's layout and the org
+    screens shared with them, read as the shell reads them). A tile that
+    loads another tile's files renders without them.
+  - **Sockets (O2).** An upgrade by a preview principal reaches the backend
+    at `reader` (the read clamp; a role it can't narrow is refused). Plain
+    GETs keep their role, so the picture is true. View-as is unchanged.
+  - **Partitions (O3).** A preview opens the person's own partition
+    read-only and never makes one: a tile never opened answers 409.
+  - **Tiles are told.** `X-XBin-Preview: 1` on every call
+    (`xbin.Caller(r).Preview`), documented as the contract: a GET or a
+    socket under it changes nothing. xbind can't enforce it inside a
+    handler; the builtin tiles and templates were audited for it.
+  - **Ready (O6).** `xbin.ready()` and `<meta name="xbin-ready"
+    content="manual">`, additive. The render ends on the signal when every
+    tile gave it, else when the network is quiet and frames are loaded; a
+    declared tile is waited for about ten seconds.
+  - **The sandbox.** `internal/preview` runs the rootfs's node and
+    Chromium through `internal/confine`, unchanged but for a cgroup hook:
+    an empty network namespace, one read-only bind (the driver and the
+    socket), the answer over stdout only. Only the workspace's names
+    resolve, to the socket; an https workspace gets TLS on the socket under
+    a per-render key pinned by SPKI. No `--isolate` or no Chromium → 503,
+    never a host run (D78).
+  - **Limits (O7).** 1 per person, 2 per workspace, 45 s, 1 GiB:
+    `XBIN_PREVIEW_PER_USER`, `_TOTAL`, `_TIMEOUT`, `_MEM`; `XBIN_PREVIEWS=off`.
+    The memory cap is a cgroup leaf (killed at the cap, no `memory.high`)
+    and needs delegation, as tile limits do.
+  - **Chromium's own sandbox stays off.** Tried: it refuses uid 0, which a
+    confined tool is in its user namespace, and an unprivileged process
+    there can't write a nested namespace's uid map. Turning it on needs the
+    sandbox init to exec a tool as a non-root uid of the range — not done.
+    Mitigations: the scope, the empty netns, and the rootfs's Playwright
+    now pinned (`PLAYWRIGHT_VERSION`, guarded by `make pins`). The residual
+    risk is written down in docs/isolation.md §Previews: a page that owns
+    the browser can read what the render shows and pass it to a backend it
+    controls in a GET.
+  - **Prompt injection.** The answer's `notice` says its content is data,
+    not instructions; the agent's tool shows it with every result.
+  - **Not done.** The shell still tries its saves under `readOnly` (they
+    are refused; a failure toast can be in a picture); VM-backed sandboxes
+    for the browser; a tile's non-primary deployment as a target; the
+    delegate's route-class row (with delegation).
+  - **After an independent review (same day).** What it found and what
+    changed: (1) clamping only the role left backends that authorize on
+    the person's level writable over a socket (the coding-sandbox's
+    terminals) — in a preview every call, GET or upgrade, now carries role
+    `reader` and user level `read`, `UserCanWrite()` is false, and the
+    builtin tiles' sockets refuse a preview from any consumer; a custom
+    role with no read form keeps its role on a GET and gets no socket.
+    The cost is fidelity: a tile is drawn as its reader sees it. (2)
+    xbind's own GETs with effects: a work-tree diff captured a checkpoint
+    for any read-only session (fixed in a commit of its own, for master);
+    the cross-tile branch could start a first partition and send a consent
+    prompt; the model list dialled upstreams — all refused. (3) The answer
+    is rebuilt in Go from a strict shape with byte caps; nothing the
+    sandbox returns is passed through, the browser's name included. (4)
+    The picture has a pixel budget checked from its header before
+    decoding; the runner clips a taller page (`clipped`). (5) No
+    enforceable memory cap → unavailable unless `XBIN_PREVIEWS=uncapped`;
+    the sandbox's tmpfs mounts are sized in every case
+    (`sandbox.Spec.TmpfsBytes`). (6) The person's plane on a screen render
+    is an allow-list of the shell's reads, pinned by an end-to-end test
+    through `leftOut`; an admin's render is a member's view (the
+    workspace-wide lists answered empty, events refused, a `note`). (7)
+    The socket honours only its own render's session, on every host. (8)
+    `/whoami` no longer says `preview`; a tile must not draw differently
+    for the header. The review also turned up, by its admin-screen test,
+    that the first scope gate refused the shell's own frame token and so
+    broke every admin's screen render.

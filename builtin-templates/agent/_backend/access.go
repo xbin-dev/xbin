@@ -70,6 +70,12 @@ func principal(r *http.Request) who {
 	return who{kind: whoNone}
 }
 
+// previewCall: xbind is rendering the caller's own view in its preview
+// browser (D234, X-XBin-Preview). It is the person's own read — they see
+// what they would, private data too (unlike view-as) — but nobody opened
+// anything: a GET or a socket under it changes nothing and starts nothing.
+func previewCall(r *http.Request) bool { return xbin.Caller(r).Preview }
+
 // manager: may change what the whole tile does (config, model tiers, shared
 // skills, the halt) and oversee every automation. A user needs write access
 // to the tile — which already lets them change its code.

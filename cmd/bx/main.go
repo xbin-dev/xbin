@@ -174,7 +174,7 @@ func usage() {
                                         drive a coding agent in a tile's sandbox
   bx cron ls                            scheduled jobs
   bx doctor | bx fix assets <tile> [--write]   workspace problems | absolute /c/ URLs → relative
-`+nativeUsage+chromeUsage+policiesUsage+partitionUsage+settingsUsage+deployUsage+limitsUsage+appUsage+llmUsage)
+`+nativeUsage+previewUsage+chromeUsage+policiesUsage+partitionUsage+settingsUsage+deployUsage+limitsUsage+appUsage+llmUsage)
 	os.Exit(2)
 }
 
@@ -239,13 +239,18 @@ func ownerToken() string {
 //     leaves `bx api …` working, gated by the element's instance token (RBAC,
 //     default-deny). This is the dedicated per-component API tap.
 //   - else → the local default (host).
+//
+// apiTimeout bounds one API call; a command whose call renders something
+// (bx preview) raises it first.
+var apiTimeout = 30 * time.Second
+
 func transport() (string, *http.Client) {
 	if base := os.Getenv("XBIN_URL"); base != "" {
-		return base, &http.Client{Timeout: 30 * time.Second}
+		return base, &http.Client{Timeout: apiTimeout}
 	}
 	if gw := os.Getenv("XBIN_GATEWAY"); gw != "" {
 		return "http://xbin", &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: apiTimeout,
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					return (&net.Dialer{}).DialContext(ctx, "unix", gw)
@@ -253,7 +258,7 @@ func transport() (string, *http.Client) {
 			},
 		}
 	}
-	return "http://127.0.0.1:8642", &http.Client{Timeout: 30 * time.Second}
+	return "http://127.0.0.1:8642", &http.Client{Timeout: apiTimeout}
 }
 
 func apiJSON(method, path string, body, out any) error {
