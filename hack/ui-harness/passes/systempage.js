@@ -73,7 +73,12 @@ async function systemPage(browser) {
       // page says why (one shared instance is --no-auth's alone)
       const runnable = (c) => ['Ready', 'Running', 'Starting'].includes(c.state);
       const held = list.filter((c) => !runnable(c));
-      check(held.every((c) => c.hold === 'needs-sandboxes') && runnable(list.find((c) => c.path === paths[0])) && (held.length === 0 || body.includes('--isolate')),
+      // the release's own table (the workspace agent, one per person) has no
+      // one-instance component: on a harness without sandboxes its first is
+      // held too, and the parts that call it SKIP
+      const first = list.find((c) => c.path === paths[0]);
+      const firstRuns = !!first && runnable(first);
+      check(held.every((c) => c.hold === 'needs-sandboxes') && (firstRuns || first?.hold === 'needs-sandboxes') && (held.length === 0 || body.includes('--isolate')),
         `each is runnable, or held for needing sandboxes with the reason shown (${JSON.stringify(list)})`);
       const P = paths[0];
       const card = A.page.locator(`bx-system-page section[data-path="${P}"]`);
@@ -145,6 +150,9 @@ async function systemPage(browser) {
       // a route of the component's own: the fixtures answer /who; the workspace agent (the release's table) has a
       // closed route list, and /ws/state is on it (its first call compiles and starts the admin's backend: no timeout)
       const ownRoute = `/api/${P}/${P === 'xbin/wsagent' ? 'ws/state' : 'who'}`;
+      if (!firstRuns) {
+        skip(`${P} is held here (it needs sandboxes: HARNESS_ISOLATE=1 runs it): its page's calls and the reload across a release`);
+      } else {
       const who = await A.page.evaluate(async (url) => {
         const r = await window.xbin.fetch(url);
         return r.status;
@@ -162,6 +170,7 @@ async function systemPage(browser) {
       check(sent === code, `xbin.fetch names the page's code (${sent})`);
       check(reloaded && !(await A.page.evaluate(() => window.__before === true)), 'told its code is another release\'s, the page reloads');
       await A.page.unroute(`**${ownRoute}`);
+      }
     }
     check(errors.length === 0, `no page error (${errors.join(' | ')})`);
   } finally {
