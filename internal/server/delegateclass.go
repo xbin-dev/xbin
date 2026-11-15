@@ -172,8 +172,8 @@ const (
 	noSandboxes   = "tile sandboxes are driven by the tile that owns them"
 	noDeployments = "a tile's deployments are the work of the people on it"
 	noNotYet      = "not delegated: nothing a workspace agent does needs it"
-	noLLM         = "a component calls the LLM connector as itself, through its llm binding: never as a person"
 	noAgentRules  = "the agent rules and the connection view are read by the person and applied by xbind: an agent's listings already leave out what the rules keep it from"
+	noLLM         = "a component calls the LLM connector as itself, through its llm binding: never as a person"
 )
 
 // DelegateClassOf is the class of the route RegisterAPI mounted as pattern.
@@ -203,20 +203,16 @@ func DelegateUnconverted() map[string]string {
 
 // delegateUnconverted names delegated routes whose handler doesn't answer a
 // delegate correctly yet, and what it lacks: refused until the change that
-// converts the handler removes the row.
+// converts the handler removes the row. Empty now, as partitionUnconverted
+// is: a route goes here when it is classed before its handler is ready.
 //
-// The two listings here wait for the orgs' agent rules. Those rules are
-// asked in ONE place for every listing: Server.delegateHides (exported as
-// DelegateHides for the handlers other packages serve), which asks the
-// installed delegation.Policy's TileAllows. To convert a listing: drop, in
-// its handler, each row whose tile DelegateHides(p, tile) reports — as
-// /components, /tile-report, /term/sessions and /agent/history do — then
-// delete its row below. Nothing else changes: the policy package plugs in
-// through Server.AgentPolicy alone.
-var delegateUnconverted = map[string]string{
-	"GET /alerts":  "its rows aren't filtered by the tiles' orgs' agent rules",
-	"GET /screens": "its rows aren't filtered by the tiles' orgs' agent rules",
-}
+// A LISTING is converted by dropping, in its handler, each row whose tile
+// Server.DelegateHides(p, tile) reports — the ONE place the orgs' agent
+// rules are asked for listings (it asks the installed delegation.Policy:
+// the broker's DelegationPolicy over internal/agentpolicy). /components,
+// /tile-report, /term/sessions, /agent/history and the status listings do,
+// and so do the broker's GET /alerts and GET /screens (its delegatelist.go).
+var delegateUnconverted = map[string]string{}
 
 // delegateClasses is the table.
 var delegateClasses = map[string]delegateRow{
@@ -225,10 +221,10 @@ var delegateClasses = map[string]delegateRow{
 	"GET /whoami":               dRead(),
 	"GET /components":           dRead(), // the tiles the person can read
 	"GET /components/{path...}": dRead().on(byComponentPath),
-	"GET /screens":              dRead(), // unconverted
+	"GET /screens":              dRead(), // its tiles and folder items, filtered (the broker's delegatelist.go)
 	"GET /tile-status":          dRead().on(byComponent),
 	"GET /tile-report":          dRead(),                          // the statuses of tiles the person can read
-	"GET /alerts":               dRead(),                          // unconverted
+	"GET /alerts":               dRead(),                          // the workspace's, and the tiles' the agent is let into
 	"GET /logs":                 dRead().on(byComponent).logged(), // terminal level on the tile, as for the person
 	"GET /templates":            dRead(),                          // what a tile can be created from
 	"GET /agent/providers":      dRead(),
@@ -586,6 +582,7 @@ var delegateClasses = map[string]delegateRow{
 	"GET /push/prefs":                                      dNever(neverAccount),
 	"PUT /push/prefs":                                      dNever(neverAccount),
 	"POST /push/test":                                      dNever(neverAccount),
+
 	// ---- the agent rules themselves (D229) and the LLM connector (D226) ----
 	// What an agent may do unasked is the person's to set, and what agents
 	// may do in an org its admins': never the agent's. The connection view

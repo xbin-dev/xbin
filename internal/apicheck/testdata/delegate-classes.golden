@@ -51,7 +51,7 @@ GET /agent/prefs	refused
 GET /agent/providers	read
 GET /agents/connection	refused
 GET /agents/policy	refused
-GET /alerts	read	unconverted: refused until its listing is filtered
+GET /alerts	read
 GET /app-tunnel	never
 GET /app-tunnel/client	never
 GET /auth-overview	never
@@ -152,7 +152,7 @@ GET /sandboxes/{name}/files/stat	refused
 GET /sandboxes/{name}/snapshots	refused
 GET /sandboxes/{name}/tar	refused
 GET /sandboxes/{name}/tty	refused
-GET /screens	read	unconverted: refused until its listing is filtered
+GET /screens	read
 GET /sessions	never
 GET /status	refused
 GET /templates	read

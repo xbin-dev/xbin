@@ -70,15 +70,23 @@ forwards them):
 
 | Class | Routes |
 |---|---|
-| reads, at the person's level | `GET /whoami`, `/components`, `/components/<path>`, `/tile-status`, `/tile-report`, `/logs`, `/templates`, `/agent/providers`, `/term/sessions`, `/term/sessions/<id>`, `…/events`, `…/log`, `…/diff`, `/agent/history`, `/agent/history/<id>/events`, `/code/tree`, `/code/file`, and its own `/delegate/state`, `/delegate/approvals`, `/delegate/requests/<id>`, `/delegate/changesets[/<id>]` |
+| reads, at the person's level | `GET /whoami`, `/components`, `/components/<path>`, `/tile-status`, `/tile-report`, `/logs`, `/alerts`, `/screens`, `/templates`, `/agent/providers`, `/term/sessions`, `/term/sessions/<id>`, `…/events`, `…/log`, `…/diff`, `/agent/history`, `/agent/history/<id>/events`, `/code/tree`, `/code/file`, and its own `/delegate/state`, `/delegate/approvals`, `/delegate/requests/<id>`, `/delegate/changesets[/<id>]` |
 | a tile's API | `/api/<tile>/…` where the person can read the tile: `GET`/`HEAD` freely; any other method needs the person's approval |
 | acts | `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…` |
 | admin reads, only for an admin who opted in | `GET /grants`, `/bindings`, `/orgs` (without SSO group rules), `/limits` — answered as the person |
 | refused | everything else: `403 {error, refusal: "not-delegated", class}`. In particular: answering a tile agent's permission request or question, a session's options and restart, terminals, deleting or disabling tiles, code writes and pull requests, the account, devices and sign-in tickets, frame tokens and path tickets, view-as, a person's consents, tile stores, the admin API, and every approval on this page |
 
 Listings leave out the tiles whose org keeps the workspace agent out (on
-the model it says it is on); a request about such a tile is `403 {refusal:
-"tile"}` with the org's reason. No WebSocket upgrade (`403`). An admin's
+the model it says it is on) — the rows of `/components`, `/tile-report`,
+`/term/sessions` and `/agent/history`, a tile's alerts in `/alerts`, the
+tiles and folder items of `/screens`; a request about such a tile is `403
+{refusal: "tile"}` with the org's reason. The org rules are the ones admins
+set ([protocol/orgs.md](/docs/protocol/orgs.md): `workspaceAgent`,
+`models`, `harnesses`); whether an agent starts a tile agent without asking
+is the person's agent preference (`PUT /agent/prefs`, theirs alone to
+set). The rules themselves, the connection view (`/agents/connection`,
+which names the tiles the rules block) and the LLM connector's routes are
+not in the cap. No WebSocket upgrade (`403`). An admin's
 agent is not an admin.
 
 Refusals are `403 {error, refusal, class, docs}` with `refusal` one of

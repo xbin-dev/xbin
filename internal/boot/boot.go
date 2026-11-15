@@ -56,9 +56,9 @@ type State struct {
 	Broker *broker.Broker
 	Proxy  *proxy.Proxy
 	Server *server.Server
-	// AgentPolicy is the agent-policy package's answers for delegation (the
-	// orgs' agent rules, people's agent preferences); nil refuses every
-	// delegate call (delegation.go).
+	// AgentPolicy is the agent rules delegation asks (the orgs' agent rules,
+	// people's agent preferences). Left nil, boot installs the broker's
+	// DelegationPolicy (delegation.go); a test sets another before boot.
 	AgentPolicy delegation.Policy
 	VM          *vm.Manager      // VM sandboxes (vm.go); nil without isolation
 	Sbx         *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)

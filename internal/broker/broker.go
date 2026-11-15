@@ -61,9 +61,12 @@ type Broker struct {
 	// AgentPolicy answers the orgs' rules for people's workspace agents
 	// (delegation.go); nil refuses every delegate call (delegation.NoPolicy).
 	AgentPolicy delegation.Policy
-	disk        *diskMon       // per-scope disk quota + low-disk write-blocking + alerts
-	tl          tileLimitState // per-tile resource limits: decisions, hits, the runtime's sources (D203; tilelimits.go)
-	tileSbx     tileSbxSlot    // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
+	// delegateHides is the server's filter for a delegate's listings
+	// (Register; delegatelist.go).
+	delegateHides func(p auth.Principal, tile string) bool
+	disk          *diskMon       // per-scope disk quota + low-disk write-blocking + alerts
+	tl            tileLimitState // per-tile resource limits: decisions, hits, the runtime's sources (D203; tilelimits.go)
+	tileSbx       tileSbxSlot    // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
 	// Settings is the workspace settings store (D175/D180) the server's
 	// routes share — the partitioned tiles' switches (policies.go); nil:
 	// the workspace's own, opened on first use.
@@ -374,6 +377,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerPolicies(srv)
 	b.registerPartitionLimits(srv)
 	b.registerTileLimits(srv) // GET/POST/DELETE /limits, POST /limits/dismiss (D203; tilelimits_api.go)
+	b.delegateHides = srv.DelegateHides
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
 		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
 		Primary:      b.primaryOf, Addressed: b.addressed, PartitionID: b.partitionID, PartitionLog: b.PartitionLog,

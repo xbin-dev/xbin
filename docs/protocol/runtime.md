@@ -451,7 +451,9 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile?,message,system,dismiss?}]} — disk
                                    quota / low disk / cgroup at-limit; system
                                    alerts to all, tile alerts to admins +
-                                   that tile's users. A workspace setting
+                                   that tile's users (a person's workspace
+                                   agent: not the tiles whose org keeps it
+                                   out, D228). A workspace setting
                                    xbind can't read is kind
                                    `workspace-settings`, admins only: crit
                                    while a partitioned tiles' switch can't
