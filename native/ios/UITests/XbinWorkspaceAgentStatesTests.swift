@@ -120,8 +120,10 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         // a link to the agent's component, and to xbin's page for it: Home, never an empty pane
         for link in ["xbin://\(e.server.authority)/c/xbin/wsagent", "xbin://\(e.server.authority)/xbin/agent"] {
             e.wsOpenLink(link)
-            XCTAssertFalse(e.until(6) { e.wsClose.exists }, "\(link) opens no agent")
-            XCTAssertTrue(e.until(10) { needs.exists && needs.isHittable }, "\(link) lands on Home")
+            XCTAssertFalse(e.until(6) { e.wsAcceptOpenPrompt(); return e.wsClose.exists }, "\(link) opens no agent")
+            let landed = e.until(20) { e.wsAcceptOpenPrompt(); e.wsDismissSavePassword(); return needs.exists && needs.isHittable }
+            if !landed { e.shot("fail-link") }
+            XCTAssertTrue(landed, "\(link) lands on Home")
             XCTAssertFalse(e.containing("isn't in this workspace").exists || e.containing("No such").exists, "…and on no error screen")
         }
         e.shot("wsagent2-08-no-agent")
@@ -576,8 +578,11 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         e.expect(needs, 60, "Home")
         XCTAssertFalse(e.until(8) { e.wsHomeRow.exists || e.wsButton.exists }, "no row, no button: administering it isn't having one")
         e.wsOpenLink("xbin://\(server.authority)/c/xbin/wsagent")
-        XCTAssertFalse(e.until(6) { e.wsClose.exists }, "a link to the agent opens nothing")
-        XCTAssertTrue(e.until(10) { needs.exists && needs.isHittable }, "…it lands on Home")
+        XCTAssertFalse(e.until(6) { e.wsAcceptOpenPrompt(); return e.wsClose.exists }, "a link to the agent opens nothing")
+        // (Home's row is there throughout; what can cover it is a system prompt that came late — answered by what is up)
+        let landed = e.until(20) { e.wsAcceptOpenPrompt(); e.wsDismissSavePassword(); return needs.exists && needs.isHittable }
+        if !landed { e.shot("fail-who-link") }
+        XCTAssertTrue(landed, "…it lands on Home")
         e.shot("wsagent2-27-live-admin-without-one")
         e.app.terminate()
 

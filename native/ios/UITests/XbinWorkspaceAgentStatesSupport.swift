@@ -104,6 +104,15 @@ extension E2E {
         if open.waitForExistence(timeout: 3) { open.tap() }
     }
 
+    /// iOS asks "Open in xbin?" the first time a link is handed to the app
+    /// on a fresh simulator — sometimes a few seconds after the link, over
+    /// whatever the test is waiting on by then: Open, if it is up now. (Call
+    /// it inside the wait for what the link should show.)
+    func wsAcceptOpenPrompt() {
+        let open = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Open"]
+        if open.exists, open.isHittable { open.tap() }
+    }
+
     /// Home's Needs you → the row `id` → its Review….
     func wsInbox(_ id: String, file: StaticString = #filePath, line: UInt = #line) {
         let needs = app.buttons["Needs you"]

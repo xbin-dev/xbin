@@ -255,8 +255,8 @@ remote() {
   while [ $# -gt 0 ] && [ "$1" != -- ]; do opts+=("$1"); shift; done
   [ $# -gt 0 ] && shift
   local v
-  for v in XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_E2E_WARMUP XBIN_SIM_ENSURE \
-    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL XBIN_E2E_WSAGENT XBIN_MAC_SENTINEL; do
+  for v in XBIN_MAC_SENTINEL XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_E2E_WARMUP XBIN_SIM_ENSURE \
+    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL XBIN_E2E_WSAGENT; do
     if [ -n "${!v:-}" ]; then envs="$envs $v=$(printf '%q' "${!v}")"; fi
   done
   REMOTE_SSH=(ssh ${ssh_opts[@]+"${ssh_opts[@]}"} ${opts[@]+"${opts[@]}"} "$XBIN_MAC"
