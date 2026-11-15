@@ -178,3 +178,46 @@ func TestDelegateOnlyOnTheGateway(t *testing.T) {
 		t.Fatalf("no table: %v", err)
 	}
 }
+
+// Developing an agent on a single-user xbind (--dev --no-auth): nobody
+// signs in and there are no user partitions, so the holder runs as ONE
+// global instance — and that instance is the implicit owner's delegate.
+// Today delegateOf refuses a global instance outright (the global instance
+// is nobody's delegate), which is right while holders are partitioned per
+// person only. The case is kept here, as it is meant to hold, for the
+// change that brings the sealed-component table in.
+func TestDelegateNoAuthGlobalHolder(t *testing.T) {
+	t.Skip("until the sealed-components branch lands: under --no-auth there are no user partitions, so the holder's single global instance (under --dev) becomes the implicit owner's delegate — auth.delegateOf refuses every global instance today; un-skip with that change (see boot/delegation.go, auth.SetDelegateHolders)")
+	a, err := Load(t.TempDir(), true) // --no-auth
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(TestSealDelegate(testHolder))
+	a.SetDelegationGate(func(string, string) error { return nil }) // server.DelegationGate(store, isolated, open=true): --dev
+	a.RegisterInstancePartition("tok-global", testHolder, "", util.PartitionGlobal, "")
+
+	p, present, err := a.DelegateFromRequest(delegateReq(DelegateScheme, "tok-global"))
+	if !present || err != nil {
+		t.Fatalf("the global holder under --no-auth: present %v, err %v", present, err)
+	}
+	// the owner as a person: named, attributed to the holder, never an
+	// admin — the cap, tickets and the audit log apply as for anyone
+	if p.Via != "delegate" || p.Agent != testHolder || p.Component != "" || p.UserID != "owner" || p.Owner || p.IsAdmin() {
+		t.Fatalf("its principal: %+v", p)
+	}
+	// only the holder's, only on the gateway, and never with sign-in on
+	a.RegisterInstancePartition("tok-other", "apps/x", "", util.PartitionGlobal, "")
+	if _, _, err := a.DelegateFromRequest(delegateReq(DelegateScheme, "tok-other")); !errors.Is(err, ErrNotDelegate) {
+		t.Errorf("another tile's global instance: %v", err)
+	}
+	r := httptest.NewRequest("GET", "/api/xbin/whoami", nil)
+	r.Header.Set("Authorization", DelegateScheme+" tok-global")
+	if _, _, err := a.DelegateFromRequest(r); err == nil {
+		t.Error("off the gateway socket")
+	}
+	withAuth, _ := delegateFx(t)
+	withAuth.RegisterInstancePartition("tok-global", testHolder, "", util.PartitionGlobal, "")
+	if _, _, err := withAuth.DelegateFromRequest(delegateReq(DelegateScheme, "tok-global")); !errors.Is(err, ErrNotDelegate) {
+		t.Errorf("a global instance where people sign in: %v", err)
+	}
+}

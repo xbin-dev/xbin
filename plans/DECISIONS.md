@@ -13736,9 +13736,9 @@ Deviations and refinements made while implementing; all deliberate:
     is stale; (3) the plane is primary-only; (4) `?xbin-partition=global`
     takes the same consent and ledger as the person's partition; (5) a
     standing approval is of one call (tile, method, path) by default, the
-    whole tile a separate explicit scope — and every shipped tile and
-    template says `"agent"` (most `off`; the agent template `read`, with
-    a closed rule in its backend). The review's "the agent can answer a
+    whole tile a separate explicit scope — and the shipped infrastructure
+    says `"agent"` (`off`; the agent template `read`, with a closed rule in
+    its backend; apps say nothing — see below). The review's "the agent can answer a
     harness's permission through the template's API" did not reproduce:
     every route there needs the `admin` role and a delegate's call never
     carries it — an accident, so the explicit rule went in anyway; (6)
@@ -13751,6 +13751,32 @@ Deviations and refinements made while implementing; all deliberate:
     agent template under `"agent": "full"` — a message answers a parked
     question and a start picks a harness and mode; each needs its own
     design.
+  - **Wired to the agent rules (2026-11-15, with D229 merged).** The
+    delegation policy xbind runs with is `Broker.DelegationPolicy`: the
+    orgs' rules (`AgentTileAllows`, `AgentSessionAllows`) and people's
+    agent preferences (`agentprefs.Store.StartPrefs`), installed by boot;
+    a server, broker or terminal manager given none still refuses
+    everything, and `delegation.OpenPolicy` is the tests'. `GET /alerts`
+    and `GET /screens` are delegated reads, filtered by the same
+    `DelegateHides` as every listing. The routes D229 and D226 added are
+    classed and none is in the cap: the agent rules and preferences
+    (`PUT /agent/prefs` is what an agent may do unasked — the person's),
+    the LLM connector (a component calls it as itself), and **the
+    connection view** (`GET /agents/connection`) — its handler expects the
+    workspace agent as a caller, but it names the tiles the rules block,
+    which an agent's listings leave out; opening it is a decision of its
+    own. Owner's calls: the agent template's closed rule stands for this
+    release (messaging a template instance's conversation under tickets
+    is a possible later addition); `"agent": "off"` for infrastructure
+    (the gateways, sandboxes, ingress, bridges, and a new workspace's
+    admin, organisations and tile-manager consoles), `read` for
+    prometheus-viewer and the agent template, and **nothing** in the chat
+    tile, the starter template and the examples — apps are what a
+    workspace agent acts on, under tickets; the starter's `AGENTS.md`
+    tells a builder when to narrow it and how to keep a route human-only.
+    Kept for the sealed-components merge: under `--dev --no-auth` the
+    holder's single global instance is the implicit owner's delegate
+    (`TestDelegateNoAuthGlobalHolder`, skipped until then).
 - **D224 — One chat kit for the Agent tab, the agent template and the
   workspace agent; a newer template needs its xbind (2026-11-14; issue
   #51).** The Agent tab (`web/agent-*.js`), the agent template
