@@ -29,7 +29,7 @@ import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import { uncovered, shown, hiddenLine } from '/vendor/bx-agent-approve.js';
-import { CHOICES, kindTag, warning, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp, stopRefusal, stopWords, endedWords } from '/vendor/agent-chrome-words.js';
+import { CHOICES, kindTag, warning, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp, stopRefusal, stopWords, endedWords, knownState, UNKNOWN_STATE } from '/vendor/agent-chrome-words.js';
 
 const KEEP = 'xbin-agent-ticks:'; // sessionStorage: a set's ticks, kept across signing in again
 
@@ -231,7 +231,7 @@ export class BxAgentChanges extends LitElement {
     const items = cs.items || [];
     const state = endedWords(cs);
     return html`<div class="in">
-        <h2 id="h" tabindex="-1">${state ? 'Nothing was applied' : w.title}</h2>
+        <h2 id="h" tabindex="-1">${!knownState(cs, 'changeset') ? UNKNOWN_STATE.pageTitle : state ? 'Nothing was applied' : w.title}</h2>
         ${state ? html`<p class="muted">${state}</p>` : nothing}
         ${w.banner ? html`<div class="banner warn" role="status"><bx-icon name="warning"></bx-icon><span>${w.banner}</span></div>` : nothing}
         <ul class="items">${items.map((it, i) => this._item(it, i, items.length, false))}</ul>

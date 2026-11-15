@@ -283,6 +283,10 @@ struct AgentChangeSetSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(verbatim: decided ? w.title : stateTitle(s)).font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("changeset-results")
+                if s.state == .unknown {
+                    // a newer xbind's state: nothing here can decide it
+                    Text(verbatim: DelegationWords.unknownState.text).font(.callout).accessibilityIdentifier("agent-unknown-state")
+                }
                 if !w.banner.isEmpty, decided {
                     Label { Text(verbatim: w.banner) } icon: { Image(systemName: "exclamationmark.triangle") }
                         .font(.callout.weight(.semibold))
@@ -329,6 +333,7 @@ struct AgentChangeSetSheet: View {
         switch s.state {
         case .rejected, .expired, .withdrawn: return DelegationWords.endedWords(s)
         case .applying: return "Applying now…"
+        case .unknown: return DelegationWords.unknownState.title
         default: return DelegationWords.resultsWords(s).title
         }
     }

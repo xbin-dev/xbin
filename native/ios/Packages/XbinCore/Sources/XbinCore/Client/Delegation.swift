@@ -94,7 +94,9 @@ public enum DelegateTime {
 /// drawn from.
 public struct DelegateRequest: Sendable, Equatable, Identifiable {
     public enum Kind: String, Sendable { case call, session, template }
-    public enum State: String, Sendable { case pending, approved, denied, used, expired, withdrawn }
+    /// `unknown`: a state this app doesn't know (a newer xbind's) — never
+    /// read as one that can be decided.
+    public enum State: String, Sendable { case pending, approved, denied, used, expired, withdrawn, unknown }
 
     public var id: String
     public var kind: Kind
@@ -137,7 +139,7 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
         bodySha256 = json["bodySha256"]?.stringValue ?? ""
         summary = json["summary"]?.stringValue ?? ""
         preview = json["preview"] ?? .object([:])
-        state = State(rawValue: json["state"]?.stringValue ?? "") ?? .pending
+        state = State(rawValue: json["state"]?.stringValue ?? "") ?? .unknown
         grant = json["grant"]?.stringValue ?? ""
         created = DelegateTime.date(json["created"])
         decided = DelegateTime.date(json["decided"])
@@ -230,7 +232,8 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
         }
     }
 
-    public enum State: String, Sendable { case proposed, applying, applied, partial, rejected, expired, withdrawn }
+    /// `unknown`: a state this app doesn't know — never read as one that can be applied.
+    public enum State: String, Sendable { case proposed, applying, applied, partial, rejected, expired, withdrawn, unknown }
 
     public var id: String
     /// The agent's title — quoted, unchecked.
@@ -249,7 +252,7 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
         self.id = id
         title = json["title"]?.stringValue ?? ""
         undoOf = json["undoOf"]?.stringValue ?? ""
-        state = State(rawValue: json["state"]?.stringValue ?? "") ?? .proposed
+        state = State(rawValue: json["state"]?.stringValue ?? "") ?? .unknown
         created = DelegateTime.date(json["created"])
         decided = DelegateTime.date(json["decided"])
         expires = DelegateTime.date(json["expires"])

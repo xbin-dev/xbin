@@ -36,6 +36,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   A body or a brief longer than 4000 characters (code points, the same in
   the app) says "first 4000 of N characters" with Show all; "shown in full"
   only when it is (`sends(req, all)`, `clipText()`).
+  A state the chrome doesn't know reads as not decidable (it read as
+  pending in the app) — `knownState()`, `UNKNOWN_STATE`.
 - delegation: the workspace's switch (`PUT /delegate/workspace
   {enabled}`) now also sends a `delegate` event with `op: "state"` to the
   own sockets of every person who has an agent, and of the admin who turned

@@ -278,9 +278,25 @@ export function settled(req) {
     case 'denied': return `Denied by you${at}`;
     case 'expired': return 'Expired — not approved within 24 hours.';
     case 'withdrawn': return req.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped' : 'Withdrawn by the agent';
+    case 'pending': return 'Waiting for your approval';
   }
-  return 'Waiting for your approval';
+  return UNKNOWN_STATE.page; // a newer xbind's state: never read as one that can be decided
 }
+
+const REQUEST_STATES = ['pending', 'approved', 'denied', 'used', 'expired', 'withdrawn'];
+const SET_STATES = ['proposed', 'applying', 'applied', 'partial', 'rejected', 'expired', 'withdrawn'];
+/**
+ * UNKNOWN_STATE: a request or change set in a state this chrome doesn't
+ * know (a newer xbind's) is never read as one that can be decided — no
+ * Allow, no Apply — and says so: on the web, reload (page); in the app,
+ * which can be older than the workspace, the web (app).
+ */
+export const UNKNOWN_STATE = Object.freeze({
+  pageTitle: "A state this page doesn't know", page: 'This page is older than the workspace — reload it to decide.',
+  title: "A state this app doesn't know", app: 'This app is older than the workspace — open it on the web.',
+});
+/** knownState(x, kind): x's state is one this chrome knows ('request' | 'changeset'). */
+export const knownState = (x, kind = 'request') => (kind === 'changeset' ? SET_STATES : REQUEST_STATES).includes(x && x.state);
 
 // ---- when nothing can be allowed ---------------------------------------------------------
 
@@ -418,7 +434,7 @@ export function endedWords(cs) {
     case 'expired': return 'Expired. Nothing was applied.';
     case 'withdrawn': return cs.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped. Nothing was applied.' : 'Withdrawn by the agent. Nothing was applied.';
   }
-  return '';
+  return knownState(cs, 'changeset') ? '' : UNKNOWN_STATE.page;
 }
 
 /** stepUp(kind): the recent-sign-in step, as the server asked for it. */

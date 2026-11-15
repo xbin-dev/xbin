@@ -856,7 +856,10 @@ The chrome reads the request or change set from xbind itself
 xbind's reading: the call, its class, the body's text or its size and
 hash, the warnings. A body or a brief longer than 4000 characters shows
 its first 4000 with "first 4000 of N characters" and Show all; "shown in
-full" is said only of one shown whole. The agent's own sentence (`summary`, `why`) is shown
+full" is said only of one shown whole. A request or change set in a state the chrome doesn't
+know (a newer xbind's) is never taken for one that can be decided: no
+Allow, no Apply, and a line that says the chrome is older than the
+workspace. The agent's own sentence (`summary`, `why`) is shown
 quoted and labelled as the agent's. Nothing the agent wrote — a body, a
 brief, a summary, a set's title, a reason — is drawn with the characters
 that reorder or hide text: control characters but newline and tab, and

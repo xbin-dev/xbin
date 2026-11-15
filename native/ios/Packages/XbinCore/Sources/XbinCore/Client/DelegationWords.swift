@@ -426,8 +426,15 @@ public enum DelegationWords {
         case .expired: return "Expired — not approved within 24 hours."
         case .withdrawn: return r.withdrawnBy == "xbin" ? "Withdrawn by xbin when your agent was stopped" : "Withdrawn by the agent"
         case .pending: return "Waiting for your approval"
+        case .unknown: return unknownState.text
         }
     }
+
+    /// A request or change set in a state this app doesn't know (a newer
+    /// xbind's): never read as one that can be decided — no Allow, no
+    /// Apply, and this line.
+    public static let unknownState = (title: "A state this app doesn't know",
+                                      text: "This app is older than the workspace — open it on the web.")
 
     // MARK: When nothing can be allowed
 
@@ -497,6 +504,8 @@ public enum DelegationWords {
             return RequestCard(head: settled(r, zone: zone), what: what, line: "", glyph: "xmark", tone: "", waits: false, button: "")
         case .expired:
             return RequestCard(head: settled(r, zone: zone), what: what, line: "", glyph: "clock", tone: "", waits: false, button: "")
+        case .unknown:
+            return RequestCard(head: unknownState.title, what: what, line: unknownState.text, glyph: "info", tone: "", waits: false, button: "")
         }
     }
 
@@ -514,7 +523,11 @@ public enum DelegationWords {
                                tone: c.state == .applied ? "ok" : "warn", waits: false, button: "Results")
         case .rejected: return RequestCard(head: "Rejected by you", what: "", line: "", glyph: "xmark", tone: "", waits: false, button: "")
         case .expired: return RequestCard(head: "Expired — not approved within 7 days.", what: "", line: "", glyph: "clock", tone: "", waits: false, button: "")
-        case .withdrawn: return RequestCard(head: "Withdrawn by the agent", what: "", line: "", glyph: "xmark", tone: "", waits: false, button: "")
+        case .withdrawn:
+            return RequestCard(head: c.withdrawnBy == "xbin" ? "Withdrawn by xbin when your agent was stopped" : "Withdrawn by the agent",
+                               what: "", line: "", glyph: "xmark", tone: "", waits: false, button: "")
+        case .unknown:
+            return RequestCard(head: unknownState.title, what: "", line: unknownState.text, glyph: "info", tone: "", waits: false, button: "")
         }
     }
 
@@ -645,6 +658,7 @@ public enum DelegationWords {
         case .expired: return "Expired. Nothing was applied."
         case .withdrawn:
             return c.withdrawnBy == "xbin" ? "Withdrawn by xbin when your agent was stopped. Nothing was applied." : "Withdrawn by the agent. Nothing was applied."
+        case .unknown: return unknownState.text
         default: return ""
         }
     }

@@ -71,7 +71,14 @@ import Testing
                 #expect(rows.network == s(want, "network") && rows.others == s(want, "others"), "\(id)")
                 #expect(rows.brief == s(want, "brief") && rows.danger == s(want, "danger") && rows.comes == s(want, "comes"), "\(id)")
             }
-            #expect(DelegationWords.settled(r, zone: utc) == c["settled"]?.stringValue, "\(id)")
+            if r.state == .unknown {
+                // a newer xbind's state: the web says reload, the app — which can be older — the web
+                #expect(c["settled"]?.stringValue == v["small"]?["unknown"]?["page"]?.stringValue, "\(id)")
+                #expect(DelegationWords.settled(r, zone: utc) == v["small"]?["unknown"]?["app"]?.stringValue, "\(id)")
+                #expect(!r.isPending)
+            } else {
+                #expect(DelegationWords.settled(r, zone: utc) == c["settled"]?.stringValue, "\(id)")
+            }
             #expect(DelegationWords.asked(created: r.created, expires: r.expires, now: now, zone: utc) == c["asked"]?.stringValue, "\(id)")
         }
     }
@@ -88,15 +95,25 @@ import Testing
             #expect(DelegationWords.reviewWords(cs, ticked: 0).apply == "Apply none")
             let need = DelegationWords.needChangeTitle(cs)
             #expect(need.title == s(c["need"], "title") && need.note == s(c["need"], "note"), "\(cs.id)")
-            #expect(DelegationWords.endedWords(cs) == s(c, "ended"), "\(cs.id)")
+            if cs.state == .unknown {
+                #expect(s(c, "ended") == v["small"]?["unknown"]?["page"]?.stringValue && !cs.isProposed, "\(cs.id)")
+                #expect(DelegationWords.endedWords(cs) == v["small"]?["unknown"]?["app"]?.stringValue, "\(cs.id)")
+                #expect(DelegationWords.unknownState.title == v["small"]?["unknown"]?["title"]?.stringValue)
+            } else {
+                #expect(DelegationWords.endedWords(cs) == s(c, "ended"), "\(cs.id)")
+            }
             let res = DelegationWords.resultsWords(cs)
             #expect(res.title == s(c["results"], "title"), "\(cs.id)")
             #expect(res.banner == s(c["results"], "banner"), "\(cs.id)")
             #expect(res.undo == s(c["results"], "undo"), "\(cs.id)")
-            for (it, want) in zip(cs.items, c["items"]?.arrayValue ?? []) {
+            let wantItems = c["items"]?.arrayValue ?? []
+            #expect(cs.items.count == wantItems.count, "\(cs.id): \(cs.items.count) items, the web read \(wantItems.count)")
+            for (it, want) in zip(cs.items, wantItems) {
                 #expect(DelegationWords.kindTag(it.kind) == s(want, "tag"), "\(cs.id) \(it.n)")
                 #expect(DelegationWords.tickable(it) == want["tickable"]?.boolValue, "\(cs.id) \(it.n)")
-                for (w, ww) in zip(it.warnings, want["warnings"]?.arrayValue ?? []) {
+                let wantWarnings = want["warnings"]?.arrayValue ?? []
+                #expect(it.warnings.count == wantWarnings.count, "\(cs.id) \(it.n): warnings")
+                for (w, ww) in zip(it.warnings, wantWarnings) {
                     let got = DelegationWords.warning(w)
                     #expect(got.tag == s(ww, "tag") && got.text == s(ww, "text"), "\(cs.id) \(it.n)")
                     #expect(got.icon == s(ww, "icon"), "\(cs.id) \(it.n)")
@@ -321,6 +338,25 @@ import Testing
         #expect(AppEvent.parse(#"{"type":"delegate","data":{"op":"request","id":"rq1","user":"ana"}}"#) == .delegate(DelegateEvent(op: "request", id: "rq1")))
         #expect(AppEvent.parse(#"{"type":"delegate","data":{"op":"state","user":"ana"}}"#) == .delegate(DelegateEvent(op: "state")))
         #expect(AppEvent.parse(#"{"type":"delegate","data":{}}"#) == .other(type: "delegate"))
+    }
+
+    /// A state this app doesn't know (a newer xbind's) is never read as one
+    /// that can be decided: no Review…, no Allow, no Apply, not in Needs
+    /// you — and a line that sends the person to the web.
+    @Test func unknownStatesAreNotActionable() throws {
+        let r = try #require(DelegateRequest(json: ["id": "0123456789abcdef01234567", "kind": "call", "state": "deferred", "method": "PUT", "target": "/api/apps/x/y"]))
+        #expect(r.state == .unknown && !r.isPending)
+        let card = DelegationWords.requestCard(r)
+        #expect(!card.waits && card.button.isEmpty && card.line == DelegationWords.unknownState.text)
+        #expect(DelegationWords.settled(r) == "This app is older than the workspace — open it on the web.")
+        let cs = try #require(AdminChangeSet(json: ["id": "89abcdef0123456789abcdef", "title": "t", "state": "scheduled", "items": [["n": 1, "kind": "grant.add", "line": "x"]]]))
+        #expect(cs.state == .unknown && !cs.isProposed)
+        let c = DelegationWords.changeSetCard(cs)
+        #expect(!c.waits && c.button.isEmpty && c.head == DelegationWords.unknownState.title)
+        #expect(DelegationWords.endedWords(cs) == DelegationWords.unknownState.text)
+        #expect(AgentNeed.rows(requests: [r], changesets: [cs]).isEmpty, "nothing of it waits in Needs you")
+        // a missing state is no state either
+        #expect(DelegateRequest(json: ["id": "0123456789abcdef01234567"])?.state == .unknown)
     }
 
     @Test func stateReads() throws {

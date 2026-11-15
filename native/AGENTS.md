@@ -1313,6 +1313,10 @@ plans/wsagent/ux.md):
   `.widens`/`.disabled` AFTER `.accessibilityElement(children: .ignore)`:
   inside it, the element VoiceOver reads is not dimmed (a UI test caught
   this).
+- **A state the app doesn't know is not actionable**: `DelegateRequest.State`
+  and `AdminChangeSet.State` read anything else as `.unknown` — no Allow,
+  no Apply, not in Needs you, and `DelegationWords.unknownState`'s line
+  ("This app is older than the workspace — open it on the web.").
 - **An id from the tile is xbind's shape or nothing** (`DelegateID`): a
   `request` node's and a bridge message's request or change-set id is 24
   lowercase hex digits, a session's a word without dot or slash —

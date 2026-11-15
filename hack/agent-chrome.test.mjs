@@ -268,3 +268,13 @@ test('a long body: the note says how much is shown — "shown in full" only when
   assert.match(W.sends({ kind: 'call', body: 'x'.repeat(4000), bodySize: 4000, bodyShown: true }).note, /shown in full$/, 'exactly CLIP is whole');
   assert.equal(W.clipNote(W.clipText('x'.repeat(4001))), 'first 4000 of 4001 characters');
 });
+
+test('a state the chrome doesn\'t know is never one that can be decided', () => {
+  const r = { id: 'x', kind: 'call', state: 'deferred', created: '2026-11-16T10:00:00Z', expires: '2026-11-17T10:00:00Z' };
+  assert.equal(W.settled(r), W.UNKNOWN_STATE.page, 'not "Waiting for your approval"');
+  assert.deepEqual(W.needs({ requests: [r], changesets: [{ id: 'c', state: 'scheduled', items: [] }] }), [], 'nothing of it waits in Needs you');
+  assert.equal(W.endedWords({ state: 'scheduled' }), W.UNKNOWN_STATE.page);
+  assert.equal(W.knownState({ state: 'pending' }), true);
+  assert.equal(W.knownState({ state: 'scheduled' }, 'changeset'), false);
+  assert.equal(W.settled({ state: 'pending' }), 'Waiting for your approval');
+});

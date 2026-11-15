@@ -34,6 +34,8 @@ export const requests = [
   call({ id: 'rq_denied', state: 'denied', decided: t('10:15:00') }),
   call({ id: 'rq_expired', state: 'expired', expires: t('09:00:00') }),
   call({ id: 'rq_withdrawn', state: 'withdrawn' }),
+  // a state this chrome doesn't know (a newer xbind's): never one that can be decided
+  call({ id: 'rq_future', state: 'deferred' }),
   call({ id: 'rq_by_xbin', state: 'withdrawn', withdrawnBy: 'xbin', decided: t('10:15:00') }),
   // a body longer than a sheet shows at once: its first CLIP characters (code points, an emoji one), and a note that says so
   call({ id: 'rq_long', body: 'é😀ab'.repeat(1100), bodySize: Buffer.byteLength('é😀ab'.repeat(1100)) }),
@@ -67,6 +69,7 @@ export const changesets = [
   { id: 'cs_rejected', title: 't', state: 'rejected', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1, { result: 'rejected' })] },
   { id: 'cs_expired', title: 't', state: 'expired', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1)] },
   { id: 'cs_withdrawn', title: 't', state: 'withdrawn', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1)] },
+  { id: 'cs_future', title: 't', state: 'scheduled', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1)] },
   { id: 'cs_by_xbin', title: 't', state: 'withdrawn', withdrawnBy: 'xbin', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1)] },
   { id: 'cs_ff', title: 't', state: 'partial', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1, { result: 'applied' }), item(2, { result: 'failed', error: 'x' }), item(3, { result: 'stale' })] },
 ];
@@ -161,6 +164,7 @@ out.small = {
     'lines\nand\ttabs stay', 'cr\r\nlf', 'nul\u0000bel\u0007esc\u001B[31m del\u007F c1\u0085', 'soft\u00ADhyphen', 'tag\u{E0041}s', 'emoji 😀 é 中文', '', '\u202A\u202B\u202D']
     .map((text) => ({ text, ...W.reveal(text), revealed: W.revealed(text) })),
   hiddenNote: W.HIDDEN_NOTE,
+  unknown: { ...W.UNKNOWN_STATE },
   clip: W.CLIP,
   clips: ['', 'short', 'x'.repeat(4000), 'x'.repeat(4001), '😀'.repeat(4002), `${'a'.repeat(3999)}😀b`].map((input) => ({ input, ...W.clipText(input), note: W.clipNote(W.clipText(input)) })),
   standingNote: W.STANDING_NOTE, didNote: W.DID_NOTE, arm: W.CHOICES.armMs, duration: W.CHOICES.duration,

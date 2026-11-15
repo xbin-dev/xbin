@@ -381,6 +381,17 @@ async function agentChrome(browser) {
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     S.requests = S.requests.filter((r) => r.id !== 'l2'); await refresh();
 
+    // ---- a state this page doesn't know (a newer xbind's): never one that can be decided ----
+    S.requests.push(callReq('u2', { created: iso(-300), state: 'deferred' }));
+    await refresh();
+    await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 'u2'));
+    await page.waitForSelector(`${SHEET} [role="dialog"]`);
+    check(!(await page.$(`${SHEET} button[data-allow]`)) && !(await page.$(`${SHEET} button[data-deny]`)) && /This page is older than the workspace — reload it to decide\./.test(await text(`${SHEET} [role="dialog"]`)),
+      `[${width}] an unknown state: no Allow, no Deny, and why (${await text(`${SHEET} [role="dialog"] p`)})`);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    S.requests = S.requests.filter((r) => r.id !== 'u2'); await refresh();
+
     // ---- Approvals, What my agent did, Preferences ----
     await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
     log('before the menu: ' + JSON.stringify(await page.evaluate(() => { const d = document.querySelector('bx-agent-dock'); const b = d.shadowRoot.querySelector('[data-menu]');

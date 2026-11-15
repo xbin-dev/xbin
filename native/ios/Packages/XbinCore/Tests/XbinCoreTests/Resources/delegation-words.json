@@ -1210,6 +1210,126 @@
   },
   {
    "json": {
+    "id": "rq_future",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "call",
+    "method": "POST",
+    "target": "apps/invoices/links/rebuild?dry=0",
+    "tile": "apps/invoices",
+    "contentType": "application/json",
+    "body": "{\"customer\":\"acme\",\"notify\":true}",
+    "bodyShown": true,
+    "bodySize": 34,
+    "bodySha256": "ab12",
+    "summary": "Rebuild the customer links so the overdue ones show.",
+    "state": "deferred",
+    "created": "2026-11-16T10:14:00Z",
+    "expires": "2026-11-17T10:14:00Z",
+    "preview": {
+     "class": "tile-write",
+     "tile": "apps/invoices",
+     "level": "write",
+     "role": "writer",
+     "standing": {
+      "call": "POST to apps/invoices/links/rebuild on Invoices, whatever it sends, without asking again.",
+      "tile": "Any write to Invoices that you could make yourself, without asking again."
+     }
+    }
+   },
+   "tile": {
+    "name": "Invoices",
+    "path": "apps/invoices",
+    "org": ""
+   },
+   "level": "you can write here",
+   "needTitle": "Approve a change to Invoices",
+   "heading": {
+    "before": "Your agent wants to change something in ",
+    "strong": "Invoices",
+    "after": ""
+   },
+   "sends": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This request only. The agent has 15 minutes to use it.",
+     "wider": false
+    },
+    {
+     "id": "call",
+     "label": "Always, this exact action",
+     "text": "POST to apps/invoices/links/rebuild on Invoices, whatever it sends, without asking again.",
+     "wider": false
+    },
+    {
+     "id": "tile",
+     "label": "Always, every change to Invoices",
+     "text": "Any write to Invoices that you could make yourself, without asking again.",
+     "wider": true
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow always",
+     "Allow always, this exact action"
+    ],
+    [
+     "Allow every change to Invoices",
+     "Allow every change to Invoices"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "tile"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    },
+    {
+     "grant": "always",
+     "scope": "tile"
+    }
+   ],
+   "wider": {
+    "heading": "Allow every change to Invoices?",
+    "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "This page is older than the workspace — reload it to decide.",
+   "asked": "asked 10:14 · expires in 23 h 58 min"
+  },
+  {
+   "json": {
     "id": "rq_by_xbin",
     "user": "ana",
     "agent": "xbin/wsagent",
@@ -3008,6 +3128,61 @@
   },
   {
    "json": {
+    "id": "cs_future",
+    "title": "t",
+    "state": "scheduled",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "grant.add",
+      "args": {},
+      "line": "Give Invoices read access to Orders (1)",
+      "before": "no access",
+      "after": "read"
+     }
+    ]
+   },
+   "ticks": [
+    1
+   ],
+   "review": {
+    "heading": "Your agent proposes 1 admin change",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "1 of 1 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply 1 change…",
+    "counts": [
+     0,
+     0
+    ]
+   },
+   "need": {
+    "title": "1 admin change proposed",
+    "note": ""
+   },
+   "results": {
+    "title": "Nothing was applied",
+    "banner": "",
+    "undo": ""
+   },
+   "ended": "This page is older than the workspace — reload it to decide.",
+   "items": [
+    {
+     "tag": "grant",
+     "tickable": true,
+     "warnings": [],
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     }
+    }
+   ]
+  },
+  {
+   "json": {
     "id": "cs_by_xbin",
     "title": "t",
     "state": "withdrawn",
@@ -4729,6 +4904,12 @@
    }
   ],
   "hiddenNote": "contains hidden characters — shown as ⟨U+…⟩",
+  "unknown": {
+   "pageTitle": "A state this page doesn't know",
+   "page": "This page is older than the workspace — reload it to decide.",
+   "title": "A state this app doesn't know",
+   "app": "This app is older than the workspace — open it on the web."
+  },
   "clip": 4000,
   "clips": [
    {
