@@ -631,7 +631,7 @@ The app draws these with the same components as its own agent screen.
 - `plan` `tags`: a tag per entry, by position (what the step does or where it stands: "reads only", "asks you"); an item without `text` is no tag.
 - `plan` `note`: a sentence under the entries.
 - `plan` `meta`: a quiet line beside the title.
-- `composer` `context`: what the next message is about, as chips in the box ("About Orders"): a tap reports `context`, its ✕ `remove-context`.
+- `composer` `context`: what the next message is about, as chips in the box ("About Orders"): a tap reports `context`, its remove button `remove-context`.
 - `composer` `replies`: quick replies in a row above the box (they scroll sideways and stay with the keyboard down): a tap reports `reply`.
 - `composer` `hint`: a quiet line under the box.
 - `card` `note`: a quiet sentence above the buttons.

@@ -1946,7 +1946,7 @@
        }
       }
      },
-     "doc": "what the next message is about, as chips in the box (\"About Orders\"): a tap reports `context`, its ✕ `remove-context`",
+     "doc": "what the next message is about, as chips in the box (\"About Orders\"): a tap reports `context`, its remove button `remove-context`",
      "since": 2
     },
     "replies": {

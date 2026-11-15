@@ -280,7 +280,7 @@ const P = {
     props: { value: S, placeholder: S, busy: B, disabled: B,
       attachments: arr(obj({ id: S, name: S, mime: S, progress: N })), accept: S,
       upload: obj({ method: S, path: S }), slash: arr(obj({ name: S, hint: S, description: S })),
-      context: since(2, { ...arr(obj({ id: S, label: S, icon: tok('icon'), tone: tok('tone') })), doc: 'what the next message is about, as chips in the box ("About Orders"): a tap reports `context`, its ✕ `remove-context`' }),
+      context: since(2, { ...arr(obj({ id: S, label: S, icon: tok('icon'), tone: tok('tone') })), doc: 'what the next message is about, as chips in the box ("About Orders"): a tap reports `context`, its remove button `remove-context`' }),
       replies: since(2, { ...arr(obj({ id: S, label: S })), doc: 'quick replies in a row above the box (they scroll sideways and stay with the keyboard down): a tap reports `reply`' }),
       hint: since(2, { ...S, doc: 'a quiet line under the box' }) },
     events: { input: { payload: { value: 'string' }, ...reports('value') },

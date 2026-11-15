@@ -114,6 +114,7 @@ export const native = {
   get widgetSize() { return current$().native.widgetSize; },
   get width() { return current$().native.width; },
   on: (type, fn) => current$().native.on(type, fn),
+  agent: (msg) => current$().native.agent(msg),
 };
 
 // globalThis.xbn — how the app calls in (callAsyncJavaScript):
