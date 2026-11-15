@@ -24,6 +24,10 @@ its code (native/AGENTS.md → "App Store"). Runs anywhere python3 does
   6. the open-source licences screen's list (App/Resources/Licences/
      OpenSourceLicences.json, native/ios/scripts/licences.sh) was made for
      the SwiftTerm and IrohLib versions project.yml pins
+  7. Support/review-notes.md (the App Review Notes draft): what follows its
+     rule fits App Store Connect's 4000 characters, and it describes the
+     features the app has that a reviewer must be told about (guideline
+     2.5.19) — the workspace agent while the app ships its chrome (D233)
 
 Exit status: non-zero on any failure.
 """
@@ -168,6 +172,18 @@ try:
             check(e.get("texts") and all(t in texts for t in e["texts"]), f"{licences_rel}: {e.get('name')} has no licence text")
 except (OSError, ValueError) as e:
     errs.append(f"{licences_rel}: {e}")
+
+# 7. The App Review Notes draft fits the field and names what the app has.
+notes_rel = "Support/review-notes.md"
+try:
+    with open(os.path.join(ios, notes_rel), encoding="utf-8") as f:
+        notes = f.read()
+    body = notes.split("\n---\n", 1)[1] if "\n---\n" in notes else notes
+    check(len(body) <= 4000, f"{notes_rel}: the notes are {len(body)} characters, App Store Connect takes 4000")
+    if os.path.exists(os.path.join(ios, "App/Model/WorkspaceAgentModel.swift")):
+        check("workspace agent" in body.lower(), f"{notes_rel}: the app has the workspace agent (D233) and the notes don't describe it")
+except OSError as e:
+    errs.append(f"{notes_rel}: {e}")
 
 if errs:
     for e in errs:

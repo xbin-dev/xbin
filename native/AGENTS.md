@@ -41,8 +41,9 @@ native/
     Packages/XbinRenderer/  XbinRendererModel (tests on Linux) + the SwiftUI views, one per primitive,
                             a #Preview per fixture; Tests/XbinRendererTests = the snapshot tests (CI)
     App/                    the app target: Model/ (workspaces, sessions, transport, device keys),
-                            Shell/ (root, switcher, navigator, add-workspace, inbox, settings),
-                            Tiles/ (scheme handler, web tiles, native tiles), Terminal/, Agent/, Push/
+                            Shell/ (root, switcher, navigator, add-workspace, inbox, settings; Agent*.swift:
+                            the workspace agent's chrome, D233), Tiles/ (scheme handler, web tiles, native
+                            tiles, AgentTile: the workspace agent's native view), Terminal/, Agent/, Push/
     Shared/                 compiled into the app AND the notification extension (push crypto, Keychain)
     NotificationService/    the Notification Service Extension (decrypts pushes)
     Widgets/                the widget extension: the agent turn's Live Activity (Shared/: also in the app)
@@ -900,7 +901,22 @@ or IrohLib pin — store-check.py fails until the list matches the pins.
 
 **App Review Notes** for a submission are drafted in
 `Support/review-notes.md`: not a VPN, plain http, the Local Network prompt,
-how to test pairing (with a demo workspace's details filled in at submission).
+how to test pairing (with a demo workspace's details filled in at submission),
+and every feature a reviewer must be told about (guideline 2.5.19) — the
+workspace agent among them: it runs on the person's own server, the app runs
+no model and downloads no code for it, and every approval is the person's
+tap in the app's own sheet. App Store Connect's field takes 4000 characters:
+store-check.py counts what follows the file's rule and fails when the app
+has a feature the notes don't name. A new feature of that kind gets its
+paragraph there in the same change.
+
+**Face ID** (D233) gates the wider grant and applying admin changes
+(`AgentGate`, through `AppLock.unlock`: `.deviceOwnerAuthentication`, so the
+passcode stands in). `NSFaceIDUsageDescription` — already declared for the device key
+— now names those approvals too; no new permission, entitlement or background
+mode came with the workspace agent, and it collects nothing (the privacy
+table above is unchanged). Not built: notification actions, a Live Activity
+for it, dictation (a microphone and a speech permission when it comes).
 
 ### The help screenshots
 
@@ -1177,6 +1193,51 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   tunnel yourself. Under an ssh ControlMaster `mac-remote.sh tunnel`
   returns at once — the forward lives on the master connection; drop it
   with `ssh -O cancel -R 127.0.0.1:P:127.0.0.1:P <mac>`.
+
+### The workspace agent's chrome (D233)
+
+What the app shows of a person's workspace agent, and where each part is
+(docs/workspace-agent.md §In the xbin app is the behaviour; the design is
+plans/wsagent/ux.md):
+
+- **XbinCore `Client/Delegation.swift`, `DelegationWords.swift`,
+  `AgentBridge.swift`** — xbind's delegation as the app reads it, what the
+  chrome says, and what the agent's view may ask. The words are a port of
+  `web/agent-chrome-words.js`, held to it by vectors: after changing that
+  file run `node native/tools/delegation-words.mjs >
+  native/ios/Packages/XbinCore/Tests/XbinCoreTests/Resources/delegation-words.json`
+  and port the change (`make js-test` fails while the vectors are stale,
+  `swift test` while the port differs). The design's open choices are
+  `AgentChoices`, one place.
+- **`App/Model/WorkspaceAgentModel.swift`** (`workspace.agent`) — the state,
+  the requests and change sets that wait, the standing approvals; read with
+  the device's session, refreshed by the `delegate` events. Every grant
+  goes out from here.
+- **`App/Shell/AgentChrome.swift`** — the bar button (`PanelBar` adds it
+  last, `preferVerticalBar()`), Home's row, the container (`AgentSheet`
+  with its detents on a compact width; `XbinTwoPanes` in `WorkspaceView` on
+  a regular one), the shield menu, the paused bar, the states.
+  **`AgentApproval.swift`**, **`AgentChangeSet.swift`** — the grants;
+  **`AgentPanels.swift`** — Approvals, What my agent did, Preferences;
+  **`AgentCards.swift`** — the `request` and `session` nodes, drawn from
+  xbind. **`App/Tiles/AgentTile.swift`** — the sealed component's native
+  view in the container, with the `AgentHost` that answers its asks.
+- **The rules a change there must keep**: a sheet is drawn only from what
+  xbind answers for an id (never from the tree, never from a message's
+  other fields); the agent's text is `Text(verbatim:)` in a labelled quote;
+  Allow is armed by `AgentArming` (600 ms after the sheet is shown, again
+  after the choice changes or the app comes back to the front) and no
+  default action allows; Deny left, Allow right, at the bottom; the wider
+  grant is a second sheet whose primary button is Go back; `trustedNode`
+  and the `agent` caps go only to the component `GET /delegate/state`
+  names as the person's agent (`NativeTileRuntime.isAgent`), and only
+  while the agent's container shows it.
+- **The holder never enters the catalog**: its row is read with
+  `GET /components?sealed=1` by `WorkspaceAgentModel.readHolder` alone, so
+  Home, search and the switcher never list it; an xbind without
+  `/delegate/state` gives no state and no button.
+- Debug builds' `-XbinAgentGate allow|deny` answers the Face ID gate (a
+  simulator has no face); the UI tests use it.
 
 ### Footage (the promo video, the website)
 

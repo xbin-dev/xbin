@@ -12,6 +12,33 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- **The workspace agent in the xbin app** (D233;
+  [workspace-agent.md](/docs/workspace-agent.md#in-the-xbin-app)): the iOS
+  app has a person's workspace agent as its own chrome — a button at the
+  end of every panel's bar (a vertical-bar item on an open iPhone Duo) and a
+  row on Home, the agent as a sheet (a trailing column on an iPad), native
+  approval sheets drawn from xbind's reading of a request (Allow armed
+  after 600 ms; Face ID for the wider grant and for admin changes), the
+  agent's requests in Needs you. Nothing changes for a workspace without
+  the agent or an app from before it.
+- native: the workspace agent's nodes (D233;
+  [native.md](/docs/native.md) §The workspace agent's nodes) — `card`,
+  `connection`, and `request` and `session`, which a tile places by id and
+  **the app draws** from xbind's own reading (anywhere but the person's
+  agent they are an inert line); `transcript` rev 3 (an `empty` slot with
+  suggestions), `question` rev 2 (choices as rows, "Something else",
+  pages), `plan` rev 2 (numbers, a tag a step, a note), `composer` rev 2
+  (context chips, quick replies, a hint); five icons (`square`,
+  `check-square`, `minus-square`, `plug`, `hand`); `xbin.native.agent(msg)`
+  and `xbin.native.on('agent', fn)` for the tile the app shows as the
+  person's agent. Additive: an older app gets the tile's web page unless
+  the tile branches with `xbin.native.supports()`.
+- agent template: a workspace agent has a native view in the xbin app
+  (`native/ws.js`, loaded by `native.js` in workspace mode) over the same
+  model as its page (`ws/store.js`); requests and tile agents are
+  `request`/`session` nodes the app draws by xbind's id, and the view asks
+  the app's chrome with `xbin.native.agent`. An instance's own native view
+  is unchanged (`native/main.js`, what `native.js` was).
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),
   [protocol/agents.md](/docs/protocol/agents.md)). A session's row and its
