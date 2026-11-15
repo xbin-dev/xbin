@@ -19,6 +19,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   pushes). Before, only the agents' backends were told, so xbin's chrome
   and the app showed the switch at their next read. Additive: clients
   already refetch on that event.
+- The workspace agent's chrome, web and app: a tile agent's start is "asks
+  before acting" only where xbind's preview says `asks: true`
+  (`/vendor/agent-chrome-words.js` read anything but `false` as asking); a
+  preview without the word now leads with the danger wording and Deny. In
+  the app, what widens the agent's reach is armed like Allow, the agent's
+  view can't open Preferences, and a draft it hands a tile agent is
+  labelled as its suggestion — as on the web
+  ([workspace-agent.md](/docs/workspace-agent.md#in-the-xbin-app)).
 - **The workspace agent in the xbin app** (D233;
   [workspace-agent.md](/docs/workspace-agent.md#in-the-xbin-app)): the iOS
   app has a person's workspace agent as its own chrome — a button at the

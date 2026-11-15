@@ -5010,6 +5010,35 @@ here: cut from the old end, never reword.
     agent but not a later revision.
   - **Not tested on hardware that doesn't exist**: the Duo layout compiles
     against the iOS 27.1 SDK and has never been drawn.
+  - **After the security review's fixes on the web side (second round,
+    2026-11-16).** The app takes the same rules, each held to the web's:
+    only xbind's `asks: true` is "asks before acting" (the words module and
+    its Swift port changed together — `asks !== false` had given a preview
+    without the word the green tag); the agent's view may ask the chrome
+    for views that change nothing, never Preferences (`AgentBridge.View` is
+    `PAGE_VIEWS`, pinned by the vectors); every control that widens what
+    the agent may do is armed like Allow (`ArmingClock` / `AgentWidening`,
+    pure and tested in XbinCore — the web's WidenGuard as a rule, not a
+    port of its DOM handling); a draft from the view is labelled as the
+    page's suggestion until the person edits or sends it; an admin without
+    an agent has none in the app either, and a `403 no-agent` on any read
+    ends the reading. Home's agent row lost its count plate: the count is
+    on Needs you and on the bar item (the owner's review of the shots, over
+    ux.md §1.1).
+  - **One xbind change came out of it**: the workspace's switch now sends
+    people's own sockets the `delegate` state event (it told only the
+    agents' backends), so the dock and the app follow it as it is turned.
+    Additive; found by the UI test that turns the switch with the agent
+    open. Rejected: a refresh on a timer in the app (the chrome polls
+    nothing), and leaving it to the view's banner (the view heard nothing
+    either until a message was refused).
+  - **States a test xbind can't be in are Debug demos** (`-XbinAgentDemo`,
+    after `-XbinPairingDemo`): the chrome's own reads answered from the
+    vectors' corpus, generated into the app and pinned by `make js-test`,
+    so a demo shows exactly what the words' tests pin. Live where the e2e
+    xbind can make the state. Rejected: a second, slower xbind per state
+    (a held vault, an older data stamp, a non-`--dev` xbind for the
+    password step) for screens whose every word is already pinned.
 
 - **D234 — Previews: xbind renders a tile or a screen as a person,
   read-only, in a confined browser (2026-11-15; issue #51).** The workspace

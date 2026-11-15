@@ -13,6 +13,7 @@ struct InboxView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
     @Environment(\.supportsMultipleWindows) private var multipleWindows
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         NavigationStack {
@@ -31,12 +32,18 @@ struct InboxView: View {
                                     scene.select(w.id)
                                     scene.review(n.kind == .request ? .request(n.id) : .changeset(n.id), afterInbox: true)
                                 } label: {
-                                    HStack(spacing: 8) {
+                                    // (at accessibility sizes Review… goes under the words: neither is squeezed)
+                                    let row = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+                                                                           : AnyLayout(HStackLayout(spacing: 8))
+                                    row {
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(verbatim: n.title).foregroundStyle(XbinColor.text)
-                                            if !n.note.isEmpty { Text(verbatim: n.note).font(.caption.monospacedDigit()).foregroundStyle(XbinColor.muted) }
+                                            Text(verbatim: n.title).foregroundStyle(XbinColor.text).multilineTextAlignment(.leading)
+                                            if !n.note.isEmpty {
+                                                Text(verbatim: n.note).font(.caption.monospacedDigit()).foregroundStyle(XbinColor.muted)
+                                                    .multilineTextAlignment(.leading)
+                                            }
                                         }
-                                        Spacer(minLength: 4)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                         Text("Review…").font(.callout.weight(.semibold)).foregroundStyle(XbinColor.accentText)
                                     }
                                 }

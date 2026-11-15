@@ -331,6 +331,10 @@ final class WorkspaceModel: Identifiable {
     /// until that tile's launcher takes them, never sent by this.
     func setPendingDraft(_ text: String, tile: String) { pendingDrafts[tile] = text.isEmpty ? nil : text }
     func takePendingDraft(_ tile: String) -> String? { pendingDrafts.removeValue(forKey: tile) }
+    /// …and from that launcher to the session the person started there
+    /// (its screen is a new one): by the session's id, still unsent.
+    func setPendingDraft(_ text: String, session: String) { pendingDrafts["session:" + session] = text.isEmpty ? nil : text }
+    func takePendingDraft(session: String) -> String? { pendingDrafts.removeValue(forKey: "session:" + session) }
 
     func setPendingPrompt(_ text: String, session: String) { pendingPrompts[session] = text }
     func takePendingPrompt(_ session: String) -> String? { pendingPrompts.removeValue(forKey: session) }

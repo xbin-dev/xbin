@@ -113,13 +113,14 @@ struct AgentChangeSetSheet: View {
                 .frame(minHeight: 44, alignment: .top)
             }
             .buttonStyle(.plain)
-            .disabled(!canTick)
             // one element a change: its number, whether it is ticked, xbind's line, its warnings, before and after
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: spoken(item, of: total, on: on, canTick: canTick)))
             .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
             .accessibilityHint(canTick ? Text(on ? "Leaves it out" : "Includes it") : Text(verbatim: ""))
             .accessibilityIdentifier("changeset-tick-\(item.n)")
+            // (outermost: the element made above is the one that is dimmed)
+            .disabled(!canTick)
             if item.before != nil || item.after != nil {
                 VStack(alignment: .leading, spacing: 0) {
                     beforeAfter("Before", item.before, fill: XbinColor.dangerBackground)

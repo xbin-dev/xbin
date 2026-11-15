@@ -111,7 +111,14 @@ extension E2E {
         XCTAssertTrue(wsHittable(needs), "Needs you can be tapped", file: file, line: line)
         needs.tap()
         let row = app.buttons.matching(identifier: id).firstMatch
-        expect(row, 30, "the inbox's \(id)", file: file, line: line)
+        // (the list is lazy: at a large text size a row further down exists only once it is scrolled to)
+        var swipes = 0
+        while !row.waitForExistence(timeout: swipes == 0 ? 10 : 1), swipes < 10 {
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+            from.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)))
+            swipes += 1
+        }
+        expect(row, 5, "the inbox's \(id)", file: file, line: line)
         wsScrollTo(row)
         row.tap()
     }

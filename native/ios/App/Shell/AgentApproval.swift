@@ -66,6 +66,10 @@ struct AgentTrustedBar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(XbinColor.background)
         .background(XbinColor.text)
+        // The bar is chrome, like a navigation bar: it grows with the text
+        // up to a point, so at the largest sizes the request under it keeps
+        // most of the sheet.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityElement(children: .contain)
     }
 }
@@ -218,11 +222,12 @@ struct AgentDurationPicker: View {
                     .overlay { RoundedRectangle.xbinPlate.strokeBorder(on ? XbinColor.accent : XbinColor.border, lineWidth: 1) }
                 }
                 .buttonStyle(.plain)
-                .widens(armed: !widening || armed)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(verbatim: d.label))
                 .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
                 .accessibilityIdentifier("\(id)-\(d.id)")
+                // (outermost: the element made above is the one that is dimmed)
+                .widens(armed: !widening || armed)
             }
         }
         .accessibilityElement(children: .contain)
@@ -246,7 +251,10 @@ struct AgentDecisionBar: View {
     let onDeny: () -> Void
     let onAllow: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
-    @ScaledMetric private var height: CGFloat = 44
+    /// A full touch target that grows with the text — to a point: at the
+    /// largest sizes two stacked buttons must still leave the sheet its words.
+    @ScaledMetric private var scaled: CGFloat = 44
+    private var height: CGFloat { min(scaled, 76) }
 
     var body: some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 10))
@@ -461,11 +469,11 @@ struct AgentApprovalSheet: View {
                     .overlay { RoundedRectangle.xbinPlate.strokeBorder(choice == c.id ? XbinColor.accent : XbinColor.border, lineWidth: 1) }
                 }
                 .buttonStyle(.plain)
-                .widens(armed: !widening || widen.armed)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(verbatim: "\(c.label)\(c.wider ? ", wider" : ""). \(c.text)"))
                 .accessibilityAddTraits(choice == c.id ? [.isButton, .isSelected] : .isButton)
                 .accessibilityIdentifier("approval-choice-\(c.id.rawValue)")
+                .widens(armed: !widening || widen.armed)
             }
             if choice == .call {
                 AgentDurationPicker(duration: $duration, armed: widen.armed, id: "approval-duration")
@@ -588,6 +596,7 @@ struct AgentWiderSheet: View {
     let done: (Bool) -> Void
 
     @Environment(\.scenePhase) private var phase
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var arming = AgentArming()
     /// "Until I take it back" widens "for one hour": armed like Allow.
     @State private var widen = AgentArming()
@@ -621,7 +630,8 @@ struct AgentWiderSheet: View {
                              onDeny: { done(false) }, onAllow: allow)
         }
         .background(XbinColor.background)
-        .presentationDetents([.medium, .large])
+        // (at accessibility sizes the words and the two stacked buttons need the whole height)
+        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
         .interactiveDismissDisabled(working)
         .onAppear {
             // the whole tile, however the first sheet's duration stood: one hour unless the person widens it here

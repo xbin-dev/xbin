@@ -1094,11 +1094,28 @@ screen; Needs you; the scope panel; Pause and Resume; that the next
 request opens on Once with Allow unarmed; that a screen the view pushes
 keeps the cards; on an iPad (`XBIN_SIM_ENSURE=xbin-e2e-w2-ipad`) the
 trailing column and an approval over it; and `test10Gallery`
-(`wsagent-<light|dark>-NN-<screen>.png`). Not covered by them: an admin
-change set and its sign-in step, a start in a mode that never asks, the
-setup, held and offline states, Dynamic Type, VoiceOver — and the Duo
-layout, which only compiles (`mac-remote.sh build --device` with the 27.1
-Xcode and `XBIN_SDK_27_1`).
+(`wsagent-<light|dark>-NN-<screen>.png`). `XbinWorkspaceAgentStatesTests` cover the states and rules those don't.
+Demo tests (`…Demo…`, `-XbinAgentDemo`): an admin before setup, turned off
+/ no model / locked / older xbin / held, an admin without an agent, an
+admin batch with a warned item unticked and a blocked one → Face ID → the
+password step (a wrong one, then the right one) → partial results and
+Undo, starts in a mode that never asks and in one xbind doesn't vouch for
+(danger wording, Deny first), the arming of every widening control, the
+spoken label of every control of the grant sheets and their order, and
+the sheets at the largest accessibility text size (nothing cut, Deny and
+Allow stacked and reachable). Live tests (`…Live…`, the e2e xbind): who
+has an agent (an admin who gave another account one; nobody chosen),
+the workspace's switch turned while the agent is open, a typed draft
+through a pause, an admin batch proposed by the scripted model, applied
+and undone, a lost connection (Debug's offline demo cuts the chrome's
+requests after a trip to the background), an ask for Preferences that
+opens nothing, and a handed-over draft labelled as the page's suggestion.
+`test20Gallery`: `wsagent2-<light|dark>-NN-<state>.png`. The seeded
+conversations use hack/fakeopenai's phrases ("Set the note in <tile> to
+…"), so a shot shows a turn a person would read. Not covered: real Face
+ID, VoiceOver's own speech (the tests read labels, traits and order), and
+the Duo layout, which only compiles (`mac-remote.sh build --device` with
+the 27.1 Xcode and `XBIN_SDK_27_1`): no simulator draws it.
 `XbinAgentReviewTests` (D210) make apps/welcome a git repo (snapshot
 diffs need one), have the fake agent's `run:` write 31 files and 12 000
 lines, and review the turn on the Agent screen: the card folded, its first
@@ -1268,8 +1285,30 @@ plans/wsagent/ux.md):
   `GET /components?sealed=1` by `WorkspaceAgentModel.readHolder` alone, so
   Home, search and the switcher never list it; an xbind without
   `/delegate/state` gives no state and no button.
+- **What widens is armed like Allow** (`ArmingClock`, `AgentWidening` in
+  XbinCore; `.widens(armed:)` in the app): a standing choice, the longer
+  duration, Preferences' "Start without asking" and the admin opt-in ON. A
+  new control that gives the agent more (a network, other tiles' APIs)
+  goes through the same gate; one that gives it less never does. Put
+  `.widens`/`.disabled` AFTER `.accessibilityElement(children: .ignore)`:
+  inside it, the element VoiceOver reads is not dimmed (a UI test caught
+  this).
+- **The view asks for views that change nothing**: `AgentBridge.View` is
+  the web chrome's `PAGE_VIEWS` (needs, approvals, activity), pinned by the
+  vectors; Preferences opens from the shield alone. A draft the view hands
+  a tile agent's launcher is labelled with `AgentBridge.draftLabel` until
+  the person edits or sends it (`AgentSuggestedDraft`).
 - Debug builds' `-XbinAgentGate allow|deny` answers the Face ID gate (a
-  simulator has no face); the UI tests use it.
+  simulator has no face); `-XbinAgentArmSeconds N` stretches the arming
+  delay (never shortens it); `-XbinAgentDemo <state>` answers the chrome's
+  own reads from canned xbind JSON with no network (`App/Model/
+  AgentDemo.swift`; states: setup, setup-who, off, nomodel, locked, older,
+  held, none, paused, grants, offline) for what a test xbind can't be put
+  in — the data is the delegation words' corpus, generated (`node
+  native/tools/delegation-words.mjs --demo-swift >
+  native/ios/App/Model/AgentDemoData.swift`; `make js-test` fails while it
+  is stale); `-XbinAgentDebugAsk prefs|approvals|needs|draft` sends an ask
+  as the view would. A Release build has none of them.
 
 ### Footage (the promo video, the website)
 

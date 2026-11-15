@@ -39,6 +39,21 @@ struct AgentPanelSheet: View {
     }
 }
 
+/// A panel's closing note, as a row of its own on the canvas (a List draws
+/// no footer for a section without rows).
+struct AgentPanelNote: View {
+    let text: String
+
+    var body: some View {
+        Section {
+            Text(verbatim: text).font(.footnote).foregroundStyle(XbinColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
+        }
+    }
+}
+
 /// The standing approvals: one row each, **Take back** on every one.
 struct AgentApprovalsView: View {
     let workspace: WorkspaceModel
@@ -75,7 +90,7 @@ struct AgentApprovalsView: View {
                 .padding(.vertical, 4)
             }
             if let problem { Text(verbatim: problem).foregroundStyle(XbinColor.danger) }
-            Section {} footer: { Text(verbatim: DelegationWords.standingNote) }
+            AgentPanelNote(text: DelegationWords.standingNote)
         }
         .task { await agent.readApprovals() }
         .refreshable { await agent.readApprovals() }
@@ -119,7 +134,7 @@ struct AgentActivityView: View {
             } else {
                 HStack { Spacer(); ProgressView(); Spacer() }
             }
-            Section {} footer: { Text(verbatim: DelegationWords.didNote) }
+            AgentPanelNote(text: DelegationWords.didNote)
         }
         .task { rows = await workspace.agent.audit() ?? [] }
         .refreshable { rows = await workspace.agent.audit() ?? [] }
@@ -185,9 +200,7 @@ struct AgentPrefsView: View {
                 }
             }
             if let problem { Section { Text(verbatim: problem).foregroundStyle(XbinColor.danger) } }
-            Section {} footer: {
-                Text("Which coding agent a started tile agent uses, its mode, its network and whether it may call other tiles are set on the web: workspace agent → Preferences.")
-            }
+            AgentPanelNote(text: "Which coding agent a started tile agent uses, its mode, its network and whether it may call other tiles are set on the web: workspace agent → Preferences.")
         }
         .task {
             widen.arm(settle: 0.4) // the sheet's own slide comes first
@@ -214,12 +227,12 @@ struct AgentPrefsView: View {
             }
             .frame(minHeight: 30)
         }
-        .disabled(!loaded)
-        .widens(armed: loaded && (!widening || widen.armed))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: label))
         .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("prefs-start-\(id)")
+        // (outermost: the element made above is the one that is dimmed)
+        .widens(armed: loaded && (!widening || widen.armed))
     }
 
     private func save(start next: String) {

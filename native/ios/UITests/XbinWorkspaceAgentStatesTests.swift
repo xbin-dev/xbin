@@ -302,7 +302,8 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         e.shot("wsagent2-16-widening-unarmed")
         XCTAssertTrue(e.until(20) { call.isEnabled && tile.isEnabled }, "the standing choices arm a moment later")
         call.tap()
-        XCTAssertTrue(e.until(10) { allow.label == "Allow always" }, "armed, the choice is taken: \(allow.label)")
+        // (spoken, the button says which "always": the visible words are "Allow always")
+        XCTAssertTrue(e.until(10) { allow.label == "Allow always, this exact action" }, "armed, the choice is taken: \(allow.label)")
         // the duration: the exact action stands "until I take it back"; one hour narrows, and back widens
         let hour = e.app.buttons.matching(identifier: "approval-duration-hour").firstMatch
         let always = e.app.buttons.matching(identifier: "approval-duration-always").firstMatch
@@ -450,7 +451,14 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         e.app.buttons["Done"].tap()
         e.wsChromeMenu("What my agent did")
         e.expect(e.containing("You allowed a request"), 20, "the log in sentences")
-        XCTAssertTrue(e.containing("can't read or change this list").exists, "…and whose it is")
+        // (the list's closing note: a lazy list has it once it is scrolled to)
+        let note = e.containing("can't read or change this list")
+        var swipes = 0
+        while !note.exists, swipes < 12 {
+            e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).press(forDuration: 0.05, thenDragTo: e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+            swipes += 1
+        }
+        XCTAssertTrue(note.exists, "…and whose it is")
         e.shot("wsagent2-19-activity")
         e.app.buttons["Done"].tap()
     }
@@ -705,7 +713,8 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         e.expect(results, 30, "the undo's results")
         await e.eventually("the grants are gone again", timeout: 15) { try await server.wsGrantsToNote().isEmpty }
         e.app.buttons.matching(identifier: "changeset-done").firstMatch.tap()
-        XCTAssertTrue(e.until(20) { !review.exists }, "the card has no Review… any more")
+        // settled, the card's one button reads what came of it — never Review…
+        XCTAssertTrue(e.until(20) { review.exists && review.label.hasPrefix("Results: ") }, "the card has no Review… any more: \(review.label)")
     }
 
     /// xbind out of reach, with a conversation loaded: it stays readable

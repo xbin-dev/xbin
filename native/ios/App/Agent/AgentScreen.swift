@@ -65,7 +65,9 @@ final class AgentScreenModel {
         // The person's own words handed over by their workspace agent's
         // conversation (D233): they wait in the composer of the session the
         // person starts here — shown, never sent by being handed over.
-        if sessionID == nil, let cwd, let words = workspace.takePendingDraft(cwd) {
+        // (the launcher shows it; the session the person then starts is a new
+        // screen, which takes it again by the session's id: create())
+        if let words = sessionID.flatMap({ workspace.takePendingDraft(session: $0) }) ?? (sessionID == nil ? cwd.flatMap { workspace.takePendingDraft($0) } : nil) {
             draft = words
             suggested = words
         }
@@ -110,6 +112,10 @@ final class AgentScreenModel {
         do {
             let info = try await client.create(CreateAgentSession(cwd: cwd, provider: provider, resume: resume))
             providerID = provider
+            // What the workspace agent's view suggested goes with the person
+            // to the session they just started — into its composer, still
+            // labelled, still unsent (the session's screen is a new one).
+            if suggestionShown { workspace.setPendingDraft(draft, session: info.id) }
             sessionID = info.id
             attach(info.id)
             // This window shows the new session, if it still shows the launcher.
@@ -254,6 +260,7 @@ final class AgentScreenModel {
             return
         }
         suggested = nil // the person pressed Send: the words are theirs now
+        if let sessionID { _ = workspace.takePendingDraft(session: sessionID) } // (nothing of it waits for a later screen)
         draft = ""
         attachments = []
         do {
