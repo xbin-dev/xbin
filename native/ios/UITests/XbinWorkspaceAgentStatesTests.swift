@@ -813,6 +813,9 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         XCTAssertFalse(label.label.contains("\u{202E}"), "…and nothing invisible left in it")
         XCTAssertTrue(label.label.contains("nothing is sent until you press Send"), label.label)
         e.shot("wsagent2-35-live-draft-launcher")
+        // the view asked to SHOW a launcher: nothing was started in the tile by that
+        let started = try await e.server.sessions(cwd: "apps/note").filter { $0.kind == "agent" }
+        XCTAssertTrue(started.isEmpty, "the view's ask created no session: \(started.map(\.id))")
         if e.wsClose.exists, !e.isPad { e.wsClose.tap() }
         // (the launcher's "Fake agent (tests)" — not the agent column's model, "fake-chat", beside it on an iPad)
         let fake = e.app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "fake agent")).firstMatch

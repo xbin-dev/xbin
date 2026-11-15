@@ -70,6 +70,10 @@ final class WorkspaceModel: Identifiable {
     /// can't).
     @ObservationIgnored private var pendingPrompts: [String: String] = [:]
     @ObservationIgnored private var pendingDrafts: [String: String] = [:]
+    /// Tiles whose launcher the workspace agent's view opened (D233): their
+    /// screen starts nothing by itself — not even the one coding agent there
+    /// is — until the person taps Start or Send.
+    @ObservationIgnored private var agentViewOpens: Set<String> = []
     @ObservationIgnored private(set) lazy var schemeHandler = TileSchemeHandler(workspace: self)
     @ObservationIgnored private var observer: UUID?
     /// The app's `/ws/events` socket for this workspace (live reload, agent
@@ -335,6 +339,12 @@ final class WorkspaceModel: Identifiable {
     /// (its screen is a new one): by the session's id, still unsent.
     func setPendingDraft(_ text: String, session: String) { pendingDrafts["session:" + session] = text.isEmpty ? nil : text }
     func takePendingDraft(session: String) -> String? { pendingDrafts.removeValue(forKey: "session:" + session) }
+
+    /// The workspace agent's view opened a new session of `tile` (its
+    /// launcher): the screen that shows it creates nothing until the person
+    /// taps (AgentLaunch). Taken once, by that screen.
+    func markOpenedByAgentView(tile: String) { agentViewOpens.insert(tile) }
+    func takeOpenedByAgentView(_ tile: String) -> Bool { agentViewOpens.remove(tile) != nil }
 
     func setPendingPrompt(_ text: String, session: String) { pendingPrompts[session] = text }
     func takePendingPrompt(_ session: String) -> String? { pendingPrompts.removeValue(forKey: session) }

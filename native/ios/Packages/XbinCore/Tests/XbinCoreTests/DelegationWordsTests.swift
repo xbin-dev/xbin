@@ -341,6 +341,15 @@ import Testing
         }
     }
 
+    /// A launcher the agent's view opened creates nothing by itself, even
+    /// with one coding agent there: only the person's tap starts a session.
+    @Test func theViewNeverStartsASession() {
+        #expect(AgentLaunch.startsAtOnce(providers: 1, openedByAgentView: false), "the person opened it: at once, as before")
+        #expect(!AgentLaunch.startsAtOnce(providers: 1, openedByAgentView: true), "the view opened it: nothing until a tap")
+        #expect(!AgentLaunch.startsAtOnce(providers: 2, openedByAgentView: false))
+        #expect(!AgentLaunch.startsAtOnce(providers: 0, openedByAgentView: false))
+    }
+
     @Test func theAgentPage() {
         #expect(XbindPage(linkName: "agent") == .agent)
         #expect(XbindPage.agent.path == "/xbin/agent")

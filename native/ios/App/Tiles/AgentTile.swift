@@ -169,6 +169,8 @@ struct AgentTileView: View {
                     // the agent's view suggests, labelled so there — waits,
                     // unsent, in the composer of the one the person picks.
                     if let draft, !draft.isEmpty { workspace.setPendingDraft(draft, tile: tile) }
+                    // the view asked: nothing is created until the person taps Start or Send
+                    workspace.markOpenedByAgentView(tile: tile)
                     workspace.open(.agent(cwd: tile, session: nil), in: nav)
                 } else {
                     workspace.open(.agent(cwd: tile, session: session), in: nav)

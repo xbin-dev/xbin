@@ -209,3 +209,15 @@ public enum AgentBridge {
         return String(out)
     }
 }
+
+/// When a coding agent's launcher starts a session by itself (D233). With
+/// one coding agent there, a launcher the person opened creates the session
+/// at once, so its pickers and slash commands load while they type — but a
+/// launcher the workspace agent's VIEW opened (`xbin:open-session {session:
+/// "new"}`, model output asking) creates nothing until the person taps Start
+/// or Send: the view may only ask the app to show something.
+public enum AgentLaunch {
+    public static func startsAtOnce(providers: Int, openedByAgentView: Bool) -> Bool {
+        providers == 1 && !openedByAgentView
+    }
+}

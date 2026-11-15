@@ -33,6 +33,9 @@ final class AgentScreenModel {
     var suggested: String?
     var suggestionShown: Bool { suggested.map { !$0.isEmpty && $0 == draft } ?? false }
     var starting = false
+    /// The workspace agent's view opened this launcher (D233): nothing is
+    /// created here until the person taps Start or Send (AgentLaunch).
+    let openedByAgentView: Bool
     /// Open cards nested in a subagent's (a row's own is `AgentRow.isOpen`).
     var openNested: Set<String> = []
     var detail: ToolCall?
@@ -62,6 +65,7 @@ final class AgentScreenModel {
         self.cwd = cwd
         self.sessionID = sessionID
         reviews = ReviewLoader(client: workspace.agents)
+        openedByAgentView = sessionID == nil && (cwd.map { workspace.takeOpenedByAgentView($0) } ?? false)
         // The person's own words handed over by their workspace agent's
         // conversation (D233): they wait in the composer of the session the
         // person starts here — shown, never sent by being handed over.
@@ -97,8 +101,11 @@ final class AgentScreenModel {
             } else if let cwd {
                 history = (try? await client.history(cwd: cwd)) ?? []
                 // Eager: the session exists before the first prompt, so the
-                // pickers and slash commands load while the user types (§13).
-                if providers.count == 1 { await create(provider: providers[0].id) }
+                // pickers and slash commands load while the user types (§13)
+                // — never for a launcher the workspace agent's view opened.
+                if AgentLaunch.startsAtOnce(providers: providers.count, openedByAgentView: openedByAgentView) {
+                    await create(provider: providers[0].id)
+                }
             }
         } catch {
             self.error = workspace.describe(error)

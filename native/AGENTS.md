@@ -1315,7 +1315,10 @@ plans/wsagent/ux.md):
   the web chrome's `PAGE_VIEWS` (needs, approvals, activity), pinned by the
   vectors; Preferences opens from the shield alone. A draft the view hands
   a tile agent's launcher is labelled with `AgentBridge.draftLabel` until
-  the person edits or sends it (`AgentSuggestedDraft`).
+  the person edits or sends it (`AgentSuggestedDraft`), and a launcher the
+  view opened creates no session by itself, even with one coding agent
+  there (`AgentLaunch`, `WorkspaceModel.markOpenedByAgentView`): only the
+  person's Start does.
 - Debug builds' `-XbinAgentGate allow|deny` answers the Face ID gate (a
   simulator has no face); `-XbinAgentArmSeconds N` stretches the arming
   delay (never shortens it); `-XbinAgentDemo <state>` answers the chrome's
