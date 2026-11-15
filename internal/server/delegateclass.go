@@ -605,6 +605,8 @@ var delegateClasses = map[string]delegateRow{
 	// for the person's own page; an agent's listings leave those tiles out
 	// (delegateHides). A component calls the LLM connector as itself,
 	// through its own llm binding, never as a person.
+	"GET /agent-levels":               dNo(noAgentRules),
+	"PUT /agent-levels":               dNever(neverAgentRules),
 	"GET /agent/prefs":                dNo(noAgentRules),
 	"PUT /agent/prefs":                dNever(neverAgentRules),
 	"GET /agents/policy":              dNo(noAgentRules),

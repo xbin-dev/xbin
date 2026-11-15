@@ -383,6 +383,42 @@ A change set:
   chosen item applied, else `partial`.
 - A proposal expires after 7 days.
 
+## A tile's agent level
+
+A tile's `"agent"` (`off`, `read`, `full`) is a line of its own manifest,
+which its terminals and tile agents can write. So the manifest alone never
+**raises** it: xbind keeps the level each tile last had approved
+(`data/agent-levels.json`).
+
+- A tile that never stated a level is `full`. Its first explicit value is
+  taken as it is.
+- A manifest that states **less** lowers the level at once.
+- A manifest that states **more** — or drops the key after stating less —
+  changes nothing. The level on record stays in force, the tile's managers
+  get an alert (`GET /alerts`, kind `agent-level`), `GET /components` rows
+  carry `agentRequested`, and one of them approves it here.
+- The record outlives the tile: one deleted and made again at the path
+  starts where the old one was.
+- A workspace's consoles (`tiles/admin`, `tiles/organisations`,
+  `tiles/manager`) are `off` whatever their manifest says.
+
+```
+GET    /agent-levels            a person, in their own session, app or
+                                 device. {tiles: [{tile, level,
+                                 requested?, stated?, builtin?, by?, at?}]}
+                                 for the tiles they may manage that have a
+                                 level on record or a raise waiting. level
+                                 is the one in force; requested what the
+                                 manifest asks for when that is more
+PUT    /agent-levels            the tile's owner, an admin of the owning
+                                 org, or a workspace admin — in their own
+                                 session, never a tile's credential, an
+                                 agent or view-as (403). {tile, level} →
+                                 the row. level is the level approved and
+                                 must be what the manifest asks for now
+                                 (409); 409 for a console
+```
+
 ## The audit log
 
 ```

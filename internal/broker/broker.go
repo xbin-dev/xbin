@@ -64,9 +64,12 @@ type Broker struct {
 	// delegateHides is the server's filter for a delegate's listings
 	// (Register; delegatelist.go).
 	delegateHides func(p auth.Principal, tile string) bool
-	disk          *diskMon       // per-scope disk quota + low-disk write-blocking + alerts
-	tl            tileLimitState // per-tile resource limits: decisions, hits, the runtime's sources (D203; tilelimits.go)
-	tileSbx       tileSbxSlot    // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
+	// agentLv is the level of each tile's API people's agents may use, as
+	// last approved (agentlevel.go).
+	agentLv agentLevels
+	disk    *diskMon       // per-scope disk quota + low-disk write-blocking + alerts
+	tl      tileLimitState // per-tile resource limits: decisions, hits, the runtime's sources (D203; tilelimits.go)
+	tileSbx tileSbxSlot    // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
 	// Settings is the workspace settings store (D175/D180) the server's
 	// routes share — the partitioned tiles' switches (policies.go); nil:
 	// the workspace's own, opened on first use.
@@ -378,6 +381,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerPartitionLimits(srv)
 	b.registerTileLimits(srv) // GET/POST/DELETE /limits, POST /limits/dismiss (D203; tilelimits_api.go)
 	b.delegateHides = srv.DelegateHides
+	b.registerAgentLevels(srv) // what a person's agent may do in each tile, as approved (agentlevel.go)
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
 		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
 		Primary:      b.primaryOf, Addressed: b.addressed, PartitionID: b.partitionID, PartitionLog: b.PartitionLog,

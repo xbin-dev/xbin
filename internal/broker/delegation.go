@@ -68,12 +68,14 @@ func (b *Broker) DelegateTile(p auth.Principal, tile string, write bool) (level,
 		return "", "", false, fmt.Errorf("%s can't read %s: their agent reaches only tiles they can read", p.UserID, tile)
 	}
 	if c, ok := b.Reg.Component(tile); ok {
-		switch c.Manifest.AgentAccess() {
+		// the level in force: the manifest's, never above what was last
+		// approved for the tile (agentlevel.go)
+		switch inForce, _ := b.agentLevel(c); inForce {
 		case registry.AgentOff:
-			return "", "", false, fmt.Errorf("%s doesn't let a person's agent use it (its manifest says \"agent\": \"off\")", tile)
+			return "", "", false, fmt.Errorf("%s doesn't let a person's agent use it (its agent level is \"off\")", tile)
 		case registry.AgentRead:
 			if write {
-				return "", "", false, fmt.Errorf("%s lets a person's agent read only (its manifest says \"agent\": \"read\")", tile)
+				return "", "", false, fmt.Errorf("%s lets a person's agent read only (its agent level is \"read\")", tile)
 			}
 			readOnly = true
 		}

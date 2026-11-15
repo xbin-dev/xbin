@@ -71,6 +71,11 @@ type Server struct {
 	// AgentPrefs is the people's agent preferences (D229, agentprefsapi.go);
 	// nil = none.
 	AgentPrefs *agentprefs.Store
+	// AgentLevel answers the level of a tile's API a person's workspace
+	// agent may use as it is in force (the broker's: the manifest's, never
+	// above what was last approved), and the raise its manifest asks for;
+	// nil: the manifest's own value.
+	AgentLevel func(c *registry.Component) (inForce, requested string)
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.

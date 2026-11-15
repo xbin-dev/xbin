@@ -282,7 +282,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if a := d.Attribute; a != nil && a.ReadOnly && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		jsonErr(w, http.StatusForbidden, comp.Path+" lets a person's agent read only (its manifest says \"agent\": \"read\")", "")
+		jsonErr(w, http.StatusForbidden, comp.Path+" lets a person's agent read only (its agent level is \"read\")", "")
 		return
 	}
 	px.identify(r, p, d.Role, comp.Path)

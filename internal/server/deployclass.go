@@ -323,6 +323,7 @@ var routeClasses = map[string]RouteClass{
 	"POST /impersonate/stop":                 PrimaryOnly,
 	"PUT /native-runtime":                    PrimaryOnly,
 	"PUT /chrome":                            PrimaryOnly,
+	"PUT /agent-levels":                      PrimaryOnly,
 	"PUT /branding":                          PrimaryOnly,
 	"PUT /workspace-policies":                PrimaryOnly,
 	"POST /partitions/limits":                PrimaryOnly, // admins and tile managers judged in the handler; never tile code (06 §6)
@@ -371,6 +372,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /term-net":             Neutral,
 	"GET /native-runtime":       Neutral,
 	"GET /chrome":               Neutral,
+	"GET /agent-levels":         Neutral,
 	"GET /branding":             Neutral,
 	"GET /workspace-policies":   Neutral, // people and admins; the handler refuses tile code (PD-55)
 	"GET /workspace-settings":   Neutral,

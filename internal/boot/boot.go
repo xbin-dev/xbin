@@ -775,7 +775,8 @@ func (st *State) stepWatch() error {
 				st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
 			}
 			if st.Server != nil {
-				st.Server.SweepDelegation() // a tile gone: its standing approvals and the agents' calls into it end (D228)
+				st.Broker.ObserveAgentLevels() // a manifest that states or lowers its agent level: on record now (broker/agentlevel.go)
+				st.Server.SweepDelegation()    // a tile gone: its standing approvals and the agents' calls into it end (D228)
 			}
 		}, refreshViews)
 	}()

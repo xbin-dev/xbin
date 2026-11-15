@@ -45,6 +45,7 @@ GET /access	never
 GET /access-matrix	never
 GET /access-requests	never
 GET /access/{user}	refused
+GET /agent-levels	refused
 GET /agent/history	read
 GET /agent/history/{id}/events	read	tile:byHistory
 GET /agent/prefs	refused
@@ -309,6 +310,7 @@ POST /vault-seal	never
 POST /vault-unseal	never
 POST /web-ticket	never
 PUT /access	never
+PUT /agent-levels	never
 PUT /agent/prefs	never
 PUT /agents/policy	never
 PUT /app-tunnel	never
