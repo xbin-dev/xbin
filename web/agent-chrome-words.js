@@ -533,6 +533,87 @@ export function didByDay(rows, filter = 'change') {
 }
 export const DID_NOTE = "Kept by xbin for 13 months. Your agent and its page can't read or change this list. It never holds what was sent, only what was called.";
 
+// ---- the cards the app draws for the agent's `request` and `session` nodes -------------------------------
+
+/**
+ * requestCard(req, now): a request as the card the xbin app draws for a
+ * `request` node of the agent's view (D233) — {head, what, line, glyph,
+ * tone, waits, button}, from xbind's reading of it. (The agent's web page
+ * draws its cards from its backend's records; these are the words the
+ * app's port, DelegationWords.requestCard, is held to.)
+ */
+export function requestCard(req, now = Date.now()) {
+  const what = needTitle(req);
+  const card = (head, line, glyph, tone, waits = false, button = '') => ({ head, what, line, glyph, tone, waits, button });
+  switch (req.state) {
+    case 'pending': return card('Waiting for your approval', asked(req, now), 'shield', 'warn', true, 'Review…');
+    case 'approved': return card(settled(req), 'running now…', 'clock', '');
+    case 'used': return card(settled(req), req.kind === 'call' ? `${req.method} ${req.target}` : '', 'check', 'ok');
+    case 'denied': case 'withdrawn': return card(settled(req), '', 'xmark', '');
+    case 'expired': return card(settled(req), '', 'clock', '');
+  }
+  return card(UNKNOWN_STATE.title, UNKNOWN_STATE.app, 'info', ''); // never one that can be decided
+}
+
+/** changeSetCard(cs, now): a proposal as the app's card for a `request` node of kind changeset. */
+export function changeSetCard(cs, now = Date.now()) {
+  const w = needChangeTitle(cs);
+  const card = (head, line, glyph, tone, waits = false, button = '') => ({ head, what: '', line, glyph, tone, waits, button });
+  switch (cs.state) {
+    case 'proposed': {
+      const e = toMs(cs.expires);
+      return card(w.title, [w.note, e ? (e > now ? `expires in ${left(e - now)}` : 'expired') : ''].filter(Boolean).join(' · '), 'shield', 'warn', true, 'Review…');
+    }
+    case 'applying': return card(w.title, 'applying now…', 'clock', '');
+    case 'applied': case 'partial':
+      return card(resultsWords(cs).title, '', cs.state === 'applied' ? 'check' : 'warning', cs.state === 'applied' ? 'ok' : 'warn', false, 'Results');
+    case 'rejected': return card('Rejected by you', '', 'xmark', '');
+    case 'expired': return card('Expired — not approved within 7 days.', '', 'clock', '');
+    case 'withdrawn': return card(cs.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped' : 'Withdrawn by the agent', '', 'xmark', '');
+  }
+  return card(UNKNOWN_STATE.title, UNKNOWN_STATE.app, 'info', '');
+}
+
+/**
+ * sessionCard(row, tileName, harnessName): a tile agent's session — a row
+ * of GET /term/sessions?origin=agent&compact=1 — as the app's card for a
+ * `session` node: {tile, harness, glyph, word, tone, line, note, button,
+ * waits}; Answer when it waits for the person (only they can).
+ */
+export function sessionCard(s, tileName = '', harnessName = '') {
+  const harness = harnessName || s.provider || 'Coding agent';
+  const waits = s.status !== 'ended' && ((s.pending || 0) > 0 || (s.questions || 0) > 0 || s.status === 'waiting_permission');
+  const c = { tile: tileName, harness, glyph: 'pause', word: 'stopped', tone: '', line: s.last || '', note: '', button: 'Open', waits: false };
+  if (waits) {
+    return { ...c, glyph: 'bell', word: 'waiting for you', tone: 'warn', waits: true, button: 'Answer', note: 'Only you can answer.',
+      line: (s.questions || 0) > 0 && !(s.pending > 0) ? 'It asks you a question.' : 'It asks your permission.' };
+  }
+  switch (s.status) {
+    case 'starting': return { ...c, glyph: 'clock', word: 'starting' };
+    case 'running': case 'cancelling': return { ...c, glyph: 'clock', word: 'working' };
+    case 'idle': return { ...c, glyph: 'check', word: 'finished', tone: 'ok' };
+    case 'error': return { ...c, glyph: 'error', word: 'failed', tone: 'danger' };
+    case 'ended': case 'exited':
+      return s.endedBy === 'restart'
+        ? { ...c, glyph: 'pause', word: 'stopped for the update', tone: 'warn', line: "It didn't finish. Its transcript is kept, and it can continue where it stopped." }
+        : { ...c, glyph: 'check', word: 'finished', tone: 'ok' };
+  }
+  return c;
+}
+
+/** homeStatus(dock, {tileAgents, working, count}): the app's Home row under the agent's name — "working · 2 tile agents · 2 need you", "idle", "paused". */
+export function homeStatus(dock, { tileAgents = 0, working = 0, count = 0 } = {}) {
+  switch (dock) {
+    case 'paused': return 'paused';
+    case 'setup': return 'not set up yet';
+    case 'off': return 'turned off for this workspace';
+    case 'unavailable': case 'held': case 'soon': return 'not available right now';
+    case 'offline': return "can't reach xbin";
+    case 'page': return [working > 0 ? 'working' : 'idle', tileAgents > 0 ? plural(tileAgents, 'tile agent') : '', count > 0 ? `${count} need${count === 1 ? 's' : ''} you` : ''].filter(Boolean).join(' · ');
+  }
+  return '';
+}
+
 // ---- the dock's own state ----------------------------------------------------------------
 
 /**
@@ -694,7 +775,11 @@ export const DRAFT_FROM = Object.freeze({
  * anything that isn't a string.
  */
 export function plainDraft(v) {
-  return typeof v === 'string' ? v.replace(/\r\n?/g, '\n').replace(UNSEEN, '').trim().slice(0, DRAFT_MAX) : '';
+  if (typeof v !== 'string') return '';
+  const t = v.replace(/\r\n?/g, '\n').replace(UNSEEN, '').trim();
+  // at most DRAFT_MAX UTF-16 units, never half a surrogate pair (a lone half is no character)
+  const end = t.length > DRAFT_MAX && /[\uD800-\uDBFF]/.test(t[DRAFT_MAX - 1]) ? DRAFT_MAX - 1 : DRAFT_MAX;
+  return t.slice(0, end);
 }
 
 /** handoffLink(tile): the plain link to a tile, for a shell that can't open a new session of its agent itself. */

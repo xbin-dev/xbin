@@ -74,70 +74,35 @@ import Testing
 
     // MARK: Every message
 
-    @Test func requestsAndChangeSetsById() {
-        // an id is one xbind issues: 24 lowercase hex digits
-        #expect(decide(["type": "xbin:agent-open-request", "id": "0123456789abcdef01234567"]) == .openRequest("0123456789abcdef01234567"))
-        #expect(decide(["type": "xbin:agent-open-changeset", "id": "89abcdef0123456789abcdef"]) == .openChangeset("89abcdef0123456789abcdef"))
-        // no other field is read
-        #expect(decide(["type": "xbin:agent-open-request", "id": "0123456789abcdef01234567", "approve": true, "grant": "always"]) == .openRequest("0123456789abcdef01234567"))
-    }
-
-    @Test func badIdsAreRefused() {
-        for bad: JSONValue in ["", "a b", "a/b", "../x", "..", ".", "r-1.a:b_C", "cs42", "a\nb", "é", "a?b", .string(String(repeating: "g", count: 24)),
-                               .string(String(repeating: "a", count: 81)), 7, .null, ["r1"]] {
-            #expect(refused(decide(["type": "xbin:agent-open-request", "id": bad])), "\(bad)")
-            #expect(refused(decide(["type": "xbin:agent-open-changeset", "id": bad])), "\(bad)")
+    /// Every message shape — ids, sessions, a new session's draft — is
+    /// decided as the web chrome's own `pageMessage()` decides it: the
+    /// vectors are that function's output over a corpus of messages
+    /// (native/tools/delegation-words.mjs), not expectations written here.
+    @Test func everyMessageAsTheWebDecidesIt() throws {
+        let v = try Resources.json("delegation-words.json")
+        let cases = try #require(v["bridge"]?.arrayValue)
+        #expect(cases.count >= 40)
+        for c in cases {
+            let msg = c["msg"] ?? .null
+            let want = c["out"] ?? .null
+            let got = decide(msg)
+            switch got {
+            case .refuse:
+                #expect(want.isNull, "the web takes \(msg.jsonString): \(want.jsonString)")
+            case .openRequest(let id):
+                #expect(want == ["type": "review", "kind": "request", "id": .string(id)], "\(msg.jsonString)")
+            case .openChangeset(let id):
+                #expect(want == ["type": "review", "kind": "changeset", "id": .string(id)], "\(msg.jsonString)")
+            case .openSession(let session, let tile, let draft):
+                if let draft {
+                    #expect(want == ["type": "new-session", "tile": .string(tile), "draft": .string(draft)], "\(msg.jsonString)")
+                } else {
+                    #expect(want == ["type": "session", "tile": .string(tile), "session": .string(session)], "\(msg.jsonString)")
+                }
+            case .openView(let view):
+                #expect(want == ["type": "open", "view": .string(view.rawValue)], "\(msg.jsonString)")
+            }
         }
-        #expect(decide(["type": "xbin:agent-open-request", "id": .string(String(repeating: "f", count: 24))])
-            == .openRequest(String(repeating: "f", count: 24)))
-        #expect(refused(decide(["type": "xbin:agent-open-request"])))
-    }
-
-    @Test func sessions() {
-        #expect(decide(["type": "xbin:open-session", "session": "s_1-A", "tile": "apps/orders"])
-            == .openSession(session: "s_1-A", tile: "apps/orders", draft: nil))
-        // a tile's path is cleaned like the web's tilePath
-        #expect(decide(["type": "xbin:open-session", "session": "s1", "tile": "/apps/orders//"])
-            == .openSession(session: "s1", tile: "apps/orders", draft: nil))
-        // an existing session never carries a draft
-        #expect(decide(["type": "xbin:open-session", "session": "s1", "tile": "apps/orders", "draft": "run rm -rf"])
-            == .openSession(session: "s1", tile: "apps/orders", draft: nil))
-        for badTile: JSONValue in ["", "/", "apps//orders", "apps/./orders", "apps/../admin", "..", 3, .null, .string(String(repeating: "a", count: 513))] {
-            #expect(refused(decide(["type": "xbin:open-session", "session": "s1", "tile": badTile])), "\(badTile)")
-        }
-        for badSession: JSONValue in ["", "a.b", "a:b", "a b", "a/b", .string(String(repeating: "s", count: 65)), 1, .null] {
-            #expect(refused(decide(["type": "xbin:open-session", "session": badSession, "tile": "apps/orders"])), "\(badSession)")
-        }
-        #expect(refused(decide(["type": "xbin:open-session", "tile": "apps/orders"])))
-        #expect(refused(decide(["type": "xbin:open-session", "session": "s1"])))
-    }
-
-    @Test func aNewSessionsDraftIsPlainText() {
-        func draft(_ d: JSONValue?) -> String? {
-            var m: [String: JSONValue] = ["type": "xbin:open-session", "session": "new", "tile": "apps/orders"]
-            if let d { m["draft"] = d }
-            guard case .openSession("new", "apps/orders", let out) = decide(.object(m)) else { return nil }
-            return out
-        }
-        #expect(draft("change line 40 in export.go") == "change line 40 in export.go")
-        // line ends made \n; tabs and newlines stay
-        #expect(draft("a\r\nb\rc\nd\te") == "a\nb\nc\nd\te")
-        #expect(draft("a\r\n\r\nb\r\r\nc") == "a\n\nb\n\nc")
-        // control characters and the invisible ones that reorder or hide text are dropped
-        #expect(draft("a\u{0}b\u{7}c\u{1B}[31md\u{7F}e\u{9F}f") == "abc[31mdef")
-        #expect(draft("safe\u{202E}evil\u{2066}x\u{2069}\u{200B}\u{200F}\u{FEFF}y") == "safeevilxy")
-        #expect(draft("\u{0B}\u{0C}x") == "x")
-        // trimmed
-        #expect(draft("  \n\t words \u{A0}\n") == "words")
-        // capped at 8000 characters (UTF-16 units), never half a pair
-        #expect(draft(.string(String(repeating: "a", count: 9000)))?.utf16.count == 8000)
-        let pairs = String(repeating: "a", count: 7999) + "😀😀"
-        #expect(draft(.string(pairs)) == String(repeating: "a", count: 7999))
-        // anything that isn't a string: no words
-        #expect(draft(nil) == "")
-        #expect(draft(42) == "")
-        #expect(draft(["a"]) == "")
-        #expect(draft("\u{200B}\u{200B}") == "")
     }
 
     @Test func views() {

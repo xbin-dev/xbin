@@ -261,28 +261,38 @@ import Testing
         }
     }
 
+    /// The cards the app draws for the agent's `request` and `session`
+    /// nodes, and Home's status line: the web words' requestCard,
+    /// changeSetCard, sessionCard and homeStatus over the corpus.
     @Test func cards() throws {
-        let cases = try #require(v["requests"]?.arrayValue)
-        let pending = try #require(DelegateRequest(json: cases[0]["json"]))
-        let card = DelegationWords.requestCard(pending, now: now, zone: utc)
-        #expect(card.waits && card.button == "Review…" && card.head == "Waiting for your approval")
-        #expect(card.what == "Approve a change to Invoices")
-        #expect(card.line == "asked 10:14 · expires in 23 h 58 min")
-        let used = try #require(DelegateRequest(json: cases[6]["json"]))
-        let done = DelegationWords.requestCard(used, now: now, zone: utc)
-        #expect(!done.waits && done.button.isEmpty && done.tone == "ok")
-        // a tile agent's card: Answer when it waits — only the person can
-        let waiting = try #require(AgentSessionRow(json: ["id": "s1", "cwd": "apps/orders", "provider": "claude", "status": "waiting_permission", "pending": 1]))
-        let w = DelegationWords.sessionCard(waiting, tileName: "Orders", harnessName: "Claude Code")
-        #expect(w.button == "Answer" && w.note == "Only you can answer." && w.tone == "warn" && w.waits)
-        let cut = try #require(AgentSessionRow(json: ["id": "s2", "status": "ended", "endedBy": "restart"]))
-        #expect(DelegationWords.sessionCard(cut, tileName: "Orders", harnessName: "").word == "stopped for the update")
-        let running = try #require(AgentSessionRow(json: ["id": "s3", "status": "running", "last": "Writing export_test.go"]))
-        let r = DelegationWords.sessionCard(running, tileName: "Orders", harnessName: "Claude Code")
-        #expect(r.word == "working" && r.button == "Open" && r.line == "Writing export_test.go")
-        #expect(DelegationWords.homeStatus(.page, tileAgents: 2, working: 1, count: 2) == "working · 2 tile agents · 2 need you")
-        #expect(DelegationWords.homeStatus(.page, tileAgents: 0, working: 0, count: 0) == "idle")
-        #expect(DelegationWords.homeStatus(.paused, tileAgents: 2, working: 1, count: 2) == "paused")
+        func same(_ card: DelegationWords.RequestCard, _ w: JSONValue?, _ id: String) {
+            #expect(card.head == s(w, "head") && card.what == s(w, "what") && card.line == s(w, "line"), "\(id): \(card)")
+            #expect(card.glyph == s(w, "glyph") && card.tone == s(w, "tone") && card.waits == w?["waits"]?.boolValue && card.button == s(w, "button"), "\(id): \(card)")
+        }
+        let requests = try #require(v["requests"]?.arrayValue)
+        for c in requests {
+            let r = try #require(DelegateRequest(json: c["json"]))
+            same(DelegationWords.requestCard(r, now: now, zone: utc), c["card"], r.id)
+        }
+        for c in try #require(v["changesets"]?.arrayValue) {
+            let cs = try #require(AdminChangeSet(json: c["json"]))
+            same(DelegationWords.changeSetCard(cs, now: now), c["card"], cs.id)
+        }
+        let rows = try #require(v["small"]?["sessionCards"]?.arrayValue)
+        #expect(rows.count >= 10)
+        for c in rows {
+            let row = try #require(AgentSessionRow(json: c["row"] ?? .null))
+            let got = DelegationWords.sessionCard(row, tileName: s(c, "tileName"), harnessName: s(c, "harnessName"))
+            let w = c["card"]
+            #expect(got.tile == s(w, "tile") && got.harness == s(w, "harness") && got.glyph == s(w, "glyph") && got.word == s(w, "word"), "\(row.id): \(got)")
+            #expect(got.tone == s(w, "tone") && got.line == s(w, "line") && got.note == s(w, "note") && got.button == s(w, "button") && got.waits == w?["waits"]?.boolValue, "\(row.id): \(got)")
+        }
+        let homes = try #require(v["small"]?["homeStatus"]?.arrayValue)
+        for c in homes {
+            let dock = try #require(DelegationWords.Dock(rawValue: s(c, "dock")))
+            #expect(DelegationWords.homeStatus(dock, tileAgents: Int(c["tileAgents"]?.intValue ?? 0), working: Int(c["working"]?.intValue ?? 0),
+                                               count: Int(c["count"]?.intValue ?? 0)) == s(c, "out"), "\(s(c, "dock"))")
+        }
     }
 }
 
@@ -378,19 +388,55 @@ import Testing
 /// refuses a tile's credential on each of them — docs/protocol/delegation.md
 /// — and the UI tests check that against a live xbind.)
 @Suite struct DelegationCredentialTests {
-    @Test func aTileRuntimeNeverCarriesThePersonsSession() {
-        let grants = ["/api/xbin/delegate/requests/rq1/approve", "/api/xbin/delegate/changesets/cs1/approve", "/api/xbin/delegate/state"]
-        for path in grants {
-            #expect(DelegateRoute.isGrant(method: path.hasSuffix("state") ? "PUT" : "POST", path: path))
-            // what the page sent — a cookie, a frame token it made up, the client header it claims
-            let fwd = TileScheme.forwardHeaders(["Cookie": "xbin_session=stolen", TileScheme.frameTokenHeader: "the-persons?", "Content-Type": "application/json",
-                                                 TileScheme.clientHeader: "app/9"], frameToken: "the-tiles-own", client: "app/1")
-            #expect(fwd[TileScheme.frameTokenHeader] == "the-tiles-own")
-            #expect(fwd[TileScheme.clientHeader] == "app/1")
-            #expect(fwd.keys.allSatisfy { $0.lowercased() != "cookie" })
-            // the handler adds no bearer: the only credential on the request is the tile's token
-            #expect(fwd.keys.allSatisfy { $0.lowercased() != "authorization" })
+    /// The property: whatever a tile's page or a native tile's runtime sends
+    /// through the scheme handler — any path, any header, in any case —
+    /// what reaches xbind carries the TILE's frame token and nothing the app
+    /// adds of the person's: no cookie, no bearer, no header the page didn't
+    /// send itself (but the frame token and the client header, which the app
+    /// sets to its own values). The person's credential is never an input
+    /// of `forwardHeaders`, and the handler's source never names it.
+    @Test func aTileRuntimeNeverCarriesThePersonsSession() throws {
+        let person = "the-persons-device-session-token"
+        let names = ["Cookie", "cookie", "COOKIE", "Cookie2", "cOoKiE2", "Authorization", "authorization", "Proxy-Authorization",
+                     TileScheme.frameTokenHeader, TileScheme.frameTokenHeader.lowercased(), TileScheme.clientHeader, TileScheme.clientHeader.uppercased(),
+                     "X-XBin-User", "Content-Type", "Accept", "Host", "Connection"]
+        var rng = SystemRandomNumberGenerator()
+        for round in 0..<400 {
+            var page: [String: String] = [:]
+            for n in names where Bool.random(using: &rng) {
+                // the page may set a header to anything — even, had it learned it, the person's own token
+                page[n] = round % 3 == 0 ? "Bearer \(person)" : "page-\(round)-\(n)"
+            }
+            let out = TileScheme.forwardHeaders(page, frameToken: "the-tiles-own", client: "app/1")
+            let lower = Dictionary(grouping: out.keys, by: { $0.lowercased() })
+            #expect(lower["cookie"] == nil && lower["cookie2"] == nil, "a cookie went out: \(out)")
+            #expect(lower[TileScheme.frameTokenHeader.lowercased()]?.count == 1 && out[TileScheme.frameTokenHeader] == "the-tiles-own", "\(out)")
+            #expect(lower[TileScheme.clientHeader.lowercased()]?.count == 1 && out[TileScheme.clientHeader] == "app/1", "\(out)")
+            // everything else is the page's own, unchanged: the handler adds nothing
+            for (k, v) in out where k != TileScheme.frameTokenHeader && k != TileScheme.clientHeader {
+                #expect(page[k] == v, "\(k) was added or changed: \(out)")
+            }
+            if !page.values.contains(where: { $0.contains(person) }) {
+                #expect(!out.values.contains { $0.contains(person) }, "the person's token appeared from nowhere: \(out)")
+            }
         }
+        // the scheme handler — every tile page and native runtime's requests — has no way to the person's session:
+        // it signs with the tile's frame token, through a cookie-less transport
+        let app = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../App")
+        let handler = try String(contentsOf: app.appendingPathComponent("Tiles/TileSchemeHandler.swift"), encoding: .utf8)
+        for name in ["auth.", "Authorization", "Bearer", "session(", "Cookie", "cookie", "WebTicket", "bearer"] {
+            #expect(!code(handler).contains(name), "TileSchemeHandler names \(name)")
+        }
+        #expect(handler.contains("TileScheme.forwardHeaders(pageHeaders, frameToken: token"))
+        let transport = try String(contentsOf: app.appendingPathComponent("Model/AppTransport.swift"), encoding: .utf8)
+        #expect(transport.contains("c.httpCookieStorage = nil") && transport.contains("c.httpShouldSetCookies = false"), "the app's URLSession keeps and sends no cookie")
+    }
+
+    /// A Swift file without its comments: what the code itself names.
+    private func code(_ s: String) -> String {
+        s.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? String(line)
+        }.joined(separator: "\n")
     }
 
     /// The ids a tile names — a tree's `request` and `session` nodes, the

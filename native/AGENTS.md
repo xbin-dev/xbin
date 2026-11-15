@@ -1266,7 +1266,12 @@ plans/wsagent/ux.md):
   file run `node native/tools/delegation-words.mjs >
   native/ios/Packages/XbinCore/Tests/XbinCoreTests/Resources/delegation-words.json`
   and port the change (`make js-test` fails while the vectors are stale,
-  `swift test` while the port differs). The design's open choices are
+  `swift test` while the port differs). The vectors hold every shape the
+  port decides — the sheets' words, the cards the app draws for `request`
+  and `session` nodes (`requestCard`, `changeSetCard`, `sessionCard`,
+  `homeStatus`), and what `pageMessage()` makes of a corpus of messages
+  (ids, sessions, drafts), which `AgentBridge.decide` must match — so a
+  test of the port never writes its own expectations. The design's open choices are
   `AgentChoices`, one place.
 - **`App/Model/WorkspaceAgentModel.swift`** (`workspace.agent`) — the state,
   the requests and change sets that wait, the standing approvals; read with

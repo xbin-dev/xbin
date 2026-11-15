@@ -38,6 +38,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   only when it is (`sends(req, all)`, `clipText()`).
   A state the chrome doesn't know reads as not decidable (it read as
   pending in the app) — `knownState()`, `UNKNOWN_STATE`.
+  A new session's draft cut at its 8000-character cap no longer keeps half
+  of an emoji (`plainDraft()`).
 - delegation: the workspace's switch (`PUT /delegate/workspace
   {enabled}`) now also sends a `delegate` event with `op: "state"` to the
   own sockets of every person who has an agent, and of the admin who turned

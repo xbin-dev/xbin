@@ -278,3 +278,9 @@ test('a state the chrome doesn\'t know is never one that can be decided', () => 
   assert.equal(W.knownState({ state: 'scheduled' }, 'changeset'), false);
   assert.equal(W.settled({ state: 'pending' }), 'Waiting for your approval');
 });
+
+test('a draft cut at its cap never keeps half an emoji', () => {
+  const d = W.plainDraft(`${'a'.repeat(7999)}😀😀`);
+  assert.equal(d, 'a'.repeat(7999), 'the pair that does not fit goes whole');
+  assert.equal(W.plainDraft(`${'a'.repeat(7998)}😀😀`), `${'a'.repeat(7998)}😀`);
+});

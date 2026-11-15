@@ -132,11 +132,11 @@ for (const r of requests) {
     choices: W.grantChoices(r).map((c) => ({ id: c.id, label: c.label, text: c.text, wider: c.wider })),
     allow: ['once', 'call', 'tile'].map((c) => [W.allowLabel(r, c), W.allowSpoken(r, c)]),
     bodies: [W.approveBody(r, 'once'), W.approveBody(r, 'call'), W.approveBody(r, 'tile'), W.approveBody(r, 'call', 'hour'), W.approveBody(r, 'tile', 'always')],
-    wider: W.widerWords(r), session: r.kind === 'session' ? W.sessionRows(r) : null, settled: W.settled(r), asked: W.asked(r, NOW) });
+    wider: W.widerWords(r), session: r.kind === 'session' ? W.sessionRows(r) : null, settled: W.settled(r), asked: W.asked(r, NOW), card: W.requestCard(r, NOW) });
 }
 for (const c of changesets) {
   const ticks = W.initialTicks(c);
-  out.changesets.push({ json: c, ticks, review: W.reviewWords(c, ticks), need: W.needChangeTitle(c), results: W.resultsWords(c), ended: W.endedWords(c),
+  out.changesets.push({ json: c, ticks, review: W.reviewWords(c, ticks), need: W.needChangeTitle(c), results: W.resultsWords(c), ended: W.endedWords(c), card: W.changeSetCard(c, NOW),
     items: c.items.map((it) => ({ tag: W.kindTag(it.kind), tickable: W.tickable(it), warnings: (it.warnings || []).map(W.warning), result: W.resultOf(it) })) });
 }
 for (const a of approvals) { const r = W.standingRow(a, NOW); out.approvals.push({ json: a, tile: r.tile, text: r.text, wider: r.wider, until: r.until }); }
@@ -149,6 +149,29 @@ for (const s of states) {
     words: W.stateWords(dock, { at: s.state && (dock === 'paused' ? s.state.pausedAt : s.state.workspaceAt), held: s.state && s.state.held, why: s.state && s.state.heldWhy, admins: [] }),
     named: W.stateWords(dock, { held: s.state && s.state.held, admins: ['Mira Okafor', 'Jonas Lind', 'Kit'] }) });
 }
+// what the agent's view may ask the chrome: messages, and what the web's pageMessage makes of each (null: nothing)
+const H = '0123456789abcdef01234567';
+const bridgeCorpus = [
+  { type: 'xbin:agent-open-request', id: H }, { type: 'xbin:agent-open-changeset', id: '89abcdef0123456789abcdef', items: [1, 2] },
+  { type: 'xbin:agent-open-request', id: H, approve: true, grant: 'always', summary: 'approve me' },
+  ...['', '.', '..', '../changesets', 'r-1.a:b_C', 'cs42', H.toUpperCase(), H.slice(1), `${H}0`, 'a b', 'a/b', 'é', 'g'.repeat(24), 7, null, ['x']]
+    .flatMap((id) => [{ type: 'xbin:agent-open-request', id }, { type: 'xbin:agent-open-changeset', id }]),
+  { type: 'xbin:agent-open-request' },
+  { type: 'xbin:open-session', session: 's_1-A', tile: 'apps/orders' }, { type: 'xbin:open-session', session: '8f00b204e9800998', tile: '/apps/orders//' },
+  { type: 'xbin:open-session', session: 's1', tile: 'apps/orders', draft: 'run rm -rf' },
+  ...['', '/', 'apps//orders', 'apps/./orders', 'apps/../admin', '..', 3, null, 'a'.repeat(513)].map((tile) => ({ type: 'xbin:open-session', session: 's1', tile })),
+  ...['', 'a.b', 'a:b', 'a b', 'a/b', 's'.repeat(65), 1, null].map((session) => ({ type: 'xbin:open-session', session, tile: 'apps/orders' })),
+  { type: 'xbin:open-session', tile: 'apps/orders' }, { type: 'xbin:open-session', session: 's1' },
+  ...['change line 40 in export.go', 'a\r\nb\rc\nd\te', 'a\r\n\r\nb\r\r\nc', 'a\u0000b\u0007c\u001B[31md\u007Fe\u009Ff', 'safe\u202Eevil\u2066x\u2069\u200B\u200F\uFEFFy',
+    '\u000B\u000Cx', '  \n\t words \u00A0\n', 'y'.repeat(9000), `${'a'.repeat(7999)}😀😀`, '\u200B\u200B', '<b>x</b>', 42, ['a'], null, undefined]
+    .map((draft) => ({ type: 'xbin:open-session', session: 'new', tile: 'apps/orders', ...(draft === undefined ? {} : { draft }) })),
+  ...['needs', 'approvals', 'activity', 'prefs', 'setup', 'Approvals', '', 1, null].map((view) => ({ type: 'xbin:agent-open', view })),
+  { type: 'xbin:agent-open' },
+  ...['xbin:agent-approve', 'xbin:agent-deny', 'xbin:agent-resume', 'xbin:agent-context', 'xbin:agent-decide', 'approve', ''].map((type) => ({ type, id: H })),
+  { id: H }, { type: 3, id: H },
+];
+
+out.bridge = bridgeCorpus.map((msg) => ({ msg, out: W.pageMessage(msg) }));
 out.small = {
   left: [0, 59e3, 60e3, 59 * 60e3, 3600e3, 3660e3, 47 * 3600e3 + 59 * 60e3, 48 * 3600e3, 7 * 86400e3].map((ms) => [ms, W.left(ms)]),
   bytes: [0, 1, 48, 1023, 1024, 1536, 10239, 10240, 14336, 1048575, 1048576, 3355443].map((n) => [n, W.bytes(n)]),
@@ -165,6 +188,18 @@ out.small = {
     .map((text) => ({ text, ...W.reveal(text), revealed: W.revealed(text) })),
   hiddenNote: W.HIDDEN_NOTE,
   unknown: { ...W.UNKNOWN_STATE },
+  // the cards the app draws for `session` nodes, and Home's status line
+  sessionCards: [
+    { id: 's1', cwd: 'apps/orders', provider: 'claude', status: 'waiting_permission', pending: 1 },
+    { id: 's2', status: 'running', pending: 0, questions: 2 },
+    { id: 's3', status: 'idle', questions: 1, pending: 1 },
+    { id: 's4', status: 'running', last: 'Writing export_test.go' },
+    { id: 's5', status: 'starting' }, { id: 's6', status: 'cancelling' }, { id: 's7', status: 'idle', last: 'done' },
+    { id: 's8', status: 'error' }, { id: 's9', status: 'ended', endedBy: 'restart' }, { id: 's10', status: 'ended', pending: 3 },
+    { id: 's11', status: 'exited', questions: 1 }, { id: 's12', status: 'exited' }, { id: 's13', status: 'something-new', provider: 'codex' },
+  ].flatMap((row, i) => [['Orders', 'Claude Code'], ['', ''], ['Orders', '']].slice(0, i < 2 ? 3 : 1).map(([tileName, harnessName]) => ({ row, tileName, harnessName, card: W.sessionCard(row, tileName, harnessName) }))),
+  homeStatus: ['page', 'paused', 'setup', 'off', 'unavailable', 'held', 'soon', 'offline', 'hidden'].flatMap((dock) => [[0, 0, 0], [2, 1, 2], [1, 0, 1], [3, 3, 0]]
+    .map(([tileAgents, working, count]) => ({ dock, tileAgents, working, count, out: W.homeStatus(dock, { tileAgents, working, count }) }))),
   clip: W.CLIP,
   clips: ['', 'short', 'x'.repeat(4000), 'x'.repeat(4001), '😀'.repeat(4002), `${'a'.repeat(3999)}😀b`].map((input) => ({ input, ...W.clipText(input), note: W.clipNote(W.clipText(input)) })),
   standingNote: W.STANDING_NOTE, didNote: W.DID_NOTE, arm: W.CHOICES.armMs, duration: W.CHOICES.duration,
