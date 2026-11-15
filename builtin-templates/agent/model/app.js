@@ -240,8 +240,11 @@ export function createApp(opts = {}) {
       app.home();
       app.page = 'automations';
       route(router.autoHash(kind, id));
+      // the list: its state is reset now, before the read — the page is drawn already, and what a person starts
+      // on it meanwhile (a new schedule's form) is theirs to keep (the reset used to close it when the read landed)
+      if (!kind) app.autos.show(null);
       await app.autos.load();
-      if (kind) await app.autos.show(kind, +id); else app.autos.show(null);
+      if (kind) await app.autos.show(kind, +id);
       emit('page');
     },
 

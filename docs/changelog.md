@@ -18,7 +18,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   overwritten when Config's reads landed. Each opening of a tab now draws
   into a box of its own (`#sbd > .tabbox`, `display: contents`); a tab
   function still receives the element it draws into. The gear is hidden
-  until the page can open Settings.
+  until the page can open Settings. Likewise the Automations page: a
+  form opened while its list was still being read (New schedule, right
+  after opening the page) is no longer closed when the read lands.
 - **The agent template's chat is drawn with the chat kit; a tool call's
   card says what it came to** (D224; [frontend-kit.md](/docs/frontend-kit.md)
   §The chat kit). The kit (`/vendor/chat/…`, revision 4 in
