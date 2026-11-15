@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/backup"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -352,5 +353,82 @@ func TestSealedGrantsAndBindings(t *testing.T) {
 	c, _ := b.Reg.Component("xbin/fix")
 	if _, err := os.Stat(filepath.Join(c.Dir, ".git")); err == nil {
 		t.Error("xbind made a git repo in a sealed component's tree")
+	}
+}
+
+// What the release grants a sealed component is its backend's to use. Its
+// page's principal (a frame token of it, any reader's) holds none of it at
+// the places where a principal's component becomes authority — a call's
+// role, a resource's role — and nobody but its backend uses what is its
+// own, the root token and admins included.
+func TestSealedAuthorityIsItsBackendsAlone(t *testing.T) {
+	root := t.TempDir()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.WriteFile(filepath.Join(root, "xbin.json"), []byte(`{"schema":1,"resources":{"shared":{"type":"kv"}}}`), 0o644))
+	must(os.MkdirAll(filepath.Join(root, "apps", "plain"), 0o755))
+	must(os.WriteFile(filepath.Join(root, "apps", "plain", "index.html"), []byte("<html></html>"), 0o644))
+	dir := filepath.Join(t.TempDir(), "fix")
+	must(os.MkdirAll(dir, 0o755))
+	code := registry.SealedCode{Path: "xbin/fix", Dir: dir, Manifest: []byte(`{"uses":[{"target":"res:xbin/fix/state","role":"writer"}]}`),
+		Scope:  []byte(`{"resources":{"state":{"type":"kv"}}}`),
+		Grants: []registry.Use{{Target: "apps/plain", Role: "reader"}, {Target: "res:workspace/shared", Role: "reader"}}}
+	reg, err := registry.OpenSealed(root, func() []registry.SealedCode { return []registry.SealedCode{code} })
+	must(err)
+	b, err := New(reg, events.NewHub(), false)
+	must(err)
+	plain, _ := reg.Component("apps/plain")
+	self, _ := reg.Component("xbin/fix")
+
+	backend := auth.Principal{Component: "xbin/fix", Via: "instance"}
+	page := auth.Principal{Component: "xbin/fix", Via: "frame", UserID: "ann"}
+	owner := auth.Principal{Owner: true, Via: "bearer"}
+	tile := auth.Principal{Component: "apps/plain", Via: "instance"}
+	const own, shared = "res:xbin/fix/state", "res:workspace/shared"
+
+	// its backend: the release's grants, and what is its own
+	if role, ok := b.Policy(backend, plain); !ok || role != "reader" {
+		t.Errorf("its backend's call to a tile it is granted: %q %v", role, ok)
+	}
+	for _, res := range []string{own, shared} {
+		if err := b.allowRes(backend, res, "reader"); err != nil {
+			t.Errorf("its backend on %s: %v", res, err)
+		}
+	}
+	// its page: its own backend, and nothing as the component
+	if role, ok := b.Policy(page, self); !ok || role != "admin" {
+		t.Errorf("its page's call to its own backend: %q %v", role, ok)
+	}
+	if role, ok := b.Policy(page, plain); ok {
+		t.Errorf("its page called a tile the component is granted, as %q", role)
+	}
+	var se *sealedError
+	for _, res := range []string{own, shared} {
+		if err := b.allowRes(page, res, "reader"); !errors.As(err, &se) {
+			t.Errorf("its page on %s: %v, want a sealed refusal", res, err)
+		}
+		if rt, ok := b.resScope(res); ok {
+			if err := b.allowAt(page, reach{rt: rt, res: registry.Resource{Type: "kv"}, dep: util.MainDeployment}, "reader"); !errors.As(err, &se) {
+				t.Errorf("its page reaching %s: %v, want a sealed refusal", res, err)
+			}
+		}
+	}
+	// the root token: a workspace resource as ever, the component's own never
+	if err := b.allowRes(owner, shared, "writer"); err != nil {
+		t.Errorf("the root token on a workspace resource: %v", err)
+	}
+	if err := b.allowRes(owner, own, "reader"); !errors.As(err, &se) || se.Status != 403 {
+		t.Errorf("the root token on its resource: %v, want a sealed refusal", err)
+	}
+	if err := b.allowRes(tile, own, "reader"); !errors.As(err, &se) {
+		t.Errorf("a tile's backend on its resource: %v, want a sealed refusal", err)
+	}
+	// and nothing calls into it but its own page and admins' sessions
+	if role, ok := b.Policy(tile, self); ok {
+		t.Errorf("a tile called into it as %q", role)
 	}
 }

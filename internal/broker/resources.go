@@ -690,6 +690,9 @@ func (b *Broker) allowAt(p auth.Principal, ra reach, want string) error {
 	if err := sealedOwn(p, ra.rt.Scope, sealedOwnRes); err != nil {
 		return err // whichever branch below would have answered (sealedguard.go)
 	}
+	if sealedViewer(p) {
+		return &sealedError{Status: http.StatusForbidden, Msg: util.SealedRefusal(p.Component, "its page uses nothing as the component: what it is granted is its backend's to use")}
+	}
 	id := ra.rt.String()
 	switch _, res, ok := b.parseRes(id); {
 	case ok && res != nil:

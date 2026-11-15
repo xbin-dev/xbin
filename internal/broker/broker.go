@@ -536,6 +536,9 @@ func (b *Broker) Policy(p auth.Principal, target *registry.Component) (string, b
 	if p.IsAdmin() {
 		return "admin", true
 	}
+	if sealedViewer(p) && p.Component != target.Path {
+		return "", false // a viewer of a sealed component's page calls its own backend, and nothing as the component (sealedguard.go)
+	}
 	if p.Component == target.Path {
 		return "admin", b.actsInPrimary(p) // element is admin of itself, in its own deployment (D127g)
 	}
@@ -555,6 +558,9 @@ func (b *Broker) allowRes(p auth.Principal, target string, want string) error {
 	}
 	if err := sealedOwn(p, rt.Scope, sealedOwnRes); err != nil {
 		return err // a sealed component's resources are its backend's alone: no admin shortcut (sealedguard.go)
+	}
+	if sealedViewer(p) {
+		return &sealedError{Status: http.StatusForbidden, Msg: util.SealedRefusal(p.Component, "its page uses nothing as the component: what it is granted is its backend's to use")}
 	}
 	if p.IsAdmin() {
 		return nil

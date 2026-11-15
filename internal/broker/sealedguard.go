@@ -51,6 +51,18 @@ func sealedActor(p auth.Principal, comp string) bool {
 	return comp != "" && p.Component == comp && (p.Via == "instance" || p.Via == "")
 }
 
+// sealedViewer reports the principal of a sealed component's frame token
+// (or of its origin's cookie): a viewer of its page. The server turns such
+// a credential away from everything but the component's own backend
+// (server.sealedViewerAllowed); here, where a principal's component
+// becomes authority — a grant's role, a call's role — it has none, so the
+// release's grants to a sealed component are its backend's alone to use
+// whatever entry a request came through (the events socket's bus filter
+// passes that entry check by design).
+func sealedViewer(p auth.Principal) bool {
+	return p.Via == "frame" && util.SealedPath(p.Component)
+}
+
 // sealedError is a refusal about a sealed component; Status is what a
 // handler answers.
 type sealedError struct {
