@@ -439,3 +439,99 @@ func TestChangeSetStore(t *testing.T) {
 		t.Fatalf("after the old ones expired: %v", err)
 	}
 }
+
+// Change sets are bounded and don't sit on the gate's lock (the second
+// review's N4): a person's decided sets are capped in number and kept a
+// month, a set is capped in size, a set's file is parsed once (not on
+// every call), and reading or changing sets never holds the lock the
+// gate's State() takes on every delegate call.
+func TestChangeSetsAreBounded(t *testing.T) {
+	s, now := testStore(t)
+	op := ChangeOp{Kind: "grant.add", Args: json.RawMessage(`{"from":"apps/a","target":"apps/b","role":"reader"}`)}
+	item := ChangeItem{ChangeOp: op, Line: "Let apps/a use apps/b as reader"}
+	withdraw := func(cs *ChangeSet) error {
+		cs.State, cs.Decided = SetWithdrawn, s.now().UTC()
+		return nil
+	}
+	// an agent in a loop: propose, withdraw, again
+	for i := 0; i < 3*MaxDecidedSets; i++ {
+		cs, err := s.NewChangeSet(ChangeSet{User: "bob", Agent: "xbin/wsagent", Title: "t", Items: []ChangeItem{item}})
+		if err != nil {
+			t.Fatal(i, err)
+		}
+		if _, err := s.UpdateChangeSet("bob", cs.ID, withdraw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sets, err := s.ChangeSets("bob")
+	if err != nil || len(sets) > MaxDecidedSets {
+		t.Fatalf("%d decided sets are kept (at most %d): %v", len(sets), MaxDecidedSets, err)
+	}
+	if files, _ := filepath.Glob(filepath.Join(s.setsDir("bob"), "*.json")); len(files) > MaxDecidedSets {
+		t.Fatalf("%d files on disk", len(files))
+	}
+	// the newest are the ones kept
+	last, _ := s.NewChangeSet(ChangeSet{User: "bob", Title: "the last", Items: []ChangeItem{item}})
+	if got, ok := s.ChangeSet("bob", last.ID); !ok || got.Title != "the last" {
+		t.Fatal("the newest set is gone")
+	}
+
+	// a set's size
+	big := item
+	big.Args = json.RawMessage(`{"from":"` + strings.Repeat("a", MaxItemArgs) + `"}`)
+	if _, err := s.NewChangeSet(ChangeSet{User: "bob", Items: []ChangeItem{big}}); !errors.Is(err, ErrSetTooLarge) {
+		t.Fatalf("an operation with %d bytes of arguments: %v", len(big.Args), err)
+	}
+	fat := item
+	fat.Before = json.RawMessage(`"` + strings.Repeat("b", MaxSetBytes) + `"`)
+	if _, err := s.NewChangeSet(ChangeSet{User: "bob", Items: []ChangeItem{fat}}); !errors.Is(err, ErrSetTooLarge) {
+		t.Fatalf("a set over %d bytes: %v", MaxSetBytes, err)
+	}
+
+	// decided sets go after KeepSets — a month, not three
+	if KeepSets > 31*24*time.Hour {
+		t.Fatalf("decided sets are kept %s", KeepSets)
+	}
+	if _, err := s.UpdateChangeSet("bob", last.ID, withdraw); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(KeepSets + time.Hour)
+	if sets, _ := s.ChangeSets("bob"); len(sets) != 0 {
+		t.Fatalf("%d sets after %s", len(sets), KeepSets)
+	}
+
+	// a file is parsed once: with its bytes swapped behind an unchanged
+	// size and time, the set read is still the one that was parsed
+	cs, err := s.NewChangeSet(ChangeSet{User: "bob", Title: "parsed once", Items: []ChangeItem{item}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(s.setsDir("bob"), cs.ID+".json")
+	fi, _ := os.Stat(path)
+	raw, _ := os.ReadFile(path)
+	swapped := []byte(strings.Replace(string(raw), "parsed once", "parsed twic", 1))
+	if err := os.WriteFile(path, swapped, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ChangeSet("bob", cs.ID); got.Title != "parsed once" {
+		t.Fatalf("the file was read again: %q", got.Title)
+	}
+
+	// and the gate's lock is never held over them: State() answers while a
+	// set is being changed
+	done := make(chan State, 1)
+	if _, err := s.UpdateChangeSet("bob", cs.ID, func(*ChangeSet) error {
+		go func() { done <- s.State("bob") }()
+		select {
+		case <-done:
+			return nil
+		case <-time.After(2 * time.Second):
+			return errors.New("State() waited on the change sets' lock")
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

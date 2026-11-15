@@ -55,6 +55,10 @@ type person struct {
 	state cached[State]
 	reqs  cached[requestsDoc]
 	aps   cached[approvalsDoc]
+
+	// change sets: a lock and a parsed-file cache of their own (changeset.go)
+	setsMu sync.Mutex
+	sets   map[string]*cachedSet
 }
 
 // OpenStore is the store under dir (created at the first write).

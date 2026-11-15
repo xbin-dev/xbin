@@ -142,6 +142,9 @@ func (s *Server) apiChangeSetNew(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, delegation.ErrTooManySets):
 		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
 		return
+	case errors.Is(err, delegation.ErrSetTooLarge):
+		WriteError(w, http.StatusRequestEntityTooLarge, err.Error(), delegationDocs)
+		return
 	case err != nil:
 		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
 		return

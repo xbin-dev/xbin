@@ -49,7 +49,15 @@ const (
 	MaxItems    = 20
 	MaxOpenSets = 10
 	SetTTL      = 7 * 24 * time.Hour
-	keepSets    = 90 * 24 * time.Hour // decided sets stay listed this long
+	// A person's change sets are bounded on disk whatever their agent
+	// does: at most MaxOpenSets waiting and MaxDecidedSets decided (the
+	// oldest go first), each at most MaxSetBytes with MaxItemArgs of
+	// arguments an operation, and a decided set is listed for KeepSets.
+	// What was applied stays in the audit log for its 13 months.
+	MaxDecidedSets = 50
+	MaxItemArgs    = 4 << 10
+	MaxSetBytes    = 256 << 10
+	KeepSets       = 30 * 24 * time.Hour
 	// applyingStale: a set still "applying" this long after it was claimed
 	// was interrupted (applying takes seconds).
 	applyingStale = 10 * time.Minute
@@ -136,6 +144,7 @@ var (
 	ErrTooManySets    = fmt.Errorf("%d change sets are already waiting for this person", MaxOpenSets)
 	ErrTooManyItems   = fmt.Errorf("a change set holds at most %d operations", MaxItems)
 	ErrEmptyChangeSet = errors.New("a change set holds at least one operation")
+	ErrSetTooLarge    = fmt.Errorf("the change set is too large: at most %d bytes of arguments an operation and %d KiB in all", MaxItemArgs, MaxSetBytes>>10)
 )
 
 func (s *Store) setsDir(user string) string { return filepath.Join(userDir(s.dir, user), "changesets") }
@@ -144,48 +153,134 @@ func idOK(id string) bool {
 	return id != "" && len(id) <= 64 && !strings.ContainsAny(id, "/\\.") && !strings.ContainsRune(id, 0)
 }
 
-// setsLocked reads user's sets, oldest first, expiring and pruning.
-func (s *Store) setsLocked(user string) ([]ChangeSet, error) {
-	ents, err := os.ReadDir(s.setsDir(user))
+// cachedSet is a set's file as it was parsed, with the stat it was parsed
+// at: a file is read again only when its size or time changed.
+type cachedSet struct {
+	cs    ChangeSet
+	size  int64
+	mtime time.Time
+}
+
+// lockSets returns user's state with its change-set lock held: the caller
+// unlocks p.setsMu. It is a lock of its own — never the one State(),
+// requests and approvals share, which the gate takes on every delegate
+// call — so listing or applying sets can't hold a person's agent up.
+func (s *Store) lockSets(user string) *person {
+	s.mu.Lock()
+	p := s.people[user]
+	if p == nil {
+		p = &person{}
+		s.people[user] = p
+	}
+	s.mu.Unlock()
+	p.setsMu.Lock()
+	if p.sets == nil {
+		p.sets = map[string]*cachedSet{}
+	}
+	return p
+}
+
+// writeSet writes cs and keeps what was written as its parsed form.
+func (s *Store) writeSet(p *person, cs ChangeSet) error {
+	path := filepath.Join(s.setsDir(cs.User), cs.ID+".json")
+	if err := writeJSON(path, cs); err != nil {
+		delete(p.sets, cs.ID+".json")
+		return err
+	}
+	if fi, err := os.Stat(path); err == nil {
+		p.sets[cs.ID+".json"] = &cachedSet{cs: cs, size: fi.Size(), mtime: fi.ModTime()}
+	}
+	return nil
+}
+
+func ended(cs ChangeSet) time.Time {
+	if cs.Decided.IsZero() {
+		return cs.Created
+	}
+	return cs.Decided
+}
+
+// setsLocked answers user's sets, oldest first — expiring, pruning and
+// capping them. It lists the directory and stats each file; a file is
+// parsed only when it is new or changed.
+func (s *Store) setsLocked(p *person, user string) ([]ChangeSet, error) {
+	dir := s.setsDir(user)
+	ents, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
+		clear(p.sets)
 		return nil, nil
 	} else if err != nil {
 		return nil, err
 	}
 	now := s.now()
+	seen := map[string]bool{}
 	var out []ChangeSet
 	for _, e := range ents {
-		if !strings.HasSuffix(e.Name(), ".json") {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".json") {
 			continue
 		}
-		path := filepath.Join(s.setsDir(user), e.Name())
-		var cs ChangeSet
-		if ok, err := readJSON(path, &cs); !ok || err != nil || cs.User != user || cs.ID+".json" != e.Name() {
-			continue // not a set of this person's: never shown, never applied
+		fi, err := e.Info()
+		if err != nil {
+			continue
 		}
-		ended := cs.Decided
-		if ended.IsZero() {
-			ended = cs.Created
+		c := p.sets[name]
+		if c == nil || c.size != fi.Size() || !c.mtime.Equal(fi.ModTime()) {
+			var cs ChangeSet
+			if fi.Size() > 2*MaxSetBytes { // nothing this store wrote
+				continue
+			}
+			if ok, err := readJSON(filepath.Join(dir, name), &cs); !ok || err != nil || cs.User != user || cs.ID+".json" != name {
+				continue // not a set of this person's: never shown, never applied
+			}
+			c = &cachedSet{cs: cs, size: fi.Size(), mtime: fi.ModTime()}
+			p.sets[name] = c
 		}
+		seen[name] = true
+		cs := c.cs
 		switch {
-		case cs.State == SetApplying && now.Sub(ended) > applyingStale:
+		case cs.State == SetApplying && now.Sub(ended(cs)) > applyingStale:
 			// xbind stopped while applying it: what ran is in the audit log
 			// and in each item's result; the rest never ran
 			cs.State = SetPartial
+			cs.Items = slices.Clone(cs.Items)
 			for i := range cs.Items {
 				if cs.Items[i].Result == "" {
 					cs.Items[i].Result, cs.Items[i].Error = ItemSkipped, "xbind stopped while this change set was being applied: your agent's log says what ran"
 				}
 			}
-			_ = writeJSON(path, cs)
+			_ = s.writeSet(p, cs)
 		case cs.State == SetProposed && !now.Before(cs.Expires):
 			cs.State, cs.Decided = SetExpired, now.UTC().Truncate(time.Second)
-			_ = writeJSON(path, cs)
-		case cs.State != SetProposed && cs.State != SetApplying && now.Sub(ended) > keepSets:
-			_ = os.Remove(path)
+			_ = s.writeSet(p, cs)
+		case cs.State != SetProposed && cs.State != SetApplying && now.Sub(ended(cs)) > KeepSets:
+			_ = os.Remove(filepath.Join(dir, name))
+			delete(p.sets, name)
 			continue
 		}
 		out = append(out, cs)
+	}
+	for name := range p.sets {
+		if !seen[name] {
+			delete(p.sets, name)
+		}
+	}
+	// the decided ones beyond the cap go, oldest first
+	var decided []ChangeSet
+	for _, cs := range out {
+		if cs.State != SetProposed && cs.State != SetApplying {
+			decided = append(decided, cs)
+		}
+	}
+	if over := len(decided) - MaxDecidedSets; over > 0 {
+		slices.SortFunc(decided, func(a, b ChangeSet) int { return ended(a).Compare(ended(b)) })
+		gone := map[string]bool{}
+		for _, cs := range decided[:over] {
+			_ = os.Remove(filepath.Join(dir, cs.ID+".json"))
+			delete(p.sets, cs.ID+".json")
+			gone[cs.ID] = true
+		}
+		out = slices.DeleteFunc(out, func(cs ChangeSet) bool { return gone[cs.ID] })
 	}
 	slices.SortFunc(out, func(a, b ChangeSet) int {
 		if c := a.Created.Compare(b.Created); c != 0 {
@@ -207,9 +302,17 @@ func (s *Store) NewChangeSet(cs ChangeSet) (ChangeSet, error) {
 	case len(cs.Items) > MaxItems:
 		return ChangeSet{}, ErrTooManyItems
 	}
-	p := s.lock(cs.User)
-	defer p.mu.Unlock()
-	sets, err := s.setsLocked(cs.User)
+	for _, it := range cs.Items {
+		if len(it.Args) > MaxItemArgs {
+			return ChangeSet{}, ErrSetTooLarge
+		}
+	}
+	if raw, err := json.Marshal(cs); err != nil || len(raw) > MaxSetBytes {
+		return ChangeSet{}, ErrSetTooLarge
+	}
+	p := s.lockSets(cs.User)
+	defer p.setsMu.Unlock()
+	sets, err := s.setsLocked(p, cs.User)
 	if err != nil {
 		return ChangeSet{}, err
 	}
@@ -230,7 +333,7 @@ func (s *Store) NewChangeSet(cs ChangeSet) (ChangeSet, error) {
 	if len(cs.Title) > 200 {
 		cs.Title = cs.Title[:200]
 	}
-	return cs, writeJSON(filepath.Join(s.setsDir(cs.User), cs.ID+".json"), cs)
+	return cs, s.writeSet(p, cs)
 }
 
 // ChangeSets lists user's sets, oldest first.
@@ -238,9 +341,9 @@ func (s *Store) ChangeSets(user string) ([]ChangeSet, error) {
 	if s == nil {
 		return []ChangeSet{}, nil
 	}
-	p := s.lock(user)
-	defer p.mu.Unlock()
-	sets, err := s.setsLocked(user)
+	p := s.lockSets(user)
+	defer p.setsMu.Unlock()
+	sets, err := s.setsLocked(p, user)
 	if sets == nil {
 		sets = []ChangeSet{}
 	}
@@ -270,9 +373,9 @@ func (s *Store) UpdateChangeSet(user, id string, change func(*ChangeSet) error) 
 	if !idOK(id) {
 		return ChangeSet{}, ErrNoChangeSet
 	}
-	p := s.lock(user)
-	defer p.mu.Unlock()
-	sets, err := s.setsLocked(user)
+	p := s.lockSets(user)
+	defer p.setsMu.Unlock()
+	sets, err := s.setsLocked(p, user)
 	if err != nil {
 		return ChangeSet{}, err
 	}
@@ -284,5 +387,8 @@ func (s *Store) UpdateChangeSet(user, id string, change func(*ChangeSet) error) 
 	if err := change(&cs); err != nil {
 		return sets[i], err
 	}
-	return cs, writeJSON(filepath.Join(s.setsDir(user), id+".json"), cs)
+	if raw, err := json.Marshal(cs); err != nil || len(raw) > 2*MaxSetBytes { // results and errors added while applying: bounded too
+		return sets[i], ErrSetTooLarge
+	}
+	return cs, s.writeSet(p, cs)
 }
