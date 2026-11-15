@@ -222,8 +222,15 @@ async function appearance(browser) {
       // copy the layout keeps on another screen tab, never drawn
       const post = async (frame, data) => (await frame.frameElement())
         .evaluate((iframe, d) => iframe.contentWindow.postMessage(d, '*'), data);
-      await post(probe, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
-      const v = await until(async () => { const x = await now(probe); return x.scheme === 'light' && x.row === '32px' && x; }, 'the probe follows its parent');
+      // the probe's document still loading drops a message its client isn't
+      // listening for yet, and xbind's own relay posts the system's Night on
+      // its load: the parent's Day is posted again until it is in force
+      const v = await until(async () => {
+        await post(probe, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
+        await sleep(150);
+        const x = await now(probe);
+        return x.scheme === 'light' && x.row === '32px' && x;
+      }, 'the probe follows its parent');
       check(v.scheme === 'light' && v.row === '32px', `live: the frame applies xbin:appearance from its parent at once (${JSON.stringify(v)})`);
       await post(old, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
       await sleep(300); // a negative: nothing may change
