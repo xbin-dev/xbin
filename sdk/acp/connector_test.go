@@ -19,9 +19,12 @@ func TestConnectorEnvGolden(t *testing.T) {
 	provs := append(Providers(), Fake([]string{"fakeacp"}), Fake([]string{"fakeacp", "--llm-additive"}))
 	names := []string{"claude", "codex", "gemini", "opencode", "fake", "fake-additive"}
 	for i, p := range provs {
-		for _, serves := range []string{ServeConnector, ServeOwn} {
+		for _, serves := range []string{ServeConnector, ServeOwn, "only"} {
 			c := params
 			c.Serves = serves
+			if serves == "only" { // the connector alone may serve
+				c.Serves, c.Only = ServeConnector, true
+			}
 			env, ok := p.ConnectorEnv(c)
 			if ok != (p.Connector != nil) {
 				t.Fatalf("%s: ok %v with connector %v", names[i], ok, p.Connector != nil)
@@ -226,5 +229,97 @@ func TestExpandWord(t *testing.T) {
 				t.Errorf("%s: %q expands to %q", p.ID, w, got)
 			}
 		}
+	}
+}
+
+// Where the connector alone may serve, opencode knows no other provider;
+// what a provider's list supplies is rendered only when it is safe in a
+// configuration (opencode substitutes {env:NAME} and {file:path}); and a
+// model option is checked against the connector's models.
+func TestConnectorOnlyAndSafe(t *testing.T) {
+	o, _ := Lookup("opencode")
+	cx, _ := Lookup("codex")
+	c := ConnectorParams{URL: "http://xbin.test/v1", Key: "xbl_SECRET", Serves: ServeConnector, Only: true,
+		Models: []ConnectorModel{{ID: "up/m1"}, {ID: "up/m2"}}, Model: "up/m2"}
+	env, _ := o.ConnectorEnv(c)
+	cfg := env.Set["OPENCODE_CONFIG_CONTENT"]
+	for _, want := range []string{`"enabled_providers":["xbin"]`, `"model":"xbin/up/m2"`, `"small_model":"xbin/up/m2"`} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("opencode, the connector alone: no %s in %s", want, cfg)
+		}
+	}
+	c.Only = false
+	if env, _ = o.ConnectorEnv(c); strings.Contains(env.Set["OPENCODE_CONFIG_CONTENT"], "enabled_providers") {
+		t.Errorf("opencode's own providers are switched off without the rule: %s", env.Set["OPENCODE_CONFIG_CONTENT"])
+	}
+	c.Only, c.Serves = true, ServeOwn
+	if env, _ = o.ConnectorEnv(c); strings.Contains(env.Set["OPENCODE_CONFIG_CONTENT"], "enabled_providers") {
+		t.Errorf("the person's own sign-in serves, yet their providers are off: %s", env.Set["OPENCODE_CONFIG_CONTENT"])
+	}
+
+	// ids and names from an upstream's list
+	bad := []string{"{env:XBIN_LLM_KEY}", "up/{file:/etc/passwd}", "a b", "a\"b", "a$b", "a\\b", "", strings.Repeat("m", 201), "a\nb"}
+	for _, id := range bad {
+		if ValidConnectorModel(id) {
+			t.Errorf("ValidConnectorModel(%q)", id)
+		}
+	}
+	for _, id := range []string{"openai/gpt-5", "anthropic/claude-3.5-sonnet:beta", "local/llama3:8b-q4_K_M", "accounts/x/models/y@2024", "us.anthropic.claude-v2:1"} {
+		if !ValidConnectorModel(id) {
+			t.Errorf("!ValidConnectorModel(%q)", id)
+		}
+	}
+	c = ConnectorParams{URL: "http://xbin.test/v1", Key: "xbl_SECRET", Serves: ServeConnector, Model: "{env:XBIN_LLM_KEY}",
+		Models: []ConnectorModel{{ID: "{env:XBIN_LLM_KEY}"}, {ID: "up/{file:/etc/shadow}", Name: "x"}, {ID: "up/ok", Name: "{file:/etc/passwd}"}, {ID: "up/fine", Name: "Fine"}}}
+	for _, p := range []Provider{o, cx, Fake([]string{"fakeacp"})} {
+		env, _ := p.ConnectorEnv(c)
+		for name, v := range env.Set {
+			if name == "OPENCODE_CONFIG_CONTENT" {
+				v = strings.Replace(v, `"apiKey":"{env:XBIN_LLM_KEY}"`, "", 1) // the one substitution, the table's own
+			}
+			if strings.Contains(v, "{env:") || strings.Contains(v, "{file:") {
+				t.Errorf("%s: a substitution reached %s: %s", p.ID, name, v)
+			}
+		}
+	}
+	env, _ = o.ConnectorEnv(c)
+	if cfg := env.Set["OPENCODE_CONFIG_CONTENT"]; !strings.Contains(cfg, `"model":"xbin/up/ok"`) || !strings.Contains(cfg, `"up/ok":{"name":"up/ok"}`) || !strings.Contains(cfg, `"up/fine":{"name":"Fine"}`) {
+		t.Errorf("the safe models, the first of them the default: %s", cfg)
+	}
+	if env, _ = cx.ConnectorEnv(c); env.Set["CODEX_CONFIG"] != `{"model":"up/ok"}` {
+		t.Errorf("codex's default with an unsafe one named: %q", env.Set["CODEX_CONFIG"])
+	}
+	for _, c := range []ConnectorParams{{URL: "http://x/{env:A}/v1", Key: "k"}, {URL: "http://x/v1", Key: "{file:/k}"}, {URL: "http://x/v1", Key: "k", Name: "{env:HOME}"}} {
+		c.Serves = ServeConnector
+		if env, ok := o.ConnectorEnv(c); !ok || len(env.Set) != 0 || env.UsesKey {
+			t.Errorf("rendered with %+v: %+v", c, env)
+		}
+	}
+
+	// a client's option, where the connector alone may serve
+	models := []ConnectorModel{{ID: "up/m1"}, {ID: "gpt-5.5"}}
+	for _, k := range []struct {
+		p                   Provider
+		id, category, value string
+		want                bool
+	}{
+		{o, "model", "model", "xbin/up/m1", true},
+		{o, "model", "model", "opencode/big-pickle", false},
+		{o, "model", "model", "anthropic/claude-sonnet-4-5", false},
+		{o, "model", "", "up/m1", false}, // opencode writes the connector's models under its provider id
+		{o, "mode", "mode", "plan", true},
+		{o, "anything", "model", "opencode/big-pickle", false}, // whatever its id, an option of the model category
+		{cx, "model", "model", "up/m1", true},
+		{cx, "model", "model", "gpt-5.5", true}, // a name the connector serves (an alias)
+		{cx, "model", "model", "gpt-6-sol", false},
+		{cx, "collaboration_mode", "collaboration_mode", "plan", true},
+	} {
+		if got := k.p.Connector.AllowsOption(k.id, k.category, k.value, models); got != k.want {
+			t.Errorf("%s: AllowsOption(%q, %q, %q) = %v", k.p.ID, k.id, k.category, k.value, got)
+		}
+	}
+	var none *Connector
+	if none.AllowsOption("mode", "mode", "plan", models) {
+		t.Error("a provider with no connector entry allows an option where the connector alone may serve")
 	}
 }

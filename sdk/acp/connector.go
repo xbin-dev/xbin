@@ -106,6 +106,16 @@ type ConnectorParams struct {
 	// Serves is who serves the session: ServeConnector or ServeOwn (the
 	// precedence's outcome, ConnectorServes).
 	Serves string
+	// Only: the connector alone may serve the session — a rule of the
+	// host's that nobody's choice overrides. With Serves ServeConnector the
+	// CLI is then configured so that nothing else can: an Additive
+	// provider's own providers are switched off for the session (opencode:
+	// enabled_providers names the connector alone, so neither a sign-in in
+	// the person's auth.json, a provider in their or the project's config,
+	// nor the vendor's free models can be picked). A replacing provider's
+	// variables already leave it nothing else. The host still checks what
+	// its client asks the CLI to switch to (AllowsOption).
+	Only bool
 }
 
 // ConnectorEnv is a session's connector environment, rendered.
@@ -190,6 +200,13 @@ func ConnectorServes(session, saved, workspace string, own bool) string {
 // Whenever Set carries the key it also names the endpoint in
 // ConnectorURLEnv and the key in ConnectorKeyEnv, for whatever else runs in
 // the session. The key is never put in a variable of p.Keys.
+//
+// What is rendered is data a provider's list supplied, so only what is safe
+// in every CLI's configuration goes in: a model whose id is not a
+// ValidConnectorModel is left out (the default too — then the first that
+// is), a model's name that is not plain text is replaced by its id, and
+// nothing is rendered at all for a URL, key or connector name that could be
+// read as a substitution ({env:…}, {file:…}).
 func (p Provider) ConnectorEnv(c ConnectorParams) (env ConnectorEnv, ok bool) {
 	k := p.Connector
 	if k == nil || k.env == nil {
@@ -197,6 +214,23 @@ func (p Provider) ConnectorEnv(c ConnectorParams) (env ConnectorEnv, ok bool) {
 	}
 	if c.Name == "" {
 		c.Name = ConnectorName
+	}
+	if !plainText(c.Name) || !plainText(c.URL) || !plainText(c.Key) {
+		return ConnectorEnv{}, true
+	}
+	models := make([]ConnectorModel, 0, len(c.Models))
+	for _, m := range c.Models {
+		if !ValidConnectorModel(m.ID) {
+			continue
+		}
+		if !plainText(m.Name) {
+			m.Name = ""
+		}
+		models = append(models, m)
+	}
+	c.Models = models
+	if !ValidConnectorModel(c.Model) {
+		c.Model = ""
 	}
 	if c.Model == "" && len(c.Models) > 0 {
 		c.Model = c.Models[0].ID
@@ -212,6 +246,61 @@ func (p Provider) ConnectorEnv(c ConnectorParams) (env ConnectorEnv, ok bool) {
 		env.Unset = append([]string(nil), k.Never...)
 	}
 	return env, true
+}
+
+// maxConnectorModel bounds a model id a configuration is rendered with.
+const maxConnectorModel = 200
+
+// ValidConnectorModel reports whether id is a model id safe to put in any
+// CLI's configuration: 1–200 of letters, digits and . _ : / @ + ~ = , - —
+// what model ids are made of, and nothing a configuration format gives a
+// meaning to (braces: opencode substitutes {env:NAME} and {file:path};
+// quotes, $, spaces, backslashes).
+func ValidConnectorModel(id string) bool {
+	if id == "" || len(id) > maxConnectorModel {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		switch c := id[i]; {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '.', c == '_', c == ':', c == '/', c == '@', c == '+', c == '~', c == '=', c == ',', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// plainText reports whether s can stand in a rendered configuration as it
+// is: no braces (a substitution's form), no control characters.
+func plainText(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c == '{' || c == '}' || c < 0x20 || c == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// AllowsOption reports whether a session that only the connector may serve
+// (ConnectorParams.Only) can have the CLI's config option id — category as
+// the agent advertised it ("model", "mode", …; "" unknown) — set to value:
+// an option that picks no model passes, and the model's must name one of
+// models as this CLI writes it (ModelPrefix + id). A host asks before it
+// passes a client's choice on, at the session's start and later.
+func (k *Connector) AllowsOption(id, category, value string, models []ConnectorModel) bool {
+	if k == nil {
+		return false
+	}
+	if category != "model" && (k.ModelOption == "" || id != k.ModelOption) {
+		return true
+	}
+	for _, m := range models {
+		if value == k.ModelPrefix+m.ID {
+			return true
+		}
+	}
+	return false
 }
 
 // HasOwnLogin reports whether a person has their own sign-in for p, from
@@ -242,7 +331,13 @@ func (p Provider) HasOwnLogin(env []string, exists func(shellWord string) bool) 
 // the person's own and winning over it) that declares the connector as a
 // provider, its key read from the environment. Its "model" member is what
 // makes the connector the session's default — without it opencode keeps the
-// person's model, or with no sign-in at all its vendor's free models.
+// person's model, or with no sign-in at all its vendor's free models. Where
+// the connector alone may serve (Only), "enabled_providers" names it alone:
+// the inline config is merged last, so it wins over the person's and the
+// project's own lists, and opencode then knows no other provider — its
+// model list holds the connector's models and nothing else can be set
+// (checked against opencode 1.18.32 with a sign-in in auth.json, a custom
+// provider in the global config and a project config naming others).
 // OPENCODE_AUTH_CONTENT would replace the person's own sign-ins; a key in
 // OPENAI_API_KEY would go to OpenAI's own address.
 var opencodeConnector = &Connector{Wire: WireChat, Additive: true, ModelOption: "model", ModelPrefix: ConnectorID + "/",
@@ -276,6 +371,12 @@ var opencodeConnector = &Connector{Wire: WireChat, Additive: true, ModelOption: 
 			"models":  models}}}
 		if def && c.Model != "" {
 			cfg["model"] = ConnectorID + "/" + c.Model
+		}
+		if def && c.Only { // nothing but the connector's provider exists in this session
+			cfg["enabled_providers"] = []string{ConnectorID}
+			if c.Model != "" {
+				cfg["small_model"] = ConnectorID + "/" + c.Model // titles and summaries: not the vendor's small model
+			}
 		}
 		b, _ := json.Marshal(cfg)
 		return map[string]string{"OPENCODE_CONFIG_CONTENT": string(b)}

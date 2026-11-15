@@ -201,20 +201,24 @@ func Providers() []Provider { return append([]Provider(nil), catalog...) }
 // fixture advertises it (a sandbox manager's hello); it is never in the
 // catalog. It takes an LLM connector the way codex does — its variables
 // replace the sign-in, set only when the connector serves the session
-// (FAKEACP_LLM_MODEL names the default model; its `llm-call` script calls
-// the endpoint) — or, with --llm-additive in argv, the way opencode does:
+// (FAKEACP_LLM_MODEL names the default model, FAKEACP_LLM_ONLY=1 says the
+// connector alone may serve; its `llm-call` script calls the endpoint) — or, with --llm-additive in argv, the way opencode does:
 // always declared, the model only when the connector serves.
 func Fake(argv []string) Provider {
 	p := Provider{ID: "fake", Name: "Fake agent (tests)", Driver: "acp", Argv: append([]string(nil), argv...),
 		Modes:       []Mode{{ID: "ask", Name: "Ask before acting"}, {ID: "auto", Name: "Auto"}, {ID: "yolo", Name: "Yolo", Explicit: true}},
 		DefaultMode: "ask", AutoMode: "auto", ApproveMode: "ask", PlanMode: "ask",
 		LoginFiles: []string{`$HOME/.fakeacp/credentials`},
-		Connector: &Connector{Wire: WireChat, Additive: slices.Contains(argv, "--llm-additive"), Never: []string{"FAKE_API_KEY"},
+		Connector: &Connector{Wire: WireChat, Additive: slices.Contains(argv, "--llm-additive"), Never: []string{"FAKE_API_KEY"}, ModelOption: "model",
 			env: func(c ConnectorParams, def bool) map[string]string {
+				out := map[string]string{}
 				if def && c.Model != "" {
-					return map[string]string{"FAKEACP_LLM_MODEL": c.Model}
+					out["FAKEACP_LLM_MODEL"] = c.Model
 				}
-				return map[string]string{}
+				if def && c.Only {
+					out["FAKEACP_LLM_ONLY"] = "1" // the connector alone may serve: said, for a test to read
+				}
+				return out
 			}}}
 	if len(argv) > 0 {
 		p.Login = argv[0] + " login"
