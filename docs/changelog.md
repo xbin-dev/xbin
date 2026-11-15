@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **agent template: cancelling a project task that waits for its
+  workspace sticks.** `POST /runs/{id}/cancel` (or a cancel from its parent)
+  on a task the workspace gate held parked stopped it only until the gate's
+  next look: the start it was parked with stayed in its inbox, so the gate
+  parked it again and the turn ran once the workspace was ready. The cancel
+  now drops the input queued before it, as cancelling the task does; a
+  message sent afterwards starts it as usual (the template's `API.md`
+  §The workspace). An instance gets it with `git merge template/main`.
 - **coding-sandbox: an image's `sudo` gives `/dev/fuse` and `/dev/net/tun`
   from the sandbox's first boot** (D182). The template wrote the guest's
   device list (`/etc/xbin-vm-devices`) after a new sandbox had booted, and

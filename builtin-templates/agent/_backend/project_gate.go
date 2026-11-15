@@ -26,7 +26,9 @@ import (
 // person must act (a sign-in, a failed workspace, cleanup refused) — with
 // pendingState {kind: "project", project}, its inbox left unconsumed. A
 // park ends here once the workspace is ready (run is updated in place).
-// Cancel and interrupt rows always pass; so does a turn already in flight.
+// Cancel and interrupt rows always pass — a cancel of a parked turn with
+// the input it was parked with (cancelParked); so does a turn already in
+// flight.
 func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 	if hostedID(run.ID) || !e.db.features {
 		return true
@@ -34,7 +36,10 @@ func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 	input := false
 	for _, r := range rows {
 		switch r.Kind {
-		case inboxCancel, inboxInterrupt, inboxHStop:
+		case inboxCancel:
+			e.cancelParked(run, r)
+			return true
+		case inboxInterrupt, inboxHStop:
 			return true
 		case inboxUser, inboxHPrompt, inboxWake, inboxWatch, inboxApprove, inboxHAnswer:
 			input = true
@@ -132,6 +137,24 @@ func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 		return nil
 	})
 	return false
+}
+
+// cancelParked: cancel reaches a run the gate holds parked. The turn it
+// stops never began — what would have started it still waits in the inbox,
+// where the gate left it — so that input goes with it, as a task's own
+// cancel drops it (cancelTask). Left there, the run was canceled only until
+// its next pass: the gate saw input on a resting task and parked it again,
+// and the turn ran once the workspace was ready. Only what came before the
+// cancel goes: a message sent after it is the run's next turn. A run that
+// isn't parked here keeps its queued messages, as every cancel leaves them.
+func (e *Engine) cancelParked(run *Run, cancel *InboxRow) {
+	if parsePending(run.Pending).Kind != pendKindProject {
+		return
+	}
+	_ = e.fenced(func(t *DB) error {
+		t.dropUntaken(run.ID, cancel.ID)
+		return nil
+	})
 }
 
 // shelveTask: task k's turn would wait for a workspace an archived project
