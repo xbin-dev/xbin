@@ -382,20 +382,38 @@ var opencodeConnector = &Connector{Wire: WireChat, Additive: true, ModelOption: 
 		return map[string]string{"OPENCODE_CONFIG_CONTENT": string(b)}
 	}}
 
-// codexConnector: codex-acp's gateway auth request (DEFAULT_AUTH_REQUEST) —
-// a base URL and headers, with no sign-in and nothing written to auth.json.
-// The CLI speaks Responses only. While it is set the person's own `codex
-// login` is not used, so it is set only when the connector serves the
-// session. The default model rides CODEX_CONFIG (JSON the adapter merges
-// into the session's config): without it the adapter asks for its own
-// default, a name only OpenAI serves. Codex has no metadata for a model it
-// doesn't know and says so in each answer ("Model metadata … not found");
-// its own model names stay in its picker, for a connector that serves or
-// aliases them. Codex writes its environment — this request, the key in it
-// — to $CODEX_HOME/shell_snapshots, where it stays: the key must be the
+// codexGatewayID is the model provider codex-acp names its gateway
+// (CUSTOM_GATEWAY_PROVIDER_ID): the connector is declared under the same
+// id in the session's config, so both ways in name one provider.
+const codexGatewayID = "custom-gateway"
+
+// codexConnector: two things that together leave Codex no other provider.
+// codex-acp's gateway auth request (DEFAULT_AUTH_REQUEST) — a base URL and
+// headers, with no sign-in and nothing written to auth.json — is what a
+// signed-out Codex needs to open a session at all. But the adapter applies
+// it only where Codex asks for a sign-in: with a model_provider of the
+// person's own in ~/.codex/config.toml (one that needs no OpenAI account)
+// it is never applied, and the session would run on that provider. So the
+// session's config (CODEX_CONFIG, JSON the adapter merges over the
+// person's and a project's config.toml) declares the connector as a model
+// provider itself — its key read from the environment (env_key) — and
+// names it (model_provider, and MODEL_PROVIDER, which the adapter passes
+// with every thread it starts). Checked against codex-acp 1.13.1 with no
+// config, a personal config.toml and a project's, each naming another
+// provider: the turn went to the connector every time.
+//
+// The CLI speaks Responses only. While these are set the person's own
+// `codex login` is not used, so they are set only when the connector
+// serves the session. The default model rides the same config: without it
+// the adapter asks for its own default, a name only OpenAI serves. Codex
+// has no metadata for a model it doesn't know and says so in each answer
+// ("Model metadata … not found"); its own model names stay in its picker,
+// for a connector that serves or aliases them. Codex writes its
+// environment — the gateway request, the key in it — to
+// $CODEX_HOME/shell_snapshots, where it stays: the key must be the
 // session's own and end with it.
 var codexConnector = &Connector{Wire: WireResponses, ModelOption: "model",
-	Never: []string{"CODEX_API_KEY", "OPENAI_API_KEY", "MODEL_PROVIDER"},
+	Never: []string{"CODEX_API_KEY", "OPENAI_API_KEY"},
 	env: func(c ConnectorParams, _ bool) map[string]string {
 		type gateway struct {
 			BaseURL      string            `json:"baseUrl"`
@@ -404,12 +422,13 @@ var codexConnector = &Connector{Wire: WireResponses, ModelOption: "model",
 		}
 		b, _ := json.Marshal(map[string]any{"methodId": "gateway", "_meta": map[string]any{"gateway": gateway{
 			BaseURL: c.URL, Headers: map[string]string{"Authorization": "Bearer " + c.Key}, ProviderName: c.Name}}})
-		out := map[string]string{"DEFAULT_AUTH_REQUEST": string(b)}
+		cfg := map[string]any{"model_provider": codexGatewayID, "model_providers": map[string]any{codexGatewayID: map[string]string{
+			"name": c.Name, "base_url": c.URL, "wire_api": "responses", "env_key": ConnectorKeyEnv}}}
 		if c.Model != "" {
-			m, _ := json.Marshal(map[string]string{"model": c.Model})
-			out["CODEX_CONFIG"] = string(m)
+			cfg["model"] = c.Model
 		}
-		return out
+		m, _ := json.Marshal(cfg)
+		return map[string]string{"DEFAULT_AUTH_REQUEST": string(b), "CODEX_CONFIG": string(m), "MODEL_PROVIDER": codexGatewayID}
 	}}
 
 // claudeConnector: Claude Code's gateway variables. ANTHROPIC_AUTH_TOKEN

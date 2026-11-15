@@ -144,8 +144,15 @@ func TestConnectorEnvRules(t *testing.T) {
 		t.Errorf("opencode's default outside Models is not declared: %s", cfg)
 	}
 	cx, _ := Lookup("codex")
-	if env, _ = cx.ConnectorEnv(c); env.Set["CODEX_CONFIG"] != `{"model":"up/unlisted"}` {
+	if env, _ = cx.ConnectorEnv(c); !strings.Contains(env.Set["CODEX_CONFIG"], `"model":"up/unlisted"`) {
 		t.Errorf("codex's default model: %q", env.Set["CODEX_CONFIG"])
+	}
+	// codex is left no other provider: the connector is the session's model
+	// provider in its own config, over whatever config.toml names (the
+	// gateway request alone is not applied where codex asks for no sign-in)
+	if cfg := env.Set["CODEX_CONFIG"]; env.Set["MODEL_PROVIDER"] != "custom-gateway" || !strings.Contains(cfg, `"model_provider":"custom-gateway"`) ||
+		!strings.Contains(cfg, `"custom-gateway":{"base_url":"http://xbin.test/v1","env_key":"XBIN_LLM_KEY","name":"LLM by xbin","wire_api":"responses"}`) || strings.Contains(cfg, c.Key) {
+		t.Errorf("codex's session config: MODEL_PROVIDER %q, CODEX_CONFIG %s", env.Set["MODEL_PROVIDER"], cfg)
 	}
 }
 
@@ -286,7 +293,7 @@ func TestConnectorOnlyAndSafe(t *testing.T) {
 	if cfg := env.Set["OPENCODE_CONFIG_CONTENT"]; !strings.Contains(cfg, `"model":"xbin/up/ok"`) || !strings.Contains(cfg, `"up/ok":{"name":"up/ok"}`) || !strings.Contains(cfg, `"up/fine":{"name":"Fine"}`) {
 		t.Errorf("the safe models, the first of them the default: %s", cfg)
 	}
-	if env, _ = cx.ConnectorEnv(c); env.Set["CODEX_CONFIG"] != `{"model":"up/ok"}` {
+	if env, _ = cx.ConnectorEnv(c); !strings.Contains(env.Set["CODEX_CONFIG"], `"model":"up/ok"`) {
 		t.Errorf("codex's default with an unsafe one named: %q", env.Set["CODEX_CONFIG"])
 	}
 	for _, c := range []ConnectorParams{{URL: "http://x/{env:A}/v1", Key: "k"}, {URL: "http://x/v1", Key: "{file:/k}"}, {URL: "http://x/v1", Key: "k", Name: "{env:HOME}"}} {
