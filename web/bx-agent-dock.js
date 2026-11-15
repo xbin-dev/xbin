@@ -59,6 +59,9 @@ export class BxAgentDock extends LitElement {
     :host([full]) .grip { display: none; }
     header { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; min-height: 40px; border-bottom: 1px solid var(--bx-border, #33353F); background: var(--bx-panel, #1F2028); }
     header h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* a narrow dock keeps its title whole: Pause / Resume is its icon there, still named for a screen reader */
+    header { container-type: inline-size; }
+    @container (max-width: 460px) { header:has([data-close]) [data-pause] .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
     .body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
     iframe { flex: 1; min-height: 0; width: 100%; border: 0; background: var(--bx-bg, #0B0C12); }
     .tray { position: absolute; left: 0; right: 0; top: 0; z-index: 2; }
@@ -246,7 +249,7 @@ export class BxAgentDock extends LitElement {
         <bx-icon name="agent"></bx-icon><h2>Workspace agent</h2>
         ${usable ? html`<button data-needs aria-expanded=${this._tray ? 'true' : 'false'} aria-label=${`Needs you${waiting ? `, ${waiting}` : ''}`} @click=${() => { this._tray = !this._tray; this._menu = false; }}>
             Needs you${waiting ? html`<span class="count" data-count>${waiting}</span>` : nothing}</button>
-          <button data-pause aria-pressed=${paused ? 'true' : 'false'} @click=${(e) => this._pause(e, !paused)}><bx-icon name=${paused ? 'play' : 'pause'}></bx-icon>${paused ? 'Resume' : 'Pause'}</button>
+          <button data-pause aria-pressed=${paused ? 'true' : 'false'} @click=${(e) => this._pause(e, !paused)}><bx-icon name=${paused ? 'play' : 'pause'}></bx-icon><span class="lbl">${paused ? 'Resume' : 'Pause'}</span></button>
           <button class="quiet" data-menu aria-label="More" aria-haspopup="menu" aria-expanded=${this._menu ? 'true' : 'false'} @click=${() => { this._menu = !this._menu; this._tray = false; }}><bx-icon name="ellipsis"></bx-icon></button>` : nothing}
         ${this.full ? nothing : html`<button class="quiet" data-close aria-label="Close the workspace agent" @click=${() => { this.open = false; }}><bx-icon name="xmark"></bx-icon></button>`}
       </header>

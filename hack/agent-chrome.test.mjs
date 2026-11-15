@@ -139,6 +139,7 @@ test('the dock\'s states and the chip', () => {
   assert.match(W.stateWords('paused', { at: '2026-11-16T10:31:00Z' }).title, /^Paused by you at \d\d:31\.$/);
   assert.equal(W.stateWords('unavailable', { admins: ['Mira Okafor', 'Jonas Lind', 'A', 'B', 'C'] }).more, 'An admin can fix this: Mira Okafor or Jonas Lind and 3 more.');
   assert.equal(W.stateWords('held', { held: 'older' }).title, 'Waiting for a newer xbin.');
+  assert.equal(W.stateWords('held', { held: 'locked' }).more, 'An admin can fix this.');
   const steps = W.setupSteps({ llm: { configured: false }, state: { workspace: false } });
   assert.deepEqual(steps.map((s) => [s.id, s.done, s.enabled]), [['model', false, true], ['on', false, false], ['who', false, false]]);
   assert.equal(W.setupSteps({ llm: { configured: true, host: true }, state: { workspace: false } })[0].tag, 'Set by your host');

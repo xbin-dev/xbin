@@ -20,10 +20,10 @@ import (
 // nobody's agent's person), a view-as session, a tile's frame, a terminal,
 // or the agent itself.
 func (b *Broker) alertPerson(p auth.Principal) (user string, ok bool) {
-	if p.Agent != "" || p.Impersonator != "" {
+	if p.Agent != "" {
 		return "", false
 	}
-	if ownSession(p) { // (agentpolicy.go: not a terminal's or an agent session's token)
+	if ownSession(p) { // (agentpolicy.go: not a view-as session, a terminal's or an agent session's token)
 		return p.UserID, p.UserID != ""
 	}
 	if d, ok := b.chromeFrameDriver(p); ok && d.UserID != "" {

@@ -451,7 +451,9 @@ const STATES = {
 export function stateWords(kind, x = {}) {
   const w = STATES[kind === 'held' ? (x.held === 'older' ? 'older' : 'locked') : kind];
   if (!w) return null;
-  const fill = (s) => s.replace('{admins}', admins(x.admins)).replace('{at}', x.at ? ` at ${clock(toMs(x.at))}` : '');
+  // (no route names the admins to a non-admin yet: without names the sentence ends at "this")
+  const known = (x.admins || []).some(Boolean);
+  const fill = (s) => s.replace(': {admins}', known ? `: ${admins(x.admins)}` : '').replace('{at}', x.at ? ` at ${clock(toMs(x.at))}` : '');
   return { title: fill(w.title), text: fill(w.text), more: w.more ? fill(w.more) : '' };
 }
 

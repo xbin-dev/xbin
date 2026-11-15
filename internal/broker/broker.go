@@ -394,8 +394,9 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerPartitionLimits(srv)
 	b.registerTileLimits(srv) // GET/POST/DELETE /limits, POST /limits/dismiss (D203; tilelimits_api.go)
 	b.delegateHides = srv.DelegateHides
-	b.agentPage = srv // the notice that names the workspace agent's page (agentpagealert.go)
-	srv.RegisterAPI("POST "+server.AgentPageDismissRoute, b.apiAgentPageDismiss)
+	// the notice that names the workspace agent's page (agentpagealert.go; server.AgentPageDismissRoute)
+	b.agentPage = srv
+	srv.RegisterAPI("POST /delegate/page/dismiss", b.apiAgentPageDismiss)
 	b.registerAgentLevels(srv) // what a person's agent may do in each tile, as approved (agentlevel.go)
 	srv.AgentWorld, srv.HolderNotify = b, b.NotifyHolder
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,

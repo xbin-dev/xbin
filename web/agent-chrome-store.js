@@ -63,8 +63,9 @@ class AgentStore {
   start() {
     this.started = true;
     onEvent((e) => {
-      // a tile agent session of the person's changed (it may wait for them now): the tray lists those too
-      if (e && typeof e.type === 'string' && /session|^term|^agent/.test(e.type)) { this.readSessions(); return; }
+      // a session of the person's changed status or came or went (`term`: it may wait for them now): the tray
+      // lists those too. Not `session` — that is every event of a running agent
+      if (e && e.type === 'term') { this.readSessions(); return; }
       if (!e || e.type !== 'delegate') return;
       const op = e.data && e.data.op;
       // the count rides on the state: every op reads it again, then the list it names
