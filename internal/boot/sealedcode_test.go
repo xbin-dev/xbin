@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -222,4 +223,83 @@ func TestSealedFilesAreTheReleasesNotTheDisks(t *testing.T) {
 		t.Error("a planted file survived a start")
 	}
 	served("after the restart")
+}
+
+// A frame token is still minted for a path with the shape of a tile's that
+// no component is registered at (a tile just written asks before the next
+// scan). Its component is exactly that path, in its one spelling, and until
+// a component exists there the token carries nothing: no backend, no
+// grant, no admin route, nothing of a sealed component.
+func TestFrameTokenForAnUnregisteredTilePath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace")
+	}
+	quiet(t)
+	ws := probeWorkspace(t)
+	d := startSealed(t, ws, []sealed.Spec{probeSpec()})
+	mint := func(comp string) (int, string) {
+		code, body := d.do("GET", "/api/xbin/frame-token?component="+url.QueryEscape(comp), nil)
+		var ft struct{ Token string }
+		_ = json.Unmarshal([]byte(body), &ft)
+		return code, ft.Token
+	}
+	for _, odd := range []string{"/apps/ghost", "apps/ghost/", "apps//ghost", "./apps/ghost", "apps/x/../ghost", " apps/ghost"} {
+		if code, tok := mint(odd); code != 400 || tok != "" {
+			t.Errorf("a token for %q: %d (minted: %v), want 400", odd, code, tok != "")
+		}
+	}
+	for _, own := range []string{".xbin", "data", "xbin/nosuch", "homes/admin"} {
+		if code, tok := mint(own); code != 404 || tok != "" {
+			t.Errorf("a token for %q, in xbind's own namespace: %d (minted: %v), want 404", own, code, tok != "")
+		}
+	}
+	code, tok := mint("apps/ghost")
+	if code != 200 || tok == "" {
+		t.Fatalf("a token for a tile-shaped path nothing is registered at: %d", code)
+	}
+	if p, ok := d.st.Auth.FramePrincipal(tok); !ok || p.Component != "apps/ghost" || p.Via != "frame" {
+		t.Fatalf("its principal: %+v %v", p, ok)
+	}
+	as := func(method, path string) (int, string) {
+		req, _ := http.NewRequest(method, d.base+path, strings.NewReader(`{}`))
+		req.Header.Set("X-XBin-Frame-Token", tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	for _, c := range [][2]string{
+		{"GET", "/api/apps/ghost/x"},                                   // no backend: there is no component
+		{"GET", "/api/apps/plain/x"}, {"GET", "/api/xbin/probe/hello"}, // nobody granted it anything
+		{"GET", "/api/xbin/users"}, {"GET", "/api/xbin/sealed"}, {"POST", "/api/xbin/grants"}, // no admin
+		{"GET", "/api/xbin/kv/res:apps/plain/db/k"}, {"GET", "/api/xbin/kv/" + probeRes + "/k"}, {"GET", "/api/xbin/vault/apps/plain"},
+		{"PUT", "/api/xbin/cron/jobs"}, {"POST", "/api/xbin/bus/publish"},
+	} {
+		if code, body := as(c[0], c[1]); code < 400 {
+			t.Errorf("the ghost's token: %s %s answers %d %.200s", c[0], c[1], code, body)
+		}
+	}
+	// once a component is registered at exactly that path it is that tile's
+	// frame — and only that path's
+	for rel, body := range map[string]string{"apps/ghost/index.html": "<html><body>ghost</body></html>", "apps/ghosts/index.html": "<html><body>other</body></html>"} {
+		p := filepath.Join(ws, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := d.st.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := as("GET", "/c/apps/ghost/index.html"); code != 200 || !strings.Contains(body, "ghost") {
+		t.Errorf("its own page, once registered: %d %.200s", code, body)
+	}
+	if code, _ := as("GET", "/api/xbin/frame-token?component=apps/ghosts"); code == 200 {
+		t.Error("its token renews as another tile")
+	}
 }

@@ -216,3 +216,75 @@ func TestSealedViewAsAndAdminBus(t *testing.T) {
 		t.Error("the root token's reload event reaches a person")
 	}
 }
+
+// A sealed page's credential is a viewer's with a short list. A row of the
+// table may add reads to it — exact paths, GET only: nothing a row names
+// lets the page write — and a component that holds delegation keeps the
+// delegation API, whose handlers take the page only as its person's own.
+func TestSealedViewerAllowList(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "xbin.json"), []byte(`{"schema":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{"xbin.json": []byte(`{}`), "index.html": []byte("<html></html>")}
+	codes := []registry.SealedCode{
+		{Path: "xbin/agent", ID: "0123456789abcdef01234567", Dir: t.TempDir(), Manifest: files["xbin.json"], Files: files,
+			FrameReads: []string{"/api/xbin/agents/connection"}},
+		{Path: "xbin/plain", ID: "1123456789abcdef01234567", Dir: t.TempDir(), Manifest: files["xbin.json"], Files: files},
+	}
+	reg, err := registry.OpenSealed(root, func() []registry.SealedCode { return codes })
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Reg: reg}
+	t.Cleanup(auth.TestSealDelegate("xbin/agent"))
+	agent := auth.Principal{Component: "xbin/agent", Via: "frame", UserID: "ann"}
+	plain := auth.Principal{Component: "xbin/plain", Via: "frame", UserID: "ann"}
+	allowed := func(p auth.Principal, method, target string) bool {
+		return s.sealedViewerAllowed(httptest.NewRequest(method, target, nil), p)
+	}
+	// every sealed page: its backend, its files, its renewal, whoami, events
+	for _, p := range []auth.Principal{agent, plain} {
+		for _, c := range [][2]string{{"POST", "/api/" + p.Component + "/chat"}, {"GET", "/c/" + p.Component + "/app.js"}, {"GET", "/api/xbin/frame-token?component=" + p.Component},
+			{"GET", "/api/xbin/whoami"}, {"GET", "/ws/events"}} {
+			if !allowed(p, c[0], c[1]) {
+				t.Errorf("%s: %s %s is refused", p.Component, c[0], c[1])
+			}
+		}
+		for _, c := range [][2]string{{"GET", "/api/xbin/components"}, {"GET", "/api/xbin/kv/res:" + p.Component + "/db/k"}, {"POST", "/api/xbin/whoami"},
+			{"GET", "/api/apps/a/x"}, {"GET", "/c/apps/a/index.html"}, {"GET", "/api/xbin/users"}, {"POST", "/api/xbin/bus/publish"}} {
+			if allowed(p, c[0], c[1]) {
+				t.Errorf("%s: %s %s is allowed", p.Component, c[0], c[1])
+			}
+		}
+	}
+	// the row's read: that path, for reading, for that component
+	if !allowed(agent, "GET", "/api/xbin/agents/connection") || !allowed(agent, "HEAD", "/api/xbin/agents/connection") {
+		t.Error("the read its row names is refused")
+	}
+	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
+		if allowed(agent, method, "/api/xbin/agents/connection") {
+			t.Errorf("%s on a path its row names for reading is allowed", method)
+		}
+	}
+	for _, target := range []string{"/api/xbin/agents/connection/x", "/api/xbin/agents", "/api/xbin/agents/policy", "/api/xbin//agents/connection", "/api/xbin/agents/../users"} {
+		if allowed(agent, "GET", target) {
+			t.Errorf("GET %s is allowed by a row that names another path", target)
+		}
+	}
+	if allowed(plain, "GET", "/api/xbin/agents/connection") {
+		t.Error("a component whose row names no read reads it")
+	}
+	// the holder's page: the delegation API (its handlers judge the caller)
+	for _, c := range [][2]string{{"GET", "/api/xbin/delegate/state"}, {"POST", "/api/xbin/delegate/requests/r1/approve"}, {"PUT", "/api/xbin/delegate/state"}} {
+		if !allowed(agent, c[0], c[1]) {
+			t.Errorf("the holder's page: %s %s is refused", c[0], c[1])
+		}
+		if allowed(plain, c[0], c[1]) {
+			t.Errorf("a page of a component that holds no delegation: %s %s is allowed", c[0], c[1])
+		}
+	}
+	if allowed(agent, "GET", "/api/xbin/delegate") || allowed(agent, "GET", "/api/xbin/delegated-thing") {
+		t.Error("a path that only begins like the delegation API is allowed")
+	}
+}

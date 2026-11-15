@@ -27,7 +27,13 @@ func table() []Spec {
 		{Name: "probe", Title: "Fixture probe", Source: src, Authored: "apps/fixture", Slots: []string{"llm"},
 			// the fixture alone lets a workspace tile in: the tests bind it
 			Providers: map[string][]string{"llm": {"apps/prov", "apps/llm"}}},
-		{Name: "people", Title: "Fixture people", Source: src, Authored: "apps/fixture", Partition: []string{"user", "global"}},
+		// one instance per person, and the holder of delegation: a person's
+		// partition of it acts for that person (D228), as the workspace
+		// agent's will. Its row carries what that one needs of the table:
+		// fixed environment, a notification path, one more read for its page.
+		{Name: "people", Title: "Fixture people", Source: src, Authored: "apps/fixture", Partition: []string{"user", "global"},
+			Capabilities: Capabilities{Delegate: true}, Env: map[string]string{"FIXTURE_MODE": "workspace"},
+			Notify: "/notify", FrameReads: []string{"/api/xbin/agents/connection"}},
 	}
 }
 

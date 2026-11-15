@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -534,5 +535,64 @@ func TestDefaultBindings(t *testing.T) {
 		if after != c.file {
 			t.Errorf("%s: the workspace xbin.json was rewritten: %s", c.what, after)
 		}
+	}
+}
+
+// What a row may say beside its code, for the workspace agent's use: fixed
+// environment, a notification path, and reads its page may make beside a
+// viewer's own — which can never be writes, data routes or another API.
+func TestTableEnvNotifyAndFrameReads(t *testing.T) {
+	good := Spec{Name: "fix", Source: fixture(""), Env: map[string]string{"XBIN_AGENT_MODE": "workspace", "A1_B": ""},
+		Notify: "/notify/holder", FrameReads: []string{"/api/xbin/agents/connection", "/api/xbin/whoami"}}
+	s, err := Load([]Spec{good})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.opts = Options{Workspace: t.TempDir(), Dev: true}
+	if err := s.Materialize(s.opts.Workspace); err != nil {
+		t.Fatal(err)
+	}
+	sc := s.Registry()[0]
+	if !slices.Equal(sc.Env, []string{"A1_B=", "XBIN_AGENT_MODE=workspace"}) || !slices.Equal(sc.FrameReads, good.FrameReads) {
+		t.Errorf("the registry's row: env %q, reads %q", sc.Env, sc.FrameReads)
+	}
+	bad := map[string]Spec{
+		"a lower-case variable":          {Name: "fix", Source: fixture(""), Env: map[string]string{"mode": "x"}},
+		"a variable xbind sets":          {Name: "fix", Source: fixture(""), Env: map[string]string{"XBIN_TOKEN": "x"}},
+		"its own component name":         {Name: "fix", Source: fixture(""), Env: map[string]string{"XBIN_COMPONENT": "apps/other"}},
+		"a variable with an equals sign": {Name: "fix", Source: fixture(""), Env: map[string]string{"A=B": "x"}},
+		"a notify path without a slash":  {Name: "fix", Source: fixture(""), Notify: "notify"},
+		"a notify path with a query":     {Name: "fix", Source: fixture(""), Notify: "/notify?x=1"},
+		"a notify path that climbs":      {Name: "fix", Source: fixture(""), Notify: "/a/../b"},
+		"a read of a tile's API":         {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/apps/x/secret"}},
+		"a read outside /api/":           {Name: "fix", Source: fixture(""), FrameReads: []string{"/c/apps/x/index.html"}},
+		"a read with a wildcard":         {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/agents/*"}},
+		"a read with a route pattern":    {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/components/{path...}"}},
+		"a read with a query":            {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/logs?component=apps/x"}},
+		"a read spelled oddly":           {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin//agents/connection"}},
+		"a read of stored data":          {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/kv/res:apps/x/db/k"}},
+		"a read of secrets":              {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/vault/apps/x"}},
+		"a read of the people":           {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/users"}},
+		"a read of the model plane":      {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/llm/v1/models"}},
+		"the whole API":                  {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/xbin/"}},
+	}
+	for what, sp := range bad {
+		if _, err := Load([]Spec{sp}); err == nil {
+			t.Errorf("a table row with %s loaded", what)
+		}
+	}
+	// the lookup the delegation side delivers through: the compiled-in table's
+	want := ""
+	if fixtureTable {
+		want = "/notify"
+	}
+	if got := NotifyPath("xbin/people"); got != want {
+		t.Errorf("NotifyPath(xbin/people) = %q, want %q", got, want)
+	}
+	if NotifyPath("xbin/nosuch") != "" || NotifyPath("apps/x") != "" || NotifyPath("/xbin/people") != "" {
+		t.Error("NotifyPath answers for a path that is no row of the table")
+	}
+	if sp, ok := Lookup("xbin/people"); ok != fixtureTable || sp.Capabilities.Delegate != fixtureTable {
+		t.Errorf("Lookup(xbin/people): %v, delegate %v", ok, sp.Capabilities.Delegate)
 	}
 }

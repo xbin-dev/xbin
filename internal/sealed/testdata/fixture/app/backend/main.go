@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -58,6 +59,46 @@ func main() {
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(resp.Body)
 		reply(w, 200, map[string]any{"status": resp.StatusCode, "body": string(b)})
+	})
+	// as-person makes one call as the person this partition belongs to (a
+	// delegate call: the component must hold delegation), with a ticket
+	// when one is given; ask asks that person to approve a call.
+	mux.HandleFunc("POST /as-person", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		body, _ := io.ReadAll(r.Body)
+		req, err := http.NewRequestWithContext(r.Context(), q.Get("method"), "http://xbin"+q.Get("path"), bytes.NewReader(body))
+		if err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		if len(body) > 0 {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if t := q.Get("ticket"); t != "" {
+			xbin.WithTicket(req, t)
+		}
+		resp, err := xbin.AsPerson().Do(req)
+		if err != nil {
+			reply(w, 502, map[string]string{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		reply(w, 200, map[string]any{"status": resp.StatusCode, "body": string(b)})
+	})
+	mux.HandleFunc("POST /ask", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		body, _ := io.ReadAll(r.Body)
+		a, err := xbin.RequestApproval(r.Context(), q.Get("method"), q.Get("path"), body, "the fixture asks")
+		if err != nil {
+			reply(w, 502, map[string]string{"error": err.Error()})
+			return
+		}
+		reply(w, 200, a)
+	})
+	// env answers the fixed environment its table row gives it
+	mux.HandleFunc("GET /env", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, 200, map[string]string{"mode": os.Getenv("FIXTURE_MODE"), "component": os.Getenv("XBIN_COMPONENT")})
 	})
 	xbin.Serve(mux)
 }
