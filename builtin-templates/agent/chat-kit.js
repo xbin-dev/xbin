@@ -16,7 +16,7 @@ import { chatCssText } from '/vendor/chat/css.js';
 import { html, nothing } from '/vendor/lit-all.min.js';
 import { rowView, innerView, blockView, noticeView } from '/vendor/chat/views.js';
 import { agentView } from '/vendor/chat/cards.js';
-import { blockOf, busy } from './model/fold.js';
+import { blockOf, busy, ownApproval } from './model/fold.js';
 import { isAcp, isSubagentCall } from './model/harness-heads.js';
 import { parkBlock, ownerOf } from './model/harness-ask.js';
 import { nameOf } from './model/harness.js';
@@ -234,19 +234,40 @@ export function kitPark(run, ui, blocks = null, who = null) {
     // the engine's own approval; a capability's grant is its owner's to allow (model/rules.js grantAsk)
     const grant = grantAsk(run, ui.who ? ui.who() : null);
     cls += ` approve${grant ? ' grant' : ''}`;
-    if (grant) {
-      kb.lead = grant.lead;
-      kb.description = grant.note;
-      kb.options = [...(grant.canAllow ? [{ optionId: 'once', name: 'Allow once', kind: 'allow_once', explicit: false }, { optionId: 'hour', name: 'Allow here for 1 hour', kind: 'allow_once', explicit: false }] : []),
-        { optionId: 'deny', name: 'Deny', kind: 'reject_once', explicit: false }];
-    }
+    if (grant) asGrant(kb, grant);
     own = {
       agentName: run.id !== app.session.sel ? 'The subagent' : 'The agent', can: { answer: true, raise: false },
-      permit: (b, a) => ui.act.approve(run.id, a.verdict === 'allow', a.optionId === 'once' || a.optionId === 'hour' ? a.optionId : undefined, b.park),
+      permit: (b, a) => ui.act.approve(run.id, a.verdict === 'allow', howOf(a), b.park),
     };
   } else {
     own = { agentName: 'The agent', can: { answer: access(v).talk, raise: false } };
   }
   const c = Object.create(kitCtx(ui), Object.getOwnPropertyDescriptors(own));
   return html`<div class=${cls} data-park=${kb.park || ''}>${blockView(kb, c)}</div>`;
+}
+
+// a capability's grant on the engine's approval: what it asks, whose it is to allow, once or for an hour
+function asGrant(kb, grant) {
+  kb.lead = grant.lead;
+  kb.description = grant.note;
+  kb.options = [...(grant.canAllow ? [{ optionId: 'once', name: 'Allow once', kind: 'allow_once', explicit: false }, { optionId: 'hour', name: 'Allow here for 1 hour', kind: 'allow_once', explicit: false }] : []),
+    { optionId: 'deny', name: 'Deny', kind: 'reject_once', explicit: false }];
+}
+const howOf = (a) => (a.optionId === 'once' || a.optionId === 'hour' ? a.optionId : undefined);
+
+/**
+ * approvalTpl(calls, decide, lead, grant): the calls a run wants to run, as
+ * the kit's request card, for a caller that holds the calls and takes the
+ * verdict itself — decide(yes, how) with how 'once' | 'hour' for a grant
+ * (model/rules.js grantAsk). The signature chat-cards.js always exported;
+ * the page itself draws a run's park with kitPark.
+ */
+export function approvalTpl(calls, decide, lead = 'The agent wants to run', grant = null) {
+  const kb = ownApproval('approve:' + (calls || []).map((c) => (c.function ? c.function.name : String(c))).join(','), '', calls);
+  kb.lead = lead;
+  if (grant) asGrant(kb, grant);
+  const c = Object.create(kitCtx(page.app.session.ui), Object.getOwnPropertyDescriptors({
+    agentName: 'The agent', can: { answer: true, raise: false }, permit: (b, a) => decide(a.verdict === 'allow', howOf(a)),
+  }));
+  return html`<div class="ask approve ${grant ? 'grant' : ''}">${blockView(kb, c)}</div>`;
 }

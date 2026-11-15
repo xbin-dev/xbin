@@ -21,6 +21,8 @@ import './chat-copy.js'; // copying with the formatting: the transcript's Ctrl+C
 import { activityStill } from './model/harness.js';
 import { kitRow, kitPark } from './chat-kit.js';
 
+export { approvalTpl } from './chat-kit.js'; // (it lived here: an instance's module that draws an approval of its own imports it from this file)
+
 onHighlighter(() => ctx.paint()); // the code highlighter arrived: what was drawn plain is drawn again
 
 const icon = (name) => (name ? html`<bx-icon name=${name}></bx-icon>` : nothing);

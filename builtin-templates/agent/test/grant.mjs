@@ -80,5 +80,25 @@ await page.waitForSelector('.anote');
 ok('a refused verdict says why, inline', (await page.textContent('.anote')).includes('That approval is no longer pending'), await page.textContent('.anote'));
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
+// approvalTpl, as a module of an instance's own would call it (chat-cards.js still exports it): the calls, the
+// lead it is given, Approve / Deny answering decide(yes)
+const own = await page.evaluate(async () => {
+  const { approvalTpl } = await import('/chat-cards.js');
+  const { render } = await import('/vendor/lit-all.min.js');
+  const box = document.body.appendChild(document.createElement('div'));
+  const said = [];
+  render(approvalTpl([{ function: { name: 'x_tool' } }, 'y_tool'], (yes, how) => said.push([yes, how ?? null]), 'My module wants to run'), box);
+  const card = box.querySelector('.ask.approve');
+  const text = card.textContent.replace(/\s+/g, ' ');
+  const buttons = [...card.querySelectorAll('button')].map((b) => b.textContent.trim());
+  card.querySelector('button.bxc-primary').click();
+  await new Promise((r) => setTimeout(r, 50));
+  card.querySelector('button.bxc-deny')?.click();
+  await new Promise((r) => setTimeout(r, 50));
+  box.remove();
+  return { text, buttons, said };
+});
+ok('chat-cards.js still exports approvalTpl: its lead, its calls, Approve / Deny → decide', own.text.includes('My module wants to run') && own.text.includes('x_tool') && own.text.includes('y_tool')
+  && own.buttons.join('|') === 'Approve|Deny' && JSON.stringify(own.said) === '[[true,null],[false,null]]', JSON.stringify(own));
 await browser.close();
 done('grant');
