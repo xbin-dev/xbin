@@ -576,7 +576,12 @@ their saved default, then the workspace's `own-first` | `connector` |
 `off`). The key is in the agent's environment only, is good for the
 connector's model routes only, and is revoked when the session ends. A
 plain terminal gets `XBIN_LLM_URL` and `XBIN_LLM_KEY` the same way. A
-session with no network (`net: none`) reaches no connector.
+session with no network (`net: none`) reaches the connector — and nothing
+else — through one port of its sandbox's gateway, forwarded to xbind's
+LLM-only listener. Where a rule gives the connector alone (the workspace's
+`connector-only`, an org's model rule), everything fails closed: a session
+that can't be put on the connector doesn't open, one whose host doesn't
+confirm it is ended, and a model outside the connector's can't be set.
 
 A long conversation stays quick (D124, D130): the Agent tab reads only the
 tail of the log when it opens, folds what arrives, renders at most once a

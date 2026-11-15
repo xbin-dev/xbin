@@ -679,6 +679,13 @@ manager that can arrange that offers the capability `llm`:
   `xbin.LLMKeyFor`, [sdk.md](/docs/sdk.md)). The manager holds no key and
   mints none. It works with every `egress`, `none` included: reaching the
   connector is not egress.
+- **The key is only as private as the sandbox.** Whoever can run a command
+  in a sandbox can read the environment of the processes in it — a coding
+  agent's LLM key included. In a sandbox shared between people, another
+  member can so spend the quota of the person a run acts for, for as long
+  as that run lives (the key ends with it, and within a day at most). A
+  consumer that shares sandboxes says so to its people; a manager needn't
+  do anything about it.
 - **A command's `env` may carry `XBIN_LLM_URL` and `XBIN_LLM_KEY`** — the
   names a coding agent's configuration reads the address and the key by.
   A manager that refuses a workspace's own variables in `env` (xbind's

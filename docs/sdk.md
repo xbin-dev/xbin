@@ -271,7 +271,7 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   | Provider | Wire | Kind | What is set |
   |---|---|---|---|
   | `opencode` | `chat` | additive | `OPENCODE_CONFIG_CONTENT`: an inline config declaring the provider `xbin` ("LLM by xbin") with `Models`, its key read from `XBIN_LLM_KEY`; its `model` member (`xbin/<Model>`) only when the connector serves |
-  | `codex` | `responses` | replacing | `DEFAULT_AUTH_REQUEST` (codex-acp's gateway auth: the base URL and the key as a header) and `CODEX_CONFIG` `{"model": <Model>}`; unset `CODEX_API_KEY`, `OPENAI_API_KEY`, `MODEL_PROVIDER` |
+  | `codex` | `responses` | replacing | `DEFAULT_AUTH_REQUEST` (codex-acp's gateway auth: the base URL and the key as a header — what a signed-out Codex needs to open a session), and the connector as the session's model provider in its own config: `CODEX_CONFIG` `{"model": <Model>, "model_provider": "custom-gateway", "model_providers": {…, "env_key": "XBIN_LLM_KEY"}}` and `MODEL_PROVIDER=custom-gateway` — over whatever `~/.codex/config.toml` or a project's names; unset `CODEX_API_KEY`, `OPENAI_API_KEY` |
   | `claude` | `anthropic` | replacing | `ANTHROPIC_BASE_URL` (the URL without `/v1`), `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL` and the three `ANTHROPIC_DEFAULT_*_MODEL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`; unset `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` |
   | `gemini` | — | | no `Connector`: the CLI speaks Google's wire only |
 
@@ -295,9 +295,24 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   `acp.ExpandWord(word, getenv)` expands them — where the CLI runs. A
   sign-in the person already has keeps working. The key should be narrow
   and short-lived (xbind's LLM keys: `xbin.LLMKeyFor`, below): Codex
-  writes its environment to `$CODEX_HOME/shell_snapshots`. `acp.Fake`
-  takes a connector as codex does (or, with `--llm-additive` in its argv,
-  as opencode does) and its `llm-call <text>` script calls it.
+  writes its environment to `$CODEX_HOME/shell_snapshots`.
+  **`ConnectorParams.Only`**: the connector alone may serve the session —
+  a rule of yours nobody's choice overrides. With `Serves:
+  acp.ServeConnector` opencode is then rendered with `enabled_providers:
+  ["xbin"]` and its `small_model`, so no other provider of the person's,
+  the project's or the vendor's exists in that session; check what your
+  client asks the CLI to switch to with `p.Connector.AllowsOption(id,
+  category, value, models)` (a model option must name one of your models
+  as the CLI writes it, `ModelPrefix + id`), and fail closed where you
+  can't hand the session the connector. **What you pass is rendered only
+  when it is safe in a configuration**: a model whose id is not
+  `acp.ValidConnectorModel` (letters, digits, `. _ : / @ + ~ = , -`; at
+  most 200) is left out, a model name with braces becomes its id, and
+  nothing at all is rendered for a URL, key or name that could read as
+  opencode's `{env:…}`/`{file:…}`. `acp.Fake` takes a connector as codex
+  does (or, with `--llm-additive` in its argv, as opencode does); its
+  `llm-call <text>` script calls it, and `FAKEACP_LLM_ONLY=1` in its
+  environment says `Only` was set.
 - **Prompts with files.** `acp.PrepareAttachments` checks and normalises
   them (limits: `acp.Max*`). Each file is first dropped where the agent
   runs — `ClientOptions.Drop` returns the path — then an image goes inline
@@ -629,7 +644,8 @@ k, err := xbin.LLMKeyFor(ctx, xbin.LLMKeyOpts{User: person, TTL: 24 * time.Hour,
 	Label: "codex run 12", Sandbox: box.ID})
 switch {
 case errors.Is(err, xbin.ErrLLMUnavailable): // no connector here (or an older xbind): run it on its own sign-in
-case errors.Is(err, xbin.ErrLLMKeyForbidden): // the slot isn't bound to xbin:llm, or User isn't who this backend acts for
+case errors.Is(err, xbin.ErrLLMKeyForbidden): // the slot isn't bound to xbin:llm, User isn't who this backend acts for, or the caller isn't the backend
+case errors.Is(err, xbin.ErrLLMKeyLimit): // too many of this tile's keys are alive: end the ones no longer in use
 }
 defer xbin.RevokeLLMKey(context.Background(), k.ID) // when the run ends — or
 // xbin.RevokeLLMKeysLabeled(ctx, "codex run 12"): every key asked for with that
@@ -644,8 +660,19 @@ env, _ := provider.ConnectorEnv(acp.ConnectorParams{URL: box.LLM.URL, Key: k.Tok
   ([partitions.md](/docs/partitions.md)); `""` takes them. A backend that
   serves everyone acts for nobody: its key is metered to the tile alone.
   xbind refuses any other name: a tile never mints a key for someone else.
-- `TTL` defaults to a day and is capped at 30; a key also ends when xbind
-  restarts. Revoke it when the run ends.
+- **Only a backend asks**: the call is made with the tile's own credential
+  (its instance or partition token — what `xbin.Client()` carries in a
+  backend). The tile's frame, a terminal and an agent session are refused.
+- `TTL` is a day at most (and by default); a key also ends when xbind
+  restarts. Revoke it when the run ends — and don't treat that as best
+  effort: retry until xbind acknowledged it. A run that goes on past a day
+  keeps its key alive with `xbin.RenewLLMKey(ctx, k.ID, 0)` well before it
+  expires (`ErrLLMKeyGone`: it ended; ask for a new one) — so a key whose
+  backend went away is dead within a day, whatever was forgotten.
+- A tile holds at most 64 live keys for one person and 512 in all
+  (`ErrLLMKeyLimit`). A key names the deployment its backend runs in:
+  `RevokeLLMKeysLabeled` ends that deployment's only, and the tile's edge
+  policy for the deployment holds on every call made with it.
 - `Token` is a secret: pass it in the tool's environment, keep it out of
   stores and logs, and redact it from what the tool prints.
 - **Where the tool reaches the connector** is the sandbox's to say. A

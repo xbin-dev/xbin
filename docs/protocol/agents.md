@@ -163,12 +163,18 @@ POST   /term/sessions             terminal-level on the tile (a shell's own
                                    with the reason when the connector is
                                    asked for and can't serve (not
                                    configured, a harness it has no wire
-                                   for, a session without network or
-                                   targeting a non-primary deployment), 403
-                                   when the rule in force is the connector
-                                   alone and the session asks for its own
-                                   sign-in or the connector can't serve it,
-                                   400 another word. 400 unknown
+                                   for, no model to start on), 403 when the
+                                   rule in force is the connector alone and
+                                   the session asks for its own sign-in,
+                                   names a model that isn't the
+                                   connector's (model, options), or can't
+                                   be given the connector at all — no key,
+                                   nothing to reach it at: such a session
+                                   never opens on something else — 400
+                                   another word. A session with net: none
+                                   reaches the connector through the
+                                   LLM-only door of its sandbox's gateway
+                                   (llm.md §The network path). 400 unknown
                                    provider/mode, 403, 409 per-user limit,
                                    503 vault sealed / no bx. 403 with the
                                    reason when the tile's orgs or the
@@ -348,7 +354,10 @@ POST   /term/sessions/<id>/options
                                    effort, mode, … — the `options` list on
                                    the session's idle status event); applied
                                    to the next turn, the refreshed list rides
-                                   the next status event → ok
+                                   the next status event → ok. 403 where
+                                   the connector alone may serve the
+                                   session and the value is a model that
+                                   isn't one of its (llm.md)
 GET    /term/sessions/<id>/log    creator or admin. text/plain: the adapter's
                                    stderr + driver notes (debugging); LLM
                                    keys in it are masked (xbl_[redacted])

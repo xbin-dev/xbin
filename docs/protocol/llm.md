@@ -120,6 +120,7 @@ configuration has (a name under an upstream, a listed model).
 | 403 | `xbin_llm_policy` | the call's upstream or model is not allowed for this caller |
 | 403 | `xbin_llm_edge` | a non-primary deployment under its tile's edge policy: a call under `read`, anything under `block` |
 | 429 | `xbin_llm_busy` | the caller already has `concurrency` calls in flight; `Retry-After: 1` |
+| 429 | `xbin_llm_keys` | `POST /llm/keys`: the tile holds its cap of live LLM keys (64 for one person, 512 in all) |
 | 404 | `model_not_found` | the model resolves to no upstream, or isn't on its upstream's list |
 | 429 | `xbin_llm_quota_exceeded` | a stopping quota is reached. `type: "insufficient_quota"`, plus `quota` (`user.tokensPerDay`, `org:<id>.costPerMonth`, `default.…`, `workspace.…`), `resets` (RFC 3339, UTC), `limit`, `used`; `Retry-After` in seconds |
 | 502 | `xbin_llm_upstream_auth` | the upstream refused the workspace's key (its 401 or 403 — never passed on as the caller's) |
@@ -179,46 +180,62 @@ here, for a coding tool it runs where its own credential must not go — a
 sandbox. The Go SDK: `xbin.LLMKeyFor` ([sdk.md](/docs/sdk.md)).
 
 ```
-POST   /llm/keys                   a component whose llm slot is bound to
-                                   xbin:llm, with its own credential (403 a
-                                   person's sign-in, an LLM key, a tile that
-                                   isn't bound). {user?, ttlSec?, label?,
-                                   sandbox?} → {id, token, user, component,
-                                   expires, url}. The key is metered as the
-                                   tile's own calls are: to the person the
-                                   credential acts for — a partition's
-                                   person, the person driving its frame or
-                                   terminal, nobody ("") for a backend that
-                                   serves everyone — and to the tile. user,
-                                   when named, must be that person: 403
-                                   otherwise (a tile never names someone
-                                   else). The key stands while the tile is
-                                   bound and its person can still read the
-                                   tile; a non-primary deployment gets one
-                                   only where its tile's edge policy leaves
-                                   it the binding in full (403
-                                   xbin_llm_edge otherwise). ttlSec: default 86400, at most 30
-                                   days; the key also ends when xbind
+POST   /llm/keys                   the BACKEND of a component whose llm slot
+                                   is bound to xbin:llm, with its own
+                                   credential (an instance or partition
+                                   token). 403 a person's sign-in, an LLM
+                                   key, a tile that isn't bound — and the
+                                   tile's frame, a terminal or an agent
+                                   session: a credential a browser or a
+                                   shell holds mints nothing. {user?,
+                                   ttlSec?, label?, sandbox?} → {id, token,
+                                   user, component, expires, url}. The key
+                                   is metered as the backend's own calls
+                                   are: to its partition's person — nobody
+                                   ("") for a backend that serves everyone
+                                   — and to the tile. user, when named,
+                                   must be that person: 403 otherwise. The
+                                   key stands while the tile is bound and
+                                   its person can still read the tile. It
+                                   names the backend's deployment and is
+                                   held to the tile's edge policy for it on
+                                   EVERY call (403 xbin_llm_edge once the
+                                   policy reads or blocks, or the
+                                   deployment is gone); a deployment under
+                                   the read clamp mints none. ttlSec:
+                                   default and at most 86400 (a longer run
+                                   renews); the key also ends when xbind
                                    restarts. label and sandbox (≤200
                                    characters each) are kept for the log.
                                    token is answered this once. url is the
                                    connector's path under xbind (/api/xbin/
                                    llm/v1); a sandbox reaches it at the
                                    address its manager names (sandbox-
-                                   manager.md §The sandbox, llm). 503 not
+                                   manager.md §The sandbox, llm). 429
+                                   xbin_llm_keys: the tile holds 64 live
+                                   keys for that person, or 512 in all (end
+                                   the ones no longer in use). 503 not
                                    configured or switched off
-DELETE /llm/keys/<id>              the component that asked for it. Ends the
+POST   /llm/keys/<id>/renew        the backend that asked for it. {ttlSec?}
+                                   → {id, expires}: the key's life becomes
+                                   ttlSec (default and at most 86400) from
+                                   now, never shorter than it was. 404 a
+                                   key that ended or expired, or that
+                                   another component, deployment or
+                                   person's backend asked for
+DELETE /llm/keys/<id>              the backend that asked for it. Ends the
                                    key now. 204 whether or not it still
-                                   lived; another component's key is not
+                                   lived; a key of another component, or of
+                                   another deployment of this one, is not
                                    touched
-DELETE /llm/keys?label=<label>     the component that asked for them. Ends
-                                   every key it asked for with that label
-                                   for the person its credential acts for —
-                                   a consumer that names a run in the label
-                                   keeps no key ids, and its successor
-                                   after a restart can still end a run's
-                                   key. 204 whatever lived; 400 without
-                                   label
+DELETE /llm/keys?label=<label>     the backend that asked for them. Ends
+                                   every key it asked for with that label,
+                                   in its own deployment, for the person
+                                   its credential acts for — a consumer
+                                   that names a run in the label keeps no
+                                   key ids, and its successor after a
+                                   restart can still end a run's key. 204
+                                   whatever lived; 400 without label
 ```
 
 ## Configuration (admins)

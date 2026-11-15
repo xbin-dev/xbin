@@ -250,7 +250,7 @@ connector in its environment. What each harness gets:
 | Harness | Through the connector | What xbind sets |
 |---|---|---|
 | OpenCode | yes — beside the person's own providers | an inline config (`OPENCODE_CONFIG_CONTENT`) declaring the provider **LLM by xbin** with the connector's models, so they can always be picked; its `model` — what makes it the session's default — only when the connector serves the session |
-| Codex | yes — in place of a sign-in | codex-acp's gateway sign-in (`DEFAULT_AUTH_REQUEST`) and the model (`CODEX_CONFIG`), only when the connector serves the session |
+| Codex | yes — in place of a sign-in | codex-acp's gateway sign-in (`DEFAULT_AUTH_REQUEST`) and the connector as the session's model provider, with its model (`CODEX_CONFIG`, `MODEL_PROVIDER`) — over the person's `config.toml` — only when the connector serves the session |
 | Claude Code | not yet | nothing: it speaks Anthropic's Messages wire, which the connector doesn't relay yet. It runs on the person's own sign-in |
 | Gemini CLI | no | nothing: it has no OpenAI-compatible mode. Own sign-in only |
 
@@ -280,6 +280,42 @@ its tile, and a call for a model the tile's orgs don't allow is refused
 (`403 xbin_llm_policy`), whatever the CLI asks for; the models a session is
 offered, and the one it starts on, are the allowed ones.
 
+**Where only the connector may serve, nothing fails open.** Under the rule:
+
+- a session that can't be given the connector — no key could be made, no
+  address to reach it at, nothing to configure its CLI with — does not
+  open (`403`, with the rule and what is missing); it never opens on
+  something else;
+- the agent host must answer that the connector serves. One that answers
+  otherwise, or nothing, has its session ended with the reason in the
+  transcript; a session's row says `llm: "connector"` only after that
+  answer, and the host gives it once;
+- the CLI is configured so that nothing else can be picked: OpenCode's
+  inline configuration names the connector's provider alone
+  (`enabled_providers: ["xbin"]`, merged last, so it wins over the
+  person's and the project's own), so neither a sign-in in `auth.json`, a
+  provider in their config nor OpenCode's free models appear in its list
+  or can be set; Codex's session config names the connector as its model
+  provider, over whatever `~/.codex/config.toml` or a project's names
+  (this holds whenever the connector serves Codex, rule or not);
+- a model a client asks a session to switch to — in `options`/`model` at
+  the start, or `POST …/options` later — must be one of the connector's
+  for that person and tile (`403` otherwise).
+
+What the rule holds is the *session xbind starts and its calls through the
+connector*. It does not stop a person from running a CLI on their own
+sign-in in a plain terminal on the same tile — the terminal is theirs, and
+has the network its tile's rules give it; an org that must keep code from
+other models also sets the tile's `net` rules. And the configuration is the
+CLI's own: someone with a shell in the session's sandbox can change what
+that sandbox's CLI reads (the call policy on the connector's side, which
+they can't change, is the control that doesn't depend on it).
+
+Without the rule, a personal or project OpenCode config that sets its own
+`enabled_providers` and leaves `xbin` out keeps OpenCode off the connector
+even when the session asked for it: the list is theirs, and xbind doesn't
+override it unless the rule says so.
+
 The `agents` switch (`bx llm sessions agents=off`) takes the connector away
 from agent sessions altogether.
 
@@ -287,9 +323,8 @@ So with `own-first` a person who signed OpenCode in keeps their models as
 the default and gains the connector's in the picker, and a person with no
 sign-in gets the connector's model — never, silently, OpenCode's own free
 third-party models. Asking for the connector where it can't serve (Claude
-Code, no default model, a session with no network or one that targets a
-tile deployment other than the primary) is refused with the reason; it is
-never dropped quietly.
+Code, no default model) is refused with the reason; it is never dropped
+quietly.
 
 The session says what it runs on: a first line in the transcript when the
 connector serves it, `llm: "connector" | "own"` in its row, and `GET
@@ -298,10 +333,16 @@ connector serves it, `llm: "connector" | "own"` in its row, and `GET
 
 The default model is `xbin/harness` — the `harness` role's model, else the
 default model, else the first model an upstream lists — resolved when the
-session starts. Codex has no metadata for a model it doesn't know and says
-so in its answers ("Model metadata … not found"); its own model names stay
-in its picker and work when an upstream serves them or an alias maps them
-(§Model names).
+session starts. Only models whose ids are plain model names (letters,
+digits and `. _ : / @ + ~ = , -`) are offered to a CLI: an upstream's list
+is data, and an id with braces, quotes or spaces is never written into a
+CLI's configuration (OpenCode's substitutes `{env:…}` and `{file:…}`); such
+a model stays callable by its name. Codex has no metadata for a model it
+doesn't know and says so in its answers ("Model metadata … not found") —
+its one place for it is a catalog file in its own versioned format that
+replaces its whole model list (`model_catalog_json`), which xbind does not
+write; its own model names stay in its picker and work when an upstream
+serves them or an alias maps them (§Model names).
 
 ### Terminals
 
@@ -359,15 +400,21 @@ rewritten.
 
 The connector is reached at xbind's own address (`XBIN_URL`), which a
 session's sandbox reaches whatever network scope it has — the tile's `net`
-rules never block it — except one: a session with **no network** (`net:
-none`) has no route to xbind at all. It gets no key; an agent session says
-so in its first line and runs on the person's own sign-in.
+rules never block it. A session with **no network** (`net: none`) has no
+route to xbind; it reaches the connector, and only the connector, through
+one door: a port of its sandbox's gateway — `XBIN_LLM_URL` is then
+`http://10.0.2.2:4180/v1` — forwarded to xbind's **LLM-only listener**,
+which serves the three model routes to an LLM key and nothing else. "Its
+model and no internet" is a complete session: nothing else of xbind, no
+DNS, no other address answers there. (An xbind without the listener — it
+could not open its socket — gives such a session no key and says so.)
 
 A session that targets a **tile deployment other than the primary**
-([tile-deployments.md](/docs/tile-deployments.md)) gets no key either, and says so
-the same way: a key carries no deployment, so the tile's edge policy —
-which decides what a non-primary deployment may use — could not be held to
-its calls.
+([tile-deployments.md](/docs/tile-deployments.md)) gets a key like any
+other, which names that deployment; its calls are the person's — metered
+to them, under the tile's model rule — and are not held to the tile's edge
+policy, which governs what the deployment's own *backend* may use (a key
+that backend asks for is: §Sandboxes made by a sandbox manager).
 
 When the connector refuses an agent session's call — a quota reached
 (`xbin_llm_quota_exceeded`), too many calls at once (`xbin_llm_busy`), a
@@ -393,14 +440,35 @@ reaches nothing of xbind. Two things connect it:
   class, `none` included. The sandbox's row names the address (`llm.url`);
   a manager or an xbind that doesn't know the field leaves it out, and the
   consumer runs the agent on its own sign-in;
-- **the key** is the consumer's to ask for: a tile whose `llm` slot is
-  bound to `xbin:llm` calls `xbin.LLMKeyFor` ([sdk.md](/docs/sdk.md); `POST
-  /api/xbin/llm/keys`) for the person it acts for, hands the key to the
-  agent as an exec's environment, and revokes it when the run ends.
+- **the key** is the consumer's *backend's* to ask for: a tile whose `llm`
+  slot is bound to `xbin:llm` calls `xbin.LLMKeyFor`
+  ([sdk.md](/docs/sdk.md); `POST /api/xbin/llm/keys`) with its own
+  credential, for the person it acts for (its partition's; nobody for a
+  backend that serves everyone), hands the key to the agent as an exec's
+  environment, and revokes it when the run ends. Its frame, a terminal and
+  an agent session on the tile get none (`403`): a credential a browser or
+  a shell holds must not become a key that outlives it. Such a key lives a
+  day at most and is renewed by its backend for a run that goes on
+  (`xbin.RenewLLMKey`); a tile holds at most 64 live keys for one person
+  and 512 in all (`429 xbin_llm_keys`); it names the backend's deployment
+  and is held to the tile's edge policy for that deployment on every call.
 
 The agent template does both: bind its `llm` slot to `xbin:llm` and a
 coding agent with no sign-in of its own — none saved by the person, none in
-the sandbox — starts on the connector.
+the sandbox — starts on the connector, provided the workspace set a model
+for coding agents (with none, it says so and runs on its own sign-in: a CLI
+left to pick its own model would not be on the connector at all). In a
+sandbox with **no egress** the connector is the one thing reachable, so the
+agent runs on it whatever sign-in the sandbox holds — or doesn't start,
+with the reason.
+
+One thing a consumer and its people should know: **a sandbox shared
+between people shares its processes' environment.** A member who can run
+commands in a sandbox can read the environment of a coding agent another
+member's run started there, its LLM key included — for as long as that run
+lives, they could spend that person's quota with it. It is the same reach
+they have to every file in the sandbox; share a sandbox with people you
+would share the run with.
 
 ## Usage
 

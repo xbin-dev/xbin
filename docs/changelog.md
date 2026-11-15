@@ -12,6 +12,51 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **LLM connector for coding agents and terminals: a security pass**
+  (D226; [llm.md](/docs/llm.md) §Coding agents and terminals). None of it
+  changes a workspace with no connector configured.
+  - **`connector-only` fails closed.** Where the workspace's credential
+    mode or an org's model rule gives the connector alone, a session that
+    can't be put on it is refused (`403`) instead of opening without it, a
+    session whose agent host doesn't confirm it is ended with the reason,
+    OpenCode is configured with the connector as its only provider, and a
+    model that isn't the connector's can't be set — at `POST
+    /term/sessions` (`model`, `options`) or `POST …/options` (`403`).
+  - **`POST /api/xbin/llm/keys` is for a tile's backend only.** A frame,
+    terminal or agent-session credential is now `403` (before, a tile's
+    page could mint a key for its person). A key lives **24 h at most**
+    (was 30 days); `POST /api/xbin/llm/keys/<id>/renew` keeps a longer
+    run's alive (`xbin.RenewLLMKey`, `ErrLLMKeyGone`). A tile holds at most
+    64 live keys for one person and 512 in all (`429 xbin_llm_keys`,
+    `xbin.ErrLLMKeyLimit`). A key names its backend's deployment: it is
+    held to the tile's edge policy for that deployment on every call, and
+    `DELETE /llm/keys?label=` ends that deployment's keys only.
+    **If your tile's page asked for keys, move the call to its backend.**
+  - **A session with no network reaches the connector** — and nothing
+    else: `net: none` sessions and terminals get `XBIN_LLM_URL` =
+    `http://10.0.2.2:4180/v1`, one gateway port forwarded to xbind's
+    LLM-only listener (before: no key, "can't be reached"). **A session
+    on a non-primary tile deployment gets a key** that names the
+    deployment (before: none).
+  - Only models whose ids are plain model names are written into a CLI's
+    configuration (`acp.ValidConnectorModel`); an upstream's list can't
+    put `{env:…}` or `{file:…}` into OpenCode's.
+  - An agent can no longer forge the agent host's own frames (who serves
+    its model calls); LLM keys are masked in a dead terminal's logged tail
+    before the cut.
+  - `sdk/acp`: `ConnectorParams.Only`, `Connector.AllowsOption`,
+    `ValidConnectorModel` ([sdk.md](/docs/sdk.md)).
+  - **Agent template**: a coding agent runs on the connector only when the
+    workspace set a model for coding agents (else it says why and uses its
+    own sign-in); it starts in a sandbox with **no egress** when the
+    connector is reachable there (`GET /harnesses` images gain `llm`); its
+    key is renewed while the run lives and its end is retried until xbind
+    acknowledged it. Template instances pick it up with a template update.
+  - The Agent tab's launcher gains **"runs on"**: a person's saved choice
+    between their own sign-in and the workspace's connector for a harness
+    (`harnesses.<id>.credentials` in their agent preferences), shown only
+    where both can serve and no rule forces one.
+
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
   `llm.ReadData(r, fn)` hands each `data:` line's payload to `fn` by itself

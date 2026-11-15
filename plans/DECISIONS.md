@@ -14177,11 +14177,10 @@ Deviations and refinements made while implementing; all deliberate:
       three switches (`sessions: {agents, terminals, openaiEnv}`) are the
       connector's settings, host-lockable. A person without the terminal
       API grant gets no key in a terminal.
-    - *No key where it couldn't be held to the rules:* a session with no
-      network has no route to xbind (it says so; asking for the connector
-      there is 409), and a session that targets a non-primary deployment
-      gets none either — a key carries no deployment, so the tile's edge
-      policy couldn't be applied to its calls.
+    - *No key where it couldn't be held to the rules* (as first built;
+      both reversed by the owner in part 3): a session with no network
+      had no route to xbind, and a session that targets a non-primary
+      deployment got none either — a key carried no deployment.
     - *What the connector refuses is said in the session.* Found live:
       with a daily quota reached opencode sat in "running" without a word,
       waiting out a `Retry-After` that ends at midnight. The minter of a
@@ -14229,16 +14228,101 @@ Deviations and refinements made while implementing; all deliberate:
       saved, none in the sandbox) on the connector when its `llm` slot is
       bound to `xbin:llm` and the sandbox has `llm.url`; the key is the
       generation's secret in its redactor, which also masks `xbl_…` by
-      shape. Its gate "a coding agent's sandbox needs an egress" stays.
-    - **Open** for the owner: whether `net: none` sessions should get the
-      door too (the connector is the one model source that needs no
-      internet, but it is also a way out for what the sandbox holds);
-      whether a session on a non-primary deployment should get a key bound
-      to that deployment instead of none; codex's per-turn "model metadata
-      not found" for a model it doesn't know (set by `CODEX_CONFIG`; the
-      alternative is codex's own model names and an alias); the
-      template's egress gate where the connector would do; a surface for a
-      person's saved choice per harness in the launcher.
+      shape. (Its gate "a coding agent's sandbox needs an egress" went in
+      part 3.)
+    - **Part 3 — the review of part 2, and the owner's answers
+      (2026-11-15).** An independent review found the rule and the keys
+      softer than the text; the owner answered the open questions. What
+      changed, and why it is so:
+      - *`connector-only` fails closed.* A rule that the connector alone
+        serves was a default with a 403 in front: a `Mint` error opened the
+        session without it, a host that answered "own" only lost its key,
+        and opencode kept every other provider. Now a session that can't
+        be given the connector is refused; the host must answer
+        "connector" (once: later frames change nothing) or the session is
+        ended with the reason; opencode is rendered with
+        `enabled_providers: ["xbin"]` and its small model
+        (`ConnectorParams.Only` — the inline config is merged last, checked
+        against opencode 1.18.32 with a sign-in in `auth.json`, a custom
+        provider in the global config and a project config enabling
+        others: the model list held `xbin/…` only and every other model
+        was "not found"); and a model option a client sets must be one of
+        the connector's (`Connector.AllowsOption`), at the start and later,
+        for every harness with a connector entry. **Codex had the hole
+        the reviewer suspected**, found with the real CLI: codex-acp
+        applies the gateway auth request only where Codex asks for a
+        sign-in, so with a `model_provider` of the person's own in
+        `~/.codex/config.toml` it was never applied and the turn went to
+        that provider (seen: no call reached the connector). The session's
+        config now declares the connector as a model provider itself
+        (`CODEX_CONFIG`: `model_provider`, `model_providers.custom-gateway`
+        with `env_key`; `MODEL_PROVIDER`), whenever the connector serves —
+        checked with no config, a personal `config.toml` and a project's,
+        each naming another provider.
+        *Inherent, and said in the docs:* the rule holds the session xbind
+        starts and the calls through the connector. A person's plain
+        terminal on the tile can run a CLI on their own sign-in (an org
+        that must prevent it also sets the tile's `net`), and someone with
+        a shell in the session's sandbox can change what its CLI reads —
+        the connector-side call policy is the control that does not depend
+        on the sandbox. Without the rule, a project's own
+        `enabled_providers` that leaves `xbin` out keeps opencode off the
+        connector even when the session chose it: xbind overrides that
+        list only under the rule.
+      - *The host's frames are the host's.* The agent host relayed
+        everything the agent printed, `_xbin/hello` included — an agent
+        could say who serves it. It now drops the agent's `_xbin/*`.
+      - *Keys are a backend's to ask for, for a day.* A frame, terminal or
+        agent-session credential could mint a 30-day key for its person:
+        a token a browser holds became one that outlived it. `POST
+        /llm/keys` now takes an instance (or partition) token only; a
+        component's key lives 24 h and its backend renews it (`POST
+        /llm/keys/{id}/renew`) — a key whose backend went away is dead in a
+        day. xbind has no notion of "the driver of the request a backend
+        is serving" yet, so a non-partitioned backend's key is still
+        metered to the tile alone; that waits for delegation.
+      - *The store is bounded.* 64 live keys per (component, person), 512
+        per component, counted (not scanned), `429 xbin_llm_keys` at the
+        cap — never an eviction of a key something runs on; expired keys
+        go on a timer, not on the path of `Mint`; labels are bounded in
+        the store, not only at the route.
+      - *Keys carry their deployment.* A backend's key is held to the
+        tile's edge policy for its deployment on every call (a policy
+        change or a removed deployment takes it along), and by-label
+        revocation is per deployment — two deployments both have a
+        "harness run 7".
+      - *Only plain model names reach a CLI's configuration*
+        (`ValidConnectorModel`: no braces, quotes, spaces): an upstream's
+        list could otherwise put `{env:…}`/`{file:…}` into opencode's
+        config. Such a model stays callable; it is not offered to a CLI.
+      - *The owner's answers.* (1) A `net: none` session gets the door:
+        "its model only, no internet" is the default network for sessions
+        the workspace agent starts. Its sandbox gets a relay whose policy
+        is empty, with no forward to xbind's own listener, DNS refused,
+        and one gateway port to the LLM-only listener — the same door a
+        manager sandbox has. A person without `termApi` still gets no key
+        in a terminal. (2) A session on a non-primary deployment gets a
+        key bound to person + tile + deployment, metered to the person;
+        the edge clamp stays on the deployment's own backend credentials.
+        (3) The template starts a coding agent in a sandbox with no egress
+        when the connector is reachable there — and there the connector
+        serves whatever sign-in exists, or the agent doesn't start. (4)
+        Codex's metadata warning stays: its config's one place for model
+        metadata is `model_catalog_json`, a file in codex's own versioned
+        schema that replaces its whole catalog — not something to write
+        into a person's sandbox for a warning. (5) The launcher has "runs
+        on": the person's saved `credentials` for the harness, shown only
+        where both can serve and nothing forces one.
+      - *The template.* No model for coding agents → the connector is not
+        used and the conversation says why (opencode would otherwise run
+        its own free models under a note saying "connector"). Ending a
+        run's key is retried until xbind acknowledged it; a new start
+        waits for the earlier key's end; a running generation's key is
+        renewed every 6 h.
+      - **Still open:** real opencode with a *project* `enabled_providers`
+        list when the rule is not forced (above); a person-level
+        attribution for non-partitioned backends' keys; the Anthropic wire
+        for Claude Code.
 - **D225 — The agent session rules live in sdk/acp: tool record, mode
   escalation, steer queue, auth state, status words (2026-11-14; issue
   #51).** Two hosts run coding agents through `sdk/acp`'s client — xbind's
