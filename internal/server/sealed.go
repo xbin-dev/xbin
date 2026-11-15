@@ -199,10 +199,13 @@ func (s *Server) sealedReload(path string) {
 //     subscription is refused where it is authorized, broker.allowAt);
 //
 // and nothing else that takes a credential: no /api/xbin route, no other
-// tile's API, no terminal. The rule keys on the credential, never on a
-// request's parameters, and sits in authed, which every authenticated route
-// passes. Only the backend's own instance credential acts as the component
-// (broker.sealedActor).
+// tile's API, no terminal, no other tile's files. The rule keys on the
+// credential, never on a request's parameters, and sits where a credential
+// becomes a request's principal: authed, which every authenticated route
+// of the workspace origin passes; authedStatic (the /c/ plane); and
+// serveTileOriginAuthed (origins mode: the cookie of a sealed component's
+// own origin is the same viewer). Only the backend's own instance
+// credential acts as the component (broker.sealedActor).
 
 // SealedViewer reports the principal of a sealed component's frame token.
 func SealedViewer(p auth.Principal) bool {
@@ -216,6 +219,9 @@ func sealedViewerAllowed(r *http.Request, p auth.Principal) bool {
 		return false // only a path that reads one way
 	}
 	if own := "/api/" + p.Component; strings.HasPrefix(path, own+"/") || path == own {
+		return true
+	}
+	if strings.HasPrefix(path, "/c/"+p.Component+"/") { // its own page's files
 		return true
 	}
 	switch path {

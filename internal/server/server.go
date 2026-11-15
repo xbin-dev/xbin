@@ -319,7 +319,7 @@ func (s *Server) authedStatic(next http.Handler) http.Handler {
 			return
 		}
 		// a sealed component's viewer loads its own page's files (sealed.go)
-		if own := "/c/" + p.Component + "/"; SealedViewer(p) && !(strings.HasPrefix(r.URL.Path, own) && !strings.Contains(r.URL.Path, "/../") && !strings.HasSuffix(r.URL.Path, "/..")) {
+		if SealedViewer(p) && !sealedViewerAllowed(r, p) {
 			refuseSealedViewer(w, r, p)
 			return
 		}
