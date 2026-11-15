@@ -1,5 +1,5 @@
 // boot.js — the page's entry: is this xbind new enough for the page, then
-// agent.js.
+// agent.js (or, for a workspace agent, ws/page.js: below).
 //
 // The chat is drawn with xbind's chat kit (/vendor/chat/…, D224), and an
 // instance of this template is a copy in a workspace: it can be newer than
@@ -28,7 +28,42 @@
 // ask first: on an older xbind its import of the kit is a 404, native.js
 // fails to load, and the app shows this page instead (/docs/native.md →
 // Fallback) — which says which xbind it needs.
-export const NEEDS = Object.freeze({ kit: 4, xbind: 'v0.3.80' });
+//
+// Workspace mode (API.md §Workspace mode; D231, D232): the same backend is a
+// person's workspace agent when xbind starts it so, and then its page is
+// another one — ws/page.js, a small tree of its own over the same models —
+// in place of agent.js, whose routes that backend doesn't serve. A
+// workspace agent is a sealed component, and those live at xbin/<name>, a
+// path no workspace can hold (docs/protocol/sealed.md): only there is the
+// backend asked — once the kit is known to be there — GET /ws/state, which
+// answers its mode. A normal instance is asked nothing more than before.
+// The workspace agent's page needs `ws` (revision 5: a plan and a question
+// in the host's words); it ships with xbind, so the two always match.
+export const NEEDS = Object.freeze({ kit: 4, ws: 5, xbind: 'v0.3.80' });
+
+/**
+ * pageMode(fetch, self): 'workspace' when this page is a sealed component's
+ * (self xbin/<name>) and its backend says it is a workspace agent, else
+ * 'normal' — any other path (nothing is asked), a 404, an answer without
+ * the mode. Anything else (the backend starting, a dropped connection) is
+ * asked again, a few times, before the normal page is loaded as before.
+ */
+export async function pageMode(fetchFn = (u) => globalThis.xbin.fetch(u), self = globalThis.xbin?.self ?? '', wait = (ms) => new Promise((r) => setTimeout(r, ms))) {
+  if (!/^xbin\/[^/]+$/.test(self)) return 'normal';
+  for (let i = 0; i < 4; i++) {
+    try {
+      const r = await fetchFn(`/api/${self}/ws/state`);
+      if (r.status === 404) return 'normal';
+      if (r.ok) {
+        let d = null;
+        try { d = JSON.parse(await r.text()); } catch { d = null; }
+        return d && d.mode === 'workspace' ? 'workspace' : 'normal';
+      }
+    } catch { /* asked again below */ }
+    await wait(250 * 3 ** i);
+  }
+  return 'normal';
+}
 
 // kitRevision(): the KIT this xbind serves; 0 when it serves none.
 export async function kitRevision(load = () => import('/vendor/chat/rev.js')) {
@@ -39,7 +74,7 @@ export async function kitRevision(load = () => import('/vendor/chat/rev.js')) {
 }
 
 // needsXbind(doc, kit): the page, in place of the app.
-export function needsXbind(doc, kit) {
+export function needsXbind(doc, kit, need = NEEDS.kit) {
   // the docs are the workspace's: a tile on its own origin links there
   const ws = doc.querySelector('meta[name="xbin-workspace-origin"]')?.content || '';
   const box = doc.createElement('div');
@@ -51,7 +86,7 @@ export function needsXbind(doc, kit) {
   head.textContent = `This agent needs xbind ≥ ${NEEDS.xbind} — update xbind`;
   const why = doc.createElement('p');
   why.append(kit
-    ? `This workspace's xbind serves revision ${kit} of the chat kit this page is built on; the page needs revision ${NEEDS.kit}. `
+    ? `This workspace's xbind serves revision ${kit} of the chat kit this page is built on; the page needs revision ${need}. `
     : 'This workspace runs an xbind from before the chat kit this page is built on. ',
   'Nothing is lost: update xbind, then reload this page. ');
   const how = doc.createElement('a');
@@ -71,7 +106,16 @@ async function boot() {
     needsXbind(document, kit);
     return;
   }
-  // agent.js's own failure: said the way a failing <script type="module"> says it
-  import('./agent.js').catch((e) => { if (typeof reportError === 'function') reportError(e); else setTimeout(() => { throw e; }); });
+  // a workspace agent's page (ws/page.js), or the normal one; their own failure is said the way a failing
+  // <script type="module"> says it
+  const ws = (await pageMode()) === 'workspace';
+  if (ws && kit < NEEDS.ws) {
+    console.warn(`[agent] the workspace agent's page needs chat kit revision ${NEEDS.ws}; this xbind serves ${kit}`);
+    needsXbind(document, kit, NEEDS.ws);
+    return;
+  }
+  const fail = (e) => { if (typeof reportError === 'function') reportError(e); else setTimeout(() => { throw e; }); };
+  if (ws) import('./ws/page.js').catch(fail);
+  else import('./agent.js').catch(fail);
 }
 if (typeof document !== 'undefined') boot();
