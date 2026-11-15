@@ -57,6 +57,7 @@ xbind version
 | Iroh |  | `XBIN_IROH` |  | `internal/apptunnel/sidecar` | the xbin-iroh sidecar binary the app tunnel runs (default: the one embedded in xbind; a build without one and no XBIN_IROH ⇒ the tunnel reads unavailable) |
 | IrohLog |  | `XBIN_IROH_LOG` |  | `internal/apptunnel/sidecar` | the iroh sidecar's log level, error \| warn \| info \| debug \| trace, passed to xbin-iroh; its lines land in xbind's log. Unset: info for the sidecar, warn for iroh |
 | SandboxDebug |  | `XBIN_SANDBOX_DEBUG` |  | `internal/sandbox` | set to anything to make the sandbox init log its steps |
+| ConfineTrace |  | `XBIN_CONFINE_TRACE` |  | `internal/confine` | a file each confined tool run (git, go, … on workspace data) appends one line to: its start and end in Unix nanoseconds, 1 when sandboxed, and the tool — a measurement aid (the latency tests read it); unset: nothing is written |
 | BuildNet |  | `XBIN_BUILD_NET` |  | `internal/runner` | network of the sandboxed Go build under --isolate (D78): unset = public addresses only; host = the host's network (a GOPROXY or private modules on the LAN) |
 | Firecracker |  | `XBIN_FIRECRACKER` |  | `internal/vm` | the Firecracker binary VM sandboxes run in their namespace jail (default: bundled next to xbind, then PATH; none ⇒ VM sandboxes unavailable) |
 | VMKernel |  | `XBIN_VM_KERNEL` |  | `internal/vm` | the VM sandboxes' guest kernel (default: vmlinux next to xbind) |

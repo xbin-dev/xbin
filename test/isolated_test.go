@@ -101,6 +101,10 @@ func startIsolatedDaemon(t *testing.T, opts isoOpts) *isoDaemon {
 	return d
 }
 
+// trace is the file the daemon's confined runs are traced to
+// (XBIN_CONFINE_TRACE), beside its log.
+func (d *isoDaemon) trace() string { return filepath.Join(filepath.Dir(d.logPath), "confine.trace") }
+
 // isolationOrSkip returns the rootfs for --rootfs (XBIN_TEST_ROOTFS, or the
 // repo's .rootfs from `make rootfs`), or skips the test with the reason: not
 // Linux, no rootfs with git (confined tool runs need it, D78), unprivileged
@@ -171,6 +175,8 @@ func (d *isoDaemon) start(t *testing.T) {
 			cmd.Env = append(cmd.Env, "XBIN_VM_AGENT="+agent)
 		}
 	}
+	// every confined run, for the latency tests' hostNormalized
+	cmd.Env = append(cmd.Env, "XBIN_CONFINE_TRACE="+d.trace())
 	cmd.Env = append(cmd.Env, d.opts.Env...)
 	logf, err := os.OpenFile(d.logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {

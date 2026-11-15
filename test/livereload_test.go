@@ -179,7 +179,9 @@ func zeroStatePID(t *testing.T, tile string) int {
 
 // dlAPI is one xbind's API: the suite's shared daemon, a plain one, or an
 // isolated one (with its root token when auth is on).
-type dlAPI struct{ url, token string }
+// dlAPI is a daemon's deployments API; trace is its XBIN_CONFINE_TRACE file
+// ("" for a daemon without one): hostNormalized reads it.
+type dlAPI struct{ url, token, trace string }
 
 // sharedDL is the suite's shared daemon (--no-auth, not isolated). Only
 // tests that create no deployment state use it: the zero-state tests
@@ -207,7 +209,7 @@ func startPlainDaemon(t *testing.T) (dlAPI, string) {
 }
 
 // dl is an isolated daemon's API.
-func (d *isoDaemon) dl() dlAPI { return dlAPI{url: d.URL, token: d.Token} }
+func (d *isoDaemon) dl() dlAPI { return dlAPI{url: d.URL, token: d.Token, trace: d.trace()} }
 
 // do sends one request; a transport error is code 0 with the error as the
 // body, so polls go on across a restart.

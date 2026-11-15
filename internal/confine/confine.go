@@ -168,6 +168,9 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 	mu.RLock()
 	fs := rootfs
 	mu.RUnlock()
+	if path := os.Getenv("XBIN_CONFINE_TRACE"); path != "" {
+		defer traceRun(path, time.Now(), fs != "", c.Argv[0])
+	}
 	if fs == "" {
 		if err := c.directOK(); err != nil {
 			return Result{}, err
@@ -349,4 +352,24 @@ func (c *capped) Write(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
+}
+
+// traceRun appends one line for a run to XBIN_CONFINE_TRACE's file:
+// "<start> <end> <sandboxed> <tool>", the times in Unix nanoseconds,
+// sandboxed 1 for a run in a sandbox. The latency tests read it to tell how
+// much of an operation was spent in confined runs (test/latency_test.go,
+// confinedRuns). One write per line under O_APPEND, so concurrent runs
+// never interleave a line; a failure to write is ignored — the trace is a
+// measurement, never a reason for a run to fail.
+func traceRun(path string, start time.Time, sandboxed bool, tool string) {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		return
+	}
+	sb := 0
+	if sandboxed {
+		sb = 1
+	}
+	_, _ = fmt.Fprintf(f, "%d %d %d %s\n", start.UnixNano(), time.Now().UnixNano(), sb, filepath.Base(tool))
+	_ = f.Close()
 }

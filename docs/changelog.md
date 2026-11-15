@@ -12,6 +12,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **`XBIN_CONFINE_TRACE`**: a file every confined tool run (git, go, … on
+  workspace data) appends a line to — its start and end, whether it ran in
+  a sandbox, the tool ([config.md](/docs/config.md)). A measurement aid: the
+  latency tests use it to tell an operation's sandbox runs from the rest.
 - **agent template: cancelling a project task that waits for its
   workspace sticks.** `POST /runs/{id}/cancel` (or a cancel from its parent)
   on a task the workspace gate held parked stopped it only until the gate's
