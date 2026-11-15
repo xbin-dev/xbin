@@ -23,9 +23,12 @@ package delegation
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -33,6 +36,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // KeepMonths is how many monthly files a person's log keeps.
@@ -104,17 +108,46 @@ func userOfDir(name string) (string, bool) {
 
 const monthFmt = "2006-01"
 
+// Bounds of a row. Every string a row carries is cut to its bound when it
+// is written, whoever handed it over (a tile path comes from a query or a
+// request body; a refusal quotes the request): no row is longer than
+// MaxRow on disk, so no row can make the file unreadable. MaxField bounds
+// the names (agent, tile, class, ticket, under), MaxPath the path and the
+// refusal. A user id is never cut — a cut id is another person's — so a
+// row for one over MaxField is refused.
+const (
+	MaxField = 256
+	MaxRow   = 4096
+)
+
+func bound(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+// bounded is c with every field within its bound.
+func bounded(c Call) Call {
+	c.Agent, c.Tile, c.Class = bound(c.Agent, MaxField), bound(c.Tile, MaxField), bound(c.Class, 64)
+	c.Ticket, c.Under, c.Method = bound(c.Ticket, 64), bound(c.Under, 96), bound(c.Method, 16)
+	c.Path, c.Refused = bound(c.Path, MaxPath), bound(c.Refused, MaxPath)
+	return c
+}
+
 // Append records c (its Time is set here when zero).
 func (l *Log) Append(c Call) error {
 	if l == nil || c.User == "" {
 		return nil
 	}
-	if len(c.Path) > MaxPath {
-		c.Path = c.Path[:MaxPath] + "…"
+	if len(c.User) > MaxField {
+		return fmt.Errorf("delegation audit: a user id of %d bytes", len(c.User))
 	}
-	if len(c.Refused) > MaxPath {
-		c.Refused = c.Refused[:MaxPath] + "…"
-	}
+	c = bounded(c)
 	u := l.lock(c.User)
 	defer u.mu.Unlock()
 	if c.Time.IsZero() {
@@ -156,8 +189,16 @@ func prune(dir string, now time.Time) {
 // Read answers user's rows, newest first: at most limit (0: 200) rows older
 // than before (zero: now).
 func (l *Log) Read(user string, before time.Time, limit int) ([]Call, error) {
+	rows, _, err := l.ReadCounted(user, before, limit)
+	return rows, err
+}
+
+// ReadCounted is Read, and how many lines of the files it read were no
+// row: over-long, torn, not a row's JSON. Such a line is skipped, never an
+// error — one bad line must not hide a month from its person.
+func (l *Log) ReadCounted(user string, before time.Time, limit int) ([]Call, int, error) {
 	if l == nil || user == "" {
-		return []Call{}, nil
+		return []Call{}, 0, nil
 	}
 	if limit <= 0 || limit > 1000 {
 		limit = 200
@@ -167,9 +208,9 @@ func (l *Log) Read(user string, before time.Time, limit int) ([]Call, error) {
 	dir := userDir(l.dir, user)
 	ents, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		return []Call{}, nil
+		return []Call{}, 0, nil
 	} else if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var files []string
 	for _, e := range ents {
@@ -179,11 +220,12 @@ func (l *Log) Read(user string, before time.Time, limit int) ([]Call, error) {
 	}
 	slices.Sort(files)
 	slices.Reverse(files) // newest month first
-	out := []Call{}
+	out, skipped := []Call{}, 0
 	for _, name := range files {
-		rows, err := readFile(filepath.Join(dir, name))
+		rows, bad, err := readFile(filepath.Join(dir, name))
+		skipped += bad
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		for i := len(rows) - 1; i >= 0 && len(out) < limit; i-- {
 			if before.IsZero() || rows[i].Time.Before(before) {
@@ -194,23 +236,53 @@ func (l *Log) Read(user string, before time.Time, limit int) ([]Call, error) {
 			break
 		}
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
-func readFile(path string) ([]Call, error) {
+func readFile(path string) (rows []Call, skipped int, err error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer f.Close()
-	var rows []Call
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
-	for sc.Scan() {
-		var c Call
-		if json.Unmarshal(sc.Bytes(), &c) == nil && c.User != "" { // a torn last line is skipped
-			rows = append(rows, c)
+	rd := bufio.NewReaderSize(f, 64<<10)
+	for {
+		line, long, err := readLine(rd, MaxRow)
+		if len(line) > 0 || long {
+			var c Call
+			switch {
+			case long:
+				skipped++ // written by something that didn't bound it
+			case json.Unmarshal(line, &c) != nil || c.User == "" || c.Time.IsZero():
+				skipped++ // torn, or not a row
+			default:
+				rows = append(rows, bounded(c))
+			}
+		}
+		if err == io.EOF {
+			return rows, skipped, nil
+		}
+		if err != nil {
+			return rows, skipped, err
 		}
 	}
-	return rows, sc.Err()
+}
+
+// readLine reads one line of at most max bytes; a longer one is read past
+// and reported as long, with nothing of it kept.
+func readLine(rd *bufio.Reader, max int) (line []byte, long bool, err error) {
+	for {
+		part, err := rd.ReadSlice('\n')
+		if !long {
+			if len(line)+len(part) > max+1 {
+				long, line = true, nil
+			} else {
+				line = append(line, part...)
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return bytes.TrimRight(line, "\r\n"), long, err
+	}
 }
