@@ -436,6 +436,25 @@ GET  /xbin/llm                    the LLM connector's page (D226,
                                  predates the connector uses, named by
                                  its alerts. Headers, sign-in and
                                  /vendor/ as /xbin/partitions
+GET  /xbin/agent                  the workspace agent's page (D232,
+                                 docs/workspace-agent.md §Using it):
+                                 xbind's own static page —
+                                 web/agent.html as shipped, no transform
+                                 — xbin's chrome for a person's
+                                 workspace agent (what waits for them,
+                                 approvals, what it did, preferences,
+                                 pause) around the agent's own page in a
+                                 sandboxed frame, acting through
+                                 /api/xbin/delegate… with the signed-in
+                                 person's session; ?view=needs |
+                                 approvals | activity | prefs,
+                                 ?request=<id>, ?changes=<id> open one
+                                 thing. The surface a shell without the
+                                 agent's chip uses, named by an alert.
+                                 Headers and sign-in as /xbin/partitions,
+                                 but its CSP has a frame-src (it frames
+                                 a tile document); /vendor/agent.html is
+                                 404
 ANY  /api/<component-path>/<p>   → component backend (see below)
 ANY  /api/xbin/<p>              → xbind's own API (protocol.md §xbind API)
 ANY  /api/~<ticket>/<p>         → a path ticket's prefix of one tile's API

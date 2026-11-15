@@ -15,7 +15,10 @@ func delegationEndpoints() []ep {
 	id := []oapi{pathParam("id", "the id")}
 	return []ep{
 		{"GET", "/delegate/state", tag, "A person's agent: its switches and what waits for them", orAgent,
-			"{user, workspace (the workspace's switch), paused, adminChanges, canAdminChanges (the person is a workspace or org admin), pendingRequests, standingApprovals, openChangeSets}.", nil, nil, "state"},
+			"{user, workspace (the workspace's switch), paused, adminChanges, canAdminChanges (the person is a workspace or org admin), pendingRequests, standingApprovals, openChangeSets, workspaceAt? (when the switch was last set), pausedAt?, agent? (the component whose page is the agent's conversation; absent: this xbind ships none)}.", nil, nil, "state"},
+		{"POST", "/delegate/page/dismiss", tag, "Dismiss the notice that names the agent's page", "the person, or the shell they drive",
+			"Once an admin has turned workspace agents on and this xbind has an agent to show, GET /alerts carries one alert of kind agent-page for each person — their own session and the shell they drive — naming /xbin/agent in words, for a shell that has no chip for the agent (its dismiss is this route). A POST ends it for that person, for good. Nothing else changes.",
+			nil, nil, "{ok}"},
 		{"PUT", "/delegate/state", tag, "Pause or resume your agent; let it propose admin changes", orPage,
 			"{paused?, adminChanges?} → the state. Pausing refuses the agent's every call at once (403 refusal paused) and cuts the ones running. The agent's page may send {paused: true} and nothing else (403): resuming and adminChanges are the person's own session's, and only a workspace or org admin can turn adminChanges on (403).", nil,
 			jsonBody("switches", oapi{"paused": boolean(), "adminChanges": boolean()}), "state"},

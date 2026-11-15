@@ -235,8 +235,14 @@ type State struct {
 	Paused bool `json:"paused"`
 	// AdminChanges: the person, an admin, lets their agent read what change
 	// sets cover and propose them (never apply them).
-	AdminChanges bool      `json:"adminChanges"`
-	Updated      time.Time `json:"updated,omitempty"`
+	AdminChanges bool `json:"adminChanges"`
+	// PausedAt: when the person paused it (zero while it runs): what the
+	// chrome's "Paused by you at …" reads.
+	PausedAt time.Time `json:"pausedAt,omitempty"`
+	// PageSeen: the person dismissed the notice that names /xbin/agent (the
+	// one alert a shell without the agent's chip shows them; D232).
+	PageSeen bool      `json:"pageSeen,omitempty"`
+	Updated  time.Time `json:"updated,omitempty"`
 }
 
 // State reads user's state. A file that can't be read is the closed state:
@@ -254,6 +260,23 @@ func (s *Store) State(user string) State {
 	return st
 }
 
+// SeePage records that user dismissed the notice naming the agent's page
+// (State.PageSeen). A state file that can't be read is left alone: nothing
+// but the person's own decision replaces it (SetState).
+func (s *Store) SeePage(user string) error {
+	if s == nil || user == "" {
+		return ErrNoStore
+	}
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	st, err := load(&p.state, s.userFile(user, "state.json"))
+	if err != nil || st.PageSeen {
+		return err
+	}
+	st.PageSeen = true
+	return save(&p.state, s.userFile(user, "state.json"), st)
+}
+
 // SetState applies change to user's state and writes it.
 func (s *Store) SetState(user string, change func(*State)) (State, error) {
 	if s == nil || user == "" {
@@ -265,7 +288,14 @@ func (s *Store) SetState(user string, change func(*State)) (State, error) {
 	if err != nil {
 		st = State{} // an unreadable file is replaced by what the person now decides
 	}
+	was := st.Paused
 	change(&st)
 	st.Updated = s.now().UTC().Truncate(time.Second)
+	switch {
+	case !st.Paused:
+		st.PausedAt = time.Time{}
+	case !was || st.PausedAt.IsZero():
+		st.PausedAt = st.Updated
+	}
 	return st, save(&p.state, s.userFile(user, "state.json"), st)
 }

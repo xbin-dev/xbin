@@ -216,6 +216,32 @@ test surface for the UI harness), and the shell's own siblings under
 `shell/`. They are served, and they will keep being served, but their
 shapes follow the shell.
 
+**The workspace agent's chrome** (D232;
+[workspace-agent.md](/docs/workspace-agent.md) §Using it,
+[protocol/delegation.md](/docs/protocol/delegation.md) §The chrome) is
+shell-only in a stricter sense: it sends a person's decisions about their
+agent, which xbind takes from the person's own session alone, so it works
+only in a document that holds one — the shell, `/xbin/agent` — and does
+nothing in a tile's frame.
+
+| Module | What it is |
+|---|---|
+| `/vendor/bx-agent-dock.js` | `<bx-agent-dock>` — the side panel: xbin's header (title, **Needs you** with its count, Pause / Resume, a menu: Approvals, What my agent did, Preferences), the agent's own page in a sandboxed frame below it — or the state that explains why there is none — and every trusted overlay. Properties `open`, `full` (fill the page), `context` (`{tile}` or `{screen}`: told to the page), `page`; methods `toggle()`, `show(view)`, `review(kind, id)`; events `bx-agent-dock {open, width}` (the shell makes room; 360–720 px, remembered per person, the whole page under 640 px) and `bx-agent-open-session {tile, session}` |
+| `/vendor/bx-agent-approve.js` | `<bx-agent-approve>` — the approval sheet of one request (a tile call, a tile agent's start, a tile's creation), drawn from xbind's reading of it: properties `request`, `person`; event `bx-agent-done {id, verdict}`. Allow is armed 600 ms after the sheet shows and only while nothing covers it; Enter never allows; the wider grant has a second step |
+| `/vendor/bx-agent-changes.js` | `<bx-agent-changes>` — the review of an admin change set: a line an item with its before and after, warnings (a warned item starts unticked), blocked items with xbind's reason, the sign-in step, the results, Undo (which proposes a new set). Properties `set`, `person`; events `bx-agent-done`, `bx-agent-review` |
+| `/vendor/bx-agent-panels.js` | `<bx-agent-needs>` (what waits), `<bx-agent-approvals>` (standing approvals, **Take back**), `<bx-agent-activity>` (what the agent did, in sentences), `<bx-agent-prefs>`, `<bx-agent-setup>` (the states shown in place of the page) |
+| `/vendor/agent-chrome-store.js` | `agentStore()` — the document's one reading of the person's delegation, kept current by the `delegate` events (no polling), and the only place a decision is sent from |
+| `/vendor/agent-chrome-words.js` | pure: every word the chrome shows and every choice of its design in one object (`CHOICES`: the dock's bounds, the arming delay, each grant's default duration, the shortcut), the state the dock is in (`dockState`), the chip (`chip`, `needCount`), and what a message from the agent's page is read as (`pageMessage`) |
+| `/vendor/agent-chrome-css.js` | the chrome's one stylesheet (`chromeCss`) |
+
+A shell needs three things of these, and the scaffold's
+`shell/shell-agent.js` is the pattern: a chip in its top bar from
+`GET /api/xbin/delegate/state` (through `chip()`; import
+`agent-chrome-words.js` with a guarded dynamic `import()` — an xbind
+without it answers 404 and the shell draws nothing), a lazy
+`import('/vendor/bx-agent-dock.js')` on the first open, and room for the
+dock beside its canvas.
+
 ## Native preview modules
 
 `/vendor/xb/render.js` — `<xb-view>`, the reference renderer of the native

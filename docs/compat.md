@@ -351,6 +351,39 @@ nothing is written under `data/llm/`.
   ignores it. **Downgrading** below the connector leaves `data/llm/`
   unread.
 
+## The workspace agent's chrome (D232)
+
+Until an admin turns workspace agents on, nothing is drawn for anyone but
+an admin (a chip that reads "set up workspace agent" in a current shell).
+
+- **Old shells** (rule 4) have no chip and no dock. `/xbin/agent` is
+  xbind's own page and needs no scaffold: the same dock, full width —
+  approvals, admin change sets, what the agent did, preferences, pause.
+  Once an admin has turned workspace agents on and this xbind has an agent
+  to show, `GET /alerts` carries one alert of kind `agent-page` for each
+  person — their own session and the shell they drive — whose words name
+  `/xbin/agent`: an old shell shows it as a line of text. A shell that
+  knows an alert's `dismiss` route ends it for that person with it (xbind
+  accepts the post from the shell they drive); the alert never returns.
+  Pushes and direct links (`?request=<id>`, `?changes=<id>`) land on the
+  page whatever the shell.
+- **The scaffold's new file is a sibling**: `shell/shell-agent.js`,
+  imported relatively by `bx-shell.js`, which keeps its name. The dock's
+  modules are xbind's (`/vendor/bx-agent-dock.js` and what it imports),
+  loaded on the first open; a current shell on an older xbind finds none
+  (a guarded import) and draws no chip. A current shell leaves alerts of
+  kind `agent-page` out: it has the chip.
+- **Additive wire.** New: the page `/xbin/agent`,
+  `POST /api/xbin/delegate/page/dismiss`, alert kind `agent-page`, and
+  `workspaceAt`, `pausedAt` and `agent` in `GET /api/xbin/delegate/state`
+  (rule 2). The messages between the agent's page and the chrome
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §The chrome)
+  only grow.
+- **State.** A person's dismissal and the time of their pause are two
+  fields in their `data/delegation/…/state.json`; an older xbind ignores
+  them, and its next write of that file drops them: after a downgrade and
+  an upgrade the alert shows once more.
+
 ## Agent constraints, preferences and session links (D229)
 
 With no rule set, nothing changes for anyone: every harness starts

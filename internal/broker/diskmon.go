@@ -421,6 +421,7 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 		out = append(out, b.AdminShellAlerts()...) // the LLM connector's, in an admin's shell (D226)
 	}
 	out = append(out, b.agentLevelAlerts(p)...) // a tile's manifest asks to let agents do more: its managers decide (agentlevel.go)
+	out = append(out, b.agentPageAlert(p)...)   // where the person's workspace agent is, for a shell without its chip (agentpagealert.go)
 	out = b.agentAlerts(p, out)                 // a person's agent: not the tiles whose org keeps it out (delegatelist.go)
 	out = b.decorateAlerts(p, out)              // raise actions: choices and approvers for whoever drives p (tilelimits_alerts.go)
 	server.WriteJSON(w, http.StatusOK, map[string]any{"alerts": out})

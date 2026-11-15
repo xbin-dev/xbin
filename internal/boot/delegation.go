@@ -4,8 +4,13 @@ package boot
 // D228): the wiring of what the server's delegate gate, the broker's Route
 // and the terminal manager ask.
 //
-// One thing is left to the package that owns it, one assignment:
+// Two things are left to the package that owns them, one assignment each:
 //
+//   - WHICH COMPONENT IS THE AGENT HERE: srv.AgentHolder, from the same
+//     table — the component whose page xbin's chrome frames below its
+//     header (GET /delegate/state's agent; server/agentpage.go). Until
+//     then the chrome says no agent ships with this xbind, and the notice
+//     that names /xbin/agent is sent to nobody.
 //   - WHO HOLDS DELEGATION: auth.SetDelegateHolders, pointed at the
 //     sealed-component table (internal/sealed, Capabilities.Delegate) when
 //     it is in the tree. Until then no lookup is installed and no component

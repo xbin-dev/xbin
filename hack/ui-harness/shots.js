@@ -24,6 +24,7 @@ const { menuOpen } = require('./passes/menuopen');
 const { branding } = require('./passes/branding');
 const { agentTemplate } = require('./passes/agenttemplate');
 const { agentConvs } = require('./passes/agentconvs');
+const { agentChrome } = require('./passes/agentchrome');
 const { channels } = require('./passes/channels');
 const { newTile } = require('./passes/newtile');
 const { personalPlane } = require('./passes/personalplane');
@@ -828,7 +829,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, agentSignin, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminSettings, templateCard, partitionSwitch, personalBinds, personPage,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, agentChrome, agentSignin, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminSettings, templateCard, partitionSwitch, personalBinds, personPage,
 };
 PASSES.adminPolicies = adminSettings; // its name before D180 (the policies tab is the settings tab's section)
 PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge

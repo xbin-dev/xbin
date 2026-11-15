@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" data-bx-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace agent — xbin</title>
+<link rel="icon" type="image/svg+xml" href="/vendor/favicon.svg">
+<!-- the person's theme (D184): this page gets no document injection, so
+     theme-boot.js copies the xbin_theme hint cookie into the meta theme.css
+     reads — a classic script, before the stylesheet, for the first paint -->
+<script src="/vendor/theme-boot.js"></script>
+<link rel="stylesheet" href="/vendor/theme.css">
+<link rel="stylesheet" href="/vendor/agent-page.css">
+<!-- xbind's own chrome for a person's workspace agent (/xbin/agent; D232,
+     docs/protocol/delegation.md): served exactly as it is here — no HTML
+     transform — and only top-level. No inline script: its CSP allows
+     'self' alone for script; it may frame the agent's own page. -->
+<script type="module" src="/vendor/agent-page.js"></script>
+</head>
+<body class="bx">
+<bx-agent-dock open full></bx-agent-dock>
+<noscript>The workspace agent's page needs JavaScript.</noscript>
+</body>
+</html>

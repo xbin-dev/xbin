@@ -219,11 +219,23 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 			open++
 		}
 	}
-	return map[string]any{
-		"user": a.user, "workspace": s.Delegation.Workspace().Enabled,
+	ws := s.Delegation.Workspace()
+	out := map[string]any{
+		"user": a.user, "workspace": ws.Enabled,
 		"paused": st.Paused, "adminChanges": st.AdminChanges, "canAdminChanges": mayOptInAdmin(a.p),
 		"pendingRequests": len(pend), "standingApprovals": len(aps), "openChangeSets": open,
 	}
+	// what xbin's own chrome draws its states from (agentpage.go; D232)
+	if !ws.At.IsZero() {
+		out["workspaceAt"] = ws.At // the switch was set once: off now is "turned off", not "never set up"
+	}
+	if st.Paused && !st.PausedAt.IsZero() {
+		out["pausedAt"] = st.PausedAt
+	}
+	if h := s.agentHolder(); h != "" {
+		out["agent"] = h // the component whose page is the agent's conversation
+	}
+	return out
 }
 
 // apiDelegateState — GET /delegate/state: the person, their agent's page or

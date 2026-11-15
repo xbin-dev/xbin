@@ -482,6 +482,7 @@ var routeClasses = map[string]RouteClass{
 	"PUT /delegate/state":                    PrimaryOnly,
 	"GET /delegate/workspace":                PrimaryOnly,
 	"PUT /delegate/workspace":                PrimaryOnly,
+	"POST /delegate/page/dismiss":            PrimaryOnly,
 	"GET /delegate/audit":                    PrimaryOnly,
 	"POST /delegate/requests":                PrimaryOnly,
 	"GET /delegate/requests":                 PrimaryOnly,
