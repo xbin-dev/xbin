@@ -17,7 +17,7 @@ import { needs } from '/vendor/agent-chrome-words.js';
 
 const dock = document.querySelector('bx-agent-dock');
 const q = new URLSearchParams(location.search);
-const ID = /^[A-Za-z0-9_.:-]{1,80}$/;
+const ID = /^[0-9a-f]{24}$/; // a request's or change set's id, as xbind mints them (agent-chrome-words.js pageMessage)
 const store = agentStore();
 store.subscribe(() => {
   const n = needs(store).length;

@@ -138,6 +138,8 @@ async function agentChrome(browser) {
     const tag = width < 640 ? '-430' : '';
     const { ctx, page } = await login(browser, 'admin', 'admin', { viewport: { width, height: 900 } });
     const S = await fakeDelegation(ctx);
+    // the chrome never navigates by itself: a navigation in the middle of the matrix is a bug, said where it happened
+    page.on('framenavigated', (f) => { if (f === page.mainFrame()) log(`[${width}] navigated: ${f.url()}`); });
     const refresh = () => page.evaluate(() => import('/vendor/agent-chrome-store.js').then((m) => m.agentStore().refresh()));
     const sentTo = (re) => S.sent.filter((c) => re.test(`${c.m} ${c.p}`));
     const armed = (sel) => page.waitForFunction((s) => { const q = (root, parts) => parts.reduce((r, p) => r && (r.shadowRoot || r).querySelector(p), root);
