@@ -188,7 +188,7 @@ async function agentTemplate(browser) {
   const grantCard = await page.textContent('.ask.approve.grant');
   check(grantCard.includes('read your other conversations'), `reading the owner's other conversations asks them (${grantCard.slice(0, 100)})`);
   await shot(page, 'agent-template-grant', { fullPage: false });
-  await page.click('.ask.approve.grant .btn:has-text("Allow here for 1 hour")');
+  await page.click('.ask.approve.grant button:has-text("Allow here for 1 hour")');
   await until(page, () => [...document.querySelectorAll('#timeline .msg.assistant:not(.live)')].filter((e) => e.textContent.includes('Found:')).length >= 2, null, 30000);
   const found = (await text(page, '#timeline .msg.assistant:not(.live)')).filter((t) => t.includes('Found:')).pop();
   check(/Found: #\d+ \[/.test(found || ''), `allowed, the agent lists the owner's threads (${found})`);
@@ -203,7 +203,7 @@ async function agentTemplate(browser) {
   await say(page, 'all my threads after revoking');
   await until(page, () => document.querySelector('.ask.approve.grant'), null, 30000);
   check(true, 'after a revoke it is asked again');
-  await page.click('.ask.approve.grant .btn:has-text("Deny")');
+  await page.click('.ask.approve.grant button:has-text("Deny")');
   await until(page, () => !document.querySelector('.ask.approve.grant'), null, 10000);
 
   // 9. a save mid-call: the successor re-issues the call at once

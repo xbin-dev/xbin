@@ -46,10 +46,10 @@ export const IMPLEMENTS = {
   'chat.tool.resultCut': 'chat-cards.js — resultTpl',
   'chat.agent': 'chat-cards.js — agentTpl',
   'chat.agent.open': 'chat-cards.js — open ↗',
-  'chat.agent.approval': 'chat-cards.js — approvalTpl on the card',
+  'chat.agent.approval': 'chat-cards.js — agentTpl: chat-kit.js kitPark with the child\'s run (the chat kit\'s request card)',
   'chat.agent.answer': 'chat-cards.js — .answer',
   'chat.harnessChild': 'harness-child.js — cardTpl through ext.block (.hkid: .hkline, .hkmeta, bodyTpl .hkplan, .hktail read by an IntersectionObserver: model/harness-child.js childCard, loadTail)',
-  'chat.harnessChild.ask': 'harness-child.js — parkTpl: harness-ask.js permissionTpl / questionTpl, signin.js signInTpl with the child\'s run',
+  'chat.harnessChild.ask': 'harness-child.js — parkTpl: chat-kit.js kitPark (through harness-ask.js permissionTpl / questionTpl), signin.js signInTpl with the child\'s run',
   'chat.harnessChild.steer': 'harness-child.js — [data-act] stop, cancel (confirm), message → msgTpl (app.harness.stop, cancel, steer {interrupt}); the notice: model/fold.js NOTICE',
   'chat.step': 'chat-cards.js — stepTpl',
   'chat.step.finish': 'chat-cards.js — stepTpl .step.finish .md (mdOf)',
@@ -69,9 +69,9 @@ export const IMPLEMENTS = {
   'chat.queue.takeBack': 'chat-cards.js — queueTpl ✕',
 
   // Asking
-  'ask.approval': 'chat-cards.js — approvalTpl',
-  'ask.grant': 'chat-cards.js — approvalTpl with rules.grantAsk (Allow once · Allow here for 1 hour · Deny)',
-  'ask.question': 'chat-cards.js — .ask',
+  'ask.approval': 'chat-kit.js — kitPark: the chat kit\'s request card (its permView) → ui.act.approve',
+  'ask.grant': 'chat-kit.js — kitPark with rules.grantAsk (Allow once · Allow here for 1 hour · Deny)',
+  'ask.question': 'chat-kit.js — kitPark: the chat kit\'s question card (the next message answers it)',
 
   // Composer
   'composer.text': 'agent.js — #msg, autosize',
@@ -225,9 +225,9 @@ export const IMPLEMENTS = {
   'harness.usage': 'harness-cards.js — topTpl (model/harness.js usageBadge)',
   'harness.files': 'harness-cards.js — topTpl (model/harness.js countsWords)',
   // Coding agents — asking and controls
-  'harness.permission': 'harness-ask.js — permissionTpl through ext.end (model/harness-ask.js permission → app.harness.permit)',
-  'harness.planApproval': 'harness-ask.js — permissionTpl (plan) through ext.end',
-  'harness.question': 'harness-ask.js — questionTpl through ext.end (model/harness-ask.js question, formFields → app.harness.answer)',
+  'harness.permission': 'harness-ask.js — ext.end: chat-kit.js kitPark, the chat kit\'s permView (model/harness-ask.js parkBlock → app.harness.permit)',
+  'harness.planApproval': 'harness-ask.js — ext.end: chat-kit.js kitPark, the chat kit\'s plan approval',
+  'harness.question': 'harness-ask.js — ext.end: chat-kit.js kitPark, the chat kit\'s askView and <bx-chat-form> (model/harness-ask.js parkBlock → app.harness.answer)',
   'harness.mode': 'harness-controls.js — #hctl popover (model/harness-ask.js controls → app.harness.setMode)',
   'harness.options': 'harness-controls.js — #hctl popover (app.harness.setOptionOf); model/rules.js modelPicker hides #msel',
   'harness.slash': 'harness-controls.js — #slash (model/harness-ask.js slashMatches)',

@@ -28,6 +28,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     places a read or a search touched, a fetch's address as a link, and a
     file a patch could not be drawn for by name. The Agent tab's cards
     change with it.
+  - **The request card** (`/vendor/chat/asks.js`) is one card for a
+    coding agent's permission request, the agent template's own approval
+    of its tools and a capability's grant: it leads with who asks what
+    ("Claude Code asks to run a command"), shows the command or the calls,
+    the diff the call would make (the request's own, else the call's:
+    `ChatCtx.callOf`), an optional word with a rejection where the host
+    can send one (`ChatCtx.rejectWord`), and the options. A question leads
+    with "<agent> asks". A `perm` block may carry its own `lead`; its
+    `calls` are listed; `cards.js` exports `diffsView`.
   - **For a tile that draws with the kit**: a `tool` block may carry its
     own `icon`, `sub`, `outcome`, `args` and `result` (a tool of the
     host's own); `ChatCtx.rowAttrs(block, depth)` puts the host's hook
@@ -48,7 +57,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     `.st`, `summary` for `.tch`, `.bxc-body` for `.tcb`; a coding agent's
     `data-kind` is read from `data-tool`), so a stylesheet of your own
     that reached inside a card needs those names. `harness-cards.js`
-    keeps the top bar's usage badge, counts and plan pin.
+    keeps the top bar's usage badge, counts and plan pin. What a run
+    waits on a person for keeps `.ask` (`.hask`, `.hplan`, `.hq` for a
+    coding agent's; `.approve`, `.grant` for the engine's own) and
+    `data-park` on its element; inside, the buttons are the kit's
+    (`button[data-option]` for `.hopts [data-opt]`, `.bxc-word` and
+    `.bxc-reject textarea` for `.hfb`, `.bxc-field[data-field]` for
+    `.hfield`). `harness-ask.js` still exports `permissionTpl` and
+    `questionTpl` (they draw the run's park; the card model argument is
+    ignored), `chat-cards.js` no longer exports `approvalTpl`.
 
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).

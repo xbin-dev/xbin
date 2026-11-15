@@ -67,7 +67,9 @@ export function permission(perm, opts = {}) {
   const title = tool.title || (perm.calls && perm.calls[0]) || '';
   return {
     plan, planText: plan ? String(perm.plan.text || '') : '', planPath: plan ? String(perm.plan.path || '') : '',
-    lead: plan ? `${name} has a plan` : `${name} asks to ${PERM_VERB[tool.kind] || PERM_VERB.other}`,
+    lead: perm.lead ? String(perm.lead) : plan ? `${name} has a plan`
+      : perm.calls && perm.calls.length ? `${name} asks to run ${perm.calls.length === 1 ? 'a tool' : `${perm.calls.length} tools`}`
+        : `${name} asks to ${PERM_VERB[tool.kind] || PERM_VERB.other}`,
     title,
     label: tool.label && tool.label !== title ? tool.label : '',
     command: tool.command && tool.command !== title ? tool.command : '',

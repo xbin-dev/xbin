@@ -37,7 +37,7 @@ const park = (id, pendingState, extra = {}) => page.evaluate(([id, ps, x]) => {
   Object.assign(r, { status: 'waiting_input', pendingState: ps, ...x });
   window.__push({ type: 'run', run: id, root: r.rootId || id, data: { id, status: 'waiting_input', pendingState: ps, harness: r.harness, ...x } });
 }, [id, pendingState, extra]);
-const opts = () => page.$$eval('.hask .hopts button', (els) => els.map((e) => e.dataset.opt));
+const opts = () => page.$$eval('.hask .bxc-btns button', (els) => els.map((e) => e.dataset.option));
 
 await page.goto(`${ORIGIN}/#c=22`);
 await page.waitForSelector('.hask');
@@ -46,10 +46,10 @@ await page.waitForSelector('.hask');
 ok('the harness\'s own options, in its order', JSON.stringify(await opts()) === '["allow","allow_always","reject"]', JSON.stringify(await opts()));
 const card22 = await page.textContent('.hask');
 ok('the call: who asks, its title and label', card22.includes('Claude Code asks to run a command') && card22.includes('go test ./...') && card22.includes('Run the tests'), card22);
-ok('"always" says what it remembers', (await page.textContent('.hask .hrule')).includes('later execute calls titled ‘go test ./...’'));
+ok('"always" says what it remembers', (await page.textContent('.hask .bxc-rulenote')).includes('later execute calls titled ‘go test ./...’'));
 ok('the built-in approval card is not drawn for it', !(await page.$('.ask.approve')));
-await page.fill('.hask .hfb', 'run only the unit tests');
-await page.click('.hask [data-opt="reject"]');
+await page.fill('.hask .bxc-word', 'run only the unit tests');
+await page.click('.hask [data-option="reject"]');
 await waitCall('POST', '/runs/22/approve$', 1);
 let b = (await last('POST', '/runs/22/approve$')).body;
 ok('reject + feedback: {park, option, feedback}', b.park === 'Xq3perm' && b.option === 'reject' && b.feedback === 'run only the unit tests' && !('approve' in b), JSON.stringify(b));
@@ -64,10 +64,10 @@ await park(22, {
     tool: { title: 'Edit client.go', kind: 'edit', content: [{ type: 'diff', path: '/work/api/client.go', oldText: 'a\nb\nc\nd', newText: 'a\nb\nC\nd' }] } } });
 await page.waitForSelector('.hask[data-park="Xq3perm2"]');
 ok('defaultToNo: reject first', JSON.stringify(await opts()) === '["reject","allow"]', JSON.stringify(await opts()));
-const diff = await page.textContent('.hask .hdiff');
-ok('the edit\'s diff previewed', diff.includes('/work/api/client.go') && diff.includes('-c') && diff.includes('+C') && diff.includes('+1') && diff.includes('−1'), diff);
+const diff = await page.textContent('.hask .bxc-diff');
+ok('the edit\'s diff previewed', diff.includes('/work/api/client.go') && diff.includes('-c') && diff.includes('+C'), diff);
 ok('the adapter\'s description', (await page.textContent('.hask')).includes('touches a generated file'));
-await page.click('.hask [data-opt="allow"]');
+await page.click('.hask [data-option="allow"]');
 await waitCall('POST', '/runs/22/approve$', 2);
 b = (await last('POST', '/runs/22/approve$')).body;
 ok('allow: the option, no feedback', b.park === 'Xq3perm2' && b.option === 'allow' && !('feedback' in b), JSON.stringify(b));
@@ -77,15 +77,15 @@ ok('(the stub still holds the run)', !!ps2);
 await go(27, '.hask.hplan');
 const plan = await page.textContent('.hask.hplan');
 ok('the plan, its options', plan.includes('Backfill in batches of 1000') && plan.includes('Yes, and auto-accept edits') && plan.includes('No, keep planning'), plan);
-ok('the bypass option is marked', !!(await page.$('.hask [data-opt="bypassPermissions"] bx-icon[name="warning"]')) &&
-  await page.$eval('.hask [data-opt="bypassPermissions"]', (e) => e.classList.contains('hwarn')));
+ok('the bypass option is marked', !!(await page.$('.hask [data-option="bypassPermissions"] bx-icon[name="warning"]')) &&
+  await page.$eval('.hask [data-option="bypassPermissions"]', (e) => e.classList.contains('bxc-explicit')));
 dialogs = 'dismiss';
-await page.click('.hask [data-opt="bypassPermissions"]');
+await page.click('.hask [data-option="bypassPermissions"]');
 await page.waitForTimeout(100);
 ok('the bypass option asks first — dismissed, nothing is sent', (await calls('POST', '/runs/27/approve$')).length === 0);
 dialogs = 'accept';
-await page.fill('.hask textarea.hfb', 'use a transaction per batch');
-await page.click('.hask [data-opt="plan"]');
+await page.fill('.hask .bxc-reject textarea', 'use a transaction per batch');
+await page.click('.hask [data-option="plan"]');
 await waitCall('POST', '/runs/27/approve$', 1);
 b = (await last('POST', '/runs/27/approve$')).body;
 ok('keep planning: the rejection with the feedback', b.park === 'Xq3plan' && b.option === 'plan' && b.feedback === 'use a transaction per batch', JSON.stringify(b));
@@ -94,24 +94,24 @@ ok('keep planning: the rejection with the feedback', b.park === 'Xq3plan' && b.o
 await go(23, '.hask.hq');
 ok('the question and its choices (enumNames)', (await page.textContent('.hask.hq')).includes('Which JSON library should I use?') &&
   (await page.textContent('.hask.hq [data-field="library"]')).includes('encoding/json (stdlib)'));
-await page.click('.hask.hq .hopts .btn:not(.ghost)');
-ok('a required field unanswered is said, nothing sent', (await page.textContent('.hask.hq .err')).includes('Library') && (await calls('POST', '/harness/answer$')).length === 0);
-await page.check('.hask.hq [data-field="library"] input[data-i="1"]');
-await page.click('.hask.hq .hopts .btn:not(.ghost)');
+await page.click('.hask.hq .bxc-btns button.bxc-primary');
+ok('a required field unanswered is said, nothing sent', (await page.textContent('.hask.hq .bxc-err')).includes('Library') && (await calls('POST', '/harness/answer$')).length === 0);
+await page.check('.hask.hq [data-field="library"] input >> nth=1');
+await page.click('.hask.hq .bxc-btns button.bxc-primary');
 await waitCall('POST', '/runs/23/harness/answer$', 1);
 b = (await last('POST', '/runs/23/harness/answer$')).body;
 ok('submit: accept with the form\'s content', b.park === 'Xq3ask' && b.action === 'accept' && b.content.library === 'jsoniter', JSON.stringify(b));
 await park(23, { kind: 'question', park: 'Xq3ask2', harness: { eid: 'e2', message: 'Anything else?', schema: { type: 'object', properties: { note: { type: 'string', title: 'Note' } } } } });
 await page.waitForSelector('.hask[data-park="Xq3ask2"]');
-await page.click('.hask.hq .hopts .btn.ghost');
+await page.click('.hask.hq .bxc-btns button.bxc-deny');
 await waitCall('POST', '/runs/23/harness/answer$', 2);
 b = (await last('POST', '/runs/23/harness/answer$')).body;
 ok('skip: decline', b.park === 'Xq3ask2' && b.action === 'decline' && !('content' in b), JSON.stringify(b));
 await park(23, { kind: 'question', park: 'Xq3url', harness: { eid: 'e3', mode: 'url', url: 'https://example.invalid/verify', message: 'Verify your account' } });
 await page.waitForSelector('.hask[data-park="Xq3url"]');
-ok('url mode: the page as a link', (await page.getAttribute('.hask a.hurl', 'href')) === 'https://example.invalid/verify' &&
+ok('url mode: the page as a link', (await page.getAttribute('.hask .bxc-field a', 'href')) === 'https://example.invalid/verify' &&
   (await page.textContent('.hask')).includes('Verify your account'));
-await page.click('.hask.hq .hopts .btn:not(.ghost)');
+await page.click('.hask.hq .bxc-btns button.bxc-primary');
 await waitCall('POST', '/runs/23/harness/answer$', 3);
 b = (await last('POST', '/runs/23/harness/answer$')).body;
 ok('url mode: Done accepts', b.park === 'Xq3url' && b.action === 'accept' && JSON.stringify(b.content) === '{}', JSON.stringify(b));

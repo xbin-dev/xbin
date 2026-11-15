@@ -195,7 +195,11 @@ export const chatCssText = `
     background: var(--bx-warn-bg, #382F2C); display: flex; flex-direction: column; gap: 8px; }
   .bxc-perm .bxc-q > b bx-icon { color: var(--bx-warn, #F2994A); margin-right: 6px; }
   .bxc-perm .bxc-desc { color: var(--bx-muted, #A3A6B6); margin-top: 2px; }
+  .bxc-perm .bxc-ptitle { font: ${F.code}; }
+  .bxc-perm .bxc-qmsg { font: ${F.body}; }
+  .bxc-perm .bxc-calls { margin: 0; padding-left: 20px; }
   .bxc-perm .bxc-pbody:empty { display: none; }
+  .bxc-perm .bxc-word { width: 100%; }
   .bxc-perm .bxc-rulenote, .bxc-perm .bxc-note { color: var(--bx-muted, #A3A6B6); font: ${F.meta}; }
   .bxc-perm .bxc-note.bxc-err { color: var(--bx-danger, #FF7A7A); }
   /* answered: nothing waits on it any more — a plain card */
@@ -222,9 +226,9 @@ export const chatCssText = `
   .bxc-ask .bxc-opt { display: flex; gap: 6px; align-items: baseline; cursor: pointer; }
   .bxc-ask .bxc-opt input { accent-color: var(--bx-accent, #8C9BFF); }
   .bxc-ask .bxc-opt .bxc-od { color: var(--bx-muted, #A3A6B6); }
-  .bxc-ask .bxc-txt { box-sizing: border-box; min-height: var(--bx-control-h, 28px); background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
+  .bxc-ask .bxc-txt, .bxc-perm .bxc-txt { box-sizing: border-box; min-height: var(--bx-control-h, 28px); background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
     border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); padding: 4px 8px; font: ${F.ui}; }
-  .bxc-ask .bxc-txt::placeholder, .bxc-reject textarea::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; }
+  .bxc-ask .bxc-txt::placeholder, .bxc-perm .bxc-txt::placeholder, .bxc-reject textarea::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; }
   .bxc-ask .bxc-answers { margin: 0; padding-left: 16px; }
   bx-chat-form { display: flex; flex-direction: column; gap: 8px; }
   .bxc-plan-card { border-color: var(--bx-border-strong, #666A7E); background: var(--bx-panel, #1F2028); }

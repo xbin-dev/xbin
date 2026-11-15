@@ -203,6 +203,7 @@ export const TOOL_STATES = Object.freeze(['writing', 'pending', 'running', 'appr
  *   options: PermOption[],
  *   rule: {kind: string, title: string}|null,  // what an "always" answer will also allow; null: it can't be remembered
  *   title?: string,            // the agent's own heading for the request
+ *   lead?: string,             // the host's own words for who asks what, in place of the kit's ("Fable asks to run a command")
  *   description?: string,
  *   defaultToNo?: boolean,     // the rejections come first
  *   plan: {text: string, path?: string}|null,
@@ -552,6 +553,10 @@ export function cached(b, slot, fn) {
  *           `confirm` for an `explicit` option
  * @property {(block: AskBlock, answer: {action: string, content?: object}) => (Promise<boolean>|void)} answer
  *           answer a question: accept (content: the form's values), decline, cancel
+ * @property {(block: PermBlock) => (ToolRecord|null)} [callOf]  the record of the call a request is about, when the host holds
+ *                                               it: its diffs are previewed when the request's own content has none
+ * @property {boolean} [rejectWord]              the host can send a word with a rejection (`feedback` of the answer): a
+ *                                               permission request then has a box for it
  * @property {(text: string) => (boolean|Promise<boolean>)} [confirm]  ask the reader to confirm an `explicit` option
  *           (default: the browser's confirm)
  * @property {(block: ChatBlock) => string} [note]  a word under a request's card: why the last answer to it was refused ('' none)

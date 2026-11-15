@@ -236,17 +236,22 @@ export function contentView(items, b, ctx, skipText = '') {
   });
 }
 
+/** diffsView(b, diffs, ctx): a call's diffs (ToolDiff[]) as a card draws them — each capped like any diff, one a patch can't be made for by name. */
+export function diffsView(b, diffs, ctx) {
+  return (diffs || []).map((d, i) => (cached(b, 'udiff' + i, () => diffPatch(d))
+    ? [capped(b, ctx, 'diff' + i, cached(b, 'diff' + i, () => ({})), () => cached(b, 'udiff' + i, () => diffPatch(d))),
+      d.truncated ? html`<div class="bxc-muted">… the rest of this patch is too large to keep</div>` : nothing]
+    // nothing to draw of it: say which file, and why
+    : html`<div class="bxc-nopatch"><span class="bxc-mono">${d.path}</span> <span class="bxc-muted">${d.status === 'deleted' ? 'the file was deleted' : 'no patch to show'}</span></div>`));
+}
+
 // what a record carries of its content: its text, its diffs, a terminal that said nothing yet
 function recordContent(b, ctx, skipText = '') {
   const rec = b.rec;
   const text = String(rec.text || '');
   return [
     text.trim() && text !== skipText ? textView(text, b, 'txt') : nothing,
-    ...(rec.diffs || []).map((d, i) => (cached(b, 'udiff' + i, () => diffPatch(d))
-      ? [capped(b, ctx, 'diff' + i, cached(b, 'diff' + i, () => ({})), () => cached(b, 'udiff' + i, () => diffPatch(d))),
-        d.truncated ? html`<div class="bxc-muted">… the rest of this patch is too large to keep</div>` : nothing]
-      // nothing to draw of it: say which file, and why
-      : html`<div class="bxc-nopatch"><span class="bxc-mono">${d.path}</span> <span class="bxc-muted">${d.status === 'deleted' ? 'the file was deleted' : 'no patch to show'}</span></div>`)),
+    ...diffsView(b, rec.diffs, ctx),
     rec.terminal && !rec.output ? html`<div class="bxc-muted">${live(rec) ? 'running…' : '(no output)'}</div>` : nothing,
   ];
 }

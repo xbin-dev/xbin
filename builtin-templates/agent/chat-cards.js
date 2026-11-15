@@ -16,10 +16,10 @@ import { html, nothing, repeat, unsafeHTML, classMap, directive, Directive, noCh
 import { md, mdInto, mdEpoch, onHighlighter } from './chat-md.js';
 import { ctx } from './web-ext.js';
 import { copyAnswer } from './chat-copy.js'; // copying with the formatting: an answer's Copy, the transcript's Ctrl+C (D199)
-import { grantAsk, compactionWords } from './model/rules.js';
+import { compactionWords } from './model/rules.js';
 import { activityStill } from './model/harness.js';
 import { docStepTpl } from './doc-cards.js'; // a document the agent wrote (D201)
-import { kitRow, KIT, ownViews } from './chat-kit.js'; // the kinds xbind's chat kit draws (D224)
+import { kitRow, kitPark, KIT, ownViews } from './chat-kit.js'; // the kinds xbind's chat kit draws (D224), and what a run waits on a person for
 
 // mdOf(b, slot, text): the HTML of a block's markdown, parsed once per block
 // object (a changed message is a new block: parsed again).
@@ -32,10 +32,6 @@ function mdOf(b, slot, text) {
   return m[slot] ?? (m[slot] = md(text));
 }
 onHighlighter(() => ctx.paint());
-// the one question shown at a time (the run's result while it asks)
-let askMemo = { text: null, html: '', epoch: 0 };
-const mdAsk = (text) => (askMemo.text === text && askMemo.epoch === mdEpoch ? askMemo.html : (askMemo = { text, html: md(text), epoch: mdEpoch }).html);
-
 // mdLive(text): markdown written into the element it sits on, a top-level
 // block at a time (chat-md.js mdInto) — the answer being streamed.
 class MdLive extends Directive {
@@ -137,7 +133,7 @@ function agentTpl(b, ui, depth) {
       ${b.childId ? html`<button class="lnk" title="open this subagent's full session" @click=${(e) => { e.stopPropagation(); ui.act.select(b.childId); }}>open${icon('popout')}</button>` : nothing}
       ${caret(open)}
     </div>
-    ${b.pendingApproval ? approvalTpl(b.pendingApproval, (yes) => ui.act.approve(b.childId, yes), 'The subagent wants to run') : nothing}
+    ${b.pendingApproval && b.child ? kitPark(b.child, ui) || nothing : nothing}
     ${approveNoteTpl(ui, b.childId)}
     ${open ? html`<div class="acb">
       ${b.task ? html`<div class="task ${ui.isOpen(b.id + ':task', false) ? 'on' : ''}" @click=${() => ui.toggle(b.id + ':task', false)}>
@@ -178,21 +174,6 @@ function stepTpl(b, ui) {
   return html`<div class="step ${b.kind}" data-k=${b.id}><span class="g">${g ? icon(g) : '•'}</span> ${txt}</div>`;
 }
 
-// approvalTpl: the calls a run wants to run, approve or deny. grant (rules
-// grantAsk) is a capability only the conversation's owner may allow (D111):
-// once, or here for an hour.
-export function approvalTpl(calls, decide, lead = 'The agent wants to run', grant = null) {
-  return html`<div class="ask approve ${grant ? 'grant' : ''}">
-    <b>${grant ? grant.lead : lead}:</b>
-    <ul>${(calls || []).map((c) => html`<li class="mono">${c.function ? c.function.name : c}</li>`)}</ul>
-    ${grant ? html`<div class="muted small">${grant.note}</div>` : nothing}
-    ${!grant ? html`<button class="btn btnsm" @click=${() => decide(true)}>Approve</button>`
-      : grant.canAllow ? html`<button class="btn btnsm" @click=${() => decide(true, 'once')}>Allow once</button>
-        <button class="btn btnsm" @click=${() => decide(true, 'hour')}>Allow here for 1 hour</button>` : nothing}
-    <button class="btn ghost btnsm" @click=${() => decide(false)}>Deny</button>
-  </div>`;
-}
-
 // approveNoteTpl says why a verdict on runId's ask was refused (its ask is
 // gone — Session.noteApprove), for a few seconds.
 function approveNoteTpl(ui, runId) {
@@ -224,12 +205,8 @@ export function sessionTpl(s, ui, win) {
       : s.olderHidden ? html`<div class="muted small center">— earlier turns were compacted into the summary —</div>` : nothing}
     ${blocksTpl(rows, ui)}
     ${tail || nothing}
-    ${atEnd && parked && ps.kind === 'approval'
-      ? approvalTpl(ps.toolCalls, (yes, how) => ui.act.approve(r.id, yes, how, ps.park), undefined, grantAsk(r, ui.who ? ui.who() : null)) : nothing}
+    ${atEnd && parked ? kitPark(r, ui, s.blocks) || nothing : nothing}
     ${atEnd ? approveNoteTpl(ui, r.id) : nothing}
-    ${atEnd && parked && ps.kind !== 'approval' && r.result
-      ? html`<div class="ask"><b>The agent is asking:</b><div class="md">${unsafeHTML(mdAsk(r.result))}</div>
-          <div class="muted small">answer below to continue</div></div>` : nothing}
     ${atEnd && s.activity ? (activityStill(r) ? html`<div class="activity still">${s.activity}</div>`
       : html`<div class="activity"><span class="spin"></span> ${s.activity}</div>`) : nothing}
     ${s.conn === 'reconnecting' ? html`<div class="activity warn">${icon('warning')}live updates lost — reconnecting…</div>` : nothing}

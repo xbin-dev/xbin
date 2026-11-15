@@ -441,15 +441,15 @@ async function agentSandbox(browser) {
     await d.press('#msg', 'Enter');
     await until(d, () => !!document.querySelector('.ask.approve.grant'), null, 30000);
     const dcard = await d.textContent('.ask.approve.grant');
-    const dbtns = await text(d, '.ask.approve.grant .btn');
+    const dbtns = await text(d, '.ask.approve.grant button');
     check(dbtns.length === 1 && dbtns[0] === 'Deny', `dev1 (a participant) may only deny (${JSON.stringify(dbtns)})`);
     check(/Only admin can allow this/.test(dcard), `…and is told who can allow it (${dcard.replace(/\s+/g, ' ').trim().slice(0, 140)})`);
     await shot(d, 'agent-sandbox-grant-participant', { fullPage: false });
     await until(a, () => !!document.querySelector('.ask.approve.grant'), null, 15000);
     const acard = await a.textContent('.ask.approve.grant');
-    check(/sandbox_create/.test(acard) && (await text(a, '.ask.approve.grant .btn')).includes('Allow once'), `the owner is asked to allow sandbox_create (${acard.replace(/\s+/g, ' ').trim().slice(0, 140)})`);
+    check(/sandbox_create/.test(acard) && (await text(a, '.ask.approve.grant button')).includes('Allow once'), `the owner is asked to allow sandbox_create (${acard.replace(/\s+/g, ' ').trim().slice(0, 140)})`);
     await shot(a, 'agent-sandbox-grant', { fullPage: false });
-    await a.click('.ask.approve.grant .btn:has-text("Allow once")');
+    await a.click('.ask.approve.grant button:has-text("Allow once")');
     await until(a, () => [...document.querySelectorAll('#timeline .msg.assistant:not(.live)')].some((e) => e.textContent.includes('Created: ')), null, 30000);
     const created = (await text(a, '#timeline .msg.assistant:not(.live)')).filter((t) => t.includes('Created: ')).pop();
     check(/^Created: Created the sandbox "scratch"/.test(created), `allowed once, the agent made it (${created.slice(0, 160)})`);

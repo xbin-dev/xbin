@@ -34,6 +34,10 @@
  *      the call came to; ChatCtx.rowAttrs (a host's hook classes and data
  *      attributes on a block's element); views.js innerView (a nested
  *      block in an element with its key); cards.js argsView, clipView;
- *      a fold is drawn as the host holds it (ChatCtx.isOpen), closed too
+ *      a fold is drawn as the host holds it (ChatCtx.isOpen), closed too;
+ *      a request's card says who asks what (ask.js permission lead; a perm
+ *      block's own `lead`, its `calls` as a list), previews the diff of
+ *      the call it is about (ChatCtx.callOf; cards.js diffsView) and takes
+ *      a word with a rejection (ChatCtx.rejectWord)
  */
 export const KIT = 4;

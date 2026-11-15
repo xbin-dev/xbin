@@ -58,7 +58,7 @@ const repark = (ps, result) => page.evaluate(([ps, result]) => {
 const ps22 = await page.evaluate(() => window.__views[22].run.pendingState);
 await repark({ kind: 'review', park: 'Xq3review', harness: { message: 'Review the retry policy?' } }, 'Review the retry policy?');
 await page.waitForFunction(() => !document.querySelector('.hask'));
-ok('a park no module answers falls back to the built-in question card', (await page.textContent('#timeline .ask')).includes('The agent is asking')
+ok('a park no module answers falls back to the built-in question card', (await page.textContent('#timeline .ask')).includes('The agent asks')
   && (await page.textContent('#timeline .ask')).includes('Review the retry policy?') && !(await page.$('#hlogin')));
 await repark(ps22, undefined);
 await page.waitForSelector('.hask');

@@ -73,6 +73,9 @@ export const serveKit = async (target) => {
     await target.route('**/vendor/bx-icons.js', (r) =>
       r.fulfill({ contentType: 'text/javascript', body: readFileSync(ICONS_PATH, 'utf8') }));
   }
+  // the code highlighter the chat kit asks for at its first diff: these pages have none (a module that
+  // exports nothing — diffs are drawn plain); test/harness-cards.mjs serves xbind's own over this
+  await target.route('**/vendor/bx-code.js', (r) => r.fulfill({ contentType: 'text/javascript', body: 'export {};' }));
 };
 
 // A read hands back a wrapper bound to the stub installed AT THAT MOMENT, so

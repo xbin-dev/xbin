@@ -159,7 +159,7 @@ await push({ type: 'run', run: 2, root: 1, data: { id: 2, status: 'waiting_input
   pendingState: { kind: 'approval', toolCalls: [call('z', 'xbin_call', {})] } } });
 await page.evaluate(() => window.__views[2].run.status = 'waiting_input');
 await page.waitForSelector('.acard .ask.approve');
-await page.click('.acard .ask.approve .btn:not(.ghost)');
+await page.click('.acard .ask.approve button.bxc-primary');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/runs/2/approve')));
 ok('a subagent\'s approval is given from the parent\'s session', true);
 

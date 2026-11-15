@@ -179,16 +179,17 @@ async function transcript(a, check, box) {
 async function permissions(a, check) {
   await say(a, 'perm');
   await a.waitForSelector('.hask:not(.hq)', { timeout: 20000 });
-  const opts = await a.$$eval('.hask .hopts button', (els) => els.map((e) => `${e.dataset.opt}:${e.dataset.kind}:${e.textContent.trim()}`));
+  const opts = await a.$$eval('.hask .bxc-btns button', (els) => els.map((e) => `${e.dataset.option}:${e.dataset.kind}:${e.textContent.trim()}`));
   check(opts.join(' ') === 'once:allow_once:Allow once always:allow_always:Allow always no:reject_once:Reject', `"perm": the card offers the agent's own options (${opts.join(' ')})`);
-  const lead = await a.textContent('.hask .hlead');
-  check(/Fake agent \(tests\) asks to run a command · run ls/.test(lead.replace(/\s+/g, ' ')), `…saying what it asks (${lead.replace(/\s+/g, ' ').trim()})`);
+  const lead = await a.textContent('.hask .bxc-q');
+  const asked = await a.textContent('.hask pre.bxc-cmd');
+  check(/Fake agent \(tests\) asks to run a command/.test(lead.replace(/\s+/g, ' ')) && asked.trim() === 'run ls', `…saying what it asks (${lead.replace(/\s+/g, ' ').trim()}: ${asked.trim()})`);
   const card = (await cards(a)).pop();
   check(card && card.kind === 'execute' && card.st === 'needs approval', `its call's card waits for the approval (${card && `${card.hl} · ${card.st}`})`);
   const status = (await runOf(a, await convId(a))).status;
   check(status === 'waiting_input', `the run waits for a person (${status})`);
   await shots(a, 'permission');
-  await a.click('.hask .hopts button[data-opt="once"]');
+  await a.click('.hask .bxc-btns button[data-option="once"]');
   await answered(a, 'listed');
   await resting(a);
   const done = (await cards(a)).pop();
@@ -197,8 +198,8 @@ async function permissions(a, check) {
   await say(a, 'perm again');
   await a.waitForSelector('.hask:not(.hq)', { timeout: 20000 });
   const n = (await cards(a)).length;
-  await a.fill('.hask .hfb', 'use ls -la instead');
-  await a.click('.hask .hopts button[data-opt="no"]');
+  await a.fill('.hask .bxc-word', 'use ls -la instead');
+  await a.click('.hask .bxc-btns button[data-option="no"]');
   await answered(a, 'echo: use ls -la instead');
   await resting(a);
   const users = await text(a, '#timeline .msg.user');
@@ -210,10 +211,10 @@ async function permissions(a, check) {
   // plan approval: the plan, its options, "keep planning"
   await say(a, 'plan');
   await a.waitForSelector('.hask.hplan', { timeout: 20000 });
-  const plan = await a.$eval('.hask.hplan', (e) => ({ md: e.querySelector('.hplanmd')?.textContent || '', opts: [...e.querySelectorAll('.hopts button')].map((b) => b.textContent.trim()) }));
+  const plan = await a.$eval('.hask.hplan', (e) => ({ md: e.querySelector('.bxc-plan-md')?.textContent || '', opts: [...e.querySelectorAll('.bxc-btns button')].map((b) => b.textContent.trim()) }));
   check(/Fake plan/.test(plan.md) && plan.opts.length >= 2, `"plan": the plan approval — the plan and its options (${plan.opts.join(' | ')})`);
   await shots(a, 'plan-approval');
-  await a.click('.hask.hplan .hopts button:not(.ghost):not(.hwarn)');
+  await a.click('.hask.hplan .bxc-btns button.bxc-primary');
   await answered(a, 'plan approved');
   await resting(a);
   check(true, 'approving the plan ends the turn');
@@ -223,12 +224,12 @@ async function permissions(a, check) {
 async function questionPark(a, check) {
   await say(a, 'ask');
   await a.waitForSelector('.hask.hq', { timeout: 20000 });
-  const fields = await a.$$eval('.hask.hq .hfield', (els) => els.map((e) => e.dataset.field));
+  const fields = await a.$$eval('.hask.hq .bxc-field', (els) => els.map((e) => e.dataset.field));
   check(fields.join(',') === 'question_0,question_1', `"ask": the question form's fields (${fields.join(', ')})`);
-  await a.click('.hask.hq .hfield[data-field="question_0"] label.hopt:has-text("SQLite") input');
-  await a.click('.hask.hq .hfield[data-field="question_1"] label.hopt:has-text("Tracing") input');
+  await a.click('.hask.hq .bxc-field[data-field="question_0"] label.bxc-opt:has-text("SQLite") input');
+  await a.click('.hask.hq .bxc-field[data-field="question_1"] label.bxc-opt:has-text("Tracing") input');
   await shots(a, 'question');
-  await a.click('.hask.hq .hopts button:has-text("Submit")');
+  await a.click('.hask.hq .bxc-btns button:has-text("Submit")');
   await answered(a, 'answers:');
   await resting(a);
   const ans = (await text(a, '#timeline .msg.assistant:not(.live)')).filter((t) => t.startsWith('answers:')).pop() || '';
@@ -344,7 +345,7 @@ async function children(a, check, box, stamp) {
   check(kids.length === 3 && kids.every((k) => k.id), `"harness fan out": three coding agent cards in the parent's chat (${kids.map((k) => `#${k.id} ${k.t} ${k.state}`).join(' | ')})`);
   // the perm child parks on a person
   await until(a, () => [...document.querySelectorAll('#timeline .hkid')].some((e) => e.dataset.state === 'approval'), null, 30000);
-  const parked = await a.$eval('#timeline .hkid[data-state="approval"]', (e) => ({ id: +e.dataset.child, btns: [...e.querySelectorAll('.hask .hopts button')].map((b) => b.dataset.opt) }));
+  const parked = await a.$eval('#timeline .hkid[data-state="approval"]', (e) => ({ id: +e.dataset.child, btns: [...e.querySelectorAll('.hask .bxc-btns button')].map((b) => b.dataset.option) }));
   check(parked.btns.includes('once'), `a child's permission is on its card, answerable there (#${parked.id}: ${parked.btns.join(', ')})`);
   await shots(a, 'children');
   // the board: chip, the needs-you filter, the park answered from it
@@ -364,7 +365,7 @@ async function children(a, check, box, stamp) {
     const only = await a.$$eval('#hboard .hbrow', (els) => els.map((e) => +e.dataset.row));
     check(only.length === 1 && only[0] === parked.id, `…shows only the one waiting for you (${only.join(', ')})`);
     await shots(a, 'board-needs');
-    await a.click(`#hboard .hbrow[data-row="${parked.id}"] .hask .hopts button[data-opt="once"]`);
+    await a.click(`#hboard .hbrow[data-row="${parked.id}"] .hask .bxc-btns button[data-option="once"]`);
     await until(a, (id) => ![...document.querySelectorAll('#hboard .hbrow')].some((e) => +e.dataset.row === id && e.dataset.section === 'needs'), parked.id, 20000).catch(() => {});
     await a.click('#hboard .hbfilter').catch(() => {});
   }

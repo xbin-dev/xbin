@@ -71,10 +71,10 @@ ok('a harness event moves the status line', true);
 ok('still one read', (await calls('GET', '/runs/26/view')).length === 1);
 
 // --- 27's permission: on its card, answered on 27 ----------------------------------------
-const opts27 = await page.$$eval(`${card(27)} .hask .hopts button`, (els) => els.map((e) => e.dataset.opt));
+const opts27 = await page.$$eval(`${card(27)} .hask .bxc-btns button`, (els) => els.map((e) => e.dataset.option));
 ok('27\'s permission is on its card, with Codex\'s own options', JSON.stringify(opts27) === '["approved","approved-for-session","abort"]', JSON.stringify(opts27));
 ok('…the command it asks to run', (await text(`${card(27)} .hask`)).includes('psql -f migrations/0007_users.sql'));
-await page.click(`${card(27)} .hask [data-opt="approved"]`);
+await page.click(`${card(27)} .hask [data-option="approved"]`);
 await waitCall('POST', '/runs/27/approve$', 1);
 const ap = (await last('POST', '/runs/27/approve$')).body;
 ok('answered on the child\'s run: {park, option}', ap.park === 'Xq3kid' && ap.option === 'approved', JSON.stringify(ap));
