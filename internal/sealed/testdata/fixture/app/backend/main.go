@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync/atomic"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
@@ -77,6 +78,9 @@ func main() {
 		if t := q.Get("ticket"); t != "" {
 			xbin.WithTicket(req, t)
 		}
+		if s := q.Get("session"); s != "" {
+			req = req.WithContext(xbin.InAgentSession(req.Context(), s))
+		}
 		resp, err := xbin.AsPerson().Do(req)
 		if err != nil {
 			reply(w, 502, map[string]string{"error": err.Error()})
@@ -89,12 +93,38 @@ func main() {
 	mux.HandleFunc("POST /ask", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		body, _ := io.ReadAll(r.Body)
-		a, err := xbin.RequestApproval(r.Context(), q.Get("method"), q.Get("path"), body, "the fixture asks")
+		ctx := r.Context()
+		if s := q.Get("session"); s != "" {
+			ctx = xbin.InAgentSession(ctx, s)
+		}
+		a, err := xbin.RequestApproval(ctx, q.Get("method"), q.Get("path"), body, "the fixture asks")
 		if err != nil {
 			reply(w, 502, map[string]string{"error": err.Error()})
 			return
 		}
 		reply(w, 200, a)
+	})
+	// session opens an agent session (the handle its person's calls run
+	// under); notify records what xbind delivers to the row's Notify path
+	mux.HandleFunc("POST /session", func(w http.ResponseWriter, r *http.Request) {
+		s, err := xbin.OpenAgentSession(r.Context(), nil, r.URL.Query().Get("model"))
+		if err != nil {
+			reply(w, 502, map[string]string{"error": err.Error()})
+			return
+		}
+		reply(w, 200, s)
+	})
+	var notices atomic.Int64
+	var last atomic.Value // the last notice, as delivered
+	mux.HandleFunc("POST /notify", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+		last.Store(xbin.Caller(r).User + " " + string(b))
+		notices.Add(1)
+		reply(w, 200, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("GET /notices", func(w http.ResponseWriter, r *http.Request) {
+		l, _ := last.Load().(string)
+		reply(w, 200, map[string]any{"count": notices.Load(), "last": l})
 	})
 	// env answers the fixed environment its table row gives it
 	mux.HandleFunc("GET /env", func(w http.ResponseWriter, r *http.Request) {

@@ -759,6 +759,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     (D228) keeps the delegation API for its page. A person's agent does
     nothing in a system component: `PUT /agent-levels` and `POST
     /delegate/approvals` refuse one, and so does every delegate call.
+    xbind's notices to a holder's backend go to its row's `Notify` path
+    and nowhere else; the fixture holder's page reads
+    `GET /agents/connection?session=` through its row's `FrameReads`.
+  - No preview shows a system component: `POST /preview {tile:
+    "xbin/<name>"}` answers 400, and a screen render leaves it out.
   - A sealed path has one spelling, `xbin/<name>`: a leading, trailing or
     doubled slash, `./` or `a/../` in it is refused (400) on every route.
   - A sealed component's backup restores only under a backup key this

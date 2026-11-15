@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/test/xbindtest"
 )
@@ -49,6 +50,9 @@ func main() {
 // person. Alice's partition of it reads a tile as Alice, is refused a write
 // she didn't approve, and performs it with her ticket; Bob's partition is
 // Bob; nothing of it is an admin; and the table's Env reached the backend.
+// Its calls run under an agent session it opened; xbind's notices reach the
+// path its row names, in its person's partition only; and its page reads
+// that session's connection view through the one extra read the row allows.
 // A production xbind, sandboxes on, people signed in.
 func TestSealedHolderActsForItsPerson(t *testing.T) {
 	a := xbindtest.Require(t)
@@ -69,7 +73,7 @@ func TestSealedHolderActsForItsPerson(t *testing.T) {
 	d.WriteTile(t, tile, map[string]string{"xbin.json": `{"runtime":"go","expose":{"roles":{"reader":"read","writer":"write"}}}` + "\n"})
 
 	e := &sealedEnv{d: d, sess: map[string]string{}, frames: map[string]xbindtest.Header{}}
-	d.AddUser(t, "alice", "pw-alice-5c2e81", "user", map[string]string{sealedPeople: "read", tile: "write"})
+	d.AddUser(t, "alice", "pw-alice-5c2e81", "user", map[string]string{sealedPeople: "read", sealedProbe: "read", tile: "write"})
 	d.AddUser(t, "bob", "pw-bob-5c2e81", "user", map[string]string{sealedPeople: "read"}) // not the tile
 	for _, id := range []string{"alice", "bob"} {
 		e.sess[id] = d.Login(t, id, "pw-"+id+"-5c2e81")
@@ -84,9 +88,23 @@ func TestSealedHolderActsForItsPerson(t *testing.T) {
 		Status int
 		Body   string
 	}
+	// each person's partition opens the agent session its calls run under
+	handles := map[string]string{}
+	handle := func(person string) string {
+		t.Helper()
+		if handles[person] == "" {
+			var s struct{ ID string }
+			d.Must(t, "POST", "/api/"+sealedPeople+"/session?model=fixture/model", nil, 200, e.frame(t, sealedPeople, person)).Decode(t, &s)
+			if s.ID == "" {
+				t.Fatalf("%s's agent session has no id", person)
+			}
+			handles[person] = s.ID
+		}
+		return handles[person]
+	}
 	asPerson := func(person, method, path, body, ticket string) relay {
 		t.Helper()
-		q := url.Values{"method": {method}, "path": {path}}
+		q := url.Values{"method": {method}, "path": {path}, "session": {handle(person)}}
 		if ticket != "" {
 			q.Set("ticket", ticket)
 		}
@@ -134,7 +152,7 @@ func TestSealedHolderActsForItsPerson(t *testing.T) {
 	// the agent asks, alice approves in her own session, the agent performs
 	// exactly that call with the ticket
 	var asked struct{ ID, State string }
-	d.Must(t, "POST", "/api/"+sealedPeople+"/ask?"+url.Values{"method": {"PUT"}, "path": {"/api/" + tile + "/note"}}.Encode(),
+	d.Must(t, "POST", "/api/"+sealedPeople+"/ask?"+url.Values{"method": {"PUT"}, "path": {"/api/" + tile + "/note"}, "session": {handle("alice")}}.Encode(),
 		json.RawMessage(`"by the agent"`), 200, e.frame(t, sealedPeople, "alice")).Decode(t, &asked)
 	if asked.ID == "" {
 		t.Fatalf("the agent's request: %+v", asked)
@@ -144,6 +162,29 @@ func TestSealedHolderActsForItsPerson(t *testing.T) {
 		t.Errorf("bob approved alice's agent's request: %d %s", r.Status, r)
 	}
 	d.Must(t, "POST", "/api/xbin/delegate/requests/"+asked.ID+"/approve", nil, 200, e.as("alice")...)
+	// xbind tells the holder's backend — on the path its row names, in
+	// alice's partition, naming the request and nothing of its content
+	var got struct {
+		Count int
+		Last  string
+	}
+	for end := time.Now().Add(30 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		d.Must(t, "GET", "/api/"+sealedPeople+"/notices", nil, 200, e.frame(t, sealedPeople, "alice")).Decode(t, &got)
+		if strings.Contains(got.Last, asked.ID) {
+			break
+		}
+		if time.Now().After(end) {
+			t.Fatalf("no notice of the decided request reached alice's partition on the row's Notify path: %+v", got)
+		}
+	}
+	if !strings.Contains(got.Last, `"partition":"user:`) || strings.Contains(got.Last, "by the agent") {
+		t.Errorf("the notice: %s, want a partition and ids only", got.Last)
+	}
+	var bobs struct{ Count int }
+	d.Must(t, "GET", "/api/"+sealedPeople+"/notices", nil, 200, e.frame(t, sealedPeople, "bob")).Decode(t, &bobs)
+	if bobs.Count != 0 {
+		t.Errorf("bob's partition was told of alice's request: %d notices", bobs.Count)
+	}
 	if r := asPerson("alice", "PUT", "/api/"+tile+"/note", `"by the agent"`, asked.ID); r.Status != 200 || !strings.Contains(r.Body, "written by=alice") {
 		t.Fatalf("the approved write, with its ticket: %d %s", r.Status, r.Body)
 	}
@@ -159,6 +200,26 @@ func TestSealedHolderActsForItsPerson(t *testing.T) {
 	fr := e.frame(t, sealedPeople, "alice")
 	if r := d.Call(t, "GET", "/api/xbin/agents/connection", nil, fr); r.Status == 403 && strings.Contains(r.String(), "its page reaches its own backend only") {
 		t.Errorf("the read its row names: %d %s", r.Status, r)
+	}
+	// …which answers the page of the holder a session belongs to, for the
+	// person driving it, and nobody else
+	conn := "/api/xbin/agents/connection?session=" + url.QueryEscape(handle("alice"))
+	var view struct{ Session string }
+	d.Must(t, "GET", conn, nil, 200, fr).Decode(t, &view)
+	if view.Session != handle("alice") {
+		t.Errorf("the connection view of alice's session: %+v", view)
+	}
+	if r := d.Call(t, "GET", conn, nil, e.frame(t, sealedPeople, "bob")); r.Status != 404 {
+		t.Errorf("bob's page reads alice's session: %d %s", r.Status, r)
+	}
+	if r := d.Call(t, "GET", conn, nil, e.frame(t, sealedProbe, "alice")); r.Status != 403 {
+		t.Errorf("another system component's page reads the session (its row allows no such read): %d %s", r.Status, r)
+	}
+	if r := d.Call(t, "GET", conn, nil, e.as("alice")...); r.Status != 403 {
+		t.Errorf("alice's own session reads the holder page's view: %d %s", r.Status, r)
+	}
+	if r := d.Call(t, "GET", "/api/xbin/agents/connection?session=nope", nil, fr); r.Status != 404 {
+		t.Errorf("an unknown session: %d %s", r.Status, r)
 	}
 	if r := d.Call(t, "GET", "/api/xbin/delegate/state", nil, fr); r.Status != 200 {
 		t.Errorf("its page reads its person's delegation state: %d %s", r.Status, r)

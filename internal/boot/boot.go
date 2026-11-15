@@ -313,6 +313,14 @@ func (st *State) stepRegistry() error {
 			c, ok := set.Component(component)
 			return ok && c.Capabilities.Delegate
 		})
+		// …and where on a holder's backend xbind delivers its notices: the
+		// row's Notify, nothing a workspace or a request says
+		auth.SetDelegateNotify(func(component string) string {
+			if c, ok := set.Component(component); ok && c.Capabilities.Delegate {
+				return c.Notify
+			}
+			return ""
+		})
 	}
 	if err != nil {
 		return err
