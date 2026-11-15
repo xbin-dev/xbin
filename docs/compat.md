@@ -406,6 +406,17 @@ none, so a workspace sees no change. When a later release adds one:
   upgrade that adds a sealed component can change what an existing tile
   does, and it needs a directory with `~` in its name spelling `xbin~`
   followed by the component's name.
+- **Tiles' pages, tokens and bindings are untouched** by the rules that
+  apply only to a sealed component: the viewer-only frame token, the
+  providers a slot may be bound to, the encrypted-only backup, the import
+  map that leaves the workspace's entries out. A tile's frame token keeps
+  the tile's authority, and the workspace `importMap` still applies to
+  every tile's documents.
+- **Two refusals that are new for tiles too**, both of an archiver that
+  serves the wrong archive: `POST /api/xbin/restore` with `file` now
+  refuses an archive whose manifest names another component (409), and a
+  restore registers only the cron jobs its archive's own component owns
+  (a job naming another component was silently registered before).
 - **`bx`** (rule 6): `bx system` is new; `bx ls` lists tiles as before.
 - **Downgrading** to a release from before a sealed component existed
   leaves its data on disk, unused. Downgrading across a data format change

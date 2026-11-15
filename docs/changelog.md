@@ -122,6 +122,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - Not yet: an admin console section, the connector in terminals and
     agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
 
+- **Fixed: a restore could register another tile's cron jobs.** Restoring
+  a tile registered every cron job its archive's manifest listed, whatever
+  component a job named; the bus subscriptions beside them were always
+  checked. A restore now registers only the jobs of the archive's own
+  component. In a workspace without sealed backups the manifest is the
+  archiver tile's word, so this let an archiver plant a job that calls
+  another tile's backend at a chosen path and role.
+- **Fixed: `GET /api/xbin/kv/res:/x/y` never answered.** A resource target
+  whose path starts with `/` made the scope lookup loop forever, holding a
+  CPU per request, for any authenticated caller. It now answers 404.
+- **`POST /api/xbin/restore` with `file`** refuses (409) an archive whose
+  manifest names another component than the one asked for.
 - **Sealed components (system components): the facility, with none shipped
   yet** (D227). A release can now ship parts of xbin that run like tiles —
   in the tile sandbox, with limits, logs, cron, bus and people's
@@ -172,6 +184,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     `xbin-code=`), and a call naming other code is answered `409` with
     `X-XBin-Reload` and a `reload` event. Tiles' documents and calls are
     unchanged.
+  - A sealed component's **page holds a viewer's credential**: its frame
+    token (and its origin's cookie under `--tile-assets=origins`) reaches
+    the component's own backend, its own files, its renewal, `whoami` and
+    the events socket — nothing else (403). Only the backend's instance
+    credential uses the component's resources, secrets, registrations and
+    status; an admin and the root token don't. A tile's frame token is
+    unchanged.
+  - A sealed component's slot binds only to its default provider or one
+    the release names for it; another provider is refused (400). The
+    workspace `importMap` doesn't apply to its documents.
+  - Its backup is made and restored only as a sealed (encrypted,
+    authenticated) archive: nothing of it is archived in a workspace
+    without a vault barrier, a plain archive is refused at restore (409),
+    and nothing is restored while it is held for its data.
+  - `bin/sealed/sealed.json` lists each prebuilt backend's SHA-256, source
+    digest, SDK digest and go version; xbind runs only a file it lists,
+    checked at boot and before every start (`no-build` otherwise). Its
+    files on disk are checked before every start too, and its pages are
+    served from the release's bytes in memory.
+  - A JSON body that names a tile field twice is refused (400) on the
+    routes that refuse a sealed component.
   - Backups of one are its data only; the manifest's `sealedData` is the
     data format, and a restore into a release that reads only an older
     format is refused.

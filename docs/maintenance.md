@@ -579,8 +579,13 @@ release's, always. The table is empty today.
 **Adding a row.** Name (the path is `xbin/<name>`), an embedded source tree
 (`xbin.BuiltinTemplatesFS()` sub-tree, or one of its own under an embedded
 directory), `Authored` (the path the source calls itself by), the partition
-mode, the slots an admin may bind, the grants and capabilities, and `Data`,
-the data format. What a row may never do:
+mode, the slots an admin may bind, the providers each slot may be bound to
+(`Providers`, beside its `Defaults` entry — a model slot's provider reads
+people's conversations, so a row that lets a workspace tile in says so in
+review), the grants and capabilities, and `Data`, the data format. The name
+is at most 19 characters (`util.SealedNameMax`: longer, and `CompKey` would
+cut the readable part of its key, which a tile path could then be ground
+to match). What a row may never do:
 
 - **take a name xbind uses.** `/api/xbin/<name>/…` is the component's API,
   so the name can't be the first segment of an xbind route, nor an xbind
@@ -601,7 +606,16 @@ sealed-build` with the host's go and builds every Go row's backend into
 stripped, `-trimpath`, the SDK replaced by the checkout's). The digest is
 the rendered source's, computed by the code that looks the file up at boot:
 a build of other source has another name and is never run. The directory is
-made to hold exactly the table's builds.
+made to hold exactly the table's builds and `sealed.json`, the manifest of
+what each was built from (source digest, SDK tree digest, go version) and
+its SHA-256. xbind runs only a file the manifest lists for its source with
+that hash, checked at boot and before every start (`sealed.Set.verify`).
+The manifest sits beside the binaries: it catches a build of other source
+or another SDK, a damaged or replaced file and a half-finished install, not
+someone who can write the install prefix (who can replace xbind). The SDK
+is a module of its own that xbind neither embeds nor ships a digest of, so
+the SDK and go version are recorded in the manifest and compared at release
+time (`--check --sdk`), not folded into the file name.
 
 - A **production** xbind (`--dev` and `--no-auth` both off) runs only that
   file. Without it the component is held (`no-build`); nothing compiles on
@@ -612,14 +626,44 @@ made to hold exactly the table's builds.
   `make dev` (`go run`) has no `bin/sealed/` beside it and compiles.
 - `deploy/publish-release.sh` copies `bin/sealed/` into each
   architecture's bundle and runs `xbind sealed-build --check` on it: a
-  missing or stray file fails the release. `deploy/install.sh` replaces
-  `$PREFIX/bin/sealed` whole.
+  missing or stray file, one that isn't the file the manifest lists, or a
+  build against another SDK tree than the checkout's fails the release.
+  `deploy/install.sh` replaces `$PREFIX/bin/sealed` whole.
 - `make vulncheck` scans a sealed backend as the builtin template or tile
   its source is. A row whose source is neither needs a target of its own in
   `hack/vulncheck`.
 
+**Where it is kept sealed.** Three layers, and the first is not the
+boundary:
+
+1. *The route gate* (`internal/server/sealedclass.go`) answers early, with
+   the reason, from a request's parameters. It reads the request beside
+   the handler, and two readers of one body can disagree, so nothing rests
+   on it.
+2. *The code that acts* refuses on the value it acts on:
+   `internal/broker/sealedguard.go` lists the places (resources and
+   secrets, registrations, grants, bindings, owner, partitions, creation,
+   source, restore), the deployments plane refuses in its judge and its
+   record writer, and `registry.MutateWorkspace` — the one writer of the
+   workspace file — takes no row about a sealed component the file may not
+   hold. **A new function that acts on a component named by a request
+   refuses a sealed one itself** (`sealedOwn` for what is the component's
+   own, `sealedNone` for what doesn't exist for one).
+3. *The credential*: a sealed component's frame token (and its origin's
+   cookie) is a viewer's, allowed its own backend and little else
+   (`server.sealedViewerAllowed`, called where a credential becomes a
+   request's principal). A new way for a credential to become a principal
+   calls it too.
+
 **The guards.**
 
+- `internal/boot` `TestSealedBoundaryWithoutTheGate` runs every refused and
+  self row **with the route gate switched off**, as a request its handler
+  would act on for a tile (`boundaryReqs`), as the root token, an admin, a
+  reader, another tile's backend, the component's page and its backend. A
+  new refused or self row needs a request there, and the refusal must come
+  from layer 2. `TestSealedNoTileRowsTakeNoSealedPath` sends the no-tile
+  rows a sealed path in every wildcard, query and body name.
 - `internal/server/sealedclass.go` has a row for every `/api/xbin` route:
   what a path under `xbin/` gets on it (`no-tile`, `refused`, `self`,
   `handled`). `internal/apicheck` `TestSealedRouteClasses` fails for a
@@ -637,7 +681,17 @@ made to hold exactly the table's builds.
   bindings work for them unasked; a loop that treats `c.Dir` as a work
   tree — writes into it, runs git in it, binds it into a terminal — must
   skip them. `c.Dir` of a sealed component is xbind's read-only tree under
-  `.xbin/sealed/`, verified and rewritten at every boot.
+  `.xbin/sealed/`, verified and rewritten at every boot and before every
+  start of its backend. Nothing served to a browser is read from it
+  (`server/sealedfile.go` answers the release's bytes from memory).
+- `test/isolated` `TestSealedComponentsOnAProductionXbind` runs the real
+  binary (built with `-tags sealedfixture`, its backends by its own
+  `sealed-build`). It needs user namespaces, the base rootfs and gocryptfs,
+  and **skips silently without them** in a plain `go test`: run it with
+  `XBIN_E2E_REQUIRE=1`, which turns a missing prerequisite into a failure
+  (`xbindtest.Skip`), and outside a tool sandbox.
+- Run the sealed suites both ways: the default build (an empty table) and
+  `-tags sealedfixture` (`internal/sealed`, `cmd/xbind`).
 - User-facing strings say "system component", never "sealed" (the vault's
   word); `internal/sealed`'s tests check the hold reasons.
 

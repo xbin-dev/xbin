@@ -44,7 +44,7 @@ with the same mounts, limits, gateway and default-deny network:
 
 | Mount | Access | What it is |
 |-------|--------|------------|
-| its code | read-only | xbind's own copy of the release's files (`.xbin/sealed/<name>/<digest>`), verified at every start; never a directory of the workspace |
+| its code | read-only | xbind's own copy of the release's files (`.xbin/sealed/<name>/<digest>`), compared with the release's and written again before every start; never a directory of the workspace, and never what its pages are served from (those are the release's bytes, from memory) |
 | its backend | read-only | the release's prebuilt binary (`bin/sealed/<name>-<digest>` beside xbind), at `/run/backend` |
 | its resource dirs | read-write | its own scope's; a person's partition of it has that person's |
 

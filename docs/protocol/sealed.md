@@ -51,6 +51,27 @@ one release's, and a page can outlive the xbind that served it. So:
 - a call that names no id (a script, `bx`, an admin's request) is not a
   page and is not checked.
 
+**Its page's credential is a viewer's.** The frame token of a sealed
+component (and, with `--tile-assets=origins`, the cookie of its own
+origin) authenticates a principal that may send exactly:
+
+```
+ANY    /api/xbin/<name>/…          its own backend (which sees the viewer)
+GET    /c/xbin/<name>/…            its own page's files
+GET    /api/xbin/frame-token       its own renewal (?component=xbin/<name>)
+GET    /api/xbin/whoami
+       /ws/events                  reload and status events; a bus
+                                   subscription there is refused
+```
+
+Everything else answers `403` with "`xbin/<name>` is a system component,
+managed by xbin: its page reaches its own backend only; what it holds is
+its backend's to use" — every other `/api/xbin` route, another tile's API,
+another tile's files, a terminal. The rule is on the credential, not on a
+request's parameters. A tile's frame token is unchanged: it carries the
+tile's authority, as before. Only the instance credential xbind gives a
+sealed component's backend acts as the component.
+
 People reach its backend the way they reach a tile's: from its own page,
 with the frame token a reader of it gets. **Nothing else calls into it.** It
 exposes no roles, provides no interface and publishes no endpoint, so no
@@ -161,8 +182,11 @@ DELETE /limits
 POST   /partitions/limits
 POST   /bindings                   {component: "xbin/<name>", slot, provider}
 DELETE /bindings                   — a slot the release declares for it
-                                   (GET /sealed slots). Any other slot,
-                                   pseudo-slots (@archive) included: 400.
+                                   (GET /sealed slots), to the slot's
+                                   default provider or one the release
+                                   names for it. Any other slot (pseudo-
+                                   slots such as @archive included) or
+                                   provider: 400 with the reason.
                                    A slot with a default: a binding replaces
                                    the default; an unbind is kept (the slot's
                                    entry in xbin.json is then []), so the
@@ -181,14 +205,25 @@ POST   /backup                     {component: "xbin/<name>"} — its scope's
                                    has no source and no terminal layer, and
                                    carries sealedData: the data format the
                                    data was in.
-POST   /restore                    its data back. 502 when the archive's
-                                   sealedData is above what this release
-                                   reads: install the release that wrote it,
-                                   or a later one. An older format is
-                                   restored; the backend migrates it forward
-                                   at its next start. With file (one file
-                                   read out of the archive): 400 — its data
-                                   is the component's alone to read.
+POST   /backup                     … only as a sealed (encrypted) archive:
+                                   in a workspace without a vault barrier
+                                   nothing of it is archived (an error says
+                                   so).
+POST   /restore                    its data back, from an archive xbind
+                                   sealed: encrypted under a backup key the
+                                   workspace's vault holds and authenticated
+                                   end to end, its manifest naming this
+                                   component. 409 for a plain archive, for
+                                   one carrying a deployment record, and
+                                   while the component is held for its data.
+                                   502 when the archive's sealedData is
+                                   above what this release reads: install
+                                   the release that wrote it, or a later
+                                   one. An older format is restored; the
+                                   backend migrates it forward at its next
+                                   start. With file (one file read out of
+                                   the archive): 400 — its data is the
+                                   component's alone to read.
 POST   /partitions/restore         the same check, for a person's partition.
 POST   /backup-schedule            as for a tile.
 ```
@@ -226,7 +261,8 @@ xbin: <why>", "docs": "/docs/sealed.md"}`.
 
 `/ws/term?cwd=xbin/<name>` answers 403 with the same text.
 
-**403 — only the component's own credentials pass:**
+**403 — only the component's backend passes** (its instance credential;
+not an admin, not the root token, not its own page):
 
 | Routes | Why |
 |---|---|
@@ -234,11 +270,42 @@ xbin: <why>", "docs": "/docs/sealed.md"}`.
 | `GET|PUT|DELETE /vault/xbin/…` | only it reads and writes its own secrets |
 | `POST /bus/publish` (`resource`) | only it publishes on its own bus |
 | `PUT /bus/subscriptions`, `/cron/jobs`, `DELETE /bus/subscriptions/{name}`, `/cron/jobs/{name}` | only it registers its own deliveries |
+| `POST /tile-report` (`component`) | only it reports its own status |
+
+**Where the refusal comes from.** Each of these is refused by the code
+that would do the work, on the value it acts on. Earlier, a table of every
+route answers the same text from the request's parameters, so a mistaken
+caller gets the reason at once; that early answer also refuses a JSON body
+that gives one of the names it reads twice (`400`, "the request body names
+`<field>` twice").
 
 `GET /logs?component=xbin/<name>` is the component's own and the admins'
 (403 for anyone else, readers included).
 
 A workspace `xbin.json` that names a sealed component in a grant (as
-`from` or `target`), binds a slot the release doesn't declare for it, or
-names it as a provider, is read as if those entries weren't there. The
-file is never rewritten for it.
+`from` or `target`, `res:` and `code:` targets included), binds a slot the
+release doesn't declare for it or to a provider the release doesn't name,
+names it as a provider, or gives it interface instances or ingress hosts,
+is read as if those entries weren't there. The file is never rewritten for
+it, and xbind never writes such an entry. The workspace's `importMap`
+doesn't apply to a sealed component's documents: they get xbind's own map
+and the component's.
+
+## The release's builds
+
+`bin/sealed/` beside xbind holds one backend per Go component,
+`<name>-<24 hex digits of its source digest>`, and `sealed.json`:
+
+```
+{"schema": 1, "builds": {"<file name>": {
+   "component": "xbin/<name>", "source": "<its source digest>",
+   "sha256": "<of the file>", "size": <bytes>,
+   "sdk": "<digest of the SDK tree it was built against>",
+   "go": "<go version>", "os": "linux", "arch": "amd64"}}}
+```
+
+xbind runs a backend only when the file is listed for this source and has
+that SHA-256, checked at boot and before every start; otherwise the
+component is held (`no-build`, the reason says which). `xbind sealed-build`
+writes the directory; `--check --out <dir> --sdk <dir>` verifies it (the
+release pipeline's gate).

@@ -14195,6 +14195,80 @@ Deviations and refinements made while implementing; all deliberate:
       sandboxed frame needs), and a top-level page reloads itself. Callers
       that name no code are not pages and pass. Old clients (a cached
       `xbin-client.js`) send no id and behave as before this change.
+  - **Third round (2026-11-15; an independent security review of
+    58f54aee).** The boundary did not hold: the route gate was the only
+    refusal on many routes, and it read a request's body beside the
+    handler.
+    - *The gate is not the boundary.* `{"component":"xbin/x",
+      "component":null}` read as nothing in the gate's map decode and as
+      `xbin/x` in a handler's struct decode. No amount of re-parsing fixes
+      that class, so the rule moved to where the work is done, on the value
+      acted on: `allowRes`/`allowAt` and `vaultAccess` (no admin shortcut
+      onto a sealed component's resources and secrets), the cron and bus
+      registration handlers, `grantMutation`, the owner transfer, the
+      partition mode/review/consent handlers, `guardNewComponentTree`
+      (every creation path), source and PR resolution, interface instances
+      and ingress hosts, chrome, tile reports, sandboxes, the deployments
+      plane's `judge`, resolvers and record writer — and
+      `registry.MutateWorkspace`, the one writer of the workspace file,
+      which undoes and refuses a change that adds a row about a sealed
+      component the file may not hold. The gate stays as the early answer
+      with the reason, refuses a body that gives one of its names twice
+      and reads a bounded prefix. `TestSealedBoundaryWithoutTheGate` runs
+      every refused and self row with the gate off.
+    - *A frame token of a sealed component is a viewer's.* For a tile the
+      frame token carries the tile's authority, because page and backend
+      are one author's code. A sealed component's page runs in any
+      reader's browser, so that token — any reader could mint one — passed
+      the "its own alone" rows and reached its kv, blob, bus, cron and
+      subscriptions. Chosen: a rule on the credential, where a credential
+      becomes a principal (`authed`, `authedStatic`, the tile-origin path):
+      a sealed component's frame principal reaches its own backend, its
+      own files, its renewal, `whoami` and the events socket. Rejected:
+      checking `Via` in each handler (the same per-handler trust the gate
+      had), and minting no frame token (the page needs one to reach its
+      backend and to be attributed). Consequence for the workspace agent:
+      its frontend takes live updates from its backend, never `xbin.bus`.
+      Only the instance credential acts as the component (`sealedActor`).
+    - *Providers are the release's to name* (the coordinator's decision). A
+      slot's provider sees what the component sends it; a model provider
+      reads every person's conversation and steers what the component does
+      with their access. So `Spec.Providers` lists, per slot, what an admin
+      may bind beside the default, enforced when a binding is set, when the
+      file is written and when it is read (a hand-edited row to another
+      provider reads as no binding, and no default takes its place). The
+      workspace agent's model slot allows `xbin:llm` alone.
+    - *Restore is a write path.* A sealed component restores only from a
+      sealed archive — encrypted under a backup key the workspace's vault
+      holds and authenticated end to end — whose manifest names it; a
+      plain tar is the archiver tile's word. It is archived only sealed
+      (nothing in plaintext-vault mode, as a person's partition), a held
+      component takes no restore, an archive carries no deployment record
+      for it, and no member is read out of its backup (refused in
+      `extractMember` itself). Two bugs this found exist on master too and
+      are fixed in commits of their own: a restore registered cron jobs
+      naming other components, and `res:/…` targets looped forever.
+    - *What runs is verified at every start.* The materialized tree is
+      compared with the release's bytes before each start and rewritten;
+      pages are never served from it but from memory (an anonymous file
+      per open, so the handlers keep serving an `*os.File`). The prebuilt
+      backend is the file `bin/sealed/sealed.json` lists, with that
+      SHA-256, checked at boot and before each start. Not done as asked:
+      the SDK tree and go version are recorded in the manifest and
+      compared by `sealed-build --check`, not folded into the source
+      digest — the SDK is a separate module xbind neither embeds nor can
+      recompute at runtime, and the file name must be one xbind can
+      predict. The manifest sits beside the binaries: it does not stop
+      someone who can write the install prefix.
+    - *Smaller ones.* The workspace `importMap` no longer reaches sealed
+      documents. Level readers that looked at the stored map go through
+      the cap (`CanTerminal`, `whoami`), and `CanWriteTile` is false on a
+      sealed path. A sealed name is at most 19 characters so `CompKey`
+      never cuts its readable part (a tile path could otherwise be ground
+      into the same 32-bit-hash key). In origins mode the cookie of a
+      sealed component's own origin is the same viewer (found by the test
+      written for it). `XBIN_E2E_REQUIRE=1` makes a skipped isolated test
+      a failure.
   - **Not done here.** No entry point in the shell, the admin console or
     the app (the workspace agent's UI work adds them). The real-binary
     downgrade suite has nothing sealed to downgrade until a row exists.

@@ -62,6 +62,14 @@ it or reach a person's partition of it. People use it from its own page.
 Its resources, secrets and registrations are its own: an admin can't read
 or write them through the API.
 
+**Its page is a viewer, not the component.** A tile's page may use the
+tile's own storage and grants directly, because a tile's page and backend
+are one author's code. A sealed component's page runs in the browser of
+whoever may read it, so the credential that page holds reaches the
+component's own backend and nothing else: not xbind's API, not the
+component's storage or bus, not another tile. The backend sees who is
+asking and decides. Only the backend itself acts as the component.
+
 ## What an admin decides
 
 Four things, with the tools used for tiles (the admin console, `bx`, the
@@ -79,9 +87,19 @@ API):
   archive.
 - **Its limits.** Memory, disk and the rest, as for a tile
   ([isolation.md](/docs/isolation.md) → Resource limits; `/xbin/limits`).
-- **What its slots are bound to.** Only the slots the release declares
+- **What its slots are bound to.** Only the slots the release declares,
+  and only to the providers the release names for each
   (`bx bind xbin/<name> <slot>=<provider>`, the Interfaces tab,
-  `POST /api/xbin/bindings`). The release may give a slot a **default**:
+  `POST /api/xbin/bindings`). Anything else is refused with the reason.
+  The release decides this because a slot's provider sees what the
+  component sends it. **The provider of a model slot reads the
+  conversations people have with the component, and its answers steer what
+  the component then does with their access.** The workspace agent's model
+  slot can be bound only to the workspace's own LLM connector
+  (`xbin:llm`), never to a tile: so it is the workspace's LLM provider —
+  the one its admin or host configured for the connector
+  ([llm.md](/docs/llm.md)) — that sees agent conversations, and nobody who
+  merely writes a tile's code. The release may give a slot a **default**:
   a built-in provider it is bound to while you haven't bound it — for
   example its `llm` slot to the workspace's LLM connector (`xbin:llm`),
   once the connector is configured. Your choice always wins and no upgrade
@@ -125,6 +143,8 @@ told.
   restored whole, in place. Each person's partition has archives of its
   own, sealed under that partition's key
   ([partitions.md](/docs/partitions.md) → Backups);
+- write its data through a restore: only a backup xbind encrypted itself
+  is restored into it (see Upgrades, downgrades and data → Backups);
 - open a terminal, a coding agent or a view-as session inside it: there is
   no terminal, and viewing the workspace as someone opens none of their
   partitions.
@@ -160,7 +180,7 @@ answers with the reason, and `/xbin/system` shows it.
 
 | Hold | What happened | What to do |
 |---|---|---|
-| `no-build` | This install has no build of its backend for this release. | Reinstall the release bundle. xbind never compiles a sealed component on the host. |
+| `no-build` | This install has no build of its backend for this release: the file is missing, isn't listed in the install's `bin/sealed/sealed.json`, or is no longer the file listed there (its SHA-256 differs). The message says which. | Reinstall the release bundle. xbind never compiles a sealed component on the host, and never runs a file the release didn't ship. |
 | `foreign-data` | Data sits at its data key that it didn't write: a tile at a path such as `xbin~<name>` used the same key before. | Move that data away (the message names the directory), then restart xbind. It is never read, moved or deleted for you. |
 | `newer-data` | Its data was written by a newer release, in a format this one can't read (after a downgrade). | Install the release named in the message, or a later one. Nothing was changed. |
 | `stamp` | Its data stamp can't be read or written. | Fix `data/sealed/<name>.json` (permissions, disk), then restart. |
@@ -183,10 +203,21 @@ own sandbox, with their own encrypted data and vault
 ## Upgrades, downgrades and data
 
 **An upgrade** replaces the code. When xbind starts on a new release it
-puts that release's code in place of the old (kept under
-`.xbin/sealed/<name>/`, verified at every start), the component keeps its
+puts that release's code in place of the old, the component keeps its
 path, access, bindings, limits and data, and its backend migrates its data
 forward the next time it starts.
+
+**What runs is checked every time it starts**, not only when xbind boots.
+The copy of its files under `.xbin/sealed/<name>/` — the directory its
+backend runs in — is compared with the release's, byte for byte, and
+written again if it differs. Its backend binary must be the file the
+install's `bin/sealed/sealed.json` lists, with that hash; if it isn't, the
+component is held (`no-build`). The pages people load are never read from
+that copy: xbind serves them from the release's own bytes in memory.
+`.xbin` is xbind's own directory; under `--isolate` no tile's sandbox,
+terminal or agent session has it mounted. Without `--isolate` nothing
+separates a tile's backend from xbind's files, as
+[isolation.md](/docs/isolation.md) says.
 
 **A page left open across the upgrade** is the old release's. It does not
 go on talking to the new backend: the page's first call to the component
@@ -212,6 +243,23 @@ records the data format. A restore into a release that reads only an older
 format is refused; an older backup is restored and migrated forward at the
 next start. A person's partition backup follows the same rule.
 
+A sealed component's backup is **always encrypted, and only an encrypted
+one is restored**:
+
+- xbind encrypts ("seals") each archive under one of the workspace's
+  backup keys and authenticates it end to end. The keys are derived under
+  the vault's key and kept by the vault (`bx backup keys`; a key bundle an
+  admin imported from another workspace counts). The archiver only stores
+  the result.
+- A restore takes an archive only if it opens and authenticates under one
+  of those keys and names this component. A plain archive is refused: the
+  archiver is a tile, and a plain archive is only its word about what the
+  data was.
+- A workspace without a vault barrier (`--insecure-vault`, `--no-auth`)
+  archives nothing of a sealed component, and says so.
+- Nothing is restored while the component is held for its data
+  (`foreign-data`, `newer-data`, `stamp`).
+
 ## For builders
 
 - You can't make one in a workspace. A tile that should update with a
@@ -220,6 +268,15 @@ next start. A person's partition backup follows the same rule.
 - Other tiles can't call a sealed component or be bound to one. Where a
   release wants tiles to use something it runs, it says so in its own
   docs.
+- **Writing one** (in the xbind source, [maintenance.md](/docs/maintenance.md)
+  → Sealed components): its frontend talks to its own backend and to
+  nothing else. `xbin.fetch('/api/xbin/<name>/…')`, `xbin.ws` and
+  `xbin.url` on its own API work as in a tile; `xbin.bus`, `xbin.status`
+  and direct calls to `/api/xbin/kv`, `/blob`, `/bus` or another tile are
+  refused for its page, so live updates come from its backend (a stream or
+  a socket under its own API). The page is reloaded when the release
+  changes ([protocol/sealed.md](/docs/protocol/sealed.md) → One release on
+  both sides).
 - `GET /api/xbin/components` doesn't list them. A client that can show
   one asks with `?sealed=1` and must not offer a terminal, source,
   deployments, ownership or grants on a row with `sealed: true`
