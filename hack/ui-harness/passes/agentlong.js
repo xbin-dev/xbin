@@ -69,7 +69,7 @@ async function agentLong(browser) {
   check(w.rendered > 0 && w.rendered <= 150, `only a window is rendered (${w.rendered} of ${w.total} loaded)`);
   check(w.atBottom && w.scrollHeight - w.scrollTop - w.clientHeight < 2, `the view follows the bottom (${JSON.stringify(w)})`);
   check(w.hasOlder && w.events < w.lastSeq / 2, `the live tail was split and its far top let go (${w.events} of ${w.lastSeq} events held, ${w.segments} page(s))`);
-  check(await page.locator(`bx-frame[src="${TILE}"] bx-agent .earlier`).count() === 1, 'an "earlier entries" row heads the window');
+  check(await page.locator(`bx-frame[src="${TILE}"] bx-agent .bxc-earlier`).count() === 1, 'an "earlier entries" row heads the window');
   await shotEl(page, `bx-frame[src="${TILE}"] .pop`, 'agent-long-bottom');
 
   // ---- (b) scroll to the top: rows and pages load, the anchor never moves ----
@@ -142,7 +142,7 @@ async function agentLong(browser) {
   await until((g) => g.blocks.some((b) => /Paragraph 2 of/.test(b.text || '')), null, 'two paragraphs streamed', 10000);
   await sleep(100);
   await page.locator(`bx-frame[src="${TILE}"] bx-agent`).evaluate((el) => {
-    const p = [...el.shadowRoot.querySelectorAll('.agent .bubble p')].find((x) => /Paragraph 1 of/.test(x.textContent));
+    const p = [...el.shadowRoot.querySelectorAll('.bxc-agent .bxc-bubble p')].find((x) => /Paragraph 1 of/.test(x.textContent));
     const r = document.createRange(); r.selectNodeContents(p); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
   });
   await until((g) => g.status === 'idle' && g.blocks.some((b) => /Paragraph 8 of/.test(b.text || '')), null, 'eight paragraphs streamed', 15000);

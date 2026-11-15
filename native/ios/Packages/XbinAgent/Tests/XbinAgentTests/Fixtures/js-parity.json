@@ -466,6 +466,29 @@
    "planText": "",
    "output": "",
    "raw": "fallback"
+  },
+  {
+   "events": [
+    {
+     "kind": "execute",
+     "title": "make build",
+     "status": "in_progress",
+     "outputDelta": "compiling\n"
+    },
+    {
+     "output": "$ make build\ncompiling\n",
+     "outputDelta": "done\n"
+    },
+    {
+     "outputDelta": "!"
+    }
+   ],
+   "headline": "make build",
+   "command": "make build",
+   "plan": false,
+   "planText": "",
+   "output": "$ make build\ncompiling\ndone\n!",
+   "raw": ""
   }
  ],
  "rawTexts": [

@@ -167,7 +167,14 @@ says so):
    its views. Three `stripAnsi` outputs of the Swift parity corpus changed
    and the port's regex with them.
 4. **F3 — views.** The kit; `<bx-agent>` moves onto it. `agent-cards.js`
-   and `agent-css.js` stay as re-exports.
+   and `agent-css.js` stay as re-exports. *Landed (D224 "F3",
+   `plans/wsagent/chat-kit-spec.md` §11–§12): the views are template
+   functions as measured, the composer and the question's form light-DOM
+   elements; the Agent tab gained what the table above promised (files in
+   the composer, a confirmed bypass option, the usage badge, url questions
+   and the richer forms, an optional highlighter) and the harnesses not
+   offered with their reason. The kit's look is the tab's; where the
+   template's cards differ F4 decides (§12 lists each).*
 5. **F4 — AgTT onto the kit**, one view at a time (tool cards, asks,
    messages, composer), with the guarded kit import and the "needs xbind ≥"
    page. `model/fold.js` gains the small adapter to the block model.

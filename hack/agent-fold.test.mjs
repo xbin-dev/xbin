@@ -71,6 +71,8 @@ function refFold(events) {
       case 'permission.request': {
         cur = null;
         const p = { kind: 'perm', pid: d.pid, tool: d.toolCall || {}, options: d.options || [], rule: d.rule || null, meta: d.meta || null, by: null, optionId: null };
+        const asked = p.tool.id ? byId.get(p.tool.id) : null; // (D224: the request names its call's label, the call says it waits)
+        if (asked) { p.label = asked.label || ''; asked.perm = d.pid; }
         perms.set(d.pid, p); blocks.push(p);
         break;
       }
@@ -81,7 +83,11 @@ function refFold(events) {
         break;
       }
       case 'elicitation.resolved': { const q = asks.get(d.eid); if (q) { q.action = d.action; q.by = d.by; q.content = d.content || null; } break; }
-      case 'permission.resolved': { const p = perms.get(d.pid); if (p) { p.by = d.by; p.optionId = d.optionId; } break; }
+      case 'permission.resolved': {
+        const p = perms.get(d.pid);
+        if (p) { p.by = d.by; p.optionId = d.optionId; const asked = p.tool.id ? byId.get(p.tool.id) : null; if (asked && asked.perm === d.pid) asked.perm = ''; }
+        break;
+      }
       case 'turn.end':
         if (cur && cur.kind === 'thought') cur.done = true;
         cur = null; plan = null;

@@ -40,7 +40,7 @@
 // ---- kinds ---------------------------------------------------------------------------
 
 /** The kinds a view of the kit draws. A reducer may emit others of its own (a host draws those: ChatCtx.other). */
-export const KINDS = Object.freeze(['user', 'assistant', 'draft', 'thought', 'tool', 'agent', 'changes', 'plan', 'perm', 'ask', 'signin', 'notice', 'turn', 'gap']);
+export const KINDS = Object.freeze(['user', 'assistant', 'draft', 'thought', 'tool', 'agent', 'changes', 'plan', 'perm', 'ask', 'signin', 'notice', 'turn', 'gap', 'host']);
 
 /** ACP's tool kinds (a ToolRecord's kind); anything else reads as 'other'. */
 export const TOOL_KINDS = Object.freeze(['read', 'edit', 'delete', 'move', 'search', 'execute', 'think', 'fetch', 'switch_mode', 'other']);
@@ -259,7 +259,21 @@ export const TOOL_STATES = Object.freeze(['writing', 'pending', 'running', 'appr
  */
 
 /**
- * @typedef {UserBlock|AssistantBlock|DraftBlock|ThoughtBlock|ToolBlock|AgentBlock|ChangesBlock|PlanBlock|PermBlock|AskBlock|SigninBlock|NoticeBlock|TurnBlock|GapBlock} ChatBlock
+ * host — a card that is the host's own: the kit gives it a row and a frame,
+ * and the host draws what is inside (ChatCtx.host). For what only a host
+ * can say or may do — a session it started elsewhere, a request that its
+ * trusted chrome must grant: the kit never draws an answer for one, so a
+ * page that only shows a transcript cannot grant it.
+ * @typedef {BlockBase & {
+ *   kind: 'host',
+ *   type: string,              // the host's name for the card ('session', 'grant', …): what ChatCtx.host switches on
+ *   title?: string,            // a line the kit shows when the host draws nothing (an older host)
+ *   data?: any,                // whatever the host's card reads
+ * }} HostBlock
+ */
+
+/**
+ * @typedef {UserBlock|AssistantBlock|DraftBlock|ThoughtBlock|ToolBlock|AgentBlock|ChangesBlock|PlanBlock|PermBlock|AskBlock|SigninBlock|NoticeBlock|TurnBlock|GapBlock|HostBlock} ChatBlock
  */
 
 /**
@@ -342,6 +356,30 @@ export function toolState(rec, hint = '') {
   }
   if (hint === 'writing' || hint === 'approval' || hint === 'waiting') return hint;
   return rec.status === 'in_progress' ? 'running' : 'pending';
+}
+
+const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
+/**
+ * usageBadge(usage): a Transcript's usage as a badge's words — {text: "ctx
+ * 26% · $0.41", head: "ctx 26%" (without the cost, for a narrow bar), pct,
+ * tone: 'warn' (from 75 %) | 'bad' (from 90 %) | '', title: "52 000 of
+ * 200 000 tokens of context · $0.41"} — the share of the context in use
+ * when its size is known, else the tokens; the cost when the host has it.
+ * null when it says nothing.
+ */
+export function usageBadge(u) {
+  if (!u) return null;
+  const used = Number(u.used) || 0, size = Number(u.size) || 0;
+  const cost = u.cost && u.cost.amount != null ? `${u.cost.currency === 'USD' || !u.cost.currency ? '$' : u.cost.currency + ' '}${Number(u.cost.amount).toFixed(2)}` : '';
+  if (!(size > 0) && !used && !cost) return null;
+  const pct = size > 0 ? Math.min(100, Math.round(used * 100 / size)) : null;
+  const head = pct != null ? `ctx ${pct}%` : used ? `${used >= 1000 ? Math.round(used / 1000) + 'k' : used} tokens` : '';
+  return {
+    text: [head, cost].filter(Boolean).join(' · '), head: head || cost, pct,
+    tone: pct != null && pct >= 90 ? 'bad' : pct != null && pct >= 75 ? 'warn' : '',
+    title: pct != null ? `${fmtN(used)} of ${fmtN(size)} tokens of context${cost ? ` · ${cost}` : ''}` : [used ? `${fmtN(used)} tokens of context` : '', cost ? `${cost} so far` : ''].filter(Boolean).join(' · '),
+  };
 }
 
 // ---- keys, versions, nesting ---------------------------------------------------------
@@ -457,40 +495,75 @@ export function plain(x) {
   return out;
 }
 
+/**
+ * cached(b, slot, fn): fn()'s value, memoized on block b for its current
+ * version — markdown, diffs and stripped output run once per change, and
+ * survive the row leaving and re-entering a window (b.$memo; a reducer that
+ * rebuilds its blocks hands the same $memo on). A value without a version
+ * just computes.
+ */
+export function cached(b, slot, fn) {
+  if (!b || typeof b.v !== 'number') return fn();
+  const memo = b.$memo || (b.$memo = Object.create(null));
+  const m = memo[slot];
+  if (m && m.v === b.v) return m.val;
+  const val = fn();
+  memo[slot] = { v: b.v, val };
+  return val;
+}
+
 // ---- what views receive --------------------------------------------------------------
 
 /**
  * A view of the kit is a function of (block, ctx). ctx is everything it
  * may ask of its host — the Agent tab's element, a tile's page — and the
- * only way it reaches one:
+ * only way it reaches one. A member marked optional may be left out: the
+ * view then draws without what it gives.
  *
  * @typedef {object} ChatCtx
  * @property {boolean} running                    a turn is running (a live thought, a working subagent stay open)
  * @property {boolean} ended                      the session is over: nothing can be answered
+ * @property {boolean} [readonly]                 the reader only looks (a past session, a viewer): requests are drawn without
+ *           their answers, forms without their buttons. `ended` implies it
  * @property {string} agentName                   how the agent is called in a card's words
- * @property {string} me                          the reader's id, to tell their messages from others' ('' unknown)
- * @property {{answer: boolean, raise: boolean}} can  the reader may answer requests; may pick an `explicit` option
+ * @property {string} [me]                        the reader's id, to tell their messages from others' ('' unknown)
+ * @property {'owner'|'participant'|'viewer'} [role]  the reader's part in the conversation (default owner): a viewer
+ *           answers nothing, only an owner is shown an `explicit` option unless `can` says otherwise
+ * @property {{answer: boolean, raise: boolean}} [can]  the reader may answer requests; may pick an `explicit` option
+ *           (default: from role — answer unless a viewer, raise only an owner)
  * @property {(block: ChatBlock, slot: string, dflt?: boolean) => boolean} isOpen
  *           is this fold of the block open (slot: 'body', 'files', 'f:<path>', 'diff0:all', 'task', 'raw', 'full', …);
  *           dflt is what it is before the reader touched it
  * @property {(block: ChatBlock, slot: string, open: boolean, dflt?: boolean) => void} setOpen
  *           the reader opened or closed it (the host remembers by k and slot, keeps the reader's view, repaints the row)
- * @property {(block: PermBlock, answer: {optionId?: string, decision?: string, feedback?: string}) => (Promise<boolean>|void)} permit
+ * @property {(block: ChatBlock) => any} [rev]    a value that changes whenever something the host keeps for the block
+ *           (its open folds, a diff that loaded) changed: a row is drawn again when its block's v or this moved
+ * @property {(block: ChatBlock) => object} [state]  a bag the host keeps for the block's widgets (a form's values, a
+ *           rejection's feedback), so they outlive the row leaving the window (default: the kit keeps one per key on ctx)
+ * @property {(block: PermBlock, answer: {optionId?: string, decision?: string, verdict?: string, feedback?: string}) => (Promise<boolean>|void)} permit
  *           answer a permission request: an option, or a decision (an option kind) when the agent offered none; feedback is
- *           a word that goes with a rejection — the host sends it the way its agent takes it
+ *           a word that goes with a rejection — the host sends it the way its agent takes it. The kit has already asked
+ *           `confirm` for an `explicit` option
  * @property {(block: AskBlock, answer: {action: string, content?: object}) => (Promise<boolean>|void)} answer
  *           answer a question: accept (content: the form's values), decline, cancel
  * @property {(text: string) => (boolean|Promise<boolean>)} [confirm]  ask the reader to confirm an `explicit` option
  *           (default: the browser's confirm)
  * @property {(block: ChatBlock) => string} [note]  a word under a request's card: why the last answer to it was refused ('' none)
- * @property {(block: ChatBlock, set: ChangeSet, file: FileChange) => {state: string, text?: string, cut?: boolean, note?: string}} fileDiff
- *           one file's diff of a change set: state 'ok' (text: its unified diff; cut: not all of it), 'loading', or 'none' (note says why)
+ * @property {(block: ChatBlock, set: ChangeSet, file: FileChange) => {state: string, text?: string, cut?: boolean, note?: string}} [fileDiff]
+ *           one file's diff of a change set: state 'ok' (text: its unified diff; cut: not all of it), 'loading', or 'none'
+ *           (note says why). Left out: a change set lists its files without their diffs (unless its own patch holds them)
+ * @property {(block: ChatBlock, set: ChangeSet|null, file: {path: string}) => void} [openDiff]  show a file's diff in the
+ *           host's own viewer (a file row then offers it)
  * @property {(block: ChatBlock, file: ChatFile) => {linked: boolean, thumb?: string}} [fileState]  is a message's file still there; a thumbnail
- * @property {(block: ChatBlock, file: ChatFile) => void} [openFile]
+ * @property {(block: ChatBlock, file: ChatFile) => void} [openFile]  open a message's file (its chip is then a button)
+ * @property {(text: string) => (Promise<any>|void)} [copy]  put text on the clipboard (default: navigator.clipboard)
  * @property {(block: AgentBlock) => void} [openAgent]  show the sub-conversation on its own
  * @property {(block: AgentBlock, again?: boolean) => void} [loadAgent]  its blocks are wanted (the card was opened; again: after an error)
  * @property {(block: AgentBlock) => string} [agentError]  why they could not be read ('' no error)
+ * @property {(block: SigninBlock) => any} [signin]  the host's sign-in for a signin block (its guided flow, its buttons):
+ *           drawn inside the kit's card; left out, the card says only that the agent is signed out
+ * @property {(block: HostBlock) => any} [host]   draw the inside of a host block (null: its title alone)
  * @property {(block: ChatBlock, depth: number) => any} [other]  draw a block the kit has no view for — or one the host
- *           draws its own way: asked first, null leaves it to the kit
+ *           draws its own way: asked first for every block, null leaves it to the kit
  * @property {() => void} repaint                 something a view keeps outside the blocks changed (a form's value)
  */
