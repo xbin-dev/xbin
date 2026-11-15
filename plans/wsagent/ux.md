@@ -1,4 +1,4 @@
-# Workspace agent — UX design (package D0)
+# Workspace agent — UX design (the design pass before packages D and E)
 
 > Status: live — the design pass for the web and iOS UI of the workspace
 > agent (2026-11-15, branch `wsagent/d0-ux`, from `wsagent/main`). A
