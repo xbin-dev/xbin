@@ -13,6 +13,9 @@
 //   - no connection: the banner after a while, the draft kept and not sent,
 //     Review… off ("Approvals need a connection"), Try now; back: gone;
 //   - "Can't do this" with What can it do?; slowing down, quietly;
+//   - held (xbin won't let a new handle on the session's model hold what the
+//     conversation holds): why, and the ways forward — back to the model it
+//     was on, or a new session;
 //   - at 360 px (the dock's narrowest) and at a phone's width nothing
 //     scrolls sideways: the conversation, the scope panel, the sessions, the
 //     notebook. WS_SHOTS=<dir> also draws the page there, dark and light,
@@ -125,6 +128,25 @@ const STATE = { user: 'ana', mode: 'workspace', delegation: { workspace: true, p
   await page.click('[data-refusal="cannot"] button');
   ok('What can it do? shows what it can and can\'t, again', await until(async () => (await text(page, '.wsp-whatcan')).includes('It can’t')));
   ok('no page errors (refusals)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- held: xbin won't let a new handle on its model hold what the conversation holds --------------------
+{
+  const sessions = fresh(SESSIONS);
+  sessions[0].held = { code: 'model_taint', model: 'hosted/big', orgs: ['Sales'], reason: 'Sales allows private models only', offer: { model: 'hosted/big-1', newSession: { model: 'hosted/big' } } };
+  const { ctx, page, errors } = await openWs(browser, base({ sessions }));
+  await until(async () => !!(await page.$('.wsp-banner[data-state="held"]')));
+  const b = await text(page, '.wsp-banner[data-state="held"]');
+  ok('held: the session can’t go on on its model, why, and that nothing runs in it', b.includes('This session can’t go on on big.') && b.includes('It holds data from Sales, and Sales allows private models only')
+    && b.includes('Nothing is read, changed or sent to a model in it until it moves'), b);
+  const acts = await page.$$eval('.wsp-banner[data-state="held"] button', (bs) => bs.map((x) => x.textContent.trim()));
+  ok('…the ways forward: the model it was on, or a new session', acts.join(' | ') === 'Move back to big-1 | New session on big', acts.join(' | '));
+  await page.click('.wsp-banner[data-state="held"] button[data-act="back"]');
+  await until(async () => (await calls(page, 'PATCH', /\/ws\/sessions\/1$/)).length === 1);
+  ok('…Move back asks the backend to move it (PATCH {model})', JSON.parse((await calls(page, 'PATCH', /\/ws\/sessions\/1$/))[0].body).model === 'hosted/big-1');
+  ok('…and moved, the banner goes', await until(async () => !(await page.$('.wsp-banner[data-state="held"]'))));
+  ok('no page errors (held)', errors.length === 0, errors.join(' | '));
   await ctx.close();
 }
 

@@ -644,7 +644,7 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 	model := visionModelFor(ctx, cfg, msgs)
 	e.draftStart(ts, model)
 	t0 := time.Now()
-	reply, err := e.llm.Chat(ctx, LLMRequest{
+	reply, err := e.chat(ctx, LLMRequest{
 		Run: run.ID, Purpose: "turn",
 		Model: model, Msgs: msgs, Tools: specs, Stream: cfg.feature("streaming"),
 		Wire: cfg.Wire, ReasoningEffort: cfg.ReasoningEffort,

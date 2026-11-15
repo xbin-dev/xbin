@@ -406,7 +406,7 @@ func wsNotebookChange(ctx context.Context, ag *Agent, s *wsSession, c coordCall,
 	}
 	// whatever the conversation has read may be in what it writes: every
 	// org it is tainted with now joins the page's stamps. No page is exempt.
-	stamp.Orgs = wsUnion(stamp.Orgs, s.Conn.Tainted)
+	stamp.Orgs = wsUnion(stamp.Orgs, s.Tainted)
 	var p *WikiPage
 	err = ag.db.Tx(func(t *DB) error {
 		var err error
@@ -457,8 +457,8 @@ func (ag *Agent) wsPromptFor(run *Run, cfg Config) string {
 	if s.Scope != nil {
 		b.WriteString("Your person narrowed where this session looks; what is outside is not connected, by their choice.\n")
 	}
-	if len(s.Conn.Tainted) > 0 {
-		fmt.Fprintf(&b, "This conversation holds data from: %s. It can move only to a model those orgs allow.\n", strings.Join(s.Conn.Tainted, ", "))
+	if len(s.Tainted) > 0 {
+		fmt.Fprintf(&b, "This conversation holds data from: %s. It can move only to a model those orgs allow.\n", strings.Join(s.Tainted, ", "))
 	}
 	if s.Plan != "" {
 		var steps []wsPlanStep

@@ -266,7 +266,11 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   conversation it asks `…/allows` for the page's orgs, and after reading
   adds them with `…/taint`; a page it writes carries the session's whole
   `tainted` set. Taint is add-only — no call removes an org — and binds
-  later model changes like taint xbind recorded.
+  later model changes like taint xbind recorded. A holder keeps what a
+  conversation holds with the conversation, and gives a handle it opens
+  again for it (the old one gone after 24 h unused) all of it with
+  `…/taint` before the handle carries anything: a `409 model_taint` there
+  means the conversation can't go on on that model.
 - Audit rows carry `session`.
 
 ## Notices to the agent's backend

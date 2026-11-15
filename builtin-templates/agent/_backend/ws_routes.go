@@ -104,11 +104,27 @@ func wsRouteSession(w http.ResponseWriter, r *http.Request) (*wsSession, bool) {
 	return s, true
 }
 
+// wsHeldItem is a held conversation as the page shows it: the model, the
+// orgs and xbind's reason, and the ways forward — back to the model it was
+// on (offer.model, where its model now names another), or a new session.
+func wsHeldItem(h wsHeld) map[string]any {
+	offer := map[string]any{"newSession": map[string]any{"model": h.Model}}
+	if h.Was != "" {
+		offer["model"] = h.Was
+	}
+	return map[string]any{"code": orStr(h.Code, "model_taint"), "model": h.Model, "orgs": h.Orgs, "reason": h.Reason, "atMs": h.At, "offer": offer}
+}
+
 // wsWriteErr answers an error of xbind's in its own status and words.
 func wsWriteErr(w http.ResponseWriter, err error) {
+	var he *wsHeldError
 	var te *wsTaintError
 	var de *xbin.DelegateError
 	switch {
+	case errors.As(err, &he):
+		out := wsHeldItem(he.Held)
+		out["error"], out["code"], out["held"] = he.Error(), "model_taint", true
+		xbin.WriteJSON(w, http.StatusConflict, out)
 	case errors.As(err, &te):
 		// the copy deck's card: this session can't move; a new one can start
 		xbin.WriteJSON(w, http.StatusConflict, map[string]any{"error": te.Error(), "code": "model_taint", "model": te.Model, "orgs": te.Orgs,
@@ -163,7 +179,10 @@ func handleWsState(w http.ResponseWriter, r *http.Request) {
 // wsSessionItem is a session as the list and the header show it.
 func wsSessionItem(s *wsSession, owner string) map[string]any {
 	it := map[string]any{"id": s.Run, "main": s.Main, "model": s.Model, "scope": s.Scope, "handle": s.Handle,
-		"connection": s.Conn.Connection, "summary": wsConnLine(s.Conn.Connection), "tainted": s.Conn.Tainted, "createdMs": s.Created}
+		"connection": s.Conn.Connection, "summary": wsConnLine(s.Conn.Connection), "tainted": s.Tainted, "createdMs": s.Created}
+	if s.Held != nil { // it can't go on on its model: why, and the ways forward
+		it["held"] = wsHeldItem(*s.Held)
+	}
 	if run, err := agent.db.getRun(s.Run); err == nil {
 		it["name"], it["status"], it["activityMs"] = run.Title, run.Status, run.ActivityMs
 		if run.Status == statusWaiting { // the agent's own question

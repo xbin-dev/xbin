@@ -119,6 +119,16 @@ func (e *Engine) epochName() string {
 	return "engine_epoch"
 }
 
+// chat is a model call: e.llm's, once nothing refuses it (llmRefuseHooks).
+func (e *Engine) chat(ctx context.Context, req LLMRequest, onEvent func(LLMEvent)) (LLMReply, error) {
+	for _, f := range llmRefuseHooks {
+		if err := f(req); err != nil {
+			return LLMReply{}, err
+		}
+	}
+	return e.llm.Chat(ctx, req, onEvent)
+}
+
 func newEngine(db *DB, ag *Agent, llm LLM, lockPath string) *Engine {
 	base, cancel := context.WithCancelCause(context.Background())
 	e := &Engine{

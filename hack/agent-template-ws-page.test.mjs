@@ -132,7 +132,7 @@ test('every field the page reads is a JSON name the backend writes', () => {
     .concat([...backend.matchAll(/^\s+([A-Z]\w*)(?:, \w+)*\s+\*?(?:int64|bool|string)\b/gm)].map((m) => m[1][0].toLowerCase() + m[1].slice(1))));
   const read = ['user', 'mode', 'delegation', 'workspace', 'paused', 'pausedAt', 'models', 'default', 'upstream', 'private', 'where', 'quota', 'stopped', 'resets', 'limitWords', 'raise',
     'sessions', 'name', 'main', 'model', 'handle', 'connection', 'summary', 'status', 'waiting', 'ask',
-    'archivedAt', 'agents', 'requests', 'activityMs', 'counts', 'tiles', 'orgs', 'notConnected', 'hidden', 'blocked', 'noAccess', 'whatIf', 'connects', 'disconnects', 'allowed', 'taintedOrgs',
+    'archivedAt', 'agents', 'requests', 'activityMs', 'held', 'atMs', 'counts', 'tiles', 'orgs', 'notConnected', 'hidden', 'blocked', 'noAccess', 'whatIf', 'connects', 'disconnects', 'allowed', 'taintedOrgs',
     'code', 'reason', 'offer', 'kind', 'ref', 'tile', 'title', 'method', 'path', 'brief', 'state', 'createdMs', 'decidedMs', 'expiresMs', 'grant', 'grantUntilMs', 'by', 'via', 'resultStatus', 'result',
     'refusals', 'callId', 'tool', 'question', 'choices', 'context', 'connected', 'screen',
     'session', 'harness', 'asks', 'waits', 'last', 'startedMs', 'request',

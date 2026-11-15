@@ -10,9 +10,11 @@
 // another; one model serves the whole conversation — its turns, its
 // summaries, its titles — because the connector takes only the handle's.
 // A model change asks xbind first: a conversation that holds an org's data
-// never moves to a model that org doesn't allow (the taint is xbind's; the
-// orgs it last reported are checked here too, so a handle xbind had to make
-// again can't forget them).
+// never moves to a model that org doesn't allow. The taint is the
+// conversation's, kept with it here (ws_sessions.tainted: every org xbind
+// ever reported, every notebook stamp shown), and a handle xbind had to make
+// again is tainted with all of it before anything runs on it; a model that
+// may no longer hold it holds the conversation (wsHeld).
 package main
 
 import (
@@ -140,36 +142,173 @@ func (ag *Agent) wsNewSession(ctx context.Context, owner, name string, scope *ws
 // out by newer ones): the session opens another.
 func wsGone(err error) bool { return errors.Is(err, xbin.ErrNoSession) }
 
-// wsReopen gives s a new handle with its scope and model. xbind's record
-// of what the conversation read went with the old handle; what was last
-// seen of it stays on record here (wsChange checks both), and the map is
-// read once so xbind's own record covers what is connected again.
+// wsHeldRetry is how often a held conversation asks xbind again whether a
+// handle on its model may hold what it holds (the orgs' rules may have
+// moved back).
+const wsHeldRetry = time.Minute
+
+// wsHeldError: the conversation can't go on on its model (wsSession.Held).
+// It reads as the taint refusal it is.
+type wsHeldError struct{ Held wsHeld }
+
+func (e *wsHeldError) Error() string {
+	way := "your person can open a new session"
+	if e.Held.Was != "" {
+		way = "your person can move it back to " + e.Held.Was + ", or open a new session"
+	}
+	return fmt.Sprintf("this conversation can't go on on %s: it holds data from %s, which %s — %s. Nothing can be read or changed in it until then: tell your person",
+		e.Held.Model, orStr(strings.Join(e.Held.Orgs, ", "), "an org"), orStr(e.Held.Reason, "xbin can no longer check against its rules"), way)
+}
+
+func (e *wsHeldError) Unwrap() error {
+	return &wsTaintError{Model: e.Held.Model, Orgs: e.Held.Orgs, Reason: e.Held.Reason}
+}
+
+// wsOpenHolding opens a handle on model with scope that holds every org the
+// conversation holds: xbind's record of what it read starts where this
+// one's is, before anything runs on the handle. A handle xbind won't let
+// hold it is closed again and never used: *wsTaintError when xbind says the
+// model may not see an org's data (409 model_taint) or can't judge an org
+// for this person any more (403) — the conversation can't go on on that
+// model —, any other error as it came.
+func (ag *Agent) wsOpenHolding(ctx context.Context, s *wsSession, scope *wsScope, model string) (wsHandle, error) {
+	h, err := wsX.OpenSession(ctx, scope, model)
+	if err != nil {
+		return h, err
+	}
+	if h.Model == "" {
+		h.Model = model
+	}
+	if len(s.Tainted) == 0 {
+		return h, nil
+	}
+	if err := wsX.Taint(ctx, h.ID, s.Tainted); err != nil {
+		_ = wsX.CloseSession(ctx, h.ID)
+		if te := wsTaintRefused(err, model, s.Tainted); te != nil {
+			return wsHandle{}, te
+		}
+		return wsHandle{}, err
+	}
+	if again, err := wsX.Session(ctx, h.ID); err == nil {
+		h = again
+		if h.Model == "" {
+			h.Model = model
+		}
+	}
+	return h, nil
+}
+
+// wsTaintRefused is xbind's refusal to let a handle on model hold orgs
+// (POST …/taint) as *wsTaintError: 409 model_taint — an org's rules don't
+// allow the model —, or a 403 for an org it can't judge for this person
+// any more. nil: err is something else (no-session, a failure to reach
+// xbind), which says nothing about the model.
+func wsTaintRefused(err error, model string, orgs []string) *wsTaintError {
+	var te *wsTaintError
+	var de *xbin.DelegateError
+	switch {
+	case errors.As(err, &te):
+		return &wsTaintError{Model: model, Orgs: wsOrgsOr(te.Orgs, orgs), Reason: te.Reason}
+	case errors.Is(err, xbin.ErrModelTaint) && errors.As(err, &de):
+		return &wsTaintError{Model: model, Orgs: wsOrgsOr(de.Orgs, orgs), Reason: orStr(de.Reason, de.Message)}
+	case errors.As(err, &de) && (de.Status == http.StatusForbidden || de.Status == http.StatusConflict) && !wsGone(err):
+		return &wsTaintError{Model: model, Orgs: orgs, Reason: "xbin can no longer check this model against the rules of an org whose data the conversation holds (" + orStr(de.Message, "refused") + ")"}
+	}
+	return nil
+}
+
+// wsTopUp gives handle sid what the conversation holds and xbind's record
+// of it (seen) lacks — a handle a backend from before the conversation
+// kept its own record made again: the rest of it, with …/taint. Refused,
+// the conversation is held and the handle closed.
+func (ag *Agent) wsTopUp(ctx context.Context, s *wsSession, sid string, seen []string) error {
+	var missing []string
+	for _, o := range s.Tainted {
+		if !hasStr(seen, o) {
+			missing = append(missing, o)
+		}
+	}
+	if len(missing) == 0 || sid == "" {
+		return nil
+	}
+	err := wsX.Taint(ctx, sid, missing)
+	if te := wsTaintRefused(err, s.Model, missing); te != nil {
+		_ = wsX.CloseSession(ctx, sid)
+		return ag.wsHoldOn(s, te)
+	}
+	return err
+}
+
+// wsHoldOn holds s: its model may not hold what it holds (te).
+func (ag *Agent) wsHoldOn(s *wsSession, te *wsTaintError) error {
+	held := &wsHeld{Code: "model_taint", Model: s.Model, Orgs: te.Orgs, Reason: te.Reason, At: nowMs()}
+	if ref := s.Conn.Connection.Model; ref != nil && ref.Upstream != "" && ref.Model != "" {
+		if was := ref.Upstream + "/" + ref.Model; was != s.Model {
+			held.Was = was // the session's model is a name (the agent role's) that now resolves to another
+		}
+	}
+	if err := ag.db.wsPutHeld(s.Run, held); err != nil {
+		return err
+	}
+	s.Held = held
+	ag.wsChanged(s.Run, "held")
+	return &wsHeldError{Held: *held}
+}
+
+func wsOrgsOr(a, b []string) []string {
+	if len(a) > 0 {
+		return a
+	}
+	return b
+}
+
+// wsReopen gives s a new handle with its scope and model, tainted with
+// everything the conversation holds before it is stored — and so before
+// any model call or tool uses it. When xbind won't let a handle on the
+// model hold that, the conversation is held (wsSession.Held): nothing runs
+// on it, and its person is offered the model it was on or a new session.
 func (ag *Agent) wsReopen(ctx context.Context, s *wsSession) error {
-	h, err := wsX.OpenSession(ctx, s.Scope, s.Model)
+	h, err := ag.wsOpenHolding(ctx, s, s.Scope, s.Model)
+	var te *wsTaintError
+	if errors.As(err, &te) {
+		return ag.wsHoldOn(s, te)
+	}
 	if err != nil {
 		return err
 	}
-	if len(s.Conn.Tainted) > 0 {
-		if _, err := wsX.Map(ctx, h.ID); err == nil {
-			if again, err := wsX.Session(ctx, h.ID); err == nil {
-				h = again
-			}
-		}
-	}
-	h.Tainted = wsUnion(s.Conn.Tainted, h.Tainted)
-	if h.Model == "" {
-		h.Model = s.Model
-	}
-	if err := ag.db.wsPutHandle(s.Run, h); err != nil {
+	return ag.wsKeepHandle(s, h)
+}
+
+// wsKeepHandle stores h as s's handle: the conversation can go on.
+func (ag *Agent) wsKeepHandle(s *wsSession, h wsHandle) error {
+	h.Tainted = wsUnion(s.Tainted, h.Tainted)
+	all, err := ag.db.wsPutHandle(s.Run, h)
+	if err != nil {
 		return err
 	}
-	s.Handle, s.Conn, s.ConnMs = h.ID, h, nowMs()
+	if s.Held != nil {
+		if err := ag.db.wsPutHeld(s.Run, nil); err != nil {
+			return err
+		}
+		s.Held = nil
+		ag.wsChanged(s.Run, "held")
+	}
+	s.Handle, s.Conn, s.ConnMs, s.Tainted = h.ID, h, nowMs(), all
 	return nil
 }
 
 // wsWith runs f with s's handle, once more with a new one when xbind says
-// the handle is gone.
+// the handle is gone. A held conversation runs nothing: it asks xbind again
+// at most every wsHeldRetry whether a handle may hold what it holds.
 func (ag *Agent) wsWith(ctx context.Context, s *wsSession, f func(sid string) error) error {
+	if s.Held != nil {
+		if nowMs()-s.Held.At < wsHeldRetry.Milliseconds() {
+			return &wsHeldError{Held: *s.Held}
+		}
+		if err := ag.wsReopen(ctx, s); err != nil {
+			return err
+		}
+	}
 	if s.Handle == "" {
 		if err := ag.wsReopen(ctx, s); err != nil {
 			return err
@@ -195,12 +334,15 @@ func (ag *Agent) wsRefresh(ctx context.Context, s *wsSession, force bool) {
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { h, err = wsX.Session(ctx, sid); return }); err != nil {
 		return
 	}
-	h.Tainted = wsUnion(s.Conn.Tainted, h.Tainted)
+	if err := ag.wsTopUp(ctx, s, h.ID, h.Tainted); err != nil {
+		return
+	}
+	h.Tainted = wsUnion(s.Tainted, h.Tainted)
 	if h.Model == "" {
 		h.Model = s.Model
 	}
-	if ag.db.wsPutHandle(s.Run, h) == nil {
-		s.Conn, s.ConnMs, s.Scope, s.Model = h, nowMs(), h.Scope, h.Model
+	if all, err := ag.db.wsPutHandle(s.Run, h); err == nil {
+		s.Conn, s.ConnMs, s.Scope, s.Model, s.Tainted = h, nowMs(), h.Scope, h.Model, all
 	}
 	// the orgs' rules may have moved too — asked again at most every
 	// wsAllowFresh: the question is an act at xbind (rate-limited with the
@@ -229,35 +371,44 @@ func wsUnion(a, b []string) []string {
 
 // wsChange changes s's scope, its model or both. A model the conversation's
 // data may not be sent to is *wsTaintError, and nothing changed: xbind
-// refuses it by the handle's own record, and it is refused here first by
-// what was last seen of that record — which outlives a handle xbind had to
-// make again.
+// refuses it by the handle's own record, which holds everything the
+// conversation does (wsReopen). A held conversation moves by a new handle
+// on the model asked for, made to hold what it holds first.
 func (ag *Agent) wsChange(ctx context.Context, s *wsSession, ch wsHandleChange) error {
-	if ch.Model != "" && ch.Model != s.Model && len(s.Conn.Tainted) > 0 {
-		var cur wsHandle
-		if err := ag.wsWith(ctx, s, func(sid string) (err error) { cur, err = wsX.Session(ctx, sid); return }); err != nil {
-			return err
-		}
-		var lost []string // held, by this backend's record, and unknown to xbind's handle
-		for _, org := range s.Conn.Tainted {
-			if !hasStr(cur.Tainted, org) {
-				lost = append(lost, org)
-			}
-		}
-		if len(lost) > 0 {
-			return &wsTaintError{Model: ch.Model, Orgs: lost, Reason: "xbin renewed this conversation's session and can no longer check the move against what it read from them"}
-		}
-	}
 	var h wsHandle
-	if err := ag.wsWith(ctx, s, func(sid string) (err error) { h, err = wsX.UpdateSession(ctx, sid, ch); return }); err != nil {
+	var err error
+	if s.Held != nil && ch.Model != "" {
+		scope := s.Scope
+		if ch.SetScope {
+			scope = ch.Scope
+		}
+		h, err = ag.wsOpenHolding(ctx, s, scope, ch.Model)
+	} else {
+		err = ag.wsWith(ctx, s, func(sid string) error {
+			if ch.Model != "" && len(s.Tainted) > 0 { // xbind judges the move by its record: all of what the conversation holds first
+				cur, err := wsX.Session(ctx, sid)
+				if err != nil {
+					return err
+				}
+				if err := ag.wsTopUp(ctx, s, sid, cur.Tainted); err != nil {
+					return err
+				}
+			}
+			var err error
+			h, err = wsX.UpdateSession(ctx, sid, ch)
+			return err
+		})
+	}
+	if err != nil {
 		return err
 	}
-	h.Tainted = wsUnion(s.Conn.Tainted, h.Tainted)
+	h.Tainted = wsUnion(s.Tainted, h.Tainted)
 	if h.Model == "" {
 		h.Model = orStr(ch.Model, s.Model)
 	}
-	return ag.db.Tx(func(t *DB) error {
-		if err := t.wsPutHandle(s.Run, h); err != nil {
+	err = ag.db.Tx(func(t *DB) error {
+		all, err := t.wsPutHandle(s.Run, h)
+		if err != nil {
 			return err
 		}
 		if h.Model != s.Model { // one model for the whole conversation
@@ -272,13 +423,22 @@ func (ag *Agent) wsChange(ctx context.Context, s *wsSession, ch wsHandleChange) 
 				return err
 			}
 		}
-		s.Handle, s.Conn, s.ConnMs, s.Scope, s.Model = h.ID, h, nowMs(), h.Scope, h.Model
+		if s.Held != nil {
+			if err := t.wsPutHeld(s.Run, nil); err != nil {
+				return err
+			}
+		}
+		s.Handle, s.Conn, s.ConnMs, s.Scope, s.Model, s.Tainted, s.Held = h.ID, h, nowMs(), h.Scope, h.Model, all, nil
 		if ag.eng != nil {
 			ag.eng.emitRun(t, s.Run)
 		}
 		t.AfterCommit(func() { ag.wsAllow(ctx, s) }) // another model: which pages it may read is asked again
 		return nil
 	})
+	if err != nil && h.ID != "" && h.ID != s.Handle {
+		_ = wsX.CloseSession(ctx, h.ID)
+	}
+	return err
 }
 
 // wsDrop deletes a session that isn't Main: its handle, what it started
@@ -414,7 +574,7 @@ func (ag *Agent) wsAllowKnown(ctx context.Context, s *wsSession, store int64) {
 func (ag *Agent) wsHold(ctx context.Context, s *wsSession, orgs []string) error {
 	var need []string
 	for _, o := range orgs {
-		if !hasStr(s.Conn.Tainted, o) {
+		if !hasStr(s.Tainted, o) {
 			need = append(need, o)
 		}
 	}
@@ -426,10 +586,11 @@ func (ag *Agent) wsHold(ctx context.Context, s *wsSession, orgs []string) error 
 	}
 	h := s.Conn
 	h.Tainted = wsUnion(h.Tainted, need)
-	if err := ag.db.wsPutHandle(s.Run, h); err != nil {
+	all, err := ag.db.wsPutHandle(s.Run, h)
+	if err != nil {
 		return err
 	}
-	s.Conn = h
+	s.Conn, s.Tainted = h, all
 	return nil
 }
 
@@ -441,15 +602,36 @@ func init() { llmHeaderHooks = append(llmHeaderHooks, wsLLMHeader) }
 // that model against the orgs whose data the conversation holds. Nothing
 // in a normal instance.
 func wsLLMHeader(req LLMRequest, h http.Header) {
+	if s := wsSessionOfCall(req); s != nil && s.Handle != "" && s.Held == nil {
+		h.Set(xbin.AgentSessionHeader, s.Handle)
+	}
+}
+
+func init() { llmRefuseHooks = append(llmRefuseHooks, wsLLMRefuse) }
+
+// wsLLMRefuse (llmRefuseHooks): a held conversation makes no model call — what
+// it holds may not go to its model (wsSession.Held).
+func wsLLMRefuse(req LLMRequest) error {
+	if s := wsSessionOfCall(req); s != nil && s.Held != nil {
+		return &wsHeldError{Held: *s.Held}
+	}
+	return nil
+}
+
+// wsSessionOfCall is the workspace session a model call is made for (nil:
+// none — a normal instance, or not a workspace conversation's).
+func wsSessionOfCall(req LLMRequest) *wsSession {
 	ag := projAg()
 	if !wsMode() || ag == nil || ag.db == nil || req.Run == 0 {
-		return
+		return nil
 	}
 	run, err := ag.db.getRun(req.Run)
 	if err != nil || run.Origin != originWorkspace {
-		return
+		return nil
 	}
-	if s, err := ag.db.wsSession(rootOf(run)); err == nil && s.Handle != "" {
-		h.Set(xbin.AgentSessionHeader, s.Handle)
+	s, err := ag.db.wsSession(rootOf(run))
+	if err != nil {
+		return nil
 	}
+	return s
 }

@@ -83,6 +83,9 @@ func wsResolve(ag *Agent, t *DB, run *Run, cfg Config) (any, error) {
 	if s.Owner != run.Owner || (userMode() && s.Owner != runUser) {
 		return nil, errors.New("this session belongs to another person")
 	}
+	if s.Held != nil { // what it holds may not go to its model: no tool runs (ws_sessions.go)
+		return nil, &wsHeldError{Held: *s.Held}
+	}
 	return s, nil
 }
 

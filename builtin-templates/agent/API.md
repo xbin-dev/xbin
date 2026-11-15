@@ -5844,18 +5844,29 @@ instance, and any other value refuses to serve. In it:
 true}`, idempotent), is renamable and never archived or deleted. A session
 owns one handle at xbind (`{scope, model}`), made with it and closed with
 it, and made again when xbind says it is gone (`no-session`: a handle goes
-after a day unused) — what the conversation was last seen to hold stays on
-record here. A model change is xbind's to allow: refused (the
-conversation holds data of an org that doesn't allow the model, by xbind's
-record or by this one), the answer is `409 {code: "model_taint", model,
+after a day unused). What the conversation holds is the conversation's:
+every org xbind reports for any of its handles, and every notebook stamp it
+is shown, is kept with it here (`tainted`, only growing), and a handle made
+again is tainted with all of it (`POST /delegate/sessions/{id}/taint`)
+before it is stored — before any model call or tool runs on it; a handle
+whose record at xbind lacks part of it (made again by an older backend) is
+given the rest when it is next read and before its model moves. When xbind
+refuses that (`409 model_taint`: an org's rules no longer allow the model;
+or `403`: an org it can't judge for this person any more), the session is
+**held**: no model call and no tool runs in it, its row says why (`held`,
+below), and it goes on only on a model that may hold what it holds —
+`PATCH {model}` opens a handle there and taints it first — or when xbind's
+rules allow it again (asked again at most once a minute). A model change is
+xbind's to allow: refused (the conversation holds data of an org that
+doesn't allow the model), the answer is `409 {code: "model_taint", model,
 orgs, reason, offer: {newSession: {model}}}`.
 
 | Route | |
 |---|---|
 | `GET /ws/state` | `{user, mode, delegation: {workspace, paused, pausedAt?, adminChanges, canAdminChanges} \| delegationError, models: {default, models: [{id, name, upstream?, private?, where?}]}, quota?}` — read-only: pausing is xbind's (`pausedAt`: RFC 3339, while paused). A model's `private` and `where` ("hosted" \| "your organisation's own server") are there only when xbind says: the connector's list for that model, or the connection view of a session of theirs that is on it. `quota` is the stopping quota a model call last met (below) |
-| `GET /ws/sessions` | `{sessions: [{id, name, main, model, scope, handle, connection, summary, tainted, status, waiting?, ask?, archivedAt, agents, requests}]}`, Main first. `connection.model` is the session's model as xbind names it: `{upstream, model, private}`. `ask` is the question it waits on, in fields (below). `id` is the conversation: its transcript is `GET /runs/{id}/view` and `/stream` |
+| `GET /ws/sessions` | `{sessions: [{id, name, main, model, scope, handle, connection, summary, tainted, status, waiting?, ask?, held?, archivedAt, agents, requests}]}`, Main first. `connection.model` is the session's model as xbind names it: `{upstream, model, private}`. `ask` is the question it waits on, in fields (below). `tainted` is the conversation's own record of the orgs whose data it holds. `held` — `{code, model, orgs, reason, atMs, offer: {model?, newSession: {model}}}` — says the session can't go on on its model; `offer.model` is the model it was on, where its model is a name (the agent role's) that now resolves to another. `id` is the conversation: its transcript is `GET /runs/{id}/view` and `/stream` |
 | `POST /ws/sessions` | `{main: true}`, or `{name?, scope?, model?, from?}` (`from`: copy that session's scope and model; no name: named from its first request) → `{session}` |
-| `PATCH /ws/sessions/{id}` | `{name?, archived?, scope? ({orgs, tiles} or null: everything allowed), model?}` → `{session}`; `409` for Main's archive, a model change while it works, and `model_taint` |
+| `PATCH /ws/sessions/{id}` | `{name?, archived?, scope? ({orgs, tiles} or null: everything allowed), model?}` → `{session}`; `409` for Main's archive, a model change while it works, and `model_taint` (with `held: true` and the held fields when the session is held and the call needed its handle) |
 | `DELETE /ws/sessions/{id}` | not Main. Closes the handle and withdraws its pending requests; tile agents it started keep running, as their person's |
 | `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection: {counts, orgs: [{id, name, kind, state, reason?, tiles, connected}]}, summary, model, handle}`; with `whatIf` also `whatIf: {model, connects, disconnects, counts, summary, allowed, taintedOrgs}` and, when not allowed, `offer: {newSession: {model}}`. Totals and org-level reasons only: the page reads the tiles' names from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`) |
 | `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset, ref, callId?, tile, title, method, path, brief, state, outcome, createdMs, decidedMs, expiresMs?, grant?, grantUntilMs?, by?, via?, resultStatus?, result?}], agents: [{id, session, tile, harness, mode, asks, brief?, request?, callId?, status, waits, waiting, last, turn, held, startedMs, updatedMs}], briefs: [{id, callId?, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}], refusals: [{id, callId, tool, kind, reason, tile, createdMs}], ask?}` — the fields are described under "In fields" below. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |

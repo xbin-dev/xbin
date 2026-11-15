@@ -521,7 +521,7 @@ func wsResearchEnded(t *DB, run *Run, why, outcome, result string) {
 		wikiChange{Slug: b.Save, Title: slugTitle(b.Save), Body: body, Note: "research on " + b.Tile, Sources: []string{b.Tile + "@" + b.Rev}, Base: &base}); err != nil {
 		return
 	}
-	orgs := wsUnion(s.Conn.Tainted, nil)
+	orgs := wsUnion(s.Tainted, nil)
 	if b.Org != "" && !hasStr(orgs, b.Org) {
 		orgs = append(orgs, b.Org)
 	}

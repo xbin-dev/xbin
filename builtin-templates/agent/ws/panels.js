@@ -136,6 +136,6 @@ function pageView(n, act) {
 export function bannersView(list) {
   return (list || []).map((b) => html`<div class="wsp-banner ${b.tone || ''}" data-state=${b.key} role=${b.tone === 'bad' || b.tone === 'warn' ? 'alert' : 'status'}>
     ${icon(b.icon)}<div class="wsp-bt"><b>${b.bold}</b> ${b.text || ''}${b.more ? html`<div class="wsc-muted">${b.more}</div>` : nothing}</div>
-    ${b.button ? html`<button @click=${b.button.act}>${b.button.label}</button>` : nothing}
+    ${[...(b.button ? [b.button] : []), ...(b.buttons || [])].map((x) => html`<button data-act=${x.key || nothing} @click=${x.act}>${x.label}</button>`)}
   </div>`);
 }

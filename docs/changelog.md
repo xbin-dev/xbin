@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- **Workspace agent: fixes from a security review**
+  ([workspace-agent.md](/docs/workspace-agent.md),
+  [protocol/delegation.md](/docs/protocol/delegation.md#the-chrome)).
+  What a conversation has read is kept with the conversation: a session
+  whose record xbind renewed (a day unused) gives the new record
+  everything it holds before it reads or calls a model again, and stops,
+  saying so, where an org's rules no longer allow its model (`held` on
+  `GET /ws/sessions`; the agent template's `API.md` §Workspace mode).
+
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),
   [protocol/agents.md](/docs/protocol/agents.md)). A session's row and its

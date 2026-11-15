@@ -90,7 +90,7 @@ export function WS_STUB(seed) {
       if (b.model && (S.taint || []).includes(b.model)) return json({ error: 'refused', code: 'model_taint', model: b.model, orgs: ['Finance'], reason: 'Finance allows private models only', offer: { newSession: { model: b.model } } }, 409);
       if (b.name) s.name = b.name;
       if ('archived' in b) s.archivedAt = b.archived ? Date.now() : 0;
-      if (b.model) s.model = b.model;
+      if (b.model) { s.model = b.model; delete s.held; } // a held session moves by a new handle that holds what it holds
       if ('scope' in b) s.scope = b.scope;
       return json({ session: s });
     }],

@@ -150,9 +150,20 @@ func (d *DB) addWsSchema() error {
 		// what started a tile agent: where the page sets its card
 		`ALTER TABLE ws_agents ADD COLUMN request_id INTEGER NOT NULL DEFAULT 0`, // the request that started it (ws_requests.id)
 		`ALTER TABLE ws_agents ADD COLUMN call_id TEXT NOT NULL DEFAULT ''`,      // the tile_agent_start call that filed that request
+		// the conversation's own record of the orgs whose data it holds, as xbind
+		// ever reported them: it outlives every handle, and a new handle is
+		// tainted with it before anything runs on it (wsReopen)
+		`ALTER TABLE ws_sessions ADD COLUMN tainted TEXT NOT NULL DEFAULT ''`,
+		// why the conversation can't go on on its model ('': it can): xbind
+		// refused a new handle on it what the conversation holds (wsHeld)
+		`ALTER TABLE ws_sessions ADD COLUMN held TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = d.q.Exec(q)
 	}
+	// forward only, once per row: a session from before the column keeps the
+	// taint its stored handle carried
+	_, _ = d.q.Exec(`UPDATE ws_sessions SET tainted = json_extract(conn, '$.tainted')
+		WHERE tainted = '' AND json_valid(conn) AND json_type(conn, '$.tainted') = 'array'`)
 	return nil
 }
 
@@ -186,15 +197,47 @@ type wsSession struct {
 	Allow   map[string]string
 	Plan    string
 	Created int64
+	// Tainted is the orgs whose data the conversation holds — every org
+	// xbind ever reported for any of its handles, and every notebook stamp it
+	// was shown. It only grows; a handle is never used before xbind holds all
+	// of it (wsReopen).
+	Tainted []string
+	// Held, when set, is why the conversation can't go on on its model: a new
+	// handle could not be made to hold what it holds. Nothing runs on it —
+	// no model call, no tool — until its person moves it to a model that
+	// may, or xbind's rules allow it again.
+	Held *wsHeld
 }
 
-const wsSessionCols = `run_id, owner, main, handle, model, scope, conn, conn_ms, plan, created_ms, allow`
+// wsHeld is a conversation that can't go on on its model: the orgs xbind
+// refused a new handle on Model, its reason, and the ways forward — the
+// model the conversation was on, where that is another one, or a new
+// session.
+type wsHeld struct {
+	Code   string   `json:"code"` // model_taint | org
+	Model  string   `json:"model"`
+	Orgs   []string `json:"orgs,omitempty"`
+	Reason string   `json:"reason,omitempty"`
+	Was    string   `json:"was,omitempty"` // the model it was on, when the session's model now names another (a role's)
+	At     int64    `json:"atMs"`
+}
+
+const wsSessionCols = `run_id, owner, main, handle, model, scope, conn, conn_ms, plan, created_ms, allow, tainted, held`
 
 func scanWsSession(scan func(...any) error) (*wsSession, error) {
 	var s wsSession
-	var scope, conn, allow string
-	if err := scan(&s.Run, &s.Owner, &s.Main, &s.Handle, &s.Model, &scope, &conn, &s.ConnMs, &s.Plan, &s.Created, &allow); err != nil {
+	var scope, conn, allow, tainted, held string
+	if err := scan(&s.Run, &s.Owner, &s.Main, &s.Handle, &s.Model, &scope, &conn, &s.ConnMs, &s.Plan, &s.Created, &allow, &tainted, &held); err != nil {
 		return nil, err
+	}
+	if tainted != "" {
+		_ = json.Unmarshal([]byte(tainted), &s.Tainted)
+	}
+	if held != "" {
+		s.Held = &wsHeld{}
+		if json.Unmarshal([]byte(held), s.Held) != nil {
+			s.Held = &wsHeld{Code: "model_taint", Reason: "xbin could not be asked whether this model may hold what the conversation holds"}
+		}
 	}
 	if allow != "" {
 		_ = json.Unmarshal([]byte(allow), &s.Allow)
@@ -206,6 +249,7 @@ func scanWsSession(scan func(...any) error) (*wsSession, error) {
 	if conn != "" {
 		_ = json.Unmarshal([]byte(conn), &s.Conn)
 	}
+	s.Tainted = wsUnion(s.Tainted, s.Conn.Tainted)
 	return &s, nil
 }
 
@@ -236,10 +280,34 @@ func wsScopeJSON(sc *wsScope) string {
 	return mustJSON(sc)
 }
 
-// wsPutHandle records what xbind answered for a session's handle.
-func (d *DB) wsPutHandle(runID int64, h wsHandle) error {
-	_, err := d.q.Exec(`UPDATE ws_sessions SET handle=?, model=?, scope=?, conn=?, conn_ms=? WHERE run_id=?`,
-		h.ID, h.Model, wsScopeJSON(h.Scope), mustJSON(h), nowMs(), runID)
+// wsPutHandle records what xbind answered for a session's handle, and adds
+// the orgs it reports the conversation holds to the conversation's own
+// record — which only grows: what it holds now, every org of every handle.
+func (d *DB) wsPutHandle(runID int64, h wsHandle) ([]string, error) {
+	var raw string
+	var had []string
+	if err := d.q.QueryRow(`SELECT tainted FROM ws_sessions WHERE run_id=?`, runID).Scan(&raw); err != nil {
+		return nil, err
+	}
+	if raw != "" {
+		_ = json.Unmarshal([]byte(raw), &had)
+	}
+	all := wsUnion(had, h.Tainted)
+	if all == nil {
+		all = []string{}
+	}
+	_, err := d.q.Exec(`UPDATE ws_sessions SET handle=?, model=?, scope=?, conn=?, conn_ms=?, tainted=? WHERE run_id=?`,
+		h.ID, h.Model, wsScopeJSON(h.Scope), mustJSON(h), nowMs(), mustJSON(all), runID)
+	return all, err
+}
+
+// wsPutHeld records why the conversation can't go on (nil: it can again).
+func (d *DB) wsPutHeld(runID int64, held *wsHeld) error {
+	raw := ""
+	if held != nil {
+		raw = mustJSON(held)
+	}
+	_, err := d.q.Exec(`UPDATE ws_sessions SET held=? WHERE run_id=?`, raw, runID)
 	return err
 }
 

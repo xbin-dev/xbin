@@ -611,6 +611,17 @@ func (f *fakeXbin) Taint(_ context.Context, sid string, orgs []string) error {
 		return err
 	}
 	f.note("Taint %s", strings.Join(orgs, ","))
+	// as xbind: all or nothing, and never an org whose rules the handle's model doesn't meet (409)
+	var refused []string
+	why := ""
+	for _, o := range orgs {
+		if w := f.orgBlocked(o, h.Model); w != "" {
+			refused, why = append(refused, o), orStr(why, w)
+		}
+	}
+	if len(refused) > 0 {
+		return &xbin.DelegateError{Status: 409, Refusal: "model_taint", Orgs: refused, Reason: why, Message: "this session's model may not see data of " + strings.Join(refused, ", ")}
+	}
 	h.Tainted = wsUnion(h.Tainted, orgs)
 	return nil
 }
