@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -95,7 +96,7 @@ func main() {
 		if !c.Preview && c.ViewedBy == "" { // "seen" is a person's own act
 			visits.Add(1)
 		}
-		xbin.WriteJSON(w, 200, map[string]any{"preview": c.Preview, "role": c.Role})
+		xbin.WriteJSON(w, 200, map[string]any{"preview": c.Preview, "role": c.Role, "level": c.UserLevel, "canWrite": c.UserCanWrite()})
 	})
 	mux.HandleFunc("GET /visit-raw", func(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteJSON(w, 200, map[string]any{"raw": raw.Add(1)})
@@ -124,7 +125,7 @@ const backendPage = `<!doctype html><meta charset="utf-8"><title>be</title>
 <script type="module">
 const set = (id, v) => { document.getElementById(id).textContent = id + ': ' + v; };
 const api = (p) => '/api/' + xbin.self + p;
-try { const v = await (await xbin.fetch(api('/visit'))).json(); set('visit', 'preview=' + v.preview + ' role=' + v.role); } catch (e) { set('visit', 'failed ' + e); }
+try { const v = await (await xbin.fetch(api('/visit'))).json(); set('visit', 'preview=' + v.preview + ' role=' + v.role + ' level=' + v.level + ' canWrite=' + v.canWrite); } catch (e) { set('visit', 'failed ' + e); }
 try { const r = await xbin.fetch(api('/visit-raw')); set('raw', r.status); } catch (e) { set('raw', 'failed ' + e); }
 try {
   const role = await new Promise((res, rej) => { const s = xbin.ws(api('/ws')); s.onmessage = (m) => res(m.data); s.onerror = () => rej(new Error('socket refused')); setTimeout(() => rej(new Error('no message')), 4000); });
@@ -149,6 +150,8 @@ type result struct {
 	Console        []map[string]any
 	RequestsFailed []map[string]any
 	Ready          string
+	LeftOut        []string
+	Note           string
 	Browser        string
 	Sandbox        string
 	Timing         map[string]int
@@ -197,6 +200,12 @@ func start(t *testing.T, name string, envv []string, args ...string) *env {
 		if strings.Contains(args[i], "%d") {
 			args[i] = fmt.Sprintf(args[i], port)
 		}
+	}
+	if !slices.ContainsFunc(envv, func(e string) bool { return strings.HasPrefix(e, "XBIN_PREVIEWS=") }) {
+		envv = append(envv, "XBIN_PREVIEWS=uncapped") // no delegated cgroup here (test/limits has the capped run)
+	}
+	if f := os.Getenv("XBIN_PREVIEW_TRACE"); f != "" {
+		envv = append(envv, "XBIN_PREVIEW_TRACE="+f)
 	}
 	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true, Addr: fmt.Sprintf("127.0.0.1:%d", port), Env: envv, Args: args})
 	e := &env{t: t, name: name, d: d, a: a}
@@ -287,7 +296,7 @@ func run(t *testing.T, name string, wantHost string, args ...string) {
 	// one tile, desktop and phone: its own script loads, its write is
 	// refused, it reaches no network, and no other tile (the render's scope)
 	res := e.render("tile", map[string]any{"tile": "apps/pv"})
-	e.want("tile", res, "Preview probe PV", "readOnly=true preview=true viewedBy=nobody", "write: 403", "read-only", "out: blocked", "script: loaded")
+	e.want("tile", res, "Preview probe PV", "readOnly=true preview=false viewedBy=nobody", "write: 403", "read-only", "out: blocked", "script: loaded")
 	if !strings.Contains(res.text(), "other: 403") && !strings.Contains(res.text(), "other: failed") { // refused: readably, or at the preflight
 		t.Errorf("tile: the page read another tile's file (the render's scope):\n%s", res.text())
 	}
@@ -310,6 +319,19 @@ func run(t *testing.T, name string, wantHost string, args ...string) {
 	e.want("screen", res, `heading "Preview probe PV2"`, `heading "Preview probe PV"`, "write: 403", "script: loaded", "late: drawn", `[selected]`)
 	if !strings.Contains(res.URL, "screen=second") {
 		t.Errorf("screen: rendered %s", res.URL)
+	}
+	// The person's own plane is an allow-list of the shell's reads
+	// (internal/server shellReads). A read the shell makes that is neither
+	// on it nor one of the admin-only ones it leaves out on purpose shows
+	// up here: add it to the list, or to this set, deliberately.
+	leftOutOnPurpose := map[string]bool{"/api/xbin/status": true, "/api/xbin/backends": true, "/api/xbin/vault-status": true}
+	for _, p := range res.LeftOut {
+		if !leftOutOnPurpose[p] {
+			t.Errorf("screen: the shell asked for %s, which a preview doesn't serve: list it in shellReads (internal/server/preview.go) if a screen needs it to draw", p)
+		}
+	}
+	if len(res.LeftOut) == 0 || res.Note != "" {
+		t.Errorf("screen: leftOut %q, note %q — want the admin-only reads named and no note for a member", res.LeftOut, res.Note)
 	}
 	if strings.Contains(res.Snapshot, "viewing as") {
 		t.Errorf("screen: the shell shows a view-as banner:\n%s", res.Snapshot)
@@ -334,6 +356,18 @@ func run(t *testing.T, name string, wantHost string, args ...string) {
 	out, err := cmd.CombinedOutput()
 	if b, _ := os.ReadFile(shot); err != nil || !strings.Contains(string(out), "Preview probe PV") || !strings.HasPrefix(string(b), "\x89PNG") {
 		t.Errorf("bx preview: %v\n%s", err, out)
+	}
+	if fi, err := os.Stat(shot); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("bx preview: the picture's mode is %v, want 0600 (%v)", fi.Mode().Perm(), err)
+	}
+	// without --out: in the working directory, never a guessable name in /tmp
+	cmd = exec.Command(filepath.Join(e.a.Bin, "bx"), "preview", "apps/pv")
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(os.Environ(), "XBIN_URL="+d.URL, "XBIN_TOKEN="+e.token, "TMPDIR="+t.TempDir())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("bx preview: %v\n%s", err, out)
+	} else if fi, err := os.Stat(filepath.Join(cmd.Dir, "preview-apps-pv.png")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("bx preview without --out: %v %v\n%s", fi, err, out)
 	}
 
 	// nothing was written: not the page's pref, not the shell's layout
@@ -373,6 +407,39 @@ func run(t *testing.T, name string, wantHost string, args ...string) {
 }
 
 func TestPreviewLegacyFrames(t *testing.T) { run(t, "legacy", "") }
+
+// An admin's screen render: drawn as a member sees the shell — the
+// admin-only reads are left out, and the answer says so.
+func TestPreviewAdminScreen(t *testing.T) {
+	e := start(t, "admin", nil)
+	e.d.AddUser(t, "root2", "root2-password-1", "admin", nil)
+	adm := xbindtest.H("Authorization", "Bearer "+e.d.Login(t, "root2", "root2-password-1"))
+	r := e.d.Call(t, http.MethodPost, "/api/xbin/preview", map[string]any{}, adm)
+	if r.Status != 200 {
+		t.Fatalf("an admin's screen: %d %s", r.Status, r)
+	}
+	var res result
+	r.Decode(t, &res)
+	if !strings.Contains(res.Note, "workspace admin") {
+		t.Errorf("no note about the admin-only parts: %q", res.Note)
+	}
+	want := map[string]bool{"/api/xbin/status": true, "/api/xbin/backends": true, "/api/xbin/vault-status": true,
+		"/api/xbin/grants": true, "/api/xbin/bindings": true, "/api/xbin/access-requests": true, "/ws/events": true}
+	for _, p := range res.LeftOut {
+		if !want[p] {
+			t.Errorf("an admin's screen: the shell asked for %s, which is neither served nor left out on purpose", p)
+		}
+		delete(want, p)
+	}
+	if len(want) != 0 {
+		t.Errorf("an admin's screen served what it should leave out: %v", want)
+	}
+	if !strings.Contains(res.text(), `tablist "screens"`) || !strings.Contains(res.text(), "tile menu: apps/pv") { // the shell is drawn, its sidebar too
+		fails, _ := json.Marshal(res.RequestsFailed)
+		cons, _ := json.Marshal(res.Console)
+		t.Errorf("an admin's screen: no shell in the picture:\n%s\n%s\n%s\n%s", res.URL, res.text(), fails, cons)
+	}
+}
 
 func TestPreviewAssetTokens(t *testing.T) { run(t, "tokens", "", "--tile-assets", "tokens") }
 
@@ -454,7 +521,8 @@ func TestPreviewBackendAndPartition(t *testing.T) {
 	}
 	var res result
 	r.Decode(t, &res)
-	e.want("backend", res, "visit: preview=true role=admin", "raw: 200", "ws: role=reader", "state: partition=none user=bea")
+	// every identity header says read-only: the role, the person's level (bea writes this tile), UserCanWrite
+	e.want("backend", res, "visit: preview=true role=reader level=read canWrite=false", "raw: 200", "ws: role=reader", "state: partition=none user=bea")
 	st := state("apps/be")
 	if st.Visits != 1 || st.Raw != 1 || st.WsRole != "reader" || st.LastPreview != "1" {
 		t.Errorf("after the preview: %+v — want 1 visit (bea's own), 1 raw visit (the handler that ignores the header), a reader socket, X-XBin-Preview: 1", st)
@@ -509,11 +577,14 @@ func TestPreviewLimits(t *testing.T) {
 		slow = e.d.Call(t, http.MethodPost, "/api/xbin/preview", map[string]any{"tile": "apps/never"}, cy)
 	}()
 	time.Sleep(1500 * time.Millisecond)
-	if r := e.d.Call(t, http.MethodPost, "/api/xbin/preview", map[string]any{"tile": "apps/pv"}, cy); r.Status != 429 || r.Header.Get("Retry-After") == "" {
+	r := e.d.Call(t, http.MethodPost, "/api/xbin/preview", map[string]any{"tile": "apps/pv"}, cy)
+	if r.Status != 429 || r.Header.Get("Retry-After") == "" {
 		t.Errorf("a second render for the same person: %d %s", r.Status, r)
 	}
-	if r := e.call(map[string]any{"tile": "apps/pv"}); r.Status != 429 || !strings.Contains(r.String(), "workspace") {
-		t.Errorf("a render past the workspace's limit: %d %s", r.Status, r)
+	// past the workspace's limit: the same answer, word for word — whether
+	// someone else is rendering is not ann's to learn
+	if r2 := e.call(map[string]any{"tile": "apps/pv"}); r2.Status != 429 || string(r2.Body) != string(r.Body) {
+		t.Errorf("a render past the workspace's limit: %d %s (the per-person refusal: %s)", r2.Status, r2, r)
 	}
 	wg.Wait()
 	var res result
@@ -527,6 +598,30 @@ func TestPreviewLimits(t *testing.T) {
 	// and the limit frees up
 	if r := e.call(map[string]any{"tile": "apps/pv"}); r.Status != 200 {
 		t.Errorf("a render after the slow one: %d %s", r.Status, r)
+	}
+}
+
+// Without an enforceable memory cap — xbind's cgroup is not delegated here —
+// previews are unavailable unless the admin opted in (XBIN_PREVIEWS=uncapped,
+// what every other test here runs with).
+func TestPreviewNeedsAMemoryCap(t *testing.T) {
+	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err != nil {
+		t.Skip("no cgroup v2 here")
+	}
+	e := start(t, "needcap", []string{"XBIN_PREVIEWS=on"})
+	var st struct {
+		Available, MemoryCap bool
+		Reason               string
+	}
+	e.d.Must(t, http.MethodGet, "/api/xbin/preview", nil, 200, e.ann).Decode(t, &st)
+	if st.MemoryCap {
+		t.Skip("this test runs in a delegated cgroup: the cap is enforceable (test/limits covers it)")
+	}
+	if st.Available || !strings.Contains(st.Reason, "can't be capped") || !strings.Contains(st.Reason, "XBIN_PREVIEWS=uncapped") {
+		t.Errorf("status: %+v", st)
+	}
+	if r := e.call(map[string]any{"tile": "apps/pv"}); r.Status != 503 || !strings.Contains(r.String(), "can't be capped") {
+		t.Errorf("a preview without a memory cap: %d %s", r.Status, r)
 	}
 }
 

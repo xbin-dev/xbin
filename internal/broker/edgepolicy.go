@@ -406,7 +406,7 @@ func (b *Broker) applyEdgePolicy(d Decision, caller, callerDep, target, role str
 }
 
 // ReaderClamp is the read clamp for one role on target, as a preview's
-// sockets need it (D234, proxy.previewSocket): min(role, reader), and false
+// calls need it (D234, proxy.previewReadOnly): min(role, reader), and false
 // when role implies no reader the clamp could narrow it to (clampLeg).
 func (b *Broker) ReaderClamp(target, role string) (string, bool) {
 	if b.clampLeg(target, role).why != "" {

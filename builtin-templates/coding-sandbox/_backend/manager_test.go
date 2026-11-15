@@ -457,6 +457,9 @@ func upgrade(t *testing.T, srv *httptest.Server, who as, path string) (int, stri
 		req.Header.Set("X-XBin-User", who.user)
 		req.Header.Set("X-XBin-User-Level", who.level)
 	}
+	if who.preview {
+		req.Header.Set("X-XBin-Preview", "1")
+	}
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Sec-WebSocket-Version", "13")
@@ -654,11 +657,25 @@ func TestPageReaders(t *testing.T) {
 	olgaPreview.preview = true
 	var refused struct{ Error string }
 	call(t, srv, olgaPreview, "GET", "/sbx/sandboxes/"+off.ID+"/files/list?path="+off.Workdir, nil, 403, &refused)
-	if in, err := tm.fb.Get(context.Background(), tm.m.recCopy(off.ID).Runtime); err != nil || in.State != "stopped" || !strings.Contains(refused.Error, "preview") {
+	// (refused as a look-only caller's read is: in a preview UserCanWrite is false, whatever level the header carries)
+	if in, err := tm.fb.Get(context.Background(), tm.m.recCopy(off.ID).Runtime); err != nil || in.State != "stopped" || refused.Error == "" {
 		t.Fatalf("a preview's read started the sandbox: %+v %v (%q)", in, err, refused.Error)
 	}
 	call(t, srv, olga, "GET", "/sbx/sandboxes/"+off.ID+"/files/list?path="+off.Workdir, nil, 200, nil)        // a writer's does
 	call(t, srv, olgaPreview, "GET", "/sbx/sandboxes/"+off.ID+"/files/list?path="+off.Workdir, nil, 200, nil) // running: a preview reads it
+	// A preview changes nothing, whoever's page its browser draws (D234):
+	// no terminal, no stdio, no port socket, no write — from this tile's
+	// page at any level xbind may have sent, and from another consumer's
+	// (the terminal tile's page dials these sockets itself).
+	for _, who := range []as{olgaPreview, {from: "apps/sandbox-terminal", role: "consumer", user: "olga", level: "read", preview: true},
+		{from: "apps/agent", role: "consumer", user: "olga", level: "terminal", preview: true}} {
+		for _, p := range []string{sb + "/tty", sb + "/execs/" + x.ID + "/tty", sb + "/execs/" + x.ID + "/stdio", sb + "/ports/8080/"} {
+			if code, body := upgrade(t, srv, who, p); code != http.StatusForbidden || !strings.Contains(body, "a preview changes nothing") {
+				t.Fatalf("a preview's upgrade to %s as %+v: %d %s", p, who, code, body)
+			}
+		}
+		call(t, srv, who, "POST", sb+"/run", map[string]any{"cmd": "true"}, 403, nil)
+	}
 	// every other consumer is trusted as the contract says, whatever the
 	// person's level on this tile
 	agentReader := as{from: "apps/agent", role: "consumer", user: "rita", level: "read"}

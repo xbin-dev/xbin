@@ -79,7 +79,11 @@ verified values ([auth.md](/docs/auth.md)).
 xbind can render a tile or a screen for the person who asks, in a browser
 of its own ([protocol/preview.md](/docs/protocol/preview.md)). Nobody is
 clicking then, and the render is read-only: xbind refuses every request of
-it that is not a GET, and opens its WebSockets to you at role `reader`.
+it that is not a GET, and on the calls it lets through — GETs and
+WebSocket upgrades — tells you so in every identity you could authorize
+on: `Role` is `reader` (a custom role with no read form is kept on a GET,
+and its sockets are refused), `UserLevel` is `read`, `UserCanWrite()` is
+false.
 What xbind cannot see is a handler of yours whose **GET or socket has an
 effect** — "mark as read when the list is fetched", presence, a `last
 opened` stamp, a cursor advanced by a `subscribe` message. Every call made
@@ -96,7 +100,9 @@ mux.HandleFunc("GET /inbox", func(w http.ResponseWriter, r *http.Request) {
 ```
 
 Unlike `ViewedBy`, a preview **is** the user — it is their own view, so
-show their private data; only side effects are off. The header marks the
+show their private data; only side effects are off. Don't *draw* anything
+differently for it either: the mark suppresses effects, it is not a mode,
+and your page is not told (its `/whoami` says `readOnly`, nothing more). The header marks the
 calls the render's browser makes: a call your backend makes to another tile
 while answering one is your backend's own, and carries no mark — if that
 call has an effect there, don't make it for a preview.

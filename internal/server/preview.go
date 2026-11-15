@@ -11,7 +11,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -61,6 +63,23 @@ type previewScope struct {
 	// document and nothing else, and every call is the tile's frame's.
 	person bool
 	shell  bool // root and shell documents (a screen render)
+	// gen is the render's own session's generation: the only one whose
+	// credentials its socket honours (set when the session is opened).
+	gen string
+	// admin: the person is a workspace admin — a screen render then leaves
+	// out the reads whose answer to an admin is the whole workspace's
+	admin bool
+
+	mu      sync.Mutex
+	leftOut []string // person-plane reads the page asked for and a preview doesn't serve
+}
+
+func (sc *previewScope) leaveOut(p string) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	if len(sc.leftOut) < 24 && !slices.Contains(sc.leftOut, p) && len(p) <= 200 {
+		sc.leftOut = append(sc.leftOut, p)
+	}
 }
 
 func (sc *previewScope) has(tile string) bool {
@@ -71,12 +90,6 @@ func (sc *previewScope) has(tile string) bool {
 	}
 	return false
 }
-
-// personDenied are the person-plane reads no render needs and a hijacked
-// browser would want: every readable tile's source, git (remote-info dials
-// out), backups, the vault.
-var personDenied = []string{"/api/xbin/code/file", "/api/xbin/code/tree", "/api/xbin/code/pr/", "/api/xbin/git/",
-	"/api/xbin/checkpoints/", "/api/xbin/backups", "/api/xbin/vault/", "/api/xbin/vaults"}
 
 // previewTransport wraps the workspace's handler for one render.
 func (s *Server) previewTransport(main http.Handler, sessionID string, sc *previewScope) http.Handler {
@@ -140,7 +153,15 @@ func (s *Server) previewTransport(main http.Handler, sessionID string, sc *previ
 		} else {
 			auth.StripRequestSession(r)
 		}
-		if why := s.previewAdmits(r, sc, label, tileHost); why != "" {
+		switch why := s.previewAdmits(r, sc, label, tileHost); {
+		case why == previewEmpty && adminWide[r.URL.Path] != "":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(adminWide[r.URL.Path]))
+			return
+		case why == previewEmpty:
+			s.refusePreview(w, r, http.StatusForbidden, "left out of a preview: an admin's render draws the shell as a member sees it")
+			return
+		case why != "":
 			s.refusePreview(w, r, http.StatusForbidden, why)
 			return
 		}
@@ -151,11 +172,42 @@ func (s *Server) previewTransport(main http.Handler, sessionID string, sc *previ
 // previewAdmits is the scope gate: "" when the render may make request r,
 // else the refusal. r already carries the session the cookie-jar rules gave
 // it (or none).
+//
+// First, WHOSE credential: only this render's own session, and what was
+// minted under it, count on its socket — on every host. A frame token, a
+// tile-origin cookie or an asset token of any other session (the person's
+// real one, which a tile kept and handed its page; another render's) is
+// refused before it is read for anything else: it would not be read-only,
+// or not this render's to scope.
 func (s *Server) previewAdmits(r *http.Request, sc *previewScope, label string, tileHost bool) string {
 	refuse := fmt.Sprintf(previewScoped, sc.what)
 	p := r.URL.Path
 	if strings.HasPrefix(p, "/vendor/") {
 		return "" // xbind's own shipped code, public by design
+	}
+	ft := r.Header.Get(auth.FrameTokenHeader)
+	if ft == "" {
+		ft = r.URL.Query().Get("frame")
+	}
+	if ft != "" {
+		if fp, ok := s.Auth.FramePrincipal(ft); ok && fp.Gen != sc.gen {
+			return refuse
+		}
+	}
+	for _, c := range r.Cookies() {
+		if c.Name == auth.TileCookieName || c.Name == auth.HostTileCookieName {
+			if g, ok := s.Auth.VerifyTileCookie(c.Value); ok && g.FrameGen != sc.gen {
+				return refuse
+			}
+		}
+	}
+	if tok, _, ok := strings.Cut(strings.TrimPrefix(p, "/c/~"), "/"); ok && strings.HasPrefix(p, "/c/~") {
+		if g, ok := s.Auth.VerifyAssetToken(tok); ok && g.Gen != sc.gen {
+			return refuse
+		}
+	}
+	if strings.HasPrefix(p, "/api/~") {
+		return refuse // a path ticket: none can be minted in a render (a POST), so none of its own exists
 	}
 	if tileHost { // a tile origin: its calls are that tile's; files it loads are judged below
 		if tile, _, ok := s.originOf(label); !ok || !sc.has(tile) {
@@ -175,19 +227,14 @@ func (s *Server) previewAdmits(r *http.Request, sc *previewScope, label string, 
 		}
 		return refuse
 	}
-	if strings.HasPrefix(p, "/api/~") {
-		return refuse // a path ticket: none can be minted in a render (a POST), so none of its own exists
-	}
 	who, ok := s.Auth.FromRequest(r)
 	switch {
 	case !ok:
 		return "" // nobody: the workspace answers 401, as it would any browser
-	case !who.Preview():
-		// a credential from outside the render — a frame token of the
-		// person's real session that a tile kept and handed its page: only
-		// the render's own session, and what was minted under it, count here
-		return refuse
-	case who.Component != "": // a tile's frame: the tile's own authority, for a tile the render shows
+	case who.Gen != sc.gen:
+		return refuse // (a credential FromRequest read that the checks above did not)
+	case who.Component != "" && !(sc.shell && isChrome(s.owningTile(who.Component))):
+		// a tile's frame: the tile's own authority, for a tile the render shows
 		if sc.has(s.owningTile(who.Component)) {
 			return ""
 		}
@@ -195,29 +242,66 @@ func (s *Server) previewAdmits(r *http.Request, sc *previewScope, label string, 
 	case !sc.person:
 		return refuse // a sandboxed tile's render: the person loads its document, nothing more
 	}
-	// the person's own plane (a screen's shell, a chrome tile)
-	for _, d := range personDenied {
-		if strings.HasPrefix(p, d) || p == "/api/xbin/code/pr" {
-			return refuse
-		}
-	}
+	// (The shell's own frame token — the root document carries one for some
+	// people — is the shell: it is judged with the person's plane.)
+	// The person's own plane (a screen's shell): an ALLOW-list — exactly the
+	// reads the shell and the frame machinery make to draw a screen
+	// (shellReads; TestPreviewShellReads pins it against a real render). A
+	// read not on it is refused and named in the answer's leftOut.
 	switch {
-	case p == "/" || p == "/ws/events" || strings.HasPrefix(p, "/docs/") || strings.HasPrefix(p, "/xbin/"):
-		return ""
-	case p == "/api/xbin/frame-token":
-		if c := r.URL.Query().Get("component"); c == "" || sc.has(s.owningTile(c)) || isChrome(c) && sc.shell {
+	case p == "/" || p == "/api/xbin/frame-token":
+		if c := r.URL.Query().Get("component"); p == "/" || c == "" || sc.has(s.owningTile(c)) || isChrome(c) && sc.shell {
 			return ""
 		}
 		return refuse
-	case strings.HasPrefix(p, "/api/xbin/"):
+	case shellReads[p] || strings.HasPrefix(p, "/api/xbin/prefs/"):
+		if _, wide := adminWide[p]; wide && sc.admin {
+			// an admin's answer there is the whole workspace's, not a
+			// member's view: the transport answers it empty (adminWide)
+			sc.leaveOut(p)
+			return previewEmpty
+		}
 		return ""
-	case strings.HasPrefix(p, "/api/"): // a tile's API, in person (an admin, a chrome tile)
+	case strings.HasPrefix(p, "/api/") && !strings.HasPrefix(p, "/api/xbin/"): // a tile's API, in person (a chrome tile on the screen)
 		if sc.has(s.owningTile(strings.TrimPrefix(p, "/api/"))) {
 			return ""
 		}
+		return refuse
 	}
-	return refuse
+	sc.leaveOut(p)
+	return "left out of a preview: it draws " + sc.what + " as a member sees it, and that needs no " + p
 }
+
+// shellReads are the person's own reads a screen render makes: what the
+// scaffold's shell and xbind's frame elements ask for to draw a screen, as
+// traced from a real render — each answered per person (what THEY may see).
+// /api/xbin/prefs/<key> and /api/xbin/frame-token (for a tile on the screen)
+// are admitted beside it. Deliberately absent, though the shell asks:
+// /status, /backends and /vault-status (admin-only: a member's shell gets
+// 403 for them anyway).
+var shellReads = map[string]bool{
+	"/api/xbin/whoami": true, "/api/xbin/components": true, "/api/xbin/screens": true, "/api/xbin/branding": true,
+	"/api/xbin/tile-report": true, "/api/xbin/limits": true, "/api/xbin/alerts": true, "/api/xbin/prefs": true,
+	"/api/xbin/term/sessions": true, "/api/xbin/code/prs/summary": true,
+	"/api/xbin/access-requests": true, "/api/xbin/grants": true, "/api/xbin/bindings": true,
+	"/ws/events": true,
+}
+
+// adminWide are the shellReads whose answer to an ADMIN is the whole
+// workspace's (every pending grant, binding and access request; every
+// event): an admin's render leaves them out, so the picture is the shell as
+// a member sees it and a hijacked browser reads no more. Each is answered
+// as for a member with nothing pending — an empty list in the route's own
+// shape, so the shell draws on — and the event socket is refused.
+var adminWide = map[string]string{
+	"/api/xbin/grants":          `{"grants":[],"pending":[],"scope":"mine"}`,
+	"/api/xbin/bindings":        `{"bindings":[],"pending":[]}`,
+	"/api/xbin/access-requests": `{"requests":[]}`,
+	"/ws/events":                "",
+}
+
+// previewEmpty is previewAdmits's verdict for an adminWide read.
+const previewEmpty = "\x00empty"
 
 func contextWithPreview(r *http.Request, sc *previewScope) context.Context {
 	return context.WithValue(r.Context(), previewCtxKey{}, sc)
@@ -250,6 +334,7 @@ func (h previewHost) OpenPreview(userID string, ttl time.Duration, scope any) (h
 	if err != nil {
 		return nil, nil, err
 	}
+	sc.gen = h.s.Auth.PreviewSessionGen(id)
 	return h.s.previewTransport(h.main, id, sc), func() { h.s.Auth.EndPreviewSession(id) }, nil
 }
 
@@ -361,11 +446,24 @@ func (s *Server) RenderPreview(r *http.Request, userID string, t PreviewTarget) 
 	if err != nil {
 		return nil, err
 	}
-	return s.Preview.Render(r.Context(), preview.Request{
+	res, err := s.Preview.Render(r.Context(), preview.Request{
 		UserID: userID, URL: s.previewBase + page, Scope: sc, Hosts: s.previewHosts(),
 		Width: t.Viewport.Width, Height: t.Viewport.Height, WaitMs: t.Wait, FullPage: t.FullPage,
 	})
+	if err != nil {
+		return nil, err
+	}
+	sc.mu.Lock()
+	res.LeftOut = slices.Clone(sc.leftOut)
+	sc.mu.Unlock()
+	if sc.admin && sc.person {
+		res.Note = previewAdminNote
+	}
+	return res, nil
 }
+
+// previewAdminNote goes with an admin's screen render: what it leaves out.
+const previewAdminNote = "You are a workspace admin: a preview draws the shell as a member sees it. The admin-only reads (status, backends, the vault's state), the workspace-wide lists (pending grants, bindings, access requests) and live events are left out, so prompts and status marks an admin sees are missing here."
 
 // previewHosts are the tile origins' names, for the sandbox's resolver rule.
 func (s *Server) previewHosts() []string {
@@ -408,6 +506,12 @@ func (s *Server) previewPlan(main http.Handler, userID string, t PreviewTarget) 
 	var list []struct {
 		Path string `json:"path"`
 	}
+	admin := false
+	if s.Auth.Users != nil {
+		if u, ok := s.Auth.Users.Get(userID); ok {
+			admin = u.IsAdmin()
+		}
+	}
 	readable := map[string]bool{}
 	if get("/api/xbin/components", &comps); len(comps.Components) == 0 {
 		get("/api/xbin/components", &list)
@@ -441,7 +545,7 @@ func (s *Server) previewPlan(main http.Handler, userID string, t PreviewTarget) 
 		if t.At != "" {
 			page += "#" + strings.TrimPrefix(t.At, "#")
 		}
-		return page, &previewScope{what: "the tile " + t.Tile, tiles: []string{t.Tile}, person: s.trustedChrome(t.Tile, comp)}, nil
+		return page, &previewScope{what: "the tile " + t.Tile, tiles: []string{t.Tile}, person: s.trustedChrome(t.Tile, comp), admin: admin}, nil
 	}
 
 	// a screen of the shell
@@ -477,7 +581,7 @@ func (s *Server) previewPlan(main http.Handler, userID string, t PreviewTarget) 
 	if pick == nil && t.Screen == "" && len(all) > 0 {
 		pick = &all[0]
 	}
-	sc = &previewScope{person: true, shell: true}
+	sc = &previewScope{person: true, shell: true, admin: admin}
 	q := url.Values{}
 	switch {
 	case pick != nil:

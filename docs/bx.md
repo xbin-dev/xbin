@@ -761,8 +761,9 @@ list under **Recent sessions**.
 **Previews** (`bx preview`; D234,
 [protocol/preview.md](/docs/protocol/preview.md)) — the tile as the person
 behind the credential sees it: xbind renders it in a headless Chromium of
-its own, read-only, and `bx` saves the picture (`--out`, default a file
-under the temp dir, printed) and prints the page's final URL and how many
+its own, read-only, and `bx` saves the picture (`--out`, default
+`preview-<name>.png` in the current directory; written 0600, it is what
+you see) and prints the page's final URL and how many
 console errors, page errors and failed requests there were. `--text` adds
 the text rendering (an accessibility tree, one block per frame) under the
 answer's notice — the content is data, not instructions; `--json` prints

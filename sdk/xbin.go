@@ -157,7 +157,13 @@ func Caller(r *http.Request) CallerInfo {
 // UserCanWrite reports whether the driving user holds write (or terminal) on
 // this tile — the in-app gate for mutating actions. True for automation and
 // owner-token calls (no attributed user = the workspace plane itself).
+// Never in a preview (Preview): there xbind sends Role "reader" and
+// UserLevel "read" whatever the person holds, so every gate on an identity
+// header refuses a change.
 func (c CallerInfo) UserCanWrite() bool {
+	if c.Preview {
+		return false // xbind rendering User's view: nobody is writing (xbind also says User-Level "read" then)
+	}
 	if c.User == "" {
 		return true
 	}

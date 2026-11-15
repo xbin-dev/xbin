@@ -235,6 +235,20 @@ func (b *Broker) addressedPartition(p auth.Principal, tile string) (util.Partiti
 		if err := b.personLive(id, tile); err != nil {
 			return "", err
 		}
+		if p.ReadOnly() {
+			// A read-only session reaching across tiles — a preview's frame
+			// of tile A calling B (view-as was refused above) — reads a
+			// partition that exists and asks nobody anything (D234): it
+			// never starts the person's first partition of B, and without
+			// their consent it is refused quietly, no prompt, no push.
+			if !b.partitionOpened(id, tile) {
+				return "", fmt.Errorf("%s keeps each person's data apart and %s has not opened it yet: open it once first — a read-only session never creates a partition", tile, id)
+			}
+			if b.Policies().PartitionConsent && !b.consentHolds(id, p.Component, tile) {
+				return "", fmt.Errorf("%s hasn't let %s use their %s data (they allow it at /xbin/partitions)", id, p.Component, tile)
+			}
+			return cp, nil
+		}
 		if b.Policies().PartitionConsent && !partitionConsentHolds(b, id, p.Component, tile) {
 			return "", fmt.Errorf("%s hasn't let %s use their %s data (they allow it at /xbin/partitions)", id, p.Component, tile)
 		}

@@ -30,8 +30,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `X-XBin-Preview: 1` (`xbin.Caller(r).Preview`) — a GET or a socket
   message of yours that has an effect (mark-as-read, presence) must skip
   it then ([sdk.md](/docs/sdk.md)); xbind refuses the render's non-GET
-  requests itself and opens its WebSockets to you at role `reader`.
-  `/whoami` in a render says `readOnly: true, preview: true`.
+  requests itself, and on every call it lets through — GETs and WebSocket
+  upgrades — sends role `reader` and user level `read` (`UserCanWrite()` is
+  false in a preview). Don't draw differently for it: `/whoami` in a render
+  says `readOnly: true`, as in view-as, and nothing more. Without a
+  delegated cgroup (no enforceable memory cap) previews answer 503 unless
+  `XBIN_PREVIEWS=uncapped`.
 - **Builtin tiles and templates honour `X-XBin-Preview`** (D234): in a
   preview their GETs and sockets change nothing. The agent template: a
   project's status and overview reads start no repo fetches, the CI read
@@ -48,8 +52,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tile says "I have drawn"; with `<meta name="xbin-ready"
   content="manual">` it is waited for. Additive: a tile that never calls it
   behaves as before.
-- **`GET /api/xbin/git/remote-info` is refused in a view-as session**
-  (403): it dials out, which a read-only session does not do.
+- **Read-only sessions (view-as) no longer do three things a GET let them
+  do:** `GET /api/xbin/deployments/diff` with a work-tree side — the
+  default `to` — captured a checkpoint of the tile; it answers 403 now
+  (diff two checkpoints or deployments instead). `GET
+  /api/xbin/git/remote-info` dials out and is refused. And a partitioned
+  tile's frame calling another partitioned tile no longer starts the
+  person's first partition there or prompts them for consent (previews;
+  view-as was already refused).
+- **Shell: nothing is saved under `readOnly`** — the layout and settings
+  saves and the "couldn't save your dismissal" toast are skipped in a
+  view-as session and a preview (the server refused them before; now the
+  shell doesn't ask). Scaffolded shells get it with the next scaffold
+  update; a preview hides an older shell's toasts by itself.
 
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).

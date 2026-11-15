@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,8 +77,8 @@ func TestPreviewSessionIsReadOnlyByCredential(t *testing.T) {
 	}
 }
 
-func screenScope() *previewScope {
-	return &previewScope{what: "the screen Home", tiles: []string{"apps/a"}, person: true, shell: true}
+func screenScope(gen string) *previewScope {
+	return &previewScope{what: "the screen Home", tiles: []string{"apps/a"}, person: true, shell: true, gen: gen}
 }
 
 // The transport half: whatever the browser sends on a render's socket, it is
@@ -87,7 +88,10 @@ func TestPreviewTransport(t *testing.T) {
 	s.previewBase = "http://example.com"            // httptest.NewRequest's Host
 	alice := s.Auth.NewSession("alice", "10.0.0.1") // an admin's real session the page somehow holds
 	sid, _ := s.Auth.NewPreviewSession("bob", time.Minute)
-	pt := s.previewTransport(h, sid, screenScope())
+	// the probe route stands in for a read the shell makes
+	shellReads["/api/xbin/probe"] = true
+	defer delete(shellReads, "/api/xbin/probe")
+	pt := s.previewTransport(h, sid, screenScope(s.Auth.PreviewSessionGen(sid)))
 
 	r := withCookie("GET", "/api/xbin/probe", "", alice)
 	r.Header.Set("Authorization", "Bearer "+alice)
@@ -196,8 +200,27 @@ func TestPreviewScope(t *testing.T) {
 		r.Header.Set(auth.FrameTokenHeader, s.Auth.MintFrameTokenFor(p, tile, time.Minute))
 		return r
 	}
-	tile := &previewScope{what: "the tile apps/a", tiles: []string{"apps/a"}}
-	screen := screenScope()
+	// …and one of ANOTHER render's session
+	other, _ := s.Auth.NewPreviewSession("bob", time.Minute)
+	otherFrame := func(path, tile string) *http.Request {
+		p, _ := s.Auth.FromRequest(withCookie("GET", "/", "", other))
+		r := withCookie("GET", path, "", "")
+		r.Header.Set(auth.FrameTokenHeader, s.Auth.MintFrameTokenFor(p, tile, time.Minute))
+		return r
+	}
+	gen := s.Auth.PreviewSessionGen(sid)
+	if gen == "" || gen == s.Auth.PreviewSessionGen(other) || s.Auth.PreviewSessionGen(real) != "" {
+		t.Fatalf("generations: %q / %q / %q", gen, s.Auth.PreviewSessionGen(other), s.Auth.PreviewSessionGen(real))
+	}
+	tile := &previewScope{what: "the tile apps/a", tiles: []string{"apps/a"}, gen: gen}
+	screen := screenScope(gen)
+	adminScreen := screenScope(gen)
+	adminScreen.admin = true
+	alice := s.Auth.NewSession("alice", "10.0.0.4") // an admin, to judge the admin-wide reads by
+	_ = alice
+	// a tile origin's request: the label of apps/a, and of apps/b
+	onOrigin := func(r *http.Request) *http.Request { r.Host = "t-x.tiles.example"; return r }
+	labelA, labelB := s.Auth.TileHostID("apps/a"), s.Auth.TileHostID("apps/b")
 	for _, c := range []struct {
 		name string
 		sc   *previewScope
@@ -227,6 +250,22 @@ func TestPreviewScope(t *testing.T) {
 		{"screen: a token for a tile on it", screen, person("/api/xbin/frame-token?component=apps/a"), true},
 		{"screen: a token for a tile not on it", screen, person("/api/xbin/frame-token?component=apps/b"), false},
 		{"screen: a tile's source", screen, person("/api/xbin/code/file?component=apps/a&path=x"), false},
+		// the person plane is an allow-list: what the shell draws with, nothing else
+		{"screen: the users", screen, person("/api/xbin/users"), false},
+		{"screen: everyone's sessions", screen, person("/api/xbin/sessions"), false},
+		{"screen: logs", screen, person("/api/xbin/logs?component=apps/a"), false},
+		{"screen: a session's log", screen, person("/api/xbin/term/sessions/abc/log"), false},
+		{"screen: kv", screen, person("/api/xbin/kv/apps/a/x"), false},
+		{"screen: admin-only status", screen, person("/api/xbin/status"), false},
+		{"screen: the session list", screen, person("/api/xbin/term/sessions?cwd=apps/a"), true},
+		{"screen: a pref", screen, person("/api/xbin/prefs/layout"), true},
+		{"screen: pending grants (a member's own)", screen, person("/api/xbin/grants"), true},
+		{"screen: the docs", screen, person("/docs/index.md"), false},
+		{"screen: another render's frame token", screen, otherFrame("/api/xbin/whoami", "apps/a"), false},
+		// the shell's own frame token (the root document's) is the shell: the person's plane, list and all
+		{"screen: the shell's frame, a shell read", screen, frame("/api/xbin/components", "root"), true},
+		{"screen: the shell's frame, off the list", screen, frame("/api/xbin/users", "root"), false},
+		{"tile: the shell's frame", tile, frame("/api/xbin/components", "root"), false},
 		{"screen: the PR badge", screen, person("/api/xbin/code/prs/summary"), true},
 		{"screen: git", screen, person("/api/xbin/git/remote-info?url=https://example.com/x.git"), false},
 		{"screen: the vault", screen, person("/api/xbin/vault/x"), false},
@@ -236,6 +275,50 @@ func TestPreviewScope(t *testing.T) {
 	} {
 		if why := s.previewAdmits(c.r, c.sc, "", false); (why == "") != c.ok {
 			t.Errorf("%s: admitted=%v (%s), want %v", c.name, why == "", why, c.ok)
+		}
+	}
+	if got := strings.Join(screen.leftOut, " "); !strings.Contains(got, "/api/xbin/users") || !strings.Contains(got, "/api/xbin/status") || strings.Contains(got, "/api/xbin/grants") {
+		t.Errorf("the reads left out of the screen: %q", got)
+	}
+
+	// an admin's screen: the reads whose answer to an admin is the whole
+	// workspace's are left out too. (bob is no admin; the rule reads the
+	// principal, so it is asked with an admin's preview session.)
+	asid, _ := s.Auth.NewPreviewSession("alice", time.Minute)
+	adminScreen.gen = s.Auth.PreviewSessionGen(asid)
+	asAdmin := func(path string) *http.Request {
+		r := withCookie("GET", path, "", "")
+		s.Auth.SetRequestSession(r, asid)
+		return r
+	}
+	for path, ok := range map[string]bool{"/api/xbin/components": true, "/api/xbin/whoami": true, "/api/xbin/prefs/layout": true,
+		"/api/xbin/grants": false, "/api/xbin/bindings": false, "/api/xbin/access-requests": false, "/ws/events": false,
+		"/api/xbin/status": false, "/api/xbin/users": false} {
+		if why := s.previewAdmits(asAdmin(path), adminScreen, "", false); (why == "") != ok || !ok && strings.HasPrefix(path, "/api/xbin/grants") && why != previewEmpty {
+			t.Errorf("an admin's screen, %s: admitted=%v (%s), want %v", path, why == "", why, ok)
+		}
+	}
+
+	// on a tile origin (origins mode): the same binding to this render's
+	// session, and the same scope
+	for _, c := range []struct {
+		name  string
+		sc    *previewScope
+		r     *http.Request
+		label string
+		ok    bool
+	}{
+		{"its own origin, its frame's call", tile, onOrigin(frame("/api/xbin/whoami", "apps/a")), labelA, true},
+		{"its own origin, its own file", tile, onOrigin(withCookie("GET", "/c/apps/a/app.js", "", "")), labelA, true},
+		{"its own origin, another tile's file", tile, onOrigin(withCookie("GET", "/c/apps/b/app.js", "", "")), labelA, false},
+		{"its own origin, a token of the person's real session", tile, onOrigin(realFrame("/api/apps/a/ws", "apps/a")), labelA, false},
+		{"its own origin, a token of another render", tile, onOrigin(otherFrame("/api/apps/a/ws", "apps/a")), labelA, false},
+		{"its own origin, ?frame= of the real session", tile, onOrigin(withCookie("GET", "/ws/events?frame="+url.QueryEscape(realFrame("/", "apps/a").Header.Get(auth.FrameTokenHeader)), "", "")), labelA, false},
+		{"another tile's origin", tile, onOrigin(withCookie("GET", "/api/xbin/whoami", "", "")), labelB, false},
+		{"an origin of no tile", tile, onOrigin(withCookie("GET", "/api/xbin/whoami", "", "")), "t-aaaaaaaaaaaaaaaa", false},
+	} {
+		if why := s.previewAdmits(c.r, c.sc, c.label, true); (why == "") != c.ok {
+			t.Errorf("tile origin — %s: admitted=%v (%s), want %v", c.name, why == "", why, c.ok)
 		}
 	}
 }

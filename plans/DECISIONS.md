@@ -14565,3 +14565,30 @@ Deviations and refinements made while implementing; all deliberate:
     are refused; a failure toast can be in a picture); VM-backed sandboxes
     for the browser; a tile's non-primary deployment as a target; the
     delegate's route-class row (with delegation).
+  - **After an independent review (same day).** What it found and what
+    changed: (1) clamping only the role left backends that authorize on
+    the person's level writable over a socket (the coding-sandbox's
+    terminals) — in a preview every call, GET or upgrade, now carries role
+    `reader` and user level `read`, `UserCanWrite()` is false, and the
+    builtin tiles' sockets refuse a preview from any consumer; a custom
+    role with no read form keeps its role on a GET and gets no socket.
+    The cost is fidelity: a tile is drawn as its reader sees it. (2)
+    xbind's own GETs with effects: a work-tree diff captured a checkpoint
+    for any read-only session (fixed in a commit of its own, for master);
+    the cross-tile branch could start a first partition and send a consent
+    prompt; the model list dialled upstreams — all refused. (3) The answer
+    is rebuilt in Go from a strict shape with byte caps; nothing the
+    sandbox returns is passed through, the browser's name included. (4)
+    The picture has a pixel budget checked from its header before
+    decoding; the runner clips a taller page (`clipped`). (5) No
+    enforceable memory cap → unavailable unless `XBIN_PREVIEWS=uncapped`;
+    the sandbox's tmpfs mounts are sized in every case
+    (`sandbox.Spec.TmpfsBytes`). (6) The person's plane on a screen render
+    is an allow-list of the shell's reads, pinned by an end-to-end test
+    through `leftOut`; an admin's render is a member's view (the
+    workspace-wide lists answered empty, events refused, a `note`). (7)
+    The socket honours only its own render's session, on every host. (8)
+    `/whoami` no longer says `preview`; a tile must not draw differently
+    for the header. The review also turned up, by its admin-screen test,
+    that the first scope gate refused the shell's own frame token and so
+    broke every admin's screen render.

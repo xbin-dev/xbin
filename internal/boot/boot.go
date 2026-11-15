@@ -572,7 +572,7 @@ func (st *State) stepProxy() error {
 		return proxy.Decision(brk.RouteGlobal(p, c, q))
 	}
 	px.Deployments = st.Deployments
-	px.ReaderClamp = brk.ReaderClamp // a preview's sockets (D234)
+	px.ReaderClamp = brk.ReaderClamp // a preview's calls (D234)
 	st.wirePartitionProxy(px)        // user partitions start through the runner's adapter (partitionroute.go)
 	// D29: backends get the driving user attributed (X-XBin-User[-Level]).
 	px.UserLevel = func(uid, tile string) string {

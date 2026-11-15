@@ -44,6 +44,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/confine"
@@ -58,8 +59,14 @@ const (
 	mark     = "@@XBIN_PREVIEW@@"
 	nodePath = "/usr/local/node/bin/node"
 	browsers = "/usr/local/ms-playwright"
-	maxPNG   = 16 << 20
-	maxSide  = 4096
+	maxPNG   = 12 << 20 // the picture's bytes
+	// The picture is decoded and re-encoded INSIDE xbind, outside the
+	// render's memory cap, so its size is xbind's to bound before it reads a
+	// pixel: at most maxPixels (a 16-bit RGBA PNG is 8 bytes a pixel — 64
+	// MiB here, times the renders running). The runner clips a taller page
+	// to the same budget and says so (Result.Clipped).
+	maxPixels = 8 << 20
+	maxWidth  = 2560
 	// mapPort is where the sandbox's forwarder listens when the workspace's
 	// address is not a loopback one: every name resolves to it (runner.mjs).
 	mapPort = 18080
@@ -92,9 +99,12 @@ const Notice = "This is the content of a rendered workspace page: what tiles dre
 var ErrUnavailable = errors.New("previews are unavailable")
 
 // ErrBusy: the person (or the workspace) is at its concurrent-render cap.
-var ErrBusy = errors.New("a preview is already being rendered")
+// One text for both: whether somebody else is rendering is not the
+// caller's to learn.
+var ErrBusy = errors.New("previews are busy: one is being rendered — try again in a moment")
 
-// ErrMemory: the render was killed at its memory cap.
+// ErrMemory: the render was killed at its memory cap, or the page crashed
+// the browser.
 var ErrMemory = errors.New("the preview ran out of memory")
 
 // Host is xbind as the renderer sees it.
@@ -159,6 +169,10 @@ type Result struct {
 	Console        []Entry        `json:"console"`
 	PageErrors     []Entry        `json:"pageErrors"`
 	RequestsFailed []Entry        `json:"requestsFailed"`
+	LeftOut        []string       `json:"leftOut,omitempty"` // reads the page asked for that a preview doesn't serve (the host's list)
+	Note           string         `json:"note,omitempty"`    // what this render left out, and why (the host's words)
+	Clipped        bool           `json:"clipped,omitempty"` // the page is taller than a picture may be: this is its top
+	PageHeight     int            `json:"pageHeight,omitempty"`
 	Ready          string         `json:"ready,omitempty"`        // signal | settled | timeout
 	StillLoading   []Entry        `json:"stillLoading,omitempty"` // requests open when the picture was taken
 	TimedOut       bool           `json:"timedOut,omitempty"`
@@ -187,6 +201,8 @@ type wire struct {
 	StillLoading   []Entry        `json:"still_loading"`
 	TimedOut       bool           `json:"timed_out"`
 	Crashed        bool           `json:"crashed"`
+	Clipped        bool           `json:"clipped"`
+	PageHeight     int            `json:"page_height"`
 	Browser        string         `json:"browser"`
 	Timing         map[string]int `json:"timing"`
 	PSSKB          int            `json:"pss_kb"`
@@ -202,7 +218,11 @@ type Service struct {
 	PerUser int           // concurrent renders per person; 0 = DefaultPerUser
 	Total   int           // concurrent renders; 0 = DefaultTotal
 	MemMax  int64         // a render's memory cap in bytes; 0 = DefaultMemMax
-	Cgroup  Leaves        // nil or not enabled: renders run without the memory cap
+	Cgroup  Leaves        // the memory cap's cgroup manager; nil or not enabled: no cap can be enforced
+	// Uncapped lets renders run where no memory cap can be enforced (the
+	// admin's explicit choice, XBIN_PREVIEWS=uncapped). Without it such an
+	// xbind renders nothing: a page's memory would be the host's.
+	Uncapped bool
 
 	mu     sync.Mutex
 	byUser map[string]int
@@ -249,7 +269,7 @@ func (s *Service) Status() Status {
 		return Status{Reason: "not set up"}
 	}
 	timeout, perUser, total, mem := s.limits()
-	st := Status{MemoryCap: s.Cgroup != nil && s.Cgroup.Enabled(), MemMax: mem, PerUser: perUser, Total: total,
+	st := Status{MemoryCap: s.capped(), MemMax: mem, PerUser: perUser, Total: total,
 		TimeoutMs: int(timeout / time.Millisecond)}
 	if err := s.Available(); err != nil {
 		st.Reason = strings.TrimPrefix(err.Error(), ErrUnavailable.Error()+": ")
@@ -289,8 +309,13 @@ func (s *Service) Available() error {
 			return fmt.Errorf("%w: the base rootfs has no Chromium (%s is missing; the xbin image ships Playwright and Chromium)", ErrUnavailable, p)
 		}
 	}
+	if !s.capped() && !s.Uncapped {
+		return fmt.Errorf("%w: a render's memory can't be capped here — xbind's cgroup is not delegated (systemd Delegate=yes, or a container), so a page could use the host's. Delegate it, or set XBIN_PREVIEWS=uncapped to render without the cap", ErrUnavailable)
+	}
 	return nil
 }
+
+func (s *Service) capped() bool { return s.Cgroup != nil && s.Cgroup.Enabled() }
 
 func (s *Service) acquire(user string) (func(), error) {
 	_, per, total, _ := s.limits()
@@ -299,11 +324,8 @@ func (s *Service) acquire(user string) (func(), error) {
 	if s.byUser == nil {
 		s.byUser = map[string]int{}
 	}
-	switch {
-	case s.byUser[user] >= per:
-		return nil, fmt.Errorf("%w for you (%d at a time) — try again when it is done", ErrBusy, per)
-	case s.all >= total:
-		return nil, fmt.Errorf("%w in this workspace (%d at a time) — try again in a moment", ErrBusy, total)
+	if s.byUser[user] >= per || s.all >= total {
+		return nil, ErrBusy
 	}
 	s.byUser[user]++
 	s.all++
@@ -349,11 +371,11 @@ func (s *Service) Render(ctx context.Context, req Request) (*Result, error) {
 		"viewport":  map[string]int{"width": clamp(req.Width, 240, 2560, 1280), "height": clamp(req.Height, 240, 2560, 800)},
 		"wait_ms":   clamp(req.WaitMs, 0, 15000, 0),
 		"budget_ms": int((timeout - 3*time.Second) / time.Millisecond),
-		"full_page": req.FullPage,
+		"full_page": req.FullPage, "max_pixels": maxPixels,
 	}
 	var leafDir *os.File
 	leaf := ""
-	if s.Cgroup != nil && s.Cgroup.Enabled() {
+	if s.capped() {
 		// a leaf of its own, the sandbox started straight into it: nothing
 		// the browser forks is ever outside the cap
 		leafDir, leaf, err = s.Cgroup.Prepare("preview-"+util.RandomToken(6), cgroup.Limits{MemMax: mem, MemHigh: -1, PidsMax: pidsMax, NoSwap: true}) // no memory.high: at the cap a render is killed, not throttled into its timeout
@@ -367,14 +389,17 @@ func (s *Service) Render(ctx context.Context, req Request) (*Result, error) {
 		}()
 	}
 	start := time.Now()
-	w, err := run(ctx, dir, timeout, leafDir, args)
+	w, err := run(ctx, dir, timeout, leafDir, mem, args)
 	if leaf != "" && s.Cgroup.OOMKills(leaf) > 0 && (err != nil || !w.OK || w.PNG == "" || w.Crashed) {
 		return nil, fmt.Errorf("%w: the page needed more than its %d MiB", ErrMemory, mem>>20)
 	}
 	if err != nil {
 		return nil, err
 	}
-	if w.Browser != "" {
+	if !w.OK && w.Error == "page-crashed" {
+		return nil, fmt.Errorf("%w: the page crashed the preview browser — it likely needed more memory or scratch space than a render has (%d MiB)", ErrMemory, mem>>20)
+	}
+	if browserRE.MatchString(w.Browser) { // only what looks like a build is kept for GET /preview
 		s.browser.Store(w.Browser)
 	}
 	res, err := resultOf(w)
@@ -457,17 +482,27 @@ func Serve(h http.Handler, withTLS bool) (dir, sock, spki string, stop func(), e
 		_ = os.RemoveAll(dir)
 		return "", "", "", nil, err
 	}
-	// the sandbox's uid must traverse it; nothing in it is a secret (the
-	// runner's source and a socket only this render's sandbox is handed)
-	if err = os.Chmod(dir, 0o755); err != nil {
+	// Modes are set, never left to the umask: the directory and the socket
+	// are xbind's user's alone (the sandbox's uid 0 IS that user, mapped),
+	// so no other local user can reach a render's socket — which answers as
+	// the render's person.
+	if err = os.Chmod(dir, 0o700); err != nil {
 		return fail(err)
 	}
-	if err = os.WriteFile(filepath.Join(dir, "runner.mjs"), runnerJS, 0o444); err != nil {
+	runner := filepath.Join(dir, "runner.mjs")
+	if err = os.WriteFile(runner, runnerJS, 0o400); err != nil {
+		return fail(err)
+	}
+	if err = os.Chmod(runner, 0o400); err != nil {
 		return fail(err)
 	}
 	sock = filepath.Join(dir, "x.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
+		return fail(err)
+	}
+	if err = os.Chmod(sock, 0o600); err != nil {
+		_ = ln.Close()
 		return fail(err)
 	}
 	if withTLS {
@@ -520,7 +555,18 @@ func throwawayCert() (tls.Certificate, string, error) {
 // capabilities, in the cgroup leaf when there is one. The answer comes over
 // stdout only — xbind opens no file the sandbox could have written. A non-nil
 // *wire comes back with every error but a sandbox that would not start.
-func run(ctx context.Context, dir string, timeout time.Duration, leaf *os.File, req map[string]any) (*wire, error) {
+func run(ctx context.Context, dir string, timeout time.Duration, leaf *os.File, scratch int64, req map[string]any) (*wire, error) {
+	// confine.Run executes on the HOST where no sandbox is configured: for
+	// xbind's own tools on a workspace without isolation that is the design
+	// (D78), for a browser running tile code it must never happen — so this
+	// path refuses by itself, whatever the caller checked.
+	if !confine.Isolated() {
+		return &wire{}, fmt.Errorf("%w: no sandbox to run the browser in (this xbind runs without --isolate)", ErrUnavailable)
+	}
+	// the answer's line starts with a marker only this run knows: nothing a
+	// page prints, titles or logs can pass for it
+	nonce := mark + util.RandomToken(12) + ":"
+	req["mark"] = nonce
 	arg, _ := json.Marshal(req)
 	out, err := confine.Run(ctx, confine.Cmd{
 		Argv:      []string{nodePath, filepath.Join(dir, "runner.mjs"), string(arg)},
@@ -528,47 +574,92 @@ func run(ctx context.Context, dir string, timeout time.Duration, leaf *os.File, 
 		Env:       []string{"PLAYWRIGHT_BROWSERS_PATH=" + browsers, "HOME=/tmp", "XDG_RUNTIME_DIR=/tmp"},
 		Net:       confine.NetNone,
 		Timeout:   timeout,
-		MaxOutput: 2 * maxPNG,
+		MaxOutput: maxWire,
 		Cgroup:    leaf,
+		// what the sandbox may write — the browser's profile, cache and
+		// shared memory, in /tmp, /dev/shm and the root's layer — is memory:
+		// each mount is sized to the render's memory cap (measured: half of
+		// it crashes a page of 20 000 rows), so even where no cgroup holds
+		// the cap a render's scratch is bounded, not "half of RAM" thrice
+		TmpfsBytes: scratch,
 	})
-	i := bytes.LastIndex(out.Stdout, []byte(mark))
-	if i < 0 {
+	var line []byte
+	for _, l := range bytes.Split(out.Stdout, []byte("\n")) {
+		if rest, ok := bytes.CutPrefix(l, []byte(nonce)); ok {
+			line = rest // the last one wins: the runner prints exactly one
+		}
+	}
+	if line == nil {
 		if errors.Is(err, confine.ErrUnavailable) {
 			return &wire{}, fmt.Errorf("%w: the sandbox would not start: %v", ErrUnavailable, err)
 		}
-		return &wire{}, fmt.Errorf("the preview browser gave no answer: %v: %s", err, clip(out.Stderr, 600))
-	}
-	line := out.Stdout[i+len(mark):]
-	if j := bytes.IndexByte(line, '\n'); j >= 0 {
-		line = line[:j]
+		return &wire{}, fmt.Errorf("the preview browser gave no answer: %v: %s", err, text(clip(out.Stderr, 600), 600))
 	}
 	var w wire
 	if err := json.Unmarshal(line, &w); err != nil {
-		return &wire{}, fmt.Errorf("the preview browser's answer is unreadable: %v", err)
+		return &wire{}, errors.New("the preview browser's answer is unreadable")
 	}
 	if !w.OK && (w.Error == "browser-missing" || w.Error == "playwright-missing") {
-		return &w, fmt.Errorf("%w: %s: %s", ErrUnavailable, w.Error, w.Detail)
+		return &w, fmt.Errorf("%w: %s: %s", ErrUnavailable, w.Error, text(w.Detail, 600))
 	}
 	return &w, nil
 }
 
-// resultOf turns the runner's answer into the caller's: the picture taken
-// only as a PNG of sane size and re-encoded here (it was drawn by a browser
-// running untrusted pages), every string scrubbed of credentials, the notice
-// attached.
+// resultOf turns the runner's answer into the caller's. EVERYTHING the
+// sandbox returned is hostile — the page is untrusted and the browser that
+// ran it may be the page's by now — so nothing is passed through: each field
+// is rebuilt here to a fixed shape, clipped to a byte cap, scrubbed of
+// credentials; lists are cut; the browser's name must look like one; and the
+// picture is taken only as a PNG within the pixel budget, checked from its
+// header before a pixel is decoded, then re-encoded.
 func resultOf(w *wire) (*Result, error) {
-	res := &Result{OK: w.OK, Notice: Notice, Error: w.Error, Detail: w.Detail, URL: w.URL, Title: w.Title, Status: w.Status,
-		NavError: w.NavError, Console: w.Console, PageErrors: w.PageErrors, RequestsFailed: w.RequestsFailed,
-		Snapshot: w.Snapshot, Frames: w.Frames, Ready: w.Ready, StillLoading: w.StillLoading, TimedOut: w.TimedOut, Browser: w.Browser,
-		Sandbox: browserSandbox, Timing: w.Timing, MemoryKB: w.PSSKB}
-	if w.PNG != "" {
-		raw, err := base64.StdEncoding.DecodeString(w.PNG)
-		if err != nil || len(raw) > maxPNG {
-			return nil, errors.New("the preview browser's picture is unreadable or too large")
+	res := &Result{OK: w.OK, Notice: Notice, Error: text(w.Error, 80), Detail: text(w.Detail, 1200),
+		URL: text(w.URL, capURL), Title: text(w.Title, 300), NavError: text(w.NavError, 400),
+		Console: entries(w.Console, capList), PageErrors: entries(w.PageErrors, 20), RequestsFailed: entries(w.RequestsFailed, capList),
+		StillLoading: entries(w.StillLoading, 10), TimedOut: w.TimedOut, Sandbox: browserSandbox,
+		Clipped: w.Clipped, PageHeight: clampInt(w.PageHeight, 0, 1<<24), MemoryKB: clampInt(w.PSSKB, 0, 1<<26)}
+	if len(res.StillLoading) == 0 {
+		res.StillLoading = nil
+	}
+	if w.Status != nil && *w.Status >= 100 && *w.Status <= 599 {
+		st := *w.Status
+		res.Status = &st
+	}
+	if w.Ready == "signal" || w.Ready == "settled" || w.Ready == "timeout" {
+		res.Ready = w.Ready
+	}
+	if browserRE.MatchString(w.Browser) {
+		res.Browser = w.Browser
+	}
+	res.Timing = map[string]int{}
+	for _, k := range []string{"launch_ms", "load_ms", "settle_ms", "shot_ms", "total_ms"} {
+		if v, ok := w.Timing[k]; ok {
+			res.Timing[k] = clampInt(v, 0, 3600_000)
 		}
-		cfg, err := png.DecodeConfig(bytes.NewReader(raw))
-		if err != nil || cfg.Width > maxSide || cfg.Height > 8*maxSide {
-			return nil, errors.New("the preview browser's picture is not a PNG of a sane size")
+	}
+	room := capText
+	res.Snapshot = text(w.Snapshot, min(capSnapshot, room))
+	room -= len(res.Snapshot)
+	res.Frames = []Frame{}
+	for i, f := range w.Frames {
+		if i >= capFrames || room <= 0 {
+			break
+		}
+		fr := Frame{URL: text(f.URL, capURL), Snapshot: text(f.Snapshot, min(capSnapshot, room))}
+		room -= len(fr.Snapshot)
+		res.Frames = append(res.Frames, fr)
+	}
+	if w.PNG != "" {
+		if len(w.PNG) > base64.StdEncoding.EncodedLen(maxPNG) {
+			return nil, errors.New("the preview browser's picture is too large")
+		}
+		raw, err := base64.StdEncoding.DecodeString(w.PNG)
+		if err != nil {
+			return nil, errors.New("the preview browser's picture is unreadable")
+		}
+		cfg, err := png.DecodeConfig(bytes.NewReader(raw)) // the header only
+		if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > maxWidth || cfg.Width*cfg.Height > maxPixels {
+			return nil, errors.New("the preview browser's picture is not a PNG within the size a preview may have")
 		}
 		img, err := png.Decode(bytes.NewReader(raw))
 		if err != nil {
@@ -580,17 +671,85 @@ func resultOf(w *wire) (*Result, error) {
 		}
 		res.PNG, res.Width, res.Height = buf.Bytes(), cfg.Width, cfg.Height
 	}
-	res.scrub()
-	for _, l := range []*[]Entry{&res.Console, &res.PageErrors, &res.RequestsFailed} {
-		if *l == nil {
-			*l = []Entry{}
-		}
-	}
-	if res.Frames == nil {
-		res.Frames = []Frame{}
-	}
 	return res, nil
 }
+
+// The answer's caps, in bytes: what a caller — and a model's context — gets
+// at most, whatever the sandbox printed.
+const (
+	maxWire     = 20 << 20 // the runner's whole stdout (the base64 picture and the text)
+	capURL      = 2048
+	capSnapshot = 16 << 10 // one frame's text
+	capText     = 64 << 10 // every frame's together
+	capFrames   = 24
+	capList     = 40
+	capEntry    = 600 // one string of a console line or a failed request
+)
+
+// browserRE is what a browser's build looks like: nothing else is kept, or
+// shown to an admin by GET /preview.
+var browserRE = regexp.MustCompile(`^chromium [0-9]{1,4}(\.[0-9]{1,6}){1,3}$`)
+
+// entryKeys is the whole shape of a console line, a page error, a failed
+// request: these keys, a string (true) or a whole number (false) each.
+// Anything else the sandbox put in an entry — another key, a nested value —
+// is dropped.
+var entryKeys = map[string]bool{"url": true, "method": true, "error": true, "type": true, "text": true, "message": true,
+	"resource": true, "status": false, "at_ms": false, "since_ms": false}
+
+func entries(in []Entry, limit int) []Entry {
+	out := []Entry{}
+	for _, e := range in {
+		if len(out) >= limit {
+			break
+		}
+		clean := Entry{}
+		for k, str := range entryKeys {
+			switch v := e[k].(type) {
+			case string:
+				if str {
+					clean[k] = text(v, capEntry)
+				}
+			case float64:
+				if !str && v >= 0 && v < 1e9 && v == float64(int(v)) {
+					clean[k] = int(v)
+				}
+			}
+		}
+		if len(clean) > 0 {
+			out = append(out, clean)
+		}
+	}
+	return out
+}
+
+// text is s as a caller may have it: valid UTF-8, no control characters but
+// newline and tab, at most n bytes, credentials cut.
+func text(s string, n int) string {
+	if len(s) > 4*n+64 { // before any work on it
+		s = s[:4*n+64]
+	}
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || r >= 0x20 && r != 0x7f && r != utf8.RuneError {
+			return r
+		}
+		return -1
+	}, strings.ToValidUTF8(s, ""))
+	return cut(scrubText(s), n)
+}
+
+// cut is s within n bytes, on a rune boundary.
+func cut(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+func clampInt(v, lo, hi int) int { return min(max(v, lo), hi) }
 
 // Credentials the page's URLs carry — a frame token (?frame=), the tile-
 // origin exchange's parameters, an asset token or a path ticket in a path —
@@ -603,22 +762,6 @@ var (
 
 func scrubText(s string) string {
 	return secretPath.ReplaceAllString(secretQuery.ReplaceAllString(s, "${1}…"), "${1}…")
-}
-
-func (r *Result) scrub() {
-	r.URL, r.Snapshot, r.NavError, r.Title = scrubText(r.URL), scrubText(r.Snapshot), scrubText(r.NavError), scrubText(r.Title)
-	for i := range r.Frames {
-		r.Frames[i].URL, r.Frames[i].Snapshot = scrubText(r.Frames[i].URL), scrubText(r.Frames[i].Snapshot)
-	}
-	for _, list := range [][]Entry{r.Console, r.PageErrors, r.RequestsFailed, r.StillLoading} {
-		for _, e := range list {
-			for k, v := range e {
-				if s, ok := v.(string); ok {
-					e[k] = scrubText(s)
-				}
-			}
-		}
-	}
 }
 
 func clamp(v, lo, hi, def int) int {

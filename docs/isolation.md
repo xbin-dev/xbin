@@ -120,9 +120,14 @@ above, and tighter:
   every credential-shaped string is cut from the text.
 - **Bounded.** One render per person and two per workspace at a time, a
   hard timeout that kills the sandbox's init (and so everything in it), and
-  — where xbind's cgroup is delegated — a cgroup leaf with a memory and a
-  pids cap the sandbox is started in ([config.md](/docs/config.md):
-  `XBIN_PREVIEW_*`).
+  a cgroup leaf with a memory and a pids cap the sandbox is started in
+  ([config.md](/docs/config.md): `XBIN_PREVIEW_*`). The cap needs xbind's
+  cgroup delegated; where it is not, previews are unavailable unless the
+  admin sets `XBIN_PREVIEWS=uncapped`. Either way the sandbox's scratch —
+  `/tmp`, `/dev/shm`, its root layer: tmpfs, so memory — is sized to the
+  cap, not left at the kernel's "half of RAM" each. The picture is decoded
+  by xbind, outside that cap, so xbind checks its size from the PNG header
+  first: about 8 megapixels at most.
 - **No isolation, no preview.** Without `--isolate` there is no sandbox to
   put the browser in, and xbind never runs it on the host: the route
   answers 503. So does a rootfs without Chromium.
@@ -138,10 +143,13 @@ could still do: read what that render shows and pass it to a tile backend
 it controls in a GET; if that backend has egress, the data can leave. A
 single-tile render admits one tile, so that is the tile leaking its own
 view; a screen render mixes tiles, and a tile on it that owns the browser
-reads its neighbours on that screen. Two things keep the window small: the
-rootfs **pins** its Playwright (`docker/rootfs.Dockerfile`,
-`PLAYWRIGHT_VERSION`; `make pins` fails if the pin goes) so the browser's
-build is known and bumped on purpose — `GET /api/xbin/preview` tells an
+reads its neighbours on that screen — and, of the person's own reads, only
+the fixed list the shell draws with (a member's view, for an admin too).
+Two things keep the window small: the rootfs **pins** its Playwright
+(`docker/rootfs.Dockerfile`, `PLAYWRIGHT_VERSION`; `make pins` fails if the
+pin goes; the pin takes effect with the next rootfs build — a rootfs built
+before it keeps the Chromium it was built with) so the browser's build is
+known and bumped on purpose — `GET /api/xbin/preview` tells an
 admin which Chromium is running — and a workspace that doesn't want the
 feature turns it off (`XBIN_PREVIEWS=off`).
 

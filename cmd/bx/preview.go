@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -119,9 +118,26 @@ func cmdPreviewPage(args []string) error {
 		if name == "" {
 			name, _ = body["screen"].(string)
 		}
-		out = filepath.Join(os.TempDir(), "bx-preview-"+strings.NewReplacer("/", "-", " ", "-").Replace(name)+".png")
+		// in the current directory, never a guessable name in a shared /tmp
+		out = "preview-" + strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' {
+				return r
+			}
+			return '-'
+		}, name) + ".png"
 	}
-	if err := os.WriteFile(out, png, 0o644); err != nil {
+	// the picture is what the person sees: theirs alone to read (0600), and
+	// never written through a link someone left at the name
+	_ = os.Remove(out)
+	f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("bx preview: writing %s: %v", out, err)
+	}
+	if _, err := f.Write(png); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	if asJSON {

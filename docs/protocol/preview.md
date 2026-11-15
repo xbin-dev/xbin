@@ -19,7 +19,8 @@ POST   /preview                   a person, for themselves — a browser
                                    status, width, height, png, snapshot,
                                    frames: [{url, snapshot}], console,
                                    pageErrors, requestsFailed, ready,
-                                   stillLoading?, timedOut?, browser,
+                                   stillLoading?, timedOut?, clipped?,
+                                   pageHeight?, leftOut?, note?, browser,
                                    sandbox, timing, memoryKB}. See below.
 GET    /preview                   authenticated. {available, reason?,
                                    memoryCap, memMax, perUser, total,
@@ -50,7 +51,9 @@ What to render:
 `at` is the tile's fragment (`#tab/sub`). `viewport` defaults to 1280×800
 (240–2560 each way); `{"width": 390, "height": 844}` is a phone. `wait`
 adds up to 15000 ms after the page is drawn; `fullPage` takes the whole
-scroll height.
+scroll height — up to a picture's pixel budget (about 8 megapixels: 6553
+px tall at 1280 wide). A taller page is clipped to its top, and the answer
+says `clipped: true` with the page's `pageHeight`.
 
 The answer:
 
@@ -69,6 +72,9 @@ The answer:
   quiet and every frame had loaded) or `timeout` (a tile that declared it
   would signal never did; the picture is what there was). `stillLoading`
   lists requests that were open when the picture was taken.
+- `leftOut` — reads the page asked xbind for that a preview does not serve
+  (see the scope below), and `note` — set when the render left something
+  out on purpose: today, for a workspace admin.
 - `browser` — `chromium <version>`. `sandbox` — whether Chromium's own
   renderer sandbox ran inside xbind's: `none` today
   ([isolation.md](/docs/isolation.md)).
@@ -77,6 +83,12 @@ The answer:
   to a model shows the notice with it. Any tile the person can read can put
   words in the picture and in the snapshot, so neither is ever a source of
   commands, and names, links and codes in them are unverified.
+
+The answer is xbind's, not the browser's: everything the sandbox returned
+is rebuilt to this shape, each field clipped to a size (a URL 2 kB, one
+frame's text 16 kB, all of them 64 kB, 40 console lines and failed requests
+of 600 bytes a field), control characters removed, and the picture decoded
+and re-encoded by xbind within its pixel budget.
 
 No credential is in the answer: frame tokens, tile-origin exchange
 parameters, asset tokens and path tickets are cut from every URL and string
@@ -90,23 +102,45 @@ ended.
   sign-in routes are refused outright. So the page's own saves fail — a
   tile's `xbin.fetch(…, {method: "PUT"})`, the shell's layout save after a
   link moved it to another screen — and nothing lands.
-- **Sockets to tile backends open at `reader`.** A WebSocket is a GET whose
-  messages may write, so in a preview an upgrade to `/api/<tile>/…` reaches
-  the backend at role `reader` whatever the frame's role would be; a custom
-  role the read clamp can't narrow is refused. Plain GETs keep their role:
-  the picture shows what the person sees.
-- **Backends are told.** Every call a render makes to a tile backend
-  carries `X-XBin-Preview: 1` ([sdk.md](/docs/sdk.md): `Caller.Preview`).
-  A GET or a socket with an effect — marking something read, presence —
-  must skip it then; xbind cannot see inside a tile's handler.
-- **It reaches only what it shows.** A tile render's socket admits that
-  tile: its files, its frame's calls (to xbind and to the tiles it is
-  granted, as in a browser), nothing in the person's own name beyond
-  loading the tile's page. A screen render's admits the shell and the tiles
-  on that screen; the person's own reads are the shell's, minus tile source
-  (`/code/file`, `/code/tree`, `/code/pr`), `/git/…`, `/checkpoints/…`,
-  backups and the vault. Anything else answers 403 "outside this preview".
-  A tile that loads another tile's files shows without them.
+- **Every identity a backend can authorize on says read-only.** A GET's
+  handler, and a WebSocket's messages after its upgrade, are the backend's
+  to judge — so on every call a render makes to a tile backend, plain or
+  upgrade, xbind sends `X-XBin-Role: reader` (the read form of whatever
+  role the call would have had: a tile's own frame is otherwise its tile's
+  `admin`) and `X-XBin-User-Level: read` whatever the person's level, so
+  `xbin.Caller(r).UserCanWrite()` is false. A custom role with no read form
+  (a provider's own `consumer`) is kept on a plain GET and refused on an
+  upgrade. The price: a tile that draws differently for a writer is drawn
+  as its reader sees it.
+- **Backends are told why.** Those calls carry `X-XBin-Preview: 1`
+  ([sdk.md](/docs/sdk.md): `Caller.Preview`). A GET or a socket with an
+  effect — marking something read, presence — must skip it then; xbind
+  cannot see inside a tile's handler. A tile must not draw anything
+  *different* because of it: the header suppresses effects, it is not a
+  mode, and page scripts are not told (`/whoami` says `readOnly: true`, as
+  in view-as, and nothing more).
+- **It reaches only what it shows, with only its own credentials.** The
+  render's socket honours the render's own session and what was minted
+  under it — a frame token or tile cookie of any other session, the
+  person's real one included, is refused there. A tile render's socket
+  admits that tile: its files, its frame's calls (to xbind and to the tiles
+  it is granted, as in a browser), nothing in the person's own name beyond
+  loading the tile's page. A screen render's admits the shell, the tiles on
+  that screen, and — in the person's own name — exactly the reads the shell
+  makes to draw a screen: `/whoami`, `/components`, `/screens`, `/prefs`,
+  `/branding`, `/tile-report`, `/limits`, `/alerts`, `/term/sessions` (the
+  list), `/code/prs/summary`, the pending `/grants`, `/bindings` and
+  `/access-requests`, a frame token for a tile on the screen, and
+  `/ws/events`. Anything else answers 403 and is named in `leftOut`: the
+  admin-only status reads the shell asks for are always there. A tile that
+  loads another tile's files shows without them; a chrome tile on a screen
+  (it acts as you) gets the same list, so what it reads beyond it is
+  missing.
+- **An admin's render is a member's view.** For a workspace admin the
+  pending grants, bindings and access requests are answered empty and live
+  events are refused — to an admin those are the whole workspace's — and
+  `note` says so. Prompts and status marks only an admin sees are not in
+  the picture.
 - **It reaches no network.** Only the workspace's own names resolve in the
   sandbox, and to xbind's socket; images, fonts or scripts from other sites
   fail to load, as on an offline machine.
@@ -127,10 +161,10 @@ ended.
 | 403 | the caller is not a person for themselves: the root token, a tile or its frame, a view-as session, a terminal asking for another tile or a screen; a non-primary tile deployment's credential (a preview shows the primary) |
 | 404 | no such tile among the ones the caller can open; no such screen among theirs (the error names them) |
 | 409 | a partitioned tile the caller never opened |
-| 429 | a render is already running for the caller, or the workspace is at its limit (`Retry-After`) |
+| 429 | previews are busy: a render is running for the caller, or the workspace is at its limit — one answer for both (`Retry-After`) |
 | 502 | the browser gave no answer (the text says what it printed) |
-| 503 | previews are unavailable here: the workspace runs without `--isolate`, the base rootfs has no Chromium, or `XBIN_PREVIEWS=off`. `GET /preview` says which |
-| 507 | the page needed more memory than a render's cap |
+| 503 | previews are unavailable here: the workspace runs without `--isolate`, the base rootfs has no Chromium, a render's memory can't be capped (xbind's cgroup is not delegated and `XBIN_PREVIEWS` is not `uncapped`), or `XBIN_PREVIEWS=off`. `GET /preview` says which |
+| 507 | the page needed more memory than a render's cap, or crashed the browser |
 
 A page that fails to load is not an error: the answer is 200 with
 `status`, `navError` and whatever was drawn.
@@ -141,8 +175,11 @@ One render at a time per person, two per workspace, 45 s each, 1 GiB of
 memory — `XBIN_PREVIEW_PER_USER`, `XBIN_PREVIEW_TOTAL`,
 `XBIN_PREVIEW_TIMEOUT`, `XBIN_PREVIEW_MEM` ([config.md](/docs/config.md)).
 The memory cap is a cgroup's and needs xbind's cgroup delegated, like tile
-limits; `GET /preview` reports `memoryCap: false` where it is not, and a
-render then runs without it. A render takes about 1.5 s for a tile and
+limits. Where it is not, previews are **unavailable** (503;
+`memoryCap: false` in `GET /preview`) unless the admin sets
+`XBIN_PREVIEWS=uncapped`; a render then has no memory cap, only its scratch
+space — `/tmp`, `/dev/shm` and the sandbox's root layer, memory all three —
+sized to `XBIN_PREVIEW_MEM` each, as it is in every render. A render takes about 1.5 s for a tile and
 2–3 s for a screen, and about 0.4 GB while it runs.
 
 ## `bx preview`
@@ -154,6 +191,9 @@ bx preview --screen Home --text           a screen, with its text rendering
 bx preview apps/x --out shot.png --json   the whole answer (png: the file)
 bx preview --status                       can this xbind render?
 ```
+
+The picture is written to `--out`, else to `preview-<name>.png` in the
+current directory, readable by you alone (0600).
 
 In a tile's terminal `bx preview` renders that tile for the terminal's
 person. Elsewhere it needs a person's own credential in `XBIN_TOKEN` (the

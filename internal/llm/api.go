@@ -148,6 +148,12 @@ func decode(r *http.Request, v any) error {
 
 // apiModels — GET /llm/v1/models.
 func (s *Service) apiModels(w http.ResponseWriter, r *http.Request) {
+	if auth.PrincipalOf(r).Preview() {
+		// D234: listing models asks every passthrough upstream (a GET that
+		// dials out of the workspace), and a preview's render dials nowhere
+		server.WriteError(w, http.StatusForbidden, "read-only: a preview doesn't ask the model providers for their lists", docs)
+		return
+	}
 	snap := s.current()
 	c, ref := s.admit(r, snap)
 	if ref != nil {

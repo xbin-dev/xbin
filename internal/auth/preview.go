@@ -60,6 +60,19 @@ func (a *Auth) NewPreviewSession(userID string, ttl time.Duration) (string, erro
 		impersonator: PreviewViewer, notAfter: now.Add(ttl)}), nil
 }
 
+// PreviewSessionGen is the generation every credential minted under preview
+// session id carries (Principal.Gen, a tile cookie's or an asset token's
+// FrameGen): how a render's socket tells its own session's credentials from
+// any other's. "" for anything but a live preview session.
+func (a *Auth) PreviewSessionGen(id string) string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if s, ok := a.sessions[id]; ok && s.impersonator == PreviewViewer {
+		return "s." + s.gen
+	}
+	return ""
+}
+
 // EndPreviewSession drops a preview session: every frame token, tile cookie
 // and asset token minted under it stops verifying with it. A no-op for any
 // other session.

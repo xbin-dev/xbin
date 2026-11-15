@@ -17,8 +17,14 @@ import (
 func (st *State) enablePreviews() {
 	cfg := st.Cfg
 	svc := &preview.Service{Rootfs: st.rootfs}
-	if v := strings.ToLower(strings.TrimSpace(cfg.Previews)); v == "off" || v == "0" || v == "false" {
+	switch v := strings.ToLower(strings.TrimSpace(cfg.Previews)); v {
+	case "off", "0", "false":
 		svc.Off = "switched off for this workspace (XBIN_PREVIEWS=off)"
+	case "uncapped":
+		svc.Uncapped = true // the admin's choice: render even where no memory cap can be enforced
+	case "", "on":
+	default:
+		slog.Warn("XBIN_PREVIEWS: want on, off or uncapped — taking it as on", "value", v)
 	}
 	svc.PerUser = previewInt("XBIN_PREVIEW_PER_USER", cfg.PreviewPerUser, preview.DefaultPerUser, 1, 16)
 	svc.Total = max(previewInt("XBIN_PREVIEW_TOTAL", cfg.PreviewTotal, preview.DefaultTotal, 1, 64), svc.PerUser)

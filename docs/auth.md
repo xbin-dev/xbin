@@ -873,8 +873,9 @@ session kind of its own:
   while it does, exactly as it does for view-as: the same gate, and the
   frame tokens, tile-origin cookies, asset tokens and path tickets minted
   under it carry the same mark. Unlike view-as, **nobody else is looking**:
-  `/whoami` says `readOnly: true, preview: true` and no `impersonatedBy`,
-  backends see `X-XBin-Preview: 1` and no `X-XBin-Viewed-By`, and the tiles
+  `/whoami` says `readOnly: true` and no `impersonatedBy`, backends see
+  `X-XBin-Preview: 1`, role `reader` and user level `read` on every call
+  and no `X-XBin-Viewed-By`, and the tiles
   that keep each person's data apart open **your own** partition (an
   admin's view-as opens none). A partition you never opened is not made by
   a preview.
@@ -886,9 +887,11 @@ session kind of its own:
   starts. The socket refuses everything but `GET`/`HEAD`/`OPTIONS`,
   terminals and the sign-in routes whatever a request carries, so a page
   that holds some other credential gains nothing by sending it there.
-- **Scoped to what it shows.** A tile's render admits that tile's files and
-  its frame's calls; a screen's, the shell and the tiles on that screen
-  ([protocol/preview.md](/docs/protocol/preview.md) has the list).
+- **Scoped to what it shows.** The socket honours only credentials minted
+  under the render's own session. A tile's render admits that tile's files
+  and its frame's calls; a screen's, the tiles on that screen and a fixed
+  list of the shell's own reads — for an admin, without the workspace-wide
+  ones ([protocol/preview.md](/docs/protocol/preview.md) has the list).
 - **Who may ask.** You, for yourself: a browser session or the app's
   bearer. A tile's terminal, for its own tile — its token is scoped to the
   tile, and a picture of another would be a read of it. Not the root token

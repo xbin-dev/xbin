@@ -3,7 +3,7 @@
 //
 //   node runner.mjs '<json>'
 //     {url, sock, port, viewport:{width,height}, wait_ms, budget_ms,
-//      full_page, map_hosts, spki, trust_origin, probe}
+//      full_page, max_pixels, map_hosts, spki, trust_origin, mark, probe}
 //
 // The sandbox has no network but its own loopback. The one way out is the
 // unix socket `sock` (bound in read-only), which xbind serves for this
@@ -25,7 +25,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-const MARK = '@@XBIN_PREVIEW@@';
+let MARK = '@@XBIN_PREVIEW@@'; // + the run's own nonce (req.mark), once the request is read
 const CAP = { console: 40, text: 500, errors: 20, requests: 40, snapshot: 12000, frames: 24 };
 
 let emitted = false;
@@ -45,6 +45,7 @@ try {
   emit({ ok: false, error: 'bad-request', detail: e.message }, 2);
   process.exit();
 }
+if (typeof req.mark === 'string' && req.mark.startsWith(MARK)) MARK = req.mark;
 
 // probe: what the sandbox can reach, for the test that it reaches nothing
 // (no browser). Each target is dialled once with a short timeout.
@@ -171,9 +172,9 @@ try {
   page.on('request', (r) => inflight.set(r, since()));
   page.on('requestfinished', (r) => inflight.delete(r));
   page.on('requestfailed', (r) => inflight.delete(r));
-  page.on('requestfailed', (r) => failed({ url: clip(r.url(), 300), method: r.method(), error: (r.failure() || {}).errorText || 'failed', at_ms: since() }));
+  page.on('requestfailed', (r) => failed({ url: clip(r.url(), 300), method: clip(r.method(), 16), error: clip((r.failure() || {}).errorText || 'failed', 200), at_ms: since() }));
   page.on('response', (r) => {
-    if (r.status() >= 400) failed({ url: clip(r.url(), 300), method: r.request().method(), status: r.status(), at_ms: since() });
+    if (r.status() >= 400) failed({ url: clip(r.url(), 300), method: clip(r.request().method(), 16), status: r.status(), at_ms: since() });
   });
 
   const navStart = since();
@@ -235,12 +236,21 @@ try {
     await (settled ? page.waitForTimeout(100) : Promise.race([settling, page.waitForTimeout(100)]));
   }
   if (out.ready === 'signal') await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)))).catch(() => {});
-  if (busy) out.still_loading = [...inflight].slice(0, 10).map(([r, at]) => ({ url: clip(r.url(), 300), method: r.method(), resource: r.resourceType(), since_ms: at }));
+  if (busy) out.still_loading = [...inflight].slice(0, 10).map(([r, at]) => ({ url: clip(r.url(), 300), method: clip(r.method(), 16), resource: clip(r.resourceType(), 24), since_ms: at }));
   const wait = Math.max(0, Math.min(Number(req.wait_ms) || 0, 15000, left()));
   if (wait > 0) await page.waitForTimeout(wait);
   out.timing.settle_ms = since() - navStart - out.timing.load_ms;
 
-  out.url = page.url();
+  // The shell's own toasts are about this visit, not the person's view — in
+  // a render, almost always "couldn't save" from a scaffold that still tries
+  // (a newer one doesn't under readOnly): keep them out of the picture and
+  // the text.
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll('bx-shell')) {
+      for (const t of el.shadowRoot?.querySelectorAll('.toasts') ?? []) t.style.display = 'none';
+    }
+  }).catch(() => {});
+  out.url = clip(page.url(), 2000);
   try { out.title = clip(await page.title(), 200); } catch { /* navigated away */ }
   const snap = async (f) => {
     try { return prune(await f.locator('body').ariaSnapshot({ timeout: 4000 })); } catch (e) { return '(no snapshot: ' + clip(String(e.message || e).split('\n')[0], 120) + ')'; }
@@ -256,7 +266,21 @@ try {
   }
   const shotStart = since();
   try {
-    const buf = await page.screenshot({ type: 'png', fullPage: !!req.full_page, timeout: 10000 });
+    // A picture has a pixel budget (xbind decodes it): a page taller than
+    // the budget allows is clipped to its top, and the answer says so.
+    const width = vp.width || 1280;
+    const maxHeight = Math.max(240, Math.floor((Number(req.max_pixels) || 8388608) / width));
+    const shot = { type: 'png', timeout: 10000 };
+    if (req.full_page) {
+      const full = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)).catch(() => 0);
+      out.page_height = Math.min(Number(full) || 0, 16777216);
+      shot.fullPage = true;
+      if (out.page_height > maxHeight) {
+        out.clipped = true;
+        shot.clip = { x: 0, y: 0, width, height: maxHeight };
+      }
+    }
+    const buf = await page.screenshot(shot);
     out.png = buf.toString('base64');
   } catch (e) {
     out.png_error = clip(String(e.message || e).split('\n')[0], 300);
@@ -276,7 +300,7 @@ try {
 } catch (e) {
   clearTimeout(watchdog);
   out.ok = false;
-  out.error = 'runner-failed';
+  out.error = out.crashed || /crash/i.test(String(e.message || e)) ? 'page-crashed' : 'runner-failed';
   out.detail = clip(String(e.stack || e.message || e), 1200);
   emit(out, 5);
 } finally {

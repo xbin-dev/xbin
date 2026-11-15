@@ -32,9 +32,12 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		out["personalTiles"] = b.IsAdmin(p) || b.personalRefusal(p.UserID) == ""
 	}
 	switch {
-	case p.Preview(): // xbind's own render of this person's view (auth/preview.go): read-only, no banner
+	case p.Preview():
+		// xbind's own render of this person's view (D234): read-only, and
+		// nothing more is said — no banner, and no "preview" mark a page's
+		// script could draw differently for. The shell needs readOnly (it
+		// saves nothing then); backends learn of the render by header.
 		out["readOnly"] = true
-		out["preview"] = true
 	case p.Impersonator != "": // an admin's read-only view of this user (D64) — the shell shows a banner
 		out["impersonatedBy"] = p.Impersonator
 		out["readOnly"] = true
