@@ -10,7 +10,10 @@ package boot
 //     sealed-component table (internal/sealed, Capabilities.Delegate) when
 //     it is in the tree. Until then no lookup is installed and no component
 //     of any workspace delegates: every route below answers, and no
-//     credential passes the gate.
+//     credential passes the gate. Install it BEFORE the server step's
+//     check (Server.DelegationChromeConflict, boot.go): a component that is
+//     both a holder and trusted chrome stops the boot — a holder's page
+//     holds a frame token and never the person's session.
 //
 // THE AGENT RULES are the broker's DelegationPolicy: the orgs' agent rules
 // (D229, internal/agentpolicy through Broker.AgentTileAllows and
