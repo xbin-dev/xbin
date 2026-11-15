@@ -22,16 +22,26 @@ package term
 // an LLM key of its own — good for the connector's routes only, metered to
 // the session's person and tile — minted when the session opens and revoked
 // with the terminal token on every way out. A restarted or resumed session
-// is a new session with a new key. A session whose sandbox has no route to
-// xbind (net: none) gets none, and neither does one that targets a
-// non-primary deployment (a key carries no deployment, so the tile's edge
-// policy could not be held to its calls); an agent session says so.
+// is a new session with a new key. A session whose sandbox has no network
+// (net: none) reaches the connector through one door — a port of its
+// gateway forwarded to xbind's LLM-only listener, which serves the model
+// routes to an LLM key and nothing else — and nothing but it. A session
+// that targets a non-primary deployment gets a key that names the
+// deployment.
+//
+// Where the connector ALONE may serve (CredentialRule.Forced) everything
+// here fails closed: no key, no address or a host that doesn't answer
+// "connector" ends the session with the reason instead of letting it run on
+// something else; the CLI is configured so nothing else can be picked
+// (sdkacp's ConnectorParams.Only); and a model option a client sets — at
+// the start or later — must be one of the connector's (llmOption).
 //
 // Without a connector (Manager.LLM nil, or its Offer false) nothing here
 // runs: sessions are exactly as before.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -44,6 +54,9 @@ import (
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/agent/acp"
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/sandbox/relay"
+	"github.com/xbin-dev/xbin/internal/termwire"
 	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 )
 
@@ -61,7 +74,9 @@ type LLMConnector interface {
 	// nil) is told of every call made with the key that the connector
 	// answers with an error: a coding CLI often keeps such an answer to
 	// itself. It must not block.
-	Mint(user, tile, label string, refused func(status int, code, message string)) (token string, revoke func(), err error)
+	// deployment is the tile deployment the session targets ("" = the
+	// primary): the key carries it.
+	Mint(user, tile, deployment, label string, refused func(status int, code, message string)) (token string, revoke func(), err error)
 }
 
 // LLMOffer is the connector for one new session.
@@ -116,6 +131,11 @@ type LLMHook struct {
 	// one answer (D229; boot points it at the broker's AgentSessionLLM).
 	// nil ⇒ the choice, else own-first; nothing forced.
 	Credentials func(userID, tile, harness, choice string) CredentialRule
+	// LLMDoor is the socket of xbind's LLM-only listener ("" = none yet): a
+	// session with no network gets it as one port of its sandbox's gateway
+	// (llmDoorPort) and reaches the connector there. nil ⇒ such a session
+	// gets no connector.
+	LLMDoor func() string
 
 	llmSeen llmLogins // which providers each home was last found signed in to
 }
@@ -150,6 +170,9 @@ const llmOwner = "owner"
 type llmSession struct {
 	offer  LLMOffer
 	rule   string // agents: what the host settles — connector | own | own-first
+	forced bool   // agents: the connector alone may serve (CredentialRule.Forced): everything fails closed
+	why    string // …and the rule that says so, for a person to read
+	door   bool   // reached through the LLM-only door (a session with no network), not under XBIN_URL
 	token  string
 	revoke func()
 
@@ -159,6 +182,33 @@ type llmSession struct {
 	ended  bool
 	say    func(text string)    // agents: logs a notice in the session, once it is listed (llmSay)
 	told   map[string]time.Time // agents: when each refusal code was last said
+	cats   map[string]string    // agents, forced: the category of each config option the agent advertised
+}
+
+// The LLM-only door of a session with no network: the gateway port its
+// relay forwards to xbind's LLM-only listener (the same a tile sandbox
+// created with net.llm has, tilesbx.LLMGatewayPort) and the OpenAI base URL
+// that makes inside the sandbox.
+const (
+	llmDoorPort = 4180
+	llmDoorURL  = "http://" + sandbox.GatewayIP + ":4180/v1"
+)
+
+// llmDoorSock is the LLM-only listener's socket ("" = none).
+func (m *Manager) llmDoorSock() string {
+	if m.LLMDoor == nil {
+		return ""
+	}
+	return m.LLMDoor()
+}
+
+// llmDoor is the socket the relay of o's sandbox forwards llmDoorPort to
+// ("" = no door): a session with no network that holds an LLM key.
+func (m *Manager) llmDoor(o openOpts) string {
+	if o.llm == nil || !o.llm.door || o.llm.token == "" {
+		return ""
+	}
+	return m.llmDoorSock()
 }
 
 // llmRefusedEvery is how often a session repeats one kind of refusal: a CLI
@@ -259,17 +309,27 @@ func llmWhyNot(prov agent.Provider, offer LLMOffer) string {
 }
 
 // llmNoKey is why a session of o gets no key whatever else holds ("" = it
-// may): its sandbox has no route to xbind, or it targets a non-primary
-// deployment — a key carries no deployment, so the tile's edge policy,
-// which says what such a deployment may use, could not be held to it.
+// may): its sandbox has no network and this xbind has no LLM-only listener
+// to give it a door to.
 func (m *Manager) llmNoKey(o openOpts) string {
-	switch {
-	case !m.llmReach(o):
-		return "it can't be reached from a session without network (net: none)"
-	case o.target.env != "":
-		return "it is not offered to a session that targets a tile deployment other than the primary (" + o.target.env + ")"
+	if !m.llmReach(o) && m.llmDoorSock() == "" {
+		return "it can't be reached from a session without network here (net: none, and this xbind serves no LLM-only listener)"
 	}
 	return ""
+}
+
+// llmOnlyErr is why a session that only the connector may serve doesn't
+// start, or ends: the rule and what is missing. It is ErrForbidden (403).
+type llmOnlyErr string
+
+func (e llmOnlyErr) Error() string   { return string(e) }
+func (e llmOnlyErr) Is(t error) bool { return t == ErrForbidden }
+func (l *llmSession) errOnly(what string) error {
+	lead := "This workspace runs coding agents on its LLM connector only"
+	if l.why != "" {
+		lead = l.why + ", so a coding agent here runs on the workspace's LLM connector only"
+	}
+	return llmOnlyErr(lead + " — and " + what)
 }
 
 // llmGate checks an agent session's own choice (POST /term/sessions {llm})
@@ -279,7 +339,7 @@ func (m *Manager) llmNoKey(o openOpts) string {
 // a session the policy gives the connector alone when it asks for its own
 // sign-in or the connector can't serve it (403: the rule stands, the
 // session doesn't open). The int is the refusal's HTTP status.
-func (m *Manager) llmGate(o *openOpts, rel string, prov agent.Provider, choice string) (int, error) {
+func (m *Manager) llmGate(o *openOpts, rel string, prov agent.Provider, choice string, options map[string]string) (int, error) {
 	switch choice {
 	case "", sdkacp.UseOwn, sdkacp.UseConnector:
 	default:
@@ -289,6 +349,15 @@ func (m *Manager) llmGate(o *openOpts, rel string, prov agent.Provider, choice s
 	if choice != sdkacp.UseConnector && !rule.Forced {
 		o.llmChoice = choice
 		return 0, nil
+	}
+	if rule.Forced && len(options) > 0 && prov.Connector != nil && m.LLM != nil { // the options it starts with: a model of the connector's, or none
+		check := &llmSession{forced: true, why: rule.Reason}
+		check.offer, _ = m.LLM.Offer(context.Background(), llmUser(*o), rel, KindAgent)
+		for id, v := range options {
+			if err := check.option(prov, id, v); err != nil {
+				return 403, err
+			}
+		}
 	}
 	code, lead := 409, ""
 	if rule.Forced {
@@ -321,10 +390,26 @@ func (m *Manager) llmGate(o *openOpts, rel string, prov agent.Provider, choice s
 // llmArm gives a new session its hold on the connector, when it gets one,
 // and answers the revoke that ends the session's credentials: the terminal
 // token's (revokeTok) and the LLM key's. prov is nil for a shell. Called
-// once per session, right after prepare.
-func (m *Manager) llmArm(o *openOpts, rel string, prov *agent.Provider, revokeTok func()) func() {
-	if m.LLM == nil || rel == "" || o.purpose != "" {
-		return revokeTok
+// once per session, right after prepare. An error is a session that only
+// the connector may serve and can't have it: it doesn't start (the caller
+// revokes the token).
+func (m *Manager) llmArm(o *openOpts, rel string, prov *agent.Provider, revokeTok func()) (func(), error) {
+	if rel == "" || o.purpose != "" {
+		return revokeTok, nil
+	}
+	l := &llmSession{door: !m.llmReach(*o)}
+	if prov != nil {
+		cr := m.credentialRule(*o, rel, prov.ID, o.llmChoice)
+		l.rule, l.forced, l.why = cr.rule(), cr.Forced, cr.Reason
+	}
+	none := func(what string) (func(), error) { // the session gets nothing of the connector
+		if l.forced {
+			return revokeTok, l.errOnly(what)
+		}
+		return revokeTok, nil
+	}
+	if m.LLM == nil {
+		return none("this workspace has no LLM connector configured")
 	}
 	kind := KindShell
 	if prov != nil {
@@ -332,34 +417,33 @@ func (m *Manager) llmArm(o *openOpts, rel string, prov *agent.Provider, revokeTo
 	}
 	offer, ok := m.LLM.Offer(context.Background(), llmUser(*o), rel, kind)
 	if !ok {
-		return revokeTok
+		return none("the connector is not configured, or is switched off")
 	}
-	l := &llmSession{offer: offer}
+	l.offer = offer
 	if prov == nil {
 		if !offer.Terminals || o.noLLM || m.llmNoKey(*o) != "" {
-			return revokeTok
+			return revokeTok, nil
 		}
 	} else {
 		if !offer.Agents {
-			return revokeTok
+			return none("the connector is not offered to agent sessions")
 		}
-		l.rule = m.credentialRule(*o, rel, prov.ID, o.llmChoice).rule()
 		why, noKey := llmWhyNot(*prov, l.offer), m.llmNoKey(*o)
 		switch {
 		case why != "":
 			if prov.Connector != nil { // a CLI that never could says nothing new
 				o.llm = &llmSession{note: why}
 			}
-			return revokeTok
+			return none(why)
 		case noKey != "":
 			if l.rule != sdkacp.UseOwn {
 				o.llm = &llmSession{note: "The workspace's LLM connector doesn't serve this session — " + noKey + ": " + prov.Name + " runs on your own sign-in."}
 			}
-			return revokeTok
+			return none(noKey)
 		case l.rule == sdkacp.UseOwn && !prov.Connector.Additive:
 			l.serves = sdkacp.ServeOwn // nothing of the connector's goes in: no key
 			o.llm = l
-			return revokeTok
+			return revokeTok, nil
 		}
 	}
 	label := "terminal"
@@ -370,21 +454,68 @@ func (m *Manager) llmArm(o *openOpts, rel string, prov *agent.Provider, revokeTo
 	if prov != nil {
 		refused = l.refused // said in the session (llmRefused)
 	}
-	token, revoke, err := m.LLM.Mint(llmUser(*o), rel, label, refused)
+	token, revoke, err := m.LLM.Mint(llmUser(*o), rel, o.target.env, label, refused)
 	if err != nil {
-		slog.Warn("session: no LLM key (the session opens without the connector)", "tile", rel, "err", err)
-		return revokeTok
+		slog.Warn("session: no LLM key", "tile", rel, "forced", l.forced, "err", err)
+		o.llm = nil
+		return none("no key could be made for the session (" + err.Error() + ")")
 	}
 	l.token, l.revoke = token, revoke
 	o.llm = l
 	return func() {
 		revokeTok()
 		l.end()
+	}, nil
+}
+
+// llmDoorNet gives the sandbox of a session with no network a relay that
+// reaches nothing (its policy stays empty) when the session holds an LLM
+// key: the relay is what the door hangs on (llmDoorRelay). It reports
+// whether it did.
+func (m *Manager) llmDoorNet(o openOpts, spec *sandbox.Spec) bool {
+	if m.llmDoor(o) == "" {
+		return false
+	}
+	spec.Net = "relay"
+	return true
+}
+
+// llmDoorRelay makes the relay of such a session's sandbox a dead end but
+// for the door: no forward to xbind's own listener, one gateway port to the
+// LLM-only listener.
+func (m *Manager) llmDoorRelay(o openOpts, cfg *relay.Config) {
+	if sock := m.llmDoor(o); sock != "" && o.net == NetNone && !o.netHost {
+		cfg.HostFwd = nil
+		cfg.Doors = map[int]string{llmDoorPort: "unix:" + sock}
 	}
 }
 
-// llmURL is the connector's OpenAI base URL as a session with env reaches
-// it: under the XBIN_URL the session itself was given ("" without one).
+// llmTail is the last n bytes of a terminal's output for xbind's own log and
+// the sandbox failure registry, LLM keys masked — and where the cut may
+// have split a key (a full tail that starts inside a word of a key's
+// characters), that leading word dropped: half a key is not left in it.
+func llmTail(h *termwire.Hub, n int) string {
+	b := h.Tail(n)
+	if len(b) >= n {
+		i := 0
+		for i < len(b) && i < 64 && (b[i] == '_' || b[i] == '-' || b[i] >= '0' && b[i] <= '9' || b[i] >= 'a' && b[i] <= 'z' || b[i] >= 'A' && b[i] <= 'Z') {
+			i++
+		}
+		b = b[i:]
+	}
+	return scrollTail([]byte(maskLLMKeys(string(b))), n)
+}
+
+// llmAddr is the connector's OpenAI base URL as o's session reaches it:
+// the door's for a session with no network, else under the XBIN_URL the
+// session itself was given ("" without one).
+func (o openOpts) llmAddr(env []string) string {
+	if o.llm != nil && o.llm.door {
+		return llmDoorURL
+	}
+	return llmURL(env)
+}
+
 func llmURL(env []string) string {
 	for i := len(env) - 1; i >= 0; i-- {
 		if v, ok := strings.CutPrefix(env[i], "XBIN_URL="); ok && v != "" {
@@ -403,7 +534,7 @@ func (o openOpts) llmShellEnv(env []string) []string {
 	if l == nil || l.token == "" || o.kind == KindAgent {
 		return nil
 	}
-	url := llmURL(env)
+	url := o.llmAddr(env)
 	if url == "" {
 		return nil
 	}
@@ -416,18 +547,26 @@ func (o openOpts) llmShellEnv(env []string) []string {
 
 // llmSpawn is the connector's part of an agent session's spawn frame: both
 // outcomes rendered for the host to settle. nil when the session has no
-// key (no connector, or its person's own sign-in serves by choice).
-func (m *Manager) llmSpawn(o openOpts, prov agent.Provider, env []string) *acp.SpawnLLM {
+// key (no connector, or its person's own sign-in serves by choice). An
+// error is a session that only the connector may serve with nothing to
+// start it on: the agent is not spawned.
+func (m *Manager) llmSpawn(o openOpts, prov agent.Provider, env []string) (*acp.SpawnLLM, error) {
 	l := o.llm
 	if l == nil || l.token == "" {
-		return nil
+		if l != nil && l.forced {
+			return nil, l.errOnly("the session holds no key for it")
+		}
+		return nil, nil
 	}
-	url := llmURL(env)
+	url := o.llmAddr(env)
 	if url == "" {
 		l.end() // no address to give: the key is of no use
-		return nil
+		if l.forced {
+			return nil, l.errOnly("the session has no address to reach it at")
+		}
+		return nil, nil
 	}
-	params := sdkacp.ConnectorParams{URL: url, Key: l.token, Models: l.offer.Models, Model: l.offer.Model}
+	params := sdkacp.ConnectorParams{URL: url, Key: l.token, Models: l.offer.Models, Model: l.offer.Model, Only: l.forced}
 	delta := func(serves string) acp.EnvDelta {
 		params.Serves = serves
 		e, _ := prov.ConnectorEnv(params)
@@ -435,6 +574,13 @@ func (m *Manager) llmSpawn(o openOpts, prov agent.Provider, env []string) *acp.S
 	}
 	out := &acp.SpawnLLM{Rule: l.rule, LoginFiles: prov.LoginFiles, Logins: map[string][]string{},
 		Connector: delta(sdkacp.ServeConnector), Own: delta(sdkacp.ServeOwn)}
+	if l.forced {
+		if len(out.Connector.Set) == 0 {
+			l.end()
+			return nil, l.errOnly("nothing could be rendered to point " + prov.Name + " at it")
+		}
+		out.Own = out.Connector // nothing else to settle on
+	}
 	for _, k := range prov.Keys {
 		out.KeyEnvs = append(out.KeyEnvs, k.Env)
 	}
@@ -443,7 +589,7 @@ func (m *Manager) llmSpawn(o openOpts, prov agent.Provider, env []string) *acp.S
 			out.Logins[p.ID] = p.LoginFiles
 		}
 	}
-	return out
+	return out, nil
 }
 
 // llmHello takes the host's word on who serves the session's model calls
@@ -460,10 +606,16 @@ func (s *Session) llmHello(m *Manager, h acp.HelloParams) {
 		return
 	}
 	l.mu.Lock()
+	if l.serves != "" || l.ended { // the host says it once, at the spawn: nothing later changes it
+		l.mu.Unlock()
+		return
+	}
 	l.serves = h.LLM
 	serves := l.serves
 	l.mu.Unlock()
 	switch {
+	case l.forced && serves != sdkacp.ServeConnector:
+		s.llmEnd(m, l.errOnly("its agent did not start on it"))
 	case serves == sdkacp.ServeConnector:
 		note := "Model calls go through this workspace's LLM connector (" + sdkacp.ConnectorName + "), metered to you."
 		s.logEvent(m, agent.New(EvNotice, llmNotice{Text: note, LLM: serves}))
@@ -473,6 +625,77 @@ func (s *Session) llmHello(m *Manager, h acp.HelloParams) {
 	default: // their own sign-in serves (or a host that settled nothing): the key is of no use
 		l.end()
 	}
+}
+
+// llmEnd ends a session that only the connector may serve and is not on it:
+// the reason is said in the session, its key ended, its agent killed.
+func (s *Session) llmEnd(m *Manager, why error) {
+	st := s.agent
+	st.llm.mu.Lock()
+	st.llm.serves = ""
+	st.llm.mu.Unlock()
+	st.llm.end()
+	text := why.Error() + ". The session was ended."
+	s.logEvent(m, agent.New(EvNotice, noticeData{Text: text}))
+	st.logf(text)
+	slog.Warn("agent session ended: not on the LLM connector, which alone may serve it", "id", s.ID, "tile", s.Cwd)
+	s.kill()
+}
+
+// llmHeld checks, once the agent's handshake is done, that a session only
+// the connector may serve is on it — the host said so (llmHello) — and ends
+// it otherwise: a host that answered nothing settles nothing.
+func (s *Session) llmHeld(m *Manager) error {
+	st := s.agent
+	if st == nil || st.llm == nil || !st.llm.forced {
+		return nil
+	}
+	if st.llmServes() == sdkacp.ServeConnector {
+		return nil
+	}
+	err := st.llm.errOnly("its agent did not start on it")
+	s.llmEnd(m, err)
+	return err
+}
+
+// llmOption checks a config option a client sets on a session — at its
+// start (category "") or later — where the connector alone may serve: the
+// model's must be one of the connector's (sdkacp's AllowsOption); anything
+// else passes. Without the rule everything passes.
+func (l *llmSession) option(prov agent.Provider, id, value string) error {
+	if l == nil || !l.forced {
+		return nil
+	}
+	l.mu.Lock()
+	cat := l.cats[id]
+	l.mu.Unlock()
+	if prov.Connector.AllowsOption(id, cat, value, l.offer.Models) {
+		return nil
+	}
+	return l.errOnly(fmt.Sprintf("%q is not one of its models", value))
+}
+
+// llmOptions remembers the category of each config option the agent
+// advertised (a status event's options), for llmOption.
+func (st *agentState) llmOptions(data []byte) {
+	l := st.llm
+	if l == nil || !l.forced {
+		return
+	}
+	var d struct {
+		Options []struct{ ID, Category string }
+	}
+	if json.Unmarshal(data, &d) != nil || len(d.Options) == 0 {
+		return
+	}
+	l.mu.Lock()
+	if l.cats == nil {
+		l.cats = map[string]string{}
+	}
+	for _, o := range d.Options {
+		l.cats[o.ID] = o.Category
+	}
+	l.mu.Unlock()
 }
 
 // llmNotice is the notice an agent session logs when the connector serves
@@ -623,7 +846,7 @@ func (m *Manager) llmRestart(p auth.Principal, s *Session, st *agentState, net, 
 	if _, err := m.pickTarget(p, &o, s.Cwd, deployment); err != nil {
 		return "" // the restart's own target check refuses it, before the session ends
 	}
-	if _, err := m.llmGate(&o, s.Cwd, st.provider, st.llmChoice); err != nil {
+	if _, err := m.llmGate(&o, s.Cwd, st.provider, st.llmChoice, nil); err != nil {
 		return ""
 	}
 	return st.llmChoice

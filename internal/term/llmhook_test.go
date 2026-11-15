@@ -2,6 +2,7 @@ package term
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,7 +12,11 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/internal/agent/acp"
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/sandbox/relay"
+	"github.com/xbin-dev/xbin/internal/termwire"
 	"github.com/xbin-dev/xbin/internal/users"
 	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 )
@@ -30,6 +35,8 @@ type fakeLLM struct {
 	revoked []string
 	kinds   []string
 	refused func(status int, code, message string) // the last minted key's
+	deploys map[string]string                      // token → the deployment it was minted for
+	mintErr error                                  // Mint fails with it
 }
 
 func newFakeLLM() *fakeLLM {
@@ -48,12 +55,19 @@ func (f *fakeLLM) Offer(_ context.Context, user, tile, kind string) (LLMOffer, b
 	return o, !f.off
 }
 
-func (f *fakeLLM) Mint(user, tile, label string, refused func(int, string, string)) (string, func(), error) {
+func (f *fakeLLM) Mint(user, tile, deployment, label string, refused func(int, string, string)) (string, func(), error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.mintErr != nil {
+		return "", nil, f.mintErr
+	}
 	f.n++
 	tok := "xbl_test" + strings.Repeat("k", f.n)
 	f.live[tok] = user + "|" + tile + "|" + label
+	if f.deploys == nil {
+		f.deploys = map[string]string{}
+	}
+	f.deploys[tok] = deployment
 	f.refused = refused
 	return tok, func() {
 		f.mu.Lock()
@@ -471,53 +485,209 @@ func TestAgentLLMChoiceRefused(t *testing.T) {
 	}
 }
 
-// A sandbox with no route to xbind gets no key, and the session says why.
-func TestLLMUnreachable(t *testing.T) {
+// A session with no network reaches the connector through one door — when
+// this xbind serves the LLM-only listener — and nothing else; without the
+// listener it gets no key and says so. A session that targets a deployment
+// other than the primary gets a key that names the deployment.
+func TestLLMDoorAndDeployment(t *testing.T) {
 	m := NewManager(t.TempDir(), nil)
 	f := newFakeLLM()
-	m.LLM, m.Isolate = f, true
+	m.LLM, m.Isolate, m.Listen = f, true, "127.0.0.1:8080"
 	fake, _ := agent.Lookup("fake")
-	revoked := 0
+	arm := func(o *openOpts, prov *agent.Provider) {
+		t.Helper()
+		if _, err := m.llmArm(o, "apps/x", prov, func() {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// no listener: no key, said in an agent session, refused when asked for
 	o := openOpts{net: NetNone, kind: KindAgent}
-	rev := m.llmArm(&o, "apps/x", &fake, func() { revoked++ })
-	rev()
-	if f.minted() != 0 || revoked != 1 || o.llm == nil || !strings.Contains(o.llm.note, "net: none") {
-		t.Fatalf("minted %d, llm %+v", f.minted(), o.llm)
+	arm(&o, &fake)
+	if f.minted() != 0 || o.llm == nil || !strings.Contains(o.llm.note, "net: none") {
+		t.Fatalf("offline without the listener: minted %d, llm %+v", f.minted(), o.llm)
 	}
-	if code, err := m.llmGate(&o, "apps/x", fake, sdkacp.UseConnector); code != 409 || err == nil || !strings.Contains(err.Error(), "net: none") {
-		t.Errorf("asking for the connector offline: %d %v", code, err)
+	if code, err := m.llmGate(&o, "apps/x", fake, sdkacp.UseConnector, nil); code != 409 || err == nil || !strings.Contains(err.Error(), "net: none") {
+		t.Errorf("asking for the connector offline without the listener: %d %v", code, err)
 	}
-	// a session that targets a deployment other than the primary: no key
-	// either (a key carries no deployment), said the same way
-	o = openOpts{kind: KindAgent}
-	o.target.env = "dev"
+	o = openOpts{net: NetNone}
+	arm(&o, nil)
+	if f.minted() != 0 || o.llm != nil {
+		t.Errorf("an offline terminal without the listener: minted %d, llm %+v", f.minted(), o.llm)
+	}
+
+	// with it: a key, the door's address, a relay that reaches the door alone
+	m.LLMDoor = func() string { return "/run/xbin/llm.sock" }
+	for _, prov := range []*agent.Provider{&fake, nil} {
+		o = openOpts{net: NetNone}
+		if prov != nil {
+			o.kind = KindAgent
+		}
+		if code, err := m.llmGate(&o, "apps/x", fake, sdkacp.UseConnector, nil); prov != nil && (code != 0 || err != nil) {
+			t.Fatalf("asking for the connector offline: %d %v", code, err)
+		}
+		arm(&o, prov)
+		if o.llm == nil || o.llm.token == "" || !o.llm.door {
+			t.Fatalf("offline with the listener (agent %v): %+v", prov != nil, o.llm)
+		}
+		env := []string{"XBIN_URL=http://127.0.0.1:8080"}
+		if got := o.llmAddr(env); got != "http://10.0.2.2:4180/v1" {
+			t.Errorf("the door's address: %q", got)
+		}
+		spec := &sandbox.Spec{Net: "none"}
+		if !m.llmDoorNet(o, spec) || spec.Net != "relay" {
+			t.Errorf("no relay for the door: %+v", spec.Net)
+		}
+		cfg := relay.Config{HostFwd: m.hostForward()}
+		m.llmDoorRelay(o, &cfg)
+		if cfg.HostFwd != nil || len(cfg.Doors) != 1 || cfg.Doors[4180] != "unix:/run/xbin/llm.sock" {
+			t.Errorf("the door's relay: forwards %v, doors %v — xbind's own listener must not be there", cfg.HostFwd, cfg.Doors)
+		}
+		if prov == nil {
+			if got := o.llmShellEnv(env); len(got) != 2 || got[0] != "XBIN_LLM_URL=http://10.0.2.2:4180/v1" {
+				t.Errorf("an offline terminal's variables: %v", got)
+			}
+		}
+	}
+	// a session with network: no door, the address under its XBIN_URL, the forward kept
+	o = openOpts{net: NetInternet}
+	arm(&o, nil)
+	spec := &sandbox.Spec{Net: "relay"}
+	cfg := relay.Config{HostFwd: m.hostForward()}
+	m.llmDoorRelay(o, &cfg)
+	if o.llm == nil || o.llm.door || m.llmDoorNet(o, spec) || cfg.Doors != nil || cfg.HostFwd == nil {
+		t.Errorf("a session with network got the door: %+v, doors %v", o.llm, cfg.Doors)
+	}
+	// offline with no key (terminals switched off): no relay at all
+	f.offer.Terminals = false
+	o = openOpts{net: NetNone}
+	arm(&o, nil)
+	if spec := (&sandbox.Spec{Net: "none"}); o.llm != nil || m.llmDoorNet(o, spec) || spec.Net != "none" {
+		t.Errorf("an offline terminal without a key got a relay: %+v", o.llm)
+	}
+	f.offer.Terminals = true
+
+	// a non-primary deployment: a key that names it
 	m.Isolate = false
-	m.llmArm(&o, "apps/x", &fake, func() {})
-	if f.minted() != 0 || o.llm == nil || !strings.Contains(o.llm.note, "other than the primary (dev)") {
-		t.Fatalf("a non-primary target: minted %d, llm %+v", f.minted(), o.llm)
-	}
-	if code, err := m.llmGate(&o, "apps/x", fake, sdkacp.UseConnector); code != 409 || err == nil || !strings.Contains(err.Error(), "other than the primary") {
-		t.Errorf("asking for the connector on a non-primary target: %d %v", code, err)
+	for _, prov := range []*agent.Provider{&fake, nil} {
+		o = openOpts{}
+		o.target.env = "dev"
+		arm(&o, prov)
+		if o.llm == nil || o.llm.token == "" || f.deploys[o.llm.token] != "dev" {
+			t.Fatalf("a session on deployment dev (agent %v): %+v, minted for %q", prov != nil, o.llm, f.deploys[o.llm.token])
+		}
 	}
 	o = openOpts{}
-	o.target.env = "dev"
-	m.llmArm(&o, "apps/x", nil, func() {})
-	if f.minted() != 0 || o.llm != nil {
-		t.Errorf("a terminal on a non-primary target: minted %d", f.minted())
+	arm(&o, nil)
+	if f.deploys[o.llm.token] != "" {
+		t.Errorf("a session on the primary names a deployment: %q", f.deploys[o.llm.token])
 	}
-	m.Isolate = true
-	// a terminal: nothing, silently
-	o = openOpts{net: NetNone}
-	m.llmArm(&o, "apps/x", nil, func() {})
-	if f.minted() != 0 || o.llm != nil {
-		t.Errorf("an offline terminal: minted %d, llm %+v", f.minted(), o.llm)
+}
+
+// Where the connector alone may serve, nothing fails open: a key that
+// can't be made refuses the session; a host that doesn't answer
+// "connector" — or answers nothing — ends it with the reason; the row never
+// says connector then; and a model option outside the connector's is
+// refused at the start and later.
+func TestAgentLLMOnlyFailsClosed(t *testing.T) {
+	r, f := llmRig(t)
+	r.m.Credentials = policy("connector-only", "Finance allows private models only", nil)
+
+	// no key: no session (and without the rule, a session without the connector)
+	f.mintErr = errors.New("too many keys")
+	_, code, err := r.m.OpenAgentWith(owner, AgentOpen{Cwd: "apps/x", Provider: "fake"})
+	if code != 403 || err == nil || !strings.Contains(err.Error(), "Finance allows private models only") || !strings.Contains(err.Error(), "too many keys") {
+		t.Fatalf("a session without a key under connector-only: %d %v", code, err)
 	}
-	// host networking and the relay scopes reach xbind
-	for _, o := range []openOpts{{net: NetHost, netHost: true}, {net: NetInternet}} {
-		m.llmArm(&o, "apps/x", nil, func() {})
-		if o.llm == nil || o.llm.token == "" {
-			t.Errorf("net %s: no key", o.net)
+	if n := len(r.m.List()); n != 0 {
+		t.Fatalf("%d sessions left after the refusal", n)
+	}
+	r.m.Credentials = nil
+	info := r.openLLM(t, owner, AgentOpen{})
+	if row, _ := r.m.Info(info.ID); row.LLM != "" {
+		t.Errorf("a session with no key says llm %q", row.LLM)
+	}
+	r.endSession(t, info.ID)
+	f.mintErr = nil
+	r.m.Credentials = policy("connector-only", "Finance allows private models only", nil)
+
+	// the agent is told so, and the session is on the connector
+	info = r.openLLM(t, owner, AgentOpen{})
+	if got := r.agentEnv(t, info.ID, "FAKEACP_LLM_ONLY"); got != "1" {
+		t.Errorf("the agent is not told the connector alone serves: %q", got)
+	}
+	// a second hello changes nothing (the host says it once)
+	s, st, _ := r.m.agentOf(info.ID)
+	s.llmHello(r.m, acp.HelloParams{LLM: sdkacp.ServeOwn})
+	if st.llmServes() != sdkacp.ServeConnector || len(f.liveKeys()) != 1 {
+		t.Fatalf("a later hello moved the session: serves %q, live %v", st.llmServes(), f.liveKeys())
+	}
+
+	// its model option: the connector's models, at the start and later
+	ctx := context.Background()
+	if err := r.m.AgentSetOption(ctx, info.ID, "model", "fake-fast"); !errors.Is(err, ErrForbidden) || !strings.Contains(err.Error(), "not one of its models") {
+		t.Errorf("a model outside the connector's: %v", err)
+	}
+	if err := r.m.AgentSetOption(ctx, info.ID, "model", "up/m2"); errors.Is(err, ErrForbidden) {
+		t.Errorf("a model of the connector's: %v", err)
+	}
+	r.endSession(t, info.ID)
+	if _, code, err := r.m.OpenAgentWith(owner, AgentOpen{Cwd: "apps/x", Provider: "fake", Options: map[string]string{"model": "fake-fast"}}); code != 403 || err == nil || !strings.Contains(err.Error(), "not one of its models") {
+		t.Errorf("starting on a model outside the connector's: %d %v", code, err)
+	}
+	if n := f.minted(); n != 1 {
+		t.Errorf("%d keys minted: the refused start made one", n)
+	}
+	// without the rule both pass through to the agent
+	r.m.Credentials = nil
+	info = r.openLLM(t, owner, AgentOpen{Options: map[string]string{"model": "fake-fast"}})
+	if err := r.m.AgentSetOption(ctx, info.ID, "model", "fake-default"); err != nil {
+		t.Errorf("a model option without the rule: %v", err)
+	}
+	r.endSession(t, info.ID)
+	r.m.Credentials = policy("connector-only", "", nil)
+
+	// a host that says the person's own sign-in serves: the session ends, with the reason
+	for _, how := range []string{"hello", "nothing"} {
+		info = r.openLLM(t, owner, AgentOpen{})
+		s, st, _ = r.m.agentOf(info.ID)
+		st.llm.mu.Lock()
+		st.llm.serves = "" // as if the host had not spoken yet
+		st.llm.mu.Unlock()
+		if how == "hello" {
+			s.llmHello(r.m, acp.HelloParams{LLM: sdkacp.ServeOwn})
+		} else if err := s.llmHeld(r.m); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("a session whose host answered nothing is held: %v", err)
 		}
+		select {
+		case <-st.gone:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: the session runs on", how)
+		}
+		if st.llmServes() != "" || len(f.liveKeys()) != 0 {
+			t.Errorf("%s: serves %q, live keys %v", how, st.llmServes(), f.liveKeys())
+		}
+		if !strings.Contains(string(st.text), "LLM connector only") || !strings.Contains(string(st.text), "The session was ended") {
+			t.Errorf("%s: the reason is not said: %q", how, st.text)
+		}
+	}
+}
+
+// The tail xbind logs of a dead terminal: a key the cut would split is not
+// left half in it.
+func TestLLMTailMasksBeforeTheCut(t *testing.T) {
+	key := "xbl_" + strings.Repeat("Ab0-_", 8)
+	h := termwire.NewHub(1 << 16)
+	h.Output([]byte("first line\nXBIN_LLM_KEY=" + key + "\n" + strings.Repeat("x", 60) + "\n"))
+	for n := 61; n < 61+len(key)+4; n++ { // every cut through the key
+		got := llmTail(h, n)
+		for i := 6; i <= len(key); i++ {
+			if strings.Contains(got, key[len(key)-i:]) {
+				t.Fatalf("cut at %d: %d characters of the key are in the tail %q", n, i, got)
+			}
+		}
+	}
+	if got := llmTail(h, 4096); strings.Contains(got, key) || !strings.Contains(got, "XBIN_LLM_KEY=xbl_[redacted]") || !strings.Contains(got, "first line") {
+		t.Errorf("the whole tail: %q", got)
 	}
 }
 

@@ -38,8 +38,11 @@ func (l llmSessions) Offer(ctx context.Context, user, tile, kind string) (term.L
 	return out, true
 }
 
-func (l llmSessions) Mint(user, tile, label string, refused func(status int, code, message string)) (string, func(), error) {
-	tok, g, revoke, err := l.svc.MintKey(llm.KeyGrant{User: user, Component: tile, Label: label}, 0)
+func (l llmSessions) Mint(user, tile, deployment, label string, refused func(status int, code, message string)) (string, func(), error) {
+	// a person's session key: it names the deployment the session targets
+	// and is theirs — not held to the edge policy a deployment's own
+	// backend is (llm/caller.go)
+	tok, g, revoke, err := l.svc.MintKey(llm.KeyGrant{User: user, Component: tile, Deployment: deployment, Label: label}, 0)
 	if err != nil || refused == nil {
 		return tok, revoke, err
 	}

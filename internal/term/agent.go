@@ -203,7 +203,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
-	if code, err := m.llmGate(&o, rel, prov, a.LLM); err != nil { // who serves its model calls (llmhook.go)
+	if code, err := m.llmGate(&o, rel, prov, a.LLM, options); err != nil { // who serves its model calls (llmhook.go)
 		return SessionInfo{}, code, err
 	}
 	if code, err := m.pickPartition(p, &o, rel); err != nil { // partition.go
@@ -218,6 +218,9 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if err != nil {
 		if errors.Is(err, errLimit) {
 			return SessionInfo{}, 409, err
+		}
+		if errors.Is(err, ErrForbidden) { // only the connector may serve it, and it can't (llmhook.go)
+			return SessionInfo{}, 403, err
 		}
 		return SessionInfo{}, 400, err
 	}
@@ -308,8 +311,11 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
-	revokeTok = m.llmArm(&o, rel, &prov, revokeTok) // the session's LLM key, ended with its token (llmhook.go)
-	start := o.startDir(dir, homeDir)               // $HOME on a partitioned tile (partition.go)
+	if revokeTok, err = m.llmArm(&o, rel, &prov, revokeTok); err != nil { // the session's LLM key, ended with its token (llmhook.go)
+		revokeTok()
+		return nil, err
+	}
+	start := o.startDir(dir, homeDir) // $HOME on a partitioned tile (partition.go)
 	cmd, cleanup, postStart, envKey, env, err := m.shellCmd(start, rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
@@ -393,8 +399,11 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		agentEnv = append(agentEnv, k+"="+prov.Env[k])
 	}
 	spawn := func(ctx context.Context, cfg agent.Config) (*agent.Process, error) {
-		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir,
-			LLM: m.llmSpawn(o, prov, cfg.Env)}) // the connector's environment, settled by the host (llmhook.go)
+		llm, err := m.llmSpawn(o, prov, cfg.Env) // the connector's environment, settled by the host (llmhook.go)
+		if err != nil {
+			return nil, err
+		}
+		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir, LLM: llm})
 		if err := acp.Encode(stdin, &acp.Message{Method: acp.MXbinSpawn, Params: params}); err != nil {
 			return nil, err
 		}
@@ -418,6 +427,9 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	})
 	go func() {
 		err := drv.Start(context.Background(), cfg)
+		if err == nil {
+			err = s.llmHeld(m) // only the connector may serve it: it is on it, or it ends (llmhook.go)
+		}
 		id, loadable := drv.Session()
 		st.mu.Lock()
 		st.startErr = err
@@ -566,6 +578,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 			Options                    []struct{ ID, CurrentValue string }
 		}
 		_ = json.Unmarshal(e.Data, &d)
+		st.llmOptions(e.Data) // their categories, where a model option is checked (llmhook.go)
 		st.mu.Lock()
 		if d.Status != "" {
 			st.status = d.Status
@@ -705,6 +718,9 @@ func (m *Manager) AgentSetOption(ctx context.Context, id, optionID, value string
 		return agent.ErrEnded
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+	if err := st.llm.option(st.provider, optionID, value); err != nil { // only the connector may serve it (llmhook.go)
+		return err
 	}
 	return st.drv.SetOption(ctx, optionID, value)
 }

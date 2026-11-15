@@ -77,6 +77,7 @@ func (st *State) setupLLM(srv *server.Server) error {
 	if st.Term != nil { // agent sessions and terminals on the connector (llmsessions.go)
 		st.Term.LLM = llmSessions{svc}
 		st.Term.Credentials = st.agentCredentials
+		st.Term.LLMDoor = st.llmSock // a session with no network reaches the connector through it alone
 	}
 	// the agents policy's two questions of the connector (D229): can this
 	// harness run on it, and what is this model (its upstream, private?)

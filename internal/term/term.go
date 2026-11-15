@@ -404,7 +404,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
-	revokeTok = m.llmArm(&o, rel, nil, revokeTok) // the terminal's LLM key, ended with its token (llmhook.go)
+	revokeTok, _ = m.llmArm(&o, rel, nil, revokeTok) // the terminal's LLM key, ended with its token (llmhook.go)
 	cmd, cleanup, postStart, envKey, _, err := m.shellCmd(o.startDir(dir, homeDir), rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
@@ -457,7 +457,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 
 	go s.pump(func() {
 		unlist()
-		m.sbxExited(s, o.vm, scrollTail(s.hub.Tail(2048), 2048))
+		m.sbxExited(s, o.vm, llmTail(s.hub, 2048))
 		m.remove(s.ID)
 		m.changed("close", s)
 		revokeTok() // the session's API credential dies with it
@@ -686,7 +686,8 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	case o.netHost:
 		spec.HostNet = true // owner escape hatch — LAN + host services, interfaces visible
 	case o.net == NetNone:
-		spec.Net = "none" // isolated netns, default-deny egress
+		spec.Net = "none"                // isolated netns, default-deny egress
+		relayNet = m.llmDoorNet(o, spec) // …but for the LLM connector's door, when the session holds a key (llmhook.go)
 	default:
 		spec.Net = "relay" // own netns; the egress relay enforces the rules
 		relayNet = true
@@ -736,6 +737,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		if pol.Empty() { // nothing reachable: no DNS either (no exfiltration channel)
 			cfg.Resolver = ""
 		}
+		m.llmDoorRelay(o, &cfg)
 		rl, err := relay.Start(cfg)
 		if err != nil {
 			slog.Warn("terminal egress relay: start (egress disabled)", "err", err)
@@ -825,7 +827,7 @@ func (s *Session) pump(onExit func()) {
 	// the PTY's last bytes (that's where "sandbox-init: <the actual error>"
 	// went) in the log, or the failure is undiagnosable server-side.
 	if time.Since(s.born) < 10*time.Second {
-		tail := maskLLMKeys(scrollTail(s.hub.Tail(2048), 2048)) // room for the [sbx] debug trace + the error line
+		tail := llmTail(s.hub, 2048) // room for the [sbx] debug trace + the error line; LLM keys masked
 		if tail != "" {
 			slog.Warn("terminal died at start; last output", "id", s.ID, "tail", tail)
 		}

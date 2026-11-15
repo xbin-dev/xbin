@@ -21,7 +21,7 @@ type offerLLM struct {
 func (o offerLLM) Offer(context.Context, string, string, string) (term.LLMOffer, bool) {
 	return o.offer, o.ok
 }
-func (offerLLM) Mint(string, string, string, func(int, string, string)) (string, func(), error) {
+func (offerLLM) Mint(string, string, string, string, func(int, string, string)) (string, func(), error) {
 	return "xbl_t", func() {}, nil
 }
 
