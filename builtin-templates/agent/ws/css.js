@@ -138,6 +138,7 @@ body.bx { margin: 0; overflow: hidden; background: var(--bx-panel); color: var(-
 .wsp-pg.closed b { color: var(--bx-muted); }
 .wsp-pgt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .wsp-pmeta { margin-bottom: 8px; }
+.wsp-marks { margin: 0 0 8px; font: var(--bx-font-meta); }
 .wsp-edit { display: flex; flex-direction: column; gap: 8px; }
 .wsp-edit label { display: flex; flex-direction: column; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); }
 .wsp-edit input, .wsp-edit textarea { width: 100%; box-sizing: border-box; color: var(--bx-text); font: var(--bx-font-body); }

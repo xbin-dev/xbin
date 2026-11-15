@@ -119,7 +119,6 @@ export function WS_STUB(seed) {
       if (p && b.base !== p.version) return json({ error: 'moved', current: p.version }, 409);
       if (!p) S.pages.push((p = { slug, version: 0, orgs: [] }));
       Object.assign(p, { title: b.title, body: b.body, version: p.version + 1, updatedBy: 'ana', updatedMs: Date.now() });
-      if (b.clearStamps) p.orgs = [];
       return json({ page: p });
     }],
     ['DELETE', /\/ws\/notebook\/([^?]+)$/, (m) => { const p = S.pages.find((x) => x.slug === decodeURIComponent(m[1])); if (p) p.gone = true; return json({ ok: 'true' }); }],

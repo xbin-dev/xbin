@@ -726,8 +726,10 @@ func handleWsPage(w http.ResponseWriter, r *http.Request) {
 // handleWsPagePut is the person's own write: a new page ("Add a note") or
 // an edit, from the version they saw (base; 409 when it moved). A page the
 // person writes keeps the stamps it had — their edit doesn't unmark what
-// the page already held — unless they clear them (clearStamps: a
-// deliberate act the page confirms; this route offers it, no tool does).
+// the page already held, and nothing here takes a stamp off: this route is
+// reachable with the page's own credential, and the page renders what a
+// model wrote. A page is unmarked only by deleting it and having a session
+// that holds none of that data write it again (wsNotebookChange).
 func handleWsPagePut(w http.ResponseWriter, r *http.Request) {
 	owner, ok := wsCaller(w, r)
 	if !ok {
@@ -736,7 +738,6 @@ func handleWsPagePut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title, Body, Summary string
 		Base                 int64
-		ClearStamps          bool // the person's own, deliberate act: the page holds no org's data any more
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -753,9 +754,6 @@ func handleWsPagePut(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		st := t.wsStamp(store, p.Slug)
-		if body.ClearStamps {
-			st.Orgs, st.Tile, st.Rev = nil, "", ""
-		}
 		if s := clip(oneLineTitle(body.Summary), wsSummaryMax); s != "" {
 			st.Summary = s
 		} else if st.Summary == "" {

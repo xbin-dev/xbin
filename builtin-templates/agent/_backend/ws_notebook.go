@@ -19,8 +19,12 @@
 //   - reading a page, or being shown it in the prompt, adds the page's
 //     stamps to the session's taint at xbind (wsXbin.Taint) first: the
 //     conversation now holds that data, wherever it goes next.
-//   - the person's own route (ws_routes.go) keeps a page's stamps when
-//     they edit it, and is the only place that can clear them.
+//   - no route and no tool takes a stamp off a page: the person's own
+//     route (ws_routes.go) keeps them when they edit it — it is reachable
+//     with the page's credential, and the page renders what a model wrote.
+//     A page is unmarked by deleting it and writing it again whole in a
+//     session that holds none of that data: a deleted page's old text
+//     doesn't carry into a page written over it, nor do its stamps.
 //
 // The prompt carries a list of the pages this session may read — slug,
 // title and one line each, generated here, not a page a model wrote — and
@@ -371,10 +375,25 @@ func wsNotebookChange(ctx context.Context, ag *Agent, s *wsSession, c coordCall,
 	}
 	ag.wsRefresh(ctx, s, true) // what the conversation holds now, as xbind has it
 	old := ag.db.wsStamp(store, slug)
-	if cur, err := ag.db.wikiPage(store, slug); err == nil && cur != nil && !wsReadable(s, old) {
+	over := false // a whole page written where a deleted one was
+	cur, err := ag.db.wikiPage(store, slug)
+	if err != nil {
+		cur = nil
+	}
+	if cur != nil && cur.Archived && name == "notebook_write" {
+		// written whole over a page its person deleted: nothing of the old
+		// text is in it, so nothing of its stamp is — what this session
+		// holds is (below). The way a page loses an org's mark.
+		old = wsStamp{}
+		over = true
+	} else if cur != nil && !wsReadable(s, old) {
 		return "", fmt.Errorf("the page %q holds data of an org that doesn't allow this session's model: it can't be changed here — pick another slug", slug)
 	}
 	ch := wikiChange{Slug: slug, Note: "by the workspace agent"}
+	if over {
+		zero := int64(0) // a new page where the deleted one was (the write fails if it came back meanwhile)
+		ch.Base = &zero
+	}
 	stamp := old
 	switch name {
 	case "notebook_edit":

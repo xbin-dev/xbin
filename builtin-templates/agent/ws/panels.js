@@ -112,9 +112,6 @@ function pageView(n, act) {
       <span class="grow"></span>
       ${p && !editing ? html`<button @click=${() => act.edit()}>${icon('pencil')}Edit</button>
         <button class="danger" @click=${() => act.confirm(true)}>${icon('trash')}Delete</button>` : nothing}</div>
-    ${n.confirm === 'stamps' ? html`<div class="wsp-confirm" role="alertdialog" aria-label="Clear the org marks?">
-      <span>Clear the marks of ${(p.orgs || []).join(', ')}? A session on any model could then read this page. Do it only when the page holds nothing of theirs.</span>
-      <button class="danger" @click=${() => act.clearStamps()}>Clear the marks</button><button @click=${() => act.confirm(false)}>Keep them</button></div>` : nothing}
     ${n.err ? html`<div class="wsc-err" role="alert">${n.err}</div>` : nothing}
     ${n.confirm === true ? html`<div class="wsp-confirm" role="alertdialog" aria-label="Delete this page?">
       <span>Delete this page? The agent forgets it; its history is kept.</span>
@@ -125,7 +122,8 @@ function pageView(n, act) {
         <div class="wsc-btns"><button class="primary" ?disabled=${n.busy} @click=${() => act.save()}>Save</button><button ?disabled=${n.busy} @click=${() => act.cancel()}>Cancel</button></div>
       </div>`
       : p ? html`<div class="wsp-pmeta wsc-muted">${[p.updatedBy ? `edited by ${p.updatedBy}` : '', day(p.updatedMs), p.tile ? `about ${p.tile}${p.rev ? ' at ' + p.rev : ''}` : '', pageTag(p)].filter(Boolean).join(' · ')}
-          ${(p.orgs || []).length ? html` <button class="quiet" title="the page holds data of these orgs, so it is closed to sessions their rules keep out" @click=${() => act.confirm('stamps')}>Clear org marks…</button>` : nothing}</div>
+</div>
+        ${(p.orgs || []).length ? html`<p class="wsp-marks wsc-muted" data-marks>${W.marksNote(p.orgs)}</p>` : nothing}
         <div class="wsp-pbody bxc-md" .innerHTML=${act.md(p.body || '')}></div>` : html`<div class="wsc-muted" role="status">Loading…</div>`}
   </section>`;
 }

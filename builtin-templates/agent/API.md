@@ -5876,7 +5876,7 @@ orgs, reason, offer: {newSession: {model}}}`.
 | `GET /ws/needs` | `{items, count}`: what waits for the person because of the agent, oldest first per session — `approval` and `changeset` (with `request`), `tile-agent` (with `tileSession`, `text`), `question` (the agent's own `ask_user`: `text`, and `ask` — its kind —, `choices`, `callId`, and for a redirect `tile`) |
 | `GET /ws/empty?session=` | the empty state, computed from xbind's map without a model call: `{heading, line, can[], cant[], connected, notConnected, summary, placeholder, hint, startersTitle, starters: [{kind: Ask\|Fix\|Change\|New, text, tile?, blank?}]}`. A starter fills the composer; a tile that reports a failure becomes a Fix |
 | `GET /ws/notebook?session=` | `{pages: [{slug, title, summary, version, updatedBy, updatedMs, orgs, tile, rev, locked?, lockedWhy?}]}` — every page is the person's to see; `locked` says the session's model isn't allowed by an org on the page's stamp (`lockedWhy`: xbind's reason) |
-| `GET` / `PUT` / `DELETE /ws/notebook/{slug}` | read; write `{title?, body, summary?, base, clearStamps?}` (`base`: the version seen, `0` for a new page; `409 {current}` when it moved; the page keeps its `orgs` unless `clearStamps`); delete makes the agent forget (history kept) |
+| `GET` / `PUT` / `DELETE /ws/notebook/{slug}` | read; write `{title?, body, summary?, base}` (`base`: the version seen, `0` for a new page; `409 {current}` when it moved; the page keeps its `orgs`, always — there is no way to clear them here: delete the page and have a session that holds none of that data write it again); delete makes the agent forget (history kept) |
 | `GET` / `PUT /ws/prefs` | `{model, harness, lastSession}`: the model new sessions start on and the session the page last showed. `harness` is kept for the page and decides nothing: a started tile agent's harness, mode and network are xbind's to resolve (`/agent/prefs`, the tile's org), or the person's pick on the brief |
 | `POST /delegate/notify` | xbind's notice path (`xbin.ReadHolderNotice`: partition mail's principal): `{partition, events: [{kind, id}]}`, never trusted — any notice asks for a reconcile that reads the state again through xbind. Coalescing and idempotent; everything open is also re-read at start-up and by a timer while anything is open |
 
@@ -6029,9 +6029,14 @@ agent writes is stamped with every org its session is tainted with at that
 moment, added to the stamps it had; a session reads, searches and is shown
 a page only when its model is allowed by every stamped org (xbind's
 `…/sessions/{id}/allows`), and reading or being shown one adds its stamps
-to the session's taint (`…/taint`) first. `PUT /ws/notebook/{slug}` — the
-person's own route — keeps a page's stamps, and clears them only with
-`clearStamps: true` (a deliberate act the page confirms; no tool can).
+to the session's taint (`…/taint`) first. Nothing takes a stamp off a page:
+`PUT /ws/notebook/{slug}` — the person's own route, which the page's own
+credential reaches, and the page renders what a model wrote — keeps a
+page's stamps, a page deleted and written again by that route included.
+The way to clear them is to delete the page and have a session that holds
+none of that data write it again whole (`notebook_write`): a page written
+over a deleted one carries none of its text, and so none of its stamps —
+only what the writing session holds.
 
 **The page** (`ws/`; D235). In workspace mode the tile's page is another
 one: `boot.js` — on a sealed component's path (`xbin/<name>`) only, once the

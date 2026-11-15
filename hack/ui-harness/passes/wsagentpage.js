@@ -344,7 +344,7 @@ async function wsAgentPage(browser) {
     && (mine0.orgs || []).length > 0 && pg.endsWith(mine0.orgs.join(', ')), `the notebook lists what the agent wrote, marked with the orgs whose data its session held (${pg.slice(0, 140)}; ${pages0.length} pages)`);
   await f.click(`.wsp-pg[data-slug="note-tile-${stamp}"] button`);
   await f.waitForSelector('.wsp-pbody h2');
-  check(/^What it is\s*It holds one note\.$/.test(await text(f, '.wsp-pbody')) && !!(await f.$('.wsp-pbody strong')) && /Clear org marks…/.test(await text(f, '.wsp-pmeta')), `a page reads as Markdown (${await text(f, '.wsp-pbody')})`);
+  check(/^What it is\s*It holds one note\.$/.test(await text(f, '.wsp-pbody')) && !!(await f.$('.wsp-pbody strong')) && /To clear them, delete the page/.test(await text(f, '.wsp-marks')) && !/Clear org marks/.test(await text(f, '.wsp-nb')), `a page reads as Markdown (${await text(f, '.wsp-pbody')})`);
   await f.click('.wsp-nb-h button[aria-label="back to the notebook"]');
   await f.waitForSelector('.wsp-nb .wsp-pages');
   await f.click('.wsp-nb-h button:has-text("Add a note")');

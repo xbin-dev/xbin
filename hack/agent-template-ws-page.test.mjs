@@ -137,7 +137,7 @@ test('every field the page reads is a JSON name the backend writes', () => {
     'refusals', 'callId', 'tool', 'question', 'choices', 'context', 'connected', 'screen',
     'session', 'harness', 'asks', 'waits', 'last', 'startedMs', 'request',
     'goal', 'doneWhen', 'leaveAlone', 'checkBy', 'edited', 'updatedMs', 'plan', 'text', 'started', 'heading', 'line', 'can', 'cant', 'hint', 'startersTitle', 'starters', 'blank',
-    'pages', 'slug', 'version', 'updatedBy', 'rev', 'locked', 'lockedWhy', 'body', 'base', 'clearStamps', 'page', 'lastSession', 'defaults', 'harnesses', 'ticket', 'harnessName', 'needsTicket', 'scope', 'archived'];
+    'pages', 'slug', 'version', 'updatedBy', 'rev', 'locked', 'lockedWhy', 'body', 'base', 'page', 'lastSession', 'defaults', 'harnesses', 'ticket', 'harnessName', 'needsTicket', 'scope', 'archived'];
   const missing = read.filter((n) => !names.has(n));
   assert.deepEqual(missing, [], 'fields the page reads that no workspace route writes');
 });

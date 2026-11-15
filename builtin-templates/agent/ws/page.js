@@ -538,14 +538,6 @@ const nbAct = {
     if (!r.ok) { S.nb.err = errOf(r); paint(); return; }
     openNotebook();
   },
-  // the person's deliberate act, confirmed: the page no longer carries the orgs it was marked with
-  clearStamps: async () => {
-    const p = S.nb.page;
-    const r = await ws.putPage(p.slug, { title: p.title, body: p.body || '', base: p.version, clearStamps: true });
-    S.nb.confirm = false;
-    if (!r.ok) { S.nb.err = errOf(r); paint(); return; }
-    await nbAct.read(p.slug);
-  },
   md: (s) => md(s),
 };
 

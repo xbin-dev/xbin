@@ -19,7 +19,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   whose record xbind renewed (a day unused) gives the new record
   everything it holds before it reads or calls a model again, and stops,
   saying so, where an org's rules no longer allow its model (`held` on
-  `GET /ws/sessions`; the agent template's `API.md` §Workspace mode).
+  `GET /ws/sessions`; the agent template's `API.md` §Workspace mode). A
+  notebook page's org marks can't be cleared in place any more (the
+  `clearStamps` field of `PUT /ws/notebook/{slug}` is gone and ignored):
+  delete the page and have a clean session write it again.
 
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),
