@@ -17,8 +17,12 @@ by xbin"). "Sealed" is the word in code, in these docs and in the API
 > with each other, and a sealed component needs the vault unsealed for its
 > encrypted data like any tile.
 
-This release ships the facility and **no sealed component yet**: nothing
-changes in a workspace until a release adds one.
+xbin ships **one** sealed component: the workspace agent, `xbin/wsagent`
+([workspace-agent.md](/docs/workspace-agent.md)) — one backend per person,
+its model slot on the workspace's own LLM connector and nothing else, and
+the right to act for the person whose partition it is, under xbind's
+delegation. It is inert until an admin sets it up, and nobody has it until
+it is given to them; a workspace that does nothing sees nothing new.
 
 ## What makes one
 
@@ -80,8 +84,11 @@ API):
   above read don't exist on it. An entry that names it at `write` or
   `terminal` is refused with the reason wherever entries are written (one
   entry, a new or edited user's whole list, the workspace defaults, an
-  access request). A pattern that reaches it, such as `*` or `xbin/*` at
-  terminal level, is kept and gives read.
+  access request). **Nobody has it until it is given to them**: an entry
+  reaches a system component only by naming it — in a person's access, an
+  org's shares or the workspace's default access. A pattern such as `*` or
+  `xbin/*` was written about tiles: it is kept and gives nothing here.
+  Admins read every system component, as they manage it.
 - **Whether it is on.** Enabled, disabled or hidden (`POST
   /api/xbin/lifecycle`). It can't be offloaded: there is no source to
   archive.

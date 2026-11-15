@@ -623,7 +623,11 @@ stay byte for byte what it was.
 
 A sealed component ([sealed.md](/docs/sealed.md)) is a row of the table
 `sealed.Table()` returns: its code is embedded in xbind and is the running
-release's, always. The table is empty today.
+release's, always. The table has one row, the workspace agent's
+(`xbin/wsagent`, `internal/sealed/table.go`): the agent template's own
+tree, `builtin-templates/agent`, started in workspace mode.
+`TestTheReleasesTable` pins what the row says — a row that appears, or one
+of its fields that changes, appears or changes in every workspace.
 
 **Adding a row.** Name (the path is `xbin/<name>`), an embedded source tree
 (`xbin.BuiltinTemplatesFS()` sub-tree, or one of its own under an embedded
@@ -679,6 +683,24 @@ someone who can write the install prefix (who can replace xbind). The SDK
 is a module of its own that xbind neither embeds nor ships a digest of, so
 the SDK and go version are recorded in the manifest and compared at release
 time (`--check --sdk`), not folded into the file name.
+
+**What the build needs.** The workspace agent's backend is the agent
+template's: its own module (`go.mod.tile`, `go.sum`) with dependencies
+(`modernc.org/sqlite` and what it pulls). `sealed-build` builds it with
+`-mod=readonly` against that `go.sum`, so the modules must be in the
+module cache or downloadable (`GOPROXY`): `make build`, `make sealed` and
+`deploy/publish-release.sh` need them, once per machine — the same
+modules `make tile-check` already fetches to test the template's backend,
+and the ones a workspace downloads to build an instance of it. `make
+check` builds no sealed backend and stays offline: the unit tests load the
+table and render its tree, and the tests that run the agent are the
+integration suites' (`test/isolated/wsagent_dev_test.go`: a development
+xbind compiles it from the checkout on first use;
+`test/isolated/wsagent_test.go`: an install-like xbind runs the release's
+build, end to end). The backend is
+about 45 MB per architecture (linux/amd64 44.8 MB, linux/arm64 41.9 MB;
+static, stripped) and adds about 16 MB to a release bundle (zstd: 16.4 MB
+and 15.1 MB); a warm build takes about ten seconds.
 
 - A **production** xbind (`--dev` and `--no-auth` both off) runs only that
   file. Without it the component is held (`no-build`); nothing compiles on

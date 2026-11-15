@@ -12,6 +12,29 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **The workspace agent is in xbind: `xbin/wsagent`** (D231 on D227;
+  [workspace-agent.md](/docs/workspace-agent.md#setting-it-up),
+  [sealed.md](/docs/sealed.md)). The first system component: the agent
+  template's backend in workspace mode, one backend per person, its model
+  slot on the LLM connector alone. It is **inert until an admin** connects
+  a model, turns workspace agents on and chooses who gets one — and a
+  workspace that does nothing sees nothing new: no chip, no notice, no
+  backend, no row in `GET /components`.
+  - **Nobody has a system component until it is given to them.** Only an
+    access entry that names it gives read (a person's, an org's share, the
+    workspace defaults): `*` and other patterns give nothing there. Admins
+    read it as they manage it.
+  - `PUT /api/xbin/delegate/workspace` takes `who: "everyone" | "me" |
+    "chosen"` beside `enabled`, and answers `who: {everyone, entries,
+    chosen}`; xbin's chrome has the two buttons on its third setup step.
+    `GET /delegate/state` adds `access`, `held` / `heldWhy` (why the agent
+    can't run: `older`, `locked`, `unavailable`) and, for an admin, `who`;
+    `agent` is there only for a person who has one, and so is the notice
+    that names `/xbin/agent`.
+  - Releases carry its prebuilt backend (`bin/sealed/wsagent-<digest>`,
+    about 45 MB, 16 MB in the bundle); `make build` needs the agent
+    template's Go modules. A development xbind compiles it on first use.
+
 - **The workspace agent's page** (D232; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
   the agent template's `API.md` §Workspace mode → The page). On the sealed
   component's path the agent template's `boot.js` asks `GET /ws/state` and

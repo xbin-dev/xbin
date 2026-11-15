@@ -241,8 +241,17 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 		if access {
 			out["agent"] = h
 		}
-		if who, ok := s.agentWho(a.p, h); ok {
+		who, admin := s.agentWho(a.p, h)
+		if admin {
 			out["who"] = who // an admin: who was given one (the third setup step)
+		}
+		if access && s.AgentHeld != nil {
+			if kind, why := s.AgentHeld(); kind != "" {
+				out["held"] = kind // the chrome says why there is no conversation
+				if admin || s.devOwner(a.p) {
+					out["heldWhy"] = why // xbind's own reason: an admin's to act on
+				}
+			}
 		}
 	}
 	return out
