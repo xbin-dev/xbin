@@ -60,6 +60,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -93,11 +94,16 @@ func paSandboxTile(t *testing.T, d *xbindtest.Daemon, tile string, partitions bo
 	}
 	main := read("main.go")
 	if !partitions {
-		const at = `m := &fsbManager{Root: *root, DefaultFrom: *from}`
-		if !strings.Contains(main, at) {
-			t.Fatalf("hack/fakesandbox/main.go no longer makes its manager with %q", at)
+		// the line that makes the manager, whatever fields it sets today (a
+		// new capability's field once broke an exact match): its Caps are
+		// set on the line after it
+		at := regexp.MustCompile(`(?m)^\tm := &fsbManager\{.*\}$`)
+		if n := len(at.FindAllString(main, -1)); n != 1 {
+			t.Fatalf("hack/fakesandbox/main.go makes its manager on %d lines matching %s, want 1", n, at)
 		}
-		main = strings.Replace(main, at, `m := &fsbManager{Root: *root, DefaultFrom: *from, Caps: []string{"exec", "files", "tar", "snapshots", "clone", "archive", "ports"}}`, 1)
+		main = at.ReplaceAllStringFunc(main, func(line string) string {
+			return line + "\n\tm.Caps = []string{\"exec\", \"files\", \"tar\", \"snapshots\", \"clone\", \"archive\", \"ports\"}"
+		})
 	}
 	files := map[string]string{
 		"go.mod":          "module fsb_" + strings.ReplaceAll(tile, "/", "_") + "\n\ngo 1.24\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n",
