@@ -508,6 +508,10 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /llm/v1/models":            PartitionScoped,
 	"GET /llm/preferred":            PartitionScoped,
 	"GET /llm":                      PartitionScoped,
+	"POST /llm/keys":                PartitionScoped, // a key for a harness the partition runs: its person's, by the stamp
+	"DELETE /llm/keys/{id}":         PartitionScoped,
+	"POST /llm/keys/{id}/renew":     PartitionScoped,
+	"DELETE /llm/keys":              PartitionScoped,
 
 	// ---- partitions' governance acts (02 §8): their handlers judge the
 	// person and refuse the target tile's own credentials. A mode decision

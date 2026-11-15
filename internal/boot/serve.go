@@ -58,6 +58,13 @@ func (st *State) serve(ctx context.Context) error {
 		}
 	}()
 
+	// The LLM-only listener (D226): the connector's model routes for LLM
+	// keys, for tile sandboxes created with net.llm (llmsessions.go).
+	llmSrv, err := st.serveLLMOnly()
+	if err != nil {
+		return fmt.Errorf("llm listener: %w", err)
+	}
+
 	// The app tunnel (D204): its connections come from the iroh sidecar,
 	// each a paired device's after its Noise handshake, and are served by
 	// the SAME handler — never a second Handler() call (it would reset the
@@ -175,8 +182,11 @@ func (st *State) serve(ctx context.Context) error {
 		_ = tunSrv.Close()
 		st.AppTunnel.Close() // the sidecar stops, before the broker
 	}
+	if llmSrv != nil {
+		_ = llmSrv.Close()
+	}
 	if st.LLM != nil {
-		st.LLM.Close() // the usage counters not yet saved
+		st.LLM.Close() // the usage counters not yet saved; every LLM key ends
 	}
 	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor, the resources' decrypted views
 	// Open tiles keep their login binding across the restart (auth/framegens.go).

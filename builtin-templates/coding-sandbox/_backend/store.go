@@ -42,7 +42,9 @@ type record struct {
 	Shell      string            `json:"shell"`
 	// Sudo: its prepare gives the user sudo (its image's, in a mode where it
 	// works; a clone's source's) — fixed when it is made, like the layout.
-	Sudo    bool  `json:"sudo,omitempty"`
+	Sudo bool `json:"sudo,omitempty"`
+	// LLM: it was created with the LLM connector asked for (fixed at create).
+	LLM     bool  `json:"llm,omitempty"`
 	Created int64 `json:"created"`
 	Version int   `json:"version"`
 	// Overlay is a state of the manager's own that hides the substrate's:

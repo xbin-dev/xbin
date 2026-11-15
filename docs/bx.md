@@ -135,6 +135,9 @@ bx llm alias [set <alias> <model> | rm <alias>] | on | off | people admins|every
                                        model aliases ("*": every unknown name),
                                        the switches, calls in flight per caller
                                        (admin)
+bx llm sessions [agents=on|off] [terminals=on|off] [openai-env=on|off]
+                                       what coding agents and terminals get of
+                                       it (admin; no argument: print)
 bx llm usage [--month] [--from <day>] [--to <day>] [--user <id>] [--component <tile>] [--json]
                                        what was used: yours, or everyone's (admin)
 bx llm quota [show [<user>]] | set <default|workspace|user:<id>|org:<id>>
@@ -262,11 +265,14 @@ bx vault ls|set|rm <component> [key] [value]
                                        write-only management — values are
                                        readable only by the tile's backend
                                        (D30; `get` lists/403s for humans)
-bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--model m] [--option id=v] [--net s] [--vm] "<prompt>"
+bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--model m] [--option id=v] [--net s] [--vm] [--llm connector|own] "<prompt>"
                                        an AGENT SESSION on a tile: the coding
                                        agent runs in the tile's sandbox, its
                                        stream lands here (D74); --vm: in a VM
                                        sandbox, root in its own kernel (D89);
+                                       --llm: the workspace's LLM connector or
+                                       your own sign-in serves it (default:
+                                       your saved choice, then the workspace's);
                                        --deployment <name> (or --tile p+<name>):
                                        its calls reach that tile deployment
 bx agent send <id> "<text>" | permit <id> <pid> once|always|deny|<option>
@@ -498,7 +504,9 @@ terminal users and their coding agents — as much as the shell.
 [llm.md](/docs/llm.md); routes: [protocol/llm.md](/docs/protocol/llm.md)).
 `bx llm` prints it as you meet it: whether you may call it and at which
 URL, your quota's limits with what is used and when each resets; for a
-workspace admin also the upstreams, default models, aliases and switches,
+workspace admin also the upstreams, default models, aliases and switches
+(`bx llm sessions` sets the three for coding agents and terminals:
+[llm.md](/docs/llm.md) §Coding agents and terminals),
 each marked `[set by your host]` when the host's deployment file
 (`XBIN_LLM_CONFIG`) holds it — changing one of those is refused (409).
 `upstream add <name> <base-url>` adds a provider (an OpenAI-compatible API,

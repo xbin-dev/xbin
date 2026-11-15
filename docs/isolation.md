@@ -436,7 +436,16 @@ it lists only the scopes the server will honour for you on that tile):
 - **host** — shares the host network (LAN + host-local services visible). An
   admin escape hatch — or an org's, when its network sets say `host`.
 - **none** — an isolated namespace with **no egress at all** (airgapped —
-  xbind itself is unreachable).
+  xbind itself is unreachable). One exception, where the workspace has an
+  LLM connector and the session holds an LLM key for it (D226,
+  [llm.md](/docs/llm.md) §The network path): the session's relay then
+  exists for one thing only — port 4180 of its gateway, forwarded to
+  xbind's **LLM-only listener** (the three model routes for an LLM key,
+  outside xbind's own handler). No other address answers, xbind's own
+  listener is not forwarded, and every DNS query is refused. A person
+  whose terminals hold no tile-API token (`termApi`) gets no LLM key, so
+  no door; switch `terminals` or `agents` off (`bx llm sessions`) to keep
+  the connector out of sessions altogether.
 
 Note the contrast: a **terminal** on a personal tile defaults to public-
 internet egress (you usually want to `git clone`, `go get`, `npm i`) — or
@@ -703,7 +712,16 @@ and defines and drives them through `/api/xbin/sandboxes/…`
   with the tail of its console in `stateDetail`.
 - **No xbin identity inside.** A tile sandbox gets no token, no gateway
   socket and no route to xbind; `XBIN_*` variables are refused in its
-  definition. Its network is `none` unless the manager gives it one of its
+  definition (and in a command's `env`, but for the LLM connector's
+  address and key, `XBIN_LLM_URL` and `XBIN_LLM_KEY`). One door opens when
+  its manager asks at create (`net.llm`,
+  D226): a port of the sandbox's own gateway, forwarded to xbind's
+  **LLM-only listener** — a unix socket in xbind's run directory that
+  serves the LLM connector's three model routes to the holder of an LLM
+  key and nothing else, outside xbind's own handler, so no other route
+  and no other credential exists there ([llm.md](/docs/llm.md)). The
+  relay's deny of the host and of the gateway's network stands for
+  everything else. Its network is `none` unless the manager gives it one of its
   **sandbox-net** interface slots, which an approver binds — the manager's
   own backend needn't hold that network.
 - **Mounts** are the manager's own `filesystem` resources, declared in its

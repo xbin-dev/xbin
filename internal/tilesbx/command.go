@@ -88,7 +88,7 @@ func (m *Manager) execOf(d *Def, c command) (proto.Exec, error) {
 		}
 		size += len(a) + 1
 	}
-	if err := checkEnv(c.Env, "env"); err != nil {
+	if err := checkCommandEnv(c.Env); err != nil {
 		return proto.Exec{}, err
 	}
 	for k, v := range c.Env {
@@ -165,9 +165,9 @@ func sessionEnv(d *Def, rootfs, env map[string]string, uid *uint32) []string {
 	for k, v := range rootfs {
 		vars[k] = v
 	}
-	for _, layer := range []map[string]string{d.Defaults.Env, env} {
+	for i, layer := range []map[string]string{d.Defaults.Env, env} {
 		for k, v := range layer {
-			if checkEnv(map[string]string{k: v}, "") == nil {
+			if checkEnv(map[string]string{k: v}, "") == nil || i == 1 && connectorVar(k) {
 				vars[k] = v
 			}
 		}

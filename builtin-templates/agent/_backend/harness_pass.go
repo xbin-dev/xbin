@@ -702,7 +702,7 @@ func harnessApply(w http.ResponseWriter, r *http.Request, cfg *Config, req *harn
 			probeHarnesses(ctx, c, b.Ref, []hcManager{{m: m, hello: h}})
 		}
 	}
-	if b.Egress == "none" {
+	if b.Egress == "none" && !connectorMight(ctx, prov) { // the workspace's LLM connector needs no egress (the start checks the sandbox has it)
 		writeHarnessErr(w, 409, fmt.Sprintf("%s must reach its provider — %s's egress is none", prov.Name, name))
 		return false
 	}

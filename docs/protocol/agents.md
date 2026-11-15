@@ -19,13 +19,19 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    created,lastActive,clients,envHeld,vm}], oldest
                                    first (agent rows add kind:"agent",
                                    provider, mode, model?, status, pending
-                                   — unanswered permission requests — and
-                                   questions — unanswered elicitations; and
+                                   — unanswered permission requests —
+                                   questions — unanswered elicitations —
                                    origin:"agent" when the person's
                                    workspace agent opened the session for
                                    them — set by xbind only, absent when
-                                   they opened it themselves;
-                                   protocol/delegation.md);
+                                   they opened it themselves
+                                   (protocol/delegation.md) — and, where
+                                   the workspace's LLM connector is
+                                   offered to agent sessions, llm:
+                                   "connector" | "own" — who serves its
+                                   model calls, once its sandbox settled
+                                   it (llm.md §Coding agents and
+                                   terminals; absent otherwise));
                                    ?cwd=<p> one tile only. [] without
                                    terminal rights; a tile the caller may no
                                    longer open a terminal on is omitted.
@@ -64,9 +70,10 @@ PATCH  /term/sessions/<id>        creator or admin (on a partitioned tile
                                    the name xbin:sign-in (any case:
                                    xbind's, for a guided sign-in); 409 a
                                    session with purpose signin
-GET    /agent/providers           authenticated. the coding agents this daemon
+GET    /agent/providers?cwd=<tile>
+                                   authenticated. cwd is optional. the coding agents this daemon
                                    runs: [{id,name,modes:[{id,name,explicit?}],
-                                   defaultMode,login,signin?}] — with
+                                   defaultMode,login,signin?,llm?}] — with
                                    ?cwd=<tile> (one the caller can read),
                                    only the harnesses that tile's orgs and
                                    the workspace allow (D229,
@@ -109,12 +116,42 @@ GET    /agent/providers           authenticated. the coding agents this daemon
                                    is a CLI too old for command: fallback is
                                    the interactive sign-in to run in a
                                    terminal instead. Nothing is saved but
-                                   what the CLI keeps in $HOME
+                                   what the CLI keeps in $HOME. llm (D226;
+                                   only while the workspace's LLM connector
+                                   is offered to agent sessions — without
+                                   one the rows are exactly the catalog's)
+                                   says what a session of the caller's
+                                   would run on: {use, connector, note?,
+                                   forced?, reason?, signedIn?} — use: "connector" (the
+                                   workspace's LLM connector), "own" (the
+                                   person's own sign-in), "own-first"
+                                   (their own sign-in when the session
+                                   finds one, else the connector: no
+                                   session has looked at their home since
+                                   xbind started), "signin" (it needs a
+                                   sign-in: the connector can't serve it and
+                                   they have none) or "unavailable" (the
+                                   rule in force gives it the connector
+                                   alone, which can't serve it: a session
+                                   is refused); connector: whether the
+                                   connector can serve this harness (note:
+                                   why not, when it could in principle);
+                                   forced: the agents policy gives sessions
+                                   here the connector alone (the
+                                   workspace's connector-only, or a model
+                                   rule of one of the tile's orgs — reason
+                                   says which: "Finance allows private
+                                   models only"); signedIn: whether the person's home held
+                                   a sign-in of it when an agent session
+                                   last looked (absent before any did). A
+                                   hint for a launcher: the session itself
+                                   decides (SessionInfo llm). cwd: the tile
+                                   the session would open on
 POST   /term/sessions             terminal-level on the tile (a shell's own
                                    terminal token counts; an agent
                                    sandbox's never — 403). {cwd, kind:"agent",
                                    provider, mode?, model?, options?, net?,
-                                   api?, gpu?, name?, resume?} → SessionInfo
+                                   api?, gpu?, name?, resume?, llm?} → SessionInfo
                                    (kind agent, status starting): an AGENT
                                    SESSION — the tile's sandbox runs the
                                    provider's ACP adapter instead of a shell.
@@ -122,7 +159,27 @@ POST   /term/sessions             terminal-level on the tile (a shell's own
                                    /agent/history) to reopen — provider, mode
                                    and name carry over, the agent replays the
                                    earlier turns (session/load); 409 when it
-                                   cannot (start a new one). 400 unknown
+                                   cannot (start a new one). llm:
+                                   "connector" | "own" — who serves its
+                                   model calls where the workspace has an
+                                   LLM connector (absent: the person's
+                                   saved default for the harness, then the
+                                   workspace's credentials default); 409
+                                   with the reason when the connector is
+                                   asked for and can't serve (not
+                                   configured, a harness it has no wire
+                                   for, no model to start on), 403 when the
+                                   rule in force is the connector alone and
+                                   the session asks for its own sign-in,
+                                   names a model that isn't the
+                                   connector's (model, options), or can't
+                                   be given the connector at all — no key,
+                                   nothing to reach it at: such a session
+                                   never opens on something else — 400
+                                   another word. A session with net: none
+                                   reaches the connector through the
+                                   LLM-only door of its sandbox's gateway
+                                   (llm.md §The network path). 400 unknown
                                    provider/mode, 403, 409 per-user limit,
                                    503 vault sealed / no bx. 403 with the
                                    reason when the tile's orgs or the
@@ -302,9 +359,13 @@ POST   /term/sessions/<id>/options
                                    effort, mode, … — the `options` list on
                                    the session's idle status event); applied
                                    to the next turn, the refreshed list rides
-                                   the next status event → ok
+                                   the next status event → ok. 403 where
+                                   the connector alone may serve the
+                                   session and the value is a model that
+                                   isn't one of its (llm.md)
 GET    /term/sessions/<id>/log    creator or admin. text/plain: the adapter's
-                                   stderr + driver notes (debugging)
+                                   stderr + driver notes (debugging); LLM
+                                   keys in it are masked (xbl_[redacted])
 GET    /term/sessions/<id>/diff   creator or admin. ?toolCallId=<id> |
                                    ?turn=<n>, ?path=<file>? → text/x-diff:
                                    the complete git patch behind a
@@ -533,7 +594,9 @@ it first, as a status event), `usage` and `turn` of the last `turn.end`
 before it, and on the tail page of a live session the `permissions` and
 `elicitations` waiting now (they are in its events too) and `queue`, the
 messages held for the turn's end now (a `queue` event's `items`; take it
-before the page's events, whose `queue` events are newer). An older xbind
+before the page's events, whose `queue` events are newer), and `llm` —
+`"connector"` or `"own"`: who serves the session's model calls (D226;
+absent where the workspace's LLM connector isn't offered to it). An older xbind
 ignores both parameters and answers the whole replay — a client tells
 them apart by `hasOlder`.
 
@@ -553,7 +616,7 @@ them apart by `hasOlder`.
 | `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a sign-in: the provider's guided one when `GET /agent/providers` gives it a `signin` (D178: a link to open and a code to paste, the CLI running in a terminal session no tab shows), else — and on request — `command` run in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
 | `queue` | `{items:[{id, text, files?, at}], sent?, dropped?, reason?}` — xbin's, not the agent's (D197): the messages held for the running turn's end after a change (`POST`/`DELETE …/queue`) — the whole list, replacing the last; `text` is a preview (200 characters), `files` the attachments' names. `sent` lists the ids that just went in as a prompt (its user `message.delta` follows); `dropped` counts held messages that went without being sent, with `reason` (the session ended; a prompt refused for good — a `notice` says so too). A client that doesn't know the type skips it |
-| `notice` | `{text}` — a line xbin itself says in the session, not the agent; a client shows it muted, as its own row (the Agent tab does; a client that doesn't know the type skips it). Today: the session's start moved the tile's terminal layer to a new base image, resetting everything outside the workspace files and `$HOME` (base auto-update, D175; the event is the session's first); held messages that were not sent (D197) |
+| `notice` | `{text, llm?}` — a line xbin itself says in the session, not the agent; a client shows it muted, as its own row (the Agent tab does; a client that doesn't know the type skips it). Today: the session's start moved the tile's terminal layer to a new base image, resetting everything outside the workspace files and `$HOME` (base auto-update, D175; the event is the session's first); held messages that were not sent (D197); who serves the session's model calls, when that needs saying (D226): the workspace's LLM connector serves it (`llm: "connector"`, among the session's first events — a client may show it in its header), it can't have the connector it otherwise would (a session without network or on a non-primary deployment, no model), or the connector refused one of its model calls — the status, the error's code and its message, once per kind while the CLI retries (a CLI often shows nothing of a `429`) |
 
 The live log is in memory; an `exited` or `error` status is final and the
 session leaves the directory (`term` event `close`). Its transcript does not

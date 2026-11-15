@@ -19,6 +19,8 @@ DELETE /devices/{id}	never
 DELETE /grants	never
 DELETE /kv/{rest...}	never
 DELETE /limits	never
+DELETE /llm/keys	never
+DELETE /llm/keys/{id}	never
 DELETE /llm/upstreams/{name}	never
 DELETE /net-sets/{name}	never
 DELETE /orgs/{org}	never
@@ -253,6 +255,8 @@ POST /invite/redeem	never
 POST /lifecycle	never
 POST /limits	never
 POST /limits/dismiss	never
+POST /llm/keys	never
+POST /llm/keys/{id}/renew	never
 POST /llm/setup/dismiss	refused
 POST /llm/upstreams/{name}/test	never
 POST /llm/v1/chat/completions	refused

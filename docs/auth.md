@@ -357,8 +357,35 @@ are for).
 - The worst a leaked key does is spend its person's LLM quota until it
   expires or is revoked.
 
-Nothing hands out LLM keys yet: the hook-up of terminals, agent sessions
-and sandboxes is a later release.
+Who gets one ([llm.md](/docs/llm.md) §Coding agents and terminals):
+
+- **A terminal or an agent session**, from xbind, when the workspace's
+  connector is offered to it: minted as the session opens, for the person
+  who opened it and its tile, revoked when the session ends (a restarted or
+  resumed session has a new one). It is never the session's terminal
+  token, and an agent session's is in the agent's own environment only. A
+  session that targets a deployment other than the tile's primary gets a
+  key that names it; the key is the person's, not held to the edge policy
+  the deployment's own backend is.
+- **The backend of a tile bound to `xbin:llm`**, for a coding tool it runs
+  in a sandbox: `POST /api/xbin/llm/keys` with its own credential (an
+  instance or partition token; the SDK's `xbin.LLMKeyFor`). The key is for
+  the person that credential acts for — a partition's person, nobody for a
+  backend that serves everyone — exactly who the backend's own calls are
+  metered to; naming anyone else is `403`. It lives a day at most (its
+  backend renews a longer run's), names the backend's deployment and is
+  held to the tile's edge policy for it on every call. A person's sign-in,
+  an LLM key, an unbound tile — and the tile's **frame, terminals and agent
+  sessions** — mint none: a token a browser or a shell holds must not
+  become a key that outlives it. A tile holds at most 64 live keys for one
+  person and 512 in all.
+
+A sandbox made by a sandbox manager has no route to xbind. One created
+with the connector asked for (`net.llm`,
+[sandbox-manager.md](/docs/sandbox-manager.md)) reaches **the LLM-only
+listener** at its gateway: the three model routes for an LLM key, and
+nothing else of xbind — no other route exists there and no other
+credential is read.
 
 ## Roles and grants
 

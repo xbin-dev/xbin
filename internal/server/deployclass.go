@@ -453,6 +453,14 @@ var routeClasses = map[string]RouteClass{
 	"POST /partitions/mail":     PrimaryOnly,
 	"GET /partitions/mail":      PrimaryOnly,
 	"POST /partitions/mail/ack": PrimaryOnly,
+
+	// ---- a bound tile's LLM keys for the harnesses it runs (D226): the
+	// binding admits them, whichever deployment asks ----
+	"POST /llm/keys":            Neutral,
+	"DELETE /llm/keys/{id}":     Neutral,
+	"POST /llm/keys/{id}/renew": Neutral,
+	"DELETE /llm/keys":          Neutral,
+
 	// ---- delegation (D228, delegateapi.go): primary-only. Its callers are
 	// people, a sealed holder's page and the delegate gate; a sealed
 	// component has no deployments, and no tile credential bound to a

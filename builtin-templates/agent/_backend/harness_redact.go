@@ -43,6 +43,11 @@ var scmShapes = []*regexp.Regexp{
 	regexp.MustCompile(`github_pat_[^\s"'@]{22,}`),
 }
 
+// llmKeyShape is an LLM connector key's shape (xbl_…, harness_connector.go):
+// masked wherever it shows, by a process that never knew the key too (a
+// successor after a restart).
+var llmKeyShape = regexp.MustCompile(`xbl_[A-Za-z0-9_-]{20,}`)
+
 const redactMark = "[redacted]"
 
 // mask is n bytes that say something was redacted.
@@ -74,8 +79,10 @@ func (r *redactor) apply(b []byte) []byte {
 		maskExact(b, r.exact)
 	}
 	maskExact(b, scmLiveSecrets())
-	for _, m := range tokenShape.FindAllIndex(b, -1) {
-		copy(b[m[0]:m[1]], mask(m[1]-m[0]))
+	for _, re := range []*regexp.Regexp{tokenShape, llmKeyShape} {
+		for _, m := range re.FindAllIndex(b, -1) {
+			copy(b[m[0]:m[1]], mask(m[1]-m[0]))
+		}
 	}
 	for _, re := range scmShapes {
 		for _, m := range re.FindAllIndex(b, -1) {

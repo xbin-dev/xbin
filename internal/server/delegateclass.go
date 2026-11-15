@@ -176,6 +176,7 @@ const (
 	noNotYet      = "not delegated: nothing a workspace agent does needs it"
 	noAgentRules  = "the agent rules and the connection view are read by the person and applied by xbind: an agent's listings already leave out what the rules keep it from"
 	noLLM         = "a component calls the LLM connector as itself, through its llm binding: never as a person"
+	neverLLMKey   = "an LLM key is asked for by a tile's backend with its own credential: never in a person's name"
 )
 
 // DelegateClassOf is the class of the route RegisterAPI mounted as pattern.
@@ -628,4 +629,11 @@ var delegateClasses = map[string]delegateRow{
 	"GET /llm/v1/models":              dNo(noLLM),
 	"POST /llm/v1/chat/completions":   dNo(noLLM),
 	"POST /llm/v1/responses":          dNo(noLLM),
+	// LLM keys (D226): a tile's backend asks for them with its own
+	// credential. A key is a credential that outlives the call that made
+	// it, so no agent mints, renews or ends one in a person's name.
+	"POST /llm/keys":            dNever(neverLLMKey),
+	"POST /llm/keys/{id}/renew": dNever(neverLLMKey),
+	"DELETE /llm/keys/{id}":     dNever(neverLLMKey),
+	"DELETE /llm/keys":          dNever(neverLLMKey),
 }

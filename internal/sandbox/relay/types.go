@@ -75,6 +75,13 @@ type Config struct {
 	Resolver  string         // host DNS server for :53 ("" = no DNS forwarding; DNSRefuse wins)
 	Gateway   netip.Addr     // virtual gateway IP (10.0.2.2); host-forwards apply here
 	HostFwd   map[int]string // gateway port → host dial address, policy-exempt
+	// Doors are gateway ports served even under Deny — which, for a relay
+	// that gives no route to the host (HostDeny), names the gateway's own
+	// network and so every HostFwd: gateway port → host dial address
+	// ("unix:<path>"), policy-exempt. Each is a door the embedder opens on
+	// purpose to one narrow service of its own; a tile sandbox's LLM-only
+	// listener is the one use. TCP only.
+	Doors map[int]string
 	// HostDial, when set, dials HostFwd targets (so values may be "unix:<path>"
 	// or other schemes the host side understands); nil = net.Dial("tcp", dst).
 	HostDial func(dst string) (net.Conn, error)

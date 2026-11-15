@@ -12,6 +12,51 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **LLM connector for coding agents and terminals: a security pass**
+  (D226; [llm.md](/docs/llm.md) §Coding agents and terminals). None of it
+  changes a workspace with no connector configured.
+  - **`connector-only` fails closed.** Where the workspace's credential
+    mode or an org's model rule gives the connector alone, a session that
+    can't be put on it is refused (`403`) instead of opening without it, a
+    session whose agent host doesn't confirm it is ended with the reason,
+    OpenCode is configured with the connector as its only provider, and a
+    model that isn't the connector's can't be set — at `POST
+    /term/sessions` (`model`, `options`) or `POST …/options` (`403`).
+  - **`POST /api/xbin/llm/keys` is for a tile's backend only.** A frame,
+    terminal or agent-session credential is now `403` (before, a tile's
+    page could mint a key for its person). A key lives **24 h at most**
+    (was 30 days); `POST /api/xbin/llm/keys/<id>/renew` keeps a longer
+    run's alive (`xbin.RenewLLMKey`, `ErrLLMKeyGone`). A tile holds at most
+    64 live keys for one person and 512 in all (`429 xbin_llm_keys`,
+    `xbin.ErrLLMKeyLimit`). A key names its backend's deployment: it is
+    held to the tile's edge policy for that deployment on every call, and
+    `DELETE /llm/keys?label=` ends that deployment's keys only.
+    **If your tile's page asked for keys, move the call to its backend.**
+  - **A session with no network reaches the connector** — and nothing
+    else: `net: none` sessions and terminals get `XBIN_LLM_URL` =
+    `http://10.0.2.2:4180/v1`, one gateway port forwarded to xbind's
+    LLM-only listener (before: no key, "can't be reached"). **A session
+    on a non-primary tile deployment gets a key** that names the
+    deployment (before: none).
+  - Only models whose ids are plain model names are written into a CLI's
+    configuration (`acp.ValidConnectorModel`); an upstream's list can't
+    put `{env:…}` or `{file:…}` into OpenCode's.
+  - An agent can no longer forge the agent host's own frames (who serves
+    its model calls); LLM keys are masked in a dead terminal's logged tail
+    before the cut.
+  - `sdk/acp`: `ConnectorParams.Only`, `Connector.AllowsOption`,
+    `ValidConnectorModel` ([sdk.md](/docs/sdk.md)).
+  - **Agent template**: a coding agent runs on the connector only when the
+    workspace set a model for coding agents (else it says why and uses its
+    own sign-in); it starts in a sandbox with **no egress** when the
+    connector is reachable there (`GET /harnesses` images gain `llm`); its
+    key is renewed while the run lives and its end is retried until xbind
+    acknowledged it. Template instances pick it up with a template update.
+  - The Agent tab's launcher gains **"runs on"**: a person's saved choice
+    between their own sign-in and the workspace's connector for a harness
+    (`harnesses.<id>.credentials` in their agent preferences), shown only
+    where both can serve and no rule forces one.
+
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
   `llm.ReadData(r, fn)` hands each `data:` line's payload to `fn` by itself
@@ -104,6 +149,74 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **Coding agents and terminals run on the workspace's LLM connector by
+  default** (D226; [llm.md](/docs/llm.md) §Coding agents and terminals).
+  Nothing changes for a workspace with no connector configured: no new
+  variable, no new behaviour.
+  - **Agent sessions**: OpenCode and Codex start pointed at the connector
+    with no sign-in — OpenCode with the provider "LLM by xbin" declared
+    beside the person's own, Codex through its gateway sign-in. A person's
+    own sign-in keeps working and, by default, wins (the agents policy's
+    `credentials: own-first`, D229); a workspace admin can make the
+    connector the rule (`bx org agents --credentials connector`) or take it
+    away from agent sessions (`bx llm sessions agents=off`). Claude Code and
+    Gemini CLI keep running on the person's own sign-in. `POST /api/xbin/term/sessions`
+    takes `llm: "connector" | "own"` (`bx agent run --llm`), a session row
+    gains `llm`, a `notice` event says when the connector serves, and `GET
+    /api/xbin/agent/providers` gains `llm` per row — `{use, connector,
+    note?, signedIn?}` ([protocol/agents.md](/docs/protocol/agents.md));
+    rows are unchanged without a connector.
+  - **Terminals** get `XBIN_LLM_URL` and `XBIN_LLM_KEY`; `OPENAI_BASE_URL`
+    and `OPENAI_API_KEY` only with `bx llm sessions openai-env=on`.
+  - **The credential is a per-session LLM key** (`xbl_…`), never the
+    terminal token: good for the connector's model routes only, metered to
+    the session's person and tile, revoked when the session ends.
+  - **Settings**: `sessions: {agents, terminals, openaiEnv}` in `PUT
+    /api/xbin/llm/config` and the host's `XBIN_LLM_CONFIG` (lockable), read
+    back by `GET /api/xbin/llm` and `/llm/config`; `bx llm sessions`.
+- **A tile bound to `xbin:llm` can ask for an LLM key** for a coding tool it
+  runs in a sandbox: `POST /api/xbin/llm/keys` → `{id, token, expires, …}`,
+  `DELETE /api/xbin/llm/keys/<id>` ([protocol/llm.md](/docs/protocol/llm.md)
+  §Keys for a tile's harnesses). The key is for the person the tile's
+  credential acts for, and no one else.
+- **A sandbox can reach the LLM connector, and nothing else of xbind**:
+  a tile sandbox created with `net.llm: true`
+  ([protocol/sandboxes.md](/docs/protocol/sandboxes.md)) gets the
+  connector's model routes at `http://10.0.2.2:4180/v1` — its SandboxInfo
+  says so in `net.llm` — for the holder of an LLM key, with any egress,
+  `none` included. A command's `env` there may now carry `XBIN_LLM_URL`
+  and `XBIN_LLM_KEY` (every other `XBIN_*` is still refused, and so are
+  these two in `defaults.env`). Go SDK: `xbin.SandboxNet.LLM`, `SandboxNetInfo.LLM`,
+  and **`xbin.LLMKeyFor` / `xbin.RevokeLLMKey`** for the key
+  ([sdk.md](/docs/sdk.md) §An LLM key for a coding tool).
+- **Sandbox-manager contract: the optional capability `llm`**
+  ([sandbox-manager.md](/docs/sandbox-manager.md) §The LLM connector in a
+  sandbox). A manager that offers it takes `llm: true` on `POST
+  /sbx/sandboxes` and the sandbox then carries `llm: {url}` — where a
+  process inside reaches the workspace's LLM connector. Nothing changes for
+  a manager that doesn't offer it: a consumer reads `hello.caps` first. The
+  builtin `coding-sandbox` manager offers it on an xbind that forwards the
+  connector (the runtime's `caps` carry `llm`), and the conformance suite
+  (`sdk/sandboxcontract`) gained the section `llm`. A manager that offers
+  it accepts `XBIN_LLM_URL` and `XBIN_LLM_KEY` in a command's `env`.
+  (`sandbox-terminal` v11 is its tests' copy of the fake manager following
+  this; nothing changes for people or managers.)
+- **Agent template: coding agents start on the workspace's LLM connector**
+  when they have no sign-in (D226; the template's API.md §Coding agents).
+  Bind the agent's `llm` slot to `xbin:llm` and use a sandbox manager that
+  offers `llm` (the builtin `coding-sandbox` on this xbind): new sandboxes
+  are created with the connector asked for, and OpenCode or Codex with no
+  saved sign-in and none in the sandbox runs on it, with a key xbind mints
+  for the person. Existing sandboxes, saved sign-ins and instances not
+  bound to `xbin:llm` behave as before. Template instances pick it up with
+  a template update. New SDK call `xbin.RevokeLLMKeysLabeled` and route
+  `DELETE /api/xbin/llm/keys?label=`.
+- **Go SDK, `sdk/acp`**: `Provider.Connector`, `Provider.ConnectorEnv`,
+  `acp.ConnectorServes`, `Provider.HasOwnLogin` and `acp.ExpandWord` — how
+  each coding CLI is pointed at an LLM connector from its environment, and
+  who serves a session ([sdk.md](/docs/sdk.md) §Driving a coding agent).
+  `acp.Fake` takes a connector too, and the scripted agent (`acptest`)
+  gains the `llm-call` script.
 - **Delegation: a person's workspace agent acts as them, under a cap
   (D228).** The auth primitive the workspace agent will run on; nothing
   uses it until an xbind ships that sealed component and an admin turns
