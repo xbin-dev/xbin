@@ -1140,6 +1140,121 @@
   },
   {
    "json": {
+    "id": "rq_by_xbin",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "call",
+    "method": "POST",
+    "target": "apps/invoices/links/rebuild?dry=0",
+    "tile": "apps/invoices",
+    "contentType": "application/json",
+    "body": "{\"customer\":\"acme\",\"notify\":true}",
+    "bodyShown": true,
+    "bodySize": 34,
+    "bodySha256": "ab12",
+    "summary": "Rebuild the customer links so the overdue ones show.",
+    "state": "withdrawn",
+    "created": "2026-11-16T10:14:00Z",
+    "expires": "2026-11-17T10:14:00Z",
+    "preview": {
+     "class": "tile-write",
+     "tile": "apps/invoices",
+     "level": "write",
+     "role": "writer",
+     "standing": {
+      "call": "POST to apps/invoices/links/rebuild on Invoices, whatever it sends, without asking again.",
+      "tile": "Any write to Invoices that you could make yourself, without asking again."
+     }
+    },
+    "withdrawnBy": "xbin",
+    "decided": "2026-11-16T10:15:00Z"
+   },
+   "tile": {
+    "name": "Invoices",
+    "path": "apps/invoices",
+    "org": ""
+   },
+   "level": "you can write here",
+   "needTitle": "Approve a change to Invoices",
+   "heading": {
+    "before": "Your agent wants to change something in ",
+    "strong": "Invoices",
+    "after": ""
+   },
+   "sends": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "note": "34 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This request only. The agent has 15 minutes to use it.",
+     "wider": false
+    },
+    {
+     "id": "call",
+     "label": "Always, this exact action",
+     "text": "POST to apps/invoices/links/rebuild on Invoices, whatever it sends, without asking again.",
+     "wider": false
+    },
+    {
+     "id": "tile",
+     "label": "Always, every change to Invoices",
+     "text": "Any write to Invoices that you could make yourself, without asking again.",
+     "wider": true
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow always",
+     "Allow always, this exact action"
+    ],
+    [
+     "Allow every change to Invoices",
+     "Allow every change to Invoices"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "tile"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    },
+    {
+     "grant": "always",
+     "scope": "tile"
+    }
+   ],
+   "wider": {
+    "heading": "Allow every change to Invoices?",
+    "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Withdrawn by xbin when your agent was stopped",
+   "asked": "asked 10:14 · expires in 23 h 58 min"
+  },
+  {
+   "json": {
     "id": "rq_soon",
     "user": "ana",
     "agent": "xbin/wsagent",
@@ -1952,6 +2067,7 @@
     "banner": "",
     "undo": ""
    },
+   "ended": "",
    "items": [
     {
      "tag": "grant",
@@ -2144,6 +2260,7 @@
     "banner": "One change failed, so the one after it was skipped. The two that were applied stay.",
     "undo": "Undo the 2 applied…"
    },
+   "ended": "",
    "items": [
     {
      "tag": "grant",
@@ -2285,6 +2402,7 @@
     "banner": "",
     "undo": ""
    },
+   "ended": "",
    "items": [
     {
      "tag": "grant",
@@ -2363,6 +2481,7 @@
     "banner": "",
     "undo": "Undo the 1 applied…"
    },
+   "ended": "",
    "items": [
     {
      "tag": "grant",
@@ -2438,6 +2557,7 @@
     "banner": "One change failed, so the two after it were skipped.",
     "undo": ""
    },
+   "ended": "",
    "items": [
     {
      "tag": "grant",
@@ -2468,6 +2588,228 @@
      "result": {
       "word": "skipped",
       "icon": "minus",
+      "tone": "",
+      "text": ""
+     }
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "cs_rejected",
+    "title": "t",
+    "state": "rejected",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "grant.add",
+      "args": {},
+      "line": "Give Invoices read access to Orders (1)",
+      "before": "no access",
+      "after": "read",
+      "result": "rejected"
+     }
+    ]
+   },
+   "ticks": [
+    1
+   ],
+   "review": {
+    "heading": "Your agent proposes 1 admin change",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "1 of 1 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply 1 change…",
+    "counts": [
+     0,
+     0
+    ]
+   },
+   "need": {
+    "title": "1 admin change proposed",
+    "note": ""
+   },
+   "results": {
+    "title": "Nothing was applied",
+    "banner": "",
+    "undo": ""
+   },
+   "ended": "Rejected by you. Nothing was applied.",
+   "items": [
+    {
+     "tag": "grant",
+     "tickable": true,
+     "warnings": [],
+     "result": {
+      "word": "left out by you",
+      "icon": "minus",
+      "tone": "",
+      "text": ""
+     }
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "cs_expired",
+    "title": "t",
+    "state": "expired",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "grant.add",
+      "args": {},
+      "line": "Give Invoices read access to Orders (1)",
+      "before": "no access",
+      "after": "read"
+     }
+    ]
+   },
+   "ticks": [
+    1
+   ],
+   "review": {
+    "heading": "Your agent proposes 1 admin change",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "1 of 1 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply 1 change…",
+    "counts": [
+     0,
+     0
+    ]
+   },
+   "need": {
+    "title": "1 admin change proposed",
+    "note": ""
+   },
+   "results": {
+    "title": "Nothing was applied",
+    "banner": "",
+    "undo": ""
+   },
+   "ended": "Expired. Nothing was applied.",
+   "items": [
+    {
+     "tag": "grant",
+     "tickable": true,
+     "warnings": [],
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     }
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "cs_withdrawn",
+    "title": "t",
+    "state": "withdrawn",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "grant.add",
+      "args": {},
+      "line": "Give Invoices read access to Orders (1)",
+      "before": "no access",
+      "after": "read"
+     }
+    ]
+   },
+   "ticks": [
+    1
+   ],
+   "review": {
+    "heading": "Your agent proposes 1 admin change",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "1 of 1 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply 1 change…",
+    "counts": [
+     0,
+     0
+    ]
+   },
+   "need": {
+    "title": "1 admin change proposed",
+    "note": ""
+   },
+   "results": {
+    "title": "Nothing was applied",
+    "banner": "",
+    "undo": ""
+   },
+   "ended": "Withdrawn by the agent. Nothing was applied.",
+   "items": [
+    {
+     "tag": "grant",
+     "tickable": true,
+     "warnings": [],
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     }
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "cs_by_xbin",
+    "title": "t",
+    "state": "withdrawn",
+    "withdrawnBy": "xbin",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "grant.add",
+      "args": {},
+      "line": "Give Invoices read access to Orders (1)",
+      "before": "no access",
+      "after": "read"
+     }
+    ]
+   },
+   "ticks": [
+    1
+   ],
+   "review": {
+    "heading": "Your agent proposes 1 admin change",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "1 of 1 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply 1 change…",
+    "counts": [
+     0,
+     0
+    ]
+   },
+   "need": {
+    "title": "1 admin change proposed",
+    "note": ""
+   },
+   "results": {
+    "title": "Nothing was applied",
+    "banner": "",
+    "undo": ""
+   },
+   "ended": "Withdrawn by xbin when your agent was stopped. Nothing was applied.",
+   "items": [
+    {
+     "tag": "grant",
+     "tickable": true,
+     "warnings": [],
+     "result": {
+      "word": "",
+      "icon": "",
       "tone": "",
       "text": ""
      }
@@ -2536,6 +2878,7 @@
     "banner": "One change failed. The one that was applied stays.",
     "undo": ""
    },
+   "ended": "",
    "items": [
     {
      "tag": "grant",
@@ -2937,6 +3280,7 @@
     "count": 3,
     "paused": false
    },
+   "stop": "",
    "words": null,
    "named": null
   },
@@ -2953,6 +3297,7 @@
     "count": 0,
     "paused": false
    },
+   "stop": "",
    "words": null,
    "named": null
   },
@@ -2983,6 +3328,7 @@
     "count": 0,
     "paused": false
    },
+   "stop": "no-agent",
    "words": null,
    "named": null
   },
@@ -3012,6 +3358,7 @@
     "count": 0,
     "paused": false
    },
+   "stop": "workspace-off",
    "words": null,
    "named": null
   },
@@ -3046,6 +3393,7 @@
     "count": 0,
     "paused": false
    },
+   "stop": "workspace-off",
    "words": null,
    "named": null
   },
@@ -3075,6 +3423,7 @@
     "count": 0,
     "paused": false
    },
+   "stop": "workspace-off",
    "words": null,
    "named": null
   },
@@ -3105,6 +3454,7 @@
     "count": 3,
     "paused": false
    },
+   "stop": "workspace-off",
    "words": {
     "title": "Turned off for this workspace.",
     "text": "An admin turned workspace agents off at 09:12. Nothing an agent started is running on your behalf. Your conversations and notebook are kept for when it is turned on again.",
@@ -3148,6 +3498,7 @@
     "count": 0,
     "paused": false
    },
+   "stop": "",
    "words": null,
    "named": null
   },
@@ -3184,6 +3535,7 @@
     "count": 3,
     "paused": false
    },
+   "stop": "",
    "words": null,
    "named": null
   },
@@ -3214,6 +3566,7 @@
     "count": 3,
     "paused": false
    },
+   "stop": "",
    "words": {
     "title": "Not available right now.",
     "text": "The workspace agent needs a language model, and this workspace has none connected at the moment. Your earlier conversations and the notebook are kept.",
@@ -3253,6 +3606,7 @@
     "count": 3,
     "paused": true
    },
+   "stop": "paused",
    "words": {
     "title": "Paused by you at 10:31.",
     "text": "Your agent can't read or change anything in the workspace until you resume. Tile agents that are already running keep going; their questions still come to you.",
@@ -3292,6 +3646,7 @@
     "count": 3,
     "paused": false
    },
+   "stop": "held",
    "words": {
     "title": "Locked after a restart.",
     "text": "Your agent's conversations and notebook are encrypted, and the workspace was restarted. They stay locked until an admin unlocks the workspace. Nothing is lost.",
@@ -3331,6 +3686,7 @@
     "count": 3,
     "paused": false
    },
+   "stop": "held",
    "words": {
     "title": "Waiting for a newer xbin.",
     "text": "This workspace is running an older xbin than the one that last saved your agent's data. To keep that data safe the agent stays off until xbin is updated again. Nothing has been changed or removed.",
@@ -3371,6 +3727,7 @@
     "count": 3,
     "paused": false
    },
+   "stop": "held",
    "words": {
     "title": "Not available on this xbin.",
     "text": "The workspace agent can't run here right now: tiles run without sandboxes here. Your conversations and notebook are kept.",
@@ -3407,6 +3764,7 @@
     "count": 3,
     "paused": false
    },
+   "stop": "",
    "words": {
     "title": "Workspace agents are on.",
     "text": "Approvals, what your agent did and your preferences work here already. The agent's own conversation is not part of this xbin yet: it arrives with an update.",
@@ -3450,6 +3808,7 @@
     "count": 0,
     "paused": false
    },
+   "stop": "no-agent",
    "words": null,
    "named": null
   },
@@ -3485,6 +3844,7 @@
     "count": 3,
     "paused": false
    },
+   "stop": "",
    "words": null,
    "named": null
   },
@@ -3521,6 +3881,7 @@
     "count": 0,
     "paused": false
    },
+   "stop": "no-agent",
    "words": null,
    "named": null
   }
@@ -3777,6 +4138,108 @@
    "paste": "paste the text your agent’s page suggests, once you have read it",
    "copy": "Copy the suggested text"
   },
+  "stops": [
+   [
+    "workspace-off",
+    "request",
+    {
+     "title": "Can't be allowed now",
+     "text": "Workspace agents are turned off for this workspace, so nothing can be allowed until an admin turns them on again.",
+     "still": "You can still deny it."
+    }
+   ],
+   [
+    "workspace-off",
+    "changeset",
+    {
+     "title": "Can't be applied now",
+     "text": "Workspace agents are turned off for this workspace, so nothing can be allowed until an admin turns them on again.",
+     "still": "You can still reject it."
+    }
+   ],
+   [
+    "paused",
+    "request",
+    {
+     "title": "Can't be allowed now",
+     "text": "Your agent is paused. Resume it first; then this can be allowed.",
+     "still": "You can still deny it."
+    }
+   ],
+   [
+    "paused",
+    "changeset",
+    {
+     "title": "Can't be applied now",
+     "text": "Your agent is paused. Resume it first; then this can be allowed.",
+     "still": "You can still reject it."
+    }
+   ],
+   [
+    "held",
+    "request",
+    {
+     "title": "Can't be allowed now",
+     "text": "Your agent is held on this xbin right now, so nothing can be allowed.",
+     "still": "You can still deny it."
+    }
+   ],
+   [
+    "held",
+    "changeset",
+    {
+     "title": "Can't be applied now",
+     "text": "Your agent is held on this xbin right now, so nothing can be allowed.",
+     "still": "You can still reject it."
+    }
+   ],
+   [
+    "no-agent",
+    "request",
+    {
+     "title": "Can't be allowed now",
+     "text": "You no longer have a workspace agent, so nothing can be allowed for it.",
+     "still": "You can still deny it."
+    }
+   ],
+   [
+    "no-agent",
+    "changeset",
+    {
+     "title": "Can't be applied now",
+     "text": "You no longer have a workspace agent, so nothing can be allowed for it.",
+     "still": "You can still reject it."
+    }
+   ],
+   [
+    "no-sandbox",
+    "request",
+    {
+     "title": "Can't be allowed now",
+     "text": "Your agent can't act on this xbin right now, so nothing can be allowed.",
+     "still": "You can still deny it."
+    }
+   ],
+   [
+    "no-sandbox",
+    "changeset",
+    {
+     "title": "Can't be applied now",
+     "text": "Your agent can't act on this xbin right now, so nothing can be allowed.",
+     "still": "You can still reject it."
+    }
+   ],
+   [
+    "",
+    "request",
+    null
+   ],
+   [
+    "",
+    "changeset",
+    null
+   ]
+  ],
   "standingNote": "Starting a tile agent and creating a tile are asked every time. Taking an approval back stops a change that is running under it.",
   "didNote": "Kept by xbin for 13 months. Your agent and its page can't read or change this list. It never holds what was sent, only what was called.",
   "arm": 600,

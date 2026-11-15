@@ -17,6 +17,11 @@
  *               position  "1 of 3" when more wait ('' none)
  *   events      bx-agent-done {id, verdict: 'allow' | 'deny' | 'later' | 'gone'}
  *
+ * While the agent is stopped — workspace agents off, paused, held, no agent
+ * (GET /delegate/state, or a 409 {refusal} to an Allow sent from a sheet
+ * that was open before) — the sheet says why in the place of Allow and
+ * sends nothing more; Deny stays.
+ *
  * Against a misclick and against a page that tries to make the click for
  * the person: Allow is not armed for 600 ms after the sheet (or its second
  * step) appears, and only while nothing covers it and the window has the
@@ -31,6 +36,7 @@ import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, asked, settled,
+  stopRefusal, stopWords,
 } from '/vendor/agent-chrome-words.js';
 
 /** uncovered(el): the person can see el and nothing is drawn over its middle — through every shadow root on the way. */
@@ -88,6 +94,7 @@ export class BxAgentApprove extends LitElement {
   static properties = {
     request: { attribute: false }, person: { type: String }, position: { type: String },
     _choice: { state: true }, _duration: { state: true }, _step: { state: true }, _armed: { state: true }, _busy: { state: true }, _err: { state: true }, _all: { state: true },
+    _stopped: { state: true },
   };
 
   static styles = [chromeCss, css`
@@ -115,20 +122,25 @@ export class BxAgentApprove extends LitElement {
     super();
     this.request = null; this.person = ''; this.position = '';
     this._choice = 'once'; this._duration = ''; this._step = 'main'; this._armed = false; this._busy = false; this._err = ''; this._all = false;
+    this._stopped = ''; // a 409's refusal: the agent stopped while the sheet was open
     this._timer = 0;
     this.store = agentStore();
     this._widen = new WidenGuard(this); // the wider standing choices
   }
 
   willUpdate(ch) {
-    if (ch.has('request')) { this._choice = 'once'; this._duration = ''; this._step = 'main'; this._err = ''; this._all = false; this._arm(); }
+    if (ch.has('request')) { this._choice = 'once'; this._duration = ''; this._step = 'main'; this._err = ''; this._all = false; this._stopped = ''; this._arm(); }
   }
 
   updated(ch) {
     if (ch.has('request') || ch.has('_step')) this.renderRoot.querySelector('h2')?.focus();
   }
 
-  disconnectedCallback() { super.disconnectedCallback(); clearTimeout(this._timer); }
+  connectedCallback() { super.connectedCallback(); this._unsub = this.store.subscribe(() => this.requestUpdate()); } // the switches, as they turn
+  disconnectedCallback() { super.disconnectedCallback(); clearTimeout(this._timer); if (this._unsub) this._unsub(); }
+
+  /** stopped: why nothing can be allowed now ('' when it can) — xbind's 409, else the state. */
+  get stopped() { return this._stopped || stopRefusal(this.store.state); }
 
   // Allow answers only after the sheet has been in front of the person for a moment
   _arm() {
@@ -148,13 +160,14 @@ export class BxAgentApprove extends LitElement {
   }
 
   async _allow(e) {
-    if (!this._may(e)) return;
+    if (!this._may(e) || this.stopped) return;
     const req = this.request;
     if (req.kind === 'call' && this._choice === 'tile' && this._step === 'main') { this._step = 'wider'; this._arm(); return; }
     this._busy = true; this._err = '';
     const r = await this.store.approve(req.id, approveBody(req, this._choice, this._duration || CHOICES.duration[this._choice]));
     this._busy = false;
-    if (r.ok) this._done('allow'); else if (r.gone) this._done('gone'); else { this._err = r.error; this._arm(); }
+    // stopped meanwhile: say why where Allow was — never send it again
+    if (r.ok) this._done('allow'); else if (r.stopped) this._stopAt(r.stopped); else if (r.gone) this._done('gone'); else { this._err = r.error; this._arm(); }
   }
 
   async _deny(e) {
@@ -245,7 +258,7 @@ export class BxAgentApprove extends LitElement {
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
       </div>
       <div class="foot"><span class="when small muted">${asked(req)}</span>
-        <button class="danger arming" data-allow="tile" aria-disabled=${this._armed && !this._busy ? 'false' : 'true'} @click=${this._allow}>${w.allow}</button>
+        ${this.stopped ? this._stop() : html`<button class="danger arming" data-allow="tile" aria-disabled=${this._armed && !this._busy ? 'false' : 'true'} @click=${this._allow}>${w.allow}</button>`}
         <button class="primary" data-back @click=${() => { this._step = 'main'; this._arm(); }}>${w.back}</button></div>`;
   }
 
@@ -282,10 +295,24 @@ export class BxAgentApprove extends LitElement {
     const on = this._armed && !this._busy;
     return html`<div class="foot">
       <span class="when small muted">${req.kind === 'call' ? asked(req) : `asked every time${req.kind === 'session' ? ' · change in Preferences' : ''}`}</span>
-      <button class=${never ? 'primary' : ''} data-deny ?disabled=${this._busy} @click=${this._deny}>Deny</button>
-      <button class="${never ? 'danger' : 'primary'} arming" data-allow=${this._choice} aria-disabled=${on ? 'false' : 'true'} aria-label=${allowSpoken(req, this._choice)}
-        @click=${this._allow}>${allowLabel(req, this._choice)}</button>
+      <button class=${never || this.stopped ? 'primary' : ''} data-deny ?disabled=${this._busy} @click=${this._deny}>Deny</button>
+      ${this.stopped ? this._stop() : html`<button class="${never ? 'danger' : 'primary'} arming" data-allow=${this._choice} aria-disabled=${on ? 'false' : 'true'} aria-label=${allowSpoken(req, this._choice)}
+        @click=${this._allow}>${allowLabel(req, this._choice)}</button>`}
     </div>`;
+  }
+
+  // a 409 {refusal}: the reason replaces Allow, and focus — which was on Allow — moves to Deny (Escape still closes)
+  async _stopAt(refusal) {
+    this._stopped = refusal;
+    await this.updateComplete;
+    this.renderRoot.querySelector('button[data-deny]')?.focus();
+  }
+
+  // in the place of Allow while the agent is stopped: why, and that Deny still works
+  _stop() {
+    const w = stopWords(this.stopped, 'request');
+    return html`<div class="banner warn stopped" role="status" data-stopped=${this.stopped}><bx-icon name="pause"></bx-icon>
+      <span><b>${w.title}.</b> ${w.text} ${w.still}</span></div>`;
   }
 }
 if (!customElements.get('bx-agent-approve')) customElements.define('bx-agent-approve', BxAgentApprove);

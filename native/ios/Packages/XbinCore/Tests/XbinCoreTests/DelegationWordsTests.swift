@@ -85,6 +85,7 @@ import Testing
             #expect(DelegationWords.reviewWords(cs, ticked: 0).apply == "Apply none")
             let need = DelegationWords.needChangeTitle(cs)
             #expect(need.title == s(c["need"], "title") && need.note == s(c["need"], "note"), "\(cs.id)")
+            #expect(DelegationWords.endedWords(cs) == s(c, "ended"), "\(cs.id)")
             let res = DelegationWords.resultsWords(cs)
             #expect(res.title == s(c["results"], "title"), "\(cs.id)")
             #expect(res.banner == s(c["results"], "banner"), "\(cs.id)")
@@ -131,6 +132,7 @@ import Testing
             let state = DelegateState(json: c["state"])
             let dock = DelegationWords.dock(state: state, llmConfigured: c["llm"]?["configured"]?.boolValue, admin: c["admin"]?.boolValue ?? false)
             #expect(dock.rawValue == s(c, "dock"), "\(name)")
+            #expect(DelegationWords.stopRefusal(state) == s(c, "stop"), "\(name)")
             let count = (state?.pendingRequests ?? 0) + (state?.openChangeSets ?? 0)
             let chip = DelegationWords.chip(dock, count: count)
             #expect(chip.shown == c["chip"]?["shown"]?.boolValue, "\(name)")
@@ -178,6 +180,18 @@ import Testing
         #expect(pw.heading == s(small["stepUp"]?[0], "heading") && pw.text == s(small["stepUp"]?[0], "text") && pw.action == s(small["stepUp"]?[0], "action") && pw.password)
         #expect(si.heading == s(small["stepUp"]?[1], "heading") && si.text == s(small["stepUp"]?[1], "text") && si.action == s(small["stepUp"]?[1], "action") && !si.password)
         #expect(AgentChoices.armSeconds * 1000 == small["arm"]?.doubleValue)
+        // in place of Allow / Apply while the agent is stopped: the web's words, refusal by refusal
+        let stops = small["stops"]?.arrayValue ?? []
+        #expect(stops.count == 12)
+        for c in stops {
+            let refusal = c[0]?.stringValue ?? "", sets = c[1]?.stringValue == "changeset"
+            let got = DelegationWords.stopWords(refusal, changeset: sets)
+            if c[2]?.isNull ?? true {
+                #expect(got == nil, "\(refusal)")
+            } else {
+                #expect(got?.title == s(c[2], "title") && got?.text == s(c[2], "text") && got?.still == s(c[2], "still"), "\(refusal) \(sets)")
+            }
+        }
         // what the agent's view may ask the chrome to open: the web chrome's PAGE_VIEWS, to the letter — never Preferences
         #expect(AgentBridge.View.allCases.map(\.rawValue) == (small["pageViews"]?.arrayValue ?? []).compactMap(\.stringValue))
         for c in small["pageMessages"]?.arrayValue ?? [] {
@@ -253,6 +267,8 @@ import Testing
         #expect(DelegateOutcome.read(json(403, ["error": "x", "stepUp": "signin"])) == .stepUp("signin", wrongPassword: false))
         #expect(DelegateOutcome.read(json(409, ["unseen": true, "bodySize": 12, "bodySha256": "ab"])) == .unseen(size: 12, sha256: "ab"))
         #expect(DelegateOutcome.read(json(403, ["error": "not yours"])) == .failed("not yours"))
+        // the agent is stopped: why, never "it no longer waits"
+        #expect(DelegateOutcome.read(json(409, ["error": "you paused your agent", "refusal": "paused"])) == .stopped(refusal: "paused", message: "you paused your agent"))
     }
 
     /// Which routes are grants — what a tile's credential must never carry

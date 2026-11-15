@@ -836,6 +836,39 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         await e.server.end(session)
     }
 
+    /// Paused, nothing can be allowed: the approval says why in the place
+    /// of Allow, and Deny still works (xbind refuses an Allow then with 409
+    /// {refusal: paused}; a pause keeps the request pending).
+    @MainActor
+    func test18LiveNothingIsAllowedWhilePaused() async throws {
+        try requireAgent()
+        let e = try E2E(self)
+        let server = e.server
+        let run = try await server.wsPrepare("E2E stopped")
+        let ref = try await server.wsFileNoteRequest(run, note: "while paused")
+        addTeardownBlock { _ = try? await server.send("PUT", "/api/xbin/delegate/state", json: ["paused": false]) }
+        _ = try await server.send("PUT", "/api/xbin/delegate/state", json: ["paused": true])
+        e.launch()
+        e.ensureWorkspace()
+        e.goHome()
+        e.wsOpen()
+        let review = e.wsReview(ref)
+        e.expect(review, 90, "the request's card, while paused")
+        review.tap()
+        let stopped = e.element("approval-stopped")
+        e.expect(stopped, 30, "why, where Allow would be")
+        XCTAssertTrue(stopped.label.contains("Your agent is paused. Resume it first"), stopped.label)
+        XCTAssertTrue(stopped.label.contains("You can still deny it."), stopped.label)
+        XCTAssertFalse(e.app.buttons.matching(identifier: "approval-allow").firstMatch.exists, "no Allow while paused")
+        e.shot("wsagent2-37-live-paused-approval")
+        let pending = try await server.wsRequestState(ref)
+        XCTAssertEqual(pending, "pending", "a pause keeps the request")
+        let deny = e.app.buttons.matching(identifier: "approval-deny").firstMatch
+        XCTAssertTrue(deny.isEnabled, "Deny works while paused")
+        deny.tap()
+        await e.eventually("denied at xbind", timeout: 15) { try await server.wsRequestState(ref) == "denied" }
+    }
+
     // MARK: The gallery
 
     /// The states and the sheets in light and dark:

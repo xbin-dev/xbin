@@ -48,6 +48,8 @@ export const chromeCss = css`
   .banner.warn { border-color: var(--bx-warn, #F2994A); background: var(--bx-warn-bg, #382F2C); }
   .banner.bad { border-color: var(--bx-danger, #FF7A7A); background: var(--bx-danger-bg, #3A2B32); }
   .banner bx-icon { flex: none; margin-top: 1px; }
+  /* in place of Allow / Apply while the agent is stopped: why, and that Deny / Reject still work */
+  .banner.stopped { flex: 1 1 220px; min-width: 0; }
   .banner.warn bx-icon { color: var(--bx-warn, #F2994A); } .banner.bad bx-icon { color: var(--bx-danger, #FF7A7A); }
   /* xbin's own bar: inverted, so it reads as the product speaking and not the page under it */
   .xbar { display: flex; align-items: center; gap: 8px; padding: 4px 12px; background: var(--bx-text, #E9EAF0); color: var(--bx-bg, #0B0C12);

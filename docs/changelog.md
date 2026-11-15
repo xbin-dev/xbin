@@ -12,6 +12,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- delegation, the workspace agent's chrome (web and app): **nothing can
+  be allowed while the agent is stopped.** Approving a request (once,
+  hour, always), `POST /delegate/approvals` and applying a change set
+  answer `409 {error, refusal}` — `workspace-off`, `paused`, `held`,
+  `no-agent` — unless workspace agents are on, the person has an agent and
+  it is neither paused nor held; before, a ticket or an "always" given then
+  was live the moment the agent ran again. Deny and Reject always work.
+  Switching workspace agents off, taking a person's agent away, or
+  disabling them withdraws their pending requests and proposed change sets
+  (`withdrawnBy: "xbin"`, additive); a pause or a hold keeps them to decide
+  afterwards. The sheets say why in the place of Allow or Apply
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §The switches).
 - delegation: the workspace's switch (`PUT /delegate/workspace
   {enabled}`) now also sends a `delegate` event with `op: "state"` to the
   own sockets of every person who has an agent, and of the admin who turned

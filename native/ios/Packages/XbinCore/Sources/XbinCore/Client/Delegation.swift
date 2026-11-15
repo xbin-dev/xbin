@@ -118,6 +118,9 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
     public var decided: Date?
     public var expires: Date?
     public var decidedVia: String
+    /// "xbin" for a request xbind withdrew because the agent stopped for
+    /// good (switched off, no longer the person's); "" otherwise.
+    public var withdrawnBy: String
 
     public init?(json: JSONValue?) {
         guard let json, let id = json["id"]?.stringValue, !id.isEmpty else { return nil }
@@ -140,6 +143,7 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
         decided = DelegateTime.date(json["decided"])
         expires = DelegateTime.date(json["expires"])
         decidedVia = json["decidedVia"]?.stringValue ?? ""
+        withdrawnBy = json["withdrawnBy"]?.stringValue ?? ""
     }
 
     public var isPending: Bool { state == .pending }
@@ -237,6 +241,8 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
     public var decided: Date?
     public var expires: Date?
     public var items: [Item]
+    /// "xbin" for a proposal xbind withdrew because the agent stopped for good.
+    public var withdrawnBy: String
 
     public init?(json: JSONValue?) {
         guard let json, let id = json["id"]?.stringValue, !id.isEmpty else { return nil }
@@ -248,6 +254,7 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
         decided = DelegateTime.date(json["decided"])
         expires = DelegateTime.date(json["expires"])
         items = (json["items"]?.arrayValue ?? []).compactMap(Item.init(json:))
+        withdrawnBy = json["withdrawnBy"]?.stringValue ?? ""
     }
 
     public var isProposed: Bool { state == .proposed }
@@ -420,6 +427,10 @@ public enum DelegateOutcome: Sendable, Equatable {
     case stepUp(String, wrongPassword: Bool)
     /// A body nobody could read needs `unseen: true`.
     case unseen(size: Int, sha256: String)
+    /// Nothing can be allowed or applied now: the agent is stopped
+    /// (`refusal`: workspace-off, paused, held, no-agent, …). Say why where
+    /// Allow was; never send it again.
+    case stopped(refusal: String, message: String)
     case failed(String)
 
     /// Reads an answer to approve / deny / apply.
@@ -431,6 +442,7 @@ public enum DelegateOutcome: Sendable, Equatable {
         if r.status == 409, j["unseen"]?.boolValue == true {
             return .unseen(size: Int(j["bodySize"]?.intValue ?? 0), sha256: j["bodySha256"]?.stringValue ?? "")
         }
+        if r.status == 409, let refusal = j["refusal"]?.stringValue, !refusal.isEmpty { return .stopped(refusal: refusal, message: msg) }
         if r.status == 409 || r.status == 404 { return .gone(msg) }
         return .failed(msg)
     }

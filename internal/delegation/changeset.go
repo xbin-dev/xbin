@@ -132,6 +132,9 @@ type ChangeSet struct {
 	Decided time.Time    `json:"decided,omitempty"`
 	Expires time.Time    `json:"expires"`
 	Items   []ChangeItem `json:"items"`
+	// WithdrawnBy is "xbin" for a proposal xbind withdrew because its
+	// person's agent stopped for good (WithdrawOpenSets).
+	WithdrawnBy string `json:"withdrawnBy,omitempty"`
 }
 
 // Open reports a set still waiting for its person.
@@ -362,6 +365,33 @@ func (s *Store) ChangeSet(user, id string) (ChangeSet, bool) {
 		}
 	}
 	return ChangeSet{}, false
+}
+
+// WithdrawOpenSets withdraws every proposed set of user (WithdrawnBy
+// "xbin"), as WithdrawPending does their requests, and answers the ids.
+func (s *Store) WithdrawOpenSets(user string) ([]string, error) {
+	if s == nil {
+		return nil, ErrNoStore
+	}
+	p := s.lockSets(user)
+	defer p.setsMu.Unlock()
+	sets, err := s.setsLocked(p, user)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now().UTC().Truncate(time.Second)
+	var ids []string
+	for _, cs := range sets {
+		if !cs.Open() {
+			continue
+		}
+		cs.State, cs.Decided, cs.WithdrawnBy = SetWithdrawn, now, WithdrawnByXbin
+		if err := s.writeSet(p, cs); err != nil {
+			return ids, err
+		}
+		ids = append(ids, cs.ID)
+	}
+	return ids, nil
 }
 
 // UpdateChangeSet applies change to user's set id and writes it. change's

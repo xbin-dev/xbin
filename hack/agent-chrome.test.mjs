@@ -214,3 +214,27 @@ test('preferences: the modes a started tile agent may get — only ones that ask
   assert.deepEqual(W.sessionModes(null, null), []);
   assert.match(W.neverAsks(['Bypass permissions']), /^Not offered: Bypass permissions — it acts without asking you first/);
 });
+
+test('while the agent is stopped nothing can be allowed: the reason in the place of Allow, Deny and Reject stay', () => {
+  const on = { workspace: true, access: true, agent: 'xbin/wsagent', paused: false };
+  assert.equal(W.stopRefusal(on), '');
+  assert.equal(W.stopRefusal(null), '');
+  assert.equal(W.stopRefusal({ ...on, workspace: false }), 'workspace-off');
+  assert.equal(W.stopRefusal({ ...on, access: false, agent: '' }), 'no-agent');
+  assert.equal(W.stopRefusal({ ...on, paused: true }), 'paused');
+  assert.equal(W.stopRefusal({ ...on, held: 'locked' }), 'held');
+  // the switch outranks the person's own pause, as xbind's refusal does
+  assert.equal(W.stopRefusal({ ...on, workspace: false, paused: true }), 'workspace-off');
+  assert.equal(W.stopWords(''), null);
+  const p = W.stopWords('paused');
+  assert.match(p.text, /Resume it first/);
+  assert.equal(p.still, 'You can still deny it.');
+  assert.equal(W.stopWords('workspace-off', 'changeset').still, 'You can still reject it.');
+  assert.equal(W.stopWords('workspace-off', 'changeset').title, "Can't be applied now");
+  // a refusal this page doesn't know is still a refusal: said in general words, never taken for "allowed"
+  assert.match(W.stopWords('no-sandbox').text, /can't act on this xbin/);
+  // withdrawn by xbin, not by the agent
+  assert.equal(W.settled({ state: 'withdrawn', withdrawnBy: 'xbin' }), 'Withdrawn by xbin when your agent was stopped');
+  assert.equal(W.endedWords({ state: 'withdrawn', withdrawnBy: 'xbin' }), 'Withdrawn by xbin when your agent was stopped. Nothing was applied.');
+  assert.equal(W.endedWords({ state: 'applied' }), '');
+});

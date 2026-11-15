@@ -221,9 +221,48 @@ export function settled(req) {
     case 'used': return `Allowed by you, and used${at}`;
     case 'denied': return `Denied by you${at}`;
     case 'expired': return 'Expired — not approved within 24 hours.';
-    case 'withdrawn': return 'Withdrawn by the agent';
+    case 'withdrawn': return req.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped' : 'Withdrawn by the agent';
   }
   return 'Waiting for your approval';
+}
+
+// ---- when nothing can be allowed ---------------------------------------------------------
+
+/**
+ * stopRefusal(state): why the person can't ALLOW anything for their agent
+ * now, read from GET /delegate/state — the refusal xbind answers Allow,
+ * Always and Apply with then (409 {refusal}): 'workspace-off', 'no-agent',
+ * 'paused', 'held'; '' when nothing stops it. Deny and Reject always work.
+ */
+export function stopRefusal(state) {
+  if (!state) return '';
+  if (!state.workspace) return 'workspace-off';
+  if (state.access === false) return 'no-agent';
+  if (state.paused) return 'paused';
+  if (state.held) return 'held';
+  return '';
+}
+
+const STOPPED = {
+  'workspace-off': 'Workspace agents are turned off for this workspace, so nothing can be allowed until an admin turns them on again.',
+  paused: 'Your agent is paused. Resume it first; then this can be allowed.',
+  held: 'Your agent is held on this xbin right now, so nothing can be allowed.',
+  'no-agent': 'You no longer have a workspace agent, so nothing can be allowed for it.',
+};
+/**
+ * stopWords(refusal, kind): what a sheet says in place of Allow (kind
+ * 'request') or Apply ('changeset') while its agent is stopped —
+ * {title, text, still}, or null for no refusal. Any refusal xbind names
+ * (a 409's) is said; one this page doesn't know, in general words.
+ */
+export function stopWords(refusal, kind = 'request') {
+  if (!refusal) return null;
+  const sets = kind === 'changeset';
+  return {
+    title: sets ? "Can't be applied now" : "Can't be allowed now",
+    text: STOPPED[refusal] || "Your agent can't act on this xbin right now, so nothing can be allowed.",
+    still: sets ? 'You can still reject it.' : 'You can still deny it.',
+  };
 }
 
 // ---- standing approvals ------------------------------------------------------------------
@@ -314,6 +353,16 @@ export function resultsWords(cs) {
   }
   const undoable = applied.filter((it) => it.inverse).length;
   return { title, banner, undo: undoable ? `Undo the ${undoable} applied…` : '' };
+}
+
+/** endedWords(cs): how a set that was not applied ended ('' for one applied, in part or whole, or still waiting). */
+export function endedWords(cs) {
+  switch (cs && cs.state) {
+    case 'rejected': return 'Rejected by you. Nothing was applied.';
+    case 'expired': return 'Expired. Nothing was applied.';
+    case 'withdrawn': return cs.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped. Nothing was applied.' : 'Withdrawn by the agent. Nothing was applied.';
+  }
+  return '';
 }
 
 /** stepUp(kind): the recent-sign-in step, as the server asked for it. */

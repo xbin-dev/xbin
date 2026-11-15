@@ -352,9 +352,46 @@ public enum DelegationWords {
         case .used: return "Allowed by you, and used\(at)"
         case .denied: return "Denied by you\(at)"
         case .expired: return "Expired — not approved within 24 hours."
-        case .withdrawn: return "Withdrawn by the agent"
+        case .withdrawn: return r.withdrawnBy == "xbin" ? "Withdrawn by xbin when your agent was stopped" : "Withdrawn by the agent"
         case .pending: return "Waiting for your approval"
         }
+    }
+
+    // MARK: When nothing can be allowed
+
+    /// Why the person can't ALLOW anything for their agent now, from
+    /// `GET /delegate/state` — the refusal xbind answers Allow, Always and
+    /// Apply with then: "workspace-off", "no-agent", "paused", "held"; ""
+    /// when nothing stops it. Deny and Reject always work.
+    public static func stopRefusal(_ state: DelegateState?) -> String {
+        guard let state else { return "" }
+        if !state.workspace { return "workspace-off" }
+        if state.access == false { return "no-agent" }
+        if state.paused { return "paused" }
+        if !state.held.isEmpty { return "held" }
+        return ""
+    }
+
+    /// What a sheet says in place of Allow (`changeset`: Apply) while the
+    /// agent is stopped; nil for no refusal. A refusal this app doesn't
+    /// know is said in general words.
+    public static func stopWords(_ refusal: String, changeset: Bool = false) -> (title: String, text: String, still: String)? {
+        guard !refusal.isEmpty else { return nil }
+        let text: String
+        switch refusal {
+        case "workspace-off": text = "Workspace agents are turned off for this workspace, so nothing can be allowed until an admin turns them on again."
+        case "paused": text = "Your agent is paused. Resume it first; then this can be allowed."
+        case "held": text = "Your agent is held on this xbin right now, so nothing can be allowed."
+        case "no-agent": text = "You no longer have a workspace agent, so nothing can be allowed for it."
+        default: text = "Your agent can't act on this xbin right now, so nothing can be allowed."
+        }
+        return (changeset ? "Can't be applied now" : "Can't be allowed now", text, changeset ? "You can still reject it." : "You can still deny it.")
+    }
+
+    /// The whole line, as the sheet shows it.
+    public static func stopLine(_ refusal: String, changeset: Bool = false) -> String {
+        guard let w = stopWords(refusal, changeset: changeset) else { return "" }
+        return "\(w.title). \(w.text) \(w.still)"
     }
 
     /// A request's card in the conversation (the app draws it for a
@@ -526,6 +563,18 @@ public enum DelegationWords {
         }
         let undoable = applied.filter(\.hasInverse).count
         return (title, banner, undoable > 0 ? "Undo the \(undoable) applied…" : "")
+    }
+
+    /// How a set that was not applied ended ("" for one applied, in part or
+    /// whole, or still waiting).
+    public static func endedWords(_ c: AdminChangeSet) -> String {
+        switch c.state {
+        case .rejected: return "Rejected by you. Nothing was applied."
+        case .expired: return "Expired. Nothing was applied."
+        case .withdrawn:
+            return c.withdrawnBy == "xbin" ? "Withdrawn by xbin when your agent was stopped. Nothing was applied." : "Withdrawn by the agent. Nothing was applied."
+        default: return ""
+        }
     }
 
     /// The recent-sign-in step, as the server asked for it.

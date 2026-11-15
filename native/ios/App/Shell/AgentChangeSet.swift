@@ -31,6 +31,11 @@ struct AgentChangeSetSheet: View {
     @State private var stepUp: String?
     @State private var password = ""
     @State private var wrongPassword = false
+    /// A 409's refusal: the agent stopped while the review was open.
+    @State private var refusal = ""
+
+    /// Why nothing can be applied now ("" when it can): xbind's 409, else the state.
+    private var stop: String { refusal.isEmpty ? DelegationWords.stopRefusal(workspace.agent.state) : refusal }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -85,7 +90,9 @@ struct AgentChangeSetSheet: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // ("Apply none" rejects: nothing is allowed by it, so it stays while stopped)
         AgentDecisionBar(deny: "Reject all", allow: w.apply, id: "changeset", armed: arming.armed, working: working,
+                         stopped: ticks.isEmpty ? "" : DelegationWords.stopLine(stop, changeset: true),
                          onDeny: { decide(s, apply: false) }, onAllow: { decide(s, apply: !ticks.isEmpty) })
     }
 
@@ -216,6 +223,11 @@ struct AgentChangeSetSheet: View {
             problem = why
         case .unseen:
             problem = "xbin refused it."
+        case .stopped(let why, _):
+            // stopped meanwhile: the reason shows where Apply was; nothing is sent again
+            refusal = why
+            stepUp = nil
+            password = ""
         }
     }
 
@@ -247,6 +259,7 @@ struct AgentChangeSetSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         AgentDecisionBar(deny: "Not now", allow: w.action, id: "stepup", armed: w.password ? !password.isEmpty : true, working: working,
+                         stopped: DelegationWords.stopLine(stop, changeset: true),
                          onDeny: { stepUp = nil; password = "" },
                          onAllow: {
                              if w.password {
@@ -312,9 +325,7 @@ struct AgentChangeSetSheet: View {
 
     private func stateTitle(_ s: AdminChangeSet) -> String {
         switch s.state {
-        case .rejected: return "Rejected by you. Nothing was applied."
-        case .expired: return "Expired. Nothing was applied."
-        case .withdrawn: return "Withdrawn by the agent. Nothing was applied."
+        case .rejected, .expired, .withdrawn: return DelegationWords.endedWords(s)
         case .applying: return "Applying now…"
         default: return DelegationWords.resultsWords(s).title
         }

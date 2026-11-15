@@ -34,6 +34,7 @@ export const requests = [
   call({ id: 'rq_denied', state: 'denied', decided: t('10:15:00') }),
   call({ id: 'rq_expired', state: 'expired', expires: t('09:00:00') }),
   call({ id: 'rq_withdrawn', state: 'withdrawn' }),
+  call({ id: 'rq_by_xbin', state: 'withdrawn', withdrawnBy: 'xbin', decided: t('10:15:00') }),
   call({ id: 'rq_soon', expires: t('10:16:20'), created: '0001-01-01T00:00:00Z' }),
   session(),
   session({ asks: false, mode: 'bypassPermissions', net: 'internet', api: false, model: '', credentials: 'own' }, { id: 'rq_never' }),
@@ -59,6 +60,10 @@ export const changesets = [
   { id: 'cs_all', title: 't', state: 'applied', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1, { result: 'applied' }), item(2, { result: 'applied' }), item(3, { result: 'applied' })] },
   { id: 'cs_one', title: 't', state: 'applied', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1, { result: 'applied', inverse: {} })] },
   { id: 'cs_none', title: 't', state: 'partial', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1, { result: 'failed' }), item(2, { result: 'skipped' }), item(3, { result: 'skipped' })] },
+  { id: 'cs_rejected', title: 't', state: 'rejected', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1, { result: 'rejected' })] },
+  { id: 'cs_expired', title: 't', state: 'expired', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1)] },
+  { id: 'cs_withdrawn', title: 't', state: 'withdrawn', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1)] },
+  { id: 'cs_by_xbin', title: 't', state: 'withdrawn', withdrawnBy: 'xbin', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1)] },
   { id: 'cs_ff', title: 't', state: 'partial', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [item(1, { result: 'applied' }), item(2, { result: 'failed', error: 'x' }), item(3, { result: 'stale' })] },
 ];
 
@@ -124,7 +129,7 @@ for (const r of requests) {
 }
 for (const c of changesets) {
   const ticks = W.initialTicks(c);
-  out.changesets.push({ json: c, ticks, review: W.reviewWords(c, ticks), need: W.needChangeTitle(c), results: W.resultsWords(c),
+  out.changesets.push({ json: c, ticks, review: W.reviewWords(c, ticks), need: W.needChangeTitle(c), results: W.resultsWords(c), ended: W.endedWords(c),
     items: c.items.map((it) => ({ tag: W.kindTag(it.kind), tickable: W.tickable(it), warnings: (it.warnings || []).map(W.warning), result: W.resultOf(it) })) });
 }
 for (const a of approvals) { const r = W.standingRow(a, NOW); out.approvals.push({ json: a, tile: r.tile, text: r.text, wider: r.wider, until: r.until }); }
@@ -133,7 +138,7 @@ for (const s of states) {
   const x = { state: s.state, llm: s.llm, me: { admin: s.admin } };
   const dock = W.dockState(x);
   const count = W.needCount(s.state);
-  out.states.push({ name: s.name, state: s.state, llm: s.llm, admin: s.admin, dock, chip: W.chip({ ...x, count }),
+  out.states.push({ name: s.name, state: s.state, llm: s.llm, admin: s.admin, dock, chip: W.chip({ ...x, count }), stop: W.stopRefusal(s.state),
     words: W.stateWords(dock, { at: s.state && (dock === 'paused' ? s.state.pausedAt : s.state.workspaceAt), held: s.state && s.state.held, why: s.state && s.state.heldWhy, admins: [] }),
     named: W.stateWords(dock, { held: s.state && s.state.held, admins: ['Mira Okafor', 'Jonas Lind', 'Kit'] }) });
 }
@@ -145,6 +150,8 @@ out.small = {
   needs: W.needs({ requests, changesets }, NOW).map((n) => ({ kind: n.kind, id: n.id, title: n.title, note: n.note })),
   pageViews: [...W.PAGE_VIEWS], pageMessages: [['needs'], ['approvals'], ['activity'], ['prefs'], ['setup'], ['']].map(([view]) => [view, W.pageMessage({ type: 'xbin:agent-open', view })]),
   draftFrom: { ...W.DRAFT_FROM },
+  // what a sheet says in place of Allow / Apply while the agent is stopped, for each refusal xbind answers (and one it doesn't know)
+  stops: ['workspace-off', 'paused', 'held', 'no-agent', 'no-sandbox', ''].flatMap((r) => ['request', 'changeset'].map((k) => [r, k, W.stopWords(r, k)])),
   standingNote: W.STANDING_NOTE, didNote: W.DID_NOTE, arm: W.CHOICES.armMs, duration: W.CHOICES.duration,
 };
 // ---- the app's Debug demo (-XbinAgentDemo <state>, native/AGENTS.md): the same corpus, as xbind would answer it ----

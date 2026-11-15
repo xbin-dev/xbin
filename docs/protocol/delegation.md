@@ -418,14 +418,27 @@ POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
 
 **What each switch stops.**
 
-| | new calls | calls in flight | the agent's model turns | approved, unused tickets | messages it queued for tile agents | standing approvals | pending requests |
-|---|---|---|---|---|---|---|---|
-| the person pauses | refused | cut | refused at the LLM connector | void | taken back | **kept** (the person resumes on purpose) | kept |
-| the workspace's switch off | refused | cut | refused | void | taken back | dropped | kept |
-| the person disabled or deleted | refused (no credential) | cut | refused | void | taken back | dropped | kept until they expire |
-| the agent is held (a newer xbin's data, a locked vault) | refused (`held`) | cut at the next check | refused | void | taken back | **kept** (for when it clears) | kept |
-| the person is no longer given an agent | refused (`no-agent`) | cut | refused | void | taken back | dropped | kept until they expire |
-| the person loses a tile | refused for that tile | cut | — | refused at use (the tile is judged again) | — | dropped for that tile | refused at use |
+| | new calls | calls in flight | the agent's model turns | approved, unused tickets | messages it queued for tile agents | standing approvals | pending requests and proposed change sets | the person allowing (Allow, Always, a standing approval, Apply) |
+|---|---|---|---|---|---|---|---|---|
+| the person pauses | refused | cut | refused at the LLM connector | void | taken back | **kept** (the person resumes on purpose) | kept: decided after resuming | refused (`paused`) |
+| the workspace's switch off | refused | cut | refused | void | taken back | dropped | **withdrawn** by xbin | refused (`workspace-off`) |
+| the person disabled or deleted | refused (no credential) | cut | refused | void | taken back | dropped | **withdrawn** by xbin | — (no session) |
+| the agent is held (a newer xbin's data, a locked vault) | refused (`held`) | cut at the next check | refused | void | taken back | **kept** (for when it clears) | kept: decided once it clears | refused (`held`) |
+| the person is no longer given an agent | refused (`no-agent`) | cut | refused | void | taken back | dropped | **withdrawn** by xbin | refused (`no-agent`) |
+| the person loses a tile | refused for that tile | cut | — | refused at use (the tile is judged again) | — | dropped for that tile | refused at use | — |
+
+**While the agent is stopped nothing can be allowed.** Approving a request
+(once, hour or always), `POST /delegate/approvals` and applying a change set
+answer `409 {error, refusal, docs}` — `refusal` is the switch, the
+delegate gate's own word for it (`workspace-off`, `paused`, `held`,
+`no-agent`; `no-sandbox` on an xbind that can't run agents at all) —
+unless the workspace's switch is on, the person was given an agent, it is
+not paused and not held. Denying a request and rejecting a change set
+always work. Otherwise a ticket or an "always" given while it was stopped
+would be live the moment it ran again: a stop voids only what was approved
+before it. A request or set **withdrawn by xbin** carries `withdrawnBy:
+"xbin"`; the agent's backend is told of each once, as of any request or set
+that changed (§Notices).
 
 **Having an agent is being given one.** The delegate gate, the LLM
 connector's holder rule and `access` all ask the same thing: an access
@@ -447,7 +460,8 @@ users file edited while it was down) is caught the next time people
 change, and at boot.
 
 Resuming, or switching back on, brings nothing back: a ticket that was
-void stays void, and a dropped approval is given again by the person.
+void stays void, a withdrawn request or change set stays withdrawn (the
+agent asks again), and a dropped approval is given again by the person.
 Tile agents the agent started keep running through all of these — they are
 the person's sessions; only what the workspace agent had queued for them
 is taken back.
@@ -507,7 +521,8 @@ POST   /delegate/requests/<id>/approve
                                  a standing approval — of this call
                                  (scope "call", the default) or of every
                                  write to the tile (scope "tile"). 409 when
-                                 no longer pending
+                                 no longer pending; 409 {refusal} while
+                                 the agent is stopped (§The switches)
 POST   /delegate/requests/<id>/deny
                                  the person. → {request}
 DELETE /delegate/requests/<id>  the person, or their agent. withdraws a
@@ -521,7 +536,7 @@ A request:
  method, target, tile?, contentType?, body?, bodyShown, bodySize, bodySha256,
  summary?, preview: {class, tile?, owner?, level?, role?, standing?, session?},
  state: "pending" | "approved" | "denied" | "used" | "expired" | "withdrawn",
- grant?, created, decided?, expires, decidedVia?}
+ grant?, created, decided?, expires, decidedVia?, withdrawnBy?}
 ```
 
 `body` is shown while the request is pending or approved, when it is text.
@@ -583,7 +598,8 @@ POST   /delegate/approvals      the person. {tile, grant: "hour" |
                                  "always", scope: "call", method, path} or
                                  {tile, grant, scope: "tile"} → the
                                  approval. scope is required (400). 404
-                                 for a tile the person can't read
+                                 for a tile the person can't read; 409
+                                 {refusal} while the agent is stopped
 DELETE /delegate/approvals/<id> the person. 204; a write running under it
                                  is cut
 ```
@@ -633,7 +649,9 @@ POST   /delegate/changesets/<id>/approve
                                  Needs a sign-in under 10
                                  minutes old, or the password in the body:
                                  403 {error, stepUp: "password" | "signin"}
-                                 otherwise, as for adding a device
+                                 otherwise, as for adding a device. 409
+                                 {refusal} while the agent is stopped
+                                 (§The switches); nothing is applied
 POST   /delegate/changesets/<id>/reject
                                  the person. → the set
 POST   /delegate/changesets/<id>/undo
@@ -671,7 +689,7 @@ A change set:
 ```
 {id, user, agent?, title, undoOf?,
  state: "proposed" | "applying" | "applied" | "partial" | "rejected" | "expired" | "withdrawn",
- created, decided?, expires,
+ created, decided?, expires, withdrawnBy?,
  items: [{n, kind, args, why?, line, before?, after?, effects?, warnings?,
           blocked?, inverse?, result?, error?}]}
 ```
@@ -836,6 +854,12 @@ hash, the warnings. The agent's own sentence (`summary`, `why`) is shown
 quoted and labelled as the agent's. An id that isn't the person's opens
 nothing. No message approves, denies, resumes or changes a preference, and
 none opens Preferences: they open from the chrome's own menu only.
+
+**While the agent is stopped** — workspace agents off, paused, held, not
+given to the person (`GET /delegate/state`) — a sheet says why in the place
+of Allow or Apply, and Deny or Reject stays. A sheet opened before the stop
+that sends an Allow gets the `409 {refusal}` and shows the same words; it
+never sends the Allow again.
 
 **What widens the agent's reach is armed like Allow.** A page that baits
 a double-click, or scripts one, must not land it on a control that widens

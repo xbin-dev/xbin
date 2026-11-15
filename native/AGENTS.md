@@ -1291,7 +1291,11 @@ plans/wsagent/ux.md):
   Allow is armed by `AgentArming` (600 ms after the sheet is shown, again
   after the choice changes or the app comes back to the front) and no
   default action allows; Deny left, Allow right, at the bottom; the wider
-  grant is a second sheet whose primary button is Go back; `trustedNode`
+  grant is a second sheet whose primary button is Go back; while the agent
+  is stopped (`DelegationWords.stopRefusal` of the state, or xbind's `409
+  {refusal}` — `DelegateOutcome.stopped`) the sheet says why where Allow or
+  Apply would be (`AgentDecisionBar.stopped`) and never sends it again;
+  `trustedNode`
   and the `agent` caps go only to the component `GET /delegate/state`
   names as the person's agent (`NativeTileRuntime.isAgent`), and only
   while the agent's container shows it.

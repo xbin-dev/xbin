@@ -248,6 +248,10 @@ struct AgentDecisionBar: View {
     var id = "approval"
     var armed: Bool
     var working: Bool
+    /// Why nothing can be allowed now (the agent is stopped: off, paused,
+    /// held, no agent): said in the place of Allow, and Deny is the filled
+    /// button. "": Allow is there.
+    var stopped: String = ""
     let onDeny: () -> Void
     let onAllow: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -258,9 +262,19 @@ struct AgentDecisionBar: View {
 
     var body: some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 10))
-        layout {
-            denyButton
-            allowButton
+        Group {
+            if stopped.isEmpty {
+                layout {
+                    denyButton
+                    allowButton
+                }
+            } else {
+                // why nothing can be allowed, the whole width, and Deny under it
+                VStack(spacing: 8) {
+                    stoppedLine
+                    denyButton
+                }
+            }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .frame(maxWidth: .infinity)
@@ -271,8 +285,19 @@ struct AgentDecisionBar: View {
     @ViewBuilder private var denyButton: some View {
         let b = Button(action: onDeny) { Text(verbatim: deny).frame(maxWidth: .infinity, minHeight: height) }
             .disabled(working)
-        Group { if primaryDeny { b.xbinPrimary() } else { b.xbinSecondary() } }
+        Group { if primaryDeny || !stopped.isEmpty { b.xbinPrimary() } else { b.xbinSecondary() } }
             .accessibilityIdentifier("\(id)-deny")
+    }
+
+    /// Where Allow would be: why it isn't, in xbin's words — never a button.
+    private var stoppedLine: some View {
+        Label { Text(verbatim: stopped).font(.callout).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true) }
+            icon: { Image(systemName: "pause.circle").foregroundStyle(XbinColor.warn) }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(XbinColor.warnBackground, in: .xbinPlate)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("\(id)-stopped")
     }
 
     @ViewBuilder private var allowButton: some View {
@@ -310,6 +335,11 @@ struct AgentApprovalSheet: View {
     @State private var problem: String?
     @State private var wider = false
     @State private var showAll = false
+    /// A 409's refusal: the agent stopped while the sheet was open.
+    @State private var refusal = ""
+
+    /// Why nothing can be allowed now ("" when it can): xbind's 409, else the state.
+    private var stop: String { refusal.isEmpty ? DelegationWords.stopRefusal(workspace.agent.state) : refusal }
 
     /// How much of a long body shows before "Show all".
     private static let clip = 4000
@@ -357,7 +387,7 @@ struct AgentApprovalSheet: View {
         }
         .sheet(isPresented: $wider) {
             if let r = request {
-                AgentWiderSheet(workspace: workspace, request: r, duration: $duration) { ok in
+                AgentWiderSheet(workspace: workspace, request: r, duration: $duration, stopped: DelegationWords.stopLine(stop)) { ok in
                     wider = false
                     if ok { send(r, choice: .tile) }
                 }
@@ -525,6 +555,7 @@ struct AgentApprovalSheet: View {
         AgentDecisionBar(deny: "Deny", allow: DelegationWords.allowLabel(r, choice: choice),
                          allowSpoken: DelegationWords.allowSpoken(r, choice: choice),
                          primaryDeny: r.neverAsks, armed: arming.armed, working: working,
+                         stopped: DelegationWords.stopLine(stop),
                          onDeny: { deny(r) },
                          onAllow: {
                              // The wider grant is never one tap: its own sheet, Go back first.
@@ -572,6 +603,9 @@ struct AgentApprovalSheet: View {
             problem = why
         case .unseen:
             problem = "xbin wants this body approved as unseen bytes. Open it again."
+        case .stopped(let why, _):
+            // stopped meanwhile: the reason shows where Allow was, and nothing is sent again
+            refusal = why
         }
     }
 
@@ -592,6 +626,8 @@ struct AgentWiderSheet: View {
     let workspace: WorkspaceModel
     let request: DelegateRequest
     @Binding var duration: String
+    /// Why nothing can be allowed now ("" when it can).
+    var stopped: String = ""
     /// true: allow (after Face ID); false: go back.
     let done: (Bool) -> Void
 
@@ -626,7 +662,7 @@ struct AgentWiderSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             AgentDecisionBar(deny: w.back, allow: w.allow, allowSpoken: DelegationWords.allowSpoken(request, choice: .tile),
-                             primaryDeny: true, id: "wider", armed: arming.armed, working: working,
+                             primaryDeny: true, id: "wider", armed: arming.armed, working: working, stopped: stopped,
                              onDeny: { done(false) }, onAllow: allow)
         }
         .background(XbinColor.background)

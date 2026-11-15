@@ -780,6 +780,9 @@ func TestDelegationDevOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := delegation.OpenStore(t.TempDir())
+	if _, err := store.SetWorkspace(true, "test"); err != nil { // nothing is allowed while workspace agents are off
+		t.Fatal(err)
+	}
 	s := &Server{Auth: a, Delegation: store, DelegationDev: true, Hub: events.NewHub()}
 	h := s.Handler()
 	do := func(method, path, body string) (int, string) {

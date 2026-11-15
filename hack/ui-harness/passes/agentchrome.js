@@ -68,7 +68,7 @@ const changeSet = (id) => ({ id, user: 'admin', agent: 'system/agent', title: 'W
 // the fake of docs/protocol/delegation.md, for one browser context
 async function fakeDelegation(ctx) {
   const S = { state: { user: 'admin', workspace: true, paused: false, adminChanges: false, canAdminChanges: true }, llm: { configured: true, enabled: true }, requests: [], approvals: [], changesets: [],
-    audit: [], prefs: { agentSessions: { start: 'ask' } }, sent: [], stepUp: '', n: 0 };
+    audit: [], prefs: { agentSessions: { start: 'ask' } }, sent: [], stepUp: '', n: 0, refuse: '' };
   const json = (route, v, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(v) });
   const state = () => ({ ...S.state, pendingRequests: S.requests.filter((r) => r.state === 'pending').length, standingApprovals: S.approvals.length, openChangeSets: S.changesets.filter((c) => c.state === 'proposed').length });
   await ctx.route('**/api/xbin/llm', (route) => (route.request().method() === 'GET' ? json(route, S.llm) : route.fallback()));
@@ -95,6 +95,8 @@ async function fakeDelegation(ctx) {
       if (seg.length === 2) return json(route, r);
       if (r.state !== 'pending') return json(route, { error: 'no longer pending' }, 409);
       if (seg[2] === 'deny') { r.state = 'denied'; r.decided = new Date().toISOString(); return json(route, { request: r }); }
+      // as xbind does while the agent is stopped: nothing is allowed (409 {refusal}); deny still works
+      if (S.refuse) return json(route, { error: 'the agent is stopped', refusal: S.refuse }, 409);
       r.state = 'approved'; r.grant = body.grant || 'once'; r.decided = new Date().toISOString();
       if (body.grant && body.grant !== 'once') S.approvals.push({ id: `a${++S.n}`, user: 'admin', tile: r.tile, scope: body.scope, ...(body.scope === 'call' ? { method: r.method, path: '/links/rebuild' } : {}), created: new Date().toISOString(), ...(body.grant === 'hour' ? { until: iso(3600000) } : {}) });
       return json(route, { request: r });
@@ -110,6 +112,7 @@ async function fakeDelegation(ctx) {
       if (seg.length === 2) return json(route, c);
       if (seg[2] === 'reject') { c.state = 'rejected'; return json(route, c); }
       if (seg[2] === 'undo') { const u = { ...changeSet(`u${++S.n}`), title: '', undoOf: c.id, items: c.items.filter((it) => it.result === 'applied').map((it, i) => ({ n: i + 1, kind: it.kind, args: {}, line: `Undo: ${it.line}`, before: it.after, after: it.before })) }; S.changesets.push(u); return json(route, u); }
+      if (S.refuse) return json(route, { error: 'the agent is stopped', refusal: S.refuse }, 409);
       if (S.stepUp && !(S.stepUp === 'password' && body.password === 'right')) return json(route, { error: body.password ? 'wrong password' : 'a recent sign-in is needed', stepUp: S.stepUp }, 403);
       // apply: item 1 applies, a later binding fails, what follows is skipped; the rest is left out
       let failed = false;
@@ -312,6 +315,39 @@ async function agentChrome(browser) {
     await page.click(`${DLG} [data-notnow]`);
     await page.keyboard.press('Escape');
     S.stepUp = '';
+
+    // ---- while the agent is stopped: why, in the place of Allow and Apply; Deny and Reject stay ----
+    await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
+    S.requests.push(callReq('p1', { created: iso(-1000) }));
+    S.changesets.push(changeSet('p2'));
+    S.state.paused = true; S.state.pausedAt = new Date().toISOString(); await refresh();
+    await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 'p1'));
+    await page.waitForSelector(`${SHEET} [data-stopped="paused"]`);
+    check(!(await page.$(`${SHEET} button[data-allow]`)) && /Can't be allowed now\. Your agent is paused\. Resume it first; then this can be allowed\. You can still deny it\./.test(await text(`${SHEET} [data-stopped]`))
+      && await page.$eval(`${SHEET} button[data-deny]`, (b) => b.classList.contains('primary')), `[${width}] paused: the reason where Allow was, Deny stays (${await text(`${SHEET} .foot`)})`);
+    await shot(page, `agent-chrome-stopped${tag}`, { fullPage: false });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    await page.evaluate(() => document.querySelector('bx-agent-dock').review('changeset', 'p2'));
+    await page.waitForSelector(`${DLG} [data-stopped="paused"]`);
+    check(!(await page.$(`${DLG} [data-apply]`)) && !!(await page.$(`${DLG} [data-reject]`)) && /Can't be applied now\..*You can still reject it\./.test(await text(`${DLG} [data-stopped]`)),
+      `[${width}] paused: Apply is replaced by why, Reject all stays`);
+    await shot(page, `agent-chrome-stopped-changes${tag}`, { fullPage: false });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
+    // a sheet opened before the stop: xbind's 409 says why, and the Allow is never sent again
+    S.state.paused = false; delete S.state.pausedAt; await refresh();
+    await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 'p1'));
+    await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+    S.refuse = 'workspace-off'; // turned off at xbind; this page hasn't heard yet
+    await page.click(`${SHEET} button[data-allow]`);
+    await page.waitForSelector(`${SHEET} [data-stopped="workspace-off"]`);
+    await page.waitForTimeout(300); // (a negative: no second Allow)
+    check(sentTo(/p1\/approve$/).length === 1 && !(await page.$(`${SHEET} button[data-allow]`)) && /turned off for this workspace/.test(await text(`${SHEET} [data-stopped]`)),
+      `[${width}] a stale sheet: the 409 shows the reason in place of Allow, no retry (${sentTo(/p1\/approve$/).length} sent)`);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    S.refuse = ''; S.requests = S.requests.filter((r) => r.id !== 'p1'); S.changesets = S.changesets.filter((c) => c.id !== 'p2'); await refresh();
 
     // ---- Approvals, What my agent did, Preferences ----
     await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));

@@ -757,3 +757,43 @@ func TestChangeSetLinesAreXbindsOwn(t *testing.T) {
 		t.Errorf("org egress, where the org's sets say host: described as %q (warnings %q)", pv.Line, pv.Warnings)
 	}
 }
+
+// Applying a change set is refused while the person's agent is stopped, as
+// allowing a request is (rejecting never is); a pause keeps the set waiting
+// for after resuming, switching workspace agents off withdraws it.
+func TestChangeSetsWhileTheAgentIsStopped(t *testing.T) {
+	w := changeSetWorld(t)
+	_, bob := w.session("bob")
+	if code, body := w.do("PUT", "/delegate/state", `{"adminChanges":true}`, bob); code != 200 {
+		t.Fatalf("opt in: %d %s", code, body)
+	}
+	item := `[{"kind":"grant.add","args":{"from":"apps/x","target":"users/alice/mcp","role":"reader"}}]`
+	cs := w.propose(t, item)
+	before := w.grants()
+	if _, err := w.store.SetState("bob", func(st *delegation.State) { st.Paused = true }); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, bob); code != 409 || !strings.Contains(body, `"refusal":"paused"`) {
+		t.Fatalf("applied while paused: %d %s", code, body)
+	}
+	if got, _ := w.store.ChangeSet("bob", cs.ID); got.State != delegation.SetProposed || !slices.Equal(w.grants(), before) {
+		t.Fatalf("paused: the set is %s and the grants %v", got.State, w.grants())
+	}
+	if _, err := w.store.SetState("bob", func(st *delegation.State) { st.Paused = false }); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.approve(t, cs.ID, `{"items":[1]}`, bob); got.State != delegation.SetApplied {
+		t.Fatalf("after resuming: %s", got.State)
+	}
+	// switched off: the next proposal is withdrawn by xbin, and can't be applied
+	cs2 := w.propose(t, `[{"kind":"grant.add","args":{"from":"apps/x","target":"apps/pg","role":"reader"}}]`)
+	if code, body := w.do("PUT", "/delegate/workspace", `{"enabled":false}`, bob); code != 200 {
+		t.Fatalf("off: %d %s", code, body)
+	}
+	if got, _ := w.store.ChangeSet("bob", cs2.ID); got.State != delegation.SetWithdrawn || got.WithdrawnBy != delegation.WithdrawnByXbin {
+		t.Fatalf("switched off: the set is %s (by %q), want withdrawn by xbin", got.State, got.WithdrawnBy)
+	}
+	if code, body := w.do("POST", "/delegate/changesets/"+cs2.ID+"/approve", `{"items":[1]}`, bob); code != 409 {
+		t.Fatalf("a withdrawn set applied: %d %s", code, body)
+	}
+}
