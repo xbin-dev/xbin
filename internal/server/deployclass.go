@@ -320,6 +320,7 @@ var routeClasses = map[string]RouteClass{
 	"PUT /vm/policy":                         PrimaryOnly,
 	"POST /auth-rotate-token":                PrimaryOnly,
 	"POST /impersonate":                      PrimaryOnly,
+	"POST /preview":                          PrimaryOnly, // a preview shows what people see: the primary (D234)
 	"POST /impersonate/stop":                 PrimaryOnly,
 	"PUT /native-runtime":                    PrimaryOnly,
 	"PUT /chrome":                            PrimaryOnly,
@@ -360,7 +361,10 @@ var routeClasses = map[string]RouteClass{
 	"DELETE /push/devices/{user}/{deviceId}": PrimaryOnly,
 
 	// ---- reads of workspace facts ----
+	"GET /preview":              Neutral, // availability and limits (D234)
 	"GET /whoami":               Neutral, // gains deployment for a bound element principal (11-contract §7.7)
+	"GET /docs/search":          Neutral,
+	"GET /docs/page":            Neutral,
 	"GET /status":               Neutral,
 	"GET /components":           Neutral, // the primary summary only (11-contract §8)
 	"GET /components/{path...}": Neutral,
@@ -453,11 +457,25 @@ var routeClasses = map[string]RouteClass{
 	"POST /partitions/mail":     PrimaryOnly,
 	"GET /partitions/mail":      PrimaryOnly,
 	"POST /partitions/mail/ack": PrimaryOnly,
+
+	// ---- a bound tile's LLM keys for the harnesses it runs (D226): the
+	// binding admits them, whichever deployment asks ----
+	"POST /llm/keys":            Neutral,
+	"DELETE /llm/keys/{id}":     Neutral,
+	"POST /llm/keys/{id}/renew": Neutral,
+	"DELETE /llm/keys":          Neutral,
+
 	// ---- delegation (D228, delegateapi.go): primary-only. Its callers are
 	// people, a sealed holder's page and the delegate gate; a sealed
 	// component has no deployments, and no tile credential bound to a
 	// non-primary deployment has any business with a person's approvals ----
 	"GET /delegate/state":                    PrimaryOnly,
+	"POST /delegate/sessions":                PrimaryOnly,
+	"GET /delegate/sessions/{id}":            PrimaryOnly,
+	"PATCH /delegate/sessions/{id}":          PrimaryOnly,
+	"DELETE /delegate/sessions/{id}":         PrimaryOnly,
+	"GET /delegate/sessions/{id}/connection": PrimaryOnly,
+	"GET /delegate/map":                      PrimaryOnly,
 	"PUT /delegate/state":                    PrimaryOnly,
 	"GET /delegate/workspace":                PrimaryOnly,
 	"PUT /delegate/workspace":                PrimaryOnly,

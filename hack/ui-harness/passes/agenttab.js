@@ -25,7 +25,7 @@
 // turn and sends; (o) the composer grows with its text up to 40% of the tab
 // and shrinks back after a send (#31); (p) a fenced code block in a known
 // language is highlighted (#26).
-const { URL, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker, showPickers, PICKERS } = require('../lib');
+const { URL, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker, showPickers, PICKERS } = require('../lib');
 
 const TILE = 'apps/crawler';
 // Tall: the seeded pending-access and interfaces-to-bind bars push the canvas
@@ -471,7 +471,28 @@ async function agentTab(browser) {
   const resumedId = await fr(A.page, TILE, (f, t, a) => f.tabs.find((tb) => tb.kind === 'agent' && !tb.history && !tb.ended && tb.id && !a.known.includes(tb.id))?.id || null, { known: [idA, eagerId] });
   check(!!resumedId && resumedId !== eagerId, `resume replaced the read-only tab with a new live session (${resumedId})`);
   check((await fr(A.page, TILE, (f) => f.tabs)).every((tb) => !tb.history), 'the read-only tab was replaced, not duplicated');
-  await waitFor(A.page, (t, id) => { const api = t.frameFor('apps/crawler')?.testApi(); return api?.agent(api.tabs.findIndex((tb) => tb.id === id))?.status === 'idle'; }, resumedId, { timeout: 15000, label: 'the resumed session is idle' });
+  // The wait records what it sees, each time it changes — the resumed tab's
+  // status and error, how many blocks it has, and every agent tab the frame
+  // lists — and prints that history if "idle" never comes: this wait timed
+  // out once at a load nobody could reproduce, with nothing to say why.
+  try {
+    await waitFor(A.page, (t, id) => {
+      const api = t.frameFor('apps/crawler')?.testApi();
+      const i = api ? api.tabs.findIndex((tb) => tb.id === id) : -1;
+      const ag = i >= 0 ? api.agent(i) : null;
+      const now = { tab: i, status: ag?.status ?? null, error: ag?.error || '', blocks: ag?.blocks?.length ?? null, hidden: ag?.hidden ?? null,
+        tabs: (api?.tabs || []).filter((tb) => tb.kind === 'agent').map((tb) => `${tb.id}${tb.ended ? ' ended' : ''}${tb.history ? ' history' : ''}`).join(', ') };
+      const tr = (window.resumeTrace ||= { t0: performance.now(), rows: [] });
+      const line = JSON.stringify(now);
+      if (tr.last !== line) { tr.last = line; tr.rows.push(`+${Math.round(performance.now() - tr.t0)}ms ${line}`); }
+      return now.status === 'idle';
+    }, resumedId, { timeout: 15000, label: 'the resumed session is idle' });
+  } catch (e) {
+    const rows = await A.page.evaluate(() => window.resumeTrace?.rows || []).catch((err) => [`(the page would not say: ${err.message.split('\n')[0]})`]);
+    log(`the resumed session ${resumedId} never read idle; what the tab showed, each time it changed:`);
+    for (const r of rows) log(`  ${r}`);
+    throw e;
+  }
   const resumedBlocks = await fr(A.page, TILE, (f, t, id) => f.agent(f.tabs.findIndex((tb) => tb.id === id)).blocks, resumedId);
   check(resumedBlocks.some((b) => b.kind === 'msg' && b.role === 'user' && /resumed fake-1/.test(b.text)), `resume replayed the earlier turns into the live session (${resumedBlocks.length} blocks)`);
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-resumed');
@@ -683,14 +704,15 @@ async function agentTab(browser) {
     out.diff = pre ? { hljs: pre.classList.contains('hljs'), lines: [...pre.children].map((x) => x.className), text: pre.textContent,
       addBg: getComputedStyle(pre.querySelector('.d')).backgroundColor, delBg: getComputedStyle(pre.querySelector('.a')).backgroundColor } : null;
     out.epoch = cards.diffEpoch;
-    out.chip = el.querySelector('.bxc-chip')?.textContent.trim();
+    out.chip = el.querySelector('.bxc-oc')?.textContent.trim();
+    out.state = el.querySelector('.bxc-st')?.textContent.trim() || '';
     return out;
   });
   check(!plain.importMap && plain.code === 'cannot load', `a page without an import map cannot load the code highlighter (${plain.code})`);
   check(plain.diff && !plain.diff.hljs && plain.diff.lines.join(' ') === 'fh fh fh h ctx a d ctx' && /-var x = 1/.test(plain.diff.text) && /\+var x = 2/.test(plain.diff.text) && plain.epoch === 0,
     `the kit's views load there all the same and draw the diff plain, a class a line (${JSON.stringify(plain.diff)})`);
   check(plain.diff && plain.diff.addBg !== plain.diff.delBg && plain.diff.addBg !== 'rgba(0, 0, 0, 0)', `…tinted by the one stylesheet (${plain.diff?.addBg} / ${plain.diff?.delBg})`);
-  check(/completed \+1\/-1/i.test(plain.chip || '') && bareErrors.length === 0, `the card says what it came to; no page errors (${plain.chip}; ${bareErrors.join(' | ')})`);
+  check(plain.chip === '+1 −1' && plain.state === '' && bareErrors.length === 0, `the card's line says what it came to, and no state once it is done; no page errors (${plain.chip}; ${plain.state}; ${bareErrors.join(' | ')})`);
   await bare.close();
 
   await settle(A.page);

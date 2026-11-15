@@ -1,0 +1,85 @@
+package boot
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/broker"
+	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/llm"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/server"
+)
+
+// The LLM connector's side of an agent session: a delegation holder's
+// model call runs only under a live session of that person and holder,
+// and only on that session's model — so the model the orgs' rules are
+// asked with is the model the conversation really goes to. Everyone else
+// calls as before.
+func TestHolderModelCallsAreTheSessions(t *testing.T) {
+	const holder = "xbin/wsagent"
+	t.Cleanup(auth.TestSealDelegate(holder))
+	reg := &registry.Registry{Root: t.TempDir()}
+	if err := reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	brk, err := broker.New(reg, events.NewHub(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(brk.Close)
+	store := delegation.OpenStore(t.TempDir())
+	srv := &server.Server{Delegation: store}
+	policy := holderCallPolicy(srv, brk)
+	h, err := store.NewAgentSession("bob", holder, nil, "local/llama")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, hosted := llm.UpstreamInfo{Name: "local", Private: true}, llm.UpstreamInfo{Name: "hosted"}
+	call := func(c llm.Caller, u llm.UpstreamInfo, model string) string {
+		if err := policy(c, u, model); err != nil {
+			return err.Error()
+		}
+		return ""
+	}
+	bob := llm.Caller{Component: holder, Via: "component", User: "bob", AgentSession: h.ID}
+	if why := call(bob, local, "llama"); why != "" {
+		t.Fatalf("the session's own model: %s", why)
+	}
+	for name, c := range map[string]struct {
+		c     llm.Caller
+		u     llm.UpstreamInfo
+		model string
+		want  string
+	}{
+		"another model of the same upstream": {bob, local, "mistral", "is on local/llama"},
+		"a hosted model":                     {bob, hosted, "big", "is on local/llama"},
+		"the same model name elsewhere":      {bob, hosted, "llama", "is on local/llama"},
+		"no session":                         {llm.Caller{Component: holder, Via: "component", User: "bob"}, local, "llama", "run under an agent session"},
+		"another person's session":           {llm.Caller{Component: holder, Via: "component", User: "alice", AgentSession: h.ID}, local, "llama", "no such agent session"},
+		"a session that isn't one":           {llm.Caller{Component: holder, Via: "component", User: "bob", AgentSession: "nope"}, local, "llama", "no such agent session"},
+		"the holder's global instance":       {llm.Caller{Component: holder, Via: "component", AgentSession: h.ID}, local, "llama", "run under an agent session"},
+	} {
+		if why := call(c.c, c.u, c.model); !strings.Contains(why, c.want) {
+			t.Errorf("%s: %q, want a refusal with %q", name, why, c.want)
+		}
+	}
+	// the session changes model: the connector follows it
+	if _, err := store.UpdateAgentSession("bob", holder, h.ID, func(a *delegation.AgentSession) error { a.Model = "hosted/big"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if why := call(bob, hosted, "big"); why != "" {
+		t.Errorf("after the session moved to hosted/big: %s", why)
+	}
+	if why := call(bob, local, "llama"); why == "" {
+		t.Error("the model the session left still passes")
+	}
+	// anyone who isn't a holder is not this policy's business
+	for _, c := range []llm.Caller{{Component: "apps/chat", Via: "component", User: "bob"}, {User: "bob", Via: "person"}, {User: "bob", Via: "key"}} {
+		if why := call(c, hosted, "big"); why != "" {
+			t.Errorf("%+v: %s", c, why)
+		}
+	}
+}

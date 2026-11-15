@@ -439,6 +439,10 @@ func splitList(vals []string) []string {
 // (their session, the app, their workspace agent) — never a tile.
 func (b *Broker) apiAgentsConnection(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
+	if sid := r.URL.Query().Get("session"); sid != "" {
+		b.apiAgentsConnectionSession(w, r, p, sid)
+		return
+	}
 	if p.Component != "" {
 		server.WriteError(w, http.StatusForbidden, "the connection view is a person's own: a tile's credentials can't read it", "/docs/protocol/agents.md")
 		return
@@ -456,6 +460,48 @@ func (b *Broker) apiAgentsConnection(w http.ResponseWriter, r *http.Request) {
 	}{View: b.AgentConnection(p, scope, model)}
 	if to := b.ResolveModel(q.Get("whatIf")); to != nil {
 		ch := b.AgentWhatIf(p, scope, model, to)
+		out.WhatIf = &ch
+	}
+	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// apiAgentsConnectionSession — GET /agents/connection?session=<id>
+// [&whatIf=]: the full connection view (names included) of one agent
+// session, read-only, for the page of the holder that session belongs to
+// and for nobody else: the caller is the holder's own frame on its
+// primary, and the session is its driver's. A holder's page shows this to
+// the person themselves, so blocked and no-access tiles are named here —
+// unlike the delegate's GET /delegate/sessions/{id}/connection, which
+// enters a model's context.
+func (b *Broker) apiAgentsConnectionSession(w http.ResponseWriter, r *http.Request, p auth.Principal, sid string) {
+	const docs = "/docs/protocol/delegation.md"
+	if p.Via != "frame" || p.UserID == "" || p.Deployment != "" || p.ReadOnly() || !auth.HoldsDelegation(p.Component) || b.AgentHandle == nil {
+		server.WriteError(w, http.StatusForbidden, "a session's connection view is read by the page of the agent it belongs to, for the person driving that page", docs)
+		return
+	}
+	orgs, tiles, scoped, model, ok := b.AgentHandle(p.UserID, p.Component, sid)
+	if !ok {
+		server.WriteError(w, http.StatusNotFound, "no such agent session", docs)
+		return
+	}
+	person := auth.Principal{UserID: p.UserID, User: p.User, Access: p.Access}
+	if b.Users != nil {
+		if u, found := b.Users.Get(p.UserID); found {
+			acc, _ := b.Users.Access(p.UserID)
+			person.User, person.Access = u, acc
+		}
+	}
+	scope := agentpolicy.Scope{}
+	if scoped {
+		scope = agentpolicy.Scope{Orgs: orgs, Tiles: tiles}
+	}
+	out := struct {
+		agentpolicy.View
+		Session string              `json:"session"`
+		WhatIf  *agentpolicy.Change `json:"whatIf,omitempty"`
+	}{View: b.AgentConnection(person, scope, b.ResolveModel(model)), Session: sid}
+	if to := b.ResolveModel(r.URL.Query().Get("whatIf")); to != nil {
+		ch := b.AgentWhatIf(person, scope, b.ResolveModel(model), to)
 		out.WhatIf = &ch
 	}
 	server.WriteJSON(w, http.StatusOK, out)

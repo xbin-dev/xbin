@@ -31,6 +31,7 @@ func main() {
 	root := flag.String("root", "", "keep sandboxes here (default: $XBIN_RES_BOXES, else $XBIN_DATA/boxes)")
 	from := flag.String("from", "", "the consumer of calls without X-XBin-From")
 	fakeACP := flag.String("fake-acp", orEnv("FSB_HARNESS_FAKE", "FSB_FAKE_ACP"), "the \"fake\" harness's command and flags, space-separated (default: fakeacp from PATH)")
+	llm := flag.String("llm", os.Getenv("FSB_LLM_URL"), "offer the contract's llm capability: the LLM connector's base URL a sandbox created with llm: true is told (default: $FSB_LLM_URL; none: no llm, as a manager from before it)")
 	flag.Parse()
 	if *root == "" {
 		*root = os.Getenv("XBIN_RES_BOXES")
@@ -44,7 +45,7 @@ func main() {
 	if err := os.MkdirAll(*root, 0o755); err != nil {
 		log.Fatal(err)
 	}
-	m := &fsbManager{Root: *root, DefaultFrom: *from}
+	m := &fsbManager{Root: *root, DefaultFrom: *from, LLM: *llm}
 	if argv := strings.Fields(*fakeACP); len(argv) > 0 {
 		h := fsbFakeHarness
 		h.Argv, h.Login = argv, argv[0]+" login" // (a path with a space in it isn't one)

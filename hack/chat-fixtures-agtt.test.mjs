@@ -18,7 +18,7 @@ import { load, shown, through, canon, each, GAPS } from './chat-fixtures/expect.
 import { installHooks } from './xbn/hooks.mjs';
 
 installHooks(); // /vendor/<name> as xbind serves it: the kit the template's models import (web/<name>)
-const { fold, FoldCache } = await import('../builtin-templates/agent/model/fold.js');
+const { fold, FoldCache, blocksOf } = await import('../builtin-templates/agent/model/fold.js');
 const { rawInputOf, acpRecord, acpHeadline } = await import('../builtin-templates/agent/model/harness-heads.js');
 const { headline, subline, outcome, stateChip, oneLine } = await import('../web/chat/tools.js');
 const { agttTranscript, tileView, callIdOf } = await import('./chat-fixtures/agtt.mjs');
@@ -167,8 +167,13 @@ test('the template\'s own tools, subagents and parks say themselves in the model
   assert.deepEqual(user, { k: 'm1', kind: 'user', text: 'fix it', sender: 'bob', ref: 1, files: [{ name: 'plan.md', path: 'notes/plan.md', mime: 'text/markdown', sizeText: '2 KB' }] });
   assert.equal(notice.text, '[subagent results]\n#7 done');
   assert.deepEqual([thought.ms, thought.live], [1500, undefined]);
-  assert.deepEqual(tool.rec, { id: 'c1', kind: 'execute', title: 'List files', name: 'bash', status: 'completed', rawInput: { command: 'ls' }, text: 'a.txt\n[exit 0 · 1s]' });
+  assert.deepEqual(tool.rec, { id: 'c1', kind: 'execute', title: 'List files', label: 'List files', name: 'bash', status: 'completed', rawInput: { command: 'ls' }, text: 'a.txt\n[exit 0 · 1s]' });
   assert.equal(tool.state, 'done');
+  // …and a tool of the template's own carries the fold's words for its card: its family's glyph, the command under the
+  // summary, what it came to, its arguments a row each, its result as plain text
+  const own = tr.blocks[4];
+  assert.deepEqual([own.icon, own.sub, own.outcome, own.args, own.result], ['box', '$ ls', { text: 'exit 0 · 1s', tone: 'ok' }, { command: 'ls' }, 'a.txt\n[exit 0 · 1s]']);
+  assert.equal(own.$src.k, 'tool', 'the fold\'s block it says');
   assert.deepEqual({ ...agent, blocks: agent.blocks.map((b) => b.kind) },
     { k: 'cc2', kind: 'agent', title: 'Bug hunt', ref: 7, state: 'running', phase: 'reading', steps: 2, task: 'find the bug', blocks: ['assistant'] });
   assert.deepEqual(got.tail, [{ k: 'park:p9', kind: 'ask', park: 'p9', message: 'Which **branch**?', mode: 'text' }]);
@@ -189,12 +194,29 @@ test('a stored call id and a call\'s arguments read back as the agent\'s own', (
   assert.equal(rawInputOf(null), null);
 });
 
-test('the adapter hands the fold\'s own blocks on: a cached fold keeps what did not change', () => {
-  // (what model/fold.js's adapter will hang versions on: Versions.of(k, the fold's block))
+test('the adapter hands the fold\'s own blocks on: a cached fold keeps what did not change, and a version moves when its block does', () => {
   const t = all.find((x) => x.name === 'tools');
   const cache = new FoldCache();
-  const a = fold(tileView(t.agtt.views[2].view), () => null, 0, cache);
-  const b = fold(tileView(t.agtt.views[2].view), () => null, 0, cache);
-  assert.equal(a.length, b.length);
+  const view = tileView(t.agtt.views[2].view);
+  const a = fold(view, () => null, 0, cache);
+  const b = fold(view, () => null, 0, cache);
+  assert.equal(a, b, 'nothing changed: the same list');
   assert.ok(plain(a).length > 0);
+  const ka = blocksOf(a);
+  assert.equal(blocksOf(b), ka, 'the same list of kit blocks');
+  // one message replaced (the tile's session upserts): only its blocks are new, with a later version
+  const i = view.messages.findIndex((m) => m.role === 'assistant' && m.content);
+  const changed = { ...view, messages: view.messages.map((m, n) => (n === i ? { ...m, content: m.content + ' more' } : m)) };
+  const c = fold(changed, () => null, 0, cache);
+  const kc = blocksOf(c);
+  const moved = kc.filter((x, n) => x !== ka[n]);
+  assert.ok(moved.length >= 1 && moved.length < kc.length, `${moved.length} of ${kc.length} blocks are new`);
+  for (const x of moved) assert.ok(x.v > Math.max(...ka.map((y) => y.v)), 'a later version');
+  for (const [n, x] of kc.entries()) if (x === ka[n]) assert.equal(x.v, ka[n].v);
+  // the call in flight: made anew at every fold, it takes over what the views memoized
+  const live = { ...view, draft: { text: 'Par', thinking: '', tools: {} } };
+  const d1 = blocksOf(fold(live, () => null, 0, cache)).at(-1);
+  d1.$memo = { mdparts: { parts: ['kept'] } };
+  const d2 = blocksOf(fold({ ...live, draft: { ...live.draft, text: 'Paragraph' } }, () => null, 0, cache)).at(-1);
+  assert.deepEqual([d1.kind, d2.kind, d2.text, d2.$memo === d1.$memo, d2.v > d1.v], ['draft', 'draft', 'Paragraph', true, true]);
 });

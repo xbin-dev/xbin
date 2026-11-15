@@ -180,3 +180,30 @@ func (a *Auth) delegateOf(tok string) (Principal, error) {
 	}
 	return Principal{UserID: userID, User: u, Access: a.accessSnapshot(userID), Via: "delegate", Agent: id.component}, nil
 }
+
+var delegateNotify atomic.Pointer[func(component string) string]
+
+// SetDelegateNotify installs the lookup of the path a holder takes xbind's
+// notices on (boot: the sealed-component table's entry, like the holder
+// lookup). nil, or "" for a holder: it is told nothing.
+func SetDelegateNotify(f func(component string) string) {
+	if f == nil {
+		delegateNotify.Store(nil)
+		return
+	}
+	delegateNotify.Store(&f)
+}
+
+// DelegateNotifyPath is the path holder component takes notices on ("":
+// none): a fixed path of its own API, from the table — never a request's.
+func DelegateNotifyPath(component string) string {
+	f := delegateNotify.Load()
+	if f == nil || !HoldsDelegation(component) {
+		return ""
+	}
+	p := (*f)(component)
+	if !strings.HasPrefix(p, "/") || strings.ContainsAny(p, "?# \r\n") {
+		return ""
+	}
+	return p
+}

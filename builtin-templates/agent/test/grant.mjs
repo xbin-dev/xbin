@@ -34,9 +34,9 @@ let page = await open('alice');
 const card = await page.textContent('.ask.approve.grant');
 ok('the card says what is asked', card.includes('The agent asks to read your other conversations and automations'), card);
 ok('…and which calls', card.includes('threads_list'));
-const buttons = await page.$$eval('.ask.approve.grant .btn', (els) => els.map((e) => e.textContent.trim()));
+const buttons = await page.$$eval('.ask.approve.grant button', (els) => els.map((e) => e.textContent.trim()));
 ok('its owner gets Allow once · Allow here for 1 hour · Deny', buttons.join('|') === 'Allow once|Allow here for 1 hour|Deny', buttons.join('|'));
-await page.click('.ask.approve.grant .btn:has-text("Allow here for 1 hour")');
+await page.click('.ask.approve.grant button:has-text("Allow here for 1 hour")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/runs/1/approve')));
 const body = await page.evaluate(() => window.__calls.find((c) => c.url.endsWith('/runs/1/approve')).body);
 ok('an hour is sent as grant:"hour", naming the ask it answers', body === JSON.stringify({ approve: true, grant: 'hour', park: 'p1' }), body);
@@ -65,20 +65,40 @@ ok('an expired grant shows nothing', !(await page.$('#top .grantchip')));
 
 // someone else in the conversation: only Deny
 page = await open('carol');
-const theirs = await page.$$eval('.ask.approve.grant .btn', (els) => els.map((e) => e.textContent.trim()));
+const theirs = await page.$$eval('.ask.approve.grant button', (els) => els.map((e) => e.textContent.trim()));
 ok('someone else may only deny', theirs.join('|') === 'Deny', theirs.join('|'));
 ok('…and is told whose it is', (await page.textContent('.ask.approve.grant')).includes('Only alice can allow this'));
-await page.click('.ask.approve.grant .btn:has-text("Deny")');
+await page.click('.ask.approve.grant button:has-text("Deny")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/runs/1/approve')));
 ok('deny is a plain verdict', await page.evaluate(() => window.__calls.find((c) => c.url.endsWith('/runs/1/approve')).body) === JSON.stringify({ approve: false, park: 'p1' }));
 
 // a click on an ask that is gone (the agent moved on before its event came):
 // the 409 is said beside the card, never an unhandled rejection
 await page.evaluate(() => { window.__views[1].run.pendingState = { ...window.__views[1].run.pendingState, park: 'p2' }; });
-await page.click('.ask.approve.grant .btn:has-text("Deny")');
+await page.click('.ask.approve.grant button:has-text("Deny")');
 await page.waitForSelector('.anote');
 ok('a refused verdict says why, inline', (await page.textContent('.anote')).includes('That approval is no longer pending'), await page.textContent('.anote'));
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
+// approvalTpl, as a module of an instance's own would call it (chat-cards.js still exports it): the calls, the
+// lead it is given, Approve / Deny answering decide(yes)
+const own = await page.evaluate(async () => {
+  const { approvalTpl } = await import('/chat-cards.js');
+  const { render } = await import('/vendor/lit-all.min.js');
+  const box = document.body.appendChild(document.createElement('div'));
+  const said = [];
+  render(approvalTpl([{ function: { name: 'x_tool' } }, 'y_tool'], (yes, how) => said.push([yes, how ?? null]), 'My module wants to run'), box);
+  const card = box.querySelector('.ask.approve');
+  const text = card.textContent.replace(/\s+/g, ' ');
+  const buttons = [...card.querySelectorAll('button')].map((b) => b.textContent.trim());
+  card.querySelector('button.bxc-primary').click();
+  await new Promise((r) => setTimeout(r, 50));
+  card.querySelector('button.bxc-deny')?.click();
+  await new Promise((r) => setTimeout(r, 50));
+  box.remove();
+  return { text, buttons, said };
+});
+ok('chat-cards.js still exports approvalTpl: its lead, its calls, Approve / Deny → decide', own.text.includes('My module wants to run') && own.text.includes('x_tool') && own.text.includes('y_tool')
+  && own.buttons.join('|') === 'Approve|Deny' && JSON.stringify(own.said) === '[[true,null],[false,null]]', JSON.stringify(own));
 await browser.close();
 done('grant');

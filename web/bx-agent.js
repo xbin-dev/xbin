@@ -46,7 +46,7 @@ import '/vendor/bx-md.js'; // the markdown highlighter up front: the kit's rende
 import { diffHTML, langFor } from '/vendor/bx-code.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { Transcript, PAGE_LIMIT } from '/vendor/agent-pages.js';
-import { blockOf } from '/vendor/agent-fold.js';
+import { blockOf, llmHint } from '/vendor/agent-fold.js';
 import { block } from '/vendor/chat/blocks.js';
 import { rowsView, activityView, usageView } from '/vendor/chat/views.js';
 import { signinView } from '/vendor/chat/asks.js';
@@ -655,6 +655,7 @@ export class BxAgent extends LitElement {
           <span>${this.history ? 'past session' : this.session ? (status === 'waiting_permission' ? 'waiting for you' : status.replace('_', ' ')) : 'not started'}</span>
           ${this._curMode() && !this._options().length ? html`<span>· ${this._curMode()}</span>` : nothing}
           ${tx.st.usage ? html`<span>· ${usageView(tx.st.usage)}</span>` : nothing}
+          ${this.session && tx.st.llm === 'connector' ? html`<span title="model calls go through this workspace's LLM connector, metered to you">· LLM by xbin</span>` : nothing}
           ${this._followUp ? html`<span title=${this._followUp.text}>· your feedback goes in when the turn ends</span>` : nothing}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
         </div>
@@ -686,6 +687,11 @@ export class BxAgent extends LitElement {
       return [
         { id: 'provider', title: 'provider', value: this._provider, options: ps.length ? ps.map((p) => ({ value: p.id, name: p.name })) : [{ value: '', name: 'loading…' }] },
         prov?.modes?.length ? { id: 'start-mode', title: 'mode', value: this._curMode(), options: prov.modes.map((m) => ({ value: m.id, name: `${m.name}${m.explicit ? ' (caution)' : ''}` })) } : null,
+        // what its model calls would run on (D226; GET /agent/providers' llm) —
+        // and, where both the person's own sign-in and the workspace's LLM
+        // connector can serve, their saved choice between them (agent-prefs.js)
+        this._credentials(prov),
+        llmHint(prov) ? { id: 'llm', note: `${llmHint(prov)}${prov.llm.reason ? ` — ${prov.llm.reason}` : ''}` } : null,
       ];
     }
     const opts = this._options().filter((o) => o.type === 'select' && Array.isArray(o.options) && o.options.length);
@@ -708,7 +714,21 @@ export class BxAgent extends LitElement {
     ];
   }
 
+  // the picker for a harness's saved credentials choice; null where there is
+  // nothing to choose (one of the two can't serve, a rule forces one, or
+  // the server keeps no preferences for this caller)
+  _credentials(prov) {
+    const c = prov && agentPrefs().credentialsChoice(prov);
+    return c ? { id: 'credentials', label: 'runs on', title: 'what a new session of this agent runs its model calls on — saved for you', ...c } : null;
+  }
+
   _picked(id, value) {
+    if (id === 'credentials') { // saved, then the listing says what a session runs on now
+      const prov = (this._providers || []).find((p) => p.id === this._provider);
+      agentPrefs().rememberCredentials(prov, value).then(() => { this._providersP = this._loadProviders(); this.requestUpdate(); });
+      this.requestUpdate();
+      return;
+    }
     if (id === 'provider') {
       this._provider = value;
       this._mode = (this._providers || []).find((x) => x.id === value)?.defaultMode || '';

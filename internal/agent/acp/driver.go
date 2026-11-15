@@ -19,6 +19,24 @@ type Command = sdkacp.Command
 // New returns an unstarted client, configured for xbind.
 func New() *Client { return sdkacp.NewWith(xbindOptions) }
 
+// NewFor is New for a session that wants the host's hello (_xbin/hello: who
+// serves the agent's model calls, which providers are signed in — the LLM
+// connector's hook-up, term/llmhook.go). hello runs on the read loop.
+func NewFor(hello func(HelloParams)) *Client {
+	o := xbindOptions
+	o.OnExt = func(cfg agent.Config, m *Message) bool {
+		if m.Method != MXbinHello {
+			return hostLog(cfg, m)
+		}
+		var p HelloParams
+		if json.Unmarshal(m.Params, &p) == nil && hello != nil {
+			hello(p)
+		}
+		return true
+	}
+	return sdkacp.NewWith(o)
+}
+
 // Driver is the agent.Driver constructor for provider.Driver == "acp".
 func Driver() agent.Driver { return New() }
 

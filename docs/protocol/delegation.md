@@ -72,7 +72,7 @@ forwards them):
 
 | Header | Meaning |
 |---|---|
-| `X-XBin-Agent-Model: <id>` | the model the agent's conversation is on now. The orgs' model rules are asked with it; xbind doesn't verify it |
+| `X-XBin-Agent-Session: <id>` | the agent session (handle) the call runs under — required on every call but the bootstrap ones ([Agent sessions](#agent-sessions)). It is where the conversation's scope and model come from; `X-XBin-Agent-Model` is ignored |
 | `X-XBin-Dry-Run: 1` | describe the call instead of making it (below) |
 | `X-XBin-Ticket: <request id>` | the approved request this side effect runs under (below) |
 
@@ -82,7 +82,7 @@ forwards them):
 |---|---|
 | reads, at the person's level | `GET /whoami`, `/components`, `/components/<path>`, `/tile-status`, `/tile-report`, `/logs`, `/alerts`, `/screens`, `/templates`, `/agent/providers`, `/term/sessions`, `/term/sessions/<id>`, `…/events`, `…/log`, `…/diff`, `/agent/history`, `/agent/history/<id>/events`, `/code/tree`, `/code/file`, and its own `/delegate/state`, `/delegate/approvals`, `/delegate/requests/<id>`, `/delegate/changesets[/<id>]` |
 | a tile's API | `/api/<tile>/…` where the person can read the tile: `GET`/`HEAD` freely; any other method needs the person's approval |
-| acts | `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…` |
+| acts | `POST /preview` (a picture of one tile, as the person: [preview.md](/docs/protocol/preview.md) — no approval; rate-limited), `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…` |
 | admin reads, only for an admin who opted in | `GET /grants`, `/bindings`, `/orgs` (without SSO group rules), `/limits` — answered as the person |
 | refused | everything else: `403 {error, refusal: "not-delegated", class}`. In particular: answering a tile agent's permission request or question, a session's options and restart, terminals, deleting or disabling tiles, code writes and pull requests, the account, devices and sign-in tickets, frame tokens and path tickets, view-as, a person's consents, tile stores, the admin API, and every approval on this page |
 
@@ -158,6 +158,112 @@ the person's own by `X-XBin-Agent`
 instance under the same rules as the person's own partition: with
 `partitionConsent` on it needs the person's consent for *agent → tile*, and
 it is counted in their ledger.
+
+## Agent sessions
+
+An **agent session** is xbind's record of one conversation of a person's
+agent: its **scope** (what the person let it see), its **model**, and its
+**taint** (the orgs whose data it has touched). The agent no longer says
+what model it is on: it opens a handle, and every call carries it.
+
+```
+POST   /delegate/sessions       the person's agent. {scope: {orgs: […],
+                                 tiles: […]} | null, model:
+                                 "<upstream>/<model>"} → {id, scope,
+                                 model, tainted: [org], created, used,
+                                 connection: {counts}}. scope null:
+                                 everything the person can see; orgs takes
+                                 "workspace" for the tiles in no org. At
+                                 most 32 a person and holder (the least
+                                 recently used go); gone after 24 h unused
+GET    /delegate/sessions/<id>  the person's agent. The session
+PATCH  /delegate/sessions/<id>  the person's agent. {scope?, model?} → the
+                                 session. The scope may always change. The
+                                 model may change only to one every
+                                 tainted org's rules allow: 409 {code:
+                                 "model_taint", orgs, reason, error}
+                                 otherwise — open a new session
+DELETE /delegate/sessions/<id>  the person's agent. 204
+GET    /delegate/sessions/<id>/connection
+                                 the person's agent. [?whatIf=<model>] →
+                                 {id, model, scope, orgs, tiles:
+                                 [{tile, name, org, harnesses}], blocked:
+                                 [{org, blocked, reason, rule}], counts,
+                                 tainted, whatIf?: {model, connects,
+                                 disconnects, counts, allowed,
+                                 taintedOrgs}}
+GET    /delegate/map            a person, or their agent. {user, tiles:
+                                 [{tile, title, kind: "app" | "page",
+                                 orgs, state, agent, tileAgents}],
+                                 screens: [{id, name, org?, tiles}], orgs:
+                                 [{id, name, level, admin, suspended}],
+                                 leftOut: {hiddenByYou, blocked}}
+GET    /docs/search             signed in. ?q= (≤ 200 bytes; 8 words)
+                                 &limit= (≤ 20, default 8) → {q, results:
+                                 [{path, title, section, heading, score,
+                                 snippet}], total}
+GET    /docs/page               signed in. ?path=&section= → {path, title,
+                                 section?, markdown, truncated?, sections:
+                                 [{section, heading}]}; at most 64 KiB
+```
+
+- **Every delegate call carries `X-XBin-Agent-Session`.** Without a live
+  handle of that person and that holder: `403 {refusal: "no-session"}`.
+  Excepted, so an agent can start: `POST /delegate/sessions`,
+  `GET /delegate/state`, `GET /whoami`, `GET /docs/search`, `/docs/page`.
+- **The model is the handle's.** The orgs' model rules are asked with it,
+  and the LLM connector holds the holder's own model calls to it
+  ([llm.md](/docs/llm.md)): the model a tile's data is judged against is the
+  model the conversation's text goes to.
+- **The scope confines.** A tile outside it is `403 {refusal: "hidden"}`
+  ("hidden by you"), and left out of listings; a tile the orgs' rules keep
+  the agent out of stays `{refusal: "tile"}` with the org's reason.
+- **Taint.** The first allowed call that touches a tile — a read, a row of
+  a listing, the map — adds the tile's orgs to the handle's `tainted`. It
+  only grows.
+- **The connection view here is redacted**: connected tiles by name;
+  blocked, hidden and no-access ones as counts and org-level reasons. It
+  enters a model's context, and a blocked tile's name is the blocking
+  org's data. The agent's page shows its person the full view:
+  `GET /agents/connection?session=<id>[&whatIf=]`, answered only for the
+  holder's own frame and its driver's session
+  ([agents.md](/docs/protocol/agents.md)).
+- **The map** is what the person sees, compact, within the scope and the
+  rules; what is left out is counted. A tile's own `API.md` is read with
+  `GET /code/file?component=<tile>&path=API.md` (the code-read rule: read
+  on the tile).
+- **The session directory**: `GET /term/sessions?origin=agent` lists the
+  tile agents this agent started for the person; `&compact=1` answers
+  `[{id, cwd, kind, provider, mode, status, origin}]`.
+- Audit rows carry `session`.
+
+## Notices to the agent's backend
+
+A holder's backend learns that something it waits on changed without
+polling: xbind POSTs to the person's partition of the holder, on the path
+the holder's entry in xbind's table names, over the delivery path
+partition mail's doorbell uses (it arrives as `xbin/mail`, role `writer`,
+with the person's partition).
+
+```
+{"partition": "user:<id>", "events": [{"kind": "request", "id": "<id>"}, …]}
+```
+
+| `kind` | When | `id` |
+|---|---|---|
+| `request` | an approval request was approved, denied, withdrawn, used, or expired | the request |
+| `approval` | a standing approval was added or taken back | the approval |
+| `changeset` | a change set was decided, applied or withdrawn | the set |
+| `state` | the person paused or resumed their agent, or changed what it may propose; delegation was switched on or off for the workspace | — |
+| `session` | a tile agent this holder started changed status (idle after a turn, waiting for the person, ended) | the session |
+| `resync` | events were dropped (more than 256 waited): re-read everything | — |
+
+A notice carries **ids and kinds only**. The backend re-reads what an event
+names through this API. Treat a notice as a hint — "look again" — never as
+a fact: it is input from outside the conversation. Coalesced (one queue a
+person; a kind and id once); at least once (an event is sent again, with
+backoff, until a delivery that carried it is answered 2xx, for up to an
+hour); answer 2xx quickly and do the reading afterwards.
 
 ## The switches
 

@@ -198,22 +198,23 @@ func TestDelegateTileCalls(t *testing.T) {
 	w := delegateWorld(t)
 	bob, person := delegateCred("d-bob"), w.cookie("bob")
 
-	// a read: free, as the person, on the model the agent says it is on
+	// a read: free, as the person, on the model of its agent session —
+	// never the one a header says
 	rec := w.do(w.inv, "GET", "/api/apps/x/notes?q=secret", "", bob, header(HeaderAgentModel, "private-1"))
 	calls := w.tileCalls()
 	if rec.Code != 200 || rec.Header().Get("X-Ran") != "tile" || len(calls) != 1 {
 		t.Fatalf("the tile read: %d ran %q (%d calls)", rec.Code, rec.Header().Get("X-Ran"), len(calls))
 	}
-	if p := calls[0].p; p.UserID != "bob" || p.Via != "delegate" || p.Agent != dHolder || p.Component != "" || p.IsAdmin() || p.User == nil || p.AgentModel != "private-1" {
+	if p := calls[0].p; p.UserID != "bob" || p.Via != "delegate" || p.Agent != dHolder || p.Component != "" || p.IsAdmin() || p.User == nil || p.AgentModel != "local/test" || p.AgentSession == "" {
 		t.Fatalf("the proxy saw %+v", p)
 	}
-	if last := w.policy.last(); last != (delegation.Subject{Holder: dHolder, User: "bob", Tile: "apps/x", Model: "private-1"}) {
+	if last := w.policy.last(); last != (delegation.Subject{Holder: dHolder, User: "bob", Tile: "apps/x", Model: "local/test"}) {
 		t.Fatalf("the policy was asked %+v", last)
 	}
 	// a model header that isn't one is dropped, not passed on
 	w.do(w.inv, "GET", "/api/apps/x/notes", "", bob, header(HeaderAgentModel, "a b\tc"))
-	if p := w.tileCalls()[1].p; p.AgentModel != "" {
-		t.Fatalf("a bad model header reached the principal: %q", p.AgentModel)
+	if p := w.tileCalls()[1].p; p.AgentModel != "local/test" {
+		t.Fatalf("a model header reached the principal: %q", p.AgentModel)
 	}
 
 	// a write: needs the person's approval
@@ -911,46 +912,100 @@ func TestDelegateReviewHardening(t *testing.T) {
 
 // Calls in flight end, and standing approvals go, when what allowed them
 // does: the person is disabled, loses the tile, revokes the approval, or
-// the tile is deleted — at once on a sweep, and within delegateRecheck
-// without one. And a pause that lands between the gate's check and the
-// call's start still stops it.
+// the tile is deleted. Each change is driven in the three orders it can
+// land in, explicitly — never by timing:
+//
+//	before the gate judges the call:  the call is refused; the tile never sees it
+//	while the gate is judging it:     the gate's last check, made after the call is
+//	                                  registered, refuses it (the policy's onAsk hook
+//	                                  makes the change at exactly that point)
+//	after the call reached the tile:  the sweep cuts it at once, the recheck within
+//	                                  its interval
+//
+// Every wait is bounded and fails saying what it waited for. (An earlier
+// version polled "some call of bob's is registered" to mean "this call
+// runs": a previous call not yet unregistered satisfied it, the change then
+// landed before the new call was judged, the gate — rightly — refused it,
+// and the test waited without bound for a tile handler that never ran.)
 func TestDelegateCallsEndWithWhatAllowedThem(t *testing.T) {
+	const wait = 30 * time.Second
 	w := delegateWorld(t)
 	w.invS.delegateRT.setRecheck(20 * time.Millisecond) // this server's own, before its first call
 	bob := delegateCred("d-bob")
-	block := func() (cut chan error) {
-		started := make(chan struct{})
-		cut = make(chan error, 1)
+
+	// one call, from request to answer
+	type call struct {
+		name    string
+		started chan struct{}                   // the tile's handler has it
+		cut     chan error                      // how the handler's context ended (nil: it wasn't cut)
+		done    chan *httptest.ResponseRecorder // the request returned
+	}
+	start := func(name, method, path string) *call {
+		t.Helper()
+		c := &call{name: name, started: make(chan struct{}), cut: make(chan error, 1), done: make(chan *httptest.ResponseRecorder, 1)}
 		w.invS.ComponentAPI = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-			close(started)
+			close(c.started)
 			select {
 			case <-r.Context().Done():
-				cut <- r.Context().Err()
-			case <-time.After(5 * time.Second):
-				cut <- nil
+				c.cut <- r.Context().Err()
+			case <-time.After(2 * wait):
+				c.cut <- nil
 			}
 		})
-		return cut
+		go func() { c.done <- w.do(w.inv, method, path, "{}", bob) }()
+		return c
 	}
-	running := func(method, path string) chan error {
+	// running: the call reached the tile and is registered — this call, not
+	// "a call"
+	running := func(c *call) {
 		t.Helper()
-		cut := block()
-		go w.do(w.inv, method, path, "{}", bob)
-		deadline := time.After(5 * time.Second)
-		for len(w.invS.delegateRT.running("bob")) == 0 {
-			select {
-			case <-deadline:
-				t.Fatal("the call never started")
-			default:
-				time.Sleep(time.Millisecond)
-			}
+		select {
+		case <-c.started:
+		case rec := <-c.done:
+			t.Fatalf("%s: the call never reached the tile: %d %s", c.name, rec.Code, rec.Body.String())
+		case <-time.After(wait):
+			t.Fatalf("%s: after %s the call neither reached the tile nor was answered (%d calls registered)", c.name, wait, len(w.invS.delegateRT.running("bob")))
 		}
-		return cut
+		if n := len(w.invS.delegateRT.running("bob")); n != 1 {
+			t.Fatalf("%s: %d calls registered while it runs, want 1", c.name, n)
+		}
 	}
-	ended := func(name string, cut chan error) {
+	// ended: it was cut, its request returned, and nothing is left registered
+	ended := func(c *call) {
 		t.Helper()
-		if err := <-cut; err == nil {
-			t.Fatalf("%s: the running call outlived it", name)
+		select {
+		case err := <-c.cut:
+			if err == nil {
+				t.Fatalf("%s: the running call outlived it", c.name)
+			}
+		case <-time.After(wait):
+			t.Fatalf("%s: after %s the running call wasn't cut (%d calls registered)", c.name, wait, len(w.invS.delegateRT.running("bob")))
+		}
+		select {
+		case <-c.done:
+		case <-time.After(wait):
+			t.Fatalf("%s: cut, but the request didn't return in %s", c.name, wait)
+		}
+		for deadline := time.Now().Add(wait); len(w.invS.delegateRT.running("bob")) != 0; {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: its call is still registered %s after it returned", c.name, wait)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	// refused: judged after the change — it never reaches the tile
+	refused := func(name, method, path, want string) {
+		t.Helper()
+		c := start(name, method, path)
+		select {
+		case rec := <-c.done:
+			if rec.Code != 403 || !strings.Contains(rec.Body.String(), want) {
+				t.Fatalf("%s: %d %s, want a 403 with %q", name, rec.Code, rec.Body.String(), want)
+			}
+		case <-c.started:
+			t.Fatalf("%s: the call reached the tile", name)
+		case <-time.After(wait):
+			t.Fatalf("%s: no answer in %s", name, wait)
 		}
 	}
 	setBob := func(u users.User) {
@@ -960,34 +1015,60 @@ func TestDelegateCallsEndWithWhatAllowedThem(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	approve := func(tile string) delegation.Approval {
+		t.Helper()
+		ap, err := w.store.AddApproval(delegation.Approval{User: "bob", Tile: tile, Scope: delegation.ScopeTile}, delegation.GrantAlways, "session")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ap
+	}
+	atJudging := func(f func()) { // run f when the gate asks the tile's rules for the next call, once
+		w.policy.set(func(d *dPolicy) {
+			d.onAsk = func() {
+				d.onAsk = nil
+				f()
+			}
+		})
+	}
 	reads := map[string]string{"apps/x": users.LevelRead, "apps/mail": users.LevelRead}
+	w.policy.set(func(d *dPolicy) { d.readCheck = true })
 
-	// a revoked standing approval: the write running under it ends (no sweep: the recheck)
-	ap, _ := w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/mail", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session")
-	cut := running("POST", "/api/apps/mail/import")
+	// ---- a standing approval is revoked ----
+	ap := approve("apps/mail")
+	c := start("revoked while running", "POST", "/api/apps/mail/import")
+	running(c)
 	if _, err := w.store.RevokeApproval("bob", ap.ID); err != nil {
 		t.Fatal(err)
 	}
-	ended("a revoked approval", cut)
+	ended(c) // no sweep: the recheck
+	refused("revoked before the call", "POST", "/api/apps/mail/import", `"refusal":"needs-approval"`)
+	ap = approve("apps/mail")
+	atJudging(func() { _, _ = w.store.RevokeApproval("bob", ap.ID) })
+	refused("revoked while the gate judged the call", "POST", "/api/apps/mail/import", "approval")
 
-	// the person loses the tile: the call ends, and the approval of it goes for good
-	w.policy.set(func(d *dPolicy) { d.readCheck = true })
-	_, _ = w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/mail", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session")
-	_, _ = w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/x", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session")
-	cut = running("GET", "/api/apps/mail/stream")
+	// ---- the person loses the tile ----
+	approve("apps/mail")
+	approve("apps/x")
+	c = start("losing the tile while running", "GET", "/api/apps/mail/stream")
+	running(c)
 	setBob(users.User{Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelRead}})
 	w.invS.SweepDelegation()
-	ended("losing the tile", cut)
+	ended(c)
 	if aps, _ := w.store.Approvals("bob"); len(aps) != 1 || aps[0].Tile != "apps/x" {
 		t.Fatalf("approvals after bob lost apps/mail: %+v", aps)
 	}
+	refused("the tile lost before the call", "GET", "/api/apps/mail/stream", noTileFor("bob"))
 	setBob(users.User{Role: users.RoleUser, Tiles: reads}) // access given again: the approval doesn't come back
 	w.invS.SweepDelegation()
 	if _, ok := w.store.Covers("bob", "apps/mail", "POST", "/api/apps/mail/send"); ok {
 		t.Fatal("an approval came back with the access")
 	}
+	atJudging(func() { setBob(users.User{Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelRead}}) })
+	refused("the tile lost while the gate judged the call", "GET", "/api/apps/mail/stream", "")
+	setBob(users.User{Role: users.RoleUser, Tiles: reads})
 
-	// the tile is deleted: its approvals go
+	// ---- the tile is deleted: its approvals go ----
 	if err := os.RemoveAll(filepath.Join(w.invS.Reg.Root, "apps", "x")); err != nil {
 		t.Fatal(err)
 	}
@@ -999,25 +1080,29 @@ func TestDelegateCallsEndWithWhatAllowedThem(t *testing.T) {
 		t.Fatalf("approvals after apps/x was deleted: %+v", aps)
 	}
 
-	// the person is disabled: the call ends
-	cut = running("GET", "/api/apps/mail/stream")
+	// ---- the person is disabled ----
+	c = start("disabled while running", "GET", "/api/apps/mail/stream")
+	running(c)
 	setBob(users.User{Role: users.RoleUser, Tiles: reads, Disabled: true})
-	ended("a disabled person", cut)
+	ended(c) // no sweep: the recheck
 	setBob(users.User{Role: users.RoleUser, Tiles: reads})
 
-	// a pause that lands after the gate judged the call and before it runs
-	ran := false
-	w.invS.ComponentAPI = http.HandlerFunc(func(http.ResponseWriter, *http.Request) { ran = true })
-	w.policy.set(func(d *dPolicy) {
-		d.onAsk = func() { // the gate is asking the tile's rules: the person pauses right now
-			d.onAsk = nil
-			_, _ = w.store.SetState("bob", func(st *delegation.State) { st.Paused = true })
-		}
-	})
-	rec := w.do(w.inv, "GET", "/api/apps/mail/inbox", "", bob)
-	if rec.Code != 403 || ran {
-		t.Fatalf("a call paused between the gate's check and its start: %d ran=%v %s", rec.Code, ran, rec.Body.String())
+	// ---- the person pauses ----
+	c = start("paused while running", "GET", "/api/apps/mail/stream")
+	running(c)
+	if _, err := w.store.SetState("bob", func(st *delegation.State) { st.Paused = true }); err != nil {
+		t.Fatal(err)
 	}
+	if n := w.invS.CutDelegateStreams("bob"); n != 1 { // what PUT /delegate/state does
+		t.Fatalf("pausing cut %d calls, want 1", n)
+	}
+	ended(c)
+	refused("paused before the call", "GET", "/api/apps/mail/inbox", "paused")
+	if _, err := w.store.SetState("bob", func(st *delegation.State) { st.Paused = false }); err != nil {
+		t.Fatal(err)
+	}
+	atJudging(func() { _, _ = w.store.SetState("bob", func(st *delegation.State) { st.Paused = true }) })
+	refused("paused while the gate judged the call", "GET", "/api/apps/mail/inbox", "")
 }
 
 // The second review, at the gate: what a tile sees of a delegate's call is

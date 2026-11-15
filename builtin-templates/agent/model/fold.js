@@ -19,6 +19,11 @@
 // `kids` when the call is held here — an orphan stays flat. An `agent`
 // block whose child a harness drives carries the child's `harness` summary.
 //
+// blockOf() says a block in xbind's chat kit's block model
+// (/vendor/chat/blocks.js, D224) — what the web view hands the kit's views
+// (chat-kit.js); the fold's own blocks stay what the native view and the
+// models read.
+//
 // With a FoldCache, fold() rebuilds only the blocks whose inputs changed —
 // the view holds each message, step and link as an object that an update
 // REPLACES (session.js upserts), so "changed" is identity — and hands back
@@ -26,9 +31,10 @@
 // the rest: a streamed token re-folds a 1k-message conversation without
 // re-deriving a thousand headlines, and a view (the native bridge) can skip
 // what is identical. The output is exactly what fold() without a cache makes.
-import { headline, family, isSpawn, parseArgs, resultState, subline, outcome } from './tool-heads.js';
-import { acpState, acpWords, isAcp } from './harness-heads.js';
-import { activityLine } from './harness.js';
+import { headline, family, isSpawn, parseArgs, resultState, subline, outcome, argsShown, ICON } from './tool-heads.js';
+import { acpState, acpWords, isAcp, ACP_FAMILY, acpRecord, callIdOf, rawInputOf } from './harness-heads.js';
+import { activityLine, nameOf } from './harness.js';
+import { block, newToolRecord, toolState, toolDone, up } from '/vendor/chat/blocks.js';
 
 // Engine-written user messages that are not the owner speaking — a person's
 // message to a harness child, told its parent (§4.3.13), among them.
@@ -326,3 +332,118 @@ export function activity(v, blocks) {
 // busy reports statuses in which a message is queued rather than answered
 // at once, and Stop makes sense.
 export const busy = (status) => ['running', 'awaiting', 'sleeping'].includes(status);
+
+// ---- the blocks as the chat kit's block model ------------------------------------------------
+//
+//   user · notice · assistant · draft     the same kinds
+//   think                                 thought
+//   tool                                  tool — its ToolRecord: a coding agent's call from its tool row's acp
+//                                         (model/harness-heads.js acpRecord), a tool of the template's own from
+//                                         what the fold says of it (builtinRecord), with the fold's words as the
+//                                         block's own (its glyph, its command under a summary, what it came to,
+//                                         its arguments as rows, its result)
+//   agent                                 agent — the child's blocks converted the same way; an approval the
+//                                         child waits on is its `tail` (a perm block)
+//   step                                  step: the template's own kind (a journal line), drawn by its own view
+//
+// A converted block is kept with the fold's block it was made of — which the
+// fold hands back unchanged until its inputs change — so its version (`v`)
+// moves exactly when the block does; the blocks of the call in flight (made
+// anew at every fold) take over what the views memoized on the ones before.
+
+// a call of the template's own tools (bash, read_file, …): no ACP record
+// exists, so one is made of what the fold says of it
+const KIND_OF_FAMILY = Object.fromEntries(Object.entries(ACP_FAMILY).map(([kind, fam]) => [fam, kind]));
+const STATUS_OF_STATE = { writing: 'pending', running: 'in_progress', approval: 'pending', waiting: 'in_progress', done: 'completed', error: 'failed', stopped: 'cancelled' };
+export function builtinRecord(b) {
+  const rec = newToolRecord(b.callId || '');
+  rec.kind = KIND_OF_FAMILY[b.fam] || 'other';
+  rec.name = b.name || '';
+  rec.title = b.headline || '';
+  rec.label = b.headline || ''; // the fold's headline is what the card is called (model/tool-heads.js)
+  rec.status = STATUS_OF_STATE[b.state] || 'pending';
+  rec.rawInput = rawInputOf(parseArgs(b.args));
+  rec.text = toolDone(rec.status) ? String(b.result || '') : '';
+  return rec;
+}
+
+// the template's own approval (its engine asks once for the calls it wants
+// to run: Approve / Deny) as a perm block; `park` names the run's park
+const OWN_OPTIONS = [{ optionId: 'approve', name: 'Approve', kind: 'allow_once', explicit: false }, { optionId: 'deny', name: 'Deny', kind: 'reject_once', explicit: false }];
+export function ownApproval(k, park, calls) {
+  const names = (calls || []).map((c) => (c.function ? c.function.name : String(c)));
+  return block('perm', k, { pid: '', park, callId: '', tool: { title: names.join(', '), kind: 'other' }, calls: names, options: OWN_OPTIONS.map((o) => ({ ...o })),
+    rule: null, plan: null, by: null, optionId: null });
+}
+
+let serial = 0;                // a converted block's version: no two alike
+const converted = new WeakMap(); // a fold block → its kit block
+const lists = new WeakMap();   // a list of fold blocks → the list of theirs
+const inFlight = new Map();    // scope + id of a block of the call in flight → its last kit block
+
+function convert(b, scope) {
+  const under = b.parent ? { parent: callIdOf(b.parent) } : {};
+  switch (b.k) {
+    case 'user':
+      return block('user', b.id, { text: b.text, sender: b.sender || '', ref: b.msgId,
+        files: (b.files || []).map((f) => ({ name: String(f.path).split('/').pop(), path: f.path, mime: f.mime || '', size: null, sizeText: f.size || '' })) });
+    // (an engine-written message, an automation's prompt: folded to its heading — the first line without its brackets)
+    case 'notice': return block('notice', b.id, { text: b.text, fold: true, title: String(b.text || '').split('\n')[0].replace(/^\[|\]$/g, '').replace(/ — .*$/, '') });
+    case 'think': return block('thought', b.id, { text: b.text, live: !!b.live, ms: b.ms || 0, at: b.started || 0, ...under });
+    case 'assistant': return block('assistant', b.id, { text: b.text, model: b.model || '', usage: b.usage || null, ...under });
+    case 'draft': return block('draft', b.id, { text: b.text });
+    case 'tool': {
+      const harness = !!b.acp || isAcp(b.name);
+      const rec = harness ? acpRecord(b, parseArgs(b.args)) : builtinRecord(b);
+      // the row's placeholder says running, parked or settled some other way; ACP's status says the rest
+      const state = toolDone(rec.status) ? toolState(rec) : b.state === 'running' ? toolState(rec) : b.state;
+      const out = block('tool', b.id, { rec, state, children: rec.subagent ? [] : null, result: harness ? '' : b.result || '', at: (b.created || 0) * 1000, ...under,
+        // a tool of the template's own: its family's glyph, the fold's words, its arguments a row each
+        ...(harness ? {} : { icon: ICON[b.fam] || '', sub: b.sub || '', outcome: b.outcome || null, args: argsShown(b.args) }) });
+      if (b.kids) out.children = b.kids.map((c) => up(blockOf(c, scope + b.id + '/'), out));
+      return out;
+    }
+    case 'agent': {
+      const child = b.child || {};
+      return block('agent', b.id, {
+        title: (b.link && b.link.label) || b.headline || '', ref: b.childId || 0, state: b.state, phase: (b.link && b.link.phase) || child.status || '',
+        steps: child.llmCalls || 0, task: b.task || '', answer: String(b.result || '').replace(/^--- #\d+ .*? ---\n/, ''),
+        blocks: b.blocks ? blocksOf(b.blocks, scope + b.id + '/') : null,
+        // (the child's run rides along: a host answers the request on it)
+        tail: b.pendingApproval ? [Object.defineProperty(ownApproval(b.id + ':park', '', b.pendingApproval), '$run', { value: b.child || null })] : [],
+        provider: b.harness ? nameOf(b.harness) : '',
+      });
+    }
+  }
+  // step (a journal line): the template's own kind
+  return block(b.k, b.id, { step: b.kind, detail: b.detail, run: b.run });
+}
+
+/**
+ * blockOf(b, scope) → the kit's block for a fold block (which it keeps as
+ * `$src`): the same object while the fold hands back the same block. scope: where a nested list sits
+ * (a child's blocks under its card), for the blocks of a call in flight.
+ */
+export function blockOf(b, scope = '') {
+  if (!b) return null;
+  let out = converted.get(b);
+  if (out) return out;
+  out = convert(b, scope);
+  out.v = ++serial;
+  Object.defineProperty(out, '$src', { value: b }); // the fold's block it says (a host's view may need its own fields)
+  if (String(b.id).startsWith('draft-')) {
+    const prev = inFlight.get(scope + b.id);
+    if (prev && prev.$memo) out.$memo = prev.$memo; // the paragraphs already parsed
+    inFlight.set(scope + b.id, out);
+  }
+  converted.set(b, out);
+  return out;
+}
+
+/** blocksOf(list, scope) → the kit's blocks of a fold's list (the same list while the fold's is). */
+export function blocksOf(list, scope = '') {
+  if (!list) return [];
+  let out = lists.get(list);
+  if (!out) lists.set(list, (out = list.map((b) => blockOf(b, scope))));
+  return out;
+}

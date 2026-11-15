@@ -232,6 +232,14 @@ test('the app: start, a conversation, the stream, send, stop, home, addresses', 
   assert.equal(app.autos.runs.length, 1);
   assert.equal(routed.at(-1), 'auto=schedule:3');
   assert.ok(seen.includes('page'));
+  // the Automations page is drawn before its list is read: a form opened meanwhile is still there when the read lands
+  const opening = app.openAutomations();
+  assert.equal(app.page, 'automations');
+  assert.equal(app.autos.open, null, 'the list, at once');
+  app.autos.newSchedule(false);
+  await opening;
+  assert.ok(app.autos.form && app.autos.form.name === '', 'the form a person opened while the list was read stays open');
+  app.autos.closeForm();
   await app.follow('#join=TOKEN_1');
   await until(() => app.session.current()?.run.id === 2);
   assert.equal(JSON.parse(called('POST', '/join').pop().body).token, 'TOKEN_1');

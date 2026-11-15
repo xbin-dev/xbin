@@ -203,7 +203,7 @@ the manager's (never in a sandbox's `caps`):
 ```json
 {"protocol": 1, "protocols": [1],
  "manager": {"name": "coding-sandbox", "title": "Coding sandboxes", "version": "1.0.0"},
- "caps": ["exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports", "partitions"],
+ "caps": ["exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports", "partitions", "llm"],
  "egress": ["none", "internet"],
  "images": [{"id": "base", "title": "Debian with git, Go and Node", "default": true, "tools": ["git", "go", "node", "rg"],
              "harnesses": [{"id": "claude", "title": "Claude Code", "argv": ["claude-agent-acp"], "login": "claude auth login"},
@@ -219,7 +219,9 @@ the manager's (never in a sandbox's `caps`):
 capability is missing answers `unsupported` (a manager from before `ports`,
 D135, or `stdio` answers its route `not-found` — a consumer checks `caps`
 first). `partitions` is the manager's own, no sandbox's: it keeps a
-partitioned consumer's people apart (§Partitioned consumers).
+partitioned consumer's people apart (§Partitioned consumers). `llm`
+(optional, added 2026-11-15, D226) says the manager can give a sandbox the
+workspace's LLM connector (§The LLM connector in a sandbox).
 `limits.sandboxes` 0 means no fixed limit.
 
 An **image** is `{id, title, default, tools, harnesses?}`; exactly one is
@@ -349,7 +351,7 @@ person who uses the image's coding agents.
 | Method & path | Body | Result |
 |---|---|---|
 | `GET /sbx/sandboxes` | | `{"sandboxes": [sandbox…]}` — the caller's own and those shared with it (a verified person: only those they may use); a `usage` without its `series` |
-| `POST /sbx/sandboxes` | `{name, image?, size?, egress?, visibility?, members?, labels?, clientId?, start?, from?}` | **201** + the sandbox. `start` defaults to true; `from: {sandbox, snapshot?}` clones (`clone`) |
+| `POST /sbx/sandboxes` | `{name, image?, size?, egress?, visibility?, members?, labels?, clientId?, start?, from?, llm?}` | **201** + the sandbox. `start` defaults to true; `from: {sandbox, snapshot?}` clones (`clone`); `llm: true` asks for the LLM connector inside it (`llm`) |
 | `GET /sbx/sandboxes/{id}` | | the sandbox, a `usage` with its `series` |
 | `PATCH /sbx/sandboxes/{id}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox, with `restartNeeded: true` when a change applies at the next start (an egress: `egressNext`) |
 | `DELETE /sbx/sandboxes/{id}` | | **204** |
@@ -648,9 +650,59 @@ it still does, and `thaw` brings it back (stopped, or running with
   command; what they reach is the sandbox's `egress`, so an agent that
   calls its provider's API needs `internet` or `open`.
 - **No xbin identity, ever**: no token, no gateway, no route to xbind or the
-  workspace's tiles. What a sandbox reaches is its `egress`, nothing more.
+  workspace's tiles. What a sandbox reaches is its `egress`, nothing more —
+  and, when it was created with `llm: true`, the workspace's LLM connector
+  at `llm.url` (§The LLM connector in a sandbox): model routes only, for a
+  key its consumer hands in.
   The `ports` proxy is inbound only — a consumer's request to a server in
   the sandbox — and carries no credential in.
+
+## The LLM connector in a sandbox (`llm`)
+
+A workspace may have an LLM connector — one OpenAI-compatible endpoint in
+front of its model providers, metered per person (on xbin:
+[llm.md](/docs/llm.md)). A coding agent a consumer runs in a sandbox can
+use it instead of a sign-in of its own, if the sandbox can reach it. A
+manager that can arrange that offers the capability `llm`:
+
+- **`llm: true` on create** asks for it. It is a property of the sandbox
+  from its creation on: no `PATCH` changes it, and a clone asks for itself.
+- **The sandbox then carries `llm: {"url": "<base>"}`** — the connector's
+  OpenAI base URL as a process *inside the sandbox* reaches it (no
+  trailing slash; `<base>/chat/completions`, `<base>/responses`,
+  `<base>/models`). A sandbox that didn't ask has no `llm` member.
+- **It is the one exception to "no route to the workspace"**, and a narrow
+  one: at that address the sandbox reaches the connector's model routes
+  and nothing else, and they answer only to an **LLM key** — a credential
+  good for those routes alone, which the *consumer* gets for the person it
+  acts for and hands to the agent as an exec's `env` (on xbin:
+  `xbin.LLMKeyFor`, [sdk.md](/docs/sdk.md)). The manager holds no key and
+  mints none. It works with every `egress`, `none` included: reaching the
+  connector is not egress.
+- **The key is only as private as the sandbox.** Whoever can run a command
+  in a sandbox can read the environment of the processes in it — a coding
+  agent's LLM key included. In a sandbox shared between people, another
+  member can so spend the quota of the person a run acts for, for as long
+  as that run lives (the key ends with it, and within a day at most). A
+  consumer that shares sandboxes says so to its people; a manager needn't
+  do anything about it.
+- **A command's `env` may carry `XBIN_LLM_URL` and `XBIN_LLM_KEY`** — the
+  names a coding agent's configuration reads the address and the key by.
+  A manager that refuses a workspace's own variables in `env` (xbind's
+  runtime refuses `XBIN_*`: a sandbox gets no xbin identity) lets these
+  two through, in a command's `env` only; an LLM key is no identity.
+- **A consumer reads `hello.caps` first** and sends `llm` only to a
+  manager that offers it: a manager from before the capability may refuse
+  a member it doesn't know, or ignore it. Either way a sandbox without
+  `llm.url` has no connector, and the consumer runs its agent on the
+  agent's own sign-in. A manager that offers `llm` and can't give it to
+  one sandbox (its substrate has none any more) leaves `llm` out of that
+  sandbox the same way.
+
+On xbin the builtin manager offers `llm` when xbind's runtime does (its
+`caps` carry it: an xbind with the LLM-only listener) and passes the ask on
+as the runtime's `net.llm`; the address is the sandbox's gateway,
+`http://10.0.2.2:4180/v1` ([protocol/sandboxes.md](/docs/protocol/sandboxes.md)).
 
 ## People's terminals: the `sandbox-terminal` tile
 
@@ -700,8 +752,8 @@ manager of its own (its `API.md` has everything):
   a VM where the workspace runs VMs for tiles, else a namespace — or only
   the one mode its operators choose, never falling back (`isolation` always
   says which). `caps` are what the runtime serves (`exec`, `files`, `tar`,
-  `tty`, `snapshots`, `clone`, and `ports` and `stdio` on an xbind that has
-  them; not `archive`), `hello.notes` say what it
+  `tty`, `snapshots`, `clone`, and `ports`, `stdio` and `llm` on an xbind
+  that has them; not `archive`), `hello.notes` say what it
   lacks.
 - **Images** are the runtime's base plus a setup script, built once as root
   and cloned (a rebuild that fails keeps the previous good build);

@@ -96,7 +96,7 @@ func (s *Server) servePathTicket(w http.ResponseWriter, r *http.Request, originI
 			return
 		}
 	}
-	if p.ReadOnly() && !readOnlyAllowed(r) {
+	if p.ReadOnly() && !readOnlyAllowed(r, p) {
 		refuseReadOnly(w, r)
 		return
 	}

@@ -41,6 +41,14 @@
     // confined checkpoint builds and the broker's confined runs. Skip
     // without .rootfs/userns
     { "name": "confine", "pkg": "./internal/confine/", "overhead": 3 },
+    // previews (D234, docs/protocol/preview.md): Chromium in a confined
+    // sandbox with an empty netns (internal/preview), and the route end to
+    // end on isolated xbinds with auth — the three asset modes, an https
+    // workspace and a plain-http one on a real name, a tile with a backend
+    // and a partitioned one, the limits. The memory cap's test is in the
+    // delegated limits suite. Skip without .rootfs/userns or Chromium
+    { "name": "preview", "pkg": "./internal/preview/", "overhead": 3 },
+    { "name": "preview-e2e", "pkg": "./test/preview/", "overhead": 25 },
     { "name": "runner", "pkg": "./internal/runner/", "overhead": 4 },
     { "name": "sandbox", "pkg": "./internal/sandbox/", "overhead": 3 },
     { "name": "agentcore", "pkg": "./internal/sandbox/agentcore/", "overhead": 3 },

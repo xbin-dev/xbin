@@ -64,6 +64,7 @@ export class Fold {
     if (!state) return this;
     if (state.status) foldStatus(this.st, { type: 'status', data: state.status });
     if (state.usage) this.st.usage = state.usage;
+    if (state.llm) this.st.llm = state.llm; // "connector" | "own" (D226)
     if (state.turn) this.turn = state.turn + 0.5;
     return this;
   }
@@ -185,6 +186,7 @@ export class Fold {
         foldStatus(this.st, e);
         break;
       case 'notice': // a line xbin says, not the agent (D175: the start moved the layer to a new base)
+        foldStatus(this.st, e);
         this.blocks.push(this._new({ kind: 'notice', text: d.text || '' }));
         break;
     }
@@ -192,18 +194,24 @@ export class Fold {
   }
 }
 
+// llmHint(p): what a session of provider p would run on, in a few words —
+// from the row's `llm` (GET /agent/providers, D226: only while the
+// workspace's LLM connector is offered to agent sessions); '' otherwise.
+export const llmHint = (p) => ({ connector: 'LLM by xbin', 'own-first': 'your sign-in, else LLM by xbin', own: 'your sign-in', signin: 'needs a sign-in', unavailable: "can't run here" })[p?.llm?.use] || '';
+
 // the status digest: status/detail/currentMode/options/modes/commands each
 // from the last status that carried it, last = the last status's data (its
 // login), usage = the last turn.end's
 export const newStatus = () => ({ status: '', detail: '', currentMode: '', options: null, modes: null, commands: null, last: null, usage: null, queue: [] });
 
-// foldStatus(st, e): apply one event to a status digest (status, turn.end
-// and queue — the messages held for the turn's end, D197 — move it;
-// anything else is ignored)
+// foldStatus(st, e): apply one event to a status digest (status, turn.end,
+// queue — the messages held for the turn's end, D197 — and a notice naming
+// who serves the session's model calls move it; anything else is ignored)
 export function foldStatus(st, e) {
   const d = e.data || {};
   if (e.type === 'turn.end') { if (d.usage) st.usage = d.usage; return st; }
   if (e.type === 'queue') { st.queue = Array.isArray(d.items) ? d.items : []; return st; }
+  if (e.type === 'notice') { if (d.llm) st.llm = d.llm; return st; } // who serves the session's model calls (D226)
   if (e.type !== 'status') return st;
   if (d.status) st.status = d.status;
   if (d.detail) st.detail = d.detail;

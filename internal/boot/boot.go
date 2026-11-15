@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin"
@@ -63,7 +64,10 @@ type State struct {
 	VM          *vm.Manager      // VM sandboxes (vm.go); nil without isolation
 	Sbx         *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
 	TileSbx     *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
-	Push        *push.Service    // the push plane (push.go)
+	// llmListening is the LLM-only listener's socket once it is up
+	// (llmsessions.go): what a tile sandbox created with net.llm is given.
+	llmListening atomic.Pointer[string]
+	Push         *push.Service // the push plane (push.go)
 	// AppTunnel is the xbin app's iroh tunnel (apptunnel.go, D204)
 	AppTunnel *apptunnel.Service
 	// LLM is the LLM connector (llm.go, D226)
@@ -577,7 +581,8 @@ func (st *State) stepProxy() error {
 		return proxy.Decision(brk.RouteGlobal(p, c, q))
 	}
 	px.Deployments = st.Deployments
-	st.wirePartitionProxy(px) // user partitions start through the runner's adapter (partitionroute.go)
+	px.ReaderClamp = brk.ReaderClamp // a preview's calls (D234)
+	st.wirePartitionProxy(px)        // user partitions start through the runner's adapter (partitionroute.go)
 	// D29: backends get the driving user attributed (X-XBin-User[-Level]).
 	px.UserLevel = func(uid, tile string) string {
 		acc, ok := userStore.Access(uid)

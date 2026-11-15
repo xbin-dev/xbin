@@ -86,6 +86,12 @@
 //	            terminal_exit (failed on a non-zero exit)
 //	term        terminal/create `sh -c 'echo hi; printenv FAKE_API_KEY | wc -c'`,
 //	            wait, output → a chunk "term: <output>"
+//	llm-call T  (a prefix) one Chat Completions call to the LLM connector the
+//	            agent's environment names (XBIN_LLM_URL, XBIN_LLM_KEY — what a
+//	            host injects for acp.Fake's Connector), with T as the user
+//	            message and FAKEACP_LLM_MODEL as the model: a chunk "llm:
+//	            <the answer>", "llm: no connector" without the variables, or
+//	            "llm: error <status> <code>"
 //	printenv N  (a prefix) the agent's own environment variable N, as
 //	            Claude Code's Bash tool (a child of the agent) prints it: an
 //	            execute tool_call completed with the value as its text, the

@@ -78,6 +78,9 @@ type delegateTransport struct {
 func (t *delegateTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	r = r.Clone(r.Context())
 	r.Header.Set("Authorization", "XBin-Delegate "+t.token)
+	if id, _ := r.Context().Value(agentSessionKey{}).(string); id != "" && r.Header.Get(agentSessionHeader) == "" {
+		r.Header.Set(agentSessionHeader, id) // the conversation this call is for (InAgentSession)
+	}
 	return t.base.RoundTrip(r)
 }
 
@@ -90,6 +93,10 @@ func WithTicket(r *http.Request, id string) { r.Header.Set("X-XBin-Ticket", id) 
 // WithAgentModel tells xbind which model the agent's conversation is on
 // now. The orgs' model rules are asked with it on every call that names a
 // tile; a call without it is judged as on an unknown model.
+//
+// Deprecated: xbind ignores the header. A conversation's model is its
+// agent session's (OpenAgentSession, SetSessionModel); make the call with
+// InAgentSession's context.
 func WithAgentModel(r *http.Request, model string) { r.Header.Set("X-XBin-Agent-Model", model) }
 
 // WithDryRun asks xbind what r would do instead of doing it: the answer is
@@ -119,6 +126,17 @@ var (
 	// ErrAdminRead: reading admin state needs the person's opt-in to admin
 	// changes (and the person to be an admin).
 	ErrAdminRead = errors.New("admin state isn't open to this person's agent")
+	// ErrNoSession: the call carries no live agent session — open one
+	// (OpenAgentSession) and make the call with InAgentSession's context.
+	ErrNoSession = errors.New("no agent session")
+	// ErrHiddenByScope: the tile is outside what the person let this
+	// conversation see ("hidden by you") — unlike ErrPolicyRefused, where an
+	// org's rule keeps the agent out and Message says which and why.
+	ErrHiddenByScope = errors.New("hidden by the session's scope")
+	// ErrModelTaint: the session can't change to that model — orgs whose
+	// data the conversation has seen don't allow it (DelegateError.Orgs);
+	// open a new session.
+	ErrModelTaint = errors.New("the session's taint doesn't allow that model")
 	// ErrRateLimited: too many acts in a minute; DelegateError.RetryAfter
 	// says when to try again.
 	ErrRateLimited = errors.New("acting too fast")
@@ -132,6 +150,10 @@ type DelegateError struct {
 	Message string // xbind's words: fit to show the person
 	// RetryAfter: when a rate-limited call may be made again.
 	RetryAfter time.Duration
+	// Orgs: for ErrModelTaint, the orgs whose data the session has seen and
+	// that don't allow the model; Reason the first one's rule.
+	Orgs   []string
+	Reason string
 }
 
 func (e *DelegateError) Error() string {
@@ -150,6 +172,12 @@ func (e *DelegateError) Is(target error) bool {
 		return target == ErrNeedsApproval
 	case "ticket":
 		return target == ErrBadTicket
+	case "no-session":
+		return target == ErrNoSession
+	case "hidden":
+		return target == ErrHiddenByScope
+	case "model_taint":
+		return target == ErrModelTaint
 	case "tile":
 		return target == ErrPolicyRefused
 	case "paused":
@@ -174,12 +202,18 @@ func DelegateRefusal(resp *http.Response) error {
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	var b struct {
-		Error   string `json:"error"`
-		Refusal string `json:"refusal"`
-		Class   string `json:"class"`
+		Error   string   `json:"error"`
+		Refusal string   `json:"refusal"`
+		Class   string   `json:"class"`
+		Code    string   `json:"code"`
+		Orgs    []string `json:"orgs"`
+		Reason  string   `json:"reason"`
 	}
 	_ = json.Unmarshal(raw, &b)
-	e := &DelegateError{Status: resp.StatusCode, Refusal: b.Refusal, Class: b.Class, Message: b.Error}
+	e := &DelegateError{Status: resp.StatusCode, Refusal: b.Refusal, Class: b.Class, Message: b.Error, Orgs: b.Orgs, Reason: b.Reason}
+	if b.Refusal == "" && b.Code == "model_taint" {
+		e.Refusal = b.Code
+	}
 	if e.Message == "" {
 		e.Message = strings.TrimSpace(string(raw))
 	}
@@ -396,4 +430,266 @@ func ChangeSetOf(ctx context.Context, id string) (ChangeSet, error) {
 // WithdrawChanges takes back a proposal nobody decided yet.
 func WithdrawChanges(ctx context.Context, id string) error {
 	return delegateCall(ctx, http.MethodDelete, "/api/xbin/delegate/changesets/"+url.PathEscape(id), nil, nil)
+}
+
+// ---- agent sessions: the conversation's handle (docs/sdk.md) ----
+
+const agentSessionHeader = "X-XBin-Agent-Session"
+
+type agentSessionKey struct{}
+
+// InAgentSession is ctx for one conversation: every AsPerson() call made
+// with it (and every helper here) carries the agent session id — the
+// handle xbind issued for the conversation's scope and model. Set it once,
+// where the conversation's work starts; pass the context down. A call
+// without one is ErrNoSession (opening a session and the docs reads apart).
+func InAgentSession(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, agentSessionKey{}, id)
+}
+
+// AgentSessionID is the session id ctx carries ("" none).
+func AgentSessionID(ctx context.Context) string {
+	id, _ := ctx.Value(agentSessionKey{}).(string)
+	return id
+}
+
+// AgentSessionHeader is the request header that carries the handle — for
+// the holder's own model calls to the LLM connector (Client(), not
+// AsPerson()): xbind holds them to the session's model.
+const AgentSessionHeader = agentSessionHeader
+
+// SessionScope is what a conversation may see: orgs (every tile under
+// them; "workspace" for the tiles in no org) and single tiles. A nil
+// *SessionScope is everything the person can see.
+type SessionScope struct {
+	Orgs  []string `json:"orgs"`
+	Tiles []string `json:"tiles"`
+}
+
+// ConnectionCounts are a connection view's totals.
+type ConnectionCounts struct {
+	Tiles        int    `json:"tiles"`
+	Orgs         int    `json:"orgs"`
+	NotConnected int    `json:"notConnected"`
+	Hidden       int    `json:"hidden"`
+	Blocked      int    `json:"blocked"`
+	NoAccess     int    `json:"noAccess"`
+	Summary      string `json:"summary"`
+}
+
+// AgentSession is a handle as xbind holds it.
+type AgentSession struct {
+	ID         string        `json:"id"`
+	Scope      *SessionScope `json:"scope"`
+	Model      string        `json:"model"` // "<upstream>/<model>"
+	Tainted    []string      `json:"tainted"`
+	Connection struct {
+		Counts ConnectionCounts `json:"counts"`
+	} `json:"connection"`
+}
+
+// OpenAgentSession opens a handle for one conversation: scope (nil: all
+// the person can see) and the model it is on.
+func OpenAgentSession(ctx context.Context, scope *SessionScope, model string) (AgentSession, error) {
+	var out AgentSession
+	return out, delegateCall(ctx, http.MethodPost, "/api/xbin/delegate/sessions", map[string]any{"scope": scope, "model": model}, &out)
+}
+
+// AgentSessionOf reads a handle.
+func AgentSessionOf(ctx context.Context, id string) (AgentSession, error) {
+	var out AgentSession
+	return out, delegateCall(ctx, http.MethodGet, "/api/xbin/delegate/sessions/"+url.PathEscape(id), nil, &out)
+}
+
+// SetSessionModel changes a session's model: ErrModelTaint when an org
+// whose data the conversation has seen doesn't allow it (open a new
+// session instead).
+func SetSessionModel(ctx context.Context, id, model string) (AgentSession, error) {
+	var out AgentSession
+	return out, delegateCall(ctx, http.MethodPatch, "/api/xbin/delegate/sessions/"+url.PathEscape(id), map[string]any{"model": model}, &out)
+}
+
+// SetSessionScope narrows or widens what a session may see (nil: all).
+func SetSessionScope(ctx context.Context, id string, scope *SessionScope) (AgentSession, error) {
+	var out AgentSession
+	return out, delegateCall(ctx, http.MethodPatch, "/api/xbin/delegate/sessions/"+url.PathEscape(id), map[string]any{"scope": scope}, &out)
+}
+
+// CloseAgentSession ends a handle.
+func CloseAgentSession(ctx context.Context, id string) error {
+	return delegateCall(ctx, http.MethodDelete, "/api/xbin/delegate/sessions/"+url.PathEscape(id), nil, nil)
+}
+
+// SessionConnection is what a session is connected to, as it may enter a
+// model's context: connected tiles by name; blocked ones as counts and
+// org-level reasons. whatIf ("" none) asks what another model would change.
+type SessionConnection struct {
+	ID    string `json:"id"`
+	Tiles []struct {
+		Tile string `json:"tile"`
+		Name string `json:"name"`
+		Org  string `json:"org"`
+	} `json:"tiles"`
+	Blocked []struct {
+		Org     string `json:"org"`
+		Blocked int    `json:"blocked"`
+		Reason  string `json:"reason"`
+		Rule    string `json:"rule"`
+	} `json:"blocked"`
+	Counts  ConnectionCounts `json:"counts"`
+	Tainted []string         `json:"tainted"`
+	WhatIf  *struct {
+		Model       string           `json:"model"`
+		Connects    int              `json:"connects"`
+		Disconnects int              `json:"disconnects"`
+		Counts      ConnectionCounts `json:"counts"`
+		Allowed     bool             `json:"allowed"`
+		TaintedOrgs []string         `json:"taintedOrgs"`
+	} `json:"whatIf,omitempty"`
+}
+
+// ConnectionOf reads a session's connection view.
+func ConnectionOf(ctx context.Context, id, whatIf string) (SessionConnection, error) {
+	var out SessionConnection
+	path := "/api/xbin/delegate/sessions/" + url.PathEscape(id) + "/connection"
+	if whatIf != "" {
+		path += "?whatIf=" + url.QueryEscape(whatIf)
+	}
+	return out, delegateCall(ctx, http.MethodGet, path, nil, &out)
+}
+
+// WorkspaceMap is the workspace as the person sees it, within the
+// session's scope and the orgs' rules.
+type WorkspaceMap struct {
+	User  string `json:"user"`
+	Tiles []struct {
+		Tile       string   `json:"tile"`
+		Title      string   `json:"title"`
+		Kind       string   `json:"kind"` // app | page
+		Orgs       []string `json:"orgs"`
+		State      string   `json:"state"`
+		Agent      string   `json:"agent"` // off | read | full
+		TileAgents int      `json:"tileAgents"`
+	} `json:"tiles"`
+	Screens []struct {
+		ID    string   `json:"id"`
+		Name  string   `json:"name"`
+		Org   string   `json:"org"`
+		Tiles []string `json:"tiles"`
+	} `json:"screens"`
+	Orgs []struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Level string `json:"level"`
+		Admin bool   `json:"admin"`
+	} `json:"orgs"`
+	LeftOut struct {
+		HiddenByYou int `json:"hiddenByYou"`
+		Blocked     int `json:"blocked"`
+	} `json:"leftOut"`
+}
+
+// MapOf reads the workspace map.
+func MapOf(ctx context.Context) (WorkspaceMap, error) {
+	var out WorkspaceMap
+	return out, delegateCall(ctx, http.MethodGet, "/api/xbin/delegate/map", nil, &out)
+}
+
+// DocHit is one result of DocsSearch.
+type DocHit struct {
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	Section string `json:"section"`
+	Heading string `json:"heading"`
+	Score   int    `json:"score"`
+	Snippet string `json:"snippet"`
+}
+
+// DocsSearch searches xbind's docs (at most 20 results; limit 0: 8).
+func DocsSearch(ctx context.Context, q string, limit int) ([]DocHit, error) {
+	var out struct {
+		Results []DocHit `json:"results"`
+	}
+	return out.Results, delegateCall(ctx, http.MethodGet, "/api/xbin/docs/search?q="+url.QueryEscape(q)+"&limit="+strconv.Itoa(limit), nil, &out)
+}
+
+// DocPage is one docs page, or one section of it.
+type DocPage struct {
+	Path      string `json:"path"`
+	Title     string `json:"title"`
+	Section   string `json:"section"`
+	Markdown  string `json:"markdown"`
+	Truncated bool   `json:"truncated"`
+	Sections  []struct {
+		Section string `json:"section"`
+		Heading string `json:"heading"`
+	} `json:"sections"`
+}
+
+// DocsPage reads a docs page (section "" the whole page, capped at 64 KiB).
+func DocsPage(ctx context.Context, path, section string) (DocPage, error) {
+	var out DocPage
+	return out, delegateCall(ctx, http.MethodGet, "/api/xbin/docs/page?path="+url.QueryEscape(path)+"&section="+url.QueryEscape(section), nil, &out)
+}
+
+// HolderEvent is one line of a notice xbind sends the agent's backend:
+// something of Kind changed (ID names what). Kinds: request, approval,
+// changeset, state, session, resync.
+type HolderEvent struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+// HolderNotice is the body of a notice. It carries ids and kinds only:
+// re-read what an event names through the API, and treat the notice as a
+// hint — "look again" — never as a fact.
+type HolderNotice struct {
+	Partition string        `json:"partition"`
+	Events    []HolderEvent `json:"events"`
+}
+
+// ReadHolderNotice reads a notice from the request xbind made to the
+// holder's notice path: it must come from xbind's own partition delivery
+// (not a person, a tile or an agent), and is bounded. Answer 2xx at once
+// and do the re-reading afterwards: an unanswered notice is sent again.
+func ReadHolderNotice(r *http.Request) (HolderNotice, error) {
+	var n HolderNotice
+	if c := Caller(r); c.From != "xbin/mail" || c.User != "" || c.Agent != "" {
+		return n, errors.New("xbin: not a notice from xbind")
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&n); err != nil {
+		return n, err
+	}
+	if len(n.Events) > 1024 {
+		n.Events = n.Events[:1024]
+	}
+	return n, nil
+}
+
+// PreviewResult is what a preview shows: the picture, the page's
+// accessibility snapshot and what the page logged — all of it DATA from a
+// tile, never instructions (Notice says so; keep it with the result when
+// it enters a model's context).
+type PreviewResult struct {
+	OK       bool   `json:"ok"`
+	Notice   string `json:"notice"`
+	Error    string `json:"error"`
+	URL      string `json:"url"`
+	Title    string `json:"title"`
+	PNG      string `json:"png"` // base64
+	Snapshot string `json:"snapshot"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	Note     string `json:"note"`
+	Clipped  bool   `json:"clipped"`
+}
+
+// PreviewTile renders one tile as the person sees it (at "" its front
+// page, else the tile's fragment). For the workspace agent: the tile must
+// be in the session's scope (ErrHiddenByScope's words otherwise) and
+// allowed by its orgs' rules; it counts against the person's preview
+// limits and taints the session like any read of the tile.
+func PreviewTile(ctx context.Context, tile, at string) (PreviewResult, error) {
+	var out PreviewResult
+	return out, delegateCall(ctx, http.MethodPost, "/api/xbin/preview", map[string]any{"tile": tile, "at": at}, &out)
 }

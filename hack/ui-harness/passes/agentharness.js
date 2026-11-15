@@ -120,9 +120,9 @@ async function start(a, ref, t) {
 }
 
 // the cards of the open conversation, by ACP kind
-const cards = (a) => a.$$eval('#timeline .tcard.hcard', (els) => els.map((e) => ({ kind: e.dataset.kind, status: e.dataset.status, k: e.dataset.k,
-  hl: e.querySelector('.hl')?.textContent.replace(/\s+/g, ' ').trim() || '', oc: e.querySelector('.oc')?.textContent.trim() || '',
-  st: e.querySelector('.st')?.textContent.trim() || '' })));
+const cards = (a) => a.$$eval('#timeline .tcard.hcard', (els) => els.map((e) => ({ kind: (e.dataset.tool || '').replace(/^acp:/, ''), status: e.dataset.status, k: e.dataset.k,
+  hl: e.querySelector('.bxc-title')?.textContent.replace(/\s+/g, ' ').trim() || '', oc: e.querySelector('.bxc-oc')?.textContent.trim() || '',
+  st: e.querySelector('.bxc-st')?.textContent.trim() || '' })));
 
 // ---- 1. start, the transcript ----
 async function transcript(a, check, box) {
@@ -141,18 +141,17 @@ async function transcript(a, check, box) {
   const chip = await a.$eval('#hchip', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
   check(/^FA\s*Fake agent \(tests\) · ready/.test(chip), `the top bar's chip: who answers and its state (${chip})`);
   // open the edit's patch and the command's output
-  await a.click('#timeline .tcard[data-kind="edit"] .tch');
-  await a.click('#timeline .tcard[data-kind="edit"] .hfh');
-  await a.click('#timeline .tcard[data-kind="execute"] .tch');
-  await a.waitForSelector('#timeline .tcard[data-kind="edit"] .hdiff');
-  const patch = await a.textContent('#timeline .tcard[data-kind="edit"] .hdiff');
+  await a.click('#timeline .tcard[data-tool="acp:edit"] summary');
+  await a.click('#timeline .tcard[data-tool="acp:execute"] summary');
+  await a.waitForSelector('#timeline .tcard[data-tool="acp:edit"] .bxc-diff');
+  const patch = await a.textContent('#timeline .tcard[data-tool="acp:edit"] .bxc-diff');
   check(/@@ -1 \+1 @@\s*-hello\s*\+hello, world/.test(patch), `the edit's patch, from the backend's diff (${patch.replace(/\s+/g, ' ').slice(-120)})`);
-  const out = await a.textContent('#timeline .tcard[data-kind="execute"] .tcb');
+  const out = await a.textContent('#timeline .tcard[data-tool="acp:execute"] .bxc-body');
   check(/ok\s+example/.test(out) && /exit 0/.test(out), `the execute card's output and exit (${out.replace(/\s+/g, ' ').slice(0, 120)})`);
-  await a.$eval('#timeline .tcard[data-kind="edit"]', (e) => e.scrollIntoView({ block: 'start' }));
+  await a.$eval('#timeline .tcard[data-tool="acp:edit"]', (e) => e.scrollIntoView({ block: 'start' }));
   await shots(a, 'cards');
-  await a.click('#timeline .tcard[data-kind="edit"] .tch');
-  await a.click('#timeline .tcard[data-kind="execute"] .tch');
+  await a.click('#timeline .tcard[data-tool="acp:edit"] summary');
+  await a.click('#timeline .tcard[data-tool="acp:execute"] summary');
 
   // the plan: live while the turn runs, then 3/3
   await say(a, 'todo');
@@ -180,16 +179,17 @@ async function transcript(a, check, box) {
 async function permissions(a, check) {
   await say(a, 'perm');
   await a.waitForSelector('.hask:not(.hq)', { timeout: 20000 });
-  const opts = await a.$$eval('.hask .hopts button', (els) => els.map((e) => `${e.dataset.opt}:${e.dataset.kind}:${e.textContent.trim()}`));
+  const opts = await a.$$eval('.hask .bxc-btns button', (els) => els.map((e) => `${e.dataset.option}:${e.dataset.kind}:${e.textContent.trim()}`));
   check(opts.join(' ') === 'once:allow_once:Allow once always:allow_always:Allow always no:reject_once:Reject', `"perm": the card offers the agent's own options (${opts.join(' ')})`);
-  const lead = await a.textContent('.hask .hlead');
-  check(/Fake agent \(tests\) asks to run a command · run ls/.test(lead.replace(/\s+/g, ' ')), `…saying what it asks (${lead.replace(/\s+/g, ' ').trim()})`);
+  const lead = await a.textContent('.hask .bxc-q');
+  const asked = await a.textContent('.hask pre.bxc-cmd');
+  check(/Fake agent \(tests\) asks to run a command/.test(lead.replace(/\s+/g, ' ')) && asked.trim() === 'run ls', `…saying what it asks (${lead.replace(/\s+/g, ' ').trim()}: ${asked.trim()})`);
   const card = (await cards(a)).pop();
   check(card && card.kind === 'execute' && card.st === 'needs approval', `its call's card waits for the approval (${card && `${card.hl} · ${card.st}`})`);
   const status = (await runOf(a, await convId(a))).status;
   check(status === 'waiting_input', `the run waits for a person (${status})`);
   await shots(a, 'permission');
-  await a.click('.hask .hopts button[data-opt="once"]');
+  await a.click('.hask .bxc-btns button[data-option="once"]');
   await answered(a, 'listed');
   await resting(a);
   const done = (await cards(a)).pop();
@@ -198,8 +198,8 @@ async function permissions(a, check) {
   await say(a, 'perm again');
   await a.waitForSelector('.hask:not(.hq)', { timeout: 20000 });
   const n = (await cards(a)).length;
-  await a.fill('.hask .hfb', 'use ls -la instead');
-  await a.click('.hask .hopts button[data-opt="no"]');
+  await a.fill('.hask .bxc-word', 'use ls -la instead');
+  await a.click('.hask .bxc-btns button[data-option="no"]');
   await answered(a, 'echo: use ls -la instead');
   await resting(a);
   const users = await text(a, '#timeline .msg.user');
@@ -211,10 +211,10 @@ async function permissions(a, check) {
   // plan approval: the plan, its options, "keep planning"
   await say(a, 'plan');
   await a.waitForSelector('.hask.hplan', { timeout: 20000 });
-  const plan = await a.$eval('.hask.hplan', (e) => ({ md: e.querySelector('.hplanmd')?.textContent || '', opts: [...e.querySelectorAll('.hopts button')].map((b) => b.textContent.trim()) }));
+  const plan = await a.$eval('.hask.hplan', (e) => ({ md: e.querySelector('.bxc-plan-md')?.textContent || '', opts: [...e.querySelectorAll('.bxc-btns button')].map((b) => b.textContent.trim()) }));
   check(/Fake plan/.test(plan.md) && plan.opts.length >= 2, `"plan": the plan approval — the plan and its options (${plan.opts.join(' | ')})`);
   await shots(a, 'plan-approval');
-  await a.click('.hask.hplan .hopts button:not(.ghost):not(.hwarn)');
+  await a.click('.hask.hplan .bxc-btns button.bxc-primary');
   await answered(a, 'plan approved');
   await resting(a);
   check(true, 'approving the plan ends the turn');
@@ -224,12 +224,12 @@ async function permissions(a, check) {
 async function questionPark(a, check) {
   await say(a, 'ask');
   await a.waitForSelector('.hask.hq', { timeout: 20000 });
-  const fields = await a.$$eval('.hask.hq .hfield', (els) => els.map((e) => e.dataset.field));
+  const fields = await a.$$eval('.hask.hq .bxc-field', (els) => els.map((e) => e.dataset.field));
   check(fields.join(',') === 'question_0,question_1', `"ask": the question form's fields (${fields.join(', ')})`);
-  await a.click('.hask.hq .hfield[data-field="question_0"] label.hopt:has-text("SQLite") input');
-  await a.click('.hask.hq .hfield[data-field="question_1"] label.hopt:has-text("Tracing") input');
+  await a.click('.hask.hq .bxc-field[data-field="question_0"] label.bxc-opt:has-text("SQLite") input');
+  await a.click('.hask.hq .bxc-field[data-field="question_1"] label.bxc-opt:has-text("Tracing") input');
   await shots(a, 'question');
-  await a.click('.hask.hq .hopts button:has-text("Submit")');
+  await a.click('.hask.hq .bxc-btns button:has-text("Submit")');
   await answered(a, 'answers:');
   await resting(a);
   const ans = (await text(a, '#timeline .msg.assistant:not(.live)')).filter((t) => t.startsWith('answers:')).pop() || '';
@@ -345,7 +345,7 @@ async function children(a, check, box, stamp) {
   check(kids.length === 3 && kids.every((k) => k.id), `"harness fan out": three coding agent cards in the parent's chat (${kids.map((k) => `#${k.id} ${k.t} ${k.state}`).join(' | ')})`);
   // the perm child parks on a person
   await until(a, () => [...document.querySelectorAll('#timeline .hkid')].some((e) => e.dataset.state === 'approval'), null, 30000);
-  const parked = await a.$eval('#timeline .hkid[data-state="approval"]', (e) => ({ id: +e.dataset.child, btns: [...e.querySelectorAll('.hask .hopts button')].map((b) => b.dataset.opt) }));
+  const parked = await a.$eval('#timeline .hkid[data-state="approval"]', (e) => ({ id: +e.dataset.child, btns: [...e.querySelectorAll('.hask .bxc-btns button')].map((b) => b.dataset.option) }));
   check(parked.btns.includes('once'), `a child's permission is on its card, answerable there (#${parked.id}: ${parked.btns.join(', ')})`);
   await shots(a, 'children');
   // the board: chip, the needs-you filter, the park answered from it
@@ -357,6 +357,7 @@ async function children(a, check, box, stamp) {
   const rows = await a.$$eval('#hboard .hbrow', (els) => els.map((e) => `${e.dataset.row}:${e.dataset.section}`));
   check(rows.length === 3, `the board lists the three (${rows.join(', ')})`);
   await shots(a, 'board');
+  let told = null; // the results the parent's chat held before the park was answered
   const f = await a.$('#hboard .hbfilter');
   check(!!f && /need/.test(await f.textContent()), `the board's "needs you" filter (${f ? (await f.textContent()).trim() : 'none'})`);
   if (f) {
@@ -365,7 +366,8 @@ async function children(a, check, box, stamp) {
     const only = await a.$$eval('#hboard .hbrow', (els) => els.map((e) => +e.dataset.row));
     check(only.length === 1 && only[0] === parked.id, `…shows only the one waiting for you (${only.join(', ')})`);
     await shots(a, 'board-needs');
-    await a.click(`#hboard .hbrow[data-row="${parked.id}"] .hask .hopts button[data-opt="once"]`);
+    told = await a.$$eval('#timeline .notice', (els) => els.length);
+    await a.click(`#hboard .hbrow[data-row="${parked.id}"] .hask .bxc-btns button[data-option="once"]`);
     await until(a, (id) => ![...document.querySelectorAll('#hboard .hbrow')].some((e) => +e.dataset.row === id && e.dataset.section === 'needs'), parked.id, 20000).catch(() => {});
     await a.click('#hboard .hbfilter').catch(() => {});
   }
@@ -374,6 +376,13 @@ async function children(a, check, box, stamp) {
   const cs = await a.$eval(`#timeline .hkid[data-child="${parked.id}"]`, (e) => e.dataset.state).catch(() => '');
   check(cs !== 'approval' && cr.status !== 'waiting_input', `answered from the board: the child goes on (${cs}, ${cr.status})`);
   await a.click('#hboard [data-act="close"]').catch(() => {});
+
+  // The allowed child's turn ends with its answer told to its parent — a message of its own, which wakes the
+  // parent for a turn. Steer only once that has landed and the parent rests: the fake model answers the last
+  // message it is given, and a result arriving inside the steer's turn is then the one it answers (this pass
+  // once waited 60 s for "Steered it." that way).
+  if (told != null) await until(a, (n) => document.querySelectorAll('#timeline .notice').length > n, told, 30000);
+  await resting(a, 30000);
 
   // "harness steer": the agent messages its newest coding agent
   await say(a, 'harness steer');

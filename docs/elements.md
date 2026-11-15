@@ -870,6 +870,17 @@ inputs and editable text keep the native menu.)
   button's `value` (`null` when dismissed via Escape / backdrop / Cancel) and
   the field `values`. Good for confirm / prompt / a few inputs. Falls back to
   an in-frame `<bx-dialog>` when the tile isn't inside the shell.
+- **`xbin.ready()`** (D234) — "I have drawn". A page that fetches before
+  it has anything to show can say when it does, and whatever is waiting
+  for the tile stops waiting at once — today xbind's
+  [preview browser](/docs/protocol/preview.md), which otherwise takes the
+  picture when the network has gone quiet. A tile that will call it says
+  so up front, `<meta name="xbin-ready" content="manual">` in its `<head>`,
+  and is then waited for (about ten seconds at most) even while the network
+  is quiet — for a page that draws from a timer, a worker or a socket.
+  Calling it without the meta, twice, or never is harmless; the mark is
+  `data-xbin-ready` on `<html>` (`pending` → `1`), and the shell's frame is
+  told (`xbin:ready`).
 - **`xbin.meta({title, icon, badge})`** (D194) — what the shell shows for
   your tile while this page is open: a title in place of its name (e.g. the
   open document's, "Inbox (3)"), an icon from the workspace's set, a badge

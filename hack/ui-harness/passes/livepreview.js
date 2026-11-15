@@ -88,7 +88,7 @@ async function livePreview(browser) {
       text: document.querySelector('#live-strip .lsout')?.textContent || '', hidden: !!document.getElementById('livefr')?.hidden }));
     await a.click('#prev-close');
     await until(a, () => document.getElementById('preview').hidden && !document.getElementById('live-strip'));
-    await a.click('#timeline .step.live .steplnk');
+    await a.click('#timeline .step.live button');
     await until(a, () => !!document.getElementById('livefr') && !document.getElementById('preview').hidden, null, 15000);
     await until(a, () => document.getElementById('live-strip')?.dataset.tone, null, 25000);
     let st = await strip();
@@ -113,7 +113,7 @@ async function livePreview(browser) {
     await until(a, reportShown, null, 30000);
     await a.click('#prev-close');
     await until(a, () => document.getElementById('preview').hidden);
-    const lines = await a.$$('#timeline .step.render .steplnk');
+    const lines = await a.$$('#timeline .step.render button');
     await lines[lines.length - 1].click();
     await until(a, paneHasReport, null, 15000);
     check(true, 'the 🖼 line brings the report back');

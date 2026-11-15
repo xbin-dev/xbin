@@ -51,6 +51,8 @@ import (
 const delegationDocs = "/docs/protocol/delegation.md"
 
 func (s *Server) registerDelegationAPI() {
+	s.registerDelegateSessionsAPI() // agent sessions (handles), the connection view, the map (delegatesessions.go)
+	s.registerDocsAPI()             // the docs, searchable on /api/ (docsapi.go)
 	s.RegisterAPI("GET /delegate/state", s.apiDelegateState)
 	s.RegisterAPI("PUT /delegate/state", s.apiDelegateStatePut)
 	s.RegisterAPI("GET /delegate/workspace", s.apiDelegateWorkspace)
@@ -161,6 +163,36 @@ func (c delegateChange) VisibleTo(p auth.Principal) bool {
 func (s *Server) delegateEvent(user, op, id string) {
 	if s.Hub != nil {
 		s.Hub.Publish(events.Event{Type: "delegate", Data: delegateChange{Op: op, ID: id, User: user}})
+	}
+	s.notifyHolders(user, op, id)
+}
+
+// notifyHolders tells the backend of each holder that acts for user — each
+// that has an agent session of theirs — that kind (request, approval,
+// changeset, state) changed: a kind and an id, nothing more (the broker's
+// holdernotify.go). The backend re-reads what changed.
+func (s *Server) notifyHolders(user, kind, id string) {
+	if s.HolderNotify == nil || s.Delegation == nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, h := range s.Delegation.AgentSessions(user, "") {
+		if !seen[h.Agent] {
+			seen[h.Agent] = true
+			s.HolderNotify(h.Agent, user, kind, id)
+		}
+	}
+}
+
+// notifyAt tells user's holders at t that request id changed: a pending
+// request or a ticket expires without anyone acting, and the backend
+// should hear of that too.
+func (s *Server) notifyAt(t time.Time, user, id string) {
+	if s.HolderNotify == nil {
+		return
+	}
+	if d := time.Until(t) + time.Second; d > 0 && d < 48*time.Hour {
+		time.AfterFunc(d, func() { s.notifyHolders(user, "request", id) })
 	}
 }
 
@@ -283,6 +315,9 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 	}
 	if !ws.Enabled {
 		s.CutDelegateStreams("")
+	}
+	for _, u := range s.Delegation.People() { // every person's agent: delegation went on or off
+		s.notifyHolders(u, "state", "")
 	}
 	WriteJSON(w, http.StatusOK, ws)
 }
@@ -459,6 +494,7 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.delegateEvent(a.user, "request", out.ID)
+	s.notifyAt(out.Expires, a.user, out.ID)
 	what := method + " " + strings.TrimPrefix(u.Path, "/api/")
 	if out.Kind == delegation.KindSession {
 		what = "start a tile agent on " + out.Tile
@@ -601,6 +637,9 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 	case err != nil:
 		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
 		return
+	}
+	if req.State == delegation.Approved {
+		s.notifyAt(req.Expires, a.user, req.ID) // a ticket nobody used
 	}
 	out := map[string]any{"request": req}
 	if ap != nil {

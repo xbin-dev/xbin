@@ -42,67 +42,65 @@ const flip = async (target, sel) => {
   await page.click(target);
   await page.waitForFunction(([q, w]) => !!document.querySelector(q) !== w, [sel, was]);
 };
-const toggle = (id) => flip(`${card(id)} > .tch`, `${card(id)}.on`);
+// a call's card is the chat kit's (/vendor/chat/cards.js): its line is the <summary> of the row's <details>
+const toggle = (id) => flip(`${card(id)} > details > summary`, `${card(id)}.on`);
 
 await page.goto(`${ORIGIN}/#c=21`);
-await page.waitForSelector('.hcard[data-kind="execute"]');
+await page.waitForSelector('.hcard[data-tool="acp:execute"]');
 
 // --- every family --------------------------------------------------------------------------------
-const kinds = await page.$$eval('#timeline > .hcard', (els) => els.map((e) => e.dataset.kind));
+const kinds = await page.$$eval('#timeline > .hcard', (els) => els.map((e) => e.dataset.tool.replace(/^acp:/, '')));
 ok('a card per call, every ACP kind', ['read', 'search', 'think', 'edit', 'delete', 'move', 'fetch', 'execute', 'switch_mode', 'other']
   .every((k) => kinds.includes(k)) && kinds.length === 11, kinds.join());
-ok('done calls carry no status chip, only what they came to', (await page.$$('#timeline > .hcard > .tch .st')).length === 0
-  && (await text(`${card('toolu_10')} .oc`)) === 'exit 1');
+ok('done calls carry no status chip, only what they came to', (await page.$$('#timeline > .hcard summary .bxc-st')).length === 0
+  && (await text(`${card('toolu_10')} .bxc-oc`)) === 'exit 1' && await has(`${card('toolu_10')} .bxc-oc.bxc-bad`));
 
 // execute: the command, the output ANSI-stripped, the exit code
 await toggle('toolu_10');
-ok('execute: the command, copyable', (await text(`${card('toolu_10')} .hcmd pre`)) === '$ go test ./... -run TestClientRetry -count=20'
-  && await has(`${card('toolu_10')} .hcmd button`));
-const out = await text(`${card('toolu_10')} .hout pre`);
+ok('execute: the command, copyable', (await text(`${card('toolu_10')} pre.bxc-cmd`)) === 'go test ./... -run TestClientRetry -count=20'
+  && await has(`${card('toolu_10')} button.bxc-copy`));
+const out = await text(`${card('toolu_10')} pre.bxc-out`);
 ok('execute: its output, ANSI stripped', out.startsWith('--- FAIL: TestClientRetry') && !out.includes('\x1b') && !out.includes('[31m'), JSON.stringify(out));
-ok('execute: exit 1 as bad news', (await text(`${card('toolu_10')} .hexit.bad`)) === 'exit 1');
-ok('execute: the call and the adapter\'s tool', (await text(`${card('toolu_10')} .tname`)).startsWith('acp:execute · Bash'));
+ok('execute: exit 1 as bad news', (await text(`${card('toolu_10')} .bxc-exit.bxc-bad`)) === 'exit 1');
+ok('execute: the adapter\'s tool', (await text(`${card('toolu_10')} .bxc-meta`)).startsWith('Bash') && (await page.getAttribute(card('toolu_10'), 'data-tool')) === 'acp:execute');
 
-// edit: a row per file, +/−, collapsed until asked
+// edit: +/− on its line, its patch once the card is open
+ok('edit: +5 −1 on its line, the patch not drawn until the card opens', (await text(`${card('toolu_06')} .bxc-oc`)) === '+5 −1' && !(await has(`${card('toolu_06')} .bxc-diff`)));
 await toggle('toolu_06');
-ok('edit: its file, +5 −1', (await text(`${card('toolu_06')} .hfile .hpath`)) === '/work/api/client.go'
-  && (await text(`${card('toolu_06')} .hadd`)) === '+5' && (await text(`${card('toolu_06')} .hdel`)) === '−1');
-ok('edit: the patch folded', !(await has(`${card('toolu_06')} .hdiff`)));
-await flip(`${card('toolu_06')} .hfh`, `${card('toolu_06')} .hdiff`);
-ok('edit: the patch unfolds, drawn plain without the highlighter', await has(`${card('toolu_06')} .hdiff.plain`)
-  && (await page.$$(`${card('toolu_06')} .hdiff .d`)).length === 5 && (await page.$$(`${card('toolu_06')} .hdiff .a`)).length === 1
-  && (await page.$$(`${card('toolu_06')} .hdiff .h`)).length === 1, await page.innerHTML(`${card('toolu_06')} .hdiff`));
-await flip(`${card('toolu_06')} .hfh`, `${card('toolu_06')} .hdiff`);
-ok('edit: …and folds again', !(await has(`${card('toolu_06')} .hdiff`)));
+ok('edit: its file\'s patch, drawn plain without the highlighter', await has(`${card('toolu_06')} .bxc-diff:not(.hljs)`)
+  && (await text(`${card('toolu_06')} .bxc-diff .fh`)).includes('/work/api/client.go')
+  && (await page.$$(`${card('toolu_06')} .bxc-diff .d`)).length === 5 && (await page.$$(`${card('toolu_06')} .bxc-diff .a`)).length === 1
+  && (await page.$$(`${card('toolu_06')} .bxc-diff .h`)).length === 1, await page.innerHTML(`${card('toolu_06')} .bxc-body`));
+await toggle('toolu_06');
+ok('edit: …and folds again', !(await has(`${card('toolu_06')} .bxc-diff`)));
 
 // delete, read, search, move, fetch, switch_mode, other
 await toggle('toolu_07');
-await flip(`${card('toolu_07')} .hfh`, `${card('toolu_07')} .hnopatch`);
-ok('delete: the file, deleted, no patch to show', (await text(`${card('toolu_07')} .hst`)) === 'deleted'
-  && (await text(`${card('toolu_07')} .hnopatch`)) === 'the file was deleted');
+ok('delete: the file, deleted, no patch to show', /^\S+\s+the file was deleted$/.test(await text(`${card('toolu_07')} .bxc-nopatch`)), await page.innerHTML(`${card('toolu_07')} .bxc-body`));
 await toggle('toolu_01');
-ok('read: where, and what it read', (await text(`${card('toolu_01')} .hplaces`)) === '/work/api/client_test.go:1'
-  && (await text(`${card('toolu_01')} .res pre`)).includes('func TestClientRetry') && (await text(`${card('toolu_01')} .oc`)) === '5 lines');
+ok('read: where, and what it read', (await text(`${card('toolu_01')} .bxc-places`)) === '/work/api/client_test.go:1'
+  && (await text(`${card('toolu_01')} .bxc-body`)).includes('func TestClientRetry') && (await text(`${card('toolu_01')} .bxc-oc`)) === '5 lines');
 await toggle('toolu_02');
-ok('search: its matches', (await page.$$(`${card('toolu_02')} .hplaces span`)).length === 2 && (await text(`${card('toolu_02')} .oc`)) === '2 matches');
+ok('search: its matches', (await page.$$(`${card('toolu_02')} .bxc-places span`)).length === 2 && (await text(`${card('toolu_02')} .bxc-oc`)) === '2 matches');
 await toggle('toolu_08');
-ok('move: both paths', (await text(`${card('toolu_08')} .hplaces`)).includes('/work/api/internal/util.go'));
+ok('move: both paths', (await text(`${card('toolu_08')} .bxc-places`)).includes('/work/api/internal/util.go'));
 await toggle('toolu_09');
-ok('fetch: the address, a link that opens apart', (await page.getAttribute(`${card('toolu_09')} .hplaces a`, 'rel')) === 'noopener noreferrer'
-  && (await page.getAttribute(`${card('toolu_09')} .hplaces a`, 'href')) === 'https://pkg.go.dev/net/http#Client.Do');
+ok('fetch: the address, a link that opens apart', (await page.getAttribute(`${card('toolu_09')} .bxc-places a`, 'rel')) === 'noopener noreferrer'
+  && (await page.getAttribute(`${card('toolu_09')} .bxc-places a`, 'href')) === 'https://pkg.go.dev/net/http#Client.Do');
 await toggle('toolu_13');
-ok('other: its raw input behind a toggle', !(await has(`${card('toolu_13')} .hpre`)));
+ok('other: what it answered; no raw input to unfold when its arguments say nothing more', (await text(`${card('toolu_13')} .bxc-body`)).includes('todos updated')
+  && (await text(`${card('toolu_13')} .bxc-meta`)) === 'TodoWrite' && !(await has(`${card('toolu_13')} details.bxc-raw`)));
 
 // the Task: its steps inside it, folding with it
-ok('a Task says how many steps it took', (await text(`${card('toolu_03')} > .tch .oc.steps`)) === '2 steps');
+ok('a Task says how many steps it took', (await text(`${card('toolu_03')} > details > summary .bxc-steps`)) === '2 steps');
 ok('…folded, its steps are not drawn', !(await has('#timeline [data-k="ch1:toolu_04"]')));
 await toggle('toolu_03');
-await page.waitForSelector(`${card('toolu_03')} .hkids [data-k="ch1:toolu_04"]`);
-ok('…open: its steps and its text inside it, as cards', await has(`${card('toolu_03')} .hkids .hcard[data-k="ch1:toolu_05"]`)
-  && await has(`${card('toolu_03')} .hkids .msg.assistant`) && (await text(`${card('toolu_03')} .task`)).includes('List the callers of Client.Do'));
-ok('…and its answer', (await text(`${card('toolu_03')} .answer pre`)) === 'Do is called from sync.go and fetch.go.');
-await flip(`${card('toolu_03')} .hkids [data-k="ch1:toolu_05"] > .tch`, `${card('toolu_03')} [data-k="ch1:toolu_05"].on`);
-ok('a nested step opens inside it', await has(`${card('toolu_03')} [data-k="ch1:toolu_05"] .res pre`));
+await page.waitForSelector(`${card('toolu_03')} .bxc-children [data-k="ch1:toolu_04"]`);
+ok('…open: its steps and its text inside it, as cards', await has(`${card('toolu_03')} .bxc-children .hcard[data-k="ch1:toolu_05"]`)
+  && await has(`${card('toolu_03')} .bxc-children .msg.assistant`) && (await text(`${card('toolu_03')} details.bxc-raw`)).includes('List the callers of Client.Do'));
+ok('…and its answer', (await text(`${card('toolu_03')} .bxc-answer`)) === 'Do is called from sync.go and fetch.go.');
+await flip(`${card('toolu_03')} .bxc-children [data-k="ch1:toolu_05"] summary`, `${card('toolu_03')} [data-k="ch1:toolu_05"].on`);
+ok('a nested step opens inside it', await has(`${card('toolu_03')} [data-k="ch1:toolu_05"] .bxc-body`));
 await toggle('toolu_03');
 ok('…and folds with it', !(await has('#timeline [data-k="ch1:toolu_04"]')) && !(await has('#timeline [data-k="ch1:toolu_05"]')));
 
@@ -115,32 +113,32 @@ const tool = (id, callId, content, acp) => ({ type: 'message', run: 21, root: 21
 await push(asst(40, 'h1:toolu_20', { command: 'make test', summary: 'Run make test' }));
 await push(tool(41, 'h1:toolu_20', '(running…)', { kind: 'execute', title: 'make test', status: 'in_progress', output: 'ok  pkg/a\n' }));
 await page.waitForSelector(card('toolu_20'));
-ok('running: a spinner and its chip', await has(`${card('toolu_20')} .spin`) && (await text(`${card('toolu_20')} .st.run`)) === 'running');
+ok('running: its mark and its chip', await has(`${card('toolu_20')} .bxc-spin`) && (await text(`${card('toolu_20')} .bxc-st.bxc-run`)) === 'running');
 await toggle('toolu_20');
-ok('running: the output so far', (await text(`${card('toolu_20')} .hout pre`)) === 'ok  pkg/a');
+ok('running: the output so far', (await text(`${card('toolu_20')} pre.bxc-out`)) === 'ok  pkg/a');
 await push(tool(41, 'h1:toolu_20', '(running…)', { kind: 'execute', title: 'make test', status: 'in_progress', output: 'ok  pkg/a\nok  pkg/b\n' }));
-await page.waitForFunction(() => document.querySelector('[data-k="ch1:toolu_20"] .hout pre')?.textContent.includes('pkg/b'));
+await page.waitForFunction(() => document.querySelector('[data-k="ch1:toolu_20"] pre.bxc-out')?.textContent.includes('pkg/b'));
 ok('running: the output streams into the open card', true);
 await push(tool(41, 'h1:toolu_20', 'error: exit status 2', { kind: 'execute', title: 'make test', status: 'failed', exitCode: 2, output: 'ok  pkg/a\nFAIL pkg/c\n' }));
 await page.waitForSelector(`${card('toolu_20')}.error`);
-ok('failed: its chip, the exit code, no spinner', (await text(`${card('toolu_20')} .st.bad`)) === 'failed' && (await text(`${card('toolu_20')} .hexit.bad`)) === 'exit 2'
-  && !(await has(`${card('toolu_20')} .spin`)));
+ok('failed: its chip, the exit code, no mark', (await text(`${card('toolu_20')} .bxc-st.bxc-bad`)) === 'failed' && (await text(`${card('toolu_20')} .bxc-exit.bxc-bad`)) === 'exit 2'
+  && !(await has(`${card('toolu_20')} .bxc-spin`)));
 await push(asst(42, 'h1:toolu_21', { command: 'cat big.log', summary: 'Show the log' }));
 await push(tool(43, 'h1:toolu_21', 'error: exit status 1', { kind: 'execute', status: 'failed', exitCode: 1, output: 'x'.repeat(25000) + 'THE END', outputTruncated: 4096 }));
-await page.waitForSelector(`${card('toolu_21')} .hout`);
+await page.waitForSelector(`${card('toolu_21')} .bxc-body > pre.bxc-out`);
 ok('a failed call opens by itself', await has(`${card('toolu_21')}.on`));
-const tail = await text(`${card('toolu_21')} .hout pre`);
-ok('a long output: its last 20 000 characters, and what was not kept', tail.length === 20001 && tail.endsWith('THE END')
-  && (await text(`${card('toolu_21')} .hout .muted`)).includes('4 096 bytes'), tail.length);
-await page.click(`${card('toolu_21')} .hout .lnk`);
-await page.waitForFunction(() => document.querySelector('[data-k="ch1:toolu_21"] .hout pre').textContent.length > 25000);
-ok('…"show all" shows all of it', (await text(`${card('toolu_21')} .hout pre`)).length === 25007);
+const tail = await text(`${card('toolu_21')} .bxc-body > pre.bxc-out`);
+ok('a long output: its last 20 000 characters, and what was not kept', tail.length === 20000 && tail.endsWith('THE END')
+  && (await text(`${card('toolu_21')} .bxc-body`)).includes('4 096 bytes before this were not kept'), tail.length);
+ok('…the rest behind "show all"', await page.$eval(`${card('toolu_21')} details.bxc-outx`, (d) => !d.open && /5007 earlier characters — show all/.test(d.querySelector('summary').textContent)));
+await page.click(`${card('toolu_21')} details.bxc-outx > summary`);
+ok('…"show all" shows all of it', await page.$eval(`${card('toolu_21')} details.bxc-outx`, (d) => d.open && d.querySelector('pre').textContent.length === 25007));
 await push({ type: 'message', run: 21, root: 21, data: { id: 44, runId: 21, seq: 44, role: 'assistant', content: '', created: now, acp: { parent: 'h1:toolu_99' },
   toolCalls: [{ id: 'h1:toolu_22', type: 'function', function: { name: 'acp:read', arguments: '{"file_path":"/work/api/x.go"}' } }] } });
 await push({ type: 'message', run: 21, root: 21, data: { id: 45, runId: 21, seq: 45, role: 'tool', toolCallId: 'h1:toolu_22', name: 'acp:read', content: 'package api', created: now,
   acp: { kind: 'read', status: 'completed', parent: 'h1:toolu_99' } } });
 await page.waitForSelector(card('toolu_22'));
-ok('an orphan (its subagent\'s call paged out) is flat, marked ↳', (await text(`${card('toolu_22')} .hl`)).startsWith('↳ Read /work/api/x.go'));
+ok('an orphan (its subagent\'s call paged out) is flat, marked ↳', (await text(`${card('toolu_22')} .bxc-title`)).startsWith('↳ Read /work/api/x.go'));
 // a code block in a thought or a Task's prompt scrolls inside its card, not the chat (#1)
 const wideCode = 'Look at this:\n```go\nreturn ' + 'aVeryLongIdentifierWithoutSpaces'.repeat(12) + '\n```';
 for (const [id, callId, acp] of [[46, 'h1:toolu_23', {}], [48, 'h1:toolu_24', { subagent: true }]]) {
@@ -154,7 +152,7 @@ await toggle('toolu_23');
 await toggle('toolu_24');
 const sideways = await page.evaluate(() => {
   const tl = document.getElementById('timeline');
-  return { tl: tl.scrollWidth - tl.clientWidth, note: !!tl.querySelector('[data-k="ch1:toolu_23"] .hnote'), task: !!tl.querySelector('[data-k="ch1:toolu_24"] .task') };
+  return { tl: tl.scrollWidth - tl.clientWidth, note: !!tl.querySelector('[data-k="ch1:toolu_23"] .bxc-task'), task: !!tl.querySelector('[data-k="ch1:toolu_24"] details.bxc-raw') };
 });
 ok('a wide code line in a thought or a Task prompt does not widen the chat', sideways.note && sideways.task && sideways.tl === 0, JSON.stringify(sideways));
 
@@ -181,7 +179,7 @@ ok('…folded: now: the entry in progress', (await text('#top .planpin .taskline
 // a park: its call waits for you
 await page.evaluate(() => { location.hash = '#c=22'; });
 await page.waitForSelector('[data-k="ch2:toolu_02"]');
-ok('a parked call needs your approval', (await text('[data-k="ch2:toolu_02"] .st.warn')) === 'needs approval');
+ok('a parked call needs your approval', (await text('[data-k="ch2:toolu_02"] .bxc-st.bxc-warn')) === 'needs approval');
 ok('no plan, no usage: nothing in the top bar', !(await has('#top .planpin')) && !(await has('#top .husage')));
 // the built-in agent's conversation: none of it
 await page.evaluate(() => { location.hash = '#c=25'; });
@@ -202,11 +200,10 @@ const served = (ctx) => ctx.route('**/vendor/*.js', (r) => {
 });
 const page2 = await open(harnessSeed(), served);
 await page2.goto(`${ORIGIN}/#c=21`);
-await page2.click('#timeline [data-k="ch1:toolu_06"] > .tch');
-await page2.click('#timeline [data-k="ch1:toolu_06"] .hfh');
-await page2.waitForSelector('[data-k="ch1:toolu_06"] .hdiff.hl', { timeout: 5000 }).catch(() => {});
-ok('with xbind\'s code viewer: the patch highlighted', await page2.$('[data-k="ch1:toolu_06"] .hdiff.hl .d')
-  && (await page2.$$('[data-k="ch1:toolu_06"] .hdiff.hl [class^="hljs-"]')).length > 0);
+await page2.click('#timeline [data-k="ch1:toolu_06"] > details > summary');
+await page2.waitForSelector('[data-k="ch1:toolu_06"] .bxc-diff.hljs', { timeout: 5000 }).catch(() => {});
+ok('with xbind\'s code viewer: the patch highlighted', await page2.$('[data-k="ch1:toolu_06"] .bxc-diff.hljs .d')
+  && (await page2.$$('[data-k="ch1:toolu_06"] .bxc-diff.hljs [class^="hljs-"]')).length > 0);
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();

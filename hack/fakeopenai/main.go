@@ -18,6 +18,8 @@
 //	harness steer
 //	             subagent_message {id: the newest coding agent this
 //	             conversation started, text "steer: use tabs"} → "Steered it."
+//	shell echo   (a coding CLI's turn, coder.go) the request's own shell tool
+//	             running `echo connector-tool-ok` → "Shell said: <its output>"
 //	hello        thinking "Considering the greeting…", then "Hello from the fake model."
 //	use a tool   a note call with summary "Jot down a quick note" → "Noted it."
 //	make a file  file_write note.txt, then attach_to_reply it (a chat channel's

@@ -226,6 +226,10 @@ const liveUseTTL = 5 * time.Second
 
 func handleLive(w http.ResponseWriter, r *http.Request) {
 	liveHeaders(w.Header())
+	if previewCall(r) && r.Header.Get("Upgrade") != "" { // D234: a socket to a sandbox's port may write there
+		xbin.WriteError(w, http.StatusForbidden, "a preview opens no socket to a sandbox's port")
+		return
+	}
 	port, err := strconv.Atoi(r.PathValue("port"))
 	if err != nil || port < 1 || port > 65535 || strconv.Itoa(port) != r.PathValue("port") {
 		xbin.WriteError(w, http.StatusBadRequest, "the port is a number from 1 to 65535")

@@ -66,6 +66,7 @@ type Relay struct {
 	refuseSem chan struct{}  // bounds the REFUSED answerers
 	gateway   netip.Addr     // virtual gateway IP that host-forwards apply to
 	hostFwd   map[int]string // gateway port → host dial addr (e.g. xbind)
+	doors     map[int]string // gateway port → host dial addr, served under Deny too (Config.Doors)
 	hostDial  func(dst string) (net.Conn, error)
 	tileIP    netip.Addr                       // the in-netns peer address DialIn targets
 	hairpin   netip.Addr                       // split-horizon VIP (invalid = off)
@@ -372,7 +373,7 @@ func start(cfg Config, dial dialFunc) (_ *Relay, err error) {
 	r := &Relay{
 		stack: s, link: ep, dial: dial, ctx: ctx, cancel: cancel, allow: cfg.Allow, deny: cfg.Deny,
 		dnsRefuse: cfg.DNSRefuse, refuseSem: make(chan struct{}, dnsRefuseMax),
-		gateway: cfg.Gateway, hostFwd: cfg.HostFwd, hostDial: cfg.HostDial,
+		gateway: cfg.Gateway, hostFwd: cfg.HostFwd, doors: cfg.Doors, hostDial: cfg.HostDial,
 		tileIP: cfg.TileIP, hairDial: cfg.HairpinDial, allowHost: cfg.AllowHost,
 		strict: cfg.StrictPublic, maxTCP: max(cfg.MaxTCP, 0), maxUDP: max(cfg.MaxUDP, 0),
 		budget: cfg.Budget, open: map[*claim]struct{}{}, tunFD: -1, stopFDs: stopFDs(ep),
@@ -465,14 +466,23 @@ func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 	}
 
 	// Deny comes first: before the gateway forwards and the hairpin, which
-	// are policy-exempt, so a relay with Deny serves neither.
-	if !ok || r.blocked(ip) {
+	// are policy-exempt, so a relay with Deny serves neither — but for a
+	// gateway port the embedder named a door (Config.Doors): one host
+	// address it opened on purpose under its own Deny (a tile sandbox's
+	// LLM-only listener).
+	door, isDoor := "", false
+	if ok && r.gateway.IsValid() && ip == r.gateway {
+		door, isDoor = r.doors[port]
+	}
+	if !ok || (!isDoor && r.blocked(ip)) {
 		deny()
 		return
 	}
 
 	var dial func() (net.Conn, error)
 	switch {
+	case isDoor:
+		dial = func() (net.Conn, error) { return r.dialHost(door) }
 	case r.gateway.IsValid() && ip == r.gateway:
 		// Gateway host-forward: flows to the virtual gateway IP on a mapped
 		// port go to a host service (e.g. xbind), policy-exempt — that's how a

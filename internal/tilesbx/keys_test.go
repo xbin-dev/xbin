@@ -83,7 +83,7 @@ func TestKeys(t *testing.T) {
 // auth.Principal fails this test until someone decides what it means for
 // the key (plans/tile-sandbox-runtime.md §1.4, §14).
 var reviewedPrincipalFields = []string{
-	"Access", "Agent", "AgentModel", "Component", "Deployment", "DeviceID", "Gen", "Impersonator", "Owner", "Partition", "Role", "User", "UserID", "Via",
+	"Access", "Agent", "AgentModel", "AgentSession", "Component", "Deployment", "DeviceID", "Gen", "Impersonator", "Owner", "Partition", "Role", "User", "UserID", "Via",
 }
 
 // A person's workspace agent names no sandboxes, whatever else its

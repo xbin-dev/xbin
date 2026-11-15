@@ -954,7 +954,7 @@ their parent's, and **a schedule the agent creates gets the creating run's**.
 | `schedule` | `schedule`, `unschedule` |
 | `threads` | `schedules_list`, `schedule_inspect`, `threads_list`, `thread_inspect` |
 | `skills` | `skills_list`, `skill_view`, `skill_manage` |
-| `harness` | coding agents — Claude Code, Codex, Gemini CLI, OpenCode — in a sandbox (§Coding agents); needs `sandbox` and an egress other than `none` (a coding agent must reach its provider); `harnesses` narrows which |
+| `harness` | coding agents — Claude Code, Codex, Gemini CLI, OpenCode — in a sandbox (§Coding agents); needs `sandbox` and an egress other than `none` (a coding agent must reach its provider) — or no egress at all where the workspace's LLM connector serves it in the sandbox; `harnesses` narrows which |
 
 The core tools — `memory_set`/`memory_get`/`memory_delete`, `note`, `recall`,
 `message_get`, `finish`, `yield`, `ask_user`, `state_changed`,
@@ -1756,8 +1756,10 @@ pane is closed (a subagent's, from its own run's files).
 
 The tile's frontend is **one model, thin views** — see **The frontend** below.
 The chat's state is `model/session.js` (fed by `model/stream.js`),
-`model/fold.js` (pure: messages, links and drafts → blocks), `chat-cards.js`
-(lit templates), `model/tool-heads.js` (a tool call's headline and icon) and
+`model/fold.js` (pure: messages, links and drafts → blocks, and `blockOf`:
+a block in xbind's chat kit's model), `chat-kit.js` (the kit's views drawing
+them, and what this page answers them through), `chat-cards.js` (the
+session's frame around the rows), `model/tool-heads.js` (a tool call's headline and icon) and
 `chat-md.js` (markdown: xbind's renderer, `/vendor/chat/md.js`); `agent.js`
 is the page around it, loaded by `boot.js` once it knows this xbind serves
 the chat kit the page needs (below, **The frontend**). The tile's other
@@ -2481,10 +2483,50 @@ is D147.
   the sandbox's image has (`hello.images[].harnesses`) when it was bound —
   absent in one bound before, or from a manager that says nothing (unknown,
   not none: a probe decides).
+- **The workspace's LLM connector** (D226; the platform's /docs/llm.md).
+  A coding agent with no sign-in — none of the person's saved ones went
+  in, none in the sandbox's `home` — starts on the workspace's LLM
+  connector instead of parking on "sign in", when three things hold: this
+  agent's `llm` slot is bound to **`xbin:llm`**; the sandbox was made at a
+  manager that offers the contract's `llm` capability (the agent then
+  creates its sandboxes with `llm: true`, and the sandbox's row names the
+  address, `llm.url` — a sandbox made before that has none); and the
+  harness can speak to it (OpenCode, Codex; not Claude Code or Gemini CLI
+  yet). The backend asks xbind for an **LLM key** for the person the
+  instance acts for (`xbin.LLMKeyFor`: good for the connector's model
+  routes only, metered to them and this tile), hands it to the adapter in
+  its environment with the harness's own variables (`sdk/acp`'s table), and
+  says so in a note. A sign-in keeps its priority: a saved one first, then
+  one in the sandbox, then the connector. **It needs a model**: the
+  workspace's model for coding agents (`bx llm default set`; the
+  connector's `GET /preferred?use=harness`). With none set the connector is
+  not used — no key is asked for, and a note says the agent runs on its own
+  sign-in and why (a CLI left to pick a model by itself would not be on the
+  connector at all). The key is the generation's secret — masked in
+  everything the adapter prints, like a saved sign-in's (and any `xbl_…` by
+  shape) — and is stored nowhere. It is ended by the run's label (`harness
+  run ‹id›`): before a new start, which waits for xbind's word on it (a
+  start whose earlier key couldn't be ended fails — "try again"), and when
+  the adapter exits or is stopped, retried until xbind acknowledged it. A
+  key lives a day; the backend renews a running generation's every six
+  hours, so a run of any length keeps it and a key nobody renews is dead
+  within a day.
+  **A sandbox with no egress** reaches the connector and nothing else, so
+  there the connector serves whatever sign-in the sandbox holds or the
+  person saved (none could be used), the CLI is told the connector alone
+  serves, and the agent doesn't start — with the reason — where the
+  connector can't serve it (the sandbox was made without it, no model, no
+  key). A coding agent the connector can't serve (Claude Code, Gemini CLI)
+  still needs an egress other than `none`.
+  In a sandbox shared between people, another member's commands can read a
+  running agent's environment, its key included (the platform's
+  /docs/sandbox-manager.md §The LLM connector in a sandbox).
 - **Classes.** The `harness` toolset and the `harnesses` field (§Agent
   classes); the built-in `coding` has both (`"all"`). A coding-agent
   conversation or spawn needs a class that has the toolset, allows the
-  coding agent, and allows a sandbox with an egress other than `none`.
+  coding agent, and allows a sandbox with an egress other than `none` —
+  or `none` itself, where the workspace's LLM connector serves the agent
+  there.
 
 | Method & path | Who | Body / query | Answer |
 |---|---|---|---|
@@ -2515,7 +2557,11 @@ advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
   true`), and every image of a manager whose hello predates
   `images[].harnesses` (none of its images says — `advertised: false`: its
   sandboxes are built on a rootfs that has the four, and a probe decides),
-  each with the manager's egress other than `none`. An advertised entry
+  each with the manager's egress other than `none`, and `llm: true` where
+  a sandbox made there reaches the workspace's LLM connector (the manager
+  offers `llm` and this agent's `llm` slot is bound to `xbin:llm`) — a
+  coding agent the connector serves is then available there with no egress
+  at all. An advertised entry
   that isn't one of the four (and isn't `fake`, the test fixture) needs its
   own `argv`, or it is ignored.
 - `available`, `reason`, `why` — the first that holds: `no-image` (no bound
@@ -2599,7 +2645,10 @@ built-in agent`, `model: a coding agent's model is harness.options.model`,
 `a coding agent needs a sandbox: sandbox {ref, cwd?} whose image has
 <name>`; **403** `no class you may use allows <name>`, `only a person can
 start <name> in <mode>`; **409** `<sandbox>'s image doesn't have <name>`,
-`<name> must reach its provider — <sandbox>'s egress is none`, `<sandbox>
+`<name> must reach its provider — <sandbox>'s egress is none` (a coding
+agent the workspace's LLM connector can't serve there; `…, and it was
+created without the workspace's LLM connector (a new sandbox gets it)` for
+one it could), `<sandbox>
 doesn't have <name> (<command> not found)` (a running sandbox is probed);
 the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
 `title` work as for any ask.
@@ -5864,13 +5913,49 @@ web view is the files you know (`agent.js`, `chat-cards.js`, `sidebar.js`,
 platform controls (`/vendor/xb-native.js`, docs/frontend-kit.md). Both draw
 the same model.
 
-**The page needs the xbind it shipped with.** The web view is drawn with
-xbind's chat kit (`/vendor/chat/…`, docs/frontend-kit.md — its markdown
-renderer, behind `chat-md.js`; its model of a coding agent's tool call and
-of what it asks, `/vendor/chat/tools.js` and `/vendor/chat/ask.js`, behind
-`model/harness-heads.js`, `model/harness-ask.js` and `cleanCode` in
+**The chat is drawn by xbind's chat kit** (`/vendor/chat/…`,
+docs/frontend-kit.md — the Agent tab's renderer, D224): one renderer for a
+conversation whatever produced it. `model/fold.js` `blockOf(b)` says a
+fold block in the kit's block model (a coding agent's call from its tool
+row's `acp`, `model/harness-heads.js` `acpRecord`; a tool of the template's
+own from what the fold says of it, with the fold's words as the block's own
+`icon`, `sub`, `outcome`, `args`, `result`; a journal line stays the `step`
+kind), `model/harness-ask.js` `parkBlock(run)` says what a run waits on a
+person for (a coding agent's request, the engine's own approval or
+question), and `chat-kit.js` hands them to the kit's views:
+
+- `kitRow(b, ui, depth)` — a block as a row of the timeline
+  (`<div class="bxc-row" data-k>`; inside a card, `bxc-in`), `kitPark(run,
+  ui, blocks, who)` — a park as the kit's request card, `kitCtx(ui)` — the
+  `ChatCtx` over the Session's `ui`: what is open, who reads and what they
+  may answer, the page's actions (open a file, a subagent's session, the
+  preview), Copy with its formatting (`chat-copy.js`).
+- What the kit does not know stays the page's, through `ChatCtx.other`: a
+  feature module's own card (`ext.block`, asked first), a journal line
+  (drawn as the kit's notice: `lineOf`), a document's line
+  (`doc-cards.js`), a subagent's request (answered on the child's run).
+- **Hooks.** A row keeps the classes and data attributes the page's cards
+  always had, on the kit's element (`ChatCtx.rowAttrs`): `.tcard`
+  (`.hcard`, the state, `.on`, `data-fam`, `data-tool`, `data-status`),
+  `.msg.user` / `.msg.assistant` (`.live`, `.other`), `.think`, `.notice`,
+  `.step.<kind>`, `.acard`; a park keeps `.ask` (`.hask`, `.hplan`, `.hq`,
+  `.approve`, `.grant`) and `data-park`. Inside a row the markup and the
+  classes are the kit's (`bxc-…`, styled by `/vendor/chat/css.js`, which
+  `chat-kit.js` puts in the document with a few rules of its own): style
+  those, or the hooks, from a stylesheet of your own — the kit never styles
+  an element it did not write.
+- The window of rows is the kit's `ChatWindow` (`chat-window.js` is the
+  Session's side of it, with this chat's numbers).
+
+The composer (`#msg`, `#send`, the pickers, `#hctl`, the attachments) is
+still the page's own.
+
+**The page needs the xbind it shipped with.** Besides the views, the kit's
+markdown renderer is behind `chat-md.js`, and its model of a coding agent's
+tool call and of what it asks (`/vendor/chat/tools.js`, `/vendor/chat/ask.js`)
+behind `model/harness-heads.js`, `model/harness-ask.js` and `cleanCode` in
 `model/harness-signins.js`, which keep their exports and are the adapters
-from this tile's rows to the kit), and an instance of this template is a copy
+from this tile's rows to the kit; and an instance of this template is a copy
 in a workspace that can be newer than the xbind under it. So `index.html`
 starts `boot.js`, not `agent.js`: it imports `/vendor/chat/rev.js`, guarded,
 and compares its `KIT` with `NEEDS.kit`. When xbind serves that revision or
@@ -5927,7 +6012,7 @@ a page at a time, `latest()` starts over from the newest. Cuts fall at a
 message, so what goes is what a page read brings back, and blocks keep their
 ids: a view that anchors by id keeps the reader's place. A reset or resync
 reads the pages held again (the rows stay). The web draws a window of the
-blocks (`chat-window.js`, over xbind's `/vendor/scroll-window.js`: nothing
+blocks (`chat-window.js`, over the chat kit's `ChatWindow` and xbind's `/vendor/scroll-window.js`: nothing
 the reader looks at moves; the "↓ N new — jump to latest" pill); the native
 view draws the tail and grows it on `more`, trimming it — and letting go
 above — only while the reader is at the bottom (the app's transcript keeps
@@ -5987,12 +6072,13 @@ producing one; regenerate the file as its header says), and
 `hack/agent-template-harness-shapes.test.mjs` fails on a path a fixture or
 the STUB serves that the file lacks.
 
-**A coding agent's transcript** (`harness-cards.js` on the web,
+**A coding agent's transcript** (the chat kit's tool card on the web —
+`chat-kit.js`, with `harness-cards.js` for the top bar —
 `native/harness-cards.js`; the words are `model/harness-heads.js` and
 `model/harness.js`). Each `acp:<kind>` call is a card of its kind, drawn
 from its tool row's `acp`: a command (the command, its output without
 colour codes — the last 20 000 characters, all of it on asking — and the
-exit code), an edit (a row per file, `+a −d`, unfolding to its patch; the
+exit code), an edit (`+a −d` on its line, its patches once open; the
 web highlights patches with xbind's `/vendor/bx-code.js` when the page can
 import it, else draws them plain; native uses `diff`), read, search, fetch,
 delete, move, think, switch_mode and other; its chip says pending, running,
@@ -6003,9 +6089,10 @@ subtitle, and ⋯ → Progress) carries the context in use and the cost,
 what the conversation changed (`counts`), and the plan, pinned under the
 task (unfolding to its entries); all follow the `harness` stream event.
 
-**A coding agent asking and driven** (`harness-ask.js` and
-`harness-controls.js` on the web, `native/harness-ask.js`; the words
-`model/harness-ask.js`). Its park (`pendingState.harness`) is drawn at the
+**A coding agent asking and driven** (the chat kit's request card through
+`harness-ask.js` and `chat-kit.js` `kitPark`, and `harness-controls.js`, on
+the web; `native/harness-ask.js`; the words `model/harness-ask.js`). Its
+park (`pendingState.harness`) is drawn at the
 end of the chat — the `end` seam, only for a permission or a question: the
 harness's own options as buttons, reject first when it defaults to no; an
 option with `explicit` (it raises the session to a bypass mode) only for the

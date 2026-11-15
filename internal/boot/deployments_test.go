@@ -465,6 +465,7 @@ func TestDiffCaptureNeedsTerminalLevel(t *testing.T) {
 		return nil
 	}
 	const cp = "&from=c:3f2a1c9&to=deployment:main"
+	viewAs := func(p auth.Principal) auth.Principal { p.Impersonator = "ada"; return p }
 	for _, c := range []struct {
 		who   string
 		pr    auth.Principal
@@ -478,6 +479,9 @@ func TestDiffCaptureNeedsTerminalLevel(t *testing.T) {
 		{"a writer, to a deployment following the work tree", dplWriter, "apps/crm&from=deployment:main&to=deployment:dev", 403, "a diff of the work tree needs terminal-level access"},
 		{"a terminal-level person, the default", dplTerm, "apps/pin", 200, ""},
 		{"an admin, the default", dplAdmin, "apps/pin", 200, ""},
+		{"an admin viewing as a terminal-level person, the work tree", viewAs(dplTerm), "apps/pin", 403, "read-only: a diff of the work tree captures a checkpoint"},
+		{"an admin viewing as a terminal-level person, to a deployment following the work tree", viewAs(dplTerm), "apps/crm&from=deployment:main&to=deployment:dev", 403, "read-only: a diff of the work tree captures a checkpoint"},
+		{"an admin viewing as a terminal-level person, between checkpoints", viewAs(dplTerm), "apps/pin" + cp, 200, ""},
 		{"the tile's terminal token", tok("apps/pin", "terminal", dplTerm), "apps/pin", 200, ""},
 		{"a writer's terminal token, between checkpoints", tok("apps/pin", "terminal", dplWriter), "apps/pin" + cp, 200, ""},
 		{"a writer's terminal token, the work tree", tok("apps/pin", "terminal", dplWriter), "apps/pin", 403, "a diff of the work tree needs terminal-level access"},
