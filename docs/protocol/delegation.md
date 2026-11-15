@@ -247,7 +247,7 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   ([agents.md](/docs/protocol/agents.md)).
 - **The map** is what the person sees, compact, within the scope and the
   rules; what is left out is counted. A tile's own `API.md` is read with
-  `GET /code/file?component=<tile>&path=API.md` (the code-read rule: read
+  `GET /code/file?component=<tile>&file=API.md` (the code-read rule: read
   on the tile).
 - **The session directory**: `GET /term/sessions?origin=agent` lists the
   tile agents this agent started for the person; `&compact=1` answers
