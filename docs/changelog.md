@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **The workspace agent's page** (D232; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
+  the agent template's `API.md` §Workspace mode → The page). On the sealed
+  component's path the agent template's `boot.js` asks `GET /ws/state` and
+  loads its workspace page (`ws/`) in place of `agent.js`; an instance of
+  the template asks nothing more than before. The page talks to xbin's
+  chrome by `postMessage` with ids only — `xbin:agent-open-request {id}`,
+  `xbin:agent-open-changeset {id}`, `xbin:open-session {session, tile}` out,
+  `xbin:agent-context {tile | screen}` in — and draws no grant.
+- **Chat kit revision 5** ([frontend-kit.md](/docs/frontend-kit.md)): a
+  plan block's `title`, `meta`, `note`, `numbered` and an entry's `tag`
+  (`{text, icon, tone}`); an ask block's `submit` and `skip` words (`skip:
+  ''` draws no Skip); `<bx-chat-composer label>`, the text box's accessible
+  name.
 - **Workspace agents: a start carries its first prompt; xbind resolves a
   start's defaults; taint from the agent's own store** (D228 C0;
   [protocol/delegation.md](/docs/protocol/delegation.md)). A delegate's
