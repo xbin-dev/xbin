@@ -267,6 +267,21 @@ final class E2E {
         return nil
     }
 
+    /// The first element of `query` that can be tapped, within `timeout`
+    /// seconds — a panel under the one in front keeps its elements in
+    /// XCUITest's snapshot (not hittable), before the front panel's.
+    func firstHittable(_ query: XCUIElementQuery, timeout: TimeInterval) -> XCUIElement? {
+        var found: XCUIElement?
+        _ = until(timeout) {
+            for i in 0..<query.count {
+                let el = query.element(boundBy: i)
+                if el.exists, el.isHittable { found = el; return true }
+            }
+            return false
+        }
+        return found
+    }
+
     /// Polls `condition` (an on-screen check) until it holds or `timeout`
     /// seconds pass; whether it held.
     func until(_ timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
@@ -551,6 +566,11 @@ final class E2E {
         let row = tileRow(path)
         let search = app.searchFields["Search tiles"]
         if search.waitForExistence(timeout: 10) {
+            // Right after a first sign-in iOS's Save Password sheet may still
+            // be sliding away over Home: the field is there but a tap on it
+            // lands nowhere ("hit point {-1, -1}") and the typing then has no
+            // focus (test03 on a freshly erased simulator, 2026-11-15).
+            _ = until(10) { search.isHittable }
             search.tap()
             // Home keeps its last search: clear it first.
             if let now = search.value as? String, !now.isEmpty, now != "Search tiles" {

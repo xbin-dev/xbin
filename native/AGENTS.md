@@ -1071,6 +1071,34 @@ in on a fresh start can forget what it added: `E2E.forgetFreshWorkspaces`
 (a Debug fresh start forgets the previous one's workspaces as Remove does
 — test09's two same-server workspaces, left behind, stalled the next
 test's native widget).
+`XbinWorkspaceAgentTests` (D233; skipped unless the xbind was started with
+`XBIN_E2E_WSAGENT=1`, which needs `XBIN_E2E_XBIND_ARGS="--isolate --rootfs
+…"` and gocryptfs: e2e-xbind.sh then connects `hack/fakeopenai` as the LLM
+connector's upstream, turns workspace agents on for everyone, adds
+`apps/note` — a tile with a small backend the agent may write to,
+`scripts/testdata/e2e-wsagent-tiles/` — and waits for the e2e account's
+agent, which a `--dev` xbind compiles from the checkout the first time; its
+`smoke` also checks that approving with the agent's frame token is refused
+while the person's session approves) drive the person's workspace agent:
+Home's row and the bar's last button on Home, a screen and a tile, the
+context chip when opened from a tile; a request filed through the scripted
+model (`ws: tile_call …` sent to the agent's own API) → the app-drawn card
+→ Review… → the approval sheet, Allow unarmed at first (Debug's
+`-XbinAgentArmSeconds` stretches the 600 ms so a test sees it for certain;
+it never shortens it) → Allow once → the card settled and the note
+changed; Deny; the wider grant's second sheet — Go back first, then
+`-XbinAgentGate allow` (Debug: the Face ID gate's answer; `deny` approves
+nothing) → the standing approval under the shield → Take back; a tile
+agent's start (the Mode row leading) → its card → Open → the app's agent
+screen; Needs you; the scope panel; Pause and Resume; that the next
+request opens on Once with Allow unarmed; that a screen the view pushes
+keeps the cards; on an iPad (`XBIN_SIM_ENSURE=xbin-e2e-w2-ipad`) the
+trailing column and an approval over it; and `test10Gallery`
+(`wsagent-<light|dark>-NN-<screen>.png`). Not covered by them: an admin
+change set and its sign-in step, a start in a mode that never asks, the
+setup, held and offline states, Dynamic Type, VoiceOver — and the Duo
+layout, which only compiles (`mac-remote.sh build --device` with the 27.1
+Xcode and `XBIN_SDK_27_1`).
 `XbinAgentReviewTests` (D210) make apps/welcome a git repo (snapshot
 diffs need one), have the fake agent's `run:` write 31 files and 12 000
 lines, and review the turn on the Agent screen: the card folded, its first
@@ -1216,7 +1244,11 @@ plans/wsagent/ux.md):
 - **`App/Shell/AgentChrome.swift`** — the bar button (`PanelBar` adds it
   last, `preferVerticalBar()`), Home's row, the container (`AgentSheet`
   with its detents on a compact width; `XbinTwoPanes` in `WorkspaceView` on
-  a regular one), the shield menu, the paused bar, the states.
+  a regular one), the shield menu (leading, beside Close: the trailing end
+  is the view's own), the paused bar, the states. The bar button is added
+  from an overlay AFTER the panel's content, at `.primaryAction`: a bar
+  lays its items out in the order their views come, and an ancestor's item
+  would land before the panel's own Edit or ⋯.
   **`AgentApproval.swift`**, **`AgentChangeSet.swift`** — the grants;
   **`AgentPanels.swift`** — Approvals, What my agent did, Preferences;
   **`AgentCards.swift`** — the `request` and `session` nodes, drawn from

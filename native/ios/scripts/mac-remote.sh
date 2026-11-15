@@ -12,7 +12,9 @@
 #                              sudo, the runner token)
 #   toolchain                  ci-toolchain.sh (Xcode, SDKs, simulators)
 #   packages [Pkg…]            swift test (ci-swift-test.sh)
-#   build                      xcodegen + build the app for a simulator
+#   build [--device]           xcodegen + build the app for a simulator
+#                              (--device: for generic/platform=iOS, as the
+#                              duo job does — compile only)
 #   snapshots                  the renderer snapshots, package + hosted
 #   uitests                    build the UI tests (compile only)
 #   run [--url L] [--wait S]   build, boot a simulator, install, launch (open
@@ -48,6 +50,9 @@
 #   XBIN_E2E_ERASE, XBIN_E2E_WARMUP, XBIN_SIM_ENSURE, XBIN_E2E_TUNNEL_FORWARD,
 #   XBIN_E2E_TUNNEL (1: e2e-xbind.sh runs the app tunnel and its relay,
 #                      whose port the ssh carries too; XbinTunnelTests run)
+#   XBIN_E2E_WSAGENT (1: e2e-xbind.sh sets the workspace agent up — it needs
+#                      --isolate in XBIN_E2E_XBIND_ARGS — and
+#                      XbinWorkspaceAgentTests run, D233)
 #                      passed through (pick-sim.sh, ci-*.sh; GUI: show the
 #                      simulator on the Mac's screen: Simulator.app, or
 #                      DeviceHub.app from Xcode 27 on; ENSURE: a
@@ -95,7 +100,10 @@ on_mac() {
   packages) "$S/ci-swift-test.sh" "$@" ;;
   build)
     xcodegen_on_path
-    dest=$("$S/pick-sim.sh")
+    # --device: for a device, no simulator — what ios.yml's duo job builds
+    # (with XBIN_XCODE the 27.1 Xcode and XBIN_SWIFT_CONDITIONS=XBIN_SDK_27_1:
+    # a beta Xcode's simulators may not run here).
+    if [ "${1:-}" = --device ]; then dest="generic/platform=iOS"; else dest=$("$S/pick-sim.sh"); fi
     "$S/ci-build-app.sh" "$dest"
     ;;
   uitests)
@@ -239,7 +247,7 @@ remote() {
   [ $# -gt 0 ] && shift
   local v
   for v in XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_E2E_WARMUP XBIN_SIM_ENSURE \
-    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL; do
+    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL XBIN_E2E_WSAGENT; do
     if [ -n "${!v:-}" ]; then envs="$envs $v=$(printf '%q' "${!v}")"; fi
   done
   ssh ${ssh_opts[@]+"${ssh_opts[@]}"} ${opts[@]+"${opts[@]}"} "$XBIN_MAC" \
