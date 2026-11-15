@@ -61,7 +61,9 @@ export class BxAgentDock extends LitElement {
     header h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* a narrow dock keeps its title whole: Pause / Resume is its icon there, still named for a screen reader */
     header { container-type: inline-size; }
-    @container (max-width: 460px) { header:has([data-close]) [data-pause] .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
+    @container (max-width: 460px) { header:has([data-close]) [data-pause] .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      header:has([data-close]) > bx-icon:first-child { display: none; }
+      header:has([data-close]) button { padding-left: 7px; padding-right: 7px; } }
     .body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
     iframe { flex: 1; min-height: 0; width: 100%; border: 0; background: var(--bx-bg, #0B0C12); }
     .tray { position: absolute; left: 0; right: 0; top: 0; z-index: 2; }
