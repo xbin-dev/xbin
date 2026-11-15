@@ -248,7 +248,14 @@ export const TOOL_STATES = Object.freeze(['writing', 'pending', 'running', 'appr
  * notice — a line that is neither the person's nor the agent's: the host
  * speaking (a session moved, an automation delivered this). Its first line
  * is its heading.
- * @typedef {BlockBase & { kind: 'notice', text: string }} NoticeBlock
+ * @typedef {BlockBase & {
+ *   kind: 'notice', text: string,
+ *   icon?: string,                           // a glyph before it (a /vendor/bx-icons.js name); '' a bullet in a glyph's place
+ *   tone?: string,                           // 'bad': something went wrong
+ *   md?: boolean,                            // its text is markdown
+ *   fold?: boolean, title?: string,          // folded to its heading (title, else its first line) until the reader opens it
+ *   action?: {label: string, title?: string}, // the line is a button: pressing it tells the host (ChatCtx.act)
+ * }} NoticeBlock
  */
 
 /**
@@ -568,6 +575,9 @@ export function cached(b, slot, fn) {
  * @property {(block: ChatBlock, file: ChatFile) => {linked: boolean, thumb?: string}} [fileState]  is a message's file still there; a thumbnail
  * @property {(block: ChatBlock, file: ChatFile) => void} [openFile]  open a message's file (its chip is then a button)
  * @property {(text: string) => (Promise<any>|void)} [copy]  put text on the clipboard (default: navigator.clipboard)
+ * @property {(block: AssistantBlock, event: Event) => any} [copyMessage]  copy one of the agent's messages (its Copy is drawn
+ *                                               only for a host that has this; the event's target is the button)
+ * @property {(block: NoticeBlock) => void} [act]  a notice's `action` was pressed
  * @property {(block: AgentBlock) => void} [openAgent]  show the sub-conversation on its own
  * @property {(block: AgentBlock, again?: boolean) => void} [loadAgent]  its blocks are wanted (the card was opened; again: after an error)
  * @property {(block: AgentBlock) => string} [agentError]  why they could not be read ('' no error)

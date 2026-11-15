@@ -67,7 +67,7 @@ await page.waitForSelector('.hask');
 await go(25, '.acard');
 ok('three child cards', (await page.$$('.acard')).length === 3);
 ok('…the built-in agent\'s top bar keeps Compact, Learn skill and Memory', await topBtns().then((ts) => ['Compact', 'Learn skill', 'Memory'].every((b) => ts.some((t) => t.startsWith(b)))), (await topBtns()).join(' | '));
-ok('a person\'s message to a child is told as a notice', (await page.textContent('.notice .nh')).includes('direct message to #26 (Claude Code) from admin'));
+ok('a person\'s message to a child is told as a notice', (await page.textContent('.notice summary')).includes('direct message to #26 (Claude Code) from admin'));
 
 // --- the seams: a module hooks each one -------------------------------------------------
 await page.evaluate(async () => {

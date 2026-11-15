@@ -280,23 +280,23 @@ await page.evaluate(() => {
 });
 await page.click('#home');
 await page.click('#runs .run');
-await page.waitForFunction(() => document.querySelectorAll('.afile').length === 3, { timeout: 3000 });
+await page.waitForFunction(() => document.querySelectorAll('.bxc-att-file').length === 3, { timeout: 3000 });
 const bubble = await page.$$eval('.msg.user', (els) => els.map((e) => ({
-  body: e.querySelector('.txt')?.textContent || '',
-  files: [...e.querySelectorAll('.afile')].map((a) => ({ text: a.textContent.replace(/\s+/g, ' ').trim(), gone: a.classList.contains('gone'), link: a.dataset.afile || '' })),
+  body: e.querySelector('.bxc-text')?.textContent || '',
+  files: [...e.querySelectorAll('.bxc-att-file')].map((a) => ({ text: a.textContent.replace(/\s+/g, ' ').trim(), gone: a.classList.contains('bxc-gone'), link: a.dataset.path || '' })),
 })));
 ok('the note is not shown as text', !bubble[0].body.includes('[attached:') && bubble[0].body.trim() === 'what is this?', JSON.stringify(bubble[0]));
 ok('"(see attached)" is not shown either', bubble[1].body === '', JSON.stringify(bubble[1]));
 ok('attached files show as chips', bubble[0].files.length === 2 && bubble[0].files[0].link === 'shot.png', JSON.stringify(bubble[0].files));
 ok('a deleted file is marked and not a link', bubble[0].files[1].gone && !bubble[0].files[1].link, JSON.stringify(bubble[0].files[1]));
-await page.waitForFunction(() => !!document.querySelector('.afile .ic img'), { timeout: 3000 }).catch(() => {});
-const thumb = await page.$eval('.afile .ic img', (i) => i.src).catch(() => '');
+await page.waitForFunction(() => !!document.querySelector('.bxc-att-file img'), { timeout: 3000 }).catch(() => {});
+const thumb = await page.$eval('.bxc-att-file img', (i) => i.src).catch(() => '');
 ok('an attached image gets a thumbnail from the raw route', thumb.startsWith('blob:'), thumb);
 ok('a non-image attachment gets no thumbnail fetch', !(await page.evaluate(() => window.__calls.some((c) => c.path.includes('raw?path=doc.pdf')))));
 
 // 10. Clicking a chip opens it in the Files tab: a preview and a download, no
 //     textarea editor.
-await page.click('.afile[data-afile="shot.png"]');
+await page.click('.bxc-att-file[data-path="shot.png"]');
 await page.waitForFunction(() => !!document.getElementById('fl-dl'), { timeout: 3000 });
 ok('files tab: no text editor for an attachment', !(await page.$('#fl-body')));
 await page.waitForFunction(() => (document.getElementById('fl-img')?.src || '').startsWith('blob:'), { timeout: 3000 }).catch(() => {});

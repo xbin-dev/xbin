@@ -438,21 +438,8 @@
     .center { text-align: center; margin: 8px 0; }
     .crumbs { font: var(--bx-font-meta); color: var(--bx-muted); margin: 0 0 8px; }
     .crumbs a { cursor: pointer; color: var(--bx-link); }
-    .msg { margin: 8px 0; word-break: break-word; }
-    .msg.user { margin-left: auto; max-width: 88%; width: fit-content; padding: 8px 12px; border-radius: var(--bx-radius);
-                background: var(--bx-panel-2); border: 1px solid var(--bx-border); }
-    .msg.user .txt { white-space: pre-wrap; }
-    .msg.user.other { margin-left: 0; margin-right: auto; }
-    .msg.user .who { font: var(--bx-font-meta); font-weight: 600; color: var(--bx-muted); margin-bottom: 2px; }
+    /* the chat's rows are xbind's chat kit's (chat-kit.js); .msg, .think, .notice, .step, .tcard and .acard on a row are this page's hooks */
     .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
-    /* an answer's Copy (chat-copy.js, D199): under the pointer, top right */
-    .msg.assistant { position: relative; }
-    .msg.assistant > .acts { position: absolute; top: -4px; right: 0; display: none; }
-    .msg.assistant:hover > .acts, .msg.assistant > .acts:focus-within { display: flex; }
-    .msg.assistant > .acts .act { display: inline-flex; padding: 4px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius);
-      background: var(--bx-panel); color: var(--bx-muted); cursor: pointer; }
-    .msg.assistant > .acts .act:hover { color: var(--bx-text); }
-    .msg.assistant > .acts .act.done { color: var(--bx-ok); }
     /* a streamed answer is written a top-level block at a time (chat-md.js mdInto) */
     .md-b { display: contents; }
     .md > .md-b:first-child > :first-child { margin-top: 0; } .md > .md-b:last-child > :last-child { margin-bottom: 0; }
@@ -496,27 +483,22 @@
     .cur { display: inline-block; width: 6px; height: 13px; background: var(--bx-accent); margin-left: 2px; vertical-align: text-bottom; }
     /* working: the live square, still (it was a spinner) */
     .spin { display: inline-block; flex: none; width: 8px; height: 8px; background: var(--bx-accent); vertical-align: middle; }
-    /* thinking: a quiet fold; open while it streams, a still label (no shimmer) */
-    .think { margin: 8px 0; color: var(--bx-muted); }
-    .think .th { cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px; }
-    .think.live .th { color: var(--bx-text); }
-    .think .tb { white-space: pre-wrap; border-left: 2px solid var(--bx-border); padding: 2px 0 2px 12px; margin-top: 4px;
-                 font-style: italic; max-height: 320px; overflow: auto; }
     .tw { display: inline-flex; flex: none; width: 16px; justify-content: center; color: var(--bx-muted); }
-    /* a subagent's card (a tool call's is xbind's chat kit's: chat-kit.js) */
-    .acard { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); margin: 4px 0; background: var(--bx-code-bg); min-width: 0; }
+    /* a card a feature module draws itself (a coding agent's: harness-child.js), a journal line of its own (a document:
+       doc-cards.js), a notice in a project's feed. On a row the chat kit draws ([data-kind]) these classes are hooks only. */
+    .acard:not([data-kind]) { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); margin: 4px 0; background: var(--bx-code-bg); min-width: 0; }
     .ach { box-sizing: border-box; min-height: var(--bx-row); display: flex; align-items: center; gap: 8px; padding: 4px 8px; cursor: pointer; min-width: 0; }
     .ach:hover { background: var(--bx-hover); }
     .ach .ic { flex: none; width: 16px; display: inline-flex; justify-content: center; color: var(--bx-muted); }
     .ach .hl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ach .st { flex: none; display: inline-flex; align-items: center; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); }
-    .acard.approval { border-color: var(--bx-warn); }
+    .acard:not([data-kind]).approval { border-color: var(--bx-warn); }
     .bx .lnk { display: inline-flex; align-items: center; gap: 4px; min-height: 0; border: 0; background: none; color: var(--bx-link);
                cursor: pointer; font: inherit; font-weight: 400; padding: 0 2px; }
     .bx .lnk:hover { background: none; text-decoration: underline; }
-    .acard { background: var(--bx-panel); border-left: 2px solid var(--bx-border-strong); }
-    .acard.done { border-left-color: var(--bx-ok); }
-    .acard.error, .acard.stopped { border-left-color: var(--bx-danger); }
+    .acard:not([data-kind]) { background: var(--bx-panel); border-left: 2px solid var(--bx-border-strong); }
+    .acard:not([data-kind]).done { border-left-color: var(--bx-ok); }
+    .acard:not([data-kind]).error, .acard:not([data-kind]).stopped { border-left-color: var(--bx-danger); }
     .ach .rid { font: var(--bx-font-code); color: var(--bx-muted); }
     .acb { padding: 0 12px 8px 16px; border-top: 1px dashed var(--bx-border); }
     .acb .readfail { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; margin: 8px 0; } /* a subagent that could not be read: why, and Retry */
@@ -525,14 +507,14 @@
     .acb .task.on { display: block; white-space: pre-wrap; overflow-x: auto; } /* a wide line scrolls, not clipped */
     .acb .answer { margin-top: 8px; border-top: 1px solid var(--bx-border); padding-top: 4px; }
     .k { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); margin-right: 4px; }
-    .notice { font: var(--bx-font-meta); color: var(--bx-muted); margin: 4px 0; }
-    .notice .nh { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
-    .notice .nb { white-space: pre-wrap; border-left: 2px solid var(--bx-border); padding-left: 12px; margin-top: 4px; }
-    .step { display: flex; align-items: baseline; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); margin: 4px 0; overflow-wrap: anywhere; }
-    .step.error { color: var(--bx-danger); }
-    .step .g { display: inline-flex; flex: none; width: 16px; justify-content: center; align-self: center; }
-    .step.md-step .md { flex: 1; min-width: 0; color: var(--bx-text); font: var(--bx-font); }
-    .step .steplnk { font-size: inherit; padding: 0; text-align: left; overflow-wrap: anywhere; }
+    .notice:not([data-kind]) { font: var(--bx-font-meta); color: var(--bx-muted); margin: 4px 0; }
+    .notice:not([data-kind]) .nh { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+    .notice:not([data-kind]) .nb { white-space: pre-wrap; border-left: 2px solid var(--bx-border); padding-left: 12px; margin-top: 4px; }
+    .step:not([data-kind]) { display: flex; align-items: baseline; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); margin: 4px 0; overflow-wrap: anywhere; }
+    .step:not([data-kind]).error { color: var(--bx-danger); }
+    .step:not([data-kind]) .g { display: inline-flex; flex: none; width: 16px; justify-content: center; align-self: center; }
+    .step:not([data-kind]).md-step .md { flex: 1; min-width: 0; color: var(--bx-text); font: var(--bx-font); }
+    .step:not([data-kind]) .steplnk { font-size: inherit; padding: 0; text-align: left; overflow-wrap: anywhere; }
     .activity { color: var(--bx-muted); margin: 8px 0 2px; display: flex; gap: 8px; align-items: center; }
     .activity.warn { color: var(--bx-warn); }
     .ask ul { margin: 4px 0 8px; padding-left: 20px; }

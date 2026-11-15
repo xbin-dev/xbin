@@ -112,29 +112,38 @@ export const md = (s) => { try { return marked.parse(String(s ?? '')); } catch {
 export function mdCssText(scope) {
   const s = (sel) => sel.split(',').map((x) => `${scope} ${x.trim()}`).join(', ');
   return `
-  ${s('pre')} { margin: 8px 0; padding: 8px 12px; overflow-x: auto; background: var(--bx-code-bg, #16171D);
+  ${s('p, ul, ol, blockquote')} { margin: 4px 0; }
+  ${s('ul, ol')} { padding-left: 24px; }
+  ${s('h1, h2, h3, h4')} { margin: 8px 0 4px; }
+  ${s('h1, h2')} { font: var(--bx-font-title, 600 16px/22px "Instrument Sans", system-ui, sans-serif); }
+  ${s('h3, h4')} { font: var(--bx-font-body, 400 14px/20px "Instrument Sans", system-ui, sans-serif); font-weight: 600; }
+  ${s('pre')} { margin: 4px 0; padding: 8px 12px; overflow-x: auto; background: var(--bx-code-bg, #16171D);
     border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
   ${s(':not(pre) > code')} { padding: 0 4px; background: var(--bx-code-bg, #16171D); border: 1px solid var(--bx-border, #33353F);
     border-radius: var(--bx-radius, 2px); font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 0.92em; }
-  ${s('pre code')} { padding: 0; background: none; border: 0; font: inherit; }
+  ${s('pre code')} { padding: 0; background: none; border: 0; font: inherit; white-space: pre; }
   ${s('pre, code')} { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
-  ${s('table')} { border-collapse: collapse; margin: 8px 0; font-variant-numeric: tabular-nums; }
-  ${s('th, td')} { padding: 4px 10px; border: 1px solid var(--bx-border, #33353F); text-align: left; vertical-align: top; }
+  ${s('table')} { border-collapse: collapse; margin: 4px 0; display: block; overflow-x: auto; font-variant-numeric: tabular-nums; }
+  ${s('th, td')} { padding: 2px 8px; border: 1px solid var(--bx-border, #33353F); text-align: left; vertical-align: top; }
   ${s('th')} { font-weight: 600; background: var(--bx-panel-2, #262730); }
-  ${s('blockquote')} { margin: 8px 0; padding: 0 12px; border-left: 2px solid var(--bx-border-strong, #666A7E); color: var(--bx-muted, #A3A6B6); }
-  ${s('a')} { color: var(--bx-link, #8C9BFF); }
-  ${s('hr')} { border: 0; border-top: 1px solid var(--bx-border, #33353F); }
+  ${s('blockquote')} { padding: 0 0 0 12px; border-left: 2px solid var(--bx-accent, #8C9BFF); color: var(--bx-muted, #A3A6B6); }
+  ${s('a')} { color: var(--bx-link, #8C9BFF); text-decoration: underline; }
+  ${s('hr')} { border: 0; border-top: 1px solid var(--bx-border, #33353F); margin: 8px 0; }
   ${s('.md-img')} { color: var(--bx-muted, #A3A6B6); font-style: italic; }
+  /* colour for reading at a glance: headings, list markers, inline code, the quote's rule; fenced code in the theme's syntax tokens */
+  ${s('h1, h2, h3, h4')} { color: var(--bx-syn-function, #96A6FF); }
+  ${s('li::marker')} { color: var(--bx-accent, #8C9BFF); }
+  ${s(':not(pre) > code')} { color: var(--bx-syn-string, #7BE0B0); }
   ${s('.hljs-comment, .hljs-quote')} { color: var(--bx-syn-comment, #9598A9); font-style: italic; }
-  ${s('.hljs-keyword, .hljs-selector-tag, .hljs-section, .hljs-name, .hljs-doctag')} { color: var(--bx-syn-keyword, #FF8CC8); }
-  ${s('.hljs-string, .hljs-regexp')} { color: var(--bx-syn-string, #7BE0B0); }
+  ${s('.hljs-keyword, .hljs-selector-tag, .hljs-section, .hljs-name, .hljs-doctag, .hljs-variable.language_')} { color: var(--bx-syn-keyword, #FF8CC8); }
+  ${s('.hljs-string, .hljs-regexp, .hljs-char.escape_')} { color: var(--bx-syn-string, #7BE0B0); }
   ${s('.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet')} { color: var(--bx-syn-number, #FFD54A); }
-  ${s('.hljs-title')} { color: var(--bx-syn-function, #96A6FF); }
+  ${s('.hljs-title, .hljs-title.function_')} { color: var(--bx-syn-function, #96A6FF); }
   ${s('.hljs-type, .hljs-title.class_')} { color: var(--bx-syn-type, #5CCBE3); }
-  ${s('.hljs-attr, .hljs-attribute, .hljs-property')} { color: var(--bx-syn-attr, #F5B07A); }
+  ${s('.hljs-attr, .hljs-attribute, .hljs-property, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id')} { color: var(--bx-syn-attr, #F5B07A); }
   ${s('.hljs-built_in, .hljs-meta, .hljs-variable, .hljs-template-variable')} { color: var(--bx-syn-builtin, #C6A8FF); }
-  ${s('.hljs-deletion')} { color: var(--bx-syn-deletion, #FF8F8F); }
-  ${s('.hljs-addition')} { color: var(--bx-syn-addition, #7BE0B0); }`;
+  ${s('.hljs-deletion')} { color: var(--bx-syn-deletion, #FF8F8F); background: var(--bx-diff-del-bg, #342429); }
+  ${s('.hljs-addition')} { color: var(--bx-syn-addition, #7BE0B0); background: var(--bx-diff-add-bg, #1D302D); }`;
 }
 
 /**

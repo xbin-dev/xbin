@@ -86,12 +86,12 @@ async function agentTemplate(browser) {
 
   // 1. thinking streams, then folds; the answer is markdown.
   await ask(page, 'hello there');
-  await until(page, () => window.__has('.think .th', 'Thinking…') || window.__has('.think .th', 'Thought'), null, 60000);
+  await until(page, () => window.__has('.think summary', 'Thinking…') || window.__has('.think summary', 'Thought'), null, 60000);
   await answered(page, 'Hello from the fake model.', 30000);
-  const think = await text(page, '.think .th');
+  const think = await text(page, '.think summary');
   check(think.some((t) => /^\s*Thought/.test(t)), `thinking folded to "Thought…" once the answer came (${JSON.stringify(think)})`);
-  await page.click('.think .th');
-  check((await page.textContent('.think .tb')).includes('Considering the greeting'), 'the folded thinking opens to its text');
+  await page.click('.think summary');
+  check((await page.textContent('.think .bxc-md')).includes('Considering the greeting'), 'the folded thinking opens to its text');
   const named = await until(page, () => document.getElementById('runs').textContent.includes('Titled hello there'), null, 15000)
     .then(() => true, () => false);
   check(named, 'after its first answer the chat is named by the model (the sidebar shows it)');
@@ -113,8 +113,8 @@ async function agentTemplate(browser) {
   await until(page, () => document.querySelector('.acard'));
   const card = await page.textContent('.acard');
   check(card.includes('counter'), `the subagent is a card in the parent's chat, titled by its label (${card.slice(0, 120)})`);
-  if (!(await page.$('.acard.on'))) await page.click('.acard .ach');
-  await until(page, () => window.__has('.acard .acb', 'one, two, three'));
+  if (!(await page.$('.acard.on'))) await page.click('.acard summary');
+  await until(page, () => window.__has('.acard .bxc-body', 'one, two, three'));
   check(true, "the card opens to the subagent's own work and answer");
   const side = await text(page, '#runs .run .t');
   check(side.includes('delegation') && !side.some((t) => /counter|count to three/.test(t)), `the sidebar lists the run, never its subagent (${JSON.stringify(side)})`);
@@ -159,7 +159,7 @@ async function agentTemplate(browser) {
   await setModel(page, 'fake/gpt-5-fake');
   await ask(page, 'hello responses');
   await answered(page, 'Hello from the fake model.', 30000);
-  check((await text(page, '.think .th')).some((t) => /Thought/.test(t)), 'the Responses wire streams its reasoning summary as thinking');
+  check((await text(page, '.think summary')).some((t) => /Thought/.test(t)), 'the Responses wire streams its reasoning summary as thinking');
   const resp = (await requests()).filter((r) => r.wire === 'responses');
   check(resp.length > 0 && resp.every((r) => r.model === 'gpt-5-fake'), `gpt-5* models go over /v1/responses (${resp.length} request(s))`);
   await setModel(page, 'fake/fake-chat');

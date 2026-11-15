@@ -38,6 +38,11 @@
  *      a request's card says who asks what (ask.js permission lead; a perm
  *      block's own `lead`, its `calls` as a list), previews the diff of
  *      the call it is about (ChatCtx.callOf; cards.js diffsView) and takes
- *      a word with a rejection (ChatCtx.rejectWord)
+ *      a word with a rejection (ChatCtx.rejectWord); a person's own
+ *      messages on their side and unlabelled, the agent's with a Copy
+ *      (ChatCtx.copyMessage), file chips with a picture and a size; a
+ *      notice's icon, tone, md, fold and action (ChatCtx.act); a
+ *      sub-conversation's card in a call's words, its request under it;
+ *      mdCssText gains headings, lists and the reading colours
  */
 export const KIT = 4;

@@ -71,7 +71,7 @@ const geo = (page) => page.evaluate(() => {
   await page.waitForSelector('#timeline .msg.assistant.live');
   await page.waitForTimeout(100);
   ok('a streamed answer is followed at the bottom', (await geo(page)).gap < 2);
-  ok('…its paragraphs rendered a block at a time', (await page.$$('#timeline .msg.assistant.live .md > .md-b')).length === 3);
+  ok('…its paragraphs rendered a block at a time', (await page.$$('#timeline .msg.assistant.live .bxc-md > .md-b')).length === 3);
   ok('no page errors (window)', errors.length === 0, errors.join(' | '));
   await ctx.close();
 }

@@ -90,16 +90,6 @@ export const KIND_ICON = Object.freeze({ read: 'doc', edit: 'pencil', delete: 't
 // (a block's own `icon` — its reducer's glyph for a tool of its own — comes first)
 const callIcon = (b) => { const g = b.icon ?? KIND_ICON[b.rec.kind]; return g ? html`<bx-icon class="bxc-ic" name=${g}></bx-icon>` : html`<span class="bxc-ic"></span>`; };
 
-// the boxed badge of a card that is not a call's (a sub-conversation's state)
-const STATUS = {
-  completed: ['ok', 'completed', 'bxc-ok'], failed: ['error', 'failed', 'bxc-bad'], cancelled: ['error', 'cancelled', 'bxc-bad'],
-  pending: ['wait', 'pending', 'bxc-warn'], in_progress: ['wait', 'in progress', 'bxc-warn'], approval: ['warning', 'needs approval', 'bxc-warn'],
-};
-function statusChip(key, more = nothing) {
-  const [icon, word, tone] = STATUS[key] || ['', String(key || '').replace('_', ' '), ''];
-  return html`<span class="bxc-chip ${tone}">${icon ? html`<bx-icon name=${icon}></bx-icon>` : nothing}${word}${more}</span>`;
-}
-
 // a tone as its glyph and its class: an outcome's, a state's
 const TONE_ICON = { ok: 'ok', bad: 'error', warn: 'warning' };
 const toneIcon = (t) => (TONE_ICON[t] ? html`<bx-icon name=${TONE_ICON[t]}></bx-icon>` : nothing);
@@ -367,35 +357,42 @@ function subagentView(b, ctx, depth, child) {
 
 // ---- a sub-conversation -----------------------------------------------------------------
 
-const AGENT_STATE = { running: 'in_progress', approval: 'approval', done: 'completed', error: 'failed', stopped: 'cancelled' };
+// a sub-conversation's state in a call's words (lineEnd reads them like a call's)
+const AGENT_STATUS = { running: 'in_progress', approval: 'pending', done: 'completed', error: 'failed', stopped: 'cancelled' };
 
 /**
  * agentView(b, ctx, depth, child): an agent block — another agent's run
  * started from this one — as a card that unfolds to that run's own blocks
- * (asked of the host once opened: ctx.loadAgent), what it waits on a person
- * for, and its answer.
+ * (asked of the host once opened: ctx.loadAgent) and its answer. Its line
+ * reads like a call's: what it is called, where it is while it works, how
+ * many steps it took. What it waits on a person for (`tail`) is drawn
+ * under the card, folded or not — a request is never hidden.
  */
 export function agentView(b, ctx, depth = 0, child = () => nothing) {
   const working = b.state === 'running' || b.state === 'approval';
-  const dflt = b.state === 'approval' || b.state === 'error';
+  const dflt = working || b.state === 'error';
   const open = ctx.isOpen(b, 'body', dflt);
   const err = open && ctx.agentError ? ctx.agentError(b) : '';
   if (open && b.blocks == null && !err && ctx.loadAgent) ctx.loadAgent(b);
+  const chip = stateChip({ status: AGENT_STATUS[b.state] || 'completed' }, b.state === 'approval' ? 'approval' : '');
+  const steps = b.steps ? `${b.steps} step${b.steps === 1 ? '' : 's'}` : '';
   return html`<details class="bxc-tool bxc-sub bxc-agent" data-state=${b.state || ''} ?open=${open} @toggle=${(e) => toggled(e, b, ctx, 'body', dflt)}>
-    <summary><bx-icon class="bxc-ic" name="agent"></bx-icon>
-      <span class="bxc-title" title=${b.task || ''}>${b.provider ? html`<span class="bxc-muted">${b.provider}</span> ` : nothing}${b.title || 'A sub-conversation'}${b.phase && working ? html`<span class="bxc-sub">${b.phase}</span>` : nothing}</span>
-      ${b.steps ? html`<span class="bxc-chip">${b.steps} step${b.steps === 1 ? '' : 's'}</span>` : nothing}
-      ${statusChip(AGENT_STATE[b.state] || b.state)}</summary>
+    <summary title=${b.task || ''}><bx-icon class="bxc-ic" name="agent"></bx-icon>
+      <span class="bxc-title">${b.provider ? html`<span class="bxc-muted">${b.provider}</span> ` : nothing}${b.title || 'A sub-conversation'}</span>
+      ${b.ref ? html`<span class="bxc-ref">#${b.ref}</span>` : nothing}
+      ${b.state === 'running' ? html`<span class="bxc-spin"></span>` : nothing}
+      ${b.state === 'running' && b.phase ? html`<span class="bxc-st">${b.phase}</span>` : b.state === 'done' ? html`<span class="bxc-st">${steps || 'done'}</span>`
+        : chip && b.state !== 'running' ? html`<span class="bxc-st ${toneClass(chip.tone)}">${toneIcon(chip.tone)}${chip.text}</span>` : nothing}
+      ${ctx.openAgent && b.ref ? html`<button class="bxc-more bxc-open" title="open this conversation on its own" @click=${(e) => { e.preventDefault(); ctx.openAgent(b); }}>open<bx-icon name="popout"></bx-icon></button>` : nothing}
+      ${carets}</summary>
     ${open ? html`<div class="bxc-body">
-      ${b.task ? html`<details class="bxc-raw"><summary>task</summary><div class="bxc-md" .innerHTML=${cached(b, 'task', () => md(b.task))}></div></details>` : nothing}
-      ${ctx.openAgent ? html`<div><button class="bxc-more" @click=${() => ctx.openAgent(b)}>open this conversation</button></div>` : nothing}
-      ${err ? html`<div class="bxc-muted bxc-err">${err}${ctx.loadAgent ? html` <button class="bxc-more" @click=${() => ctx.loadAgent(b, true)}>try again</button>` : nothing}</div>`
-        : b.blocks == null ? html`<div class="bxc-muted">${ctx.loadAgent ? 'loading its steps…' : 'its steps are not held here'}</div>`
+      ${b.task ? html`<div class="bxc-task bxc-clamp ${ctx.isOpen(b, 'task', false) ? 'bxc-all' : ''}" title="the task it was given" @click=${() => ctx.setOpen(b, 'task', !ctx.isOpen(b, 'task', false), false)}><span class="bxc-k">task</span> ${b.task}</div>` : nothing}
+      ${err ? html`<div class="bxc-muted bxc-err"><span>Couldn't read its steps: ${err}</span>${ctx.loadAgent ? html` <button class="bxc-more" data-act="retry" title="read it again" @click=${() => ctx.loadAgent(b, true)}>Retry</button>` : nothing}</div>`
+        : b.blocks == null ? html`<div class="bxc-muted">${ctx.loadAgent ? 'loading…' : 'its steps are not held here'}</div>`
           : html`<div class="bxc-children">${b.blocks.map((c) => child(c, ctx, depth + 1))}</div>`}
-      ${(b.tail || []).map((c) => child(c, ctx, depth + 1))}
-      ${b.answer ? html`<div class="bxc-answer bxc-md" .innerHTML=${cached(b, 'answer', () => md(b.answer))}></div>` : nothing}
+      ${b.answer && !working ? html`<div class="bxc-answer"><span class="bxc-k">answer</span><div class="bxc-md" .innerHTML=${cached(b, 'answer', () => md(b.answer))}></div></div>` : nothing}
     </div>` : nothing}
-  </details>`;
+  </details>${(b.tail || []).map((c) => child(c, ctx, depth + 1))}`;
 }
 
 // ---- a plan's entries -------------------------------------------------------------------

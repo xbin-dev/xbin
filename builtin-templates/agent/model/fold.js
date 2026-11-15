@@ -387,7 +387,8 @@ function convert(b, scope) {
     case 'user':
       return block('user', b.id, { text: b.text, sender: b.sender || '', ref: b.msgId,
         files: (b.files || []).map((f) => ({ name: String(f.path).split('/').pop(), path: f.path, mime: f.mime || '', size: null, sizeText: f.size || '' })) });
-    case 'notice': return block('notice', b.id, { text: b.text });
+    // (an engine-written message, an automation's prompt: folded to its heading — the first line without its brackets)
+    case 'notice': return block('notice', b.id, { text: b.text, fold: true, title: String(b.text || '').split('\n')[0].replace(/^\[|\]$/g, '').replace(/ — .*$/, '') });
     case 'think': return block('thought', b.id, { text: b.text, live: !!b.live, ms: b.ms || 0, at: b.started || 0, ...under });
     case 'assistant': return block('assistant', b.id, { text: b.text, model: b.model || '', usage: b.usage || null, ...under });
     case 'draft': return block('draft', b.id, { text: b.text });
@@ -408,7 +409,8 @@ function convert(b, scope) {
         title: (b.link && b.link.label) || b.headline || '', ref: b.childId || 0, state: b.state, phase: (b.link && b.link.phase) || child.status || '',
         steps: child.llmCalls || 0, task: b.task || '', answer: String(b.result || '').replace(/^--- #\d+ .*? ---\n/, ''),
         blocks: b.blocks ? blocksOf(b.blocks, scope + b.id + '/') : null,
-        tail: b.pendingApproval ? [ownApproval(b.id + ':park', '', b.pendingApproval)] : [],
+        // (the child's run rides along: a host answers the request on it)
+        tail: b.pendingApproval ? [Object.defineProperty(ownApproval(b.id + ':park', '', b.pendingApproval), '$run', { value: b.child || null })] : [],
         provider: b.harness ? nameOf(b.harness) : '',
       });
     }

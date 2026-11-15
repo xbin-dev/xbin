@@ -37,6 +37,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     can send one (`ChatCtx.rejectWord`), and the options. A question leads
     with "<agent> asks". A `perm` block may carry its own `lead`; its
     `calls` are listed; `cards.js` exports `diffsView`.
+  - **Messages** (`/vendor/chat/views.js`): a person's own words sit on
+    their side of the chat without a "YOU" label (another person's, in a
+    shared conversation, on the other side under their name), the agent's
+    without an "AGENT" label and with a Copy that shows with the pointer
+    where the host copies (`ChatCtx.copyMessage`); a message's files are
+    chips with a picture or a glyph, the path and a size. A thought says
+    "Thought for 1m 5s". Markdown (`mdCssText`) gains heading sizes, list
+    and paragraph spacing, a scrolling table and the reading colours
+    (headings, list markers, inline code, the quote's rule). A `notice`
+    block may carry `icon`, `tone`, `md`, `fold` / `title` and `action`
+    (`ChatCtx.act`) — the agent template's journal lines are these. A
+    sub-conversation's card (`agentView`) reads like a call's, with what
+    it waits on a person for under it. `ChatCtx.agentLabel` is no longer
+    drawn.
   - **For a tile that draws with the kit**: a `tool` block may carry its
     own `icon`, `sub`, `outcome`, `args` and `result` (a tool of the
     host's own); `ChatCtx.rowAttrs(block, depth)` puts the host's hook
@@ -65,7 +79,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     `.bxc-reject textarea` for `.hfb`, `.bxc-field[data-field]` for
     `.hfield`). `harness-ask.js` still exports `permissionTpl` and
     `questionTpl` (they draw the run's park; the card model argument is
-    ignored), `chat-cards.js` no longer exports `approvalTpl`.
+    ignored), `chat-cards.js` no longer exports `approvalTpl`. A
+    message, a thought, a notice, a journal line and a subagent's card
+    keep `.msg.user` / `.msg.assistant` (`.live`, `.other`), `.think`,
+    `.notice`, `.step.<kind>` and `.acard` with their state classes on the
+    kit's row; inside, `.bxc-text` is `.txt`, `.bxc-who` `.who`,
+    `.bxc-md` `.md`, `.bxc-att-file[data-path]` `.afile[data-afile]`,
+    `.bxc-acts .bxc-act` `.acts .act`, `summary` the `.th` / `.nh` /
+    `.ach` line, `.bxc-nbody` `.nb`, `.bxc-children` `.acb`. A card a
+    feature module draws itself (`ext.block`: a coding agent's
+    `.acard.hkid`, a document's `.step.doc`) is unchanged.
 
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
