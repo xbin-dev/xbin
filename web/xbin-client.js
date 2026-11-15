@@ -488,6 +488,21 @@ function setMeta(m) {
   else if ('title' in m && metaNow.title) document.title = metaNow.title;
 }
 
+// xbin.ready(): "I have drawn" (D234). A page that fetches before it has
+// anything to show can say when it does; whatever waits for the tile — today
+// xbind's preview browser (docs/protocol/preview.md), which otherwise settles
+// by a quiet network — then stops waiting at once. A tile that will call it
+// declares so with <meta name="xbin-ready" content="manual">, and is waited
+// for (bounded) even when the network is quiet. Calling it twice, or never,
+// harms nothing. The mark is the document's own (data-xbin-ready on <html>:
+// "pending" → "1"); the embedder is told too (xbin:ready).
+if (document.querySelector('meta[name="xbin-ready"]')?.content === 'manual') document.documentElement.dataset.xbinReady = 'pending';
+function ready() {
+  if (document.documentElement.dataset.xbinReady === '1') return;
+  document.documentElement.dataset.xbinReady = '1';
+  if (embedded) window.parent.postMessage({ type: 'xbin:ready', component: self }, PARENT);
+}
+
 // A right-click (or a touch long-press) on the tile's body opens the SHELL's
 // tile menu — the iframe would otherwise swallow it. A tile that handles
 // contextmenu itself (preventDefault) keeps its own menu; inputs, links and
@@ -667,4 +682,4 @@ if (document.querySelector('link[rel~="stylesheet"][href*="/vendor/theme.css"]')
 // /vendor/xb-native.js adds the methods (docs/frontend-kit.md).
 const nativeApi = (window.xbin && typeof window.xbin.native === 'object' && window.xbin.native) || (meta('xbin-native') ? {} : null);
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, copy, openSession, status, clearStatus, notify, meta: setMeta, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, copy, openSession, status, clearStatus, notify, meta: setMeta, ready, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });

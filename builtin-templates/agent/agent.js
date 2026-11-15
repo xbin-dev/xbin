@@ -746,8 +746,14 @@ async function renderTab() {
   const bd = $('sbd');
   const fns = { config: tabConfig, features: tabFeatures, classes: (b) => tabClasses(b, app), harnesses: (b) => tabHarnesses(b, app), memory: tabMemory, files: (b) => tabFiles(b, filesCtx), skills: tabSkills, mcp: tabMcp };
   const fn = fns[activeTab] || tabConfig;
-  bd.innerHTML = '<div class="empty">loading…</div>';
-  try { await fn(bd); } catch (e) { bd.innerHTML = errBox(e); }
+  // Each opening of a tab draws into a box of its own: a tab whose loads land after another was opened (Config
+  // reads the models; a click on Coding agents meanwhile) writes into a box no longer in the page — it used to
+  // draw over the tab opened after it.
+  const box = document.createElement('div');
+  box.className = 'tabbox';
+  box.innerHTML = '<div class="empty">loading…</div>';
+  bd.replaceChildren(box);
+  try { await fn(box); } catch (e) { if (box.isConnected) box.innerHTML = errBox(e); }
 }
 
 $('gear').onclick = () => (settingsOpen ? closeSettings() : openSettings());

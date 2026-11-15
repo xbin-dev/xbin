@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -286,5 +287,30 @@ func TestSealedViewerAllowList(t *testing.T) {
 	}
 	if allowed(agent, "GET", "/api/xbin/delegate") || allowed(agent, "GET", "/api/xbin/delegated-thing") {
 		t.Error("a path that only begins like the delegation API is allowed")
+	}
+}
+
+// No render shows a sealed component's page: it is in no preview's scope,
+// whatever the scope names — a screen it sits on leaves it out — and a
+// preview that targets it is refused before anything else answers.
+func TestNoPreviewShowsASealedComponent(t *testing.T) {
+	for _, tiles := range [][]string{{"xbin/probe"}, {"xbin"}, {"apps/a", "xbin/probe"}} {
+		sc := &previewScope{tiles: tiles}
+		for _, tile := range []string{"xbin/probe", "xbin/probe/sub", "xbin//probe", "xbin/./probe"} {
+			if sc.has(tile) {
+				t.Errorf("a preview of %v has %q in scope", tiles, tile)
+			}
+		}
+	}
+	if sc := (&previewScope{tiles: []string{"apps/a"}}); !sc.has("apps/a") || !sc.has("apps/a/sub") || sc.has("apps/b") {
+		t.Error("a tile's own scope changed")
+	}
+	s := &Server{}
+	for _, tile := range []string{"xbin/probe", "/xbin/probe/", "xbin//probe"} {
+		_, err := s.RenderPreview(httptest.NewRequest("POST", "/api/xbin/preview", nil), "u1", PreviewTarget{Tile: tile})
+		var pe *previewError
+		if !errors.As(err, &pe) || pe.code != http.StatusBadRequest || !strings.Contains(pe.msg, "xbin/probe is a system component, managed by xbin: it is not previewed") {
+			t.Errorf("a preview of %q: %v", tile, err)
+		}
 	}
 }

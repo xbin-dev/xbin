@@ -405,6 +405,24 @@ func (r *rig) doViewed(method, path, person string, body any) (int, []byte) {
 	return resp.StatusCode, out
 }
 
+// doPreview calls as xbind rendering person's own page in its preview
+// browser (D234).
+func (r *rig) doPreview(method, path, person, level string) (int, []byte) {
+	r.t.Helper()
+	req, _ := http.NewRequest(method, r.api.URL+path, nil)
+	req.Header.Set("X-XBin-From", self)
+	req.Header.Set("X-XBin-User", person)
+	req.Header.Set("X-XBin-User-Level", level)
+	req.Header.Set("X-XBin-Preview", "1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, out
+}
+
 // newKey makes an SSH key pair.
 func newKey(t *testing.T) ssh.Signer {
 	t.Helper()

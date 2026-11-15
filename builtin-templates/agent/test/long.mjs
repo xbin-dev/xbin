@@ -1,8 +1,9 @@
 // long.mjs — a long conversation in the web chat (D130): the timeline renders
 // a window of its blocks at the bottom, grows it as the reader scrolls up
 // without moving the row being read, and follows a streamed answer at the
-// bottom; against an xbind without /vendor/scroll-window.js it renders every
-// block and still follows the bottom.
+// bottom. (The window is xbind's chat kit's — chat-window.js over
+// /vendor/chat/window.js — so there is no xbind that serves this page and
+// not the window: an older one is told what it needs, test/needs-xbind.mjs.)
 //
 //   node test/long.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -19,9 +20,9 @@ const seed = {
 };
 
 const browser = await launch();
-async function open(noWindow) {
+async function open() {
   const ctx = await browser.newContext();
-  await serveTile(ctx, { noWindow, realMarked: true });
+  await serveTile(ctx, { realMarked: true });
   await ctx.addInitScript(STUB, seed);
   const page = await ctx.newPage();
   const errors = [];
@@ -42,7 +43,7 @@ const geo = (page) => page.evaluate(() => {
 
 // with the window
 {
-  const { ctx, page, errors } = await open(false);
+  const { ctx, page, errors } = await open();
   let g = await geo(page);
   ok('a long conversation renders a window of its blocks', g.rows > 0 && g.rows < 100, `${g.rows} rows`);
   ok('…at the bottom', g.gap < 2, JSON.stringify(g));
@@ -71,22 +72,8 @@ const geo = (page) => page.evaluate(() => {
   await page.waitForSelector('#timeline .msg.assistant.live');
   await page.waitForTimeout(100);
   ok('a streamed answer is followed at the bottom', (await geo(page)).gap < 2);
-  ok('…its paragraphs rendered a block at a time', (await page.$$('#timeline .msg.assistant.live .md > .md-b')).length === 3);
+  ok('…its paragraphs rendered a block at a time', (await page.$$('#timeline .msg.assistant.live .bxc-md > .md-b')).length === 3);
   ok('no page errors (window)', errors.length === 0, errors.join(' | '));
-  await ctx.close();
-}
-
-// an older xbind: no /vendor/scroll-window.js
-{
-  const { ctx, page, errors } = await open(true);
-  const g = await geo(page);
-  ok('without the scroll window every block renders', g.rows === 300, `${g.rows} rows`);
-  ok('…at the bottom', g.gap < 2, JSON.stringify(g));
-  await page.evaluate(() => window.__push({ type: 'text', run: 1, root: 1, data: { text: 'Streaming' } }));
-  await page.waitForSelector('#timeline .msg.assistant.live');
-  await page.waitForTimeout(100);
-  ok('…and a streamed answer is followed', (await geo(page)).gap < 2);
-  ok('no page errors (no window)', errors.length === 0, errors.join(' | '));
   await ctx.close();
 }
 

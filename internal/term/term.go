@@ -203,6 +203,7 @@ type Manager struct {
 	TilePartitioned    func(path string) (tile string, partitioned bool)
 	PersonPartitionKey func(userID string) string
 
+	LLMHook // the workspace's LLM connector for sessions: LLM, Credentials, LLMDoor (llmhook.go, D226)
 	// SigninLife is how long a guided sign-in's shell (?purpose=signin,
 	// purpose.go) lives before xbind ends it. 0 ⇒ 15 minutes.
 	SigninLife time.Duration
@@ -284,12 +285,8 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, rel, err := util.SafeJoin(m.Root, cwd)
-		if err == nil && rel != "" && m.sessionDir(rel) != "" { // a tile, never xbind's own trees or a sealed component
-			http.Error(w, m.sessionDir(rel), http.StatusForbidden)
-			return
-		}
-		if err != nil || rel == "" || !p.CanTerminalTile(rel) {
-			http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
+		if why := m.noTerminal(p, rel, err); why != "" { // a tile, never xbind's own trees or a sealed component (sessiondir.go)
+			http.Error(w, why, http.StatusForbidden)
 			return
 		}
 		o := m.openOptsFor(p, rel, cwd, netMode, gpuMode, apiAccess)
@@ -346,6 +343,7 @@ type openOpts struct {
 	part       sessionPart       // the partition on a partitioned tile (pickPartition, partition.go)
 	purpose    string            // "" or PurposeSignin: a guided sign-in's shell (purpose.go)
 	origin     string            // "" or the sealed component opening it for its person (delegate.go)
+	llmOpts                      // its hold on the LLM connector, when it gets one (llmhook.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,
@@ -411,6 +409,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
+	revokeTok, _ = m.llmArm(&o, rel, nil, revokeTok) // the terminal's LLM key, ended with its token (llmhook.go)
 	cmd, cleanup, postStart, envKey, _, err := m.shellCmd(o.startDir(dir, homeDir), rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
@@ -463,7 +462,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 
 	go s.pump(func() {
 		unlist()
-		m.sbxExited(s, o.vm, scrollTail(s.hub.Tail(2048), 2048))
+		m.sbxExited(s, o.vm, llmTail(s.hub, 2048))
 		m.remove(s.ID)
 		m.changed("close", s)
 		revokeTok() // the session's API credential dies with it
@@ -541,15 +540,8 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 	if token != "" {
 		cmd.Env = append(cmd.Env, "XBIN_TOKEN="+token)
 	}
+	cmd.Env = append(cmd.Env, o.llmShellEnv(cmd.Env)...) // a terminal's XBIN_LLM_* (llmhook.go)
 	return cmd, func() {}, nil, "", cmd.Env, nil
-}
-
-// termKey is the per-component key for a terminal's persistent layer.
-func termKey(rel string) string {
-	if rel == "" {
-		return "_root"
-	}
-	return util.CompKey(rel)
 }
 
 // acquireEnv reserves the persistent layer for key if free (only one live
@@ -691,7 +683,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	case o.netHost:
 		spec.HostNet = true // owner escape hatch — LAN + host services, interfaces visible
 	case o.net == NetNone:
-		spec.Net = "none" // isolated netns, default-deny egress
+		relayNet = m.llmDoorNet(o, spec) // isolated netns, default-deny egress — but for the LLM connector's door, when the session holds a key (llmhook.go)
 	default:
 		spec.Net = "relay" // own netns; the egress relay enforces the rules
 		relayNet = true
@@ -741,6 +733,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		if pol.Empty() { // nothing reachable: no DNS either (no exfiltration channel)
 			cfg.Resolver = ""
 		}
+		m.llmDoorRelay(o, &cfg)
 		rl, err := relay.Start(cfg)
 		if err != nil {
 			slog.Warn("terminal egress relay: start (egress disabled)", "err", err)
@@ -830,7 +823,7 @@ func (s *Session) pump(onExit func()) {
 	// the PTY's last bytes (that's where "sandbox-init: <the actual error>"
 	// went) in the log, or the failure is undiagnosable server-side.
 	if time.Since(s.born) < 10*time.Second {
-		tail := scrollTail(s.hub.Tail(2048), 2048) // room for the [sbx] debug trace + the error line
+		tail := llmTail(s.hub, 2048) // room for the [sbx] debug trace + the error line; LLM keys masked
 		if tail != "" {
 			slog.Warn("terminal died at start; last output", "id", s.ID, "tail", tail)
 		}

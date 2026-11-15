@@ -581,3 +581,27 @@ knowing:
   no answer for a `host` block, so this holds by construction; a `perm`
   block is never used for it.
 
+
+## 13. F4 as built
+
+The template's transcript is on the kit (KIT 4): tool cards, requests,
+messages / thoughts / notices / journal lines / subagent cards, and the
+window. What §12 planned and what was done differently:
+
+| §12 said | Built |
+|---|---|
+| `model/fold.js` gains the adapter | `blockOf(b, scope)`, `blocksOf(list)`, `builtinRecord`, `ownApproval` in `model/fold.js`; `parkBlock(run)` in `model/harness-ask.js` (fold.js cannot import harness-ask.js: it imports fold.js). Versions are a serial per converted block, kept in a WeakMap by the fold's block — no `Versions.of` needed |
+| outcome chips vs the status badge: measure, change both | the template's line won; the kit's `toolView` draws it for both hosts; the boxed badge is gone from the kit |
+| `toolView` over `builtinRecord` | plus the block's own `icon`, `sub`, `outcome`, `args`, `result` (model typedef) so a host's own tools need no kit branch |
+| `agentView`, the child's header through `ctx.other` | built-in subagents: the kit's `agentView` (restyled to a call's line; `tail` under the card); a coding agent's child card stays `harness-child.js`'s through `ext.block` |
+| `permView` with `calls[]`, `askView` text | done; plus `lead`, `callOf`, `rejectWord`, the grant as options of the same card |
+| `end` seam places requests | unchanged seam; `kitPark(run, ui, blocks, who)` draws any run's park (the open conversation's, a child's on its card, a row's on the board) |
+| `step` kind through `ctx.other` | `ctx.other` draws it with the kit's `noticeView` (`lineOf`); a document's line stays `doc-cards.js` |
+| `chat-window.js` → `ChatWindow` with the template's options | done (`minMargin` is 2 × page = 80) |
+| `chat-copy.js` learns the `bxc-` chrome | unchanged: it already drops buttons and glyphs; Copy is `ChatCtx.copyMessage` |
+| `signin.js` | unchanged (F5) |
+| the composer | **not moved** — see D224 "Not moved: the composer" for what stands in the way |
+| tests select `.bxc-…` | inside a row, yes; the row itself keeps the template's hooks (`ChatCtx.rowAttrs`), which is what kept most selectors |
+
+Line counts (since the F3 merge): the template's JS −855 / +546 (its page
+CSS −63 / +24); the kit +425 / −142.

@@ -77,6 +77,10 @@ type Principal struct {
 	// statement, not verified, asked by the orgs' model rules. "" when it
 	// said nothing, and for everyone else.
 	AgentModel string
+	// AgentSession is the agent session (handle) a delegate's call runs
+	// under — xbind's record of the conversation's scope and model; set by
+	// the delegate gate, "" for the calls made before there is one.
+	AgentSession string
 	// DeviceID names the enrolled device behind a "device" session.
 	DeviceID string
 	// Gen is the credential generation this principal authenticated under —
@@ -145,17 +149,9 @@ func (p Principal) IsAdmin() bool {
 // pass them through so element self-calls aren't blocked here; a terminal is
 // a human-plane thing, so elements never get one.
 func (p Principal) CanReadTile(path string) bool { return p.tileLevel(path, users.LevelRead) }
-func (p Principal) CanWriteTile(path string) bool {
-	// the write level doesn't exist on a sealed component either (below)
-	return !util.SealedPath(path) && p.tileLevel(path, users.LevelWrite)
-}
 func (p Principal) CanTerminalTile(path string) bool {
 	if util.SealedPath(path) {
-		// A sealed component (internal/sealed) has no source and no dev
-		// sandbox: the terminal level doesn't exist there, for admins and
-		// the root token too — no terminal, no agent session, no "*"
-		// pattern reaches one. Its logs are the admins' (obs.canReadLogs).
-		return false
+		return false // no such level on a sealed component (sealedlevels.go)
 	}
 	if p.IsAdmin() {
 		return true

@@ -69,10 +69,18 @@ export const serveKit = async (target) => {
     const f = join(CHAT_DIR, new URL(r.request().url()).pathname.replace(/^.*\/vendor\/chat\//, ''));
     return existsSync(f) ? r.fulfill({ contentType: 'text/javascript', body: readFileSync(f, 'utf8') }) : r.fulfill({ status: 404, body: '' });
   });
+  // the scroll window the kit's ChatWindow stands on (chat-window.js)
+  await target.route('**/vendor/scroll-window.js', (r) => {
+    const f = join(CHAT_DIR, '..', 'scroll-window.js');
+    return existsSync(f) ? r.fulfill({ contentType: 'text/javascript', body: readFileSync(f, 'utf8') }) : r.fulfill({ status: 404, body: '' });
+  });
   if (ICONS_PATH) {
     await target.route('**/vendor/bx-icons.js', (r) =>
       r.fulfill({ contentType: 'text/javascript', body: readFileSync(ICONS_PATH, 'utf8') }));
   }
+  // the code highlighter the chat kit asks for at its first diff: these pages have none (a module that
+  // exports nothing — diffs are drawn plain); test/harness-cards.mjs serves xbind's own over this
+  await target.route('**/vendor/bx-code.js', (r) => r.fulfill({ contentType: 'text/javascript', body: 'export {};' }));
 };
 
 // A read hands back a wrapper bound to the stub installed AT THAT MOMENT, so

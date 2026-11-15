@@ -83,6 +83,10 @@ type SealedRule struct {
 // person's workspace agent would act in.
 const sealedNoAgentWhat = "a person's agent does nothing in it: nothing calls it but its own page"
 
+// sealedNoPreview completes the refusal of a sealed component as a
+// preview's target.
+const sealedNoPreview = "it is not previewed: its page is each person's own to open, and no render shows it"
+
 // SealedDocs is the page a sealed-component refusal points at.
 const SealedDocs = "/docs/sealed.md"
 
@@ -687,6 +691,24 @@ var sealedRules = map[string]SealedRule{
 	"PUT /delegate/state":                    {Class: SealedNoTile},
 	"GET /delegate/workspace":                {Class: SealedNoTile},
 	"PUT /delegate/workspace":                {Class: SealedNoTile},
-	"GET /agent/prefs":                       {Class: SealedNoTile},
-	"PUT /agent/prefs":                       {Class: SealedNoTile},
+	// agent sessions (handles), the map and the connection view: a handle's
+	// scope narrows what its calls may reach, and every call is still judged
+	// when it runs (a sealed component is in no agent's reach)
+	"POST /delegate/sessions":                {Class: SealedNoTile},
+	"GET /delegate/sessions/{id}":            {Class: SealedNoTile},
+	"PATCH /delegate/sessions/{id}":          {Class: SealedNoTile},
+	"DELETE /delegate/sessions/{id}":         {Class: SealedNoTile},
+	"GET /delegate/sessions/{id}/connection": {Class: SealedNoTile},
+	"GET /delegate/map":                      {Class: SealedNoTile},
+	// previews (D234): a render shows tiles, never a system component's page
+	"POST /preview":             {Class: SealedRefused, Body: []string{"tile"}, What: sealedNoPreview},
+	"GET /preview":              {Class: SealedNoTile},
+	"GET /docs/search":          {Class: SealedNoTile},
+	"GET /docs/page":            {Class: SealedNoTile},
+	"POST /llm/keys":            {Class: SealedNoTile},
+	"DELETE /llm/keys":          {Class: SealedNoTile},
+	"DELETE /llm/keys/{id}":     {Class: SealedNoTile},
+	"POST /llm/keys/{id}/renew": {Class: SealedNoTile},
+	"GET /agent/prefs":          {Class: SealedNoTile},
+	"PUT /agent/prefs":          {Class: SealedNoTile},
 }

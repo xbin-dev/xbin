@@ -266,8 +266,8 @@ func (e *csEnv) target() sandboxcontract.Target {
 		}
 	}
 	caps := []string{"exec", "files", "tar", "tty", "snapshots", "clone"}
-	if !e.d.IsRemote() { // this tree's xbind has stdio sockets; a remote one's release may predate them
-		caps = append(caps, "stdio")
+	if !e.d.IsRemote() { // this tree's xbind has stdio sockets and forwards the LLM connector; a remote one's release may predate them
+		caps = append(caps, "stdio", "llm")
 	}
 	return sandboxcontract.Target{
 		Skip:     skip,

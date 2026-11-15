@@ -136,8 +136,9 @@ func (m *Manager) define(k Key, req *CreateRequest, lim Limits) (*Def, error) {
 		AutoStart:   req.AutoStart == nil || *req.AutoStart,
 	}
 	if req.Net != nil && req.Net.Egress != "" {
-		d.Net = *req.Net
+		d.Net.Egress = req.Net.Egress
 	}
+	d.Net.LLM = req.Net != nil && req.Net.LLM // fixed at create: a PATCH's net changes the egress only
 	mounts, err := m.checkMounts(k, req.Mounts)
 	if err != nil {
 		return nil, err
@@ -194,6 +195,7 @@ func (m *Manager) amend(k Key, d *Def, p *PatchRequest, lim Limits) (n *Def, cha
 		if n.Net.Egress == "" {
 			n.Net.Egress = "none"
 		}
+		n.Net.LLM = d.Net.LLM // set at create, kept (a manager that never heard of it PATCHes egress alone)
 	}
 	if p.Mounts != nil {
 		if n.Mounts, err = m.checkMounts(k, *p.Mounts); err != nil {
@@ -484,6 +486,31 @@ func checkEnv(env map[string]string, field string) error {
 		}
 	}
 	return nil
+}
+
+// connectorVar reports whether k is one of the two variables of xbind's a
+// command may carry: where the workspace's LLM connector is, and a key for
+// it (docs/llm.md). An LLM key opens the connector's model routes and
+// nothing else of xbind's, so it is no xbin identity — and it is a
+// command's only, never a definition's defaults, which are stored.
+func connectorVar(k string) bool { return k == "XBIN_LLM_URL" || k == "XBIN_LLM_KEY" }
+
+// checkCommandEnv is checkEnv for one command's env: the connector's two
+// variables pass.
+func checkCommandEnv(env map[string]string) error {
+	rest := env
+	for k := range env {
+		if connectorVar(k) {
+			rest = make(map[string]string, len(env))
+			for k, v := range env {
+				if !connectorVar(k) {
+					rest[k] = v
+				}
+			}
+			break
+		}
+	}
+	return checkEnv(rest, "env")
 }
 
 func checkClientID(id string) error {

@@ -3,7 +3,8 @@ package tilesbx
 // netcfg.go — a tile sandbox's egress (plans/tile-sandbox-runtime.md §4):
 // the class it names, resolved at every start into a strict policy, and the
 // relay that enforces it inside xbind. The relay is always there, in both
-// modes; a sandbox reaches nothing of the host and nothing of xbind.
+// modes; a sandbox reaches nothing of the host and nothing of xbind — but
+// the LLM connector's model routes, when it was created to (net.llm).
 
 import (
 	"net/netip"
@@ -47,15 +48,35 @@ func (n *netState) hostDeny() relay.Deny {
 // admin's health view).
 func (m *Manager) FlowBudget() (used, cap int) { return m.net.budget.Used(), m.net.budget.Cap() }
 
+// LLMGatewayPort is the port of a sandbox's gateway the LLM connector
+// answers on, and LLMURL the OpenAI base URL that makes inside the sandbox.
+const (
+	LLMGatewayPort = 4180
+	LLMURL         = "http://" + sandbox.GatewayIP + ":4180/v1"
+)
+
+// llmSock is the LLM-only listener's socket now ("" = none).
+func (m *Manager) llmSock() string {
+	if m.deps.LLMSock == nil {
+		return ""
+	}
+	return m.deps.LLMSock()
+}
+
 // relayConfig is §4's relay for a sandbox under pol, exactly: the strict
 // policy's Allow (never nil), the host resolver — or none, and every query
 // REFUSED, when the policy is empty (none) —, Deny with xbind's listen
 // addresses (no route to the host or to xbind, decided per flow), the
 // strict public predicate for DNS pins, the per-sandbox flow caps and the
 // shared budget, one packet processor, the gateway a dead end (no
-// HostFwd, HostDial, Published or HairpinDial). The TUN stays the
-// caller's: it closes it after Relay.Close returns.
-func (m *Manager) relayConfig(tunFD int, pol sandbox.EgressPolicy) relay.Config {
+// HostFwd, HostDial, Published or HairpinDial) — but for one door
+// (relay.Config.Doors) when the sandbox asked for it (llm):
+// LLMGatewayPort, forwarded to xbind's
+// LLM-only listener, which serves the connector's model routes to the
+// holder of an LLM key and nothing else (D226). It needs no egress: a
+// sandbox with none reaches it too. The TUN stays the caller's: it closes
+// it after Relay.Close returns.
+func (m *Manager) relayConfig(tunFD int, pol sandbox.EgressPolicy, llm bool) relay.Config {
 	pol = pol.Strict()
 	cfg := relay.Config{
 		TunFD:        tunFD,
@@ -74,6 +95,9 @@ func (m *Manager) relayConfig(tunFD int, pol sandbox.EgressPolicy) relay.Config 
 	}
 	if pol.HasHostRules() {
 		cfg.AllowHost = pol.AllowsHost // DNS-pinned hostname rules (D35)
+	}
+	if sock := m.llmSock(); llm && sock != "" {
+		cfg.Doors = map[int]string{LLMGatewayPort: "unix:" + sock}
 	}
 	return cfg
 }

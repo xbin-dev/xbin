@@ -43,6 +43,13 @@ bounded number of calls in flight (`concurrency`, 16 unless set): the next
 is `429 xbin_llm_busy` with `Retry-After: 1`. Who is calling, that bound
 and the quotas are checked before the body is read.
 
+**The LLM-only listener.** A tile sandbox created with `net.llm`
+([sandboxes.md](/docs/protocol/sandboxes.md)) has no route to xbind but
+this: at `http://10.0.2.2:4180/v1` it reaches `POST /v1/chat/completions`,
+`POST /v1/responses` and `GET /v1/models` — the three routes below, as an
+LLM key's holder. A request without a live key is `401`, any other path
+`404`, both in OpenAI's error shape; no other credential is read there.
+
 ## The OpenAI-compatible routes
 
 ```
@@ -113,6 +120,7 @@ configuration has (a name under an upstream, a listed model).
 | 403 | `xbin_llm_policy` | the call's upstream or model is not allowed for this caller |
 | 403 | `xbin_llm_edge` | a non-primary deployment under its tile's edge policy: a call under `read`, anything under `block` |
 | 429 | `xbin_llm_busy` | the caller already has `concurrency` calls in flight; `Retry-After: 1` |
+| 429 | `xbin_llm_keys` | `POST /llm/keys`: the tile holds its cap of live LLM keys (64 for one person, 512 in all) |
 | 404 | `model_not_found` | the model resolves to no upstream, or isn't on its upstream's list |
 | 429 | `xbin_llm_quota_exceeded` | a stopping quota is reached. `type: "insufficient_quota"`, plus `quota` (`user.tokensPerDay`, `org:<id>.costPerMonth`, `default.…`, `workspace.…`), `resets` (RFC 3339, UTC), `limit`, `used`; `Retry-After` in seconds |
 | 502 | `xbin_llm_upstream_auth` | the upstream refused the workspace's key (its 401 or 403 — never passed on as the caller's) |
@@ -136,7 +144,10 @@ GET    /llm                        any authenticated caller. The connector as
                                    call's error would say), url:
                                    "/api/xbin/llm/v1", ref: "xbin:llm",
                                    people, host (a deployment file is in
-                                   force), defaults: {model?, roles}, user?,
+                                   force), defaults: {model?, roles},
+                                   sessions: {agents, terminals,
+                                   openaiEnv} (what coding agents and
+                                   terminals get, below), user?,
                                    component?, admin?, quota?: {user, orgs?,
                                    limits: [Limit], workspace: [Limit],
                                    state: ok|warn|stop}}. Limit: {name:
@@ -159,6 +170,74 @@ GET    /llm/preferred?use=<role>   a caller. use is optional. The workspace's de
                                    OpenAI-compatible routes'
 ```
 
+## Keys for a tile's harnesses
+
+An **LLM key** (`xbl_…`) is a narrow credential: good for the
+OpenAI-compatible routes above and nothing else. xbind gives one to each
+terminal and agent session it points at the connector
+([llm.md](/docs/llm.md) §Coding agents and terminals); a tile asks for one
+here, for a coding tool it runs where its own credential must not go — a
+sandbox. The Go SDK: `xbin.LLMKeyFor` ([sdk.md](/docs/sdk.md)).
+
+```
+POST   /llm/keys                   the BACKEND of a component whose llm slot
+                                   is bound to xbin:llm, with its own
+                                   credential (an instance or partition
+                                   token). 403 a person's sign-in, an LLM
+                                   key, a tile that isn't bound — and the
+                                   tile's frame, a terminal or an agent
+                                   session: a credential a browser or a
+                                   shell holds mints nothing. {user?,
+                                   ttlSec?, label?, sandbox?} → {id, token,
+                                   user, component, expires, url}. The key
+                                   is metered as the backend's own calls
+                                   are: to its partition's person — nobody
+                                   ("") for a backend that serves everyone
+                                   — and to the tile. user, when named,
+                                   must be that person: 403 otherwise. The
+                                   key stands while the tile is bound and
+                                   its person can still read the tile. It
+                                   names the backend's deployment and is
+                                   held to the tile's edge policy for it on
+                                   EVERY call (403 xbin_llm_edge once the
+                                   policy reads or blocks, or the
+                                   deployment is gone); a deployment under
+                                   the read clamp mints none. ttlSec:
+                                   default and at most 86400 (a longer run
+                                   renews); the key also ends when xbind
+                                   restarts. label and sandbox (≤200
+                                   characters each) are kept for the log.
+                                   token is answered this once. url is the
+                                   connector's path under xbind (/api/xbin/
+                                   llm/v1); a sandbox reaches it at the
+                                   address its manager names (sandbox-
+                                   manager.md §The sandbox, llm). 429
+                                   xbin_llm_keys: the tile holds 64 live
+                                   keys for that person, or 512 in all (end
+                                   the ones no longer in use). 503 not
+                                   configured or switched off
+POST   /llm/keys/<id>/renew        the backend that asked for it. {ttlSec?}
+                                   → {id, expires}: the key's life becomes
+                                   ttlSec (default and at most 86400) from
+                                   now, never shorter than it was. 404 a
+                                   key that ended or expired, or that
+                                   another component, deployment or
+                                   person's backend asked for
+DELETE /llm/keys/<id>              the backend that asked for it. Ends the
+                                   key now. 204 whether or not it still
+                                   lived; a key of another component, or of
+                                   another deployment of this one, is not
+                                   touched
+DELETE /llm/keys?label=<label>     the backend that asked for them. Ends
+                                   every key it asked for with that label,
+                                   in its own deployment, for the person
+                                   its credential acts for — a consumer
+                                   that names a run in the label keeps no
+                                   key ids, and its successor after a
+                                   restart can still end a run's key. 204
+                                   whatever lived; 400 without label
+```
+
 ## Configuration (admins)
 
 "admin" is a workspace admin: an admin's own sign-in, the owner token, or
@@ -173,18 +252,20 @@ GET    /llm/config                 admin. The configuration in force, the
                                    baseURL, key: {set, source?: vault|host,
                                    hint?}, models, private, prices?, source:
                                    admin|host, locked, reason?}], defaults:
-                                   {model?, roles}, aliases, quotas, locks,
-                                   concurrency, host: {active, lockAll?,
-                                   error?}, vault: open | sealed | locked |
-                                   plaintext, problems, storeError?,
-                                   notices?, set?, by?}. locks
+                                   {model?, roles}, aliases, quotas,
+                                   sessions: {agents, terminals, openaiEnv},
+                                   locks, concurrency, host: {active,
+                                   lockAll?, error?}, vault: open | sealed |
+                                   locked | plaintext, problems,
+                                   storeError?, notices?, set?, by?}. locks
                                    maps each setting the host's file sets —
                                    enabled, people, upstreams.<name>,
                                    defaults.model, defaults.roles.<role>,
                                    aliases.<alias>, concurrency,
-                                   quotas.workspace | default | users |
-                                   orgs, and "*" when it locks all — to
-                                   {locked: true, reason: "set by your
+                                   sessions.agents | terminals |
+                                   openaiEnv, quotas.workspace | default |
+                                   users | orgs, and "*" when it locks all —
+                                   to {locked: true, reason: "set by your
                                    host"}. concurrency: calls one caller may
                                    have in flight. notices: on the answer to
                                    a write, what it did beyond what was
@@ -197,13 +278,25 @@ PUT    /llm/config                 admin. {enabled?, people?: admins |
                                    everyone | nobody, defaults?: {model?,
                                    roles?: {<role>: <model>}}, aliases?:
                                    {<alias>: <model>}, concurrency?: 1–1024
-                                   (0: the default, 16)} — only what is
+                                   (0: the default, 16), sessions?:
+                                   {agents?, terminals?, openaiEnv?}} —
+                                   only what is
                                    named changes; "" removes a role, an
                                    alias or the default; the alias "*"
                                    catches every unknown model name. An
                                    alias named <upstream>/… for an upstream
                                    in force, or like a model an upstream
-                                   lists, is 400. → the view. 400 invalid; 409 {error, locked: [<path>…],
+                                   lists, is 400. sessions: whether agent
+                                   sessions are offered the connector
+                                   (default true; who then serves one is
+                                   the agents policy's credentials and the
+                                   person's own choice), whether tile
+                                   terminals get XBIN_LLM_URL and
+                                   XBIN_LLM_KEY (default true), and whether
+                                   they also get
+                                   OPENAI_BASE_URL and OPENAI_API_KEY
+                                   (default false) — llm.md §Coding agents
+                                   and terminals. → the view. 400 invalid; 409 {error, locked: [<path>…],
                                    reason} when a named setting is the
                                    host's (a locked setting sent back
                                    unchanged passes)

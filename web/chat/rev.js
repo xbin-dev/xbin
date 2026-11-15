@@ -29,5 +29,20 @@
  *      usageBadge, cached and ChatCtx's readonly, role, rev, state, copy,
  *      openDiff, signin, host; tools.js DIFF_LINES, lineCount, headLines,
  *      diffBody; ask.js stageFiles, fmtSize, ATTACH_LIMITS
+ *   4  a second host on the views (the agent template): a tool block's own
+ *      words (icon, sub, outcome, args) and a card's line that says what
+ *      the call came to; ChatCtx.rowAttrs (a host's hook classes and data
+ *      attributes on a block's element); views.js innerView (a nested
+ *      block in an element with its key); cards.js argsView, clipView;
+ *      a fold is drawn as the host holds it (ChatCtx.isOpen), closed too;
+ *      a request's card says who asks what (ask.js permission lead; a perm
+ *      block's own `lead`, its `calls` as a list), previews the diff of
+ *      the call it is about (ChatCtx.callOf; cards.js diffsView) and takes
+ *      a word with a rejection (ChatCtx.rejectWord); a person's own
+ *      messages on their side and unlabelled, the agent's with a Copy
+ *      (ChatCtx.copyMessage), file chips with a picture and a size; a
+ *      notice's icon, tone, md, fold and action (ChatCtx.act); a
+ *      sub-conversation's card in a call's words, its request under it;
+ *      mdCssText gains headings, lists and the reading colours
  */
-export const KIT = 3;
+export const KIT = 4;

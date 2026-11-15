@@ -40,6 +40,7 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 	st.mu.Lock()
 	mode, provider, reopened := st.mode, st.provider.ID, st.resumed
 	st.mu.Unlock()
+	llm := m.llmRestart(p, s, st, net, gpu, api, deployment) // its choice of who serves it, while that can still be had (llmhook.go)
 	s.mu.Lock()
 	name, inVM := s.name, s.vm
 	s.mu.Unlock()
@@ -79,7 +80,7 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 		}
 	}
 	info, code, err = m.OpenAgentWith(p, AgentOpen{Cwd: s.Cwd, Net: net, GPU: gpu, NoAPI: !api, VM: inVM,
-		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options, Deployment: deployment,
+		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options, Deployment: deployment, LLM: llm,
 		origin: s.origin}) // still the session the person's agent started (delegate.go)
 	return info, resume != "", code, err
 }

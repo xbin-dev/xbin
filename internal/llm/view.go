@@ -55,10 +55,14 @@ type ConfigView struct {
 	Defaults   Defaults          `json:"defaults"`
 	Aliases    map[string]string `json:"aliases"`
 	Quotas     QuotaRules        `json:"quotas"`
+	// Sessions are the switches for coding tools in agent sessions and
+	// terminals, as in force (sessions.go).
+	Sessions sessionsInForce `json:"sessions"`
 	// Concurrency is how many calls one caller may have in flight.
 	Concurrency int `json:"concurrency"`
 	// Locks maps a setting's path (enabled, people, upstreams.<name>,
 	// defaults.model, defaults.roles.<role>, aliases.<alias>, concurrency,
+	// sessions.agents|terminals|openaiEnv,
 	// quotas.workspace|default|users|orgs; "*" when the host locks every
 	// setting) to its lock.
 	Locks    map[string]Lock `json:"locks"`
@@ -117,7 +121,7 @@ func (s *Service) configView() ConfigView {
 	s.mu.Unlock()
 	v := ConfigView{Configured: snap.configured(), Enabled: snap.enabled, People: snap.people, Upstreams: []UpstreamView{},
 		Defaults: Defaults{Model: snap.defaults.Model, Roles: maps.Clone(snap.defaults.Roles)}, Aliases: maps.Clone(snap.aliases),
-		Quotas: snap.quotas.clone(), Locks: locksView(snap), Host: HostView{Active: snap.host, LockAll: snap.lockAll, Error: snap.hostErr},
+		Quotas: snap.quotas.clone(), Sessions: snap.sessions, Locks: locksView(snap), Host: HostView{Active: snap.host, LockAll: snap.lockAll, Error: snap.hostErr},
 		Vault: s.keys.state(), Problems: snap.problems(), Set: set, By: by, Concurrency: snap.concurrency}
 	if v.Problems == nil {
 		v.Problems = []string{}
@@ -173,15 +177,17 @@ type StatusView struct {
 	Code     string `json:"code,omitempty"`
 	// URL is the OpenAI-compatible base (an SDK's base_url, under the
 	// workspace's address); Ref what a tile's llm slot binds to.
-	URL       string     `json:"url"`
-	Ref       string     `json:"ref"`
-	People    string     `json:"people"`
-	Host      bool       `json:"host"` // the host's file sets (some of) it
-	Defaults  Defaults   `json:"defaults"`
-	User      string     `json:"user,omitempty"`
-	Component string     `json:"component,omitempty"`
-	Admin     bool       `json:"admin,omitempty"`
-	Quota     *QuotaView `json:"quota,omitempty"`
+	URL      string   `json:"url"`
+	Ref      string   `json:"ref"`
+	People   string   `json:"people"`
+	Host     bool     `json:"host"` // the host's file sets (some of) it
+	Defaults Defaults `json:"defaults"`
+	// Sessions: what coding tools in agent sessions and terminals get.
+	Sessions  sessionsInForce `json:"sessions"`
+	User      string          `json:"user,omitempty"`
+	Component string          `json:"component,omitempty"`
+	Admin     bool            `json:"admin,omitempty"`
+	Quota     *QuotaView      `json:"quota,omitempty"`
 }
 
 // The connector's address under xbind and its binding ref (the broker's

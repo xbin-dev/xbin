@@ -357,8 +357,35 @@ are for).
 - The worst a leaked key does is spend its person's LLM quota until it
   expires or is revoked.
 
-Nothing hands out LLM keys yet: the hook-up of terminals, agent sessions
-and sandboxes is a later release.
+Who gets one ([llm.md](/docs/llm.md) §Coding agents and terminals):
+
+- **A terminal or an agent session**, from xbind, when the workspace's
+  connector is offered to it: minted as the session opens, for the person
+  who opened it and its tile, revoked when the session ends (a restarted or
+  resumed session has a new one). It is never the session's terminal
+  token, and an agent session's is in the agent's own environment only. A
+  session that targets a deployment other than the tile's primary gets a
+  key that names it; the key is the person's, not held to the edge policy
+  the deployment's own backend is.
+- **The backend of a tile bound to `xbin:llm`**, for a coding tool it runs
+  in a sandbox: `POST /api/xbin/llm/keys` with its own credential (an
+  instance or partition token; the SDK's `xbin.LLMKeyFor`). The key is for
+  the person that credential acts for — a partition's person, nobody for a
+  backend that serves everyone — exactly who the backend's own calls are
+  metered to; naming anyone else is `403`. It lives a day at most (its
+  backend renews a longer run's), names the backend's deployment and is
+  held to the tile's edge policy for it on every call. A person's sign-in,
+  an LLM key, an unbound tile — and the tile's **frame, terminals and agent
+  sessions** — mint none: a token a browser or a shell holds must not
+  become a key that outlives it. A tile holds at most 64 live keys for one
+  person and 512 in all.
+
+A sandbox made by a sandbox manager has no route to xbind. One created
+with the connector asked for (`net.llm`,
+[sandbox-manager.md](/docs/sandbox-manager.md)) reaches **the LLM-only
+listener** at its gateway: the three model routes for an LLM key, and
+nothing else of xbind — no other route exists there and no other
+credential is read.
 
 ## Roles and grants
 
@@ -863,6 +890,46 @@ a banner across the top of the shell naming who you are viewing and an
 
 API: `POST /api/xbin/impersonate {user}` → `{url}`; `POST
 /api/xbin/impersonate/stop` ends it ([protocol/users.md](/docs/protocol/users.md)).
+
+## Previews: xbind looking as you
+
+A person can ask xbind for a picture of a tile or a screen **as they see
+it** (D234; [protocol/preview.md](/docs/protocol/preview.md), `bx
+preview`). xbind opens the page in a headless browser of its own, through a
+session kind of its own:
+
+- **Yours, reduced to read.** A preview session authenticates as you — your
+  tiles, your screens, your levels — and the server refuses every write
+  while it does, exactly as it does for view-as: the same gate, and the
+  frame tokens, tile-origin cookies, asset tokens and path tickets minted
+  under it carry the same mark. Unlike view-as, **nobody else is looking**:
+  `/whoami` says `readOnly: true` and no `impersonatedBy`, backends see
+  `X-XBin-Preview: 1`, role `reader` and user level `read` on every call
+  and no `X-XBin-Viewed-By`, and the tiles
+  that keep each person's data apart open **your own** partition (an
+  admin's view-as opens none). A partition you never opened is not made by
+  a preview.
+- **Nobody holds it.** The session is created for one render and dropped
+  when it ends; its id never leaves xbind. The browser runs in a sandbox
+  with no network but one socket, and xbind sets the session on that
+  socket's requests itself — and only where a browser's cookie jar would
+  send it: never to a tile origin, never on a request a sandboxed tile frame
+  starts. The socket refuses everything but `GET`/`HEAD`/`OPTIONS`,
+  terminals and the sign-in routes whatever a request carries, so a page
+  that holds some other credential gains nothing by sending it there.
+- **Scoped to what it shows.** The socket honours only credentials minted
+  under the render's own session. A tile's render admits that tile's files
+  and its frame's calls; a screen's, the tiles on that screen and a fixed
+  list of the shell's own reads — for an admin, without the workspace-wide
+  ones ([protocol/preview.md](/docs/protocol/preview.md) has the list).
+- **Who may ask.** You, for yourself: a browser session or the app's
+  bearer. A tile's terminal, for its own tile — its token is scoped to the
+  tile, and a picture of another would be a read of it. Not the root token
+  (it is nobody's view), not a tile or its frame, not a view-as session:
+  an admin who wants to see what someone sees uses view-as, above.
+- **Not a sign-in.** It is not in the sessions list, not saved across a
+  restart, can't mint a view-as link, and audit lines made under it carry
+  `impersonator=~preview` — a reserved word no account can take as its id.
 
 ## Delegation: a person's workspace agent
 

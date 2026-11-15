@@ -116,6 +116,33 @@ func TestSessionEnv(t *testing.T) {
 	}
 }
 
+// The LLM connector's two variables are the only ones of xbind's a command
+// may carry — a command's, never a definition's defaults.
+func TestConnectorEnv(t *testing.T) {
+	conn := map[string]string{"XBIN_LLM_URL": "http://10.0.2.2:4180/v1", "XBIN_LLM_KEY": "xbl_k", "A": "1"}
+	if err := checkCommandEnv(conn); err != nil {
+		t.Fatalf("a command with the connector's variables: %v", err)
+	}
+	for _, k := range []string{"XBIN_TOKEN", "XBIN_LLM_KEYS", "xbin_llm_key", "XBIN_GATEWAY"} {
+		if err := checkCommandEnv(map[string]string{k: "x", "XBIN_LLM_KEY": "xbl_k"}); err == nil {
+			t.Errorf("a command with %s passed", k)
+		}
+	}
+	if err := checkEnv(conn, "defaults.env"); err == nil {
+		t.Error("the connector's variables passed as a definition's defaults")
+	}
+	d := &Def{Name: "sb-1", Defaults: Defaults{Env: map[string]string{"XBIN_LLM_KEY": "stored"}}}
+	env := "\n" + strings.Join(sessionEnv(d, nil, conn, nil), "\n") + "\n"
+	for _, want := range []string{"XBIN_LLM_URL=http://10.0.2.2:4180/v1", "XBIN_LLM_KEY=xbl_k", "A=1"} {
+		if !strings.Contains(env, "\n"+want+"\n") {
+			t.Errorf("no %s in%s", want, env)
+		}
+	}
+	if env := strings.Join(sessionEnv(d, nil, nil, nil), "\n"); strings.Contains(env, "XBIN_") {
+		t.Errorf("a stored connector variable got into a command:\n%s", env)
+	}
+}
+
 // A terminal's command gets TERM, COLORTERM and LANG unless defaults.env or
 // its own env names them; a command without a terminal gets none of them.
 func TestTTYEnv(t *testing.T) {

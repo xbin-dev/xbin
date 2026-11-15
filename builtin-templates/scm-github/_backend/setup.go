@@ -549,6 +549,9 @@ func (s *srv) handleManifestCallback(w http.ResponseWriter, r *http.Request) {
 	c := s.classify(r)
 	by := ""
 	switch {
+	case c.c.Preview: // D234: a GET that spends the state and GitHub's code and stores the App
+		htmlPage(w, http.StatusForbidden, "A preview doesn't finish setting up the GitHub App.")
+		return
 	case c.cls == clsIngress:
 	case s.manager(c):
 		by = managerID(c)

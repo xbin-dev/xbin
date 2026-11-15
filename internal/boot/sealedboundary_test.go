@@ -29,6 +29,10 @@ type boundaryReq struct {
 	// before the tile is looked at), so only the admin's answer must be the
 	// sealed one.
 	person bool
+	// off: what a 503 says when the route's feature is off in this xbind —
+	// the honest answer for a spelling that is some other tile (the
+	// spellings test), never for the component itself
+	off string
 	// other: the handler's own refusal that is the boundary here, where it
 	// isn't the sealed wording — with why in the table below.
 	other string
@@ -129,6 +133,8 @@ func boundaryReqs() map[string][]boundaryReq {
 		// no agent level is approved for it, no standing approval names it
 		"PUT /agent-levels":        {{body: map[string]any{"tile": P, "level": "full"}, person: true}},
 		"POST /delegate/approvals": {{body: map[string]any{"tile": P, "grant": "hour", "scope": "tile"}, person: true}},
+		// …and no render shows its page (previews, D234)
+		"POST /preview": {{body: map[string]any{"tile": P}, person: true, off: "previews are unavailable"}},
 		// ---- deployments: one resolver, one judge ----
 		"GET /deployments":                     q,
 		"GET /deployments/backups":             q,
@@ -615,6 +621,8 @@ func TestSealedPathSpellings(t *testing.T) {
 						n++
 						code, out := send(method, path, body, tok)
 						switch {
+						case i >= len(same) && rq.off != "" && code == http.StatusServiceUnavailable && strings.Contains(out, rq.off):
+							// another tile, and the feature is off here
 						case code == 0 || code >= 500:
 							t.Errorf("gate off=%v: %s as %s, spelled %q: %d %.200s", gateOff, pat, who, sp, code, out)
 						case strings.Contains(out, boundarySecret):

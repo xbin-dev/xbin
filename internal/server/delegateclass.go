@@ -176,6 +176,7 @@ const (
 	noNotYet      = "not delegated: nothing a workspace agent does needs it"
 	noAgentRules  = "the agent rules and the connection view are read by the person and applied by xbind: an agent's listings already leave out what the rules keep it from"
 	noLLM         = "a component calls the LLM connector as itself, through its llm binding: never as a person"
+	neverLLMKey   = "an LLM key is asked for by a tile's backend with its own credential: never in a person's name"
 )
 
 // DelegateClassOf is the class of the route RegisterAPI mounted as pattern.
@@ -233,7 +234,13 @@ var delegateUnconverted = map[string]string{}
 var delegateClasses = map[string]delegateRow{
 	// ---- reads the UI makes: who am I, what exists, how it is doing.
 	// Listings are filtered row by row (delegateHides) ----
-	"GET /whoami":               dRead(),
+	"GET /whoami": dRead(),
+	// Previews (D234). Refused until the workspace agent's preview tool is
+	// decided: a delegate previews AS ITS PERSON, and the one place that
+	// says who a preview renders as is previewPerson (preview.go) — the
+	// delegate's case goes there, with these rows, in the same change.
+	"POST /preview":             dAct(),  // as its person: one tile, in the session's scope and the orgs' rules; rate-limited as an act, no ticket (preview.go previewDelegate)
+	"GET /preview":              dRead(), // whether previews are available, and the limits
 	"GET /components":           dRead(), // the tiles the person can read
 	"GET /components/{path...}": dRead().on(byComponentPath),
 	"GET /screens":              dRead(), // its tiles and folder items, filtered (the broker's delegatelist.go)
@@ -270,15 +277,26 @@ var delegateClasses = map[string]delegateRow{
 	"POST /templates/new":                    dAct().ticketed(),    // where the person may create
 
 	// ---- its own asking: approval requests and change-set proposals ----
-	"POST /delegate/requests":          dAct(),
-	"GET /delegate/requests/{id}":      dRead(),
-	"DELETE /delegate/requests/{id}":   dAct(),
-	"GET /delegate/state":              dRead(),
-	"GET /delegate/approvals":          dRead(),
-	"POST /delegate/changesets":        dAct(),
-	"GET /delegate/changesets":         dRead(),
-	"GET /delegate/changesets/{id}":    dRead(),
-	"DELETE /delegate/changesets/{id}": dAct(),
+	"POST /delegate/requests":        dAct(),
+	"GET /delegate/requests/{id}":    dRead(),
+	"DELETE /delegate/requests/{id}": dAct(),
+	"GET /delegate/state":            dRead(),
+	// agent sessions (handles): the conversation's scope and model, in
+	// xbind's record; its connection view (blocked tiles as counts); the
+	// workspace map; the docs (delegatesessions.go, docsapi.go)
+	"POST /delegate/sessions":                dAct(),
+	"GET /delegate/sessions/{id}":            dRead(),
+	"PATCH /delegate/sessions/{id}":          dAct(),
+	"DELETE /delegate/sessions/{id}":         dAct(),
+	"GET /delegate/sessions/{id}/connection": dRead(),
+	"GET /delegate/map":                      dRead(),
+	"GET /docs/search":                       dRead(),
+	"GET /docs/page":                         dRead(),
+	"GET /delegate/approvals":                dRead(),
+	"POST /delegate/changesets":              dAct(),
+	"GET /delegate/changesets":               dRead(),
+	"GET /delegate/changesets/{id}":          dRead(),
+	"DELETE /delegate/changesets/{id}":       dAct(),
 
 	// ---- never: answering itself ----
 	"GET /delegate/requests":                 dNever(neverApprove),
@@ -629,4 +647,11 @@ var delegateClasses = map[string]delegateRow{
 	"GET /llm/v1/models":              dNo(noLLM),
 	"POST /llm/v1/chat/completions":   dNo(noLLM),
 	"POST /llm/v1/responses":          dNo(noLLM),
+	// LLM keys (D226): a tile's backend asks for them with its own
+	// credential. A key is a credential that outlives the call that made
+	// it, so no agent mints, renews or ends one in a person's name.
+	"POST /llm/keys":            dNever(neverLLMKey),
+	"POST /llm/keys/{id}/renew": dNever(neverLLMKey),
+	"DELETE /llm/keys/{id}":     dNever(neverLLMKey),
+	"DELETE /llm/keys":          dNever(neverLLMKey),
 }

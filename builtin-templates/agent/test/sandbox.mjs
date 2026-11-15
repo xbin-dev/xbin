@@ -257,9 +257,9 @@ await page.evaluate((c) => {
 await page.waitForFunction(() => (document.getElementById('sbxbadge') || {}).textContent?.includes('web · /srv/web'));
 
 // --- the tool cards -----------------------------------------------------------------------
-const cards = await page.$$eval('.tcard[data-fam="box"] .tch', (els) => els.map((e) => ({
-  hl: e.querySelector('.hl').textContent.replace(/\s+/g, ' ').trim(),
-  oc: e.querySelector('.oc') ? e.querySelector('.oc').textContent : '', tone: e.querySelector('.oc') ? e.querySelector('.oc').className : '' })));
+const cards = await page.$$eval('.tcard[data-fam="box"] summary', (els) => els.map((e) => ({
+  hl: e.querySelector('.bxc-title').textContent.replace(/\s+/g, ' ').trim(),
+  oc: e.querySelector('.bxc-oc') ? e.querySelector('.bxc-oc').textContent : '', tone: e.querySelector('.bxc-oc') ? e.querySelector('.bxc-oc').className : '' })));
 ok('four sandbox cards, the sandbox family', cards.length === 4, JSON.stringify(cards));
 ok('bash: the summary, the command under it', cards[0].hl === 'Run the tests$ go test ./...', cards[0].hl);
 ok('…and the footer: exit 1 · 14s · job 3, marked bad', cards[0].oc === 'exit 1 · 14s · job 3' && /\bbad\b/.test(cards[0].tone), JSON.stringify(cards[0]));
@@ -385,7 +385,7 @@ await page.goto(`${ORIGIN}/#c=4`);
 await page.waitForSelector('.ask.approve.grant');
 const g = await page.textContent('.ask.approve.grant');
 ok('the grant card says what the backend asks', g.includes('The agent asks to create a coding sandbox “scratch” for this conversation'), g);
-ok('…with Allow once · for an hour · Deny', (await page.$$eval('.ask.approve.grant .btn', (els) => els.map((e) => e.textContent.trim()))).join('|')
+ok('…with Allow once · for an hour · Deny', (await page.$$eval('.ask.approve.grant button', (els) => els.map((e) => e.textContent.trim()))).join('|')
   === 'Allow once|Allow here for 1 hour|Deny');
 
 // --- review fixes: a viewer makes none; a private one into a team conversation; a class edit ------------

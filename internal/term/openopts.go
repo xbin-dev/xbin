@@ -18,6 +18,7 @@ func (m *Manager) openOptsFor(p auth.Principal, rel, cwd, netMode, gpuMode strin
 		api: apiAccess, restricted: !p.IsAdmin(),
 		netGrant: m.termNetFor(p, rel),
 	}
+	o.noLLM = !p.IsAdmin() && !p.CanTermAPI() // no tile API token in their terminals (D17): no LLM key either
 	asked := o.net
 	o.api, o.net = clampTermScopes(p, o.api, o.net, o.netGrant)
 	o.scopes, _ = ScopesFor(p, o.netGrant)

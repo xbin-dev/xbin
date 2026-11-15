@@ -90,7 +90,7 @@ func runInit(specPath string) error {
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		return must(err, "mkdir base")
 	}
-	if err := unix.Mount("tmpfs", base, "tmpfs", 0, "mode=0755"); err != nil {
+	if err := unix.Mount("tmpfs", base, "tmpfs", 0, "mode=0755"+s.tmpfsSize()); err != nil {
 		return must(err, "mount base tmpfs")
 	}
 	newroot := filepath.Join(base, "root")
@@ -138,13 +138,17 @@ func runInit(specPath string) error {
 	if err := mountAt(newroot, "proc", "proc", "proc", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, ""); err != nil {
 		return err
 	}
-	if err := mountAt(newroot, "tmp", "tmpfs", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=1777"); err != nil {
+	if err := mountAt(newroot, "tmp", "tmpfs", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=1777"+s.tmpfsSize()); err != nil {
 		return err
 	}
 	// Private tmpfs /dev: device-node binds (incl. conditional GPU nodes) land on
 	// an ephemeral layer, never the overlay upper — so a persistent terminal layer
 	// doesn't accumulate stale device placeholders. (No MS_NODEV — this is /dev.)
-	if err := mountAt(newroot, "dev", "tmpfs", "tmpfs", unix.MS_NOSUID, "mode=0755"); err != nil {
+	devOpts := "mode=0755"
+	if s.TmpfsBytes > 0 { // /dev holds nodes and links: a sized sandbox gets no room to write there
+		devOpts += ",size=1m"
+	}
+	if err := mountAt(newroot, "dev", "tmpfs", "tmpfs", unix.MS_NOSUID, devOpts); err != nil {
 		return err
 	}
 	// Standard /dev symlinks a fresh tmpfs lacks (programs expect /dev/stdin, …).
@@ -154,7 +158,7 @@ func runInit(specPath string) error {
 	} {
 		_ = os.Symlink(ln[0], filepath.Join(newroot, ln[1]))
 	}
-	_ = mountAt(newroot, "dev/shm", "tmpfs", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=1777")
+	_ = mountAt(newroot, "dev/shm", "tmpfs", "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=1777"+s.tmpfsSize())
 
 	// Default minimal /dev nodes (bound from the host before we pivot away).
 	for _, d := range []string{"null", "zero", "full", "random", "urandom", "tty"} {

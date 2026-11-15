@@ -258,7 +258,7 @@ func (s *Server) serveTileOriginAuthed(w http.ResponseWriter, r *http.Request, i
 		s.tileOriginDenied(w, r, code)
 		return
 	}
-	if pr.ReadOnly() && !readOnlyAllowed(r) { // a view-as session, as authed() enforces on the workspace
+	if pr.ReadOnly() && !readOnlyAllowed(r, pr) { // a view-as session, as authed() enforces on the workspace
 		refuseReadOnly(w, r)
 		return
 	}

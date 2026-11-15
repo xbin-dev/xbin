@@ -73,18 +73,19 @@ func (st *State) stepTileSandboxes() error {
 func (st *State) tileSandboxDeps() tilesbx.Deps {
 	brk := st.Broker
 	d := tilesbx.Deps{
-		Caps:   sandboxesCap(brk),
-		Admin:  brk.IsAdmin,
-		Mounts: sandboxMounts{brk},
-		Vault:  sandboxVault{brk},
-		Users:  sandboxUsers{st},
-		Disk:   tileDiskLow{brk},
-		Modes:  sandboxModes{st.VM},
-		Tiles:  sandboxTiles{st},
-		Net:    sandboxNet{brk},
-		Listen: st.listenAddrs(),
-		Cgroup: st.Run.Cgroup,
-		Sbx:    st.Sbx,
+		Caps:    sandboxesCap(brk),
+		Admin:   brk.IsAdmin,
+		Mounts:  sandboxMounts{brk},
+		Vault:   sandboxVault{brk},
+		Users:   sandboxUsers{st},
+		Disk:    tileDiskLow{brk},
+		Modes:   sandboxModes{st.VM},
+		Tiles:   sandboxTiles{st},
+		Net:     sandboxNet{brk},
+		Listen:  st.listenAddrs(),
+		LLMSock: st.llmSock, // the LLM-only listener, for a sandbox created with net.llm (llmsessions.go)
+		Cgroup:  st.Run.Cgroup,
+		Sbx:     st.Sbx,
 	}
 	if st.VM != nil { // never a nil *vm.Manager in the interface
 		d.VM = st.VM

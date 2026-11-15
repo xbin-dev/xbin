@@ -25,6 +25,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/preview"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -68,6 +69,7 @@ type Server struct {
 	// delegation route names (delegateapi.go). Never set in production.
 	DelegationDev bool
 	delegateRT    delegateRuntime // the gate's rate limit and running calls
+	docsIx        docsIndex       // the docs search index, built at first use (docsapi.go)
 	// AgentPrefs is the people's agent preferences (D229, agentprefsapi.go);
 	// nil = none.
 	AgentPrefs *agentprefs.Store
@@ -76,6 +78,12 @@ type Server struct {
 	// above what was last approved), and the raise its manifest asks for;
 	// nil: the manifest's own value.
 	AgentLevel func(c *registry.Component) (inForce, requested string)
+	// AgentWorld answers tiles' orgs, the orgs' model rules, the connection
+	// view and the screens for agent sessions (the broker); nil: no orgs.
+	AgentWorld AgentWorld
+	// HolderNotify tells a holder's backend, in its person's partition, that
+	// something it waits on changed (kind, id only); nil: nobody is told.
+	HolderNotify func(holder, user, kind, id string)
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.
@@ -145,6 +153,10 @@ type Server struct {
 	ssoProv       *oidc.Provider
 	ssoProvIssuer string
 	ssoStateKey   []byte
+
+	// Preview renders pages as a person sees them (preview.go); nil = off.
+	Preview     *preview.Service
+	previewBase string
 
 	apiMux        *http.ServeMux // /api/xbin/… extensions (broker, grants, vault)
 	apiPatterns   []string       // every RegisterAPI pattern, in order (the route inventory)
@@ -224,6 +236,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
+	s.registerPreviewAPI() // previews (preview.go, D234)
 	s.registerBrandingAPI()
 	return logRequests(s.tunnelGate(s.tileOrigins(nullOriginCORS(mux)))) // tunnelgate.go: the app tunnel (D204)
 }
@@ -296,7 +309,7 @@ func (s *Server) authed(next http.Handler) http.Handler {
 		}
 		// An admin viewing as a user reads everything the user reads and
 		// changes nothing (impersonate.go).
-		if p.ReadOnly() && !readOnlyAllowed(r) {
+		if p.ReadOnly() && !readOnlyAllowed(r, p) {
 			refuseReadOnly(w, r)
 			return
 		}

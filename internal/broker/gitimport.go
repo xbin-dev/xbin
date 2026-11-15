@@ -76,6 +76,10 @@ func (b *Broker) apiGitRemoteInfo(w http.ResponseWriter, r *http.Request) {
 	if !b.requireWriter(w, r) {
 		return
 	}
+	if auth.PrincipalOf(r).ReadOnly() { // a GET that dials out: not from a view-as session or a preview (D234)
+		server.WriteError(w, http.StatusForbidden, "read-only: looking up a remote dials out, which a read-only session doesn't do", "/docs/auth.md")
+		return
+	}
 	url := strings.TrimSpace(r.URL.Query().Get("url"))
 	if !validGitURL(url) {
 		server.WriteError(w, http.StatusBadRequest, "provide a git URL (https://…, git@…:…, ssh://…)")

@@ -39,6 +39,10 @@ type SessionInfo struct {
 	Status     string  `json:"status,omitempty"`    // starting | idle | running | waiting_permission | error | exited
 	Pending    int     `json:"pending,omitempty"`   // unanswered permission requests
 	Questions  int     `json:"questions,omitempty"` // unanswered questions (elicitation.request)
+	// LLM is who serves an agent session's model calls where the workspace
+	// has an LLM connector (llmhook.go): "connector" or "own"; absent
+	// without one, and until the session's sandbox settled it.
+	LLM string `json:"llm,omitempty"`
 	// Partition is what the session acts in on a partitioned tile:
 	// "user:<id>" or "global" (partition.go); absent on every other tile.
 	Partition string `json:"partition,omitempty"`
@@ -76,6 +80,7 @@ func (s *Session) info() SessionInfo {
 		st.mu.Lock()
 		si.Kind, si.Provider, si.Mode, si.Model, si.Status = KindAgent, st.provider.ID, st.mode, st.model, st.status
 		st.mu.Unlock()
+		si.LLM = st.llmServes()
 		si.Pending = st.perms.Count()
 		si.Questions = len(st.drv.PendingElicitations())
 	}

@@ -572,6 +572,9 @@ export class BxShell extends LitElement {
   _saveNow() {
     clearTimeout(this._saveTimer);
     this._saveTimer = null;
+    // A read-only session (an admin's view-as, xbind's own preview render)
+    // saves nothing: the server would refuse it, so don't ask.
+    if (this._who?.readOnly) return Promise.resolve();
     // Only DIRTY drafts persist: a clean edit session isn't worth resurrecting.
     const dirty = (m, pick) => Object.fromEntries(Object.entries(m ?? {}).filter(([, d]) => d.dirty).map(([k, d]) => [k, pick(d)]));
     const drafts = {
@@ -1090,6 +1093,7 @@ export class BxShell extends LitElement {
   _saveSettings(patch) {
     this._settings = { ...this._settings, ...patch };
     this._applySettings();
+    if (this._who?.readOnly) return; // applied here, saved nowhere (view-as, a preview)
     try {
       window.xbin?.fetch(`/api/xbin/prefs/${SETTINGS_PREF}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },

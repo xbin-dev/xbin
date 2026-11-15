@@ -71,10 +71,10 @@ ok('a harness event moves the status line', true);
 ok('still one read', (await calls('GET', '/runs/26/view')).length === 1);
 
 // --- 27's permission: on its card, answered on 27 ----------------------------------------
-const opts27 = await page.$$eval(`${card(27)} .hask .hopts button`, (els) => els.map((e) => e.dataset.opt));
+const opts27 = await page.$$eval(`${card(27)} .hask .bxc-btns button`, (els) => els.map((e) => e.dataset.option));
 ok('27\'s permission is on its card, with Codex\'s own options', JSON.stringify(opts27) === '["approved","approved-for-session","abort"]', JSON.stringify(opts27));
 ok('…the command it asks to run', (await text(`${card(27)} .hask`)).includes('psql -f migrations/0007_users.sql'));
-await page.click(`${card(27)} .hask [data-opt="approved"]`);
+await page.click(`${card(27)} .hask [data-option="approved"]`);
 await waitCall('POST', '/runs/27/approve$', 1);
 const ap = (await last('POST', '/runs/27/approve$')).body;
 ok('answered on the child\'s run: {park, option}', ap.park === 'Xq3kid' && ap.option === 'approved', JSON.stringify(ap));
@@ -108,9 +108,9 @@ await waitCall('POST', '/runs/26/message$', 1);
 let mb = (await last('POST', '/runs/26/message$')).body;
 ok('Enter sends it to the child, queued (no interrupt)', mb.text === 'keep the old routes working' && !('interrupt' in mb) && !!mb.clientId, JSON.stringify(mb));
 ok('…and says the agent is told', (await text(`${card(26)} .hknote`)).includes('#25\'s agent is told'));
-await page.waitForFunction(() => [...document.querySelectorAll('#timeline .notice .nh')].filter((e) => e.textContent.includes('direct message to #26 (Claude Code) from admin')).length === 2);
-await page.locator('#timeline .notice .nh').last().click();
-ok('the parent\'s chat shows the notice once it is told', (await text('#timeline .notice.on .nb')).includes('keep the old routes working'));
+await page.waitForFunction(() => [...document.querySelectorAll('#timeline .notice summary')].filter((e) => e.textContent.includes('direct message to #26 (Claude Code) from admin')).length === 2);
+await page.locator('#timeline .notice summary').last().click();
+ok('the parent\'s chat shows the notice once it is told', (await text('#timeline .notice.on .bxc-nbody')).includes('keep the old routes working'));
 await page.fill(`${card(26)} .hkin`, 'stop and run the tests');
 await page.press(`${card(26)} .hkin`, process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
 await waitCall('POST', '/runs/26/message$', 2);

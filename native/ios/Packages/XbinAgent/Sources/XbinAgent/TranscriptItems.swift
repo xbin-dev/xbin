@@ -137,9 +137,11 @@ public struct ToolCall: Sendable, Hashable, Identifiable {
 
     public var isRunning: Bool { status.isRunning }
     public var isExecute: Bool { kind == .execute }
-    /// The card's title (D77): the harness's description, else a reading of the command.
+    /// The card's title (D77): the harness's description, else a reading of the
+    /// command, the title's first line, a reading of the arguments by kind.
     public var headline: String {
-        ToolReading.headline(label: label, rawInput: rawInput, kind: kind, status: status, content: content, title: title, name: name, id: toolCallId)
+        ToolReading.headline(label: label, rawInput: rawInput, kind: kind, status: status, content: content, title: title, name: name, id: toolCallId,
+                             locations: locations)
     }
 
     /// The shell command ("" when the call is not one).

@@ -39,8 +39,8 @@ func TestRelayConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", class, err)
 		}
-		cfg := e.m.relayConfig(7, pol)
-		if cfg.TunFD != 7 || cfg.CloseTUN { // the runtime closes it, after Relay.Close
+		cfg := e.m.relayConfig(7, pol, true) // asked for, but this xbind has no LLM listener: still a dead end
+		if cfg.TunFD != 7 || cfg.CloseTUN {  // the runtime closes it, after Relay.Close
 			t.Errorf("%s: the TUN: %d close=%v", class, cfg.TunFD, cfg.CloseTUN)
 		}
 		if cfg.Allow == nil || cfg.Deny == nil || !cfg.StrictPublic {
@@ -75,5 +75,71 @@ func TestRelayConfig(t *testing.T) {
 				t.Error("a host rule's class pins its names (AllowHost)")
 			}
 		}
+	}
+}
+
+// covers D226 — the LLM door: a sandbox created with net.llm gets exactly
+// one gateway port forwarded, to xbind's LLM-only listener, whatever its
+// egress (none included) and with every other part of §4's relay as it
+// was; one that didn't ask gets none; and an xbind without the listener
+// gives none to anyone.
+func TestRelayConfigLLMDoor(t *testing.T) {
+	sock := ""
+	e := newEnv(t, func(o *Options) { o.Deps.LLMSock = func() string { return sock } })
+	k := Key{Tile: "apps/mgr"}
+	_, pol, err := e.m.egress(k, "none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg := e.m.relayConfig(7, pol, true); cfg.Doors != nil {
+		t.Fatalf("no listener, yet a door: %v", cfg.Doors)
+	}
+	sock = "/run/xbin/llm.sock"
+	if cfg := e.m.relayConfig(7, pol, false); cfg.Doors != nil {
+		t.Fatalf("a sandbox that didn't ask has a door: %v", cfg.Doors)
+	}
+	cfg := e.m.relayConfig(7, pol, true)
+	if len(cfg.Doors) != 1 || cfg.Doors[LLMGatewayPort] != "unix:/run/xbin/llm.sock" {
+		t.Fatalf("the door: %v", cfg.Doors)
+	}
+	// the rest is none's relay: nothing allowed, no DNS, the gateway's network denied, no other forward
+	if cfg.HostFwd != nil || cfg.HostDial != nil || cfg.Published != nil || cfg.HairpinDial != nil || !cfg.DNSRefuse || cfg.Resolver != "" ||
+		cfg.Allow(netip.MustParseAddr("1.1.1.1"), 443) || !cfg.Deny(netip.MustParseAddr(sandbox.GatewayIP)) {
+		t.Errorf("the door changed the rest of the relay: %+v", cfg)
+	}
+	if LLMURL != "http://10.0.2.2:4180/v1" {
+		t.Errorf("LLMURL %q", LLMURL)
+	}
+}
+
+// covers D226 — net.llm is set at create, answered as the connector's
+// address in the sandbox while xbind has the listener, and kept by a PATCH
+// of the egress (a manager that never heard of it changes the egress alone).
+func TestNetLLMDefinition(t *testing.T) {
+	sock := "/run/xbin/llm.sock"
+	e := newEnv(t, func(o *Options) { o.Deps.LLMSock = func() string { return sock } })
+	plain := e.create(ns("plain"))
+	if plain.Net.LLM != "" {
+		t.Fatalf("a sandbox that didn't ask: %+v", plain.Net)
+	}
+	body := ns("coder")
+	body["net"] = map[string]any{"llm": true} // no egress named: none
+	in := e.create(body)
+	if in.Net.LLM != LLMURL || in.Net.Egress != "none" {
+		t.Fatalf("created with net.llm: %+v", in.Net)
+	}
+	w := e.do(mgr, "PATCH", "/sandboxes/coder", map[string]any{"net": map[string]any{"egress": "none"}, "labels": map[string]string{"a": "b"}})
+	e.want(w, 200, "")
+	if in = e.info(w); in.Net.LLM != LLMURL {
+		t.Fatalf("a PATCH of the egress dropped net.llm: %+v", in.Net)
+	}
+	w = e.do(mgr, "PATCH", "/sandboxes/plain", map[string]any{"net": map[string]any{"egress": "none", "llm": true}})
+	e.want(w, 200, "")
+	if in = e.info(w); in.Net.LLM != "" {
+		t.Fatalf("a PATCH turned net.llm on: %+v", in.Net)
+	}
+	sock = "" // this xbind forwards none: the caller learns it from the row
+	if in = e.info(e.do(mgr, "GET", "/sandboxes/coder", nil)); in.Net.LLM != "" {
+		t.Fatalf("no listener, yet the row names an address: %+v", in.Net)
 	}
 }

@@ -358,6 +358,13 @@ func cmdNative(args []string) error {
 // cmdPreview: bx preview --native <tile> [--dark] [--size WxH] [--large-text]
 // [--data d.json] [--steps s.json] [--full] [--out shot.png]
 func cmdPreview(args []string) error {
+	native := false
+	for _, a := range args {
+		native = native || a == "--native"
+	}
+	if !native { // the page as the caller sees it, by xbind's preview browser (preview.go)
+		return cmdPreviewPage(args)
+	}
 	a, err := parseNativeArgs("preview", args)
 	if err != nil {
 		return err

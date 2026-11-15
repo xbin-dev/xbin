@@ -1,6 +1,32 @@
 package term
 
-import "github.com/xbin-dev/xbin/internal/util"
+import (
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/util"
+)
+
+// noTerminal is why p opens no terminal at rel ("" when it may): the path
+// is no tile (sessionDir), or p has no terminal level there. err is
+// SafeJoin's.
+func (m *Manager) noTerminal(p auth.Principal, rel string, err error) string {
+	if err == nil && rel != "" {
+		if why := m.sessionDir(rel); why != "" {
+			return why
+		}
+		if p.CanTerminalTile(rel) {
+			return ""
+		}
+	}
+	return "your account doesn't have terminal access to this tile"
+}
+
+// termKey is the per-component key for a terminal's persistent layer.
+func termKey(rel string) string {
+	if rel == "" {
+		return "_root"
+	}
+	return util.CompKey(rel)
+}
 
 // sessionDir says why a terminal or agent session can't open at the
 // workspace-relative path rel ("" when it can): a session opens on a tile —

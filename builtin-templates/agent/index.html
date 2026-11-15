@@ -341,8 +341,8 @@
     .needs p { margin: 8px 0 0; color: var(--bx-muted); }
     .needs a { color: var(--bx-link); }
     .mono { font-family: var(--bx-mono); font-size: var(--bx-mono-size, 12px); }
-    .ask { background: var(--bx-warn-bg); border: 1px solid var(--bx-warn); border-radius: var(--bx-radius); padding: 8px 12px; margin: 8px 0; }
-    .ask .btn { margin: 4px 4px 0 0; }
+    /* what a run waits on a person for is xbind's chat kit's request card (chat-kit.js kitPark); .ask is its hook here */
+    .ask { margin: 8px 0; }
     /* Workflow view — shares #timeline's slot rather than adding a third row,
        so the composer geometry the layout test pins is untouched. */
     .wfpane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -438,21 +438,8 @@
     .center { text-align: center; margin: 8px 0; }
     .crumbs { font: var(--bx-font-meta); color: var(--bx-muted); margin: 0 0 8px; }
     .crumbs a { cursor: pointer; color: var(--bx-link); }
-    .msg { margin: 8px 0; word-break: break-word; }
-    .msg.user { margin-left: auto; max-width: 88%; width: fit-content; padding: 8px 12px; border-radius: var(--bx-radius);
-                background: var(--bx-panel-2); border: 1px solid var(--bx-border); }
-    .msg.user .txt { white-space: pre-wrap; }
-    .msg.user.other { margin-left: 0; margin-right: auto; }
-    .msg.user .who { font: var(--bx-font-meta); font-weight: 600; color: var(--bx-muted); margin-bottom: 2px; }
+    /* the chat's rows are xbind's chat kit's (chat-kit.js); .msg, .think, .notice, .step, .tcard and .acard on a row are this page's hooks */
     .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
-    /* an answer's Copy (chat-copy.js, D199): under the pointer, top right */
-    .msg.assistant { position: relative; }
-    .msg.assistant > .acts { position: absolute; top: -4px; right: 0; display: none; }
-    .msg.assistant:hover > .acts, .msg.assistant > .acts:focus-within { display: flex; }
-    .msg.assistant > .acts .act { display: inline-flex; padding: 4px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius);
-      background: var(--bx-panel); color: var(--bx-muted); cursor: pointer; }
-    .msg.assistant > .acts .act:hover { color: var(--bx-text); }
-    .msg.assistant > .acts .act.done { color: var(--bx-ok); }
     /* a streamed answer is written a top-level block at a time (chat-md.js mdInto) */
     .md-b { display: contents; }
     .md > .md-b:first-child > :first-child { margin-top: 0; } .md > .md-b:last-child > :last-child { margin-bottom: 0; }
@@ -496,48 +483,22 @@
     .cur { display: inline-block; width: 6px; height: 13px; background: var(--bx-accent); margin-left: 2px; vertical-align: text-bottom; }
     /* working: the live square, still (it was a spinner) */
     .spin { display: inline-block; flex: none; width: 8px; height: 8px; background: var(--bx-accent); vertical-align: middle; }
-    /* thinking: a quiet fold; open while it streams, a still label (no shimmer) */
-    .think { margin: 8px 0; color: var(--bx-muted); }
-    .think .th { cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px; }
-    .think.live .th { color: var(--bx-text); }
-    .think .tb { white-space: pre-wrap; border-left: 2px solid var(--bx-border); padding: 2px 0 2px 12px; margin-top: 4px;
-                 font-style: italic; max-height: 320px; overflow: auto; }
     .tw { display: inline-flex; flex: none; width: 16px; justify-content: center; color: var(--bx-muted); }
-    /* tool calls: a mono block — the call, its outcome (an exit status in words), a caret to open it */
-    .tcard, .acard { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); margin: 4px 0; background: var(--bx-code-bg); min-width: 0; }
-    .tch, .ach { box-sizing: border-box; min-height: var(--bx-row); display: flex; align-items: center; gap: 8px; padding: 4px 8px; cursor: pointer; min-width: 0; }
-    .tch { font: var(--bx-font-code); }
-    .tch:hover, .ach:hover { background: var(--bx-hover); }
-    .tch .ic, .ach .ic { flex: none; width: 16px; display: inline-flex; justify-content: center; color: var(--bx-muted); }
-    .tch .hl, .ach .hl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tch .st, .ach .st { flex: none; display: inline-flex; align-items: center; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); }
-    /* a sandbox call (model/tool-heads.js subline, outcome): its command, what it came to */
-    .tch .sub { margin-left: 8px; color: var(--bx-muted); }
-    .tch .oc { flex: none; display: inline-flex; align-items: center; gap: 4px; color: var(--bx-muted); }
-    .tch .oc.ok { color: var(--bx-ok); }
-    .tch .oc.bad { color: var(--bx-danger); }
-    .tch .oc.run { color: var(--bx-text); }
-    .tcard.error { border-color: var(--bx-danger); }
-    .tcard.error .st { color: var(--bx-danger); }
-    .tcard.approval, .acard.approval { border-color: var(--bx-warn); }
-    .tcard.approval .st { color: var(--bx-warn); }
-    .tcard.stopped .hl { color: var(--bx-muted); text-decoration: line-through; }
-    .tcb { padding: 4px 12px 8px 32px; }
-    .tname { color: var(--bx-muted); margin-bottom: 4px; }
-    .args { display: grid; gap: 2px; }
-    .arg { display: grid; grid-template-columns: minmax(60px, auto) 1fr; gap: 8px; min-width: 0; }
-    .arg .k { color: var(--bx-muted); font: var(--bx-font-code); text-transform: none; letter-spacing: normal; margin: 0; }
-    .arg .v { min-width: 0; overflow-wrap: anywhere; }
-    .arg pre.v, .res pre { margin: 0; font: var(--bx-font-code); white-space: pre-wrap; word-break: break-word;
-                           background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 4px 8px;
-                           max-height: 320px; overflow: auto; }
-    .res { margin-top: 8px; }
+    /* a card a feature module draws itself (a coding agent's: harness-child.js), a journal line of its own (a document:
+       doc-cards.js), a notice in a project's feed. On a row the chat kit draws ([data-kind]) these classes are hooks only. */
+    .acard:not([data-kind]) { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); margin: 4px 0; background: var(--bx-code-bg); min-width: 0; }
+    .ach { box-sizing: border-box; min-height: var(--bx-row); display: flex; align-items: center; gap: 8px; padding: 4px 8px; cursor: pointer; min-width: 0; }
+    .ach:hover { background: var(--bx-hover); }
+    .ach .ic { flex: none; width: 16px; display: inline-flex; justify-content: center; color: var(--bx-muted); }
+    .ach .hl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ach .st { flex: none; display: inline-flex; align-items: center; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); }
+    .acard:not([data-kind]).approval { border-color: var(--bx-warn); }
     .bx .lnk { display: inline-flex; align-items: center; gap: 4px; min-height: 0; border: 0; background: none; color: var(--bx-link);
                cursor: pointer; font: inherit; font-weight: 400; padding: 0 2px; }
     .bx .lnk:hover { background: none; text-decoration: underline; }
-    .acard { background: var(--bx-panel); border-left: 2px solid var(--bx-border-strong); }
-    .acard.done { border-left-color: var(--bx-ok); }
-    .acard.error, .acard.stopped { border-left-color: var(--bx-danger); }
+    .acard:not([data-kind]) { background: var(--bx-panel); border-left: 2px solid var(--bx-border-strong); }
+    .acard:not([data-kind]).done { border-left-color: var(--bx-ok); }
+    .acard:not([data-kind]).error, .acard:not([data-kind]).stopped { border-left-color: var(--bx-danger); }
     .ach .rid { font: var(--bx-font-code); color: var(--bx-muted); }
     .acb { padding: 0 12px 8px 16px; border-top: 1px dashed var(--bx-border); }
     .acb .readfail { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; margin: 8px 0; } /* a subagent that could not be read: why, and Retry */
@@ -546,14 +507,14 @@
     .acb .task.on { display: block; white-space: pre-wrap; overflow-x: auto; } /* a wide line scrolls, not clipped */
     .acb .answer { margin-top: 8px; border-top: 1px solid var(--bx-border); padding-top: 4px; }
     .k { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); margin-right: 4px; }
-    .notice { font: var(--bx-font-meta); color: var(--bx-muted); margin: 4px 0; }
-    .notice .nh { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
-    .notice .nb { white-space: pre-wrap; border-left: 2px solid var(--bx-border); padding-left: 12px; margin-top: 4px; }
-    .step { display: flex; align-items: baseline; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); margin: 4px 0; overflow-wrap: anywhere; }
-    .step.error { color: var(--bx-danger); }
-    .step .g { display: inline-flex; flex: none; width: 16px; justify-content: center; align-self: center; }
-    .step.md-step .md { flex: 1; min-width: 0; color: var(--bx-text); font: var(--bx-font); }
-    .step .steplnk { font-size: inherit; padding: 0; text-align: left; overflow-wrap: anywhere; }
+    .notice:not([data-kind]) { font: var(--bx-font-meta); color: var(--bx-muted); margin: 4px 0; }
+    .notice:not([data-kind]) .nh { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+    .notice:not([data-kind]) .nb { white-space: pre-wrap; border-left: 2px solid var(--bx-border); padding-left: 12px; margin-top: 4px; }
+    .step:not([data-kind]) { display: flex; align-items: baseline; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); margin: 4px 0; overflow-wrap: anywhere; }
+    .step:not([data-kind]).error { color: var(--bx-danger); }
+    .step:not([data-kind]) .g { display: inline-flex; flex: none; width: 16px; justify-content: center; align-self: center; }
+    .step:not([data-kind]).md-step .md { flex: 1; min-width: 0; color: var(--bx-text); font: var(--bx-font); }
+    .step:not([data-kind]) .steplnk { font-size: inherit; padding: 0; text-align: left; overflow-wrap: anywhere; }
     .activity { color: var(--bx-muted); margin: 8px 0 2px; display: flex; gap: 8px; align-items: center; }
     .activity.warn { color: var(--bx-warn); }
     .ask ul { margin: 4px 0 8px; padding-left: 20px; }
@@ -575,6 +536,7 @@
     .bx .tab:hover { background: transparent; color: var(--bx-text); }
     .bx .tab.on { color: var(--bx-text); font-weight: 600; border-bottom-color: var(--bx-accent); }
     .settings-bd { overflow: auto; flex: 1; padding: 12px 16px; }
+    .settings-bd > .tabbox { display: contents; } /* the open tab's own box (agent.js renderTab) */
     .sec { margin-bottom: 16px; }
     .sec > h4 { margin: 0 0 8px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
                 text-transform: uppercase; color: var(--bx-muted); display: flex; align-items: center; gap: 8px; }
@@ -671,7 +633,7 @@
   <div class="wrap">
     <div class="side">
       <div class="hd"><b class="brand" id="home" title="Home — what needs you"><bx-icon name="home"></bx-icon>Home</b>
-        <button class="btn ghost btnsm icon" id="gear" title="Settings" aria-label="Settings"><bx-icon name="settings"></bx-icon></button>
+        <button class="btn ghost btnsm icon" id="gear" title="Settings" aria-label="Settings" hidden><bx-icon name="settings"></bx-icon></button>
         <!-- The brake lives here, not in .main: .settings overlays .main but
              never .side, so it stays one click away from every view state. -->
         <button class="btn rm btnsm" id="halt" title="Stop every running agent now" aria-label="Stop every running agent now" hidden></button>

@@ -50,6 +50,11 @@ const (
 	// request reads as that user; a backend that keeps per-user private data
 	// can refuse to show it to someone else looking through the user's eyes.
 	HeaderViewedBy = "X-XBin-Viewed-By"
+	// HeaderPreview ("1") marks a call made while xbind renders the
+	// attributed user's own view in its preview browser (auth/preview.go):
+	// nobody is clicking, and the session is read-only. A backend whose GETs
+	// or sockets have effects (mark-as-read, presence) skips them.
+	HeaderPreview = "X-XBin-Preview"
 	// HeaderDeployment names a tile deployment that is not its tile's
 	// primary (the role rule, 11-contract §4) (D127j). On a request: the
 	// calling tile's deployment, when the caller is one of that tile's own
@@ -111,6 +116,10 @@ type Proxy struct {
 	Reg    *registry.Registry
 	Runner *runner.Runner
 	Hub    *events.Hub
+	// ReaderClamp narrows role on target to its read form for a preview's
+	// calls (previewReadOnly): the broker's read clamp, false when the role
+	// implies no reader. nil = the three blessed roles clamp to reader.
+	ReaderClamp func(target, role string) (string, bool)
 	// Policy decides the role of a call when no Route is installed: the
 	// broker-less proxy of tests, where every call reaches the primary and
 	// no URL names a deployment. nil = DefaultPolicy.
@@ -214,6 +223,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// A partitioned target's ?xbin-partition=global is consumed here and
 	// decided by RouteGlobal (globaladdress.go).
 	d := px.decideAddressed(r, p, comp, qualifier)
+	d = px.previewReadOnly(r, p, comp, d)
 	if rerr != nil {
 		// An unknown deployment, or a nested tile under a qualifier: a caller
 		// who may not know the tile's deployments gets the gate's refusal,
@@ -461,6 +471,56 @@ func (px *Proxy) nonPrimaryDeployment(p auth.Principal) string {
 	return dep
 }
 
+// previewReadOnly makes a call from a preview render read-only in every
+// identity a backend can authorize on (D234). xbind's own gates refuse the
+// render's writes by method — but a GET's handler, and a socket's messages
+// after the upgrade, are the backend's to judge, and backends judge by what
+// xbind tells them: the role, and the driving person's level. So for a
+// preview principal, on every call, plain or upgrade:
+//
+//   - X-XBin-Role is the read clamp of the role the call would have had
+//     (a tile's own frame is otherwise its tile's admin). A custom role the
+//     clamp can't narrow (one that implies no reader: a provider's own
+//     "consumer") has no read form: a plain GET keeps it — the backend
+//     still sees the level and the preview mark below — and an upgrade,
+//     whose messages nobody can judge, is refused;
+//   - X-XBin-User-Level is "read" whatever the person's level
+//     (previewUserLevel, applied in identify), so `UserCanWrite()` and every
+//     gate like it is false;
+//   - X-XBin-Preview: 1 says why.
+//
+// The cost is the picture's: a tile that draws differently for a writer is
+// drawn as its reader sees it. View-as is unchanged.
+func (px *Proxy) previewReadOnly(r *http.Request, p auth.Principal, comp *registry.Component, d Decision) Decision {
+	if d.Deny != nil || !p.Preview() {
+		return d
+	}
+	role, ok := "reader", d.Role == "reader" || d.Role == "writer" || d.Role == "admin"
+	if px.ReaderClamp != nil {
+		role, ok = px.ReaderClamp(comp.Path, d.Role)
+	}
+	switch {
+	case !ok && r.Header.Get("Upgrade") != "":
+		return Decision{Deny: fmt.Errorf("a preview opens sockets read-only, and the role %q on %s can't be narrowed to reader", d.Role, comp.Path)}
+	case !ok:
+		role = d.Role
+	}
+	d.Clamped = d.Clamped || role != d.Role
+	d.Role = role
+	if d.Attribute != nil {
+		a := *d.Attribute
+		a.Role = role
+		if a.Level != "" {
+			a.Level = previewUserLevel
+		}
+		d.Attribute = &a
+	}
+	return d
+}
+
+// previewUserLevel is every person's X-XBin-User-Level in a preview.
+const previewUserLevel = "read"
+
 // identify scrubs any spoofed identity from r and injects the verified one.
 // It strips every X-XBin-* an inbound caller might set — including
 // X-XBin-Ingress-Host, which only the ingress path (ForwardIngress)
@@ -506,12 +566,18 @@ func (px *Proxy) identify(r *http.Request, p auth.Principal, role, tile string) 
 		r.Header.Set(HeaderUser, uid)
 		if px.UserLevel != nil {
 			if l := px.UserLevel(uid, tile); l != "" {
+				if p.Preview() && l != "none" { // every level reads, in a preview (previewReadOnly)
+					l = previewUserLevel
+				}
 				r.Header.Set(HeaderUserLevel, l)
 			}
 		}
-		if p.Impersonator != "" {
+		if p.ViewAs() {
 			r.Header.Set(HeaderViewedBy, p.Impersonator)
 		}
+	}
+	if p.Preview() { // xbind's own render of the person's view: read-only (auth/preview.go)
+		r.Header.Set(HeaderPreview, "1")
 	}
 }
 

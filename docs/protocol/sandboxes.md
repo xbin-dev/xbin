@@ -43,7 +43,8 @@ sandboxes).
   `runtime.caps` lists the contract capabilities served (`exec`, `tty`,
   `files`, `tar`, `snapshots`, `clone`, `ports` since D135 and `stdio` —
   an older xbind leaves them out, and their routes are a 404; it ignores
-  `split` and `stream`).
+  `split` and `stream`), and `llm` while xbind forwards its LLM connector
+  into a sandbox created with `net.llm` (D226; below).
 - **Ports** (D135). `ANY /sandboxes/<name>/ports/<port>/<path>` proxies
   the request — any method, a WebSocket upgrade included — to a server
   listening on TCP `<port>` (1–65535) on the sandbox's **own loopback**:
@@ -177,7 +178,7 @@ definitions, lifecycle, snapshots and the policy are.
 ```
 {"name": "sb-7f3a", "mode": "namespace" | "vm",
  "memMiB": 2048, "vcpus": 2, "diskGiB": 20,
- "net": {"egress": "none" | "class:<slot>"},
+ "net": {"egress": "none" | "class:<slot>", "llm": false},
  "mounts": [{"res": "res:apps/coding-sandbox/work", "path": "shared", "at": "/mnt/shared", "ro": false},
             {"source": true, "at": "/opt/manager"}],
  "defaults": {"cwd": "/work", "uid": 1000, "gid": 1000, "shell": "/bin/bash", "env": {"HOME": "/home/dev"}},
@@ -196,6 +197,18 @@ definitions, lifecycle, snapshots and the policy are.
 - `net.egress` is `none` (the default) or a **sandbox-net slot** the
   manager's manifest declares (`interfaces: {"internet": {"kind":
   "sandbox-net"}}`); `runtime.egress` lists them with what each reaches.
+- `net.llm: true` (D226; at create only — a `PATCH`'s `net` changes the
+  egress and keeps it) asks for the workspace's **LLM connector** inside
+  the sandbox ([llm.md](/docs/llm.md) §Sandboxes made by a sandbox
+  manager). xbind then forwards one port of the sandbox's gateway —
+  `http://10.0.2.2:4180/v1`, answered as `net.llm` in its SandboxInfo — to
+  its LLM-only listener: `POST /v1/chat/completions`, `POST /v1/responses`
+  and `GET /v1/models` for the holder of an LLM key
+  ([llm.md](/docs/protocol/llm.md)), and nothing else of xbind. It works
+  with every egress, `none` included, in both modes, and is the one
+  exception to "no route to xbind". An xbind from before it ignores the
+  member and answers no `net.llm`: that is how a caller learns the
+  connector isn't there.
 - A `res` mount is a `filesystem` resource of the manager's own scope that
   it holds the way its backend's `XBIN_RES_*` variables need: declared in
   its `uses` **and** granted (a same-scope `uses` entry is its own grant).
@@ -208,7 +221,9 @@ definitions, lifecycle, snapshots and the policy are.
   both modes. `sqlite` and
   other kinds are `invalid`.
 - `defaults.env` keys `XBIN_*` are `invalid`: a sandbox never gets an xbin
-  identity. `uid`/`gid` must be runnable (`users: root` — a namespace host
+  identity (a *command's* `env` may carry the LLM connector's two,
+  `XBIN_LLM_URL` and `XBIN_LLM_KEY`; below). `uid`/`gid` must be
+  runnable (`users: root` — a namespace host
   mapping a single uid — allows only 0). `labels` are opaque, ≤ 1 KiB in
   all; `for` and `forUser` (≤ 128) are claims, stored and shown, widening
   nothing.
@@ -525,7 +540,7 @@ where the filesystem can. xbind never reads either.
 
 **SandboxInfo:** `{name, uid, state (creating | stopped | starting |
 running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus,
-diskGiB, net:{egress, reach, egressNext, note}, mounts, defaults, labels,
+diskGiB, net:{egress, reach, egressNext, note, llm?}, mounts, defaults, labels,
 for?, forUser?, idleStopMin, autoStart, base:{version, outdated}, users,
 diskBytes, snapshots, execsRunning, created, started?, lastActive?,
 version, clientId?, restartNeeded, usage?}` — `uid` is the sandbox's identity (12 hex,
@@ -535,7 +550,9 @@ one's state. `creating` is a clone whose copy still runs: until it ends
 `stopped` (or `running`, or `error`), every call but `GET`, the list and
 `DELETE` answers 409 `state`. `reach` is what the egress reaches (`none`,
 `internet` or `open`, the contract's words), `egressNext` an egress a
-`PATCH` set that waits for the next start.
+`PATCH` set that waits for the next start, `llm` the LLM connector's
+OpenAI base URL inside the sandbox when it was created with `net.llm`
+(absent otherwise).
 
 **`usage`** (D215) is a running sandbox's CPU and memory: its cgroup leaf
 read once a minute, the last 60 readings kept in memory — the contract's
@@ -582,7 +599,11 @@ error.
   terminal (a `tty` exec, the `tty` route), `TERM=xterm-256color`,
   `COLORTERM=truecolor` and `LANG=C.UTF-8`, as xbind's terminals have
   them — with `defaults.env` and then the command's `env` over them;
-  `XBIN_*` keys are 400. Nothing of xbind's or of the agent's own
+  `XBIN_*` keys are 400, except `XBIN_LLM_URL` and `XBIN_LLM_KEY` in a
+  command's `env` (D226: where the LLM connector is and a key for it,
+  which a consumer hands a coding agent; an LLM key opens the connector's
+  model routes and nothing else, so it is no identity — and `defaults.env`,
+  which is stored, still refuses them). Nothing of xbind's or of the agent's own
   environment gets in, nor xbind's user's supplementary groups: a command has none (except on a
   namespace host mapping a single uid, `users: root`, which can't drop
   them). Each command leads its own process group, and it is what the OOM

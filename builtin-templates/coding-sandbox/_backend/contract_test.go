@@ -5,8 +5,10 @@ package main
 // docs/sandbox-manager.md).
 
 import (
+	"context"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -68,15 +70,69 @@ func serveManager(t *testing.T, db string, fb *fakeBackend) *testManager {
 // freshTarget is a manager with the knobs a check asks for (Target.Fresh).
 func freshTarget(t *testing.T, k sandboxcontract.Knobs) sandboxcontract.Target {
 	t.Helper()
-	return newTestManager(t, "", func(f *fakeBackend) { f.Ring, f.FileMax, f.Caps = k.OutputRing, k.FileMax, k.Caps }).tg
+	return newTestManager(t, "", func(f *fakeBackend) {
+		f.Ring, f.FileMax, f.Caps = k.OutputRing, k.FileMax, k.Caps
+		if k.Caps == nil { // every capability: the substrate forwards the LLM connector too
+			f.LLM = fakeLLMURL
+		}
+	}).tg
 }
+
+// fakeLLMURL is where the fake substrate says a sandbox created with
+// net.llm reaches the LLM connector (xbind's runtime: its gateway).
+const fakeLLMURL = "http://10.0.2.2:4180/v1"
 
 func TestContract(t *testing.T) {
 	tg := freshTarget(t, sandboxcontract.Knobs{})
 	tg.Strict = true // a reference manager: what the suite only warns about fails here
-	tg.Caps = []string{"exec", "files", "tar", "stdio", "snapshots", "clone", "partitions"}
+	tg.Caps = []string{"exec", "files", "tar", "stdio", "snapshots", "clone", "partitions", "llm"}
 	if fkHasPTY() {
 		tg.Caps = append(tg.Caps, "tty")
 	}
 	sandboxcontract.Run(t, tg)
+}
+
+// TestContractNoLLM is the suite's llm section over a substrate that
+// forwards no LLM connector (an xbind from before it): the manager offers
+// no llm, and a sandbox asked for with one claims none.
+func TestContractNoLLM(t *testing.T) {
+	tg := newTestManager(t, "").tg
+	tg.Fresh = nil
+	tg.Skip = map[string]string{}
+	for _, s := range []string{"hello", "sandboxes", "partitions", "user-partitions", "people", "lifecycle", "run", "execs", "tty", "stdio", "files", "tar", "snapshots", "ports", "caps"} {
+		tg.Skip[s] = "TestContract runs it"
+	}
+	sandboxcontract.Run(t, tg)
+}
+
+// The llm capability through this manager: asked for and forwarded, the
+// row names the address and the substrate's definition carries net.llm;
+// not asked for, neither; a clone asks for itself.
+func TestLLMCapability(t *testing.T) {
+	tm := newTestManager(t, "", func(f *fakeBackend) { f.LLM = fakeLLMURL })
+	a := tm.tg.As(t, "apps/agent")
+	var h sandboxcontract.Hello
+	a.Call("GET", "/hello?protocol=1", nil, 200, &h)
+	if !slices.Contains(h.Caps, "llm") {
+		t.Fatalf("hello's caps %v lack llm though the substrate forwards the connector", h.Caps)
+	}
+	sb := a.Create(map[string]any{"name": "coder", "llm": true})
+	if sb.LLM == nil || sb.LLM.URL != fakeLLMURL {
+		t.Fatalf("llm: %+v", sb.LLM)
+	}
+	recs, err := tm.st.records()
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(recs, func(r *record) bool { return r.ID == sb.ID })
+	if i < 0 || !recs[i].LLM {
+		t.Fatalf("the record of %s: %+v", sb.ID, recs)
+	}
+	info, err := tm.fb.Get(context.Background(), recs[i].Runtime)
+	if err != nil || info.Net.LLM != fakeLLMURL {
+		t.Fatalf("the substrate's definition: %+v %v", info, err)
+	}
+	if plain := a.Create(map[string]any{"name": "plain"}); plain.LLM != nil {
+		t.Fatalf("a sandbox that didn't ask: %+v", plain.LLM)
+	}
 }

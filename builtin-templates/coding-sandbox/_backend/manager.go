@@ -192,10 +192,11 @@ func (m *Manager) forgetRuntime() {
 }
 
 // contractCaps are the contract's capabilities the backend offers
-// (archive: not in this manager yet).
+// (archive: not in this manager yet; llm: where the substrate can give a
+// sandbox the workspace's LLM connector).
 func contractCaps(rt *xbin.SandboxRuntime) []string {
 	out := []string{}
-	for _, c := range []string{"exec", "files", "tar", "tty", "snapshots", "clone"} {
+	for _, c := range []string{"exec", "files", "tar", "tty", "snapshots", "clone", "llm"} {
 		if rt != nil && slices.Contains(rt.Caps, c) {
 			out = append(out, c)
 		}
@@ -619,10 +620,19 @@ type sandboxView struct {
 	AutoStopMin   int               `json:"autoStopMin"`
 	Version       int               `json:"version"`
 	RestartNeeded bool              `json:"restartNeeded,omitempty"`
+	// LLM is the workspace's LLM connector as the sandbox reaches it (the
+	// contract's optional llm): there only for a sandbox created with llm:
+	// true on a substrate that forwards one.
+	LLM *llmView `json:"llm,omitempty"`
 	// Usage is the substrate's CPU and memory while it runs, passed on as
 	// it gives them (xbind's: read once a minute, D215); absent when it
 	// can't tell. Its series only on a GET of one sandbox (withSeries).
 	Usage *xbin.SandboxLiveUsage `json:"usage,omitempty"`
+}
+
+// llmView is where a sandbox reaches the LLM connector: an OpenAI base URL.
+type llmView struct {
+	URL string `json:"url"`
 }
 
 // withSeries is v with its usage's series from info: the answer to a GET
@@ -680,6 +690,9 @@ func (m *Manager) view(rec record, info *xbin.SandboxInfo, c caller, caps []stri
 			v.Size.MemMiB, v.Size.VCPUs, v.Size.DiskGiB = info.MemMiB, info.VCPUs, info.DiskGiB
 		}
 		v.Egress = egressWord(info.Net.Egress, info.Net.Reach)
+		if info.Net.LLM != "" { // asked for at create, and the substrate forwards it
+			v.LLM = &llmView{URL: info.Net.LLM}
+		}
 		if info.Net.EgressNext != "" && info.Net.EgressNext != info.Net.Egress {
 			v.EgressNext = egressWord(info.Net.EgressNext, "")
 		}

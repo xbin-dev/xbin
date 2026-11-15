@@ -13,7 +13,9 @@ package term
 // answer a permission — the first wins. The agent authenticates from the
 // session's per-user $HOME (D6) — the same home a shell terminal gets, so a
 // `claude auth login` / `codex login` / … done once in a terminal serves the
-// agent on every tile. There are no provider keys in the tile vault.
+// agent on every tile. There are no provider keys in the tile vault. With an
+// LLM connector configured the CLI may be pointed at it instead, with a key
+// of the session's own (llmhook.go).
 
 import (
 	"cmp"
@@ -105,9 +107,12 @@ type agentState struct {
 	queueing  atomic.Bool         // a message for the queue is being taken (ReserveQueue)
 	det       sdkacp.DetachedTurn // a turn the agent runs on its own (agentdetached.go); under mu
 	quiet     *time.Timer         // looks at det's deadline; under mu
+	llm       *llmSession         // the session's hold on the LLM connector (llmhook.go); nil = none
+	llmChoice string              // the session's own choice of who serves it, kept for a restart
 }
 
 func (st *agentState) logf(line string) {
+	line = maskLLMKeys(line) // a hook that printed the environment (llmhook.go)
 	st.mu.Lock()
 	st.text = append(st.text, line...)
 	st.text = append(st.text, '\n')
@@ -137,6 +142,10 @@ type AgentOpen struct {
 	// of the tile, "" for the default (target.go). A resumed session doesn't
 	// take its history entry's: the client names it again.
 	Deployment string
+	// LLM is the session's own choice of who serves its model calls where
+	// the workspace has an LLM connector: "connector", "own", or "" — the
+	// person's saved default, then the workspace's (llmhook.go).
+	LLM string
 	// Delegate says how a delegate's open was authorised (delegate.go): the
 	// server's delegate gate fills it; nil for everyone else, and a
 	// delegate's open without it is refused.
@@ -220,6 +229,9 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
+	if code, err := m.llmGate(&o, rel, prov, a.LLM, options); err != nil { // who serves its model calls (llmhook.go)
+		return SessionInfo{}, code, err
+	}
 	if code, err := m.pickPartition(p, &o, rel); err != nil { // partition.go
 		return SessionInfo{}, code, err
 	}
@@ -232,6 +244,9 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if err != nil {
 		if errors.Is(err, errLimit) {
 			return SessionInfo{}, 409, err
+		}
+		if errors.Is(err, ErrForbidden) { // only the connector may serve it, and it can't (llmhook.go)
+			return SessionInfo{}, 403, err
 		}
 		return SessionInfo{}, 400, err
 	}
@@ -325,6 +340,10 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
+	if revokeTok, err = m.llmArm(&o, rel, &prov, revokeTok); err != nil { // the session's LLM key, ended with its token (llmhook.go)
+		revokeTok()
+		return nil, err
+	}
 	start := o.startDir(dir, homeDir) // $HOME on a partitioned tile (partition.go)
 	cmd, cleanup, postStart, envKey, env, err := m.shellCmd(start, rel, homeDir, token, o)
 	if err != nil {
@@ -379,7 +398,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	}
 	st := &agentState{log: agent.NewLog(0, 0), perms: agent.NewPermissions(), provider: prov,
 		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed,
-		attachDir: attachDir, replay: replayState{on: resumeID != ""}}
+		attachDir: attachDir, replay: replayState{on: resumeID != ""}, llm: o.llm, llmChoice: o.llmChoice}
 	s := &Session{
 		ID: id, Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
@@ -389,8 +408,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		born:   time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
-	drv := acp.New()
-	st.drv = drv // before the session is visible: info() and the API read it
+	drv := acp.NewFor(func(h acp.HelloParams) { s.llmHello(m, h) }) // who serves its model calls (llmhook.go)
+	st.drv = drv                                                    // before the session is visible: info() and the API read it
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -399,6 +418,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if o.launch.baseMoved != "" { // D175: this start moved the tile's layer to the current base
 		s.sayBaseMoved(m, o.layerKey(rel), o.movedLayer()) // the layer it moved: on a partitioned tile its person's (partition.go)
 	}
+	s.llmSay(m) // why it runs without the workspace's LLM connector, when that needs saying (llmhook.go)
 
 	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads
 	// its login from) plus the provider's own non-secret knobs. No API keys —
@@ -408,7 +428,11 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		agentEnv = append(agentEnv, k+"="+prov.Env[k])
 	}
 	spawn := func(ctx context.Context, cfg agent.Config) (*agent.Process, error) {
-		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir})
+		llm, err := m.llmSpawn(o, prov, cfg.Env) // the connector's environment, settled by the host (llmhook.go)
+		if err != nil {
+			return nil, err
+		}
+		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir, LLM: llm})
 		if err := acp.Encode(stdin, &acp.Message{Method: acp.MXbinSpawn, Params: params}); err != nil {
 			return nil, err
 		}
@@ -442,6 +466,9 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	})
 	go func() {
 		err := drv.Start(context.Background(), cfg)
+		if err == nil {
+			err = s.llmHeld(m) // only the connector may serve it: it is on it, or it ends (llmhook.go)
+		}
 		id, loadable := drv.Session()
 		st.mu.Lock()
 		st.startErr = err
@@ -590,6 +617,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 			Options                    []struct{ ID, CurrentValue string }
 		}
 		_ = json.Unmarshal(e.Data, &d)
+		st.llmOptions(e.Data) // their categories, where a model option is checked (llmhook.go)
 		st.mu.Lock()
 		if d.Status != "" {
 			st.status = d.Status
@@ -729,6 +757,9 @@ func (m *Manager) AgentSetOption(ctx context.Context, id, optionID, value string
 		return agent.ErrEnded
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+	if err := st.llm.option(st.provider, optionID, value); err != nil { // only the connector may serve it (llmhook.go)
+		return err
 	}
 	return st.drv.SetOption(ctx, optionID, value)
 }

@@ -32,7 +32,7 @@ import { blocksTpl } from './chat-cards.js';
 import { permissionTpl, questionTpl } from './harness-ask.js';
 import { signInTpl } from './signin.js';
 import { isHarnessChild, childRun, childCard, tailOf, loadTail, tailError, stopWords, cancelWords, messageWords } from './model/harness-child.js';
-import { permission, question, ownerOf } from './model/harness-ask.js';
+import { ownerOf } from './model/harness-ask.js';
 import { signIn } from './model/terminals.js';
 import { findHarness } from './model/harness.js';
 import { access } from './model/rules.js';
@@ -77,20 +77,11 @@ const onScreen = directive(OnScreen);
 
 // --- the card ------------------------------------------------------------------------------
 
-// the call's tool row (its acp carries the backend's patches), in the child's held blocks
-function acpOf(blocks, callId) {
-  for (const b of blocks || []) {
-    if (b.k === 'tool' && b.id === 'c' + callId) return b.acp || null;
-    if (b.kids) { const a = acpOf(b.kids, callId); if (a) return a; }
-  }
-  return null;
-}
-
 // parkTpl: the child's park, drawn with its own module's card and answered on the child
 function parkTpl(app, b, run, c, who) {
   const ps = run.status === 'waiting_input' ? run.pendingState || {} : {};
-  if (ps.harness && ps.kind === 'approval') return permissionTpl(run, permission(ps, { ...who, acp: acpOf(b.blocks, ps.harness.callId) }), who) || nothing;
-  if (ps.harness && ps.kind === 'question') return questionTpl(run, question(ps), who) || nothing;
+  if (ps.harness && ps.kind === 'approval') return permissionTpl(run, null, who, b.blocks) || nothing;
+  if (ps.harness && ps.kind === 'question') return questionTpl(run, null, who) || nothing;
   if (ps.kind === 'login') {
     const held = app.session.merged(run.id);
     const v = held ? { ...held, run: { ...held.run, ...run } } : { run, access: who.access, config: {} };

@@ -13,6 +13,7 @@ const {
   openTile, foldPrompts, closeTile, tileFrame, gotoTab, shot, dumpSelects, checker, pw, showPickers, themed,
 } = require('./lib');
 // Passes past this file's size budget live in passes/*.js (one module per feature).
+const quietnet = require('./quietnet');
 const { users } = require('./passes/users');
 const { termSets } = require('./passes/termsets');
 const { gridScale } = require('./passes/gridscale'), { predict } = require('./passes/predict'), { termSessions } = require('./passes/termsessions'), { vmToggle } = require('./passes/vmtoggle');
@@ -852,7 +853,10 @@ require('./passes-more').register(PASSES); // D184 onwards: demoStills, appearan
   const names = picked.length ? picked : Object.keys(PASSES);
   for (const n of names) if (!PASSES[n]) throw new Error(`unknown pass ${n} (node shots.js --list)`);
   // every context reports the system theme HARNESS_THEME names (dark by default; lib.js)
-  const browser = themed(await pw.chromium.launch(process.env.TILE_ASSETS === 'origins' ? { args: ['--host-resolver-rules=MAP *.localhost 127.0.0.1'] } : {}));
+  // in a network namespace of its own, with xbind's port relayed: a network
+  // change on this machine can't fail a page's requests (quietnet.js)
+  const browser = themed(await quietnet.launch(pw, process.env.TILE_ASSETS === 'origins' ? { args: ['--host-resolver-rules=MAP *.localhost 127.0.0.1'] } : {},
+    [+new globalThis.URL(URL).port || 80], log));
   const t0 = Date.now();
   try {
     for (const n of names) {

@@ -144,6 +144,9 @@ bx llm alias [set <alias> <model> | rm <alias>] | on | off | people admins|every
                                        model aliases ("*": every unknown name),
                                        the switches, calls in flight per caller
                                        (admin)
+bx llm sessions [agents=on|off] [terminals=on|off] [openai-env=on|off]
+                                       what coding agents and terminals get of
+                                       it (admin; no argument: print)
 bx llm usage [--month] [--from <day>] [--to <day>] [--user <id>] [--component <tile>] [--json]
                                        what was used: yours, or everyone's (admin)
 bx llm quota [show [<user>]] | set <default|workspace|user:<id>|org:<id>>
@@ -271,11 +274,14 @@ bx vault ls|set|rm <component> [key] [value]
                                        write-only management — values are
                                        readable only by the tile's backend
                                        (D30; `get` lists/403s for humans)
-bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--model m] [--option id=v] [--net s] [--vm] "<prompt>"
+bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--model m] [--option id=v] [--net s] [--vm] [--llm connector|own] "<prompt>"
                                        an AGENT SESSION on a tile: the coding
                                        agent runs in the tile's sandbox, its
                                        stream lands here (D74); --vm: in a VM
                                        sandbox, root in its own kernel (D89);
+                                       --llm: the workspace's LLM connector or
+                                       your own sign-in serves it (default:
+                                       your saved choice, then the workspace's);
                                        --deployment <name> (or --tile p+<name>):
                                        its calls reach that tile deployment
 bx agent send <id> "<text>" | permit <id> <pid> once|always|deny|<option>
@@ -378,6 +384,11 @@ bx lint --native [tile…] [--static] [--json]
                                        widget at both sizes): static checks +
                                        a headless run; no tile = the whole
                                        workspace, with its native coverage
+bx preview [<tile>] [--viewport WxH] [--out f.png] [--text] [--json]
+bx preview --screen <name|id> [--tile <tile>] [--shell] [--wait ms] [--full]
+bx preview --status                    the tile (or a screen) as YOU see it,
+                                       rendered by xbind: a picture + a text
+                                       rendering; --status: can it render here
 bx preview --native <tile> [--dark] [--size 390x844] [--large-text]
            [--data d.json] [--steps s.json] [--full] [--out shot.png]
            [--widget [--size small|wide]]
@@ -507,7 +518,9 @@ terminal users and their coding agents — as much as the shell.
 [llm.md](/docs/llm.md); routes: [protocol/llm.md](/docs/protocol/llm.md)).
 `bx llm` prints it as you meet it: whether you may call it and at which
 URL, your quota's limits with what is used and when each resets; for a
-workspace admin also the upstreams, default models, aliases and switches,
+workspace admin also the upstreams, default models, aliases and switches
+(`bx llm sessions` sets the three for coding agents and terminals:
+[llm.md](/docs/llm.md) §Coding agents and terminals),
 each marked `[set by your host]` when the host's deployment file
 (`XBIN_LLM_CONFIG`) holds it — changing one of those is refused (409).
 `upstream add <name> <base-url>` adds a provider (an OpenAI-compatible API,
@@ -761,6 +774,23 @@ its own session, else `read-only` — and `bx agent resume <past-id>
 ["<prompt>"]` continues it on the same tile (provider, mode and name carry
 over; the agent replays the earlier turns first). The Agent tab shows the same
 list under **Recent sessions**.
+
+**Previews** (`bx preview`; D234,
+[protocol/preview.md](/docs/protocol/preview.md)) — the tile as the person
+behind the credential sees it: xbind renders it in a headless Chromium of
+its own, read-only, and `bx` saves the picture (`--out`, default
+`preview-<name>.png` in the current directory; written 0600, it is what
+you see) and prints the page's final URL and how many
+console errors, page errors and failed requests there were. `--text` adds
+the text rendering (an accessibility tree, one block per frame) under the
+answer's notice — the content is data, not instructions; `--json` prints
+the whole answer with `png` naming the file. `--viewport 390x844` is a
+phone. In a tile's terminal the tile is the terminal's own and needs no
+argument — and no other tile or screen can be asked for there. Elsewhere
+`XBIN_TOKEN` must be a person's own sign-in (the root token is nobody's
+view): `--screen <name>` renders a screen of theirs with its tiles,
+`--shell` a tile on its screen. Nothing the render loads can write; 503
+means this xbind can't render (`bx preview --status` says why).
 
 **Native UIs** (`bx native tree`, `bx lint --native`, `bx preview
 --native`; D98) — how an agent sees the `native.js` it writes

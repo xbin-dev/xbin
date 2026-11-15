@@ -405,6 +405,16 @@ func (b *Broker) applyEdgePolicy(d Decision, caller, callerDep, target, role str
 	return d
 }
 
+// ReaderClamp is the read clamp for one role on target, as a preview's
+// calls need it (D234, proxy.previewReadOnly): min(role, reader), and false
+// when role implies no reader the clamp could narrow it to (clampLeg).
+func (b *Broker) ReaderClamp(target, role string) (string, bool) {
+	if b.clampLeg(target, role).why != "" {
+		return "", false
+	}
+	return clampedRole(role), true
+}
+
 // clampedRole is min(role, reader): the bus aliases stay aliases, so
 // publisher clamps to subscriber (08-data §7).
 func clampedRole(role string) string {

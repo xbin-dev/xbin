@@ -56,6 +56,11 @@ type person struct {
 	reqs  cached[requestsDoc]
 	aps   cached[approvalsDoc]
 
+	// agent sessions (sessions.go): the handles, and when each was last
+	// used (kept in memory between the writes that record it)
+	sess     cached[sessionsDoc]
+	sessUsed map[string]time.Time
+
 	// change sets: a lock and a parsed-file cache of their own (changeset.go)
 	setsMu sync.Mutex
 	sets   map[string]*cachedSet

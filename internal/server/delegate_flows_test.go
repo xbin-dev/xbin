@@ -198,22 +198,23 @@ func TestDelegateTileCalls(t *testing.T) {
 	w := delegateWorld(t)
 	bob, person := delegateCred("d-bob"), w.cookie("bob")
 
-	// a read: free, as the person, on the model the agent says it is on
+	// a read: free, as the person, on the model of its agent session —
+	// never the one a header says
 	rec := w.do(w.inv, "GET", "/api/apps/x/notes?q=secret", "", bob, header(HeaderAgentModel, "private-1"))
 	calls := w.tileCalls()
 	if rec.Code != 200 || rec.Header().Get("X-Ran") != "tile" || len(calls) != 1 {
 		t.Fatalf("the tile read: %d ran %q (%d calls)", rec.Code, rec.Header().Get("X-Ran"), len(calls))
 	}
-	if p := calls[0].p; p.UserID != "bob" || p.Via != "delegate" || p.Agent != dHolder || p.Component != "" || p.IsAdmin() || p.User == nil || p.AgentModel != "private-1" {
+	if p := calls[0].p; p.UserID != "bob" || p.Via != "delegate" || p.Agent != dHolder || p.Component != "" || p.IsAdmin() || p.User == nil || p.AgentModel != "local/test" || p.AgentSession == "" {
 		t.Fatalf("the proxy saw %+v", p)
 	}
-	if last := w.policy.last(); last != (delegation.Subject{Holder: dHolder, User: "bob", Tile: "apps/x", Model: "private-1"}) {
+	if last := w.policy.last(); last != (delegation.Subject{Holder: dHolder, User: "bob", Tile: "apps/x", Model: "local/test"}) {
 		t.Fatalf("the policy was asked %+v", last)
 	}
 	// a model header that isn't one is dropped, not passed on
 	w.do(w.inv, "GET", "/api/apps/x/notes", "", bob, header(HeaderAgentModel, "a b\tc"))
-	if p := w.tileCalls()[1].p; p.AgentModel != "" {
-		t.Fatalf("a bad model header reached the principal: %q", p.AgentModel)
+	if p := w.tileCalls()[1].p; p.AgentModel != "local/test" {
+		t.Fatalf("a model header reached the principal: %q", p.AgentModel)
 	}
 
 	// a write: needs the person's approval

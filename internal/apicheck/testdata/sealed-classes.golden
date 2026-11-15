@@ -12,12 +12,15 @@ DELETE /cron/jobs/{name}	self	?component
 DELETE /delegate/approvals/{id}	no-tile
 DELETE /delegate/changesets/{id}	no-tile
 DELETE /delegate/requests/{id}	no-tile
+DELETE /delegate/sessions/{id}	no-tile
 DELETE /devices/push/{deviceId}	no-tile
 DELETE /devices/push/{deviceId}/activities/{session}	no-tile
 DELETE /devices/{id}	no-tile
 DELETE /grants	refused	body.from body.target
 DELETE /kv/{rest...}	self	path
 DELETE /limits	handled
+DELETE /llm/keys	no-tile
+DELETE /llm/keys/{id}	no-tile
 DELETE /llm/upstreams/{name}	no-tile
 DELETE /net-sets/{name}	no-tile
 DELETE /orgs/{org}	no-tile
@@ -82,8 +85,11 @@ GET /delegate/approvals	no-tile
 GET /delegate/audit	no-tile
 GET /delegate/changesets	no-tile
 GET /delegate/changesets/{id}	no-tile
+GET /delegate/map	no-tile
 GET /delegate/requests	no-tile
 GET /delegate/requests/{id}	no-tile
+GET /delegate/sessions/{id}	no-tile
+GET /delegate/sessions/{id}/connection	no-tile
 GET /delegate/state	no-tile
 GET /delegate/workspace	no-tile
 GET /deployments	refused	?tile body.tile
@@ -94,6 +100,8 @@ GET /devices	no-tile
 GET /devices/limits	no-tile
 GET /devices/pairing/{id}	no-tile
 GET /devices/push	no-tile
+GET /docs/page	no-tile
+GET /docs/search	no-tile
 GET /frame-token	handled
 GET /git/activity	refused	?component
 GET /git/diff	refused	?component
@@ -132,6 +140,7 @@ GET /permission-sets	no-tile
 GET /policy	no-tile
 GET /prefs	no-tile
 GET /prefs/{key}	no-tile
+GET /preview	no-tile
 GET /push/config	no-tile
 GET /push/devices	no-tile
 GET /push/prefs	no-tile
@@ -179,6 +188,7 @@ GET /whoami	no-tile
 GET /workspace-policies	no-tile
 GET /workspace-settings	no-tile
 PATCH /auth-settings	no-tile
+PATCH /delegate/sessions/{id}	no-tile
 PATCH /orgs/{org}	handled
 PATCH /sandboxes/{name}	no-tile
 PATCH /term/sessions/{id}	no-tile
@@ -212,6 +222,7 @@ POST /delegate/changesets/{id}/undo	no-tile
 POST /delegate/requests	no-tile
 POST /delegate/requests/{id}/approve	no-tile
 POST /delegate/requests/{id}/deny	no-tile
+POST /delegate/sessions	no-tile
 POST /deployments/add	refused	?tile body.tile
 POST /deployments/always-on	refused	?tile body.tile
 POST /deployments/backup	refused	?tile body.tile
@@ -253,6 +264,8 @@ POST /invite/redeem	no-tile
 POST /lifecycle	handled
 POST /limits	handled
 POST /limits/dismiss	no-tile
+POST /llm/keys	no-tile
+POST /llm/keys/{id}/renew	no-tile
 POST /llm/setup/dismiss	no-tile
 POST /llm/upstreams/{name}/test	no-tile
 POST /llm/v1/chat/completions	no-tile
@@ -275,6 +288,7 @@ POST /partitions/reviewed	refused	body.tile
 POST /partitions/share-log	handled
 POST /partitions/stop	handled
 POST /path-tickets	no-tile
+POST /preview	refused	body.tile
 POST /push/test	no-tile
 POST /restore	handled
 POST /sandboxes	refused	body.tile

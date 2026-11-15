@@ -282,6 +282,7 @@ xbin: <why>", "docs": "/docs/sealed.md"}`.
 | `POST /term/sessions` (`cwd`), `GET /term-net` | it has no terminal and no agent sessions |
 | `POST /sandboxes`, `DELETE /sandboxes/{name}`, `POST /sandboxes/{name}/stop` (`tile`) | it runs no tile sandboxes |
 | `POST /go-build-versions/dismiss` | it is built by the release |
+| `POST /preview` (`tile`) | it is not previewed: its page is each person's own to open, and no render shows it (a screen it sits on is drawn without it) |
 
 `/ws/term?cwd=xbin/<name>` answers 403 with the same text.
 

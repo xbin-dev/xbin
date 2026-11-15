@@ -109,7 +109,9 @@ func handleTeamBoard(w http.ResponseWriter, r *http.Request) {
 	}
 	c := callerOf(r)
 	d := projAg().db
-	teamMarkStale(d, p)
+	if !previewCall(r) { // a preview's read marks nothing (D234): the rows as stored
+		teamMarkStale(d, p)
+	}
 	off, _ := strconv.Atoi(r.URL.Query().Get("cursor"))
 	const page = 100
 	rows, err := d.q.Query(`SELECT `+boardCols+` FROM project_board WHERE project_id=? AND hidden=0
