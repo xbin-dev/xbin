@@ -1,0 +1,71 @@
+{
+ "name": "output",
+ "about": "the transcript of output.json in the chat kit's block model (/vendor/chat/blocks.js) after each of its checkpoints — blocks; tail: what waits on a person beside them; plan: the key of the newest plan block; usage. A block's k is the seq of the event that opened it (the Agent tab's key); versions (v) and clock times (at) are left out, and a field at its zero value too.",
+ "checkpoints": [
+  {
+   "seq": 8,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "recap"
+    },
+    {
+     "k": "6",
+     "kind": "tool",
+     "rec": {
+      "id": "recap",
+      "kind": "execute",
+      "title": "make build",
+      "status": "in_progress",
+      "output": "compiling\nlinking\n"
+     },
+     "state": "running"
+    }
+   ]
+  },
+  {
+   "seq": 15,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "recap"
+    },
+    {
+     "k": "6",
+     "kind": "tool",
+     "rec": {
+      "id": "recap",
+      "kind": "execute",
+      "title": "make build",
+      "status": "completed",
+      "output": "$ make build\ncompiling\nlinking\ndone\n",
+      "exitCode": 0
+     },
+     "state": "done"
+    },
+    {
+     "k": "11",
+     "kind": "assistant",
+     "text": "recap done",
+     "mid": "m"
+    },
+    {
+     "k": "14",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   ],
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  }
+ ]
+}

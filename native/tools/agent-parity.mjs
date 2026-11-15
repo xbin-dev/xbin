@@ -70,6 +70,7 @@ const toolCases = [
   [{ kind: 'think', title: 'Explore', subagent: true, rawInput: { description: 'Explore the repo', prompt: 'Find main', subagent_type: 'Explore' } }],
   [{ kind: 'switch_mode', title: 'Ready to code?', rawInput: { plan: '# P' } }],
   [{ kind: 'execute', title: 'x', rawInput: { command: null, cmd: 'fallback' } }],
+  [{ kind: 'execute', title: 'make build', status: 'in_progress', outputDelta: 'compiling\n' }, { output: '$ make build\ncompiling\n', outputDelta: 'done\n' }, { outputDelta: '!' }],
 ];
 const headlines = toolCases.map((evs, k) => {
   const t = tools.newTool('t' + k);

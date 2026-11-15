@@ -14309,6 +14309,94 @@ Deviations and refinements made while implementing; all deliberate:
       reference (delta after the whole output); the Agent tab's old order
       (the whole output wins) may be the better reading — to settle with
       `sdk/acp`'s record, no fixture has one.
+  - **F3 — the views, and the Agent tab on them; `KIT` 3 (2026-11-15).**
+    `web/chat/views.js`, `cards.js`, `asks.js`, `css.js`, `composer.js`,
+    `window.js`; `<bx-agent>` draws with them and nothing else.
+    - *Template functions of `(block, ctx)`, as F0 measured.* Rows are
+      `<div class="bxc-row" data-k>` holding a `guard`ed template; widgets
+      with state of their own are elements, both light DOM
+      (`<bx-chat-composer>`, `<bx-chat-form>`) so they wear the stylesheet
+      of the root they sit in — a shadow root for the Agent tab, a
+      document for a tile. The view modules import lit by URL
+      (`/vendor/lit-all.min.js`, what every workspace's import map maps
+      `lit` to): one copy with the shell, and they load on a page with no
+      import map at all.
+    - *The kit's look is the Agent tab's.* F3 changes nothing the tab
+      drew except the table of gains, so where the two chats' cards
+      differ (the status badge's words, a command under the headline, the
+      template's outcome chips) the kit has the tab's; F4 decides each for
+      the template (`plans/wsagent/chat-kit-spec.md` §11).
+    - *The fold is not rewritten.* `agent-fold.js` keeps its blocks (the
+      test API and the iOS port's parity corpus read them) and says each
+      in the kit's model on demand: `blockOf(b)`, the same object while
+      `b.v` holds, its `$memo` shared with `b` — so a streaming message's
+      parsed parts outlive the mapping, and a row whose block did not
+      change is not drawn. The fixtures' test adapter (`web.mjs`) became
+      that code. The fold now ties a permission request to its call
+      (`perm` on the tool block, the call's label on the request): the
+      card says "needs approval" — gap W2 closed, the Agent tab has none
+      left.
+    - *`ChatCtx` grew by what the tab needed to stop reaching into its
+      element*: `rev(block)` (the host's revision for a row — its folds, a
+      diff that loaded — beside the block's `v` in the row's guard),
+      `state(block)` (a bag for a widget's values: a form or a rejection's
+      feedback survives the row leaving the window, as the tab's
+      `_askVals` did), `readonly`, `role`, `copy`, `openDiff`, `signin`,
+      `host`, `sessionRules` (xbind's "always" is its own session rule,
+      offered only when the request can be scoped to one — the agent
+      template's is the agent's own and always offered).
+    - *The `host` block kind.* A card the kit frames and the host draws
+      (`ctx.host`), for what only a host can say or may do: the workspace
+      agent's cards for tile agent sessions it started, and a request its
+      TRUSTED chrome must grant. The kit draws no answer for one, by
+      construction: a page that merely renders a transcript cannot grant
+      it. Rejected: a kind per case (`session`, `grant`) — each would be a
+      special case in a module that must not know its hosts.
+    - *Diffs: `bx-code.js` stays optional.* `cards.js` imports it on the
+      first diff drawn and draws plain (`patchLines`, same line classes,
+      styled under `.bxc-diff`) until it arrives; a host that has it hands
+      it over (`useDiffHighlighter`; the Agent tab does, so nothing
+      changes there). Markdown: the tab imports `bx-md.js` as before
+      (highlighter up front).
+    - *`ChatWindow`* is the bookkeeping the tab had around `ScrollWindow`
+      (which rows, when to render or load more, what to let go, the pill),
+      moved as it was. Where the template's `chat-window.js` differs —
+      it returns after growing the window before letting pages go, keeps
+      a floor of two pages under the unload margin, lets nothing go while
+      a page is being read, and renders again for a trim when not
+      following too — each is an option that defaults to the tab's rule
+      (`growFirst`, `minMargin`, `holdWhileBusy`, `retrim`); F4 sets them
+      and deletes the template's class.
+    - *The gains, each with a check in the UI harness*: an `explicit`
+      option confirmed in the window's dialog (`bx-frame`'s, passed as
+      `ask`; Cancel sends no request); files in the message box; the
+      usage badge; URL-mode questions, `anyOf`/`enumNames`/defaults and a
+      viewer's and participant's cards (the kit drawn in the shell's
+      document with a plain `ChatCtx`); the diff drawn plain on a page
+      with no import map; harnesses not offered listed with their reason
+      (`agentPolicy`).
+    - *Two root causes while in that code.* (1) A session that is
+      `starting` was not polled: its `idle` is one live event, the events
+      hub drops a slow subscriber silently, and nothing later reveals the
+      gap — the tab stayed on "starting". It is polled like a running
+      turn now. (2) The `agentTab` pass kept the resumed tab's INDEX
+      across several looks at the page; a listing in between re-sorts the
+      tabs (ended ones last) and the index named the ended tab, whose
+      status is never idle. It asks by id every time.
+    - *A whole output and a delta in one event*: settled as the whole
+      output, then the delta — `sdk/acp`'s record and the kit already
+      agreed; `agent-tools.js` `foldTool` and the Swift port follow, and
+      the shared transcript `output` (acptest's `recap`) pins it for Go,
+      the template's backend and both JS reducers.
+    - *Performance* (agentLongPerf, `AGENT_PERF=950`, CPU 4×, 8 runs on a
+      machine at load ~25; F0's three runs in brackets): streamed 549–650
+      ms, median 586 [550–616]; reload → bottom 1444–1882, median 1503
+      [1432–1648]; a fresh tab 61–89, median 77 [65–76]; 30 more units
+      127–211, median 136 [128–167]; held 134 blocks, 30 rendered, 200
+      events [same]; heap 11.5 MiB [11.1–11.3 — the pre-F3 code measures
+      11.5 on today's base too]. The pre-F3 code measured in the same
+      session (the machine then at load 30–70): reload 1498–2768, a fresh
+      tab 62–156, 30 more units 142–355.
   - **Decided by the owner (2026-11-14)**, of what the core left open:
     `people` stays default `admins`; binding `xbin:llm` stays a workspace
     admin's act; calls nobody acts in stay under the workspace total alone

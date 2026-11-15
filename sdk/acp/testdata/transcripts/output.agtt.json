@@ -1,0 +1,277 @@
+{
+ "about": "the run's view (GET /runs/{id}/view: run, messages, steps, links, drafts) after each checkpoint of output.json, as the agent template's backend maps the log (its transcripts_test.go)",
+ "name": "output",
+ "views": [
+  {
+   "seq": 8,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "recap",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"make build\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:recap",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "output": "compiling\nlinking\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "in_progress",
+       "subagent": false,
+       "title": "make build"
+      },
+      "compacted": false,
+      "content": "(running…)",
+      "created": 6,
+      "id": 4,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:recap"
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "tool",
+       "title": "make build"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 1
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "working",
+      "steering": false,
+      "title": ""
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "running",
+     "title": "output"
+    },
+    "steps": []
+   }
+  },
+  {
+   "seq": 15,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "recap",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"make build\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:recap",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "exitCode": 0,
+       "kind": "execute",
+       "output": "$ make build\ncompiling\nlinking\ndone\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "make build"
+      },
+      "compacted": false,
+      "content": "$ make build\ncompiling\nlinking\ndone\n\n[exit 0]",
+      "created": 6,
+      "id": 4,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:recap"
+     },
+     {
+      "compacted": false,
+      "content": "recap done",
+      "created": 14,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "idle"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 1
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "ready",
+      "steering": false,
+      "title": "fake: recap",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "idle",
+     "title": "output"
+    },
+    "steps": []
+   }
+  }
+ ]
+}

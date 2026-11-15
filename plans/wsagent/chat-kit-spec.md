@@ -2,7 +2,8 @@
 
 > Status: live — specified and pinned by tests (F0, 2026-11-14, branch
 > `wsagent/a0-spec`); the models of F2 are built on it (same day, branch
-> `wsagent/a2-models`: §10). Step F0 of `plans/agent-dedupe.md` §3.
+> `wsagent/a2-models`: §10), and the views of F3, with the Agent tab on
+> them (2026-11-15: §11; §12 is what F4 has to do). Step F0 of `plans/agent-dedupe.md` §3.
 > Everything later in the dedupe — the kit's models (F2) and views (F3),
 > AgTT onto the kit (F4), `sdk/acp`'s tool record (B1) — is tested against
 > what this step fixes.
@@ -198,7 +199,10 @@ func (rec *ToolRecord) Merge(d ToolEvent, capOutput bool)
 `Text`, `RawInput` stop being engine-private); `internal/agent/page.go`
 uses `ToolRecords` for its cuts.
 
-## 3. Mapping: the Agent tab (`hack/chat-fixtures/web.mjs`)
+## 3. Mapping: the Agent tab (`web/agent-fold.js` `blockOf`)
+
+(Since F3 this mapping is shipped code — `blockOf(b)` / `transcriptOf(fold)`,
+what `<bx-agent>` draws from; `hack/chat-fixtures/web.mjs` only names it.)
 
 | Today (`agent-fold.js`, `agent-tools.js`) | Block field |
 |---|---|
@@ -261,7 +265,7 @@ Agent tab (to close in F2/F3):
 | Gap | Field | Why |
 |---|---|---|
 | ~~W1~~ | `rec.locations`, `rec.files` | closed in F2: the fold keeps the kit's record (`mergeTool`) on its tool block |
-| W2 | `tool.state` `approval` → `pending` | the fold does not tie a request to its call's card |
+| ~~W2~~ | `tool.state` `approval` → `pending` | closed in F3: the fold ties a request to its call (`perm` on the tool block; the call's label on the request) |
 | ~~W3~~ | `perm.options[].explicit` | closed by B1 (D225): `permission.request` options carry `explicit` (`sdk/acp` `Provider.OptionRaises`); the gap line is gone from `expect.mjs` |
 | ~~W4~~ | `ask.mode`, `ask.url` | closed in F2: the fold keeps both |
 
@@ -486,4 +490,94 @@ step settled where §1–§2 were silent (rationale: D224, "F2"):
 Gaps closed: W1, W4. `hack/chat-fixtures-agtt.test.mjs` additionally holds
 that the kit's headline, subline, state chip and outcome of every call of
 the shared transcripts are the same from either reducer's record.
+
+## 11. F3 — the views, and the Agent tab on them (2026-11-15)
+
+`KIT` 3. Rationale and the numbers: D224, "F3".
+
+| Module (`/vendor/chat/…`) | What |
+|---|---|
+| `views.js` | `rowsView`, `rowView`, `blockView` (dispatch; `ctx.other` first), `userView`, `assistantView`, `draftView`, `thoughtView`, `noticeView`, `turnView`, `gapView`, `hostView`, `mdLive`, `activityView`, `usageView` |
+| `cards.js` | `toolView` (+ the subagent's), `agentView`, `changesView`, `filesView`, `planView`, `commandView`, `contentView`, `textView`, `diffView`, `useDiffHighlighter`, `diffEpoch`, `KIND_ICON` |
+| `asks.js` | `permView` (+ the plan's approval), `askView` (form / url / text), `signinView`, `canOf`, `bagOf`, `<bx-chat-form>` |
+| `composer.js` | `<bx-chat-composer>` |
+| `window.js` | `ChatWindow` |
+| `css.js` | `chatCssText` |
+
+What F3 settled:
+
+| # | Question | Decision |
+|---|---|---|
+| V1 | The kit's look | the Agent tab's, class names apart (`bxc-`). Where the two chats' cards differ the kit has the tab's until F4 decides (§12) |
+| V2 | A row | `<div class="bxc-row" data-k data-kind>`; its view `guard`ed by `[v, ctx.rev(b), ended, readonly, running (thought, agent, subagent call), mdEpoch, diffEpoch]`; a request that waits is drawn every time (live form state) |
+| V3 | Open/closed | `ctx.isOpen(b, slot, dflt)` / `ctx.setOpen(b, slot, open, dflt)`; a `<details>` is `?open=${dflt}` and its body drawn when `dflt` or open; the host hears a move off the default only |
+| V4 | A widget's state | `ctx.state(b)`: a bag by block key (`vals`, `feedback`, `busy`); the form is an element so typing draws it alone |
+| V5 | Who may answer | `canOf(ctx)`: `ctx.can`, else from `ctx.role` (viewer: nothing; owner: raise); `readonly` / `ended`: nothing |
+| V6 | An `explicit` option | drawn `bxc-explicit` (caution, never the primary button), `await ctx.confirm(optionConfirm(…))` before `ctx.permit`; hidden from who may not raise, with a line saying how many |
+| V7 | Plan feedback | a textarea in the card (the bag); a reject button's `permAnswer(o, feedback)` → `{optionId, verdict: 'reject', feedback}`; the Agent tab sends it as the next message, the template as a field |
+| V8 | The status badge of a call | `exit N` once a command exited; `needs approval` while a request names it; else its status word (`pending`, `in progress`, `completed`, `failed`, `cancelled`) with ` +a/-d` (the tab's) |
+| V9 | Sign-in | `signinView`: the kit's card and words, `ctx.signin(block)` its inside. The tab keeps `<bx-agent-signin>` on its own when the guided flow runs |
+| V10 | Diff highlighter | optional (`useDiffHighlighter`, lazy `bx-code.js`), plain `patchLines` until then |
+| V11 | The composer's files | staged as chips, limits said, read as base64 on Send, kept until the host calls `sent()` |
+| V12 | Pickers | plain data (`[{id, label, title, value, options}]`), a `<select>` each; what cannot be offered is `unavailable: [{name, reason}]` |
+| V13 | The `host` kind | §12 |
+
+Gaps closed: W2 (none left for the Agent tab). New transcript: `output` (a
+whole output and a delta in one event — rule 1 of §2 pinned for Go, the
+template's backend and both reducers).
+
+## 12. What F4 has to do (the agent template onto the kit), and the workspace agent
+
+The template renders in a **document** (no shadow root): it adds
+`<style>${chatCssText}</style>` once (the kit styles only `bxc-` classes, so
+its own sheet is untouched), keeps its timeline as the scroller, and hands
+the views a `ChatCtx` built from `ui` and `ctx.app`:
+
+| `ChatCtx` | Template |
+|---|---|
+| `running`, `ended` | `busy(run.status)`, never |
+| `readonly`, `role`, `can` | `access(v)`: viewer → `role: 'viewer'`; `talk` → participant; `ownerOf(v, me)` → owner (`can.raise`) |
+| `me`, `agentName`, `agentLabel` | `ui.me()`, `nameOf(run.harness)` or the class's name |
+| `isOpen`/`setOpen`/`rev` | `ui.isOpen(id[:slot], dflt)` / `ui.toggle`; `rev` from the same store |
+| `state` | its `forms` map (per park) |
+| `permit`, `answer` | `app.harness.permit(runId, {option, park, feedback})`, `app.harness.answer(runId, action, content, park)`; its own approval: `ui.act.approve` |
+| `confirm`, `note` | `confirm(...)`, `ui.approveNote(runId)` |
+| `fileState`, `openFile` | `ui.file(msgId, f)`, `ui.act.openFile(path)` |
+| `openAgent`, `loadAgent`, `agentError` | `ui.act.select`, `ui.act.loadChild` / `retryRead`, `ui.readError` |
+| `sessionRules` | false: "always" is the agent's own |
+| `other` | `ui.ext.block(b, ui, depth)` first, then its `step` kind |
+| `signin` | `signin.js`'s card body |
+
+Per view of the template:
+
+| Template view | F4 |
+|---|---|
+| `model/fold.js` | gains the adapter to blocks (the fixtures' `hack/chat-fixtures/agtt.mjs` becomes its code, as `web.mjs` became `blockOf`): `Versions.of(k, foldBlock)` for `v`, `nest()` for a harness subagent's kids; a park goes to `Transcript.tail` |
+| `chat-cards.js` `blocksTpl` (user, notice, think, assistant, draft) | `rowsView` / `userView` … ; its `Copy` on an answer and the model/usage line under it are the template's: `ctx.other` wraps `assistantView`, or the kit grows an optional footer slot (decide there) |
+| `chat-cards.js` `toolTpl` (its own tools) | `toolView` over `builtinRecord` (the record made of name, family, args, result: `result` on the block). To decide: the template's **outcome chips** (`exit 1 · 14s`, `3 matches`) and **subline** vs the tab's status badge (V8) — either the kit's card takes `ctx.chips: 'outcome'`, or the tab adopts outcomes; measure which reads better, change both |
+| `chat-cards.js` agent card, `harness-child.js` | `agentView` (drafted in F3 from the model, not yet driven by a host): the child's header line (monogram, where it works, counters) is the template's — through `ctx.other` or a `host` block beside it |
+| `chat-cards.js` `approvalTpl`, `askTpl` | `permView` with `calls[]` (K19), `askView` mode `text` |
+| `harness-cards.js` | `toolView`; its top bar (usage badge → `usageView`, counts, the plan pin → `planView` in its own fold) stays the template's chrome |
+| `harness-ask.js` | `permView`, `askView`; `end` seam places them (`Transcript.tail`); its diff preview (`contentPreview` lines) vs the kit's capped full diff — the kit's |
+| `harness-controls.js`, the composer in `agent.js`, `page-composer.js` | `<bx-chat-composer>`: `#hctl`'s popover becomes `pickers` (mode with `explicit` marked and confirmed, options) — the setting (Auto / Always approve) and the account stay the template's beside it; `composerWords` for the placeholder; `steerTracker`'s notes; its attachments already upload elsewhere (`/files`) — the composer hands `File`s, the template uploads |
+| `chat-window.js` | `ChatWindow` with `{page: 40, trim: 160, minMargin: 80, growFirst: true, holdWhileBusy: true, retrim: 'any'}`; its no-ScrollWindow fallback goes (the page needs the kit's xbind anyway) |
+| `chat-copy.js` | unchanged; its `clean()` learns the `bxc-` chrome classes |
+| `signin.js` | `signinView` + `ctx.signin` (F5 makes it one card) |
+| `native/*` | unchanged (models only) |
+| `boot.js` | `NEEDS.kit` 3 |
+| tests | `hack/chat-fixtures-agtt.test.mjs` on the real adapter; the template's browser scripts select `.bxc-…` |
+
+**The workspace agent** is the template's code in a workspace mode, so it
+gets all of the above, plus two things the kit leaves a slot for instead of
+knowing:
+
+- **A tile agent session it started** — a `host` block `{type: 'session',
+  data: {tile, session, provider, status, …}}`. The kit gives it a row and a
+  frame; the host draws the card (name, state, "open") with `ctx.host`.
+- **An approval that trusted chrome must grant** (a change set to apply, a
+  delegation) — a `host` block `{type: 'grant', data}`. The transcript (a
+  sealed component's page) draws only that something waits; the button
+  lives in xbind's own chrome, which the page cannot script. The kit draws
+  no answer for a `host` block, so this holds by construction; a `perm`
+  block is never used for it.
 

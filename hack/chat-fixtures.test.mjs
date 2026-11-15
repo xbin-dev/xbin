@@ -41,7 +41,7 @@ const WRITE = !!process.env.CHAT_FIXTURES_WRITE;
 const all = load();
 
 test('the transcripts are there, each with its checkpoints', () => {
-  assert.deepEqual(all.map((t) => t.name), ['id-reuse', 'permission', 'plan', 'questions', 'signin', 'text', 'tools', 'xbind-shell']);
+  assert.deepEqual(all.map((t) => t.name), ['id-reuse', 'output', 'permission', 'plan', 'questions', 'signin', 'text', 'tools', 'xbind-shell']);
   for (const t of all) {
     assert.equal(t.log.name, t.name);
     assert.deepEqual(t.log.events.map((e) => e.seq), t.log.events.map((_, i) => i + 1), `${t.name}: seqs count from 1`);
@@ -178,9 +178,10 @@ test('the Agent tab\'s record: locations and files, what a call changed on disk,
   assert.deepEqual([t.rec.locations, t.rec.files], [[{ path: 'a.go', line: 3 }, { path: 'b.go' }], ['a.go', 'b.go']]);
   assert.deepEqual(t.rec.changed, { files: [{ path: 'a.go', status: 'modified', add: 1, del: 0 }], patch: { text: 'p', truncated: true } });
   assert.deepEqual([t.output, t.rec.output], ['xy', 'xy']);
-  // the two rules differ only when one event carries a whole output and a delta: the old record's says the whole one
+  // an event that carries a whole output and a delta: the whole output, then the delta — one text for both records (the transcript `output` pins it for sdk/acp too)
   const both = new Fold([ev(1, 'tool.call', { id: 'o', kind: 'execute', outputDelta: 'a' }), ev(2, 'tool.update', { id: 'o', output: 'W', outputDelta: 'd' }), ev(3, 'tool.update', { id: 'o', outputDelta: '!' })]).blocks[0];
-  assert.deepEqual([both.output, both.rec.output], ['W!', 'Wd!']);
+  assert.deepEqual([both.output, both.rec.output], ['Wd!', 'Wd!']);
+  assert.equal(all.find((x) => x.name === 'output').records.records[0].rec.output, '$ make build\ncompiling\nlinking\ndone\n');
 });
 
 test('an id used again: after its call ended, or in a later turn (each reducer has one half today)', () => {
@@ -227,8 +228,8 @@ test('a diff\'s counts are its changed lines', () => {
 // ---- the model's helpers --------------------------------------------------------------
 
 test('blocks.js: the kit\'s revision, kinds and a record\'s zero value', () => {
-  assert.equal(KIT, 2);
-  assert.equal(model.KINDS.length, 14);
+  assert.equal(KIT, 3);
+  assert.equal(model.KINDS.length, 15);
   const rec = model.newToolRecord('t');
   assert.deepEqual(compact(rec), { id: 't', kind: 'other', title: '', status: 'pending' });
   assert.deepEqual(['pending', 'in_progress', 'completed', 'failed', 'cancelled'].map((status) => model.toolState({ status })), ['pending', 'running', 'done', 'error', 'stopped']);
