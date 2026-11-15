@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/preview"
 )
 
@@ -419,6 +420,17 @@ func previewPerson(p auth.Principal, t PreviewTarget) (userID string, err error)
 		return "", previewErr(http.StatusForbidden, "a preview is a person's own view: sign in as a person (the root token is nobody's view)")
 	case p.Component == "" && (p.Via == "session" || p.Via == "device" || p.Via == "app"):
 		return p.UserID, nil
+	case p.Component == "" && p.Via == "delegate" && p.Agent != "":
+		// a person's workspace agent previews AS ITS PERSON (D228 C0): one
+		// tile, alone, under an agent session — whose scope and the orgs'
+		// rules apiPreview then holds it to (previewDelegate)
+		switch {
+		case p.AgentSession == "":
+			return "", previewErr(http.StatusForbidden, "a workspace agent previews under an agent session (X-XBin-Agent-Session)")
+		case t.Tile == "" || t.Screen != "" || t.shell:
+			return "", previewErr(http.StatusForbidden, "a workspace agent previews one tile, alone: {\"tile\": \"<path>\"} — a screen or the shell shows tiles its session may not see")
+		}
+		return p.UserID, nil
 	case p.Via == "terminal" && p.Component != "":
 		if t.Screen == "" && !t.shell && t.Tile != "" && (t.Tile == p.Component || strings.HasPrefix(t.Tile, p.Component+"/")) {
 			return p.UserID, nil
@@ -651,6 +663,9 @@ func (s *Server) apiPreview(w http.ResponseWriter, r *http.Request) {
 	t := body.PreviewTarget
 	t.shell = body.Shell || t.Screen != "" || t.Tile == ""
 	userID, err := previewPerson(auth.PrincipalOf(r), t)
+	if p := auth.PrincipalOf(r); err == nil && p.Agent != "" {
+		err = s.previewDelegate(p, t)
+	}
 	var res *preview.Result
 	if err == nil {
 		res, err = s.RenderPreview(r, userID, t)
@@ -683,4 +698,31 @@ func (s *Server) apiPreviewStatus(w http.ResponseWriter, r *http.Request) {
 		st.Browser, st.Sandbox, st.Playwright, st.Running = "", "", "", 0
 	}
 	WriteJSON(w, http.StatusOK, st)
+}
+
+// previewDelegate holds a workspace agent's preview to what its
+// conversation may see, like any other read of the tile: the tile is one
+// its person can read (the same answer for one that isn't there), inside
+// the agent session's scope ("hidden by you"), and not kept from agents by
+// its orgs' rules (the rule's own words). The preview then taints the
+// session with the tile's orgs and leaves a row in the person's log —
+// the target, nothing of the picture. It is rendered as the person and
+// counts against the person's preview limits.
+func (s *Server) previewDelegate(p auth.Principal, t PreviewTarget) error {
+	tile := strings.Trim(t.Tile, "/")
+	h, ok := s.handleOf(p)
+	switch {
+	case !ok:
+		return previewErr(http.StatusForbidden, "a workspace agent previews under an agent session (X-XBin-Agent-Session)")
+	case s.tileHidden(p, tile):
+		return previewErr(http.StatusForbidden, "%s", noTileFor(p.UserID))
+	case !s.inSessionScope(h, tile):
+		return previewErr(http.StatusForbidden, "%s", hiddenByScope(p.UserID))
+	}
+	if err := s.agentPolicy().TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}); err != nil {
+		return previewErr(http.StatusForbidden, "%s", err.Error())
+	}
+	s.taint(p, tile)
+	s.delegateAudit(delegation.Call{User: p.UserID, Agent: p.Agent, Method: http.MethodPost, Path: "/api/xbin/preview", Tile: tile, Class: "preview", Status: http.StatusOK, Session: p.AgentSession})
+	return nil
 }

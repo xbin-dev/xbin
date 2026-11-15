@@ -180,6 +180,29 @@ add upstreams" as "may make xbind reach that address". A host that doesn't
 want its workspace admins to have it sets `"lockAll": true` in its file
 (below): then nobody adds or changes an upstream through the API.
 
+### Workspace agents: the session's model, and no other
+
+A person's **workspace agent** (a delegation holder,
+[auth.md](/docs/auth.md) §Delegation) calls the connector from its
+person's partition like any bound tile — with one more rule. Every call
+carries **`X-XBin-Agent-Session: <id>`**, the agent session xbind issued
+for the conversation
+([protocol/delegation.md](/docs/protocol/delegation.md) §Agent sessions),
+and the connector serves it **only on that session's model**:
+
+- no header, an expired session, or another person's: `403
+  xbin_llm_policy`;
+- a model other than the session's `<upstream>/<model>`: `403
+  xbin_llm_policy` — change the session's model first (`PATCH
+  /delegate/sessions/<id>`), which every org whose data the conversation
+  has seen must allow;
+- a model such an org no longer allows (its rules changed since): `403`.
+
+That is what makes an org's model rule hold for a workspace agent: the
+model its tiles' data is judged against at the delegate gate is the model
+the conversation's text is really sent to. `GET /llm/v1/models` lists, for
+such a caller, the session's model.
+
 ## Using it from a tile
 
 Declare a slot for the `openai` service and let an admin bind it — the same

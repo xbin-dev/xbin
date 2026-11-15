@@ -36,9 +36,16 @@ func (st *State) setupLLM(srv *server.Server) error {
 		Vault: brk.Barrier(), AllowPlaintext: brk.AllowInsecureVault,
 		IsAdmin: brk.IsAdmin, AdminShell: brk.AdminShell,
 		Bound: brk.LLMBound, // the binding is the authorization, asked per call
-		// a call made for a tile uses only the models its orgs allow (D229)
-		Policy: llmCallPolicy(brk),
-		Edge:   brk.LLMEdge, // …and a non-primary deployment uses it by the tile's edge policy
+		// a call made for a tile uses only the models its orgs allow (D229);
+		// a delegation holder's calls run only under an agent session, on
+		// that session's model (delegation.go, D228 C0)
+		Policy: func(c llm.Caller, u llm.UpstreamInfo, model string) error {
+			if err := holderCallPolicy(srv, brk)(c, u, model); err != nil {
+				return err
+			}
+			return llmCallPolicy(brk)(c, u, model)
+		},
+		Edge: brk.LLMEdge, // …and a non-primary deployment uses it by the tile's edge policy
 		// an LLM key stands while its person exists, is enabled and can
 		// still open the tile it was minted for
 		KeyOwner: func(user, component string) bool {

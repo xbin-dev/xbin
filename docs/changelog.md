@@ -12,6 +12,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Agent sessions: a workspace agent's conversation is a handle xbind
+  issues** (D228 part C0;
+  [protocol/delegation.md](/docs/protocol/delegation.md) §Agent sessions).
+  `POST /api/xbin/delegate/sessions {scope, model}` → a session; every
+  delegate call carries `X-XBin-Agent-Session` (403 `no-session`
+  without). The orgs' rules are asked with the **session's** model —
+  `X-XBin-Agent-Model` is ignored now — the scope confines the call
+  (`hidden`), the orgs whose tiles a call touched taint the session, and
+  the model changes only to one every tainted org allows (409
+  `model_taint`). The LLM connector serves a workspace agent's calls on
+  its session's model only ([llm.md](/docs/llm.md)). New reads:
+  `…/sessions/<id>/connection` (blocked tiles as counts), `GET
+  /delegate/map`, `GET /docs/search`, `GET /docs/page` (for every
+  signed-in caller), `GET /term/sessions?origin=agent&compact=1`, and
+  `GET /agents/connection?session=` for the agent's own page. xbind sends
+  the agent's backend notices (kinds and ids only) when a request, an
+  approval, a change set, the person's pause or a session it started
+  changes. SDK: `InAgentSession`, `OpenAgentSession`, `SetSessionModel`,
+  `SetSessionScope`, `ConnectionOf`, `MapOf`, `DocsSearch`, `DocsPage`,
+  `ReadHolderNotice`, `ErrNoSession`, `ErrHiddenByScope`, `ErrModelTaint`.
+  Nothing delegates until a holder ships; tiles need no change.
 - **Previews: xbind renders a tile or a screen as the person who asks**
   (D234; [protocol/preview.md](/docs/protocol/preview.md),
   [auth.md](/docs/auth.md) §Previews, [isolation.md](/docs/isolation.md)

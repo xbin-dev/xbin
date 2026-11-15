@@ -239,8 +239,8 @@ var delegateClasses = map[string]delegateRow{
 	// decided: a delegate previews AS ITS PERSON, and the one place that
 	// says who a preview renders as is previewPerson (preview.go) — the
 	// delegate's case goes there, with these rows, in the same change.
-	"POST /preview":             dNo("previews for a workspace agent are not decided yet (D234): the person asks for their own"),
-	"GET /preview":              dNo("previews for a workspace agent are not decided yet (D234)"),
+	"POST /preview":             dAct(),  // as its person: one tile, in the session's scope and the orgs' rules; rate-limited as an act, no ticket (preview.go previewDelegate)
+	"GET /preview":              dRead(), // whether previews are available, and the limits
 	"GET /components":           dRead(), // the tiles the person can read
 	"GET /components/{path...}": dRead().on(byComponentPath),
 	"GET /screens":              dRead(), // its tiles and folder items, filtered (the broker's delegatelist.go)
@@ -277,15 +277,26 @@ var delegateClasses = map[string]delegateRow{
 	"POST /templates/new":                    dAct().ticketed(),    // where the person may create
 
 	// ---- its own asking: approval requests and change-set proposals ----
-	"POST /delegate/requests":          dAct(),
-	"GET /delegate/requests/{id}":      dRead(),
-	"DELETE /delegate/requests/{id}":   dAct(),
-	"GET /delegate/state":              dRead(),
-	"GET /delegate/approvals":          dRead(),
-	"POST /delegate/changesets":        dAct(),
-	"GET /delegate/changesets":         dRead(),
-	"GET /delegate/changesets/{id}":    dRead(),
-	"DELETE /delegate/changesets/{id}": dAct(),
+	"POST /delegate/requests":        dAct(),
+	"GET /delegate/requests/{id}":    dRead(),
+	"DELETE /delegate/requests/{id}": dAct(),
+	"GET /delegate/state":            dRead(),
+	// agent sessions (handles): the conversation's scope and model, in
+	// xbind's record; its connection view (blocked tiles as counts); the
+	// workspace map; the docs (delegatesessions.go, docsapi.go)
+	"POST /delegate/sessions":                dAct(),
+	"GET /delegate/sessions/{id}":            dRead(),
+	"PATCH /delegate/sessions/{id}":          dAct(),
+	"DELETE /delegate/sessions/{id}":         dAct(),
+	"GET /delegate/sessions/{id}/connection": dRead(),
+	"GET /delegate/map":                      dRead(),
+	"GET /docs/search":                       dRead(),
+	"GET /docs/page":                         dRead(),
+	"GET /delegate/approvals":                dRead(),
+	"POST /delegate/changesets":              dAct(),
+	"GET /delegate/changesets":               dRead(),
+	"GET /delegate/changesets/{id}":          dRead(),
+	"DELETE /delegate/changesets/{id}":       dAct(),
 
 	// ---- never: answering itself ----
 	"GET /delegate/requests":                 dNever(neverApprove),

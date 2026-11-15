@@ -13,6 +13,7 @@ DELETE /cron/jobs/{name}	never
 DELETE /delegate/approvals/{id}	never
 DELETE /delegate/changesets/{id}	act
 DELETE /delegate/requests/{id}	act
+DELETE /delegate/sessions/{id}	act
 DELETE /devices/push/{deviceId}	never
 DELETE /devices/push/{deviceId}/activities/{session}	never
 DELETE /devices/{id}	never
@@ -85,8 +86,11 @@ GET /delegate/approvals	read
 GET /delegate/audit	never
 GET /delegate/changesets	read
 GET /delegate/changesets/{id}	read
+GET /delegate/map	read
 GET /delegate/requests	never
 GET /delegate/requests/{id}	read
+GET /delegate/sessions/{id}	read
+GET /delegate/sessions/{id}/connection	read
 GET /delegate/state	read
 GET /delegate/workspace	never
 GET /deployments	refused
@@ -97,6 +101,8 @@ GET /devices	never
 GET /devices/limits	never
 GET /devices/pairing/{id}	never
 GET /devices/push	never
+GET /docs/page	read
+GET /docs/search	read
 GET /frame-token	never
 GET /git/activity	refused
 GET /git/diff	refused
@@ -135,7 +141,7 @@ GET /permission-sets	never
 GET /policy	never
 GET /prefs	refused
 GET /prefs/{key}	refused
-GET /preview	refused
+GET /preview	read
 GET /push/config	never
 GET /push/devices	never
 GET /push/prefs	never
@@ -182,6 +188,7 @@ GET /whoami	read
 GET /workspace-policies	refused
 GET /workspace-settings	refused
 PATCH /auth-settings	never
+PATCH /delegate/sessions/{id}	act
 PATCH /orgs/{org}	never
 PATCH /sandboxes/{name}	refused
 PATCH /term/sessions/{id}	never
@@ -215,6 +222,7 @@ POST /delegate/changesets/{id}/undo	never
 POST /delegate/requests	act
 POST /delegate/requests/{id}/approve	never
 POST /delegate/requests/{id}/deny	never
+POST /delegate/sessions	act
 POST /deployments/add	refused
 POST /deployments/always-on	refused
 POST /deployments/backup	refused
@@ -280,7 +288,7 @@ POST /partitions/reviewed	never
 POST /partitions/share-log	never
 POST /partitions/stop	never
 POST /path-tickets	never
-POST /preview	refused
+POST /preview	act
 POST /push/test	never
 POST /restore	never
 POST /sandboxes	refused

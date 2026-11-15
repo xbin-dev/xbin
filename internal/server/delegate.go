@@ -472,7 +472,17 @@ func IsDelegateAdminRead(r *http.Request) bool {
 // delegate, and the tile's org's agent rules don't let the agent in (on the
 // model it is on). Everyone else sees every row they always did.
 func (s *Server) delegateHides(p auth.Principal, tile string) bool {
-	return p.Agent != "" && s.agentPolicy().TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}) != nil
+	if p.Agent == "" {
+		return false
+	}
+	if h, ok := s.handleOf(p); ok && !s.inSessionScope(h, tile) {
+		return true // hidden by the person: outside the conversation's scope
+	}
+	if s.agentPolicy().TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}) != nil {
+		return true
+	}
+	s.taint(p, tile) // a row that is shown is that tile's orgs' data in the conversation
+	return false
 }
 
 // DelegateHides is delegateHides for the listings other packages serve.
@@ -500,24 +510,14 @@ func delegateRefuse(w http.ResponseWriter, status int, refusal, class, msg strin
 	WriteJSON(w, status, map[string]string{"error": msg, "refusal": refusal, "class": class, "docs": "/docs/auth.md"})
 }
 
-// agentModel is the model a delegate call is judged on: today the header
-// the sealed component sends, bounded and printable. This function is the
-// ONE source of auth.Principal.AgentModel and so of delegation.Subject.Model
-// — nothing else reads the header. It is the component's own statement; a
-// later step replaces it with a session handle xbind issues, bound to a
-// scope and a model that the LLM connector enforces too. Change it here.
-func agentModel(r *http.Request) string {
-	m := strings.TrimSpace(r.Header.Get(HeaderAgentModel))
-	if len(m) > 128 {
-		return ""
-	}
-	for _, c := range m {
-		if c < 0x21 || c > 0x7e {
-			return ""
-		}
-	}
-	return m
-}
+// agentModel is the model a delegate call is judged on: the model of the
+// agent session (handle) the call runs under — xbind's own record, which
+// the LLM connector enforces for the holder's calls too. This function is
+// the ONE source of auth.Principal.AgentModel and so of
+// delegation.Subject.Model. No request header names a model any more
+// (X-XBin-Agent-Model is ignored); a call without a handle has no model,
+// which only an org with no model rule allows.
+func agentModel(h delegation.AgentSession) string { return h.Model }
 
 // requestTarget is what a ticket binds a request by: its path as sent,
 // with its query.
@@ -544,7 +544,11 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		http.Error(w, "unauthorized", http.StatusUnauthorized) // delegates nothing: as any bad token
 		return
 	}
-	p.AgentModel = agentModel(r)
+	// the handle: xbind's record of this conversation's scope and model.
+	// The model the orgs' rules are asked with is the handle's — never
+	// something the request says (agentModel).
+	handle, hasHandle := s.delegateHandle(r, p)
+	p.AgentModel, p.AgentSession = agentModel(handle), handle.ID
 	recheck := s.Auth.DelegateRecheck(r)      // before any handler strips the credential
 	for _, h := range methodOverrideHeaders { // the method judged is the method made
 		r.Header.Del(h)
@@ -553,7 +557,7 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 	if r.URL.Query().Has("_method") && v.deny == "" {
 		v.deny = "a call that names another method in its query (_method) isn't made for a person: the method judged must be the method made"
 	}
-	row := delegation.Call{User: p.UserID, Agent: p.Agent, Method: r.Method, Path: r.URL.Path, Tile: v.tile, Class: v.class, Effect: v.effect}
+	row := delegation.Call{User: p.UserID, Agent: p.Agent, Method: r.Method, Path: r.URL.Path, Tile: v.tile, Class: v.class, Effect: v.effect, Session: handle.ID}
 	refuse := func(status int, refusal, msg string) {
 		row.Status, row.Refused = status, msg
 		s.delegateAudit(row)
@@ -561,6 +565,10 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 	}
 	if v.deny != "" {
 		refuse(http.StatusForbidden, "not-delegated", v.deny)
+		return
+	}
+	if !hasHandle && !delegateBootstrap[v.pattern] {
+		refuse(http.StatusForbidden, "no-session", "this call needs an agent session: make one (POST /api/xbin/delegate/sessions {scope, model}) and send its id as "+HeaderAgentSession+" — it says what this conversation may see and which model it is on")
 		return
 	}
 	dry := r.Header.Get(HeaderDryRun) != ""
@@ -578,6 +586,10 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		if s.tileHidden(p, v.tile) { // before anything is said about the tile, a dry run included
 			row.Tile = ""
 			refuse(http.StatusForbidden, "tile", noTileFor(p.UserID))
+			return
+		}
+		if !s.inSessionScope(handle, v.tile) {
+			refuse(http.StatusForbidden, "hidden", hiddenByScope(p.UserID))
 			return
 		}
 		level, role, readOnly, err := dp.DelegateTile(p, v.tile, v.effect)
@@ -606,6 +618,10 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		if s.tileHidden(p, v.tile) { // at the person's level, whatever the handler asks
 			row.Tile = ""
 			refuse(http.StatusForbidden, "tile", noTileFor(p.UserID))
+			return
+		}
+		if hasHandle && !s.inSessionScope(handle, v.tile) {
+			refuse(http.StatusForbidden, "hidden", hiddenByScope(p.UserID))
 			return
 		}
 		if err := s.agentPolicy().TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: v.tile, Model: p.AgentModel}); err != nil {
@@ -690,6 +706,7 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 			}
 		}
 	}
+	s.taint(p, v.tile) // the conversation has touched this tile's orgs' data, reads included
 	dw := &delegateWriter{ResponseWriter: w, status: http.StatusOK, tile: v.tileAPI}
 	next.ServeHTTP(dw, r.WithContext(auth.WithPrincipal(ctx, run)))
 	row.Status = dw.status

@@ -240,3 +240,17 @@ func (s *Store) AgentLayers(path string) []agentpolicy.Layer {
 	}
 	return layers
 }
+
+// OrgAgentLayers is the layers of agent rules that hold for the tiles of
+// one org — the workspace's bounds, then the org's pin and its own rules —
+// or the bounds alone for agentpolicy.WorkspaceID (the tiles in no org)
+// and for an org that isn't there any more.
+func (s *Store) OrgAgentLayers(org string) []agentpolicy.Layer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	layers := []agentpolicy.Layer{{Rules: s.agents.normalized().Rules}}
+	if o, ok := s.orgs[normalizeID(org)]; ok && org != agentpolicy.WorkspaceID {
+		layers = append(layers, agentpolicy.OrgLayers(normalizeID(org), o.Name, rulesOf(o.Agents), rulesOf(o.AgentsPin), "")...)
+	}
+	return layers
+}

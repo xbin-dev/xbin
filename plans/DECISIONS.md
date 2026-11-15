@@ -13797,6 +13797,27 @@ Deviations and refinements made while implementing; all deliberate:
     with the person's session and no component, which is exactly what
     chrome's documents send — `trustedChrome` is false for a holder,
     `PUT /chrome` refuses one, and boot stops on a conflict.
+  - **Part C0 — what the agent's backend builds on (2026-11-15).**
+    *Agent sessions*: a conversation is a handle xbind issues
+    (`POST /delegate/sessions`: scope, model; per person and holder, 32,
+    24 h idle). Every delegate call names it; the gate takes the model
+    from it (the self-declared `X-XBin-Agent-Model` is gone), confines
+    the call to its scope ("hidden by you"; a policy refusal keeps its
+    reason) and taints it with the orgs of every tile a call touched,
+    reads and listing rows included. The model changes only to one every
+    tainted org allows (409 `model_taint`); the LLM connector holds the
+    holder's own calls to the session's model (its `CallPolicy`).
+    *Views*: the agent's connection view carries no blocked, hidden or
+    no-access tile's name (it enters a model's context); the holder's
+    page reads the full one, for its driver only. *Notices*: xbind tells
+    the holder's backend that something changed — kinds and ids only,
+    coalesced, at least once — over partition mail's delivery principal
+    (no new kind of principal), on a path from the holder's table entry
+    (`auth.SetDelegateNotify`). *Reads*: the docs searchable on `/api/`,
+    a workspace map, the session directory's `origin=agent` filter.
+    Rejected: a process-wide handle in the SDK (one backend serves many
+    conversations: the handle rides the context); naming blocked tiles
+    to the agent "so it can explain" (the reason and a count explain).
 - **D224 — One chat kit for the Agent tab, the agent template and the
   workspace agent; a newer template needs its xbind (2026-11-14; issue
   #51).** The Agent tab (`web/agent-*.js`), the agent template

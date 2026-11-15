@@ -550,7 +550,9 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /partitions/mail/ack": PartitionScoped,
 
 	// ---- reads of workspace facts ----
-	"GET /whoami": PartitionNeutral,
+	"GET /whoami":      PartitionNeutral,
+	"GET /docs/search": PartitionNeutral,
+	"GET /docs/page":   PartitionNeutral,
 	// previews (D234): rendered as the PERSON behind the call — themselves,
 	// or their terminal on its own tile — whose partition the render opens
 	// read-only; the route itself has no partition dimension
@@ -622,6 +624,12 @@ var partitionClasses = map[string]PartitionClass{
 	// person, so PersonOnly would refuse them) answers as the person in
 	// development. The workspace's switch is an admin's ----
 	"GET /delegate/state":                    PartitionNeutral,
+	"POST /delegate/sessions":                PartitionNeutral,
+	"GET /delegate/sessions/{id}":            PartitionNeutral,
+	"PATCH /delegate/sessions/{id}":          PartitionNeutral,
+	"DELETE /delegate/sessions/{id}":         PartitionNeutral,
+	"GET /delegate/sessions/{id}/connection": PartitionNeutral,
+	"GET /delegate/map":                      PartitionNeutral,
 	"PUT /delegate/state":                    PartitionNeutral,
 	"GET /delegate/workspace":                GlobalOnlyRefused,
 	"PUT /delegate/workspace":                GlobalOnlyRefused,

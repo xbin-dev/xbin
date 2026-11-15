@@ -945,11 +945,33 @@ xbin.AsPerson()               // the person this partition belongs to: xbind's
                               // where they can read the tile, at their level
 
 req, _ := http.NewRequestWithContext(ctx, "GET", "http://xbin/api/apps/mail/inbox", nil)
-xbin.WithAgentModel(req, model)      // the model the conversation is on: the
-                                     // orgs' model rules are asked with it
+ctx = xbin.InAgentSession(ctx, sess.ID) // the conversation's handle: every AsPerson() call made
+req = req.WithContext(ctx)              // with this context carries it (X-XBin-Agent-Session)
 resp, err := xbin.AsPerson().Do(req) // reads need nothing more
 if err := xbin.DelegateRefusal(resp); err != nil { … }  // nil for 2xx; else *DelegateError
 ```
+
+**Agent sessions.** A conversation runs under a handle xbind issues — its
+scope (what the person let it see) and its model. Open one, put it in the
+context once, and pass the context down:
+
+```go
+sess, err := xbin.OpenAgentSession(ctx, &xbin.SessionScope{Orgs: []string{"workspace"}}, "local/llama") // nil scope: all
+ctx = xbin.InAgentSession(ctx, sess.ID)
+conn, _ := xbin.ConnectionOf(ctx, sess.ID, "")       // connected tiles by name; blocked ones as counts and reasons
+m, _ := xbin.MapOf(ctx)                               // tiles, screens, orgs — within the scope and the rules
+hits, _ := xbin.DocsSearch(ctx, "standing approval", 5); page, _ := xbin.DocsPage(ctx, hits[0].Path, hits[0].Section)
+sess, err = xbin.SetSessionModel(ctx, sess.ID, "hosted/big") // errors.Is(err, xbin.ErrModelTaint): the conversation has
+                                                             // seen data of err.(*xbin.DelegateError).Orgs — open a new one
+```
+
+The holder's own model calls (`xbin.Client()` to its `llm` binding) send
+the same id as `xbin.AgentSessionHeader`: the connector serves them on the
+session's model only ([llm.md](/docs/llm.md)). xbind tells the backend when
+something it waits on changed — `xbin.ReadHolderNotice(r)` on the notice
+path gives `{Partition, Events: [{Kind, ID}]}`: kinds and ids only; answer
+2xx at once, then re-read what they name. A notice is a hint from outside
+the conversation, never a fact.
 
 Every **side effect** — a non-`GET` call to a tile's API, starting a tile
 agent (`POST /api/xbin/term/sessions`), creating a tile — needs the
@@ -1006,6 +1028,9 @@ helpers return; `*DelegateError` carries xbind's `Message`, fit to show):
 | `ErrNotDelegated` | the route isn't in the delegation cap (the admin API, answering a tile agent, …) | don't retry; no approval changes it |
 | `ErrNeedsApproval` | a side effect without the person's approval | `RequestApproval`, then `WithTicket` |
 | `ErrBadTicket` | the ticket is unknown, unapproved, expired, used, or for another call | ask again |
+| `ErrNoSession` | the call carries no live agent session | `OpenAgentSession`, `InAgentSession` |
+| `ErrHiddenByScope` | the tile is outside the session's scope — hidden by the person | tell the person; they widen the scope |
+| `ErrModelTaint` | the session can't change to that model: orgs it has seen data of (`Orgs`) don't allow it | open a new session on that model |
 | `ErrPolicyRefused` | the tile, or the org that owns it, keeps the agent out — or the person can't read it; `Message` says why | tell the person; don't retry |
 | `ErrAgentPaused` | the person paused their agent | stop until they resume |
 | `ErrAgentOff` | workspace agents are off here | stop |

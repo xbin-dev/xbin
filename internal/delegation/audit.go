@@ -56,6 +56,7 @@ type Call struct {
 	Status  int       `json:"status"`            // the HTTP status answered
 	Refused string    `json:"refused,omitempty"` // why the gate refused it, when it did
 	Ticket  string    `json:"ticket,omitempty"`  // the approved request it ran under
+	Session string    `json:"session,omitempty"` // the agent session (handle) the call ran under
 	Under   string    `json:"under,omitempty"`   // …or the standing approval, or "preference" for a session started unasked
 	// N: rows the gate left out before this one — refusals, dry runs and
 	// reads beyond what it writes a minute (the gate's audit limit).
@@ -134,7 +135,7 @@ func bound(s string, max int) string {
 // bounded is c with every field within its bound.
 func bounded(c Call) Call {
 	c.Agent, c.Tile, c.Class = bound(c.Agent, MaxField), bound(c.Tile, MaxField), bound(c.Class, 64)
-	c.Ticket, c.Under, c.Method = bound(c.Ticket, 64), bound(c.Under, 96), bound(c.Method, 16)
+	c.Ticket, c.Under, c.Method, c.Session = bound(c.Ticket, 64), bound(c.Under, 96), bound(c.Method, 16), bound(c.Session, 64)
 	c.Path, c.Refused = bound(c.Path, MaxPath), bound(c.Refused, MaxPath)
 	return c
 }

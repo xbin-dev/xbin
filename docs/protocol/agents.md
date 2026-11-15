@@ -451,6 +451,18 @@ GET    /agent/prefs               a person's own session, app or device
 PUT    /agent/prefs               the same callers. a JSON merge patch (RFC
                                    7386) of them → the preferences now;
                                    400 says what was refused
+GET    /agents/connection?session=<id>[&whatIf=<model>]
+                                   the page of a person's workspace agent
+                                   (the holder's own frame, on its
+                                   primary), for the person driving it and
+                                   for their agent session <id>: the full
+                                   view below — blocked and no-access tiles
+                                   named — read-only. 403 for every other
+                                   caller, the person's own session and the
+                                   agent included (the agent reads the
+                                   redacted GET /delegate/sessions/<id>/
+                                   connection); 404 for a session that
+                                   isn't the driver's (D228)
 GET    /agents/connection         a person, for themselves — their session,
                                    app, device or workspace agent; 403 a
                                    tile's credentials. what a workspace
