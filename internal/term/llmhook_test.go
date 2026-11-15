@@ -539,7 +539,7 @@ func TestLLMDoorAndDeployment(t *testing.T) {
 		}
 		cfg := relay.Config{HostFwd: m.hostForward()}
 		m.llmDoorRelay(o, &cfg)
-		if cfg.HostFwd != nil || len(cfg.Doors) != 1 || cfg.Doors[4180] != "unix:/run/xbin/llm.sock" {
+		if cfg.HostFwd != nil || len(cfg.Doors) != 1 || cfg.Doors[4180] != "unix:/run/xbin/llm.sock" || !cfg.DNSRefuse || cfg.Resolver != "" {
 			t.Errorf("the door's relay: forwards %v, doors %v — xbind's own listener must not be there", cfg.HostFwd, cfg.Doors)
 		}
 		if prov == nil {

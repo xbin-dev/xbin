@@ -482,10 +482,12 @@ func (m *Manager) llmDoorNet(o openOpts, spec *sandbox.Spec) bool {
 
 // llmDoorRelay makes the relay of such a session's sandbox a dead end but
 // for the door: no forward to xbind's own listener, one gateway port to the
-// LLM-only listener.
+// LLM-only listener, and every DNS query refused at once — a CLI that looks
+// its vendor up fails fast instead of waiting out a resolver that never
+// answers.
 func (m *Manager) llmDoorRelay(o openOpts, cfg *relay.Config) {
 	if sock := m.llmDoor(o); sock != "" && o.net == NetNone && !o.netHost {
-		cfg.HostFwd = nil
+		cfg.HostFwd, cfg.Resolver, cfg.DNSRefuse = nil, "", true
 		cfg.Doors = map[int]string{llmDoorPort: "unix:" + sock}
 	}
 }
