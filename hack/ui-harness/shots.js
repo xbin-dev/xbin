@@ -736,28 +736,18 @@ async function netPickers(browser) {
     // back to the old one until a second pick), and the server must agree
     const boundNow = async () => [].concat((await (await ctx.request.get(`${URL}/api/xbin/bindings`)).json()).bindings?.['apps/pinned']?.net ?? [])[0];
     const waitBound = async (v) => { for (let i = 0; i < 40 && (await boundNow()) !== v; i++) await sleep(100); };
-    // the reload after this bind answers late — after the switch back's own
-    // reload below: the older answer must not put "org" back (it once did)
-    let holding = true;
-    const late = [];
-    const slow = async (route) => {
-      if (!holding || route.request().method() !== 'GET') return route.continue();
-      late.push(page.waitForEvent('requestfinished', { predicate: (r) => r === route.request(), timeout: 10000 }));
-      const resp = await route.fetch();
-      await sleep(1500);
-      await route.fulfill({ response: resp });
-    };
-    await page.route('**/api/xbin/bindings', slow);
+    // this bind's reload answers after the switch back's: it must not put "org" back (it once did)
+    const held = await require('./late').holdReads(page, '**/api/xbin/bindings');
     await sel.selectOption('org');
     await waitBound('org');
     await settle(page);
     let v = await sel.inputValue();
     check(v === 'org', `admin: select shows the new value right after a successful bind (now "${v}")`);
     check((await boundNow()) === 'org', 'admin: server bound org');
-    holding = false; // what the switch back reads answers at once
+    held.release(); // what the switch back reads answers at once
     await sel.selectOption(before);
     await waitBound(before);
-    await Promise.all(late); // the late answers reached the page (the reloads go on from there)
+    await held.arrived(); // the late answers reached the page (the reloads go on from there)
     await settle(page);
     v = await sel.inputValue();
     check(v === before, `admin: switching back shows "${before}" (now "${v}")`);
