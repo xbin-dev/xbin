@@ -42,14 +42,16 @@ one release's, and a page can outlive the xbind that served it. So:
   the `X-XBin-Code` request header on `xbin.fetch`, the `xbin-code` query
   parameter on what `xbin.ws` and `xbin.url` build. xbind consumes the
   parameter; the backend never sees it;
-- a call that names another id than the running release's is answered
-  `409` with the header `X-XBin-Reload: <the current id>` (and the usual
-  JSON error) without reaching the backend, and a `reload` event for the
-  component goes to `/ws/events`, at most once a second. A frame reloads
-  on that event as it does when a tile is saved; a page that is nobody's
-  frame reloads itself on the answer;
-- a call that names no id (a script, `bx`, an admin's request) is not a
-  page and is not checked.
+- a call from the component's own page (its frame token) that names
+  another id than the running release's is answered `409` with the header
+  `X-XBin-Reload: <the current id>` (and the usual JSON error) without
+  reaching the backend, and a `reload` event for the component goes to
+  that person's own `/ws/events` sockets, at most once a second. A frame
+  reloads on that event as it does when a tile is saved; a page that is
+  nobody's frame reloads itself on the answer;
+- a call that names no id, or comes from anything but the component's own
+  page (a script, `bx`, an admin's request, another tile), is not checked:
+  the id it names is ignored.
 
 **Its page's credential is a viewer's.** The frame token of a sealed
 component (and, with `--tile-assets=origins`, the cookie of its own
@@ -64,6 +66,9 @@ GET    /api/xbin/whoami
                                    subscription there is refused
 ```
 
+A view-as session (an admin looking as someone) is refused all of it:
+`403` on the component's page, its backend and a token of it.
+
 Everything else answers `403` with "`xbin/<name>` is a system component,
 managed by xbin: its page reaches its own backend only; what it holds is
 its backend's to use" — every other `/api/xbin` route, another tile's API,
@@ -77,6 +82,17 @@ with the frame token a reader of it gets. **Nothing else calls into it.** It
 exposes no roles, provides no interface and publishes no endpoint, so no
 grant, binding or ingress route names it as a target, and a tile's backend,
 frame or terminal calling `/api/xbin/<name>/…` is answered 403.
+
+**One spelling.** A sealed component's path is written `xbin/<name>`,
+everywhere: in a URL's path, a query parameter, a JSON field, a map key.
+Another spelling that means the same place — a leading, trailing or
+doubled slash, `./`, `a/../` — is refused with `400` ("write a system
+component's path as xbin/<name> …") on every route; `/api//xbin/<name>/…`
+is not an address of its backend. A path that differs in case,
+percent-escapes or look-alike characters is another path and names no
+component. `GET /frame-token` answers `404` for a path that is no
+registered component, and a cron job or bus subscription is registered
+only for a component's path as xbind stores it.
 
 ## The admins' read
 
@@ -210,10 +226,11 @@ POST   /backup                     … only as a sealed (encrypted) archive:
                                    nothing of it is archived (an error says
                                    so).
 POST   /restore                    its data back, from an archive xbind
-                                   sealed: encrypted under a backup key the
-                                   workspace's vault holds and authenticated
-                                   end to end, its manifest naming this
-                                   component. 409 for a plain archive, for
+                                   sealed: encrypted under a backup key this
+                                   workspace created for that archive (never
+                                   one from an imported key bundle) and
+                                   authenticated end to end, its manifest
+                                   naming this component. 409 for a plain archive, for
                                    one carrying a deployment record, and
                                    while the component is held for its data.
                                    502 when the archive's sealedData is
@@ -307,5 +324,7 @@ and the component's.
 xbind runs a backend only when the file is listed for this source and has
 that SHA-256, checked at boot and before every start; otherwise the
 component is held (`no-build`, the reason says which). `xbind sealed-build`
-writes the directory; `--check --out <dir> --sdk <dir>` verifies it (the
-release pipeline's gate).
+writes the directory; `--check --out <dir> --sdk <dir> [--os --arch]`
+verifies it — every file as listed, built against that SDK, for that
+target and by the go version of the toolchain at hand (the release
+pipeline's gate).

@@ -583,9 +583,11 @@ mode, the slots an admin may bind, the providers each slot may be bound to
 (`Providers`, beside its `Defaults` entry — a model slot's provider reads
 people's conversations, so a row that lets a workspace tile in says so in
 review), the grants and capabilities, and `Data`, the data format. The name
-is at most 19 characters (`util.SealedNameMax`: longer, and `CompKey` would
-cut the readable part of its key, which a tile path could then be ground
-to match). What a row may never do:
+is at most 18 characters (`util.SealedNameMax`): `xbin~<name>` must be
+shorter than the 24 characters `CompKey` keeps of a path, or the cut form
+of every longer tile path beginning with it has the same readable part
+and only 32 hash bits to grind. Top-level tile names starting `xbin~` are
+reserved at creation for the same reason. What a row may never do:
 
 - **take a name xbind uses.** `/api/xbin/<name>/…` is the component's API,
   so the name can't be the first segment of an xbind route, nor an xbind
@@ -609,7 +611,10 @@ a build of other source has another name and is never run. The directory is
 made to hold exactly the table's builds and `sealed.json`, the manifest of
 what each was built from (source digest, SDK tree digest, go version) and
 its SHA-256. xbind runs only a file the manifest lists for its source with
-that hash, checked at boot and before every start (`sealed.Set.verify`).
+that hash: checked at boot (a definite mismatch holds the component) and
+where a backend is spawned (`sealed.Set.Verify`, the runner's
+`SealedVerify` hook in `startFor`) — never per request, and a failed check
+there fails that start alone, to be tried again by the next one.
 The manifest sits beside the binaries: it catches a build of other source
 or another SDK, a damaged or replaced file and a half-finished install, not
 someone who can write the install prefix (who can replace xbind). The SDK
@@ -653,7 +658,18 @@ boundary:
    cookie) is a viewer's, allowed its own backend and little else
    (`server.sealedViewerAllowed`, called where a credential becomes a
    request's principal). A new way for a credential to become a principal
-   calls it too.
+   calls it too, and `sealedViewAs` beside it.
+
+**One spelling of a path.** `util.SealedPath` (and `SealedTarget`) ask a
+path's canonical form (`util.CanonPath`), so every sealed test sees
+`/xbin/x`, `xbin//x` and `a/../xbin/x` as what the code after it would
+make of them. Never test a sealed path with `strings.HasPrefix(p,
+"xbin/")`. Three more places keep spellings apart: no credential yields a
+principal whose component isn't canonical (`auth.canonicalComponent`);
+what stores a component's name — a registration, a restore — takes it as
+xbind stores one (`broker.componentNamed`); and the API's edge refuses an
+odd spelling of a sealed path outright (`util.SealedSpelledOddly` in the
+route gate).
 
 **The guards.**
 
@@ -662,8 +678,13 @@ boundary:
   would act on for a tile (`boundaryReqs`), as the root token, an admin, a
   reader, another tile's backend, the component's page and its backend. A
   new refused or self row needs a request there, and the refusal must come
-  from layer 2. `TestSealedNoTileRowsTakeNoSealedPath` sends the no-tile
-  rows a sealed path in every wildcard, query and body name.
+  from layer 2. The same test drives the rows the handler decides (every
+  change an admin may make, and the ones nobody may) as each kind of
+  principal. `TestSealedNoTileRowsTakeNoSealedPath` sends the no-tile
+  rows a sealed path in every wildcard, query and body name, and
+  `TestSealedPathSpellings` sends every refused and self route each
+  spelling of the path, gate on and off. A route without a row refuses a
+  sealed path at runtime too (`TestSealedGateOnUnclassifiedRoutesAndSpellings`).
 - `internal/server/sealedclass.go` has a row for every `/api/xbin` route:
   what a path under `xbin/` gets on it (`no-tile`, `refused`, `self`,
   `handled`). `internal/apicheck` `TestSealedRouteClasses` fails for a

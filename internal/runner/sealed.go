@@ -14,6 +14,20 @@ import (
 // not meet (SealedVerify): the state keeps no sticky error for it.
 var errRetryStart = errors.New("this start failed")
 
+// built records the end of the build s's caller took, and reports a
+// failure that is no verdict on the code (errRetryStart): the state is
+// left dirty, so the next request starts again.
+func (s *state) built(err error) (retry bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.building, s.phase, s.lastErr = false, "", err
+	if retry = errors.Is(err, errRetryStart); retry {
+		s.dirty = true
+	}
+	close(s.buildDone)
+	return retry
+}
+
 // SealedHooks is what boot tells the runner about sealed components.
 type SealedHooks struct {
 	// SealedPrebuilt answers the release's prebuilt backend of a sealed

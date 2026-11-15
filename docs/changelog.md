@@ -122,6 +122,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - Not yet: an admin console section, the connector in terminals and
     agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
 
+- **Fixed: a terminal could be opened on xbind's own directories.** A
+  terminal or agent session's directory only had to be one the caller had
+  terminal level on, and an admin has that everywhere, so
+  `/ws/term?cwd=.xbin`, `cwd=data` and `cwd=homes` opened with that
+  directory writable: the shell could not read the owner token or the
+  secrets there, but could replace them, rewrite the users file and write
+  into other people's homes. **A terminal now opens only on a registered
+  tile or a directory inside one** (403 otherwise). A path that is not a
+  tile — a plain folder such as `apps`, a directory with no manifest and
+  no `index.html` — takes no terminal: open it on a tile.
+- **`GET /api/xbin/frame-token`** answers `404` for a path that is no
+  registered component, and `400` for a path written with a leading,
+  trailing or doubled slash. A cron job or bus subscription is registered
+  only for a component's path as xbind stores it (`400` otherwise), and a
+  restore takes the same.
+- **Top-level names starting with `xbin~` are reserved** when a tile is
+  created, cloned, imported or instantiated: they would share a system
+  component's data key. An existing directory of such a name keeps
+  running ([compat.md](/docs/compat.md) → Sealed components).
 - **Fixed: a backend that was still starting when xbind shut down kept
   running.** Shutdown stopped the backends that were up; one that was
   being built, spawned or waited for at that moment was started (or
@@ -212,6 +231,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     served from the release's bytes in memory.
   - A JSON body that names a tile field twice is refused (400) on the
     routes that refuse a sealed component.
+  - A sealed path has one spelling, `xbin/<name>`: a leading, trailing or
+    doubled slash, `./` or `a/../` in it is refused (400) on every route.
+  - A sealed component's backup restores only under a backup key this
+    workspace created for it — not one from an imported key bundle. To
+    move one to another host, restore the workspace's own directory.
+  - A view-as session opens nothing of a sealed component, an admin's
+    event stream carries none of its bus events, a person's own bind of
+    its slot takes only the providers the release names, and a
+    partitioned one without `--isolate` runs as one shared instance only
+    under `--no-auth`.
   - Backups of one are its data only; the manifest's `sealedData` is the
     data format, and a restore into a release that reads only an older
     format is refused.

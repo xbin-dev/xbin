@@ -17,10 +17,13 @@ import "github.com/xbin-dev/xbin/internal/util"
 //
 //   - it has the shape of a component path: no reserved top-level name
 //     (.xbin, data, homes, vendor, xbin, …), no hidden or ".." segment;
-//   - and it is, or lies in, a registered tile (TileAt), when the manager
-//     knows the registry.
+//   - and it is, or lies in, a registered tile (TileAt: the registry's
+//     Resolve, installed by boot), when the manager knows the registry.
 func (m *Manager) sessionDir(rel string) string {
 	const no = "a terminal opens on a tile: "
+	if util.SealedPath(rel) { // no source and no dev sandbox (D227)
+		return util.CanonPath(rel) + " is a system component, managed by xbin: it has no terminal"
+	}
 	if !util.ComponentPathOK(rel) {
 		return no + rel + " is not one (xbind's own directories and hidden paths take no terminal)"
 	}

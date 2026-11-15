@@ -14269,6 +14269,58 @@ Deviations and refinements made while implementing; all deliberate:
       sealed component's own origin is the same viewer (found by the test
       written for it). `XBIN_E2E_REQUIRE=1` makes a skipped isolated test
       a failure.
+  - **Fourth round (2026-11-15; a second independent review, of
+    182bc1af).** Two shapes recurred, so the classes were fixed.
+    - *A raw path string tested instead of a canonical component.*
+      `/xbin/x` was "no sealed path" to the exact-prefix test and the
+      sealed component to the code that trims, joins or resolves — a
+      forged restore, a cron row firing at `/api//xbin/x/…`, a frame token
+      the viewer rule didn't recognise. Chosen: the sealed test itself
+      asks the canonical form (`util.SealedPath` over `util.CanonPath`), so
+      every decision point sees every spelling without knowing about
+      spellings; principals carry canonical components only
+      (`auth.canonicalComponent`, `mintFrame`, a registered component for
+      `GET /frame-token`); what stores a component's name takes it as
+      xbind stores one (`broker.componentNamed`); and the API's edge
+      refuses an odd spelling of a sealed path (path, query, the fields a
+      route names a tile in, map keys). Rejected: canonicalising every
+      parameter of every route at the edge — tiles' forgiving spellings
+      are in the wild (compat), and a rewrite of bodies is the re-parsing
+      the first review ruled out as a boundary. Case, percent-escapes and
+      look-alike letters are not folded anywhere in xbind, so they name
+      other (nonexistent) paths; the tests pin that.
+    - *A row class the gate-off test never drove.* It now drives the
+      handled rows as every principal kind too, and a route without a row
+      refuses a sealed path at runtime (the CI guard stays the first line).
+    - *Keys.* An imported key bundle can hold any key under any subject,
+      so a sealed target restores only under a backup key this workspace
+      created for that archive (`sealedKeyNative`). The cost is stated in
+      the docs: disaster recovery of a sealed component onto a new host is
+      the workspace's own directory restored, not archiver + key bundle.
+    - *Terminals (on master too, its own commit).* A session's directory
+      was any path the caller had terminal level on, bound read-write over
+      the masks: measured under `--isolate`, an admin's shell with
+      `cwd=.xbin` could not read the owner token but replaced it, with
+      `cwd=data` rewrote `users.json` and moved the vault, with
+      `cwd=homes` wrote into anyone's home. A session now opens only at a
+      component-shaped path that is, or lies in, a registered tile.
+    - *Verification moved to the spawn.* It ran per proxied request under
+      one mutex and latched a hold on any failure. It now runs in
+      `startFor` (`SealedVerify`), fails that start alone, and is retried
+      by the next; boot still holds a build that is missing, unlisted or
+      definitely another file.
+    - *The reload signal* counts only from the component's own frame
+      principal and goes to that person's sockets (an event whose data
+      names its audience), so nobody reloads anyone else's frames.
+    - *Smaller ones.* A same-key tile (`xbin~<name>`) declares nothing in
+      any deployment and such names are reserved at creation; names are at
+      most 18 characters (at 19 the cut form of longer tile paths shares
+      the readable key part); admins' event sockets get no sealed bus
+      events; personal binds take only the release's providers; a
+      partition restore under a data hold restores nothing; one shared
+      instance only under `--no-auth`; view-as opens nothing of a sealed
+      component; `sealed-build --check` compares OS, architecture and go
+      version.
   - **Not done here.** No entry point in the shell, the admin console or
     the app (the workspace agent's UI work adds them). The real-binary
     downgrade suite has nothing sealed to downgrade until a row exists.

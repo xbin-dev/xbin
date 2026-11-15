@@ -90,7 +90,9 @@ API):
 - **What its slots are bound to.** Only the slots the release declares,
   and only to the providers the release names for each
   (`bx bind xbin/<name> <slot>=<provider>`, the Interfaces tab,
-  `POST /api/xbin/bindings`). Anything else is refused with the reason.
+  `POST /api/xbin/bindings`). Anything else is refused with the reason —
+  for an admin's binding and for a person's own bind in their partition
+  alike.
   The release decides this because a slot's provider sees what the
   component sends it. **The provider of a model slot reads the
   conversations people have with the component, and its answers steer what
@@ -146,8 +148,11 @@ told.
 - write its data through a restore: only a backup xbind encrypted itself
   is restored into it (see Upgrades, downgrades and data → Backups);
 - open a terminal, a coding agent or a view-as session inside it: there is
-  no terminal, and viewing the workspace as someone opens none of their
-  partitions.
+  no terminal, and viewing the workspace as someone opens nothing of a
+  system component — not its page, not its backend (the shared instance
+  included), none of that person's partitions;
+- read what it publishes on its bus: an admin's event stream carries none
+  of it.
 
 What this does not change, for a sealed component as for every
 partitioned tile ([partitions.md](/docs/partitions.md)): a workspace admin
@@ -194,11 +199,12 @@ own sandbox, with their own encrypted data and vault
 ([partitions.md](/docs/partitions.md)). That needs `--isolate`.
 
 - **Without `--isolate`, it is unavailable** (held, `needs-sandboxes`).
-- **Except in development.** Under `--dev` or `--no-auth`, with no
-  sandboxes, it runs as **one global instance** so the component can be
-  worked on. That instance holds everyone's data together: it is for a
-  development workspace only. Moving such a workspace to `--isolate` later
-  is a partition mode switch, which deletes that data.
+- **Except where there are no people.** Under `--no-auth` (every request
+  is the owner's), with no sandboxes, it runs as **one global instance**
+  so the component can be worked on. Under `--dev` with real users and no
+  `--isolate` it is unavailable like anywhere else: one instance would hold
+  everyone's data together. Moving a `--no-auth` workspace to `--isolate`
+  later is a partition mode switch, which deletes that data.
 
 ## Upgrades, downgrades and data
 
@@ -248,13 +254,22 @@ one is restored**:
 
 - xbind encrypts ("seals") each archive under one of the workspace's
   backup keys and authenticates it end to end. The keys are derived under
-  the vault's key and kept by the vault (`bx backup keys`; a key bundle an
-  admin imported from another workspace counts). The archiver only stores
-  the result.
-- A restore takes an archive only if it opens and authenticates under one
-  of those keys and names this component. A plain archive is refused: the
-  archiver is a tile, and a plain archive is only its word about what the
-  data was.
+  the vault's key and kept by the vault (`bx backup keys`). The archiver
+  only stores the result.
+- A restore takes an archive only if it authenticates under a backup key
+  **this workspace created itself, for that very archive**, and names this
+  component. A plain archive is refused: the archiver is a tile, and a
+  plain archive is only its word about what the data was. An archive
+  sealed under a key that came in with an imported key bundle is refused
+  too: anyone who may import a bundle can make one, with any key in it.
+  The same holds for a person's partition of a sealed component.
+- **Moving to another host.** Because imported keys don't count, a sealed
+  component's data is not recovered on a new machine from the archiver and
+  a key bundle (that path brings back tiles). Restore the workspace's own
+  directory instead — its `data/` holds the vault, the backup keys and the
+  component's data — from a backup of the host or its volume; the
+  archiver's copies then restore as before, their keys being the
+  workspace's own again.
 - A workspace without a vault barrier (`--insecure-vault`, `--no-auth`)
   archives nothing of a sealed component, and says so.
 - Nothing is restored while the component is held for its data

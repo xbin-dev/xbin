@@ -417,6 +417,21 @@ none, so a workspace sees no change. When a later release adds one:
   refuses an archive whose manifest names another component (409), and a
   restore registers only the cron jobs its archive's own component owns
   (a job naming another component was silently registered before).
+- **Three narrowings that reach existing workspaces**, each closing a
+  hole rather than removing a feature:
+  - *A terminal opens only on a registered tile* (or a directory inside
+    one). It used to open on any workspace path the caller had terminal
+    level on — which, for an admin, included xbind's own `.xbin`, `data`
+    and `homes`, writable. A terminal on a plain folder that is no tile
+    (`apps`, a directory without a manifest or an `index.html`) is refused
+    now; every shipped shell and `bx` open terminals on tiles.
+  - *A frame token is minted only for a registered component*, written
+    canonically; a cron job, a bus subscription and a restore take a
+    component's path as xbind stores it. A request that named a path with
+    a stray slash for these gets `400`/`404` instead of a registration
+    nothing would ever have delivered to.
+  - *Top-level names starting with `xbin~` can't be created*. A directory
+    of such a name that already exists is untouched.
 - **`bx`** (rule 6): `bx system` is new; `bx ls` lists tiles as before.
 - **Downgrading** to a release from before a sealed component existed
   leaves its data on disk, unused. Downgrading across a data format change

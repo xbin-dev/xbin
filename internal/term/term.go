@@ -182,9 +182,7 @@ type Manager struct {
 	// (wired to the deployments plane by main); nil ⇒ no tile has one, and
 	// sessions get today's env.
 	HasDeploymentRecord func(tile string) bool
-	// TileAt answers the registered tile a workspace-relative path is, or
-	// lies in (the registry's Resolve; boot installs it). A session opens
-	// only there (sessionDir); nil: the path's shape alone decides.
+	// TileAt: the registered tile a path is or lies in (sessiondir.go).
 	TileAt func(rel string) (tile string, ok bool)
 	// TileDeployments answers what a session's target choice needs to know
 	// of a tile (D127p, target.go); nil: the zero state for every tile.
@@ -282,16 +280,9 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, rel, err := util.SafeJoin(m.Root, cwd)
-		if err == nil && util.SealedPath(rel) {
-			// a sealed component has no source and no dev sandbox (D227)
-			http.Error(w, rel+" is a system component, managed by xbin: it has no terminal", http.StatusForbidden)
+		if err == nil && rel != "" && m.sessionDir(rel) != "" { // a tile, never xbind's own trees or a sealed component
+			http.Error(w, m.sessionDir(rel), http.StatusForbidden)
 			return
-		}
-		if err == nil && rel != "" {
-			if why := m.sessionDir(rel); why != "" {
-				http.Error(w, why, http.StatusForbidden)
-				return
-			}
 		}
 		if err != nil || rel == "" || !p.CanTerminalTile(rel) {
 			http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)

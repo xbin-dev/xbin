@@ -251,18 +251,8 @@ func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *stat
 
 		err := r.runCurrent(c, s)
 
-		s.mu.Lock()
-		s.building = false
-		s.phase = ""
-		s.lastErr = err
-		retry := errors.Is(err, errRetryStart)
-		if retry {
-			s.dirty = true // not a verdict on the code: the next request starts again (sealed.go)
-		}
-		close(s.buildDone)
-		s.mu.Unlock()
-		if retry {
-			return nil, err // this request's answer; never a loop here while it keeps failing
+		if s.built(err) {
+			return nil, err // a start to try again: this request's answer, never a loop here (sealed.go)
 		}
 		// Loop: re-check (another change may have arrived mid-build).
 	}
