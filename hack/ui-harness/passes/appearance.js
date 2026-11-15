@@ -54,6 +54,7 @@ const FILES = {
 // document (about:blank) hands its window on to the page that replaces it.
 function firstFrame() {
   const doc = document;
+  doc.bxInit = true; // the script ran in this document (first() reloads one it skipped)
   requestAnimationFrame(function look() {
     if (doc !== document) return; // replaced since
     // a frame can come before the parser made <html> (a slow answer): then
@@ -75,12 +76,24 @@ const now = (f) => f.evaluate(() => {
 // first(frameOf, label): the record of the frame's current document. A
 // function, not a frame: the shell may replace a card's iframe while it
 // settles (a re-render), so the frame is found again on every try.
+//
+// Playwright now and then doesn't run the context's init script in a
+// frame's document (seen on the chrome tile's frame: the document loaded,
+// 15 s old, its animation frames firing, and the script never ran in it):
+// such a document can't tell its first frame, so it is loaded again, once.
 async function first(frameOf, label) {
   const deadline = Date.now() + 15000;
+  let reloaded = false;
   for (;;) {
     const f = await frameOf().catch(() => null);
-    const v = f && await f.evaluate(() => (location.href !== 'about:blank' && document.bxFirst) || null).catch(() => null);
+    const [v, skipped] = (f && await f.evaluate(() => [(location.href !== 'about:blank' && document.bxFirst) || null,
+      location.href !== 'about:blank' && document.readyState === 'complete' && !document.bxInit]).catch(() => null)) || [null, false];
     if (v) return v;
+    if (skipped && !reloaded) {
+      reloaded = true;
+      log(`${label}: the init script didn't run in its document — loading it again`);
+      await f.evaluate(() => location.reload()).catch(() => {});
+    }
     if (Date.now() > deadline) {
       const box = f && await f.frameElement().then((h) => h.boundingBox()).catch(() => null);
       throw new Error(`no first-frame record in ${label} (${f?.url()}; frame box ${JSON.stringify(box)})`);
