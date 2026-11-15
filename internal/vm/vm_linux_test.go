@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -27,7 +29,58 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == sandbox.InitArg {
 		sandbox.RunInit(os.Args[2]) // never returns
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	if built.dir != "" {
+		_ = os.RemoveAll(built.dir)
+	}
+	os.Exit(code)
+}
+
+// skipOrFail skips t for something this machine lacks — or fails it under
+// XBIN_E2E_REQUIRE=1 (as test/xbindtest.Skip): a skip is silent in a plain
+// `go test` and in `make integration`'s summary, where this suite once
+// "passed" in a second having booted nothing.
+func skipOrFail(t *testing.T, format string, a ...any) {
+	t.Helper()
+	if os.Getenv("XBIN_E2E_REQUIRE") == "1" {
+		t.Fatalf("XBIN_E2E_REQUIRE=1 and this machine can't run the test: "+format, a...)
+	}
+	t.Skipf(format, a...)
+}
+
+// built holds what the tests built from this tree, for a checkout whose
+// bin/ lacks it (a worktree that shares another checkout's helpers): the
+// guest agent and bx are this tree's own code, so the tree's are the right
+// ones to test anyway.
+var built struct {
+	mu   sync.Mutex
+	dir  string
+	bins map[string]string
+}
+
+// fromTree builds ./cmd/<name> once and answers the binary.
+func fromTree(repo, name string) (string, error) {
+	built.mu.Lock()
+	defer built.mu.Unlock()
+	if p := built.bins[name]; p != "" {
+		return p, nil
+	}
+	if built.dir == "" {
+		dir, err := os.MkdirTemp("", "xbin-vmtest-")
+		if err != nil {
+			return "", err
+		}
+		built.dir, built.bins = dir, map[string]string{}
+	}
+	out := filepath.Join(built.dir, name)
+	cmd := exec.Command("go", "build", "-o", out, "./cmd/"+name)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if b, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("building %s: %v\n%s", name, err, b)
+	}
+	built.bins[name] = out
+	return out, nil
 }
 
 // harness finds a rootfs and the VM assets (the repo's bin/ unless the
@@ -36,14 +89,33 @@ func harness(t *testing.T) (*Manager, string) {
 	t.Helper()
 	_, here, _, _ := runtime.Caller(0)
 	repo := filepath.Join(filepath.Dir(here), "..", "..")
+	// the base rootfs: XBIN_ROOTFS, or the one hack/dev-setup.sh records for
+	// tests (XBIN_TEST_ROOTFS in .dev.mk — what a worktree without a .rootfs
+	// of its own has), or the checkout's
 	rootfs := os.Getenv("XBIN_ROOTFS")
+	if rootfs == "" {
+		rootfs = os.Getenv("XBIN_TEST_ROOTFS")
+	}
 	if rootfs == "" {
 		rootfs = filepath.Join(repo, ".rootfs")
 	}
 	if _, err := os.Stat(filepath.Join(rootfs, "bin", "sh")); err != nil {
-		t.Skipf("no rootfs at %s (make rootfs, or XBIN_ROOTFS)", rootfs)
+		skipOrFail(t, "no rootfs at %s (make rootfs, or XBIN_ROOTFS / XBIN_TEST_ROOTFS)", rootfs)
 	}
 	bin := filepath.Join(repo, "bin")
+	bx := filepath.Join(bin, "bx")
+	if _, err := os.Stat(filepath.Join(bin, "xbin-vmagent")); err != nil && os.Getenv("XBIN_VM_AGENT") == "" {
+		agent, err := fromTree(repo, "xbin-vmagent") // built when bin/ has none
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("XBIN_VM_AGENT", agent)
+	}
+	if _, err := os.Stat(bx); err != nil {
+		if bx, err = fromTree(repo, "bx"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for env, name := range map[string]string{
 		"XBIN_FIRECRACKER": "firecracker", "XBIN_VM_KERNEL": "vmlinux",
 		"XBIN_VM_AGENT": "xbin-vmagent", "XBIN_MKFS_EROFS": "mkfs.erofs",
@@ -54,10 +126,10 @@ func harness(t *testing.T) (*Manager, string) {
 		}
 	}
 	ws := t.TempDir()
-	m := &Manager{Root: ws, Rootfs: rootfs, Bx: filepath.Join(bin, "bx")}
+	m := &Manager{Root: ws, Rootfs: rootfs, Bx: bx}
 	st := m.Status()
 	if !st.Available {
-		t.Skipf("VM sandboxes unavailable here: %s", st.Reason)
+		skipOrFail(t, "VM sandboxes unavailable here: %s", st.Reason)
 	}
 	if st.Emulated {
 		t.Logf("emulated VMs: %s", st.Note)
