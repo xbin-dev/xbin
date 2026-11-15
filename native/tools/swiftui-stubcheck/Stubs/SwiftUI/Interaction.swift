@@ -76,6 +76,7 @@ extension View {
     public func accessibilityHint(_ hint: LocalizedStringKey) -> some View { _V(self) }
     @_disfavoredOverload public func accessibilityHint<S: StringProtocol>(_ hint: S) -> some View { _V(self) }
     public func accessibilityAction(_ actionKind: AccessibilityActionKind = .default, _ handler: @escaping () -> Void) -> some View { _V(self) }
+    public func accessibilityAction(named name: Text, _ handler: @escaping () -> Void) -> some View { _V(self) }
     public func menuStyle<S: MenuStyle>(_ style: S) -> some View { _V(self) }
     public func menuOrder(_ order: MenuOrder) -> some View { _V(self) }
 }

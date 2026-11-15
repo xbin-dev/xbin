@@ -234,13 +234,17 @@ public struct ChatQuestion: Sendable, Equatable, Identifiable {
     /// submitted when the tile says (a `settled` object).
     public var settled: Bool
     public var answer: [String: JSONValue]
+    /// Rev 2: choices as rows, "Something else", pages, the buttons' words.
+    public var options: QuestionOptions
 
-    public init(id: String, title: String, form: QuestionForm, settled: Bool = false, answer: [String: JSONValue] = [:]) {
+    public init(id: String, title: String, form: QuestionForm, settled: Bool = false, answer: [String: JSONValue] = [:],
+                options: QuestionOptions = QuestionOptions()) {
         self.id = id
         self.title = title
         self.form = form
         self.settled = settled
         self.answer = answer
+        self.options = options
     }
 
     public init(id: String, props p: Props) {
@@ -252,12 +256,15 @@ public struct ChatQuestion: Sendable, Equatable, Identifiable {
         default: settled = true
         }
         self.init(id: id, title: p.nonEmpty("title") ?? form.title ?? "Question", form: form, settled: settled,
-                  answer: s?.objectValue ?? [:])
+                  answer: s?.objectValue ?? [:], options: QuestionOptions(props: p, form: form))
     }
 
     /// The values the form starts with: the answer when settled, else the
     /// schema defaults.
     public var initialValues: [String: JSONValue] { settled && !answer.isEmpty ? answer : form.defaults }
+
+    /// The form's state as the person fills it in (``QuestionSession``).
+    public var session: QuestionSession { QuestionSession(form: form, options: options, values: initialValues) }
 }
 
 public enum PlanStatus: String, Sendable, CaseIterable {
@@ -277,19 +284,89 @@ public struct ChatPlan: Sendable, Equatable {
         }
     }
 
-    public var entries: [Entry]
+    /// Rev 2: what a step does or where it stands ("reads only", "asks
+    /// you", "needs your OK"), a word with an optional glyph and tone.
+    public struct Tag: Sendable, Hashable {
+        public var text: String
+        /// An icon name (§10.4).
+        public var icon: String?
+        public var tone: XbinTone?
 
-    public init(entries: [Entry]) { self.entries = entries }
+        public init(text: String, icon: String? = nil, tone: XbinTone? = nil) {
+            self.text = text
+            self.icon = icon
+            self.tone = tone
+        }
+    }
+
+    public var entries: [Entry]
+    /// Rev 2: the card's title (nil: "Plan").
+    public var title: String?
+    /// Rev 2: the entries are numbered steps.
+    public var numbered: Bool
+    /// Rev 2: a tag per entry, by position (nil: none for that entry).
+    public var tags: [Tag?]
+    /// Rev 2: a sentence under the entries.
+    public var note: String?
+    /// Rev 2: a quiet line beside the title (in place of the done count).
+    public var meta: String?
+
+    public init(entries: [Entry], title: String? = nil, numbered: Bool = false, tags: [Tag?] = [], note: String? = nil,
+                meta: String? = nil) {
+        self.entries = entries
+        self.title = title
+        self.numbered = numbered
+        self.tags = tags
+        self.note = note
+        self.meta = meta
+    }
 
     public init(props p: Props) {
         entries = p.objects("entries").map {
             Entry(text: Props.text($0["text"]) ?? "", status: PlanStatus(rawValue: Props.text($0["status"]) ?? "") ?? .pending)
         }
+        title = p.nonEmpty("title")
+        numbered = p.bool("numbered")
+        // by position: an item that is no object, or has no text, is no tag
+        tags = p.array("tags").map { v in
+            guard let o = v.objectValue, let t = Props.text(o["text"]), !t.isEmpty else { return nil }
+            return Tag(text: t, icon: Props.text(o["icon"]).flatMap { $0.isEmpty ? nil : $0 }, tone: XbinTone(Props.text(o["tone"])))
+        }
+        note = p.nonEmpty("note")
+        meta = p.nonEmpty("meta")
     }
 
     public var done: Int { entries.filter { $0.status == .completed }.count }
     /// "2 of 4 done".
     public var summary: String { "\(done) of \(entries.count) done" }
+
+    /// The card's heading: its `title`, else "Plan".
+    public var heading: String { title ?? "Plan" }
+    /// The quiet line beside the heading: `meta`, else the done count.
+    public var trailing: String { meta ?? summary }
+
+    /// Entry `i`'s tag, if it has one.
+    public func tag(_ i: Int) -> Tag? { tags.indices.contains(i) ? tags[i] : nil }
+
+    /// Entry `i` as it reads: "2. Start a tile agent in Orders" when
+    /// numbered, else its text.
+    public func line(_ i: Int) -> String {
+        guard entries.indices.contains(i) else { return "" }
+        return numbered ? "\(i + 1). \(entries[i].text)" : entries[i].text
+    }
+
+    /// Entry `i` for VoiceOver: its line, where it stands, its tag —
+    /// "2. Start a tile agent in Orders, in progress, asks you".
+    public func accessibilityLine(_ i: Int) -> String {
+        guard entries.indices.contains(i) else { return "" }
+        let status: String
+        switch entries[i].status {
+        case .completed: status = "done"
+        case .inProgress: status = "in progress"
+        case .pending: status = "not started"
+        }
+        return [line(i), status, tag(i)?.text].compactMap { $0 }.joined(separator: ", ")
+    }
 }
 
 public struct ChatActivity: Sendable, Equatable {
@@ -367,9 +444,17 @@ public struct ChatComposer: Sendable, Equatable {
     /// While busy, Send stays beside Stop: the message goes to the running
     /// turn or waits for its end (the Agent tab, D197). Off: Stop alone.
     public var sendWhileBusy: Bool
+    /// Rev 2: what the next message is about, as chips in the box ("About
+    /// Orders").
+    public var context: [ChatContextChip]
+    /// Rev 2: quick replies in a row above the box.
+    public var replies: [ChatReply]
+    /// Rev 2: a quiet line under the box.
+    public var hint: String?
 
     public init(placeholder: String = "Message", busy: Bool = false, disabled: Bool = false, attachments: [ChatAttachment] = [],
-                accept: String? = nil, canAttach: Bool = false, slash: [SlashCommand] = [], sendWhileBusy: Bool = false) {
+                accept: String? = nil, canAttach: Bool = false, slash: [SlashCommand] = [], sendWhileBusy: Bool = false,
+                context: [ChatContextChip] = [], replies: [ChatReply] = [], hint: String? = nil) {
         self.placeholder = placeholder
         self.busy = busy
         self.disabled = disabled
@@ -378,6 +463,9 @@ public struct ChatComposer: Sendable, Equatable {
         self.canAttach = canAttach
         self.slash = slash
         self.sendWhileBusy = sendWhileBusy
+        self.context = context
+        self.replies = replies
+        self.hint = hint
     }
 
     public init(props p: Props) {
@@ -391,7 +479,30 @@ public struct ChatComposer: Sendable, Equatable {
             slash: p.objects("slash").compactMap { s in
                 guard let n = Props.text(s["name"]), !n.isEmpty else { return nil }
                 return SlashCommand(name: n, hint: Props.text(s["hint"]), description: Props.text(s["description"]))
-            })
+            },
+            context: ChatComposer.identified(p.objects("context")) { id, c in
+                guard let label = Props.text(c["label"]), !label.isEmpty else { return nil }
+                return ChatContextChip(id: id, label: label, icon: Props.text(c["icon"]).flatMap { $0.isEmpty ? nil : $0 },
+                                       tone: XbinTone(Props.text(c["tone"])))
+            },
+            replies: ChatComposer.identified(p.objects("replies")) { id, r in
+                guard let label = Props.text(r["label"]), !label.isEmpty else { return nil }
+                return ChatReply(id: id, label: label)
+            },
+            hint: p.nonEmpty("hint"))
+    }
+
+    /// The items of a rev-2 list that report by id: one without an id, or
+    /// with an id already taken, is not drawn (its tap could name nothing).
+    static func identified<T>(_ items: [[String: JSONValue]], _ make: (String, [String: JSONValue]) -> T?) -> [T] {
+        var seen = Set<String>()
+        var out: [T] = []
+        for item in items {
+            guard let id = Props.text(item["id"]), !id.isEmpty, !seen.contains(id), let v = make(id, item) else { continue }
+            seen.insert(id)
+            out.append(v)
+        }
+        return out
     }
 
     /// The slash commands matching a draft that is one `/word` (at most 6),
@@ -405,6 +516,35 @@ public struct ChatComposer: Sendable, Equatable {
     /// Whether `draft` may be sent now.
     public func canSend(_ draft: String) -> Bool {
         !disabled && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// A composer's context chip (rev 2): what the next message is about. A tap
+/// reports `context {id}`, its ✕ `remove-context {id}`.
+public struct ChatContextChip: Sendable, Hashable, Identifiable {
+    public var id: String
+    public var label: String
+    /// An icon name (§10.4).
+    public var icon: String?
+    /// `warn`: it can't be used as it is ("About Ledger — not connected").
+    public var tone: XbinTone?
+
+    public init(id: String, label: String, icon: String? = nil, tone: XbinTone? = nil) {
+        self.id = id
+        self.label = label
+        self.icon = icon
+        self.tone = tone
+    }
+}
+
+/// A composer's quick reply (rev 2): a tap reports `reply {id}`.
+public struct ChatReply: Sendable, Hashable, Identifiable {
+    public var id: String
+    public var label: String
+
+    public init(id: String, label: String) {
+        self.id = id
+        self.label = label
     }
 }
 

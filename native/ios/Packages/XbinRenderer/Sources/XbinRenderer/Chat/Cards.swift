@@ -189,7 +189,10 @@ public struct ApprovalView: View {
     }
 }
 
-/// The agent's plan: a checklist with a done count.
+/// The agent's plan: a checklist with a done count. Rev 2 (D233): its own
+/// title, numbered steps, a tag a step under its line (what it does or
+/// where it stands — a glyph and a word in its tone), a note under the
+/// entries, and a quiet line beside the title in place of the count.
 public struct PlanView: View {
     public let plan: ChatPlan
 
@@ -197,21 +200,32 @@ public struct PlanView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Plan").font(.subheadline.weight(.semibold))
+            HStack(alignment: .firstTextBaseline) {
+                Text(verbatim: plan.heading).font(.subheadline.weight(.semibold))
                 Spacer()
-                Text(verbatim: plan.summary).font(.caption).foregroundStyle(XbinColor.muted)
+                Text(verbatim: plan.trailing).font(.caption).foregroundStyle(XbinColor.muted)
+                    .multilineTextAlignment(.trailing)
             }
-            ForEach(Array(plan.entries.enumerated()), id: \.offset) { _, entry in
+            ForEach(Array(plan.entries.enumerated()), id: \.offset) { i, entry in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: Self.symbol(entry.status))
                         .foregroundStyle(Self.color(entry.status))
-                    Text(verbatim: entry.text)
-                        .font(.subheadline)
-                        .foregroundStyle(entry.status == .completed ? XbinColor.muted : XbinColor.text)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: plan.line(i))
+                            .font(.subheadline)
+                            .foregroundStyle(entry.status == .completed ? XbinColor.muted : XbinColor.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let tag = plan.tag(i) { PlanTag(tag: tag) }
+                    }
                 }
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: plan.accessibilityLine(i)))
+            }
+            if let note = plan.note {
+                Text(verbatim: note)
+                    .font(.footnote)
+                    .foregroundStyle(XbinColor.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(14)
@@ -233,6 +247,19 @@ public struct PlanView: View {
         case .inProgress: return XbinColor.accentText
         case .pending: return XbinColor.muted
         }
+    }
+}
+
+/// A plan step's tag: a glyph and a word in its tone ("asks you").
+private struct PlanTag: View {
+    let tag: ChatPlan.Tag
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            if let symbol = XbinIcons.symbol(tag.icon) { Image(systemName: symbol).font(.caption2) }
+            Text(verbatim: tag.text).font(.caption.weight(.medium))
+        }
+        .foregroundStyle(tag.tone.map(XbinColor.toneText) ?? XbinColor.muted)
     }
 }
 

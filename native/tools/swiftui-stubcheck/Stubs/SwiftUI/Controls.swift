@@ -112,6 +112,7 @@ public struct AccessibilityTraits: OptionSet, Sendable {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
     public static let isHeader = AccessibilityTraits(rawValue: 1), isButton = AccessibilityTraits(rawValue: 2), isImage = AccessibilityTraits(rawValue: 4)
+    public static let isSelected = AccessibilityTraits(rawValue: 8)
 }
 public struct AccessibilityChildBehavior: Sendable { public static let combine = AccessibilityChildBehavior(), ignore = AccessibilityChildBehavior(), contain = AccessibilityChildBehavior() }
 

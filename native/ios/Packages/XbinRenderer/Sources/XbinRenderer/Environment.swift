@@ -38,6 +38,14 @@ public struct XbinServices {
     /// returns what the server answered per file (§8.4). Nil: no attach
     /// button.
     public var attach: (@MainActor (XbinAttachRequest) async -> [XbinUpload])?
+    /// The view for a `request` or `session` element (D233): the two nodes
+    /// a tile places by id and THE APP draws — what waits and Review…, a
+    /// tile agent's status and Open — from xbind's own reading, with the
+    /// person's session. Nothing of the tile's tree but the id reaches it.
+    /// The app provides it only for the tile it shows as the person's
+    /// workspace agent; nil (every other tile, previews, snapshots): the
+    /// renderer draws an inert placeholder, never a button.
+    public var trustedNode: (@MainActor (XbinTrustedNode) -> AnyView)?
 
     @MainActor
     public init(
@@ -47,7 +55,8 @@ public struct XbinServices {
         imageData: (@MainActor (String) async throws -> Data)? = nil,
         terminal: (@MainActor (XbinTerminalRequest) -> AnyView)? = nil,
         canvas: (@MainActor (XbinCanvasRequest) -> AnyView)? = nil,
-        attach: (@MainActor (XbinAttachRequest) async -> [XbinUpload])? = nil
+        attach: (@MainActor (XbinAttachRequest) async -> [XbinUpload])? = nil,
+        trustedNode: (@MainActor (XbinTrustedNode) -> AnyView)? = nil
     ) {
         self.copy = copy
         self.copyMarkdown = copyMarkdown
@@ -56,6 +65,7 @@ public struct XbinServices {
         self.terminal = terminal
         self.canvas = canvas
         self.attach = attach
+        self.trustedNode = trustedNode
     }
 }
 
