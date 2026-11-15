@@ -148,7 +148,9 @@ async function agentTemplateLong(browser) {
       if (!w.start && !w.hasOlder) break;
       await scrollTo(page, 8);
       const at = await probe(page);
-      await until(page, ([start, total]) => { const x = globalThis.agentChat.testApi(); return x.start !== start || x.total !== total; }, [at.start, at.total], 8000);
+      // the rows above may already be in by the time `at` is read (a quick
+      // page): the change is judged against the window before the scroll
+      await until(page, ([start, total]) => { const x = globalThis.agentChat.testApi(); return x.start !== start || x.total !== total; }, [w.start, w.total], 8000);
       await sleep(40);
       const top = await topOf(page, at.firstKey);
       if (top != null) drift = Math.max(drift, Math.abs(top - at.firstTop));
