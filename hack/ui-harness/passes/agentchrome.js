@@ -46,6 +46,7 @@
 // Run it in both themes (HARNESS_THEME=light). Screenshots: out/agent-chrome-*.png.
 const { URL, login, closeCtx, shot, checker, log, openShell, usePersonalScreen, openTile, closeTile, sh, settle, fr, waitFor, waitSel } = require('../lib');
 const R = require('./wsagentpage'); // the real holder's plumbing: the scripted model, the note tile, the page's frame
+const { sheetChecks } = require('./agentchrome-sheets');
 
 const NOW = Date.now();
 const iso = (ms) => new Date(NOW + ms).toISOString();
@@ -140,6 +141,9 @@ async function agentChrome(browser) {
     const S = await fakeDelegation(ctx);
     // the chrome never navigates by itself: a navigation in the middle of the matrix is a bug, said where it happened
     page.on('framenavigated', (f) => { if (f === page.mainFrame()) log(`[${width}] navigated: ${f.url()}`); });
+    page.on('crash', () => log(`[${width}] the page crashed`));
+    page.on('domcontentloaded', () => log(`[${width}] a document loaded: ${page.url()}`));
+    page.on('console', (m) => { if (m.type() !== 'error') log(`[${width}] console.${m.type()}: ${m.text().slice(0, 200)}`); });
     const refresh = () => page.evaluate(() => import('/vendor/agent-chrome-store.js').then((m) => m.agentStore().refresh()));
     const sentTo = (re) => S.sent.filter((c) => re.test(`${c.m} ${c.p}`));
     const armed = (sel) => page.waitForFunction((s) => { const q = (root, parts) => parts.reduce((r, p) => r && (r.shadowRoot || r).querySelector(p), root);
@@ -318,81 +322,8 @@ async function agentChrome(browser) {
     await page.keyboard.press('Escape');
     S.stepUp = '';
 
-    // ---- while the agent is stopped: why, in the place of Allow and Apply; Deny and Reject stay ----
-    await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
-    S.requests.push(callReq('p1', { created: iso(-1000) }));
-    S.changesets.push(changeSet('p2'));
-    S.state.paused = true; S.state.pausedAt = new Date().toISOString(); await refresh();
-    await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 'p1'));
-    await page.waitForSelector(`${SHEET} [data-stopped="paused"]`);
-    check(!(await page.$(`${SHEET} button[data-allow]`)) && /Can't be allowed now\. Your agent is paused\. Resume it first; then this can be allowed\. You can still deny it\./.test(await text(`${SHEET} [data-stopped]`))
-      && await page.$eval(`${SHEET} button[data-deny]`, (b) => b.classList.contains('primary')), `[${width}] paused: the reason where Allow was, Deny stays (${await text(`${SHEET} .foot`)})`);
-    await shot(page, `agent-chrome-stopped${tag}`, { fullPage: false });
-    await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
-    await page.evaluate(() => document.querySelector('bx-agent-dock').review('changeset', 'p2'));
-    await page.waitForSelector(`${DLG} [data-stopped="paused"]`);
-    check(!(await page.$(`${DLG} [data-apply]`)) && !!(await page.$(`${DLG} [data-reject]`)) && /Can't be applied now\..*You can still reject it\./.test(await text(`${DLG} [data-stopped]`)),
-      `[${width}] paused: Apply is replaced by why, Reject all stays`);
-    await shot(page, `agent-chrome-stopped-changes${tag}`, { fullPage: false });
-    await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
-    // a sheet opened before the stop: xbind's 409 says why, and the Allow is never sent again
-    S.state.paused = false; delete S.state.pausedAt; await refresh();
-    await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 'p1'));
-    await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
-    S.refuse = 'workspace-off'; // turned off at xbind; this page hasn't heard yet
-    await page.click(`${SHEET} button[data-allow]`);
-    await page.waitForSelector(`${SHEET} [data-stopped="workspace-off"]`);
-    await page.waitForTimeout(300); // (a negative: no second Allow)
-    check(sentTo(/p1\/approve$/).length === 1 && !(await page.$(`${SHEET} button[data-allow]`)) && /turned off for this workspace/.test(await text(`${SHEET} [data-stopped]`)),
-      `[${width}] a stale sheet: the 409 shows the reason in place of Allow, no retry (${sentTo(/p1\/approve$/).length} sent)`);
-    await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
-    S.refuse = ''; S.requests = S.requests.filter((r) => r.id !== 'p1'); S.changesets = S.changesets.filter((c) => c.id !== 'p2'); await refresh();
-
-    // ---- what the agent wrote, never drawn as it came: characters that reorder or hide text are escapes, as chips ----
-    S.requests.push(callReq('h2', { created: iso(-500), body: '{"note":"pay \u202Eevil\u202C now"}', bodySize: 33, bodyShown: true, summary: 'Pay \u2066the\u2069 invoice\u200B' }));
-    await refresh();
-    await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 'h2'));
-    await page.waitForSelector(`${SHEET} [data-row="sends"] .hid`);
-    const hid = await page.$$eval(`${SHEET} .hid`, (els) => els.map((e) => e.textContent));
-    const raw = await page.$eval(`${SHEET} [role="dialog"]`, (d) => /[\u202A-\u202E\u2066-\u2069\u200B-\u200F]/.test(d.shadowRoot ? '' : d.textContent));
-    check(JSON.stringify(hid) === JSON.stringify(['⟨U+202E⟩', '⟨U+202C⟩', '⟨U+2066⟩', '⟨U+2069⟩', '⟨U+200B⟩']) && !raw
-      && (await page.$$(`${SHEET} [data-hidden]`)).length === 2 && /contains hidden characters — shown as ⟨U\+…⟩/.test(await text(`${SHEET} [data-row="sends"]`)),
-      `[${width}] hidden characters in the body and the agent's words: each an escape, as a chip, with the line above (${hid.join(' ')})`);
-    await shot(page, `agent-chrome-hidden${tag}`, { fullPage: false });
-    await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
-    S.requests = S.requests.filter((r) => r.id !== 'h2'); await refresh();
-
-    // ---- a long body: the note says how much is shown, and Show all shows the rest ----
-    const long = 'line of the body · '.repeat(260); // 4940 characters
-    S.requests.push(callReq('l2', { created: iso(-400), body: long, bodySize: long.length + 260, bodyShown: true }));
-    await refresh();
-    await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 'l2'));
-    await page.waitForSelector(`${SHEET} [data-row="sends"] [data-note]`);
-    const clipNote = await text(`${SHEET} [data-row="sends"] [data-note]`);
-    check(/first 4000 of 4940 characters — Show all$/.test(clipNote) && !/shown in full/.test(clipNote), `[${width}] a long body: "first 4000 of 4940 characters", not "shown in full" (${clipNote})`);
-    await shot(page, `agent-chrome-clipped${tag}`, { fullPage: false });
-    await page.click(`${SHEET} [data-row="sends"] [data-show-all]`);
-    await page.waitForFunction(() => /shown in full/.test(document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve').shadowRoot.querySelector('[data-row="sends"] [data-note]').textContent));
-    const whole = await page.$eval(`${SHEET} [data-row="sends"] pre`, (p) => p.textContent.length);
-    check(whole === long.length, `[${width}] …Show all: the whole of it, and then "shown in full" (${whole})`);
-    await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
-    S.requests = S.requests.filter((r) => r.id !== 'l2'); await refresh();
-
-    // ---- a state this page doesn't know (a newer xbind's): never one that can be decided ----
-    S.requests.push(callReq('u2', { created: iso(-300), state: 'deferred' }));
-    await refresh();
-    await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 'u2'));
-    await page.waitForSelector(`${SHEET} [role="dialog"]`);
-    check(!(await page.$(`${SHEET} button[data-allow]`)) && !(await page.$(`${SHEET} button[data-deny]`)) && /This page is older than the workspace — reload it to decide\./.test(await text(`${SHEET} [role="dialog"]`)),
-      `[${width}] an unknown state: no Allow, no Deny, and why (${await text(`${SHEET} [role="dialog"] p`)})`);
-    await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
-    S.requests = S.requests.filter((r) => r.id !== 'u2'); await refresh();
+    // ---- the sheets' own rules: stopped, hidden characters, a long body, an unknown state (agentchrome-sheets.js) ----
+    await sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot, width, tag, iso, callReq, changeSet, SHEET, DLG });
 
     // ---- Approvals, What my agent did, Preferences ----
     await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
@@ -656,8 +587,8 @@ async function realHolder(browser, check, skip) {
   await waitCount(1);
   const p1 = await pending();
   const id1 = p1.length ? p1[0].id : '';
-  check(/Pending — request/.test(turn1) && p1.length === 1 && p1[0].agent === R.AGENT && p1[0].kind === 'call' && p1[0].target === `/api/${R.NOTE}/note` && p1[0].body === `"${body1}"`,
-    `[real] the agent's tile_call filed a request at xbind, exactly as it will be sent (${id1}: ${p1[0] && p1[0].method} ${p1[0] && p1[0].target})`);
+  check(R.PENDING.test(turn1) && p1.length === 1 && p1[0].agent === R.AGENT && p1[0].kind === 'call' && p1[0].target === `/api/${R.NOTE}/note` && p1[0].body === `"${body1}"`,
+    `[real] the agent's tile_call filed a request at xbind, exactly as it will be sent (${id1}: ${p1[0] && p1[0].method} ${p1[0] && p1[0].target}; ${p1.length} pending, body ${p1[0] && JSON.stringify(p1[0].body)}; the turn: ${turn1.slice(0, 160)})`);
   check((await count()) === '1' && /^\(1\) /.test(await page.title()), `[real] Needs you counts it without a reload — xbind's delegate event (${await page.title()})`);
   check((await note()).includes(`writes=${w0}`), '[real] nothing ran: the note is as it was');
   await f.waitForSelector(`.wsc-req[data-ref="${id1}"][data-state="pending"]`);
@@ -753,7 +684,7 @@ async function realHolder(browser, check, skip) {
   f = await R.agentFrame(page);
   const turn5 = await R.say(f, put(`asks again ${stamp}`, 'a fifth change'));
   await waitCount(1);
-  check(/Pending — request/.test(turn5) && (await note()).includes(`writes=${w0 + 3}`), '[real] …and the next such change asks again');
+  check(R.PENDING.test(turn5) && (await note()).includes(`writes=${w0 + 3}`), `[real] …and the next such change asks again (${turn5.slice(0, 120)}; ${await note()})`);
   await R.nothingWaits(call);
   await waitCount(0);
   await dock((d) => d.show('activity'));
