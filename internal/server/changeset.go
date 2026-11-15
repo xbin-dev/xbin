@@ -239,15 +239,16 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		// Items: absent — every operation that isn't blocked; present — these
-		// and no others, so an empty list applies nothing
-		Items    *[]int `json:"items"`
+		// Items are the operations to apply, by number: these and no others.
+		// Applying is never a default — no body, an absent key, null and []
+		// all name nothing, and nothing is applied (400; the set stays open).
+		Items    []int  `json:"items"`
 		Password string `json:"password"`
 	}
 	if r.ContentLength != 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		if err := DecodeJSON(r, &body); err != nil {
-			WriteError(w, http.StatusBadRequest, "need {items?: [n, …], password?}", delegationDocs)
+			WriteError(w, http.StatusBadRequest, "need {items: [n, …], password?}", delegationDocs)
 			return
 		}
 	}
@@ -261,9 +262,10 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusConflict, delegation.ErrSetNotOpen.Error(), delegationDocs)
 		return
 	}
-	var chosen []int
-	if body.Items != nil {
-		chosen = *body.Items
+	chosen := body.Items
+	if len(chosen) == 0 {
+		WriteError(w, http.StatusBadRequest, "say which operations to apply: {items: [n, …]} — nothing is applied by default (to turn the set down: …/reject)", delegationDocs)
+		return
 	}
 	for _, n := range chosen {
 		if n < 1 || n > len(cs.Items) {
@@ -295,7 +297,7 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusConflict, delegation.ErrSetNotOpen.Error(), delegationDocs)
 		return
 	}
-	s.applyChangeSet(r.Context(), a.p, &cs, chosen, body.Items == nil)
+	s.applyChangeSet(r.Context(), a.p, &cs, chosen)
 	cs, err = s.Delegation.UpdateChangeSet(a.user, id, func(stored *delegation.ChangeSet) error {
 		*stored = cs
 		return nil
@@ -308,21 +310,21 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, cs)
 }
 
-// applyChangeSet applies the chosen operations of cs — every one that
-// isn't blocked when all is set — in order as approver, filling each
-// item's result and the set's state. An empty choice applies nothing.
-func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs *delegation.ChangeSet, chosen []int, all bool) {
+// applyChangeSet applies the chosen operations of cs (by number), in order
+// as approver, filling each item's result and the set's state; an
+// operation that wasn't chosen is rejected.
+func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs *delegation.ChangeSet, chosen []int) {
 	failed, problems, applied := false, 0, 0
 	for i := range cs.Items {
 		it := &cs.Items[i]
 		switch {
 		case it.Blocked != "":
 			it.Result = delegation.ItemBlocked
-			if all || slices.Contains(chosen, it.N) {
+			if slices.Contains(chosen, it.N) {
 				problems++
 			}
 			continue
-		case !all && !slices.Contains(chosen, it.N):
+		case !slices.Contains(chosen, it.N):
 			it.Result = delegation.ItemRejected
 			continue
 		case failed:

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -105,6 +106,16 @@ func (w *csWorld) propose(t *testing.T, items string) delegation.ChangeSet {
 
 func (w *csWorld) approve(t *testing.T, id, body string, cred func(*http.Request)) delegation.ChangeSet {
 	t.Helper()
+	if body == "" { // "all of them" is said by naming them: nothing is applied by default
+		_, raw := w.do("GET", "/delegate/changesets/"+id, "", cred)
+		var cs delegation.ChangeSet
+		_ = json.Unmarshal([]byte(raw), &cs)
+		ns := make([]string, len(cs.Items))
+		for i := range cs.Items {
+			ns[i] = strconv.Itoa(i + 1)
+		}
+		body = `{"items":[` + strings.Join(ns, ",") + `]}`
+	}
 	code, out := w.do("POST", "/delegate/changesets/"+id+"/approve", body, cred)
 	if code != 200 {
 		t.Fatalf("approve: %d %s", code, out)
@@ -477,7 +488,7 @@ func TestChangeSetsInDevelopment(t *testing.T) {
 		if code, _ := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", "", owner); code != 404 {
 			t.Errorf("bob's set without naming bob: %d", code)
 		}
-		code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve?user=bob", "", owner)
+		code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve?user=bob", `{"items":[1]}`, owner)
 		if code != 200 || !strings.Contains(body, `"state":"applied"`) {
 			t.Fatalf("the owner approves for bob: %d %s", code, body)
 		}
@@ -631,11 +642,24 @@ func TestChangeSetsAreClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// approving with an empty choice applies nothing (it used to apply everything)
+	// applying takes an explicit, non-empty list: no body, {}, null and []
+	// all apply nothing and leave the set as it was (null used to apply
+	// everything)
 	cs = w.propose(t, `[{"kind":"grant.add","args":{"from":"apps/x","target":"users/alice/mcp","role":"reader"}}]`)
-	done = w.approve(t, cs.ID, `{"items":[]}`, bob)
-	if done.State != delegation.SetRejected || done.Items[0].Result == delegation.ItemApplied {
-		t.Fatalf("approve with items: []: %s %s", done.State, results(done))
+	for _, body := range []string{``, `{}`, `{"items":null}`, `{"items":[]}`, `{"password":"password1"}`} {
+		code, out := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", body, bob)
+		if code != 400 || !strings.Contains(out, "which operations") {
+			t.Errorf("approve with %q: %d %s", body, code, out)
+		}
+		if got, _ := w.store.ChangeSet("bob", cs.ID); got.State != delegation.SetProposed {
+			t.Fatalf("after approve with %q the set is %s", body, got.State)
+		}
+		if !slices.Equal(w.grants(), before) {
+			t.Fatalf("approve with %q applied something: %v", body, w.grants())
+		}
+	}
+	if code, _ := w.do("POST", "/delegate/changesets/"+cs.ID+"/reject", "", bob); code != 200 {
+		t.Fatal("reject")
 	}
 	if !slices.Equal(w.grants(), before) || snapshot() != was {
 		t.Fatalf("the workspace changed:\n%s\n%s", was, snapshot())
