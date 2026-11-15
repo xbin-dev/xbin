@@ -2,10 +2,12 @@
 // docs/workspace-agent.md §How approvals work): tile_call, tile_create,
 // admin_propose, admin_changes and preview. Whatever changes something is
 // the person's to approve, and xbind keeps and checks the approval — this
-// backend files the request exactly as the call will be sent, parks the
-// tool call on it (coord_park.go) and, when xbind says the person decided
-// (ws_notify.go), makes that one call under its ticket and gives the tool
-// its result. A call a standing approval covers runs at once and says so.
+// backend files the request exactly as the call will be sent and tells the
+// model it is pending; when xbind says the person decided (ws_notify.go)
+// it makes that one call under its ticket, and the outcome reaches the
+// conversation as an update. Nothing waits on a request: the turn goes on,
+// and the conversation can be woken meanwhile. A call a standing approval
+// covers runs at once and says so.
 //
 // Every changing tool takes dry_run: xbind's own description of what the
 // call would be here — the tile, the person's level, whether it asks —
@@ -32,27 +34,6 @@ const (
 	wsOpenMax   = 10      // requests one session may have waiting
 )
 
-// wsEngineTool is a tool that may park its call on a request: f answers
-// the result, or "" when the call now waits (it settles later).
-func wsEngineTool(f func(e *Engine, ctx context.Context, ts *turnState, tc toolCall, s *wsSession, args map[string]any) (string, error)) func(*Engine, context.Context, *turnState, toolCall, any) {
-	return func(e *Engine, ctx context.Context, ts *turnState, tc toolCall, scope any) {
-		args, _ := callArgs(tc, ts.own)
-		s, ok := scope.(*wsSession)
-		if !ok {
-			e.settleResult(ts, tc, "error: the workspace tools are a workspace agent's own")
-			return
-		}
-		e.ag.wsRefresh(ctx, s, false)
-		out, err := f(e, ctx, ts, tc, s, args)
-		if err != nil {
-			out = "error: " + wsRefusal(err)
-		}
-		if out != "" {
-			e.settleResult(ts, tc, capToolResult(out))
-		}
-	}
-}
-
 func wsDryProp() map[string]any {
 	return map[string]any{"type": "boolean", "description": "true: say what this would do here — who is affected, whether it asks your person, whether it can be undone — and do nothing"}
 }
@@ -61,7 +42,7 @@ func wsActTools() []coordTool {
 	return []coordTool{
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_call",
 			Description: "Call a tile's own API as your person — the same call the tile's page makes when they click. " +
-				"GET and HEAD run at once and return the answer. Any other method changes something: your person is shown the exact call (the tile, the method and path, the body, in xbin's words beside yours) and this call waits until they allow or deny it; the answer, or their refusal, is this tool's result. " +
+				"GET and HEAD run at once and return the answer. Any other method changes something: your person is shown the exact call (the tile, the method and path, the body, in xbin's words beside yours) and must allow it. This tool then answers \"pending\" at once; when they allow it the call is made and its answer reaches you as a workspace update, and so does a denial. " +
 				"A call they already gave a standing approval for runs at once and says so. xbin can't undo a tile call; whether the tile can is up to the tile. " +
 				"Read tile_api_doc first, and call with dry_run when you are unsure what a call would be here.",
 			Parameters: obj([]string{"tile", "method", "path"}, map[string]any{
@@ -72,7 +53,7 @@ func wsActTools() []coordTool {
 				"why":     strProp("for a change: one sentence your person reads beside the request — what it does and why, in their words (shown as yours)"),
 				"dry_run": wsDryProp(),
 			})}},
-			Engine: wsEngineTool(wsTileCall)},
+			Run: wsTool(wsTileCall)},
 	}
 }
 
@@ -80,7 +61,7 @@ func wsOtherTools() []coordTool {
 	return []coordTool{
 		{Spec: researchSpecWs(), Engine: researchTool(wsResearch)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_create",
-			Description: "Make a new tile from a template, where your person may create tiles. Your person is asked every time — xbin shows them the template and the place — and this call waits for their answer. " +
+			Description: "Make a new tile from a template, where your person may create tiles. Your person is asked every time — xbin shows them the template and the place. This tool answers \"pending\" at once; the outcome reaches you as a workspace update. " +
 				"The new tile is theirs. Use it when the outcome needs something that doesn't exist yet; a tile agent can then build in it. Without template it lists the templates.",
 			Parameters: obj(nil, map[string]any{
 				"template": strProp("the template's id (call with no template to list them)"),
@@ -88,7 +69,7 @@ func wsOtherTools() []coordTool {
 				"why":      strProp("one sentence your person reads beside the request (shown as yours)"),
 				"dry_run":  wsDryProp(),
 			})}},
-			Engine: wsEngineTool(wsTileCreateTool)},
+			Run: wsTool(wsTileCreateTool)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "admin_propose",
 			Description: "Propose a batch of admin changes — access between tiles, bindings, an org's share of a tile, a tile's limits — for your person to review. Only for a person who is an admin and turned on \"Let my agent propose admin changes\". " +
 				"Nothing is applied: xbin writes what each change does, its before and after and its warnings, and your person approves all, some or none; xbin then applies those as them. " +
@@ -124,39 +105,39 @@ var wsChangeKinds = []string{"grant.add", "grant.revoke", "binding.set", "bindin
 
 // --- filing a request ---------------------------------------------------------------
 
-// wsFile files req for the person's approval (ask makes xbind's request)
-// and parks the tool call on it; "" means parked. While something else of
-// the step waits the call isn't parked: its outcome is owed as an update.
-func wsFile(e *Engine, ctx context.Context, ts *turnState, tc toolCall, s *wsSession, req *wsReq, ask func(sid string) (wsRequest, error)) (string, error) {
-	if e.halted() {
+// wsFile files req for the person's approval (ask makes xbind's request;
+// nil: it waits for a click on the brief's card instead) and answers at
+// once that it is pending. The call doesn't wait: the turn goes on, the
+// conversation stays free to take a wake-up — a tile agent finishing while
+// its person is away for hours — and the outcome reaches it as a workspace
+// update the moment the person decided (ws_notify.go).
+func wsFile(ctx context.Context, ag *Agent, s *wsSession, req *wsReq, ask func(sid string) (wsRequest, error)) (string, error) {
+	if e := projEng(); e != nil && e.halted() {
 		return "", errors.New("this agent is halted: nothing is asked until it is resumed")
 	}
-	if n := e.db.wsOne(`SELECT count(*) FROM ws_requests WHERE run_id=? AND state IN ('pending','approved')`, s.Run); n >= wsOpenMax {
+	if n := ag.db.wsOne(`SELECT count(*) FROM ws_requests WHERE run_id=? AND state IN ('pending','approved')`, s.Run); n >= wsOpenMax {
 		return "", fmt.Errorf("%d requests of this session already wait for your person: let them decide those first (don't file more)", n)
 	}
 	if ask != nil {
 		var xr wsRequest
-		if err := e.ag.wsWith(ctx, s, func(sid string) (err error) { xr, err = ask(sid); return }); err != nil {
+		if err := ag.wsWith(ctx, s, func(sid string) (err error) { xr, err = ask(sid); return }); err != nil {
 			return "", err
 		}
 		req.Ref = xr.ID
 	}
 	req.Run, req.State = s.Run, "pending"
-	park := len(ts.waits) == 0 && e.db.wsOne(`SELECT count(*) FROM links WHERE parent_id=? AND mode='fg' AND delivered=0`, s.Run) == 0
-	if park {
-		req.CallID = tc.ID
-	}
-	if err := e.db.wsAddReq(req); err != nil {
+	if err := ag.db.wsAddReq(req); err != nil {
 		return "", err
 	}
 	wsArmPoll()
-	if park {
-		if err := e.coordPark(ts, tc, "your person to decide in xbin: "+clip(req.Title, 160)); err == nil {
-			return "", nil
-		}
-		_, _ = e.db.q.Exec(`UPDATE ws_requests SET call_id='' WHERE id=?`, req.ID)
+	ag.wsChanged(s.Run, "request")
+	where := "in xbin, where they see exactly what will happen"
+	if ask == nil {
+		where = "on the brief's card (their preferences let it start without a further approval: pressing Start there is their go-ahead)"
 	}
-	return fmt.Sprintf("Filed as request %d: it waits for your person's decision in xbin, and nothing has run. Its outcome will reach you as a workspace update — go on with what doesn't depend on it, and don't file it again.", req.ID), nil
+	return fmt.Sprintf("Pending — request %d (%s) waits for your person's decision %s. Nothing has run. "+
+		"You are told the outcome as a workspace update as soon as they decide; until then go on with whatever doesn't depend on it, or end your turn with one line saying what waits for them. Don't file it again, and don't treat a message from them as the decision.",
+		req.ID, req.Title, where), nil
 }
 
 // wsDryWords is xbind's description of a call it did not make, in a
@@ -258,8 +239,8 @@ func wsAnswerText(tile string, c wsCall, a wsAnswer) string {
 	return head + "\n" + wsData(tile, "its API's answer", body) + more
 }
 
-func wsTileCall(e *Engine, ctx context.Context, ts *turnState, tc toolCall, s *wsSession, args map[string]any) (string, error) {
-	ag := e.ag
+func wsTileCall(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (string, error) {
+	args := c0.Args
 	t, err := wsFindTile(ctx, ag, s, str(args["tile"]))
 	if err != nil {
 		return "", err
@@ -305,15 +286,15 @@ func wsTileCall(e *Engine, ctx context.Context, ts *turnState, tc toolCall, s *w
 		return "", errors.New("why: one sentence for your person — what this change does and why (they read it beside the request)")
 	}
 	req := &wsReq{Kind: wsReqCall, Tile: t.Path, Title: what, Method: c.Method, Path: c.Path, Body: c.Body, CType: c.ContentType}
-	return wsFile(e, ctx, ts, tc, s, req, func(sid string) (wsRequest, error) { return wsX.Ask(ctx, sid, c, why) })
+	return wsFile(ctx, ag, s, req, func(sid string) (wsRequest, error) { return wsX.Ask(ctx, sid, c, why) })
 }
 
 // --- tile_create ---------------------------------------------------------------------
 
 var wsSlugBad = regexp.MustCompile(`[^a-z0-9]+`)
 
-func wsTileCreateTool(e *Engine, ctx context.Context, ts *turnState, tc toolCall, s *wsSession, args map[string]any) (string, error) {
-	ag := e.ag
+func wsTileCreateTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (string, error) {
+	args := c0.Args
 	var tpls []wsTemplate
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { tpls, err = wsX.Templates(ctx, sid); return }); err != nil {
 		return "", err
@@ -363,7 +344,7 @@ func wsTileCreateTool(e *Engine, ctx context.Context, ts *turnState, tc toolCall
 	}
 	body, _ := json.Marshal(create)
 	req := &wsReq{Kind: wsReqTemplate, Tile: path, Title: what, Method: "POST", Path: "/api/xbin/templates/new", Body: body}
-	return wsFile(e, ctx, ts, tc, s, req, func(sid string) (wsRequest, error) { return wsX.AskTileCreate(ctx, sid, create, why) })
+	return wsFile(ctx, ag, s, req, func(sid string) (wsRequest, error) { return wsX.AskTileCreate(ctx, sid, create, why) })
 }
 
 // --- admin change sets ---------------------------------------------------------------

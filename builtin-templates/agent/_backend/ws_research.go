@@ -467,7 +467,7 @@ func wsResearch(e *Engine, ctx context.Context, ts *turnState, tc toolCall, scop
 		rev = wsTreeRev(fs)
 	}
 	b := &CodeReadBinding{Kind: wsReaderKind, Tile: t.Path, Org: t.org(), Rev: rev, Save: save}
-	wait := args["wait"] != false && len(ts.parked) == 0 // nothing parks beside a request that waits
+	wait := args["wait"] != false
 	start := researchStart{Question: q, Label: orStr(str(args["label"]), t.name()), Wait: wait, Binding: b,
 		System: wsResearchSystem(s.Owner, b),
 		Limit:  coordWorkspace.Limits.Research, Timeout: coordWorkspace.Limits.ResearchTimeout, Scope: "this session",

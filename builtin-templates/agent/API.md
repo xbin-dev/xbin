@@ -4776,15 +4776,8 @@ its `Is` answers no run and nothing stamps a conversation with its origin.
   tools (`register`), limits, status words, and the hooks `Is`, `Resolve`,
   `Pending`, `Deliver`, `Prompt` and `Knowledge` — and, where it needs
   them, `System` (its base prompt as the running build words it, for a
-  conversation that outlives releases), `Specs` (its last word on a core
-  tool's wording; it can reword or drop a tool, never add one) and
-  `ParkWords`/`Unpark` for calls that wait outside the engine.
-- **A call may wait for a decision made elsewhere** (`coord_park.go`): a
-  profile's tool parks its call (`coordPark`: the result stays a "(waiting
-  for …)" placeholder, the conversation waits for its person, pending kind
-  `coord`), and settles it when the decision arrives (`coordSettle`). If
-  the person writes instead, the parked calls are answered in the
-  profile's `Unpark` words and the outcome is owed as an update. Its block of the system
+  conversation that outlives releases) and `Specs` (its last word on a
+  core tool's wording; it can reword or drop a tool, never add one). Its block of the system
   prompt is assembled from parts (`coordAssemble`: heading, role, its own
   sections, the rules — its own and the ones every coordinator shares,
   worded once — and the knowledge store's index).
@@ -5862,13 +5855,14 @@ orgs, reason, offer: {newSession: {model}}}`.
 | `DELETE /ws/sessions/{id}` | not Main. Closes the handle and withdraws its pending requests; tile agents it started keep running, as their person's |
 | `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection: {counts, orgs: [{id, name, kind, state, reason?, tiles, connected}]}, summary, model, handle}`; with `whatIf` also `whatIf: {model, connects, disconnects, counts, summary, allowed, taintedOrgs}` and, when not allowed, `offer: {newSession: {model}}`. Totals and org-level reasons only: the page reads the tiles' names from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`) |
 | `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset, ref, tile, title, method, path, brief, state, outcome, createdMs, decidedMs}], agents: [{id, session, tile, harness, mode, asks, status, waits, waiting, last, held}], briefs: [{id, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}]}`. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
-| `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?}`: the person's edit. A request already filed for the old words is withdrawn and filed again |
+| `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?, harness?}`: the person's edit, and their pick of a coding agent among what the tile allows (409 otherwise; `""`: xbind's default again). A request already filed for the old brief is withdrawn and filed again |
+| `GET /ws/sessions/{id}/briefs/{bid}/start-defaults` | what the brief's start would run on, from xbind: `{defaults, picked, harness, harnessName, line}` ("Claude Code · asks before acting") |
 | `POST /ws/sessions/{id}/briefs/{bid}/start` | "Review and start…" → `{request, id}` (the request to review; filed now when the agent hadn't asked), or `{started, id, outcome}` where the person's preferences let tile agents start without xbind asking — there the click is the confirmation |
 | `GET /ws/needs` | `{items, count}`: what waits for the person because of the agent, oldest first per session — `approval` and `changeset` (with `request`), `tile-agent` (with `tileSession`, `text`), `question` (the agent's own `ask_user`) |
 | `GET /ws/empty?session=` | the empty state, computed from xbind's map without a model call: `{heading, line, can[], cant[], connected, notConnected, summary, placeholder, hint, startersTitle, starters: [{kind: Ask\|Fix\|Change\|New, text, tile?, blank?}]}`. A starter fills the composer; a tile that reports a failure becomes a Fix |
-| `GET /ws/notebook?session=` | `{pages: [{slug, title, summary, version, updatedBy, updatedMs, orgs, tile, rev, locked?, lockedWhy?}]}` — every page is the person's to see; `locked` says the session can't read it |
-| `GET` / `PUT` / `DELETE /ws/notebook/{slug}` | read; write `{title?, body, summary?, base}` (`base`: the version seen, `0` for a new page; `409 {current}` when it moved); delete makes the agent forget (history kept) |
-| `GET` / `PUT /ws/prefs` | `{model, harness, lastSession}`: the model new sessions start on, the coding agent tile agents start on where a tile allows it (else the tile's first), the session the page last showed. A started tile agent's mode, network and whether it starts without asking are xbind's (`/agent/prefs`) |
+| `GET /ws/notebook?session=` | `{pages: [{slug, title, summary, version, updatedBy, updatedMs, orgs, tile, rev, locked?, lockedWhy?}]}` — every page is the person's to see; `locked` says the session's model isn't allowed by an org on the page's stamp (`lockedWhy`: xbind's reason) |
+| `GET` / `PUT` / `DELETE /ws/notebook/{slug}` | read; write `{title?, body, summary?, base, clearStamps?}` (`base`: the version seen, `0` for a new page; `409 {current}` when it moved; the page keeps its `orgs` unless `clearStamps`); delete makes the agent forget (history kept) |
+| `GET` / `PUT /ws/prefs` | `{model, harness, lastSession}`: the model new sessions start on and the session the page last showed. `harness` is kept for the page and decides nothing: a started tile agent's harness, mode and network are xbind's to resolve (`/agent/prefs`, the tile's org), or the person's pick on the brief |
 | `POST /delegate/notify` | xbind's notice path (`xbin.ReadHolderNotice`: partition mail's principal): `{partition, events: [{kind, id}]}`, never trusted — any notice asks for a reconcile that reads the state again through xbind. Coalescing and idempotent; everything open is also re-read at start-up and by a timer while anything is open |
 
 **Tools** (the profile's; each changing one takes `dry_run`):
@@ -5880,26 +5874,47 @@ orgs, reason, offer: {newSession: {model}}}`.
 `notebook_read`, `notebook_write`, `notebook_edit`, `notebook_archive` —
 with the core `ask_user` (here it takes `choices`), notes and `recall`.
 
-**A request and its park.** `tile_call` with a method other than GET/HEAD,
-`tile_agent_start` and `tile_create` ask xbind what the call would be (a
-dry run), file it for the person's approval exactly as it will be sent,
-and park the tool call (a tile agent's start names the tile and a coding
-agent the tile allows; its brief is the request's summary and the
-session's first message): the conversation is `waiting_input` with pending
-kind `coord`, its result line "Waiting for your approval: …". When the
-doorbell rings the backend reads the request: approved, it makes that one
-call under its ticket and the answer becomes the tool's result; denied,
-expired or withdrawn, the tool's result says so. If the person wrote
-instead, or stopped the turn, the outcome arrives as a message headed
+**A request is pending, never a wait.** `tile_call` with a method other
+than GET/HEAD, `tile_agent_start` and `tile_create` ask xbind what the call
+would be (a dry run), file it for the person's approval exactly as it will
+be sent, and answer the model "pending" at once: the turn goes on, and the
+conversation stays free to be woken — by a tile agent that finished while
+its person is away. A session with requests open says so in its `waiting`
+line and `requests` count; its status is whatever the conversation is
+doing. When a notice comes the backend reads the request: approved, it
+makes that one call under its ticket; denied, expired or withdrawn, nothing
+runs. Either way the outcome reaches the conversation as a message headed
 `[workspace updates — xbin and tile agents reporting, not your person]`,
-which also carries each tile agent's change (a turn that ended, a failure,
-a question for the person) — one message, at most one wake a minute.
+at once (a decision is its person's act). The same message carries each
+tile agent's change — a turn that ended, a failure, a question for the
+person, a session an xbind restart cut off (with the offer to continue it)
+— and those wake an idle conversation at most once a minute.
+
+**A tile agent's start** is a ticket of the tile and the brief: the brief
+rides the start as the session's first prompt, so xbind shows it on the
+approval and sends it itself. The harness, mode and network are xbind's to
+resolve from the person's preferences and the tile's org's rules; a brief
+carries a `harness` only when its person picked one of the allowed ones on
+its card (`PUT …/briefs/{bid} {harness}`; `GET …/briefs/{bid}/start-defaults`
+→ `{defaults: {tile, harness, harnesses: [{id, name}], mode, asks, net,
+ticket}, picked, harness, harnessName, line}`). Where the person's
+preferences let starts through without a ticket, the click on the brief
+(`POST …/briefs/{bid}/start`) is the confirmation. What the agent messages
+a tile agent afterwards is not approved message by message: the session's
+own mode — asking before it acts — is the guard, and the page should say
+so where it shows a message being sent.
 
 **What reaches the model from outside** — a tile's answer, a log, a tile
 agent's report, a research summary, a notebook page — is framed
 `[untrusted — from …]` with the frames' and the updates' markers defused.
-A notebook page carries the orgs whose data it may hold; a session reads,
-searches and is shown a page only when each is connected in it.
+**The notebook's rule**, for every page (`preferences` too): a page the
+agent writes is stamped with every org its session is tainted with at that
+moment, added to the stamps it had; a session reads, searches and is shown
+a page only when its model is allowed by every stamped org (xbind's
+`…/sessions/{id}/allows`), and reading or being shown one adds its stamps
+to the session's taint (`…/taint`) first. `PUT /ws/notebook/{slug}` — the
+person's own route — keeps a page's stamps, and clears them only with
+`clearStamps: true` (a deliberate act the page confirms; no tool can).
 
 **The prompt** is `ws_prompt.go` plus a short map of xbin generated from
 xbin's docs (`ws_model.md`; regenerate with the xbin repository's

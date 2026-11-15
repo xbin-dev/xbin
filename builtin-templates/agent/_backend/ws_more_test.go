@@ -96,11 +96,13 @@ func TestWsResearchReadsThroughXbind(t *testing.T) {
 	}
 }
 
-// The brief's card: the person edits a brief, and the approval already
-// asked for the old words is withdrawn and asked again with theirs — on
-// the same parked call; "Review and start…" answers the request to open;
-// where their preferences let tile agents start without xbind asking, the
-// click on the brief is the confirmation and nothing starts before it.
+// The brief's card: what the start would run on is xbind's answer, with
+// the harnesses the person may pick; they edit the brief or pick a harness
+// and the approval already asked for is withdrawn and asked again — the
+// brief is part of what the ticket is of; "Review and start…" answers the
+// request to open; where their preferences let tile agents start without
+// xbind asking, the click on the brief is the confirmation and nothing
+// starts before it.
 func TestWsBriefCard(t *testing.T) {
 	fx := newWsFix(t)
 	s := fx.main(t)
@@ -108,11 +110,13 @@ func TestWsBriefCard(t *testing.T) {
 	brief := `{"tile":"apps/orders","goal":"Export orders as CSV","done_when":"The Export button downloads a CSV of the visible orders"}`
 	f.on(forRun(s.Run, lastUser("csv export")), callTools(tc("b1", "tile_agent_brief", brief), tc("b2", "tile_agent_start", `{"brief":1,"dry_run":true}`), tc("b3", "tile_agent_start", `{"brief":1}`))).once()
 	fx.say(t, s, "add a csv export to Orders")
-	waitStatus(t, fx.ag.db, s.Run, statusWaiting)
+	fx.idle(t, s)
 	var dry string
 	_ = fx.ag.db.q.QueryRow(`SELECT content FROM messages WHERE run_id=? AND tool_call_id='b2'`, s.Run).Scan(&dry)
-	if !strings.Contains(dry, "To start a tile agent in apps/orders (Claude Code) would run as your person") || !strings.Contains(dry, "must allow it first") || !strings.Contains(dry, "never to you") {
-		t.Fatalf("the start's dry run: %q", dry)
+	for _, want := range []string{"To start a tile agent in apps/orders would run as your person", "must allow it first", "It would run on Claude Code, asks before acting.", "never to you", "not approved message by message"} {
+		if !strings.Contains(dry, want) {
+			t.Errorf("the start's dry run lacks %q: %s", want, dry)
+		}
 	}
 	first := fx.x.pending(t)
 	base := fmt.Sprintf("/ws/sessions/%d", s.Run)
@@ -125,11 +129,25 @@ func TestWsBriefCard(t *testing.T) {
 	if len(cards.Briefs) != 1 || cards.Briefs[0].State != "asked" || len(cards.Requests) != 1 || cards.Requests[0].Ref != first.ID || cards.Requests[0].State != "pending" {
 		t.Fatalf("the cards: %+v", cards)
 	}
-	// the person edits the brief: the old request is withdrawn, a new one filed with their words
-	fx.json(t, fx.call(t, wsAlice, "PUT", base+"/briefs/1", map[string]any{"doneWhen": "The Export button downloads every order of the month as CSV"}), 200, nil)
+	var defs struct {
+		Defaults    wsStartDefaults
+		Picked      string
+		HarnessName string
+		Line        string
+	}
+	fx.json(t, fx.call(t, wsAlice, "GET", base+"/briefs/1/start-defaults", nil), 200, &defs)
+	if defs.Line != "Claude Code · asks before acting" || len(defs.Defaults.Harnesses) != 2 || !defs.Defaults.Ticket || defs.Picked != "" {
+		t.Fatalf("the start's defaults: %+v", defs)
+	}
+	// the person edits the brief and picks another harness the tile allows:
+	// the old request is withdrawn, a new one filed with their words
+	fx.json(t, fx.call(t, wsAlice, "PUT", base+"/briefs/1", map[string]any{"harness": "vim"}), 409, nil)
+	fx.json(t, fx.call(t, wsAlice, "PUT", base+"/briefs/1", map[string]any{"doneWhen": "The Export button downloads every order of the month as CSV", "harness": "codex"}), 200, nil)
 	second := fx.x.pending(t)
-	if second.ID == first.ID || fx.x.requests[first.ID].State != "withdrawn" || !strings.Contains(second.summary, "every order of the month") {
-		t.Fatalf("after the edit: %s / first %s", second.summary, fx.x.requests[first.ID].State)
+	var asked wsAgentStart
+	_ = json.Unmarshal(second.call.Body, &asked)
+	if second.ID == first.ID || fx.x.requests[first.ID].State != "withdrawn" || !strings.Contains(asked.Prompt, "every order of the month") || asked.Harness != "codex" {
+		t.Fatalf("after the edit: %s / first %s", second.call.Body, fx.x.requests[first.ID].State)
 	}
 	var start struct {
 		Request string
@@ -143,11 +161,11 @@ func TestWsBriefCard(t *testing.T) {
 	fx.notify(t)
 	fx.idle(t, s)
 	agents := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)
-	if len(agents) != 1 || !strings.Contains(fx.x.said[agents[0].Session][0], "every order of the month") {
-		t.Fatalf("the tile agent was told the old words: %+v", fx.x.said)
+	if len(agents) != 1 || agents[0].Harness != "Codex" || fx.x.said[agents[0].Session][0] != asked.Prompt {
+		t.Fatalf("the tile agent: %+v, told %q", agents, fx.x.said)
 	}
-	if got := fx.toolResult(t, s, "tile_agent_start"); !strings.Contains(got, "tile agent #1 started in apps/orders") {
-		t.Fatalf("the parked start after the edit: %q", got)
+	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "tile agent #1 started in apps/orders (Codex, asks before acting)") {
+		t.Fatalf("the start's update: %q", up)
 	}
 
 	// their preferences let a tile agent start without xbind asking: the click on the brief confirms
@@ -156,7 +174,10 @@ func TestWsBriefCard(t *testing.T) {
 	fx.x.mu.Unlock()
 	f.on(forRun(s.Run, lastUser("pdf export")), callTools(tc("b4", "tile_agent_brief", strings.Replace(brief, "CSV", "PDF", -1)), tc("b5", "tile_agent_start", `{"brief":2}`))).once()
 	fx.say(t, s, "and a pdf export")
-	waitStatus(t, fx.ag.db, s.Run, statusWaiting)
+	fx.idle(t, s)
+	if got := fx.toolResult(t, s, "tile_agent_start"); !strings.Contains(got, "Pending — request 2") || !strings.Contains(got, "pressing Start there is their go-ahead") {
+		t.Fatalf("a start their preferences let through: %q", got)
+	}
 	fx.notify(t)
 	if n := len(fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)); n != 1 {
 		t.Fatalf("%d tile agents before the person pressed Start", n)
@@ -168,13 +189,15 @@ func TestWsBriefCard(t *testing.T) {
 	if len(needs.Items) != 1 || needs.Items[0]["local"] != true || needs.Items[0]["brief"] != float64(2) {
 		t.Fatalf("needs: %+v", needs.Items)
 	}
+	fx.json(t, fx.call(t, wsAlice, "PUT", base+"/briefs/2", map[string]any{"goal": "Export orders as a PDF, one page each"}), 200, nil)
 	fx.json(t, fx.call(t, wsAlice, "POST", base+"/briefs/2/start", nil), 200, &start)
 	fx.idle(t, s)
-	if !start.Started || len(fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)) != 2 {
-		t.Fatalf("Start on the brief: %+v", start)
+	agents = fx.ag.db.wsAgents(`WHERE run_id=? ORDER BY id`, s.Run)
+	if !start.Started || len(agents) != 2 || !strings.Contains(fx.x.said[agents[1].Session][0], "Goal: Export orders as a PDF, one page each") {
+		t.Fatalf("Start on the brief: %+v, told %q", start, fx.x.said)
 	}
-	if got := fx.toolResult(t, s, "tile_agent_start"); !strings.Contains(got, "tile agent #2 started in apps/orders") {
-		t.Fatalf("the parked start after Start: %q", got)
+	if up := fx.updates(t, s); len(up) != 2 || !strings.Contains(up[1], "tile agent #2 started in apps/orders (Claude Code") {
+		t.Fatalf("the second start's update: %q", up)
 	}
 	// a brief the agent wrote and didn't ask for: the card's button asks
 	fx.x.mu.Lock()
@@ -191,7 +214,7 @@ func TestWsBriefCard(t *testing.T) {
 	f.on(forRun(s.Run, lastUser("where are we")), callTools(tc("b7", "tile_agents", `{}`))).once()
 	fx.say(t, s, "where are we?")
 	fx.idle(t, s)
-	if got := fx.toolResult(t, s, "tile_agents"); !strings.Contains(got, "Tile agent #1 in apps/orders (Claude Code, asks before acting) is working") || !strings.Contains(got, "Brief 3 for apps/orders (asked)") {
+	if got := fx.toolResult(t, s, "tile_agents"); !strings.Contains(got, "Tile agent #1 in apps/orders (Codex, asks before acting) is working") || !strings.Contains(got, "Brief 3 for apps/orders (asked)") {
 		t.Fatalf("tile_agents: %q", got)
 	}
 }
@@ -319,7 +342,7 @@ func TestWsLookingAndCreating(t *testing.T) {
 	f.on(forRun(s.Run, lastUser("a tile for our holidays")), callTools(tc("n1", "tile_create", `{}`), tc("n2", "tile_create", `{"template":"builtin:starter","name":"Team holidays","dry_run":true}`),
 		tc("n3", "tile_create", `{"template":"builtin:starter","name":"Team holidays","why":"A place for the holiday calendar"}`))).once()
 	fx.say(t, s, "make a tile for our holidays")
-	waitStatus(t, fx.ag.db, s.Run, statusWaiting)
+	fx.idle(t, s)
 	req := fx.x.pending(t)
 	if req.Kind != "template" || !strings.Contains(string(req.call.Body), `"path":"apps/team-holidays"`) {
 		t.Fatalf("the create asked for: %s", req.call.Body)
@@ -327,64 +350,144 @@ func TestWsLookingAndCreating(t *testing.T) {
 	fx.x.decide(req.ID, "approved")
 	fx.notify(t)
 	fx.idle(t, s)
-	if got := fx.toolResult(t, s, "tile_create"); !strings.Contains(got, "the tile apps/team-holidays now exists") || fx.x.count("TileCreate apps/team-holidays") != 1 {
-		t.Fatalf("the create: %q", got)
+	waitFor(t, "the create's update", func() bool { return len(fx.updates(t, s)) == 1 })
+	if up := fx.updates(t, s); !strings.Contains(up[0], "the tile apps/team-holidays now exists") || fx.x.count("TileCreate apps/team-holidays") != 1 {
+		t.Fatalf("the create: %q", up)
 	}
 }
 
-// The notebook's routes are the person's: every page listed for them, a
-// page a session can't read marked and still theirs to open, an edit from
-// the version they saw, and deleting makes the agent forget.
-func TestWsNotebookRoutes(t *testing.T) {
+// The notebook's rule, for every page: what the agent writes is stamped
+// with every org its session is tainted with at that moment; a session
+// reads, searches and is shown a page only when its model is allowed by
+// every stamped org, and reading it taints the session with them; the
+// person sees every page, their edit keeps a page's stamps, and only their
+// own route can clear them.
+func TestWsNotebookStampsAndRoutes(t *testing.T) {
 	fx := newWsFix(t)
-	s := fx.main(t) // on big: Finance isn't connected
-	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/preferences", map[string]any{"title": "How Ana likes things done", "body": "Reports in bullet points.", "base": 0}), 200, nil)
-	store, _ := fx.ag.db.knowID(wsNotebook("alice"), false)
-	zero := int64(0)
-	if _, err := fx.ag.db.wikiPut(store, wikiActor{By: "the workspace agent"}, wikiChange{Slug: "ledger-notes", Body: "The ledger closes on the 5th.", Base: &zero}); err != nil {
-		t.Fatal(err)
+	main := fx.main(t) // on big: Finance isn't connected
+	var made struct {
+		Session struct{ ID int64 } `json:"session"`
 	}
-	_ = fx.ag.db.wsPutStamp(store, "ledger-notes", wsStamp{Orgs: []string{"finance"}, Summary: "When the ledger closes"})
+	fx.json(t, fx.call(t, wsAlice, "POST", "/ws/sessions", map[string]any{"name": "Books", "model": "local-llama"}), 200, &made)
+	books, _ := fx.ag.db.wsSession(made.Session.ID)
+	tool := func(s *wsSession, name string, args map[string]any) string {
+		t.Helper()
+		cur, _ := fx.ag.db.wsSession(s.Run)
+		run, _ := fx.ag.db.getRun(s.Run)
+		cfg, _ := fx.ag.db.runConfig(s.Run)
+		_ = cur
+		out, err := fx.ag.runTool(context.Background(), run, cfg, name, args)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		return out
+	}
+	store := func() int64 { id, _ := fx.ag.db.knowID(wsNotebook("alice"), false); return id }
+
+	// before anything is read, a page holds no org's data
+	tool(main, "notebook_write", map[string]any{"slug": "preferences", "title": "How Ana likes things done", "body": "Reports in bullet points.", "summary": "How reports should read"})
+	if st := fx.ag.db.wsStamp(store(), "preferences"); len(st.Orgs) != 0 {
+		t.Fatalf("a page written before any read: %+v", st)
+	}
+	// after a map read the session is tainted with what it is connected to, and so is what it writes — preferences too
+	tool(main, "workspace_map", map[string]any{})
+	tool(main, "notebook_read", map[string]any{"slug": "preferences"})
+	tool(main, "notebook_write", map[string]any{"slug": "preferences", "body": "Reports in bullet points. Short.", "summary": "How reports should read"})
+	tool(main, "notebook_write", map[string]any{"slug": "what-orders-is-for", "body": "Orders takes the shop's orders.", "summary": "What Orders does", "tile": "apps/orders"})
+	if st := fx.ag.db.wsStamp(store(), "preferences"); strings.Join(st.Orgs, " ") != "sales workspace" {
+		t.Fatalf("preferences after a map read: %+v", st)
+	}
+	// the private session reads Finance: what it writes carries finance
+	tool(books, "workspace_map", map[string]any{})
+	tool(books, "notebook_write", map[string]any{"slug": "ledger-notes", "body": "The ledger closes on the 5th.", "summary": "When the ledger closes"})
+	if st := fx.ag.db.wsStamp(store(), "ledger-notes"); !hasStr(st.Orgs, "finance") {
+		t.Fatalf("a page written after reading Finance: %+v", st)
+	}
+	// Main (big) may not read it; Books (private) may read all three, and reading taints it
+	if got := tool(main, "notebook_search", map[string]any{}); !strings.Contains(got, "2 page(s):") || strings.Contains(got, "ledger") || !strings.Contains(got, "1 more page(s) hold data of an org that doesn't allow this session's model") {
+		t.Fatalf("Main's list: %q", got)
+	}
+	if got := tool(main, "notebook_read", map[string]any{"slug": "ledger-notes"}); !strings.Contains(got, `there is no page "ledger-notes" this session can read`) {
+		t.Fatalf("Main's read: %q", got)
+	}
+	if got := tool(main, "notebook_edit", map[string]any{"slug": "ledger-notes", "old": "5th", "new": "6th"}); !strings.Contains(got, "can't be changed here") {
+		t.Fatalf("Main's edit: %q", got)
+	}
+	if got := tool(books, "notebook_search", map[string]any{"query": "ledger closes"}); !strings.Contains(got, "ledger-notes") {
+		t.Fatalf("Books' search: %q", got)
+	}
+	before := fx.x.count("Taint")
+	fx.json(t, fx.call(t, wsAlice, "POST", "/ws/sessions", map[string]any{"name": "Fresh", "model": "local-llama"}), 200, &made)
+	fresh, _ := fx.ag.db.wsSession(made.Session.ID)
+	if got := tool(fresh, "notebook_read", map[string]any{"slug": "ledger-notes"}); !strings.Contains(got, "The ledger closes on the 5th.") {
+		t.Fatalf("a fresh private session's read: %q", got)
+	}
+	if cur, _ := fx.ag.db.wsSession(fresh.Run); !hasStr(cur.Conn.Tainted, "finance") || fx.x.count("Taint") != before+1 || !hasStr(fx.x.handles[cur.Handle].Tainted, "finance") {
+		t.Fatalf("reading a stamped page didn't taint the session: %+v", cur.Conn.Tainted)
+	}
+	// the prompt: only what the session may read, and showing it taints
+	fx.json(t, fx.call(t, wsAlice, "POST", "/ws/sessions", map[string]any{"name": "Fresh 2", "model": "local-llama"}), 200, &made)
+	shown, _ := fx.ag.db.wsSession(made.Session.ID)
+	if p := fx.ag.wsPromptFor(wsRunOf(t, fx.ag, shown.Run), Config{}); !strings.Contains(p, "- ledger-notes — ") || !strings.Contains(p, "Reports in bullet points. Short.") {
+		t.Fatalf("a private session's notebook block:\n%s", p)
+	}
+	if cur, _ := fx.ag.db.wsSession(shown.Run); !hasStr(cur.Conn.Tainted, "finance") || !hasStr(cur.Conn.Tainted, "sales") {
+		t.Fatalf("being shown stamped pages didn't taint the session: %+v", cur.Conn.Tainted)
+	}
+	if p := fx.ag.wsPromptFor(wsRunOf(t, fx.ag, main.Run), Config{}); strings.Contains(p, "ledger") || !strings.Contains(p, "Reports in bullet points. Short.") {
+		t.Fatalf("Main's notebook block:\n%s", p)
+	}
+
+	// the person's routes: every page listed, the closed one marked with xbind's reason
 	var list struct {
 		Pages []struct {
 			Slug, Summary, LockedWhy string
 			Locked                   bool
-			Version                  int64
+			Orgs                     []string
 		}
 	}
-	fx.json(t, fx.call(t, wsAlice, "GET", fmt.Sprintf("/ws/notebook?session=%d", s.Run), nil), 200, &list)
-	if len(list.Pages) != 2 {
+	fx.json(t, fx.call(t, wsAlice, "GET", fmt.Sprintf("/ws/notebook?session=%d", main.Run), nil), 200, &list)
+	if len(list.Pages) != 3 {
 		t.Fatalf("the pages: %+v", list.Pages)
 	}
 	for _, p := range list.Pages {
-		if (p.Slug == "ledger-notes") != p.Locked || (p.Locked && p.LockedWhy != "Not available in this session: finance isn't connected") {
+		if (p.Slug == "ledger-notes") != p.Locked || (p.Locked && p.LockedWhy != "Not available in this session: Finance allows private models only. big is not private.") {
 			t.Errorf("the page %s: %+v", p.Slug, p)
 		}
-	}
-	if !strings.Contains(fx.ag.wsPromptFor(wsRunOf(t, fx.ag, s.Run), Config{}), "Reports in bullet points.") || strings.Contains(fx.ag.wsPromptFor(wsRunOf(t, fx.ag, s.Run), Config{}), "ledger") {
-		t.Fatalf("the prompt's notebook block:\n%s", fx.ag.wsPromptFor(wsRunOf(t, fx.ag, s.Run), Config{}))
 	}
 	var page struct {
 		Page struct {
 			Body    string
 			Version int64
+			Orgs    []string
 		}
 	}
-	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/notebook/ledger-notes", nil), 200, &page) // theirs to read, whatever a session is connected to
-	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/preferences", map[string]any{"body": "x", "base": 7}), 409, nil)
-	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/preferences", map[string]any{"body": "Reports as short paragraphs.", "base": 1}), 200, &page)
-	if page.Page.Version != 2 {
-		t.Fatalf("the edit: %+v", page)
+	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/notebook/ledger-notes", nil), 200, &page) // theirs to read, whatever a session may
+	// their edit keeps the stamps; only their explicit clear removes them
+	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/ledger-notes", map[string]any{"body": "x", "base": 7}), 409, nil)
+	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/ledger-notes", map[string]any{"body": "The ledger closes on the 6th.", "base": 1}), 200, &page)
+	if page.Page.Version != 2 || !hasStr(page.Page.Orgs, "finance") {
+		t.Fatalf("the person's edit: %+v", page)
+	}
+	if got := tool(main, "notebook_write", map[string]any{"slug": "ledger-notes", "body": "y", "summary": "z", "clearStamps": true}); !strings.Contains(got, "can't be changed here") {
+		t.Fatalf("a tool cleared a stamp: %q", got)
+	}
+	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/notebook/ledger-notes", map[string]any{"body": "The ledger closes early in the month.", "base": 2, "clearStamps": true}), 200, &page)
+	if len(page.Page.Orgs) != 0 {
+		t.Fatalf("after the person's clear: %+v", page)
+	}
+	if got := tool(main, "notebook_read", map[string]any{"slug": "ledger-notes"}); !strings.Contains(got, "closes early in the month") {
+		t.Fatalf("Main's read after the clear: %q", got)
 	}
 	fx.json(t, fx.call(t, wsAlice, "DELETE", "/ws/notebook/preferences", nil), 200, nil)
 	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/notebook", nil), 200, &list)
-	if len(list.Pages) != 1 || strings.Contains(fx.ag.wsPromptFor(wsRunOf(t, fx.ag, s.Run), Config{}), "short paragraphs") {
+	if len(list.Pages) != 2 || strings.Contains(fx.ag.wsPromptFor(wsRunOf(t, fx.ag, main.Run), Config{}), "bullet points") {
 		t.Fatalf("after the delete: %+v", list.Pages)
 	}
 	fx.json(t, fx.call(t, caller{from: "user:bob", user: "bob", level: "read"}, "GET", "/ws/notebook/ledger-notes", nil), 404, nil)
 	var prefs wsPrefsData
-	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/prefs", map[string]any{"model": "local-llama", "harness": "codex", "lastSession": s.Run}), 200, &prefs)
-	if prefs.Model != "local-llama" || prefs.Harness != "codex" || prefs.LastSession != s.Run {
+	fx.json(t, fx.call(t, wsAlice, "PUT", "/ws/prefs", map[string]any{"model": "local-llama", "lastSession": main.Run}), 200, &prefs)
+	if prefs.Model != "local-llama" || prefs.LastSession != main.Run {
 		t.Fatalf("the prefs: %+v", prefs)
 	}
 }
@@ -535,8 +638,13 @@ func TestWsHTTPShapes(t *testing.T) {
 			reply(w, 200, map[string]any{"path": r.URL.Query().Get("path"), "title": "Users & orgs", "markdown": "# Users & orgs\n…", "sections": []map[string]string{{"section": "organizations", "heading": "Organizations"}}})
 		case "GET /api/xbin/code/file":
 			reply(w, 200, map[string]any{"path": r.URL.Query().Get("file"), "content": "# Mail API"})
-		case "GET /api/xbin/agent/providers":
-			reply(w, 200, []map[string]any{{"id": "claude", "name": "Claude Code"}, {"id": "codex", "name": "Codex"}})
+		case "GET /api/xbin/delegate/start-defaults":
+			reply(w, 200, map[string]any{"tile": r.URL.Query().Get("tile"), "harness": "claude", "mode": "default", "net": "model", "ticket": true,
+				"harnesses": []map[string]any{{"id": "claude", "name": "Claude Code"}, {"id": "codex", "name": "Codex"}}})
+		case "POST /api/xbin/delegate/sessions/h1/allows":
+			reply(w, 200, map[string]any{"allowed": false, "reasons": map[string]string{"finance": "Finance allows private models only"}})
+		case "POST /api/xbin/delegate/sessions/h1/taint":
+			reply(w, 200, map[string]any{"tainted": []string{"sales", "finance"}})
 		case "POST /api/apps/mail/send":
 			switch {
 			case r.Header.Get("X-XBin-Dry-Run") == "1":
@@ -553,7 +661,8 @@ func TestWsHTTPShapes(t *testing.T) {
 		case "POST /api/xbin/term/sessions":
 			reply(w, 200, map[string]any{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "starting", "origin": "agent"})
 		case "GET /api/xbin/term/sessions":
-			reply(w, 200, []map[string]any{{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "idle", "origin": "agent"}})
+			reply(w, 200, []map[string]any{{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "idle", "origin": "agent"},
+				{"id": "s0", "cwd": "apps/mail", "kind": "agent", "provider": "codex", "mode": "default", "status": "exited", "ended": "restart", "origin": "agent"}})
 		case "POST /api/xbin/term/sessions/s1/queue":
 			reply(w, 200, map[string]any{"outcome": "prompted"})
 		case "GET /api/xbin/term/sessions/s1":
@@ -618,8 +727,14 @@ func TestWsHTTPShapes(t *testing.T) {
 	if f, err := h.CodeFile(ctx, "h1", "apps/mail", "API.md"); err != nil || f.Content != "# Mail API" || !strings.Contains(got[len(got)-1].path, "component=apps%2Fmail&file=API.md") {
 		t.Fatalf("CodeFile: %+v %v %s", f, err, got[len(got)-1].path)
 	}
-	if hs, err := h.Harnesses(ctx, "h1", "apps/mail"); err != nil || len(hs) != 2 || hs[0] != (wsHarness{ID: "claude", Name: "Claude Code"}) {
-		t.Fatalf("Harnesses: %+v %v", hs, err)
+	if d, err := h.StartDefaults(ctx, "h1", "apps/mail"); err != nil || d.Harness != "claude" || len(d.Harnesses) != 2 || d.name("codex") != "Codex" || !d.Ticket || !d.Asks || d.Net != "model" {
+		t.Fatalf("StartDefaults: %+v %v", d, err)
+	}
+	if ok, why, err := h.Allows(ctx, "h1", []string{"sales", "finance"}); err != nil || ok || why["finance"] == "" || got[len(got)-1].body != `{"orgs":["sales","finance"]}` {
+		t.Fatalf("Allows: %v %v %v", ok, why, err)
+	}
+	if err := h.Taint(ctx, "h1", []string{"finance"}); err != nil || got[len(got)-1].path != "/api/xbin/delegate/sessions/h1/taint" || got[len(got)-1].body != `{"orgs":["finance"]}` {
+		t.Fatalf("Taint: %v %+v", err, got[len(got)-1])
 	}
 	c := wsCall{Method: "POST", Path: "/api/apps/mail/send", Body: []byte(`{"to":"ada"}`), ContentType: "application/json"}
 	dc := c
@@ -646,16 +761,25 @@ func TestWsHTTPShapes(t *testing.T) {
 	if a, err := h.Call(ctx, "h1", tk); err != nil || a.Status != 422 || !strings.Contains(string(a.Body), "no recipient") || got[len(got)-1].ticket != "r1" {
 		t.Fatalf("the ticketed call: %+v %v", a, err)
 	}
-	ag, _, err := h.AgentStart(ctx, "h1", wsAgentStart{Tile: "apps/mail", Harness: "claude", Prompt: "the brief", Name: "fix"}, "r1", false)
+	ag, _, err := h.AgentStart(ctx, "h1", wsAgentStart{Tile: "apps/mail", Prompt: "the brief", Name: "fix"}, "r1", false)
 	if err != nil || ag.ID != "s1" || !ag.Mine || ag.Status != "starting" || ag.Name != "Claude Code" || !ag.Asks {
 		t.Fatalf("AgentStart: %+v %v", ag, err)
 	}
-	if start, say := got[len(got)-2], got[len(got)-1]; start.body != `{"cwd":"apps/mail","kind":"agent","name":"fix","provider":"claude"}` ||
-		say.path != "/api/xbin/term/sessions/s1/queue" || say.body != `{"text":"the brief"}` {
-		t.Fatalf("the start and its brief: %+v / %+v", start, say)
+	// the brief rides the start (xbind sends it); no harness unless the person picked one
+	if start := got[len(got)-1]; start.path != "/api/xbin/term/sessions" || start.body != `{"cwd":"apps/mail","kind":"agent","name":"fix","prompt":"the brief"}` || start.ticket != "r1" {
+		t.Fatalf("the start: %+v", start)
 	}
-	if list, err := h.Agents(ctx, "h1"); err != nil || len(list) != 1 || list[0].Status != "idle" || got[len(got)-1].path != "/api/xbin/term/sessions?origin=agent&compact=1" {
+	if c := h.startCall(wsAgentStart{Tile: "apps/mail", Harness: "codex", Prompt: "b"}); string(c.Body) != `{"cwd":"apps/mail","kind":"agent","prompt":"b","provider":"codex"}` {
+		t.Fatalf("a start with the person's pick: %s", c.Body)
+	}
+	if c := h.startCall(wsAgentStart{Tile: "apps/mail", Resume: "s0", Prompt: "ignored"}); string(c.Body) != `{"cwd":"apps/mail","kind":"agent","resume":"s0"}` {
+		t.Fatalf("a resume: %s", c.Body)
+	}
+	if list, err := h.Agents(ctx, "h1"); err != nil || len(list) != 2 || list[0].Status != "idle" || list[1].EndedBy != "restart" || got[len(got)-1].path != "/api/xbin/term/sessions?origin=agent&compact=1" {
 		t.Fatalf("Agents: %+v %v", list, err)
+	}
+	if a, err := h.Agent(ctx, "h1", "s0"); err != nil || a.Status != "ended" || a.EndedBy != "restart" { // gone from the live directory, marked in the compact read
+		t.Fatalf("a session a restart ended: %+v %v", a, err)
 	}
 	if a, err := h.Agent(ctx, "h1", "s1"); err != nil || a.Status != "running" || a.Pending != 1 || a.Waiting != "permission: go test ./..." {
 		t.Fatalf("Agent: %+v %v", a, err)

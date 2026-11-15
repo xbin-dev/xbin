@@ -41,7 +41,9 @@ The agent **asks**; the person **decides**, in chrome the agent's page can't dra
 2. The person sees xbind's description beside the agent's words (which are quoted as the agent's), and allows it once, allows it as a standing approval, or denies it. A request waits 24 hours.
 3. Approved, the request is a ticket: once, within 15 minutes, for that exact call. The agent's backend makes the call and gives the answer to the model; denied, expired or withdrawn, the model is told that instead.
 
-While a request waits, the conversation waits for its person. If they write a message instead of deciding, the agent goes on from the message and the request stays open; its outcome arrives later as an update. xbind tells the agent's backend that something changed with a notice that carries ids and kinds only; the backend reads the state again through the API, so a forged or repeated notice changes nothing — and it reads everything it waits on again when it starts and while anything is open, so a notice that never arrives costs a delay, not a stuck conversation.
+Starting a tile agent is approved with its brief: the brief is part of the ticket, xbind shows it as what the session is told first, and xbind sends it. What the agent messages that tile agent afterwards is not approved message by message — the tile agent's own mode, asking the person before it acts, is the guard there.
+
+A request holds nothing up: the agent is told it is pending and goes on, or ends its turn, and the outcome reaches the conversation as an update when the person decides — hours later if need be. Meanwhile it still hears from the tile agents it started. A message from the person is never taken for the decision. xbind tells the agent's backend that something changed with a notice that carries ids and kinds only; the backend reads the state again through the API, so a forged or repeated notice changes nothing — and it reads everything it waits on again when it starts and while anything is open, so a notice that never arrives costs a delay, not a stuck conversation.
 
 Admin changes are never calls. An admin's agent proposes a change set (grants, bindings, org shares, limits); xbind writes each line, its before and after and its warnings; the person ticks what to apply.
 
@@ -59,7 +61,7 @@ A workspace agent's call to your tile's API looks like its person's — `X-XBin-
 
 The agent's model calls go through xbind's LLM connector, on the model its session is on. The provider of that model receives the conversation: what the person wrote, the agent's replies, and the results of its tools — tile names and status lines, what a tile's API answered, log lines (redacted for known secret shapes), a tile agent's report, the research sub-agent's summaries, and the notebook pages the session may read. It does not receive tile code unless a research sub-agent quoted a line of it, a tile agent's transcript beyond its final report, or anything from a tile that isn't connected.
 
-Orgs decide which models may see their tiles ([protocol/orgs.md](/docs/protocol/orgs.md)): a session on a model an org doesn't allow isn't connected to that org's tiles, xbind remembers which orgs' data a conversation has read, and notebook pages carry the orgs whose data they may hold — a session reads a page only when every one of them is connected in it. A tile agent the workspace agent starts runs on the harness and model the person's preferences and the tile's org allow, with its own sign-in or the connector.
+Orgs decide which models may see their tiles ([protocol/orgs.md](/docs/protocol/orgs.md)): a session on a model an org doesn't allow isn't connected to that org's tiles, xbind remembers which orgs' data a conversation has read, and notebook pages carry the orgs whose data they may hold — a session reads a page only when its model is allowed by every one of them. A tile agent the workspace agent starts runs on the harness and model the person's preferences and the tile's org allow, with its own sign-in or the connector.
 
 ## What the agent knows about xbin
 
@@ -67,7 +69,7 @@ The agent's prompt carries a short map of xbin — components and tiles, screens
 
 ## The notebook
 
-"What the agent remembers": Markdown pages in the person's own partition, with every version kept. The agent writes what should outlast a session — how the person likes things done (the page `preferences` is shown to it in every session), what their tiles are for, what a research sub-agent verified about a tile (stamped with the tile's revision). The person reads, edits and deletes any page; deleting a page makes the agent forget it. A page that holds an org's data is listed for the person and closed to a session that org isn't connected to.
+"What the agent remembers": Markdown pages in the person's own partition, with every version kept. The agent writes what should outlast a session — how the person likes things done (the page `preferences` is shown to it in every session), what their tiles are for, what a research sub-agent verified about a tile (stamped with the tile's revision). The person reads, edits and deletes any page; deleting a page makes the agent forget it. Every page the agent writes carries the orgs whose data its conversation held at that moment, and a session reads a page only when its model is allowed by each of them; reading one marks the session as holding that data. A page closed to a session is still listed for the person, who can edit it — and is the only one who can clear its marks.
 
 ## Running it
 

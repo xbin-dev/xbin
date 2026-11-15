@@ -12,6 +12,7 @@
 //	GET    /ws/sessions/{id}/cards           requests, tile agents, briefs, the plan
 //	PUT    /ws/sessions/{id}/briefs/{bid}    the person's edit of a brief
 //	POST   /ws/sessions/{id}/briefs/{bid}/start   "Review and start…": the request to review, or the start
+//	GET    /ws/sessions/{id}/briefs/{bid}/start-defaults   what the start would run on, and the harnesses to pick from
 //	GET    /ws/needs                         what waits for the person because of the agent
 //	GET    /ws/empty                         the empty state: can / can't, starters (ws_empty.go)
 //	GET    /ws/notebook                      pages, with the ones a session can't read marked
@@ -52,6 +53,7 @@ func wsRouteTable() []wsRouteDef {
 		{"GET /ws/sessions/{id}/cards", needOwner, handleWsCards},
 		{"PUT /ws/sessions/{id}/briefs/{bid}", needOwner, handleWsBriefPut},
 		{"POST /ws/sessions/{id}/briefs/{bid}/start", needOwner, handleWsBriefStart},
+		{"GET /ws/sessions/{id}/briefs/{bid}/start-defaults", needOwner, handleWsBriefDefaults},
 		{"GET /ws/needs", needAny, handleWsNeeds},
 		{"GET /ws/empty", needAny, handleWsEmpty},
 		{"GET /ws/notebook", needAny, handleWsNotebook},
@@ -149,8 +151,10 @@ func wsSessionItem(s *wsSession, owner string) map[string]any {
 		"connection": s.Conn.Connection, "summary": wsConnLine(s.Conn.Connection), "tainted": s.Conn.Tainted, "createdMs": s.Created}
 	if run, err := agent.db.getRun(s.Run); err == nil {
 		it["name"], it["status"], it["activityMs"] = run.Title, run.Status, run.ActivityMs
-		if run.Status == statusWaiting {
+		if run.Status == statusWaiting { // the agent's own question
 			it["waiting"] = run.Result
+		} else if w := wsWaitingWords(agent.db, s.Run); w != "" { // requests open for its person: the conversation itself goes on
+			it["waiting"] = w
 		}
 	}
 	st := agent.db.userStates(owner, []int64{s.Run})[s.Run]
@@ -384,7 +388,7 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusConflict, "this brief was "+b.State+": it can't be edited any more")
 		return
 	}
-	var body struct{ Goal, DoneWhen, LeaveAlone, CheckBy *string }
+	var body struct{ Goal, DoneWhen, LeaveAlone, CheckBy, Harness *string }
 	if !decodeBody(w, r, &body) {
 		return
 	}
@@ -401,22 +405,39 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusBadRequest, "a brief needs a goal and a done-when")
 		return
 	}
-	if _, err := agent.db.q.Exec(`UPDATE ws_briefs SET goal=?, done_when=?, leave_alone=?, check_by=?, edited=1, updated_ms=? WHERE id=?`,
-		b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy, nowMs(), b.ID); err != nil {
+	if body.Harness != nil { // the person's pick, among what xbind says the tile allows ("": xbind's default again)
+		pick := strings.TrimSpace(*body.Harness)
+		if pick != "" {
+			var d wsStartDefaults
+			if err := agent.wsWith(r.Context(), s, func(sid string) (err error) { d, err = wsX.StartDefaults(r.Context(), sid, b.Tile); return }); err != nil {
+				wsWriteErr(w, err)
+				return
+			}
+			allowed := false
+			for _, h := range d.Harnesses {
+				allowed = allowed || h.ID == pick
+			}
+			if !allowed {
+				xbin.WriteError(w, http.StatusConflict, "that coding agent isn't allowed on "+b.Tile+": pick one of the ones listed")
+				return
+			}
+		}
+		b.Harness = pick
+	}
+	if _, err := agent.db.q.Exec(`UPDATE ws_briefs SET goal=?, done_when=?, leave_alone=?, check_by=?, harness=?, edited=1, updated_ms=? WHERE id=?`,
+		b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy, b.Harness, nowMs(), b.ID); err != nil {
 		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// a request filed for the old words: asked again with the new ones, on the same row (and the same parked call)
+	// a request filed for the old brief: asked again with the new one, on the same row
 	for _, req := range agent.db.wsReqs(`WHERE run_id=? AND brief_id=? AND state='pending'`, s.Run, b.ID) {
 		if wsLocalRef(req.Ref) {
 			continue
 		}
-		var filed wsAgentStart
-		_ = json.Unmarshal(req.Body, &filed)
-		start := wsStartOf(b, s.Owner, filed.Harness) // the harness the first request named
+		start := wsStartOf(b, s.Owner)
 		var xr wsRequest
 		if err := agent.wsWith(r.Context(), s, func(sid string) (err error) {
-			xr, err = wsX.AskAgentStart(r.Context(), sid, start, wsStartSummary(start))
+			xr, err = wsX.AskAgentStart(r.Context(), sid, start, wsStartSummary(start, b))
 			return
 		}); err != nil {
 			wsWriteErr(w, err)
@@ -431,6 +452,29 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 	b.Edited = true
 	agent.wsChanged(s.Run, "brief")
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"brief": b})
+}
+
+// handleWsBriefDefaults is what a brief's start would run on, for its
+// card: xbind's answer for the tile — the harness (its name), the mode and
+// whether it asks before acting, the network, whether xbind will ask the
+// person, and the harnesses they may pick instead — with their pick.
+func handleWsBriefDefaults(w http.ResponseWriter, r *http.Request) {
+	s, ok := wsRouteSession(w, r)
+	if !ok {
+		return
+	}
+	b, ok := wsBriefOf(w, r, s)
+	if !ok {
+		return
+	}
+	var d wsStartDefaults
+	if err := agent.wsWith(r.Context(), s, func(sid string) (err error) { d, err = wsX.StartDefaults(r.Context(), sid, b.Tile); return }); err != nil {
+		wsWriteErr(w, err)
+		return
+	}
+	id := orStr(b.Harness, d.Harness)
+	xbin.WriteJSON(w, http.StatusOK, map[string]any{"defaults": d, "picked": b.Harness, "harness": id, "harnessName": d.name(id),
+		"line": d.name(id) + " · " + map[bool]string{true: "asks before acting", false: "acts without asking"}[d.Asks]})
 }
 
 // handleWsBriefStart is "Review and start…" on a brief's card: it answers
@@ -463,12 +507,7 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// the agent wrote the brief and has not asked: ask for it
-	harness, err := agent.wsPickHarness(ctx, s, b.Tile)
-	if err != nil {
-		xbin.WriteError(w, http.StatusConflict, err.Error())
-		return
-	}
-	start := wsStartOf(b, s.Owner, harness.ID)
+	start := wsStartOf(b, s.Owner)
 	var dry *wsDry
 	if err := agent.wsWith(ctx, s, func(sid string) (err error) { _, dry, err = wsX.AgentStart(ctx, sid, start, "", true); return }); err != nil {
 		wsWriteErr(w, err)
@@ -488,7 +527,7 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 	if dry.NeedsApproval {
 		var xr wsRequest
 		if err := agent.wsWith(ctx, s, func(sid string) (err error) {
-			xr, err = wsX.AskAgentStart(ctx, sid, start, wsStartSummary(start))
+			xr, err = wsX.AskAgentStart(ctx, sid, start, wsStartSummary(start, b))
 			return
 		}); err != nil {
 			wsWriteErr(w, err)
@@ -539,7 +578,7 @@ func handleWsNeeds(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]any{"kind": "tile-agent", "session": s.Run, "sessionName": name, "agent": a.ID, "tileSession": a.Session,
 				"tile": a.Tile, "harness": a.Harness, "text": a.Waiting, "since": a.Updated})
 		}
-		if err == nil && run.Status == statusWaiting && parsePending(run.Pending).Kind != pendKindCoord {
+		if err == nil && run.Status == statusWaiting {
 			items = append(items, map[string]any{"kind": "question", "session": s.Run, "sessionName": name, "text": run.Result, "since": run.Updated * 1000})
 		}
 	}
@@ -571,7 +610,7 @@ func wsPageItem(p WikiPage, st wsStamp, s *wsSession) map[string]any {
 		"updatedMs": p.UpdatedMs, "size": p.Size, "orgs": st.Orgs, "tile": st.Tile, "rev": st.Rev}
 	if s != nil && !wsReadable(s, st) {
 		it["locked"] = true
-		it["lockedWhy"] = "Not available in this session: " + strings.Join(st.Orgs, ", ") + " isn't connected"
+		it["lockedWhy"] = "Not available in this session: " + wsLockedWhy(s, st)
 	}
 	return it
 }
@@ -582,6 +621,9 @@ func handleWsNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := wsQuerySession(r, owner)
+	if s != nil {
+		agent.wsAllow(r.Context(), s)
+	}
 	items := []map[string]any{}
 	if store, err := agent.db.knowID(wsNotebook(owner), false); err == nil {
 		for _, p := range agent.db.wikiPages(store, false) {
@@ -627,8 +669,9 @@ func handleWsPage(w http.ResponseWriter, r *http.Request) {
 
 // handleWsPagePut is the person's own write: a new page ("Add a note") or
 // an edit, from the version they saw (base; 409 when it moved). A page the
-// person writes keeps the stamp it had: their words don't unmark what the
-// page already held.
+// person writes keeps the stamps it had — their edit doesn't unmark what
+// the page already held — unless they clear them (clearStamps: a
+// deliberate act the page confirms; this route offers it, no tool does).
 func handleWsPagePut(w http.ResponseWriter, r *http.Request) {
 	owner, ok := wsCaller(w, r)
 	if !ok {
@@ -637,6 +680,7 @@ func handleWsPagePut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title, Body, Summary string
 		Base                 int64
+		ClearStamps          bool // the person's own, deliberate act: the page holds no org's data any more
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -653,6 +697,9 @@ func handleWsPagePut(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		st := t.wsStamp(store, p.Slug)
+		if body.ClearStamps {
+			st.Orgs, st.Tile, st.Rev = nil, "", ""
+		}
 		if s := clip(oneLineTitle(body.Summary), wsSummaryMax); s != "" {
 			st.Summary = s
 		} else if st.Summary == "" {
@@ -701,7 +748,7 @@ func handleWsPageDelete(w http.ResponseWriter, r *http.Request) {
 // person's agent preferences): not here.
 type wsPrefsData struct {
 	Model       string `json:"model"`       // the model a new session starts on ("": the connector's for the agent role)
-	Harness     string `json:"harness"`     // the coding agent tile agents start on, where a tile allows it ("": the tile's first)
+	Harness     string `json:"harness"`     // kept for the page; a start's harness is xbind's to resolve, or the person's pick on the brief
 	LastSession int64  `json:"lastSession"` // the session the page last showed
 }
 

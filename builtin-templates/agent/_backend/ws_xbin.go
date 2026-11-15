@@ -35,6 +35,12 @@ type wsXbin interface {
 	// itself). With whatIf, what moving to that model would change, as
 	// counts, and whether the conversation's data allows the move.
 	Connection(ctx context.Context, sid, whatIf string) (wsConnection, *wsWhatIf, error)
+	// Allows asks whether the session's model is allowed by every one of
+	// orgs (reasons: why not, by org); Taint records that the conversation
+	// now holds data of orgs — what reading a notebook page stamped with
+	// them does.
+	Allows(ctx context.Context, sid string, orgs []string) (allowed bool, reasons map[string]string, err error)
+	Taint(ctx context.Context, sid string, orgs []string) error
 	// Models are the models the person may put a conversation on.
 	Models(ctx context.Context) (wsModels, error)
 	// State is delegation's switches for this person (paused, the admin opt-in).
@@ -63,7 +69,11 @@ type wsXbin interface {
 	// the same bytes: AskX files it for approval; X makes it under a ticket
 	// (or, with ticket "", where the person's preferences let it through),
 	// and with dry describes it instead.
-	Harnesses(ctx context.Context, sid, tile string) ([]wsHarness, error)
+	// StartDefaults is what a tile agent started in tile would run on:
+	// xbind resolves the harness, mode and network from the person's
+	// preferences and the tile's org's rules. It also lists the harnesses
+	// the person may pick instead, and says whether a start needs a ticket.
+	StartDefaults(ctx context.Context, sid, tile string) (wsStartDefaults, error)
 	AskAgentStart(ctx context.Context, sid string, a wsAgentStart, summary string) (wsRequest, error)
 	AgentStart(ctx context.Context, sid string, a wsAgentStart, ticket string, dry bool) (wsAgent, *wsDry, error)
 	AskTileCreate(ctx context.Context, sid string, t wsTileCreate, summary string) (wsRequest, error)
@@ -336,6 +346,9 @@ type wsAgent struct {
 	History   string `json:"history,omitempty"`
 	Last      string `json:"last,omitempty"` // its last line
 	Turn      int    `json:"turn,omitempty"`
+	// EndedBy is "restart" for a session an xbind restart ended (it did not
+	// finish: its history can be resumed); "" otherwise.
+	EndedBy string `json:"endedBy,omitempty"`
 }
 
 // waits: the session waits for its person (a permission, a question).
@@ -344,12 +357,13 @@ func (a wsAgent) waits() bool { return a.Pending > 0 || a.Questions > 0 }
 // live: it can still take a message.
 func (a wsAgent) live() bool { return a.Status != "ended" && a.Status != "failed" && a.Status != "" }
 
-// wsAgentStart is a tile agent's start: where, on which harness, what it
-// is told — or the past session to continue. The harness is this backend's
-// pick among what the tile allows (the person's choice in its preferences,
-// else the tile's first), never the model's; its mode, its network and
-// what it may call are the person's preferences and the tile's org's
-// rules, which xbind fills in. Prompt is the brief: its first message.
+// wsAgentStart is a tile agent's start: where, and what it is told first
+// — or the past session to continue. Prompt is the brief: it rides the
+// start, so the ticket is of those words, xbind shows them on the
+// approval, and xbind sends them. Harness is set only when the person
+// picked one of the harnesses the tile allows; left empty xbind resolves
+// it, as it always resolves the mode and the network, from the person's
+// preferences and the tile's org's rules. Nothing here is the model's.
 type wsAgentStart struct {
 	Tile    string `json:"tile"`
 	Harness string `json:"harness,omitempty"`
@@ -362,6 +376,30 @@ type wsAgentStart struct {
 type wsHarness struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// wsStartDefaults is what a start in a tile resolves to, for the brief's
+// card: the harness it would run on and the ones allowed instead, its mode
+// (Asks: the mode asks before acting), its network, and whether xbind
+// asks the person for this start.
+type wsStartDefaults struct {
+	Tile      string      `json:"tile"`
+	Harness   string      `json:"harness"`
+	Harnesses []wsHarness `json:"harnesses"`
+	Mode      string      `json:"mode,omitempty"`
+	Asks      bool        `json:"asks"`
+	Net       string      `json:"net,omitempty"`
+	Ticket    bool        `json:"ticket"`
+}
+
+// name is the harness id as people call it, by the defaults' list.
+func (d wsStartDefaults) name(id string) string {
+	for _, h := range d.Harnesses {
+		if h.ID == id {
+			return orStr(h.Name, h.ID)
+		}
+	}
+	return id
 }
 
 // wsTileCreate is a tile made from a template.
