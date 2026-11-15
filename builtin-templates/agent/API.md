@@ -5874,7 +5874,7 @@ orgs, reason, offer: {newSession: {model}}}`.
 | `GET /ws/sessions/{id}/briefs/{bid}/start-defaults` | what the brief's start would run on, from xbind: `{defaults, picked, harness, harnessName, line}` ("Claude Code · asks before acting") |
 | `POST /ws/sessions/{id}/briefs/{bid}/start` | "Review and start…" → `{request, id}` (the request to review; filed now when the agent hadn't asked), or `{started, id, outcome}` where the person's preferences let tile agents start without xbind asking — there the click is the confirmation. Which one is xbind's dry run of the start at the click, not when the agent asked: a start that needs an approval now (the preference changed, or the call itself is refused `needs-approval`) is filed, and answered as `{request, id}` |
 | `GET /ws/needs` | `{items, count}`: what waits for the person because of the agent, oldest first per session — `approval` and `changeset` (with `request`), `tile-agent` (with `tileSession`, `text`), `question` (the agent's own `ask_user`: `text`, and `ask` — its kind —, `choices`, `callId`, and for a redirect `tile`) |
-| `GET /ws/empty?session=` | the empty state, computed from xbind's map without a model call: `{heading, line, can[], cant[], connected, notConnected, summary, placeholder, hint, startersTitle, starters: [{kind: Ask\|Fix\|Change\|New, text, tile?, blank?}]}`. A starter fills the composer; a tile that reports a failure becomes a Fix |
+| `GET /ws/empty?session=` | the empty state, computed from xbind's map without a model call: `{heading, line, can[], cant[], connected, notConnected, summary, placeholder, hint, startersTitle, starters: [{kind: Ask\|Fix\|Change\|New, text, tile?, blank?}], off?}`. A starter fills the composer; a tile that reports a failure becomes a Fix. `off` is the agent's switch when xbind says it can't act (`paused`, `workspace-off`, `held`, `no-agent` — an admin too has no agent unless one was given them): `line` then says which, who changes it and where, and `can` and `starters` are empty |
 | `GET /ws/notebook?session=` | `{pages: [{slug, title, summary, version, updatedBy, updatedMs, orgs, tile, rev, locked?, lockedWhy?}]}` — every page is the person's to see; `locked` says the session's model isn't allowed by an org on the page's stamp (`lockedWhy`: xbind's reason) |
 | `GET` / `PUT` / `DELETE /ws/notebook/{slug}` | read; write `{title?, body, summary?, base}` (`base`: the version seen, `0` for a new page; `409 {current}` when it moved; the page keeps its `orgs`, always — there is no way to clear them here: delete the page and have a session that holds none of that data write it again); delete makes the agent forget (history kept) |
 | `GET` / `PUT /ws/prefs` | `{model, harness, lastSession}`: the model new sessions start on and the session the page last showed. `harness` is kept for the page and decides nothing: a started tile agent's harness, mode and network are xbind's to resolve (`/agent/prefs`, the tile's org), or the person's pick on the brief |
@@ -5890,6 +5890,18 @@ proposed, never another session's); `preview`; `plan`; `notebook_search`,
 `notebook_read`, `notebook_write`, `notebook_edit`, `notebook_archive` —
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
+
+**When the agent's switch is off** — its person paused it, workspace
+agents are off, it is held, or its person wasn't given one — xbind refuses
+its every call and its model turns, and says which (the refusal of its
+state read: `paused`, `workspace-off`, `held`, `no-agent`, `no-sandbox`).
+The backend then answers its person without the model: `POST
+/runs/{id}/message` in a workspace session answers `409 {code:
+"agent-off", refusal, error, kept: true}` and queues nothing; the
+transcript gets a step of kind `off` (`{text, switch}`: the switch, who
+can change it and where); a turn the agent is woken for stops before its
+model call with the same words. The page keeps the words in the message
+box: they run only when the person sends them again.
 
 **A request is pending, never a wait.** `tile_call` with a method other
 than GET/HEAD, `tile_agent_start` and `tile_create` ask xbind what the call
@@ -5970,9 +5982,11 @@ beside them are the model's, and neither is parsed out of the other.
   the session is in asks its person before it acts, both from xbind's `GET
   /delegate/start-defaults?tile=` (the row of the session's provider:
   `name`, and `asks` when the session's `mode` is the one xbind names
-  there); a harness xbind doesn't list for the tile keeps the name it had
-  (or shows its id), and a mode xbind doesn't name is not known to ask
-  (`asks: false`). `waits` and `waiting` (what it asks its person) come
+  there — xbind names only a harness's ask or plan mode as asking); a
+  harness xbind doesn't list for the tile keeps the name it had (or shows
+  its id), and a mode xbind doesn't name, or none, is not known to ask
+  (`asks: false`). Nothing the page, the prompt or the brief card says
+  promises "asks before acting" without that answer. `waits` and `waiting` (what it asks its person) come
   from the session's own read, made only while it waits.
 - **A refusal** (`cards.refusals[]`, newest first, 50 at most): a tool call
   that xbind refused, or that named a tile the session isn't connected to —
@@ -5980,11 +5994,20 @@ beside them are the model's, and neither is parsed out of the other.
   answers. `kind`: `hidden` (outside the session's scope: the person's
   choice), `policy` (the tile's or its org's rule; `reason` is their
   sentence), `cannot` (not in what an agent may do, whatever is approved),
-  `paused`, `off`, `slow` (rate-limited), `taint` (the session's model may
-  not hold that data), `not-connected` (no such tile for this session:
+  `paused`, `off`, `no-agent` (its person wasn't given an agent), `held`,
+  `slow` (rate-limited), `taint` (the session's model may not hold that
+  data), `brief-taint` (xbind's `403 {refusal: "taint"}`: the conversation
+  holds data of an org whose model rule the tile agent's model doesn't
+  meet — the way forward is a start on the connector on an allowed model,
+  or a clean conversation), `mode` (`{refusal: "mode"}`: the tile agent's
+  person switched it to a mode that doesn't ask — only they drive it now),
+  `command` (`{refusal: "command"}`: the text began with `/`),
+  `not-connected` (no such tile for this session:
   xbind answers a tile that isn't there and one the person can't see
   alike). `tile` is the tile as the call named it. The tool's answer to the
-  model is unchanged.
+  model says what happened and what to do instead, and none of these is
+  retried: a message held behind a tile agent's question that xbind refuses
+  when it would go in is dropped, and the conversation told once.
 - **A question** (`cards.ask`, a session's `ask`, a `question` item of
   `/ws/needs`): `{callId, kind, question, choices?, tile?}`. `kind` is
   `ask_user`'s: `choices` (built from what it found), `redirect` (the
@@ -6017,7 +6040,9 @@ default's; every name and `asks` in it is xbind's answer (`GET
 /delegate/start-defaults?tile=`), read anew for the card: the backend has
 no list of coding agents of its own in this mode). Where the person's
 preferences let starts through without a ticket — xbind's dry run says
-`needsApproval: false` — no request is filed and the click on the brief
+`needsApproval: false, under: "preference"` (never for a resume, or a start
+that names a mode of its own); a start it refuses whatever approves it is
+`allowed: false` with its sentence, filed nowhere — no request is filed and the click on the brief
 (`POST …/briefs/{bid}/start`) is the confirmation; wherever xbind says one
 is needed, at the tool, at the click or on the call itself, a request is
 filed and nothing starts before the person allows it. What the agent messages

@@ -150,6 +150,12 @@ func wsDryWords(what string, d *wsDry) string {
 		return what + ": xbin gave no description."
 	}
 	if !d.Allowed {
+		switch d.Refusal { // a start xbind refuses whatever approves it: what to do instead
+		case "taint":
+			return what + " is refused. Nothing was asked and nothing ran. " + wsTaintedBriefWords(d.Error) + "."
+		case "command":
+			return what + " is refused. Nothing was asked and nothing ran. " + wsHarnessCommandWords + "."
+		}
 		return fmt.Sprintf("%s would be refused: %s. Nothing ran.", what, orStr(d.Error, orStr(d.Refusal, "the tile or its org doesn't allow it")))
 	}
 	var b strings.Builder
@@ -166,6 +172,8 @@ func wsDryWords(what string, d *wsDry) string {
 		b.WriteString("It reads and changes nothing, so nobody is asked.")
 	case d.NeedsApproval:
 		b.WriteString("It changes something: your person is shown the exact call and must allow it first. xbin can't undo it.")
+	case d.Under == "preference": // xbind: this start, as asked, runs on the person's own preference
+		b.WriteString("It changes something, and your person's preference lets it start without xbin asking: Start on the brief's card is their go-ahead. xbin can't undo it.")
 	case d.Under != "":
 		b.WriteString("It changes something, and a standing approval your person gave covers it (" + d.Under + "): it would run without asking. xbin can't undo it.")
 	default:

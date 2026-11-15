@@ -263,7 +263,10 @@ func (ag *Agent) wsWhyNot(ctx context.Context, s *wsSession, path string) (kind,
 // it: hidden (outside the session's scope), policy (the tile's or its
 // org's rule, with their sentence), cannot (not in the delegation cap),
 // paused, off, slow (rate-limited), taint (the model may not hold that
-// data), not-connected. "": not a refusal (a failure, a bad argument).
+// data), brief-taint (a tile agent's model may not be told it), mode (the
+// tile agent's person switched it to a mode that doesn't ask), command (a
+// message began with "/"), no-agent, held, not-connected. "": not a
+// refusal (a failure, a bad argument).
 func wsRefusalKind(err error) (kind, reason string) {
 	var te *wsTaintError
 	var de *xbin.DelegateError
@@ -279,6 +282,14 @@ func wsRefusalKind(err error) (kind, reason string) {
 		return "taint", orStr(de.Reason, msg)
 	case errors.As(err, &nt):
 		return orStr(nt.kind, "not-connected"), nt.reason
+	case errors.Is(err, xbin.ErrTaintedBrief):
+		return "brief-taint", msg
+	case errors.Is(err, xbin.ErrSessionMode):
+		return "mode", msg
+	case errors.Is(err, xbin.ErrHarnessCommand):
+		return "command", msg
+	case errors.Is(err, xbin.ErrAgentOff) && (de.Refusal == "no-agent" || de.Refusal == "held"):
+		return de.Refusal, msg
 	case errors.Is(err, xbin.ErrAgentPaused):
 		return "paused", msg
 	case errors.Is(err, xbin.ErrAgentOff):
@@ -310,6 +321,10 @@ func wsDryKind(d *wsDry) string {
 		return "slow"
 	case "model_taint":
 		return "taint"
+	case "taint": // a start's brief the conversation's taint keeps from that tile agent's model
+		return "brief-taint"
+	case "command":
+		return "command"
 	}
 	return "policy" // "tile": the tile's or its org's rule
 }

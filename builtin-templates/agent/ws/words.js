@@ -196,7 +196,8 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
     editable: st === 'draft' || st === 'asked',
     button: st === 'draft' ? (free ? W.start : W.reviewStart) : st === 'asked' ? W.review : '',
     runsOn, harnesses, picked: (sd && sd.harness) || b.harness || '', none: !!sd && !sd.harness,
-    note: `This is what the tile agent is told first. What your agent sends it later isn’t approved message by message${sd && sd.asks === false ? ', and in this mode it acts without asking you.' : ': the tile agent asks you before it acts.'}`,
+    // only xbind's word that the mode asks (a harness's ask or plan mode) says it asks — unknown is not "asks"
+    note: `This is what the tile agent is told first. What your agent sends it later isn’t approved message by message${sd && sd.asks === true ? ': the tile agent asks you before it acts.' : sd && sd.asks === false ? ', and in this mode it acts without asking you.' : '. Whether it asks you before it acts shows once xbin says what it runs on.'}`,
     edited: !!b.edited,
   };
 }
@@ -252,6 +253,13 @@ export function refusalCard(r, tileName = (p) => p) {
     case 'hidden': return { kind: 'hidden', icon: 'eye-slash', title: 'Not connected in this session', text: `You left ${tile || 'this tile'} out of this session’s scope. Widen the scope, or use another session.`, ways: ['scope'] };
     case 'not-connected': return { kind: 'not-connected', icon: 'plug', title: `${tile || 'That tile'} isn’t connected in this session`, text: 'It isn’t there, or this session can’t see it.', ways: ['scope'] };
     case 'taint': return { kind: 'taint', icon: 'lock', title: 'This session’s model can’t hold that data', text: reason ? `${reason}.` : '', note: 'A session on a model that is allowed can.', ways: ['model'] };
+    case 'brief-taint': return { kind: 'brief-taint', icon: 'lock', title: `${tile ? possessive(tile) : 'That tile’s'} agent can’t be told this`, text: reason ? `${reason}.` : '',
+      note: 'This conversation holds data from an org whose rules don’t allow the model that tile agent runs on, so nothing from it may go there. Start the tile agent on the workspace’s connector, on a model the org allows — or ask from a new session that hasn’t read that data.', ways: [] };
+    case 'mode': return { kind: 'mode', icon: 'lock', title: 'That tile agent takes no more messages from your agent', text: reason ? `${reason}.` : '',
+      note: 'You switched it to a mode that doesn’t ask before it acts, so only you can drive it now. Switch it back to a mode that asks to let your agent message it again.', ways: [] };
+    case 'command': return { kind: 'command', icon: 'lock', title: 'Not sent: it began with “/”', text: 'A coding agent reads a message that begins with “/” as one of its own commands, and those are yours to give. Your agent should say it in words.', ways: [] };
+    case 'no-agent': return { kind: 'no-agent', quiet: true, icon: 'power', text: 'You haven’t been given a workspace agent — an admin chooses who has one. Nothing was read or changed.' };
+    case 'held': return { kind: 'held', quiet: true, icon: 'power', text: 'Your agent is held on this xbin — an admin can clear it. Nothing was read or changed.' };
     case 'paused': return { kind: 'paused', quiet: true, icon: 'pause', text: 'Paused — nothing was read or changed.' };
     case 'off': return { kind: 'off', quiet: true, icon: 'power', text: 'Workspace agents are turned off — nothing was read or changed.' };
     case 'slow': return { kind: 'slow', quiet: true, icon: 'clock', text: 'Slowing down — the agent is doing a lot at once.' };

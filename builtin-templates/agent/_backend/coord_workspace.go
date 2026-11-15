@@ -136,13 +136,21 @@ func wsDeliver(t *DB, run *Run) *coordUpdate {
 				_, _ = t.q.Exec(`UPDATE ws_requests SET owed=0, msg_id=? WHERE id=?`, msgID, r.ID)
 			}
 			for _, a := range agents {
-				_, _ = t.q.Exec(`UPDATE ws_agents SET owed=0, wake=0, told=? WHERE id=?`, a.state(), a.ID)
+				_, _ = t.q.Exec(`UPDATE ws_agents SET owed=0, wake=0, told=?, refused='' WHERE id=?`, a.state(), a.ID)
 			}
 		}}
 }
 
 // wsAgentLine is a tile agent's state as the coordinator is told it.
 func wsAgentLine(a *wsAgentRow) string {
+	line := wsAgentState(a)
+	if a.Refused != "" { // what it held for it, xbind refused: said once
+		line += " The messages you sent it while it waited were not delivered: " + a.Refused + "."
+	}
+	return line
+}
+
+func wsAgentState(a *wsAgentRow) string {
 	who := fmt.Sprintf("tile agent #%d in %s (%s)", a.ID, a.Tile, orStr(a.Harness, "coding agent"))
 	switch {
 	case a.Waits && a.live():

@@ -622,11 +622,38 @@ func (ag *Agent) wsFlushHeld(ctx context.Context, s *wsSession, row *wsAgentRow)
 		return
 	}
 	for i, id := range ids {
-		if err := ag.wsWith(ctx, s, func(sid string) (err error) { _, err = wsX.AgentSay(ctx, sid, row.Session, texts[i]); return }); err != nil {
+		err := ag.wsWith(ctx, s, func(sid string) (err error) { _, err = wsX.AgentSay(ctx, sid, row.Session, texts[i]); return })
+		if wsSendRefused(err) {
+			// xbind won't take it whatever happens next (its mode, its model,
+			// a "/"): not tried again — dropped, and the conversation told once
+			q := `DELETE FROM ws_held WHERE id=?`
+			if !errors.Is(err, xbin.ErrHarnessCommand) {
+				q = `DELETE FROM ws_held WHERE agent_id=? AND id>=?` // the rest would meet the same refusal
+				_, _ = ag.db.q.Exec(q, row.ID, id)
+			} else {
+				_, _ = ag.db.q.Exec(q, id)
+			}
+			kind, reason := wsRefusalKind(err)
+			ag.wsNoteRefusal(ctx, s, kind, reason, row.Tile)
+			_, _ = ag.db.q.Exec(`UPDATE ws_agents SET refused=?, owed=1, wake=1 WHERE id=?`, clip(wsRefusal(err), 900), row.ID)
+			row.Owed, row.Wake = true, true
+			if !errors.Is(err, xbin.ErrHarnessCommand) {
+				return
+			}
+			continue
+		}
+		if err != nil {
 			return // the rest stay held, in order
 		}
 		_, _ = ag.db.q.Exec(`DELETE FROM ws_held WHERE id=?`, id)
 	}
+}
+
+// wsSendRefused: xbind refused what the agent would tell a tile agent for
+// a reason no retry changes — the session's mode, the conversation's
+// taint, a harness command.
+func wsSendRefused(err error) bool {
+	return errors.Is(err, xbin.ErrSessionMode) || errors.Is(err, xbin.ErrTaintedBrief) || errors.Is(err, xbin.ErrHarnessCommand)
 }
 
 // wsChanged tells the conversation's page that what it shows beside the

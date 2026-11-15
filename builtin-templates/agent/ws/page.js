@@ -140,6 +140,7 @@ function plainOther(kb) {
       case 'finish': return d.result ? say('check', d.result, { md: true }) : say('check', 'finished');
       case 'cancel': return say('stop', `stopped${d.reason ? ': ' + d.reason : ''}`);
       case 'ask': return nothing;
+      case 'off': return say('pause', d.text || '', { tone: 'warn' }); // the agent's switch: answered without the model (API.md)
     }
     return say('', d.text || d.summary || '');
   }
@@ -288,6 +289,13 @@ async function send(text) {
   S.sending = true; S.sendErr = ''; paint();
   const r = await ws.send(S.sel, text, Math.random().toString(36).slice(2), c);
   S.sending = false;
+  if (r.status === 409 && r.data && r.data.code === 'agent-off') {
+    // the agent's switch is off (xbind said which): the transcript has the line, the words stay here, unsent
+    S.sendErr = r.data.error || 'Your agent is off: nothing was sent.';
+    await loadState();
+    paint();
+    return false;
+  }
   if (!r.ok) { S.sendErr = errOf(r, 'The message was not sent.'); paint(); return false; }
   S.context = null;
   if ((S.drafts.get(S.sel) || '').trim() === text) S.drafts.set(S.sel, '');

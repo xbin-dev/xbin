@@ -120,11 +120,19 @@ func handleWsEmpty(w http.ResponseWriter, r *http.Request) {
 	cant = append(cant, "Use the web")
 	out := map[string]any{
 		"heading": "Ask for an outcome",
-		"line":    "The workspace agent plans the work, hands building to each tile's own agent, and asks you before anything changes.",
+		"line":    "The workspace agent plans the work, hands building to each tile's own agent, and asks you before it changes anything itself.",
 		"can":     can, "cant": cant, "connected": c.Counts.Tiles, "notConnected": not, "summary": wsConnLine(c),
 		"placeholder":   "Ask for an outcome…",
 		"hint":          "Say what you want and how you'll know it's done. The agent works out the steps.",
 		"startersTitle": "Try one — from your tiles",
+	}
+	// nobody — an admin included — has an agent that can act unless xbind
+	// says so: a switch that is off (or no agent given) is the empty state's
+	// first word, not a list of what it could do
+	if o := wsOffNow(r.Context()); o.Code != "" {
+		out["off"], out["line"], out["can"], out["starters"] = o.Code, o.switchWords(), []string{}, []wsStarter{}
+		xbin.WriteJSON(w, http.StatusOK, out)
+		return
 	}
 	var m wsMap
 	if err := agent.wsWith(r.Context(), s, func(sid string) (err error) { m, err = wsX.Map(r.Context(), sid); return }); err != nil {

@@ -133,6 +133,8 @@ func newWsFix(t *testing.T) *wsFix {
 	coordWakerReset()
 	wsSyncReset()
 	wsAllowAt.Range(func(k, _ any) bool { wsAllowAt.Delete(k); return true }) // run ids repeat from one test's database to the next
+	wsOffForget()
+	t.Cleanup(wsOffForget)
 	t.Cleanup(func() {
 		wsSyncReset()
 		// The engine publishes through the package's agent, which

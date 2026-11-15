@@ -54,17 +54,18 @@ export function sessionsView(s, act) {
  * one heading, one sentence, what the agent can and can't do in this
  * session's own numbers, and starters built from the person's own tiles
  * (GET /ws/empty). A starter fills the composer; one with a blank puts the
- * cursor in it.
+ * cursor in it. With `off` (the agent's switch, xbind's word — paused,
+ * turned off, held, none given) only that sentence: nothing it could do.
  */
 export function emptyView(e, act) {
   if (!e) return html`<div class="wsp-empty wsc-muted" role="status">Loading…</div>`;
   return html`<section class="wsp-empty" aria-labelledby="wsp-empty-h">
     <h2 id="wsp-empty-h">${e.heading}</h2>
-    <p>${e.line}</p>
-    <div class="wsp-cols">
+    <p class=${e.off ? 'wsp-off' : nothing} data-off=${e.off || nothing}>${e.line}</p>
+    ${e.off ? nothing : html`<div class="wsp-cols">
       <div><h3>It can</h3><ul class="can">${(e.can || []).map((x) => html`<li>${icon('check')}<span>${x}</span></li>`)}</ul></div>
       <div><h3>It can’t</h3><ul class="cant">${(e.cant || []).map((x) => html`<li>${icon('xmark')}<span>${x}</span></li>`)}</ul></div>
-    </div>
+    </div>`}
     ${(e.starters || []).length ? html`<h3>${e.startersTitle}</h3>
       <ul class="wsp-starters">${e.starters.map((s) => html`<li><button class="wsp-starter" data-kind=${s.kind} @click=${() => act.starter(s)}>
         <span class="wsp-kind">${s.kind}</span><span>${s.text}</span></button></li>`)}</ul>` : nothing}

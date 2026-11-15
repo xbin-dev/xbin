@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- **Workspace agent: its backend follows xbind's switches and refusals**
+  ([workspace-agent.md](/docs/workspace-agent.md), the agent template's
+  `API.md` §Workspace mode). While the agent is paused, turned off, held
+  or not given to its person, a message to it is answered without the
+  model: `POST /runs/{id}/message` answers `409 {code: "agent-off",
+  refusal, error, kept: true}`, the transcript gets a line (a step of kind
+  `off`) naming the switch, who can change it and where, nothing is queued,
+  and the page keeps the words in the message box to send again. xbind's
+  refusals of what the agent tells a tile agent — `taint`, `mode`,
+  `command`, and `no-agent` / `held` — reach the model once, with what to
+  do instead, and the person's card says the same (`cards.refusals[].kind`
+  `brief-taint`, `mode`, `command`, `no-agent`, `held`). "Asks before
+  acting" is said only where xbind names the mode as asking (a harness's
+  ask or plan mode); a tile agent in a mode nobody named isn't. `GET
+  /ws/empty` adds `off` and says the switch first where the agent can't
+  act — an admin who wasn't given an agent included.
+
 - **Workspace agent: fixes from a security review**
   ([workspace-agent.md](/docs/workspace-agent.md),
   [protocol/delegation.md](/docs/protocol/delegation.md#the-chrome)).

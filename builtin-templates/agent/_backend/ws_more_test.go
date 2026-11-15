@@ -355,11 +355,12 @@ func TestWsLookingAndCreating(t *testing.T) {
 		t.Fatalf("while paused: %q", got)
 	}
 	var state struct {
-		Delegation wsState
+		Delegation      *wsState
+		DelegationError string
 	}
 	fx.json(t, fx.call(t, wsAlice, "GET", "/ws/state", nil), 200, &state)
-	if !state.Delegation.Paused {
-		t.Fatal("the state doesn't say paused")
+	if state.Delegation != nil || !strings.Contains(state.DelegationError, "paused") {
+		t.Fatalf("the state while paused: %+v", state)
 	}
 	fx.x.mu.Lock()
 	fx.x.paused = false
@@ -717,6 +718,15 @@ func TestWsHTTPShapes(t *testing.T) {
 				{"id": "a1", "user": "alice", "tile": "apps/mail", "scope": "call", "method": "POST", "path": "/api/apps/mail/send", "until": "2026-11-15T11:01:00Z", "via": "device", "request": "r1"},
 				{"id": "a2", "user": "alice", "tile": "apps/mail", "scope": "tile"}}})
 		case "POST /api/xbin/term/sessions":
+			if r.Header.Get("X-XBin-Dry-Run") == "1" { // a start's dry run, as delegate.go answers it
+				if strings.Contains(string(b), `"prompt":"tainted`) {
+					reply(w, 200, map[string]any{"dryRun": true, "allowed": false, "class": "act", "sideEffect": true, "tile": "apps/mail", "reversible": false, "needsApproval": true,
+						"refusal": "this conversation holds data of finance, so a tile agent it briefs must be on a model that org allows — Finance allows private models only"})
+					return
+				}
+				reply(w, 200, map[string]any{"dryRun": true, "allowed": true, "class": "act", "sideEffect": true, "tile": "apps/mail", "reversible": false, "needsApproval": false, "under": "preference"})
+				return
+			}
 			reply(w, 200, map[string]any{"id": "s1", "cwd": "apps/mail", "kind": "agent", "provider": "claude", "mode": "default", "status": "starting", "origin": "agent"})
 		case "GET /api/xbin/term/sessions":
 			// the compact read: a live session with the turns it took, what waits and its last line
@@ -861,6 +871,15 @@ func TestWsHTTPShapes(t *testing.T) {
 	if start, named := got[len(got)-2], got[len(got)-1]; start.path != "/api/xbin/term/sessions" || start.body != `{"cwd":"apps/mail","kind":"agent","name":"fix","prompt":"the brief"}` || start.ticket != "r1" ||
 		named.path != "/api/xbin/delegate/start-defaults?tile=apps%2Fmail" {
 		t.Fatalf("the start: %+v, then %+v", start, named)
+	}
+	// a start's dry run: the person's preference lets it through; or refused whatever approves it, with xbind's sentence
+	if _, d, err := h.AgentStart(ctx, "h1", wsAgentStart{Tile: "apps/mail", Prompt: "the brief"}, "", true); err != nil || d == nil || !d.Allowed || d.NeedsApproval || d.Under != "preference" || d.Tile != "apps/mail" {
+		t.Fatalf("a start's dry run under the preference: %+v %v", d, err)
+	} else if w := wsDryWords("To start a tile agent in apps/mail", d); !strings.Contains(w, "your person's preference lets it start without xbin asking") || strings.Contains(w, "standing approval") {
+		t.Fatalf("its words: %s", w)
+	}
+	if _, d, err := h.AgentStart(ctx, "h1", wsAgentStart{Tile: "apps/mail", Prompt: "tainted brief"}, "", true); err != nil || d == nil || d.Allowed || d.Refusal != "taint" || !strings.Contains(d.Error, "holds data of finance") || wsDryKind(d) != "brief-taint" {
+		t.Fatalf("a start's dry run refused by the taint: %+v %v", d, err)
 	}
 	if c := h.startCall(wsAgentStart{Tile: "apps/mail", Harness: "codex", Prompt: "b"}); string(c.Body) != `{"cwd":"apps/mail","kind":"agent","prompt":"b","provider":"codex"}` {
 		t.Fatalf("a start with the person's pick: %s", c.Body)

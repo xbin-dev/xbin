@@ -46,7 +46,7 @@ func wsAgentTools() []coordTool {
 			})}},
 			Run: wsTool(wsBriefTool)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_start",
-			Description: "Start a tile agent from a brief (or continue one that stopped, with resume). Your person is asked every time: xbin shows them the brief exactly as it will be sent, and the coding agent and mode it will run in. This tool answers \"pending\" at once; the session, or their refusal, reaches you as a workspace update. " +
+			Description: "Start a tile agent from a brief (or continue one that stopped, with resume). Your person is asked, unless their preference lets tile agents start without asking (then Start on the brief's card is their go-ahead): xbin shows them the brief exactly as it will be sent, and the coding agent and mode it will run in. This tool answers \"pending\" at once; the session, or their refusal, reaches you as a workspace update. " +
 				"What they approve is what xbin sends the session first: they may have edited the brief. You choose neither the coding agent nor its mode: those are your person's preferences and the tile's rules. " +
 				"Once started the session is theirs to see and to answer; you are told when it ends a turn, fails, or waits for them.",
 			Parameters: obj(nil, map[string]any{
@@ -56,7 +56,7 @@ func wsAgentTools() []coordTool {
 			})}},
 			Run: wsTool(wsStartTool)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_message",
-			Description: "Send a message to a tile agent you started: a correction, an answer to something it reported, the next piece of work. It takes it at its next step, or as its next turn. Your person approved the brief, not each message: keep within what the brief was for — the tile agent's own mode is what asks them before it acts. " +
+			Description: "Send a message to a tile agent you started: a correction, an answer to something it reported, the next piece of work. It takes it at its next step, or as its next turn. Your person approved the brief, not each message: keep within what the brief was for — a tile agent you start runs in an ask or plan mode, which asks them before it acts; one they switched to a mode that doesn't takes no more of your messages. " +
 				"If the session waits for your person (a permission request, a question of its own), your message is held until they answered: you never answer for them, and nothing you send counts as their answer. Not for a session you didn't start.",
 			Parameters: obj([]string{"agent", "text"}, map[string]any{
 				"agent":   agent,
