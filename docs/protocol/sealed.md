@@ -66,6 +66,13 @@ GET    /api/xbin/whoami
                                    subscription there is refused
 ```
 
+Two additions come from a component's row in the release's table, never
+from a workspace: reads the row names for its page (exact paths under
+`/api/xbin/`, `GET`/`HEAD` only — the workspace agent's page reads
+`/api/xbin/agents/connection`), and, for a component that holds delegation
+(D228), the delegation API `/api/xbin/delegate/…`, whose routes take the
+page only as its signed-in person's own.
+
 A view-as session (an admin looking as someone) is refused all of it:
 `403` on the component's page, its backend and a token of it.
 

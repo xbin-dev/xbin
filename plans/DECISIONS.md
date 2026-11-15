@@ -14843,6 +14843,24 @@ Deviations and refinements made while implementing; all deliberate:
       instance only under `--no-auth`; view-as opens nothing of a sealed
       component; `sealed-build --check` compares OS, architecture and go
       version.
+  - **Fifth round (2026-11-15; meeting delegation, D228).** The two
+    tables classify each other's routes: `PUT /agent-levels` and `POST
+    /delegate/approvals` name a tile and refuse a sealed one, `GET
+    /agent-levels` never lists one, every other delegation route is
+    no-tile (it names calls by method and URL, judged when they run — and
+    `broker.DelegateTile`, `WorkspaceAgentGate` and `AgentSessionAllows`
+    refuse every sealed component, holder or not: a person's agent acts
+    on tiles); `GET /sealed` is `never` for a delegate. The sealed table
+    is pinned by a golden of its own. Holders are the table's
+    `Capabilities.Delegate`, installed where the table is opened. A
+    holder's page keeps the delegation API beside a viewer's list — the
+    page is where its person approves, and those handlers take it only as
+    that person's signed-in frame — and a row may name further reads
+    (`FrameReads`, GET only, validated). Under `--no-auth` a holder's
+    single instance is the implicit owner's delegate, as a person, never
+    as the root token. Rows gain `Env` and `Notify`. Left as found: the
+    delegation package says "sealed system component" in a few refusals,
+    where this decision's rule is "system component" for people.
   - **Not done here.** No entry point in the shell, the admin console or
     the app (the workspace agent's UI work adds them). The real-binary
     downgrade suite has nothing sealed to downgrade until a row exists.

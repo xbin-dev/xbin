@@ -468,7 +468,8 @@ none, so a workspace sees no change. When a later release adds one:
     level on — which, for an admin, included xbind's own `.xbin`, `data`
     and `homes`, writable. A terminal on a plain folder that is no tile
     (`apps`, a directory without a manifest or an `index.html`) is refused
-    now; every shipped shell and `bx` open terminals on tiles.
+    now; every shipped shell and `bx` open terminals on tiles
+    ([what to do instead](/docs/changes/2026-11-15-terminals-on-tiles.md)).
   - *A frame token is minted only for a path written canonically* (and,
     in xbind's own namespace, only for a registered component); a cron job, a bus subscription and a restore take a
     component's path as xbind stores it. A request that named a path with

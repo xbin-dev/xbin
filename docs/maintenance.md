@@ -621,7 +621,13 @@ directory), `Authored` (the path the source calls itself by), the partition
 mode, the slots an admin may bind, the providers each slot may be bound to
 (`Providers`, beside its `Defaults` entry — a model slot's provider reads
 people's conversations, so a row that lets a workspace tile in says so in
-review), the grants and capabilities, and `Data`, the data format. The name
+review), the grants and capabilities (`Delegate`: the row holds delegation,
+D228 — boot feeds `auth.SetDelegateHolders` from it), `Env` (fixed
+environment for the backend), `Notify` (the backend path holder
+notifications are delivered to, `sealed.NotifyPath`), `FrameReads` (exact
+GET paths under `/api/xbin/` its page may read beside a viewer's list —
+never a write, a data route or another API; `Load` refuses those), and
+`Data`, the data format. The name
 is at most 18 characters (`util.SealedNameMax`): `xbin~<name>` must be
 shorter than the 24 characters `CompKey` keeps of a path, or the cut form
 of every longer tile path beginning with it has the same readable part

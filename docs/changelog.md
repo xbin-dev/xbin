@@ -356,7 +356,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - Not yet: an admin console section, the connector in terminals and
     agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
 
-- **Fixed: a terminal could be opened on xbind's own directories.** A
+- **BREAKING for a habit, not for tiles — fixed: a terminal could be
+  opened on xbind's own directories**
+  ([changes/2026-11-15-terminals-on-tiles.md](/docs/changes/2026-11-15-terminals-on-tiles.md):
+  what to do instead of a terminal at a non-tile folder). A
   terminal or agent session's directory only had to be one the caller had
   terminal level on, and an admin has that everywhere, so
   `/ws/term?cwd=.xbin`, `cwd=data` and `cwd=homes` opened with that
@@ -375,7 +378,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **Top-level names starting with `xbin~` are reserved** when a tile is
   created, cloned, imported or instantiated: they would share a system
   component's data key. An existing directory of such a name keeps
-  running ([compat.md](/docs/compat.md) → Sealed components).
+  running ([compat.md](/docs/compat.md) → Sealed components; the same
+  [migration note](/docs/changes/2026-11-15-terminals-on-tiles.md)).
 - **Fixed: a backend that was still starting when xbind shut down kept
   running.** Shutdown stopped the backends that were up; one that was
   being built, spawned or waited for at that moment was started (or
@@ -466,6 +470,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     served from the release's bytes in memory.
   - A JSON body that names a tile field twice is refused (400) on the
     routes that refuse a sealed component.
+  - A row of the table may give its backend fixed environment (`Env`), a
+    path xbind delivers holder notifications to (`Notify`), and reads its
+    page may make beside a viewer's own (`FrameReads`: exact paths under
+    `/api/xbin/`, GET only). A component whose row holds delegation
+    (D228) keeps the delegation API for its page. A person's agent does
+    nothing in a system component: `PUT /agent-levels` and `POST
+    /delegate/approvals` refuse one, and so does every delegate call.
   - A sealed path has one spelling, `xbin/<name>`: a leading, trailing or
     doubled slash, `./` or `a/../` in it is refused (400) on every route.
   - A sealed component's backup restores only under a backup key this
