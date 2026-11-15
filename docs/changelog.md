@@ -99,6 +99,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   connector (the runtime's `caps` carry `llm`), and the conformance suite
   (`sdk/sandboxcontract`) gained the section `llm`. A manager that offers
   it accepts `XBIN_LLM_URL` and `XBIN_LLM_KEY` in a command's `env`.
+  (`sandbox-terminal` v10 is its tests' copy of the fake manager following
+  this; nothing changes for people or managers.)
 - **Agent template: coding agents start on the workspace's LLM connector**
   when they have no sign-in (D226; the template's API.md §Coding agents).
   Bind the agent's `llm` slot to `xbin:llm` and use a sandbox manager that
