@@ -4810,6 +4810,41 @@ here: cut from the old end, never reword.
     tile agents by itself after an xbind update (it is told they stopped
     and may ask to continue one, which asks the person); the reduced
     `$HOME` for started sessions (5.7).
+  - **Registered: `xbin/wsagent` (2026-11-15; on D227 — the detailed
+    record is `plans/wsagent/registration.md`).**
+    - *The row.* The embedded `builtin-templates/agent` tree in workspace
+      mode (`XBIN_AGENT_MODE=workspace`), notices at `/delegate/notify`,
+      `Capabilities{Delegate, Agent}`, the `llm` slot on `xbin:llm` and
+      nothing else, the connection view as its page's one extra read,
+      `cap:open-links`. Pinned by `TestTheReleasesTable`.
+    - *One backend per person, no shared instance, for good.* A person's
+      agent is their partition; a shared instance would hold delegation
+      for nobody. The mode is fixed for the life of the entry: the data
+      stamp records it and a table that says otherwise holds the
+      component (`partition-mode`) instead of switching, which would
+      delete its data. (The template read its brake from the shared
+      instance's `conf`; a workspace agent reads none.)
+    - *Nobody has a sealed component until it is given to them.* An
+      access entry reaches one only by naming it; `*` and other patterns
+      were written about tiles. Admins read it. This replaces D227's
+      "a pattern that reaches it is clamped to read": with it, people who
+      hold `*` would all have had an agent the moment the switch went on.
+    - *Three gates, each xbind's:* the connector (the slot's default
+      applies only while it is configured), the delegation switch (off by
+      default), access. A workspace that does nothing sees nothing new.
+      Who gets one is that access: `PUT /delegate/workspace {who:
+      everyone | me | chosen}` writes it where access is kept, and the
+      chrome's third setup step is those two buttons.
+    - *Limits below a tile's.* A row may ask for less than a tile's
+      defaults (`sealed.Limits`). The agent's: 512 MiB a backend (a tile:
+      2 GiB; measured 57–63 MiB idle, 74 MiB after 216 tool calls and a
+      compaction) and an idle stop of three minutes (ten; a stopped
+      partition answers again in 0.1–0.4 s). The running cap stays the
+      default. An admin raises from there as for a tile.
+    - *The build.* Releases carry `bin/sealed/wsagent-<digest>` (about 45
+      MB, 16 MB in the bundle); `make build` needs the template's Go
+      modules, `make check` builds no sealed backend. A development xbind
+      compiles it on first use.
 - **D232 — The workspace agent's chrome on the web: grants are drawn and
   sent by xbin, never by the agent's page (2026-11-15; issue #51;
   `plans/wsagent/ux.md`).** The agent's conversation renders what a model

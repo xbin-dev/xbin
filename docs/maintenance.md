@@ -1216,11 +1216,25 @@ it (give a `--shots` run against that instance the switch too).
 `systemPage` drives `/xbin/system` (D227) against the real API, and
 `oldScaffold` checks the last release's shell and admin console show no
 tile, card or sidebar row for a system component while `/xbin/system` lists
-them. A default xbind has none, so both `SKIP` that part, said so; build
-the harness xbind with the fixture table to run it:
-`HARNESS_GO_TAGS=sealedfixture` (two fixture components,
-`internal/sealed/table_fixture.go`; `bin/xbind` is then a fixture build —
-rebuild it before using it for anything else).
+them. A default xbind has one, the workspace agent (`xbin/wsagent`): held
+without sandboxes, so run them with `HARNESS_ISOLATE=1` to have it up —
+`systemPage` first, since it checks that nobody but admins has it at
+first and `agentChrome` gives it to everyone. `HARNESS_GO_TAGS=sealedfixture`
+builds the harness xbind with the fixture table instead (two fixture
+components, `internal/sealed/table_fixture.go`; `bin/xbind` is then a
+fixture build — rebuild it before using it for anything else).
+`agentChrome` drives xbin's chrome for the workspace agent twice: a faked
+matrix (the delegation routes answered by the pass: every request kind,
+the states, a hostile page in the dock's frame, the sign-in step) and,
+with sandboxes, a **real-holder** section with nothing intercepted —
+setup by the chrome's own buttons, the holder's frame, a request filed by
+the scripted model (`hack/fakeopenai`'s `ws:` lines), the tray by live
+events, the sheet from the page's message and from the tray, the ticket
+used, pause, an admin change set. `wsAgentPage` is the agent's own page in
+the dock on that real backend — empty state, sessions, the scope panel, a
+scripted turn's cards, the notebook — in dark and light, at 1280 and 430.
+Both need `HARNESS_ISOLATE=1`; a development xbind compiles the agent's
+backend on first use (about 15 s warm).
 `limitsCaps` drives the tile limits (D203) end to end against the real API
 in both themes: the harness xbind enforces only the data disk quota (no
 cgroup delegation, VM runtime or tile sandboxes), so its tiles root their
@@ -1285,6 +1299,7 @@ hack/ui-harness/run.sh --restart          # rebuild xbind, same workspace, every
 HARNESS_ISOLATE=1 hack/ui-harness/run.sh --keep livereload   # xbind with --isolate on $XBIN_TEST_ROOTFS
 HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold  # no --dev-overlay: the workspace's own scaffold (below)
 HARNESS_GO_TAGS=sealedfixture HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold systemPage  # with two fixture system components
+HARNESS_ISOLATE=1 HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep systemPage oldScaffold agentChrome wsAgentPage  # the workspace agent, for real (this order)
 HARNESS_THEME=light hack/ui-harness/run.sh --shots appearance themeCanary  # a light system (default dark)
 hack/ui-harness/app-help-shots.sh         # the iOS app's help screenshots (native/AGENTS.md)
 (cd hack/ui-harness && node shots.js --list)
