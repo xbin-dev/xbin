@@ -116,7 +116,7 @@ func (a *Auth) saveGens() {
 	}
 	now := time.Now()
 	rec := func(s *session) {
-		if s.gen == "" || a.expiredLocked(s, now) {
+		if s.gen == "" || a.expiredLocked(s, now) || s.impersonator == PreviewViewer { // a preview ends with its render (preview.go)
 			return
 		}
 		r := genRecord{User: s.userID, Device: s.deviceID, Imp: s.impersonator, Bearer: s.bearer,

@@ -50,6 +50,11 @@ const (
 	// request reads as that user; a backend that keeps per-user private data
 	// can refuse to show it to someone else looking through the user's eyes.
 	HeaderViewedBy = "X-XBin-Viewed-By"
+	// HeaderPreview ("1") marks a call made while xbind renders the
+	// attributed user's own view in its preview browser (auth/preview.go):
+	// nobody is clicking, and the session is read-only. A backend whose GETs
+	// or sockets have effects (mark-as-read, presence) skips them.
+	HeaderPreview = "X-XBin-Preview"
 	// HeaderDeployment names a tile deployment that is not its tile's
 	// primary (the role rule, 11-contract §4) (D127j). On a request: the
 	// calling tile's deployment, when the caller is one of that tile's own
@@ -497,9 +502,12 @@ func (px *Proxy) identify(r *http.Request, p auth.Principal, role, tile string) 
 				r.Header.Set(HeaderUserLevel, l)
 			}
 		}
-		if p.Impersonator != "" {
+		if p.ViewAs() {
 			r.Header.Set(HeaderViewedBy, p.Impersonator)
 		}
+	}
+	if p.Preview() { // xbind's own render of the person's view: read-only (auth/preview.go)
+		r.Header.Set(HeaderPreview, "1")
 	}
 }
 

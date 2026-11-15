@@ -24,6 +24,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/preview"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -116,6 +117,10 @@ type Server struct {
 	ssoProvIssuer string
 	ssoStateKey   []byte
 
+	// Preview renders pages as a person sees them (preview.go); nil = off.
+	Preview     *preview.Service
+	previewBase string
+
 	apiMux        *http.ServeMux // /api/xbin/… extensions (broker, grants, vault)
 	apiPatterns   []string       // every RegisterAPI pattern, in order (the route inventory)
 	corePatterns  []string       // the top-level mux patterns Handler mounted
@@ -185,6 +190,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET "+LLMPagePath, s.authed(http.HandlerFunc(s.handleLLMPage)))         // the LLM connector's page (llmpage.go, D226)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
+	s.mountPreview(handle) // the preview spike's route, when enabled (preview.go)
 
 	handle("GET /ws/term", s.authedTerminal(http.HandlerFunc(s.Term.ServeWS)))
 	handle("DELETE /ws/term", s.authedTerminal(http.HandlerFunc(s.handleTermKill)))

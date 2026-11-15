@@ -363,6 +363,9 @@ func (a *Auth) Sessions() []SessionInfo {
 	a.sweepSessionsLocked(now)
 	out := make([]SessionInfo, 0, len(a.sessions))
 	for id, s := range a.sessions {
+		if s.impersonator == PreviewViewer { // xbind's own render, not a sign-in (preview.go)
+			continue
+		}
 		out = append(out, SessionInfo{
 			ID: id, UserID: s.userID, Created: s.created, LastActive: s.lastActive,
 			IP: s.ip, LastIP: s.lastIP, Impersonator: s.impersonator, Via: s.via(), DeviceID: s.deviceID,

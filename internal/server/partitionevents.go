@@ -72,7 +72,7 @@ func (s *Server) partitionHead(r *http.Request, compPath string) (meta string, v
 		return "", false
 	}
 	p := auth.PrincipalOf(r)
-	if p.ReadOnly() {
+	if p.ViewAs() { // a preview is the person's own read: it gets the document's token, read-only
 		return "", true
 	}
 	part := util.PartitionGlobal

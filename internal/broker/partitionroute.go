@@ -187,7 +187,7 @@ func (b *Broker) addressedPartition(p auth.Principal, tile string) (util.Partiti
 	switch {
 	case delivery:
 		return b.registeredPartition(p.Partition, tile, spec)
-	case p.Impersonator != "":
+	case p.ViewAs(): // a preview is the person's own read (auth/preview.go): it falls through to their partition
 		return "", fmt.Errorf("%s keeps %s's data private: view-as can't open it", tile, p.UserID)
 	case own && p.Via == "instance":
 		return b.registeredPartition(p.Partition, tile, spec)

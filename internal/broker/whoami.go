@@ -31,7 +31,11 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		// so pickers need not know why.
 		out["personalTiles"] = b.IsAdmin(p) || b.personalRefusal(p.UserID) == ""
 	}
-	if p.Impersonator != "" { // an admin's read-only view of this user (D64) — the shell shows a banner
+	switch {
+	case p.Preview(): // xbind's own render of this person's view (auth/preview.go): read-only, no banner
+		out["readOnly"] = true
+		out["preview"] = true
+	case p.Impersonator != "": // an admin's read-only view of this user (D64) — the shell shows a banner
 		out["impersonatedBy"] = p.Impersonator
 		out["readOnly"] = true
 	}

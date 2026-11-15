@@ -41,6 +41,11 @@
     // confined checkpoint builds and the broker's confined runs. Skip
     // without .rootfs/userns
     { "name": "confine", "pkg": "./internal/confine/", "overhead": 3 },
+    // the preview browser (plans/wsagent/s3-preview.md): Chromium in a
+    // confined sandbox with an empty netns, and the service end to end on
+    // an isolated xbind, in both frame modes. Skip without .rootfs/userns
+    { "name": "preview", "pkg": "./internal/preview/", "overhead": 3 },
+    { "name": "preview-e2e", "pkg": "./test/preview/", "overhead": 25 },
     { "name": "runner", "pkg": "./internal/runner/", "overhead": 4 },
     { "name": "sandbox", "pkg": "./internal/sandbox/", "overhead": 3 },
     { "name": "agentcore", "pkg": "./internal/sandbox/agentcore/", "overhead": 3 },
