@@ -4711,8 +4711,9 @@ or a behaviour of its own: it is how the coordinator is built. A
 coordinator is one layer, the **coordinator kit** (`_backend/coord_*.go`),
 with a **profile** per kind of coordinator; the project coordinator is the
 profile `project` (`projects_coord_profile.go`), and `workspace` is a
-registered, empty slot (`coord_workspace.go`: no class, no tools, no hooks,
-and nothing stamps a conversation with its origin).
+person's workspace agent (`coord_workspace.go`, `ws_*.go`; §Workspace mode)
+— registered in every instance and live only in workspace mode: outside it
+its `Is` answers no run and nothing stamps a conversation with its origin.
 
 - **The kit owns the invariants.** Which run is whose coordinator (a
   top-level run of the profile's `Origin` that its `Is` accepts); that a
@@ -4724,7 +4725,17 @@ and nothing stamps a conversation with its origin).
   park's words (`coord_hold.go`).
 - **A profile supplies** its forced class and denials, its allowlist and
   tools (`register`), limits, status words, and the hooks `Is`, `Resolve`,
-  `Pending`, `Deliver`, `Prompt` and `Knowledge`. Its block of the system
+  `Pending`, `Deliver`, `Prompt` and `Knowledge` — and, where it needs
+  them, `System` (its base prompt as the running build words it, for a
+  conversation that outlives releases), `Specs` (its last word on a core
+  tool's wording; it can reword or drop a tool, never add one) and
+  `ParkWords`/`Unpark` for calls that wait outside the engine.
+- **A call may wait for a decision made elsewhere** (`coord_park.go`): a
+  profile's tool parks its call (`coordPark`: the result stays a "(waiting
+  for …)" placeholder, the conversation waits for its person, pending kind
+  `coord`), and settles it when the decision arrives (`coordSettle`). If
+  the person writes instead, the parked calls are answered in the
+  profile's `Unpark` words and the outcome is owed as an update. Its block of the system
   prompt is assembled from parts (`coordAssemble`: heading, role, its own
   sections, the rules — its own and the ones every coordinator shares,
   worded once — and the knowledge store's index).
@@ -5750,6 +5761,97 @@ row in the project's Activity section): its pages and a search, the
 measures as the footer, a page as markdown with a row per page it links
 (the runtime opens web links only). `native/project-team.js`: the team board with its seed, Work on
 this after the security part, and the team's changes to review.
+
+## Workspace mode
+
+The same backend is a person's **workspace agent** when xbind starts it
+with `XBIN_AGENT_MODE=workspace` — the sealed component `xbin/wsagent`,
+one partition per person (xbin's docs: `/docs/workspace-agent.md`; D231).
+No instance of the template is in this mode: an unset variable is a normal
+instance, and any other value refuses to serve. In it:
+
+- **One profile.** Every conversation is a session of the `workspace`
+  profile of the coordinator kit (origin `workspace`); nothing else can be
+  made, by a route or by the engine (`startRunTx` refuses).
+- **One class**, fixed and built in: `workspace` — the subagent toolset
+  only (for its research subagents). No files, REPL, web, `xbin_call`,
+  MCP, sandbox, schedules, skills or coding agent; stored classes are not
+  read. `subagent_spawn`, `yield` and scheduling are denied; tools run in
+  the order the model wrote them (no parallel batch).
+- **A closed route list** (`wsMay`, `ws_mode.go`): of the routes above only
+  `GET /me`, `/health`, `/halt`, a conversation's `GET /runs/{id}`,
+  `/view`, `/stream`, `/tree`, `/asks`, `GET /stream`, `POST
+  /runs/{id}/message`, `/answer`, `/interrupt`, `/cancel`, `/resume`,
+  `/compact`, `/read`, `DELETE /runs/{id}/inbox/{iid}`, `PUT`/`DELETE
+  /runs/{id}/memory` and the engine's `/engine/hold` — plus the `/ws/…`
+  routes below. Every other route answers `404 {"error":"not found"}`
+  before its own guard runs.
+- **xbind behind one interface** (`wsXbin`, `ws_xbin.go`): every call the
+  agent makes as its person — the delegate client, each carrying the
+  session's handle in `X-XBin-Agent-Session` — is a method of it, and
+  `ws_xbin_http.go` is the one file that knows xbind's routes and shapes.
+  Model calls carry the same header; a session uses one model for its
+  turns, summaries and titles.
+
+**Sessions.** `Main` is made on first use (`POST /ws/sessions {main:
+true}`, idempotent), is renamable and never archived or deleted. A session
+owns one handle at xbind (`{scope, model}`), made with it and closed with
+it, and made again when xbind says it is gone. A model change is asked of
+xbind and checked here against the orgs whose data the conversation holds:
+refused, the answer is `409 {code: "model_taint", model, orgs, reason,
+offer: {newSession: {model}}}`.
+
+| Route | |
+|---|---|
+| `GET /ws/state` | `{user, mode, delegation: {workspace, paused, adminChanges, canAdminChanges} \| delegationError, models: {default, models[]}}` — read-only: pausing is xbind's |
+| `GET /ws/sessions` | `{sessions: [{id, name, main, model, scope, handle, connection, summary, tainted, status, waiting?, archivedAt, agents, requests}]}`, Main first. `id` is the conversation: its transcript is `GET /runs/{id}/view` and `/stream` |
+| `POST /ws/sessions` | `{main: true}`, or `{name?, scope?, model?, from?}` (`from`: copy that session's scope and model; no name: named from its first request) → `{session}` |
+| `PATCH /ws/sessions/{id}` | `{name?, archived?, scope? ({orgs, tiles} or null: everything allowed), model?}` → `{session}`; `409` for Main's archive, a model change while it works, and `model_taint` |
+| `DELETE /ws/sessions/{id}` | not Main. Closes the handle and withdraws its pending requests; tile agents it started keep running, as their person's |
+| `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection, summary, model}`; with `whatIf` also `now`, `canSwitch` and `taint: {orgs}` when the switch would be refused. Totals and org-level reasons, never a blocked tile's name |
+| `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset, ref, tile, title, method, path, brief, state, outcome, createdMs, decidedMs}], agents: [{id, session, tile, harness, mode, asks, status, waits, waiting, last, held}], briefs: [{id, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}]}`. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
+| `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?}`: the person's edit. A request already filed for the old words is withdrawn and filed again |
+| `POST /ws/sessions/{id}/briefs/{bid}/start` | "Review and start…" → `{request, id}` (the request to review; filed now when the agent hadn't asked), or `{started, id, outcome}` where the person's preferences let tile agents start without xbind asking — there the click is the confirmation |
+| `GET /ws/needs` | `{items, count}`: what waits for the person because of the agent, oldest first per session — `approval` and `changeset` (with `request`), `tile-agent` (with `tileSession`, `text`), `question` (the agent's own `ask_user`) |
+| `GET /ws/empty?session=` | the empty state, computed from xbind's map without a model call: `{heading, line, can[], cant[], connected, notConnected, summary, placeholder, hint, startersTitle, starters: [{kind: Ask\|Fix\|Change\|New, text, tile?, blank?}]}`. A starter fills the composer; a tile that reports a failure becomes a Fix |
+| `GET /ws/notebook?session=` | `{pages: [{slug, title, summary, version, updatedBy, updatedMs, orgs, tile, rev, locked?, lockedWhy?}]}` — every page is the person's to see; `locked` says the session can't read it |
+| `GET` / `PUT` / `DELETE /ws/notebook/{slug}` | read; write `{title?, body, summary?, base}` (`base`: the version seen, `0` for a new page; `409 {current}` when it moved); delete makes the agent forget (history kept) |
+| `GET` / `PUT /ws/prefs` | `{model, lastSession}`: the model new sessions start on, the session the page last showed. What a started tile agent gets is xbind's (`/agent/prefs`) |
+| `POST /delegate/notify` | xbind's doorbell (caller `xbin/delegate`): ids and kinds, never trusted — it asks for a reconcile that reads the state again through xbind. Coalescing and idempotent |
+
+**Tools** (the profile's; each changing one takes `dry_run`):
+`workspace_map`, `tile_status`, `tile_logs`, `docs_search`, `docs_read`,
+`tile_api_doc`; `tile_call`; `tile_agent_brief`, `tile_agent_start`,
+`tile_agent_message`, `tile_agent_status`, `tile_agent_result`,
+`tile_agent_cancel`, `tile_agents`; `research`; `tile_create`;
+`admin_propose`, `admin_changes`; `preview`; `plan`; `notebook_search`,
+`notebook_read`, `notebook_write`, `notebook_edit`, `notebook_archive` —
+with the core `ask_user` (here it takes `choices`), notes and `recall`.
+
+**A request and its park.** `tile_call` with a method other than GET/HEAD,
+`tile_agent_start` and `tile_create` ask xbind what the call would be (a
+dry run), file it for the person's approval exactly as it will be sent,
+and park the tool call: the conversation is `waiting_input` with pending
+kind `coord`, its result line "Waiting for your approval: …". When the
+doorbell rings the backend reads the request: approved, it makes that one
+call under its ticket and the answer becomes the tool's result; denied,
+expired or withdrawn, the tool's result says so. If the person wrote
+instead, or stopped the turn, the outcome arrives as a message headed
+`[workspace updates — xbin and tile agents reporting, not your person]`,
+which also carries each tile agent's change (a turn that ended, a failure,
+a question for the person) — one message, at most one wake a minute.
+
+**What reaches the model from outside** — a tile's answer, a log, a tile
+agent's report, a research summary, a notebook page — is framed
+`[untrusted — from …]` with the frames' and the updates' markers defused.
+A notebook page carries the orgs whose data it may hold; a session reads,
+searches and is shown a page only when each is connected in it.
+
+**The prompt** is `ws_prompt.go` plus a short map of xbin generated from
+xbin's docs (`ws_model.md`; regenerate with the xbin repository's
+`hack/wsagent-model.sh`). The scripted evaluation is `ws_eval_test.go`;
+the scenarios for a manual run against a real model are in
+`_backend/testdata/ws-real-model-scenarios.md`.
 
 ## The frontend: one model, thin views
 

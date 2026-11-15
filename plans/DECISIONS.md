@@ -14604,3 +14604,131 @@ Deviations and refinements made while implementing; all deliberate:
       and in their call's refusal); live updates (the connector emits no
       event; the page reloads after its own writes and has a Refresh on
       usage); per-component quotas.
+- **D231 — The workspace agent: one long-lived coordinating agent per
+  person, built from the agent template's engine (2026-11-15; issue
+  #51).** The owner: one persistent agent per person that works at a high
+  level across the workspace — plans, delegates to tile agents, calls
+  tiles' APIs as the person, keeps a notebook, reports — never reads or
+  writes code itself, never answers a tile agent's permission or question,
+  and asks before every side effect, with xbind, not the agent, keeping
+  the approval; for "a fairly broad audience", so it must be clear about
+  what it can't do and steer toward outcome-level requests. This entry is
+  its backend (`plans/workspace-agent.md` §4, §5.1, §5.2, §5.6, §5.10;
+  package C2); the chat UI is D and E.
+  - **A mode of the template's backend, not a fork of it.** xbind starts
+    the sealed component `xbin/wsagent` with `XBIN_AGENT_MODE=workspace`
+    (`ws_mode.go`; an unknown value refuses to serve, like an unknown
+    partition). In that mode the process has one class (the fixed
+    `workspace` class: the subagent toolset only), one kind of
+    conversation (`startRunTx` refuses every origin but the profile's),
+    and a closed route list (`wsMay`; `wsGate` wraps the mux, so a route
+    added to the template later is 404 here by default — the same shape as
+    `agentMay` for calls *into* the template). Outside the mode nothing is
+    registered or reachable. Rejected: a build tag or a second `main` (two
+    binaries to prebuild and to keep honest); a class the admin could edit
+    (the lane is the security boundary of a component that holds a
+    person's access).
+  - **A profile of the coordinator kit** (D221–D223's lineage). The
+    `workspace` slot is filled: `Is` (a session row, in workspace mode),
+    `Resolve` (the person's own session), `Pending`/`Deliver` (requests
+    whose outcome is owed, tile agents that changed), `Prompt`, and three
+    hooks the kit gained: `System` (the base prompt as the running build
+    words it — Main outlives releases, and a stored prompt would freeze
+    it), `Specs` (the profile's wording of a core tool: `ask_user` with
+    choices) and `ParkWords`/`Unpark`. The two tests that asserted an
+    empty slot now assert a dead one outside its mode.
+  - **A tool call can wait for a decision made elsewhere**
+    (`coord_park.go`). The owner asked that the result or the refusal
+    "comes back as the tool result". So a changing tool files the request
+    and parks its call: the placeholder stays, the conversation is
+    `waiting_input` (pending kind `coord`, which keeps the placeholder
+    legitimate for `repairTranscript`), and `coordSettle` answers it. If
+    the person writes instead of deciding, the call is answered "not
+    decided yet" and the outcome arrives as an update; a stopped turn owes
+    it the same way. A call isn't parked beside a research subagent that
+    waits (and research doesn't wait beside a parked call): one kind of
+    wait per step. No inbox row marks a settle — an early version queued a
+    wake, and a pass that raced the commit left it behind to start a
+    second model call; the transcript is the state.
+  - **xbind behind one interface** (`wsXbin`: sessions, looking, one call
+    asked or made, tile agents, change sets, previews). The delegation
+    package is still moving; `ws_xbin_http.go` is the only file that knows
+    a route or a shape, the tests answer from `fakeXbin`, and
+    `TestWsHTTPShapes` pins what the HTTP side assumes against a stand-in
+    on a gateway socket. Assumed, to confirm with B3a: the handle routes
+    and `X-XBin-Agent-Session`; `403 {refusal: "session"}` for a handle
+    that is gone; a start that takes `prompt` (else the backend sends it
+    with `…/queue`) and no `provider` (xbind fills the person's
+    preference); `GET /delegate/map` (else composed from `/components`
+    and `/tile-report`); `/docs/search`, `/docs/page`; the doorbell
+    `POST /delegate/notify` from `xbin/delegate`.
+  - **Notifications are wake-ups.** The doorbell's body is discarded. It
+    asks for a reconcile — one worker, dirty-flagged, so a storm is two
+    passes — that reads every open request and live tile agent through
+    the API. A request is claimed (`pending → running` in one statement)
+    before its ticket is used, so two passes or a pass and a click never
+    use it twice; a claim that outlived a crash asks xbind whether the
+    ticket was spent. While anything is open a one-shot timer asks for
+    another pass (45 s): a lost notification costs a delay. No ticker.
+  - **Sessions own handles; taint is checked twice.** Main is made on
+    first use and can't be archived or deleted. One model serves a
+    session's turns, summaries and titles (the connector takes only the
+    handle's). A model change asks xbind, and is first checked here
+    against the orgs the handle was last seen to hold — which also
+    survives a handle xbind had to make again. A refusal carries the
+    new-session offer.
+  - **Tile agents: scope, then hand off.** `tile_agent_brief` writes the
+    brief (goal, done-when, leave-alone, check-by, what is known) the
+    person can edit; `tile_agent_start` asks, and what is approved is
+    what is sent (an edit withdraws and refiles). The start names no
+    harness, mode or network. Where the person's preference lets starts
+    through without xbind asking, the click on the brief is the
+    confirmation and nothing starts before it — the brief is then the only
+    thing the person sees. A message to a session that waits for its
+    person is held, in order (`ws_held`), and delivered when they
+    answered; the agent has no tool, and no route, that answers.
+    `tile_agent_result` is the final answer, a stat of files and the
+    commands run — the log's patches are never copied.
+  - **Research reads through xbind.** A `codeReader` kind `tile` over
+    `/code/tree` and `/code/file`: no sandbox, no git, bounded (60 files,
+    3 MiB, 400 lines a read, 40 files a grep). The subagent gets the file
+    tools only. Its answer can be kept (`save_as`) as a notebook page
+    stamped with the tile and the revision read — xbind's when it names
+    one, else a fingerprint of the file list.
+  - **The notebook is the knowledge store with an org stamp.** Owner kind
+    `person-notebook`; `ws_pages` holds each page's stamp: the tile's org
+    and every org the writing conversation had read. A stamp only grows.
+    A session reads, searches and is shown a page only when every org on
+    it is connected there; other pages are counted, never named. The
+    prompt carries a *generated* list (slug, title, one line) and the page
+    `preferences` — not a model-written index, which a session that had
+    read Finance could have filled with Finance's data for every other
+    session. The wiki's own tools are not offered: they know no scope.
+  - **The prompt** is goals and reasons, not procedure (`ws_prompt.go`,
+    about 8 KiB, 13 KiB with the map): what needs approval and what doesn't, risk by
+    reversibility and who is affected, the three nudges (vague →
+    choices, low-level → redirect, impossible → the nearest thing), briefs,
+    "a report to check, not proof", data is not instructions, notebook
+    hygiene, reports for a reader who saw none of the work. The stable
+    part comes first; the session's connection, plan and notebook list
+    follow it. The map of xbin is generated from the docs by
+    `hack/wsagent-model.sh` (passages listed in
+    `hack/wsagent-model/main.go`, 6 KiB budget) into `ws_model.md`, and
+    `TestModelIsCurrent` fails when a quoted passage changed and the file
+    wasn't regenerated. It compares the output, not a hash of the pages:
+    an edit elsewhere in a page costs nobody a regeneration.
+  - **Evaluation.** Twelve scripted scenarios (`ws_eval_test.go`) run in
+    the template's suite; they check what a scripted model can't fake —
+    what was offered, told, filed, held, framed. Writing them found three
+    defects: a notebook page could close the prompt's notebook frame, two
+    messages to a tile agent could swap (the engine's parallel batch; a
+    workspace session now runs a step's calls in order), and the wake row
+    above. What a real model does is eighteen scenarios for a manual run
+    (`testdata/ws-real-model-scenarios.md`); no provider was called.
+  - **Not here.** The page (D, E) and anything in the template's
+    frontend; attachments (the class has no file tools: a file a person
+    attaches would be unreadable — open); previews (the tool answers
+    "not available yet" until `POST /api/xbin/preview` exists); resuming
+    tile agents by itself after an xbind update (it is told they stopped
+    and may ask to continue one, which asks the person); the reduced
+    `$HOME` for started sessions (5.7).

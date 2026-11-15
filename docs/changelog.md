@@ -12,6 +12,29 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **The workspace agent's backend: the agent template in workspace mode**
+  (D231; [workspace-agent.md](/docs/workspace-agent.md), the template's
+  `API.md` §Workspace mode). Started with `XBIN_AGENT_MODE=workspace` — by
+  xbind, for the sealed component `xbin/wsagent`; never by an instance of
+  the template — the agent template's backend is a person's workspace
+  agent: one fixed class with no sandbox, web, `xbin_call` or coding agent,
+  only the `workspace` profile's conversations (a long-lived **Main** and
+  further sessions, each with its own scope and model), a closed route
+  list (every other route of the template is 404), and tools that look
+  (`workspace_map`, `tile_status`, `tile_logs`, `docs_search`, `docs_read`,
+  `tile_api_doc`), act as the person through xbind's delegation
+  (`tile_call`, `tile_create`, `admin_propose`), hand building to tile
+  agents (`tile_agent_brief`, `tile_agent_start`, …) and ask a read-only
+  sub-agent about a tile's code (`research`). Every side effect is filed
+  for the person's approval and waits for it; xbind keeps and checks the
+  approval. **For tile authors:** the agent reads your tile's `API.md`
+  before it calls your API, calls arrive with `X-XBin-Agent`
+  (`xbin.Caller(r).Agent`), and `"agent"` in the manifest says what agents
+  may use. A normal instance of the template is unchanged: without the
+  variable none of this exists, and an unknown value refuses to serve. The
+  template's coordinator kit gained what the profile needed — a tool call
+  that waits for a decision made outside the engine (`coord_park.go`), and
+  the profile hooks `System`, `Specs`, `ParkWords` and `Unpark`.
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
   `llm.ReadData(r, fn)` hands each `data:` line's payload to `fn` by itself
