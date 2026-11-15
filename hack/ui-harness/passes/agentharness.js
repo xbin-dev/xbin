@@ -386,7 +386,12 @@ async function children(a, check, box, stamp) {
 
   // "harness steer": the agent messages its newest coding agent
   await say(a, 'harness steer');
-  await answered(a, 'Steered it.', 60000);
+  await answered(a, 'Steered it.', 60000).catch(async (e) => {
+    // what the parent's turn did instead: its last messages, for the next look
+    const v = await call(a, `/api/apps/agent/runs/${await convId(a)}`).catch(() => null);
+    const last = (v?.body?.messages || []).slice(-10).map((m) => `${m.role}: ${String(m.content || '').replace(/\s+/g, ' ').slice(0, 140)}`);
+    throw new Error(`"harness steer" never answered "Steered it.": ${e.message}\n  the parent's last messages:\n  ${last.join('\n  ')}`);
+  });
   const steerReply = await a.evaluate(() => [...document.querySelectorAll('#timeline .tcard[data-tool="subagent_message"]')].map((e) => e.textContent.replace(/\s+/g, ' ')).pop() || '');
   check(!!steerReply, `"harness steer": the agent messaged its coding agent (${steerReply.slice(0, 160)})`);
 
