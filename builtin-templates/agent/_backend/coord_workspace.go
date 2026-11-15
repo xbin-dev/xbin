@@ -207,9 +207,12 @@ func wsAskSpec() toolSpec {
 		Description: "Ask your person one question and wait for the answer; your turn ends here and resumes when they reply. " +
 			"Use it only for what you could not find out by looking, and only when the work can't go on without it. " +
 			"Give two to four choices built from what you found — real names and facts, each a complete answer — whenever choices can be built; they can always type something else, so don't add an \"other\" choice. " +
-			"Leave choices out only when nothing you found narrows the answer.",
+			"Leave choices out only when nothing you found narrows the answer. " +
+			"Say what kind of question it is: \"choices\" for what you found; \"redirect\" when they asked for a change to code and the ways forward are the tile's own agent or the outcome they want (name the tile); \"cant\" when you can't do what they asked and the choices are the nearest things you can.",
 		Parameters: obj([]string{"question"}, map[string]any{
 			"question": strProp("the one thing you need to know, in plain words"),
+			"kind":     map[string]any{"type": "string", "enum": wsAskKinds, "description": "choices (the default) | redirect | cant"},
+			"tile":     strProp("for a redirect: the path of the tile the request is about"),
 			"choices": map[string]any{"type": "array", "maxItems": 4, "items": map[string]any{"type": "string"},
 				"description": "two to four answers to pick from, built from what you found (\"Three invoices are overdue but still marked sent\")"},
 		})}}

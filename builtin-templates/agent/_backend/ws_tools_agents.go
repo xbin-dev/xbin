@@ -244,6 +244,7 @@ func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (st
 		return "", err
 	}
 	if args["dry_run"] == true || dry == nil || !dry.Allowed {
+		ag.wsDryRefused(ctx, s, dry, start.Tile)
 		out := wsDryWords("To "+title, dry)
 		if dry != nil && dry.Allowed {
 			if on := ag.wsRunsOn(ctx, s, start.Tile, start.Harness); on != "" {

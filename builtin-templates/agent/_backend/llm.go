@@ -617,6 +617,10 @@ type msgMeta struct {
 	Origin   string `json:"origin,omitempty"`
 	OriginID int64  `json:"originId,omitempty"`
 	Label    string `json:"label,omitempty"`
+	// Context, on a person's message in a workspace agent's session: the
+	// tile or screen they attached to it (ws_context.go). The model reads it
+	// as a labelled line before their words; the page draws it as a chip.
+	Context *msgAbout `json:"context,omitempty"`
 	// Harness, on a coding agent's rows: the call (a tool row) or the
 	// subagent call its text belongs to (an assistant row) — harness_view.go.
 	Harness *harnessMeta `json:"harness,omitempty"`

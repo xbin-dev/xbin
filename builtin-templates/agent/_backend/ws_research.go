@@ -135,7 +135,7 @@ func (r *wsReader) files(ctx context.Context) ([]wsCodeFile, error) {
 	}
 	var fs []wsCodeFile
 	if err := r.ag.wsWith(ctx, r.s, func(sid string) (err error) { fs, err = wsX.CodeTree(ctx, sid, r.tile); return }); err != nil {
-		return nil, errors.New(wsRefusal(err))
+		return nil, wsWorded(err)
 	}
 	sort.Slice(fs, func(i, j int) bool { return fs[i].Path < fs[j].Path })
 	r.tree = fs
@@ -157,7 +157,7 @@ func (r *wsReader) open(ctx context.Context, file string) (wsCodeText, error) {
 		if wsMissing(err) {
 			return wsCodeText{}, fmt.Errorf("there is no file %s in %s (ls and glob list what there is)", file, r.tile)
 		}
-		return wsCodeText{}, errors.New(wsRefusal(err))
+		return wsCodeText{}, wsWorded(err)
 	}
 	u.Lock()
 	u.bytes += len(f.Content)
@@ -450,7 +450,7 @@ func wsResearch(e *Engine, ctx context.Context, ts *turnState, tc toolCall, scop
 	}
 	t, err := wsFindTile(ctx, e.ag, s, str(args["tile"]))
 	if err != nil {
-		return "", errors.New(wsRefusal(err))
+		return "", e.ag.wsToolErr(ctx, s, err, strings.Trim(strings.TrimSpace(str(args["tile"])), "/"))
 	}
 	save := strings.TrimSpace(str(args["save_as"]))
 	if save != "" {
@@ -462,7 +462,7 @@ func wsResearch(e *Engine, ctx context.Context, ts *turnState, tc toolCall, scop
 	if rev == "" {
 		var fs []wsCodeFile
 		if err := e.ag.wsWith(ctx, s, func(sid string) (err error) { fs, err = wsX.CodeTree(ctx, sid, t.Path); return }); err != nil {
-			return "", errors.New(wsRefusal(err))
+			return "", e.ag.wsToolErr(ctx, s, err, t.Path)
 		}
 		rev = wsTreeRev(fs)
 	}

@@ -104,6 +104,18 @@ CREATE TABLE IF NOT EXISTS ws_briefs (
   updated_ms  INTEGER NOT NULL DEFAULT 0
 );
 -- a notebook page's stamp (the page itself: wiki_pages, coord_know.go)
+-- what xbind (or the session's own bounds) refused a tool call, in fields
+CREATE TABLE IF NOT EXISTS ws_refusals (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id     INTEGER NOT NULL,
+  call_id    TEXT    NOT NULL DEFAULT '', -- the tool call it answered
+  tool       TEXT    NOT NULL DEFAULT '',
+  kind       TEXT    NOT NULL,            -- hidden | policy | cannot | paused | off | slow | taint | not-connected
+  reason     TEXT    NOT NULL DEFAULT '', -- xbind's sentence
+  tile       TEXT    NOT NULL DEFAULT '',
+  created_ms INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ws_refusals_run ON ws_refusals(run_id, id);
 CREATE TABLE IF NOT EXISTS ws_pages (
   store_id INTEGER NOT NULL,
   slug     TEXT    NOT NULL,
@@ -126,6 +138,14 @@ func (d *DB) addWsSchema() error {
 	for _, q := range []string{
 		`ALTER TABLE ws_briefs ADD COLUMN harness TEXT NOT NULL DEFAULT ''`, // the person's pick among what the tile allows
 		`ALTER TABLE ws_sessions ADD COLUMN allow TEXT NOT NULL DEFAULT ''`, // which stamped orgs allow the session's model, as last asked
+		// a request's outcome in fields, for the page (the prose stays for the model)
+		`ALTER TABLE ws_requests ADD COLUMN grant_scope TEXT NOT NULL DEFAULT ''`,      // once | call | tile
+		`ALTER TABLE ws_requests ADD COLUMN grant_until_ms INTEGER NOT NULL DEFAULT 0`, // a standing approval's end (0: until taken back)
+		`ALTER TABLE ws_requests ADD COLUMN decided_by TEXT NOT NULL DEFAULT ''`,       // person | agent | xbin
+		`ALTER TABLE ws_requests ADD COLUMN decided_via TEXT NOT NULL DEFAULT ''`,      // session | app | device
+		`ALTER TABLE ws_requests ADD COLUMN result_status INTEGER NOT NULL DEFAULT 0`,  // the call's HTTP status, when one ran
+		`ALTER TABLE ws_requests ADD COLUMN result TEXT NOT NULL DEFAULT ''`,           // one line of what came of it
+		`ALTER TABLE ws_requests ADD COLUMN expires_ms INTEGER NOT NULL DEFAULT 0`,     // when a pending request lapses
 	} {
 		_, _ = d.q.Exec(q)
 	}
@@ -136,7 +156,7 @@ func (d *DB) addWsSchema() error {
 // Its handle at xbind is closed by the route that deletes it (ws_sessions.go).
 func wsRunDeleted(t *DB, runID int64) error {
 	_, _ = t.q.Exec(`DELETE FROM ws_held WHERE agent_id IN (SELECT id FROM ws_agents WHERE run_id=?)`, runID)
-	for _, tbl := range []string{"ws_sessions", "ws_requests", "ws_agents", "ws_briefs"} {
+	for _, tbl := range []string{"ws_sessions", "ws_requests", "ws_agents", "ws_briefs", "ws_refusals"} {
 		if _, err := t.q.Exec(`DELETE FROM `+tbl+` WHERE run_id=?`, runID); err != nil {
 			return err
 		}
@@ -248,6 +268,19 @@ type wsReq struct {
 	Owed    bool   `json:"-"`
 	Created int64  `json:"createdMs"`
 	Decided int64  `json:"decidedMs,omitempty"`
+	// The outcome in fields, for the page (Outcome is the same in the words
+	// the model is told): how it was allowed — Grant once | call | tile, a
+	// standing one until GrantUntil (0: until taken back) —, By whom it was
+	// decided (person | agent | xbin) and Via what (session | app | device),
+	// the HTTP status of the call that ran and one line of what came of it,
+	// and when a pending request lapses.
+	Grant        string `json:"grant,omitempty"`
+	GrantUntil   int64  `json:"grantUntilMs,omitempty"`
+	By           string `json:"by,omitempty"`
+	Via          string `json:"via,omitempty"`
+	ResultStatus int    `json:"resultStatus,omitempty"`
+	Result       string `json:"result,omitempty"`
+	Expires      int64  `json:"expiresMs,omitempty"`
 }
 
 // open: nothing came of it yet.
@@ -259,12 +292,13 @@ func (r *wsReq) open() bool {
 	return false
 }
 
-const wsReqCols = `id, run_id, kind, ref, call_id, tile, title, method, path, body, ctype, brief_id, state, outcome, owed, created_ms, decided_ms`
+const wsReqCols = `id, run_id, kind, ref, call_id, tile, title, method, path, body, ctype, brief_id, state, outcome, owed, created_ms, decided_ms,
+	grant_scope, grant_until_ms, decided_by, decided_via, result_status, result, expires_ms`
 
 func scanWsReq(scan func(...any) error) (*wsReq, error) {
 	var r wsReq
 	err := scan(&r.ID, &r.Run, &r.Kind, &r.Ref, &r.CallID, &r.Tile, &r.Title, &r.Method, &r.Path, &r.Body, &r.CType, &r.Brief,
-		&r.State, &r.Outcome, &r.Owed, &r.Created, &r.Decided)
+		&r.State, &r.Outcome, &r.Owed, &r.Created, &r.Decided, &r.Grant, &r.GrantUntil, &r.By, &r.Via, &r.ResultStatus, &r.Result, &r.Expires)
 	return &r, err
 }
 
@@ -289,9 +323,9 @@ func (d *DB) wsReq(id int64) (*wsReq, error) {
 
 func (d *DB) wsAddReq(r *wsReq) error {
 	r.Created = nowMs()
-	return d.q.QueryRow(`INSERT INTO ws_requests (run_id, kind, ref, call_id, tile, title, method, path, body, ctype, brief_id, state, created_ms)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-		r.Run, r.Kind, r.Ref, r.CallID, r.Tile, r.Title, r.Method, r.Path, r.Body, r.CType, r.Brief, orStr(r.State, "pending"), r.Created).Scan(&r.ID)
+	return d.q.QueryRow(`INSERT INTO ws_requests (run_id, kind, ref, call_id, tile, title, method, path, body, ctype, brief_id, state, created_ms, expires_ms)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		r.Run, r.Kind, r.Ref, r.CallID, r.Tile, r.Title, r.Method, r.Path, r.Body, r.CType, r.Brief, orStr(r.State, "pending"), r.Created, r.Expires).Scan(&r.ID)
 }
 
 // --- tile agents -------------------------------------------------------------------
@@ -435,6 +469,36 @@ func (d *DB) wsBriefs(runID int64) []*wsBrief {
 	for rows.Next() {
 		if b, err := scanWsBrief(rows.Scan); err == nil {
 			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// --- refusals ----------------------------------------------------------------------
+
+// wsRefused is one refusal a tool call met, in fields: what kind, xbind's
+// sentence for it, and the tile it was about.
+type wsRefused struct {
+	ID      int64  `json:"id"`
+	CallID  string `json:"callId,omitempty"`
+	Tool    string `json:"tool,omitempty"`
+	Kind    string `json:"kind"`
+	Reason  string `json:"reason,omitempty"`
+	Tile    string `json:"tile,omitempty"`
+	Created int64  `json:"createdMs"`
+}
+
+func (d *DB) wsRefusals(runID int64) []wsRefused {
+	rows, err := d.q.Query(`SELECT id, call_id, tool, kind, reason, tile, created_ms FROM ws_refusals WHERE run_id=? ORDER BY id DESC LIMIT 50`, runID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := []wsRefused{}
+	for rows.Next() {
+		var r wsRefused
+		if rows.Scan(&r.ID, &r.CallID, &r.Tool, &r.Kind, &r.Reason, &r.Tile, &r.Created) == nil {
+			out = append(out, r)
 		}
 	}
 	return out

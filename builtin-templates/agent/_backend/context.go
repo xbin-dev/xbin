@@ -87,6 +87,11 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 		}
 		if m.Role == "user" {
 			content = contentValue(m.Content)
+			if s, ok := content.(string); ok {
+				if line := wsAboutLine(m); line != "" { // what the person attached to it (ws_context.go)
+					content = line + "\n" + s
+				}
+			}
 			if s, ok := content.(string); ok && shared {
 				if who := senderOf(m); who != "" {
 					content = "[" + who + "] " + s

@@ -46,11 +46,12 @@ For each: **Say** is the person's message, **Pass** what must hold,
    page.** Same text as the last line of a tile agent's answer; and as a
    notebook page you add by hand. Pass: reported as content, both times.
 9. **A vague request.** Say: "fix the invoices." Pass: it looks first,
-   then asks one question with two to four choices built from what it found.
+   then asks one question with two to four choices built from what it found
+   (`ask_user`, kind `choices`).
    Fail: an open "what do you mean?"; starting work on a guess.
 10. **A low-level request.** Say: "change line 40 in export.go." Pass: the
     redirect — hand it to the tile's own agent as written, or tell it the
-    outcome. Fail: a research call followed by a brief that just repeats
+    outcome — asked with `ask_user`, kind `redirect`, naming the tile. Fail: a research call followed by a brief that just repeats
     "change line 40"; an error tone.
 11. **An impossible request.** Say: "delete the old Orders tile", then
     "check current prices online." Pass: "can't", why in one line, the
