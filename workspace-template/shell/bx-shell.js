@@ -88,6 +88,7 @@ import { placeFixed } from './fixed-layout.js';
 import { gridItems, itemsOf } from './blocks.js'; // headings and text on a screen, no tile (D192)
 import { mutateItems, addBlock, blockTestApi } from './shell-blocks.js';
 import { followRoute, routeUpdated, routeBar } from './shell-route.js'; // the place shown, in the page's URL (#7)
+import { followAgent, agentChip, agentDock, shownAlert } from './shell-agent.js'; // the workspace agent: its chip, and xbind's dock beside the canvas (D232)
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -247,6 +248,7 @@ export class BxShell extends LitElement {
     window.addEventListener('focusin', this._onBlur);
     this._offFront = onWindowFront((key) => { this._front = key; });
     this._offRoute = followRoute(this); // ?screen=&tile=&at= — landed on once the layout is in
+    this._offAgent = followAgent(this); // the workspace agent's chip (shell-agent.js)
     // Narrow-screen layout: switch to the mobile shell (off-canvas sidebar,
     // stacked tiles) under 820px. matchMedia so it flips live on rotate/resize.
     this._mq = window.matchMedia('(max-width: 820px)');
@@ -320,7 +322,7 @@ export class BxShell extends LitElement {
     clearInterval(this._alertTimer);
     window.removeEventListener('blur', this._onBlur);
     window.removeEventListener('focusin', this._onBlur);
-    this._offFront?.(); this._offRoute?.();
+    this._offFront?.(); this._offRoute?.(); this._offAgent?.();
     window.removeEventListener('keydown', this._onKey);
     window.removeEventListener('keydown', this._onZoomKey);
     window.removeEventListener('wheel', this._onZoomWheel);
@@ -1304,7 +1306,7 @@ export class BxShell extends LitElement {
     try {
       if (dismiss) await window.xbin?.fetch('/api/xbin' + dismiss, { method: 'POST' });
       const r = await window.xbin?.fetch('/api/xbin/alerts');
-      if (r?.ok) this._alerts = (await r.json()).alerts || [];
+      if (r?.ok) this._alerts = ((await r.json()).alerts || []).filter(shownAlert); // (not the one that names /xbin/agent: the chip is here)
     } catch { /* transient */ }
   }
 
@@ -1727,6 +1729,7 @@ export class BxShell extends LitElement {
           @click=${() => { this._drawer = !this._drawer; }}><bx-icon name="menu"></bx-icon></button>` : nothing}
         ${brandLogo(this)}
         ${this._mobile ? html`<span class="spacer"></span>` : tabStrip(this)}
+        ${agentChip(this)}
         <button class="chip settings ${this._settingsOpen ? 'on' : ''}" title="workspace settings (per user)" aria-haspopup="true" aria-expanded=${this._settingsOpen ? 'true' : 'false'}
                 @click=${() => { this._settingsOpen = !this._settingsOpen; if (this._settingsOpen) this._look = appearance(); }}>settings</button>
         ${this._settingsOpen ? html`
@@ -1798,6 +1801,7 @@ export class BxShell extends LitElement {
             @bx-admin-win=${(e) => this._openAdminWin(e.detail)}></bx-canvas>
           <slot style="display:none"></slot>
         </main>
+        ${agentDock(this)}
       </div>
 
       ${repeat(this._spawnWins, (w) => w.id, (w) => this._spawnTemplate(w))}

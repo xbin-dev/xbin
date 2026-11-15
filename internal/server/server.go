@@ -63,6 +63,12 @@ type Server struct {
 	// ChangeSets previews admin change-set operations (changeset.go: the
 	// broker's); nil = change sets can't be proposed.
 	ChangeSets ChangePreviewer
+	// AgentHolder, if set, names the sealed component whose page is people's
+	// workspace agent in this workspace ("" none): what GET /delegate/state
+	// answers as agent — the frame xbin's chrome puts below its header
+	// (agentpage.go, D232). Boot's assignment, from the sealed-component
+	// table; nil: this xbind ships no agent.
+	AgentHolder func() string
 	// DelegationDev: xbind runs with --dev or --no-auth. Approving admin
 	// change sets then needs no recent sign-in, and under --no-auth — where
 	// nobody signs in — the implicit owner answers for the person a
@@ -226,6 +232,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET "+DevicesPagePath, s.authed(http.HandlerFunc(s.handleDevicesPage))) // the devices page (devicespage.go, D204)
 	handle("GET "+SystemPagePath, s.authed(http.HandlerFunc(s.handleSystemPage)))   // the system components page (systempage.go, D227)
 	handle("GET "+LLMPagePath, s.authed(http.HandlerFunc(s.handleLLMPage)))         // the LLM connector's page (llmpage.go, D226)
+	handle("GET "+AgentPagePath, s.authed(http.HandlerFunc(s.handleAgentPage)))     // the workspace agent's chrome (agentpage.go, D232)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 

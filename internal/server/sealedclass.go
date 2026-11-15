@@ -702,6 +702,7 @@ var sealedRules = map[string]SealedRule{
 	"GET /delegate/map":                      {Class: SealedNoTile},
 	"POST /delegate/sessions/{id}/allows":    {Class: SealedNoTile}, // orgs
 	"POST /delegate/sessions/{id}/taint":     {Class: SealedNoTile}, // orgs
+	"POST /delegate/page/dismiss":            {Class: SealedNoTile}, // a person's own notice
 	// what a tile agent started on ?tile= would open with: none starts on one
 	// (auth.CanTerminalTileVia, and the delegate gate's DelegateTile)
 	"GET /delegate/start-defaults": {Class: SealedRefused, Query: []string{"tile"}, What: "it has no terminal and no agent sessions"},

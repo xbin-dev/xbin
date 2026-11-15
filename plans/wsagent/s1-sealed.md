@@ -564,6 +564,42 @@ owner's answers found, what was chosen and what was rejected. Moved here
 verbatim from the decision entry (it had outgrown the file's size guard);
 the entry keeps the rules.
 
+- **Second round (2026-11-15; the owner's answers).**
+  - *Explicit entries.* An access entry that names a sealed path above
+    read is refused wherever entries are written (the users store: one
+    entry, a user's map, the defaults, a request, an owner); only a
+    pattern that reaches it is clamped to read.
+  - *What an admin sees.* People's-partition operations and data-only
+    backups stay an admin's, under the rules of any partitioned tile, and
+    none of them reads a person's data: resources, secrets and
+    registrations pass only the component, a partition restores into the
+    same person's partition, a person's log needs their share, and a
+    single file is never read out of a sealed component's backup
+    (`POST /restore {file}` is refused for one). `docs/sealed.md` lists
+    both sides, and says what an admin's control of accounts still means.
+  - *Default bindings.* A row may bind a declared slot to a builtin
+    provider (`Defaults`: the workspace agent's `llm` → `xbin:llm`). The
+    registry applies it when the manifest is read, while the file has no
+    entry for the slot and the provider is available (the connector is
+    configured); nothing is written. An admin's binding wins, and so does
+    their unbinding it, kept as an empty entry — otherwise an unbind
+    would be undone by the next read. A backend that started before the
+    default applied restarts onto it (its bindings are its environment).
+  - *An open page across a release.* Chosen: a version check on the
+    page's next request, which then sends the existing `reload` event —
+    not a signal at boot. A boot-time signal has nobody to reach (the
+    events sockets died with the old xbind, and a frame that reconnects
+    late, or a page in a background tab or the app, misses it), and it
+    needs xbind to remember the previous release's id; the check needs
+    no state, because the page carries its code's id (`xbin-code` meta,
+    `X-XBin-Code` / `xbin-code=` on its calls to its own API) and the
+    first stale call is refused (`409`, `X-XBin-Reload`) before it
+    reaches the new backend. That refusal is what rules out the stale
+    mix; the `reload` event it triggers is only how embedded frames get
+    to the new page (`bx-frame` already reloads on it, re-minting what a
+    sandboxed frame needs), and a top-level page reloads itself. Callers
+    that name no code are not pages and pass. Old clients (a cached
+    `xbin-client.js`) send no id and behave as before this change.
 - **Third round (2026-11-15; an independent security review of
   58f54aee).** The boundary did not hold: the route gate was the only
   refusal on many routes, and it read a request's body beside the

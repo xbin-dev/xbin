@@ -55,5 +55,5 @@ func (s *Server) handlePersonPage(w http.ResponseWriter, r *http.Request) {
 // topLevelPage reports whether name (a /vendor/ path) is a page xbind
 // serves only at its own route, with its framing headers.
 func topLevelPage(name string) bool {
-	return name == personPageFile || name == limitsPageFile || name == devicesPageFile || name == systemPageFile || name == llmPageFile
+	return name == personPageFile || name == limitsPageFile || name == devicesPageFile || name == systemPageFile || name == llmPageFile || name == agentPageFile
 }

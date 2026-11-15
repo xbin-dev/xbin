@@ -303,10 +303,15 @@ GET    /delegate/state          the person, their agent's page, or their
                                  agent. {user, workspace, paused,
                                  adminChanges, canAdminChanges,
                                  pendingRequests, standingApprovals,
-                                 openChangeSets}: workspace is the
-                                 workspace's switch; canAdminChanges
+                                 openChangeSets, workspaceAt?, pausedAt?,
+                                 agent?}: workspace is the workspace's
+                                 switch (workspaceAt: when it was last
+                                 set — absent: never); canAdminChanges
                                  whether the person is a workspace or org
-                                 admin
+                                 admin; pausedAt while paused; agent the
+                                 component whose page is the agent's
+                                 conversation (absent: this xbind ships
+                                 none)
 PUT    /delegate/state          the person, or their agent's page —
                                  which may send {paused: true} and nothing
                                  else (403). {paused?, adminChanges?} → the
@@ -322,6 +327,9 @@ GET    /delegate/workspace      admin. {enabled, by?, at?}: off until an
                                  admin turns it on
 PUT    /delegate/workspace      admin. {enabled}. Off refuses every
                                  person's agent at once
+POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
+                                 the alert that names /xbin/agent for
+                                 them (§The chrome). {ok}
 ```
 
 The workspace's switch is kept with the rest of delegation's state
@@ -640,6 +648,49 @@ waits — one notification a person: the same collapse key, a count, at most
 one a minute) and `agent.changeset` (a proposal waits). Their link is the path of
 the sealed component that is the person's agent (the `agent` of the request
 or change set); their text is xbind's, never the agent's.
+
+## The chrome
+
+Everything a person decides about their agent is drawn and sent by xbin's
+own chrome, in a document that holds the person's session: the **dock**
+(`/vendor/bx-agent-dock.js`, which a shell puts beside its canvas) and
+**`/xbin/agent`**, xbind's own page that shows the same dock full width
+([core.md](/docs/protocol/core.md)). Below the chrome's header sits the
+agent's own page — the `agent` of `GET /delegate/state` — in a sandboxed
+frame on its tile credential; a holder is never trusted chrome. The page
+can't draw over the chrome, read it, or send a decision: every route that
+decides refuses its credential.
+
+**What the agent's page may ask of the chrome** — `postMessage` to its
+parent; the chrome takes a message only from its own frame's window and
+reads the fields named here, as ids, and no other:
+
+```
+xbin:agent-open-request   {id}             open the approval of one request
+xbin:agent-open-changeset {id}             open the review of one change set
+xbin:open-session         {session, tile}  show one of the person's sessions
+                                           in its tile's window
+xbin:agent-open           {view}           approvals | activity | prefs
+```
+
+The chrome reads the request or change set from xbind itself
+(`GET /delegate/requests/<id>`, `/delegate/changesets/<id>`) and draws
+xbind's reading: the call, its class, the body's text or its size and
+hash, the warnings. The agent's own sentence (`summary`, `why`) is shown
+quoted and labelled as the agent's. An id that isn't the person's opens
+nothing. No message approves, denies, resumes or changes a preference.
+
+**What the chrome tells the page**: `{type: "xbin:agent-context", tile}`
+or `{…, screen}` when the dock was opened about a tile or a screen — once
+the frame has loaded, and when it changes.
+
+**A shell without the agent's chip** — a scaffold from before it — learns
+of the page through one alert: once an admin has turned workspace agents
+on and this xbind has an agent to show, `GET /alerts` carries kind
+`agent-page` for each person (their own session, and the shell they
+drive), its message naming `/xbin/agent`, its `dismiss`
+`/delegate/page/dismiss` — a POST ends it for that person, for good. A
+shell that has the chip leaves alerts of this kind out.
 
 **Developing an agent.** On an xbind started with `--dev` or `--no-auth`,
 approving a change set needs no recent sign-in. Under `--no-auth`, where

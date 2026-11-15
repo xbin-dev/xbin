@@ -14993,6 +14993,60 @@ Deviations and refinements made while implementing; all deliberate:
     for the header. The review also turned up, by its admin-screen test,
     that the first scope gate refused the shell's own frame token and so
     broke every admin's screen render.
+- **D232 — The workspace agent's chrome on the web: grants are drawn and
+  sent by xbin, never by the agent's page (2026-11-15; issue #51;
+  `plans/wsagent/ux.md`).** The agent's conversation renders what a model
+  wrote; a grant drawn there could be drawn by the model.
+  - **The rule.** A request, a standing approval, a change set, resume and
+    the admin opt-in are decided in a document that holds the person's
+    session — the shell, `/xbin/agent` — by `web/bx-agent-dock.js` and its
+    siblings. The agent's page sits below the dock's header in a sandboxed
+    frame on its tile credential (a holder is never chrome, D228) and may
+    post `xbin:agent-open-request {id}`, `xbin:agent-open-changeset {id}`,
+    `xbin:open-session {session, tile}`; the dock takes messages only from
+    its own frame's window, reads ids and no other field
+    (`agent-chrome-words.js` `pageMessage`), and draws what xbind answers
+    for the id. The agent's sentence is quoted and labelled.
+  - **Against a click the person didn't mean.** Allow is armed 600 ms
+    after the sheet shows, only while nothing covers it (hit-tested
+    through the shadow roots), only for a trusted event in a focused
+    document; Enter never allows; Esc is "later". The wider grant (every
+    change to a tile) has a second step whose primary button is Go back
+    and a default duration of an hour; a danger-mode session start makes
+    Deny primary. A warned change-set item starts unticked; a blocked one
+    can't be ticked.
+  - **One obvious place per choice**: `CHOICES` in
+    `web/agent-chrome-words.js` (dock bounds 360–720 px, whole page under
+    640 px, the arming delay, default durations, the shortcut Ctrl/⌘+J,
+    no typing while paused) and the words beside it — the copy deck of
+    ux.md §14, node-tested (`hack/agent-chrome.test.mjs`).
+  - **`/xbin/agent`** follows the pages of D203/D226 (static, top-level
+    only, the person's session) with one difference: its CSP has a
+    `frame-src`, because it frames the agent's tile document.
+  - **Old shells** get one alert a person (kind `agent-page`, dismissed
+    with `POST /delegate/page/dismiss`, kept in the person's delegation
+    state through `Store.SeePage`, which never replaces an unreadable
+    file). It is a person's, not an admin's: the alert chain got its first
+    per-person source (`Broker.alertPerson`: own session, or the trusted
+    chrome frame under their login). A shell with the chip filters the
+    kind out.
+  - **Seams, one assignment each.** `Server.AgentHolder` (boot, from the
+    sealed-component table): until it is set `GET /delegate/state` has no
+    `agent`, the dock says the conversation arrives with an update, and
+    the alert is sent to nobody. `state.held` (`locked` | `older`) is read
+    by the chrome and not sent by any xbind yet.
+  - **Tested by faking**: the `agentChrome` harness pass fakes
+    `/api/xbin/delegate/…` by route interception (no holder can post a
+    request on this tree) and refuses the frame's credential as xbind
+    does. To re-run against a real holder: an approval reaching xbind and
+    its ticket being used, live `delegate` events, the sign-in step, the
+    holder's own frame and its messages.
+  - **Not done here**: an "ask my agent about this tile" entry in the
+    tile menu (the chip opens the dock about the tile in front; the dock
+    takes `context`); a mode picker in Preferences (modes are shown, the
+    start preference is set); naming the admins in "An admin can fix
+    this" (no route lists admins to a non-admin); the setup's "Choose who
+    gets one" step links the docs rather than an editor.
 - **D231 — The workspace agent: one long-lived coordinating agent per
   person, built from the agent template's engine (2026-11-15; issue
   #51).** The owner: one persistent agent per person that works at a high
@@ -15239,42 +15293,16 @@ Deviations and refinements made while implementing; all deliberate:
     owner's term); people read "system component". No user-facing sentence
     puts it beside the vault's sealed state, and `docs/sealed.md` says how
     the two differ.
-  - **Second round (2026-11-15; the owner's answers).**
-    - *Explicit entries.* An access entry that names a sealed path above
-      read is refused wherever entries are written (the users store: one
-      entry, a user's map, the defaults, a request, an owner); only a
-      pattern that reaches it is clamped to read.
-    - *What an admin sees.* People's-partition operations and data-only
-      backups stay an admin's, under the rules of any partitioned tile, and
-      none of them reads a person's data: resources, secrets and
-      registrations pass only the component, a partition restores into the
-      same person's partition, a person's log needs their share, and a
-      single file is never read out of a sealed component's backup
-      (`POST /restore {file}` is refused for one). `docs/sealed.md` lists
-      both sides, and says what an admin's control of accounts still means.
-    - *Default bindings.* A row may bind a declared slot to a builtin
-      provider (`Defaults`: the workspace agent's `llm` → `xbin:llm`). The
-      registry applies it when the manifest is read, while the file has no
-      entry for the slot and the provider is available (the connector is
-      configured); nothing is written. An admin's binding wins, and so does
-      their unbinding it, kept as an empty entry — otherwise an unbind
-      would be undone by the next read. A backend that started before the
-      default applied restarts onto it (its bindings are its environment).
-    - *An open page across a release.* Chosen: a version check on the
-      page's next request, which then sends the existing `reload` event —
-      not a signal at boot. A boot-time signal has nobody to reach (the
-      events sockets died with the old xbind, and a frame that reconnects
-      late, or a page in a background tab or the app, misses it), and it
-      needs xbind to remember the previous release's id; the check needs
-      no state, because the page carries its code's id (`xbin-code` meta,
-      `X-XBin-Code` / `xbin-code=` on its calls to its own API) and the
-      first stale call is refused (`409`, `X-XBin-Reload`) before it
-      reaches the new backend. That refusal is what rules out the stale
-      mix; the `reload` event it triggers is only how embedded frames get
-      to the new page (`bx-frame` already reloads on it, re-minting what a
-      sandboxed frame needs), and a top-level page reloads itself. Callers
-      that name no code are not pages and pass. Old clients (a cached
-      `xbin-client.js`) send no id and behave as before this change.
+  - **Second round (2026-11-15; the owner's answers;
+    `plans/wsagent/s1-sealed.md` §Review rounds has the reasoning).** An
+    access entry that names a sealed path above read is refused where
+    entries are written; a pattern is clamped. People's-partition
+    operations and data-only backups stay an admin's and read no
+    person's data. A row may bind a slot to a builtin provider by
+    default (`Defaults`); an admin's binding or unbinding wins. An open
+    page across a release: the page carries its code's id and its first
+    stale call is refused (`409`, `X-XBin-Reload`), which then sends the
+    `reload` event — not a signal at boot, which has nobody to reach.
   - **Review rounds three to six (2026-11-15)** — two independent
     security reviews, then meeting delegation (D228) and agent sessions,
     notices and previews. The full record, with what was rejected and
@@ -15308,8 +15336,9 @@ Deviations and refinements made while implementing; all deliberate:
       served from memory. Names are at most 18 characters and `xbin~*`
       is reserved, so no tile shares its data key.
     - *The reload signal* goes only to the person whose frame was stale.
-    - *Delegation.* Holders and their notice path are the table's
-      (`Capabilities.Delegate`, `Notify`; boot installs both lookups).
+    - *Delegation.* Holders, their notice path and which row is the
+      agent xbin's chrome frames are the table's (`Capabilities.Delegate`,
+      `Notify`, `Capabilities.Agent`: one row at most; boot installs all three).
       A person's agent does nothing in a sealed component, holder or
       not; the two route tables class each other's routes, each pinned
       by a golden. No preview shows one. Under `--no-auth` a holder's
