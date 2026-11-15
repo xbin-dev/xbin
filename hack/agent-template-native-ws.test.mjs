@@ -292,7 +292,7 @@ test('sessions: Main first, the others with their scope and status; New session�
   const rows = all(find(sheet, { t: 'section' }), { t: 'row' });
   assert.deepEqual(rows.map((x) => x.p.title), ['Main', 'Month-end']);
   assert.deepEqual(all(find(sheet, { t: 'section', p: { title: 'Older (1)' } }), { t: 'row' }).map((x) => x.p.title), ['Leave tracker idea']);
-  assert.deepEqual([rows[0].p.subtitle, rows[0].p.selected, rows[0].p.detail], ['3 tiles · 2 orgs · big · always here', true, 'waiting for you']);
+  assert.deepEqual([rows[0].p.subtitle, rows[0].p.selected, rows[0].p.badge], ['waiting for you · 3 tiles · 2 orgs · big', true, 'always here']);
   assert.deepEqual(all(rows[0], { t: 'button', in: { t: 'actions' } }).map((b) => b.p.label), ['Rename'], 'Main is renamed, never archived');
   assert.deepEqual(all(rows[1], { t: 'button', in: { t: 'actions' } }).map((b) => b.p.label), ['Rename', 'Archive']);
   assert.deepEqual([find(sheet, { t: 'section', p: { title: 'Older (1)' } }).p.collapsed, find(sheet, { t: 'text', has: 'starts empty' }).p.text], [true, W.sessionsFoot]);

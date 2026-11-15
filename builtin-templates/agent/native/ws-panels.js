@@ -42,7 +42,9 @@ export function sessionsSheet() {
         <button role="primary" @tap=${() => act.rename(x.id, bag.name ?? w.name)}>Save</button>
         <button role="plain" @tap=${() => act.renaming(null)}>Cancel</button>`;
     }
-    return html`<row title=${w.name} subtitle=${w.scope + (w.main ? ' · always here' : '')} detail=${w.status.word || nothing}
+    // (the status leads the second line — a row's trailing `detail` is squeezed to a letter a line beside a long scope
+    // on a phone; Main's "always here" is its badge)
+    return html`<row title=${w.name} subtitle=${[w.status.word, w.scope].filter(Boolean).join(' · ')} badge=${w.main ? 'always here' : nothing}
         icon=${w.status.glyph ? ico(w.status.glyph) : nothing} tone=${tone(w.status.tone)} ?selected=${x.id === S.sel} @tap=${() => act.pick(x.id)}>
       <actions>
         <button icon="pencil" @tap=${() => { bag.name = undefined; act.renaming(x.id); }}>Rename</button>
@@ -115,7 +117,8 @@ function orgTpl(o) {
   const open = sc.expanded.has(o.id);
   const word = o.state && STATES[o.state] ? STATES[o.state] : null;
   const blocked = o.tiles.some((t) => t.state === 'blocked');
-  return html`<section title=${o.kind === 'workspace' ? `${o.name} — tiles in no org` : o.name} badge=${`${o.ticked} of ${o.of}`}
+  // (the tiles in no org: xbind's own name for them says so)
+  return html`<section title=${o.name} badge=${`${o.ticked} of ${o.of}`}
       collapsible collapsed=${!open} @toggle=${(e) => { if (!!e.collapsed === open) act.expand(o.id); }}>
     <row icon=${box(o.box)} title=${`All of ${o.name}`} subtitle=${o.box === 'mixed' ? 'partly selected' : nothing}
       detail=${word && word.word ? word.word : `${o.ticked} of ${o.of}`} tone=${word ? tone(word.tone) : nothing}
