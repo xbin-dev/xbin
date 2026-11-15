@@ -159,7 +159,7 @@ func TestWsBriefCard(t *testing.T) {
 	}
 	fx.x.decide(second.ID, "approved")
 	fx.notify(t)
-	fx.idle(t, s)
+	fx.rest(t, s)
 	agents := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)
 	if len(agents) != 1 || agents[0].Harness != "Codex" || fx.x.said[agents[0].Session][0] != asked.Prompt {
 		t.Fatalf("the tile agent: %+v, told %q", agents, fx.x.said)
@@ -191,7 +191,7 @@ func TestWsBriefCard(t *testing.T) {
 	}
 	fx.json(t, fx.call(t, wsAlice, "PUT", base+"/briefs/2", map[string]any{"goal": "Export orders as a PDF, one page each"}), 200, nil)
 	fx.json(t, fx.call(t, wsAlice, "POST", base+"/briefs/2/start", nil), 200, &start)
-	fx.idle(t, s)
+	fx.rest(t, s) // the start's outcome is delivered by a turn of its own
 	agents = fx.ag.db.wsAgents(`WHERE run_id=? ORDER BY id`, s.Run)
 	if !start.Started || len(agents) != 2 || !strings.Contains(fx.x.said[agents[1].Session][0], "Goal: Export orders as a PDF, one page each") {
 		t.Fatalf("Start on the brief: %+v, told %q", start, fx.x.said)
@@ -349,8 +349,7 @@ func TestWsLookingAndCreating(t *testing.T) {
 	}
 	fx.x.decide(req.ID, "approved")
 	fx.notify(t)
-	fx.idle(t, s)
-	waitFor(t, "the create's update", func() bool { return len(fx.updates(t, s)) == 1 })
+	fx.rest(t, s)
 	if up := fx.updates(t, s); !strings.Contains(up[0], "the tile apps/team-holidays now exists") || fx.x.count("TileCreate apps/team-holidays") != 1 {
 		t.Fatalf("the create: %q", up)
 	}

@@ -1011,6 +1011,17 @@ func (fx *wsFix) idle(t *testing.T, s *wsSession) {
 	})
 }
 
+// rest waits until what the session is owed has reached it and it rests:
+// an outcome is delivered by a turn the engine starts after the decision
+// was recorded, so "idle" alone can be the moment before that turn.
+func (fx *wsFix) rest(t *testing.T, s *wsSession) {
+	t.Helper()
+	waitFor(t, "the session's updates to reach it", func() bool {
+		r, err := fx.ag.db.getRun(s.Run)
+		return err == nil && !wsOwes(fx.ag.db, r) && !active(r.Status) && len(fx.ag.db.undelivered(s.Run)) == 0
+	})
+}
+
 // toolResult is the stored result of the latest call of tool in s.
 func (fx *wsFix) toolResult(t *testing.T, s *wsSession, tool string) string {
 	t.Helper()
