@@ -28,7 +28,7 @@ func TestWorkspaceAgentDevelopmentBuild(t *testing.T) {
 		t.Fatal("the plain assets have a bin/sealed: this test wants an xbind without prebuilt backends")
 	}
 	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true, Env: []string{"XBIN_VAULT_PASSPHRASE=xbindtest-vault"}})
-	e := &wsEnv{sealedEnv: &sealedEnv{d: d, sess: map[string]string{}, frames: map[string]xbindtest.Header{}}, t: t}
+	e := &wsEnv{sealedEnv: &sealedEnv{d: d, sess: map[string]string{}, frames: map[string]xbindtest.Header{}}, t: t, signedIn: map[string]time.Time{}}
 	row := d.Must(t, "GET", "/api/xbin/sealed", nil, 200).String()
 	if !strings.Contains(row, `"path":"`+wsAgent+`"`) || !strings.Contains(row, `"build":"development"`) || strings.Contains(row, `"hold"`) {
 		t.Fatalf("GET /sealed on a development xbind: %s", row)
