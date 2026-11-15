@@ -22,7 +22,13 @@
  * menus, refresh completion, search submit/scopes/suggestions, a full-screen
  * sheet, scroll anchors and edges; `button`'s rev 2 is `copyFormat` (Markdown
  * copied as rich text, #34). `canvas` rev 2 (D208) is the document reader:
- * `fill`, `zoom` and `link`; `split` rev 3 (D208) is `halves`.
+ * `fill`, `zoom` and `link`; `split` rev 3 (D208) is `halves`. D233 (the
+ * workspace agent in the app): `card`, `connection`, and `request` and
+ * `session` — two nodes a tile places by id and THE APP draws from xbind's own
+ * reading (a tile's tree can't describe a grant); `transcript` rev 3 (those as
+ * children, the `empty` slot), `question` rev 2 (choices as rows, "Something
+ * else", pages), `plan` rev 2 (tags, numbers, a note), `composer` rev 2
+ * (context chips, quick replies, a hint).
  *
  * Schema (all plain JSON):
  *   prop:     {type: 'string'|'number'|'bool'|'json'|'array'|'object' | [types…],
@@ -78,6 +84,9 @@ export const ICONS = {
   branch: 'arrow.triangle.branch', eye: 'eye', 'eye-slash': 'eye.slash', external: 'arrow.up.right.square',
   back: 'chevron.left', forward: 'chevron.right', expand: 'chevron.down', collapse: 'chevron.up',
   power: 'power', sun: 'sun.max', moon: 'moon', agent: 'person.crop.circle.badge.checkmark',
+  // D233: a tick box's three states, a connection, "waits for you"
+  square: 'square', 'check-square': 'checkmark.square.fill', 'minus-square': 'minus.square.fill', plug: 'powerplug',
+  hand: 'hand.raised',
 };
 
 export const TOKENS = {
@@ -222,11 +231,16 @@ const P = {
     children: { only: ['button', 'divider', 'menu'], since: { menu: 2 } } },
 
   // ── 8.4 the chat family ───────────────────────────────────────────────────
-  transcript: { rev: 2, group: 'chat', doc: 'a chat transcript (stick to bottom with follow)',
-    props: { follow: B, older: B, ...SCROLL },
-    events: { more: {}, scrolled: { payload: { atBottom: 'bool' } }, ...EDGE },
-    children: only('message', 'thinking', 'toolcard', 'approval', 'question', 'plan', 'diff',
-      'activity', 'step', 'notice', 'text', 'markdown', 'image', 'progress') },
+  transcript: { rev: 3, group: 'chat', doc: 'a chat transcript (stick to bottom with follow)',
+    props: { follow: B, older: B, ...SCROLL,
+      empty: since(3, { ...obj({ title: S, text: S, lists: arr(obj({ title: S, items: arr(S) })), suggestionsTitle: S,
+        suggestions: arr(obj({ id: S, kind: S, text: S })) }),
+      doc: 'what a transcript with no children shows: a heading, a sentence, short titled lists, and suggestions (each a kind in small caps and a line) that report `suggestion` — fill your composer with it' }) },
+    events: { more: {}, scrolled: { payload: { atBottom: 'bool' } }, ...EDGE,
+      suggestion: since(3, { payload: { id: 'string' } }) },
+    children: { only: ['message', 'thinking', 'toolcard', 'approval', 'question', 'plan', 'diff',
+      'activity', 'step', 'notice', 'text', 'markdown', 'image', 'progress', 'card', 'request', 'session'],
+    since: { card: 3, request: 3, session: 3 } } },
   message: { rev: 1, group: 'chat',
     props: { role: en('user', 'assistant', 'system'), sender: S, text: S, markdown: B, streaming: B,
       time: { type: ['string', 'number'] }, files: arr(obj({ name: S, mime: S, src: S })), queued: B,
@@ -243,24 +257,55 @@ const P = {
     props: { title: S, text: S, options: arr(obj({ id: S, label: S, kind: S })), note: S, feedback: B,
       settled: obj({ by: S, id: S }) },
     events: { choose: { payload: { id: 'string', feedback: 'string' } } }, children: NONE },
-  question: { rev: 1, group: 'chat', props: { title: S, schema: J, settled: J },
+  question: { rev: 2, group: 'chat',
+    props: { title: S, schema: J, settled: J,
+      style: since(2, { ...en('form', 'rows'), doc: '`rows`: a property with choices (`enum`, `oneOf`) draws them as full-width rows, one tap each, instead of a menu; `form` (the default): as rev 1' }),
+      other: since(2, { ...J, doc: '`{<choice property>: <string property>}`: that string property is the free text riding on the choices ("Something else": its `title` the label, its `description` the placeholder) — typing in it clears the choice, choosing clears it; it is not drawn as a field of its own' }),
+      paged: since(2, { ...B, doc: 'several questions: one a page ("1 of 2"), Back and Next at the bottom, submit on the last' }),
+      submitLabel: since(2, { ...S, doc: 'the submit button\'s words (default: Answer)' }),
+      skipLabel: since(2, { ...S, doc: 'the skip button\'s words (default: Skip); skipping is never an answer' }) },
     events: { submit: { payload: { content: 'json' } }, skip: {} }, children: NONE },
-  plan: { rev: 1, group: 'chat',
-    props: { entries: arr(obj({ text: S, status: en('pending', 'in_progress', 'completed') })) },
+  plan: { rev: 2, group: 'chat',
+    props: { entries: arr(obj({ text: S, status: en('pending', 'in_progress', 'completed') })),
+      title: since(2, S), numbered: since(2, { ...B, doc: 'the entries are numbered steps' }),
+      tags: since(2, { ...arr(obj({ text: S, icon: tok('icon'), tone: tok('tone') })), doc: 'a tag per entry, by position (what the step does or where it stands: "reads only", "asks you"); an item without `text` is no tag' }),
+      note: since(2, { ...S, doc: 'a sentence under the entries' }), meta: since(2, { ...S, doc: 'a quiet line beside the title' }) },
     events: {}, children: NONE },
   diff: { rev: 1, group: 'chat',
     props: { files: arr(obj({ path: S, status: S, add: N, del: N })), patch: S },
     events: { 'open-file': { payload: { path: 'string' } } }, children: NONE },
   activity: { rev: 1, group: 'chat', props: { text: S, live: B }, events: {}, children: NONE },
   step: { rev: 1, group: 'chat', props: { glyph: S, text: S, tone: tok('tone') }, events: {}, children: NONE },
-  composer: { rev: 1, group: 'chat', doc: 'the message composer; attachments are uploaded by the app',
+  composer: { rev: 2, group: 'chat', doc: 'the message composer; attachments are uploaded by the app',
     props: { value: S, placeholder: S, busy: B, disabled: B,
       attachments: arr(obj({ id: S, name: S, mime: S, progress: N })), accept: S,
-      upload: obj({ method: S, path: S }), slash: arr(obj({ name: S, hint: S, description: S })) },
+      upload: obj({ method: S, path: S }), slash: arr(obj({ name: S, hint: S, description: S })),
+      context: since(2, { ...arr(obj({ id: S, label: S, icon: tok('icon'), tone: tok('tone') })), doc: 'what the next message is about, as chips in the box ("About Orders"): a tap reports `context`, its ✕ `remove-context`' }),
+      replies: since(2, { ...arr(obj({ id: S, label: S })), doc: 'quick replies in a row above the box (they scroll sideways and stay with the keyboard down): a tap reports `reply`' }),
+      hint: since(2, { ...S, doc: 'a quiet line under the box' }) },
     events: { input: { payload: { value: 'string' }, ...reports('value') },
       send: { payload: { value: 'string' }, ...reports('value') }, stop: {},
-      uploaded: { payload: { name: 'string', response: 'json' } }, remove: { payload: { id: 'string' } } },
+      uploaded: { payload: { name: 'string', response: 'json' } }, remove: { payload: { id: 'string' } },
+      context: since(2, { payload: { id: 'string' } }), 'remove-context': since(2, { payload: { id: 'string' } }),
+      reply: since(2, { payload: { id: 'string' } }) },
     children: only('button') },
+  // D233 — the workspace agent's conversation (docs/native.md §The workspace agent's nodes)
+  card: { rev: 1, group: 'chat', doc: 'a card of the tile\'s own in a transcript: a title, then text, fields and rows, its buttons in a row at the bottom',
+    props: { title: S, subtitle: S, icon: tok('icon'), tone: tok('noticeTone'), badge: S,
+      note: { ...S, doc: 'a quiet sentence above the buttons' } },
+    events: {}, children: only('text', 'markdown', 'field', 'picker', 'toggle', 'button', 'notice', 'row', 'step', 'badge') },
+  connection: { rev: 1, group: 'chat', doc: 'the line that says what a conversation is connected to, above its transcript; a tap is the tile\'s to answer (its scope panel)',
+    props: { connected: { ...S, doc: 'what is connected ("14 tiles · 3 orgs")' },
+      not: { ...S, doc: 'what is not ("6 not connected"); absent: nothing is left out' },
+      model: S, private: { ...B, doc: 'the model is marked private' },
+      label: { ...S, doc: 'the whole line as one sentence, for VoiceOver' }, disabled: B },
+    events: { tap: {}, model: {} }, children: NONE },
+  request: { rev: 1, group: 'chat', doc: 'an approval request of the person\'s workspace agent, by id. THE APP draws it — what waits, for which tile, what came of it, and Review… — from xbind\'s own reading of the request, and presents its own sheet; a tile names the id and nothing else',
+    props: { id: S, kind: en('call', 'session', 'template', 'changeset') },
+    events: {}, children: NONE },
+  session: { rev: 1, group: 'chat', doc: 'a tile agent\'s session, by id. THE APP draws it — the tile, the coding agent, its status and last line — from xbind\'s session directory; Open (Answer when it waits for the person) goes to the app\'s own agent screen',
+    props: { id: S, tile: { ...S, doc: 'the tile it runs in (named while the session is being looked up)' } },
+    events: {}, children: NONE },
 
   // ── 8.5 escape hatches ────────────────────────────────────────────────────
   terminal: { rev: 1, group: 'escape', doc: "a terminal on the tile's own pty WebSocket (tile-relative)",

@@ -118,7 +118,12 @@
    "power",
    "sun",
    "moon",
-   "agent"
+   "agent",
+   "square",
+   "check-square",
+   "minus-square",
+   "plug",
+   "hand"
   ]
  },
  "icons": {
@@ -193,7 +198,12 @@
   "power": "power",
   "sun": "sun.max",
   "moon": "moon",
-  "agent": "person.crop.circle.badge.checkmark"
+  "agent": "person.crop.circle.badge.checkmark",
+  "square": "square",
+  "check-square": "checkmark.square.fill",
+  "minus-square": "minus.square.fill",
+  "plug": "powerplug",
+  "hand": "hand.raised"
  },
  "features": [
   "chart.area",
@@ -1305,7 +1315,7 @@
    }
   },
   "transcript": {
-   "rev": 2,
+   "rev": 3,
    "group": "chat",
    "doc": "a chat transcript (stick to bottom with follow)",
    "props": {
@@ -1324,6 +1334,56 @@
      "type": "string",
      "doc": "scroll to a child by key, or to `start`/`end`, whenever the value changes — the first value is where the view starts, not a jump (text after a # is ignored: `end#3` jumps again)",
      "since": 2
+    },
+    "empty": {
+     "type": "object",
+     "shape": {
+      "title": {
+       "type": "string"
+      },
+      "text": {
+       "type": "string"
+      },
+      "lists": {
+       "type": "array",
+       "of": {
+        "type": "object",
+        "shape": {
+         "title": {
+          "type": "string"
+         },
+         "items": {
+          "type": "array",
+          "of": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      },
+      "suggestionsTitle": {
+       "type": "string"
+      },
+      "suggestions": {
+       "type": "array",
+       "of": {
+        "type": "object",
+        "shape": {
+         "id": {
+          "type": "string"
+         },
+         "kind": {
+          "type": "string"
+         },
+         "text": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     },
+     "doc": "what a transcript with no children shows: a heading, a sentence, short titled lists, and suggestions (each a kind in small caps and a line) that report `suggestion` — fill your composer with it",
+     "since": 3
     }
    },
    "events": {
@@ -1339,6 +1399,12 @@
       "at": "bool"
      },
      "since": 2
+    },
+    "suggestion": {
+     "payload": {
+      "id": "string"
+     },
+     "since": 3
     }
    },
    "children": {
@@ -1356,8 +1422,16 @@
      "text",
      "markdown",
      "image",
-     "progress"
-    ]
+     "progress",
+     "card",
+     "request",
+     "session"
+    ],
+    "since": {
+     "card": 3,
+     "request": 3,
+     "session": 3
+    }
    }
   },
   "message": {
@@ -1585,7 +1659,7 @@
    }
   },
   "question": {
-   "rev": 1,
+   "rev": 2,
    "group": "chat",
    "props": {
     "title": {
@@ -1596,6 +1670,35 @@
     },
     "settled": {
      "type": "json"
+    },
+    "style": {
+     "type": "string",
+     "enum": [
+      "form",
+      "rows"
+     ],
+     "doc": "`rows`: a property with choices (`enum`, `oneOf`) draws them as full-width rows, one tap each, instead of a menu; `form` (the default): as rev 1",
+     "since": 2
+    },
+    "other": {
+     "type": "json",
+     "doc": "`{<choice property>: <string property>}`: that string property is the free text riding on the choices (\"Something else\": its `title` the label, its `description` the placeholder) — typing in it clears the choice, choosing clears it; it is not drawn as a field of its own",
+     "since": 2
+    },
+    "paged": {
+     "type": "bool",
+     "doc": "several questions: one a page (\"1 of 2\"), Back and Next at the bottom, submit on the last",
+     "since": 2
+    },
+    "submitLabel": {
+     "type": "string",
+     "doc": "the submit button's words (default: Answer)",
+     "since": 2
+    },
+    "skipLabel": {
+     "type": "string",
+     "doc": "the skip button's words (default: Skip); skipping is never an answer",
+     "since": 2
     }
    },
    "events": {
@@ -1611,7 +1714,7 @@
    }
   },
   "plan": {
-   "rev": 1,
+   "rev": 2,
    "group": "chat",
    "props": {
     "entries": {
@@ -1632,6 +1735,46 @@
        }
       }
      }
+    },
+    "title": {
+     "type": "string",
+     "since": 2
+    },
+    "numbered": {
+     "type": "bool",
+     "doc": "the entries are numbered steps",
+     "since": 2
+    },
+    "tags": {
+     "type": "array",
+     "of": {
+      "type": "object",
+      "shape": {
+       "text": {
+        "type": "string"
+       },
+       "icon": {
+        "type": "string",
+        "token": "icon"
+       },
+       "tone": {
+        "type": "string",
+        "token": "tone"
+       }
+      }
+     },
+     "doc": "a tag per entry, by position (what the step does or where it stands: \"reads only\", \"asks you\"); an item without `text` is no tag",
+     "since": 2
+    },
+    "note": {
+     "type": "string",
+     "doc": "a sentence under the entries",
+     "since": 2
+    },
+    "meta": {
+     "type": "string",
+     "doc": "a quiet line beside the title",
+     "since": 2
     }
    },
    "events": {},
@@ -1715,7 +1858,7 @@
    }
   },
   "composer": {
-   "rev": 1,
+   "rev": 2,
    "group": "chat",
    "doc": "the message composer; attachments are uploaded by the app",
    "props": {
@@ -1781,6 +1924,51 @@
        }
       }
      }
+    },
+    "context": {
+     "type": "array",
+     "of": {
+      "type": "object",
+      "shape": {
+       "id": {
+        "type": "string"
+       },
+       "label": {
+        "type": "string"
+       },
+       "icon": {
+        "type": "string",
+        "token": "icon"
+       },
+       "tone": {
+        "type": "string",
+        "token": "tone"
+       }
+      }
+     },
+     "doc": "what the next message is about, as chips in the box (\"About Orders\"): a tap reports `context`, its ✕ `remove-context`",
+     "since": 2
+    },
+    "replies": {
+     "type": "array",
+     "of": {
+      "type": "object",
+      "shape": {
+       "id": {
+        "type": "string"
+       },
+       "label": {
+        "type": "string"
+       }
+      }
+     },
+     "doc": "quick replies in a row above the box (they scroll sideways and stay with the keyboard down): a tap reports `reply`",
+     "since": 2
+    },
+    "hint": {
+     "type": "string",
+     "doc": "a quiet line under the box",
+     "since": 2
     }
    },
    "events": {
@@ -1811,12 +1999,150 @@
      "payload": {
       "id": "string"
      }
+    },
+    "context": {
+     "payload": {
+      "id": "string"
+     },
+     "since": 2
+    },
+    "remove-context": {
+     "payload": {
+      "id": "string"
+     },
+     "since": 2
+    },
+    "reply": {
+     "payload": {
+      "id": "string"
+     },
+     "since": 2
     }
    },
    "children": {
     "only": [
      "button"
     ]
+   }
+  },
+  "card": {
+   "rev": 1,
+   "group": "chat",
+   "doc": "a card of the tile's own in a transcript: a title, then text, fields and rows, its buttons in a row at the bottom",
+   "props": {
+    "title": {
+     "type": "string"
+    },
+    "subtitle": {
+     "type": "string"
+    },
+    "icon": {
+     "type": "string",
+     "token": "icon"
+    },
+    "tone": {
+     "type": "string",
+     "token": "noticeTone"
+    },
+    "badge": {
+     "type": "string"
+    },
+    "note": {
+     "type": "string",
+     "doc": "a quiet sentence above the buttons"
+    }
+   },
+   "events": {},
+   "children": {
+    "only": [
+     "text",
+     "markdown",
+     "field",
+     "picker",
+     "toggle",
+     "button",
+     "notice",
+     "row",
+     "step",
+     "badge"
+    ]
+   }
+  },
+  "connection": {
+   "rev": 1,
+   "group": "chat",
+   "doc": "the line that says what a conversation is connected to, above its transcript; a tap is the tile's to answer (its scope panel)",
+   "props": {
+    "connected": {
+     "type": "string",
+     "doc": "what is connected (\"14 tiles · 3 orgs\")"
+    },
+    "not": {
+     "type": "string",
+     "doc": "what is not (\"6 not connected\"); absent: nothing is left out"
+    },
+    "model": {
+     "type": "string"
+    },
+    "private": {
+     "type": "bool",
+     "doc": "the model is marked private"
+    },
+    "label": {
+     "type": "string",
+     "doc": "the whole line as one sentence, for VoiceOver"
+    },
+    "disabled": {
+     "type": "bool"
+    }
+   },
+   "events": {
+    "tap": {},
+    "model": {}
+   },
+   "children": {
+    "none": true
+   }
+  },
+  "request": {
+   "rev": 1,
+   "group": "chat",
+   "doc": "an approval request of the person's workspace agent, by id. THE APP draws it — what waits, for which tile, what came of it, and Review… — from xbind's own reading of the request, and presents its own sheet; a tile names the id and nothing else",
+   "props": {
+    "id": {
+     "type": "string"
+    },
+    "kind": {
+     "type": "string",
+     "enum": [
+      "call",
+      "session",
+      "template",
+      "changeset"
+     ]
+    }
+   },
+   "events": {},
+   "children": {
+    "none": true
+   }
+  },
+  "session": {
+   "rev": 1,
+   "group": "chat",
+   "doc": "a tile agent's session, by id. THE APP draws it — the tile, the coding agent, its status and last line — from xbind's session directory; Open (Answer when it waits for the person) goes to the app's own agent screen",
+   "props": {
+    "id": {
+     "type": "string"
+    },
+    "tile": {
+     "type": "string",
+     "doc": "the tile it runs in (named while the session is being looked up)"
+    }
+   },
+   "events": {},
+   "children": {
+    "none": true
    }
   },
   "terminal": {
