@@ -192,6 +192,16 @@ Every tool with side effects has a dry-run form (section 4). The agent
 never answers a tile agent's permission or question: those go to the person
 (Agent tab, iOS, push), and the chat shows that the session waits for them.
 
+Landed (D231, package C2): the backend — workspace mode
+(`XBIN_AGENT_MODE=workspace`), the `workspace` profile and its tools
+(`workspace_tiles`/`workspace_screens` folded into `workspace_map`;
+`tile_agent_start` takes a brief written by `tile_agent_brief` and no
+harness, mode or model; plus `tile_api_doc`, `admin_changes`, `plan` and
+the `notebook_*` tools), sessions and their handles, the parked request,
+the notebook's org scoping, the prompt with its generated map, the HTTP
+API for the page (the template's `API.md` §Workspace mode) and the scripted
+evaluation. Open: the page (D, E), previews (F), attachments.
+
 ### 5.3 Tile agents the person can see and use
 - Sessions the agent starts are ordinary sessions in the person's session
   directory, with `origin` shown ("started by your agent").

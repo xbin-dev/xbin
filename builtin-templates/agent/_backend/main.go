@@ -56,6 +56,11 @@ func main() {
 		log.Printf("xbin: %s: %v — refusing to serve (/docs/partitions.md)", xbin.Self(), err)
 		os.Exit(3)
 	}
+	// a normal instance, or a person's workspace agent (ws_mode.go)
+	if err := detectWsMode(); err != nil {
+		log.Printf("xbin: %s: %v — refusing to serve (/docs/workspace-agent.md)", xbin.Self(), err)
+		os.Exit(3)
+	}
 	// Listen first, initialize second. xbind health-checks by socket-connect
 	// within 5s, and a cold start (idle-reaped process, cold page cache) can
 	// spend longer than that in openDB's schema and migration work — which
@@ -89,7 +94,10 @@ func main() {
 		stopHosting(0)
 	}()
 
-	xbin.Serve(agentRuled(mux, gateReady(ready, mux))) // a person's workspace agent: the routes in agentMay, whatever guards a route (wsagent.go)
+	// a person's workspace agent calling in: the routes in agentMay, whatever
+	// guards a route (wsagent.go); this process as a workspace agent: the
+	// routes in wsMay and no other (ws_mode.go)
+	xbin.Serve(agentRuled(mux, gateReady(ready, wsGate(mux, mux))))
 	// Serve returns at SIGTERM without waiting for anything; the engine gets
 	// a bounded moment to unwind and hand over.
 	select {
@@ -138,6 +146,10 @@ func boot() *Engine {
 	eng := newEngine(db, agent, newGatewayLLM(), dbPath+".engine")
 	eng.hold.open = openSelfHold
 	eng.Start()
+	if wsMode() { // a workspace agent has none of the below: what it started is caught up with instead (ws_notify.go)
+		go wsBoot()
+		return eng
+	}
 	go agent.reRegisterSchedules()
 	go agent.reRegisterTriggers()
 	go agent.pullMailAtStart() // mail that waited (mailbox.go; nothing unpartitioned)

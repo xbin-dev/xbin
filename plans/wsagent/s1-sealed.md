@@ -556,3 +556,168 @@ instance, 16 MB per bundle) do not argue for revisiting it.
 8. **Backups**: sealed components' data joins the existing tile backup
    schedule as data-only archives (my default), or stays out until a
    later PR.
+
+## Review rounds
+
+The record `plans/DECISIONS.md` D227 points at: what each round after the
+owner's answers found, what was chosen and what was rejected. Moved here
+verbatim from the decision entry (it had outgrown the file's size guard);
+the entry keeps the rules.
+
+- **Third round (2026-11-15; an independent security review of
+  58f54aee).** The boundary did not hold: the route gate was the only
+  refusal on many routes, and it read a request's body beside the
+  handler.
+  - *The gate is not the boundary.* `{"component":"xbin/x",
+    "component":null}` read as nothing in the gate's map decode and as
+    `xbin/x` in a handler's struct decode. No amount of re-parsing fixes
+    that class, so the rule moved to where the work is done, on the value
+    acted on: `allowRes`/`allowAt` and `vaultAccess` (no admin shortcut
+    onto a sealed component's resources and secrets), the cron and bus
+    registration handlers, `grantMutation`, the owner transfer, the
+    partition mode/review/consent handlers, `guardNewComponentTree`
+    (every creation path), source and PR resolution, interface instances
+    and ingress hosts, chrome, tile reports, sandboxes, the deployments
+    plane's `judge`, resolvers and record writer — and
+    `registry.MutateWorkspace`, the one writer of the workspace file,
+    which undoes and refuses a change that adds a row about a sealed
+    component the file may not hold. The gate stays as the early answer
+    with the reason, refuses a body that gives one of its names twice
+    and reads a bounded prefix. `TestSealedBoundaryWithoutTheGate` runs
+    every refused and self row with the gate off.
+  - *A frame token of a sealed component is a viewer's.* For a tile the
+    frame token carries the tile's authority, because page and backend
+    are one author's code. A sealed component's page runs in any
+    reader's browser, so that token — any reader could mint one — passed
+    the "its own alone" rows and reached its kv, blob, bus, cron and
+    subscriptions. Chosen: a rule on the credential, where a credential
+    becomes a principal (`authed`, `authedStatic`, the tile-origin path):
+    a sealed component's frame principal reaches its own backend, its
+    own files, its renewal, `whoami` and the events socket. Rejected:
+    checking `Via` in each handler (the same per-handler trust the gate
+    had), and minting no frame token (the page needs one to reach its
+    backend and to be attributed). Consequence for the workspace agent:
+    its frontend takes live updates from its backend, never `xbin.bus`.
+    Only the instance credential acts as the component (`sealedActor`).
+  - *Providers are the release's to name* (the coordinator's decision). A
+    slot's provider sees what the component sends it; a model provider
+    reads every person's conversation and steers what the component does
+    with their access. So `Spec.Providers` lists, per slot, what an admin
+    may bind beside the default, enforced when a binding is set, when the
+    file is written and when it is read (a hand-edited row to another
+    provider reads as no binding, and no default takes its place). The
+    workspace agent's model slot allows `xbin:llm` alone.
+  - *Restore is a write path.* A sealed component restores only from a
+    sealed archive — encrypted under a backup key the workspace's vault
+    holds and authenticated end to end — whose manifest names it; a
+    plain tar is the archiver tile's word. It is archived only sealed
+    (nothing in plaintext-vault mode, as a person's partition), a held
+    component takes no restore, an archive carries no deployment record
+    for it, and no member is read out of its backup (refused in
+    `extractMember` itself). Two bugs this found exist on master too and
+    are fixed in commits of their own: a restore registered cron jobs
+    naming other components, and `res:/…` targets looped forever.
+  - *What runs is verified at every start.* The materialized tree is
+    compared with the release's bytes before each start and rewritten;
+    pages are never served from it but from memory (an anonymous file
+    per open, so the handlers keep serving an `*os.File`). The prebuilt
+    backend is the file `bin/sealed/sealed.json` lists, with that
+    SHA-256, checked at boot and before each start. Not done as asked:
+    the SDK tree and go version are recorded in the manifest and
+    compared by `sealed-build --check`, not folded into the source
+    digest — the SDK is a separate module xbind neither embeds nor can
+    recompute at runtime, and the file name must be one xbind can
+    predict. The manifest sits beside the binaries: it does not stop
+    someone who can write the install prefix.
+  - *Smaller ones.* The workspace `importMap` no longer reaches sealed
+    documents. Level readers that looked at the stored map go through
+    the cap (`CanTerminal`, `whoami`), and `CanWriteTile` is false on a
+    sealed path. A sealed name is at most 19 characters so `CompKey`
+    never cuts its readable part (a tile path could otherwise be ground
+    into the same 32-bit-hash key). In origins mode the cookie of a
+    sealed component's own origin is the same viewer (found by the test
+    written for it). `XBIN_E2E_REQUIRE=1` makes a skipped isolated test
+    a failure.
+- **Fourth round (2026-11-15; a second independent review, of
+  182bc1af).** Two shapes recurred, so the classes were fixed.
+  - *A raw path string tested instead of a canonical component.*
+    `/xbin/x` was "no sealed path" to the exact-prefix test and the
+    sealed component to the code that trims, joins or resolves — a
+    forged restore, a cron row firing at `/api//xbin/x/…`, a frame token
+    the viewer rule didn't recognise. Chosen: the sealed test itself
+    asks the canonical form (`util.SealedPath` over `util.CanonPath`), so
+    every decision point sees every spelling without knowing about
+    spellings; principals carry canonical components only
+    (`auth.canonicalComponent`, `mintFrame`, a registered component for
+    `GET /frame-token`); what stores a component's name takes it as
+    xbind stores one (`broker.componentNamed`); and the API's edge
+    refuses an odd spelling of a sealed path (path, query, the fields a
+    route names a tile in, map keys). Rejected: canonicalising every
+    parameter of every route at the edge — tiles' forgiving spellings
+    are in the wild (compat), and a rewrite of bodies is the re-parsing
+    the first review ruled out as a boundary. Case, percent-escapes and
+    look-alike letters are not folded anywhere in xbind, so they name
+    other (nonexistent) paths; the tests pin that.
+  - *A row class the gate-off test never drove.* It now drives the
+    handled rows as every principal kind too, and a route without a row
+    refuses a sealed path at runtime (the CI guard stays the first line).
+  - *Keys.* An imported key bundle can hold any key under any subject,
+    so a sealed target restores only under a backup key this workspace
+    created for that archive (`sealedKeyNative`). The cost is stated in
+    the docs: disaster recovery of a sealed component onto a new host is
+    the workspace's own directory restored, not archiver + key bundle.
+  - *Terminals (on master too, its own commit).* A session's directory
+    was any path the caller had terminal level on, bound read-write over
+    the masks: measured under `--isolate`, an admin's shell with
+    `cwd=.xbin` could not read the owner token but replaced it, with
+    `cwd=data` rewrote `users.json` and moved the vault, with
+    `cwd=homes` wrote into anyone's home. A session now opens only at a
+    component-shaped path that is, or lies in, a registered tile.
+  - *Verification moved to the spawn.* It ran per proxied request under
+    one mutex and latched a hold on any failure. It now runs in
+    `startFor` (`SealedVerify`), fails that start alone, and is retried
+    by the next; boot still holds a build that is missing, unlisted or
+    definitely another file.
+  - *The reload signal* counts only from the component's own frame
+    principal and goes to that person's sockets (an event whose data
+    names its audience), so nobody reloads anyone else's frames.
+  - *Smaller ones.* A same-key tile (`xbin~<name>`) declares nothing in
+    any deployment and such names are reserved at creation; names are at
+    most 18 characters (at 19 the cut form of longer tile paths shares
+    the readable key part); admins' event sockets get no sealed bus
+    events; personal binds take only the release's providers; a
+    partition restore under a data hold restores nothing; one shared
+    instance only under `--no-auth`; view-as opens nothing of a sealed
+    component; `sealed-build --check` compares OS, architecture and go
+    version.
+- **Fifth round (2026-11-15; meeting delegation, D228).** The two
+  tables classify each other's routes: `PUT /agent-levels` and `POST
+  /delegate/approvals` name a tile and refuse a sealed one, `GET
+  /agent-levels` never lists one, every other delegation route is
+  no-tile (it names calls by method and URL, judged when they run — and
+  `broker.DelegateTile`, `WorkspaceAgentGate` and `AgentSessionAllows`
+  refuse every sealed component, holder or not: a person's agent acts
+  on tiles); `GET /sealed` is `never` for a delegate. The sealed table
+  is pinned by a golden of its own. Holders are the table's
+  `Capabilities.Delegate`, installed where the table is opened. A
+  holder's page keeps the delegation API beside a viewer's list — the
+  page is where its person approves, and those handlers take it only as
+  that person's signed-in frame — and a row may name further reads
+  (`FrameReads`, GET only, validated). Under `--no-auth` a holder's
+  single instance is the implicit owner's delegate, as a person, never
+  as the root token. Rows gain `Env` and `Notify`. Left as found: the
+  delegation package says "sealed system component" in a few refusals,
+  where this decision's rule is "system component" for people.
+- **Sixth round (2026-11-15; agent sessions, notices, previews).**
+  `auth.SetDelegateNotify` is installed beside the holder lookup, from
+  the same row: a holder's `Notify`, "" for every other component. The
+  holder page's one extra read, `GET /agents/connection?session=`, is
+  the fixture holder's `FrameReads` entry — the allow-list matches the
+  path exactly and GET/HEAD only, and the handler answers only that
+  holder's own frame for its driver. The handle routes, the map, docs
+  search and the LLM door's keys are no-tile (a handle's scope narrows
+  calls that are still judged when they run). `POST /preview` is
+  refused for a sealed tile, in the handler's path before availability
+  is asked, and a render's scope never has a sealed path — a screen is
+  drawn without it — because a render holds the person's session and a
+  system component's page is each person's own to open.

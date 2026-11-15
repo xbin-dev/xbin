@@ -543,7 +543,7 @@ func TestDefaultBindings(t *testing.T) {
 // viewer's own — which can never be writes, data routes or another API.
 func TestTableEnvNotifyAndFrameReads(t *testing.T) {
 	good := Spec{Name: "fix", Source: fixture(""), Env: map[string]string{"XBIN_AGENT_MODE": "workspace", "A1_B": ""},
-		Notify: "/notify/holder", FrameReads: []string{"/api/xbin/agents/connection", "/api/xbin/whoami"}}
+		Notify: "/delegate/notify", FrameReads: []string{"/api/xbin/agents/connection", "/api/xbin/whoami"}}
 	s, err := Load([]Spec{good})
 	if err != nil {
 		t.Fatal(err)
@@ -563,6 +563,7 @@ func TestTableEnvNotifyAndFrameReads(t *testing.T) {
 		"a variable with an equals sign": {Name: "fix", Source: fixture(""), Env: map[string]string{"A=B": "x"}},
 		"a notify path without a slash":  {Name: "fix", Source: fixture(""), Notify: "notify"},
 		"a notify path with a query":     {Name: "fix", Source: fixture(""), Notify: "/notify?x=1"},
+		"a notify path with its method":  {Name: "fix", Source: fixture(""), Notify: "POST /delegate/notify"}, // xbind POSTs; the row is the path
 		"a notify path that climbs":      {Name: "fix", Source: fixture(""), Notify: "/a/../b"},
 		"a read of a tile's API":         {Name: "fix", Source: fixture(""), FrameReads: []string{"/api/apps/x/secret"}},
 		"a read outside /api/":           {Name: "fix", Source: fixture(""), FrameReads: []string{"/c/apps/x/index.html"}},

@@ -102,6 +102,10 @@ type wireCodec interface {
 	unsupported(code int, body string) bool
 }
 
+// llmHeaderHooks add headers to a model call by the run that makes it
+// (LLMRequest.Run); registered at init, none in a normal instance's calls.
+var llmHeaderHooks []func(req LLMRequest, h http.Header)
+
 func (g *gatewayLLM) Chat(ctx context.Context, req LLMRequest, onEvent func(LLMEvent)) (LLMReply, error) {
 	// the provider a reference names; requests (and replies, and the
 	// transcript) carry the bare model id
@@ -206,6 +210,9 @@ func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w
 	hreq.Header.Set("Content-Type", "application/json")
 	if req.Stream {
 		hreq.Header.Set("Accept", "text/event-stream")
+	}
+	for _, f := range llmHeaderHooks { // what a kind of conversation adds to its model calls (a workspace agent: its handle)
+		f(req, hreq.Header)
 	}
 	resp, err := g.client.Do(hreq)
 	if err != nil {

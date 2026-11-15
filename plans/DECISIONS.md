@@ -14993,6 +14993,151 @@ Deviations and refinements made while implementing; all deliberate:
     for the header. The review also turned up, by its admin-screen test,
     that the first scope gate refused the shell's own frame token and so
     broke every admin's screen render.
+- **D231 — The workspace agent: one long-lived coordinating agent per
+  person, built from the agent template's engine (2026-11-15; issue
+  #51).** The owner: one persistent agent per person that works at a high
+  level across the workspace — plans, delegates to tile agents, calls
+  tiles' APIs as the person, keeps a notebook, reports — never reads or
+  writes code itself, never answers a tile agent's permission or question,
+  and asks before every side effect, with xbind, not the agent, keeping
+  the approval; for "a fairly broad audience", so it must be clear about
+  what it can't do and steer toward outcome-level requests. This entry is
+  its backend (`plans/workspace-agent.md` §4, §5.1, §5.2, §5.6, §5.10;
+  package C2); the chat UI is D and E.
+  - **A mode of the template's backend, not a fork of it.** xbind starts
+    the sealed component `xbin/wsagent` with `XBIN_AGENT_MODE=workspace`
+    (`ws_mode.go`; an unknown value refuses to serve, like an unknown
+    partition). In that mode the process has one class (the fixed
+    `workspace` class: the subagent toolset only), one kind of
+    conversation (`startRunTx` refuses every origin but the profile's),
+    and a closed route list (`wsMay`; `wsGate` wraps the mux, so a route
+    added to the template later is 404 here by default — the same shape as
+    `agentMay` for calls *into* the template). Outside the mode nothing is
+    registered or reachable. Rejected: a build tag or a second `main` (two
+    binaries to prebuild and to keep honest); a class the admin could edit
+    (the lane is the security boundary of a component that holds a
+    person's access).
+  - **A profile of the coordinator kit** (D221–D223's lineage). The
+    `workspace` slot is filled: `Is` (a session row, in workspace mode),
+    `Resolve` (the person's own session), `Pending`/`Deliver` (requests
+    whose outcome is owed, tile agents that changed), `Prompt`, and three
+    hooks the kit gained: `System` (the base prompt as the running build
+    words it — Main outlives releases, and a stored prompt would freeze
+    it), `Specs` (the profile's wording of a core tool: `ask_user` with
+    choices) and `ParkWords`/`Unpark`. The two tests that asserted an
+    empty slot now assert a dead one outside its mode.
+  - **A tool call can wait for a decision made elsewhere**
+    (`coord_park.go`). The owner asked that the result or the refusal
+    "comes back as the tool result". So a changing tool files the request
+    and parks its call: the placeholder stays, the conversation is
+    `waiting_input` (pending kind `coord`, which keeps the placeholder
+    legitimate for `repairTranscript`), and `coordSettle` answers it. If
+    the person writes instead of deciding, the call is answered "not
+    decided yet" and the outcome arrives as an update; a stopped turn owes
+    it the same way. A call isn't parked beside a research subagent that
+    waits (and research doesn't wait beside a parked call): one kind of
+    wait per step. No inbox row marks a settle — an early version queued a
+    wake, and a pass that raced the commit left it behind to start a
+    second model call; the transcript is the state.
+  - **xbind behind one interface** (`wsXbin`: sessions, looking, one call
+    asked or made, tile agents, change sets, previews). The delegation
+    package is still moving; `ws_xbin_http.go` is the only file that knows
+    a route or a shape, the tests answer from `fakeXbin`, and
+    `TestWsHTTPShapes` pins what the HTTP side assumes against a stand-in
+    on a gateway socket, in the shapes C0 merged (`wsagent/main`
+    00a64588): the handle rides the context (`xbin.InAgentSession`),
+    `no-session` reopens it, `hidden` is the person's scope, the
+    connection view the backend gets is counts and one row an org (it
+    never holds a blocked tile's name), a what-if is counts and
+    `allowed`. Two things xbind's start doesn't give, and how they are
+    met: it carries no prompt, so the brief is the request's summary (the
+    agent's words on the card) and the session's first message, sent by
+    the backend from the brief as it stands at the decision; and it names
+    a harness, which the agent can't read from the person's preferences
+    (`/agent/prefs` is closed to it) — the backend takes the one in its
+    own preferences when the tile allows it, else the first xbind lists
+    for the tile. Both are open points for the owner.
+  - **Notices are hints, and none is relied on.** A notice
+    (`xbin.ReadHolderNotice`, on `POST /delegate/notify`) asks for a
+    reconcile — one worker, dirty-flagged, so a storm is two passes — that
+    reads every open request, change set and live tile agent through the
+    API; what the notice lists is not used. A request is claimed
+    (`pending → running` in one statement) before its ticket is used, so
+    two passes or a pass and a click never use it twice; a claim that
+    outlived a crash asks xbind whether the ticket was spent. xbind's
+    expiry notices don't survive its restart and a session a restart
+    ended looks like any other end, so everything open is read again at
+    start-up and, while anything is open, by a one-shot timer (45 s). A
+    tile agent found gone at start-up, or whose log ends inside a turn,
+    is reported as cut off, with the offer to continue it. No ticker.
+  - **Sessions own handles; taint is checked twice.** Main is made on
+    first use and can't be archived or deleted. One model serves a
+    session's turns, summaries and titles (the connector takes only the
+    handle's, and checks it against the handle's taint). A model change
+    is xbind's to refuse; before asking, the orgs this backend last saw
+    the conversation hold are compared with the handle's — a handle xbind
+    made again (they go after a day unused) has lost its record, the map
+    is read once to rebuild it, and what still can't be vouched for
+    refuses the move. A refusal carries the new-session offer.
+  - **Tile agents: scope, then hand off.** `tile_agent_brief` writes the
+    brief (goal, done-when, leave-alone, check-by, what is known) the
+    person can edit; `tile_agent_start` asks, and what is approved is
+    what is sent (an edit withdraws and refiles). The start names no
+    harness, mode or network. Where the person's preference lets starts
+    through without xbind asking, the click on the brief is the
+    confirmation and nothing starts before it — the brief is then the only
+    thing the person sees. A message to a session that waits for its
+    person is held, in order (`ws_held`), and delivered when they
+    answered; the agent has no tool, and no route, that answers.
+    `tile_agent_result` is the final answer, a stat of files and the
+    commands run — the log's patches are never copied.
+  - **Research reads through xbind.** A `codeReader` kind `tile` over
+    `/code/tree` and `/code/file`: no sandbox, no git, bounded (60 files,
+    3 MiB, 400 lines a read, 40 files a grep). The subagent gets the file
+    tools only. Its answer can be kept (`save_as`) as a notebook page
+    stamped with the tile and the revision read — xbind's when it names
+    one, else a fingerprint of the file list.
+  - **The notebook is the knowledge store with an org stamp.** Owner kind
+    `person-notebook`; `ws_pages` holds each page's stamp: the tile's org
+    and every org the writing conversation had read. A stamp only grows
+    (and xbind's taint is broad: a row of the map counts). The page
+    `preferences` — the person's own words about how they like things
+    done — takes no stamp and no tile: every session is shown it.
+    A session reads, searches and is shown a page only when every org on
+    it is connected there; other pages are counted, never named. The
+    prompt carries a *generated* list (slug, title, one line) and the page
+    `preferences` — not a model-written index, which a session that had
+    read Finance could have filled with Finance's data for every other
+    session. The wiki's own tools are not offered: they know no scope.
+  - **The prompt** is goals and reasons, not procedure (`ws_prompt.go`,
+    about 8 KiB, 13 KiB with the map): what needs approval and what doesn't, risk by
+    reversibility and who is affected, the three nudges (vague →
+    choices, low-level → redirect, impossible → the nearest thing), briefs,
+    "a report to check, not proof", data is not instructions, notebook
+    hygiene, reports for a reader who saw none of the work. The stable
+    part comes first; the session's connection, plan and notebook list
+    follow it. The map of xbin is generated from the docs by
+    `hack/wsagent-model.sh` (passages listed in
+    `hack/wsagent-model/main.go`, 6 KiB budget) into `ws_model.md`, and
+    `TestModelIsCurrent` fails when a quoted passage changed and the file
+    wasn't regenerated. It compares the output, not a hash of the pages:
+    an edit elsewhere in a page costs nobody a regeneration.
+  - **Evaluation.** Twelve scripted scenarios (`ws_eval_test.go`) run in
+    the template's suite; they check what a scripted model can't fake —
+    what was offered, told, filed, held, framed. Writing them found three
+    defects: a notebook page could close the prompt's notebook frame, two
+    messages to a tile agent could swap (the engine's parallel batch; a
+    workspace session now runs a step's calls in order), and the wake row
+    above. What a real model does is eighteen scenarios for a manual run
+    (`testdata/ws-real-model-scenarios.md`); no provider was called.
+  - **Not here.** The page (D, E) and anything in the template's
+    frontend; attachments (the class has no file tools: a file a person
+    attaches would be unreadable — open); a preview's picture (the tool gives the model
+    the page's text and says a picture exists: a session runs without
+    vision); resuming
+    tile agents by itself after an xbind update (it is told they stopped
+    and may ask to continue one, which asks the person); the reduced
+    `$HOME` for started sessions (5.7).
 - **D227 — Sealed components: code that is always the running release's
   (2026-11-14; issue #51).** The owner, on where the workspace agent runs:
   a sealed system component, as a general facility ("will be useful later
@@ -15105,163 +15250,53 @@ Deviations and refinements made while implementing; all deliberate:
       sandboxed frame needs), and a top-level page reloads itself. Callers
       that name no code are not pages and pass. Old clients (a cached
       `xbin-client.js`) send no id and behave as before this change.
-  - **Third round (2026-11-15; an independent security review of
-    58f54aee).** The boundary did not hold: the route gate was the only
-    refusal on many routes, and it read a request's body beside the
-    handler.
-    - *The gate is not the boundary.* `{"component":"xbin/x",
-      "component":null}` read as nothing in the gate's map decode and as
-      `xbin/x` in a handler's struct decode. No amount of re-parsing fixes
-      that class, so the rule moved to where the work is done, on the value
-      acted on: `allowRes`/`allowAt` and `vaultAccess` (no admin shortcut
-      onto a sealed component's resources and secrets), the cron and bus
-      registration handlers, `grantMutation`, the owner transfer, the
-      partition mode/review/consent handlers, `guardNewComponentTree`
-      (every creation path), source and PR resolution, interface instances
-      and ingress hosts, chrome, tile reports, sandboxes, the deployments
-      plane's `judge`, resolvers and record writer — and
-      `registry.MutateWorkspace`, the one writer of the workspace file,
-      which undoes and refuses a change that adds a row about a sealed
-      component the file may not hold. The gate stays as the early answer
-      with the reason, refuses a body that gives one of its names twice
-      and reads a bounded prefix. `TestSealedBoundaryWithoutTheGate` runs
-      every refused and self row with the gate off.
-    - *A frame token of a sealed component is a viewer's.* For a tile the
-      frame token carries the tile's authority, because page and backend
-      are one author's code. A sealed component's page runs in any
-      reader's browser, so that token — any reader could mint one — passed
-      the "its own alone" rows and reached its kv, blob, bus, cron and
-      subscriptions. Chosen: a rule on the credential, where a credential
-      becomes a principal (`authed`, `authedStatic`, the tile-origin path):
-      a sealed component's frame principal reaches its own backend, its
-      own files, its renewal, `whoami` and the events socket. Rejected:
-      checking `Via` in each handler (the same per-handler trust the gate
-      had), and minting no frame token (the page needs one to reach its
-      backend and to be attributed). Consequence for the workspace agent:
-      its frontend takes live updates from its backend, never `xbin.bus`.
-      Only the instance credential acts as the component (`sealedActor`).
-    - *Providers are the release's to name* (the coordinator's decision). A
-      slot's provider sees what the component sends it; a model provider
-      reads every person's conversation and steers what the component does
-      with their access. So `Spec.Providers` lists, per slot, what an admin
-      may bind beside the default, enforced when a binding is set, when the
-      file is written and when it is read (a hand-edited row to another
-      provider reads as no binding, and no default takes its place). The
-      workspace agent's model slot allows `xbin:llm` alone.
-    - *Restore is a write path.* A sealed component restores only from a
-      sealed archive — encrypted under a backup key the workspace's vault
-      holds and authenticated end to end — whose manifest names it; a
-      plain tar is the archiver tile's word. It is archived only sealed
-      (nothing in plaintext-vault mode, as a person's partition), a held
-      component takes no restore, an archive carries no deployment record
-      for it, and no member is read out of its backup (refused in
-      `extractMember` itself). Two bugs this found exist on master too and
-      are fixed in commits of their own: a restore registered cron jobs
-      naming other components, and `res:/…` targets looped forever.
-    - *What runs is verified at every start.* The materialized tree is
-      compared with the release's bytes before each start and rewritten;
-      pages are never served from it but from memory (an anonymous file
-      per open, so the handlers keep serving an `*os.File`). The prebuilt
-      backend is the file `bin/sealed/sealed.json` lists, with that
-      SHA-256, checked at boot and before each start. Not done as asked:
-      the SDK tree and go version are recorded in the manifest and
-      compared by `sealed-build --check`, not folded into the source
-      digest — the SDK is a separate module xbind neither embeds nor can
-      recompute at runtime, and the file name must be one xbind can
-      predict. The manifest sits beside the binaries: it does not stop
-      someone who can write the install prefix.
-    - *Smaller ones.* The workspace `importMap` no longer reaches sealed
-      documents. Level readers that looked at the stored map go through
-      the cap (`CanTerminal`, `whoami`), and `CanWriteTile` is false on a
-      sealed path. A sealed name is at most 19 characters so `CompKey`
-      never cuts its readable part (a tile path could otherwise be ground
-      into the same 32-bit-hash key). In origins mode the cookie of a
-      sealed component's own origin is the same viewer (found by the test
-      written for it). `XBIN_E2E_REQUIRE=1` makes a skipped isolated test
-      a failure.
-  - **Fourth round (2026-11-15; a second independent review, of
-    182bc1af).** Two shapes recurred, so the classes were fixed.
-    - *A raw path string tested instead of a canonical component.*
-      `/xbin/x` was "no sealed path" to the exact-prefix test and the
-      sealed component to the code that trims, joins or resolves — a
-      forged restore, a cron row firing at `/api//xbin/x/…`, a frame token
-      the viewer rule didn't recognise. Chosen: the sealed test itself
-      asks the canonical form (`util.SealedPath` over `util.CanonPath`), so
-      every decision point sees every spelling without knowing about
-      spellings; principals carry canonical components only
-      (`auth.canonicalComponent`, `mintFrame`, a registered component for
-      `GET /frame-token`); what stores a component's name takes it as
-      xbind stores one (`broker.componentNamed`); and the API's edge
-      refuses an odd spelling of a sealed path (path, query, the fields a
-      route names a tile in, map keys). Rejected: canonicalising every
-      parameter of every route at the edge — tiles' forgiving spellings
-      are in the wild (compat), and a rewrite of bodies is the re-parsing
-      the first review ruled out as a boundary. Case, percent-escapes and
-      look-alike letters are not folded anywhere in xbind, so they name
-      other (nonexistent) paths; the tests pin that.
-    - *A row class the gate-off test never drove.* It now drives the
-      handled rows as every principal kind too, and a route without a row
-      refuses a sealed path at runtime (the CI guard stays the first line).
-    - *Keys.* An imported key bundle can hold any key under any subject,
-      so a sealed target restores only under a backup key this workspace
-      created for that archive (`sealedKeyNative`). The cost is stated in
-      the docs: disaster recovery of a sealed component onto a new host is
-      the workspace's own directory restored, not archiver + key bundle.
-    - *Terminals (on master too, its own commit).* A session's directory
-      was any path the caller had terminal level on, bound read-write over
-      the masks: measured under `--isolate`, an admin's shell with
-      `cwd=.xbin` could not read the owner token but replaced it, with
-      `cwd=data` rewrote `users.json` and moved the vault, with
-      `cwd=homes` wrote into anyone's home. A session now opens only at a
-      component-shaped path that is, or lies in, a registered tile.
-    - *Verification moved to the spawn.* It ran per proxied request under
-      one mutex and latched a hold on any failure. It now runs in
-      `startFor` (`SealedVerify`), fails that start alone, and is retried
-      by the next; boot still holds a build that is missing, unlisted or
-      definitely another file.
-    - *The reload signal* counts only from the component's own frame
-      principal and goes to that person's sockets (an event whose data
-      names its audience), so nobody reloads anyone else's frames.
-    - *Smaller ones.* A same-key tile (`xbin~<name>`) declares nothing in
-      any deployment and such names are reserved at creation; names are at
-      most 18 characters (at 19 the cut form of longer tile paths shares
-      the readable key part); admins' event sockets get no sealed bus
-      events; personal binds take only the release's providers; a
-      partition restore under a data hold restores nothing; one shared
-      instance only under `--no-auth`; view-as opens nothing of a sealed
-      component; `sealed-build --check` compares OS, architecture and go
-      version.
-  - **Fifth round (2026-11-15; meeting delegation, D228).** The two
-    tables classify each other's routes: `PUT /agent-levels` and `POST
-    /delegate/approvals` name a tile and refuse a sealed one, `GET
-    /agent-levels` never lists one, every other delegation route is
-    no-tile (it names calls by method and URL, judged when they run — and
-    `broker.DelegateTile`, `WorkspaceAgentGate` and `AgentSessionAllows`
-    refuse every sealed component, holder or not: a person's agent acts
-    on tiles); `GET /sealed` is `never` for a delegate. The sealed table
-    is pinned by a golden of its own. Holders are the table's
-    `Capabilities.Delegate`, installed where the table is opened. A
-    holder's page keeps the delegation API beside a viewer's list — the
-    page is where its person approves, and those handlers take it only as
-    that person's signed-in frame — and a row may name further reads
-    (`FrameReads`, GET only, validated). Under `--no-auth` a holder's
-    single instance is the implicit owner's delegate, as a person, never
-    as the root token. Rows gain `Env` and `Notify`. Left as found: the
-    delegation package says "sealed system component" in a few refusals,
-    where this decision's rule is "system component" for people.
-  - **Sixth round (2026-11-15; agent sessions, notices, previews).**
-    `auth.SetDelegateNotify` is installed beside the holder lookup, from
-    the same row: a holder's `Notify`, "" for every other component. The
-    holder page's one extra read, `GET /agents/connection?session=`, is
-    the fixture holder's `FrameReads` entry — the allow-list matches the
-    path exactly and GET/HEAD only, and the handler answers only that
-    holder's own frame for its driver. The handle routes, the map, docs
-    search and the LLM door's keys are no-tile (a handle's scope narrows
-    calls that are still judged when they run). `POST /preview` is
-    refused for a sealed tile, in the handler's path before availability
-    is asked, and a render's scope never has a sealed path — a screen is
-    drawn without it — because a render holds the person's session and a
-    system component's page is each person's own to open.
+  - **Review rounds three to six (2026-11-15)** — two independent
+    security reviews, then meeting delegation (D228) and agent sessions,
+    notices and previews. The full record, with what was rejected and
+    why, is `plans/wsagent/s1-sealed.md` §Review rounds; the rules that
+    came out of them:
+    - *The route gate is an early answer, not the boundary.* A body can
+      read differently to the gate and to a handler, so every refusal is
+      made where the work is done, on the value acted on — and in
+      `registry.MutateWorkspace`, the one writer of the workspace file.
+      `TestSealedBoundaryWithoutTheGate` drives every refused, self and
+      handled row with the gate off; a route without a row refuses a
+      sealed path at runtime.
+    - *One spelling.* The sealed test asks the canonical form
+      (`util.SealedPath` over `util.CanonPath`); principals carry
+      canonical components; the API's edge refuses an odd spelling of a
+      sealed path. Tiles' forgiving spellings are left alone (compat).
+    - *A sealed component's frame token is a viewer's*: its page runs in
+      any reader's browser, so that credential reaches its own backend,
+      files, renewal, `whoami` and the events socket — plus a holder's
+      delegation API and the exact GET paths its row names
+      (`FrameReads`). Only the instance credential acts as the component.
+    - *Providers are the release's to name* (`Spec.Providers`), enforced
+      when a binding is set, written and read.
+    - *Restore is a write path*: only from a sealed archive that names
+      it, under a backup key this workspace created (not an imported
+      bundle); never while held; no member is read out of its backup.
+      Disaster recovery is the workspace's own directory restored.
+    - *What runs is verified at every start* (`SealedVerify` in the
+      spawn, non-latching): the tree against the release's bytes, the
+      prebuilt backend against `bin/sealed/sealed.json`; pages are
+      served from memory. Names are at most 18 characters and `xbin~*`
+      is reserved, so no tile shares its data key.
+    - *The reload signal* goes only to the person whose frame was stale.
+    - *Delegation.* Holders and their notice path are the table's
+      (`Capabilities.Delegate`, `Notify`; boot installs both lookups).
+      A person's agent does nothing in a sealed component, holder or
+      not; the two route tables class each other's routes, each pinned
+      by a golden. No preview shows one. Under `--no-auth` a holder's
+      single instance is the implicit owner's delegate, never the root
+      token. Left as found: the delegation package says "sealed system
+      component" in a few refusals.
+    - *Found on master too, fixed in commits of their own:* a restore
+      registered cron jobs naming other components; `res:/…` targets
+      looped forever; a terminal opened at any path its caller had
+      terminal level on (`cwd=.xbin`, `data`, `homes`), bound read-write
+      — it now opens only at, or inside, a registered tile; in-process
+      shutdown left backends running.
   - **Not done here.** No entry point in the shell, the admin console or
     the app (the workspace agent's UI work adds them). The real-binary
     downgrade suite has nothing sealed to downgrade until a row exists.

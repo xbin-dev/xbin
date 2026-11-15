@@ -71,10 +71,25 @@ type coordProfile struct {
 	// one from parts). Projects leaves it nil: projectPromptFor writes its
 	// block, with its tasks' briefs.
 	Prompt func(ag *Agent, run *Run, cfg Config) string
+	// System is the base prompt of the profile's coordinator as this build
+	// words it (nil or "": the one its config stored when it was made) — for
+	// a conversation that outlives releases.
+	System func(ag *Agent, run *Run, cfg Config) string
 	// Knowledge is run's role in this profile's knowledge store — the
 	// coordinator's, a research subagent's, anything else of the profile's
 	// origin that reads or writes it. (nil, nil): run has none here.
 	Knowledge func(ag *Agent, run *Run, cfg Config) (*wikiRole, error)
+	// Specs is the profile's last word on its coordinator's tool list, after
+	// the class's tools and its own were gathered (nil: as gathered) — a
+	// core tool worded for what it coordinates. It adds no tool: a name it
+	// returns that wasn't offered is dropped.
+	Specs func(cfg Config, run *Run, specs []toolSpec) []toolSpec
+	// ParkWords says what run waits for while calls of its step are parked
+	// on a decision outside the engine, and Unpark answers one of them when
+	// its person wrote instead of deciding (coord_park.go; nil: the kit's
+	// words).
+	ParkWords func(d *DB, run *Run, calls []toolCall) string
+	Unpark    func(t *DB, run *Run, tc toolCall) string
 
 	tools map[string]*coordTool
 	order []string

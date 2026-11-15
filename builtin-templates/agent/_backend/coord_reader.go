@@ -90,6 +90,13 @@ type CodeReadBinding struct {
 	// answers), Bases the base repos they are worktrees of.
 	Checkout string   `json:"checkout,omitempty"`
 	Bases    []string `json:"bases,omitempty"`
+	// A reader over a workspace tile's code (kind "tile", ws_research.go):
+	// the tile, the org a note about it is stamped with, the revision it was
+	// read at, and the notebook page its answer is saved as ("": none).
+	Tile string `json:"tile,omitempty"`
+	Org  string `json:"org,omitempty"`
+	Rev  string `json:"rev,omitempty"`
+	Save string `json:"save,omitempty"`
 }
 
 // codeFileTools are the file tools of the surface; codeReadTools everything
