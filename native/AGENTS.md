@@ -1227,6 +1227,20 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   crashed"`). Not your app's pid: not your bug — run again. (2026-09-27:
   Xbins with pids 4638, 7163 and 7305, none of them the run's own app,
   failed test04 and test05 this way.)
+- **An e2e run ends when the Mac says so, not when ssh does** (2026-11-16):
+  ssh returns only once every forwarded connection has closed, and after
+  an iPad pass something on the Mac kept one open to the tunnelled port —
+  the run sat for over three hours with no xcodebuild left. `mac-remote.sh
+  e2e` now waits for a line its Mac side prints when the command returned
+  and then ends its own ssh (`remote_until_done`); `XBIN_E2E_TIMEOUT`
+  (default 3600 s) bounds a run that never says it. Give a run you start a
+  ceiling of your own too (`timeout 40m mac-remote.sh e2e …`) and never
+  wait on one without.
+- **No simulator draws an iPhone Duo** (checked 2026-11-16: Xcode 27.0's
+  device types end at iPhone 18 Pro / Pro Max, its only runtime is iOS
+  27.0; Xcode-beta's CoreSimulator was never installed): the Duo paths —
+  the vertical bar's items, `XbinTwoPanes`' halves — are compiled for a
+  device with the 27.1 SDK and have never been drawn.
 - **A link into the running app**: `XCUIApplication.open(url)` relaunches
   the app (a cold start with the link); `XCUIDevice.shared.system.open(url)`
   hands it to the running app as a notification's tap does
