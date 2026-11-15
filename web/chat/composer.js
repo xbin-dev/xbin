@@ -12,6 +12,7 @@
  *     draft        the text (the host sets it back from 'bx-chat-draft', and
  *                  may change it: a command picked, a message taken back)
  *     placeholder  the box's words; sendLabel ('Send'), sendTitle, stopTitle
+ *     label        what a screen reader calls the box (default: the placeholder; revision 5)
  *     disabled     nothing can be typed or sent (the session is over)
  *     sending      Send waits (a message is on its way, the agent is starting)
  *     busy         a turn runs: Stop shows; Ctrl/⌘+Enter sends `interrupt`
@@ -56,7 +57,7 @@ function base64Of(file) {
 
 export class BxChatComposer extends LitElement {
   static properties = {
-    draft: { type: String }, placeholder: { type: String }, sendLabel: { type: String }, sendTitle: { type: String }, stopTitle: { type: String },
+    draft: { type: String }, placeholder: { type: String }, label: { type: String }, sendLabel: { type: String }, sendTitle: { type: String }, stopTitle: { type: String },
     disabled: { type: Boolean }, sending: { type: Boolean }, busy: { type: Boolean }, attach: { type: Boolean },
     commands: { attribute: false }, queue: { attribute: false }, queueHint: { type: String }, limits: { attribute: false },
     pickers: { attribute: false }, unavailable: { attribute: false }, fit: { attribute: false },
@@ -65,7 +66,7 @@ export class BxChatComposer extends LitElement {
 
   constructor() {
     super();
-    this.draft = ''; this.placeholder = ''; this.sendLabel = 'Send'; this.sendTitle = ''; this.stopTitle = '';
+    this.draft = ''; this.placeholder = ''; this.label = ''; this.sendLabel = 'Send'; this.sendTitle = ''; this.stopTitle = '';
     this.disabled = false; this.sending = false; this.busy = false; this.attach = false;
     this.commands = []; this.queue = []; this.queueHint = ''; this.limits = ATTACH_LIMITS;
     this.pickers = []; this.unavailable = []; this.fit = null;
@@ -207,7 +208,7 @@ export class BxChatComposer extends LitElement {
         ${this.attach ? html`<button class="bxc-attach" type="button" ?disabled=${this.disabled} title="attach files to the message (or paste, or drop them on the box)" aria-label="attach files"
             @click=${() => this.querySelector('.bxc-compose input[type=file]')?.click()}><bx-icon name="paperclip"></bx-icon></button>
           <input type="file" multiple @change=${(e) => { this.addFiles(e.target.files); e.target.value = ''; }}>` : nothing}
-        <textarea rows="1" ?disabled=${this.disabled} placeholder=${this.placeholder} .value=${this.draft} @input=${this._input} @keydown=${this._key} @paste=${this._paste}></textarea>
+        <textarea rows="1" ?disabled=${this.disabled} placeholder=${this.placeholder} aria-label=${this.label || this.placeholder || 'message'} .value=${this.draft} @input=${this._input} @keydown=${this._key} @paste=${this._paste}></textarea>
         ${this.busy ? html`<button class="bxc-stop" type="button" @click=${() => this._emit('bx-chat-stop')} title=${this.stopTitle || 'stop the running turn'}>Stop</button>` : nothing}
         <button class="bxc-send" type="button" @click=${() => this.send()} ?disabled=${this.disabled || this.sending} title=${this.sendTitle || 'send (Enter)'}>${this.sendLabel || 'Send'}</button>
       </div>`;

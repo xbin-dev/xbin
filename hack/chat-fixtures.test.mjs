@@ -228,7 +228,7 @@ test('a diff\'s counts are its changed lines', () => {
 // ---- the model's helpers --------------------------------------------------------------
 
 test('blocks.js: the kit\'s revision, kinds and a record\'s zero value', () => {
-  assert.equal(KIT, 4);
+  assert.equal(KIT, 5);
   assert.equal(model.KINDS.length, 15);
   const rec = model.newToolRecord('t');
   assert.deepEqual(compact(rec), { id: 't', kind: 'other', title: '', status: 'pending' });

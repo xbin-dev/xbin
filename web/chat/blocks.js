@@ -177,7 +177,13 @@ export const TOOL_STATES = Object.freeze(['writing', 'pending', 'running', 'appr
  * plan — the agent's plan as it stands.
  * @typedef {BlockBase & {
  *   kind: 'plan',
- *   entries: {content: string, status: string, priority?: string}[],  // status: pending | in_progress | completed
+ *   entries: {content: string, status: string, priority?: string,       // status: pending | in_progress | completed
+ *             tag?: {text: string, icon?: string, tone?: string}}[],     // a word at the line's end (revision 5): what kind of
+ *                                                                        // step it is, where it stands; tone ok | warn | bad
+ *   title?: string,      // its heading (default "plan"; revision 5)
+ *   meta?: string,       // a line beside the heading ("you said go ahead · 10:02")
+ *   note?: string,       // a line under the entries
+ *   numbered?: boolean,  // the entries are numbered
  * }} PlanBlock
  */
 
@@ -229,6 +235,8 @@ export const TOOL_STATES = Object.freeze(['writing', 'pending', 'running', 'appr
  *   by: string|null,           // who answered ('agent': it withdrew or completed it)
  *   content: object|null,      // an accept's answers
  *   park?: string,
+ *   submit?: string,           // the form's answer button, in the host's words (default "Submit"; revision 5)
+ *   skip?: string,             // its decline button's ("Skip"); '' draws none (revision 5)
  * }} AskBlock
  */
 
