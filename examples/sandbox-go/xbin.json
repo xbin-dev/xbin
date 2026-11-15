@@ -6,6 +6,13 @@
   // one (the sandbox-manager contract, docs/sandbox-manager.md).
   "runtime": "go",
 
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing. This API runs commands — a writer starts execs
+  // and opens terminals in sandboxes — and a person's approval of "POST
+  // …/execs, always" would be an agent with a shell. A person's agent gets
+  // a sandbox through a tile agent session, which xbind asks them about.
+  "agent": "off",
+
   // xbind's tile-sandbox runtime. It lands pending; only a workspace admin
   // approves it (docs/auth.md): bx grant <this tile> cap:sandboxes writer
   "uses": [ { "target": "cap:sandboxes", "role": "writer" } ],

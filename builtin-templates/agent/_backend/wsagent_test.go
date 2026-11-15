@@ -18,6 +18,7 @@ import (
 // its call could carry. The person's own calls are untouched.
 func TestWorkspaceAgentAnswersNothing(t *testing.T) {
 	ag, mux := accessFixture(t)
+	adapterRoutes(mux) // as main mounts them: the adapters' routes and the bus trigger
 	id := runAs(t, ag, runStamp{Owner: "alice", Visibility: visPrivate, TeamRole: roleViewer, Origin: "chat"}, false)
 	param := regexp.MustCompile(`\{[^}]*\}`)
 	call := func(pattern, role, agent string) *httptest.ResponseRecorder {
@@ -79,7 +80,7 @@ func TestWorkspaceAgentAnswersNothing(t *testing.T) {
 	for _, more := range routeTables {
 		table = append(table, more()...)
 	}
-	writes, allowed := 0, 0
+	writes, allowed, reads := 0, 0, 0
 	for _, rt := range table {
 		method, _, ok := strings.Cut(rt.pattern, " ")
 		if !ok {
@@ -87,9 +88,14 @@ func TestWorkspaceAgentAnswersNothing(t *testing.T) {
 		}
 		w := call(rt.pattern, "admin", "xbin/wsagent")
 		switch {
-		case method == "GET" || method == "HEAD":
+		case (method == "GET" || method == "HEAD") && agentMay[rt.pattern]:
+			reads++
 			if refused(w) {
-				t.Errorf("alice's agent reads %s: refused as an agent", rt.pattern)
+				t.Errorf("alice's agent reads %s (in agentMay): refused as an agent", rt.pattern)
+			}
+		case method == "GET" || method == "HEAD":
+			if !refused(w) { // a read nobody listed: not an agent's
+				t.Errorf("alice's agent reads %s: %d — not refused, and not in agentMay", rt.pattern, w.Code)
 			}
 		case agentMay[rt.pattern]:
 			allowed++
@@ -103,8 +109,34 @@ func TestWorkspaceAgentAnswersNothing(t *testing.T) {
 			}
 		}
 	}
-	if writes < 60 || allowed != len(agentMay) {
-		t.Fatalf("%d routes refused, %d of agentMay's %d found in the tables", writes, allowed, len(agentMay))
+	if writes < 60 || allowed+reads != len(agentMay) {
+		t.Fatalf("%d routes refused, %d of agentMay's %d found in the tables", writes, allowed+reads, len(agentMay))
+	}
+	// reads an agent never makes, by name: settings that hold MCP tokens, a
+	// sign-in's device code, the sandbox port proxy, a terminal — and the
+	// routes that sit outside the admin gate (adapters, the bus, the mailbox)
+	get := func(path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", strings.Replace(path, "{id}", strconv.FormatInt(id, 10), 1), nil)
+		for k, v := range map[string]string{"X-XBin-From": "user:alice", "X-XBin-Role": "admin", "X-XBin-User": "alice", "X-XBin-User-Level": "terminal", "X-XBin-Agent": "xbin/wsagent"} {
+			r.Header.Set(k, v)
+		}
+		ctx, cancel := context.WithCancel(r.Context())
+		cancel()
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r.WithContext(ctx))
+		return w
+	}
+	for _, path := range []string{"/config", "/usage", "/projects/scm/signin", "/projects/scm/signin/p1", "/prefs/harness-signins", "/runs/{id}/live/sb/8080/x", "/runs/{id}/live/sb/8080",
+		"/runs/{id}/harness/terminal", "/runs/{id}/ports", "/channels/c1/peers", "/triggers/unmatched", "/engine/hold",
+		"/adapter/outbox", "/adapter/triggers", "/adapter/links"} {
+		if w := get(path); !refused(w) {
+			t.Errorf("alice's agent GET %s: %d %s — not refused as an agent", path, w.Code, w.Body.String())
+		}
+	}
+	for _, pattern := range []string{"POST /adapter/message", "POST /adapter/event", "POST /adapter/link", "POST /trigger/bus/{id}", "POST /mailbox"} {
+		if w := call(pattern, "writer", "xbin/wsagent"); !refused(w) {
+			t.Errorf("alice's agent %s: %d %s — not refused as an agent", pattern, w.Code, w.Body.String())
+		}
 	}
 	if run, _ := ag.db.getRun(id); run == nil || len(mustQueued(t, ag, id)) != 0 {
 		t.Fatalf("an agent's call left something behind: %+v", mustQueued(t, ag, id))

@@ -50,31 +50,40 @@ a subagent is exactly as visible as the conversation it works for.
 ### A person's workspace agent
 
 A person's **workspace agent** (xbind's delegation, `/docs/auth.md`
-§Delegation) can call this API as them; its calls carry `X-XBin-Agent`.
-Here it **reads** what its person may read, and of everything else may only
-stop a run (`POST /runs/{id}/interrupt`, `…/cancel`) and mark one read.
-Every other `POST`, `PUT`, `PATCH` and `DELETE`, and every WebSocket, is
-`403` with `X-Agent-Refused: person-only` — answering a coding agent's
-permission request or sign-in, the built-in agent's questions and
-approvals, a run's mode, starting conversations, sending messages, sharing,
-settings: those are a person's. A waiting device-code sign-in's page and
-code aren't shown to it either.
+§Delegation) calls tiles as that person; such a call carries
+`X-XBin-Agent`. What it gets here, as things are:
 
-Two layers say so. The manifest's `"agent": "read"` has xbind refuse an
-agent's writes before they arrive; and the backend's own rule
-(`_backend/wsagent.go`: closed — a new route is refused to agents until it
-is added to `agentMay`) holds whatever the manifest says. To let a
-person's agent do more here, widen both, route by route.
+- **Nothing, today.** Every route of this API asks for the `admin` role
+  (the tile's own frames and backend, and admins), and an agent's call
+  carries `reader` or `writer` — never `admin`. An agent's call is answered
+  `403`, reads included.
+- **That is not the rule this tile relies on.** Two rules say it on
+  purpose, and hold if the role gate is ever opened:
+  - the manifest's `"agent": "read"`: xbind refuses an agent's `POST`,
+    `PUT`, `PATCH` and `DELETE` before they arrive (and holds that level:
+    a manifest edited to say more waits for someone who manages the tile);
+  - the backend's own list (`_backend/wsagent.go`, `agentMay`): an agent
+    may use the routes on it and no other — reading a conversation as its
+    person sees it (the list, a run, its view, stream, tree, tasks,
+    members, files) and what the tile offers (features, models, classes,
+    schedules, skills, automations, the halt); stopping a run
+    (`…/interrupt`, `…/cancel`) and marking one read. Everything else is
+    `403` with `X-Agent-Refused: person-only`: answering a coding agent's
+    permission request or sign-in, the built-in agent's questions and
+    approvals, a run's mode, starting conversations, messages, sharing —
+    and reads of `/config` (it holds MCP tokens), sign-ins and their device
+    codes, terminals, sandbox ports, channels, triggers, projects, and the
+    adapters', bus and mailbox routes. A WebSocket is never a read. A route
+    added later is refused to agents until it is put on the list.
 
-Messaging a conversation here from a person's workspace agent — each
-message under the person's ticket — is a possible later addition; this
-release has none (a message answers a parked question, and a start picks a
-class, a harness and a mode: each needs its own design).
+To let a person's agent do more here, widen both, route by route.
+Messaging a conversation from a person's workspace agent — each message
+under the person's ticket — is a possible later addition; this release has
+none (a message answers a parked question, and a start picks a class, a
+harness and a mode: each needs its own design).
 
-An instance made before this rule existed has neither. Its routes all need
-the `admin` role, which an agent's call never carries (`reader` or
-`writer`), so an unmodified one refuses the agent everything; merge the
-template's update to get the rule itself.
+An instance made before these rules existed has neither, and is protected
+by the role gate alone; merge the template's update to get them.
 
 ### The conversation list
 
