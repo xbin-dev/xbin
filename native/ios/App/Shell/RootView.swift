@@ -188,6 +188,9 @@ struct WorkspaceView: View {
         // panels) come from the window unless the agent's sheet is up and
         // presents them itself.
         .modifier(AgentChromeSheets(workspace: workspace, active: !(agentOpen && !wide)))
+        // The person has no agent any more (access taken back, an admin's
+        // own entry gone): its container closes and stays closed.
+        .onChange(of: workspace.agent.chip.shown) { _, shown in if !shown { scene.showAgent = false } }
         .overlay(alignment: .bottom) {
             if let p = workspace.signInProblem {
                 SignInProblemBar(workspace: workspace, problem: p)

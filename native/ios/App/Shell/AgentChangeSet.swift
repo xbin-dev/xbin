@@ -85,7 +85,7 @@ struct AgentChangeSetSheet: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        AgentDecisionBar(deny: "Reject all", allow: w.apply, armed: arming.armed, working: working,
+        AgentDecisionBar(deny: "Reject all", allow: w.apply, id: "changeset", armed: arming.armed, working: working,
                          onDeny: { decide(s, apply: false) }, onAllow: { decide(s, apply: !ticks.isEmpty) })
     }
 
@@ -114,6 +114,11 @@ struct AgentChangeSetSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(!canTick)
+            // one element a change: its number, whether it is ticked, xbind's line, its warnings, before and after
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: spoken(item, of: total, on: on, canTick: canTick)))
+            .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+            .accessibilityHint(canTick ? Text(on ? "Leaves it out" : "Includes it") : Text(verbatim: ""))
             .accessibilityIdentifier("changeset-tick-\(item.n)")
             if item.before != nil || item.after != nil {
                 VStack(alignment: .leading, spacing: 0) {
@@ -145,7 +150,6 @@ struct AgentChangeSetSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .xbinCard()
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(verbatim: spoken(item, of: total, on: on, canTick: canTick)))
     }
 
     private func beforeAfter(_ label: String, _ value: String?, fill: Color) -> some View {
@@ -163,6 +167,7 @@ struct AgentChangeSetSheet: View {
             let w = DelegationWords.warning(raw)
             parts.append("Warning, \(w.tag.lowercased()): \(w.text)")
         }
+        if !canTick, !item.blocked.isEmpty { parts.append(item.blocked) }
         if let b = item.before { parts.append("Before: \(b)") }
         if let a = item.after { parts.append("After: \(a)") }
         return parts.joined(separator: ". ")
@@ -225,6 +230,7 @@ struct AgentChangeSetSheet: View {
                 if w.password {
                     SecureField("Password", text: $password)
                         .textContentType(.password)
+                        .accessibilityLabel("Your password")
                         .padding(10)
                         .overlay { RoundedRectangle.xbinPlate.strokeBorder(XbinColor.borderStrong, lineWidth: 1) }
                         .accessibilityIdentifier("changeset-password")
@@ -239,7 +245,7 @@ struct AgentChangeSetSheet: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        AgentDecisionBar(deny: "Not now", allow: w.action, armed: w.password ? !password.isEmpty : true, working: working,
+        AgentDecisionBar(deny: "Not now", allow: w.action, id: "stepup", armed: w.password ? !password.isEmpty : true, working: working,
                          onDeny: { stepUp = nil; password = "" },
                          onAllow: {
                              if w.password {

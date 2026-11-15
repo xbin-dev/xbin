@@ -9,12 +9,14 @@ import XCTest
 /// agent, apps/note with a backend an agent may write), the app's own chrome
 /// for it and the agent's native view inside that chrome.
 ///
-/// The model is scripted by the message itself (hack/fakeopenai/ws.go): a
-/// line `ws: <tool> <json> ;; …` makes those tool calls and answers
-/// "Done: …". The tests send such messages through the agent's own API with
-/// its page's credential — as its view would — rather than typing JSON on
-/// the software keyboard, and check what happened with the e2e account's
-/// own session, as the chrome reads it.
+/// The model is scripted by the message itself: a sentence of
+/// hack/fakeopenai's phrasebook (wsphrases.go — `Set the note in apps/note
+/// to "…"`, `Start a tile agent in apps/note to …`) makes the tool calls a
+/// model would and ends with an answer a person reads, so the conversation
+/// on screen is one a person would see. The tests send such messages
+/// through the agent's own API with its page's credential — as its view
+/// would — rather than typing on the software keyboard, and check what
+/// happened with the e2e account's own session, as the chrome reads it.
 ///
 /// - test01: Home's row and the bar's button (the trailing-most item on
 ///   Home, on a screen and on a tile); the sheet; opened from a tile, the
@@ -120,7 +122,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         let e = try E2E(self)
         let run = try await e.server.wsPrepare("E2E allow once")
         let before = try await e.server.wsNote()
-        let ref = try await e.server.wsFileNoteRequest(run, note: "allowed once", why: "set the note for the test")
+        let ref = try await e.server.wsFileNoteRequest(run, note: "allowed once")
         // Allow's arming stretched, so the test sees it unarmed for certain
         e.app.launchArguments += ["-XbinAgentArmSeconds", "8"]
         e.launch()
@@ -149,7 +151,14 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         XCTAssertTrue(e.containing("\"allowed once\"").exists, "what is sent")
         XCTAssertTrue(e.containing("xbin can't undo this").exists, "what xbin says about undoing it")
         XCTAssertTrue(e.containing("not checked by xbin").exists, "the agent's words are labelled unchecked")
-        XCTAssertTrue(e.containing("set the note for the test").exists, "…and quoted")
+        XCTAssertTrue(e.containing("Update the note").exists, "…and quoted")
+        // every control says what it does
+        XCTAssertEqual(review.label, "Review: Approve a change to Note", "the card's button says what it reviews")
+        XCTAssertEqual(e.app.buttons.matching(identifier: "approval-deny").firstMatch.label, "Deny")
+        // what widens the grant is no more armed than Allow; Once is never held
+        let onceChoice = e.app.buttons.matching(identifier: "approval-choice-once").firstMatch
+        let callChoice = e.app.buttons.matching(identifier: "approval-choice-call").firstMatch
+        XCTAssertTrue(onceChoice.isEnabled && !callChoice.isEnabled, "the standing choices are not armed when the sheet appears")
         XCTAssertEqual(allow.label, "Allow once", "Once is the choice the sheet opens with")
         // Deny left, Allow right, at the bottom
         let deny = e.app.buttons.matching(identifier: "approval-deny").firstMatch
@@ -181,7 +190,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         let e = try E2E(self)
         let run = try await e.server.wsPrepare("E2E deny")
         let before = try await e.server.wsNote()
-        let ref = try await e.server.wsFileNoteRequest(run, note: "never written", why: "to be denied")
+        let ref = try await e.server.wsFileNoteRequest(run, note: "never written")
         e.launch()
         e.ensureWorkspace()
         e.goHome()
@@ -205,7 +214,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
     func test04WiderGrant() async throws {
         let server = try XCTUnwrap(E2EServer.fromEnvironment())
         let run = try await server.wsPrepare("E2E wider")
-        let ref = try await server.wsFileNoteRequest(run, note: "under a standing approval", why: "the wider grant")
+        let ref = try await server.wsFileNoteRequest(run, note: "under a standing approval")
 
         // 1. the gate (Face ID) says no: Go back approves nothing, and neither does a refused gate
         do {
@@ -308,7 +317,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         XCTAssertTrue(mode.exists, "the mode: it asks before acting")
         XCTAssertTrue(tile.exists, "the coding agent's row")
         XCTAssertLessThan(mode.frame.minY, tile.frame.minY, "the mode's row comes first")
-        XCTAssertTrue(e.containing("Goal: List what is in the tile").exists, "what it will be told, as sent")
+        XCTAssertTrue(e.containing("List what is in the tile").exists, "what it will be told, as sent")
         XCTAssertTrue(e.containing("sent exactly like this").exists)
         XCTAssertFalse(e.element("approval-danger").exists, "a mode that asks: no danger banner")
         let start = e.app.buttons.matching(identifier: "approval-allow").firstMatch
@@ -328,6 +337,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         let open = e.app.buttons.matching(identifier: "agent-session-open:\(session)").firstMatch
         e.expect(open, 60, "the tile agent's card with its button")
         XCTAssertTrue(e.containing("Note").exists)
+        XCTAssertTrue(["Open Note's tile agent", "Answer Note's tile agent"].contains(open.label), "the button says what it opens: \(open.label)")
         e.shot("wsagent-12-session-card")
         open.tap()
         // the app's own agent screen for that session, behind the sheet (now at medium) or beside the column
@@ -346,7 +356,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
     func test06NeedsYou() async throws {
         let e = try E2E(self)
         let run = try await e.server.wsPrepare("E2E needs you")
-        let ref = try await e.server.wsFileNoteRequest(run, note: "from the inbox", why: "the inbox test")
+        let ref = try await e.server.wsFileNoteRequest(run, note: "from the inbox")
         e.launch()
         e.ensureWorkspace()
         e.goHome()
@@ -354,7 +364,8 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         e.expect(needs, 60, "Home's Needs you row")
         XCTAssertTrue(e.until(30) { (needs.value as? String) == "1" }, "it counts the request: \(needs.value ?? "")")
         XCTAssertTrue(e.until(10) { e.wsButton.label.contains("1 needs you") }, "the agent's button counts it: \(e.wsButton.label)")
-        XCTAssertTrue(e.until(10) { (e.wsHomeRow.value as? String ?? "").contains("1 needs you") }, "…and so does its Home row")
+        XCTAssertTrue(e.until(10) { (e.wsHomeRow.value as? String ?? "").contains("1 needs you") }, "…and so does its Home row, in words")
+        XCTAssertFalse(e.wsHomeRow.staticTexts["1"].exists, "…with no second badge: Needs you and the bar's item carry the count")
         needs.tap()
         let row = e.app.buttons.matching(identifier: "inbox-request:\(ref)").firstMatch
         e.expect(row, 30, "the inbox lists the request")
@@ -417,6 +428,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         e.wsChromeMenu("Pause my agent")
         let resume = e.app.buttons.matching(identifier: "agent-resume").firstMatch
         e.expect(resume, 30, "the paused bar's Resume")
+        XCTAssertEqual(resume.label, "Resume my agent", "the button says what it resumes")
         XCTAssertTrue(e.containing("Paused by you").exists, "what happened")
         XCTAssertTrue(e.containing("read or change anything in the workspace").exists, "…and the conversation's banner says what it means")
         XCTAssertTrue(e.until(20) { !e.wsComposer.exists }, "no composer while paused")
@@ -440,7 +452,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         let e = try E2E(self)
         try XCTSkipUnless(e.isPad, "an iPad's layout: run on an iPad simulator")
         let run = try await e.server.wsPrepare("E2E iPad")
-        let ref = try await e.server.wsFileNoteRequest(run, note: "from an iPad", why: "the iPad test")
+        let ref = try await e.server.wsFileNoteRequest(run, note: "from an iPad")
         e.launch()
         e.ensureWorkspace()
         e.goHome()
@@ -472,8 +484,8 @@ final class XbinWorkspaceAgentTests: XCTestCase {
     func test11NextRequestStartsFresh() async throws {
         let e = try E2E(self)
         let run = try await e.server.wsPrepare("E2E two requests")
-        let first = try await e.server.wsFileNoteRequest(run, note: "the first of two", why: "first")
-        let second = try await e.server.wsFileNoteRequest(run, note: "the second of two", why: "second", after: first)
+        let first = try await e.server.wsFileNoteRequest(run, note: "the first of two")
+        let second = try await e.server.wsFileNoteRequest(run, note: "the second of two", after: first)
         e.app.launchArguments += ["-XbinAgentArmSeconds", "8"]
         e.launch()
         e.ensureWorkspace()
@@ -488,6 +500,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         // choose "always, this exact action" for the first, and allow it
         let call = e.app.buttons.matching(identifier: "approval-choice-call").firstMatch
         if !call.isHittable { e.app.swipeUp() }
+        XCTAssertTrue(e.until(20) { call.isEnabled }, "the standing choice arms (it widens the grant)")
         call.tap()
         let allow = e.app.buttons.matching(identifier: "approval-allow").firstMatch
         XCTAssertTrue(e.until(10) { allow.label.hasPrefix("Allow always") }, "Allow follows the choice: \(allow.label)")
@@ -517,7 +530,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
     func test12PushedScreenKeepsTheCards() async throws {
         let e = try E2E(self)
         let run = try await e.server.wsPrepare("E2E pushed")
-        let ref = try await e.server.wsFileNoteRequest(run, note: "after the notebook", why: "the pushed screen test")
+        let ref = try await e.server.wsFileNoteRequest(run, note: "after the notebook")
         e.launch()
         e.ensureWorkspace()
         e.goHome()
@@ -545,10 +558,10 @@ final class XbinWorkspaceAgentTests: XCTestCase {
             // each pass its own conversation: a settled request, a tile agent, a request that waits
             let empty = try await server.wsPrepare("E2E gallery empty \(mode)")
             let run = try await server.wsNewSession("E2E gallery \(mode)")
-            let done = try await server.wsFileNoteRequest(run, note: "gallery \(mode)", why: "Set the note, so the gallery has a settled card")
+            let done = try await server.wsFileNoteRequest(run, note: "Standup moved to 10:30")
             try await server.wsApprove(done)
             let start = try await server.wsFileSessionStart(run)
-            let pending = try await server.wsFileNoteRequest(run, note: "waits \(mode)", why: "Rebuild the note so the overdue ones show")
+            let pending = try await server.wsFileNoteRequest(run, note: "Invoices are due on Friday")
             try await server.wsShow(empty)
 
             var n = 0
@@ -722,21 +735,23 @@ extension E2EServer {
         _ = try await wsCall("PUT", "/ws/prefs", json: ["lastSession": run])
     }
 
-    /// Sends a message — `words` and a `ws:` script line — and waits for the
-    /// scripted model's "Done: …".
-    func wsSay(_ run: Int, _ words: String, script: String, timeout: TimeInterval = 90) async throws {
+    /// Sends the person's message and waits for the agent's answer to it —
+    /// `words` a sentence of the scripted model's phrasebook, or any words
+    /// with a `ws:` script line after them.
+    func wsSay(_ run: Int, _ words: String, script: String? = nil, timeout: TimeInterval = 90) async throws {
         func messages() async throws -> [[String: Any]] { try await wsCall("GET", "/runs/\(run)/view")["messages"] as? [[String: Any]] ?? [] }
         let last = try await messages().compactMap { $0["id"] as? Int }.max() ?? 0
-        _ = try await wsCall("POST", "/runs/\(run)/message", json: ["text": "\(words)\nws: \(script)"])
+        _ = try await wsCall("POST", "/runs/\(run)/message", json: ["text": script.map { "\(words)\nws: \($0)" } ?? words])
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             let done = try await messages().contains { m in
-                (m["id"] as? Int ?? 0) > last && (m["role"] as? String) == "assistant" && ((m["content"] as? String) ?? "").hasPrefix("Done: ")
+                (m["id"] as? Int ?? 0) > last && (m["role"] as? String) == "assistant"
+                    && !((m["content"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
             if done { return }
             try await Task.sleep(for: .milliseconds(400))
         }
-        throw Failure(description: "the agent did not answer \"\(script.prefix(60))…\" within \(Int(timeout)) s")
+        throw Failure(description: "the agent did not answer “\(words.prefix(60))” within \(Int(timeout)) s")
     }
 
     private func wsArgs(_ o: [String: Any]) throws -> String {
@@ -751,24 +766,22 @@ extension E2EServer {
     }
 
     /// The agent asks to write apps/note's note (a PUT: it needs the
-    /// person's approval). The request's id at xbind.
-    func wsFileNoteRequest(_ run: Int, note: String, why: String, after earlier: String? = nil) async throws -> String {
-        let body = String(decoding: try JSONSerialization.data(withJSONObject: note, options: [.fragmentsAllowed]), as: UTF8.self)
-        try await wsSay(run, "Set the note to “\(note)”.",
-                        script: "tile_call " + wsArgs(["tile": "apps/note", "method": "PUT", "path": "/note", "body": body, "why": why]))
+    /// person's approval; its reason, in its own words, is "Update the
+    /// note"). The request's id at xbind.
+    func wsFileNoteRequest(_ run: Int, note: String, after earlier: String? = nil) async throws -> String {
+        try await wsSay(run, "Set the note in apps/note to \"\(note)\"")
         return try await wsPendingRef(run, kind: "call", not: earlier)
     }
 
     /// The agent writes a brief for apps/note, the person picks the scripted
-    /// coding agent on it, and the agent asks to start it. The start's
-    /// request id at xbind.
+    /// coding agent on it and presses the brief's "Review and start…" (the
+    /// route the button calls): xbind files the start. Its request id.
     func wsFileSessionStart(_ run: Int) async throws -> String {
-        try await wsSay(run, "Have Note's own agent list what is in the tile.",
-                        script: "tile_agent_brief " + wsArgs(["tile": "apps/note", "goal": "List what is in the tile", "done_when": "the files are listed"]))
+        try await wsSay(run, "Start a tile agent in apps/note to list what is in the tile")
         let cards = try await wsCall("GET", "/ws/sessions/\(run)/cards")
         let brief = try XCTUnwrap((cards["briefs"] as? [[String: Any]] ?? []).last?["id"] as? Int, "the brief's id")
         _ = try await wsCall("PUT", "/ws/sessions/\(run)/briefs/\(brief)", json: ["harness": "fake"])
-        try await wsSay(run, "Start it.", script: "tile_agent_start " + wsArgs(["brief": brief]))
+        _ = try await wsCall("POST", "/ws/sessions/\(run)/briefs/\(brief)/start", json: [:])
         return try await wsPendingRef(run, kind: "session")
     }
 
@@ -885,6 +898,8 @@ extension E2E {
         let choice = app.buttons.matching(identifier: "approval-choice-tile").firstMatch
         expect(choice, 30, "the approval's wider choice", file: file, line: line)
         if !choice.isHittable { app.swipeUp() }
+        // it widens the grant: armed like Allow, a moment after the sheet shows
+        XCTAssertTrue(until(20) { choice.isEnabled }, "the wider choice arms", file: file, line: line)
         choice.tap()
         let allow = app.buttons.matching(identifier: "approval-allow").firstMatch
         XCTAssertTrue(until(10) { allow.label.hasPrefix("Allow every change to") }, "Allow's words follow the choice: \(allow.label)", file: file, line: line)

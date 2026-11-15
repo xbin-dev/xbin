@@ -86,6 +86,9 @@ struct AgentRequestCard: View {
                             }
                             .xbinSecondary()
                             .disabled(agent.unreachable)
+                            // what it reviews, said: "Review: Approve a change to Note"
+                            .accessibilityLabel(Text(verbatim: card.button.hasPrefix("Review") ? "Review: \(card.what.isEmpty ? card.head : card.what)" : "\(card.button): \(card.head)"))
+                            .accessibilityHint(agent.unreachable ? Text("Approvals need a connection.") : Text("Opens xbin's own sheet. Nothing is allowed by this."))
                             .accessibilityIdentifier("agent-review:\(id)")
                             if agent.unreachable {
                                 Text("Approvals need a connection.").font(.caption).foregroundStyle(XbinColor.muted)
@@ -167,6 +170,9 @@ struct AgentSessionCard: View {
                             .frame(maxWidth: stacked ? .infinity : nil)
                     }
                     .xbinSecondary()
+                    // "Open Note's tile agent" / "Answer Note's tile agent"
+                    .accessibilityLabel(Text(verbatim: "\(card.button) \(agent.tileName(tilePath))'s tile agent"))
+                    .accessibilityHint(card.waits ? Text("It waits for you. Only you can answer.") : Text(verbatim: ""))
                     .accessibilityIdentifier("agent-session-open:\(id)")
                 }
             }

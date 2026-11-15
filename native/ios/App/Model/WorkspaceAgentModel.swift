@@ -68,6 +68,10 @@ final class WorkspaceAgentModel {
     private(set) var holder: TileInfo?
     private(set) var providerNames: [String: String] = [:]
 
+    /// A read was answered `403 {refusal: "no-agent"}` (docs/protocol/
+    /// delegation.md §The switches): until the state is read again — a
+    /// `delegate` state event, a refresh — nothing of the agent is asked for.
+    private(set) var refusedNoAgent = false
     @ObservationIgnored private var watchedSessions: Set<String> = []
     @ObservationIgnored private var sessionRead: Task<Void, Never>?
     @ObservationIgnored private var loading: Task<Void, Never>?
@@ -79,9 +83,16 @@ final class WorkspaceAgentModel {
     // MARK: What the chrome shows
 
     var dock: DelegationWords.Dock {
-        DelegationWords.dock(state: state, llmConfigured: llmConfigured, admin: workspace?.whoami?.admin ?? false,
-                             unreachable: unreachable && state != nil)
+        // xbind refused a call as "no-agent": whatever the state said, this
+        // person has none (nothing is shown, nothing more is read)
+        if refusedNoAgent { return .hidden }
+        return DelegationWords.dock(state: state, llmConfigured: llmConfigured, admin: workspace?.whoami?.admin ?? false,
+                                    unreachable: unreachable && state != nil)
     }
+
+    /// xbind can't be reached now, and there is a conversation loaded to
+    /// keep showing (its cards' Review… wait for the connection).
+    var offlineWithConversation: Bool { dock == .offline && holder != nil }
 
     /// What waits for the person because of their agent: its requests, its
     /// proposals, and the tile agents it started that wait for them.
@@ -129,8 +140,11 @@ final class WorkspaceAgentModel {
 
     private func readAll() async {
         await readState()
+        // No agent for this person (or none on this xbind): nothing is shown,
+        // and nothing more is read — not its component, not its lists.
         guard state != nil, dock != .hidden else {
             requests = []; changesets = []; approvals = []; holder = nil
+            known = [:]; knownSets = [:]; sessionRows = [:]
             return
         }
         if let j = await get(DelegateRoute.llm) {
@@ -150,10 +164,10 @@ final class WorkspaceAgentModel {
     /// nothing to show either way. A failure to reach xbind keeps what was
     /// read (the chrome says "can't reach").
     func readState() async {
-        guard let auth = workspace?.auth else { return }
         do {
-            let r = try await auth.send(DelegateRoute.state)
+            let r = try await send(DelegateRoute.state)
             unreachable = false
+            refusedNoAgent = false
             state = r.isSuccess ? DelegateState(json: try? r.json()) : nil
         } catch {
             unreachable = true
@@ -200,7 +214,7 @@ final class WorkspaceAgentModel {
     /// is drawn from. nil: not the person's, or gone.
     @discardableResult
     func request(_ id: String) async -> DelegateRequest? {
-        guard let auth = workspace?.auth, let r = try? await auth.send(DelegateRoute.request(id)) else { return known[id] }
+        guard let r = try? await send(DelegateRoute.request(id)) else { return known[id] }
         guard r.isSuccess, let req = DelegateRequest(json: try? r.json()) else {
             if r.status == 404 || r.status == 403 { missing.insert(id); known[id] = nil }
             return nil
@@ -212,7 +226,7 @@ final class WorkspaceAgentModel {
 
     @discardableResult
     func changeset(_ id: String) async -> AdminChangeSet? {
-        guard let auth = workspace?.auth, let r = try? await auth.send(DelegateRoute.changeset(id)) else { return knownSets[id] }
+        guard let r = try? await send(DelegateRoute.changeset(id)) else { return knownSets[id] }
         guard r.isSuccess, let set = AdminChangeSet(json: try? r.json()) else {
             if r.status == 404 || r.status == 403 { missing.insert(id); knownSets[id] = nil }
             return nil
@@ -252,6 +266,11 @@ final class WorkspaceAgentModel {
     func handle(_ e: DelegateEvent) {
         Task {
             await readState()
+            // (a person without an agent: the state is all that is read)
+            guard dock != .hidden else {
+                if !requests.isEmpty || !changesets.isEmpty || holder != nil { await readAll() }
+                return
+            }
             switch e.op {
             case "request":
                 await readRequests()
@@ -346,21 +365,36 @@ final class WorkspaceAgentModel {
     func providers() async -> JSONValue? { await get(DelegateRoute.providers) }
 
     func setPrefs(_ patch: JSONValue) async -> JSONValue? {
-        guard let auth = workspace?.auth, let r = try? await auth.send(DelegateRoute.setPrefs(patch)), r.isSuccess else { return nil }
+        guard let r = try? await send(DelegateRoute.setPrefs(patch)), r.isSuccess else { return nil }
         return try? r.json()
     }
 
     private func decide(_ req: APIRequest, sentPassword: Bool = false) async -> DelegateOutcome {
-        guard let auth = workspace?.auth else { return .failed("signed out") }
         do {
-            return DelegateOutcome.read(try await auth.send(req), sentPassword: sentPassword)
+            return DelegateOutcome.read(try await send(req), sentPassword: sentPassword)
         } catch {
+            unreachable = true
             return .failed("xbin can't be reached")
         }
     }
 
     private func get(_ req: APIRequest) async -> JSONValue? {
-        guard let auth = workspace?.auth, let r = try? await auth.send(req), r.isSuccess else { return nil }
+        guard let r = try? await send(req) else { return nil }
+        guard r.isSuccess else {
+            if r.status == 403, (try? r.json())?["refusal"]?.stringValue == "no-agent" { refusedNoAgent = true }
+            return nil
+        }
         return try? r.json()
+    }
+
+    /// One request of the chrome's own, with the device's session — or, in a
+    /// Debug build's `-XbinAgentDemo`, answered from canned xbind JSON with
+    /// no network at all (AgentDemo.swift).
+    private func send(_ req: APIRequest) async throws -> APIResponse {
+        #if DEBUG
+        if let demo = AgentDemo.shared, let canned = try demo.answer(req) { return canned }
+        #endif
+        guard let auth = workspace?.auth else { throw URLError(.userAuthenticationRequired) }
+        return try await auth.send(req)
     }
 }

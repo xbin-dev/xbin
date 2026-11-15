@@ -147,6 +147,14 @@ import Testing
                 #expect(DelegationWords.stateWords(dock, state: state, zone: utc) == nil, "\(name)")
             }
         }
+        // which switch, who changes it and where: every off state has the app's line; what the person can act on has none
+        let held: (String) -> DelegateState? = { DelegateState(json: ["workspace": true, "access": true, "agent": "xbin/wsagent", "held": .string($0)]) }
+        #expect(DelegationWords.whoChanges(.off, state: nil).contains("workspace admin turns workspace agents on again"))
+        #expect(DelegationWords.whoChanges(.unavailable, state: nil).contains("connects a language model"))
+        #expect(DelegationWords.whoChanges(.held, state: held("locked")).contains("unlocks the workspace"))
+        #expect(DelegationWords.whoChanges(.held, state: held("older")).contains("updates xbin"))
+        #expect(DelegationWords.whoChanges(.held, state: held("unavailable")).contains("how xbin is run"))
+        for d in [DelegationWords.Dock.paused, .page, .hidden, .setup] { #expect(DelegationWords.whoChanges(d, state: nil).isEmpty) }
         // xbind can't be reached: offline with a state, hidden without one ever read
         let st = DelegateState(json: ["workspace": true, "access": true, "agent": "xbin/wsagent"])
         #expect(DelegationWords.dock(state: st, llmConfigured: true, admin: false, unreachable: true) == .offline)
@@ -325,5 +333,49 @@ import Testing
         #expect(XbindPageAvailability.from(nil, page: .agent) == .unknown)
         // the partitions page still needs its feature
         #expect(XbindPageAvailability.from(json(200, ["features": []]), page: .partitions) == .notServed)
+    }
+}
+
+/// Allow, and every control that widens what the agent may do, are armed
+/// the same way (the web chrome's WidenGuard): never before the delay,
+/// never while covered, and narrowing is never held.
+@Suite struct ArmingTests {
+    @Test func clock() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        var c = ArmingClock()
+        #expect(!c.isArmed(at: t0))
+        #expect(c.remaining(at: t0) == nil)
+        c.shown(at: t0)
+        #expect(!c.isArmed(at: t0))
+        #expect(!c.isArmed(at: t0.addingTimeInterval(0.59)))
+        #expect(c.isArmed(at: t0.addingTimeInterval(0.6)))
+        #expect(abs((c.remaining(at: t0.addingTimeInterval(0.2)) ?? 0) - 0.4) < 1e-5)
+        // a longer delay is honoured, a shorter one never: 600 ms is the floor
+        #expect(!c.isArmed(at: t0.addingTimeInterval(1), delay: 6))
+        #expect(c.isArmed(at: t0.addingTimeInterval(6), delay: 6))
+        #expect(!c.isArmed(at: t0.addingTimeInterval(0.3), delay: 0.1))
+        // covered (another sheet, the app elsewhere): not armed, however long it was shown
+        c.covered()
+        #expect(!c.isArmed(at: t0.addingTimeInterval(60)))
+        // shown again: the wait starts again
+        c.shown(at: t0.addingTimeInterval(60))
+        #expect(!c.isArmed(at: t0.addingTimeInterval(60.5)))
+        #expect(c.isArmed(at: t0.addingTimeInterval(60.6)))
+    }
+
+    @Test func whatWidens() {
+        #expect(AgentWidening.widens(from: .once, to: .call) && AgentWidening.widens(from: .once, to: .tile) && AgentWidening.widens(from: .call, to: .tile))
+        #expect(!AgentWidening.widens(from: .tile, to: .once) && !AgentWidening.widens(from: .call, to: .once) && !AgentWidening.widens(from: .tile, to: .call))
+        #expect(!AgentWidening.widens(from: .call, to: .call))
+        #expect(AgentWidening.widens(fromDuration: "hour", toDuration: "always"))
+        #expect(!AgentWidening.widens(fromDuration: "always", toDuration: "hour") && !AgentWidening.widens(fromDuration: "always", toDuration: "always"))
+        #expect(AgentWidening.widens(fromStart: "ask", toStart: "allow") && !AgentWidening.widens(fromStart: "allow", toStart: "ask"))
+        #expect(AgentWidening.widens(from: false, to: true) && !AgentWidening.widens(from: true, to: false))
+        // "its model only, no internet": turning it OFF is what widens
+        #expect(AgentWidening.widens(from: true, to: false, widerWhenOn: false) && !AgentWidening.widens(from: false, to: true, widerWhenOn: false))
+        // narrowing goes through unarmed; widening only armed
+        #expect(AgentWidening.takes(widening: false, armed: false))
+        #expect(!AgentWidening.takes(widening: true, armed: false))
+        #expect(AgentWidening.takes(widening: true, armed: true))
     }
 }

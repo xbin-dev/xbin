@@ -140,33 +140,45 @@ struct AgentActivityView: View {
 }
 
 /// Preferences: whether the agent may start tile agents without asking
-/// (only ever in a mode that asks before acting), and — for an admin —
-/// whether it may propose admin changes.
+/// (xbind lets that through only in a mode it says asks before acting), and
+/// — for an admin — whether it may propose admin changes. Opened from the
+/// shield's menu alone: the agent's view can't ask for it (AgentBridge).
+///
+/// Both controls WIDEN what the agent may do, so both are armed like Allow
+/// (`widens(armed:)`): "Start without asking" and turning the admin opt-in
+/// ON answer only a tap made 600 ms after the panel shows, with the app in
+/// front. Narrowing — back to asking, the opt-in off — is never held. (The
+/// web's Preferences also set a started tile agent's network and whether it
+/// may call other tiles' APIs; the app has no such control. One added here
+/// is a widening control and gets the same gate.)
 struct AgentPrefsView: View {
     let workspace: WorkspaceModel
+    @Environment(\.scenePhase) private var phase
     @State private var start = "ask"
     @State private var loaded = false
     @State private var problem: String?
+    @State private var widen = AgentArming()
 
     var body: some View {
         let agent = workspace.agent
         Form {
             Section {
-                Picker("When my agent wants to start a tile agent", selection: Binding(get: { start }, set: { save(start: $0) })) {
-                    Text("Ask me each time").tag("ask")
-                    Text("Start without asking").tag("allow")
-                }
-                .pickerStyle(.inline)
-                .disabled(!loaded)
-                .accessibilityIdentifier("prefs-start")
+                startRow("ask", "Ask me each time")
+                startRow("allow", "Start without asking")
+            } header: {
+                Text("When my agent wants to start a tile agent")
             } footer: {
-                Text("Without asking: only in a mode that asks before acting, with its model as its only network. You are told in the chat. Modes that never ask can't be saved here.")
+                Text("Without asking: xbin lets a start through only in a mode it says asks you before acting, with its model as its only network. You are told in the chat. Modes that never ask can't be saved here.")
             }
             if agent.state?.canAdminChanges == true {
+                let on = agent.state?.adminChanges ?? false
                 Section {
-                    Toggle("Let my agent propose admin changes", isOn: Binding(get: { agent.state?.adminChanges ?? false }, set: { on in
-                        Task { problem = await agent.setAdminChanges(on) }
+                    Toggle("Let my agent propose admin changes", isOn: Binding(get: { on }, set: { next in
+                        // turning it on widens: only armed; off is never held
+                        guard AgentWidening.takes(widening: AgentWidening.widens(from: on, to: next), armed: widen.armed) else { return }
+                        Task { problem = await agent.setAdminChanges(next) }
                     }))
+                    .widens(armed: on || widen.armed)
                     .accessibilityIdentifier("prefs-admin-changes")
                 } footer: {
                     Text("It can read grants, bindings, org shares and limits, and propose changes in a batch. Nothing is applied until you approve the batch here.")
@@ -174,15 +186,40 @@ struct AgentPrefsView: View {
             }
             if let problem { Section { Text(verbatim: problem).foregroundStyle(XbinColor.danger) } }
             Section {} footer: {
-                Text("Which coding agent a started tile agent uses, and its mode, are set on the web: workspace agent → Preferences.")
+                Text("Which coding agent a started tile agent uses, its mode, its network and whether it may call other tiles are set on the web: workspace agent → Preferences.")
             }
         }
         .task {
+            widen.arm(settle: 0.4) // the sheet's own slide comes first
             if let p = await agent.prefs() {
                 start = p["agentSessions"]?["start"]?.stringValue == "allow" ? "allow" : "ask"
                 loaded = true
             }
         }
+        .onChange(of: phase) { _, p in if p == .active { widen.arm() } else { widen.disarm() } }
+    }
+
+    /// One of the two answers, as a radio row. "Start without asking"
+    /// widens "Ask me each time" and is armed like Allow.
+    private func startRow(_ id: String, _ label: String) -> some View {
+        let on = start == id
+        let widening = AgentWidening.widens(fromStart: start, toStart: id)
+        return Button {
+            if !on, AgentWidening.takes(widening: widening, armed: widen.armed) { save(start: id) }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: on ? "smallcircle.filled.circle" : "circle").foregroundStyle(on ? XbinColor.accent : XbinColor.muted)
+                Text(verbatim: label).foregroundStyle(XbinColor.text)
+                Spacer(minLength: 0)
+            }
+            .frame(minHeight: 30)
+        }
+        .disabled(!loaded)
+        .widens(armed: loaded && (!widening || widen.armed))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: label))
+        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("prefs-start-\(id)")
     }
 
     private func save(start next: String) {

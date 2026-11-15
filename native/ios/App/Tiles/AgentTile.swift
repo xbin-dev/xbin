@@ -103,7 +103,32 @@ struct AgentTileView: View {
         // Live reload: the component's code is the release's, and a new
         // release reloads its pages.
         .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { box.runtime?.reload() } }
+        #if DEBUG
+        .task { await debugAsk() }
+        #endif
     }
+
+    #if DEBUG
+    /// `-XbinAgentDebugAsk prefs|approvals|needs|draft` (UI tests): once the
+    /// view is live, a message as if the view had sent it — what the chrome
+    /// does with an ask is then seen without a model writing the card that
+    /// makes one. `draft`: a new session of apps/note's own agent with a
+    /// draft the view suggests.
+    private func debugAsk() async {
+        guard let what = UserDefaults.standard.string(forKey: "XbinAgentDebugAsk"), !what.isEmpty else { return }
+        for _ in 0..<300 {
+            if box.runtime?.lifecycle.phase == .live { break }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        let msg: JSONValue = what == "draft"
+            ? ["type": .string(AgentBridge.openSessionType), "session": "new", "tile": "apps/note",
+               "draft": "Rename the note’s heading to “Shopping”.\r\nKeep the rest as it is.\u{202E}"]
+            : ["type": .string(AgentBridge.openViewType), "view": .string(what)]
+        let shown = box.runtime?.debugAgentAsk(msg) ?? false
+        NSLog("xbin-agent debug ask %@ shown %@", what, String(shown))
+    }
+    #endif
 
     private func open() {
         let fresh = box.runtime == nil
@@ -140,8 +165,9 @@ struct AgentTileView: View {
             case .openSession(let session, let tile, let draft):
                 guard workspace.tile(tile) != nil else { return false }
                 if session == "new" {
-                    // A new session of the tile's own agent: the person's
-                    // words wait, unsent, in the composer of the one they pick.
+                    // A new session of the tile's own agent: the draft — text
+                    // the agent's view suggests, labelled so there — waits,
+                    // unsent, in the composer of the one the person picks.
                     if let draft, !draft.isEmpty { workspace.setPendingDraft(draft, tile: tile) }
                     workspace.open(.agent(cwd: tile, session: nil), in: nav)
                 } else {

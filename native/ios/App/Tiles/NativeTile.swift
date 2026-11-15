@@ -310,8 +310,7 @@ final class NativeTileRuntime: NSObject {
     /// only ids and a word are read (AgentBridge), and what is then shown
     /// comes from xbind — nothing here decides or approves anything.
     private func performAgent(_ c: BridgeCall) {
-        let holder = workspace.agent.holderPath
-        switch AgentBridge.decide(c, tile: tile.path, holder: holder.isEmpty ? nil : holder) {
+        switch decideAgent(c.agentMessage ?? .null) {
         case .refuse(let why):
             call(.resolve(id: c.id, value: .null, error: why))
         case let action:
@@ -319,6 +318,26 @@ final class NativeTileRuntime: NSObject {
             call(.resolve(id: c.id, value: .bool(shown)))
         }
     }
+
+    /// What a message of the view asks for — by the one rule (AgentBridge),
+    /// against the component xbind names as this person's agent.
+    private func decideAgent(_ msg: JSONValue) -> AgentBridge.Action {
+        let holder = workspace.agent.holderPath
+        return AgentBridge.decide(msg, tile: tile.path, holder: holder.isEmpty ? nil : holder)
+    }
+
+    #if DEBUG
+    /// A Debug build's UI tests: `msg` as if this runtime's view had sent it
+    /// with `xbin.native.agent` — through the same decision and the same
+    /// host (`-XbinAgentDebugAsk`, AgentTileView). Whether anything was shown.
+    @discardableResult
+    func debugAgentAsk(_ msg: JSONValue) -> Bool {
+        switch decideAgent(msg) {
+        case .refuse: return false
+        case let action: return agentHost?.ask(action) ?? false
+        }
+    }
+    #endif
 
     private func perform(_ c: BridgeCall) {
         if c.what == BridgeCall.agentWhat { performAgent(c); return }

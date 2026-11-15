@@ -17,8 +17,14 @@ import XbinRenderer
 //     below) at accessibility sizes.
 //   - "Always, every change to <tile>" is a second sheet whose primary
 //     button is Go back, and which asks Face ID.
-//   - A tile agent's start leads with its mode; one that never asks is
-//     said in the danger wording, and Deny becomes the primary button.
+//   - A tile agent's start leads with its mode; one that never asks — any
+//     mode xbind doesn't say asks: only a harness's ask or plan mode does —
+//     is said in the danger wording, and Deny becomes the primary button.
+//   - What WIDENS the grant is armed like Allow (the web chrome's
+//     WidenGuard): a standing choice, "until I take it back" — dimmed and
+//     inert for 600 ms after the sheet shows, while another sheet covers it
+//     and while the app is not in front. Narrowing (back to Once, to one
+//     hour) is never held up.
 
 /// The bar that says whose sheet this is: xbin's, asking this person.
 struct AgentTrustedBar: View {
@@ -26,18 +32,34 @@ struct AgentTrustedBar: View {
     let asking: String
     var position: String = ""
     var close: (() -> Void)?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "shield.lefthalf.filled").accessibilityHidden(true)
-            Text(verbatim: "\(title) — asking \(asking)").font(.caption.weight(.bold)).lineLimit(2)
-                .accessibilityLabel(Text(verbatim: "xbin \(title.split(separator: "·").last.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? "approval"), asking \(asking)"))
-            Spacer(minLength: 4)
-            if !position.isEmpty { Text(verbatim: position).font(.caption.monospacedDigit()) }
-            if let close {
-                Button(action: close) { Text("Not now").font(.caption.weight(.semibold)) }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("approval-later")
+        // At accessibility sizes the words take the bar's width, and the
+        // place and Not now a line of their own under them: nothing is cut.
+        let big = typeSize.isAccessibilitySize
+        let layout = big ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 8))
+        layout {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "shield.lefthalf.filled").accessibilityHidden(true)
+                Text(verbatim: "\(title) — asking \(asking)").font(.caption.weight(.bold)).lineLimit(big ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(Text(verbatim: "xbin \(title.split(separator: "·").last.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? "approval"), asking \(asking)"))
+                    .accessibilityIdentifier("approval-bar")
+            }
+            if !big { Spacer(minLength: 4) }
+            HStack(spacing: 12) {
+                if !position.isEmpty {
+                    Text(verbatim: position).font(.caption.monospacedDigit())
+                        .accessibilityLabel(Text(verbatim: "Request \(position)"))
+                }
+                if let close {
+                    Button(action: close) { Text("Not now").font(.caption.weight(.semibold)).frame(minHeight: big ? 44 : 28) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Not now")
+                        .accessibilityHint("Leaves it waiting. Nothing is allowed or denied.")
+                        .accessibilityIdentifier("approval-later")
+                }
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
@@ -84,7 +106,7 @@ struct AgentQuote: View {
         .background(XbinColor.surface2)
         .overlay(alignment: .leading) { Rectangle().fill(XbinColor.borderStrong).frame(width: 3) }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "\(label.replacingOccurrences(of: "—", with: ",")): \(text)"))
+        .accessibilityLabel(Text(verbatim: "\(label.replacingOccurrences(of: " — ", with: ", ")): \(text)"))
     }
 }
 
@@ -111,6 +133,8 @@ struct AgentTag: View {
 @Observable
 final class AgentArming {
     private(set) var armed = false
+    /// The rule (XbinCore's ArmingClock, tested there): shown since when.
+    @ObservationIgnored private var clock = ArmingClock()
     @ObservationIgnored private var token = 0
 
     /// Arms after `AgentChoices.armSeconds` (plus `settle`, the sheet's own
@@ -119,16 +143,23 @@ final class AgentArming {
         armed = false
         token += 1
         let t = token
-        let wait = Self.seconds + settle
+        let delay = Self.seconds
+        clock.shown(at: Date().addingTimeInterval(settle))
         Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(wait * 1e9))
+            try? await Task.sleep(nanoseconds: UInt64((delay + settle) * 1e9))
             guard let self, self.token == t else { return }
-            self.armed = true
+            // (a timer that fired early arms nothing: the clock decides)
+            if let left = self.clock.remaining(at: Date(), delay: delay), left > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(left * 1e9))
+                guard self.token == t else { return }
+            }
+            self.armed = self.clock.isArmed(at: Date(), delay: delay)
         }
     }
 
     func disarm() {
         token += 1
+        clock.covered()
         armed = false
     }
 
@@ -141,6 +172,61 @@ final class AgentArming {
         if s > AgentChoices.armSeconds { return s }
         #endif
         return AgentChoices.armSeconds
+    }
+}
+
+extension View {
+    /// A control that WIDENS what the agent may do — a standing choice, a
+    /// longer duration, "start without asking", the admin opt-in — answers
+    /// like Allow: dimmed and inert until `armed` (600 ms after it shows,
+    /// not under another sheet, the app in front), and VoiceOver says why.
+    /// A control that narrows is never passed through this.
+    func widens(armed: Bool) -> some View {
+        disabled(!armed)
+            .accessibilityHint(armed ? Text(verbatim: "") : Text("Available in a moment"))
+    }
+}
+
+/// How long a standing approval lasts: two options side by side. "Until I
+/// take it back" widens "for one hour", so it is armed like Allow; the
+/// other way is never held.
+struct AgentDurationPicker: View {
+    @Binding var duration: String
+    /// Whether what widens may be chosen now.
+    var armed: Bool
+    /// The options' identifiers' prefix.
+    var id: String
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
+        layout {
+            ForEach(DelegationWords.durations, id: \.id) { d in
+                let on = duration == d.id
+                let widening = AgentWidening.widens(fromDuration: duration, toDuration: d.id)
+                Button {
+                    if AgentWidening.takes(widening: widening, armed: armed) { duration = d.id }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: on ? "smallcircle.filled.circle" : "circle").foregroundStyle(on ? XbinColor.accent : XbinColor.muted)
+                        Text(verbatim: d.label).font(.callout.weight(on ? .semibold : .regular)).multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .background(on ? XbinColor.selection : XbinColor.surface, in: .xbinPlate)
+                    .overlay { RoundedRectangle.xbinPlate.strokeBorder(on ? XbinColor.accent : XbinColor.border, lineWidth: 1) }
+                }
+                .buttonStyle(.plain)
+                .widens(armed: !widening || armed)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: d.label))
+                .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+                .accessibilityIdentifier("\(id)-\(d.id)")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("How long")
     }
 }
 
@@ -203,11 +289,15 @@ struct AgentApprovalSheet: View {
 
     @Environment(SceneModel.self) private var scene
     @Environment(\.scenePhase) private var phase
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var request: DelegateRequest?
     @State private var loaded = false
     @State private var choice: GrantChoice.ID = .once
     @State private var duration = ""
     @State private var arming = AgentArming()
+    /// What widens the grant (a standing choice, a longer duration) is armed
+    /// like Allow — but not re-armed by a change of the choice itself.
+    @State private var widen = AgentArming()
     @State private var working = false
     @State private var problem: String?
     @State private var wider = false
@@ -242,14 +332,21 @@ struct AgentApprovalSheet: View {
             loaded = true
             duration = AgentChoices.duration(for: choice)
             arming.arm(settle: 0.4) // the sheet's own slide comes first
+            widen.arm(settle: 0.4)
         }
-        .onChange(of: phase) { _, p in if p == .active { arming.arm() } else { arming.disarm() } }
+        .onChange(of: phase) { _, p in
+            if p == .active { arming.arm(); widen.arm() } else { arming.disarm(); widen.disarm() }
+        }
         .onChange(of: choice) { _, c in
             duration = AgentChoices.duration(for: c)
             arming.arm()
         }
-        // Something covers the sheet: Allow is not armed under it.
-        .onChange(of: wider) { _, up in if up { arming.disarm() } else { arming.arm() } }
+        // (what Allow means changed with the duration too)
+        .onChange(of: duration) { _, _ in arming.arm() }
+        // Something covers the sheet: nothing under it is armed.
+        .onChange(of: wider) { _, up in
+            if up { arming.disarm(); widen.disarm() } else { arming.arm(); widen.arm() }
+        }
         .sheet(isPresented: $wider) {
             if let r = request {
                 AgentWiderSheet(workspace: workspace, request: r, duration: $duration) { ok in
@@ -339,12 +436,18 @@ struct AgentApprovalSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Allow").font(.caption.weight(.semibold)).foregroundStyle(XbinColor.muted)
             ForEach(all) { c in
-                Button { choice = c.id } label: {
+                // Once narrows and is never held; a standing choice widens.
+                let widening = AgentWidening.widens(from: choice, to: c.id)
+                Button {
+                    if AgentWidening.takes(widening: widening, armed: widen.armed) { choice = c.id }
+                } label: {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: choice == c.id ? "smallcircle.filled.circle" : "circle")
                             .foregroundStyle(choice == c.id ? XbinColor.accent : XbinColor.muted)
                         VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
+                            // (the tag under the words at accessibility sizes: neither is cut)
+                            let row = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 6))
+                            row {
                                 Text(verbatim: c.label).font(.body.weight(.semibold)).multilineTextAlignment(.leading)
                                 if c.wider { AgentTag(text: "WIDER", symbol: "exclamationmark.triangle", tone: "warn") }
                             }
@@ -358,17 +461,14 @@ struct AgentApprovalSheet: View {
                     .overlay { RoundedRectangle.xbinPlate.strokeBorder(choice == c.id ? XbinColor.accent : XbinColor.border, lineWidth: 1) }
                 }
                 .buttonStyle(.plain)
+                .widens(armed: !widening || widen.armed)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(verbatim: "\(c.label)\(c.wider ? ", wider" : ""). \(c.text)"))
                 .accessibilityAddTraits(choice == c.id ? [.isButton, .isSelected] : .isButton)
                 .accessibilityIdentifier("approval-choice-\(c.id.rawValue)")
             }
             if choice == .call {
-                Picker("How long", selection: $duration) {
-                    ForEach(DelegationWords.durations, id: \.id) { d in Text(verbatim: d.label).tag(d.id) }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("approval-duration")
+                AgentDurationPicker(duration: $duration, armed: widen.armed, id: "approval-duration")
             }
         }
     }
@@ -489,6 +589,8 @@ struct AgentWiderSheet: View {
 
     @Environment(\.scenePhase) private var phase
     @State private var arming = AgentArming()
+    /// "Until I take it back" widens "for one hour": armed like Allow.
+    @State private var widen = AgentArming()
     @State private var working = false
     @State private var refused = false
 
@@ -505,11 +607,7 @@ struct AgentWiderSheet: View {
                     Text(verbatim: w.heading).font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("wider-heading")
                     Text(verbatim: w.means)
-                    Picker("How long", selection: $duration) {
-                        ForEach(DelegationWords.durations, id: \.id) { d in Text(verbatim: d.label).tag(d.id) }
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("wider-duration")
+                    AgentDurationPicker(duration: $duration, armed: widen.armed, id: "wider-duration")
                     Text(verbatim: w.ends).font(.callout).foregroundStyle(XbinColor.muted)
                     if refused {
                         Label("It wasn't you, so nothing was allowed.", systemImage: "faceid").font(.callout).foregroundStyle(XbinColor.danger)
@@ -526,10 +624,15 @@ struct AgentWiderSheet: View {
         .presentationDetents([.medium, .large])
         .interactiveDismissDisabled(working)
         .onAppear {
-            if duration != "hour", duration != "always" { duration = AgentChoices.duration(for: .tile) }
+            // the whole tile, however the first sheet's duration stood: one hour unless the person widens it here
+            duration = AgentChoices.duration(for: .tile)
             arming.arm(settle: 0.4)
+            widen.arm(settle: 0.4)
         }
-        .onChange(of: phase) { _, p in if p == .active { arming.arm() } else { arming.disarm() } }
+        .onChange(of: phase) { _, p in
+            if p == .active { arming.arm(); widen.arm() } else { arming.disarm(); widen.disarm() }
+        }
+        .onChange(of: duration) { _, _ in arming.arm() }
     }
 
     /// Face ID first — a local gate: it is the person holding the phone.

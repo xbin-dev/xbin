@@ -266,3 +266,9 @@ extension View {
     public func presentationDragIndicator(_ visibility: Visibility) -> some View { _V(self) }
     public func presentationBackgroundInteraction(_ interaction: PresentationBackgroundInteraction) -> some View { _V(self) }
 }
+
+// A hint as Text (the workspace agent's armed controls say "Available in a
+// moment" while they are not; D233).
+extension View {
+    public func accessibilityHint(_ hint: Text) -> some View { _V(self) }
+}

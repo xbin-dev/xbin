@@ -130,3 +130,32 @@ func TestWsPhraseScope(t *testing.T) {
 		t.Fatalf("not a phrase: %+v", p)
 	}
 }
+
+// "Let <a> and <b> use <tile>": one admin_propose of two grants, and an
+// answer for the person — not the tool's words for the model.
+func TestWsPhraseAdminPropose(t *testing.T) {
+	conv := []turn{{Role: "user", Text: "Let apps/welcome and apps/counter use apps/note."}}
+	p := script(conv, wsSystem)
+	if len(p.Calls) != 1 || p.Calls[0].Name != "admin_propose" {
+		t.Fatalf("the call: %+v", p)
+	}
+	a := p.Calls[0].Args
+	changes, _ := a["changes"].([]map[string]any)
+	if a["title"] != "Let apps/welcome and apps/counter use apps/note" || len(changes) != 2 {
+		t.Fatalf("its arguments: %+v", a)
+	}
+	first, _ := changes[0]["args"].(map[string]any)
+	second, _ := changes[1]["args"].(map[string]any)
+	if changes[0]["kind"] != "grant.add" || first["from"] != "apps/welcome" || first["target"] != "apps/note" || first["role"] != "reader" ||
+		second["from"] != "apps/counter" || second["role"] != "writer" {
+		t.Fatalf("the changes: %+v", changes)
+	}
+	proposed := append(conv, turn{Role: "assistant"}, turn{Role: "tool", Tool: "admin_propose", Text: "Change set cs_1 (2 changes). Proposed; nothing is applied until your person approves."})
+	if p := script(proposed, wsSystem); len(p.Calls) != 0 || !strings.HasPrefix(p.Text, "I’ve proposed two admin changes.") || strings.Contains(p.Text, "cs_1") {
+		t.Fatalf("the answer: %+v", p)
+	}
+	off := append(conv, turn{Role: "assistant"}, turn{Role: "tool", Tool: "admin_propose", Text: "Your person hasn't turned on admin changes for their agent."})
+	if p := script(off, wsSystem); !strings.Contains(p.Text, "yours to turn on") {
+		t.Fatalf("before the opt-in: %+v", p)
+	}
+}

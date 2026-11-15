@@ -90,8 +90,10 @@ struct AgentBarButton: View {
     }
 }
 
-/// Home's row for the agent, under Needs you: its status in a few words,
-/// and the count.
+/// Home's row for the agent, under Needs you: its status in a few words
+/// ("idle · 2 need you"). No count badge of its own — Needs you above it
+/// and the bar's item carry the one count; a second and a third blue plate
+/// on one screen said nothing more. Paused keeps its glyph.
 struct AgentHomeRow: View {
     let workspace: WorkspaceModel
     @Environment(SceneModel.self) private var scene
@@ -112,10 +114,6 @@ struct AgentHomeRow: View {
                     Spacer(minLength: 4)
                     if chip.paused {
                         Image(systemName: "pause.fill").font(.footnote).foregroundStyle(XbinColor.warn)
-                    } else if chip.count > 0 {
-                        Text(verbatim: "\(chip.count)").font(.callout.monospacedDigit().bold())
-                            .padding(.horizontal, 7).padding(.vertical, 1)
-                            .background(XbinColor.accent, in: .xbinPlate).foregroundStyle(XbinColor.onAccent)
                     }
                     Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
                 }
@@ -161,6 +159,7 @@ struct AgentPane: View {
 
     @Environment(SceneModel.self) private var scene
     @Environment(WorkspaceNav.self) private var nav
+    @Environment(\.scenePhase) private var phase
     /// The conversation's runtime, held by the pane — not by the view inside
     /// its navigation stack, which goes whenever the agent's own tree pushes
     /// a screen over it (the notebook, a tool call in full): the runtime,
@@ -189,29 +188,45 @@ struct AgentPane: View {
         // the panels (a column), the window does (WorkspaceView).
         .modifier(AgentChromeSheets(workspace: workspace, active: asSheet))
         .task(id: scene.agentOpened) { await agent.refresh() }
+        // Back in front: what waits, and whether xbind can be reached, are read again.
+        .onChange(of: phase) { _, p in if p == .active { Task { await agent.refresh() } } }
         .onDisappear { box.close() }
+    }
+
+    @ViewBuilder private func conversation(_ agent: WorkspaceAgentModel) -> some View {
+        if let tile = agent.holder {
+            AgentTileView(workspace: workspace, tile: tile, box: box, compact: true, opened: toMedium)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if agent.dock == .offline { AgentOfflineBar(workspace: workspace) }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if agent.dock == .paused { AgentPausedBar(workspace: workspace) }
+                }
+        } else {
+            ProgressView().controlSize(.large).frame(maxWidth: .infinity, maxHeight: .infinity)
+                .navigationTitle("Workspace agent")
+        }
     }
 
     @ViewBuilder private func content(_ agent: WorkspaceAgentModel) -> some View {
         switch agent.dock {
         case .page, .paused:
-            if let tile = agent.holder {
-                AgentTileView(workspace: workspace, tile: tile, box: box, compact: true, opened: toMedium)
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if agent.dock == .paused { AgentPausedBar(workspace: workspace) }
-                    }
-            } else {
-                ProgressView().controlSize(.large).frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .navigationTitle("Workspace agent")
-            }
+            conversation(agent)
+        // …also while xbind can't be reached, once it was loaded: it stays
+        // readable, under xbin's own line that says so (its cards' Review…
+        // wait for the connection: AgentRequestCard).
+        case .offline where agent.offlineWithConversation:
+            conversation(agent)
         case .setup:
             AgentSetupView(workspace: workspace).navigationTitle("Workspace agent")
         case .hidden:
             AgentStateView(title: "No workspace agent here", text: "You don't have one in this workspace.", more: "", retry: nil)
                 .navigationTitle("Workspace agent")
         default:
+            // which switch is on (xbin's words, the web's), then who changes it and where
             let w = DelegationWords.stateWords(agent.dock, state: agent.state)
-            AgentStateView(title: w?.title ?? "", text: w?.text ?? "", more: w?.more ?? "", retry: { await agent.refresh() })
+            let who = [w?.more ?? "", DelegationWords.whoChanges(agent.dock, state: agent.state)].filter { !$0.isEmpty }.joined(separator: " ")
+            AgentStateView(title: w?.title ?? "", text: w?.text ?? "", more: who, retry: { await agent.refresh() })
                 .navigationTitle("Workspace agent")
         }
     }
@@ -297,6 +312,7 @@ struct AgentPausedBar: View {
             }
             .xbinPrimary()
             .disabled(working)
+            .accessibilityLabel("Resume my agent")
             .accessibilityIdentifier("agent-resume")
         }
         .padding(12)
@@ -305,6 +321,40 @@ struct AgentPausedBar: View {
         .overlay(alignment: .top) { Rectangle().fill(XbinColor.warn).frame(height: 2) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-paused")
+    }
+}
+
+/// xbind can't be reached, over a conversation that was loaded: xbin's own
+/// line above it — what is shown is what was loaded, and approvals wait.
+struct AgentOfflineBar: View {
+    let workspace: WorkspaceModel
+    @State private var checking = false
+
+    var body: some View {
+        let w = DelegationWords.stateWords(.offline, state: workspace.agent.state)
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "wifi.exclamationmark").foregroundStyle(XbinColor.warn).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: w?.title ?? "Can't reach xbin.").font(.subheadline.weight(.semibold))
+                    .accessibilityIdentifier("agent-offline")
+                Text(verbatim: w?.text ?? "").font(.footnote).foregroundStyle(XbinColor.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            Button {
+                checking = true
+                Task {
+                    await workspace.agent.refresh()
+                    checking = false
+                }
+            } label: { Text("Try now").frame(minHeight: 30) }
+            .xbinSecondary()
+            .disabled(checking)
+            .accessibilityIdentifier("agent-offline-retry")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(XbinColor.warnBackground)
+        .overlay(alignment: .bottom) { Rectangle().fill(XbinColor.warn).frame(height: 2) }
     }
 }
 

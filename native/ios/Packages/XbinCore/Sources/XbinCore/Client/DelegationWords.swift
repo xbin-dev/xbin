@@ -39,6 +39,64 @@ public enum AgentChoices {
     public static let allowFromLockScreen = false
 }
 
+/// When a control that grants or widens may be pressed (the web chrome's
+/// arming rule, docs/protocol/delegation.md §The chrome): not for
+/// ``AgentChoices/armSeconds`` after it appears, and not while something
+/// covers it or the app is not in front. Pure: the view keeps the timer.
+public struct ArmingClock: Sendable, Equatable {
+    /// When what it guards was last shown, uncovered, with the app in
+    /// front; nil while it is covered or the app is elsewhere.
+    public private(set) var since: Date?
+
+    public init() {}
+
+    /// It appeared, was uncovered, the app came back, or what the control
+    /// means changed: the wait starts again.
+    public mutating func shown(at now: Date) { since = now }
+    /// Something covers it, or the app left the front.
+    public mutating func covered() { since = nil }
+
+    public func isArmed(at now: Date, delay: Double = AgentChoices.armSeconds) -> Bool {
+        guard let since else { return false }
+        return now.timeIntervalSince(since) >= max(delay, AgentChoices.armSeconds)
+    }
+
+    /// How long until it arms (0: armed; nil: never while covered).
+    public func remaining(at now: Date, delay: Double = AgentChoices.armSeconds) -> Double? {
+        guard let since else { return nil }
+        return max(0, max(delay, AgentChoices.armSeconds) - now.timeIntervalSince(since))
+    }
+}
+
+/// What WIDENS what the agent may do — the controls that are armed like
+/// Allow. Narrowing is never held up.
+public enum AgentWidening {
+    /// Choosing a grant: once < always this exact action < every change.
+    public static func widens(from: GrantChoice.ID, to: GrantChoice.ID) -> Bool { rank(to) > rank(from) }
+    private static func rank(_ c: GrantChoice.ID) -> Int {
+        switch c {
+        case .once: return 0
+        case .call: return 1
+        case .tile: return 2
+        }
+    }
+
+    /// A standing approval's duration: "until I take it back" is wider than
+    /// "for one hour".
+    public static func widens(fromDuration a: String, toDuration b: String) -> Bool { a != "always" && b == "always" }
+
+    /// Starting tile agents: "allow" (without asking) is wider than "ask".
+    public static func widens(fromStart a: String, toStart b: String) -> Bool { a != "allow" && b == "allow" }
+
+    /// A switch that gives the agent more when on (the admin opt-in, other
+    /// tiles' APIs) — or when off (`widerWhenOn: false`: "its model only, no
+    /// internet").
+    public static func widens(from a: Bool, to b: Bool, widerWhenOn: Bool = true) -> Bool { a != b && b == widerWhenOn }
+
+    /// Whether a change goes through now: narrowing always, widening only armed.
+    public static func takes(widening: Bool, armed: Bool) -> Bool { !widening || armed }
+}
+
 /// One way to allow a tile call.
 public struct GrantChoice: Sendable, Equatable, Identifiable {
     public enum ID: String, Sendable { case once, call, tile }
@@ -663,6 +721,25 @@ public enum DelegationWords {
                     "Approvals, what your agent did and your preferences work here already. The agent's own conversation is not part of this xbin yet: it arrives with an update.", "")
         case .hidden, .setup, .page:
             return nil
+        }
+    }
+
+    /// Who changes the switch that is on, and where — the app's own line
+    /// under ``stateWords`` (the web's dock has the controls beside the
+    /// words; the app has none of an admin's, so it says where they are).
+    /// "": nothing to add (the person's own Resume is on the screen).
+    public static func whoChanges(_ dock: Dock, state: DelegateState?) -> String {
+        switch dock {
+        case .off: return "A workspace admin turns workspace agents on again: on the web, in the workspace agent's setup."
+        case .unavailable: return "A workspace admin connects a language model: on the web, under Language models."
+        case .held:
+            switch state?.held ?? "" {
+            case "older": return "Whoever runs this workspace updates xbin; nothing here can."
+            case "unavailable": return "Whoever runs this workspace changes how xbin is run; nothing here can."
+            default: return "A workspace admin unlocks the workspace, on the web."
+            }
+        case .offline: return "It comes back by itself once xbin can be reached."
+        case .hidden, .setup, .paused, .soon, .page: return ""
         }
     }
 

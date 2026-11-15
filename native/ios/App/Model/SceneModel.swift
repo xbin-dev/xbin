@@ -119,12 +119,12 @@ final class SceneModel: Identifiable {
             // (`xbin/` is the sealed namespace no workspace can hold a tile in:
             // such a path is never a tile screen, read state or not.)
             if case .tile(_, let tile, _) = link, w.agent.isHolder(tile) || tile.hasPrefix("xbin/") {
-                openAgent()
+                openAgentFromLink(w)
                 return
             }
             // …and so does a link to xbin's page for it (`xbin/agent`).
             if case .page(_, .agent) = link {
-                openAgent()
+                openAgentFromLink(w)
                 return
             }
             w.open(link: link, in: nav(for: w))
@@ -138,6 +138,18 @@ final class SceneModel: Identifiable {
         agentContext = context
         agentOpened += 1
         showAgent = true
+    }
+
+    /// A link named the person's agent: it opens — once xbind has said the
+    /// person has one (or its setup, for an admin). A person without an
+    /// agent gets the workspace's Home: never an empty pane, and nothing
+    /// left behind that would open one later.
+    func openAgentFromLink(_ w: WorkspaceModel) {
+        Task {
+            if w.agent.state == nil { await w.agent.refresh() }
+            guard selectedID == w.id else { return }
+            if w.agent.chip.shown { openAgent() } else { showAgent = false; nav(for: w).goHome() }
+        }
     }
 
     /// Shows the approval of one request or change set. `afterInbox`: the

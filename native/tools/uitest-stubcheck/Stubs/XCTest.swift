@@ -257,3 +257,13 @@ open class XCUIDevice {
 open class XCUISystem {
     open func open(_ url: URL) {}
 }
+
+// A radio row's selected trait (the workspace agent's grant choices, D233).
+extension XCUIElement {
+    public var isSelected: Bool { false }
+}
+
+public func XCTAssertLessThanOrEqual<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
+                                                    _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
+public func XCTAssertNil(_ expression: @autoclosure () throws -> Any?, _ message: @autoclosure () -> String = "",
+                         file: StaticString = #filePath, line: UInt = #line) {}

@@ -16,6 +16,7 @@ package main
 //	Start a tile agent in <tile> to <goal>   tile_agent_brief {tile, goal, done_when}
 //	What tiles do I have?                workspace_map, then one sentence naming them
 //	Ask me which <a> or <b>              ask_user {question, kind: choices, choices: [a, b]}; the answer is thanked
+//	Let <a> and <b> use <tile>           admin_propose: two grants on <tile> — <a> as reader, <b> as writer — under that title
 //
 // After a phrase's turn, xbin's "[workspace updates — …]" message is
 // answered in a sentence too (wsUpdateWords).
@@ -83,6 +84,21 @@ var wsPhrases = []wsPhrase{
 		calls: func([]string) []call { return []call{{Name: "workspace_map", Args: map[string]any{}}} },
 		answer: func(_ []string, r []string) string {
 			return wsMapWords(r[0])
+		},
+	},
+	{
+		re: regexp.MustCompile(`(?i)^let (.+?) and (.+?) use (.+?)\.?$`),
+		calls: func(m []string) []call {
+			return []call{{Name: "admin_propose", Args: map[string]any{"title": fmt.Sprintf("Let %s and %s use %s", m[1], m[2], m[3]), "changes": []map[string]any{
+				{"kind": "grant.add", "args": map[string]any{"from": m[1], "target": m[3], "role": "reader"}, "why": fmt.Sprintf("%s shows what is in %s", m[1], m[3])},
+				{"kind": "grant.add", "args": map[string]any{"from": m[2], "target": m[3], "role": "writer"}, "why": fmt.Sprintf("%s writes to %s", m[2], m[3])},
+			}}}}
+		},
+		answer: func(m []string, r []string) string {
+			if strings.HasPrefix(r[0], "Change set ") {
+				return "I’ve proposed two admin changes. Nothing is applied until you review them and choose which to apply."
+			}
+			return "I can’t propose admin changes for you yet: that is yours to turn on, in the agent’s Preferences."
 		},
 	},
 	{
@@ -203,6 +219,10 @@ func wsUpdateWords(s string) string {
 		return "The tile agent has started. I’ll tell you when it has something for you."
 	case strings.Contains(l, "answered with an error"):
 		return "You approved it, but the tile answered with an error — the change may not have happened."
+	case strings.Contains(l, "change set") && strings.Contains(l, "applied"):
+		return "The admin changes you chose were applied."
+	case strings.Contains(l, "change set") && strings.Contains(l, "rejected"):
+		return "You rejected the admin changes, so nothing was applied."
 	case strings.Contains(l, "it ran:"):
 		return "Done — you approved it, and it ran."
 	}
