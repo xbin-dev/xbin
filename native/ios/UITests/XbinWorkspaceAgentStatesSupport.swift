@@ -123,6 +123,20 @@ extension E2E {
         row.tap()
     }
 
+    /// Whether `element` sits at the bottom of the grant sheet in front: on a
+    /// phone the sheet reaches the screen's bottom (the last quarter of the
+    /// window); on an iPad it is a card centred in the window, so its bottom
+    /// is as far from the window's as its top — the trusted bar's — is.
+    func wsAtSheetBottom(_ element: XCUIElement) -> Bool {
+        let window = app.windows.firstMatch.frame
+        guard isPad else { return element.frame.midY > window.height * 0.75 }
+        let bar = self.element("approval-bar").frame
+        guard bar.height > 0 else { return false }
+        let bottom = window.maxY - (bar.minY - window.minY)
+        // (the bar's words sit a padding inside the card's top: the estimate is that much short)
+        return element.frame.maxY < bottom + 40 && element.frame.maxY > bottom - 120
+    }
+
     /// Scrolls the sheet in front until `element` can be tapped.
     func wsScrollTo(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         var tries = 0

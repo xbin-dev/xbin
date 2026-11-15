@@ -407,7 +407,7 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         }
         XCTAssertLessThan(bar.frame.minY, heading.frame.minY, "the bar that says whose sheet it is comes first")
         XCTAssertLessThan(deny.frame.midX, allow.frame.midX, "Deny, then Allow")
-        XCTAssertGreaterThan(deny.frame.minY, e.app.windows.firstMatch.frame.height * 0.75, "both at the bottom")
+        XCTAssertTrue(e.wsAtSheetBottom(deny) && e.wsAtSheetBottom(e.app.buttons.matching(identifier: "approval-allow").firstMatch), "both at the bottom: \(deny.frame)")
         // …and the same order in the accessibility tree, where XCUITest exposes it
         let ids = ["approval-bar", "approval-heading", "approval-choice-once", "approval-choice-call", "approval-choice-tile", "approval-deny", "approval-allow"]
         XCTAssertEqual(e.wsTreeOrder(of: ids), ids, "the tree's order")
@@ -484,7 +484,9 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(allow.frame.minY, deny.frame.maxY - 1, "\(what): stacked, Allow below Deny (\(deny.frame) / \(allow.frame))")
             XCTAssertTrue(deny.isHittable && allow.isHittable, "\(what): both can be reached")
             XCTAssertLessThanOrEqual(allow.frame.maxY, window.maxY, "\(what): Allow is on the screen")
-            XCTAssertGreaterThanOrEqual(deny.frame.width, window.width * 0.8, "\(what): full-width buttons")
+            // (the sheet's whole width — a phone's screen, an iPad's centred sheet: the same margin on both sides)
+            XCTAssertLessThan(abs(deny.frame.minX - (window.maxX - deny.frame.maxX)), 2, "\(what): full-width buttons (\(deny.frame) in \(window))")
+            if !e.isPad { XCTAssertGreaterThanOrEqual(deny.frame.width, window.width * 0.8, "\(what): full-width buttons") }
             XCTAssertGreaterThanOrEqual(deny.frame.height, 44, "\(what): a full touch target")
         }
 
@@ -807,7 +809,8 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         XCTAssertTrue(label.label.contains("nothing is sent until you press Send"), label.label)
         e.shot("wsagent2-35-live-draft-launcher")
         if e.wsClose.exists, !e.isPad { e.wsClose.tap() }
-        let fake = e.app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "fake")).firstMatch
+        // (the launcher's "Fake agent (tests)" — not the agent column's model, "fake-chat", beside it on an iPad)
+        let fake = e.app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "fake agent")).firstMatch
         e.expect(fake, 30, "the launcher's coding agents")
         fake.tap()
         var session = ""

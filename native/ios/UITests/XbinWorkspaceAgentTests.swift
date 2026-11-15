@@ -163,7 +163,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         // Deny left, Allow right, at the bottom
         let deny = e.app.buttons.matching(identifier: "approval-deny").firstMatch
         XCTAssertLessThan(deny.frame.midX, allow.frame.midX, "Deny left, Allow right")
-        XCTAssertGreaterThan(allow.frame.midY, e.app.windows.firstMatch.frame.height * 0.75, "the buttons are at the bottom")
+        XCTAssertTrue(e.wsAtSheetBottom(allow), "the buttons are at the bottom: \(allow.frame)")
         e.shot("wsagent-05-approval")
         // a tap before it is armed allows nothing
         allow.tap()
