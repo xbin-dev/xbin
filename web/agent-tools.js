@@ -28,8 +28,8 @@ export function newTool(id) {
 }
 
 // foldTool merges one tool.call/tool.update event into the record: fields
-// replace, outputDelta appends, output replaces the accumulated output — and
-// into its ToolRecord by the kit's rules.
+// replace, output replaces the accumulated output, then outputDelta appends
+// — and into its ToolRecord by the kit's rules.
 export function foldTool(t, d) {
   if (d.title != null) t.title = d.title;
   if (d.kind != null) t.tk = d.kind;
@@ -42,13 +42,16 @@ export function foldTool(t, d) {
   if (d.parent) t.parent = d.parent;
   if (d.subagent) { t.subagent = true; if (!t.children) t.children = []; }
   if (d.planReview) t.planReview = true;
-  if (typeof d.outputDelta === 'string') t.output += d.outputDelta;
-  if (typeof d.output === 'string') t.output = d.output;
   if (d.exitCode != null) t.exitCode = d.exitCode;
+  // the output: a whole one replaces what was gathered, then a delta appends
+  // (an event may carry both) — the kit's rule and sdk/acp's, pinned by the
+  // shared transcript `output`; the record's text is this record's too
   if (t.rec) {
     kit.mergeTool(t.rec, d);
-    // the two outputs are one text (they differ only after an event that carried a whole output and a delta at once): held once
-    if (t.rec.output.length === t.output.length) t.output = t.rec.output;
+    t.output = t.rec.output;
+  } else {
+    if (typeof d.output === 'string') t.output = d.output;
+    if (typeof d.outputDelta === 'string') t.output = (t.output || '') + d.outputDelta;
   }
   return t;
 }

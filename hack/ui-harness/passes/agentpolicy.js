@@ -224,6 +224,16 @@ async function agentPolicy(browser) {
     await waitFor(A.page, (t, a) => (t.frameFor(a)?.testApi().notOffered || []).some((x) => x.id === 'claude' && /LLM connector/.test(x.why)), TILE, { timeout: 10000, label: 'the chooser knows why' });
     const li = await fr(A.page, TILE, (f) => f.launcherItems());
     check(li.includes('Bash') && !li.includes('Claude Code'), `the launcher offers Bash alone (${JSON.stringify(li)})`);
+    // …and so does the Agent tab's own chooser (an agent tab opened with no
+    // harness picked: the chat kit's composer, D224): each harness that is
+    // not offered here is listed with its reason, under the pickers
+    const tabsBefore = await fr(A.page, TILE, (f) => f.tabs.length);
+    await fr(A.page, TILE, (f) => f.startKind('agent'));
+    await waitFor(A.page, (t, a) => (t.frameFor(a)?.testApi().agent()?.notOffered || []).some((x) => x.id === 'claude'), TILE, { timeout: 10000, label: 'the Agent tab\'s chooser lists what is not offered' });
+    const listed = await fr(A.page, TILE, (f) => f.agent().notOffered);
+    check(listed.length === allRows.length && /^Claude Code isn’t offered here: Devs allows private models only, so a coding agent here runs on the workspace's LLM connector — and claude can't/.test(listed.find((x) => x.id === 'claude').text),
+      `the Agent tab's chooser says which harnesses are not offered here, and why (${JSON.stringify(listed.find((x) => x.id === 'claude'))})`);
+    await fr(A.page, TILE, (f, t, n) => { for (let i = f.tabs.length - 1; i >= n; i--) f.closeTab(i); }, tabsBefore);
     const denied = await a.post('/term/sessions', { cwd: TILE, kind: 'agent', provider: 'claude' });
     check(denied.status === 403 && /runs on the workspace's LLM connector/.test(denied.body?.error || ''), `a start is refused with it (${denied.status})`);
     check((await a.get(`/agents/connection`)).body.tiles.find((x) => x.tile === 'apps/dev1-notes')?.credentials === 'own-first', 'a tile with no models rule runs as the workspace\'s mode says');

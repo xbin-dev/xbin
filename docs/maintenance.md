@@ -729,6 +729,17 @@ header of `hack/chat-fixtures.test.mjs` has the commands): the logs
 (`CHAT_TRANSCRIPTS_WRITE=1`), the expectations (`CHAT_FIXTURES_WRITE=1`).
 The files are plain JSON so the Swift port and `sdk/acp` can read them.
 
+The kit's views (`web/chat/views.js`, `cards.js`, `asks.js`,
+`composer.js`, `css.js`) have a contract a host's own CSS and code rely on,
+held by `hack/chat-views.test.mjs` (`make js-test`): a view writes only
+`bxc-` classes and each has its rule in `css.js`; the stylesheet styles
+nothing outside that prefix and takes every colour from a theme token; a
+view imports by `/vendor/` URL only and never reaches into a host element
+or calls xbind's API. What they draw is driven by the UI harness:
+`agentTab` (the Agent tab, then the same functions in the shell's document
+with a plain `ChatCtx`, and on a page with no import map), `agentReview`,
+`agentLong`, `agentPolicy`.
+
 ## The native reference (`docs/native.md`)
 
 The builder reference for a tile's `native.js` is partly generated: the

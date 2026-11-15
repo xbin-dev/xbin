@@ -46,6 +46,61 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   does ([compat.md](/docs/compat.md) "What this does not promise"): update
   xbind before you merge it into an instance. An instance you already have
   keeps building against the newer SDK, which only grew.
+- **Frontend kit: the chat kit's views — `/vendor/chat/views.js`, `cards.js`,
+  `asks.js`, `composer.js`, `window.js`, `css.js`; `KIT` is 3** (D224;
+  [frontend-kit.md](/docs/frontend-kit.md) → The chat kit). What draws a
+  conversation with a coding agent in xbind's Agent tab is now a set of
+  modules a tile may import: lit template functions of `(block, ctx)` for a
+  transcript's rows, messages, tool cards (terminal output, diffs, a
+  subagent's nested calls), change sets, permission requests, plan
+  approvals and questions; `<bx-chat-composer>` (the message box: text,
+  files, slash commands, pickers, held messages, Send / Stop) and
+  `<bx-chat-form>` (a question's form); `ChatWindow` (a long transcript as
+  a window of rows); and one stylesheet as text, `chatCssText`, whose
+  classes all start with `bxc-`. A view reaches its host only through the
+  `ChatCtx` the host hands it. `/vendor/chat/blocks.js` gains the `host`
+  block kind (a card the host draws itself), `usageBadge`, `cached` and
+  `ChatCtx`'s `readonly`, `role`, `rev`, `state`, `copy`, `openDiff`,
+  `signin`, `host`, `sessionRules`; `/vendor/chat/tools.js` `DIFF_LINES`,
+  `lineCount`, `headLines`, `diffBody`; `/vendor/chat/ask.js` `stageFiles`,
+  `fmtSize`, `ATTACH_LIMITS`. The view modules import lit by URL, so they
+  load on a page with no import map. `/vendor/agent-cards.js` and
+  `/vendor/agent-css.js` keep their exports (the cards are the kit's; the
+  transcript's class names changed to `bxc-…` — they were never a contract).
+- **Agent tab: drawn with the chat kit, and what it gains.** The tab looks
+  as it did; these are new:
+  - **files in the message box** — a paperclip button, a paste or a drop
+    stages files as chips; they go with the message (`POST …/queue`
+    `attachments`, which the session API took all along: at most 10 files,
+    10 MiB each, 20 MiB together — a file past a limit is left out and
+    said);
+  - **an option that stops the agent asking is confirmed** — a permission
+    option xbind marks `explicit` (it raises the session's mode, D225) is
+    drawn as a caution and asks "Let the agent stop asking?" in the
+    window's dialog before it is sent; Cancel sends nothing;
+  - **a call that waits for your answer says so** — its card's badge reads
+    "needs approval" while a permission request about it is open;
+  - **how full the context is** — the status line says `ctx 26%` (with the
+    cost when the agent reports one; amber from 75 %, red from 90 %; the
+    tokens in its tooltip) where it said `52 000/200 000 tokens`;
+  - **harnesses that are not offered here** — the tab's own chooser lists
+    each harness the tile's rules keep out with the reason (`GET
+    /agent/providers?cwd=…&all=1` `unavailable`), as the `+` menu does;
+  - a question's form says "Answer … first." under itself for a required
+    answer that is missing (it was in the status line), and a tool call
+    without a title is read from its arguments ("Read a.go:10–49") where it
+    showed the tool's name or id;
+  - a session that is still starting is polled like a running turn: a tab
+    that missed the one live event saying it became idle no longer stays on
+    "starting".
+- **A tool call's output: a whole output, then a delta.** An update that
+  carries both the whole output so far and a further delta (`output` and
+  `outputDelta` in one `tool.update`) is read the same way everywhere now —
+  the whole output replaces what was gathered, then the delta is appended:
+  `sdk/acp`'s `ToolRecord`, the chat kit's (`mergeTool`), `/vendor/agent-tools.js`
+  `foldTool` (it took the whole output alone) and the iOS app's port. The
+  shared transcript `output` pins it; the scripted test agent's `recap`
+  prompt plays it (`sdk/acp/acptest`).
 
 ## 2026-11-14
 
