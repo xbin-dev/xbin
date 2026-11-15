@@ -517,6 +517,9 @@ func (a *deploymentsAPI) getFetch(w http.ResponseWriter, r *http.Request) {
 // .git whose prefix is a registered tile: a tile path may hold
 // .git-suffixed segments, a git path never does.
 func (a *deploymentsAPI) splitRemote(rest string) (tileRef, string, *dpe) {
+	if util.SealedPath(strings.TrimLeft(rest, "/")) {
+		return tileRef{}, "", sealedTile(strings.TrimSuffix(strings.SplitN(strings.Trim(rest, "/"), ".git/", 2)[0], ".git")) // no checkpoints (D227)
+	}
 	segs := strings.Split(rest, "/")
 	for i := len(segs) - 1; i >= 0; i-- {
 		name, ok := strings.CutSuffix(segs[i], ".git")

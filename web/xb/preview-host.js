@@ -122,7 +122,7 @@ function start() {
     // a nested tile owns is refused too: the workspace's tile list, read
     // once (none when it can't be read).
     let tiles;
-    const known = () => (tiles ??= G.xbin.fetch('/api/xbin/components')
+    const known = () => (tiles ??= G.xbin.fetch('/api/xbin/components?sealed=1')
       .then((r) => (r.ok ? r.json() : []))
       .then((l) => (Array.isArray(l) ? l.map((c) => c?.path).filter((p) => typeof p === 'string') : []), () => []));
     view.loadImage = async (src) => {

@@ -38,6 +38,10 @@ type Options struct {
 	// run that shares the host with others keeps to the ports it was given
 	// (hack/demo/measure).
 	Addr string
+	// Production boots it without --dev: the xbind an install runs, which
+	// serves its embedded web and docs and never compiles a sealed
+	// component (D227). With Auth.
+	Production bool
 	// TryAddrs are tried, in order, before a free port is picked: for the
 	// harness's own test of a taken port. Nothing else sets it.
 	TryAddrs []string
@@ -197,7 +201,10 @@ func (d *Daemon) spawn(t testing.TB) (mark int64) {
 	if fi, err := os.Stat(d.log.Name()); err == nil {
 		mark = fi.Size()
 	}
-	args := []string{"--dev", "--isolate", "--rootfs", d.Rootfs(), "--workspace", d.WS, "--listen", d.Addr}
+	args := []string{"--isolate", "--rootfs", d.Rootfs(), "--workspace", d.WS, "--listen", d.Addr}
+	if !d.o.Production {
+		args = append([]string{"--dev"}, args...)
+	}
 	if !d.o.Auth {
 		args = append(args, "--no-auth")
 	}

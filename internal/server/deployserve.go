@@ -78,6 +78,15 @@ func (s *Server) deploymentRoot(owner, dep string) (root string, pinned, ok bool
 // primary), with primaryRoot's answers: the materialized root while pinned,
 // "" for the work tree, ok false when there is nothing to serve.
 func (s *Server) codeRoot(c *registry.Component, dep string) (root string, pinned, ok bool) {
+	if c.Sealed {
+		// A sealed component has one deployment and no work tree: its files
+		// are served from xbind's own materialized tree, opened beneath it
+		// like a pinned checkpoint, in every asset mode (sealed.go).
+		if dep != "" && dep != util.MainDeployment {
+			return "", false, false
+		}
+		return c.Dir, true, true
+	}
 	root, pinned, err := s.policy().CodeRoot(c, dep)
 	switch {
 	case err != nil, pinned && root == "":
@@ -99,7 +108,13 @@ func (s *Server) codeRoot(c *registry.Component, dep string) (root string, pinne
 // choose to retry"), so a deps/ link, which always climbs out with "..",
 // would answer 404 on a busy host instead of re-dispatching: the open is
 // retried a few times.
-func openPinned(root, owner, cleaned string) (*os.File, os.FileInfo, error) {
+//
+// A sealed component's files are never read from disk to be served: they
+// are the release's own bytes, from memory (openSealed, sealedfile.go).
+func (s *Server) openPinned(root, owner, cleaned string) (*os.File, os.FileInfo, error) {
+	if util.SealedPath(owner) {
+		return s.openSealed(owner, tileRel(owner, cleaned))
+	}
 	f, err := fsutil.OpenBeneath(root, tileRel(owner, cleaned))
 	for try := 0; errors.Is(err, syscall.EAGAIN) && try < openRetries; try++ {
 		f, err = fsutil.OpenBeneath(root, tileRel(owner, cleaned))
@@ -129,7 +144,7 @@ func tileRel(owner, cleaned string) string {
 func (s *Server) servePinnedStatic(w http.ResponseWriter, r *http.Request, cleaned, owner, root string) {
 	comp, _, _ := s.Reg.Resolve(cleaned)
 	s.serveCode(w, r, cleaned, owner, root, comp, func(name string) (*os.File, os.FileInfo, error) {
-		return openPinned(root, owner, name)
+		return s.openPinned(root, owner, name)
 	})
 }
 
@@ -213,7 +228,7 @@ func (s *Server) openAssetFile(w http.ResponseWriter, r *http.Request, owner, de
 	case !ok:
 		err = os.ErrNotExist
 	case pinned:
-		if f, fi, err = openPinned(root, owner, cleaned); err != nil && s.redispatchDeps(w, r, root, owner, cleaned, err) {
+		if f, fi, err = s.openPinned(root, owner, cleaned); err != nil && s.redispatchDeps(w, r, root, owner, cleaned, err) {
 			return nil, nil, true
 		}
 	default:
@@ -685,7 +700,7 @@ func (s *Server) serveQualified(w http.ResponseWriter, r *http.Request, cleaned 
 	open := s.openLegacy
 	switch {
 	case pinned:
-		open = func(name string) (*os.File, os.FileInfo, error) { return openPinned(root, owner, name) }
+		open = func(name string) (*os.File, os.FileInfo, error) { return s.openPinned(root, owner, name) }
 	case s.strictAssets():
 		open = func(name string) (*os.File, os.FileInfo, error) { return s.openStrict(owner, name) }
 	}

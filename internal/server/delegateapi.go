@@ -46,6 +46,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/term"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 const delegationDocs = "/docs/protocol/delegation.md"
@@ -754,6 +755,10 @@ func (s *Server) apiDelegateApprovalAdd(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	tile := strings.Trim(body.Tile, "/")
+	if util.SealedPath(tile) { // no standing approval names one: a person's agent does nothing in it (D227)
+		WriteError(w, http.StatusBadRequest, SealedRefusal(util.CanonPath(tile), sealedNoAgentWhat), SealedDocs)
+		return
+	}
 	if body.Scope == delegation.ScopeCall {
 		u, err := url.ParseRequestURI(body.Path)
 		if err != nil || u.RawQuery != "" || body.Method == "" || isRead(strings.ToUpper(body.Method)) || !strings.HasPrefix(u.Path, "/api/"+tile+"/") {

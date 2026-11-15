@@ -148,9 +148,11 @@ func (p Principal) IsAdmin() bool {
 // (frame/instance) are governed by grants, not the tile gates — read/write
 // pass them through so element self-calls aren't blocked here; a terminal is
 // a human-plane thing, so elements never get one.
-func (p Principal) CanReadTile(path string) bool  { return p.tileLevel(path, users.LevelRead) }
-func (p Principal) CanWriteTile(path string) bool { return p.tileLevel(path, users.LevelWrite) }
+func (p Principal) CanReadTile(path string) bool { return p.tileLevel(path, users.LevelRead) }
 func (p Principal) CanTerminalTile(path string) bool {
+	if util.SealedPath(path) {
+		return false // no such level on a sealed component (sealedlevels.go)
+	}
 	if p.IsAdmin() {
 		return true
 	}

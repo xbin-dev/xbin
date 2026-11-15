@@ -19,6 +19,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/preview"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // preview.go — "see what the user sees" (D234, docs/protocol/preview.md):
@@ -84,6 +85,9 @@ func (sc *previewScope) leaveOut(p string) {
 }
 
 func (sc *previewScope) has(tile string) bool {
+	if util.SealedPath(tile) {
+		return false // no render shows a sealed component's page, alone or on a screen (D227)
+	}
 	for _, t := range sc.tiles {
 		if tile == t || strings.HasPrefix(tile, t+"/") {
 			return true
@@ -444,6 +448,9 @@ func previewPerson(p auth.Principal, t PreviewTarget) (userID string, err error)
 // (previewPerson); this resolves what the render shows and so what its
 // socket admits.
 func (s *Server) RenderPreview(r *http.Request, userID string, t PreviewTarget) (*preview.Result, error) {
+	if util.SealedPath(t.Tile) { // before anything else answers: no render shows a sealed component (D227)
+		return nil, previewErr(http.StatusBadRequest, "%s", SealedRefusal(util.CanonPath(t.Tile), sealedNoPreview))
+	}
 	if s.Preview == nil {
 		return nil, fmt.Errorf("%w: not set up", preview.ErrUnavailable)
 	}
@@ -539,6 +546,9 @@ func (s *Server) previewPlan(main http.Handler, userID string, t PreviewTarget) 
 			return "", nil, previewErr(http.StatusBadRequest, "tile: not a tile path")
 		}
 		t.Tile = clean
+		if util.SealedPath(clean) {
+			return "", nil, previewErr(http.StatusBadRequest, "%s", SealedRefusal(clean, sealedNoPreview))
+		}
 		if !readable[clean] || isChrome(clean) {
 			return "", nil, previewErr(http.StatusNotFound, "no tile %s among the ones you can open", clean)
 		}

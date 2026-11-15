@@ -638,6 +638,7 @@ var delegateClasses = map[string]delegateRow{
 	"PUT /orgs/{org}/agents":          dNever(neverAdmin),
 	"PUT /orgs/{org}/agents/pin":      dNever(neverAdmin),
 	"GET /agents/connection":          dNo(noAgentRules),
+	"GET /sealed":                     dNever(neverAdmin), // system components, the agent's own among them: an admin's to look at, in their own session
 	"GET /llm":                        dNo(noLLM),
 	"GET /llm/config":                 dNo(noLLM),
 	"PUT /llm/config":                 dNever(neverAdmin),

@@ -49,7 +49,11 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		Path  string `json:"path"`
 		Owner string `json:"owner"` // as /create: "org:<id>" | "user:<id>" | "" (D24/D52)
 	}
-	if err := server.DecodeJSON(r, &body); err != nil || body.Name == "" {
+	err := server.DecodeJSON(r, &body)
+	if err == nil && sealedRefused(w, sealedNone(body.Path, sealedNoCreate)) {
+		return
+	}
+	if err != nil || body.Name == "" {
 		server.WriteError(w, http.StatusBadRequest, "need {name, path?, owner?}", "/docs/protocol.md")
 		return
 	}
@@ -167,7 +171,11 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 		ID   string `json:"id"`
 		Mode string `json:"mode"` // "replace" | "merge" | "pr" | "pin" | "unpin"
 	}
-	if err := server.DecodeJSON(r, &body); err != nil || body.ID == "" {
+	derr := server.DecodeJSON(r, &body)
+	if derr == nil && sealedRefused(w, sealedNone(body.ID, "it is updated with xbin itself")) {
+		return
+	}
+	if derr != nil || body.ID == "" {
 		server.WriteError(w, http.StatusBadRequest, "need {id, mode}", "/docs/protocol.md")
 		return
 	}

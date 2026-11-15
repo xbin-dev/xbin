@@ -160,6 +160,11 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		return SessionInfo{}, 403, errors.New("an agent session runs on a tile — pass cwd")
 	}
 	_, rel, err := util.SafeJoin(m.Root, cwd)
+	if err == nil && rel != "" {
+		if why := m.sessionDir(rel); why != "" {
+			return SessionInfo{}, 403, errors.New(why)
+		}
+	}
 	if err != nil || rel == "" || !p.CanTerminalTileVia(rel) {
 		return SessionInfo{}, 403, errors.New("your account doesn't have terminal access to this tile")
 	}

@@ -15303,3 +15303,48 @@ Deviations and refinements made while implementing; all deliberate:
     tile agents by itself after an xbind update (it is told they stopped
     and may ask to continue one, which asks the person); the reduced
     `$HOME` for started sessions (5.7).
+- **D227 — Sealed components: code that is always the running release's
+  (2026-11-14; issue #51).** The owner, on where the workspace agent runs:
+  a sealed system component, as a general facility, with "a very clean
+  auto-update story (eg code always = builtin template code)". **The
+  full record** — each rule's reasoning, what was weighed and rejected,
+  the owner's answers, four review rounds — is
+  `plans/wsagent/s1-sealed.md` §Decision record (moved there verbatim on
+  2026-11-15: this log is at its size guard). The rules:
+  - **A compiled-in table declares them** (`internal/sealed`; empty in a
+    release until `xbin/wsagent` is registered). Nothing in a workspace
+    declares one or is read about one. The path is `xbin/<name>`: `xbin`
+    is reserved, names are at most 18 characters, `xbin~*` is reserved,
+    and a name may not shadow an xbind route or page.
+  - **The code is the binary's**: rendered, hashed and materialized under
+    `.xbin/sealed`, verified before every start, pages served from
+    memory. Backends are prebuilt per release (`bin/sealed`, listed in
+    `sealed.json`); only `--dev`/`--no-auth` compile.
+  - **Holds, not fallbacks** (`no-build`, `foreign-data`, `newer-data`,
+    `stamp`, `needs-sandboxes`), shown by `/xbin/system` and `bx system`.
+  - **Its data key is its own**, claimed by a stamp with the data format;
+    unclaimed data at the key holds it and is never read, moved or
+    deleted; a newer format holds it (a downgrade).
+  - **Never a target**: no grant, binding or route reaches it or a
+    person's partition of it; only its instance credential acts as it;
+    its page's frame token is a viewer's (its own backend and files,
+    plus the exact GET paths its row names and, for a holder, the
+    delegation API).
+  - **What an admin may change**: who has read access (no level above
+    read exists on it), enabled, limits, the bindings of its declared
+    slots to providers the release names. Everything else is the table's.
+  - **The boundary is where the work is done**, on the canonical path
+    (`util.SealedPath`); the route table (`server/sealedclass.go`, pinned
+    by a golden) is the early answer. One spelling: an odd one is refused.
+  - **Restore is a write path**: only a sealed archive that names it,
+    under a backup key this workspace created; never while held.
+  - **Delegation** (D228, D232): holders, their notice path and the one
+    row that is the agent xbin's chrome frames are the table's
+    (`Capabilities.Delegate`, `Notify`, `Capabilities.Agent`). A person's
+    agent does nothing in a sealed component; no preview shows one.
+  - **Compat and words.** Listings leave sealed rows out unless asked
+    (`?sealed=1`). "Sealed component" in code and builder docs; people
+    read "system component", never beside the vault's sealed state.
+  - **Not done here.** No entry point in the shell, the admin console or
+    the app (the workspace agent's UI work adds them). The real-binary
+    downgrade suite has nothing sealed to downgrade until a row exists.

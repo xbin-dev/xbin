@@ -1,0 +1,336 @@
+package server
+
+// sealed.go — sealed components on the HTTP planes (D227). A sealed
+// component lives at xbin/<name>, inside the namespace of xbind's own API
+// (/api/xbin/…) and outside what /c/ serves (pathAllowed refuses the
+// reserved top-level names). Both planes ask the registry: a path owned by
+// a registered sealed component is that component's, served from xbind's
+// materialized tree (codeRoot) and proxied to its backend (handleAPI).
+
+import (
+	"fmt"
+	"net/http"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/util"
+)
+
+// sealedOwned reports whether urlPath ("xbin/agent/x.js") lies at or below a
+// registered sealed component.
+func (s *Server) sealedOwned(urlPath string) bool {
+	if s.Reg == nil || !util.SealedPath(urlPath) {
+		return false
+	}
+	c, _, ok := s.Reg.Resolve(urlPath)
+	return ok && c.Sealed
+}
+
+// WantsSealed reports whether a listing's caller asked for sealed
+// components too (?sealed=1). Listings leave them out otherwise, so a shell,
+// an admin console or an app that predates them never shows a tile it
+// can't open a terminal, the code or a deployment of (docs/compat.md).
+func WantsSealed(r *http.Request) bool {
+	switch r.URL.Query().Get("sealed") {
+	case "1", "true":
+		return true
+	}
+	return false
+}
+
+// SealedNameClash names what of xbind's own a sealed component called name
+// would shadow ("" = nothing): an /api/xbin route whose first path segment
+// is the name (its API prefix is /api/xbin/<name>/…), or an xbind page
+// /xbin/<name>. apiPatterns are RegisterAPI patterns, corePatterns the
+// top-level mux's.
+func SealedNameClash(name string, apiPatterns, corePatterns []string) string {
+	for _, pat := range apiPatterns {
+		seg, _, _ := strings.Cut(strings.TrimPrefix(patternPath(pat), "/"), "/")
+		if seg == name || strings.HasPrefix(seg, "{") && !strings.HasPrefix(seg, "{$") {
+			return fmt.Sprintf("xbind's API route %q", pat)
+		}
+	}
+	for _, pat := range corePatterns {
+		if p := patternPath(pat); p == "/xbin/"+name || strings.HasPrefix(p, "/xbin/"+name+"/") {
+			return fmt.Sprintf("xbind's page %q", pat)
+		}
+	}
+	return ""
+}
+
+// patternPath is a ServeMux pattern without its method.
+func patternPath(pat string) string {
+	if i := strings.IndexByte(pat, ' '); i >= 0 {
+		return pat[i+1:]
+	}
+	return pat
+}
+
+// SealedAPIClash names the first registered sealed component whose name
+// shadows something of xbind's own (SealedNameClash), "" when none does.
+// Boot refuses to serve with one, after every route is registered: a
+// sealed component can never take a route of the API over, and a new route
+// can never be added under a sealed name unnoticed.
+func (s *Server) SealedAPIClash() string {
+	if s.Reg == nil {
+		return ""
+	}
+	for _, c := range s.Reg.SealedComponents() {
+		if what := SealedNameClash(strings.TrimPrefix(c.Path, util.SealedPrefix), s.apiPatterns, s.corePatterns); what != "" {
+			return fmt.Sprintf("sealed component %s would shadow %s", c.Path, what)
+		}
+	}
+	return ""
+}
+
+// A sealed component's code changes under its open pages when xbind
+// restarts onto another release: the page in the browser is the old
+// release's, the backend the new one's. Nothing checks a tile for that — a
+// tile's code is one tree its authors move together — but a sealed
+// component's two halves are a release's, and its frontend is written
+// against exactly that release's backend. So the page says which code it
+// is, and xbind turns away a request from a page of other code:
+//
+//   - every document of a sealed component carries its code's id (the
+//     xbin-code meta, sealedCodeMeta);
+//   - the injected client sends it with each call to the component's own
+//     API: the X-XBin-Code header on xbin.fetch, the xbin-code query
+//     parameter on the URLs it builds for sockets and tags (consumed here,
+//     never forwarded);
+//   - a request that names other code than the running release's answers
+//     409 with X-XBin-Reload: <the current id>, and a reload event for the
+//     component goes out, so every open frame of it loads the new page
+//     (bx-frame reloads on that event as it does for a tile's save; the
+//     client reloads a page opened by itself).
+//
+// A request that names no code — a backend, a script, an admin's call — is
+// not a page and passes. The check needs no state across restarts: the id
+// is in the page.
+const (
+	// SealedCodeHeader carries the id of the code a sealed component's page
+	// was served from.
+	SealedCodeHeader = "X-XBin-Code"
+	// SealedCodeQuery is the same on a URL (a socket, a tag-driven request).
+	SealedCodeQuery = "xbin-code"
+	// SealedReloadHeader, on the 409, names the code the release runs now.
+	SealedReloadHeader = "X-XBin-Reload"
+)
+
+// sealedCodeMeta is the head injection's xbin-code meta for a sealed
+// component's document; "" for every other.
+func sealedCodeMeta(c *registry.Component) string {
+	if c == nil || !c.Sealed || c.SealedID == "" {
+		return ""
+	}
+	return fmt.Sprintf("<meta name=\"xbin-code\" content=\"%s\">\n", htmlEscape(c.SealedID))
+}
+
+// sealedStale answers a call to a sealed component's API from a page of
+// other code than the running release's (true: answered), and takes the
+// xbin-code parameter off the URL. rest is the path after /api/.
+//
+// Only the component's own page is ever told to reload: the code a request
+// names counts when the caller is that component's frame principal, and
+// the reload event goes to that person's own sockets (sealedReloadFor) —
+// once it went to everyone, before any access check, so any credential
+// with a made-up X-XBin-Code reloaded every open frame once a second.
+func (s *Server) sealedStale(w http.ResponseWriter, r *http.Request, rest string) bool {
+	c, _, ok := s.Reg.Resolve(rest)
+	if !ok || !c.Sealed {
+		return false
+	}
+	code := r.Header.Get(SealedCodeHeader)
+	q := r.URL.Query()
+	if v := q.Get(SealedCodeQuery); v != "" {
+		if code == "" {
+			code = v
+		}
+		q.Del(SealedCodeQuery) // xbind's own, like ?frame=: the backend never sees it
+		r.URL.RawQuery = q.Encode()
+	}
+	p := auth.PrincipalOf(r)
+	if code == "" || code == c.SealedID || p.Via != "frame" || p.Component != c.Path {
+		return false // no page of this component: nothing to compare
+	}
+	s.sealedReload(c.Path, p)
+	w.Header().Set(SealedReloadHeader, c.SealedID)
+	WriteError(w, http.StatusConflict, c.Path+" was updated with xbin: its page reloads onto the new version", SealedDocs)
+	return true
+}
+
+// sealedReloadFor is a reload event's audience: the person whose page was
+// stale (the root token's own pages for owner), nobody else's frames.
+type sealedReloadFor struct {
+	user  string
+	owner bool
+}
+
+func (f sealedReloadFor) VisibleTo(p auth.Principal) bool {
+	if f.owner {
+		return p.UserID == "" && (p.Owner || p.Via == "frame")
+	}
+	return f.user != "" && p.UserID == f.user
+}
+
+func (sealedReloadFor) MarshalJSON() ([]byte, error) { return []byte("{}"), nil }
+
+// sealedReloads spaces the reload events of a component for one person: a
+// stale page may fire many requests before it is gone.
+var sealedReloads struct {
+	sync.Mutex
+	last map[string]time.Time
+}
+
+// sealedReload tells the caller's open frames of the sealed component at
+// path to load its page again (at most once a second per person).
+func (s *Server) sealedReload(path string, p auth.Principal) {
+	if s.Hub == nil {
+		return
+	}
+	key := path + "\x00" + p.UserID
+	sealedReloads.Lock()
+	if sealedReloads.last == nil {
+		sealedReloads.last = map[string]time.Time{}
+	}
+	recent := time.Since(sealedReloads.last[key]) < time.Second
+	if !recent {
+		sealedReloads.last[key] = time.Now()
+		for k, at := range sealedReloads.last { // (bounded: entries older than a minute go)
+			if time.Since(at) > time.Minute {
+				delete(sealedReloads.last, k)
+			}
+		}
+	}
+	sealedReloads.Unlock()
+	if !recent {
+		s.Hub.Publish(events.Event{Type: "reload", Component: path, Data: sealedReloadFor{user: p.UserID, owner: p.UserID == ""}})
+	}
+}
+
+// Viewing the workspace as someone (an admin's view-as session) opens
+// nothing of a sealed component: not its page, not its backend, not a
+// token of it. What people keep in one is theirs; an admin who looks
+// through a person's eyes would otherwise read that person's partition, or
+// a one-instance component's conversation with them, read-only but in full.
+func (s *Server) sealedViewAs(r *http.Request, p auth.Principal) bool {
+	if !p.ReadOnly() {
+		return false
+	}
+	if util.SealedPath(p.Component) {
+		return true // a token minted in such a session
+	}
+	path := r.URL.Path
+	for _, plane := range []string{"/api/", "/c/"} {
+		if rest, ok := strings.CutPrefix(path, plane); ok && s.sealedOwned(rest) {
+			return true
+		}
+	}
+	return path == "/api/xbin/frame-token" && util.SealedPath(r.URL.Query().Get("component"))
+}
+
+// refuseSealedViewAs answers what sealedViewAs refuses.
+func refuseSealedViewAs(w http.ResponseWriter, r *http.Request) {
+	const msg = "viewing the workspace as someone opens nothing of a system component: what people keep in one is theirs"
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		WriteError(w, http.StatusForbidden, msg, SealedDocs)
+		return
+	}
+	http.Error(w, msg, http.StatusForbidden)
+}
+
+// A sealed component's frame token is a viewer's (D227). A tile's frame
+// token carries the tile's authority — its page may use the tile's
+// resources and grants directly — because a tile's page and backend are one
+// author's code under one trust. A sealed component's backend is xbind's
+// own code holding what the release gave it (people's partitions, table
+// grants, a bound model provider), and its page runs in the browser of
+// whoever may read it: the token that page holds must not be the
+// component. So the principal such a token authenticates reaches
+//
+//   - the component's own backend, /api/xbin/<name>/… (which sees the
+//     viewer and decides);
+//   - its own renewal and "who am I" (GET /frame-token, GET /whoami);
+//   - the events socket (reload and status events for its component; a bus
+//     subscription is refused where it is authorized, broker.allowAt);
+//
+// and nothing else that takes a credential: no /api/xbin route, no other
+// tile's API, no terminal, no other tile's files. The rule keys on the
+// credential, never on a request's parameters, and sits where a credential
+// becomes a request's principal: authed, which every authenticated route
+// of the workspace origin passes; authedStatic (the /c/ plane); and
+// serveTileOriginAuthed (origins mode: the cookie of a sealed component's
+// own origin is the same viewer). Only the backend's own instance
+// credential acts as the component (broker.sealedActor).
+
+// SealedViewer reports the principal of a sealed component's frame token.
+func SealedViewer(p auth.Principal) bool {
+	return p.Via == "frame" && util.SealedPath(p.Component)
+}
+
+// sealedViewerAllowed reports whether a sealed component's viewer may send
+// r. Beside the short list every sealed page has, two extensions, both the
+// release's and neither a way to write as the component:
+//
+//   - a component that holds delegation (auth.HoldsDelegation, the table's
+//     Capabilities.Delegate): the delegation API, /api/xbin/delegate/… —
+//     its page is where the person approves what their agent asks, and
+//     those handlers take the page only as that person's own, signed-in
+//     frame (delegateActorOf);
+//   - the table's FrameReads for the component: exact paths under
+//     /api/xbin/, and only for GET or HEAD — an entry can't allow anything
+//     that writes, whatever it names.
+func (s *Server) sealedViewerAllowed(r *http.Request, p auth.Principal) bool {
+	if sealedViewerBase(r, p) {
+		return true
+	}
+	path := r.URL.Path
+	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") || strings.Contains(path, "//") {
+		return false
+	}
+	if auth.HoldsDelegation(p.Component) && strings.HasPrefix(path, "/api/xbin/delegate/") {
+		return true
+	}
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.Reg != nil {
+		if c, ok := s.Reg.Component(p.Component); ok && c.Sealed && slices.Contains(c.SealedReads, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// sealedViewerBase is what every sealed component's viewer may send.
+func sealedViewerBase(r *http.Request, p auth.Principal) bool {
+	path := r.URL.Path
+	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") || strings.Contains(path, "//") {
+		return false // only a path that reads one way
+	}
+	if own := "/api/" + p.Component; strings.HasPrefix(path, own+"/") || path == own {
+		return true
+	}
+	if strings.HasPrefix(path, "/c/"+p.Component+"/") { // its own page's files
+		return true
+	}
+	switch path {
+	case "/api/xbin/frame-token", "/api/xbin/whoami":
+		return r.Method == http.MethodGet
+	case "/ws/events":
+		return true
+	}
+	return false
+}
+
+// refuseSealedViewer answers a request a sealed component's viewer may not
+// send.
+func refuseSealedViewer(w http.ResponseWriter, r *http.Request, p auth.Principal) {
+	msg := SealedRefusal(p.Component, "its page reaches its own backend only; what it holds is its backend's to use")
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		WriteError(w, http.StatusForbidden, msg, SealedDocs)
+		return
+	}
+	http.Error(w, msg, http.StatusForbidden)
+}

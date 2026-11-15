@@ -229,6 +229,9 @@ func firstLine(s string) string {
 // function. Lives here so main stays a one-liner.
 func DispatchViaProxy(h http.Handler) func(p auth.Principal, comp, path string) (int, string) {
 	return func(p auth.Principal, comp, path string) (int, string) {
+		if comp == "" || util.CanonPath(comp) != comp {
+			return http.StatusBadRequest, "not a component's path" // a row from a hand-edited file: never "/api//xbin/…" (sealedguard.go)
+		}
 		req := httptest.NewRequest("POST", "/api/"+comp+path, nil)
 		req = req.WithContext(auth.WithPrincipal(context.Background(), p))
 		rec := httptest.NewRecorder()
@@ -257,7 +260,7 @@ func (b *Broker) apiCronList(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, code, err.Error(), "/docs/resources.md")
 		return
 	}
-	keep := func(comp string) bool { return admin || p.Component == comp }
+	keep := func(comp string) bool { return admin && listSealed(r, comp) || p.Component == comp }
 	var jobs []cronJob
 	if dep == util.MainDeployment {
 		b.cron.mu.Lock()
@@ -284,6 +287,13 @@ func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 		j.Component = p.Component // elements schedule only themselves
 	} else if j.Component == "" {
 		server.WriteError(w, http.StatusBadRequest, "owner-registered jobs need \"component\"")
+		return
+	}
+	if sealedRefused(w, cmp.Or(sealedOwn(p, j.Component, sealedOwnRegs), sealedOwn(p, j.Resource, sealedOwnRegs))) {
+		return // a sealed component's deliveries are its backend's to register (sealedguard.go)
+	}
+	if !b.componentNamed(j.Component) { // its deliveries go to /api/<component>/…: one spelling, a real path
+		server.WriteError(w, http.StatusBadRequest, fmt.Sprintf("%q is not a component's path", j.Component), "/docs/resources.md")
 		return
 	}
 	if b.partitionParamRefused(w, r, j.Component) || b.globalAddressRegRefused(w, j.Component, j.Path, "cron") {
@@ -337,6 +347,9 @@ func (b *Broker) apiCronDelete(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	if !b.IsAdmin(p) {
 		comp = p.Component // unprivileged callers can only delete their own
+	}
+	if sealedRefused(w, sealedOwn(p, comp, sealedOwnRegs)) {
+		return
 	}
 	if b.partitionParamRefused(w, r, comp) {
 		return

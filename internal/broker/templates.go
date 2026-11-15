@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"cmp"
 	"log/slog"
 	"net/http"
 	"os"
@@ -93,6 +94,9 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	// (the ownership path rule; the confused-deputy clamp applies), and copying
 	// a WORKSPACE template additionally needs read on the source.
 	p := auth.PrincipalOf(r)
+	if sealedRefused(w, cmp.Or(sealedNone(body.Source, "it is no template, and nothing is created under xbin/"), sealedNone(body.Path, sealedNoCreate))) {
+		return
+	}
 	isBuiltin := b.templates != nil && templateExists(b.templates, body.Source)
 	var srcComp *registry.Component
 	if !isBuiltin {

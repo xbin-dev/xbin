@@ -129,7 +129,11 @@ func dedupSortTags(tags []string) []string {
 // apiGitImport (POST /git/import {url, path?, ref?}) clones a remote component in.
 func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 	var body struct{ URL, Path, Ref, Owner string } // owner as /create (D24/D52)
-	if err := server.DecodeJSON(r, &body); err != nil || !validGitURL(strings.TrimSpace(body.URL)) {
+	err := server.DecodeJSON(r, &body)
+	if err == nil && sealedRefused(w, sealedNone(body.Path, sealedNoCreate)) {
+		return
+	}
+	if err != nil || !validGitURL(strings.TrimSpace(body.URL)) {
 		server.WriteError(w, http.StatusBadRequest, "need {url, path?, ref?, owner?} with a valid git URL")
 		return
 	}

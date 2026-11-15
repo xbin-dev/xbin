@@ -193,7 +193,11 @@ func (b *Broker) apiPartitionReviewed(w http.ResponseWriter, r *http.Request) {
 		Tile string `json:"tile"`
 		On   *bool  `json:"on"`
 	}
-	if err := server.DecodeJSON(r, &body); err != nil || body.Tile == "" || body.On == nil {
+	err := server.DecodeJSON(r, &body)
+	if err == nil && sealedRefused(w, sealedNone(strings.Trim(body.Tile, "/"), sealedNoMode)) {
+		return // its code is the release's: nothing to review (sealedguard.go)
+	}
+	if err != nil || body.Tile == "" || body.On == nil {
 		server.WriteError(w, http.StatusBadRequest, "need {tile, on: true|false}", "/docs/protocol.md")
 		return
 	}

@@ -14,6 +14,18 @@ import Testing
             == .tile(workspace: "xbin.example.com:8443", tile: "apps/x", fragment: nil))
     }
 
+    // A system (sealed) component lives at xbin/<name> (D227). It is a
+    // component: its link is a tile link, `c/xbin/<name>/…`, like any
+    // tile's. `xbin/<page>` stays what it was, one of xbind's own pages —
+    // so an app that predates system components reads every link as before.
+    @Test func systemComponentLinksAreTileLinks() throws {
+        #expect(try DeepLink(string: "xbin://ws1/c/xbin/wsagent") == .tile(workspace: "ws1", tile: "xbin/wsagent", fragment: nil))
+        #expect(try DeepLink(string: "xbin://ws1/c/xbin/wsagent/#c=abc") == .tile(workspace: "ws1", tile: "xbin/wsagent", fragment: "c=abc"))
+        #expect(DeepLink.tile(workspace: "ws1", tile: "xbin/wsagent", fragment: nil).string == "xbin://ws1/c/xbin/wsagent")
+        #expect(try DeepLink(string: "xbin://ws1/xbin/partitions") == .page(workspace: "ws1", page: .partitions))
+        #expect(throws: DeepLink.Invalid.self) { try DeepLink(string: "xbin://ws1/xbin/wsagent") }
+    }
+
     @Test func sessionAndWorkspaceLinks() throws {
         #expect(try DeepLink(string: "xbin://ws1/term/s-9f3") == .terminal(workspace: "ws1", session: "s-9f3"))
         #expect(try DeepLink(string: "xbin://ws1/agent/a1/") == .agent(workspace: "ws1", session: "a1"))

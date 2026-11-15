@@ -187,6 +187,7 @@ type Manager struct {
 	// (wired to the deployments plane by main); nil ⇒ no tile has one, and
 	// sessions get today's env.
 	HasDeploymentRecord func(tile string) bool
+	TileAt              func(rel string) (tile string, ok bool) // the registered tile a path is or lies in (sessiondir.go)
 	// TileDeployments answers what a session's target choice needs to know
 	// of a tile (D127p, target.go); nil: the zero state for every tile.
 	TileDeployments TileDeploymentsFunc
@@ -284,8 +285,8 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, rel, err := util.SafeJoin(m.Root, cwd)
-		if err != nil || rel == "" || !p.CanTerminalTile(rel) {
-			http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
+		if why := m.noTerminal(p, rel, err); why != "" { // a tile, never xbind's own trees or a sealed component (sessiondir.go)
+			http.Error(w, why, http.StatusForbidden)
 			return
 		}
 		o := m.openOptsFor(p, rel, cwd, netMode, gpuMode, apiAccess)
@@ -541,14 +542,6 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 	}
 	cmd.Env = append(cmd.Env, o.llmShellEnv(cmd.Env)...) // a terminal's XBIN_LLM_* (llmhook.go)
 	return cmd, func() {}, nil, "", cmd.Env, nil
-}
-
-// termKey is the per-component key for a terminal's persistent layer.
-func termKey(rel string) string {
-	if rel == "" {
-		return "_root"
-	}
-	return util.CompKey(rel)
 }
 
 // acquireEnv reserves the persistent layer for key if free (only one live

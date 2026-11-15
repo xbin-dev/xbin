@@ -35,11 +35,13 @@ package broker
 // tile's code each person's agent.
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // agentPolicy is the installed agent policy (Broker.AgentPolicy), or the
@@ -60,6 +62,10 @@ func (b *Broker) DelegateTile(p auth.Principal, tile string, write bool) (level,
 		return "", "", false, fmt.Errorf("%s calls itself with its own credential, not as %s", p.Agent, p.UserID)
 	case auth.HoldsDelegation(tile):
 		return "", "", false, fmt.Errorf("%s is a sealed system component: nothing calls it but its own pages", tile)
+	case util.SealedPath(tile):
+		// every sealed component, holder or not (D227): a person's agent
+		// acts on tiles, with the person's access to them
+		return "", "", false, errors.New(util.SealedRefusal(util.CanonPath(tile), sealedNoAgent))
 	}
 	if err := b.personLive(p.UserID, tile); err != nil {
 		return "", "", false, err

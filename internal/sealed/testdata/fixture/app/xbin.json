@@ -1,0 +1,9 @@
+{
+  // The sealed fixture component (table_fixture.go): rendered at xbin/probe
+  // (one instance) and xbin/people (one per person).
+  "runtime": "go",
+  "title": "Sealed fixture",
+  "uses": [{ "target": "res:apps/fixture/kv", "role": "writer" }],
+  "interfaces": { "llm": { "kind": "http", "service": "openai" } },
+  "expose": { "roles": { "writer": "dropped: a sealed component exposes none" } }
+}

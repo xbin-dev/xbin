@@ -8,9 +8,10 @@ package boot
 //
 //   - WHICH COMPONENT IS THE AGENT HERE: srv.AgentHolder, from the same
 //     table — the component whose page xbin's chrome frames below its
-//     header (GET /delegate/state's agent; server/agentpage.go). Until
-//     then the chrome says no agent ships with this xbind, and the notice
-//     that names /xbin/agent is sent to nobody.
+//     header (GET /delegate/state's agent; server/agentpage.go): the
+//     row marked Capabilities.Agent (boot.go, beside this file's call).
+//     A table without one — a release today — ships no agent: the chrome
+//     says so, and the notice that names /xbin/agent is sent to nobody.
 //   - WHO HOLDS DELEGATION: auth.SetDelegateHolders, pointed at the
 //     sealed-component table (internal/sealed, Capabilities.Delegate) when
 //     it is in the tree. Until then no lookup is installed and no component

@@ -670,7 +670,7 @@ func (b *Broker) resScope(target string) (resTarget, bool) {
 		return resTarget{Name: name}, true
 	}
 	scopes := b.Reg.Scopes()
-	for p := rest; p != "." && p != ""; {
+	for p := rest; p != "." && p != "" && p != "/"; { // path.Dir("/") is "/": "res:/x" must end the walk
 		dir := path.Dir(p)
 		if _, ok := scopes[dir]; ok && dir != "." {
 			return resTarget{Scope: dir, Name: strings.TrimPrefix(rest, dir+"/")}, true
@@ -687,6 +687,12 @@ func (b *Broker) resScope(target string) (resTarget, bool) {
 // the read clamp: a deployment beyond its tile's primary never writes any
 // data but its own (08-data §7) (D127a).
 func (b *Broker) allowAt(p auth.Principal, ra reach, want string) error {
+	if err := sealedOwn(p, ra.rt.Scope, sealedOwnRes); err != nil {
+		return err // whichever branch below would have answered (sealedguard.go)
+	}
+	if sealedViewer(p) {
+		return &sealedError{Status: http.StatusForbidden, Msg: util.SealedRefusal(p.Component, "its page uses nothing as the component: what it is granted is its backend's to use")}
+	}
 	id := ra.rt.String()
 	switch _, res, ok := b.parseRes(id); {
 	case ok && res != nil:

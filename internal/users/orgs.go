@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agentpolicy"
+
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Policy deny kinds (D20): the capability classes a policy row may strip from
@@ -202,6 +204,9 @@ func (s *Store) SetOwner(path, ref string) error {
 	path = strings.Trim(path, "/")
 	if path == "" {
 		return fmt.Errorf("component path required")
+	}
+	if util.SealedPath(path) {
+		return fmt.Errorf("%s is a system component, managed by xbin: it has no owner", path)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -425,6 +430,9 @@ func (s *Store) SetOrgAllow(orgID string, allow []string) error {
 func (s *Store) SetOrgTile(orgID, path, level string) error {
 	if level != "" && levelRank(level) == 0 {
 		return fmt.Errorf("unknown level %q (want read|write|terminal, or empty to remove)", level)
+	}
+	if err := sealedLevel(path, level); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1387,6 +1395,9 @@ func (s *Store) SetDefaultTiles(m map[string]string) error {
 			return fmt.Errorf("defaultTiles[%q]: unknown level %q (want read|write|terminal)", pat, l)
 		}
 	}
+	if err := sealedLevels(m); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	nm := make(map[string]string, len(m))
@@ -1418,6 +1429,9 @@ func contains(list []string, v string) bool {
 func (s *Store) SetUserTile(id, path, level string) error {
 	if level != "" && level != LevelNone && levelRank(level) == 0 {
 		return fmt.Errorf("unknown level %q (want read|write|terminal, none to exclude, or empty to remove)", level)
+	}
+	if err := sealedLevel(path, level); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

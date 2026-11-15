@@ -36,6 +36,30 @@ Two things always work regardless of the network:
 - **Nothing else, by default.** A backend has **no IP egress** until the owner
   binds its `net` interface (see **Network egress** below).
 
+### Sealed components run here too
+
+A sealed component ([sealed.md](/docs/sealed.md)) — a part of xbin that
+runs like a tile, with the release's own code — gets this same sandbox,
+with the same mounts, limits, gateway and default-deny network:
+
+| Mount | Access | What it is |
+|-------|--------|------------|
+| its code | read-only | xbind's own copy of the release's files (`.xbin/sealed/<name>/<digest>`), compared with the release's and written again before every start; never a directory of the workspace, and never what its pages are served from (those are the release's bytes, from memory) |
+| its backend | read-only | the release's prebuilt binary (`bin/sealed/<name>-<digest>` beside xbind), at `/run/backend` |
+| its resource dirs | read-write | its own scope's; a person's partition of it has that person's |
+
+Nothing compiles on the host for it: a production xbind without the
+release's build of a sealed backend holds the component (and says so)
+instead of building it. Only a development xbind (`--dev` or `--no-auth`)
+compiles one, through the same confined build a tile's backend gets, with
+no workspace module in reach.
+
+A sealed component that keeps each person's data apart needs sandboxes as
+any partitioned tile does: without `--isolate` it is unavailable, except
+that a development xbind runs it as one global instance
+([sealed.md](/docs/sealed.md) → Partitions need sandboxes). There is no
+terminal plane for one: no terminal, no dev layer, no coding agent.
+
 ## Confined tool runs (xbind's own work on your tile)
 
 Some work on your tile is done by xbind itself rather than by your code:

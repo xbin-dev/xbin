@@ -163,6 +163,10 @@ func matchTile(t, path string) bool {
 // the level outright — including `none` as an explicit exclusion — while
 // pattern entries union upward as before.
 func (u *User) TileLevel(path string) string {
+	return capSealed(path, u.tileLevel(path))
+}
+
+func (u *User) tileLevel(path string) string {
 	if u.IsAdmin() {
 		return LevelTerminal
 	}
@@ -202,8 +206,8 @@ func (u *User) CanTerminal() bool {
 	if u.NoTerminal {
 		return false
 	}
-	for _, l := range u.Tiles {
-		if levelRank(l) >= levelRank(LevelTerminal) {
+	for path, l := range u.Tiles {
+		if terminalEntry(path, l) { // (never an entry on a sealed path, sealed.go)
 			return true
 		}
 	}
@@ -524,6 +528,9 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 			return nil, fmt.Errorf("tiles[%q]: unknown level %q (want read|write|terminal, or none to exclude)", t, l)
 		}
 	}
+	if err := sealedLevels(u.Tiles); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing := s.byID[u.ID]
@@ -604,6 +611,9 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 func (s *Store) GrantTile(id, path, level string) error {
 	if levelRank(level) == 0 {
 		return fmt.Errorf("unknown level %q", level)
+	}
+	if err := sealedLevel(path, level); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

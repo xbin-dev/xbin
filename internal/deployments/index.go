@@ -377,6 +377,9 @@ func (x *index) lock(tile string) func() {
 // a tile binds the record to it: its schema, the tile's current owner ref
 // and a creation stamp. change may not edit the binding or seq.
 func (x *index) commit(tile string, expect int64, change func(*Record) error) (*Record, error) {
+	if util.SealedPath(tile) {
+		return nil, errSealed(tile) // no record is ever written for one (D227)
+	}
 	unlock := x.lock(tile)
 	defer unlock()
 	f := x.lookup(tile)

@@ -206,8 +206,8 @@ func (b *Broker) apiTemplateUpdates(w http.ResponseWriter, r *http.Request) {
 	infos := map[string]tplInfo{} // template name → HEAD + root commit (cached per request)
 	out := []TemplateInstanceUpdate{}
 	for _, c := range b.Reg.Components() {
-		if !isRepo(c.Dir) || !p.CanReadTile(c.Path) {
-			continue
+		if c.Sealed || !isRepo(c.Dir) || !p.CanReadTile(c.Path) {
+			continue // a sealed component is no instance: it updates with xbind
 		}
 		url, err := runGitIn(c.Dir, "remote", "get-url", "template")
 		if err != nil {

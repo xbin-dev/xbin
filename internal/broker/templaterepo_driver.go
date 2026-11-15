@@ -117,6 +117,9 @@ const maxDriverFailures = 3
 func (b *Broker) EnsureTemplateMergeDrivers() {
 	failed := 0
 	for _, c := range b.Reg.Components() {
+		if c.Sealed {
+			continue // no repo, nothing to merge: its code is the release's (D227)
+		}
 		err := b.ensureTemplateMergeDriver(c.Dir, c.Path)
 		if err == nil {
 			continue

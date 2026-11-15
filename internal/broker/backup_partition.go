@@ -219,7 +219,7 @@ func (b *Broker) writePartitionArchive(bw *backup.Writer, c *registry.Component,
 	m := backup.Manifest{Schema: backup.SchemaSplit, Kind: backup.KindPartition, Component: c.Path, Scope: c.Scope,
 		ScopeRoot: c.Scope == c.Path, Resources: map[string]string{}, XBinVersion: b.Version,
 		Created: time.Now().UTC().Format(time.RFC3339), Includes: []string{"partition"},
-		Partition: &backup.PartitionRef{ID: a.pkey, User: a.user, UID: a.uid, Deployment: a.dep}}
+		Partition: &backup.PartitionRef{ID: a.pkey, User: a.user, UID: a.uid, Deployment: a.dep}, SealedData: b.sealedDataFormat(c.Path)}
 	if a.ns {
 		m.Includes = append(m.Includes, "data")
 		for name, res := range declared {

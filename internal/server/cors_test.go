@@ -28,7 +28,7 @@ func TestNullOriginCORS(t *testing.T) {
 		t.Fatalf("preflight: served=%v code=%d", served, w.Code)
 	}
 	allowed := strings.ToLower(w.Header().Get("Access-Control-Allow-Headers"))
-	for _, hd := range []string{"content-type", "x-xbin-frame-token", "mcp-session-id", "mcp-protocol-version", "last-event-id"} {
+	for _, hd := range []string{"content-type", "x-xbin-frame-token", "mcp-session-id", "mcp-protocol-version", "last-event-id", "x-xbin-code"} {
 		if !strings.Contains(allowed, hd) {
 			t.Errorf("preflight doesn't allow %s: %q", hd, allowed)
 		}
@@ -38,7 +38,7 @@ func TestNullOriginCORS(t *testing.T) {
 	req.Header.Set("Origin", "null")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if !served || w.Header().Get("Access-Control-Allow-Origin") != "null" || w.Header().Get("Access-Control-Expose-Headers") != "Mcp-Session-Id" {
+	if !served || w.Header().Get("Access-Control-Allow-Origin") != "null" || w.Header().Get("Access-Control-Expose-Headers") != "Mcp-Session-Id, X-XBin-Reload" {
 		t.Fatalf("answer: served=%v headers=%v", served, w.Header())
 	}
 

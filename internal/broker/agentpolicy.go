@@ -132,6 +132,9 @@ func (b *Broker) AgentHarnesses(tile string) agentpolicy.Allow {
 // not ask whether the person can read the tile — the caller's own gates
 // do (DelegateTile).
 func (b *Broker) WorkspaceAgentGate(userID, tile string, model *agentpolicy.ModelRef) error {
+	if err := sealedNone(tile, sealedNoAgent); err != nil {
+		return err // no rule lets a person's agent into a sealed component (sealedguard.go)
+	}
 	return b.AgentCheck(tile, agentpolicy.Ask{WorkspaceAgent: true, Model: model}).Err()
 }
 
@@ -147,6 +150,9 @@ func (b *Broker) AgentTileAllows(holder, user, tile, model string) error {
 }
 
 func (b *Broker) AgentSessionAllows(holder, user, tile, model, harness string) error {
+	if err := sealedNone(tile, sealedNoAgent); err != nil {
+		return err
+	}
 	if err := b.AgentCheck(tile, agentpolicy.Ask{WorkspaceAgent: true, Harness: harness, Model: b.ResolveModel(model)}).Err(); err != nil {
 		return err
 	}
@@ -202,8 +208,8 @@ func (b *Broker) agentInput(p auth.Principal, scope agentpolicy.Scope, model *ag
 	in := agentpolicy.Input{Scope: scope, Model: model}
 	seen := map[string]bool{}
 	for _, c := range b.Reg.Components() {
-		if c.IsTemplate() || c.Path == "root" || c.Path == "shell" || !p.CanReadTile(c.Path) {
-			continue
+		if c.IsTemplate() || c.Sealed || c.Path == "root" || c.Path == "shell" || !p.CanReadTile(c.Path) {
+			continue // a sealed component is never a target: no agent connects to one (D227)
 		}
 		t := agentpolicy.Tile{Path: c.Path, Name: c.Manifest.DisplayTitle()}
 		if b.Users != nil {

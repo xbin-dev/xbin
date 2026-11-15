@@ -292,7 +292,7 @@ func (s *Server) serveAssetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, cleaned, err := util.SafeJoin(s.Reg.Root, rel)
-	if err != nil || !pathAllowed(cleaned) {
+	if err != nil || !pathAllowed(cleaned) && !s.sealedOwned(cleaned) { // a sealed component's files are its tree's (sealed.go)
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}

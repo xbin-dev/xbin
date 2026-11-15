@@ -138,13 +138,16 @@ type componentInfo struct {
 	Path string `json:"path"`
 	// Title and Icon are the manifest's, cleaned (D194): what the shell and
 	// the app call the tile beside its path. Absent when it gives none.
-	Title       string   `json:"title,omitempty"`
-	Icon        string   `json:"icon,omitempty"`
-	Scope       string   `json:"scope,omitempty"`
-	Runtime     string   `json:"runtime,omitempty"`
-	HasIndex    bool     `json:"hasIndex"`
-	Template    bool     `json:"template,omitempty"` // a blueprint, not a live tile
-	State       string   `json:"state,omitempty"`    // lifecycle; "" = enabled (offloaded/disabled hidden by clients)
+	Title    string `json:"title,omitempty"`
+	Icon     string `json:"icon,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	Runtime  string `json:"runtime,omitempty"`
+	HasIndex bool   `json:"hasIndex"`
+	Template bool   `json:"template,omitempty"` // a blueprint, not a live tile
+	// Sealed marks a component whose code is xbind's own (sealed.go): it
+	// has no source to open, edit, clone, deploy or delete.
+	Sealed      bool     `json:"sealed,omitempty"`
+	State       string   `json:"state,omitempty"` // lifecycle; "" = enabled (offloaded/disabled hidden by clients)
 	Roles       any      `json:"roles,omitempty"`
 	Uses        any      `json:"uses,omitempty"`
 	Deps        []string `json:"deps,omitempty"`
@@ -227,10 +230,16 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 		if !isChrome(c.Path) && s.delegateHides(p, c.Path) { // a person's agent: not the tiles whose org keeps it out
 			continue
 		}
+		if c.Sealed && !WantsSealed(r) {
+			// A shell, console or app that predates sealed components would
+			// offer a terminal, the source and deployments on the row
+			// (docs/compat.md): it is listed only for a caller that asks.
+			continue
+		}
 		ci := componentInfo{
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 			Title: c.Manifest.DisplayTitle(), Icon: c.Manifest.DisplayIcon(),
-			HasIndex: c.HasIndex, Template: c.IsTemplate(),
+			HasIndex: c.HasIndex, Template: c.IsTemplate(), Sealed: c.Sealed,
 			Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
 			Chrome: s.trustedChrome(c.Path, c), ChromeRequested: s.chromeRequested(c),
 			Native: s.nativeOf(c),
@@ -272,7 +281,7 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 	ci := componentInfo{
 		Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 		Title: c.Manifest.DisplayTitle(), Icon: c.Manifest.DisplayIcon(),
-		HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
+		HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr, Sealed: c.Sealed,
 		Chrome: s.trustedChrome(c.Path, c), ChromeRequested: s.chromeRequested(c),
 		Native: s.nativeOf(c),
 	}
@@ -315,6 +324,23 @@ func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := auth.PrincipalOf(r)
+	if comp != util.CanonPath(comp) {
+		// one spelling per component: a token for "/xbin/x" would be read as
+		// nobody's by the exact tests and as the sealed component's by the
+		// forgiving ones (auth.canonicalComponent)
+		apiErr(w, http.StatusBadRequest, "write the component's path without a leading, trailing or doubled slash: "+util.CanonPath(comp))
+		return
+	}
+	if _, registered := s.Reg.Component(comp); !registered && comp != "" && !util.ComponentPathOK(comp) {
+		// A frame token is a component's. An admin's level reaches every
+		// path, so without this any string was minted into a principal:
+		// one in xbind's own namespace (xbin/…, .xbin, data) must be a
+		// registered component. A path with the shape of a tile's is
+		// minted as before — a tile just written is not registered until
+		// the next scan, and its frame asks at once.
+		apiErr(w, http.StatusNotFound, "no such component: "+comp)
+		return
+	}
 	ok := comp != "" && !backendPrincipal(p) && (p.Component == comp || (p.Component == "" && p.CanReadTile(comp)))
 	if !ok {
 		apiErr(w, http.StatusForbidden, "cannot mint frame token for this tile")

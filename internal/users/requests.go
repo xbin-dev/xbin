@@ -44,6 +44,9 @@ func (s *Store) CreateAccessRequest(user, tile, level, note string) error {
 	if levelRank(level) == 0 {
 		return fmt.Errorf("unknown level %q (want read|write|terminal)", level)
 	}
+	if err := sealedLevel(tile, level); err != nil {
+		return err
+	}
 	if len(note) > 200 {
 		note = note[:200]
 	}

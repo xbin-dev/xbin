@@ -256,6 +256,9 @@ func (a *Auth) terminalOwnerGen() string {
 // mintFrame signs a token; claim is the deployment claim, already under the
 // name rule ("" for main: today's five fields).
 func (a *Auth) mintFrame(component, userID, gen, claim string, ttl time.Duration) string {
+	if component == "" || util.CanonPath(component) != component {
+		return "" // a frame token names a component, in its one spelling (canonicalComponent)
+	}
 	exp := time.Now().Add(ttl).Unix()
 	payload := fmt.Sprintf("%s|%s|%d|%s",
 		base64.RawURLEncoding.EncodeToString([]byte(component)),

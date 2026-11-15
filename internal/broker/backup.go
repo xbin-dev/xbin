@@ -82,6 +82,11 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives 
 	if split != nil {
 		m.Schema, m.Data, m.BackupID = backup.SchemaSplit, split.data, split.id
 	}
+	if c.Sealed {
+		// data alone: its code is the release's, it has no terminal layer,
+		// and its data's format rides along for the restore (D227)
+		includes, m.SealedData = nil, b.sealedDataFormat(c.Path)
+	}
 	if isRoot {
 		scope = b.mainDeclared(c.Path, scope)
 		m.Resources = map[string]string{}
@@ -92,7 +97,7 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives 
 	} else {
 		m.Scope = c.Scope // data belongs to an ancestor scope; not this component's to hold
 	}
-	if _, err := os.Stat(b.termDir(c.Path)); err == nil {
+	if _, err := os.Stat(b.termDir(c.Path)); err == nil && !c.Sealed {
 		includes = append(includes, "term-env")
 	}
 	if jobs := b.cronJobsFor(c.Path); len(jobs) > 0 {
@@ -122,8 +127,10 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives 
 	// Source subtree — skip reproducible/history dirs (git owns history). The
 	// tile's dir is reached from the workspace without symlinks: a nested
 	// tile lives in its parent's writable tree, which could swap it for a link.
-	if err := bw.TreeIn(backup.SourcePrefix, b.Reg.Root, c.Path, skipSource); err != nil {
-		return err
+	if !c.Sealed {
+		if err := bw.TreeIn(backup.SourcePrefix, b.Reg.Root, c.Path, skipSource); err != nil {
+			return err
+		}
 	}
 	// Resource data (only when this component roots its scope, and inline
 	// only in a plaintext workspace's archive).
@@ -134,6 +141,9 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives 
 	}
 	// Terminal dev layer — without a VM terminal's disk image (vm/): a sparse
 	// multi-GiB file, live while its VM runs (plans/vm-sandbox.md).
+	if c.Sealed {
+		return nil
+	}
 	if err := bw.Tree(backup.TermPrefix, b.termDir(c.Path), func(rel string) bool { return rel == "vm" }); err != nil {
 		return err
 	}
@@ -314,6 +324,12 @@ func (b *Broker) backupTileWith(comp string, every bool) (string, map[string]str
 	if err != nil {
 		return "", nil, parts, err
 	}
+	if c.Sealed && !split {
+		// as a person's partition: archived only sealed. A plain tar would
+		// hand its data to the archiver tile, and could never be restored
+		// (sealedRestoreGate).
+		return "", nil, parts, errors.New(util.SealedRefusal(c.Path, "its data is archived only sealed, and this workspace has no vault barrier (plaintext-vault mode): nothing was archived"))
+	}
 	archives, err := b.putDeploymentArchives(c, provider, every)
 	if err != nil {
 		return "", nil, parts, err
@@ -377,6 +393,9 @@ func (b *Broker) restoreTileConfirmed(comp, version, confirm string) (restored, 
 	br, err := b.openArchive(body)
 	if err != nil {
 		return restored{}, nil, err
+	}
+	if err := b.sealedArchiveRefusal(comp, br.M); err != nil { // newer data than this release reads (D227)
+		return restored{Manifest: br.M}, nil, err
 	}
 	if err := b.preSwitchRestore(comp, br.M, util.MainDeployment, confirm); err != nil {
 		return restored{Manifest: br.M}, nil, err
@@ -594,6 +613,12 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	// Restore a single file: stream it back without touching live state.
 	// xbind extracts it (an archiver can't read a sealed archive).
+	if body.File != "" && util.SealedPath(strings.Trim(body.Component, "/")) {
+		// its archive is its data, which only the component reads (D227):
+		// an admin restores it whole, and never reads a file out of it
+		server.WriteError(w, http.StatusBadRequest, server.SealedRefusal(strings.Trim(body.Component, "/"), "its backup is restored whole; a file is never read out of it"), server.SealedDocs)
+		return
+	}
 	if body.File != "" {
 		ver := body.Version
 		if ver == "" {
@@ -601,7 +626,9 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 		}
 		data, code, err := b.extractMember(body.Component, ver, body.File)
 		if err != nil {
-			server.WriteError(w, code, err.Error())
+			if !sealedRefused(w, err) {
+				server.WriteError(w, code, err.Error())
+			}
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
@@ -612,6 +639,9 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	var pre preSwitchError
 	if errors.As(err, &pre) { // it predates the tile's partition mode switch: confirm names it
 		server.WriteJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "docs": "/docs/partitions.md", "switch": pre.answer()})
+		return
+	}
+	if sealedRefused(w, err) {
 		return
 	}
 	if err != nil {

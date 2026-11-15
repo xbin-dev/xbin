@@ -8,6 +8,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Component lifecycle (plans/lifecycle.md). The owner enables/disables (and,
@@ -42,6 +43,12 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 	cur := b.Reg.LifecycleState(body.Component)
 	if _, ok := b.Reg.Component(body.Component); !ok && cur == registry.StateEnabled {
 		server.WriteError(w, http.StatusNotFound, "no such component")
+		return
+	}
+	if util.SealedPath(body.Component) && registry.IsOffloaded(body.State) {
+		// no source to archive or remove: a sealed component is switched
+		// off (disabled, hidden), never offloaded
+		server.WriteError(w, http.StatusBadRequest, server.SealedRefusal(body.Component, "it can be turned off (disabled or hidden), never offloaded: there is no source to archive"), server.SealedDocs)
 		return
 	}
 	// Heavy transitions run before the state flips, so a failure leaves the

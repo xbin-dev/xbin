@@ -425,6 +425,14 @@ func (b *Broker) declaredFrom(scope string, sm *registry.ScopeManifest, dep stri
 	if sm == nil {
 		return nil, nil
 	}
+	if !b.Reg.HoldsScopeKey(scope) {
+		// A scope whose data key another scope holds (D118; a tile named
+		// xbin~<name> beside the sealed component xbin/<name>) declares
+		// nothing — in any deployment: the registry empties its primary's
+		// set, and a deployment's own scope.json, read below, must not
+		// bring the names back over the holder's data.
+		return nil, nil
+	}
 	dep = cmp.Or(dep, util.MainDeployment)
 	res := sm.Resources
 	if root, isTile := b.Reg.Component(scope); isTile && dep != b.primaryOf(scope) && b.hasDeployment(scope, dep) {
