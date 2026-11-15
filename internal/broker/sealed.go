@@ -86,7 +86,41 @@ func (b *Broker) sealedRestoreGate(comp string, br, data *backup.Reader) error {
 	case br.M.Deployments != nil:
 		return &sealedError{Status: http.StatusConflict, Msg: util.SealedRefusal(comp, "it has no deployments, and this archive carries a deployment record")}
 	}
+	// …and sealed under a key this workspace made for exactly this: any
+	// admin can import a key bundle made anywhere, under a passphrase of
+	// their own, holding a key with any subject — and seal a forged archive
+	// under it (sealedKeyNative).
+	if err := b.sealedKeyNative(comp, br.Seal.Subkey, tileSubject(comp)); err != nil {
+		return err
+	}
+	if data != nil {
+		if err := b.sealedKeyNative(comp, data.Seal.Subkey, nsSubject(comp, util.MainDeployment)); err != nil {
+			return err
+		}
+	}
 	return b.sealedArchiveRefusal(comp, br.M)
+}
+
+// sealedKeyNative checks that backup key id is one this workspace created
+// itself for subject — the sealed component comp's main archive, its data
+// archive, or a person's partition of it — and never one that came in with
+// an imported key bundle. An imported key opens archives made elsewhere,
+// which is what importing is for with tiles; for a sealed component it
+// would let whoever may import write its data. Disaster recovery of a
+// sealed component onto a new host is therefore the workspace's own
+// directory restored (its data/ holds the vault and these key files), not a
+// key bundle (docs/sealed.md → Upgrades, downgrades and data).
+func (b *Broker) sealedKeyNative(comp, id, subject string) error {
+	k, err := b.backupKeys().read(id)
+	switch {
+	case err != nil:
+		return &sealedError{Status: http.StatusConflict, Msg: util.SealedRefusal(comp, "this archive is sealed under a backup key this workspace doesn't hold")}
+	case k.Imported != "":
+		return &sealedError{Status: http.StatusConflict, Msg: util.SealedRefusal(comp, "this archive is sealed under an imported backup key; it is restored only from backups this workspace made itself (to move it to another host, restore the workspace's own directory)")}
+	case k.Subject != subject:
+		return &sealedError{Status: http.StatusConflict, Msg: util.SealedRefusal(comp, "this archive is sealed under another archive's backup key")}
+	}
+	return nil
 }
 
 func (b *Broker) sealedRestoreRefusal(path string, data int, release string) error {

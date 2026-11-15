@@ -216,6 +216,39 @@ func TestSealedRestoreTakesOnlyXbindsOwnArchives(t *testing.T) {
 	if got := getKV(t, b); got != "theirs" {
 		t.Errorf("after the refused restores its data is %q", got)
 	}
+	// sealed, by this workspace, but under another archive's key
+	if _, err := b.restore("xbin/fix", bytes.NewReader(sealedTar(t, b, mainSeal("apps/plain"), own)), nil); err == nil || !strings.Contains(err.Error(), "another archive's backup key") {
+		t.Errorf("its archive sealed under a tile's key: %v", err)
+	}
+	// sealed under a key an admin imported: a bundle made elsewhere, under a
+	// passphrase of the admin's own, holding a key with this very subject
+	elsewhere := sealedBroker(t)
+	forgedID, forgedKey, err := elsewhere.backupKeys().subkeyFor(tileSubject("xbin/fix"), "xbin/fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := elsewhere.backupKeys().export("elsewhere")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imp, err := b.backupKeys().importBundle(bundle, "sealed-pass", "user:adm"); err != nil || imp.Imported == 0 {
+		t.Fatalf("importing the bundle: %+v %v", imp, err)
+	}
+	var sealedForged bytes.Buffer
+	sw, err := backup.NewSealedWriter(&sealedForged, forgedKey, forgedID, mainSeal("xbin/fix").kind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = sw.Write(forged)
+	_ = sw.Close()
+	if _, err := b.restore("xbin/fix", bytes.NewReader(sealedForged.Bytes()), nil); err == nil || !strings.Contains(err.Error(), "imported backup key") {
+		t.Errorf("an archive sealed under an imported key: %v", err)
+	}
+	if got := getKV(t, b); got != "theirs" {
+		t.Errorf("after those its data is %q", got)
+	}
+	// (a tile restores from an imported key as it always did: that is what
+	// importing is for — covered by the key-import tests)
 	// the one that restores: sealed under this workspace's key, its own
 	putKV(t, b, "changed")
 	if _, err := b.restore("xbin/fix", bytes.NewReader(sealedTar(t, b, mainSeal("xbin/fix"), own)), nil); err != nil {

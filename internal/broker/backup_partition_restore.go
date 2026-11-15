@@ -374,6 +374,9 @@ func (b *Broker) partitionKeyLive(id string, t partitionBackupTarget) error {
 	if err != nil || k.Subject != partitionBackupSubject(t.c.Path, t.dep, t.pkeyFrom) {
 		return errors.New("it isn't sealed under this partition's backup key: another partition's or tile's")
 	}
+	if util.SealedPath(t.c.Path) { // a person's partition of a sealed component: this workspace's own key only
+		return b.sealedKeyNative(t.c.Path, id, k.Subject)
+	}
 	return nil
 }
 
@@ -458,6 +461,12 @@ func (b *Broker) restorePartition(t partitionBackupTarget, raw []byte, subkey st
 	pt := partTarget{tile: t.c.Path, dep: t.dep, pkey: t.pkeyNow, part: util.UserPartition(t.user), user: t.user, uid: t.uid}
 	if b.vaultSealed() {
 		return done, statusErr{http.StatusConflict, "vault sealed — unseal before restoring a partition"}
+	}
+	// a sealed component held for its data takes no restore at all — not
+	// its data (a held scope declares none, so the data step below would
+	// simply be skipped), and not the vault or the registrations either
+	if err := b.sealedRestoreRefusal(t.c.Path, 0, ""); err != nil {
+		return done, statusErr{http.StatusConflict, err.Error() + "; nothing was restored"}
 	}
 	// the tile's backup lock: no backup archives the partition half
 	// restored, and no erase of its key runs meanwhile (the sweep's order:
