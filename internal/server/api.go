@@ -308,7 +308,17 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 // choose what that name is, and every signed-in caller is handed its
 // content, so a link that leaves the tile (API.md -> ../../.xbin/token) reads
 // as no API.md, as a FIFO does. "" when there is none.
+//
+// A sealed component's is the release's own bytes, from memory, as every
+// other file of it is served (sealedfile.go): its tree isn't under the
+// workspace's tile directories, and nothing vouches for the copy on disk.
 func (s *Server) apiDocOf(tile string) string {
+	if s.sealedOwned(tile) {
+		if b, dir, ok := s.Reg.SealedFile(tile, "API.md"); ok && !dir {
+			return string(b)
+		}
+		return ""
+	}
 	f, err := fsutil.OpenIn(s.Reg.Root, tile, "API.md")
 	if err != nil {
 		return ""
