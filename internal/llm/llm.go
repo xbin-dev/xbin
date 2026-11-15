@@ -109,6 +109,8 @@ type Service struct {
 	// someone else's).
 	llmKeys   *Keys
 	keySource KeySource
+	stopSweep chan struct{} // ends the key store's sweeper (Close)
+	closeOnce sync.Once
 	watch     keyWatch // minters told of their keys' refused calls (keywatch.go)
 	models    modelCache
 
@@ -146,6 +148,8 @@ func New(o Options) (*Service, error) {
 	if s.keySource == nil {
 		s.llmKeys = NewKeys(o.Now)
 		s.keySource = s.llmKeys
+		s.stopSweep = make(chan struct{})
+		go s.llmKeys.Sweeper(s.stopSweep) // expired keys go on a timer, not on a call's path
 	}
 	if o.HostFile != "" {
 		h, err := loadHost(o.HostFile)
@@ -169,6 +173,7 @@ func New(o Options) (*Service, error) {
 // they were minted for end with xbind.
 func (s *Service) Close() {
 	if s.llmKeys != nil {
+		s.closeOnce.Do(func() { close(s.stopSweep) })
 		s.llmKeys.RevokeWhere(func(KeyGrant) bool { return true })
 	}
 	s.meter.close()

@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/server"
+	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 	sdkllm "github.com/xbin-dev/xbin/sdk/llm"
 )
 
@@ -141,9 +143,15 @@ func (s *Service) Offer(ctx context.Context, user, component string, models bool
 	ctx, cancel := context.WithTimeout(ctx, offerModelsWait)
 	defer cancel()
 	list, _ := s.listModels(ctx, snap, c)
+	if !sessionModel(o.Model) {
+		o.Model = "" // a name no CLI's configuration can carry: not a session's default
+	}
 	for _, m := range list.Data {
 		if strings.HasPrefix(m.ID, pseudoUpstream+"/") {
 			continue // xbin/default, xbin/<role>: the defaults under another name
+		}
+		if !sessionModel(m.ID) {
+			continue // an upstream's list is data: an id that isn't a plain model name is not offered to a CLI
 		}
 		o.Models = append(o.Models, OfferModel{ID: m.ID,
 			Context: extraInt(m, "context_length", "context_window", "max_context_length", "max_model_len"),
@@ -156,6 +164,16 @@ func (s *Service) Offer(ctx context.Context, user, component string, models bool
 		o.Models = nil
 	}
 	return o, true
+}
+
+// sessionModel reports whether id may be offered to a coding CLI: a model
+// name as the settings accept one (validModelName) and one that is safe in
+// every CLI's configuration (sdk/acp's ValidConnectorModel: no braces,
+// quotes or spaces — opencode substitutes {env:…} and {file:…}). The model
+// stays callable by its name; it is only not written into a session's
+// configuration.
+func sessionModel(id string) bool {
+	return validModelName("model", id) == nil && sdkacp.ValidConnectorModel(id)
 }
 
 // ResolveModel says what a model id ("<upstream>/<model>", an alias, a
@@ -201,23 +219,26 @@ func (s *Service) MintKey(g KeyGrant, ttl time.Duration) (token string, grant Ke
 
 // ---- keys for components (POST /llm/keys) -------------------------------------
 
-// DefaultComponentKeyTTL is the life of a key a component asks for without
-// naming one.
-const DefaultComponentKeyTTL = 24 * time.Hour
+// MaxComponentKeyTTL is the longest a key a component asks for lives, and
+// its life when the component names none: a day, what a harness run needs.
+// A run that goes on longer renews its key (POST /llm/keys/{id}/renew, a day
+// from then each time): a key nobody renews is dead within a day of the
+// backend that asked for it going away, whatever it forgot to end.
+const MaxComponentKeyTTL = 24 * time.Hour
 
 // maxKeyLabel bounds the label and sandbox a component names for its key.
-const maxKeyLabel = 200
+const maxKeyLabel = MaxKeyLabel
 
 // apiMintKey — POST /llm/keys {user?, ttlSec?, label?, sandbox?}: a
-// component bound to the connector asks for a narrow key for a harness it
-// runs for the person it acts for (the SDK's LLMKeyFor). The key is metered
-// exactly as the component's own calls are: to the person the connector
-// attributes this credential's calls to — its partition's person, the
-// person driving its frame or terminal, nobody for a backend that serves
-// everyone — and to the component. user, when named, must be that person:
-// a component never names someone else. The key is minted under the
-// binding and ends with it; a non-primary deployment gets one only where
-// its tile's edge policy leaves it the binding in full.
+// component bound to the connector asks, with its BACKEND's credential, for
+// a narrow key for a harness it runs for the person it acts for (the SDK's
+// LLMKeyFor). The key is metered exactly as the backend's own calls are: to
+// its partition's person — nobody for a backend that serves everyone — and
+// to the component. user, when named, must be that person: a component
+// never names someone else. The key is minted under the binding and ends
+// with it; it names the backend's deployment and is held to the tile's edge
+// policy for it on every call; it lives at most MaxComponentKeyTTL unless
+// renewed.
 func (s *Service) apiMintKey(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.keyCaller(w, r)
 	if !ok {
@@ -245,13 +266,14 @@ func (s *Service) apiMintKey(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusForbidden, "an LLM key is for the person this credential acts for — "+who+" — not "+body.User, docs)
 		return
 	}
-	ttl := time.Duration(body.TTLSec) * time.Second
-	if ttl <= 0 {
-		ttl = DefaultComponentKeyTTL
-	}
 	// Bound: the key stands only while the tile's binding does (keyHolds)
-	token, g, _, err := s.MintKey(KeyGrant{User: c.User, Component: c.Component, Label: body.Label, Sandbox: body.Sandbox, Bound: true}, ttl)
-	if err != nil {
+	token, g, _, err := s.MintKey(KeyGrant{User: c.User, Component: c.Component, Label: body.Label, Sandbox: body.Sandbox,
+		Deployment: c.Deployment, Bound: true}, componentTTL(body.TTLSec))
+	switch {
+	case errors.Is(err, ErrTooManyKeys):
+		server.WriteJSON(w, http.StatusTooManyRequests, map[string]any{"error": err.Error(), "code": "xbin_llm_keys", "docs": docs})
+		return
+	case err != nil:
 		server.WriteError(w, http.StatusServiceUnavailable, err.Error(), docs)
 		return
 	}
@@ -260,26 +282,75 @@ func (s *Service) apiMintKey(w http.ResponseWriter, r *http.Request) {
 		"expires": g.Expires.UTC().Format(time.RFC3339), "url": BaseURL})
 }
 
-// apiRevokeKey — DELETE /llm/keys/{id}: the component that asked for a key
+// componentTTL is a component's key's life for the ttlSec it asked with.
+func componentTTL(sec int64) time.Duration {
+	if ttl := time.Duration(sec) * time.Second; sec > 0 && ttl < MaxComponentKeyTTL {
+		return ttl
+	}
+	return MaxComponentKeyTTL
+}
+
+// mine reports a key the caller's backend asked for: its component's, in
+// its deployment, for the person it acts for.
+func mine(c Caller) func(KeyGrant) bool {
+	return func(g KeyGrant) bool {
+		return g.Bound && g.Component == c.Component && g.Deployment == c.Deployment && g.User == c.User
+	}
+}
+
+// apiRenewKey — POST /llm/keys/{id}/renew {ttlSec?}: the backend that asked
+// for a key keeps it alive for a run that goes on: its life becomes ttlSec
+// (default and at most MaxComponentKeyTTL) from now. 404 for a key that
+// ended, expired or is not this backend's.
+func (s *Service) apiRenewKey(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.keyCaller(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		TTLSec int64 `json:"ttlSec"`
+	}
+	if err := decode(r, &body); err != nil || body.TTLSec < 0 {
+		server.WriteError(w, http.StatusBadRequest, "need {ttlSec?}", docs)
+		return
+	}
+	if c.ReadOnly != "" {
+		server.WriteJSON(w, http.StatusForbidden, map[string]any{"error": c.ReadOnly, "code": "xbin_llm_edge", "docs": docs})
+		return
+	}
+	var g KeyGrant
+	found := false
+	if s.llmKeys != nil {
+		g, found = s.llmKeys.Extend(r.PathValue("id"), componentTTL(body.TTLSec), mine(c))
+	}
+	if !found {
+		server.WriteError(w, http.StatusNotFound, "no such LLM key (it ended or expired, or another backend asked for it): ask for a new one", docs)
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"id": g.ID, "expires": g.Expires.UTC().Format(time.RFC3339)})
+}
+
+// apiRevokeKey — DELETE /llm/keys/{id}: the backend that asked for a key
 // ends it. 204 whether or not it still lived; a key of another component's
-// is not found.
+// or another deployment's is not found.
 func (s *Service) apiRevokeKey(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.keyCaller(w, r)
 	if !ok {
 		return
 	}
-	id := r.PathValue("id")
+	id, own := r.PathValue("id"), mine(c)
 	if s.llmKeys != nil {
-		s.llmKeys.RevokeWhere(func(g KeyGrant) bool { return g.ID == id && g.Component == c.Component })
+		s.llmKeys.RevokeWhere(func(g KeyGrant) bool { return g.ID == id && own(g) })
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// apiRevokeKeys — DELETE /llm/keys?label=<label>: the component ends every
-// key it asked for under that label for the person its credential acts
-// for. A consumer that names a run in the label needn't keep key ids — and
-// its successor after a restart can still end a run's key. 204 whatever
-// lived; 400 without a label.
+// apiRevokeKeys — DELETE /llm/keys?label=<label>: the backend ends every
+// key it asked for under that label, in its own deployment, for the person
+// its credential acts for. A consumer that names a run in the label needn't
+// keep key ids — and its successor after a restart can still end a run's
+// key; two deployments of one tile number their runs alike and never end
+// each other's. 204 whatever lived; 400 without a label.
 func (s *Service) apiRevokeKeys(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.keyCaller(w, r)
 	if !ok {
@@ -290,22 +361,26 @@ func (s *Service) apiRevokeKeys(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need ?label=<the label the keys were asked for with> (or DELETE /llm/keys/<id> for one key)", docs)
 		return
 	}
-	if s.llmKeys != nil {
-		s.llmKeys.RevokeWhere(func(g KeyGrant) bool {
-			return g.Bound && g.Component == c.Component && g.User == c.User && g.Label == label
-		})
+	if own := mine(c); s.llmKeys != nil {
+		s.llmKeys.RevokeWhere(func(g KeyGrant) bool { return own(g) && g.Label == label })
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// keyCaller admits the caller of the key routes: a component whose llm slot
-// is bound to the connector, by its own credential — never a person's
-// sign-in (their sessions get keys from xbind) and never an LLM key (a key
-// mints no key).
+// keyCaller admits the caller of the key routes: the BACKEND of a component
+// whose llm slot is bound to the connector, by its own credential (an
+// instance or partition token) — never a person's sign-in (their sessions
+// get keys from xbind), never the tile's frame, terminal or agent session
+// (a credential a browser or a shell holds must not turn into a key that
+// outlives it), and never an LLM key (a key mints no key).
 func (s *Service) keyCaller(w http.ResponseWriter, r *http.Request) (Caller, bool) {
 	p := auth.PrincipalOf(r)
 	if _, isKey := bearerKey(r); isKey || p.Via == "llm" || p.Component == "" {
-		server.WriteError(w, http.StatusForbidden, "LLM keys are asked for by a tile bound to the LLM connector, with its own credential", docs)
+		server.WriteError(w, http.StatusForbidden, "LLM keys are asked for by the backend of a tile bound to the LLM connector, with its own credential", docs)
+		return Caller{}, false
+	}
+	if p.Via != "instance" {
+		server.WriteError(w, http.StatusForbidden, "LLM keys are asked for by a tile's backend, with its own credential — not by its frame, a terminal or an agent session (their people's sessions get keys from xbind)", docs)
 		return Caller{}, false
 	}
 	if p.ReadOnly() {
