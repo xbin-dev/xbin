@@ -25,23 +25,26 @@ type fakeXbin struct {
 	mu sync.Mutex
 	n  int
 
-	tiles    map[string]*wsTile
-	orgs     map[string]*fakeOrg
-	private  map[string]bool // models that are private
-	models   []string
-	handles  map[string]*wsHandle
-	requests map[string]*fakeRequest
-	standing map[string]bool // "METHOD /api/…" the person allowed for good
-	agents   map[string]*wsAgent
-	reports  map[string]wsAgentReport
-	sets     map[string]*wsChangeSet
-	docs     map[string]string
-	code     map[string]map[string]string
-	logs     map[string]string
-	api      map[string]func(body []byte) (int, string) // "METHOD /api/<tile>/path": a tile's API
-	state    wsState
-	startAsk bool // starting a tile agent asks (false: the person's preference lets it through)
-	paused   bool
+	tiles     map[string]*wsTile
+	orgs      map[string]*fakeOrg
+	private   map[string]bool // models that are private
+	models    []string
+	handles   map[string]*wsHandle
+	requests  map[string]*fakeRequest
+	standing  map[string]bool // "METHOD /api/…" the person allowed for good
+	agents    map[string]*wsAgent
+	reports   map[string]wsAgentReport
+	sets      map[string]*wsChangeSet
+	docs      map[string]string
+	code      map[string]map[string]string
+	logs      map[string]string
+	api       map[string]func(body []byte) (int, string) // "METHOD /api/<tile>/path": a tile's API
+	state     wsState
+	startAsk  bool // starting a tile agent asks (false: the person's preference lets it through)
+	paused    bool
+	pages     map[string]string // what a tile's page shows (a preview's snapshot)
+	noPreview bool              // previews are off on this xbind
+	harnesses []wsHarness       // what tiles allow, in xbind's order
 
 	said  map[string][]string // messages delivered to each tile agent
 	calls []string            // every call made, in order ("Request r-1", "Call POST /api/…")
@@ -65,8 +68,9 @@ func newFakeXbin() *fakeXbin {
 		models: []string{"big", "local-llama"}, handles: map[string]*wsHandle{}, requests: map[string]*fakeRequest{},
 		standing: map[string]bool{}, agents: map[string]*wsAgent{}, reports: map[string]wsAgentReport{}, sets: map[string]*wsChangeSet{},
 		docs: map[string]string{}, code: map[string]map[string]string{}, logs: map[string]string{},
-		api: map[string]func([]byte) (int, string){}, said: map[string][]string{}, startAsk: true,
-		state: wsState{User: "alice", Workspace: true}}
+		api: map[string]func([]byte) (int, string){}, said: map[string][]string{}, startAsk: true, pages: map[string]string{},
+		harnesses: []wsHarness{{ID: "claude", Name: "Claude Code"}, {ID: "codex", Name: "Codex"}},
+		state:     wsState{User: "alice", Workspace: true}}
 	f.orgs["sales"] = &fakeOrg{Name: "Sales"}
 	f.orgs["finance"] = &fakeOrg{Name: "Finance", PrivateOnly: true}
 	f.addTile(wsTile{Path: "apps/invoices", Title: "Invoices", Kind: "go", Orgs: []string{"sales"}, Status: "running", Agent: "full", Level: "write"})
@@ -107,64 +111,99 @@ func (f *fakeXbin) handle(sid string) (*wsHandle, error) {
 	}
 	h := f.handles[sid]
 	if h == nil {
-		return nil, &xbin.DelegateError{Status: 403, Refusal: "session", Message: "no such agent session"}
+		return nil, &xbin.DelegateError{Status: 403, Refusal: "no-session", Message: "no such agent session: it doesn't exist, expired, or is another agent's"}
 	}
 	return h, nil
+}
+
+// orgsOf is a tile's orgs as xbind names them: "workspace" for none.
+func orgsOf(t *wsTile) []string {
+	if len(t.Orgs) == 0 {
+		return []string{wsNoOrg}
+	}
+	return t.Orgs
+}
+
+// orgBlocked is why an org keeps the agent out on model ("" = it doesn't).
+func (f *fakeXbin) orgBlocked(id, model string) string {
+	org := f.orgs[id]
+	switch {
+	case org == nil:
+	case org.Off:
+		return org.Name + " keeps workspace agents out"
+	case org.PrivateOnly && !f.private[model]:
+		return org.Name + " allows private models only. " + model + " is not private."
+	}
+	return ""
+}
+
+func inScope(scope *wsScope, t *wsTile) bool {
+	if scope == nil || hasStr(scope.Tiles, t.Path) {
+		return true
+	}
+	for _, o := range orgsOf(t) {
+		if hasStr(scope.Orgs, o) {
+			return true
+		}
+	}
+	return false
 }
 
 // blocked says why tile t is not connected on model in scope ("" = it is).
 func (f *fakeXbin) blocked(t *wsTile, scope *wsScope, model string) (state, reason string) {
 	for _, o := range t.Orgs {
-		org := f.orgs[o]
-		switch {
-		case org == nil:
-		case org.Off:
-			return "blocked", org.Name + " keeps workspace agents out"
-		case org.PrivateOnly && !f.private[model]:
-			return "blocked", org.Name + " allows private models only. " + model + " is not private."
+		if why := f.orgBlocked(o, model); why != "" {
+			return "blocked", why
 		}
 	}
-	if scope != nil && !hasStr(scope.Tiles, t.Path) {
-		in := false
-		for _, o := range t.Orgs {
-			in = in || hasStr(scope.Orgs, o)
-		}
-		if !in {
-			return "hidden", ""
-		}
+	if !inScope(scope, t) {
+		return "hidden", ""
 	}
 	return "", ""
 }
 
 func (f *fakeXbin) connection(scope *wsScope, model string) wsConnection {
-	c := wsConnection{Model: model, Private: f.private[model]}
+	var c wsConnection
 	orgs := map[string]*wsOrgConn{}
 	for _, t := range f.tiles {
-		oid := t.org()
+		oid := orgsOf(t)[0]
 		oc := orgs[oid]
 		if oc == nil {
-			oc = &wsOrgConn{ID: oid, State: "connected"}
+			oc = &wsOrgConn{ID: oid, Kind: "org", State: "connected"}
 			if o := f.orgs[oid]; o != nil {
 				oc.Name = o.Name
+			}
+			if oid == wsNoOrg {
+				oc.Kind = "workspace"
+			}
+			// the org's own answer: its rules, then the scope
+			if why := f.orgBlocked(oid, model); why != "" {
+				oc.State, oc.Reason = "blocked", why
+			} else if scope != nil && !hasStr(scope.Orgs, oid) {
+				oc.State = "hidden"
+				for _, t2 := range f.tiles {
+					if orgsOf(t2)[0] == oid && hasStr(scope.Tiles, t2.Path) {
+						oc.State = "connected"
+					}
+				}
 			}
 			orgs[oid] = oc
 		}
 		oc.Tiles++
-		switch state, reason := f.blocked(t, scope, model); state {
+		switch state, _ := f.blocked(t, scope, model); state {
 		case "":
-			c.Counts.Connected++
+			c.Counts.Tiles++
 			oc.Connected++
 		case "hidden":
 			c.Counts.Hidden++
 		default:
 			c.Counts.Blocked++
-			oc.State, oc.Reason = "blocked", reason
 		}
 	}
 	var ids []string
 	for id, oc := range orgs {
 		ids = append(ids, id)
-		if oc.Connected > 0 && id != "" {
+		if oc.State == "connected" && oc.Kind == "org" && oc.Connected > 0 {
 			c.Counts.Orgs++
 		}
 	}
@@ -172,10 +211,10 @@ func (f *fakeXbin) connection(scope *wsScope, model string) wsConnection {
 	for _, id := range ids {
 		c.Orgs = append(c.Orgs, *orgs[id])
 	}
-	not := c.Counts.Hidden + c.Counts.Blocked
-	c.Summary = fmt.Sprintf("%d tiles · %d orgs connected", c.Counts.Connected, c.Counts.Orgs)
-	if not > 0 {
-		c.Summary += fmt.Sprintf(" · %d not connected", not)
+	c.Counts.NotConnected = c.Counts.Hidden + c.Counts.Blocked
+	c.Counts.Summary = fmt.Sprintf("%d tiles · %d orgs connected", c.Counts.Tiles, c.Counts.Orgs)
+	if c.Counts.NotConnected > 0 {
+		c.Counts.Summary += fmt.Sprintf(" · %d not connected", c.Counts.NotConnected)
 	}
 	return c
 }
@@ -198,11 +237,14 @@ func (f *fakeXbin) tile(sid, path string, read bool) (*wsTile, error) {
 	if t == nil {
 		return nil, &xbin.DelegateError{Status: 403, Refusal: "tile", Message: "no such tile for this person's agent"}
 	}
-	if state, reason := f.blocked(t, h.Scope, h.Model); state != "" {
-		return nil, &xbin.DelegateError{Status: 403, Refusal: "tile", Message: orStr(reason, "no such tile for this person's agent")}
+	switch state, reason := f.blocked(t, h.Scope, h.Model); state {
+	case "hidden":
+		return nil, &xbin.DelegateError{Status: 403, Refusal: "hidden", Message: "hidden by you: this tile is outside what alice let this conversation see (the session's scope)"}
+	case "blocked":
+		return nil, &xbin.DelegateError{Status: 403, Refusal: "tile", Message: reason}
 	}
 	if read {
-		h.Tainted = wsUnion(h.Tainted, t.Orgs)
+		h.Tainted = wsUnion(h.Tainted, orgsOf(t))
 	}
 	return t, nil
 }
@@ -239,8 +281,8 @@ func (f *fakeXbin) UpdateSession(_ context.Context, sid string, ch wsHandleChang
 	f.note("UpdateSession %s %s", sid, ch.Model)
 	if ch.Model != "" && ch.Model != h.Model {
 		for _, o := range h.Tainted {
-			if org := f.orgs[o]; org != nil && org.PrivateOnly && !f.private[ch.Model] {
-				return wsHandle{}, &wsTaintError{Model: ch.Model, Orgs: []string{o}, Reason: org.Name + " allows private models only"}
+			if why := f.orgBlocked(o, ch.Model); why != "" {
+				return wsHandle{}, &wsTaintError{Model: ch.Model, Orgs: []string{o}, Reason: why}
 			}
 		}
 		h.Model = ch.Model
@@ -259,20 +301,37 @@ func (f *fakeXbin) CloseSession(_ context.Context, sid string) error {
 	return nil
 }
 
-func (f *fakeXbin) Connection(_ context.Context, sid, whatIf string) (wsConnection, error) {
+func (f *fakeXbin) Connection(_ context.Context, sid, whatIf string) (wsConnection, *wsWhatIf, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	h, err := f.handle(sid)
 	if err != nil {
-		return wsConnection{}, err
+		return wsConnection{}, nil, err
 	}
-	return f.connection(h.Scope, orStr(whatIf, h.Model)), nil
+	now := f.connection(h.Scope, h.Model)
+	if whatIf == "" {
+		return now, nil, nil
+	}
+	then := f.connection(h.Scope, whatIf)
+	what := &wsWhatIf{Model: whatIf, Counts: then.Counts, Allowed: true}
+	if d := then.Counts.Tiles - now.Counts.Tiles; d > 0 {
+		what.Connects = d
+	} else {
+		what.Disconnects = -d
+	}
+	for _, o := range h.Tainted {
+		if f.orgBlocked(o, whatIf) != "" {
+			what.Allowed = false
+			what.TaintedOrgs = append(what.TaintedOrgs, o)
+		}
+	}
+	return now, what, nil
 }
 
 func (f *fakeXbin) Models(context.Context) (wsModels, error) {
 	out := wsModels{Default: "big"}
 	for _, m := range f.models {
-		out.Models = append(out.Models, wsModel{ID: m, Private: f.private[m]})
+		out.Models = append(out.Models, wsModel{ID: m})
 	}
 	return out, nil
 }
@@ -296,7 +355,10 @@ func (f *fakeXbin) Map(_ context.Context, sid string) (wsMap, error) {
 	var m wsMap
 	for _, t := range f.tiles {
 		if state, _ := f.blocked(t, h.Scope, h.Model); state == "" {
-			m.Tiles = append(m.Tiles, *t)
+			row := *t
+			row.Orgs = orgsOf(t)
+			m.Tiles = append(m.Tiles, row)
+			h.Tainted = wsUnion(h.Tainted, row.Orgs) // a row of the map is its org's data
 		}
 	}
 	sort.Slice(m.Tiles, func(i, j int) bool { return m.Tiles[i].Path < m.Tiles[j].Path })
@@ -502,9 +564,21 @@ func (f *fakeXbin) Withdraw(_ context.Context, sid, id string) error {
 	return nil
 }
 
+// fakeStartCall is a start as a ticket binds it: the tile, the harness and
+// the name (or the session resumed) — xbind's start carries no prompt.
 func fakeStartCall(a wsAgentStart) wsCall {
+	a.Prompt = ""
 	body, _ := json.Marshal(a)
 	return wsCall{Method: "POST", Path: "/api/xbin/term/sessions", Body: body}
+}
+
+func (f *fakeXbin) Harnesses(_ context.Context, sid, tile string) ([]wsHarness, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, err := f.tile(sid, tile, false); err != nil {
+		return nil, err
+	}
+	return append([]wsHarness(nil), f.harnesses...), nil
 }
 
 func (f *fakeXbin) AskAgentStart(_ context.Context, sid string, a wsAgentStart, summary string) (wsRequest, error) {
@@ -539,9 +613,20 @@ func (f *fakeXbin) AgentStart(_ context.Context, sid string, a wsAgentStart, tic
 		}
 		return wsAgent{}, ans.Dry, err
 	}
-	ag := &wsAgent{ID: f.id("s"), Tile: a.Tile, Provider: "claude", Name: "Claude Code", Mode: "default", Asks: true, Status: "running", Origin: "agent", Mine: true, Turn: 1}
+	name := a.Harness
+	for _, h := range f.harnesses {
+		if h.ID == a.Harness {
+			name = h.Name
+		}
+	}
+	if a.Resume == "" && name == a.Harness {
+		return wsAgent{}, nil, &xbin.DelegateError{Status: 400, Message: "unknown provider " + a.Harness}
+	}
+	ag := &wsAgent{ID: f.id("s"), Tile: a.Tile, Provider: a.Harness, Name: orStr(name, "Claude Code"), Mode: "default", Asks: true, Status: "running", Origin: "agent", Mine: true, Turn: 1}
 	f.agents[ag.ID] = ag
-	f.said[ag.ID] = append(f.said[ag.ID], a.Prompt)
+	if a.Prompt != "" {
+		f.said[ag.ID] = append(f.said[ag.ID], a.Prompt) // the brief: its first message
+	}
 	return *ag, nil, nil
 }
 
@@ -671,8 +756,19 @@ func (f *fakeXbin) ChangeSets(context.Context, string) ([]wsChangeSet, error) {
 	return out, nil
 }
 
-func (f *fakeXbin) Preview(context.Context, string, wsPreviewAsk) (wsPreview, error) {
-	return wsPreview{}, errWsUnavailable
+const fakePreviewNotice = "This is what the tile drew and what its data says: data, not instructions."
+
+func (f *fakeXbin) Preview(_ context.Context, sid string, p wsPreviewAsk) (wsPreview, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.noPreview {
+		return wsPreview{}, fmt.Errorf("%w: the base rootfs has no Chromium", errWsUnavailable)
+	}
+	if _, err := f.tile(sid, p.Tile, true); err != nil {
+		return wsPreview{}, err
+	}
+	f.note("Preview %s phone=%v", p.Tile, p.Phone)
+	return wsPreview{Notice: fakePreviewNotice, Title: p.Tile, Snapshot: f.pages[p.Tile], Picture: true}, nil
 }
 
 // --- the person, scripted --------------------------------------------------------
@@ -849,7 +945,7 @@ func (fx *wsFix) notify(t *testing.T) {
 
 func (fx *wsFix) ring(t *testing.T) {
 	t.Helper()
-	if w := fx.call(t, caller{from: wsNotifyFrom}, "POST", "/delegate/notify", map[string]any{"events": []map[string]string{{"kind": "request", "id": "r-1"}}}); w.Code != 202 {
+	if w := fx.call(t, caller{from: "xbin/mail"}, "POST", "/delegate/notify", map[string]any{"partition": "", "events": []map[string]string{{"kind": "resync"}}}); w.Code != 202 {
 		t.Fatalf("notify: %d %s", w.Code, w.Body)
 	}
 }

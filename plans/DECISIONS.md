@@ -15044,28 +15044,41 @@ Deviations and refinements made while implementing; all deliberate:
     package is still moving; `ws_xbin_http.go` is the only file that knows
     a route or a shape, the tests answer from `fakeXbin`, and
     `TestWsHTTPShapes` pins what the HTTP side assumes against a stand-in
-    on a gateway socket. Assumed, to confirm with B3a: the handle routes
-    and `X-XBin-Agent-Session`; `403 {refusal: "session"}` for a handle
-    that is gone; a start that takes `prompt` (else the backend sends it
-    with `…/queue`) and no `provider` (xbind fills the person's
-    preference); `GET /delegate/map` (else composed from `/components`
-    and `/tile-report`); `/docs/search`, `/docs/page`; the doorbell
-    `POST /delegate/notify` from `xbin/delegate`.
-  - **Notifications are wake-ups.** The doorbell's body is discarded. It
-    asks for a reconcile — one worker, dirty-flagged, so a storm is two
-    passes — that reads every open request and live tile agent through
-    the API. A request is claimed (`pending → running` in one statement)
-    before its ticket is used, so two passes or a pass and a click never
-    use it twice; a claim that outlived a crash asks xbind whether the
-    ticket was spent. While anything is open a one-shot timer asks for
-    another pass (45 s): a lost notification costs a delay. No ticker.
+    on a gateway socket, in the shapes C0 merged (`wsagent/main`
+    00a64588): the handle rides the context (`xbin.InAgentSession`),
+    `no-session` reopens it, `hidden` is the person's scope, the
+    connection view the backend gets is counts and one row an org (it
+    never holds a blocked tile's name), a what-if is counts and
+    `allowed`. Two things xbind's start doesn't give, and how they are
+    met: it carries no prompt, so the brief is the request's summary (the
+    agent's words on the card) and the session's first message, sent by
+    the backend from the brief as it stands at the decision; and it names
+    a harness, which the agent can't read from the person's preferences
+    (`/agent/prefs` is closed to it) — the backend takes the one in its
+    own preferences when the tile allows it, else the first xbind lists
+    for the tile. Both are open points for the owner.
+  - **Notices are hints, and none is relied on.** A notice
+    (`xbin.ReadHolderNotice`, on `POST /delegate/notify`) asks for a
+    reconcile — one worker, dirty-flagged, so a storm is two passes — that
+    reads every open request, change set and live tile agent through the
+    API; what the notice lists is not used. A request is claimed
+    (`pending → running` in one statement) before its ticket is used, so
+    two passes or a pass and a click never use it twice; a claim that
+    outlived a crash asks xbind whether the ticket was spent. xbind's
+    expiry notices don't survive its restart and a session a restart
+    ended looks like any other end, so everything open is read again at
+    start-up and, while anything is open, by a one-shot timer (45 s). A
+    tile agent found gone at start-up, or whose log ends inside a turn,
+    is reported as cut off, with the offer to continue it. No ticker.
   - **Sessions own handles; taint is checked twice.** Main is made on
     first use and can't be archived or deleted. One model serves a
     session's turns, summaries and titles (the connector takes only the
-    handle's). A model change asks xbind, and is first checked here
-    against the orgs the handle was last seen to hold — which also
-    survives a handle xbind had to make again. A refusal carries the
-    new-session offer.
+    handle's, and checks it against the handle's taint). A model change
+    is xbind's to refuse; before asking, the orgs this backend last saw
+    the conversation hold are compared with the handle's — a handle xbind
+    made again (they go after a day unused) has lost its record, the map
+    is read once to rebuild it, and what still can't be vouched for
+    refuses the move. A refusal carries the new-session offer.
   - **Tile agents: scope, then hand off.** `tile_agent_brief` writes the
     brief (goal, done-when, leave-alone, check-by, what is known) the
     person can edit; `tile_agent_start` asks, and what is approved is
@@ -15086,7 +15099,10 @@ Deviations and refinements made while implementing; all deliberate:
     one, else a fingerprint of the file list.
   - **The notebook is the knowledge store with an org stamp.** Owner kind
     `person-notebook`; `ws_pages` holds each page's stamp: the tile's org
-    and every org the writing conversation had read. A stamp only grows.
+    and every org the writing conversation had read. A stamp only grows
+    (and xbind's taint is broad: a row of the map counts). The page
+    `preferences` — the person's own words about how they like things
+    done — takes no stamp and no tile: every session is shown it.
     A session reads, searches and is shown a page only when every org on
     it is connected there; other pages are counted, never named. The
     prompt carries a *generated* list (slug, title, one line) and the page
@@ -15116,8 +15132,9 @@ Deviations and refinements made while implementing; all deliberate:
     (`testdata/ws-real-model-scenarios.md`); no provider was called.
   - **Not here.** The page (D, E) and anything in the template's
     frontend; attachments (the class has no file tools: a file a person
-    attaches would be unreadable — open); previews (the tool answers
-    "not available yet" until `POST /api/xbin/preview` exists); resuming
+    attaches would be unreadable — open); a preview's picture (the tool gives the model
+    the page's text and says a picture exists: a session runs without
+    vision); resuming
     tile agents by itself after an xbind update (it is told they stopped
     and may ask to continue one, which asks the person); the reduced
     `$HOME` for started sessions (5.7).

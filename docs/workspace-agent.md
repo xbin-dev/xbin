@@ -19,7 +19,8 @@ Everything goes through xbind's delegation, as the person, under the delegation 
 |---|---|
 | see what its person sees | the map of their tiles, screens and orgs; a tile's status and what it reports; a tile's log where the person may open a terminal; xbin's docs; a tile's `API.md` |
 | call a tile's own API | `GET` runs; any other method asks the person first, with the exact call shown |
-| start a tile agent | a coding-agent session in the tile, opened as the person and marked "started by your agent"; asked every time (or the person's preference); the harness, its mode and its network are the person's preferences and the tile's org's rules |
+| start a tile agent | a coding-agent session in the tile, opened as the person and marked "started by your agent"; asked every time (or the person's preference). The model never picks the coding agent: it is the person's choice among what the tile's org allows, and its mode and network are the person's preferences |
+| look at a tile's page | a read-only preview of one tile as the person sees it: the agent gets the page as text |
 | steer the tile agents it started | message, read status and result, stop a turn — never one the person started themselves |
 | ask a sub-agent about a tile's code | a read-only research sub-agent lists and reads the tile's files through `/code/tree` and `/code/file` and answers in words |
 | create a tile from a template | where the person may create; asked every time |
@@ -40,7 +41,7 @@ The agent **asks**; the person **decides**, in chrome the agent's page can't dra
 2. The person sees xbind's description beside the agent's words (which are quoted as the agent's), and allows it once, allows it as a standing approval, or denies it. A request waits 24 hours.
 3. Approved, the request is a ticket: once, within 15 minutes, for that exact call. The agent's backend makes the call and gives the answer to the model; denied, expired or withdrawn, the model is told that instead.
 
-While a request waits, the conversation waits for its person. If they write a message instead of deciding, the agent goes on from the message and the request stays open; its outcome arrives later as an update. xbind tells the agent's backend that something changed with a notification that carries ids and kinds only; the backend reads the state again through the API, so a forged or repeated notification changes nothing.
+While a request waits, the conversation waits for its person. If they write a message instead of deciding, the agent goes on from the message and the request stays open; its outcome arrives later as an update. xbind tells the agent's backend that something changed with a notice that carries ids and kinds only; the backend reads the state again through the API, so a forged or repeated notice changes nothing — and it reads everything it waits on again when it starts and while anything is open, so a notice that never arrives costs a delay, not a stuck conversation.
 
 Admin changes are never calls. An admin's agent proposes a change set (grants, bindings, org shares, limits); xbind writes each line, its before and after and its warnings; the person ticks what to apply.
 

@@ -8,7 +8,7 @@
 //	POST   /ws/sessions                      {main: true} Main, made on first use | {name?, scope?, model?, from?}
 //	PATCH  /ws/sessions/{id}                 {name?, archived?, scope?, model?}; 409 model_taint with the offer
 //	DELETE /ws/sessions/{id}                 not Main
-//	GET    /ws/sessions/{id}/connection      ?whatIf=<model>: what a model change would connect
+//	GET    /ws/sessions/{id}/connection      ?whatIf=<model>: what a model change would connect, as counts
 //	GET    /ws/sessions/{id}/cards           requests, tile agents, briefs, the plan
 //	PUT    /ws/sessions/{id}/briefs/{bid}    the person's edit of a brief
 //	POST   /ws/sessions/{id}/briefs/{bid}/start   "Review and start…": the request to review, or the start
@@ -297,9 +297,11 @@ func handleWsDeleteSession(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }
 
-// handleWsConnection is the session's connection now, or — with whatIf —
-// what it would be on another model: totals and org-level reasons, with
-// whether the conversation could move there at all.
+// handleWsConnection is the session's connection now — totals and one row
+// an org — or, with whatIf, what moving to another model would change, as
+// counts, and whether the conversation's data allows the move (when not:
+// the refusal a switch would get, with the new-session offer). The names
+// of the tiles are the page's to read from xbind itself.
 func handleWsConnection(w http.ResponseWriter, r *http.Request) {
 	s, ok := wsRouteSession(w, r)
 	if !ok {
@@ -307,22 +309,17 @@ func handleWsConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	whatIf := strings.TrimSpace(r.URL.Query().Get("whatIf"))
 	var c wsConnection
-	if err := agent.wsWith(r.Context(), s, func(sid string) (err error) { c, err = wsX.Connection(r.Context(), sid, whatIf); return }); err != nil {
+	var what *wsWhatIf
+	if err := agent.wsWith(r.Context(), s, func(sid string) (err error) { c, what, err = wsX.Connection(r.Context(), sid, whatIf); return }); err != nil {
 		wsWriteErr(w, err)
 		return
 	}
-	out := map[string]any{"connection": c, "summary": wsConnLine(c), "model": orStr(whatIf, s.Model)}
-	if whatIf != "" {
-		var blocked []string
-		for _, org := range s.Conn.Tainted {
-			if !c.connects(org) {
-				blocked = append(blocked, org)
-			}
-		}
-		out["now"] = map[string]any{"connection": s.Conn.Connection, "summary": wsConnLine(s.Conn.Connection), "model": s.Model}
-		out["canSwitch"] = len(blocked) == 0
-		if len(blocked) > 0 {
-			out["taint"] = map[string]any{"orgs": blocked} // the refusal a switch would get: offer a new session
+	out := map[string]any{"connection": c, "summary": wsConnLine(c), "model": s.Model, "handle": s.Handle}
+	if what != nil {
+		out["whatIf"] = map[string]any{"model": what.Model, "connects": what.Connects, "disconnects": what.Disconnects, "counts": what.Counts,
+			"summary": wsConnLine(wsConnection{Counts: what.Counts}), "allowed": what.Allowed, "taintedOrgs": what.TaintedOrgs}
+		if !what.Allowed {
+			out["offer"] = map[string]any{"newSession": map[string]any{"model": what.Model}}
 		}
 	}
 	xbin.WriteJSON(w, http.StatusOK, out)
@@ -414,10 +411,12 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 		if wsLocalRef(req.Ref) {
 			continue
 		}
-		start := wsStartOf(b, s.Owner)
+		var filed wsAgentStart
+		_ = json.Unmarshal(req.Body, &filed)
+		start := wsStartOf(b, s.Owner, filed.Harness) // the harness the first request named
 		var xr wsRequest
 		if err := agent.wsWith(r.Context(), s, func(sid string) (err error) {
-			xr, err = wsX.AskAgentStart(r.Context(), sid, start, clip(b.Goal, 600))
+			xr, err = wsX.AskAgentStart(r.Context(), sid, start, wsStartSummary(start))
 			return
 		}); err != nil {
 			wsWriteErr(w, err)
@@ -464,7 +463,12 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// the agent wrote the brief and has not asked: ask for it
-	start := wsStartOf(b, s.Owner)
+	harness, err := agent.wsPickHarness(ctx, s, b.Tile)
+	if err != nil {
+		xbin.WriteError(w, http.StatusConflict, err.Error())
+		return
+	}
+	start := wsStartOf(b, s.Owner, harness.ID)
 	var dry *wsDry
 	if err := agent.wsWith(ctx, s, func(sid string) (err error) { _, dry, err = wsX.AgentStart(ctx, sid, start, "", true); return }); err != nil {
 		wsWriteErr(w, err)
@@ -483,7 +487,10 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 		Path: "/api/xbin/term/sessions", Body: raw, Brief: b.ID, Ref: fmt.Sprintf("brief:%d:%d", s.Run, b.ID)}
 	if dry.NeedsApproval {
 		var xr wsRequest
-		if err := agent.wsWith(ctx, s, func(sid string) (err error) { xr, err = wsX.AskAgentStart(ctx, sid, start, clip(b.Goal, 600)); return }); err != nil {
+		if err := agent.wsWith(ctx, s, func(sid string) (err error) {
+			xr, err = wsX.AskAgentStart(ctx, sid, start, wsStartSummary(start))
+			return
+		}); err != nil {
 			wsWriteErr(w, err)
 			return
 		}
@@ -694,6 +701,7 @@ func handleWsPageDelete(w http.ResponseWriter, r *http.Request) {
 // person's agent preferences): not here.
 type wsPrefsData struct {
 	Model       string `json:"model"`       // the model a new session starts on ("": the connector's for the agent role)
+	Harness     string `json:"harness"`     // the coding agent tile agents start on, where a tile allows it ("": the tile's first)
 	LastSession int64  `json:"lastSession"` // the session the page last showed
 }
 
@@ -719,6 +727,7 @@ func handleWsPrefsPut(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Model       *string `json:"model"`
+		Harness     *string `json:"harness"`
 		LastSession *int64  `json:"lastSession"`
 	}
 	if !decodeBody(w, r, &body) {
@@ -727,6 +736,9 @@ func handleWsPrefsPut(w http.ResponseWriter, r *http.Request) {
 	p := wsPrefs(agent.db)
 	if body.Model != nil {
 		p.Model = clip(strings.TrimSpace(*body.Model), 200)
+	}
+	if body.Harness != nil {
+		p.Harness = clip(strings.TrimSpace(*body.Harness), 64)
 	}
 	if body.LastSession != nil {
 		if s, err := agent.db.wsSession(*body.LastSession); err == nil && s.Owner == owner {

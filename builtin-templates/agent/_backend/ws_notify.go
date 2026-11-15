@@ -1,13 +1,13 @@
 // ws_notify.go — how the workspace agent learns that something it waits
 // for changed (coord_workspace.go; docs/workspace-agent.md §How approvals
-// work). xbind calls POST /delegate/notify on this backend with ids and
-// kinds only — a request was allowed, denied, expired or withdrawn; a
-// standing approval came or went; a change set was decided or applied; a
-// session it started changed status or ended a turn; the agent was paused,
-// resumed or switched off. A notification is an untrusted wake-up: nothing
-// in its body is believed or even read beyond counting it. It asks for a
-// reconcile, which reads the state again through xbind's API, as the
-// person.
+// work). xbind posts a notice to this backend, as partition mail's
+// principal, with ids and kinds only — request, approval, changeset,
+// state, session, resync. A notice is an untrusted hint: nothing in it is
+// acted on. It asks for a reconcile, which reads the state again through
+// xbind's API, as the person. And no notice is relied on: xbind's expiry
+// notices don't survive its restart, and a session a restart ended looks
+// like any other end — so everything open is read again at start-up
+// (wsBoot) and by a timer while anything is open.
 //
 // The reconcile is one worker for the process: a notification that arrives
 // while it runs marks it dirty and it runs once more — a storm of them is
@@ -30,7 +30,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -40,11 +39,10 @@ import (
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
-// The notification route and the principal xbind calls it as.
-const (
-	wsNotifyPath = "POST /delegate/notify"
-	wsNotifyFrom = "xbin/delegate"
-)
+// wsNotifyPath is the notice path: what xbind's table of sealed components
+// names for this holder. Notices arrive as partition mail's principal
+// (xbin.ReadHolderNotice checks it).
+const wsNotifyPath = "POST /delegate/notify"
 
 // wsPollEvery is how long after a pass that left something open the next
 // one runs without a notification (a var: tests shorten it).
@@ -61,13 +59,20 @@ var wsSync = struct {
 	idle           chan struct{}
 }{}
 
-// handleWsNotify is the doorbell. Its body is counted, never trusted.
+// handleWsNotify is the doorbell: answered at once, the reading done
+// after. What the notice lists is not acted on — any notice, a resync
+// among them, asks for the same reconcile of everything open.
 func handleWsNotify(w http.ResponseWriter, r *http.Request) {
-	if from := xbin.Caller(r).From; from != wsNotifyFrom && principal(r).kind != whoSystem {
-		xbin.WriteError(w, http.StatusForbidden, "only xbin rings this")
+	n, err := xbin.ReadHolderNotice(r)
+	if err != nil {
+		if principal(r).kind != whoSystem { // the tile itself may ring it too
+			xbin.WriteError(w, http.StatusForbidden, "only xbin rings this")
+			return
+		}
+	} else if userMode() && n.Partition != "" && n.Partition != partitionKey() {
+		xbin.WriteError(w, http.StatusForbidden, "a notice for another partition")
 		return
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 64<<10))
 	wsKick()
 	xbin.WriteJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
 }
@@ -325,9 +330,9 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, grant str
 	case wsReqSession:
 		var start wsAgentStart
 		_ = json.Unmarshal(r.Body, &start)
-		if r.Brief != 0 && start.Resume == "" { // the brief as it stands now: the bytes the approval was of
-			if b, err := ag.db.wsBrief(r.Run, r.Brief); err == nil && ticket == "" {
-				start = wsStartOf(b, s.Owner)
+		if r.Brief != 0 && start.Resume == "" { // the brief as it stands now: what its person saw when they decided
+			if b, err := ag.db.wsBrief(r.Run, r.Brief); err == nil {
+				start.Prompt = wsBriefText(b, s.Owner) // the call itself (tile, harness, name) is the one that was asked
 			}
 		}
 		var a wsAgent

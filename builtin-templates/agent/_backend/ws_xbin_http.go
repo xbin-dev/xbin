@@ -1,14 +1,14 @@
 // ws_xbin_http.go — wsXbin over xbind's delegation (ws_xbin.go): the SDK's
 // delegate client (xbin.AsPerson: this partition's token under the delegate
-// scheme, no redirects followed), every call carrying the conversation's
-// handle. The one file that knows xbind's routes and shapes for the
-// workspace agent (docs/protocol/delegation.md, agents.md, code.md): a
-// shape that moves is fixed here.
+// scheme, no redirects followed), every call in the context of the
+// conversation's agent session (xbin.InAgentSession: xbind judges the call
+// by that handle's scope and model). The one file that knows xbind's
+// routes and shapes for the workspace agent (docs/protocol/delegation.md,
+// agents.md, code.md, preview.md): a shape that moves is fixed here.
 //
 // Reads are bounded: an answer is cut at wsReadMax before it is decoded or
-// handed on. A route this xbind doesn't serve (404 or 501 with no refusal
-// of xbind's) answers errWsUnavailable, so a tool can say "not available
-// yet" instead of failing.
+// handed on. A route this xbind doesn't serve answers errWsUnavailable, so
+// a tool can say "not available here" instead of failing.
 package main
 
 import (
@@ -26,13 +26,11 @@ import (
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
-// The headers of a delegate call beside the SDK's.
-const (
-	wsSessionHeader = "X-XBin-Agent-Session" // the conversation's handle, on every delegate and LLM call
-	wsReadMax       = 1 << 20                // the most of one answer that is read
-)
+// wsReadMax is the most of one answer that is read.
+const wsReadMax = 1 << 20
 
 type wsHTTP struct{}
 
@@ -42,15 +40,15 @@ func (wsHTTP) do(ctx context.Context, sid, method, path string, body []byte, cty
 	if body != nil {
 		rd = bytes.NewReader(body)
 	}
+	if sid != "" {
+		ctx = xbin.InAgentSession(ctx, sid) // the conversation this call is for
+	}
 	req, err := http.NewRequestWithContext(ctx, method, "http://xbin"+path, rd)
 	if err != nil {
 		return nil, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", orStr(ctype, "application/json"))
-	}
-	if sid != "" {
-		req.Header.Set(wsSessionHeader, sid)
 	}
 	for k, v := range hdr {
 		req.Header.Set(k, v)
@@ -110,14 +108,27 @@ func wsMissing(err error) bool {
 
 const wsSessionsPath = "/api/xbin/delegate/sessions"
 
+// filled is h with its connection's org rows: a session's own answer
+// carries the totals only.
+func (h wsHTTP) filled(ctx context.Context, out wsHandle, err error) (wsHandle, error) {
+	if err != nil {
+		return out, err
+	}
+	if c, _, cerr := h.Connection(ctx, out.ID, ""); cerr == nil {
+		out.Connection = c
+	}
+	return out, nil
+}
+
 func (h wsHTTP) OpenSession(ctx context.Context, scope *wsScope, model string) (wsHandle, error) {
 	var out wsHandle
-	return out, h.json(ctx, "", http.MethodPost, wsSessionsPath, map[string]any{"scope": scope, "model": model}, &out)
+	return h.filled(ctx, out, h.json(ctx, "", http.MethodPost, wsSessionsPath, map[string]any{"scope": scope, "model": model}, &out))
 }
 
 func (h wsHTTP) Session(ctx context.Context, sid string) (wsHandle, error) {
 	var out wsHandle
-	return out, h.get(ctx, sid, wsSessionsPath+"/"+url.PathEscape(sid), &out)
+	err := h.get(ctx, sid, wsSessionsPath+"/"+url.PathEscape(sid), &out)
+	return h.filled(ctx, out, err)
 }
 
 func (h wsHTTP) UpdateSession(ctx context.Context, sid string, ch wsHandleChange) (wsHandle, error) {
@@ -128,45 +139,32 @@ func (h wsHTTP) UpdateSession(ctx context.Context, sid string, ch wsHandleChange
 	if ch.Model != "" {
 		in["model"] = ch.Model
 	}
-	body, _ := json.Marshal(in)
-	resp, err := h.do(ctx, sid, http.MethodPatch, wsSessionsPath+"/"+url.PathEscape(sid), body, "", nil)
-	if err != nil {
-		return wsHandle{}, err
-	}
-	if resp.StatusCode == http.StatusConflict {
-		defer resp.Body.Close()
-		var t struct {
-			Code   string   `json:"code"`
-			Orgs   []string `json:"orgs"`
-			Reason string   `json:"reason"`
-			Error  string   `json:"error"`
-		}
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		_ = json.Unmarshal(raw, &t)
-		if t.Code == "model_taint" {
-			return wsHandle{}, &wsTaintError{Model: ch.Model, Orgs: t.Orgs, Reason: t.Reason}
-		}
-		return wsHandle{}, &xbin.DelegateError{Status: resp.StatusCode, Message: orStr(t.Error, strings.TrimSpace(string(raw)))}
-	}
-	if err := h.refused(resp); err != nil {
-		return wsHandle{}, err
-	}
-	defer resp.Body.Close()
 	var out wsHandle
-	return out, json.NewDecoder(io.LimitReader(resp.Body, wsReadMax)).Decode(&out)
+	err := h.json(ctx, sid, http.MethodPatch, wsSessionsPath+"/"+url.PathEscape(sid), in, &out)
+	var de *xbin.DelegateError
+	if errors.As(err, &de) && errors.Is(err, xbin.ErrModelTaint) {
+		return out, &wsTaintError{Model: ch.Model, Orgs: de.Orgs, Reason: de.Reason}
+	}
+	return h.filled(ctx, out, err)
 }
 
 func (h wsHTTP) CloseSession(ctx context.Context, sid string) error {
 	return h.json(ctx, sid, http.MethodDelete, wsSessionsPath+"/"+url.PathEscape(sid), nil, nil)
 }
 
-func (h wsHTTP) Connection(ctx context.Context, sid, whatIf string) (wsConnection, error) {
+func (h wsHTTP) Connection(ctx context.Context, sid, whatIf string) (wsConnection, *wsWhatIf, error) {
 	p := wsSessionsPath + "/" + url.PathEscape(sid) + "/connection"
 	if whatIf != "" {
 		p += "?whatIf=" + url.QueryEscape(whatIf)
 	}
-	var out wsConnection
-	return out, h.get(ctx, sid, p, &out)
+	// xbind's view also lists the connected tiles by name; the totals and
+	// the org rows are all that is kept
+	var out struct {
+		wsConnection
+		WhatIf *wsWhatIf `json:"whatIf"`
+	}
+	err := h.get(ctx, sid, p, &out)
+	return out.wsConnection, out.WhatIf, err
 }
 
 // Models: the connector is this component's own binding (its `llm` slot),
@@ -191,39 +189,44 @@ func (h wsHTTP) State(ctx context.Context) (wsState, error) {
 
 // --- looking ---------------------------------------------------------------------
 
-// Map is xbind's compact map; an xbind without it answers from the reads
-// the delegation cap always had (the component list and the tiles' own
-// status reports), which carry less.
+// Map is xbind's compact map of what the person sees, within the session's
+// scope and the orgs' rules, with each tile's own status line (the tiles'
+// reports) beside it.
 func (h wsHTTP) Map(ctx context.Context, sid string) (wsMap, error) {
-	var out wsMap
-	err := h.get(ctx, sid, "/api/xbin/delegate/map", &out)
-	if err == nil || !wsMissing(err) {
-		return out, err
+	var raw struct {
+		Tiles []struct {
+			Tile, Title, Kind, State, Agent string
+			Orgs                            []string
+			TileAgents                      int `json:"tileAgents"`
+		} `json:"tiles"`
+		Screens []struct {
+			ID, Name string
+			Tiles    []string
+		} `json:"screens"`
+		Orgs []wsOrg `json:"orgs"`
 	}
-	var comps []struct {
-		Path, Title, Runtime, State, Agent string
-		HasIndex                           bool
-	}
-	if err := h.get(ctx, sid, "/api/xbin/components", &comps); err != nil {
-		return out, err
+	if err := h.get(ctx, sid, "/api/xbin/delegate/map", &raw); err != nil {
+		return wsMap{}, err
 	}
 	var rep struct {
 		Statuses map[string]struct{ Level, Message string } `json:"statuses"`
 	}
-	_ = h.get(ctx, sid, "/api/xbin/tile-report", &rep)
-	for _, c := range comps {
-		if !c.HasIndex && c.Runtime == "" {
-			continue
+	_ = h.get(ctx, sid, "/api/xbin/tile-report", &rep) // best effort: a map without status lines is still a map
+	out := wsMap{Orgs: raw.Orgs}
+	for _, t := range raw.Tiles {
+		tile := wsTile{Path: t.Tile, Title: t.Title, Kind: t.Kind, Orgs: t.Orgs, Status: t.State, Agent: orStr(t.Agent, "full"), Running: t.TileAgents > 0}
+		if st, ok := rep.Statuses[t.Tile]; ok && st.Message != "" {
+			tile.Report = st.Level + ": " + st.Message
 		}
-		t := wsTile{Path: c.Path, Title: c.Title, Kind: c.Runtime, Status: orStr(c.State, "enabled"), Agent: orStr(c.Agent, "full")}
-		if s, ok := rep.Statuses[c.Path]; ok && s.Message != "" {
-			t.Report = s.Level + ": " + s.Message
-		}
-		out.Tiles = append(out.Tiles, t)
+		out.Tiles = append(out.Tiles, tile)
+	}
+	for _, sc := range raw.Screens {
+		out.Screens = append(out.Screens, wsScreen{ID: sc.ID, Name: sc.Name, Tiles: sc.Tiles})
 	}
 	return out, nil
 }
 
+// Tile is one tile of the map with its runtime state and what xbind flags.
 func (h wsHTTP) Tile(ctx context.Context, sid, tile string) (wsTile, error) {
 	m, err := h.Map(ctx, sid)
 	if err != nil {
@@ -278,21 +281,36 @@ func (h wsHTTP) Logs(ctx context.Context, sid, tile string, lines int) (string, 
 	return strings.Join(ls, "\n"), nil
 }
 
+// The docs reads need no handle (an agent can read them before it has one).
 func (h wsHTTP) DocsSearch(ctx context.Context, sid, q string, limit int) ([]wsDocHit, error) {
 	var out struct {
-		Hits []wsDocHit `json:"hits"`
+		Results []struct{ Path, Title, Section, Heading, Snippet string } `json:"results"`
 	}
-	err := h.get(ctx, sid, "/api/xbin/docs/search?q="+url.QueryEscape(q)+"&limit="+strconv.Itoa(limit), &out)
-	return out.Hits, err
+	err := h.get(ctx, sid, "/api/xbin/docs/search?q="+url.QueryEscape(clip(q, 200))+"&limit="+strconv.Itoa(limit), &out)
+	hits := make([]wsDocHit, 0, len(out.Results))
+	for _, r := range out.Results {
+		hits = append(hits, wsDocHit{Path: r.Path, Section: r.Section, Title: orStr(r.Heading, r.Title), Snippet: r.Snippet})
+	}
+	return hits, err
 }
 
 func (h wsHTTP) DocsPage(ctx context.Context, sid, path, section string) (wsDocPage, error) {
-	p := "/api/xbin/docs/page?path=" + url.QueryEscape(path)
-	if section != "" {
-		p += "&section=" + url.QueryEscape(section)
+	var raw struct {
+		Path, Title, Markdown string
+		Truncated             bool
+		Sections              []struct{ Section, Heading string }
 	}
-	var out wsDocPage
-	return out, h.get(ctx, sid, p, &out)
+	if err := h.get(ctx, sid, "/api/xbin/docs/page?path="+url.QueryEscape(path)+"&section="+url.QueryEscape(section), &raw); err != nil {
+		return wsDocPage{}, err
+	}
+	out := wsDocPage{Path: raw.Path, Title: raw.Title, Text: raw.Markdown}
+	if raw.Truncated {
+		out.Text += "\n\n(the page is longer: read it a section at a time)"
+	}
+	for _, s := range raw.Sections {
+		out.Sections = append(out.Sections, s.Section)
+	}
+	return out, nil
 }
 
 func (h wsHTTP) CodeTree(ctx context.Context, sid, tile string) ([]wsCodeFile, error) {
@@ -394,50 +412,17 @@ func (h wsHTTP) Withdraw(ctx context.Context, sid, id string) error {
 
 // --- tile agents -------------------------------------------------------------------
 
-// wsSessionWire is a session row of xbind's directory.
-type wsSessionWire struct {
-	ID, Cwd, Kind, Provider, Mode, Status, Origin, Name, Label string
-	Pending, Questions                                         int
-	Driver                                                     string `json:"agentSession"` // the handle that opened it
-}
-
-func (w wsSessionWire) agent(sid string) wsAgent {
-	a := wsAgent{ID: w.ID, Tile: w.Cwd, Provider: w.Provider, Name: orStr(w.Label, w.Provider), Mode: w.Mode,
-		Status: wsAgentStatus(w.Status), Pending: w.Pending, Questions: w.Questions, Origin: w.Origin,
-		Mine: w.Origin == "agent" && (w.Driver == "" || w.Driver == sid)}
-	if w.Status == "waiting_permission" && !a.waits() {
-		a.Pending = 1
-	}
-	return a
-}
-
-// wsAgentStatus is xbind's session status in the agent's five words.
-func wsAgentStatus(s string) string {
-	switch s {
-	case "starting":
-		return "starting"
-	case "running", "cancelling", "waiting_permission":
-		return "running"
-	case "idle":
-		return "idle"
-	case "error":
-		return "failed"
-	case "exited", "":
-		return "ended"
-	}
-	return s
-}
-
-// startCall is a's start as xbind's session directory takes it. prompt
-// rides the start, so the approval shows the words that will be sent; an
-// xbind that doesn't send it itself answers without prompted, and AgentStart
-// sends it then.
+// startCall is a's start as xbind's session directory takes it: the tile,
+// the harness and a name. Never a mode, a network or an option — a ticket
+// opens what the person saw on its card, and a start on their preference
+// takes those from the preference. A resume names the past session; its
+// harness is its history's.
 func (wsHTTP) startCall(a wsAgentStart) wsCall {
 	in := map[string]any{"cwd": a.Tile, "kind": "agent"}
 	if a.Resume != "" {
 		in["resume"] = a.Resume
 	} else {
-		in["prompt"] = a.Prompt
+		in["provider"] = a.Harness
 		if a.Name != "" {
 			in["name"] = a.Name
 		}
@@ -446,10 +431,27 @@ func (wsHTTP) startCall(a wsAgentStart) wsCall {
 	return wsCall{Method: http.MethodPost, Path: "/api/xbin/term/sessions", Body: body, ContentType: "application/json"}
 }
 
+// Harnesses are the coding agents the tile's orgs and the workspace allow
+// there, in xbind's order.
+func (h wsHTTP) Harnesses(ctx context.Context, sid, tile string) ([]wsHarness, error) {
+	var rows []struct{ ID, Name string }
+	if err := h.get(ctx, sid, "/api/xbin/agent/providers?cwd="+url.QueryEscape(tile), &rows); err != nil {
+		return nil, err
+	}
+	out := make([]wsHarness, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, wsHarness{ID: r.ID, Name: r.Name})
+	}
+	return out, nil
+}
+
 func (h wsHTTP) AskAgentStart(ctx context.Context, sid string, a wsAgentStart, summary string) (wsRequest, error) {
 	return h.Ask(ctx, sid, h.startCall(a), summary)
 }
 
+// AgentStart opens the session and then hands it its brief: xbind's start
+// carries no prompt, so the brief is the session's first message — sent
+// here, as the bytes the brief had when its person decided.
 func (h wsHTTP) AgentStart(ctx context.Context, sid string, a wsAgentStart, ticket string, dry bool) (wsAgent, *wsDry, error) {
 	c := h.startCall(a)
 	c.Ticket, c.DryRun = ticket, dry
@@ -457,19 +459,16 @@ func (h wsHTTP) AgentStart(ctx context.Context, sid string, a wsAgentStart, tick
 	if err != nil || dry {
 		return wsAgent{}, ans.Dry, err
 	}
-	var out struct {
-		wsSessionWire
-		Prompted bool `json:"prompted"`
-	}
+	var out wsSessionWire
 	if err := json.Unmarshal(ans.Body, &out); err != nil || out.ID == "" {
 		return wsAgent{}, nil, fmt.Errorf("xbin started the session but its answer couldn't be read")
 	}
-	ag := out.agent(sid)
+	ag := out.agent()
 	ag.Mine = true
 	if ag.Tile == "" {
 		ag.Tile = a.Tile
 	}
-	if a.Resume == "" && !out.Prompted && strings.TrimSpace(a.Prompt) != "" {
+	if a.Resume == "" && strings.TrimSpace(a.Prompt) != "" {
 		if _, err := h.AgentSay(ctx, sid, ag.ID, a.Prompt); err != nil {
 			return ag, nil, fmt.Errorf("the session started, but its brief could not be sent: %w", err)
 		}
@@ -500,15 +499,59 @@ func (h wsHTTP) TileCreate(ctx context.Context, sid string, t wsTileCreate, tick
 	return orStr(out.Path, t.Path), nil, nil
 }
 
+// wsSessionWire is a session row of xbind's directory.
+type wsSessionWire struct {
+	ID, Cwd, Kind, Provider, Mode, Status, Origin, Name string
+	Pending, Questions                                  int
+}
+
+func (w wsSessionWire) agent() wsAgent {
+	a := wsAgent{ID: w.ID, Tile: w.Cwd, Provider: w.Provider, Name: wsHarnessName(w.Provider), Mode: w.Mode, Asks: true,
+		Status: wsAgentStatus(w.Status), Pending: w.Pending, Questions: w.Questions, Origin: w.Origin, Mine: w.Origin == "agent"}
+	if p, ok := acp.Lookup(w.Provider); ok && w.Mode != "" {
+		a.Asks = p.Safe(w.Mode)
+	}
+	if w.Status == "waiting_permission" && !a.waits() {
+		a.Pending = 1
+	}
+	return a
+}
+
+// wsHarnessName is a harness as people call it ("Claude Code").
+func wsHarnessName(id string) string {
+	if p, ok := acp.Lookup(id); ok && p.Name != "" {
+		return p.Name
+	}
+	return id
+}
+
+// wsAgentStatus is xbind's session status in the agent's five words.
+func wsAgentStatus(s string) string {
+	switch s {
+	case "starting":
+		return "starting"
+	case "running", "cancelling", "waiting_permission":
+		return "running"
+	case "idle":
+		return "idle"
+	case "error":
+		return "failed"
+	case "exited", "":
+		return "ended"
+	}
+	return s
+}
+
+// Agents are the tile agents this agent started for the person.
 func (h wsHTTP) Agents(ctx context.Context, sid string) ([]wsAgent, error) {
 	var rows []wsSessionWire
-	if err := h.get(ctx, sid, "/api/xbin/term/sessions", &rows); err != nil {
+	if err := h.get(ctx, sid, "/api/xbin/term/sessions?origin=agent&compact=1", &rows); err != nil {
 		return nil, err
 	}
 	var out []wsAgent
 	for _, r := range rows {
 		if r.Kind == "agent" {
-			out = append(out, r.agent(sid))
+			out = append(out, r.agent())
 		}
 	}
 	return out, nil
@@ -530,7 +573,7 @@ func (h wsHTTP) Agent(ctx context.Context, sid, id string) (wsAgent, error) {
 		}
 		return wsAgent{}, err
 	}
-	a := out.Session.agent(sid)
+	a := out.Session.agent()
 	a.Pending, a.Questions = max(a.Pending, len(out.Permissions)), max(a.Questions, len(out.Elicitations))
 	switch {
 	case len(out.Elicitations) > 0:
@@ -667,13 +710,53 @@ func (h wsHTTP) ChangeSets(ctx context.Context, sid string) ([]wsChangeSet, erro
 	return out.Changesets, h.get(ctx, sid, "/api/xbin/delegate/changesets", &out)
 }
 
+// Preview is one tile as its person sees it, read-only. It needs no
+// ticket and counts against the person's preview limits; the picture stays
+// with xbind's answer — a model is given the text.
 func (h wsHTTP) Preview(ctx context.Context, sid string, p wsPreviewAsk) (wsPreview, error) {
-	var out wsPreview
-	err := h.json(ctx, sid, http.MethodPost, "/api/xbin/preview", p, &out)
-	if wsMissing(err) {
-		return out, errWsUnavailable
+	in := map[string]any{"tile": p.Tile}
+	if p.At != "" {
+		in["at"] = p.At
 	}
-	return out, err
+	if p.Phone {
+		in["viewport"] = map[string]int{"width": 390, "height": 844}
+	}
+	var raw struct {
+		OK                           bool
+		Notice, Title, Snapshot, PNG string
+		Note, Error                  string
+		Clipped                      bool
+		Console, PageErrors          []json.RawMessage
+		RequestsFailed               []struct {
+			URL, Method, Error string
+			Status             int
+		} `json:"requestsFailed"`
+	}
+	err := h.json(ctx, sid, http.MethodPost, "/api/xbin/preview", in, &raw)
+	var de *xbin.DelegateError
+	if errors.As(err, &de) && de.Refusal == "" && (de.Status == http.StatusServiceUnavailable || de.Status == http.StatusNotFound) {
+		return wsPreview{}, fmt.Errorf("%w: %s", errWsUnavailable, orStr(de.Message, "previews are off here"))
+	}
+	if err != nil {
+		return wsPreview{}, err
+	}
+	out := wsPreview{Notice: raw.Notice, Title: raw.Title, Snapshot: raw.Snapshot, Picture: raw.PNG != "", Clipped: raw.Clipped, Note: orStr(raw.Note, raw.Error)}
+	line := func(m json.RawMessage) string {
+		var s string
+		if json.Unmarshal(m, &s) == nil {
+			return s
+		}
+		var o struct{ Type, Text, Message string }
+		_ = json.Unmarshal(m, &o)
+		return strings.TrimSpace(o.Type + " " + orStr(o.Text, o.Message))
+	}
+	for _, m := range append(raw.PageErrors, raw.Console...) {
+		out.Errors = append(out.Errors, line(m))
+	}
+	for _, f := range raw.RequestsFailed {
+		out.Failed = append(out.Failed, strings.TrimSpace(fmt.Sprintf("%s %s → %s", f.Method, f.URL, orStr(f.Error, strconv.Itoa(f.Status)))))
+	}
+	return out, nil
 }
 
 // wireUnix reads a time xbind wrote as RFC 3339 (or as unix seconds).

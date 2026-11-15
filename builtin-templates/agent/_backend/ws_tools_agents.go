@@ -168,9 +168,20 @@ func wsBriefTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (str
 
 // --- starting ------------------------------------------------------------------------
 
-// wsStartOf is the start a brief (or a resume) asks for.
-func wsStartOf(b *wsBrief, person string) wsAgentStart {
-	return wsAgentStart{Tile: b.Tile, Prompt: wsBriefText(b, person), Name: clip(oneLineTitle(b.Goal), 60)}
+// wsStartOf is the start a brief asks for, on harness.
+func wsStartOf(b *wsBrief, person, harness string) wsAgentStart {
+	return wsAgentStart{Tile: b.Tile, Harness: harness, Prompt: wsBriefText(b, person), Name: clip(oneLineTitle(b.Goal), 60)}
+}
+
+// wsStartSummary is what the person reads beside a start's request, as the
+// agent's words: the brief itself. xbind's start carries no prompt, so its
+// card can't show one of its own — the brief is sent as the session's
+// first message, exactly as it stands when they decide.
+func wsStartSummary(a wsAgentStart) string {
+	if a.Resume != "" {
+		return "Continue the tile agent in " + a.Tile + " where it stopped."
+	}
+	return clip("What the tile agent will be told:\n\n"+a.Prompt, 4000)
 }
 
 func wsStartTool(e *Engine, ctx context.Context, ts *turnState, tc toolCall, s *wsSession, args map[string]any) (string, error) {
@@ -202,8 +213,12 @@ func wsStartTool(e *Engine, ctx context.Context, ts *turnState, tc toolCall, s *
 		case "replaced":
 			return "", fmt.Errorf("brief %d was replaced by a newer one for %s (tile_agents lists them)", b.ID, b.Tile)
 		}
-		brief, start = b, wsStartOf(b, s.Owner)
-		title = fmt.Sprintf("start a tile agent in %s", b.Tile)
+		harness, err := ag.wsPickHarness(ctx, s, b.Tile)
+		if err != nil {
+			return "", err
+		}
+		brief, start = b, wsStartOf(b, s.Owner, harness.ID)
+		title = fmt.Sprintf("start a tile agent in %s (%s)", b.Tile, harness.Name)
 	}
 	if n := ag.db.wsOne(`SELECT count(*) FROM ws_agents WHERE run_id=? AND status IN ('starting','running','idle')`, s.Run); n >= wsAgentsLive {
 		return "", fmt.Errorf("this session already has %d tile agents open (at most %d): let one finish, or message one of them", n, wsAgentsLive)
@@ -223,11 +238,7 @@ func wsStartTool(e *Engine, ctx context.Context, ts *turnState, tc toolCall, s *
 	req := &wsReq{Kind: wsReqSession, Tile: start.Tile, Title: title, Method: "POST", Path: "/api/xbin/term/sessions", Body: body}
 	var ask func(string) (wsRequest, error)
 	if dry.NeedsApproval {
-		summary := title
-		if brief != nil {
-			summary = clip(brief.Goal, 600)
-		}
-		ask = func(sid string) (wsRequest, error) { return wsX.AskAgentStart(ctx, sid, start, summary) }
+		ask = func(sid string) (wsRequest, error) { return wsX.AskAgentStart(ctx, sid, start, wsStartSummary(start)) }
 	} else if brief != nil {
 		// their preferences let a tile agent start without xbin asking: the
 		// brief is then the one confirmation — Start on the brief's card
@@ -365,6 +376,10 @@ func wsAgentResultTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 	}
 	var b strings.Builder
 	b.WriteString(wsStatusWords(row) + "\n")
+	if !row.live() && rep.Status == "running" {
+		// xbind doesn't say why a session ended: one that ended inside a turn was cut off
+		b.WriteString("It ended in the middle of a turn — cut off (an xbin restart does that), not finished. What follows is what it had written by then; tile_agent_start with resume continues it.\n")
+	}
 	if rep.Answer == "" {
 		b.WriteString("It left no final answer.\n")
 	} else {

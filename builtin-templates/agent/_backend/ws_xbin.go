@@ -29,9 +29,12 @@ type wsXbin interface {
 	Session(ctx context.Context, sid string) (wsHandle, error)
 	UpdateSession(ctx context.Context, sid string, ch wsHandleChange) (wsHandle, error)
 	CloseSession(ctx context.Context, sid string) error
-	// Connection is what the handle is connected to — totals and each org's
-	// reason, never a blocked tile's name; whatIf asks for another model.
-	Connection(ctx context.Context, sid, whatIf string) (wsConnection, error)
+	// Connection is what the handle is connected to, as it may enter a
+	// model's context: totals and each org's state and reason — never a
+	// blocked tile's name (the person's page reads the full view from xbind
+	// itself). With whatIf, what moving to that model would change, as
+	// counts, and whether the conversation's data allows the move.
+	Connection(ctx context.Context, sid, whatIf string) (wsConnection, *wsWhatIf, error)
 	// Models are the models the person may put a conversation on.
 	Models(ctx context.Context) (wsModels, error)
 	// State is delegation's switches for this person (paused, the admin opt-in).
@@ -60,6 +63,7 @@ type wsXbin interface {
 	// the same bytes: AskX files it for approval; X makes it under a ticket
 	// (or, with ticket "", where the person's preferences let it through),
 	// and with dry describes it instead.
+	Harnesses(ctx context.Context, sid, tile string) ([]wsHarness, error)
 	AskAgentStart(ctx context.Context, sid string, a wsAgentStart, summary string) (wsRequest, error)
 	AgentStart(ctx context.Context, sid string, a wsAgentStart, ticket string, dry bool) (wsAgent, *wsDry, error)
 	AskTileCreate(ctx context.Context, sid string, t wsTileCreate, summary string) (wsRequest, error)
@@ -109,40 +113,58 @@ type wsHandleChange struct {
 	Model    string
 }
 
-// wsConnection is the connection view the agent gets.
+// wsConnection is the connection view the agent gets (xbind's redacted
+// view: its totals, and one row an org).
 type wsConnection struct {
-	Summary string `json:"summary,omitempty"` // xbind's sentence: "14 tiles · 3 orgs connected · 6 not connected"
-	Model   string `json:"model,omitempty"`
-	Private bool   `json:"private,omitempty"`
-	Counts  struct {
-		Connected int `json:"connected"`
-		Hidden    int `json:"hidden"`
-		Blocked   int `json:"blocked"`
-		NoAccess  int `json:"noAccess"`
-		Orgs      int `json:"orgs"`
-	} `json:"counts"`
-	Orgs []wsOrgConn `json:"orgs,omitempty"`
+	Counts wsCounts    `json:"counts"`
+	Orgs   []wsOrgConn `json:"orgs,omitempty"`
 }
 
-// wsOrgConn is one org's part of it. ID "" is the workspace's own tiles.
+// wsCounts are a connection's totals: Tiles and Orgs count what is
+// connected, NotConnected every other tile (Hidden + Blocked + NoAccess).
+type wsCounts struct {
+	Tiles        int    `json:"tiles"`
+	Orgs         int    `json:"orgs"`
+	NotConnected int    `json:"notConnected"`
+	Hidden       int    `json:"hidden"`
+	Blocked      int    `json:"blocked"`
+	NoAccess     int    `json:"noAccess"`
+	Summary      string `json:"summary,omitempty"` // xbind's sentence: "14 tiles · 3 orgs connected · 6 not connected"
+}
+
+// wsOrgConn is one org's row: its own answer for this session — its rules
+// on the session's model, and the session's scope — whatever its tiles.
+// ID "workspace" is the tiles in no org.
 type wsOrgConn struct {
 	ID        string `json:"id"`
 	Name      string `json:"name,omitempty"`
-	Connected int    `json:"connected"`
-	Tiles     int    `json:"tiles"`
-	State     string `json:"state,omitempty"`  // connected | hidden | blocked | mixed
+	Kind      string `json:"kind,omitempty"`   // org | workspace
+	State     string `json:"state,omitempty"`  // connected | hidden | blocked | no-access
 	Reason    string `json:"reason,omitempty"` // xbind's words for a block
+	Tiles     int    `json:"tiles"`
+	Connected int    `json:"connected"`
 }
 
-// connects: org is connected in c (the workspace's own tiles always count
-// as the person's).
+// wsWhatIf is what moving a session to Model would change: counts only,
+// and whether every org whose data the conversation holds allows it.
+type wsWhatIf struct {
+	Model       string   `json:"model"`
+	Connects    int      `json:"connects"`
+	Disconnects int      `json:"disconnects"`
+	Counts      wsCounts `json:"counts"`
+	Allowed     bool     `json:"allowed"`
+	TaintedOrgs []string `json:"taintedOrgs,omitempty"` // the held orgs that don't allow it
+}
+
+// connects: org is connected in c — its row says so. An org xbind lists no
+// row for is one the person has nothing to do with any more.
 func (c wsConnection) connects(org string) bool {
 	if org == "" {
 		return true
 	}
 	for _, o := range c.Orgs {
 		if o.ID == org {
-			return o.Connected > 0 && o.State != "blocked"
+			return o.State == "connected"
 		}
 	}
 	return false
@@ -166,10 +188,8 @@ type wsModels struct {
 }
 
 type wsModel struct {
-	ID      string `json:"id"`
-	Name    string `json:"name,omitempty"`
-	Where   string `json:"where,omitempty"` // "hosted", "runs here", …
-	Private bool   `json:"private,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
 }
 
 type wsState struct {
@@ -200,6 +220,9 @@ type wsTile struct {
 	Level   string   `json:"level,omitempty"`   // the person's level on it
 	Rev     string   `json:"rev,omitempty"`     // its code's revision, when xbind says
 }
+
+// wsNoOrg is the org xbind names for the tiles in no org.
+const wsNoOrg = "workspace"
 
 // name is the tile as people call it.
 func (t wsTile) name() string { return orStr(t.Title, t.Path) }
@@ -321,15 +344,24 @@ func (a wsAgent) waits() bool { return a.Pending > 0 || a.Questions > 0 }
 // live: it can still take a message.
 func (a wsAgent) live() bool { return a.Status != "ended" && a.Status != "failed" && a.Status != "" }
 
-// wsAgentStart is a tile agent's start as the agent may shape it: where,
-// what it is told, or the past session to continue. The harness, its mode,
-// its network and what it may call are the person's preferences and the
-// tile's org's rules — xbind fills them in; nothing here names them.
+// wsAgentStart is a tile agent's start: where, on which harness, what it
+// is told — or the past session to continue. The harness is this backend's
+// pick among what the tile allows (the person's choice in its preferences,
+// else the tile's first), never the model's; its mode, its network and
+// what it may call are the person's preferences and the tile's org's
+// rules, which xbind fills in. Prompt is the brief: its first message.
 type wsAgentStart struct {
-	Tile   string `json:"tile"`
-	Prompt string `json:"prompt,omitempty"`
-	Name   string `json:"name,omitempty"`
-	Resume string `json:"resume,omitempty"`
+	Tile    string `json:"tile"`
+	Harness string `json:"harness,omitempty"`
+	Prompt  string `json:"prompt,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Resume  string `json:"resume,omitempty"`
+}
+
+// wsHarness is a coding agent a tile's rules allow.
+type wsHarness struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // wsTileCreate is a tile made from a template.
@@ -371,18 +403,26 @@ type wsChangeSet struct {
 
 func (c wsChangeSet) decided() bool { return c.State != "proposed" && c.State != "applying" }
 
+// wsPreviewAsk is one tile to look at: At its fragment (#tab), Phone a
+// phone's viewport instead of a desktop's.
 type wsPreviewAsk struct {
-	Tile     string `json:"tile,omitempty"`
-	Screen   string `json:"screen,omitempty"`
-	Viewport string `json:"viewport,omitempty"`
+	Tile  string
+	At    string
+	Phone bool
 }
 
-// wsPreview is what a preview shows without the picture: the accessibility
-// snapshot and what went wrong on the page.
+// wsPreview is what a preview shows a model: the page as text and what
+// went wrong on it, with xbind's fixed notice that all of it is data.
+// Picture says a picture was taken too (the person's page can show it).
 type wsPreview struct {
-	Snapshot string   `json:"snapshot,omitempty"`
-	Errors   []string `json:"errors,omitempty"`
-	Failed   []string `json:"failed,omitempty"`
+	Notice   string
+	Title    string
+	Snapshot string
+	Picture  bool
+	Clipped  bool
+	Note     string
+	Errors   []string
+	Failed   []string
 }
 
 // errWsUnavailable: this xbind doesn't serve the route yet.
@@ -409,6 +449,10 @@ func wsRefusal(err error) string {
 		return "your person paused you: nothing can be read or changed until they resume. Stop here and tell them"
 	case errors.Is(err, xbin.ErrAgentOff):
 		return "workspace agents are turned off for this workspace: stop here and tell your person (" + msg + ")"
+	case errors.Is(err, xbin.ErrHiddenByScope):
+		return "this tile is outside what your person let this session see (hidden by them, in the session's scope): say so — they can widen the scope, or use another session"
+	case errors.Is(err, xbin.ErrNoSession):
+		return "xbin no longer knows this conversation's session; try once more, and tell your person if it keeps failing"
 	case errors.Is(err, xbin.ErrPolicyRefused):
 		return "refused for this tile — " + msg + ". This is a rule (the tile's, its org's, or your person can't see it), not something to work around: tell your person"
 	case errors.Is(err, xbin.ErrNotDelegated):

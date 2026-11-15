@@ -106,9 +106,9 @@ func handleWsEmpty(w http.ResponseWriter, r *http.Request) {
 	}
 	agent.wsRefresh(r.Context(), s, false)
 	c := s.Conn.Connection
-	not := c.Counts.Hidden + c.Counts.Blocked + c.Counts.NoAccess
+	not := c.Counts.NotConnected
 	can := []string{
-		fmt.Sprintf("Look across your %d connected tiles", c.Counts.Connected),
+		fmt.Sprintf("Look across your %d connected tiles", c.Counts.Tiles),
 		"Start tile agents and keep track of them",
 		"Do things in a tile for you, once you approve",
 		"Remember what you tell it",
@@ -121,7 +121,7 @@ func handleWsEmpty(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"heading": "Ask for an outcome",
 		"line":    "The workspace agent plans the work, hands building to each tile's own agent, and asks you before anything changes.",
-		"can":     can, "cant": cant, "connected": c.Counts.Connected, "notConnected": not, "summary": wsConnLine(c),
+		"can":     can, "cant": cant, "connected": c.Counts.Tiles, "notConnected": not, "summary": wsConnLine(c),
 		"placeholder":   "Ask for an outcome…",
 		"hint":          "Say what you want and how you'll know it's done. The agent works out the steps.",
 		"startersTitle": "Try one — from your tiles",

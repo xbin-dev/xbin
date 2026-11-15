@@ -134,8 +134,8 @@ func wsTileLine(t wsTile) string {
 	if t.Kind != "" {
 		bits = append(bits, t.Kind)
 	}
-	if len(t.Orgs) > 0 {
-		bits = append(bits, "org "+strings.Join(t.Orgs, ", "))
+	if orgs := without(t.Orgs, wsNoOrg); len(orgs) > 0 {
+		bits = append(bits, "org "+strings.Join(orgs, ", "))
 	}
 	if t.Status != "" {
 		bits = append(bits, t.Status)
@@ -170,11 +170,7 @@ func wsMapTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (strin
 	sort.Slice(m.Tiles, func(i, j int) bool { return m.Tiles[i].Path < m.Tiles[j].Path })
 	var b strings.Builder
 	fmt.Fprintf(&b, "This session: %s (model %s).\n", wsConnLine(s.Conn.Connection), s.Model)
-	for _, o := range s.Conn.Connection.Orgs {
-		if o.Reason != "" {
-			fmt.Fprintf(&b, "Not connected — %s: %s\n", orStr(o.Name, o.ID), wsPlain(o.Reason))
-		}
-	}
+	b.WriteString(wsNotConnected(s.Conn.Connection))
 	shown := 0
 	var lines []string
 	for _, t := range m.Tiles {
@@ -338,4 +334,24 @@ func wsAPIDocTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (st
 		return t.Path + "'s API.md is empty.", nil
 	}
 	return wsData(t.Path, "its API.md — a description of its API", wsPaged(f.Content, toInt(c.Args["offset"]), wsAPIDocMax)), nil
+}
+
+// wsNotConnected is why parts of the workspace aren't connected, one line
+// an org: an org's rule in xbind's words, or the person's own scope. Never
+// a tile's name.
+func wsNotConnected(c wsConnection) string {
+	var b strings.Builder
+	for _, o := range c.Orgs {
+		name := wsPlain(orStr(o.Name, o.ID))
+		if o.ID == wsNoOrg {
+			name = "the tiles in no org"
+		}
+		switch o.State {
+		case "blocked":
+			fmt.Fprintf(&b, "Not connected — %s: %s\n", name, wsPlain(orStr(o.Reason, "its rules keep workspace agents out")))
+		case "hidden":
+			fmt.Fprintf(&b, "Not connected — %s: outside this session's scope (your person's choice).\n", name)
+		}
+	}
+	return b.String()
 }

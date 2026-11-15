@@ -81,9 +81,12 @@ func TestWsEvalStartWakeSummarise(t *testing.T) {
 	req := fx.x.pending(t)
 	var asked wsAgentStart
 	_ = json.Unmarshal(req.call.Body, &asked)
-	if req.Kind != "session" || asked.Tile != "apps/invoices" || !strings.Contains(asked.Prompt, "Goal: An overdue filter") || !strings.Contains(asked.Prompt, "Leave alone: The PDF export") ||
-		strings.Contains(string(req.call.Body), "provider") || strings.Contains(string(req.call.Body), "mode") {
-		t.Fatalf("the start asked for: %s", req.call.Body)
+	// the call names the tile and a harness the tile allows (the backend's
+	// pick, not the model's) — no mode, network or option; the brief is what
+	// the person reads beside it
+	if req.Kind != "session" || asked.Tile != "apps/invoices" || asked.Harness != "claude" || asked.Prompt != "" || strings.Contains(string(req.call.Body), "mode") ||
+		!strings.Contains(req.summary, "Goal: An overdue filter") || !strings.Contains(req.summary, "Leave alone: The PDF export") {
+		t.Fatalf("the start asked for: %s\n%s", req.call.Body, req.summary)
 	}
 	if fx.x.count("Call POST /api/xbin/term/sessions") != 0 {
 		t.Fatal("a session started before the person approved")
@@ -103,7 +106,7 @@ func TestWsEvalStartWakeSummarise(t *testing.T) {
 		t.Fatalf("the brief: %+v", b)
 	}
 	sid := agents[0].Session
-	if said := fx.x.said[sid]; len(said) != 1 || said[0] != asked.Prompt {
+	if said := fx.x.said[sid]; len(said) != 1 || "What the tile agent will be told:\n\n"+said[0] != req.summary {
 		t.Fatalf("the tile agent was told: %q", said)
 	}
 
@@ -553,19 +556,28 @@ func TestWsEvalModelChangeRefusedByTaint(t *testing.T) {
 	f.on(forRun(s.Run, lastTool("tile_call")), callTools(tc("t2", "notebook_write", `{"slug":"ledger-balance","body":"The ledger's balance was 1200.","summary":"What the ledger held"}`))).once()
 	fx.say(t, s, "what is the balance?")
 	fx.idle(t, s)
-	if cur, _ := fx.ag.db.wsSession(s.Run); len(cur.Conn.Tainted) != 1 || cur.Conn.Tainted[0] != "finance" {
+	if cur, _ := fx.ag.db.wsSession(s.Run); !hasStr(cur.Conn.Tainted, "finance") {
 		t.Fatalf("what the conversation holds: %v", cur.Conn.Tainted)
 	}
-	if !strings.Contains(systemOf(f.callsFor(s.Run)[len(f.callsFor(s.Run))-1]), "This conversation holds data from: finance.") {
+	sys := systemOf(f.callsFor(s.Run)[len(f.callsFor(s.Run))-1])
+	if _, held, ok := strings.Cut(sys, "This conversation holds data from: "); !ok || !strings.Contains(strings.SplitN(held, "\n", 2)[0], "finance") {
 		t.Fatal("the prompt doesn't say what the conversation holds")
 	}
 	// the what-if, then the switch
 	var what struct {
-		CanSwitch bool `json:"canSwitch"`
-		Taint     struct{ Orgs []string }
+		WhatIf struct {
+			Allowed     bool
+			TaintedOrgs []string
+			Disconnects int
+			Summary     string
+		}
+		Offer struct {
+			NewSession struct{ Model string } `json:"newSession"`
+		}
 	}
 	fx.json(t, fx.call(t, wsAlice, "GET", fmt.Sprintf("/ws/sessions/%d/connection?whatIf=big", s.Run), nil), 200, &what)
-	if what.CanSwitch || len(what.Taint.Orgs) != 1 {
+	if what.WhatIf.Allowed || len(what.WhatIf.TaintedOrgs) != 1 || what.WhatIf.Disconnects != 1 || what.Offer.NewSession.Model != "big" ||
+		what.WhatIf.Summary != "4 tiles · 1 orgs connected · 1 not connected" {
 		t.Fatalf("the what-if: %+v", what)
 	}
 	var refusal struct {
@@ -589,7 +601,7 @@ func TestWsEvalModelChangeRefusedByTaint(t *testing.T) {
 	// the offer: a new session on big — empty, Finance not connected, and the page written from Finance's data closed to it
 	fx.json(t, fx.call(t, wsAlice, "POST", "/ws/sessions", map[string]any{"model": "big"}), 200, &made)
 	n, _ := fx.ag.db.wsSession(made.Session.ID)
-	if n.Model != "big" || n.Conn.Connection.connects("finance") || len(n.Conn.Tainted) != 0 {
+	if n.Model != "big" || n.Conn.Connection.connects("finance") || hasStr(n.Conn.Tainted, "finance") {
 		t.Fatalf("the new session: %+v", n)
 	}
 	f.on(forRun(n.Run, lastUser("what do you remember")), callTools(tc("n1", "notebook_search", `{}`), tc("n2", "notebook_read", `{"slug":"ledger-balance"}`))).once()

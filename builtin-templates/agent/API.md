@@ -5836,19 +5836,22 @@ instance, and any other value refuses to serve. In it:
   routes below. Every other route answers `404 {"error":"not found"}`
   before its own guard runs.
 - **xbind behind one interface** (`wsXbin`, `ws_xbin.go`): every call the
-  agent makes as its person — the delegate client, each carrying the
-  session's handle in `X-XBin-Agent-Session` — is a method of it, and
-  `ws_xbin_http.go` is the one file that knows xbind's routes and shapes.
-  Model calls carry the same header; a session uses one model for its
-  turns, summaries and titles.
+  agent makes as its person — the SDK's delegate client, each in the
+  context of the conversation's agent session (`xbin.InAgentSession`) — is
+  a method of it, and `ws_xbin_http.go` is the one file that knows xbind's
+  routes and shapes. Model calls carry the same handle
+  (`xbin.AgentSessionHeader`); a session uses one model for its turns,
+  summaries and titles.
 
 **Sessions.** `Main` is made on first use (`POST /ws/sessions {main:
 true}`, idempotent), is renamable and never archived or deleted. A session
 owns one handle at xbind (`{scope, model}`), made with it and closed with
-it, and made again when xbind says it is gone. A model change is asked of
-xbind and checked here against the orgs whose data the conversation holds:
-refused, the answer is `409 {code: "model_taint", model, orgs, reason,
-offer: {newSession: {model}}}`.
+it, and made again when xbind says it is gone (`no-session`: a handle goes
+after a day unused) — what the conversation was last seen to hold stays on
+record here. A model change is xbind's to allow: refused (the
+conversation holds data of an org that doesn't allow the model, by xbind's
+record or by this one), the answer is `409 {code: "model_taint", model,
+orgs, reason, offer: {newSession: {model}}}`.
 
 | Route | |
 |---|---|
@@ -5857,7 +5860,7 @@ offer: {newSession: {model}}}`.
 | `POST /ws/sessions` | `{main: true}`, or `{name?, scope?, model?, from?}` (`from`: copy that session's scope and model; no name: named from its first request) → `{session}` |
 | `PATCH /ws/sessions/{id}` | `{name?, archived?, scope? ({orgs, tiles} or null: everything allowed), model?}` → `{session}`; `409` for Main's archive, a model change while it works, and `model_taint` |
 | `DELETE /ws/sessions/{id}` | not Main. Closes the handle and withdraws its pending requests; tile agents it started keep running, as their person's |
-| `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection, summary, model}`; with `whatIf` also `now`, `canSwitch` and `taint: {orgs}` when the switch would be refused. Totals and org-level reasons, never a blocked tile's name |
+| `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection: {counts, orgs: [{id, name, kind, state, reason?, tiles, connected}]}, summary, model, handle}`; with `whatIf` also `whatIf: {model, connects, disconnects, counts, summary, allowed, taintedOrgs}` and, when not allowed, `offer: {newSession: {model}}`. Totals and org-level reasons only: the page reads the tiles' names from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`) |
 | `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset, ref, tile, title, method, path, brief, state, outcome, createdMs, decidedMs}], agents: [{id, session, tile, harness, mode, asks, status, waits, waiting, last, held}], briefs: [{id, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}]}`. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
 | `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?}`: the person's edit. A request already filed for the old words is withdrawn and filed again |
 | `POST /ws/sessions/{id}/briefs/{bid}/start` | "Review and start…" → `{request, id}` (the request to review; filed now when the agent hadn't asked), or `{started, id, outcome}` where the person's preferences let tile agents start without xbind asking — there the click is the confirmation |
@@ -5865,8 +5868,8 @@ offer: {newSession: {model}}}`.
 | `GET /ws/empty?session=` | the empty state, computed from xbind's map without a model call: `{heading, line, can[], cant[], connected, notConnected, summary, placeholder, hint, startersTitle, starters: [{kind: Ask\|Fix\|Change\|New, text, tile?, blank?}]}`. A starter fills the composer; a tile that reports a failure becomes a Fix |
 | `GET /ws/notebook?session=` | `{pages: [{slug, title, summary, version, updatedBy, updatedMs, orgs, tile, rev, locked?, lockedWhy?}]}` — every page is the person's to see; `locked` says the session can't read it |
 | `GET` / `PUT` / `DELETE /ws/notebook/{slug}` | read; write `{title?, body, summary?, base}` (`base`: the version seen, `0` for a new page; `409 {current}` when it moved); delete makes the agent forget (history kept) |
-| `GET` / `PUT /ws/prefs` | `{model, lastSession}`: the model new sessions start on, the session the page last showed. What a started tile agent gets is xbind's (`/agent/prefs`) |
-| `POST /delegate/notify` | xbind's doorbell (caller `xbin/delegate`): ids and kinds, never trusted — it asks for a reconcile that reads the state again through xbind. Coalescing and idempotent |
+| `GET` / `PUT /ws/prefs` | `{model, harness, lastSession}`: the model new sessions start on, the coding agent tile agents start on where a tile allows it (else the tile's first), the session the page last showed. A started tile agent's mode, network and whether it starts without asking are xbind's (`/agent/prefs`) |
+| `POST /delegate/notify` | xbind's notice path (`xbin.ReadHolderNotice`: partition mail's principal): `{partition, events: [{kind, id}]}`, never trusted — any notice asks for a reconcile that reads the state again through xbind. Coalescing and idempotent; everything open is also re-read at start-up and by a timer while anything is open |
 
 **Tools** (the profile's; each changing one takes `dry_run`):
 `workspace_map`, `tile_status`, `tile_logs`, `docs_search`, `docs_read`,
@@ -5880,7 +5883,9 @@ with the core `ask_user` (here it takes `choices`), notes and `recall`.
 **A request and its park.** `tile_call` with a method other than GET/HEAD,
 `tile_agent_start` and `tile_create` ask xbind what the call would be (a
 dry run), file it for the person's approval exactly as it will be sent,
-and park the tool call: the conversation is `waiting_input` with pending
+and park the tool call (a tile agent's start names the tile and a coding
+agent the tile allows; its brief is the request's summary and the
+session's first message): the conversation is `waiting_input` with pending
 kind `coord`, its result line "Waiting for your approval: …". When the
 doorbell rings the backend reads the request: approved, it makes that one
 call under its ticket and the answer becomes the tool's result; denied,

@@ -8,7 +8,8 @@
 // A page is stamped with the orgs whose data it may hold (ws_pages): the
 // org of the tile it is about, and every org whose data the conversation
 // that wrote it had read (the handle's taint, ws_sessions.go) — a stamp
-// only ever grows. A session reads, searches and is shown a page only when
+// only ever grows. The one page without a stamp is `preferences`: how the
+// person likes things done, in their words, shown to every session. A session reads, searches and is shown a page only when
 // every org on its stamp is connected in that session, on its model; any
 // other page is counted, never named, read or injected. So what one
 // session learned in Finance on a private model can't reach another
@@ -338,7 +339,9 @@ func wsNotebookChange(ctx context.Context, ag *Agent, s *wsSession, c coordCall,
 		if stamp.Summary == "" {
 			return "", errors.New("summary: one line saying what the page holds")
 		}
-		if tile := strings.TrimSpace(str(c.Args["tile"])); tile != "" {
+		if tile := strings.TrimSpace(str(c.Args["tile"])); tile != "" && slug == wsPrefsSlug {
+			return "", errors.New("the page `preferences` is how your person likes things done, in their words: it is about no tile. Put what you learned about a tile on a page of its own")
+		} else if tile != "" {
 			t, err := wsFindTile(ctx, ag, s, tile)
 			if err != nil {
 				return "", err
@@ -355,8 +358,12 @@ func wsNotebookChange(ctx context.Context, ag *Agent, s *wsSession, c coordCall,
 			}
 		}
 	}
-	// whatever the conversation has read may be in what it writes
-	stamp.Orgs = wsUnion(stamp.Orgs, s.Conn.Tainted)
+	// whatever the conversation has read may be in what it writes — except
+	// the page that is the person's own words about how they like things
+	// done, which every session of theirs is shown
+	if slug != wsPrefsSlug {
+		stamp.Orgs = wsUnion(stamp.Orgs, s.Conn.Tainted)
+	}
 	var p *WikiPage
 	err = ag.db.Tx(func(t *DB) error {
 		var err error
@@ -397,11 +404,7 @@ func (ag *Agent) wsPromptFor(run *Run, cfg Config) string {
 		kind = " — your person's main, long-lived session —"
 	}
 	fmt.Fprintf(&b, "Session %q%s for %s, on the model %s. Connected: %s.\n", wsPlain(run.Title), kind, s.Owner, s.Model, wsConnLine(s.Conn.Connection))
-	for _, o := range s.Conn.Connection.Orgs {
-		if o.Reason != "" {
-			fmt.Fprintf(&b, "Not connected — %s: %s\n", wsPlain(orStr(o.Name, o.ID)), wsPlain(o.Reason))
-		}
-	}
+	b.WriteString(wsNotConnected(s.Conn.Connection))
 	if s.Scope != nil {
 		b.WriteString("Your person narrowed where this session looks; what is outside is not connected, by their choice.\n")
 	}

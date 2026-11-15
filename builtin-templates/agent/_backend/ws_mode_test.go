@@ -146,7 +146,7 @@ func TestWsModeOffIsUnreachable(t *testing.T) {
 		}
 	}
 	r := httptest.NewRequest("POST", "/delegate/notify", strings.NewReader(`{}`))
-	r.Header.Set("X-XBin-From", wsNotifyFrom)
+	r.Header.Set("X-XBin-From", "xbin/mail")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {

@@ -135,25 +135,30 @@ func (ag *Agent) wsNewSession(ctx context.Context, owner, name string, scope *ws
 	return s, err
 }
 
-// wsGone: xbind no longer knows the handle (it expired, or xbind's state
-// was reset): the session opens another.
-func wsGone(err error) bool {
-	var de *xbin.DelegateError
-	if !errors.As(err, &de) {
-		return false
-	}
-	return de.Refusal == "session" || (de.Status == http.StatusNotFound && de.Refusal == "" && strings.Contains(de.Message, "session"))
-}
+// wsGone: xbind no longer knows the handle (unused for a day, or pushed
+// out by newer ones): the session opens another.
+func wsGone(err error) bool { return errors.Is(err, xbin.ErrNoSession) }
 
-// wsReopen gives s a new handle with its scope and model.
+// wsReopen gives s a new handle with its scope and model. xbind's record
+// of what the conversation read went with the old handle; what was last
+// seen of it stays on record here (wsChange checks both), and the map is
+// read once so xbind's own record covers what is connected again.
 func (ag *Agent) wsReopen(ctx context.Context, s *wsSession) error {
 	h, err := wsX.OpenSession(ctx, s.Scope, s.Model)
 	if err != nil {
 		return err
 	}
-	// what the conversation held is still held: the old handle's taint stays
-	// on record beside the new handle's
+	if len(s.Conn.Tainted) > 0 {
+		if _, err := wsX.Map(ctx, h.ID); err == nil {
+			if again, err := wsX.Session(ctx, h.ID); err == nil {
+				h = again
+			}
+		}
+	}
 	h.Tainted = wsUnion(s.Conn.Tainted, h.Tainted)
+	if h.Model == "" {
+		h.Model = s.Model
+	}
 	if err := ag.db.wsPutHandle(s.Run, h); err != nil {
 		return err
 	}
@@ -209,29 +214,24 @@ func wsUnion(a, b []string) []string {
 }
 
 // wsChange changes s's scope, its model or both. A model the conversation's
-// data may not be sent to is *wsTaintError, and nothing changed.
+// data may not be sent to is *wsTaintError, and nothing changed: xbind
+// refuses it by the handle's own record, and it is refused here first by
+// what was last seen of that record — which outlives a handle xbind had to
+// make again.
 func (ag *Agent) wsChange(ctx context.Context, s *wsSession, ch wsHandleChange) error {
 	if ch.Model != "" && ch.Model != s.Model && len(s.Conn.Tainted) > 0 {
-		// what xbind will check too: every org whose data the conversation
-		// holds must be connected on the new model
-		var what wsConnection
-		if err := ag.wsWith(ctx, s, func(sid string) (err error) { what, err = wsX.Connection(ctx, sid, ch.Model); return }); err != nil {
+		var cur wsHandle
+		if err := ag.wsWith(ctx, s, func(sid string) (err error) { cur, err = wsX.Session(ctx, sid); return }); err != nil {
 			return err
 		}
-		var blocked []string
-		reason := ""
+		var lost []string // held, by this backend's record, and unknown to xbind's handle
 		for _, org := range s.Conn.Tainted {
-			if !what.connects(org) {
-				blocked = append(blocked, org)
-				for _, o := range what.Orgs {
-					if o.ID == org && reason == "" {
-						reason = o.Reason
-					}
-				}
+			if !hasStr(cur.Tainted, org) {
+				lost = append(lost, org)
 			}
 		}
-		if len(blocked) > 0 {
-			return &wsTaintError{Model: ch.Model, Orgs: blocked, Reason: reason}
+		if len(lost) > 0 {
+			return &wsTaintError{Model: ch.Model, Orgs: lost, Reason: "xbin renewed this conversation's session and can no longer check the move against what it read from them"}
 		}
 	}
 	var h wsHandle
@@ -309,25 +309,47 @@ func (ag *Agent) wsSessionOfRun(run *Run) (*wsSession, error) {
 	return s, nil
 }
 
-// wsConnLine is s's connection in one sentence (xbind's when it gave one).
+// wsConnLine is a connection in one sentence (xbind's when it gave one).
 func wsConnLine(c wsConnection) string {
-	if c.Summary != "" {
-		return c.Summary
+	if c.Counts.Summary != "" {
+		return c.Counts.Summary
 	}
-	not := c.Counts.Hidden + c.Counts.Blocked + c.Counts.NoAccess
-	out := fmt.Sprintf("%d tiles · %d orgs connected", c.Counts.Connected, c.Counts.Orgs)
-	if not > 0 {
-		out += fmt.Sprintf(" · %d not connected", not)
+	out := fmt.Sprintf("%d tiles · %d orgs connected", c.Counts.Tiles, c.Counts.Orgs)
+	if c.Counts.NotConnected > 0 {
+		out += fmt.Sprintf(" · %d not connected", c.Counts.NotConnected)
 	}
 	return out
+}
+
+// wsPickHarness is the coding agent a tile agent s starts in tile runs on:
+// the one the person chose in this backend's preferences when the tile's
+// rules allow it there, else the first xbind lists for the tile. Never the
+// model's choice.
+func (ag *Agent) wsPickHarness(ctx context.Context, s *wsSession, tile string) (wsHarness, error) {
+	var hs []wsHarness
+	if err := ag.wsWith(ctx, s, func(sid string) (err error) { hs, err = wsX.Harnesses(ctx, sid, tile); return }); err != nil {
+		return wsHarness{}, err
+	}
+	if len(hs) == 0 {
+		return wsHarness{}, fmt.Errorf("no coding agent is allowed on %s: its org's rules, or the workspace's, leave none. Tell your person; an admin sets which coding agents a tile may run", tile)
+	}
+	if want := wsPrefs(ag.db).Harness; want != "" {
+		for _, h := range hs {
+			if h.ID == want {
+				return h, nil
+			}
+		}
+	}
+	return hs[0], nil
 }
 
 func init() { llmHeaderHooks = append(llmHeaderHooks, wsLLMHeader) }
 
 // wsLLMHeader marks a workspace conversation's model calls — its turns,
 // its research subagents', its summaries and titles — with the session's
-// handle: the connector takes only the handle's model, and counts the call
-// against it. Nothing in a normal instance.
+// handle: the connector serves it on the handle's model only, and checks
+// that model against the orgs whose data the conversation holds. Nothing
+// in a normal instance.
 func wsLLMHeader(req LLMRequest, h http.Header) {
 	ag := projAg()
 	if !wsMode() || ag == nil || ag.db == nil || req.Run == 0 {
@@ -338,6 +360,6 @@ func wsLLMHeader(req LLMRequest, h http.Header) {
 		return
 	}
 	if s, err := ag.db.wsSession(rootOf(run)); err == nil && s.Handle != "" {
-		h.Set(wsSessionHeader, s.Handle)
+		h.Set(xbin.AgentSessionHeader, s.Handle)
 	}
 }
