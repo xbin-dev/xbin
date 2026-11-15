@@ -542,7 +542,9 @@ func (h wsHTTP) named(ctx context.Context, sid string, a wsAgent) wsAgent {
 		wsDefaultsSeen.Store(key, wsDefaultsAt{d, time.Now()})
 	}
 	if hn, ok := d.of(a.Provider); ok {
-		a.Name, a.Asks = orStr(hn.Name, hn.ID), hn.Asks && (a.Mode == "" || a.Mode == hn.Mode)
+		// only the mode xbind names as asking asks (its ask or plan mode); a
+		// session whose mode isn't known isn't known to ask
+		a.Name, a.Asks = orStr(hn.Name, hn.ID), hn.Asks && a.Mode != "" && a.Mode == hn.Mode
 	}
 	return a
 }

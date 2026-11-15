@@ -196,7 +196,8 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
     editable: st === 'draft' || st === 'asked',
     button: st === 'draft' ? (free ? W.start : W.reviewStart) : st === 'asked' ? W.review : '',
     runsOn, harnesses, picked: (sd && sd.harness) || b.harness || '', none: !!sd && !sd.harness,
-    note: `This is what the tile agent is told first. What your agent sends it later isn’t approved message by message${sd && sd.asks === false ? ', and in this mode it acts without asking you.' : ': the tile agent asks you before it acts.'}`,
+    // only xbind's word that the mode asks (a harness's ask or plan mode) says it asks — unknown is not "asks"
+    note: `This is what the tile agent is told first. What your agent sends it later isn’t approved message by message${sd && sd.asks === true ? ': the tile agent asks you before it acts.' : sd && sd.asks === false ? ', and in this mode it acts without asking you.' : '. Whether it asks you before it acts shows once xbin says what it runs on.'}`,
     edited: !!b.edited,
   };
 }

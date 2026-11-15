@@ -23,7 +23,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   refusals of what the agent tells a tile agent — `taint`, `mode`,
   `command`, and `no-agent` / `held` — reach the model once, with what to
   do instead, and the person's card says the same (`cards.refusals[].kind`
-  `brief-taint`, `mode`, `command`, `no-agent`, `held`).
+  `brief-taint`, `mode`, `command`, `no-agent`, `held`). "Asks before
+  acting" is said only where xbind names the mode as asking (a harness's
+  ask or plan mode); a tile agent in a mode nobody named isn't.
 
 - **Workspace agent: fixes from a security review**
   ([workspace-agent.md](/docs/workspace-agent.md),

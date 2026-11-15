@@ -5982,9 +5982,11 @@ beside them are the model's, and neither is parsed out of the other.
   the session is in asks its person before it acts, both from xbind's `GET
   /delegate/start-defaults?tile=` (the row of the session's provider:
   `name`, and `asks` when the session's `mode` is the one xbind names
-  there); a harness xbind doesn't list for the tile keeps the name it had
-  (or shows its id), and a mode xbind doesn't name is not known to ask
-  (`asks: false`). `waits` and `waiting` (what it asks its person) come
+  there — xbind names only a harness's ask or plan mode as asking); a
+  harness xbind doesn't list for the tile keeps the name it had (or shows
+  its id), and a mode xbind doesn't name, or none, is not known to ask
+  (`asks: false`). Nothing the page, the prompt or the brief card says
+  promises "asks before acting" without that answer. `waits` and `waiting` (what it asks its person) come
   from the session's own read, made only while it waits.
 - **A refusal** (`cards.refusals[]`, newest first, 50 at most): a tool call
   that xbind refused, or that named a tile the session isn't connected to —
