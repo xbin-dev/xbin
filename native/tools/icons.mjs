@@ -36,6 +36,8 @@ const MAP = {
   branch: 'git-branch', eye: 'eye', 'eye-slash': 'eye-off', external: 'square-arrow-out-up-right',
   back: 'chevron-left', forward: 'chevron-right', expand: 'chevron-down', collapse: 'chevron-up',
   power: 'power', sun: 'sun', moon: 'moon', agent: 'user-round-check',
+  // D233: a tick box's three states, a connection, "waits for you"
+  square: 'square', 'check-square': 'square-check', 'minus-square': 'square-minus', plug: 'plug', hand: 'hand',
 };
 // the renderer's own chrome (not tile-nameable)
 const UI = {

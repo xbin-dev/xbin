@@ -262,7 +262,7 @@ const P = {
       style: since(2, { ...en('form', 'rows'), doc: '`rows`: a property with choices (`enum`, `oneOf`) draws them as full-width rows, one tap each, instead of a menu; `form` (the default): as rev 1' }),
       other: since(2, { ...J, doc: '`{<choice property>: <string property>}`: that string property is the free text riding on the choices ("Something else": its `title` the label, its `description` the placeholder) — typing in it clears the choice, choosing clears it; it is not drawn as a field of its own' }),
       paged: since(2, { ...B, doc: 'several questions: one a page ("1 of 2"), Back and Next at the bottom, submit on the last' }),
-      submitLabel: since(2, { ...S, doc: 'the submit button\'s words (default: Answer)' }),
+      submitLabel: since(2, { ...S, doc: 'the submit button\'s words (default: Submit — Answer with `style="rows"`)' }),
       skipLabel: since(2, { ...S, doc: 'the skip button\'s words (default: Skip); skipping is never an answer' }) },
     events: { submit: { payload: { content: 'json' } }, skip: {} }, children: NONE },
   plan: { rev: 2, group: 'chat',

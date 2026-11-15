@@ -161,6 +161,11 @@ function start() {
         const url = String(m.args?.url ?? '');
         if (!/^https:\/\//i.test(url)) err = 'https only';
         else { G.open(url, '_blank', 'noopener'); v = true; } // noopener: open() returns null
+      } else if (m.what === 'agent') {
+        // xbin.native.agent (D233): a preview has no chrome of the app's to
+        // show an approval, a change set or a session in — nothing was shown
+        note(`agent: ${String(m.args?.msg?.type ?? '')} — shown by the xbin app's own chrome, not in a preview`);
+        v = false;
       } else err = `unknown call ${m.what}`;
     } catch (e) { err = String(e?.message ?? e); }
     G.xbn?.resolve(m.id, v, err);

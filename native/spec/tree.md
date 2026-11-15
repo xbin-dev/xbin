@@ -120,6 +120,7 @@ of `r.1`; `r.1.0:3.1` is slot 1 of the multi-root template item `3` renders;
 | `xbn.widgetSize(size)` | the app shows the widget at another size class, `"small"` or `"wide"` (§13); the tile hears it and re-renders. Returns whether the size changed. |
 | `xbn.width(w)` | the screen the tile is drawn on is now `"compact"` (a phone, an iPad's narrow Split View) or `"regular"` wide (a horizontal size class); the tile hears it (`xbin.native.on('width')`) and lays out for it. The first one travels in `caps.width`. A runtime from before has no such function (call it as `xbn.width?.(…)`). Returns whether the class changed. |
 | `xbn.navigate(hash)` | a deep link into the running view (D189): the document's `location.hash` becomes `hash` (`"#c=42"`; the `#` is optional, `""` clears it) and `hashchange` fires — also when it was that hash already. The first link needs no call: the app loads the runtime document with the link's fragment (`/c/<tile>/?native=1#c=42`), so the tile reads `location.hash` as it starts. A runtime from before has no such function (call it as `xbn.navigate?.(…)`). Returns whether it navigated. |
+| `xbn.agent(msg)` | the app's chrome tells the tile it shows as the person's **workspace agent** something (D233): `msg` is an object `{type, …}` — `{"type": "xbin:agent-context", "tile": "apps/orders"}` or `{…, "screen": "<id>"}`: what the agent was opened about (once the view is up, and when it changes; neither field: nothing in particular). The tile hears it with `xbin.native.on('agent', fn)`. Only a runtime whose caps list the wire feature `agent` delivers it (§8); a runtime from before has no such function (call it as `xbn.agent?.(…)`). Returns whether a listener heard it. |
 
 The tile's handler receives `{type, value, ...payload}` (`value` is
 `payload.value`, possibly `undefined`).
@@ -181,7 +182,7 @@ switcher. Only the fields given change; `null` clears one.
 
 ### `call`
 
-`{"op": "call", "id": "c1", "what": "copy"|"share"|"open", "args": {…}}` — app
+`{"op": "call", "id": "c1", "what": "copy"|"share"|"open"|"agent", "args": {…}}` — app
 UI acting on data the tile hands over; answer with `xbn.resolve(id, …)`:
 
 | `what` | `args` | Resolve with |
@@ -189,6 +190,16 @@ UI acting on data the tile hands over; answer with `xbn.resolve(id, …)`:
 | `copy` | `{text}` | `true` when copied |
 | `share` | `{text?, url?, file?}` — `file` is a tile-relative path the app downloads with the frame token | `true` when shared, `false` when dismissed |
 | `open` | `{url}` — `https:` only (the runtime refuses others); the app also requires `cap:open-links` | `true` when opened; reject when not allowed |
+| `agent` | `{msg}` — `xbin.native.agent(msg)` (D233): the workspace agent's view asks the app's chrome to show something of its own, **by id**. `msg` is one of the messages a workspace agent's page sends xbin's chrome (docs/protocol/delegation.md §The chrome): `{"type": "xbin:agent-open-request", "id"}` (the approval of one request), `{"type": "xbin:agent-open-changeset", "id"}` (the review of one change set), `{"type": "xbin:open-session", "session", "tile"[, "draft"]}` (one of the person's sessions on the app's own agent screen; `session: "new"` with `draft`: a new session of the tile's own agent with those words waiting, unsent), `{"type": "xbin:agent-open", "view"}` (`approvals` \| `activity` \| `prefs`) | `true` when the app showed it, `false` when it had nothing to show (an id that isn't the person's, an unknown `type` or `view`); reject for a tile the app doesn't show as the person's workspace agent |
+
+The runtime sends an `agent` call only when the caps list the wire feature
+`agent` (§8); otherwise `xbin.native.agent` rejects without a message. The
+app honours it **only for the one tile it shows as the person's workspace
+agent** (the `agent` of `GET /api/xbin/delegate/state`), reads the fields
+named above as ids and no other, and reads everything it then shows — the
+request, the change set, the session — from xbind with the person's own
+session. No `agent` message approves, denies, resumes or changes a
+preference: those are the person's taps in the app's own sheets.
 
 ### `state`
 
@@ -289,7 +300,9 @@ calling it with nothing pending is cheap.
   `prims.<name>.rev`). A prop or event with `since: n`, an enum value in a
   prop's `enumSince` and a child in a child rule's `since` need revision ≥
   `n` (rev 2, D189: `screen`, `toolbar`, `list`, `actions`, `sheet`,
-  `split`, `menu`, `transcript`).
+  `split`, `menu`, `transcript`; D233: `transcript` rev 3, `question`,
+  `plan` and `composer` rev 2, and the new `card`, `connection`, `request`
+  and `session` at rev 1).
 - `features`: flags for capabilities within a primitive (`vocab.json`
   `features`); an enum value that needs one says so (`chart` `kind: area` →
   `chart.area`). Without `markdown.tables` the runtime turns tables into
@@ -301,12 +314,26 @@ calling it with nothing pending is cheap.
   `vocab.json` `features`): the app shows widget trees (§13). Without it the
   runtime never sends one. `widgetSize` (optional, `"small"` | `"wide"`,
   default `"small"`): the size class the widget is first shown at.
+- `agent` is a **wire** feature too (D233), listed **only for the one tile
+  the app shows as the person's workspace agent**: the runtime then sends
+  `{op:"call", what:"agent"}` (§5) and delivers `xbn.agent` (§4). Every
+  other tile's caps lack it, whatever the app can do.
+- **`request` and `session` are drawn by the app, not from the tree.** A
+  node carries an id (`request`: `id`, `kind`; `session`: `id`, `tile`) and
+  nothing else; the app reads the request or change set
+  (`GET /api/xbin/delegate/requests/<id>`, `/delegate/changesets/<id>`) and
+  the session directory with the person's own session and draws what it
+  read — the state, the words, the button. It draws them only in the tree
+  of the tile it shows as the person's workspace agent; in any other tile's
+  tree they are an inert line. A renderer without xbind (previews, the
+  snapshot tests) draws a placeholder.
 - `width` (optional, `"compact"` | `"regular"`): the horizontal size class of
   the screen the tile is drawn on; later changes come as `xbn.width`. Absent:
   the app doesn't say (an older app, a preview) — `xbin.native.width` is
   `null`.
 - Tiles test with `xbin.native.supports(name[, rev])` (a primitive with at least
-  that revision, or a feature flag — `supports('widget')` included).
+  that revision, or a feature flag — `supports('widget')` and
+  `supports('agent')` included).
 
 ## 9. `xbin.native` (tile side)
 
@@ -321,6 +348,8 @@ calling it with nothing pending is cheap.
 | `on('widgetsize', fn)` | `fn(size)` after each `xbn.widgetSize` change; returns an unsubscribe function |
 | `width` | the screen's horizontal size class, `"compact"` \| `"regular"`, or `null` when the app doesn't say — `caps.width`, then `xbn.width` |
 | `on('width', fn)` | `fn(width)` after each `xbn.width` change; returns an unsubscribe function |
+| `agent(msg)` | `{op:"call", what:"agent", args:{msg}}` → a promise settled by `xbn.resolve`; rejects at once (no message) without the wire feature `agent`, or when `msg` is not an object with a string `type` |
+| `on('agent', fn)` | `fn(msg)` for each `xbn.agent(msg)` — delivered only with the wire feature `agent`; returns an unsubscribe function |
 
 ## 10. Props and values
 

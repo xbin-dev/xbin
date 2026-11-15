@@ -280,6 +280,129 @@ test('caps: rev-2 props, events, enum values and children against a rev-1 app', 
   assert.deepEqual(plain.errors(), []);
 });
 
+// D233 (the workspace agent in the app): four new primitives, transcript rev
+// 3, question, plan and composer rev 2. The schema's new shapes validate — a
+// list of strings inside an object inside a list, a `json` prop, a child
+// rule's `since` — and an app at the revisions shipped before reports each
+// addition, so a view that doesn't ask supports() falls back to its web page.
+const AGENT_TREE = () => html`
+  <screen title="Workspace agent">
+    <connection connected="14 tiles · 3 orgs" not="6 not connected" model="big" private label="Scope" @tap=${() => {}} @model=${() => {}}/>
+    <transcript empty=${{ title: 'Ask for an outcome', text: 't', lists: [{ title: 'It can', items: ['a', 'b'] }], suggestionsTitle: 'Try one', suggestions: [{ id: 's1', kind: 'Ask', text: 'x' }] }}
+                @suggestion=${() => {}}>
+      <plan title="Plan" numbered entries=${[{ text: 'one', status: 'pending' }]} tags=${[{ text: 'asks you', icon: 'shield', tone: 'warn' }]} note="n" meta="m"/>
+      <card title="Brief" subtitle="s" icon="doc" tone="accent" badge="draft" note="n">
+        <text>t</text><markdown source="**m**"/><field label="Goal" value="g"/><picker label="p" value="a" options=${[{ value: 'a', label: 'A' }]}/>
+        <toggle label="t" value=${true}/><notice tone="info" text="n"/><row title="r"/><step glyph="✓" text="s"/><badge>b</badge><button>Go</button>
+      </card>
+      <request id="rq_1" kind="session"/>
+      <session id="ts_1" tile="apps/orders"/>
+      <question title="q" schema=${{ type: 'object', properties: { a: { type: 'string', enum: ['x', 'y'] }, o: { type: 'string' } } }}
+                style="rows" other=${{ a: 'o' }} paged submitLabel="Answer" skipLabel="Skip — look around first"/>
+    </transcript>
+    <composer value="" context=${[{ id: 'apps/orders', label: 'About Orders', icon: 'box', tone: 'accent' }]} replies=${[{ id: 'go', label: 'Go ahead' }]} hint="h"
+              @context=${() => {}} @remove-context=${() => {}} @reply=${() => {}}/>
+  </screen>`;
+
+test('D233: the workspace agent\'s additions validate; an app from before reports each as unsupported', () => {
+  const now = mk();
+  const m = now.r(AGENT_TREE());
+  assert.deepEqual(now.errors(), []);
+  assert.deepEqual(now.diags(), [], 'the new shapes validate');
+  const tr = root(m).c[1];
+  assert.deepEqual(tr.p.empty.lists, [{ title: 'It can', items: ['a', 'b'] }]);
+  assert.deepEqual(tr.c.map((c) => c.t), ['plan', 'card', 'request', 'session', 'question']);
+  assert.deepEqual(tr.c[2].p, { id: 'rq_1', kind: 'session' }, 'a request is an id and a kind, nothing else');
+  assert.deepEqual(tr.c[4].p.other, { a: 'o' });
+  assert.deepEqual(root(m).c[2].e, ['context', 'remove-context', 'reply']);
+
+  const shipped = fullCaps();
+  Object.assign(shipped.prims, { transcript: 2, question: 1, plan: 1, composer: 1 });
+  for (const k of ['card', 'connection', 'request', 'session']) delete shipped.prims[k];
+  const old = mk({ caps: shipped });
+  old.r(AGENT_TREE());
+  assert.deepEqual(old.errors().map((e) => e.message).sort(), [
+    'the app does not support <card>',
+    'the app does not support <card> inside <transcript> (rev 3)',
+    'the app does not support <composer> @context (rev 2)',
+    'the app does not support <composer> @remove-context (rev 2)',
+    'the app does not support <composer> @reply (rev 2)',
+    'the app does not support <composer> context (rev 2)',
+    'the app does not support <composer> hint (rev 2)',
+    'the app does not support <composer> replies (rev 2)',
+    'the app does not support <connection>',
+    'the app does not support <plan> meta (rev 2)',
+    'the app does not support <plan> note (rev 2)',
+    'the app does not support <plan> numbered (rev 2)',
+    'the app does not support <plan> tags (rev 2)',
+    'the app does not support <plan> title (rev 2)',
+    'the app does not support <question> other (rev 2)',
+    'the app does not support <question> paged (rev 2)',
+    'the app does not support <question> skipLabel (rev 2)',
+    'the app does not support <question> style (rev 2)',
+    'the app does not support <question> submitLabel (rev 2)',
+    'the app does not support <request>',
+    'the app does not support <request> inside <transcript> (rev 3)',
+    'the app does not support <session>',
+    'the app does not support <session> inside <transcript> (rev 3)',
+    'the app does not support <transcript> @suggestion (rev 3)',
+    'the app does not support <transcript> empty (rev 3)',
+  ]);
+  assert.deepEqual(old.diags(), [], 'nothing invalid: only newer than the app');
+  // what that app can draw — the older way a view falls back to — is clean
+  old.rt.native.supports('request') ? assert.fail('an app from before has no <request>') : null;
+  assert.equal(old.rt.native.supports('transcript', 3), false);
+  assert.equal(old.rt.native.supports('question', 2), false);
+  const plain = mk({ caps: shipped });
+  plain.r(html`<screen title="Workspace agent"><toolbar><badge>14 tiles · 3 orgs</badge></toolbar>
+    <transcript><notice tone="warn" text="Something waits for your approval. Update the app to review it."/>
+      <plan entries=${[{ text: 'one', status: 'pending' }]}/><question title="q" schema=${{ type: 'object', properties: {} }}/></transcript>
+    <composer value=""><button>Go ahead</button></composer></screen>`);
+  assert.deepEqual(plain.errors(), []);
+  assert.deepEqual(plain.diags(), []);
+});
+
+test('D233: a request or session carries no words of the tile\'s, and wrong values are dropped', () => {
+  const { r, diags } = mk();
+  const m = r(html`<transcript><request id="rq_1" kind="grant" text="Allow this" title="Approved"/><session id="ts_1" status="finished" line="done"><button>Open</button></session></transcript>`);
+  assert.deepEqual(root(m).c.map((c) => [c.t, c.p, (c.c || []).length]), [['request', { id: 'rq_1' }, 0], ['session', { id: 'ts_1' }, 0]]);
+  assert.deepEqual(diags().sort(), ['bad-children', 'bad-type', 'unknown-prop', 'unknown-prop', 'unknown-prop', 'unknown-prop']);
+});
+
+// The agent bridge (tree.md §4, §5, §9): only where the app lists the wire
+// feature `agent` — it shows this tile as the person's workspace agent.
+test('D233: xbin.native.agent and xbn.agent work only with the wire feature "agent"', async () => {
+  const plain = mk();
+  assert.equal(plain.rt.native.supports('agent'), false);
+  await assert.rejects(plain.rt.native.agent({ type: 'xbin:agent-open-request', id: 'rq_1' }), /does not show the tile as a workspace agent/);
+  const heard0 = [];
+  plain.rt.native.on('agent', (m) => heard0.push(m));
+  assert.equal(plain.rt.xbn.agent({ type: 'xbin:agent-context', tile: 'apps/orders' }), false);
+  assert.deepEqual(heard0, [], 'no feature: the tile hears nothing');
+  assert.deepEqual(plain.msgs.filter((m) => m.op === 'call'), []);
+
+  const caps = fullCaps(); caps.features.push('agent');
+  const { rt, msgs } = mk({ caps });
+  assert.equal(rt.native.supports('agent'), true);
+  await assert.rejects(rt.native.agent('open'), /a message \{type/);
+  await assert.rejects(rt.native.agent({ id: 'rq_1' }), /a message \{type/);
+  const msg = { type: 'xbin:agent-open-request', id: 'rq_1' };
+  const asked = rt.native.agent(msg);
+  msg.id = 'changed-after'; // the call carries a snapshot
+  assert.deepEqual(msgs.filter((m) => m.op === 'call'), [{ op: 'call', id: 'c1', what: 'agent', args: { msg: { type: 'xbin:agent-open-request', id: 'rq_1' } } }]);
+  rt.xbn.resolve('c1', true);
+  assert.equal(await asked, true);
+  const heard = [];
+  const off = rt.native.on('agent', (m) => heard.push(m));
+  assert.equal(rt.xbn.agent({ type: 'xbin:agent-context', tile: 'apps/orders' }), true);
+  assert.equal(rt.xbn.agent('nope'), false);
+  assert.equal(rt.xbn.agent(null), false);
+  off();
+  assert.equal(rt.xbn.agent({ type: 'xbin:agent-context', screen: 'sales' }), false, 'nobody listens any more');
+  assert.deepEqual(heard, [{ type: 'xbin:agent-context', tile: 'apps/orders' }]);
+  assert.throws(() => rt.native.on('nothing', () => {}), /widgetsize, width, agent/);
+});
+
 test('controlled rev 2: split close/columns and screen scope/submit report their props', () => {
   const { rt, r } = mk();
   r(html`<split detail columns="all" @close=${() => {}}><screen title="A" search="" scope="open"/><screen title="B"/></split>`);

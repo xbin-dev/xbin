@@ -18,8 +18,8 @@ const own = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
 // data.json keys: what the runner (hack/xbn/node.mjs) takes, plus the
 // fixture's own. Anything else is a typo and an error.
 const RUN_KEYS = ['self', 'now', 'tz', 'locale', 'iface', 'routes', 'calls', 'dialog', 'hash'];
-const OWN_KEYS = ['about', 'caps', 'state', 'widget', 'interactions', 'allowDiagnostics', 'expectUnsupported'];
-const STEP_KEYS = ['after', 'k', 'select', 'type', 'payload', 'n', 'target', 'bus', 'visibility', 'resolve', 'widgetSize', 'navigate', 'note'];
+const OWN_KEYS = ['about', 'caps', 'state', 'widget', 'agent', 'interactions', 'allowDiagnostics', 'expectUnsupported'];
+const STEP_KEYS = ['after', 'k', 'select', 'type', 'payload', 'n', 'target', 'bus', 'visibility', 'resolve', 'widgetSize', 'navigate', 'agent', 'note'];
 
 export function listFixtures(dir = FIXTURES) {
   if (!existsSync(dir)) return [];
@@ -54,11 +54,12 @@ export function toRun(entry, data, name = 'fixture') {
   // widget: "small" | "wide" — the fixture is the tile's WIDGET tree
   // (tree.md §13), rendered by an app that shows widgets at that size
   if (own(data, 'widget') && data.widget !== 'small' && data.widget !== 'wide') throw new Error(`${name}: data.json "widget" is "small" or "wide"`);
-  return { entry, data: run, steps: toSteps(data.interactions ?? [], name), caps: data.caps ?? undefined, state: data.state ?? null, widget: data.widget ?? false };
+  return { entry, data: run, steps: toSteps(data.interactions ?? [], name), caps: data.caps ?? undefined, state: data.state ?? null, widget: data.widget ?? false,
+    agent: data.agent === true }; // agent: the app shows the tile as the person's workspace agent (the wire feature, D233)
 }
 
 // toSteps(interactions) → runNative steps. An interaction:
-//   {after?: ms, k?|select?, type?, payload?, n?, target?, bus?, visibility?, resolve?, widgetSize?, navigate?, note?}
+//   {after?: ms, k?|select?, type?, payload?, n?, target?, bus?, visibility?, resolve?, widgetSize?, navigate?, agent?, note?}
 // (target "widget": the event is on the widget tree; widgetSize: the app
 // resizes the widget)
 // `after` moves the virtual clock first; then at most one action: an event on
@@ -74,7 +75,7 @@ export function toSteps(list, name = 'fixture') {
     const after = Number(it.after ?? 0);
     if (!Number.isFinite(after) || after < 0) throw new Error(`${at}.after must be a non-negative number of ms`);
     if (after > 0) steps.push({ wait: after });
-    const acts = ['k', 'select', 'bus', 'visibility', 'resolve', 'widgetSize', 'navigate'].filter((k) => own(it, k));
+    const acts = ['k', 'select', 'bus', 'visibility', 'resolve', 'widgetSize', 'navigate', 'agent'].filter((k) => own(it, k));
     if (acts.includes('k') && acts.includes('select')) throw new Error(`${at}: give k or select, not both`);
     const kinds = acts.filter((k) => k !== 'select' || !acts.includes('k'));
     if (kinds.length > 1) throw new Error(`${at}: one action per interaction (got ${kinds.join(', ')})`);
@@ -95,6 +96,9 @@ export function toSteps(list, name = 'fixture') {
       steps.push({ visibility: it.visibility });
     } else if (own(it, 'widgetSize')) {
       steps.push({ widgetSize: it.widgetSize });
+    } else if (own(it, 'agent')) {
+      if (!it.agent || typeof it.agent !== 'object' || typeof it.agent.type !== 'string') throw new Error(`${at}.agent is a message {type, …} (xbn.agent)`);
+      steps.push({ agent: it.agent });
     } else if (own(it, 'navigate')) {
       if (typeof it.navigate !== 'string') throw new Error(`${at}.navigate is a fragment ("#c=42")`);
       steps.push({ navigate: it.navigate });

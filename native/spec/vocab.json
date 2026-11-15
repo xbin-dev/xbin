@@ -1692,7 +1692,7 @@
     },
     "submitLabel": {
      "type": "string",
-     "doc": "the submit button's words (default: Answer)",
+     "doc": "the submit button's words (default: Submit — Answer with `style=\"rows\"`)",
      "since": 2
     },
     "skipLabel": {

@@ -54,13 +54,14 @@ in some `expected.json` — or when this README's index misses a fixture.
 | `tz`, `locale` | the time zone and default locale for `Date` and `Intl` (default `UTC`, `en-US`); the run gets a node process of its own when they differ from the runner's |
 | `iface` | `{slot: value}` — what `xbin.iface(slot)` returns |
 | `routes` | `xbin.fetch` answers: `{"METHOD /path?query" \| "METHOD /path" \| "/path": response \| [response, …]}` — the most specific key wins; an array answers successive calls in turn, the last one repeating |
-| `calls` | how `xbin.native.copy/share/open` resolve: `{"copy": true, …}` (default `null`) |
+| `calls` | how `xbin.native.copy/share/open/agent` resolve: `{"copy": true, …}` (default `null`) |
 | `dialog` | what `xbin.dialog()` resolves to |
 | `caps` | the app's caps (default: the full vocabulary) — to test an older app |
 | `expectUnsupported` | with an older app's `caps`: the `unsupported` messages the run must report, exactly (the app then shows the web page, tree.md §8) — without it any runtime error fails the run |
 | `hash` | the fragment the runtime document is loaded with — a deep link (`#t=t-2`) the tile reads from `location.hash` as it starts |
 | `state` | the blob the app kept (`xbin.native.state`, default `null`) |
 | `widget` | `"small"` / `"wide"`: the fixture is the tile's **widget** tree (native/spec/tree.md §13), rendered by an app that shows widgets at that size class — `expected.json` holds the widget tree, which renderers draw as a card of that size |
+| `agent` | `true`: the app shows the tile as the person's **workspace agent** (D233) — its caps list the wire feature `agent`, so `xbin.native.agent(msg)` sends its call (answered from `calls.agent`) and an `agent` interaction reaches `xbin.native.on('agent')` |
 | `interactions` | the script, below |
 | `allowDiagnostics` | diagnostic codes this fixture expects (e.g. `["duplicate-key"]`) |
 
@@ -101,7 +102,10 @@ final tree is taken after the last.
   - `widgetSize`: `"small"` / `"wide"` — the app shows the widget at another
     size class;
   - `navigate`: `"#t=t-3"` — the app opens a deep link into the running view
-    (`xbn.navigate`: `location.hash` changes and `hashchange` fires).
+    (`xbn.navigate`: `location.hash` changes and `hashchange` fires);
+  - `agent`: `{"type": "xbin:agent-context", "tile": "apps/orders"}` — the
+    app's chrome tells the workspace agent's view something (`xbn.agent`;
+    heard only with `"agent": true`).
 
   An event with `"target": "widget"` is on the widget tree (its `k`/`select`
   name a widget node).
@@ -183,6 +187,9 @@ the fixtures, `expected.json` and the renderers in one change
 | `sheet-stack` | `sheet` rev 2: a full-screen sheet (`detents="full"`) with a second sheet stacked over it |
 | `doc-reader` | `split` rev 3 and `canvas` rev 2 (D208): a report beside its conversation (`halves`, the report pushed on a phone), filling its screen (`fill`), − / + in a bottom toolbar setting its `zoom`, a tapped link (`link`) sharing the file it names |
 | `old-app` | an app at rev 1 (`caps`) and a tile written for rev 2: each rev-2 prop, event and nested menu is reported `unsupported` (`expectUnsupported`), so the app shows the web page |
+| `workspace-agent` | a person's workspace agent mid-request (D233): `connection`, a numbered `plan` rev 2 with a tag a step, `card` in every tone with each child (the editable brief, a refusal, a redirect, a "can't", a report, a failure), `request` (all four kinds) and `session` by id — drawn by the app, never from the tile —, `question` rev 2 (a settled form; choice rows with "Something else" over two pages), `composer` rev 2 (`context`, `replies`, `hint`); the tile's own scope sheet opened from the line, a chip and the model, then dismissed |
+| `workspace-agent-empty` | a new workspace agent session with no connection (D233): `transcript` rev 3's `empty` slot (heading, sentence, two lists, starters — one tapped fills the composer: `suggestion`), a private, disabled `connection`, context chips in the other tones, the draft kept |
+| `old-app-agent` | an app released before D233 (`caps`) and the workspace agent's view written without `supports()`: the four new nodes, `transcript` rev 3, `question`, `plan` and `composer` rev 2 are each reported `unsupported` (`expectUnsupported`), so that app shows the web page |
 | `split-single` | `split prefer="single"`: a sectioned list and the opened contact |
 | `stack-layout` | `stack` vertical and horizontal, every gap, start/center/end, wrap; `spacer`, `divider` |
 | `tile-counter-go` | the shipped `examples/counter-go/native.js` (plans/native.md §18.1): a form row and a busy `+1` button through one round trip |

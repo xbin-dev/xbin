@@ -37,9 +37,10 @@ import { STRUCTURE, STRUCTURE_CSS } from '/vendor/xb/render-structure.js';
 import { CONTENT, CONTENT_CSS } from '/vendor/xb/render-content.js';
 import { CONTROLS, CONTROLS_CSS, overlays, OVERLAY_CSS } from '/vendor/xb/render-controls.js';
 import { CHAT, CHAT_CSS } from '/vendor/xb/render-chat.js';
+import { AGENT, AGENT_CSS } from '/vendor/xb/render-agent.js';
 import '/vendor/xb/render-chart.js';
 
-const R = { ...STRUCTURE, ...CONTENT, ...CONTROLS, ...CHAT };
+const R = { ...STRUCTURE, ...CONTENT, ...CONTROLS, ...CHAT, ...AGENT };
 
 // Every primitive is an xb-<name> element (a plain custom element — the
 // view's shadow root styles them all), so the DOM reads like the tree.
@@ -148,7 +149,7 @@ export class XbView extends LitElement {
     compact: { type: Boolean, reflect: true }, // draw a widget's card: tight, clipped (tree.md §13)
   };
 
-  static styles = [TOKENS, TYPE_CLASSES, BASE_CSS, STRUCTURE_CSS, CONTENT_CSS, CONTROLS_CSS, CHAT_CSS, OVERLAY_CSS];
+  static styles = [TOKENS, TYPE_CLASSES, BASE_CSS, STRUCTURE_CSS, CONTENT_CSS, CONTROLS_CSS, CHAT_CSS, AGENT_CSS, OVERLAY_CSS];
 
   constructor() {
     super();
