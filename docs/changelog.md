@@ -88,7 +88,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     `.bxc-acts .bxc-act` `.acts .act`, `summary` the `.th` / `.nh` /
     `.ach` line, `.bxc-nbody` `.nb`, `.bxc-children` `.acb`. A card a
     feature module draws itself (`ext.block`: a coding agent's
-    `.acard.hkid`, a document's `.step.doc`) is unchanged.
+    `.acard.hkid`, a document's `.step.doc`) is unchanged. The window of
+    rows is the kit's `ChatWindow` (`chat-window.js` keeps its class and
+    methods); its every-block fallback for an xbind without
+    `/vendor/scroll-window.js` is gone — the page needs a newer xbind
+    than that anyway. The composer is unchanged.
 
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).

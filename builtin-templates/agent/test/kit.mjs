@@ -69,6 +69,11 @@ export const serveKit = async (target) => {
     const f = join(CHAT_DIR, new URL(r.request().url()).pathname.replace(/^.*\/vendor\/chat\//, ''));
     return existsSync(f) ? r.fulfill({ contentType: 'text/javascript', body: readFileSync(f, 'utf8') }) : r.fulfill({ status: 404, body: '' });
   });
+  // the scroll window the kit's ChatWindow stands on (chat-window.js)
+  await target.route('**/vendor/scroll-window.js', (r) => {
+    const f = join(CHAT_DIR, '..', 'scroll-window.js');
+    return existsSync(f) ? r.fulfill({ contentType: 'text/javascript', body: readFileSync(f, 'utf8') }) : r.fulfill({ status: 404, body: '' });
+  });
   if (ICONS_PATH) {
     await target.route('**/vendor/bx-icons.js', (r) =>
       r.fulfill({ contentType: 'text/javascript', body: readFileSync(ICONS_PATH, 'utf8') }));

@@ -35,7 +35,7 @@ export const ORIGIN = 'http://tile.test';
 export const THEME = '<style>:root{--bx-border:#ccc;--bx-panel:#fff;--bx-panel-2:#f4f4f4;--bx-text:#111;' +
   '--bx-muted:#777;--bx-accent:#b57e10;--bx-mono:monospace;--bx-red:#c33;--bx-green:#3a3}</style>';
 
-export async function serveTile(ctx, { realMarked = false, noWindow = false, noKit = false } = {}) {
+export async function serveTile(ctx, { realMarked = false, noKit = false } = {}) {
   const modules = new Set([...readdirSync(tileDir).filter((f) => f.endsWith('.js')),
     ...['model', 'native'].flatMap((d) => readdirSync(join(tileDir, d)).filter((f) => f.endsWith('.js')).map((f) => `${d}/${f}`))]);
   await ctx.route(`${ORIGIN}/**`, (route) => {
@@ -50,10 +50,6 @@ export async function serveTile(ctx, { realMarked = false, noWindow = false, noK
   if (noKit) await ctx.route('**/vendor/chat/**', (r) => r.fulfill({ status: 404, body: '' }));
   await ctx.route('**/vendor/lit-all.min.js', (r) =>
     r.fulfill({ contentType: 'text/javascript', body: readFileSync(join(vendor, 'lit-all.min.js'), 'utf8') }));
-  // the chat's window (chat-window.js); without it the tile renders every block, as on an older xbind
-  const sw = join(vendor, '..', 'scroll-window.js');
-  await ctx.route('**/vendor/scroll-window.js', (r) => (noWindow || !existsSync(sw) ? r.fulfill({ status: 404, body: '' })
-    : r.fulfill({ contentType: 'text/javascript', body: readFileSync(sw, 'utf8') })));
   await ctx.route('**/vendor/marked.esm.js', (r) => r.fulfill({
     contentType: 'text/javascript',
     body: realMarked ? readFileSync(join(vendor, 'marked.esm.js'), 'utf8') : MARKED_STUB,
