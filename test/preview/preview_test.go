@@ -321,7 +321,8 @@ func run(t *testing.T, name string, wantHost string, args ...string) {
 	// (internal/server shellReads). A read the shell makes that is neither
 	// on it nor one of the admin-only ones it leaves out on purpose shows
 	// up here: add it to the list, or to this set, deliberately.
-	leftOutOnPurpose := map[string]bool{"/api/xbin/status": true, "/api/xbin/backends": true, "/api/xbin/vault-status": true}
+	leftOutOnPurpose := map[string]bool{"/api/xbin/status": true, "/api/xbin/backends": true, "/api/xbin/vault-status": true,
+		"/api/xbin/delegate/state": true, "/api/xbin/llm": true} // the agent chip's: a preview draws no agent (shellReads)
 	for _, p := range res.LeftOut {
 		if !leftOutOnPurpose[p] {
 			t.Errorf("screen: the shell asked for %s, which a preview doesn't serve: list it in shellReads (internal/server/preview.go) if a screen needs it to draw", p)
@@ -332,6 +333,9 @@ func run(t *testing.T, name string, wantHost string, args ...string) {
 	}
 	if strings.Contains(res.Snapshot, "viewing as") {
 		t.Errorf("screen: the shell shows a view-as banner:\n%s", res.Snapshot)
+	}
+	if strings.Contains(strings.ToLower(res.Snapshot), "workspace agent") { // its reads refused, the chip stays hidden
+		t.Errorf("screen: the shell shows the workspace agent's chip:\n%s", res.Snapshot)
 	}
 	// the active screen, and a screen that isn't there
 	res = e.render("home", map[string]any{})
@@ -422,7 +426,11 @@ func TestPreviewAdminScreen(t *testing.T) {
 	}
 	want := map[string]bool{"/api/xbin/status": true, "/api/xbin/backends": true, "/api/xbin/vault-status": true,
 		"/api/xbin/grants": true, "/api/xbin/bindings": true, "/api/xbin/access-requests": true, "/ws/events": true}
+	agentReads := map[string]bool{"/api/xbin/delegate/state": true, "/api/xbin/llm": true} // left out when the chip asks (it asks once its words load)
 	for _, p := range res.LeftOut {
+		if agentReads[p] {
+			continue
+		}
 		if !want[p] {
 			t.Errorf("an admin's screen: the shell asked for %s, which is neither served nor left out on purpose", p)
 		}

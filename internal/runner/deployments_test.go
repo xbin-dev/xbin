@@ -1158,7 +1158,7 @@ var ensureCallers = map[string]bool{
 	"internal/runner/ingress.go DialInto":      true, // L4 streams, hairpin, stream interfaces
 	"internal/runner/alwayson.go aoStart":      true, // alwaysOn: the primary's (07-runtime §11)
 	"internal/runner/netmux.go ensureProvider": true, // net-provider bring-up
-	"internal/runner/runner.go Changed":        true, // Changed's background rebuild of the primary
+	"internal/runner/changed.go changedAt":     true, // Changed's background rebuild of the primary
 }
 
 // covers D127d SC-INBOUND — TestEnsureCallSitesPassPrimary (15-test-plan

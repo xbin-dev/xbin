@@ -103,15 +103,32 @@ async function docMode(browser) {
   const head = await rectIn(page, `.dcell[data-path="${b}"] .head`);
   await sh(page, (t, a) => t.query(`.dcell[data-path="${a}"]`).scrollIntoView({ block: 'start' }), a);
   await settle(page);
-  const head2 = await rectIn(page, `.dcell[data-path="${b}"] .head`);
-  const tgt = await rectIn(page, `.dcell[data-path="${a}"] .card`);
+  let head2 = await rectIn(page, `.dcell[data-path="${b}"] .head`);
+  let tgt = await rectIn(page, `.dcell[data-path="${a}"] .card`);
+  // the rows above can push b's title bar below the window (the passes
+  // before this one grow tiles): then the drag starts off-screen — bring
+  // b's title bar to the middle (not the bottom edge, where a drag scrolls
+  // the page) and drop on the part of a's card still shown
+  if (head2 && head2.y + head2.h > await page.evaluate(() => innerHeight) - 120) {
+    await sh(page, (t, b) => t.query(`.dcell[data-path="${b}"] .head`).scrollIntoView({ block: 'center' }), b);
+    await settle(page);
+    head2 = await rectIn(page, `.dcell[data-path="${b}"] .head`);
+    tgt = await rectIn(page, `.dcell[data-path="${a}"] .card`);
+  }
   if (head2 && tgt) {
+    const dropY = Math.min(Math.max(tgt.y, 0) + Math.min(tgt.h / 2, 100), tgt.y + tgt.h - 10);
+    // what is under the two points the drag uses (a failure names it)
+    const under = await page.evaluate(([p, q]) => [p, q].map(([x, y]) => {
+      let e = document.elementFromPoint(x, y);
+      while (e?.shadowRoot?.elementFromPoint(x, y) && e.shadowRoot.elementFromPoint(x, y) !== e) e = e.shadowRoot.elementFromPoint(x, y);
+      return e ? `${e.localName}${e.className ? '.' + String(e.className).split(' ').join('.') : ''}` : 'nothing';
+    }), [[head2.x + 60, head2.y + head2.h / 2], [tgt.x + tgt.w * 0.9, dropY]]);
     await page.mouse.move(head2.x + 60, head2.y + head2.h / 2);
     await page.mouse.down();
     await page.mouse.move(head2.x + 80, head2.y + 10, { steps: 3 });
-    await page.mouse.move(tgt.x + tgt.w * 0.9, tgt.y + Math.min(tgt.h / 2, 100), { steps: 8 });
+    await page.mouse.move(tgt.x + tgt.w * 0.9, dropY, { steps: 8 });
     const mark = await sh(page, (t) => !!t.query('.dmark.v'));
-    check(mark, 'a drop bar shows beside the card while dragging');
+    check(mark, `a drop bar shows beside the card while dragging (from ${under[0]} at ${JSON.stringify(head2)} to ${under[1]} at y ${Math.round(dropY)} in ${JSON.stringify(tgt)})`);
     await page.mouse.up();
     await settle(page);
   }

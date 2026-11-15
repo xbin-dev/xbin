@@ -389,6 +389,8 @@ async function llm(browser) {
     check(await tab.locator('[data-status=ok]').count() === 1 && await tab.locator('bx-llm-quotas').count() === 1 && await tab.locator('bx-llm-usage table[data-usage=user]').count() === 1,
       'workspace → LLM is the page\'s element, through the console\'s own identity');
     const bar = A.page.locator('bx-admin .alertbar .al[data-kind="llm-quota"]');
+    // the console reads its alerts after the tab draws: the bar is waited for
+    await bar.first().waitFor({ timeout: 15000 }).catch(() => {});
     check(await bar.count() === 1 && await bar.locator('[data-llm-quotas]').count() === 1, 'the console\'s alert bar shows the quota alert with a link to the tab');
     await shot(A.page, `llm-admin-tab-${THEME}`);
     await gotoTab(A.page, 'users', 'dev1');

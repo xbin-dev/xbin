@@ -181,6 +181,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     about 45 MB, 16 MB in the bundle); `make build` needs the agent
     template's Go modules. A development xbind compiles it on first use.
 
+- **Shell: a tile's admin panel no longer puts an old binding back.** Two
+  quick re-binds in the interfaces section (org, then back to internet)
+  could leave the picker showing the first choice while the second was
+  bound: the first change's reload answered last and overwrote the newer
+  one. Only the newest reload's answers land now. Workspaces get it with
+  the scaffold's shell update.
+- **A screen preview leaves the workspace agent out.** The shell's agent
+  chip reads `/delegate/state` and `/llm`; a preview render refuses both
+  and names them in `leftOut`, beside the admin-only status reads, and the
+  picture has no agent chip ([preview.md](/docs/protocol/preview.md)).
+- **A backend started on demand right after a save is not restarted for
+  that same save.** A request (or a bus push, a cron tick) that reached a
+  just-saved tile before xbind had finished handling the save started the
+  backend, and the save then rebuilt and replaced it a moment later — the
+  first generation's in-memory state and any request it was still serving
+  went with it. A save the running or building generation already read
+  now moves nothing; a later save rebuilds as before.
 - **The workspace agent's page** (D232; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
   the agent template's `API.md` §Workspace mode → The page). On the sealed
   component's path the agent template's `boot.js` asks `GET /ws/state` and
