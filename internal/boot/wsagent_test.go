@@ -64,9 +64,16 @@ func TestWorkspaceAgentIsInertUntilSetUp(t *testing.T) {
 		if code, body := d.do("GET", "/api/xbin/alerts", nil, alice); code != 200 || strings.Contains(body, "agent-page") || strings.Contains(body, "/xbin/agent") {
 			t.Errorf("%s: their alerts: %d %s", when, code, body)
 		}
-		for _, q := range []string{"", "?sealed=1"} {
-			if code, body := d.do("GET", "/api/xbin/components"+q, nil, alice); code != 200 || strings.Contains(body, wsAgentPath) {
-				t.Errorf("%s: GET /components%s lists it to them: %d", when, q, code)
+		for _, q := range []string{"/components", "/components?sealed=1", "/partitions", "/screens", "/whoami", "/tile-status?component=" + wsAgentPath} {
+			code, body := d.do("GET", "/api/xbin"+q, nil, alice)
+			if strings.Contains(q, "tile-status") { // asked about by name: refused, as a tile they can't read is
+				if code < 400 {
+					t.Errorf("%s: GET %s answers them: %d %.300s", when, q, code, body)
+				}
+				continue
+			}
+			if code != 200 || strings.Contains(body, wsAgentPath) {
+				t.Errorf("%s: GET %s names it to them: %d %.300s", when, q, code, body)
 			}
 		}
 	}
@@ -131,6 +138,25 @@ func TestWorkspaceAgentIsInertUntilSetUp(t *testing.T) {
 	}
 	if st = state(alice); st["access"] != true || st["agent"] != wsAgentPath {
 		t.Errorf("alice, by an entry that names it: %v", st)
+	}
+	// …and still in none of the listings a shell or the app that predates
+	// system components reads (the shipped iOS app: components, screens,
+	// tile status, her partitions, bindings, grants): a row there would be
+	// a tile with a dead terminal and a dead code tab. ?sealed=1 is the
+	// switch a client that knows them sends.
+	// (Not /partitions: a person's own data in it is theirs to see and
+	// reset there, as for any tile that keeps people's data apart — and an
+	// admin's "interfaces to bind" names its unbound slot: docs/compat.md.)
+	for _, path := range []string{"/components", "/screens", "/tile-status", "/grants", "/access-matrix", "/term/sessions", "/backends", "/runtime", "/resources"} {
+		for who, tok := range map[string]string{"a person who has one": alice, "an admin": admin} {
+			code, body := d.do("GET", "/api/xbin"+path, nil, tok)
+			if code == 200 && strings.Contains(body, wsAgentPath) {
+				t.Errorf("GET %s lists the agent to %s: %.300s", path, who, body)
+			}
+		}
+	}
+	if code, body := d.do("GET", "/api/xbin/components?sealed=1", nil, alice); code != 200 || !strings.Contains(body, wsAgentPath) {
+		t.Errorf("GET /components?sealed=1 for a person who has one: %d %.200s", code, body)
 	}
 	// the switch off: she keeps her entry and has no agent to talk to
 	if code, body := put(admin, map[string]any{"enabled": false}); code != 200 {
