@@ -2,12 +2,16 @@ package boot
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/sealed"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -297,3 +301,134 @@ const (
 	util_SealedPrefix = "xbin/"
 	boundarySecret    = "S3ALED-MARKER-VALUE"
 )
+
+// The rows classed SealedNoTile take no tile — by the table's word. This
+// drives each of them anyway with the sealed component's path wherever a
+// handler could read a name: every wildcard of the route, a query with the
+// usual parameter names, a JSON body with them. None may fail inside xbind,
+// show the component's data, or leave anything behind about it.
+func TestSealedNoTileRowsTakeNoSealedPath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace and builds a backend")
+	}
+	quiet(t)
+	ws := probeWorkspace(t)
+	table := []sealed.Spec{probeSpec()}
+	d := startSealed(t, ws, table, production(prebuilt(t, table)))
+	const ownInstance = "test-instance-of-xbin-probe"
+	d.st.Auth.RegisterInstance(ownInstance, probePath)
+	if code, body := d.do("PUT", "/api/xbin/kv/"+R+"/k", boundarySecret, ownInstance); code != 200 {
+		t.Fatalf("its backend's own kv write: %d %s", code, body)
+	}
+	// routes that change who can sign in or whether the vault is open: a
+	// request with any body would end the test's own access, and none of
+	// them takes a name
+	skip := map[string]string{
+		"POST /auth-rotate-token": "rotates the token this test holds", "POST /vault-seal": "seals the vault", "POST /vault-rekey": "rekeys the vault",
+		"POST /vault-unseal": "the vault's passphrase", "PATCH /auth-settings": "sign-in methods", "POST /impersonate": "a view-as ticket",
+		"POST /impersonate/stop": "a view-as session", "POST /login": "counts failed sign-ins", "POST /account/password": "the caller's password",
+		"POST /backup-keys/import": "the workspace's backup keys", "PUT /workspace-settings": "the workspace's own settings",
+		"PUT /workspace-policies": "the workspace's own policies",
+	}
+	names := []string{"component", "tile", "path", "target", "from", "to", "id", "name", "scope", "resource", "cwd", "source", "provider", "user", "org", "key", "owner", "sandbox", "session"}
+	q := url.Values{}
+	body := map[string]any{"tiles": map[string]string{probePath: "terminal"}, "providers": []string{probePath}}
+	for _, n := range names {
+		q.Set(n, probePath)
+		body[n] = probePath
+	}
+	esc := url.PathEscape(probePath)
+	client := &http.Client{Timeout: 4 * time.Second}
+	send := func(method, path string, payload any) (int, string) {
+		var rd io.Reader
+		if payload != nil {
+			rd = strings.NewReader(mustJSON(payload))
+		}
+		req, _ := http.NewRequest(method, d.base+"/api/xbin"+path, rd)
+		req.Header.Set("Authorization", "Bearer "+d.token)
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, err.Error() // a stream that never ends: nothing was answered
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return resp.StatusCode, string(b)
+	}
+	rules := server.SealedRules()
+	patterns := make([]string, 0, len(rules))
+	for p := range rules {
+		patterns = append(patterns, p)
+	}
+	sort.Strings(patterns)
+	n, silent := 0, 0
+	for _, pat := range patterns {
+		if rules[pat].Class != server.SealedNoTile {
+			continue
+		}
+		if _, no := skip[pat]; no {
+			continue
+		}
+		method, route, ok := strings.Cut(pat, " ")
+		if !ok { // a route of every method (a sandbox's forwarded port)
+			method, route = "GET", pat
+		}
+		route = regexp.MustCompile(`\{[a-zA-Z]+\.\.\.\}`).ReplaceAllString(route, probePath+"/k")
+		route = wildcardRe.ReplaceAllString(route, esc)
+		var payload any
+		if method != "GET" && method != "DELETE" {
+			payload = body
+		}
+		for _, variant := range []struct {
+			path    string
+			payload any
+		}{{route + "?" + q.Encode(), nil}, {route, payload}, {route + "?sealed=1&component=" + url.QueryEscape("res:"+probePath+"/state"), payload}} {
+			n++
+			code, out := send(method, variant.path, variant.payload)
+			switch {
+			case code == 0:
+				silent++
+			case code == http.StatusInternalServerError:
+				t.Errorf("%s (%s) failed inside xbind: %.300s", pat, variant.path, out)
+			case strings.Contains(out, boundarySecret):
+				t.Errorf("%s (%s) shows the component's data: %.300s", pat, variant.path, out)
+			}
+		}
+	}
+	if n < 400 || silent > 12 {
+		t.Errorf("%d requests driven, %d unanswered: is the table intact, or did xbind stop answering?", n, silent)
+	}
+	for pat := range skip {
+		if rules[pat].Class != server.SealedNoTile {
+			t.Errorf("%s is skipped here and is no SealedNoTile row", pat)
+		}
+	}
+
+	// nothing was left behind about it
+	if b, err := os.ReadFile(filepath.Join(ws, "xbin.json")); err != nil || strings.Contains(string(b), "xbin/") {
+		t.Errorf("the workspace manifest names a sealed path: %s (%v)", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "xbin")); err == nil {
+		t.Error("a directory appeared at <workspace>/xbin")
+	}
+	if code, out := d.do("GET", "/api/xbin/kv/"+R+"/k", nil, ownInstance); code != 200 || !strings.Contains(out, boundarySecret) {
+		t.Errorf("its backend's data after all that: %d %s", code, out)
+	}
+	for _, list := range []string{"/api/xbin/cron/jobs?sealed=1", "/api/xbin/bus/subscriptions?sealed=1", "/api/xbin/grants"} { // (GET /bindings names it: its declared slot is an admin's to bind)
+		if code, out := d.do("GET", list, nil); code != 200 || strings.Contains(out, probePath) {
+			t.Errorf("GET %s names it: %d %.300s", list, code, out)
+		}
+	}
+	for _, u := range d.st.Users.List() {
+		for path, level := range u.Tiles {
+			if strings.HasPrefix(strings.Trim(path, "/"), "xbin/") && level != "read" && level != "none" && !strings.Contains(path, "*") {
+				t.Errorf("user %s holds %s on %s", u.ID, level, path)
+			}
+		}
+	}
+	if code, out := d.do("GET", "/api/"+probePath+"/hello", nil); code != 200 || !strings.Contains(out, "self="+probePath) {
+		t.Errorf("the component after all that: %d %s", code, out)
+	}
+}
