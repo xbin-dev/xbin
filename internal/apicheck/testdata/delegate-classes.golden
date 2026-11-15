@@ -35,9 +35,9 @@ DELETE /sandboxes/{name}	refused
 DELETE /sandboxes/{name}/execs/{id}	refused
 DELETE /sandboxes/{name}/snapshots/{sid}	refused
 DELETE /screens/org	never
-DELETE /term/sessions/{id}	act
-DELETE /term/sessions/{id}/queue	act
-DELETE /term/sessions/{id}/queue/{qid}	act
+DELETE /term/sessions/{id}	act	tile:bySession
+DELETE /term/sessions/{id}/queue	act	tile:bySession
+DELETE /term/sessions/{id}/queue/{qid}	act	tile:bySession
 DELETE /users/{id}	never
 DELETE /users/{id}/sessions	never
 DELETE /vault/{rest...}	never
@@ -46,7 +46,7 @@ GET /access-matrix	never
 GET /access-requests	never
 GET /access/{user}	refused
 GET /agent/history	read
-GET /agent/history/{id}/events	read
+GET /agent/history/{id}/events	read	tile:byHistory
 GET /agent/prefs	refused
 GET /agent/providers	read
 GET /agents/connection	refused
@@ -60,7 +60,7 @@ GET /backends	never
 GET /backup-keys	never
 GET /backup-schedule	never
 GET /backups	never
-GET /bindings	admin-read
+GET /bindings	admin-read	audit
 GET /blob/{rest...}	never
 GET /branding	refused
 GET /builtins	refused
@@ -68,14 +68,14 @@ GET /builtins/updates	refused
 GET /bus/subscriptions	never
 GET /checkpoints/{rest...}	refused
 GET /chrome	refused
-GET /code/file	read
+GET /code/file	read	audit	tile:byComponent
 GET /code/pr	refused
 GET /code/pr/series	refused
 GET /code/prs	refused
 GET /code/prs/summary	refused
-GET /code/tree	read
+GET /code/tree	read	audit	tile:byComponent
 GET /components	read
-GET /components/{path...}	read
+GET /components/{path...}	read	tile:byComponentPath
 GET /cron/jobs	never
 GET /defaults	never
 GET /delegate/approvals	read
@@ -101,11 +101,11 @@ GET /git/log	refused
 GET /git/remote-info	refused
 GET /go-build-versions	never
 GET /gpus	never
-GET /grants	admin-read
+GET /grants	admin-read	audit
 GET /ingress	never
 GET /ingress-routes	never
 GET /kv/{rest...}	never
-GET /limits	admin-read
+GET /limits	admin-read	audit
 GET /llm	refused
 GET /llm/config	refused
 GET /llm/preferred	refused
@@ -113,11 +113,11 @@ GET /llm/quotas	refused
 GET /llm/usage	refused
 GET /llm/v1/models	refused
 GET /login/methods	refused
-GET /logs	read
+GET /logs	read	audit	tile:byComponent
 GET /native-runtime	refused
 GET /net-sets	never
 GET /openapi.json	refused
-GET /orgs	admin-read
+GET /orgs	admin-read	audit
 GET /orgs/{org}/policy	never
 GET /owner	refused
 GET /owner/preview	never
@@ -160,13 +160,13 @@ GET /templates/updates	refused
 GET /templates/{repo}/{rest...}	refused
 GET /term-net	refused
 GET /term/sessions	read
-GET /term/sessions/{id}	read
-GET /term/sessions/{id}/diff	read
-GET /term/sessions/{id}/events	read
-GET /term/sessions/{id}/log	read
+GET /term/sessions/{id}	read	tile:bySession
+GET /term/sessions/{id}/diff	read	audit	tile:bySession
+GET /term/sessions/{id}/events	read	tile:bySession
+GET /term/sessions/{id}/log	read	audit	tile:bySession
 GET /tile-assets	refused
 GET /tile-report	read
-GET /tile-status	read
+GET /tile-status	read	tile:byComponent
 GET /users	never
 GET /users-directory	never
 GET /users/{id}/devices	never
@@ -294,12 +294,12 @@ POST /sandboxes/{name}/start	refused
 POST /sandboxes/{name}/stop	refused
 POST /templates/new	act	ticket
 POST /term/sessions	act	ticket
-POST /term/sessions/{id}/cancel	act
+POST /term/sessions/{id}/cancel	act	tile:bySession
 POST /term/sessions/{id}/elicitations/{eid}	never
 POST /term/sessions/{id}/options	never
 POST /term/sessions/{id}/permissions/{pid}	never
-POST /term/sessions/{id}/prompt	act
-POST /term/sessions/{id}/queue	act
+POST /term/sessions/{id}/prompt	act	tile:bySession
+POST /term/sessions/{id}/queue	act	tile:bySession
 POST /term/sessions/{id}/restart	never
 POST /tile-report	never
 POST /users	never

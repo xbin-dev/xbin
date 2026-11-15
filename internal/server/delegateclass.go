@@ -47,6 +47,8 @@ package server
 
 import (
 	"net/http"
+	"reflect"
+	"runtime"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -186,6 +188,19 @@ func DelegateClasses() map[string]DelegateClass {
 		out[p] = r.class
 	}
 	return out
+}
+
+// DelegateRowFacts is the rest of a row, for the guard that pins the table
+// (internal/apicheck): whether a read is written to the audit log, and
+// the name of the function that derives the tile a request is about ("":
+// none — the gate asks no tile's rules for the route).
+func DelegateRowFacts(pattern string) (audit bool, tileBy string) {
+	row := delegateClasses[pattern]
+	if row.tile != nil {
+		name := runtime.FuncForPC(reflect.ValueOf(row.tile).Pointer()).Name()
+		tileBy = name[strings.LastIndexByte(name, '.')+1:]
+	}
+	return row.audit, tileBy
 }
 
 // DelegateTicketed reports whether a delegate's call to pattern needs the
