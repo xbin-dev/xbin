@@ -220,6 +220,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET "+LimitsPagePath, s.authed(http.HandlerFunc(s.handleLimitsPage)))   // the tile limits page, likewise (limitspage.go)
 	handle("GET "+DevicesPagePath, s.authed(http.HandlerFunc(s.handleDevicesPage))) // the devices page (devicespage.go, D204)
 	handle("GET "+LLMPagePath, s.authed(http.HandlerFunc(s.handleLLMPage)))         // the LLM connector's page (llmpage.go, D226)
+	handle("GET "+AgentPagePath, s.authed(http.HandlerFunc(s.handleAgentPage)))     // the workspace agent's chrome (agentpage.go, D232)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 

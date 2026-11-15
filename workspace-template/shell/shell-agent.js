@@ -1,0 +1,88 @@
+/**
+ * shell-agent.js — the shell's one hook for the workspace agent (D232): the
+ * top-bar chip, and the dock beside the canvas.
+ *
+ * Everything the chip opens is xbind's own chrome, served with xbind
+ * (/vendor/bx-agent-dock.js and what it loads): this module only decides
+ * whether the chip shows, counts what waits, and makes room. It loads
+ * nothing of the agent until the chip is pressed, and on an xbind from
+ * before the workspace agent (no /vendor/agent-chrome-words.js, no
+ * /api/xbin/delegate/state) it draws nothing at all.
+ *
+ *   followAgent(shell)  start: read the state, follow the `delegate` events;
+ *                       → stop()
+ *   agentChip(shell)    the chip, left of `settings`: hidden for a person
+ *                       with no agent (and for everyone but admins before
+ *                       setup — an admin's reads "set up workspace agent");
+ *                       its count is what waits for the person; a pause
+ *                       glyph while their agent is paused
+ *   agentDock(shell)    the dock, after <main>: it pushes the canvas; on a
+ *                       narrow screen it is the whole page
+ *   openAgent(shell, {tile})  open it about a tile
+ *
+ * Ctrl+J / ⌘J toggles the dock unless the person is typing somewhere (a
+ * terminal, a field): there the keys are theirs.
+ */
+import { html, nothing } from 'lit';
+import { onEvent } from '/vendor/events-socket.js';
+import { deepActive } from '/vendor/bx-kit.js';
+
+const get = (path) => fetch('/api/xbin' + path, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+export function followAgent(shell) {
+  const a = shell._agent = { words: null, state: null, llm: null, open: false, loaded: false, context: null };
+  const read = async () => {
+    if (!a.words) return;
+    [a.state, a.llm] = await Promise.all([get('/delegate/state'), get('/llm')]);
+    shell.requestUpdate();
+  };
+  // xbind's own words for the chip: an xbind without them has no workspace agent, and the shell stays as it was
+  import('/vendor/agent-chrome-words.js').then((m) => { a.words = m; read(); }, () => {});
+  const off = onEvent((e) => { if (e && e.type === 'delegate') read(); });
+  const key = (e) => {
+    if (!a.words || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== a.words.CHOICES.shortcut.key) return;
+    const at = deepActive();
+    if (at && (at.isContentEditable || /^(input|textarea|select)$/i.test(at.localName) || at.closest?.('.xterm'))) return; // typing: the keys are theirs
+    if (!chipOf(shell).shown) return;
+    e.preventDefault();
+    openAgent(shell, null, !a.open);
+  };
+  window.addEventListener('keydown', key);
+  return () => { off(); window.removeEventListener('keydown', key); };
+}
+
+const chipOf = (shell) => {
+  const a = shell._agent;
+  if (!a || !a.words) return { shown: false };
+  return a.words.chip({ state: a.state, llm: a.llm, me: shell._who, count: a.words.needCount(a.state) });
+};
+
+/** openAgent(shell, {tile}, open = true): show the dock (about a tile, when one is named), or close it. */
+export async function openAgent(shell, context = null, open = true) {
+  const a = shell._agent;
+  if (!a) return;
+  if (open && !a.loaded) {
+    try { await import('/vendor/bx-agent-dock.js'); a.loaded = true; } catch { return; } // an older xbind: nothing to open
+  }
+  a.open = open;
+  if (context) a.context = context;
+  shell.requestUpdate();
+}
+
+export function agentChip(shell) {
+  const c = chipOf(shell), a = shell._agent;
+  if (!c.shown) return nothing;
+  return html`<button class="chip agent ${a.open ? 'on' : ''}" title=${c.spoken} aria-label=${c.spoken} aria-pressed=${a.open ? 'true' : 'false'}
+      @click=${() => openAgent(shell, null, !a.open)}><bx-icon name="agent"></bx-icon>${shell._mobile ? nothing : c.label}${c.paused ? html`<bx-icon name="pause" label="paused"></bx-icon>`
+        : c.count ? html`<span class="agent-count" style="display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:6px;background:var(--bx-accent, #8C9BFF);color:var(--bx-accent-ink, #0B0C12);font:var(--bx-font-micro, 600 11px/14px system-ui, sans-serif)">${c.count}</span>` : nothing}</button>`;
+}
+
+export function agentDock(shell) {
+  const a = shell._agent;
+  if (!a || !a.loaded) return nothing;
+  // on a narrow screen the dock is the whole page, over the canvas
+  const full = !!shell._mobile;
+  return html`<bx-agent-dock ?open=${a.open} ?full=${full} .context=${a.context} style=${full ? 'position:absolute;inset:0;z-index:40' : nothing}
+    @bx-agent-dock=${(e) => { if (a.open !== e.detail.open) { a.open = e.detail.open; shell.requestUpdate(); } }}
+    @bx-agent-open-session=${(e) => { if (e.detail.tile && !shell._isOpen(e.detail.tile)) shell._toggle(e.detail.tile); if (full) openAgent(shell, null, false); }}></bx-agent-dock>`;
+}
