@@ -100,6 +100,9 @@ func (ag *Agent) startRunOpts(o runOpts) (*Run, error) {
 // startRunTx creates the run inside the caller's transaction (the caller
 // pokes it after the commit when it isn't held).
 func (ag *Agent) startRunTx(t *DB, o runOpts) (int64, error) {
+	if wsRefusesRun(o.Stamp.Origin) { // a workspace agent: its own conversations only (ws_mode.go)
+		return 0, errWsOnly
+	}
 	cfgJSON, _ := json.Marshal(o.Cfg)
 	status := statusRunning
 	if o.Hold {

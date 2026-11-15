@@ -31,8 +31,8 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 		return nil, err
 	}
 	var sys strings.Builder
-	sys.WriteString(cfg.System)
-	sys.WriteString(taskBlock(asks)) // D133: verbatim, before anything the model wrote
+	sys.WriteString(ag.coordSystemFor(run, cfg)) // cfg.System, or a coordinator profile's as this build words it (coord_prompt.go)
+	sys.WriteString(taskBlock(asks))             // D133: verbatim, before anything the model wrote
 	// Date only (not a full timestamp) keeps the system prefix stable within a
 	// day, so prompt caching keeps hitting.
 	fmt.Fprintf(&sys, "\n\nToday's date (UTC): %s.", time.Now().UTC().Format("2006-01-02"))

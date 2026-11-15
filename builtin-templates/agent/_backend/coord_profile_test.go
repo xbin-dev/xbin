@@ -112,34 +112,38 @@ func TestCoordProfileToolAllowlist(t *testing.T) {
 	}
 }
 
-// The workspace profile is a slot: no class, nothing on its allowlist, no
-// hook — so it can register no tool, and a run stamped with its origin
-// (which no code path does) is nobody's coordinator: no tools, no wake, no
-// updates, no prompt block, no knowledge store, and the project tools
-// answer it Projects' own refusal.
-func TestCoordWorkspaceSlotEmpty(t *testing.T) {
+// The workspace profile is live in workspace mode only (ws_mode.go). In a
+// normal instance it is registered and dead: its allowlist is exactly what
+// it registered and takes nothing more, its class doesn't exist, it
+// resolves nothing — and a run stamped with its origin (which no code path
+// does here) is nobody's coordinator: no tools, no wake, no updates, no
+// prompt block, no knowledge store, and the project tools answer it
+// Projects' own refusal.
+func TestCoordWorkspaceDeadOutsideItsMode(t *testing.T) {
 	fx := newCoordFix(t)
 	w := coordWorkspace
 	if w == nil || w.ID != "workspace" || w.Origin != originWorkspace || coordProfiles.byOrigin[originWorkspace] != w {
 		t.Fatalf("the workspace profile: %+v", w)
 	}
-	if w.Class != "" || len(w.Deny) != 0 || len(w.Allow) != 0 || len(w.tools) != 0 || len(w.order) != 0 || w.Words != nil ||
-		w.Is != nil || w.Resolve != nil || w.Pending != nil || w.Deliver != nil || w.Prompt != nil || w.Knowledge != nil {
-		t.Fatalf("the workspace slot isn't empty: %+v", w)
+	if wsMode() {
+		t.Fatal("a test instance is in workspace mode")
 	}
-	for _, name := range []string{"workspace_map", "tile_call", "task_create", "research"} {
+	if strings.Join(w.order, " ") != strings.Join(w.Allow, " ") || len(w.tools) != len(w.Allow) {
+		t.Fatalf("the workspace profile's tools aren't its allowlist:\n%v\n%v", w.order, w.Allow)
+	}
+	for _, name := range []string{"task_create", "xbin_call", "bash"} {
 		if err := w.register(scratchTool(name, false)); err == nil || !strings.Contains(err.Error(), "not on its allowlist") {
-			t.Errorf("the empty slot took %s: %v", name, err)
+			t.Errorf("the workspace profile took %s: %v", name, err)
 		}
 	}
-	if len(w.tools) != 0 {
-		t.Fatal("the empty slot has tools")
+	if err := w.register(scratchTool("workspace_map", false)); err == nil || !strings.Contains(err.Error(), "registered twice") {
+		t.Errorf("the workspace profile took workspace_map again: %v", err)
 	}
 	if _, err := w.forcedClass(); err == nil {
-		t.Fatal("the empty slot has a class to make a conversation in")
+		t.Fatal("a normal instance has the workspace class")
 	}
 	if _, err := w.resolve(fx.ag, fx.ag.db, nil, Config{}); err == nil {
-		t.Fatal("the empty slot resolves a coordinator")
+		t.Fatal("the workspace profile resolves a coordinator in a normal instance")
 	}
 
 	// a run forged with its origin, as no route makes one
@@ -191,8 +195,8 @@ func TestCoordWorkspaceSlotEmpty(t *testing.T) {
 
 // No route makes a workspace coordinator: whatever a request names — an
 // origin, a profile, a session key, a class, a config — the conversation it
-// makes has a route's own origin; and in the source only the slot's file
-// names the origin at all.
+// makes has a route's own origin; and in the source only the profile's own
+// files name the origin at all.
 func TestCoordWorkspaceUnreachable(t *testing.T) {
 	fx := newCoordFix(t)
 	hostile := func(more map[string]any) map[string]any {
@@ -241,15 +245,15 @@ func TestCoordWorkspaceUnreachable(t *testing.T) {
 	}
 	lit := regexp.MustCompile(`(?i)origin[^\n"']{0,24}["']workspace["']`)
 	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") || f == "coord_workspace.go" {
-			continue
+		if strings.HasSuffix(f, "_test.go") || f == "coord_workspace.go" || strings.HasPrefix(f, "ws_") {
+			continue // the profile's own files (ws_*.go: reachable in workspace mode only)
 		}
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(b), "originWorkspace") || lit.Match(b) {
-			t.Errorf("%s names the workspace coordinator's origin: only coord_workspace.go may until the profile is built", f)
+			t.Errorf("%s names the workspace coordinator's origin: only the profile's own files (coord_workspace.go, ws_*.go) may", f)
 		}
 	}
 }

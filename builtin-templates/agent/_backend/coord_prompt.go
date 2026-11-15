@@ -82,3 +82,18 @@ func (ag *Agent) coordPromptFor(run *Run, cfg Config) string {
 	}
 	return p.Prompt(ag, run, cfg)
 }
+
+// coordSystemFor is the base prompt run's context starts with: its
+// profile's System for a coordinator that has one, else what its config
+// stored.
+func (ag *Agent) coordSystemFor(run *Run, cfg Config) string {
+	if run == nil || run.Depth != 0 || coordOriginOf(run) == nil {
+		return cfg.System
+	}
+	if p := coordProfileOf(ag.db, run); p != nil && p.System != nil {
+		if s := p.System(ag, run, cfg); s != "" {
+			return s
+		}
+	}
+	return cfg.System
+}

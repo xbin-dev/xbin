@@ -72,6 +72,7 @@ func runToolSpecs(cfg Config, run *Run, mcp []toolSpec) []toolSpec {
 	specs := hostedToolSpecs(run, toolSpecs(cfg, run.Depth, mcp)) // a hosted conversation's lack (hosted_tools.go)
 	specs = append(specs, coordToolsFor(cfg, run)...)             // a coordinator's own, by its profile, at depth 0 (coord_tools.go)
 	specs = append(specs, wikiToolsFor(cfg, run)...)              // a knowledge store's, by the run's role in it (coord_know_tools.go)
+	specs = coordSpecsFor(cfg, run, specs)                        // a coordinator's profile's last word on the list (coord_tools.go)
 	if run.ParentID == 0 && (run.Origin == "channel" || run.Origin == "trigger") {
 		for i := range specs {
 			if specs[i].Function.Name == "finish" {

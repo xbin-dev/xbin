@@ -160,6 +160,7 @@ func routes(mux *http.ServeMux) {
 		mux.Handle(rt.pattern, agentRole(hostedRoute(rt.pattern, rt.need, guard(rt.need, partitionRoute(rt.pattern, rt.h)))))
 	}
 	mailboxRoutes(mux) // partition mail's doorbell (mailbox.go)
+	wsRoutes(mux)      // a workspace agent's own routes (ws_routes.go); none outside workspace mode
 }
 
 type ctxKey int
