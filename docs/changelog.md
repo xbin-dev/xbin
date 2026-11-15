@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Agent template: a Settings tab that loads late no longer draws over
+  the tab opened after it.** Opening Settings starts Config, which reads
+  the models; a click on another tab meanwhile was drawn — and then
+  overwritten when Config's reads landed. Each opening of a tab now draws
+  into a box of its own (`#sbd > .tabbox`, `display: contents`); a tab
+  function still receives the element it draws into. The gear is hidden
+  until the page can open Settings.
 - **The agent template's chat is drawn with the chat kit; a tool call's
   card says what it came to** (D224; [frontend-kit.md](/docs/frontend-kit.md)
   §The chat kit). The kit (`/vendor/chat/…`, revision 4 in
