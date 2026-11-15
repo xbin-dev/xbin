@@ -489,6 +489,471 @@
    "planText": "",
    "output": "$ make build\ncompiling\ndone\n!",
    "raw": ""
+  },
+  {
+   "events": [
+    {
+     "kind": "read",
+     "name": "Read",
+     "rawInput": {
+      "file_path": "/w/a.go",
+      "offset": 10,
+      "limit": 40
+     }
+    }
+   ],
+   "headline": "Read /w/a.go:10–49",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"file_path\": \"/w/a.go\",\n \"offset\": 10,\n \"limit\": 40\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "read",
+     "name": "Read",
+     "rawInput": {
+      "path": "b.go",
+      "offset": 7
+     }
+    }
+   ],
+   "headline": "Read b.go:7–",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"path\": \"b.go\",\n \"offset\": 7\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "read",
+     "name": "Read",
+     "rawInput": {
+      "filePath": "c.go",
+      "limit": "25"
+     }
+    }
+   ],
+   "headline": "Read c.go:1–25",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"filePath\": \"c.go\",\n \"limit\": \"25\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "read",
+     "rawInput": {
+      "file_path": null,
+      "notebook_path": "n.ipynb",
+      "offset": 2.5,
+      "limit": 2
+     }
+    }
+   ],
+   "headline": "Read n.ipynb:2.5–3.5",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"file_path\": null,\n \"notebook_path\": \"n.ipynb\",\n \"offset\": 2.5,\n \"limit\": 2\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "read",
+     "locations": [
+      {
+       "path": "from/location.go",
+       "line": 3
+      }
+     ]
+    }
+   ],
+   "headline": "Read from/location.go",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": ""
+  },
+  {
+   "events": [
+    {
+     "kind": "read",
+     "title": "  ",
+     "rawInput": {
+      "file_path": 7
+     }
+    }
+   ],
+   "headline": "Read a file",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"file_path\": 7\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "edit",
+     "rawInput": {
+      "abs_path": "/w/x.txt"
+     }
+    },
+    {
+     "locations": [
+      {
+       "path": "/other"
+      }
+     ]
+    }
+   ],
+   "headline": "Edit /w/x.txt",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"abs_path\": \"/w/x.txt\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "edit",
+     "rawInput": "not an object"
+    }
+   ],
+   "headline": "Edit a file",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "not an object"
+  },
+  {
+   "events": [
+    {
+     "kind": "delete",
+     "rawInput": {
+      "path": "old.log"
+     }
+    }
+   ],
+   "headline": "Delete old.log",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"path\": \"old.log\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "move",
+     "rawInput": {
+      "source": "a.txt",
+      "destination": "b.txt"
+     }
+    }
+   ],
+   "headline": "Move a.txt → b.txt",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"source\": \"a.txt\",\n \"destination\": \"b.txt\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "move",
+     "rawInput": {
+      "from": "a",
+      "to": "b",
+      "path": "p"
+     }
+    }
+   ],
+   "headline": "Move a → b",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"from\": \"a\",\n \"to\": \"b\",\n \"path\": \"p\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "move",
+     "rawInput": {
+      "path": "only.txt"
+     }
+    }
+   ],
+   "headline": "Move only.txt → ?",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"path\": \"only.txt\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "move",
+     "rawInput": {
+      "source": 0,
+      "from": "",
+      "destination": 5
+     }
+    }
+   ],
+   "headline": "Move ? → 5",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"source\": 0,\n \"from\": \"\",\n \"destination\": 5\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "search",
+     "rawInput": {
+      "pattern": "func \\w+\\(",
+      "path": "internal/server"
+     }
+    }
+   ],
+   "headline": "Search /func \\w+\\(/ in internal/server",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"pattern\": \"func \\\\w+\\\\(\",\n \"path\": \"internal/server\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "search",
+     "rawInput": {
+      "pattern": null,
+      "query": "where   is\n\tthe  router"
+     }
+    }
+   ],
+   "headline": "Search /where is the router/",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"pattern\": null,\n \"query\": \"where   is\\n\\tthe  router\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "search",
+     "rawInput": {
+      "pattern": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+      "path": ""
+     }
+    }
+   ],
+   "headline": "Search /xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yyyyyyyyyyyyyyyyyy…/",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"pattern\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\",\n \"path\": \"\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "search",
+     "rawInput": {
+      "pattern": 12,
+      "path": [
+       "a",
+       "b"
+      ]
+     }
+    }
+   ],
+   "headline": "Search /12/ in a,b",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"pattern\": 12,\n \"path\": [\n  \"a\",\n  \"b\"\n ]\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "search"
+    }
+   ],
+   "headline": "Search //",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": ""
+  },
+  {
+   "events": [
+    {
+     "kind": "fetch",
+     "rawInput": {
+      "url": "https://example.com/a?b=1"
+     }
+    }
+   ],
+   "headline": "https://example.com/a?b=1",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"url\": \"https://example.com/a?b=1\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "fetch",
+     "rawInput": {
+      "query": "xbin  docs"
+     }
+    }
+   ],
+   "headline": "xbin docs",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"query\": \"xbin  docs\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "fetch",
+     "name": "WebFetch"
+    }
+   ],
+   "headline": "Fetch",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": ""
+  },
+  {
+   "events": [
+    {
+     "kind": "think",
+     "rawInput": {
+      "prompt": "no description here"
+     }
+    }
+   ],
+   "headline": "Think",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"prompt\": \"no description here\"\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "switch_mode",
+     "name": "ExitPlanMode"
+    }
+   ],
+   "headline": "Switch mode",
+   "command": "",
+   "plan": true,
+   "planText": "",
+   "output": "",
+   "raw": ""
+  },
+  {
+   "events": [
+    {
+     "kind": "execute",
+     "name": "Bash"
+    }
+   ],
+   "headline": "Run a command",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": ""
+  },
+  {
+   "events": [
+    {
+     "kind": "execute",
+     "rawInput": {
+      "command": 5
+     }
+    }
+   ],
+   "headline": "Run a command",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"command\": 5\n}"
+  },
+  {
+   "events": [
+    {
+     "kind": "custom_kind",
+     "name": "A   tool\twith a long name zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+    }
+   ],
+   "headline": "A   tool\twith a long name zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": ""
+  },
+  {
+   "events": [
+    {
+     "kind": "custom_kind"
+    }
+   ],
+   "headline": "t43",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": ""
+  },
+  {
+   "events": [
+    {
+     "kind": "fetch",
+     "rawInput": {
+      "url": "h  t﻿tp 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+     }
+    }
+   ],
+   "headline": "h t tp 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀…",
+   "command": "",
+   "plan": false,
+   "planText": "",
+   "output": "",
+   "raw": "{\n \"url\": \"h  t﻿tp 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\"\n}"
   }
  ],
  "rawTexts": [

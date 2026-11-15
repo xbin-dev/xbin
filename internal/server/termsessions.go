@@ -141,7 +141,7 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, http.StatusOK, out)
 		return
 	}
-	if homeKey != term.HomeKey(p) || p.ReadOnly() {
+	if homeKey != term.HomeKey(p) || p.ViewAs() {
 		for i := range rows {
 			if rows[i].Personal() {
 				rows[i].Name = ""

@@ -49,7 +49,7 @@ type HistoryScope struct {
 
 // HistoryOf is p's history scope.
 func HistoryOf(p auth.Principal) HistoryScope {
-	return HistoryScope{Home: HomeKey(p), ViewAs: p.ReadOnly()}
+	return HistoryScope{Home: HomeKey(p), ViewAs: p.ViewAs()} // a preview reads the person's own history (D234)
 }
 
 // OwnHistory is home's scope as the person themselves.

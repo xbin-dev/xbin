@@ -31,9 +31,12 @@ type Mount struct {
 }
 
 // NetDef is a sandbox's egress: "none", or one of its tile's sandbox-net
-// classes ("class:<slot>").
+// classes ("class:<slot>"). LLM, set at create and fixed after, asks for
+// the workspace's LLM connector at the sandbox's gateway (netcfg.go): the
+// one thing of xbind's a sandbox may reach, whatever its egress.
 type NetDef struct {
 	Egress string `json:"egress"`
+	LLM    bool   `json:"llm,omitempty"`
 }
 
 // Defaults are what every command in the sandbox gets unless it says

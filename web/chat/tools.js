@@ -433,6 +433,7 @@ export function stateChip(rec, state = '') {
   if (s === 'failed' || state === 'error') return { text: 'failed', tone: 'bad' };
   if (s === 'cancelled' || state === 'stopped') return { text: 'cancelled', tone: '' };
   if (state === 'writing') return { text: 'writing', tone: 'run' };
+  if (state === 'waiting') return { text: 'waiting', tone: '' };
   if (s === 'pending') return { text: 'pending', tone: '' };
   if (s === 'in_progress' || state === 'running') return { text: 'running', tone: 'run' };
   return null;

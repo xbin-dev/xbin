@@ -131,6 +131,22 @@ func (b *Broker) userPartition(userID, tile string) (util.Partition, error) {
 	return part, nil
 }
 
+// partitionOpened reports whether person userID has a partition of tile's
+// primary already: their uid is recorded and the partition's record exists
+// (notePartition writes it at the first start). Nothing is minted here.
+func (b *Broker) partitionOpened(userID, tile string) bool {
+	uid := b.storedPartitionUID(userID)
+	if uid == "" {
+		return false
+	}
+	dir, err := b.partitionRecordDir(tile, b.primaryOf(tile), util.PartitionKey(userID, uid))
+	if err != nil {
+		return false
+	}
+	_, ok, err := readPartitionRecordAt(dir)
+	return ok && err == nil
+}
+
 // globalOf is tile's global partition, when its mode declares one; err
 // says why a principal without a person reaches nothing.
 func globalOf(spec registry.PartitionSpec, err error) (util.Partition, error) {
@@ -187,7 +203,7 @@ func (b *Broker) addressedPartition(p auth.Principal, tile string) (util.Partiti
 	switch {
 	case delivery:
 		return b.registeredPartition(p.Partition, tile, spec)
-	case p.Impersonator != "":
+	case p.ViewAs(): // a preview is the person's own read (auth/preview.go): it falls through to their partition
 		return "", fmt.Errorf("%s keeps %s's data private: view-as can't open it", tile, p.UserID)
 	case own && p.Via == "instance":
 		return b.registeredPartition(p.Partition, tile, spec)
@@ -199,6 +215,10 @@ func (b *Broker) addressedPartition(p auth.Principal, tile string) (util.Partiti
 		// anonymous principal
 		refused := fmt.Errorf("sign in as a person: %s keeps each person's data apart", tile)
 		switch {
+		case p.UserID != "" && p.Preview() && !b.partitionOpened(p.UserID, tile):
+			// D234: a preview reads a partition, it never makes one (a uid
+			// minted, a volume created, a process started for a picture)
+			return "", fmt.Errorf("%s keeps each person's data apart and %s has not opened it yet: open it once first — a preview never creates a partition", tile, p.UserID)
 		case p.UserID != "" && p.Agent != "" && b.Policies().PartitionConsent && !partitionConsentHolds(b, p.UserID, p.Agent, tile):
 			// their workspace agent (delegation.go) is another tile's code
 			// reaching their data: it needs their consent like any other
@@ -218,6 +238,20 @@ func (b *Broker) addressedPartition(p auth.Principal, tile string) (util.Partiti
 	if id, ok := cp.User(); ok {
 		if err := b.personLive(id, tile); err != nil {
 			return "", err
+		}
+		if p.ReadOnly() {
+			// A read-only session reaching across tiles — a preview's frame
+			// of tile A calling B (view-as was refused above) — reads a
+			// partition that exists and asks nobody anything (D234): it
+			// never starts the person's first partition of B, and without
+			// their consent it is refused quietly, no prompt, no push.
+			if !b.partitionOpened(id, tile) {
+				return "", fmt.Errorf("%s keeps each person's data apart and %s has not opened it yet: open it once first — a read-only session never creates a partition", tile, id)
+			}
+			if b.Policies().PartitionConsent && !b.consentHolds(id, p.Component, tile) {
+				return "", fmt.Errorf("%s hasn't let %s use their %s data (they allow it at /xbin/partitions)", id, p.Component, tile)
+			}
+			return cp, nil
 		}
 		if b.Policies().PartitionConsent && !partitionConsentHolds(b, id, p.Component, tile) {
 			return "", fmt.Errorf("%s hasn't let %s use their %s data (they allow it at /xbin/partitions)", id, p.Component, tile)

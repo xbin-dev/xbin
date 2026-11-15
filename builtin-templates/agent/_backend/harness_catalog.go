@@ -159,6 +159,10 @@ type hcImage struct {
 	Image      string   `json:"image"`
 	Advertised bool     `json:"advertised"`
 	Egress     []string `json:"egress"` // the manager's egress other than none
+	// LLM: a sandbox made there can reach the workspace's LLM connector (the
+	// manager offers llm and this agent is bound to it) — so a coding agent
+	// the connector serves needs no egress there (harness_connector.go).
+	LLM bool `json:"llm,omitempty"`
 }
 
 // hcEntry is one harness in GET /harnesses.
@@ -288,8 +292,10 @@ func harnessCatalog(c who, mgrs []hcManager, visible func(ref string) bool) []hc
 				egress = append(egress, e)
 			}
 		}
+		_, bound := connectorProvider(context.Background())
+		llm := bound && hasStr(h.Caps, "llm")
 		img := func(im sbxImage, advertised bool) hcImage {
-			return hcImage{Provider: hm.m.Provider, Manager: h.title(hm.m.Provider), Image: im.ID, Advertised: advertised, Egress: egress}
+			return hcImage{Provider: hm.m.Provider, Manager: h.title(hm.m.Provider), Image: im.ID, Advertised: advertised, Egress: egress, LLM: llm}
 		}
 		if !h.advertises() {
 			for _, im := range h.Images {
@@ -386,8 +392,14 @@ func harnessUnavailable(e *hcEntry, classes []agentClass, failed []hcManager) (s
 	if len(classes) == 0 {
 		return "no-class", "no class you may use allows coding agents"
 	}
+	prov := harnessProvider(e.ID, nil)
+	onConnector := prov.Connector != nil && hasStr(connectorWires, prov.Connector.Wire)
 	for _, im := range e.Images {
-		for _, eg := range im.Egress {
+		egress := im.Egress
+		if im.LLM && onConnector { // the workspace's LLM connector is reachable with no egress at all
+			egress = append([]string{"none"}, egress...)
+		}
+		for _, eg := range egress {
 			for _, cls := range classes {
 				if cls.allowsManager(im.Provider) && cls.allowsEgress(eg) {
 					return "", ""
@@ -580,7 +592,10 @@ func handleHarnesses(w http.ResponseWriter, r *http.Request) {
 	loadClasses(agent.db) // fresh: another process may have saved
 	mgrs := harnessManagers(ctx)
 	out := map[string]any{}
-	if ref != "" {
+	switch {
+	case ref != "" && previewCall(r): // D234: a preview runs nothing in a sandbox and records nothing
+		out["probe"] = hcProbe{Ref: ref, Error: "a preview doesn't ask a sandbox"}
+	case ref != "":
 		out["probe"] = probeHarnesses(ctx, c, ref, mgrs)
 	}
 	var visible func(string) bool

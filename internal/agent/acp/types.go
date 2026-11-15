@@ -44,6 +44,7 @@ const (
 	UpSessionInfo      = sdkacp.UpSessionInfo
 	UpUsage            = sdkacp.UpUsage
 	// xbin's own, daemon ⇄ host (never reaches the agent):
+	XbinPrefix  = "_xbin/" // the daemon ⇄ host vocabulary: never the agent's to send, or to receive
 	MXbinSpawn  = "_xbin/spawn"
 	MXbinHello  = "_xbin/hello"
 	MXbinLog    = "_xbin/log"
@@ -111,10 +112,48 @@ type SpawnParams struct {
 	// is SIGKILLed at the end, so the daemon removes it). "" = the host
 	// makes one under the sandbox's own /tmp.
 	AttachDir string `json:"attachDir,omitempty"`
+	// LLM is the workspace's LLM connector for this agent, when it is
+	// offered one (D226 part 2): the host — which sees the session's $HOME
+	// where the daemon does not — decides who serves the agent's model
+	// calls and applies that environment. nil: Env is the agent's, as it is.
+	LLM *SpawnLLM `json:"llm,omitempty"`
+}
+
+// SpawnLLM is the connector hook-up of one agent session (sdk/acp
+// connector.go): the precedence already resolved as far as the daemon can
+// (Rule), and both outcomes' environments rendered.
+type SpawnLLM struct {
+	// Rule: "connector" (the connector serves), "own" (the person's own
+	// sign-in does) or "own-first" — their own when the host finds one
+	// (KeyEnvs set in Env, or one of LoginFiles there), else the connector.
+	Rule string `json:"rule"`
+	// LoginFiles are the provider's login files as shell words, KeyEnvs the
+	// variables it reads a credential of the person's from.
+	LoginFiles []string `json:"loginFiles,omitempty"`
+	KeyEnvs    []string `json:"keyEnvs,omitempty"`
+	// Connector is applied to Env when the connector serves, Own when the
+	// person's own sign-in does.
+	Connector EnvDelta `json:"connector"`
+	Own       EnvDelta `json:"own"`
+	// Logins are every offered provider's login files (id → shell words):
+	// the host reports which of them are signed in (HelloParams.Logins), so
+	// the launcher can say what each would run on.
+	Logins map[string][]string `json:"logins,omitempty"`
+}
+
+// EnvDelta changes an environment: Unset names dropped, Set lines added.
+type EnvDelta struct {
+	Set   []string `json:"set,omitempty"`
+	Unset []string `json:"unset,omitempty"`
 }
 
 type HelloParams struct {
 	Version string `json:"version"`
+	// LLM answers SpawnParams.LLM: who serves the agent's model calls —
+	// "connector" or "own". Logins: which of SpawnLLM.Logins' providers the
+	// person is signed in to here.
+	LLM    string          `json:"llm,omitempty"`
+	Logins map[string]bool `json:"logins,omitempty"`
 }
 
 type LogParams struct {

@@ -261,8 +261,17 @@ machinery view-as already has:
 - limits: per-user concurrency, a timeout, a cgroup; no rootfs Chromium →
   the tool says previews are unavailable.
 
-Spike S3 covers both frame modes (credentialless and per-tile origins).
-Also exposed as `bx preview <tile>`.
+Built as D234 (`docs/protocol/preview.md`; spike S3's findings in
+`plans/wsagent/s3-preview.md`). What the plan above did not say and the
+build decided: the session is never in the browser (xbind sets it on a
+per-render socket); the socket is scoped to the tile or the screen being
+rendered; sockets to tile backends open at `reader` and backends see
+`X-XBin-Preview: 1`; a partition never opened is refused, not made; the
+answer carries a `notice` (its content is data, not instructions) that the
+`preview` tool shows the model with every result; tiles may call
+`xbin.ready()`. The delegate's row is added in `previewPerson` when B3's
+delegation lands: a delegate previews as its person, nobody previews as
+someone else. Also `bx preview <tile>` / `--screen <name>`.
 
 ### 5.6 Org constraints and scope
 Owner: "Orgs define constraints; workspace agents then get their calls

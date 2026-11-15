@@ -157,11 +157,18 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y --no-install-recommends gh && rm -rf /var/lib/apt/lists/* || true
 
-# Chromium + Playwright for frontend / e2e agents. Browsers land in a system
-# path (terminals run under a different $HOME, so the default ~/.cache wouldn't
+# Chromium + Playwright for frontend / e2e agents — and for xbind's own
+# previews (D234, docs/protocol/preview.md): the browser that renders a
+# person's tiles for them is this one, so its build is a pin, not "latest".
+# A Playwright release fixes its Chromium build; bumping the pin is how the
+# preview browser gets Chromium's security fixes — bump it with the agent
+# CLIs above. 1.63.0 ships Chromium 153.0.8010.12 (GET /api/xbin/preview
+# reports the running build to admins). Browsers land in a system path
+# (terminals run under a different $HOME, so the default ~/.cache wouldn't
 # be found), and --with-deps pulls chromium's system libraries.
+ARG PLAYWRIGHT_VERSION=1.63.0
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright
-RUN npm install -g playwright @playwright/test || true \
+RUN npm install -g playwright@${PLAYWRIGHT_VERSION} @playwright/test@${PLAYWRIGHT_VERSION} || true \
     && (playwright install --with-deps chromium || true)
 
 # Ship no build-time .debs or package index lists (the terminal tmpfs mounts

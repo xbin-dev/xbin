@@ -106,6 +106,16 @@ func TestSSHAccessRevoked(t *testing.T) {
 	r.xbind.mu.Lock()
 	r.xbind.m["alice"] = xbin.UserAccess{User: "alice", Level: "read", Active: true} // the tile still keeps "none"
 	r.xbind.mu.Unlock()
+	// a preview of their page (D234) isn't them opening it: it reads the
+	// same and changes nothing
+	for _, path := range []string{"/me", "/keys", "/keys?all=1"} {
+		if st, b := r.doPreview("GET", path, "alice", "write"); st != 200 {
+			t.Fatalf("a preview's GET %s: %d %s", path, st, b)
+		}
+	}
+	if _, _, code := login(); code != 1 {
+		t.Fatal("a preview of the page let them in")
+	}
 	if st, _ := r.do("GET", "/me", "alice", "read", nil); st != 200 {
 		t.Fatalf("GET /me: %d", st)
 	}

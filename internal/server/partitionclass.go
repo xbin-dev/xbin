@@ -508,6 +508,10 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /llm/v1/models":            PartitionScoped,
 	"GET /llm/preferred":            PartitionScoped,
 	"GET /llm":                      PartitionScoped,
+	"POST /llm/keys":                PartitionScoped, // a key for a harness the partition runs: its person's, by the stamp
+	"DELETE /llm/keys/{id}":         PartitionScoped,
+	"POST /llm/keys/{id}/renew":     PartitionScoped,
+	"DELETE /llm/keys":              PartitionScoped,
 
 	// ---- partitions' governance acts (02 §8): their handlers judge the
 	// person and refuse the target tile's own credentials. A mode decision
@@ -546,9 +550,14 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /partitions/mail/ack": PartitionScoped,
 
 	// ---- reads of workspace facts ----
-	"GET /whoami":               PartitionNeutral,
-	"GET /docs/search":          PartitionNeutral,
-	"GET /docs/page":            PartitionNeutral,
+	"GET /whoami":      PartitionNeutral,
+	"GET /docs/search": PartitionNeutral,
+	"GET /docs/page":   PartitionNeutral,
+	// previews (D234): rendered as the PERSON behind the call — themselves,
+	// or their terminal on its own tile — whose partition the render opens
+	// read-only; the route itself has no partition dimension
+	"POST /preview":             PartitionNeutral,
+	"GET /preview":              PartitionNeutral,
 	"GET /status":               PartitionNeutral,
 	"GET /components":           PartitionNeutral,
 	"GET /components/{path...}": PartitionNeutral,

@@ -97,6 +97,7 @@ type who struct {
 	user     string // a person (through the tile's page or a terminal)
 	level    string // their access to this tile now: none | read | write | terminal
 	viewedBy string // an admin viewing the workspace as user (D64): reads only
+	preview  bool   // xbind rendering user's own view (D234): their read, which changes nothing
 	system   bool   // the owner token, or the tile itself
 }
 
@@ -112,7 +113,7 @@ func (t *Tile) principal(r *http.Request) who {
 		if lvl == "" {
 			lvl = "none"
 		}
-		return who{user: c.User, level: lvl, viewedBy: c.ViewedBy}
+		return who{user: c.User, level: lvl, viewedBy: c.ViewedBy, preview: c.Preview}
 	case c.From != "" && c.From == t.self:
 		return who{system: true}
 	}
@@ -136,9 +137,10 @@ const errNoAccess = "you no longer have access to this tile — ask its owner fo
 // level xbind put on it is its answer now, as GET /api/xbin/access would
 // give it: kept like one (a person given access back logs in at once), and
 // keys marked inactive come back (access.go). An admin viewing as them
-// (D64) changes nothing.
+// (D64) changes nothing, nor does a preview of their page (D234): nobody
+// opened it.
 func (t *Tile) seen(p who) {
-	if p.user == "" || p.viewedBy != "" {
+	if p.user == "" || p.viewedBy != "" || p.preview {
 		return
 	}
 	t.accMu.Lock()
@@ -214,8 +216,11 @@ func (t *Tile) handleKeys(w http.ResponseWriter, r *http.Request) {
 			xbin.WriteError(w, http.StatusForbidden, "everyone's keys are for the tile's managers (write access to it)")
 			return
 		}
-		// whose access is gone shows: each person asked (cached, bounded)
-		t.recheck(r.Context(), t.keysOf(""))
+		// whose access is gone shows: each person asked (cached, bounded) —
+		// not by a preview (D234), which marks no key: the keys as kept
+		if !p.preview {
+			t.recheck(r.Context(), t.keysOf(""))
+		}
 		xbin.WriteJSON(w, http.StatusOK, map[string]any{"keys": t.keysOf("")})
 		return
 	}

@@ -322,7 +322,13 @@ func (s *Server) codeGranted(p auth.Principal, target string) bool {
 // Strict asset gating (--tile-assets=tokens|origins) has no such
 // exception: every /c/ request carries a credential.
 func (s *Server) tileSubresourceAuthed(r *http.Request) bool {
-	return !s.strictAssets() && tileSubresource(r) && s.Auth.RecentlyAuthed(s.ClientIP(r))
+	if s.strictAssets() || !tileSubresource(r) {
+		return false
+	}
+	// A preview render's socket (preview.go) has no client address to have
+	// signed in from: the socket is the render's person's alone, and its
+	// scope gate already held this path to a tile the render shows.
+	return previewOf(r) != nil || s.Auth.RecentlyAuthed(s.ClientIP(r))
 }
 
 var tileSubresourceDests = map[string]bool{

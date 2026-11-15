@@ -525,7 +525,7 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		return fail("its network", errEnded)
 	}
 	if fd >= 0 {
-		rl, err := relay.Start(m.relayConfig(fd, pol))
+		rl, err := relay.Start(m.relayConfig(fd, pol, d.Net.LLM))
 		if err != nil {
 			return fail("its relay", err)
 		}

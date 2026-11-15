@@ -63,6 +63,10 @@ type fsbManager struct {
 	// Harnesses are what hello says its image has (nil = the scripted
 	// "fake" agent, fsbFakeHarness; empty = none).
 	Harnesses []fsbHarness
+	// LLM is the workspace's LLM connector as a sandbox created with llm:
+	// true reaches it ("" = this manager can't give one: it offers no llm,
+	// and — a manager from before the capability — refuses the member).
+	LLM string
 
 	mu     sync.Mutex
 	boxes  map[string]*fsbBox
@@ -190,6 +194,12 @@ type fsbSandbox struct {
 	LastActive   int64             `json:"lastActive"`
 	AutoStopMin  int               `json:"autoStopMin"`
 	Version      int               `json:"version"`
+	LLM          *fsbLLM           `json:"llm,omitempty"` // created with llm: true, at a manager that forwards the connector
+}
+
+// fsbLLM is where a sandbox reaches the LLM connector.
+type fsbLLM struct {
+	URL string `json:"url"`
 }
 
 type fsbBox struct {
@@ -468,13 +478,17 @@ func (m *fsbManager) faulted(w http.ResponseWriter, op string) bool {
 }
 
 func (m *fsbManager) caps() []string {
-	if m.Caps != nil {
-		return m.Caps
+	caps := m.Caps
+	if caps == nil {
+		caps = []string{"exec", "files", "tar", "stdio", "snapshots", "clone", "archive", "ports", "partitions"}
+		if fsbHasPTY() {
+			caps = []string{"exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports", "partitions"}
+		}
 	}
-	if fsbHasPTY() {
-		return []string{"exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports", "partitions"}
+	if m.LLM != "" {
+		caps = append(append([]string{}, caps...), "llm")
 	}
-	return []string{"exec", "files", "tar", "stdio", "snapshots", "clone", "archive", "ports", "partitions"}
+	return caps
 }
 
 // boxCaps are a sandbox's: hello's, but partitions (the manager's own).
@@ -797,6 +811,7 @@ type fsbCreateReq struct {
 		Sandbox  string `json:"sandbox"`
 		Snapshot string `json:"snapshot"`
 	} `json:"from"`
+	LLM *bool `json:"llm"` // the llm capability's ask
 }
 
 func fsbHash(v any) string {
@@ -825,6 +840,11 @@ func (m *fsbManager) create(w http.ResponseWriter, r *http.Request) {
 		return
 	case q.Size != "" && q.Size != "small":
 		fsbFail(w, http.StatusBadRequest, "invalid", "no size "+q.Size)
+		return
+	case q.LLM != nil && m.LLM == "":
+		// a manager from before the capability: a consumer must read hello
+		// first and never send it the member
+		fsbFail(w, http.StatusBadRequest, "invalid", "unknown member llm")
 		return
 	case q.Egress != "" && q.Egress != "none" && q.Egress != "internet":
 		fsbFail(w, http.StatusBadRequest, "invalid", "egress is none or internet here")
@@ -902,6 +922,9 @@ func (m *fsbManager) create(w http.ResponseWriter, r *http.Request) {
 		Visibility: orFsb(q.Visibility, "private"), Members: q.Members, Labels: q.Labels,
 		Workdir: filepath.Join(dir, "work"), Home: filepath.Join(dir, "home"), User: "dev", Shell: "/bin/sh",
 		Caps: m.boxCaps(), Created: now, LastActive: now, AutoStopMin: 30, Version: 1}
+	if q.LLM != nil && *q.LLM {
+		b.LLM = &fsbLLM{URL: m.LLM}
+	}
 	if q.Start != nil && !*q.Start {
 		b.State = "stopped"
 	}
@@ -1221,6 +1244,13 @@ type fsbCmdReq struct {
 func (m *fsbManager) command(b *fsbBox, q fsbCmdReq) (*exec.Cmd, error) {
 	if q.Cmd == "" && len(q.Argv) == 0 {
 		return nil, errors.New("cmd or argv is required")
+	}
+	// as xbind's own sandboxes have it: nothing of xbind's but the LLM
+	// connector's two variables
+	for k := range q.Env {
+		if strings.HasPrefix(strings.ToUpper(k), "XBIN_") && k != "XBIN_LLM_URL" && k != "XBIN_LLM_KEY" {
+			return nil, fmt.Errorf("env: %s — XBIN_* variables are xbind's", k)
+		}
 	}
 	cwd := b.Workdir
 	if q.Cwd != "" {

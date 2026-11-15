@@ -98,6 +98,9 @@ func (c caller) header() http.Header {
 	if c.viewedBy != "" {
 		h.Set("X-XBin-Viewed-By", c.viewedBy)
 	}
+	if c.preview {
+		h.Set("X-XBin-Preview", "1")
+	}
 	return h
 }
 
@@ -356,6 +359,8 @@ func TestTerminalRelayRefusals(t *testing.T) {
 	}{
 		{"run: not an upgrade", asAlice, run, true, 400, "a terminal is a WebSocket upgrade"},
 		{"run: not a person", asSystem, run, false, 403, "only a person can open a terminal"},
+		{"run: a preview of alice's view (D234)", asPreview, run, false, 403, "a preview opens no terminal"},
+		{"run: a preview, attaching again", asPreview, run + "?exec=e1", false, 403, "a preview opens no terminal"},
 		{"run: an admin viewing as alice", asViewAs, fmt.Sprintf("/runs/%d/harness/terminal", builtin), false, 404, "no such run"},
 		{"run: built-in", asAlice, fmt.Sprintf("/runs/%d/harness/terminal", builtin), false, 409, "not a coding-agent conversation"},
 		{"run: a viewer", asDave, run, false, 403, "that needs participant"},
@@ -367,6 +372,7 @@ func TestTerminalRelayRefusals(t *testing.T) {
 		{"run: a manager without terminals", asAlice, fmt.Sprintf("/runs/%d/harness/terminal", ntRun), false, 501, `"refusal":"unsupported"`},
 		{"sandbox: not an upgrade", asAlice, sb, true, 400, "a terminal is a WebSocket upgrade"},
 		{"sandbox: not a person", asElement, sb, false, 403, "only a person can open a terminal"},
+		{"sandbox: a preview of alice's view (D234)", asPreview, sb, false, 403, "a preview opens no terminal"},
 		{"sandbox: the tile itself", asSystem, sb, false, 403, "only a person can open a terminal"},
 		{"sandbox: someone else's private one", asBob, sb, false, 404, "no such sandbox"},
 		{"sandbox: a manager who may not use it", asMgr, sb, false, 403, "you may not use box — ask alice"},

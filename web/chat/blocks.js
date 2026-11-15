@@ -121,7 +121,13 @@ export const TOOL_STATES = Object.freeze(['writing', 'pending', 'running', 'appr
  *   state: string,              // one of TOOL_STATES (toolState)
  *   children: ChatBlock[]|null, // a subagent call's blocks, in order; null: not a subagent call
  *   result?: string,            // what the call answered as its host words it, when that is more than the record
- *                               // (a call of the host's own tools; a call settled some other way: "(cancelled)")
+ *                               // (a call of the host's own tools; a call settled some other way: "(cancelled)") —
+ *                               // drawn as plain text
+ *   // A reducer that knows a call better than its record says (a tool of its own) words its card itself:
+ *   icon?: string,              // its glyph (a /vendor/bx-icons.js name; '' none) in place of the kind's
+ *   sub?: string,               // what follows its headline, muted (default: tools.js subline — a command under a description)
+ *   outcome?: {text: string, tone: string}|null,  // what it came to (default: tools.js outcome); tone ok | bad | run | ''
+ *   args?: object,              // its arguments worth showing, a row each, in place of the folded raw input
  * }} ToolBlock
  */
 
@@ -197,6 +203,7 @@ export const TOOL_STATES = Object.freeze(['writing', 'pending', 'running', 'appr
  *   options: PermOption[],
  *   rule: {kind: string, title: string}|null,  // what an "always" answer will also allow; null: it can't be remembered
  *   title?: string,            // the agent's own heading for the request
+ *   lead?: string,             // the host's own words for who asks what, in place of the kit's ("Fable asks to run a command")
  *   description?: string,
  *   defaultToNo?: boolean,     // the rejections come first
  *   plan: {text: string, path?: string}|null,
@@ -241,7 +248,14 @@ export const TOOL_STATES = Object.freeze(['writing', 'pending', 'running', 'appr
  * notice — a line that is neither the person's nor the agent's: the host
  * speaking (a session moved, an automation delivered this). Its first line
  * is its heading.
- * @typedef {BlockBase & { kind: 'notice', text: string }} NoticeBlock
+ * @typedef {BlockBase & {
+ *   kind: 'notice', text: string,
+ *   icon?: string,                           // a glyph before it (a /vendor/bx-icons.js name); '' a bullet in a glyph's place
+ *   tone?: string,                           // 'bad': something went wrong
+ *   md?: boolean,                            // its text is markdown
+ *   fold?: boolean, title?: string,          // folded to its heading (title, else its first line) until the reader opens it
+ *   action?: {label: string, title?: string}, // the line is a button: pressing it tells the host (ChatCtx.act)
+ * }} NoticeBlock
  */
 
 /**
@@ -546,6 +560,10 @@ export function cached(b, slot, fn) {
  *           `confirm` for an `explicit` option
  * @property {(block: AskBlock, answer: {action: string, content?: object}) => (Promise<boolean>|void)} answer
  *           answer a question: accept (content: the form's values), decline, cancel
+ * @property {(block: PermBlock) => (ToolRecord|null)} [callOf]  the record of the call a request is about, when the host holds
+ *                                               it: its diffs are previewed when the request's own content has none
+ * @property {boolean} [rejectWord]              the host can send a word with a rejection (`feedback` of the answer): a
+ *                                               permission request then has a box for it
  * @property {(text: string) => (boolean|Promise<boolean>)} [confirm]  ask the reader to confirm an `explicit` option
  *           (default: the browser's confirm)
  * @property {(block: ChatBlock) => string} [note]  a word under a request's card: why the last answer to it was refused ('' none)
@@ -557,12 +575,19 @@ export function cached(b, slot, fn) {
  * @property {(block: ChatBlock, file: ChatFile) => {linked: boolean, thumb?: string}} [fileState]  is a message's file still there; a thumbnail
  * @property {(block: ChatBlock, file: ChatFile) => void} [openFile]  open a message's file (its chip is then a button)
  * @property {(text: string) => (Promise<any>|void)} [copy]  put text on the clipboard (default: navigator.clipboard)
+ * @property {(block: AssistantBlock, event: Event) => any} [copyMessage]  copy one of the agent's messages (its Copy is drawn
+ *                                               only for a host that has this; the event's target is the button)
+ * @property {(block: NoticeBlock) => void} [act]  a notice's `action` was pressed
  * @property {(block: AgentBlock) => void} [openAgent]  show the sub-conversation on its own
  * @property {(block: AgentBlock, again?: boolean) => void} [loadAgent]  its blocks are wanted (the card was opened; again: after an error)
  * @property {(block: AgentBlock) => string} [agentError]  why they could not be read ('' no error)
  * @property {(block: SigninBlock) => any} [signin]  the host's sign-in for a signin block (its guided flow, its buttons):
  *           drawn inside the kit's card; left out, the card says only that the agent is signed out
  * @property {(block: HostBlock) => any} [host]   draw the inside of a host block (null: its title alone)
+ * @property {(block: ChatBlock, depth: number) => object|null} [rowAttrs]  what the host hangs on a block's element (a row,
+ *                                               or a block inside a card) beside the kit's own: `class` (hook classes, space
+ *                                               separated) and data-* attributes — for its tests, its own styles; never
+ *                                               data-k or data-kind
  * @property {(block: ChatBlock, depth: number) => any} [other]  draw a block the kit has no view for — or one the host
  *           draws its own way: asked first for every block, null leaves it to the kit
  * @property {() => void} repaint                 something a view keeps outside the blocks changed (a form's value)

@@ -6,7 +6,9 @@ import Foundation
 // (label, rawInput.description, gemini's pending text), else a deterministic
 // reading of the shell command (a heredoc → "Python script (6 lines) →
 // main.go"; sed -i, cat >, tee, > name the file they write; rm/mkdir/mv say
-// so), else the title's first line.
+// so), else the title's first line, else a reading of the arguments by kind
+// ("Read a.go:10–49", "Search /pat/ in src" — the chat kit's reading,
+// web/chat/tools.js), else the tool's name.
 
 public enum ToolReading {
     /// The command of a shell call: rawInput.command (a string, or argv), else
@@ -34,7 +36,7 @@ public enum ToolReading {
 
     /// A card's headline (see the file comment for the order).
     public static func headline(label: String, rawInput: JSONValue?, kind: ToolKind?, status: ToolStatus?, content: [ToolContent],
-                                title: String, name: String, id: String) -> String
+                                title: String, name: String, id: String, locations: [ToolLocation] = []) -> String
     {
         if !label.isEmpty { return label }
         if let d = rawInput?["description"]?.string, !d.isEmpty { return d }
@@ -48,9 +50,78 @@ public enum ToolReading {
         }
         let fl = firstLine(title)
         if !fl.isEmpty { return fl }
+        switch kind {
+        case nil, .other?, .unknown?: break // a kind ACP does not name reads as "other", as on the web
+        case .some(let kind):
+            let r = reading(rawInput: rawInput, kind: kind, title: title, name: name, locations: locations)
+            if !r.isEmpty { return r }
+        }
         if !name.isEmpty { return name }
         if !id.isEmpty { return id }
         return "a tool call"
+    }
+
+    /// A call said from its arguments, by kind — "Read a.go:10–49", "Search
+    /// /pat/ in src", "$ ls" — for a call nothing better describes (the chat
+    /// kit's reading).
+    public static func reading(rawInput: JSONValue?, kind: ToolKind?, title: String, name: String, locations: [ToolLocation] = []) -> String {
+        let a = rawInput?.object != nil ? rawInput : nil
+        var path = inputPath(a)
+        if path.isEmpty, let l = locations.first { path = l.path }
+        let file = path.isEmpty ? "a file" : path
+        switch kind {
+        case .execute:
+            let c = command(rawInput: a, kind: nil, title: "")
+            return !c.isEmpty ? "$ " + oneLine(c, 90) : !title.isEmpty ? title : "Run a command"
+        case .read:
+            let from = jsNumber(a?["offset"]), n = jsNumber(a?["limit"])
+            let start = from != 0 ? from : 1
+            return "Read \(file)" + (n != 0 ? ":\(jsText(start))–\(jsText(start + n - 1))" : from != 0 ? ":\(jsText(from))–" : "")
+        case .edit: return "Edit \(file)"
+        case .delete: return "Delete \(file)"
+        case .move:
+            let src = truthy(a?["source"]) ?? truthy(a?["from"]) ?? (path.isEmpty ? "?" : path)
+            return "Move \(src) → \(truthy(a?["destination"]) ?? truthy(a?["to"]) ?? "?")"
+        case .search:
+            let pat = nonNull(a?["pattern"]) ?? nonNull(a?["query"])
+            return "Search /\(oneLine(pat.map(jsString) ?? "", 50))/" + (truthy(a?["path"]).map { " in \($0)" } ?? "")
+        case .fetch: return oneLine(truthy(a?["url"]) ?? truthy(a?["query"]) ?? (!title.isEmpty ? title : "Fetch"), 90)
+        case .think: return oneLine(truthy(a?["description"]) ?? (!title.isEmpty ? title : "Think"), 90)
+        case .switchMode: return "Switch mode"
+        default: return oneLine(!title.isEmpty ? title : !name.isEmpty ? name : "tool", 90)
+        }
+    }
+
+    /// The file a call's arguments name ("" none): file_path, path, filePath,
+    /// notebook_path or abs_path — the first that is set, when it is a string.
+    public static func inputPath(_ rawInput: JSONValue?) -> String {
+        guard let r = rawInput, r.object != nil else { return "" }
+        for k in ["file_path", "path", "filePath", "notebook_path", "abs_path"] {
+            if let v = nonNull(r[k]) { return v.string ?? "" }
+        }
+        return ""
+    }
+
+    /// A text on one line (whitespace runs as one space), at most n UTF-16
+    /// units, "…" last when cut — the web's oneLine.
+    public static func oneLine(_ s: String, _ n: Int = 90) -> String {
+        var out = String.UnicodeScalarView(), gap = false
+        for u in s.unicodeScalars {
+            if isJSSpace(u) { gap = true; continue }
+            if gap, !out.isEmpty { out.append(" ") }
+            gap = false
+            out.append(u)
+        }
+        let t = String(out)
+        return t.utf16.count > n ? String(decoding: Array(t.utf16.prefix(n - 1)), as: UTF16.self) + "…" : t
+    }
+
+    /// JavaScript's \s (Unicode's White_Space has U+0085 and lacks U+FEFF).
+    static func isJSSpace(_ u: Unicode.Scalar) -> Bool {
+        switch u.value {
+        case 0x09...0x0D, 0x20, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF: return true
+        default: return false
+        }
     }
 
     /// The first line of a text, trimmed, with " …" when more lines follow.
@@ -136,6 +207,41 @@ public enum ToolReading {
     }
 
     static func nonNull(_ v: JSONValue?) -> JSONValue? { v.flatMap { $0.isNull ? nil : $0 } }
+
+    /// JavaScript's Number(v) || 0 for an argument: a number, a numeric string, a boolean.
+    static func jsNumber(_ v: JSONValue?) -> Double {
+        switch v {
+        case .number(let n): return n
+        case .string(let s):
+            let d = Double(trim(s)) ?? 0
+            return d.isNaN ? 0 : d
+        case .bool(let b): return b ? 1 : 0
+        default: return 0
+        }
+    }
+
+    /// JavaScript's String(n) for the numbers a line range has.
+    static func jsText(_ d: Double) -> String {
+        d.rounded() == d && d.magnitude < 1e15 ? String(Int64(d)) : "\(d)"
+    }
+
+    /// JavaScript's String(v): a list is its items joined by ",", an object "[object Object]".
+    static func jsString(_ v: JSONValue) -> String {
+        switch v {
+        case .null: return ""
+        case .array(let a): return a.map(jsString).joined(separator: ",")
+        case .object: return "[object Object]"
+        default: return v.text ?? ""
+        }
+    }
+
+    /// String(v) when v is truthy in JavaScript, else nil (`a.url || …`).
+    static func truthy(_ v: JSONValue?) -> String? {
+        switch v {
+        case nil, .null?, .bool(false)?, .number(0)?, .string("")?: return nil
+        case .some(let x): return jsString(x)
+        }
+    }
 }
 
 /// Splits on "\n" as JavaScript does ("\r\n" is one Swift Character, but two

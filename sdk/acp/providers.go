@@ -1,6 +1,9 @@
 package acp
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Provider is one coding-agent CLI a client can drive through its ACP
 // adapter. Auth is the CLI's own: the adapter signs in from the $HOME it
@@ -79,6 +82,12 @@ type Provider struct {
 	// exit-plan-bypass). A consumer that keeps some modes to some people
 	// judges such an option by its mode (Safe).
 	OptionModes map[string]string `json:"-"`
+	// Connector is how the CLI is pointed at an LLM connector — an
+	// OpenAI-compatible endpoint a host serves in place of the vendor's —
+	// from its environment alone (connector.go: ConnectorEnv renders it).
+	// nil: it can't be (gemini speaks Google's wire only). Shared:
+	// read-only.
+	Connector *Connector `json:"-"`
 }
 
 // Key is one environment variable a CLI takes a credential from.
@@ -141,7 +150,7 @@ var catalog = []Provider{
 		// the long-lived token and Keys where a saved credential goes (D179)
 		LoginCmd: "claude auth login", Bins: []string{"claude-agent-acp", "claude"}, AutoMode: "acceptEdits",
 		Mint: claudeSetupToken, Keys: claudeKeys, LoginFiles: []string{`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json`},
-		ApproveMode: "default", PlanMode: "plan",
+		ApproveMode: "default", PlanMode: "plan", Connector: claudeConnector,
 		// its ExitPlanMode approval's options (claude-agent-acp 0.81)
 		OptionModes: map[string]string{"exit-plan-default": "default", "exit-plan-accept-edits": "acceptEdits",
 			"exit-plan-clear-accept-edits": "acceptEdits", "exit-plan-auto": "auto", "exit-plan-clear-auto": "auto",
@@ -156,7 +165,7 @@ var catalog = []Provider{
 		Keys:        []Key{{Env: "CODEX_API_KEY", Label: "OpenAI API key", Kind: "api-key"}},
 		AuthFile:    `${CODEX_HOME:-$HOME/.codex}/auth.json`,
 		LoginFiles:  []string{`${CODEX_HOME:-$HOME/.codex}/auth.json`},
-		ApproveMode: "read-only", PlanMode: "read-only"},
+		ApproveMode: "read-only", PlanMode: "read-only", Connector: codexConnector},
 	{ID: "gemini", Name: "Gemini CLI", Driver: "acp", Argv: []string{"gemini", "--acp"}, Login: "gemini (then choose Login with Google)",
 		Modes: []Mode{{ID: "default", Name: "Ask before acting"}, {ID: "autoEdit", Name: "Auto edit"}, {ID: "plan", Name: "Plan"},
 			{ID: "yolo", Name: "Auto-approve everything", Explicit: true}},
@@ -166,7 +175,7 @@ var catalog = []Provider{
 		ApproveMode: "default", PlanMode: "plan"},
 	{ID: "opencode", Name: "OpenCode", Driver: "acp", Argv: []string{"opencode", "acp"}, Login: "opencode auth login",
 		LoginCmd: "opencode auth login", Bins: []string{"opencode"},
-		LoginFiles: []string{`${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json`},
+		LoginFiles: []string{`${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json`}, Connector: opencodeConnector,
 		// the provider keys opencode reads from its environment
 		Keys: []Key{{Env: "ANTHROPIC_API_KEY", Label: "Anthropic API key", Kind: "api-key", Prefix: "sk-ant-"},
 			{Env: "OPENROUTER_API_KEY", Label: "OpenRouter API key", Kind: "api-key", Prefix: "sk-or-"},
@@ -190,12 +199,27 @@ func Providers() []Provider { return append([]Provider(nil), catalog...) }
 // signed in by "<argv[0]> login" (its login: $HOME/.fakeacp/credentials,
 // --require-login's). A consumer offers it only where a test
 // fixture advertises it (a sandbox manager's hello); it is never in the
-// catalog.
+// catalog. It takes an LLM connector the way codex does — its variables
+// replace the sign-in, set only when the connector serves the session
+// (FAKEACP_LLM_MODEL names the default model, FAKEACP_LLM_ONLY=1 says the
+// connector alone may serve; its `llm-call` script calls the endpoint) — or, with --llm-additive in argv, the way opencode does:
+// always declared, the model only when the connector serves.
 func Fake(argv []string) Provider {
 	p := Provider{ID: "fake", Name: "Fake agent (tests)", Driver: "acp", Argv: append([]string(nil), argv...),
 		Modes:       []Mode{{ID: "ask", Name: "Ask before acting"}, {ID: "auto", Name: "Auto"}, {ID: "yolo", Name: "Yolo", Explicit: true}},
 		DefaultMode: "ask", AutoMode: "auto", ApproveMode: "ask", PlanMode: "ask",
-		LoginFiles: []string{`$HOME/.fakeacp/credentials`}}
+		LoginFiles: []string{`$HOME/.fakeacp/credentials`},
+		Connector: &Connector{Wire: WireChat, Additive: slices.Contains(argv, "--llm-additive"), Never: []string{"FAKE_API_KEY"}, ModelOption: "model",
+			env: func(c ConnectorParams, def bool) map[string]string {
+				out := map[string]string{}
+				if def && c.Model != "" {
+					out["FAKEACP_LLM_MODEL"] = c.Model
+				}
+				if def && c.Only {
+					out["FAKEACP_LLM_ONLY"] = "1" // the connector alone may serve: said, for a test to read
+				}
+				return out
+			}}}
 	if len(argv) > 0 {
 		p.Login = argv[0] + " login"
 		p.LoginCmd, p.Bins = p.Login, []string{argv[0]}

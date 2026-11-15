@@ -33,6 +33,194 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `SetSessionScope`, `ConnectionOf`, `MapOf`, `DocsSearch`, `DocsPage`,
   `ReadHolderNotice`, `ErrNoSession`, `ErrHiddenByScope`, `ErrModelTaint`.
   Nothing delegates until a holder ships; tiles need no change.
+- **Previews: xbind renders a tile or a screen as the person who asks**
+  (D234; [protocol/preview.md](/docs/protocol/preview.md),
+  [auth.md](/docs/auth.md) §Previews, [isolation.md](/docs/isolation.md)
+  §Previews). `POST /api/xbin/preview {tile | screen, viewport?}` opens the
+  page in a headless Chromium of xbind's own — a throwaway sandbox with no
+  network but one socket to xbind — as a one-shot **read-only** session of
+  the caller that nobody is handed, and answers with a PNG, a text
+  rendering (an accessibility tree per frame), console errors, failed
+  requests and a `notice` that the content is data, not instructions.
+  `GET /api/xbin/preview` says whether this xbind can render (it needs
+  `--isolate` and a rootfs with Chromium) and the limits in force:
+  `XBIN_PREVIEWS`, `XBIN_PREVIEW_PER_USER`, `XBIN_PREVIEW_TOTAL`,
+  `XBIN_PREVIEW_TIMEOUT`, `XBIN_PREVIEW_MEM` ([config.md](/docs/config.md)).
+  `bx preview <tile>` and `bx preview --screen <name>` save the picture.
+  **For tile builders:** every call a render makes to your backend carries
+  `X-XBin-Preview: 1` (`xbin.Caller(r).Preview`) — a GET or a socket
+  message of yours that has an effect (mark-as-read, presence) must skip
+  it then ([sdk.md](/docs/sdk.md)); xbind refuses the render's non-GET
+  requests itself, and on every call it lets through — GETs and WebSocket
+  upgrades — sends role `reader` and user level `read` (`UserCanWrite()` is
+  false in a preview). Don't draw differently for it: `/whoami` in a render
+  says `readOnly: true`, as in view-as, and nothing more. Without a
+  delegated cgroup (no enforceable memory cap) previews answer 503 unless
+  `XBIN_PREVIEWS=uncapped`.
+- **Builtin tiles and templates honour `X-XBin-Preview`** (D234): in a
+  preview their GETs and sockets change nothing. The agent template: a
+  project's status and overview reads start no repo fetches, the CI read
+  makes no watch and re-reads none, the team board and membership reads
+  apply no definition, a harness probe runs nothing in a sandbox, the
+  sandbox terminals answer 403, an SCM sign-in poll reads the state without
+  trading the code. scm-github: the device-flow poll and the App manifest
+  callback do nothing. coding-sandbox (and `examples/sandbox-go`): a file
+  read starts no stopped sandbox, and no terminal opens. sandbox-terminal
+  v12: the page is not a visit and re-checks nobody's access. A workspace's
+  instances get the template changes as template updates (`bx template
+  updates`).
+- **Client: `xbin.ready()`** (D234; [elements.md](/docs/elements.md)) — a
+  tile says "I have drawn"; with `<meta name="xbin-ready"
+  content="manual">` it is waited for. Additive: a tile that never calls it
+  behaves as before.
+- **Read-only sessions (view-as) no longer do three things a GET let them
+  do:** `GET /api/xbin/deployments/diff` with a work-tree side — the
+  default `to` — captured a checkpoint of the tile; it answers 403 now
+  (diff two checkpoints or deployments instead). `GET
+  /api/xbin/git/remote-info` dials out and is refused. And a partitioned
+  tile's frame calling another partitioned tile no longer starts the
+  person's first partition there or prompts them for consent (previews;
+  view-as was already refused).
+- **Shell: nothing is saved under `readOnly`** — the layout and settings
+  saves and the "couldn't save your dismissal" toast are skipped in a
+  view-as session and a preview (the server refused them before; now the
+  shell doesn't ask). Scaffolded shells get it with the next scaffold
+  update; a preview hides an older shell's toasts by itself.
+- **LLM connector for coding agents and terminals: a security pass**
+  (D226; [llm.md](/docs/llm.md) §Coding agents and terminals). None of it
+  changes a workspace with no connector configured.
+  - **`connector-only` fails closed.** Where the workspace's credential
+    mode or an org's model rule gives the connector alone, a session that
+    can't be put on it is refused (`403`) instead of opening without it, a
+    session whose agent host doesn't confirm it is ended with the reason,
+    OpenCode is configured with the connector as its only provider, and a
+    model that isn't the connector's can't be set — at `POST
+    /term/sessions` (`model`, `options`) or `POST …/options` (`403`).
+  - **`POST /api/xbin/llm/keys` is for a tile's backend only.** A frame,
+    terminal or agent-session credential is now `403` (before, a tile's
+    page could mint a key for its person). A key lives **24 h at most**
+    (was 30 days); `POST /api/xbin/llm/keys/<id>/renew` keeps a longer
+    run's alive (`xbin.RenewLLMKey`, `ErrLLMKeyGone`). A tile holds at most
+    64 live keys for one person and 512 in all (`429 xbin_llm_keys`,
+    `xbin.ErrLLMKeyLimit`). A key names its backend's deployment: it is
+    held to the tile's edge policy for that deployment on every call, and
+    `DELETE /llm/keys?label=` ends that deployment's keys only.
+    **If your tile's page asked for keys, move the call to its backend.**
+  - **A session with no network reaches the connector** — and nothing
+    else: `net: none` sessions and terminals get `XBIN_LLM_URL` =
+    `http://10.0.2.2:4180/v1`, one gateway port forwarded to xbind's
+    LLM-only listener (before: no key, "can't be reached"). **A session
+    on a non-primary tile deployment gets a key** that names the
+    deployment (before: none).
+  - Only models whose ids are plain model names are written into a CLI's
+    configuration (`acp.ValidConnectorModel`); an upstream's list can't
+    put `{env:…}` or `{file:…}` into OpenCode's.
+  - An agent can no longer forge the agent host's own frames (who serves
+    its model calls); LLM keys are masked in a dead terminal's logged tail
+    before the cut.
+  - `sdk/acp`: `ConnectorParams.Only`, `Connector.AllowsOption`,
+    `ValidConnectorModel` ([sdk.md](/docs/sdk.md)).
+  - **Agent template**: a coding agent runs on the connector only when the
+    workspace set a model for coding agents (else it says why and uses its
+    own sign-in); it starts in a sandbox with **no egress** when the
+    connector is reachable there (`GET /harnesses` images gain `llm`); its
+    key is renewed while the run lives and its end is retried until xbind
+    acknowledged it. Template instances pick it up with a template update.
+  - The Agent tab's launcher gains **"runs on"**: a person's saved choice
+    between their own sign-in and the workspace's connector for a harness
+    (`harnesses.<id>.credentials` in their agent preferences), shown only
+    where both can serve and no rule forces one.
+- **Agent template: a Settings tab that loads late no longer draws over
+  the tab opened after it.** Opening Settings starts Config, which reads
+  the models; a click on another tab meanwhile was drawn — and then
+  overwritten when Config's reads landed. Each opening of a tab now draws
+  into a box of its own (`#sbd > .tabbox`, `display: contents`); a tab
+  function still receives the element it draws into. The gear is hidden
+  until the page can open Settings. Likewise the Automations page: a
+  form opened while its list was still being read (New schedule, right
+  after opening the page) is no longer closed when the read lands.
+- **The agent template's chat is drawn with the chat kit; a tool call's
+  card says what it came to** (D224; [frontend-kit.md](/docs/frontend-kit.md)
+  §The chat kit). The kit (`/vendor/chat/…`, revision 4 in
+  `/vendor/chat/rev.js`) has a second host: the agent template hands its
+  blocks to the kit's views (`model/fold.js` `blockOf`, `chat-kit.js`), so
+  a coding agent's calls and the template's own tools are one card, in the
+  Agent tab and in the template alike.
+  - **The tool card** (`/vendor/chat/cards.js` `toolView`) is one line —
+    glyph, headline with the command under a description, what the call
+    came to (`exit 1`, `+3 −1`, `12 matches`), a still mark while it runs,
+    and its state only while that needs a look (needs approval, failed,
+    cancelled) — in place of a boxed status badge on every card. Open, it
+    adds the tool's name, an `exit N` line under a command's output, the
+    places a read or a search touched, a fetch's address as a link, and a
+    file a patch could not be drawn for by name. The Agent tab's cards
+    change with it.
+  - **The request card** (`/vendor/chat/asks.js`) is one card for a
+    coding agent's permission request, the agent template's own approval
+    of its tools and a capability's grant: it leads with who asks what
+    ("Claude Code asks to run a command"), shows the command or the calls,
+    the diff the call would make (the request's own, else the call's:
+    `ChatCtx.callOf`), an optional word with a rejection where the host
+    can send one (`ChatCtx.rejectWord`), and the options. A question leads
+    with "<agent> asks". A `perm` block may carry its own `lead`; its
+    `calls` are listed; `cards.js` exports `diffsView`.
+  - **Messages** (`/vendor/chat/views.js`): a person's own words sit on
+    their side of the chat without a "YOU" label (another person's, in a
+    shared conversation, on the other side under their name), the agent's
+    without an "AGENT" label and with a Copy that shows with the pointer
+    where the host copies (`ChatCtx.copyMessage`); a message's files are
+    chips with a picture or a glyph, the path and a size. A thought says
+    "Thought for 1m 5s". Markdown (`mdCssText`) gains heading sizes, list
+    and paragraph spacing, a scrolling table and the reading colours
+    (headings, list markers, inline code, the quote's rule). A `notice`
+    block may carry `icon`, `tone`, `md`, `fold` / `title` and `action`
+    (`ChatCtx.act`) — the agent template's journal lines are these. A
+    sub-conversation's card (`agentView`) reads like a call's, with what
+    it waits on a person for under it. `ChatCtx.agentLabel` is no longer
+    drawn.
+  - **For a tile that draws with the kit**: a `tool` block may carry its
+    own `icon`, `sub`, `outcome`, `args` and `result` (a tool of the
+    host's own); `ChatCtx.rowAttrs(block, depth)` puts the host's hook
+    classes and `data-*` attributes on a block's element; a block inside a
+    card sits in `<div class="bxc-in" data-k>` (`innerView`); `cards.js`
+    exports `argsView` and `clipView`; `tools.js` `stateChip` says
+    `waiting`. A fold is now drawn as `ChatCtx.isOpen` says and `setOpen`
+    hears a fold closing as well as opening — a host whose `isOpen`
+    returned `true` for a fold the reader had closed will see it stay
+    open; return what the reader last did.
+  - **An instance of the agent template** merges this by git. Its page
+    needs kit revision 4 (`boot.js` `NEEDS`: it says "This agent needs
+    xbind ≥ v0.3.80" on an older xbind). A tool call's row keeps its
+    hooks — `.tcard` (`.hcard` for a coding agent's), its state class,
+    `.on` while open, `data-k`, `data-fam`, `data-tool`, `data-status` —
+    on the kit's row; inside it the markup is the kit's (`.bxc-title` for
+    `.hl`, `.bxc-sub` for `.sub`, `.bxc-oc` for `.oc`, `.bxc-st` for
+    `.st`, `summary` for `.tch`, `.bxc-body` for `.tcb`; a coding agent's
+    `data-kind` is read from `data-tool`), so a stylesheet of your own
+    that reached inside a card needs those names. `harness-cards.js`
+    keeps the top bar's usage badge, counts and plan pin. What a run
+    waits on a person for keeps `.ask` (`.hask`, `.hplan`, `.hq` for a
+    coding agent's; `.approve`, `.grant` for the engine's own) and
+    `data-park` on its element; inside, the buttons are the kit's
+    (`button[data-option]` for `.hopts [data-opt]`, `.bxc-word` and
+    `.bxc-reject textarea` for `.hfb`, `.bxc-field[data-field]` for
+    `.hfield`). `harness-ask.js` still exports `permissionTpl` and
+    `questionTpl` (they draw the run's park; the card model argument is
+    ignored), `chat-cards.js` no longer exports `approvalTpl`. A
+    message, a thought, a notice, a journal line and a subagent's card
+    keep `.msg.user` / `.msg.assistant` (`.live`, `.other`), `.think`,
+    `.notice`, `.step.<kind>` and `.acard` with their state classes on the
+    kit's row; inside, `.bxc-text` is `.txt`, `.bxc-who` `.who`,
+    `.bxc-md` `.md`, `.bxc-att-file[data-path]` `.afile[data-afile]`,
+    `.bxc-acts .bxc-act` `.acts .act`, `summary` the `.th` / `.nh` /
+    `.ach` line, `.bxc-nbody` `.nb`, `.bxc-children` `.acb`. A card a
+    feature module draws itself (`ext.block`: a coding agent's
+    `.acard.hkid`, a document's `.step.doc`) is unchanged. The window of
+    rows is the kit's `ChatWindow` (`chat-window.js` keeps its class and
+    methods); its every-block fallback for an xbind without
+    `/vendor/scroll-window.js` is gone — the page needs a newer xbind
+    than that anyway. The composer is unchanged.
+
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
   `llm.ReadData(r, fn)` hands each `data:` line's payload to `fn` by itself
@@ -125,6 +313,74 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **Coding agents and terminals run on the workspace's LLM connector by
+  default** (D226; [llm.md](/docs/llm.md) §Coding agents and terminals).
+  Nothing changes for a workspace with no connector configured: no new
+  variable, no new behaviour.
+  - **Agent sessions**: OpenCode and Codex start pointed at the connector
+    with no sign-in — OpenCode with the provider "LLM by xbin" declared
+    beside the person's own, Codex through its gateway sign-in. A person's
+    own sign-in keeps working and, by default, wins (the agents policy's
+    `credentials: own-first`, D229); a workspace admin can make the
+    connector the rule (`bx org agents --credentials connector`) or take it
+    away from agent sessions (`bx llm sessions agents=off`). Claude Code and
+    Gemini CLI keep running on the person's own sign-in. `POST /api/xbin/term/sessions`
+    takes `llm: "connector" | "own"` (`bx agent run --llm`), a session row
+    gains `llm`, a `notice` event says when the connector serves, and `GET
+    /api/xbin/agent/providers` gains `llm` per row — `{use, connector,
+    note?, signedIn?}` ([protocol/agents.md](/docs/protocol/agents.md));
+    rows are unchanged without a connector.
+  - **Terminals** get `XBIN_LLM_URL` and `XBIN_LLM_KEY`; `OPENAI_BASE_URL`
+    and `OPENAI_API_KEY` only with `bx llm sessions openai-env=on`.
+  - **The credential is a per-session LLM key** (`xbl_…`), never the
+    terminal token: good for the connector's model routes only, metered to
+    the session's person and tile, revoked when the session ends.
+  - **Settings**: `sessions: {agents, terminals, openaiEnv}` in `PUT
+    /api/xbin/llm/config` and the host's `XBIN_LLM_CONFIG` (lockable), read
+    back by `GET /api/xbin/llm` and `/llm/config`; `bx llm sessions`.
+- **A tile bound to `xbin:llm` can ask for an LLM key** for a coding tool it
+  runs in a sandbox: `POST /api/xbin/llm/keys` → `{id, token, expires, …}`,
+  `DELETE /api/xbin/llm/keys/<id>` ([protocol/llm.md](/docs/protocol/llm.md)
+  §Keys for a tile's harnesses). The key is for the person the tile's
+  credential acts for, and no one else.
+- **A sandbox can reach the LLM connector, and nothing else of xbind**:
+  a tile sandbox created with `net.llm: true`
+  ([protocol/sandboxes.md](/docs/protocol/sandboxes.md)) gets the
+  connector's model routes at `http://10.0.2.2:4180/v1` — its SandboxInfo
+  says so in `net.llm` — for the holder of an LLM key, with any egress,
+  `none` included. A command's `env` there may now carry `XBIN_LLM_URL`
+  and `XBIN_LLM_KEY` (every other `XBIN_*` is still refused, and so are
+  these two in `defaults.env`). Go SDK: `xbin.SandboxNet.LLM`, `SandboxNetInfo.LLM`,
+  and **`xbin.LLMKeyFor` / `xbin.RevokeLLMKey`** for the key
+  ([sdk.md](/docs/sdk.md) §An LLM key for a coding tool).
+- **Sandbox-manager contract: the optional capability `llm`**
+  ([sandbox-manager.md](/docs/sandbox-manager.md) §The LLM connector in a
+  sandbox). A manager that offers it takes `llm: true` on `POST
+  /sbx/sandboxes` and the sandbox then carries `llm: {url}` — where a
+  process inside reaches the workspace's LLM connector. Nothing changes for
+  a manager that doesn't offer it: a consumer reads `hello.caps` first. The
+  builtin `coding-sandbox` manager offers it on an xbind that forwards the
+  connector (the runtime's `caps` carry `llm`), and the conformance suite
+  (`sdk/sandboxcontract`) gained the section `llm`. A manager that offers
+  it accepts `XBIN_LLM_URL` and `XBIN_LLM_KEY` in a command's `env`.
+  (`sandbox-terminal` v11 is its tests' copy of the fake manager following
+  this; nothing changes for people or managers.)
+- **Agent template: coding agents start on the workspace's LLM connector**
+  when they have no sign-in (D226; the template's API.md §Coding agents).
+  Bind the agent's `llm` slot to `xbin:llm` and use a sandbox manager that
+  offers `llm` (the builtin `coding-sandbox` on this xbind): new sandboxes
+  are created with the connector asked for, and OpenCode or Codex with no
+  saved sign-in and none in the sandbox runs on it, with a key xbind mints
+  for the person. Existing sandboxes, saved sign-ins and instances not
+  bound to `xbin:llm` behave as before. Template instances pick it up with
+  a template update. New SDK call `xbin.RevokeLLMKeysLabeled` and route
+  `DELETE /api/xbin/llm/keys?label=`.
+- **Go SDK, `sdk/acp`**: `Provider.Connector`, `Provider.ConnectorEnv`,
+  `acp.ConnectorServes`, `Provider.HasOwnLogin` and `acp.ExpandWord` — how
+  each coding CLI is pointed at an LLM connector from its environment, and
+  who serves a session ([sdk.md](/docs/sdk.md) §Driving a coding agent).
+  `acp.Fake` takes a connector too, and the scripted agent (`acptest`)
+  gains the `llm-call` script.
 - **Delegation: a person's workspace agent acts as them, under a cap
   (D228).** The auth primitive the workspace agent will run on; nothing
   uses it until an xbind ships that sealed component and an admin turns

@@ -47,6 +47,10 @@ type NetInfo struct {
 	Reach      string `json:"reach"`
 	EgressNext string `json:"egressNext"`
 	Note       string `json:"note"`
+	// LLM is the workspace's LLM connector as the sandbox reaches it — an
+	// OpenAI base URL at its gateway — when it was created with net.llm and
+	// this xbind forwards one; absent otherwise.
+	LLM string `json:"llm,omitempty"`
 }
 
 // BaseInfo is the base image a sandbox's state is pinned to.
@@ -103,6 +107,9 @@ func (m *Manager) info(k Key, d *Def) Info {
 		Base:  BaseInfo{Version: d.Base, Outdated: d.Base != "" && m.baseVersion != "" && d.Base != m.baseVersion},
 		Users: m.users(d.Mode), DiskBytes: b.diskBytes, Snapshots: snapshots, ExecsRunning: b.execs.runningCount(),
 		Created: d.Created, LastActive: lastActiveLocked(b), Version: d.Version, ClientID: d.ClientID,
+	}
+	if d.Net.LLM && m.llmSock() != "" {
+		in.Net.LLM = LLMURL
 	}
 	if in.Mounts == nil {
 		in.Mounts = []Mount{}
@@ -202,6 +209,16 @@ type Used struct {
 // builtCaps are the contract capabilities this runtime serves.
 var builtCaps = []string{"exec", "tty", "stdio", "files", "tar", "snapshots", "clone", "ports"}
 
+// caps are builtCaps, and "llm" while this xbind has the LLM-only listener
+// a sandbox created with net.llm is given (netcfg.go, D226).
+func (m *Manager) caps() []string {
+	out := append([]string{}, builtCaps...)
+	if m.llmSock() != "" {
+		out = append(out, "llm")
+	}
+	return out
+}
+
 // runtime builds a tile's Runtime. Callers hold m.mu.
 func (m *Manager) runtime(k Key) Runtime {
 	lim := m.limitsFor(k.Tile) // the tile's grants included (D203)
@@ -210,7 +227,7 @@ func (m *Manager) runtime(k Key) Runtime {
 		Enabled: on, Isolation: m.isolated, Users: m.users(ModeNamespace),
 		Modes: []ModeInfo{}, Unavailable: []ModeInfo{},
 		Egress: append([]EgressClass{{Class: "none", Reach: "none"}}, m.classes(k)...),
-		Caps:   append([]string{}, builtCaps...),
+		Caps:   m.caps(),
 		Limits: RuntimeLimits{
 			Sandboxes: lim.PerTile.Max, Running: lim.PerTile.Running, MemMiB: lim.PerTile.MemMiB,
 			VCPUs: lim.PerTile.VCPUs, DiskGiB: lim.PerTile.DiskGiB, PerSandbox: lim.PerSandbox,

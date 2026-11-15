@@ -309,6 +309,29 @@ func TestDenyBeatsGatewayForward(t *testing.T) {
 	}
 }
 
+// A door (Config.Doors) is the one gateway port a relay with Deny serves:
+// that port, to that address — not the HostFwd beside it, not another
+// gateway port, not the gateway's neighbours.
+func TestDoorIsServedUnderDeny(t *testing.T) {
+	gw := netip.MustParseAddr(gatewayIP)
+	h := newHarness(t, Config{Gateway: gw, Deny: HostDeny(), Allow: allowAll,
+		HostFwd: map[int]string{8080: "127.0.0.1:1"}, Doors: map[int]string{4180: "unix:/run/llm.sock"}})
+	if _, dial := h.synTo(gw, 4180); dial != "uni /run/llm.sock" /* the harness names a network by three letters */ {
+		t.Fatalf("the door must be dialed, got %q", dial)
+	}
+	if f := h.flow("tcp", gw); f == nil || !f.Allowed {
+		t.Fatalf("the door's flow is recorded as allowed: %+v", f)
+	}
+	for _, c := range []struct {
+		ip   netip.Addr
+		port uint16
+	}{{gw, 8080}, {gw, 4181}, {gw, 80}, {netip.MustParseAddr("10.0.2.3"), 4180}} {
+		if reset, dial := h.synTo(c.ip, c.port); !reset || dial != "" {
+			t.Errorf("%s:%d under Deny: reset=%v dial=%q, want an RST and no dial", c.ip, c.port, reset, dial)
+		}
+	}
+}
+
 // Deny beats an Allow that says yes, for UDP.
 func TestDenyBeatsAllowUDP(t *testing.T) {
 	h := newHarness(t, Config{Allow: allowAll, Deny: denyOne, Processors: 1})

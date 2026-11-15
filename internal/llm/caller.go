@@ -46,6 +46,10 @@ type Caller struct {
 	// (the X-XBin-Agent-Session header): a delegation holder's calls are
 	// held to that session's model by the policy boot installs.
 	AgentSession string
+	// Deployment is the tile deployment a component's credential acts in,
+	// or an LLM key was minted in or for ("" = main, or a session that
+	// follows the primary).
+	Deployment string
 	// ReadOnly, when set, is why this caller may read (models, status) and
 	// not call: a tile's non-primary deployment under the read clamp of its
 	// edge policy (docs/auth.md, the edge policy).
@@ -103,14 +107,28 @@ func (s *Service) identify(r *http.Request, snap *snapshot) (Caller, *refusal) {
 			return Caller{}, refuse(http.StatusUnauthorized, "invalid_api_key",
 				"this LLM key is not valid (it expired or was revoked, its session ended, or its owner no longer has the access it was made under)")
 		}
-		return Caller{User: g.User, Component: g.Component, Via: "key", Label: g.Label}, nil
+		c := Caller{User: g.User, Component: g.Component, Via: "key", Label: g.Label, Deployment: g.Deployment}
+		// a key a tile's backend asked for is held to the tile's edge policy
+		// for the deployment it was minted in, on every call: a policy that
+		// changes, or a deployment that goes, takes its keys along. (A
+		// person's session key is theirs: it only names its deployment.)
+		if g.Bound && s.opt.Edge != nil {
+			switch mode, why := s.opt.Edge(auth.Principal{Component: g.Component, Deployment: g.Deployment, Via: "instance"}); mode {
+			case EdgeFull:
+			case EdgeRead:
+				c.ReadOnly = why
+			default:
+				return Caller{}, refuse(http.StatusForbidden, "xbin_llm_edge", why)
+			}
+		}
+		return c, nil
 	}
 	if p.Component != "" {
 		if s.opt.Bound == nil || !s.opt.Bound(p.Component) {
 			return Caller{}, refuse(http.StatusForbidden, "xbin_llm_not_bound",
 				p.Component+" is not bound to the workspace's LLM connector: a workspace admin binds its llm slot to xbin:llm (bx bind "+p.Component+" <slot>=xbin:llm)")
 		}
-		c := Caller{Component: p.Component, Via: "component", User: actor(p)}
+		c := Caller{Component: p.Component, Via: "component", User: actor(p), Deployment: p.Deployment}
 		if id := r.Header.Get(AgentSessionHeader); len(id) <= 64 {
 			c.AgentSession = id // a workspace agent's backend: the conversation this call is for (Options.Policy judges it)
 		}
@@ -200,7 +218,9 @@ const (
 // every call, so a disabled person's keys stop at once, whoever forgot to
 // revoke them.
 func (s *Service) keyHolds(g KeyGrant) bool {
-	if g.User != OwnerUser && s.opt.KeyOwner != nil && !s.opt.KeyOwner(g.User, g.Component) {
+	// (a key for nobody — a bound component's, for a backend that serves
+	// everyone — stands on its binding alone)
+	if g.User != "" && g.User != OwnerUser && s.opt.KeyOwner != nil && !s.opt.KeyOwner(g.User, g.Component) {
 		return false
 	}
 	if g.Bound && (s.opt.Bound == nil || !s.opt.Bound(g.Component)) {

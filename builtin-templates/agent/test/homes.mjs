@@ -213,8 +213,8 @@ await page.waitForSelector('#top #hchip');
 ok('…nor Share in its top bar; its chip says it stays in her own space', !(await page.$('#top .sharepill')) &&
   /stays in your own space/.test(await page.getAttribute('#top #hchip', 'title')));
 await page.evaluate((id) => { location.hash = 'c=' + id; }, TEAM_H);
-await page.waitForSelector('.hask [data-opt="allow"]');
-await page.click('.hask [data-opt="allow"]');
+await page.waitForSelector('.hask [data-option="allow"]');
+await page.click('.hask [data-option="allow"]');
 await page.waitForFunction((id) => window.__calls.some((c) => c.url.endsWith(`/runs/${id}/approve`)), TEAM_H);
 const ap = await calls(new RegExp(`/runs/${TEAM_H}/approve$`));
 ok('a shared coding agent\'s permission is answered at global', ap.length === 1 && ap[0].home === 'global' && JSON.parse(ap[0].body).option === 'allow',
@@ -269,7 +269,7 @@ ok('…made at global, the built-in agent\'s', ask3.home === 'global' && !('harn
 ok('…taking no sandbox of hers along (the shared space can\'t see it)', JSON.parse(ask3.body).class === 'coding' && !('sandbox' in JSON.parse(ask3.body)), ask3.body);
 // from the shared conversation again: a chat of her own with Claude Code, in her own sandbox
 await page.evaluate((id) => { location.hash = 'c=' + id; }, TEAM_H);
-await page.waitForSelector('.hask [data-opt="allow"]');
+await page.waitForSelector('.hask [data-option="allow"]');
 await page.click('#newopts');
 await page.waitForSelector('#newdlg[open] #n-agent');
 await page.selectOption('#n-share', 'mine');

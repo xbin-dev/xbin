@@ -39,7 +39,11 @@
 // prompt.go, elicit.go, toolmeta.go, commands.go the client itself;
 // state.go taking a session over; steer.go steering a running turn;
 // auth.go signing the agent in; signin.go a CLI's own sign-in driven for a
-// person (a provider's Signin, and reading what it prints).
+// person (a provider's Signin, and reading what it prints); connector.go
+// pointing a provider's CLI at an LLM connector — an OpenAI-compatible
+// endpoint a host serves in place of the vendor's — from its environment
+// (a provider's Connector, ConnectorEnv, and who serves a session:
+// ConnectorServes, HasOwnLogin).
 //
 // The session rules — what a host does with the events, the same whoever
 // hosts the session (xbind's tile agent sessions and the agent template's

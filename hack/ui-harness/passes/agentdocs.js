@@ -68,9 +68,9 @@ async function agentDocs(browser) {
   const finalText = (await text(page, '#timeline .msg.assistant:not(.live)')).filter((t) => t.includes('Docs done:')).pop() || '';
   check(/paper\.pdf — PDF, 2 page\(s\)/.test(finalText), `doc_read read the attached PDF (${finalText.slice(0, 120)})`);
   check(finalText.includes('saw the page'), 'doc_view\'s picture of the page reached the model');
-  const chip = await page.$eval('.afile:has-text("paper.pdf")', (e) => e.className).catch(() => 'missing');
+  const chip = await page.$eval('.bxc-att-file:has-text("paper.pdf")', (e) => e.className).catch(() => 'missing');
   check(!/\bgone\b/.test(chip), `the attached PDF's chip is a file, not drawn as deleted (${chip})`);
-  const heads = await text(page, '.tcard .hl');
+  const heads = await text(page, '.tcard .bxc-title');
   for (const h of ['Read the PDF', 'Look at page 1', 'Write the sales sheet', 'Write the deck', 'Write the report']) {
     check(heads.includes(h), `a "${h}" tool card (${JSON.stringify(heads.slice(-6))})`);
   }

@@ -235,7 +235,7 @@ func (m *Manager) adminPass(s *Session, p auth.Principal) bool {
 // opens no partition (PD-08), so no session there either — nor its events,
 // log or diff (PD-09). "" otherwise, the view-as pass of today.
 func (m *Manager) viewAsBarred(s *Session, p auth.Principal) string {
-	if !p.ReadOnly() || !m.partitioned(s) {
+	if !p.ViewAs() || !m.partitioned(s) { // a preview is the person's own read (D234)
 		return ""
 	}
 	return viewAsRefusal(s.Cwd)

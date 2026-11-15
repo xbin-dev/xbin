@@ -13,6 +13,7 @@ import (
 // caller is an identity as xbind injects it on a proxied call.
 type caller struct {
 	from, user, level, viewedBy string
+	preview                     bool // xbind's preview of the person's own view (D234)
 }
 
 var (
@@ -24,6 +25,7 @@ var (
 	asDave     = caller{from: "apps/agent", user: "dave", level: "read"}
 	asMgr      = caller{from: "apps/agent", user: "mgr", level: "write"}
 	asViewAs   = caller{from: "apps/agent", user: "alice", level: "read", viewedBy: "mgr"}
+	asPreview  = caller{from: "apps/agent", user: "alice", level: "read", preview: true}
 	asElement  = caller{from: "apps/other"}
 	asNobody   = caller{}
 	allCallers = map[string]caller{"system": asSystem, "cron": asCron, "alice": asAlice, "bob": asBob, "carol": asCarol,
@@ -54,6 +56,9 @@ func callAs(t *testing.T, mux *http.ServeMux, c caller, method, target string, b
 	}
 	if c.viewedBy != "" {
 		r.Header.Set("X-XBin-Viewed-By", c.viewedBy)
+	}
+	if c.preview {
+		r.Header.Set("X-XBin-Preview", "1")
 	}
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)

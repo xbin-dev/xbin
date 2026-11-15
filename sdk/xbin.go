@@ -109,6 +109,14 @@ type CallerInfo struct {
 	// the admin's id ("owner" for the root token). The call reads as User;
 	// don't show it data that is private to User.
 	ViewedBy string
+	// Preview is set when the call is made while xbind renders User's own
+	// view in its preview browser (X-XBin-Preview: 1, docs/sdk.md): nobody
+	// is clicking, and the session is read-only. xbind refuses the render's
+	// writes by method and opens its sockets at reader; what it can't see
+	// is a GET or a socket message with an effect — marking something
+	// read, recording presence, advancing a cursor. Skip those when Preview
+	// (or ViewedBy) is set.
+	Preview bool
 	// Deployment is the calling tile's deployment when the call comes from one
 	// of its non-primary deployments (X-XBin-Deployment); "" otherwise. From
 	// stays the bare tile path.
@@ -155,8 +163,9 @@ func Caller(r *http.Request) CallerInfo {
 	return CallerInfo{
 		From: from, Role: r.Header.Get("X-XBin-Role"), Owner: from == "owner",
 		User: r.Header.Get("X-XBin-User"), UserLevel: r.Header.Get("X-XBin-User-Level"),
-		ViewedBy: r.Header.Get("X-XBin-Viewed-By"), Deployment: r.Header.Get("X-XBin-Deployment"),
-		Partition: r.Header.Get("X-XBin-Partition"), PartitionID: r.Header.Get("X-XBin-Partition-Id"),
+		ViewedBy: r.Header.Get("X-XBin-Viewed-By"), Preview: r.Header.Get("X-XBin-Preview") == "1",
+		Deployment: r.Header.Get("X-XBin-Deployment"),
+		Partition:  r.Header.Get("X-XBin-Partition"), PartitionID: r.Header.Get("X-XBin-Partition-Id"),
 		Agent: r.Header.Get("X-XBin-Agent"),
 	}
 }
@@ -164,7 +173,13 @@ func Caller(r *http.Request) CallerInfo {
 // UserCanWrite reports whether the driving user holds write (or terminal) on
 // this tile — the in-app gate for mutating actions. True for automation and
 // owner-token calls (no attributed user = the workspace plane itself).
+// Never in a preview (Preview): there xbind sends Role "reader" and
+// UserLevel "read" whatever the person holds, so every gate on an identity
+// header refuses a change.
 func (c CallerInfo) UserCanWrite() bool {
+	if c.Preview {
+		return false // xbind rendering User's view: nobody is writing (xbind also says User-Level "read" then)
+	}
 	if c.User == "" {
 		return true
 	}

@@ -770,6 +770,10 @@ var (
 		// dots-only/empty fallback in sanitizeHomeKey — a human "owner" would
 		// share the token principal's $HOME and agent config.
 		"owner": true,
+		// "~preview" is the viewer of xbind's own preview sessions (D234,
+		// internal/auth PreviewViewer). The charset already refuses it; it
+		// is listed so the reason is written down where ids are judged.
+		"~preview": true,
 	}
 )
 

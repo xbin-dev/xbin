@@ -20,6 +20,7 @@ const tilePath = "apps/scm-github"
 // caller is one request's verified headers.
 type caller struct {
 	from, role, user, level, viewedBy, partition, pid, deployment string
+	preview                                                       bool // xbind's preview of the person's page (D234)
 }
 
 func (c caller) set(r *http.Request) {
@@ -28,6 +29,9 @@ func (c caller) set(r *http.Request) {
 		if v != "" {
 			r.Header.Set(k, v)
 		}
+	}
+	if c.preview {
+		r.Header.Set("X-XBin-Preview", "1")
 	}
 }
 

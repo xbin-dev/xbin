@@ -32,6 +32,7 @@ documented in exactly one of them:
 | [protocol/devices.md](/docs/protocol/devices.md) | `/devices…`, `/web-ticket`, `/app-tunnel`, `/notify`, `/push/…`; push notifications, Live Activities |
 | [protocol/delegation.md](/docs/protocol/delegation.md) | `/delegate/…`: a person's workspace agent — the delegate call, approval requests and tickets, standing approvals, admin change sets, the audit log |
 | [protocol/llm.md](/docs/protocol/llm.md) | `/llm/v1/…` (the OpenAI-compatible routes), `/llm`, `/llm/config`, `/llm/upstreams`, `/llm/usage`, `/llm/quotas`; LLM keys |
+| [protocol/preview.md](/docs/protocol/preview.md) | `/preview`: a tile or a screen rendered as the person who asks |
 | [protocol/sealed.md](/docs/protocol/sealed.md) | reserved: sealed components |
 
 ## Authentication

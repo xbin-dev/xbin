@@ -86,12 +86,12 @@ async function agentTemplate(browser) {
 
   // 1. thinking streams, then folds; the answer is markdown.
   await ask(page, 'hello there');
-  await until(page, () => window.__has('.think .th', 'Thinking…') || window.__has('.think .th', 'Thought'), null, 60000);
+  await until(page, () => window.__has('.think summary', 'Thinking…') || window.__has('.think summary', 'Thought'), null, 60000);
   await answered(page, 'Hello from the fake model.', 30000);
-  const think = await text(page, '.think .th');
+  const think = await text(page, '.think summary');
   check(think.some((t) => /^\s*Thought/.test(t)), `thinking folded to "Thought…" once the answer came (${JSON.stringify(think)})`);
-  await page.click('.think .th');
-  check((await page.textContent('.think .tb')).includes('Considering the greeting'), 'the folded thinking opens to its text');
+  await page.click('.think summary');
+  check((await page.textContent('.think .bxc-md')).includes('Considering the greeting'), 'the folded thinking opens to its text');
   const named = await until(page, () => document.getElementById('runs').textContent.includes('Titled hello there'), null, 15000)
     .then(() => true, () => false);
   check(named, 'after its first answer the chat is named by the model (the sidebar shows it)');
@@ -99,11 +99,11 @@ async function agentTemplate(browser) {
   // 2. a tool call is a card headed by its summary
   await say(page, 'now use a tool');
   await answered(page, 'Noted it.');
-  const heads = await text(page, '.tcard .hl');
+  const heads = await text(page, '.tcard .bxc-title');
   check(heads.includes('Jot down a quick note'), `the tool card is headed by the model's summary (${JSON.stringify(heads)})`);
-  await page.click('.tcard .tch');
-  await until(page, () => document.querySelector('.tcard.on .args'));
-  const args = await text(page, '.tcard.on .args .k');
+  await page.click('.tcard summary');
+  await until(page, () => document.querySelector('.tcard.on .bxc-args'));
+  const args = await text(page, '.tcard.on .bxc-args .bxc-ak');
   check(!args.includes('summary') && args.includes('text'), `the summary is the headline, not an argument row (${JSON.stringify(args)})`);
   await shot(page, 'agent-template-chat', { fullPage: false });
 
@@ -113,8 +113,8 @@ async function agentTemplate(browser) {
   await until(page, () => document.querySelector('.acard'));
   const card = await page.textContent('.acard');
   check(card.includes('counter'), `the subagent is a card in the parent's chat, titled by its label (${card.slice(0, 120)})`);
-  if (!(await page.$('.acard.on'))) await page.click('.acard .ach');
-  await until(page, () => window.__has('.acard .acb', 'one, two, three'));
+  if (!(await page.$('.acard.on'))) await page.click('.acard summary');
+  await until(page, () => window.__has('.acard .bxc-body', 'one, two, three'));
   check(true, "the card opens to the subagent's own work and answer");
   const side = await text(page, '#runs .run .t');
   check(side.includes('delegation') && !side.some((t) => /counter|count to three/.test(t)), `the sidebar lists the run, never its subagent (${JSON.stringify(side)})`);
@@ -129,7 +129,7 @@ async function agentTemplate(browser) {
   check(true, 'a message sent while the agent works shows as a queued chip');
   await answered(page, 'Got your steer', 30000);
   check(!(await page.$('#queue .qchip')), 'the chip leaves once delivered');
-  const order = await page.$$eval('#timeline > *', (els) => els.map((e) => e.classList.contains('tcard') ? 'tool:' + e.querySelector('.hl').textContent
+  const order = await page.$$eval('#timeline > *', (els) => els.map((e) => e.classList.contains('tcard') ? 'tool:' + e.querySelector('.bxc-title').textContent
     : e.classList.contains('user') ? 'user:' + e.textContent.trim() : '').filter(Boolean));
   const iNote = order.indexOf('tool:Take a slow note'), iSteer = order.findIndex((o) => o.startsWith('user:steer'));
   check(iNote >= 0 && iSteer > iNote, `the steer landed after the in-flight step, before the next model call (${JSON.stringify(order.slice(-4))})`);
@@ -159,7 +159,7 @@ async function agentTemplate(browser) {
   await setModel(page, 'fake/gpt-5-fake');
   await ask(page, 'hello responses');
   await answered(page, 'Hello from the fake model.', 30000);
-  check((await text(page, '.think .th')).some((t) => /Thought/.test(t)), 'the Responses wire streams its reasoning summary as thinking');
+  check((await text(page, '.think summary')).some((t) => /Thought/.test(t)), 'the Responses wire streams its reasoning summary as thinking');
   const resp = (await requests()).filter((r) => r.wire === 'responses');
   check(resp.length > 0 && resp.every((r) => r.model === 'gpt-5-fake'), `gpt-5* models go over /v1/responses (${resp.length} request(s))`);
   await setModel(page, 'fake/fake-chat');
@@ -188,7 +188,7 @@ async function agentTemplate(browser) {
   const grantCard = await page.textContent('.ask.approve.grant');
   check(grantCard.includes('read your other conversations'), `reading the owner's other conversations asks them (${grantCard.slice(0, 100)})`);
   await shot(page, 'agent-template-grant', { fullPage: false });
-  await page.click('.ask.approve.grant .btn:has-text("Allow here for 1 hour")');
+  await page.click('.ask.approve.grant button:has-text("Allow here for 1 hour")');
   await until(page, () => [...document.querySelectorAll('#timeline .msg.assistant:not(.live)')].filter((e) => e.textContent.includes('Found:')).length >= 2, null, 30000);
   const found = (await text(page, '#timeline .msg.assistant:not(.live)')).filter((t) => t.includes('Found:')).pop();
   check(/Found: #\d+ \[/.test(found || ''), `allowed, the agent lists the owner's threads (${found})`);
@@ -203,7 +203,7 @@ async function agentTemplate(browser) {
   await say(page, 'all my threads after revoking');
   await until(page, () => document.querySelector('.ask.approve.grant'), null, 30000);
   check(true, 'after a revoke it is asked again');
-  await page.click('.ask.approve.grant .btn:has-text("Deny")');
+  await page.click('.ask.approve.grant button:has-text("Deny")');
   await until(page, () => !document.querySelector('.ask.approve.grant'), null, 10000);
 
   // 9. a save mid-call: the successor re-issues the call at once
@@ -224,7 +224,7 @@ async function agentTemplate(browser) {
       const gap = cut && again ? again.start - cut.end : -1;
       log(`restart: ${rs.length} request(s), gap ${gap} ms`);
       check(gap >= 0 && gap < 1500, `a swap mid-call: the new backend re-issued the call ${gap} ms after the old one let go`);
-      const notes = (await text(page, '.tcard .hl')).filter((h) => h === 'Survive a restart');
+      const notes = (await text(page, '.tcard .bxc-title')).filter((h) => h === 'Survive a restart');
       check(notes.length === 1, `the call ran once across the swap (${notes.length} card(s))`);
     } finally {
       fs.rmSync(bump, { force: true });

@@ -1130,6 +1130,28 @@ Rules that keep it cheap to maintain:
   default would be light; `HARNESS_THEME=light` runs the same passes on a
   light system. A pass that needs a scheme of its own passes `colorScheme`
   (D184: documents that opt in follow it).
+- **The browser has a network namespace of its own**
+  (`hack/ui-harness/quietnet.js`). Chromium on Linux fails every request
+  that is waiting for a socket with `net::ERR_NETWORK_CHANGED` whenever a
+  link or an address changes anywhere on the machine — loopback requests
+  included, and a page here queues a hundred module requests six at a
+  time — so a sandbox starting next door (a veth, a tap) could cost a
+  pass a module or a navigation. It has no switch for that. `shots.js`
+  therefore starts it through `quietnet.sh` (`unshare -Urn`: netlink
+  reports a namespace's own interfaces only, and nothing changes in this
+  one), with xbind's port relayed across a unix socket so every URL,
+  origin and cookie is what it was; a pass whose page must reach another
+  loopback port adds it to the list in `shots.js`. Measured with 40
+  modules a page for 12 s while veth pairs came and went beside the
+  browser: 0 pages and 100-odd failed requests on the shared network, 75
+  pages and none in the namespace. Where a namespace can't be had (no
+  unprivileged user namespaces, no `ip`) the browser starts on the host
+  and the log says so; `HARNESS_HOST_NET=1` asks for that.
+  `hack/ui-harness-quietnet.test.mjs` holds the namespace and its relay.
+  The agent template's browser scripts need none of it: every request of
+  theirs is answered by a route in the test (`test/backend.mjs`), so none
+  ever waits for a socket — `make agent-ui-check` passes whole under the
+  same churn.
 - **Wait for a condition, never for time**: `waitFor(page, (t) => …)`
   polls the shell's test surface, `waitSel` a selector, `settle` two
   animation frames after a state change. A fixed `sleep` is only right

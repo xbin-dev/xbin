@@ -62,7 +62,10 @@ func (s *Server) SessionEvent(cwd string, ev term.SessionEvent) {
 // a harness left out is refused by POST /term/sessions with the reason).
 // With &all=1 the rest stay in the list, each carrying `unavailable`: the
 // reason — what a launcher shows instead of offering it. A tile the
-// caller can't read is answered as no tile: the whole catalog.
+// caller can't read is answered as no tile: the whole catalog. Each row
+// carries `llm`, what a session of the caller's would run on, while the
+// workspace has an LLM connector for agent sessions (agentllm.go); exactly
+// the catalog's rows otherwise.
 func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 	provs := agent.Providers()
 	p := auth.PrincipalOf(r)
@@ -70,29 +73,32 @@ func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 	// every element)
 	cwd := strings.Trim(r.URL.Query().Get("cwd"), "/")
 	if cwd == "" || s.Term == nil || !p.CanReadTile(cwd) || (p.Component != "" && p.Component != cwd) {
-		WriteJSON(w, http.StatusOK, provs)
+		rows := make([]providerRow, len(provs))
+		for i, pr := range provs {
+			rows[i] = providerRow{Provider: pr}
+		}
+		WriteJSON(w, http.StatusOK, s.withAgentLLM(r, "", rows))
 		return
 	}
-	type row struct {
-		agent.Provider
-		Unavailable string `json:"unavailable,omitempty"`
-	}
 	all := r.URL.Query().Get("all") == "1"
-	out := make([]row, 0, len(provs))
+	out := make([]providerRow, 0, len(provs))
 	for _, pr := range provs {
 		err := s.Term.HarnessAllowed(p, cwd, pr.ID)
 		switch {
 		case err == nil:
-			out = append(out, row{Provider: pr})
+			out = append(out, providerRow{Provider: pr})
 		case all:
-			out = append(out, row{Provider: pr, Unavailable: err.Error()})
+			out = append(out, providerRow{Provider: pr, Unavailable: err.Error()})
 		}
 	}
-	WriteJSON(w, http.StatusOK, out)
+	WriteJSON(w, http.StatusOK, s.withAgentLLM(r, cwd, out))
 }
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,
-// mode?, net?, api?, gpu?, vm?, name?, resume?} → SessionInfo (status starting).
+// mode?, net?, api?, gpu?, vm?, name?, resume?, llm?} → SessionInfo (status starting).
+// llm picks who serves its model calls where the workspace has an LLM
+// connector — "connector" or "own"; absent, the person's saved default,
+// then the workspace's.
 // ?deployment= is the session's target (D127p) — the body never gains a field:
 // a deployment of the tile, echoed in the SessionInfo; absent, the default.
 // net/api/gpu/vm are the sandbox pickers a shell's socket takes (api false = a
@@ -106,6 +112,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
+		LLM                                                      string // who serves its model calls: connector | own (agentllm.go)
 		API                                                      *bool
 		VM                                                       bool
 		Options                                                  map[string]string
@@ -142,7 +149,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	info, code, err := s.Term.OpenAgentWith(auth.PrincipalOf(r), term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
 		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options,
-		Deployment: r.URL.Query().Get("deployment"), Delegate: start})
+		Deployment: r.URL.Query().Get("deployment"), LLM: body.LLM, Delegate: start})
 	if err != nil {
 		agentOpenErr(w, code, err)
 		return

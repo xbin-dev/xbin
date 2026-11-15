@@ -109,6 +109,9 @@ type Service struct {
 	// someone else's).
 	llmKeys   *Keys
 	keySource KeySource
+	stopSweep chan struct{} // ends the key store's sweeper (Close)
+	closeOnce sync.Once
+	watch     keyWatch // minters told of their keys' refused calls (keywatch.go)
 	models    modelCache
 
 	flightMu sync.Mutex
@@ -145,6 +148,8 @@ func New(o Options) (*Service, error) {
 	if s.keySource == nil {
 		s.llmKeys = NewKeys(o.Now)
 		s.keySource = s.llmKeys
+		s.stopSweep = make(chan struct{})
+		go s.llmKeys.Sweeper(s.stopSweep) // expired keys go on a timer, not on a call's path
 	}
 	if o.HostFile != "" {
 		h, err := loadHost(o.HostFile)
@@ -164,8 +169,15 @@ func New(o Options) (*Service, error) {
 	return s, nil
 }
 
-// Close flushes the usage counters.
-func (s *Service) Close() { s.meter.close() }
+// Close flushes the usage counters and ends every LLM key: the sessions
+// they were minted for end with xbind.
+func (s *Service) Close() {
+	if s.llmKeys != nil {
+		s.closeOnce.Do(func() { close(s.stopSweep) })
+		s.llmKeys.RevokeWhere(func(KeyGrant) bool { return true })
+	}
+	s.meter.close()
+}
 
 // Keys is the store of LLM keys, for the packages that mint them (nil when
 // Options.Keys supplied another source).

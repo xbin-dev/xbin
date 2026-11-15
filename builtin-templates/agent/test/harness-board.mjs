@@ -60,7 +60,7 @@ ok('rows in the order they started', JSON.stringify(await order()) === '[26,27,2
 const states = await page.$$eval('#hboard .hkid', (els) => els.map((e) => `${e.dataset.child}:${e.dataset.state}`));
 ok('each a child card with its state', JSON.stringify(states) === '["26:working","27:approval","28:login"]', JSON.stringify(states));
 ok('…what it does now', (await text(`${row(26)} .hkline`)).trim() === 'Running: Run go vet ./...');
-ok('…its park drawn in place', !!(await page.$(`${row(27)} .hask [data-opt="approved"]`)) && !!(await page.$(`${row(28)} .hlogin`)));
+ok('…its park drawn in place', !!(await page.$(`${row(27)} .hask [data-option="approved"]`)) && !!(await page.$(`${row(28)} .hlogin`)));
 ok('…and its actions', !!(await page.$(`${row(26)} [data-act="stop"]`)) && !!(await page.$(`${row(26)} [data-act="message"]`)));
 
 // --- the order holds as they change; a new one comes last --------------------------------------
@@ -94,7 +94,7 @@ await page.click('#hboard .hbfilter');
 ok('…and every one again', await waitOrder([26, 27, 28, 29]));
 
 // --- a park answered from the board, on the child ------------------------------------------------------
-await page.click(`${row(27)} .hask [data-opt="approved"]`);
+await page.click(`${row(27)} .hask [data-option="approved"]`);
 await waitCall('POST', '/runs/27/approve$', 1);
 const ap = (await calls('POST', '/runs/27/approve$')).pop().body;
 ok('27\'s permission answered from the board: on 27, {park, option}', ap.park === 'Xq3kid' && ap.option === 'approved', JSON.stringify(ap));
@@ -136,7 +136,7 @@ ok('the board follows home', (await text('#hboard .hbscope')).startsWith('yours'
 ok('…coding-agent conversations, then the ones below yours, in the order they started', await waitOrder([22, 23, 24, 26, 27, 28, 29]), JSON.stringify(await order()));
 ok('…a child says which conversation it is in', (await text(`${row(26)} .hbin`)) === 'in Refactor the API' && !(await page.$(`${row(22)} .hbin`)));
 ok('…nothing idle or done (21 is idle)', !(await page.$(row(21))));
-await page.click(`${row(22)} .hask [data-opt="allow"]`);
+await page.click(`${row(22)} .hask [data-option="allow"]`);
 await waitCall('POST', '/runs/22/approve$', 1);
 ok('a park answered at home, on its run', (await calls('POST', '/runs/22/approve$')).pop().body.option === 'allow');
 

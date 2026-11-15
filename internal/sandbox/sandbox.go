@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
@@ -353,6 +354,15 @@ type Spec struct {
 	// secret masks (unlike a terminal), so no mount/read guard is needed.
 	Containers bool `json:"containers,omitempty"`
 
+	// TmpfsBytes, when > 0, sizes each tmpfs the init gives the sandbox to
+	// write in — /tmp, /dev/shm and, without an Upper, the root's own
+	// writable layer (and /dev itself to 1 MiB: nodes and links only) —
+	// instead of the kernel's default (half of RAM each).
+	// tmpfs pages are memory: an unsized one lets a sandbox without a cgroup
+	// cap fill the host's. Set for runs of untrusted code that keep no state
+	// (the preview browser, D234); 0 keeps today's mounts byte for byte.
+	TmpfsBytes int64 `json:"tmpfsBytes,omitempty"`
+
 	// FileCaps (only meaningful with Unprivileged) is the profile of xbind's
 	// own confined file tools on trees sandboxes wrote — du, rm -rf, cp -a of
 	// an upper (internal/confine's Cmd.FSCaps). Instead of dropping every
@@ -428,4 +438,13 @@ type Protections struct {
 	Seccomp     bool `json:"seccomp"`     // mount guard installable (seccomp filter mode)
 	Landlock    bool `json:"landlock"`    // read guard installable
 	LandlockABI int  `json:"landlockAbi"` // Landlock ABI version (0 = none)
+}
+
+// tmpfsSize is the mount option that sizes a tmpfs of this sandbox, "" for
+// the default.
+func (s *Spec) tmpfsSize() string {
+	if s.TmpfsBytes <= 0 {
+		return ""
+	}
+	return ",size=" + strconv.FormatInt(s.TmpfsBytes, 10)
 }

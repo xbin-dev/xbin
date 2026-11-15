@@ -73,9 +73,9 @@ const S = () => page.evaluate(() => window.__settings);
 const shot = async (name) => { if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/settings-${name}.png` }); };
 // redrawn: do something that re-renders the tab, and wait until it has
 const redrawn = async (fn) => {
-  await page.evaluate(() => { document.getElementById('sbd').firstElementChild.dataset.old = '1'; });
+  await page.evaluate(() => { document.querySelector('#sbd > .tabbox').firstElementChild.dataset.old = '1'; });
   await fn();
-  await page.waitForFunction(() => { const e = document.getElementById('sbd').firstElementChild; return e && !e.dataset.old && !e.classList.contains('empty'); });
+  await page.waitForFunction(() => { const e = document.querySelector('#sbd > .tabbox')?.firstElementChild; return e && !e.dataset.old && !e.classList.contains('empty'); });
 };
 const tab = async (name, sel) => {
   await page.click(`#tabs .tab[data-tab="${name}"]`);
@@ -238,6 +238,23 @@ ok('classes: delete asked first', (await page.evaluate(() => window.__confirms.p
 
 await tab('mcp', '.sec h4');
 ok('mcp: says none are bound', (await page.textContent('#sbd')).includes('No MCP servers bound'));
+
+// A tab whose loads land late does not draw over the tab opened after it: Config waits for its
+// config while Features is opened and drawn; then the config arrives.
+await page.evaluate(() => {
+  window.__holdConfig = new Promise((r) => { window.__releaseConfig = r; });
+  window.__route('GET', /\/config$/, async () => { await window.__holdConfig; return window.__json(JSON.parse(JSON.stringify(window.__settings.config))); });
+});
+await page.click('#tabs .tab[data-tab="config"]');
+const asked = await page.evaluate(() => window.__calls.filter((c) => c.method === 'GET' && /\/config$/.test(c.url)).length);
+await page.waitForFunction((n) => window.__calls.filter((c) => c.method === 'GET' && /\/config$/.test(c.url)).length > n - 1, asked);
+await tab('features', '.sec h4');
+const before = await page.textContent('#sbd');
+await page.evaluate(() => window.__releaseConfig());
+await page.waitForTimeout(300); // (a negative: nothing may change)
+const after = await page.textContent('#sbd');
+ok('a tab that finishes loading late leaves the tab opened after it alone', before.includes('Features') && after === before && !after.includes('Model tiers'), after.slice(0, 120));
+await page.evaluate(() => { window.__holdConfig = Promise.resolve(); });
 ok('no page errors', errors.length === 0, errors.join('; '));
 ok('nothing alerted', !(await page.evaluate(() => window.__alerted)), await page.evaluate(() => window.__alerted));
 await browser.close();

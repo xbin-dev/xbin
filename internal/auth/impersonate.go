@@ -77,7 +77,7 @@ func (a *Auth) humanIsAdmin(p Principal) bool {
 // same human at GET /login?impersonate=<ticket>.
 func (a *Auth) NewImpersonationTicket(by Principal, target string) (string, error) {
 	issuer := issuerOf(by)
-	if issuer == "" || !a.humanIsAdmin(by) {
+	if issuer == "" || issuer == PreviewViewer || !a.humanIsAdmin(by) { // the reserved viewer is nobody (preview.go)
 		return "", errImpNotAdmin
 	}
 	if by.ReadOnly() {
@@ -120,7 +120,7 @@ func (a *Auth) RedeemImpersonation(ticket string, by Principal, prevCookie, ip s
 	if by.ReadOnly() {
 		return "", errImpNested
 	}
-	if issuerOf(by) != t.issuer || !a.humanIsAdmin(by) {
+	if issuerOf(by) != t.issuer || t.issuer == PreviewViewer || !a.humanIsAdmin(by) {
 		return "", errImpWrongIssuer
 	}
 	if _, ok := a.userSnapshot(t.target); !ok {
@@ -146,7 +146,7 @@ func (a *Auth) Impersonation(id string) (impersonator string, ok bool) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	s, found := a.sessions[id]
-	if !found || s.impersonator == "" {
+	if !found || s.impersonator == "" || s.impersonator == PreviewViewer {
 		return "", false
 	}
 	return s.impersonator, true
@@ -160,7 +160,7 @@ func (a *Auth) Impersonation(id string) (impersonator string, ok bool) {
 func (a *Auth) StopImpersonation(id string) (restoreSession string, restoreOwner, ok bool) {
 	a.mu.Lock()
 	s, found := a.sessions[id]
-	if !found || s.impersonator == "" {
+	if !found || s.impersonator == "" || s.impersonator == PreviewViewer { // a preview is ended by its render alone
 		a.mu.Unlock()
 		return "", false, false
 	}
