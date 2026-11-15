@@ -143,6 +143,11 @@ func TestDelegateSendRules(t *testing.T) {
 		t.Errorf("a session on the person's own sign-in: %+v", got)
 	}
 
+	// a running session nothing is known about is not one that is still to
+	// start: on Finance's own tile it may have begun before Finance's rule
+	if got := sendTargetOf(term.SessionInfo{Cwd: "apps/mail"}); got.served != agentpolicy.ServedUnsettled {
+		t.Errorf("a running session with no word on who serves it: %+v", got)
+	}
 	h, err := w.store.NewAgentSession("alice", dHolder, nil, "local/a")
 	if err != nil {
 		t.Fatal(err)
@@ -166,6 +171,9 @@ func TestDelegateSendRules(t *testing.T) {
 	}
 	if why := w.s.sendRefusal(p, sendTarget{tile: "apps/mail"}); why != "" {
 		t.Errorf("…a session on Finance's own tile: %q", why)
+	}
+	if why := w.s.sendRefusal(p, sendTargetOf(term.SessionInfo{Cwd: "apps/mail"})); why == "" {
+		t.Error("…a running session on Finance's tile that nothing holds to the connector")
 	}
 }
 

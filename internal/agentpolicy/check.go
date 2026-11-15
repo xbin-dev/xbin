@@ -163,7 +163,8 @@ func modelRefusal(rule Allow, m *ModelRef) string {
 
 // Who serves a tile agent session's model calls, for Brief.
 const (
-	ServedUnknown   = ""          // not started, or not settled yet
+	ServedUnknown   = ""          // not started yet: a start
+	ServedUnsettled = "unsettled" // running, and nothing says who serves it (no connector here, or not settled yet)
 	ServedConnector = "connector" // the LLM connector, and nothing else can
 	ServedOffered   = "offered"   // the connector by default; the harness may leave it
 	ServedOwn       = "own"       // the person's own sign-in: a model xbind can't see

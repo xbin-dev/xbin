@@ -100,6 +100,12 @@ func sendTargetOf(info term.SessionInfo) sendTarget {
 	if info.LLM == agentpolicy.ServedConnector && info.LLMOffered {
 		t.served = agentpolicy.ServedOffered
 	}
+	if t.served == "" {
+		// a running session with no word on who serves it — a workspace with
+		// no connector (it is on its person's own sign-in), or one not
+		// settled yet: not a session that is still to start
+		t.served = agentpolicy.ServedUnsettled
+	}
 	if t.served != agentpolicy.ServedConnector {
 		t.model = "" // only the connector's model is one xbind sees
 	}

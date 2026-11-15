@@ -282,7 +282,9 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   held to the connector — not merely offered it — on a model the rule
   allows. A session on its person's own sign-in is refused wherever a
   tainted org has a model rule other than `any`: nobody can say which
-  model it calls. A session that isn't started yet has no model to judge,
+  model it calls — and so is a running session nothing says who serves
+  (a workspace with no connector, or one not settled yet). A session that
+  isn't started yet has no model to judge,
   so a start passes only on a tile under the rule. An org with no model
   rule binds nothing. Reading a session — its row, events, log or diff —
   adds its tile's orgs to the taint like any other read. A session's
