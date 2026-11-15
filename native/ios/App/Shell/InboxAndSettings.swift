@@ -19,8 +19,29 @@ struct InboxView: View {
             List {
                 ForEach(app.workspaces) { w in
                     let waiting = w.needsYou
-                    if !waiting.isEmpty {
+                    let asked = w.agent.needs
+                    if !waiting.isEmpty || !asked.isEmpty {
                         Section {
+                            // What the person's workspace agent asked (D233):
+                            // approvals and proposed admin changes, oldest
+                            // first, above the sessions. Review… opens the
+                            // app's own sheet — never an Allow from a list.
+                            ForEach(asked) { n in
+                                Button {
+                                    scene.select(w.id)
+                                    scene.review(n.kind == .request ? .request(n.id) : .changeset(n.id), afterInbox: true)
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(verbatim: n.title).foregroundStyle(XbinColor.text)
+                                            if !n.note.isEmpty { Text(verbatim: n.note).font(.caption.monospacedDigit()).foregroundStyle(XbinColor.muted) }
+                                        }
+                                        Spacer(minLength: 4)
+                                        Text("Review…").font(.callout.weight(.semibold)).foregroundStyle(XbinColor.accentText)
+                                    }
+                                }
+                                .accessibilityIdentifier("inbox-\(n.kind.rawValue):\(n.id)")
+                            }
                             ForEach(waiting) { s in
                                 Button {
                                     scene.select(w.id)
@@ -29,7 +50,7 @@ struct InboxView: View {
                                 } label: {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(verbatim: s.title)
-                                        Text(verbatim: "\(TileInfo.humanize(s.cwd)) · \(s.waitingFor)")
+                                        Text(verbatim: "\(TileInfo.humanize(s.cwd)) · \(s.waitingFor)\(s.startedByAgent ? " · started by your agent" : "")")
                                             .font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
@@ -49,10 +70,10 @@ struct InboxView: View {
                 }
                 if app.needsYouCount == 0 {
                     ContentUnavailableView("Nothing needs you", systemImage: "checkmark.circle",
-                                           description: Text("Agent permissions and questions from every workspace show up here."))
+                                           description: Text("Agent permissions and questions, and what your workspace agent asks you to approve, show up here."))
                 }
             }
-            .refreshable { for w in app.workspaces { await w.refreshSessions() } }
+            .refreshable { for w in app.workspaces { await w.refreshSessions(); await w.agent.refresh() } }
             .concreteBackground()
             .navigationTitle("Needs you")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }

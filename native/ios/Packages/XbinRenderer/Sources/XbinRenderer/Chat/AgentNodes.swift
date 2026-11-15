@@ -142,11 +142,19 @@ public struct ConnectionView: View {
             .accessibilityLabel(Text(verbatim: connection.accessibilityLabel))
             .accessibilityAddTraits(tap == nil ? [] : .isButton)
             .accessibilityAction { tap?() }
-        if let model {
-            line.accessibilityAction(named: Text("Change model")) { model() }
-        } else {
-            line
+        // The surface behind the line runs up under the bar; the element
+        // VoiceOver focuses (and a pointer activates at its centre) is the
+        // line itself — so the surface goes on after the element is made.
+        Group {
+            if let model {
+                line.accessibilityAction(named: Text("Change model")) { model() }
+            } else {
+                line
+            }
         }
+        .background(XbinColor.surface)
+        .overlay(alignment: .bottom) { Rectangle().fill(XbinColor.border).frame(height: 1).accessibilityHidden(true) }
+        .opacity(connection.disabled ? 0.55 : 1)
     }
 
     /// The strip as drawn: the scope (a target when the tile listens), then
@@ -167,9 +175,6 @@ public struct ConnectionView: View {
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .background(XbinColor.surface)
-        .overlay(alignment: .bottom) { Rectangle().fill(XbinColor.border).frame(height: 1).accessibilityHidden(true) }
-        .opacity(connection.disabled ? 0.55 : 1)
     }
 
     @ViewBuilder

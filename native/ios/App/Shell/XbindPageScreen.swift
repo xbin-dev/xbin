@@ -47,9 +47,10 @@ struct XbindPageScreen: View {
                 }
             case .notServed?:
                 ContentUnavailableView {
-                    Label("No partitions page here", systemImage: "rectangle.split.2x1")
+                    Label(page == .partitions ? "No partitions page here" : "No such page here", systemImage: "rectangle.split.2x1")
                 } description: {
-                    Text("This workspace's xbind doesn't serve it — it is older than partitioned tiles, or doesn't keep people's data apart.")
+                    Text(page == .partitions ? "This workspace's xbind doesn't serve it — it is older than partitioned tiles, or doesn't keep people's data apart."
+                                             : "This workspace's xbind doesn't serve it — it is older than the page.")
                 } actions: {
                     Button("Go to the workspace") { nav.goHome() }
                 }
@@ -57,7 +58,7 @@ struct XbindPageScreen: View {
                 ContentUnavailableView {
                     Label("Can't reach the workspace", systemImage: "wifi.exclamationmark")
                 } description: {
-                    Text("It didn't say whether it has a partitions page.")
+                    Text("It didn't say whether it has this page.")
                 } actions: {
                     Button("Try again") { Task { await check() } }.xbinPrimary()
                 }

@@ -55,6 +55,10 @@ final class AgentScreenModel {
         self.cwd = cwd
         self.sessionID = sessionID
         reviews = ReviewLoader(client: workspace.agents)
+        // The person's own words handed over by their workspace agent's
+        // conversation (D233): they wait in the composer of the session the
+        // person starts here — shown, never sent by being handed over.
+        if sessionID == nil, let cwd, let words = workspace.takePendingDraft(cwd) { draft = words }
     }
 
     var client: AgentClient { workspace.agents }

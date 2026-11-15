@@ -140,6 +140,7 @@ public struct Path: Shape {
     public mutating func addLine(to point: CGPoint) {}
     public mutating func addArc(center: CGPoint, radius: CGFloat, startAngle: Angle, endAngle: Angle, clockwise: Bool) {}
     public mutating func addEllipse(in rect: CGRect) {}
+    public mutating func addRect(_ rect: CGRect) {}
     public mutating func addCurve(to end: CGPoint, control1: CGPoint, control2: CGPoint) {}
     public mutating func addQuadCurve(to end: CGPoint, control: CGPoint) {}
     public mutating func closeSubpath() {}
@@ -237,4 +238,31 @@ extension View {
     public func toolbarBackground<S: ShapeStyle>(_ style: S, for bars: ToolbarPlacement...) -> some View { _V(self) }
     public func toolbarBackgroundVisibility(_ visibility: Visibility, for bars: ToolbarPlacement...) -> some View { _V(self) }
     public func toolbarColorScheme(_ colorScheme: ColorScheme?, for bars: ToolbarPlacement...) -> some View { _V(self) }
+}
+
+// A layout chosen at run time (the workspace agent's sheets stack their
+// rows and buttons at accessibility sizes, D233): AnyLayout over the two
+// stack layouts, called with content as the SDK's are.
+public struct VStackLayout: Sendable {
+    public init(alignment: HorizontalAlignment = .center, spacing: CGFloat? = nil) {}
+}
+public struct HStackLayout: Sendable {
+    public init(alignment: VerticalAlignment = .center, spacing: CGFloat? = nil) {}
+}
+public struct AnyLayout: Sendable {
+    public init(_ layout: VStackLayout) {}
+    public init(_ layout: HStackLayout) {}
+    public func callAsFunction<V: View>(@ViewBuilder _ content: () -> V) -> some View { content() }
+}
+
+// The workspace agent's sheet (D233): a drag indicator, and a medium detent
+// that leaves what is behind it usable.
+public struct PresentationBackgroundInteraction: Sendable {
+    public static let automatic = PresentationBackgroundInteraction(), enabled = PresentationBackgroundInteraction(),
+        disabled = PresentationBackgroundInteraction()
+    public static func enabled(upThrough detent: PresentationDetent) -> PresentationBackgroundInteraction { PresentationBackgroundInteraction() }
+}
+extension View {
+    public func presentationDragIndicator(_ visibility: Visibility) -> some View { _V(self) }
+    public func presentationBackgroundInteraction(_ interaction: PresentationBackgroundInteraction) -> some View { _V(self) }
 }

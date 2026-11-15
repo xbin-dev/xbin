@@ -14,6 +14,26 @@ final class SceneModel: Identifiable {
     var addRequest: AddRequest?
     var showInbox = false
     var showSettings = false
+    /// The inbox asked for from the agent's own chrome (its shield menu):
+    /// presented where that chrome presents — over the agent's sheet when
+    /// that is up, where the window's own inbox could not show.
+    var showAgentInbox = false
+    /// The workspace agent's container is open (D233): a sheet on a
+    /// compact width, a trailing column on a regular one.
+    var showAgent = false
+    /// What it was opened about (the tile or screen in front), offered to
+    /// the agent's composer as a chip.
+    var agentContext: AgentContext?
+    /// Counts openings, so the same context is offered again.
+    var agentOpened = 0
+    /// The approval in front — the app's own sheet, drawn from xbind's
+    /// reading of the id.
+    var agentReview: AgentReview?
+    /// One of the chrome's panels (Approvals, What my agent did, …).
+    var agentPanel: AgentPanel?
+    /// A review asked for while another sheet is up (the inbox): shown
+    /// once that sheet has gone.
+    @ObservationIgnored var pendingReview: AgentReview?
     /// The window is on screen (foreground active or inactive): its
     /// workspace keeps an events socket.
     var isForeground = false
@@ -94,7 +114,49 @@ final class SceneModel: Identifiable {
         default:
             guard let w = app.resolve(link) else { app.holdLink(link); return }
             select(w.id)
+            // A link to the person's agent (an approval's push names its
+            // component): the agent's own container, never a tile screen (D233).
+            // (`xbin/` is the sealed namespace no workspace can hold a tile in:
+            // such a path is never a tile screen, read state or not.)
+            if case .tile(_, let tile, _) = link, w.agent.isHolder(tile) || tile.hasPrefix("xbin/") {
+                openAgent()
+                return
+            }
+            // …and so does a link to xbin's page for it (`xbin/agent`).
+            if case .page(_, .agent) = link {
+                openAgent()
+                return
+            }
             w.open(link: link, in: nav(for: w))
+        }
+    }
+
+    // MARK: The workspace agent (D233)
+
+    /// Opens the agent about what the window shows (nil: nothing offered).
+    func openAgent(about context: AgentContext? = nil) {
+        agentContext = context
+        agentOpened += 1
+        showAgent = true
+    }
+
+    /// Shows the approval of one request or change set. `afterInbox`: the
+    /// inbox is up and goes first.
+    func review(_ r: AgentReview, afterInbox: Bool = false) {
+        if afterInbox, showInbox || showAgentInbox {
+            pendingReview = r
+            showInbox = false
+            showAgentInbox = false
+        } else {
+            agentReview = r
+        }
+    }
+
+    /// The inbox has gone: the review it asked for shows now.
+    func inboxDismissed() {
+        if let r = pendingReview {
+            pendingReview = nil
+            agentReview = r
         }
     }
 
