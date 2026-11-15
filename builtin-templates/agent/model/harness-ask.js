@@ -20,7 +20,7 @@
 // (permBlock, askBlock), and keeps every export it had.
 // Pure (no DOM): node-tested in hack/agent-template-harness-ask.test.mjs.
 import { isHarness, nameOf, modeOf } from './harness.js';
-import { busy } from './fold.js';
+import { busy, ownApproval } from './fold.js';
 import { barredWhy, BARRED_WORDS } from './harness-homes.js';
 import { callIdOf } from './harness-heads.js';
 import { permission as permCard, question as askCard, slashCommands as commandsOf, slashMenu, composerWords, steerTracker } from '/vendor/chat/ask.js';
@@ -85,6 +85,29 @@ export function askBlock(ps) {
   const url = hs.url || '';
   return { k: 'park:' + (ps.park || ''), v: 0, kind: 'ask', eid: hs.eid || '', park: ps.park || '', callId: callIdOf(hs.callId), message: hs.message || '',
     mode: url || hs.mode === 'url' ? 'url' : 'form', schema: hs.schema ?? null, url, action: null, by: null, content: null };
+}
+
+// parkBlock: what a run is parked on, as the kit's block that asks — a
+// coding agent's request (pendingState.harness: its permission, its
+// question, its sign-in), else the template's own approval (the calls its
+// engine wants to run) or question (the run's result while it waits for an
+// answer). null: it waits on nobody.
+export function parkBlock(run) {
+  const ps = run && run.status === 'waiting_input' ? run.pendingState : null;
+  if (!ps) return null;
+  const k = 'park:' + (ps.park || '');
+  const hs = ps.harness;
+  if (!hs) {
+    if (ps.kind === 'approval') return ownApproval(k, ps.park || '', ps.toolCalls);
+    return run.result ? { k, v: 0, kind: 'ask', eid: '', park: ps.park || '', callId: '', message: run.result, mode: 'text', schema: null, action: null, by: null, content: null } : null;
+  }
+  if (ps.kind === 'approval') return permBlock(ps);
+  if (ps.kind === 'question') return askBlock(ps);
+  if (ps.kind === 'login') {
+    const l = hs.login || {};
+    return { k, v: 0, kind: 'signin', park: ps.park || '', provider: nameOf(run.harness), command: l.command || '', methods: l.methods || [], device: l.device || null };
+  }
+  return null;
 }
 
 // question: a harness's question park — {park, message, mode: 'form', fields}

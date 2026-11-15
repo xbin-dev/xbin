@@ -57,7 +57,7 @@ for (const hl of [true, false]) {
     ok('Needs you lists it, with the reason', ((await page.textContent('.home .need[data-reason="unfinished"]').catch(() => '')) || '').includes('stopped before finishing: it only made a plan'));
   }
   await page.click('#runs .run');
-  await page.waitForSelector('.msg.assistant .md ol');
+  await page.waitForSelector('.msg.assistant .bxc-md ol');
   if (hl) {
     await page.waitForSelector('.msg.assistant pre code.hljs .hljs-keyword', { timeout: 5000 }).catch(() => {});
     ok('a closed fence is highlighted once the highlighter arrives', !!(await page.$('.msg.assistant pre code.hljs .hljs-keyword')));
@@ -68,7 +68,7 @@ for (const hl of [true, false]) {
   }
   // Ctrl+C on the answer: both flavours, set in the copy event
   const got = await page.evaluate(() => {
-    const md = document.querySelector('.msg.assistant .md');
+    const md = document.querySelector('.msg.assistant .bxc-md');
     const s = getSelection(); s.removeAllRanges();
     const r = document.createRange(); r.selectNodeContents(md); s.addRange(r);
     const dt = new DataTransfer();
@@ -82,20 +82,20 @@ for (const hl of [true, false]) {
   ok('text/html keeps the list and the table, without the chrome', /<ol>/.test(got.html) && /<table>/.test(got.html) && !/class=|<button|data-k/.test(got.html), got.html.slice(0, 300));
   // the answer's Copy
   await page.hover('.msg.assistant');
-  await page.click('.msg.assistant .acts .act');
+  await page.click('.msg.assistant .bxc-acts .bxc-act');
   await page.waitForTimeout(200);
   if (hl) {
     const c = await page.evaluate(() => window.__copied);
     ok('Copy hands the markdown and its rendering to xbin.copy', c.length === 1 && c[0].text.startsWith('Here is the plan') &&
       /<ol>/.test(c[0].html) && !/class=/.test(c[0].html), JSON.stringify(c).slice(0, 300));
-    ok('…and says it took', (await page.getAttribute('.msg.assistant .acts .act', 'title')) === 'copied');
+    ok('…and says it took', (await page.getAttribute('.msg.assistant .bxc-acts .bxc-act', 'title')) === 'copied');
     // Mark as finished, from the row's menu
     await page.click('#runs .run', { button: 'right' });
     await page.click('text=Mark as finished').catch(() => {});
     await page.waitForTimeout(200);
     ok('Mark as finished asks the backend', (await page.evaluate(() => window.__dismissed)).includes(1));
   } else {
-    ok('without xbin.copy the frame copies itself', ['copied', 'copy refused — select the text and press Ctrl+C'].includes(await page.getAttribute('.msg.assistant .acts .act', 'title')));
+    ok('without xbin.copy the frame copies itself', ['copied', 'copy refused — select the text and press Ctrl+C'].includes(await page.getAttribute('.msg.assistant .bxc-acts .bxc-act', 'title')));
   }
   await ctx.close();
 }

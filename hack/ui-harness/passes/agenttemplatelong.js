@@ -213,7 +213,7 @@ async function agentTemplateLong(browser) {
     await page.press('#msg', 'Enter');
     await until(page, () => /Paragraph 2 of/.test(document.querySelector('#timeline .msg.assistant.live')?.textContent || ''), null, 20000);
     await page.evaluate(() => {
-      const p = [...document.querySelectorAll('#timeline .msg.assistant.live .md p')].find((x) => /Paragraph 1 of/.test(x.textContent));
+      const p = [...document.querySelectorAll('#timeline .msg.assistant.live .bxc-md p')].find((x) => /Paragraph 1 of/.test(x.textContent));
       const r = document.createRange(); r.selectNodeContents(p); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
     });
     await until(page, () => /Paragraph 8 of/.test(document.querySelector('#timeline .msg.assistant.live')?.textContent || ''), null, 20000);

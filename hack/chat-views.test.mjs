@@ -35,7 +35,7 @@ const code = (f) => src(f).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$
 
 test('the views write only `bxc-` classes, and each has its rule in the stylesheet (or is a named hook)', () => {
   // hooks: classes a host or a test selects by, that need no rule of their own
-  const HOOKS = new Set(['bxc-row', 'bxc-send', 'bxc-lbl', 'bxc-exec', 'bxc-agent', 'bxc-draft', 'bxc-other', 'bxc-deny', 'bxc-hint']);
+  const HOOKS = new Set(['bxc-row', 'bxc-send', 'bxc-lbl', 'bxc-exec', 'bxc-agent', 'bxc-draft', 'bxc-other', 'bxc-deny', 'bxc-hint', 'bxc-steps', 'bxc-in']);
   const used = new Set();
   for (const f of VIEWS) {
     const text = code(f);
@@ -86,7 +86,7 @@ test('a view imports by /vendor/ URL only, and reaches no host', () => {
 test('every kind of the model has a view, and the kit says its revision', () => {
   const views = code('chat/views.js');
   for (const kind of model.KINDS) assert.match(views, new RegExp(`case '${kind}':`), `blockView draws ${kind}`);
-  assert.equal(KIT, 3);
+  assert.equal(KIT, 4);
   assert.match(src('chat/rev.js'), /\n \* {3}3 {2}the views/);
 });
 

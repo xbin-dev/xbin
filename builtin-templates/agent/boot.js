@@ -19,13 +19,16 @@
 // revision brought (rev.js lists them), and `xbind` to the first release
 // that serves it. Revision 2: the models say a coding agent's calls and
 // requests with the kit's /vendor/chat/tools.js and /vendor/chat/ask.js
-// (model/harness-heads.js, model/harness-ask.js).
+// (model/harness-heads.js, model/harness-ask.js). Revision 4: the chat is
+// drawn with the kit's views (chat-kit.js: /vendor/chat/views.js, css.js),
+// as its second host — its own tools' words on the kit's card, its hook
+// classes on the kit's rows.
 //
 // The native view (native.js) imports those models too, and a module can't
 // ask first: on an older xbind its import of the kit is a 404, native.js
 // fails to load, and the app shows this page instead (/docs/native.md →
 // Fallback) — which says which xbind it needs.
-export const NEEDS = Object.freeze({ kit: 2, xbind: 'v0.3.80' });
+export const NEEDS = Object.freeze({ kit: 4, xbind: 'v0.3.80' });
 
 // kitRevision(): the KIT this xbind serves; 0 when it serves none.
 export async function kitRevision(load = () => import('/vendor/chat/rev.js')) {

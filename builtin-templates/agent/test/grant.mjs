@@ -34,9 +34,9 @@ let page = await open('alice');
 const card = await page.textContent('.ask.approve.grant');
 ok('the card says what is asked', card.includes('The agent asks to read your other conversations and automations'), card);
 ok('…and which calls', card.includes('threads_list'));
-const buttons = await page.$$eval('.ask.approve.grant .btn', (els) => els.map((e) => e.textContent.trim()));
+const buttons = await page.$$eval('.ask.approve.grant button', (els) => els.map((e) => e.textContent.trim()));
 ok('its owner gets Allow once · Allow here for 1 hour · Deny', buttons.join('|') === 'Allow once|Allow here for 1 hour|Deny', buttons.join('|'));
-await page.click('.ask.approve.grant .btn:has-text("Allow here for 1 hour")');
+await page.click('.ask.approve.grant button:has-text("Allow here for 1 hour")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/runs/1/approve')));
 const body = await page.evaluate(() => window.__calls.find((c) => c.url.endsWith('/runs/1/approve')).body);
 ok('an hour is sent as grant:"hour", naming the ask it answers', body === JSON.stringify({ approve: true, grant: 'hour', park: 'p1' }), body);
@@ -65,17 +65,17 @@ ok('an expired grant shows nothing', !(await page.$('#top .grantchip')));
 
 // someone else in the conversation: only Deny
 page = await open('carol');
-const theirs = await page.$$eval('.ask.approve.grant .btn', (els) => els.map((e) => e.textContent.trim()));
+const theirs = await page.$$eval('.ask.approve.grant button', (els) => els.map((e) => e.textContent.trim()));
 ok('someone else may only deny', theirs.join('|') === 'Deny', theirs.join('|'));
 ok('…and is told whose it is', (await page.textContent('.ask.approve.grant')).includes('Only alice can allow this'));
-await page.click('.ask.approve.grant .btn:has-text("Deny")');
+await page.click('.ask.approve.grant button:has-text("Deny")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/runs/1/approve')));
 ok('deny is a plain verdict', await page.evaluate(() => window.__calls.find((c) => c.url.endsWith('/runs/1/approve')).body) === JSON.stringify({ approve: false, park: 'p1' }));
 
 // a click on an ask that is gone (the agent moved on before its event came):
 // the 409 is said beside the card, never an unhandled rejection
 await page.evaluate(() => { window.__views[1].run.pendingState = { ...window.__views[1].run.pendingState, park: 'p2' }; });
-await page.click('.ask.approve.grant .btn:has-text("Deny")');
+await page.click('.ask.approve.grant button:has-text("Deny")');
 await page.waitForSelector('.anote');
 ok('a refused verdict says why, inline', (await page.textContent('.anote')).includes('That approval is no longer pending'), await page.textContent('.anote'));
 

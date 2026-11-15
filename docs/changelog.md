@@ -56,6 +56,96 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     between their own sign-in and the workspace's connector for a harness
     (`harnesses.<id>.credentials` in their agent preferences), shown only
     where both can serve and no rule forces one.
+- **Agent template: a Settings tab that loads late no longer draws over
+  the tab opened after it.** Opening Settings starts Config, which reads
+  the models; a click on another tab meanwhile was drawn — and then
+  overwritten when Config's reads landed. Each opening of a tab now draws
+  into a box of its own (`#sbd > .tabbox`, `display: contents`); a tab
+  function still receives the element it draws into. The gear is hidden
+  until the page can open Settings. Likewise the Automations page: a
+  form opened while its list was still being read (New schedule, right
+  after opening the page) is no longer closed when the read lands.
+- **The agent template's chat is drawn with the chat kit; a tool call's
+  card says what it came to** (D224; [frontend-kit.md](/docs/frontend-kit.md)
+  §The chat kit). The kit (`/vendor/chat/…`, revision 4 in
+  `/vendor/chat/rev.js`) has a second host: the agent template hands its
+  blocks to the kit's views (`model/fold.js` `blockOf`, `chat-kit.js`), so
+  a coding agent's calls and the template's own tools are one card, in the
+  Agent tab and in the template alike.
+  - **The tool card** (`/vendor/chat/cards.js` `toolView`) is one line —
+    glyph, headline with the command under a description, what the call
+    came to (`exit 1`, `+3 −1`, `12 matches`), a still mark while it runs,
+    and its state only while that needs a look (needs approval, failed,
+    cancelled) — in place of a boxed status badge on every card. Open, it
+    adds the tool's name, an `exit N` line under a command's output, the
+    places a read or a search touched, a fetch's address as a link, and a
+    file a patch could not be drawn for by name. The Agent tab's cards
+    change with it.
+  - **The request card** (`/vendor/chat/asks.js`) is one card for a
+    coding agent's permission request, the agent template's own approval
+    of its tools and a capability's grant: it leads with who asks what
+    ("Claude Code asks to run a command"), shows the command or the calls,
+    the diff the call would make (the request's own, else the call's:
+    `ChatCtx.callOf`), an optional word with a rejection where the host
+    can send one (`ChatCtx.rejectWord`), and the options. A question leads
+    with "<agent> asks". A `perm` block may carry its own `lead`; its
+    `calls` are listed; `cards.js` exports `diffsView`.
+  - **Messages** (`/vendor/chat/views.js`): a person's own words sit on
+    their side of the chat without a "YOU" label (another person's, in a
+    shared conversation, on the other side under their name), the agent's
+    without an "AGENT" label and with a Copy that shows with the pointer
+    where the host copies (`ChatCtx.copyMessage`); a message's files are
+    chips with a picture or a glyph, the path and a size. A thought says
+    "Thought for 1m 5s". Markdown (`mdCssText`) gains heading sizes, list
+    and paragraph spacing, a scrolling table and the reading colours
+    (headings, list markers, inline code, the quote's rule). A `notice`
+    block may carry `icon`, `tone`, `md`, `fold` / `title` and `action`
+    (`ChatCtx.act`) — the agent template's journal lines are these. A
+    sub-conversation's card (`agentView`) reads like a call's, with what
+    it waits on a person for under it. `ChatCtx.agentLabel` is no longer
+    drawn.
+  - **For a tile that draws with the kit**: a `tool` block may carry its
+    own `icon`, `sub`, `outcome`, `args` and `result` (a tool of the
+    host's own); `ChatCtx.rowAttrs(block, depth)` puts the host's hook
+    classes and `data-*` attributes on a block's element; a block inside a
+    card sits in `<div class="bxc-in" data-k>` (`innerView`); `cards.js`
+    exports `argsView` and `clipView`; `tools.js` `stateChip` says
+    `waiting`. A fold is now drawn as `ChatCtx.isOpen` says and `setOpen`
+    hears a fold closing as well as opening — a host whose `isOpen`
+    returned `true` for a fold the reader had closed will see it stay
+    open; return what the reader last did.
+  - **An instance of the agent template** merges this by git. Its page
+    needs kit revision 4 (`boot.js` `NEEDS`: it says "This agent needs
+    xbind ≥ v0.3.80" on an older xbind). A tool call's row keeps its
+    hooks — `.tcard` (`.hcard` for a coding agent's), its state class,
+    `.on` while open, `data-k`, `data-fam`, `data-tool`, `data-status` —
+    on the kit's row; inside it the markup is the kit's (`.bxc-title` for
+    `.hl`, `.bxc-sub` for `.sub`, `.bxc-oc` for `.oc`, `.bxc-st` for
+    `.st`, `summary` for `.tch`, `.bxc-body` for `.tcb`; a coding agent's
+    `data-kind` is read from `data-tool`), so a stylesheet of your own
+    that reached inside a card needs those names. `harness-cards.js`
+    keeps the top bar's usage badge, counts and plan pin. What a run
+    waits on a person for keeps `.ask` (`.hask`, `.hplan`, `.hq` for a
+    coding agent's; `.approve`, `.grant` for the engine's own) and
+    `data-park` on its element; inside, the buttons are the kit's
+    (`button[data-option]` for `.hopts [data-opt]`, `.bxc-word` and
+    `.bxc-reject textarea` for `.hfb`, `.bxc-field[data-field]` for
+    `.hfield`). `harness-ask.js` still exports `permissionTpl` and
+    `questionTpl` (they draw the run's park; the card model argument is
+    ignored), `chat-cards.js` no longer exports `approvalTpl`. A
+    message, a thought, a notice, a journal line and a subagent's card
+    keep `.msg.user` / `.msg.assistant` (`.live`, `.other`), `.think`,
+    `.notice`, `.step.<kind>` and `.acard` with their state classes on the
+    kit's row; inside, `.bxc-text` is `.txt`, `.bxc-who` `.who`,
+    `.bxc-md` `.md`, `.bxc-att-file[data-path]` `.afile[data-afile]`,
+    `.bxc-acts .bxc-act` `.acts .act`, `summary` the `.th` / `.nh` /
+    `.ach` line, `.bxc-nbody` `.nb`, `.bxc-children` `.acb`. A card a
+    feature module draws itself (`ext.block`: a coding agent's
+    `.acard.hkid`, a document's `.step.doc`) is unchanged. The window of
+    rows is the kit's `ChatWindow` (`chat-window.js` keeps its class and
+    methods); its every-block fallback for an xbind without
+    `/vendor/scroll-window.js` is gone — the page needs a newer xbind
+    than that anyway. The composer is unchanged.
 
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).

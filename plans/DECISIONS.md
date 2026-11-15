@@ -13894,6 +13894,57 @@ Deviations and refinements made while implementing; all deliberate:
     first that can carry this; whoever cuts the release this lands in
     checks the number. Later steps (tool and ask models, views, composer)
     add to this entry and raise `KIT`.
+  - **F4 — the agent template on the views (KIT 4).** The template's
+    transcript is drawn by the kit: `model/fold.js` `blockOf` (the
+    fixtures' AgTT adapter, now its code — a converted block is kept with
+    the fold's block it was made of, so `v` moves exactly when the block
+    does; the call in flight hands its `$memo` on), `model/harness-ask.js`
+    `parkBlock`, and `chat-kit.js` (the page's `ChatCtx`, `kitRow`,
+    `kitPark`). Decided along the way:
+    - **Where the two looks differed, the richer one went into the kit**,
+      so the Agent tab changed too: a call's line says what it came to
+      (outcome chip, subline, a still mark while it runs, its state only
+      while that needs a look) instead of a boxed status on every card;
+      the request card leads with who asks what and takes a word with a
+      rejection; a person's own words sit on their side and unlabelled;
+      markdown has the reading colours. The kit's bodies were kept where
+      they were equal or better (capped highlighted diffs in place of a
+      row per file to unfold; a command box with Copy; output behind
+      "show all" as a `<details>`).
+    - **A host's own tools draw on the same card** through the block's own
+      words (`icon`, `sub`, `outcome`, `args`, `result`) — not a second
+      card, not an AgTT branch in the kit. A journal line is the kit's
+      `notice` with `icon` / `tone` / `md` / `action`; an engine-written
+      message is a `notice` with `fold`.
+    - **Instance patches and tests hold on by hooks, not by markup**:
+      `ChatCtx.rowAttrs` puts the page's old classes and data attributes
+      on the kit's row (`.tcard[data-tool]`, `.msg.user`, `.ask.hask`…);
+      inside a row the markup is the kit's. The template's old rules for
+      those classes are scoped to elements the kit did not write
+      (`:not([data-kind])`), for the cards feature modules still draw
+      (`ext.block`: a coding agent's child card, a document's line).
+    - **A fold follows the host** (`?open=${ctx.isOpen(…)}`), and
+      `setOpen` hears a close: the template keeps "open" in its Session,
+      and a row's `.on` hook must be true.
+    - **No fallback for an xbind without the scroll window**: the page
+      needs kit 4 before anything loads, so `chat-window.js` is only the
+      Session's side of the kit's `ChatWindow`.
+    - **Not moved: the composer.** `#msg`, Send / Stop, the queued chips,
+      the slash menu, the pickers and `#hctl`, and the attachments are
+      still the template's. Three things stand between it and
+      `<bx-chat-composer>`: seven modules read and write the textarea
+      directly (drafts per page job, the hosted lock, example prompts),
+      the template uploads a file when it is attached (`/files`, chips
+      with a state) where the kit's composer stages bytes until Send, and
+      `#hctl` is a popover (modes as radios with a confirmed bypass, the
+      person's setting, the account) where the kit has `<select>`
+      pickers. `plans/wsagent/chat-kit-spec.md` §12 has the mapping.
+    - **Tests' browser sees no host network** (side item): Chromium fails
+      queued requests with `ERR_NETWORK_CHANGED` on any interface change
+      and has no switch for it; the UI harness now starts it in its own
+      network namespace with xbind's port relayed
+      (`hack/ui-harness/quietnet.js`). The template's browser scripts
+      answer every request by a route and are immune.
 - **D229 — Orgs constrain agents by harness and model; scope and
   connection state; agent preferences on the server (2026-11-14; issue
   #51).** The owner: "Orgs define constraints; Workspace agents then get

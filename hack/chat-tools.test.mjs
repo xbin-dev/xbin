@@ -101,6 +101,7 @@ test('outcome: what a completed call came to; stateChip: its state until then', 
   assert.deepEqual(T.stateChip(rec({ status: 'failed' }), 'error'), { text: 'failed', tone: 'bad' });
   assert.deepEqual(T.stateChip(rec({ status: 'cancelled' }), 'stopped'), { text: 'cancelled', tone: '' });
   assert.deepEqual(T.stateChip(rec({ status: 'pending' }), 'writing'), { text: 'writing', tone: 'run' });
+  assert.deepEqual(T.stateChip(rec({ status: 'in_progress' }), 'waiting'), { text: 'waiting', tone: '' }, 'a call that waits on something else (its subagents)');
   assert.deepEqual(T.stateChip(rec({ status: 'pending' }), 'pending'), { text: 'pending', tone: '' });
   assert.deepEqual(T.stateChip(rec({ status: 'in_progress' }), 'running'), { text: 'running', tone: 'run' });
   assert.equal(T.stateChip(rec({ status: 'completed' }), 'done'), null);

@@ -24,7 +24,7 @@ import { md } from '/vendor/chat/md.js';
 import { cached } from '/vendor/chat/blocks.js';
 import { permission, decisions, permAnswer, optionConfirm, question, formContent, missingRequired } from '/vendor/chat/ask.js';
 import { headline, commandOf, rawText } from '/vendor/chat/tools.js';
-import { commandView, contentView } from '/vendor/chat/cards.js';
+import { commandView, contentView, diffsView } from '/vendor/chat/cards.js';
 
 // ---- who, and what they typed ------------------------------------------------------------
 
@@ -90,24 +90,37 @@ export function permView(b, ctx) {
   const tool = b.tool || {};
   const call = { kind: tool.kind, title: tool.title, name: tool.name, rawInput: tool.rawInput, id: b.callId };
   const cmd = tool.command || commandOf(call);
-  // an agent may title its request with the command itself: then the call's own headline says it
-  const heading = b.title && b.title.trim() !== cmd.trim() ? b.title : headline(call, { reading: false }) || (b.calls || []).join(', ');
+  // what is asked for, in a line: the request's own title, else the call's headline (an agent may title its
+  // request with the command itself: then the command below says it)
+  const heading = b.title && b.title.trim() !== cmd.trim() ? b.title : headline(call, { reading: false });
   if (b.by) {
     const opt = (b.options || []).find((o) => o.optionId === b.optionId);
     const verb = b.by === 'cancel' ? 'cancelled' : opt && /reject/.test(opt.kind || '') ? 'denied' : 'allowed';
-    return html`<div class="bxc-perm bxc-settled" data-pid=${b.pid || ''}><div class="bxc-q">${heading}</div><div class="bxc-settled-by">${verb} by ${whoOf(b.by)}</div></div>`;
+    return html`<div class="bxc-perm bxc-settled" data-pid=${b.pid || ''}><div class="bxc-q">${heading || (b.calls || []).join(', ')}</div><div class="bxc-settled-by">${verb} by ${whoOf(b.by)}</div></div>`;
   }
   const can = canOf(ctx);
-  const card = permission(b, { name: nameOf(ctx), can, scopedOnly: !!ctx.sessionRules, where: ctx.sessionRules ? 'in this session' : 'in this conversation' });
+  const rec = ctx.callOf ? ctx.callOf(b) : null; // the call it is about, when the host holds its record
+  const card = permission(b, { name: nameOf(ctx), can, diffs: rec ? rec.diffs : null, scopedOnly: !!ctx.sessionRules, where: ctx.sessionRules ? 'in this session' : 'in this conversation' });
   const opts = card.options.length ? card.options : (b.options || []).length ? [] : decisions(b);
   const first = opts.find((o) => !o.reject && !o.explicit);
-  const busy = !!bagOf(ctx, b).busy;
+  const bag = bagOf(ctx, b);
+  const busy = !!bag.busy;
+  const calls = b.calls || [];
+  const shown = heading && heading !== cmd && !calls.length ? heading : '';
+  const ownDiff = (tool.content || []).some((it) => it && it.type === 'diff');
+  // a word with a rejection, where the host can send one
+  const word = ctx.rejectWord && opts.some((o) => o.reject);
   return html`<div class="bxc-perm" data-pid=${b.pid || ''}>
-    <div class="bxc-q"><b><bx-icon name="warning"></bx-icon>Permission</b> — ${heading}${card.description ? html`<div class="bxc-desc">${card.description}</div>` : nothing}</div>
-    ${cmd ? commandView(cmd, ctx) : tool.rawInput != null ? html`<pre class="bxc-cmd">${rawText(tool.rawInput)}</pre>` : nothing}
-    <div class="bxc-pbody">${contentView(tool.content, b, ctx, heading)}</div>
-    ${can.answer ? html`${card.rule ? html`<div class="bxc-rulenote">${card.rule}.</div>` : nothing}
-      <div class="bxc-btns">${opts.map((o) => optionButton(b, ctx, o, o === first, busy))}</div>
+    <div class="bxc-q"><b><bx-icon name="warning"></bx-icon>${card.lead}</b>${shown ? html` · <span class="bxc-ptitle">${shown}</span>` : nothing}
+      ${card.label && card.label !== shown ? html`<div class="bxc-desc">${card.label}</div>` : nothing}</div>
+    ${calls.length ? html`<ul class="bxc-calls">${calls.map((c) => html`<li class="bxc-mono">${c}</li>`)}</ul>` : nothing}
+    ${cmd ? commandView(cmd, ctx) : card.raw ? html`<pre class="bxc-cmd">${card.raw}</pre>` : nothing}
+    <div class="bxc-pbody">${contentView(tool.content, b, ctx, heading)}${!ownDiff && rec && rec.diffs && rec.diffs.length ? diffsView(b, rec.diffs, ctx) : nothing}</div>
+    ${card.description ? html`<div class="bxc-desc">${card.description}</div>` : nothing}
+    ${can.answer ? html`${word ? html`<input class="bxc-txt bxc-word" placeholder=${`optional — tell ${nameOf(ctx)} why (sent with a rejection)`}
+        .value=${bag.feedback || ''} @input=${(e) => { bag.feedback = e.target.value; }}>` : nothing}
+      <div class="bxc-btns">${opts.map((o) => optionButton(b, ctx, o, o === first, busy, word && o.reject ? () => { const fb = bag.feedback || ''; bag.feedback = ''; return fb; } : null))}</div>
+      ${card.rule ? html`<div class="bxc-rulenote">${card.rule}.</div>` : nothing}
       ${hiddenNote(card, ctx)}${noteOf(b, ctx)}` : viewOnly(ctx)}
   </div>`;
 }
@@ -156,35 +169,37 @@ function planApprovalView(b, ctx) {
 export function askView(b, ctx) {
   const q = question(b);
   const can = canOf(ctx);
-  const message = (dflt) => html`<div class="bxc-q bxc-md" .innerHTML=${cached(b, 'q', () => md(b.message || dflt))}></div>`;
+  // who asks, then the question in the agent's own words
+  const lead = (words) => html`<div class="bxc-q"><b><bx-icon name="question"></bx-icon>${words}</b></div>`;
+  const message = () => (b.message ? html`<div class="bxc-qmsg bxc-md" .innerHTML=${cached(b, 'q', () => md(b.message))}></div>` : nothing);
   if (q.mode === 'url') {
     if (b.action) {
       const verb = b.action === 'accept' ? 'opened' : b.action === 'complete' ? 'done' : b.action === 'decline' ? 'skipped' : 'cancelled';
-      return html`<div class="bxc-perm bxc-ask bxc-settled" data-eid=${b.eid || ''}>${message('A page to open')}<div class="bxc-settled-by">${verb} by ${whoOf(b.by)}</div></div>`;
+      return html`<div class="bxc-perm bxc-ask bxc-settled" data-eid=${b.eid || ''}>${b.message ? message() : lead('A page to open')}<div class="bxc-settled-by">${verb} by ${whoOf(b.by)}</div></div>`;
     }
     const busy = !!bagOf(ctx, b).busy;
     return html`<div class="bxc-perm bxc-ask" data-eid=${b.eid || ''} data-mode="url">
-      ${message(`${nameOf(ctx)} asks you to open a page`)}
+      ${lead(`${nameOf(ctx)} asks you to open a page`)}${message()}
       <div class="bxc-field">${q.url ? html`<a class="bxc-mono" href=${q.url} target="_blank" rel="noopener noreferrer">${q.url}</a>` : html`<span class="bxc-mono">${q.text}</span>`}</div>
       ${can.answer ? html`<div class="bxc-btns">
-        <button class="bxc-primary" ?disabled=${busy} @click=${() => send(b, ctx, () => ctx.answer(b, { action: 'accept', content: {} }))}>Done</button>
-        <button class="bxc-deny" ?disabled=${busy} @click=${() => send(b, ctx, () => ctx.answer(b, { action: 'decline' }))}>Skip</button>
+        <button class="bxc-primary" data-answer="accept" ?disabled=${busy} @click=${() => send(b, ctx, () => ctx.answer(b, { action: 'accept', content: {} }))}>Done</button>
+        <button class="bxc-deny" data-answer="decline" ?disabled=${busy} @click=${() => send(b, ctx, () => ctx.answer(b, { action: 'decline' }))}>Skip</button>
       </div>${noteOf(b, ctx)}` : viewOnly(ctx)}
     </div>`;
   }
   if (q.mode === 'text') {
-    return html`<div class="bxc-perm bxc-ask ${b.action ? 'bxc-settled' : ''}" data-eid=${b.eid || ''} data-mode="text">${message(`${nameOf(ctx)} asks`)}
+    return html`<div class="bxc-perm bxc-ask ${b.action ? 'bxc-settled' : ''}" data-eid=${b.eid || ''} data-mode="text">${b.action ? nothing : lead(`${nameOf(ctx)} asks`)}${message()}
       ${b.action ? html`<div class="bxc-settled-by">answered by ${whoOf(b.by)}</div>` : can.answer ? html`<div class="bxc-note">Your next message answers it.</div>` : viewOnly(ctx)}</div>`;
   }
   if (b.action) {
     const c = b.content || {};
     const verb = b.action === 'accept' ? 'answered' : b.action === 'decline' ? 'skipped' : 'cancelled';
-    return html`<div class="bxc-perm bxc-ask bxc-settled" data-eid=${b.eid || ''}>${message('A question')}
+    return html`<div class="bxc-perm bxc-ask bxc-settled" data-eid=${b.eid || ''}>${b.message ? message() : lead('A question')}
       ${b.action === 'accept' ? html`<ul class="bxc-answers">${q.fields.map((f) => answerLine(f, c))}</ul>` : nothing}
       <div class="bxc-settled-by">${verb} by ${whoOf(b.by)}</div></div>`;
   }
   return html`<div class="bxc-perm bxc-ask" data-eid=${b.eid || ''} data-mode="form">
-    ${message(`${nameOf(ctx)} asks`)}
+    ${lead(`${nameOf(ctx)} asks`)}${message()}
     <bx-chat-form .block=${b} .ctx=${ctx} .fields=${q.fields} .readonly=${!can.answer}></bx-chat-form>
     ${noteOf(b, ctx)}
   </div>`;
@@ -241,8 +256,8 @@ export class BxChatForm extends LitElement {
     return html`${(this.fields || []).map((f) => this._field(f, bag.vals, off))}
       ${this._err ? html`<div class="bxc-note bxc-err">${this._err}</div>` : nothing}
       ${this.readonly ? viewOnly(this.ctx) : html`<div class="bxc-btns">
-        <button class="bxc-primary" ?disabled=${off} @click=${() => this.submit()}>Submit</button>
-        <button class="bxc-deny" ?disabled=${off} @click=${() => this.skip()}>Skip</button>
+        <button class="bxc-primary" data-answer="accept" ?disabled=${off} @click=${() => this.submit()}>Submit</button>
+        <button class="bxc-deny" data-answer="decline" ?disabled=${off} @click=${() => this.skip()}>Skip</button>
       </div>`}`;
   }
 
