@@ -5885,7 +5885,8 @@ orgs, reason, offer: {newSession: {model}}}`.
 `tile_api_doc`; `tile_call`; `tile_agent_brief`, `tile_agent_start`,
 `tile_agent_message`, `tile_agent_status`, `tile_agent_result`,
 `tile_agent_cancel`, `tile_agents`; `research`; `tile_create`;
-`admin_propose`, `admin_changes`; `preview`; `plan`; `notebook_search`,
+`admin_propose`, `admin_changes` (the change sets this conversation
+proposed, never another session's); `preview`; `plan`; `notebook_search`,
 `notebook_read`, `notebook_write`, `notebook_edit`, `notebook_archive` —
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.

@@ -24,7 +24,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `clearStamps` field of `PUT /ws/notebook/{slug}` is gone and ignored):
   delete the page and have a clean session write it again. `research`'s
   `save_as` writes over an existing page only where the session may read
-  it, and adds to its stamps instead of replacing them.
+  it, and adds to its stamps instead of replacing them. `admin_changes`
+  lists the change sets its own conversation proposed, no other
+  session's.
 
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),
