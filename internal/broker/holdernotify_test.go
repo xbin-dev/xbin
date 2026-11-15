@@ -146,6 +146,13 @@ func TestConnectionViewForTheHoldersPage(t *testing.T) {
 		}
 		return nil, nil, false, "", false
 	}
+	// the orgs a person can see (for a session's allows and taint): the
+	// workspace, their own, one a tile they read is under — nothing else
+	for org, want := range map[string]bool{agentpolicy.WorkspaceID: true, "finance": true, "nosuch": false, "": false} {
+		if got := fx.b.AgentOrgVisible(ps["dave"], org); got != want {
+			t.Errorf("dave sees org %q: %v, want %v", org, got, want)
+		}
+	}
 	dave := ps["dave"]
 	page := auth.Principal{Component: holder, Via: "frame", UserID: "dave", User: dave.User, Access: dave.Access, Gen: "s.1"}
 	read := func(p auth.Principal, q string) (int, string) {

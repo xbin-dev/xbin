@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Workspace agents: a start carries its first prompt; xbind resolves a
+  start's defaults; taint from the agent's own store** (D228 C0;
+  [protocol/delegation.md](/docs/protocol/delegation.md)). A delegate's
+  `POST /term/sessions` takes `prompt` (bound by the ticket, shown on the
+  card, sent by xbind as the session's first prompt) and may name only its
+  tile — the card shows the effective harness, mode and network. New:
+  `GET /delegate/start-defaults?tile=`, `POST
+  /delegate/sessions/<id>/allows` and `…/taint`, `&ids=` on the compact
+  session read (`endedBy: exit | restart`). SDK: `StartDefaultsOf`,
+  `SessionAllows`, `TaintSession`.
 - **The workspace agent's backend: the agent template in workspace mode**
   (D231; [workspace-agent.md](/docs/workspace-agent.md), the template's
   `API.md` §Workspace mode). Started with `XBIN_AGENT_MODE=workspace` — by
@@ -26,15 +36,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (`tile_call`, `tile_create`, `admin_propose`), hand building to tile
   agents (`tile_agent_brief`, `tile_agent_start`, …) and ask a read-only
   sub-agent about a tile's code (`research`). Every side effect is filed
-  for the person's approval and waits for it; xbind keeps and checks the
+  for the person's approval — pending, never holding the conversation up — and xbind keeps and checks the
   approval. **For tile authors:** the agent reads your tile's `API.md`
   before it calls your API, calls arrive with `X-XBin-Agent`
   (`xbin.Caller(r).Agent`), and `"agent"` in the manifest says what agents
   may use. A normal instance of the template is unchanged: without the
   variable none of this exists, and an unknown value refuses to serve. The
-  template's coordinator kit gained what the profile needed — a tool call
-  that waits for a decision made outside the engine (`coord_park.go`), and
-  the profile hooks `System`, `Specs`, `ParkWords` and `Unpark`.
+  template's coordinator kit gained the profile hooks `System` and `Specs`.
 - **Agent sessions: a workspace agent's conversation is a handle xbind
   issues** (D228 part C0;
   [protocol/delegation.md](/docs/protocol/delegation.md) §Agent sessions).

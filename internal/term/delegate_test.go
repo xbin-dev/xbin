@@ -234,3 +234,34 @@ func TestDelegateStartIsWhatWasApproved(t *testing.T) {
 		t.Fatalf("SkipModeOptions: the agent's open %v, the person's %v", cfgs[0].SkipModeOptions, cfgs[len(cfgs)-1].SkipModeOptions)
 	}
 }
+
+// A workspace agent's start hands the session its first prompt — xbind
+// does, not the agent afterwards — and what the request left out is what
+// the person's card showed.
+func TestDelegateStartCarriesItsFirstPrompt(t *testing.T) {
+	r := newAgentRig(t)
+	m := r.m
+	const holder = "xbin/wsagent"
+	t.Cleanup(auth.TestSealDelegate(holder))
+	alice := &users.User{ID: "alice", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelTerminal}}
+	delegate := auth.Principal{UserID: "alice", User: alice, Via: "delegate", Agent: holder}
+	m.AgentPolicy = delegation.OpenPolicy{}
+	// the request named no harness, mode or network: the approved card's
+	open := AgentOpen{Cwd: "apps/x", Delegate: &DelegateStart{Approved: true, Provider: "fake", Mode: "ask"}}
+	open.Provider = DelegateProvider(open)
+	info, res, code, err := m.OpenAgentPrompted(context.Background(), delegate, open, "Fix the failing import test.")
+	if err != nil || code != 200 || info.Provider != "fake" || info.Mode != "ask" || info.Origin != OriginAgent {
+		t.Fatalf("the start: %d %v %+v", code, err, info)
+	}
+	defer m.Kill(info.ID)
+	if res.Outcome == "" || res.Turn == 0 && res.ID == "" {
+		t.Fatalf("the first prompt was neither sent nor held: %+v", res)
+	}
+	// no prompt: none is made up
+	open.Provider = "fake"
+	info2, res2, _, err := m.OpenAgentPrompted(context.Background(), delegate, open, "")
+	if err != nil || res2 != (QueueResult{}) {
+		t.Fatalf("a start without a prompt: %v %+v", err, res2)
+	}
+	m.Kill(info2.ID)
+}

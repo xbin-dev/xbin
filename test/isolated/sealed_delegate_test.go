@@ -136,7 +136,8 @@ func TestSealedHolderActsForItsPerson(t *testing.T) {
 		t.Errorf("bob's agent reads a tile bob can't: %d %s", r.Status, r.Body)
 	}
 	// never an admin, never into a system component — its own included
-	for _, path := range []string{"/api/xbin/users", "/api/xbin/sealed", "/api/" + sealedProbe + "/who", "/api/" + sealedPeople + "/who"} {
+	for _, path := range []string{"/api/xbin/users", "/api/xbin/sealed", "/api/" + sealedProbe + "/who", "/api/" + sealedPeople + "/who",
+		"/api/xbin/delegate/start-defaults?tile=" + sealedProbe, "/api/xbin/delegate/start-defaults?tile=" + sealedPeople} {
 		if r := asPerson("alice", "GET", path, "", ""); r.Status < 400 {
 			t.Errorf("alice's agent GET %s: %d %s", path, r.Status, r.Body)
 		}

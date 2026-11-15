@@ -19,10 +19,10 @@
 // not a stuck conversation; the engine itself has no ticker.
 //
 // What a decided request does: an approved one is made — that one call,
-// under its ticket — and what came of it settles the tool call parked on
-// it (coord_park.go); when no call is parked on it any more (the person
-// wrote meanwhile, the turn was stopped) the outcome is owed to the
-// conversation as a workspace update, and wakes it (coord_wake.go).
+// under its ticket — and what came of it is owed to the conversation as a
+// workspace update, which wakes it at once (coord_wake.go). No tool call
+// waits on a request, so a conversation with requests open still takes its
+// tile agents' updates.
 package main
 
 import (
@@ -141,7 +141,7 @@ func wsBoot() {
 	for _, s := range ag.wsOpenSessions() {
 		ag.wsReconcileSession(ctx, s, true)
 	}
-	// a session parked on a decision that landed just before the stop: look again
+	// an outcome owed since before the stop: look again
 	if e := projEng(); e != nil {
 		for _, id := range scanIDs(ag.db.q.Query(`SELECT run_id FROM ws_sessions`)) {
 			e.Poke(id)
@@ -187,9 +187,8 @@ func (ag *Agent) wsReconcile(ctx context.Context) bool {
 	return open
 }
 
-// wsReconcileSession reads s's open requests and live tile agents again.
-// boot: the first pass after a start — a tile agent found gone was stopped
-// by the restart, not by its work ending.
+// wsReconcileSession reads s's open requests and live tile agents again
+// (boot: the first pass after a start).
 func (ag *Agent) wsReconcileSession(ctx context.Context, s *wsSession, boot bool) (open bool) {
 	for _, r := range ag.db.wsReqs(`WHERE run_id=? AND state IN ('pending','approved','proposed','applying','running') ORDER BY id`, s.Run) {
 		if ag.wsCheckReq(ctx, s, r) {
@@ -330,9 +329,13 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, grant str
 	case wsReqSession:
 		var start wsAgentStart
 		_ = json.Unmarshal(r.Body, &start)
-		if r.Brief != 0 && start.Resume == "" { // the brief as it stands now: what its person saw when they decided
+		// with a ticket: exactly the start that was asked — its brief is part
+		// of what the person approved (an edit after the request was filed
+		// refiles it, ws_routes.go). Confirmed on the brief's card instead:
+		// the brief as it stands at the click.
+		if ticket == "" && r.Brief != 0 && start.Resume == "" {
 			if b, err := ag.db.wsBrief(r.Run, r.Brief); err == nil {
-				start.Prompt = wsBriefText(b, s.Owner) // the call itself (tile, harness, name) is the one that was asked
+				start = wsStartOf(b, s.Owner)
 			}
 		}
 		var a wsAgent
@@ -345,11 +348,8 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, grant str
 			break
 		}
 		row := ag.wsAddAgent(s, r, a)
-		outcome = fmt.Sprintf("%s — tile agent #%d started in %s (%s, %s). It is your person's session: they can open it and only they answer its questions. You are told when it ends its turn, fails or waits for them; until then go on with what doesn't depend on it.",
+		outcome = fmt.Sprintf("%s — tile agent #%d started in %s (%s, %s) and was told the brief. It is your person's session: they can open it and only they answer its questions. You are told when it ends its turn, fails or waits for them; until then go on with what doesn't depend on it.",
 			how, row.ID, row.Tile, orStr(row.Harness, "coding agent"), map[bool]string{true: "asks before acting", false: "acts without asking"}[row.Asks])
-		if err != nil { // it opened, but was not told its brief
-			outcome += " But its brief did not reach it (" + wsRefusal(err) + "): send it with tile_agent_message."
-		}
 	case wsReqTemplate:
 		var create wsTileCreate
 		_ = json.Unmarshal(r.Body, &create)
@@ -382,10 +382,13 @@ func (ag *Agent) wsLostTicket(ctx context.Context, s *wsSession, r *wsReq) bool 
 	return false
 }
 
-// wsOutcome records what came of r and gets it to the conversation: into
-// the tool call parked on it, or — when none is — as an update it is owed.
+// wsOutcome records what came of r and owes it to the conversation as a
+// workspace update. A decision is its person's act, like a message of
+// theirs: it wakes the conversation now, whatever the coalescing window
+// (which is for tile agents' chatter) — an idle one starts a turn, one in
+// a turn reads it at its next step.
 func (ag *Agent) wsOutcome(r *wsReq, state, outcome string) {
-	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state=?, outcome=?, decided_ms=? WHERE id=? AND state IN ('pending','approved','proposed','applying','running')`,
+	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state=?, outcome=?, decided_ms=?, owed=1, call_id='' WHERE id=? AND state IN ('pending','approved','proposed','applying','running')`,
 		state, outcome, nowMs(), r.ID)
 	if err != nil {
 		return
@@ -397,22 +400,11 @@ func (ag *Agent) wsOutcome(r *wsReq, state, outcome string) {
 		_, _ = ag.db.q.Exec(`UPDATE ws_briefs SET state=?, updated_ms=? WHERE id=? AND state='asked'`,
 			map[bool]string{true: "denied", false: "draft"}[state == "denied"], nowMs(), r.Brief)
 	}
-	cur, err := ag.db.wsReq(r.ID)
-	if err != nil {
-		return
+	coordForget(r.Run)
+	if e := projEng(); e != nil {
+		e.Poke(r.Run)
 	}
-	e := projEng()
-	settled := false
-	if cur.CallID != "" && e != nil {
-		settled = e.coordSettle(cur.Run, cur.CallID, fmt.Sprintf("Request %d (%s): %s", cur.ID, cur.Title, outcome))
-	}
-	if !settled {
-		_, _ = ag.db.q.Exec(`UPDATE ws_requests SET owed=1, call_id='' WHERE id=?`, cur.ID)
-		if e != nil {
-			e.Poke(cur.Run)
-		}
-	}
-	ag.wsChanged(cur.Run, "request")
+	ag.wsChanged(r.Run, "request")
 }
 
 // --- tile agents ---------------------------------------------------------------------
@@ -445,7 +437,7 @@ func (ag *Agent) wsAddAgent(s *wsSession, r *wsReq, a wsAgent) *wsAgentRow {
 func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a wsAgent, boot bool) {
 	next := *row
 	next.Status = orStr(a.Status, "ended")
-	if boot && (row.Status == "running" || row.Status == "starting") && !a.live() {
+	if a.EndedBy == "restart" && !a.live() { // xbind says its own restart ended it: cut off, not finished
 		next.Status = "stopped"
 	}
 	// just opened and not yet on its brief: an idle read is "about to work"

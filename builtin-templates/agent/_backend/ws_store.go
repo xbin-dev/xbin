@@ -12,6 +12,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"sort"
 	"strings"
 )
 
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS ws_requests (
   run_id     INTEGER NOT NULL,
   kind       TEXT    NOT NULL,            -- call | session | template | changeset
   ref        TEXT    NOT NULL,            -- xbind's id for it
-  call_id    TEXT    NOT NULL DEFAULT '', -- the tool call parked on it ('': none)
+  call_id    TEXT    NOT NULL DEFAULT '', -- unused (a call once waited on its request)
   tile       TEXT    NOT NULL DEFAULT '',
   title      TEXT    NOT NULL DEFAULT '', -- what it is, in the agent's words
   method     TEXT    NOT NULL DEFAULT '',
@@ -117,8 +118,18 @@ CREATE TABLE IF NOT EXISTS ws_pages (
 // addWsSchema makes the workspace agent's tables (schemaAdds: additive,
 // idempotent).
 func (d *DB) addWsSchema() error {
-	_, err := d.q.Exec(wsSchema)
-	return err
+	if _, err := d.q.Exec(wsSchema); err != nil {
+		return err
+	}
+	// columns added after the tables were first made (ALTER fails
+	// harmlessly when the column is already there)
+	for _, q := range []string{
+		`ALTER TABLE ws_briefs ADD COLUMN harness TEXT NOT NULL DEFAULT ''`, // the person's pick among what the tile allows
+		`ALTER TABLE ws_sessions ADD COLUMN allow TEXT NOT NULL DEFAULT ''`, // which stamped orgs allow the session's model, as last asked
+	} {
+		_, _ = d.q.Exec(q)
+	}
+	return nil
 }
 
 // wsRunDeleted (runDeletedHooks): a conversation is gone, and what it kept.
@@ -137,25 +148,32 @@ func wsRunDeleted(t *DB, runID int64) error {
 
 // wsSession is a workspace conversation's own state.
 type wsSession struct {
-	Run     int64
-	Owner   string
-	Main    bool
-	Handle  string
-	Model   string
-	Scope   *wsScope
-	Conn    wsHandle // as last read
-	ConnMs  int64
+	Run    int64
+	Owner  string
+	Main   bool
+	Handle string
+	Model  string
+	Scope  *wsScope
+	Conn   wsHandle // as last read
+	ConnMs int64
+	// Allow is which orgs (of the notebook's stamps) allow the session's
+	// model, as xbind last answered: org → "" (allowed) or why not. An org
+	// that isn't in it has not been asked: its pages are closed until it is.
+	Allow   map[string]string
 	Plan    string
 	Created int64
 }
 
-const wsSessionCols = `run_id, owner, main, handle, model, scope, conn, conn_ms, plan, created_ms`
+const wsSessionCols = `run_id, owner, main, handle, model, scope, conn, conn_ms, plan, created_ms, allow`
 
 func scanWsSession(scan func(...any) error) (*wsSession, error) {
 	var s wsSession
-	var scope, conn string
-	if err := scan(&s.Run, &s.Owner, &s.Main, &s.Handle, &s.Model, &scope, &conn, &s.ConnMs, &s.Plan, &s.Created); err != nil {
+	var scope, conn, allow string
+	if err := scan(&s.Run, &s.Owner, &s.Main, &s.Handle, &s.Model, &scope, &conn, &s.ConnMs, &s.Plan, &s.Created, &allow); err != nil {
 		return nil, err
+	}
+	if allow != "" {
+		_ = json.Unmarshal([]byte(allow), &s.Allow)
 	}
 	if scope != "" {
 		s.Scope = &wsScope{}
@@ -387,6 +405,7 @@ type wsBrief struct {
 	LeaveAlone string `json:"leaveAlone"`
 	CheckBy    string `json:"checkBy"`
 	Known      string `json:"known,omitempty"`
+	Harness    string `json:"harness,omitempty"` // the person's pick ("": what xbind resolves)
 	State      string `json:"state"`
 	Session    string `json:"session,omitempty"`
 	Edited     bool   `json:"edited,omitempty"`
@@ -394,11 +413,11 @@ type wsBrief struct {
 	Updated    int64  `json:"updatedMs"`
 }
 
-const wsBriefCols = `id, run_id, tile, goal, done_when, leave_alone, check_by, known, state, session, edited, created_ms, updated_ms`
+const wsBriefCols = `id, run_id, tile, goal, done_when, leave_alone, check_by, known, state, session, edited, created_ms, updated_ms, harness`
 
 func scanWsBrief(scan func(...any) error) (*wsBrief, error) {
 	var b wsBrief
-	err := scan(&b.ID, &b.Run, &b.Tile, &b.Goal, &b.DoneWhen, &b.LeaveAlone, &b.CheckBy, &b.Known, &b.State, &b.Session, &b.Edited, &b.Created, &b.Updated)
+	err := scan(&b.ID, &b.Run, &b.Tile, &b.Goal, &b.DoneWhen, &b.LeaveAlone, &b.CheckBy, &b.Known, &b.State, &b.Session, &b.Edited, &b.Created, &b.Updated, &b.Harness)
 	return &b, err
 }
 
@@ -444,6 +463,7 @@ func (d *DB) wsPutStamp(store int64, slug string, s wsStamp) error {
 	if s.Orgs == nil {
 		s.Orgs = []string{}
 	}
+	sort.Strings(s.Orgs)
 	_, err := d.q.Exec(`INSERT INTO ws_pages (store_id, slug, orgs, tile, rev, summary) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(store_id, slug) DO UPDATE SET orgs=excluded.orgs, tile=excluded.tile, rev=excluded.rev, summary=excluded.summary`,
 		store, slug, mustJSON(s.Orgs), s.Tile, s.Rev, s.Summary)

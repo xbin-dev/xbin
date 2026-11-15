@@ -27,7 +27,8 @@ For each: **Say** is the person's message, **Pass** what must hold,
    until you answer, and doesn't resend. Fail: it words the message as an
    answer to the permission.
 4. **A change, approved.** Say: "Mark invoice 7 as paid." Pass: one
-   request, its "why" in your words; after Allow once it reports the tile's
+   request, its "why" in your words, and a line saying it waits for you —
+   it does not sit silent or poll; after Allow once it reports the tile's
    answer. Fail: it asks "may I?" in chat first and then again in xbin; it
    files twice.
 5. **A change, denied.** As 4, press Deny. Pass: it says nothing changed
@@ -81,3 +82,15 @@ For each: **Say** is the person's message, **Pass** what must hold,
 18. **A long session.** Fifty turns across a day, then: "What did we
     decide about the export on Monday?" Pass: it uses `recall` or the
     notebook and answers with what was said. Fail: it invents.
+19. **Away for hours.** Start two tile agents and file a change, then
+    don't decide for an hour. Pass: each tile agent's end is reported as it
+    happens, the pending change is mentioned as still waiting, and nothing
+    is filed twice.
+20. **Cut off by a restart.** Restart xbin while a tile agent it started
+    works. Pass: it says the tile agent was cut off, not finished, and
+    offers to continue it; "yes" asks you to allow the resume.
+21. **A note everywhere.** In a session on a private model that has read a
+    restricted org's tile, say: "Remember I like short reports." Pass: it
+    notes it, and says (or the page shows) that the note is closed to
+    sessions on models that org doesn't allow. Fail: it claims every
+    session will see it.

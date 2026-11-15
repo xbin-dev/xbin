@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -201,7 +202,20 @@ func (ag *Agent) wsRefresh(ctx context.Context, s *wsSession, force bool) {
 	if ag.db.wsPutHandle(s.Run, h) == nil {
 		s.Conn, s.ConnMs, s.Scope, s.Model = h, nowMs(), h.Scope, h.Model
 	}
+	// the orgs' rules may have moved too — asked again at most every
+	// wsAllowFresh: the question is an act at xbind (rate-limited with the
+	// agent's others), and a stale yes shows nothing xbind wouldn't: the
+	// taint a page's reading records is refused for a model its org forbids
+	if last, _ := wsAllowAt.Load(s.Run); last == nil || nowMs()-last.(int64) > wsAllowFresh.Milliseconds() {
+		ag.wsAllow(ctx, s)
+	}
 }
+
+// wsAllowFresh is how long a session's allow answers are trusted;
+// wsAllowAt when each session last asked.
+const wsAllowFresh = 5 * time.Minute
+
+var wsAllowAt sync.Map
 
 func wsUnion(a, b []string) []string {
 	out := append([]string(nil), a...)
@@ -262,6 +276,7 @@ func (ag *Agent) wsChange(ctx context.Context, s *wsSession, ch wsHandleChange) 
 		if ag.eng != nil {
 			ag.eng.emitRun(t, s.Run)
 		}
+		t.AfterCommit(func() { ag.wsAllow(ctx, s) }) // another model: which pages it may read is asked again
 		return nil
 	})
 }
@@ -321,26 +336,101 @@ func wsConnLine(c wsConnection) string {
 	return out
 }
 
-// wsPickHarness is the coding agent a tile agent s starts in tile runs on:
-// the one the person chose in this backend's preferences when the tile's
-// rules allow it there, else the first xbind lists for the tile. Never the
-// model's choice.
-func (ag *Agent) wsPickHarness(ctx context.Context, s *wsSession, tile string) (wsHarness, error) {
-	var hs []wsHarness
-	if err := ag.wsWith(ctx, s, func(sid string) (err error) { hs, err = wsX.Harnesses(ctx, sid, tile); return }); err != nil {
-		return wsHarness{}, err
+// wsAllow asks xbind which of the notebook's stamped orgs allow s's
+// model, and keeps the answer on the session: what its pages' readability
+// is decided by (ws_notebook.go). One call for every org on any stamp.
+func (ag *Agent) wsAllow(ctx context.Context, s *wsSession) {
+	store, err := ag.db.knowID(wsNotebook(s.Owner), false)
+	if err != nil {
+		return
 	}
-	if len(hs) == 0 {
-		return wsHarness{}, fmt.Errorf("no coding agent is allowed on %s: its org's rules, or the workspace's, leave none. Tell your person; an admin sets which coding agents a tile may run", tile)
+	var orgs []string
+	rows, err := ag.db.q.Query(`SELECT orgs FROM ws_pages WHERE store_id=?`, store)
+	if err != nil {
+		return
 	}
-	if want := wsPrefs(ag.db).Harness; want != "" {
-		for _, h := range hs {
-			if h.ID == want {
-				return h, nil
+	for rows.Next() {
+		var raw string
+		var list []string
+		if rows.Scan(&raw) == nil && json.Unmarshal([]byte(raw), &list) == nil {
+			orgs = wsUnion(orgs, list)
+		}
+	}
+	rows.Close()
+	allow := map[string]string{}
+	if len(orgs) > 0 {
+		var ok bool
+		var reasons map[string]string
+		if err := ag.wsWith(ctx, s, func(sid string) (err error) { ok, reasons, err = wsX.Allows(ctx, sid, orgs); return }); err != nil {
+			return // as last asked
+		}
+		for _, o := range orgs {
+			why, refused := reasons[o]
+			switch {
+			case refused:
+				allow[o] = orStr(why, "it doesn't allow this session's model")
+			case ok || len(reasons) > 0:
+				allow[o] = ""
+			default: // refused with no org named: none is vouched for
+				allow[o] = "its rules don't allow this session's model"
 			}
 		}
 	}
-	return hs[0], nil
+	if _, err := ag.db.q.Exec(`UPDATE ws_sessions SET allow=? WHERE run_id=?`, mustJSON(allow), s.Run); err == nil {
+		s.Allow = allow
+		wsAllowAt.Store(s.Run, nowMs())
+	}
+}
+
+// wsAllowKnown asks xbind (wsAllow) only when the notebook holds a stamp
+// with an org the session has no answer for yet — a page another session
+// wrote since, or a session that never asked.
+func (ag *Agent) wsAllowKnown(ctx context.Context, s *wsSession, store int64) {
+	rows, err := ag.db.q.Query(`SELECT orgs FROM ws_pages WHERE store_id=?`, store)
+	if err != nil {
+		return
+	}
+	missing := false
+	for rows.Next() {
+		var raw string
+		var list []string
+		if rows.Scan(&raw) == nil && json.Unmarshal([]byte(raw), &list) == nil {
+			for _, o := range list {
+				if _, asked := s.Allow[o]; !asked {
+					missing = true
+				}
+			}
+		}
+	}
+	rows.Close()
+	if missing {
+		ag.wsAllow(ctx, s)
+	}
+}
+
+// wsHold records at xbind that the conversation now holds data of orgs —
+// before a notebook page stamped with them is read or shown to it. An
+// error means the page isn't shown.
+func (ag *Agent) wsHold(ctx context.Context, s *wsSession, orgs []string) error {
+	var need []string
+	for _, o := range orgs {
+		if !hasStr(s.Conn.Tainted, o) {
+			need = append(need, o)
+		}
+	}
+	if len(need) == 0 {
+		return nil
+	}
+	if err := ag.wsWith(ctx, s, func(sid string) error { return wsX.Taint(ctx, sid, need) }); err != nil {
+		return err
+	}
+	h := s.Conn
+	h.Tainted = wsUnion(h.Tainted, need)
+	if err := ag.db.wsPutHandle(s.Run, h); err != nil {
+		return err
+	}
+	s.Conn = h
+	return nil
 }
 
 func init() { llmHeaderHooks = append(llmHeaderHooks, wsLLMHeader) }

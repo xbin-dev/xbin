@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -46,6 +47,9 @@ func (fakeWorld) AgentScreens(p auth.Principal, hide func(string) bool) []map[st
 		}
 	}
 	return []map[string]any{{"id": "default", "name": "Default", "tiles": tiles}}
+}
+func (fakeWorld) AgentOrgVisible(_ auth.Principal, org string) bool {
+	return org == "fin" || org == agentpolicy.WorkspaceID
 }
 func (fakeWorld) AgentPersonOrgs(auth.Principal) []map[string]any {
 	return []map[string]any{{"id": "fin", "name": "Finance"}}
@@ -361,5 +365,165 @@ func TestDelegatePreview(t *testing.T) {
 	w.policy.set(func(d *dPolicy) { d.deny["apps/x"] = errors.New("Finance allows private models only") })
 	if code, body := post(`{"tile":"apps/x"}`, bob); code != 403 || !strings.Contains(body, "Finance allows private models only") {
 		t.Errorf("blocked by policy: %d %s", code, body)
+	}
+}
+
+// What the agent's backend needs of a session beyond calls: whether its
+// model satisfies some orgs' rules, and taint for data it took in where
+// xbind didn't see it. Taint is add-only, and it binds later model changes.
+func TestAgentSessionAllowsAndTaint(t *testing.T) {
+	w := delegateWorld(t)
+	world := fakeWorld{}
+	w.s.AgentWorld, w.invS.AgentWorld = world, world
+	bare := delegateCredBare("d-bob")
+	open := func(model string) (string, cred) {
+		h, err := w.store.NewAgentSession("bob", dHolder, nil, model)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h.ID, func(r *http.Request) { bare(r); r.Header.Set(HeaderAgentSession, h.ID) }
+	}
+	post := func(id, what, body string, c cred) (int, string) {
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/sessions/"+id+"/"+what, body, c)
+		return rec.Code, rec.Body.String()
+	}
+	tainted := func(id string) []string {
+		h, _ := w.store.AgentSession("bob", dHolder, id)
+		return h.Tainted
+	}
+	local, bobL := open("local/a")
+	hosted, bobH := open("hosted/big")
+
+	// allows: the session's model against the orgs' rules
+	if code, body := post(local, "allows", `{"orgs":["fin","workspace"]}`, bobL); code != 200 || !strings.Contains(body, `"allowed":true`) {
+		t.Errorf("a private model, Finance: %d %s", code, body)
+	}
+	if code, body := post(hosted, "allows", `{"orgs":["fin","workspace"]}`, bobH); code != 200 || !strings.Contains(body, `"allowed":false`) || !strings.Contains(body, `"fin":"Finance allows private models only"`) {
+		t.Errorf("a hosted model, Finance: %d %s", code, body)
+	}
+	for _, bad := range []string{`{"orgs":["nosuch"]}`, `{"orgs":["fin","hidden-org"]}`} { // an org bob can't see is no org
+		for _, what := range []string{"allows", "taint"} {
+			if code, body := post(local, what, bad, bobL); code != 403 {
+				t.Errorf("%s %s: %d %s", what, bad, code, body)
+			}
+		}
+	}
+	if code, _ := post(local, "taint", `{"orgs":[]}`, bobL); code != 400 {
+		t.Errorf("taint with no orgs: %d", code)
+	}
+	// taint: added, never shed
+	if code, body := post(local, "taint", `{"orgs":["fin"]}`, bobL); code != 200 || !slices.Equal(tainted(local), []string{"fin"}) {
+		t.Fatalf("taint fin: %d %s (%v)", code, body, tainted(local))
+	}
+	if code, _ := post(local, "taint", `{"orgs":["workspace"]}`, bobL); code != 200 || !slices.Equal(tainted(local), []string{"fin", "workspace"}) {
+		t.Fatalf("a second taint dropped the first: %v", tainted(local))
+	}
+	w.do(w.full, "PATCH", "/api/xbin/delegate/sessions/"+local, `{"tainted":[],"scope":null}`, bobL)
+	if !slices.Equal(tainted(local), []string{"fin", "workspace"}) {
+		t.Fatalf("a PATCH shed taint: %v", tainted(local))
+	}
+	// …and it binds the model: the change that was fine before it is refused after
+	if rec := w.do(w.full, "PATCH", "/api/xbin/delegate/sessions/"+local, `{"model":"hosted/big"}`, bobL); rec.Code != 409 || !strings.Contains(rec.Body.String(), `"code":"model_taint"`) {
+		t.Fatalf("a model change after the taint: %d %s", rec.Code, rec.Body.String())
+	}
+	// a session whose model may not see an org's data can't take it in
+	if code, body := post(hosted, "taint", `{"orgs":["fin"]}`, bobH); code != 409 || !strings.Contains(body, `"code":"model_taint"`) || len(tainted(hosted)) != 0 {
+		t.Errorf("a hosted session taking in Finance's data: %d %s (%v)", code, body, tainted(hosted))
+	}
+	// another person's agent, and the person, can't
+	if code, _ := post(local, "taint", `{"orgs":["fin"]}`, delegateCred("d-alice")); code == 200 {
+		t.Error("alice's agent tainted bob's session")
+	}
+	if code, _ := post(local, "taint", `{"orgs":["fin"]}`, w.cookie("bob")); code != 403 {
+		t.Errorf("the person tainted a session: %d", code)
+	}
+}
+
+// A start says what it will be told first, and what it leaves out xbind
+// fills from the person's preferences and the tile's rules — and shows.
+func TestDelegateStartDefaultsAndPrompt(t *testing.T) {
+	w := delegateWorld(t)
+	alice := delegateCred("d-alice")
+	get := func() startDefaultsView {
+		rec := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice)
+		if rec.Code != 200 {
+			t.Fatalf("start-defaults: %d %s", rec.Code, rec.Body.String())
+		}
+		return decode[startDefaultsView](t, rec)
+	}
+	// no preference: every harness the rules allow, each start approved, in a mode that asks
+	d := get()
+	if len(d.Harnesses) == 0 || d.Harness == "" {
+		t.Fatalf("no harness on apps/x: %+v", d)
+	}
+	for _, h := range d.Harnesses {
+		if !h.NeedsTicket || h.Name == "" {
+			t.Errorf("without a preference, %s: %+v", h.ID, h)
+		}
+	}
+	claude, ok := d.of("claude")
+	if !ok || !claude.Asks || claude.Mode == "" {
+		t.Fatalf("claude isn't among %+v", d.Harnesses)
+	}
+	// the person lets starts go unasked, on a network of their choosing
+	w.policy.set(func(p *dPolicy) {
+		p.prefs["alice"] = delegation.StartPrefs{Mode: claude.Mode, Net: "internet", API: true}
+	})
+	d = get()
+	if h, _ := d.of(d.Harness); h.NeedsTicket || h.Net != "internet" || !h.Asks {
+		t.Errorf("with a preference, the default %s: %+v", d.Harness, h)
+	}
+	w.policy.set(func(p *dPolicy) { delete(p.prefs, "alice") })
+	// a tile the person has no terminal on, and a rule that keeps a harness out
+	if rec := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", delegateCred("d-bob")); rec.Code != 403 {
+		t.Errorf("bob (read only) asks for start defaults: %d", rec.Code)
+	}
+
+	// a start that names only its tile: the card shows what xbind resolved, and what it will be told first
+	const brief = "Fix the failing import test.\nDon't touch the schema."
+	body, _ := json.Marshal(map[string]string{"cwd": "apps/x", "kind": "agent", "prompt": brief})
+	req := w.ask(alice, "POST", "/api/xbin/term/sessions", string(body))
+	sess, _ := req.Preview["session"].(map[string]any)
+	if sess["provider"] != get().Harness || sess["mode"] == "" || sess["asks"] != true || sess["prompt"] != brief {
+		t.Fatalf("the card of a start that named nothing: %v", sess)
+	}
+	// the brief is part of what the ticket binds: another one isn't this start
+	w.approve(w.cookie("alice"), req.ID, "once")
+	other, _ := json.Marshal(map[string]string{"cwd": "apps/x", "kind": "agent", "prompt": "Delete the schema."})
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", string(other), alice, header(HeaderTicket, req.ID)); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"refusal":"ticket"`) {
+		t.Fatalf("the ticket with another first prompt: %d %s", rec.Code, rec.Body.String())
+	}
+	// the approved start passes the gate and reaches the open (this fixture
+	// has no bx to run a session with: term's tests hand over the prompt)
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", string(body), alice, header(HeaderTicket, req.ID)); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("the approved start: %d %s", rec.Code, rec.Body.String())
+	}
+	// the compact read: a session the agent knew of that is gone, with how it ended
+	rec := w.do(w.full, "GET", "/api/xbin/term/sessions?origin=agent&compact=1&ids=gone-1", "", alice)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `{"endedBy":"restart","id":"gone-1","status":"ended"}`) {
+		t.Errorf("the compact read: %d %s", rec.Code, rec.Body.String())
+	}
+	// a request that expired while xbind was down: its holder is told when xbind is back
+	var told []string
+	w.s.HolderNotify = func(holder, user, kind, id string) { told = append(told, holder+" "+user+" "+kind+" "+id) }
+	waiting := w.ask(alice, "POST", "/api/xbin/term/sessions", string(body))
+	told = nil
+	now := time.Now().Add(delegation.PendingTTL + time.Hour)
+	w.store.SetClock(func() time.Time { return now })
+	w.s.RearmDelegateNotices()
+	if !slices.Contains(told, dHolder+" alice request "+waiting.ID) {
+		t.Errorf("after a restart past the request's expiry, the holder was told %v", told)
+	}
+	if got, _ := w.store.Request("alice", waiting.ID); got.State != "expired" {
+		t.Errorf("the request reads %s", got.State)
+	}
+	w.store.SetClock(time.Now)
+	// a prompt is a workspace agent's start's: a person's own start doesn't take one
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", string(body), w.cookie("alice")); rec.Code != 400 {
+		t.Errorf("a person's start with a prompt: %d %s", rec.Code, rec.Body.String())
+	}
+	big, _ := json.Marshal(map[string]string{"cwd": "apps/x", "kind": "agent", "prompt": strings.Repeat("x", maxStartPrompt+1)})
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", `{"method":"POST","path":"/api/xbin/term/sessions","body":`+strconv.Quote(string(big))+`}`, alice); rec.Code == 200 {
+		t.Error("a start with an over-long first prompt was asked for")
 	}
 }

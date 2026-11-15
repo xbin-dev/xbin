@@ -564,21 +564,53 @@ func (f *fakeXbin) Withdraw(_ context.Context, sid, id string) error {
 	return nil
 }
 
-// fakeStartCall is a start as a ticket binds it: the tile, the harness and
-// the name (or the session resumed) — xbind's start carries no prompt.
+// fakeStartCall is a start as a ticket binds it: the tile, the brief as
+// its first prompt, the name, and the harness when the person picked one.
 func fakeStartCall(a wsAgentStart) wsCall {
-	a.Prompt = ""
 	body, _ := json.Marshal(a)
 	return wsCall{Method: "POST", Path: "/api/xbin/term/sessions", Body: body}
 }
 
-func (f *fakeXbin) Harnesses(_ context.Context, sid, tile string) ([]wsHarness, error) {
+func (f *fakeXbin) StartDefaults(_ context.Context, sid, tile string) (wsStartDefaults, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, err := f.tile(sid, tile, false); err != nil {
-		return nil, err
+		return wsStartDefaults{}, err
 	}
-	return append([]wsHarness(nil), f.harnesses...), nil
+	d := wsStartDefaults{Tile: tile, Harness: f.harnesses[0].ID, Mode: "default", Asks: true, Net: "model", Ticket: f.startAsk}
+	for _, h := range f.harnesses {
+		d.Harnesses = append(d.Harnesses, wsHarness{ID: h.ID, Name: h.Name, Mode: "default", Asks: true, Net: "model", NeedsTicket: f.startAsk})
+	}
+	return d, nil
+}
+
+func (f *fakeXbin) Allows(_ context.Context, sid string, orgs []string) (bool, map[string]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	h, err := f.handle(sid)
+	if err != nil {
+		return false, nil, err
+	}
+	f.note("Allows %s", strings.Join(orgs, ","))
+	reasons := map[string]string{}
+	for _, o := range orgs {
+		if why := f.orgBlocked(o, h.Model); why != "" {
+			reasons[o] = why
+		}
+	}
+	return len(reasons) == 0, reasons, nil
+}
+
+func (f *fakeXbin) Taint(_ context.Context, sid string, orgs []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	h, err := f.handle(sid)
+	if err != nil {
+		return err
+	}
+	f.note("Taint %s", strings.Join(orgs, ","))
+	h.Tainted = wsUnion(h.Tainted, orgs)
+	return nil
 }
 
 func (f *fakeXbin) AskAgentStart(_ context.Context, sid string, a wsAgentStart, summary string) (wsRequest, error) {
@@ -613,20 +645,30 @@ func (f *fakeXbin) AgentStart(_ context.Context, sid string, a wsAgentStart, tic
 		}
 		return wsAgent{}, ans.Dry, err
 	}
-	name := a.Harness
-	for _, h := range f.harnesses {
-		if h.ID == a.Harness {
-			name = h.Name
+	// xbind resolves the harness: the person's pick when the tile allows it,
+	// else their preference (here: the first)
+	harness := f.harnesses[0]
+	if a.Resume != "" {
+		if old := f.agents[a.Resume]; old != nil {
+			harness = wsHarness{ID: old.Provider, Name: old.Name}
+		}
+	} else if a.Harness != "" {
+		ok := false
+		for _, h := range f.harnesses {
+			if h.ID == a.Harness {
+				harness, ok = h, true
+			}
+		}
+		if !ok {
+			return wsAgent{}, nil, &xbin.DelegateError{Status: 403, Refusal: "tile", Message: a.Harness + " isn't allowed on this tile"}
 		}
 	}
-	if a.Resume == "" && name == a.Harness {
-		return wsAgent{}, nil, &xbin.DelegateError{Status: 400, Message: "unknown provider " + a.Harness}
-	}
-	ag := &wsAgent{ID: f.id("s"), Tile: a.Tile, Provider: a.Harness, Name: orStr(name, "Claude Code"), Mode: "default", Asks: true, Status: "running", Origin: "agent", Mine: true, Turn: 1}
+	ag := &wsAgent{ID: f.id("s"), Tile: a.Tile, Provider: harness.ID, Name: harness.Name, Mode: "default", Asks: true, Status: "running", Origin: "agent", Mine: true, Turn: 1}
 	f.agents[ag.ID] = ag
 	if a.Prompt != "" {
-		f.said[ag.ID] = append(f.said[ag.ID], a.Prompt) // the brief: its first message
+		f.said[ag.ID] = append(f.said[ag.ID], a.Prompt) // xbind sends the brief: its first prompt
 	}
+	f.note("AgentStart %s resume=%s", ag.ID, a.Resume)
 	return *ag, nil, nil
 }
 
@@ -865,6 +907,7 @@ func newWsFix(t *testing.T) *wsFix {
 	coordWakeEvery.Store(int64(30 * time.Millisecond))
 	coordWakerReset()
 	wsSyncReset()
+	wsAllowAt.Range(func(k, _ any) bool { wsAllowAt.Delete(k); return true }) // run ids repeat from one test's database to the next
 	t.Cleanup(func() {
 		wsSyncReset()
 		wsX = oldX

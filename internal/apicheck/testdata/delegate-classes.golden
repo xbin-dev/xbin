@@ -91,6 +91,7 @@ GET /delegate/requests	never
 GET /delegate/requests/{id}	read
 GET /delegate/sessions/{id}	read
 GET /delegate/sessions/{id}/connection	read
+GET /delegate/start-defaults	read	tile:byTileQuery
 GET /delegate/state	read
 GET /delegate/workspace	never
 GET /deployments	refused
@@ -224,6 +225,8 @@ POST /delegate/requests	act
 POST /delegate/requests/{id}/approve	never
 POST /delegate/requests/{id}/deny	never
 POST /delegate/sessions	act
+POST /delegate/sessions/{id}/allows	act
+POST /delegate/sessions/{id}/taint	act
 POST /deployments/add	refused
 POST /deployments/always-on	refused
 POST /deployments/backup	refused

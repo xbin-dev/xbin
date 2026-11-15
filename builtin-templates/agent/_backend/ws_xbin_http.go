@@ -148,6 +148,23 @@ func (h wsHTTP) UpdateSession(ctx context.Context, sid string, ch wsHandleChange
 	return h.filled(ctx, out, err)
 }
 
+// Allows asks whether the session's model is allowed by every one of orgs.
+func (h wsHTTP) Allows(ctx context.Context, sid string, orgs []string) (bool, map[string]string, error) {
+	var out struct {
+		Allowed bool              `json:"allowed"`
+		Reasons map[string]string `json:"reasons"`
+	}
+	if err := h.json(ctx, sid, http.MethodPost, wsSessionsPath+"/"+url.PathEscape(sid)+"/allows", map[string]any{"orgs": orgs}, &out); err != nil {
+		return false, nil, err
+	}
+	return out.Allowed, out.Reasons, nil
+}
+
+// Taint records that the conversation holds data of orgs.
+func (h wsHTTP) Taint(ctx context.Context, sid string, orgs []string) error {
+	return h.json(ctx, sid, http.MethodPost, wsSessionsPath+"/"+url.PathEscape(sid)+"/taint", map[string]any{"orgs": orgs}, nil)
+}
+
 func (h wsHTTP) CloseSession(ctx context.Context, sid string) error {
 	return h.json(ctx, sid, http.MethodDelete, wsSessionsPath+"/"+url.PathEscape(sid), nil, nil)
 }
@@ -413,35 +430,35 @@ func (h wsHTTP) Withdraw(ctx context.Context, sid, id string) error {
 // --- tile agents -------------------------------------------------------------------
 
 // startCall is a's start as xbind's session directory takes it: the tile,
-// the harness and a name. Never a mode, a network or an option — a ticket
-// opens what the person saw on its card, and a start on their preference
-// takes those from the preference. A resume names the past session; its
-// harness is its history's.
+// the brief as the session's first prompt (bound into the ticket, shown by
+// xbind, sent by xbind), a name, and the harness only when the person
+// picked one. Never a mode, a network or an option.
 func (wsHTTP) startCall(a wsAgentStart) wsCall {
 	in := map[string]any{"cwd": a.Tile, "kind": "agent"}
 	if a.Resume != "" {
 		in["resume"] = a.Resume
 	} else {
-		in["provider"] = a.Harness
+		in["prompt"] = a.Prompt
 		if a.Name != "" {
 			in["name"] = a.Name
+		}
+		if a.Harness != "" {
+			in["provider"] = a.Harness
 		}
 	}
 	body, _ := json.Marshal(in)
 	return wsCall{Method: http.MethodPost, Path: "/api/xbin/term/sessions", Body: body, ContentType: "application/json"}
 }
 
-// Harnesses are the coding agents the tile's orgs and the workspace allow
-// there, in xbind's order.
-func (h wsHTTP) Harnesses(ctx context.Context, sid, tile string) ([]wsHarness, error) {
-	var rows []struct{ ID, Name string }
-	if err := h.get(ctx, sid, "/api/xbin/agent/providers?cwd="+url.QueryEscape(tile), &rows); err != nil {
-		return nil, err
+// StartDefaults reads what a start in tile resolves to.
+func (h wsHTTP) StartDefaults(ctx context.Context, sid, tile string) (wsStartDefaults, error) {
+	var out wsStartDefaults
+	if err := h.get(ctx, sid, "/api/xbin/delegate/start-defaults?tile="+url.QueryEscape(tile), &out); err != nil {
+		return out, err
 	}
-	out := make([]wsHarness, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, wsHarness{ID: r.ID, Name: r.Name})
-	}
+	out.Tile = orStr(out.Tile, tile)
+	def, _ := out.of(out.Harness)
+	out.Mode, out.Asks, out.Net, out.Ticket = def.Mode, def.Asks, def.Net, def.NeedsTicket
 	return out, nil
 }
 
@@ -449,9 +466,8 @@ func (h wsHTTP) AskAgentStart(ctx context.Context, sid string, a wsAgentStart, s
 	return h.Ask(ctx, sid, h.startCall(a), summary)
 }
 
-// AgentStart opens the session and then hands it its brief: xbind's start
-// carries no prompt, so the brief is the session's first message — sent
-// here, as the bytes the brief had when its person decided.
+// AgentStart opens the session. xbind sends the brief itself, as the
+// session's first prompt.
 func (h wsHTTP) AgentStart(ctx context.Context, sid string, a wsAgentStart, ticket string, dry bool) (wsAgent, *wsDry, error) {
 	c := h.startCall(a)
 	c.Ticket, c.DryRun = ticket, dry
@@ -467,11 +483,6 @@ func (h wsHTTP) AgentStart(ctx context.Context, sid string, a wsAgentStart, tick
 	ag.Mine = true
 	if ag.Tile == "" {
 		ag.Tile = a.Tile
-	}
-	if a.Resume == "" && strings.TrimSpace(a.Prompt) != "" {
-		if _, err := h.AgentSay(ctx, sid, ag.ID, a.Prompt); err != nil {
-			return ag, nil, fmt.Errorf("the session started, but its brief could not be sent: %w", err)
-		}
 	}
 	return ag, nil, nil
 }
@@ -503,11 +514,23 @@ func (h wsHTTP) TileCreate(ctx context.Context, sid string, t wsTileCreate, tick
 type wsSessionWire struct {
 	ID, Cwd, Kind, Provider, Mode, Status, Origin, Name string
 	Pending, Questions                                  int
+	// for an id no longer live (the compact read with ids): status "ended",
+	// and by what — "exit", or "restart" when xbind has no record of an end
+	EndedBy string
+}
+
+// endedBy is "restart" when xbind has no record of the session's end: its
+// own restart cut the session off.
+func (w wsSessionWire) endedBy() string {
+	if w.Status == "ended" && w.EndedBy == "restart" {
+		return "restart"
+	}
+	return ""
 }
 
 func (w wsSessionWire) agent() wsAgent {
 	a := wsAgent{ID: w.ID, Tile: w.Cwd, Provider: w.Provider, Name: wsHarnessName(w.Provider), Mode: w.Mode, Asks: true,
-		Status: wsAgentStatus(w.Status), Pending: w.Pending, Questions: w.Questions, Origin: w.Origin, Mine: w.Origin == "agent"}
+		Status: wsAgentStatus(w.Status), Pending: w.Pending, Questions: w.Questions, Origin: w.Origin, Mine: w.Origin == "agent", EndedBy: w.endedBy()}
 	if p, ok := acp.Lookup(w.Provider); ok && w.Mode != "" {
 		a.Asks = p.Safe(w.Mode)
 	}
@@ -568,7 +591,24 @@ func (h wsHTTP) Agent(ctx context.Context, sid, id string) (wsAgent, error) {
 	err := h.get(ctx, sid, "/api/xbin/term/sessions/"+url.PathEscape(id), &out)
 	if err != nil {
 		var de *xbin.DelegateError
-		if errors.As(err, &de) && de.Status == http.StatusNotFound { // it left the directory: ended
+		if errors.As(err, &de) && de.Status == http.StatusNotFound {
+			// it left the live directory: the compact read says how it ended —
+			// by its own exit, or by an xbind restart (no record of an end).
+			// Asked only about a session this agent started: for an id that
+			// never existed xbind would answer "restart" too.
+			var rows []wsSessionWire
+			if lerr := h.get(ctx, sid, "/api/xbin/term/sessions?origin=agent&compact=1&ids="+url.QueryEscape(id), &rows); lerr == nil {
+				for _, r := range rows {
+					if r.ID == id {
+						a := r.agent()
+						if a.live() { // listed live after all: read it again next time
+							return a, nil
+						}
+						a.Status = "ended"
+						return a, nil
+					}
+				}
+			}
 			return wsAgent{ID: id, Status: "ended"}, nil
 		}
 		return wsAgent{}, err

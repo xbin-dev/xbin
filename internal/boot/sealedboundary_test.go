@@ -133,6 +133,9 @@ func boundaryReqs() map[string][]boundaryReq {
 		// no agent level is approved for it, no standing approval names it
 		"PUT /agent-levels":        {{body: map[string]any{"tile": P, "level": "full"}, person: true}},
 		"POST /delegate/approvals": {{body: map[string]any{"tile": P, "grant": "hour", "scope": "tile"}, person: true}},
+		// (a person's agent alone asks; for it the terminal level a start
+		// needs doesn't exist on a sealed component — auth's sealed tests)
+		"GET /delegate/start-defaults": {{path: "?tile=" + P, person: true, other: "agent sessions are a person's workspace agent's"}},
 		// …and no render shows its page (previews, D234)
 		"POST /preview": {{body: map[string]any{"tile": P}, person: true, off: "previews are unavailable"}},
 		// ---- deployments: one resolver, one judge ----
