@@ -104,5 +104,8 @@ export function listen(onContext, win = globalThis.window) {
     if (c) onContext(c);
   };
   win.addEventListener('message', h);
+  // what the chrome said before this page listened (boot.js kept the last one: the dock tells a frame when it has loaded)
+  const early = contextOf(win.wsEarlyContext);
+  if (early) onContext(early);
   return () => win.removeEventListener('message', h);
 }

@@ -37,7 +37,7 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore, call } from '/vendor/agent-chrome-store.js';
-import { infoFor, frameSource, SANDBOX } from '/vendor/frame-info.js';
+import { infoFor, refreshFrameInfo, frameSource, SANDBOX } from '/vendor/frame-info.js';
 import { CHOICES, clampDock, contextMessage, dockState, needs, pageMessage } from '/vendor/agent-chrome-words.js';
 import '/vendor/bx-agent-approve.js';
 import '/vendor/bx-agent-changes.js';
@@ -177,7 +177,9 @@ export class BxAgentDock extends LitElement {
     this._framed = src;
     if (!src) { this._frame = null; return; }
     if (this.page) { this._frame = { url: this.page, sandbox: SANDBOX, credentialless: false }; return; }
-    const info = await infoFor(src);
+    let info = await infoFor(src);
+    // a sealed component is left out of the plain listing (docs/protocol/sealed.md §Listings): its one row is asked by name
+    if (!info) { await refreshFrameInfo(src); info = await infoFor(src); }
     if (!info || info.chrome) { this._frame = null; return; } // a holder's page holds a frame token, never the person's session
     const f = await frameSource(src, info);
     if (this._framed === src) this._frame = f.sandboxed ? f : null;

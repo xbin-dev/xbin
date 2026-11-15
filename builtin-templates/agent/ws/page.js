@@ -24,7 +24,7 @@ import { blockOf, busy } from '../model/fold.js';
 import { ChatWindow } from '../chat-window.js';
 import { copyAnswer } from '../chat-copy.js';
 import { md } from '../chat-md.js';
-import { ws } from './api.js';
+import { ws, state as readState } from './api.js';
 import * as dock from './dock.js';
 import { W, CHOICES, quotaOf, composerState, aboutLine, splitAbout, blankAt, clock, slug as slugOf, agentCard, requestCard, possessive } from './words.js';
 import { compose, UPDATES } from './place.js';
@@ -148,7 +148,7 @@ const aboutChip = (a, extra = nothing) => html`<span class="wsp-about">${icon(a.
 // ---- loading ---------------------------------------------------------------------------------
 
 async function loadState() {
-  const r = await ws.state();
+  const r = await readState();
   if (r.ok) S.state = r.data;
   paint();
 }
@@ -201,7 +201,7 @@ async function select(id) {
 }
 
 async function boot() {
-  const [st, list, prefs] = await Promise.all([ws.state(), ws.sessions(), ws.prefs()]);
+  const [st, list, prefs] = await Promise.all([readState(), ws.sessions(), ws.prefs()]);
   if (st.ok) S.state = st.data;
   let sessions = list.ok ? list.data.sessions || [] : [];
   if (!sessions.some((s) => s.main)) {
@@ -275,7 +275,7 @@ async function send(text) {
   if (!text || S.sel == null || S.sending) return false;
   const cs = composerNow();
   if (cs.disabled || cs.hold) return false;
-  const about = S.context && !S.context.none ? aboutLine(S.context) : '';
+  const about = S.context && !S.context.none ? aboutLine(S.context.tile ? { ...S.context, name: tileName(S.context.tile) } : S.context) : '';
   S.sending = true; S.sendErr = ''; paint();
   const r = await ws.send(S.sel, about ? `${about}\n${text}` : text, Math.random().toString(36).slice(2));
   S.sending = false;
@@ -305,7 +305,8 @@ function tileName(path) {
   return (t && t.name) || path;
 }
 function onContext(c) {
-  S.context = c.none ? null : c.tile ? { tile: c.tile, name: tileName(c.tile) } : { screen: c.screen };
+  // (the tile's name is read when it is drawn and sent: the chrome may say this before xbind's view of the tiles is here)
+  S.context = c.none ? null : c.tile ? { tile: c.tile } : { screen: c.screen };
   paint();
   requestAnimationFrame(() => composer()?.focus());
 }

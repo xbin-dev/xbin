@@ -136,7 +136,7 @@ export function requestCard(r, now = Date.now(), tileName = (p) => p) {
       return { ...out, head: 'Allowed by you', glyph: 'clock', line: 'running now…' };
     case 'used': {
       const how = (HOW.find(([re]) => re.test(r.outcome || '')) || [null, 'Allowed by you'])[1];
-      return { ...out, head: how, glyph: 'check', tone: 'ok', line: [r.decidedMs ? clock(r.decidedMs) : '', call].filter(Boolean).join(' · '), result: resultOf(r.outcome) };
+      return { ...out, head: how, glyph: 'check', tone: 'ok', line: [r.decidedMs ? clock(r.decidedMs) : '', call].filter(Boolean).join(' · '), result: r.result ? firstLine(r.result) : resultOf(r.outcome) };
     }
     case 'failed':
       return { ...out, head: 'Allowed by you — it failed', glyph: 'error', tone: 'bad', line: [r.decidedMs ? clock(r.decidedMs) : '', call].filter(Boolean).join(' · '), result: failureOf(r.outcome) };
@@ -144,8 +144,9 @@ export function requestCard(r, now = Date.now(), tileName = (p) => p) {
     case 'expired': return { ...out, head: 'Expired — not approved within 24 hours.', glyph: 'clock', button: 'Ask again' };
     case 'withdrawn': return { ...out, head: 'Withdrawn by the agent', glyph: 'xmark' };
   }
-  // a change set's end (applied, partial, rejected, …): xbin's word for it
-  return { ...out, head: r.state ? `Decided — ${r.state}` : 'Decided', line: r.decidedMs ? clock(r.decidedMs) : '' };
+  // a change set's end (applied, partial, rejected, …): xbin's word for it, and the backend's one line of what came of it
+  // (`result`: "2 of 3 changes applied")
+  return { ...out, head: r.state ? `Decided — ${r.state}` : 'Decided', line: r.decidedMs ? clock(r.decidedMs) : '', result: r.result ? firstLine(r.result) : '' };
 }
 
 // what ran, from the outcome the backend wrote for the agent: "— it ran: <the tile's answer>"

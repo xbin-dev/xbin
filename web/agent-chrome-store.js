@@ -211,6 +211,14 @@ class AgentStore {
     return r.ok ? { ok: true } : { ok: false, error: say(r, "That couldn't be changed") };
   }
 
+  /** setWho(who): an admin chooses who gets an agent — 'everyone', or 'me' (themselves; people and orgs are added as access later). */
+  async setWho(who) {
+    const r = await call('/delegate/workspace', { method: 'PUT', body: { who } });
+    await this.readState(false);
+    this.emit();
+    return r.ok ? { ok: true } : { ok: false, error: say(r, "That couldn't be changed") };
+  }
+
   /** audit(before?) → {ok, calls}: a page of what the agent did, newest first. */
   async audit(before = '') {
     const r = await call(`/delegate/audit${before ? `?before=${encodeURIComponent(before)}` : ''}`);

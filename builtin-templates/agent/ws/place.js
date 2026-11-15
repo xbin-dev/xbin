@@ -157,9 +157,14 @@ export function compose(blocks, cards, run, opts = {}) {
     place(blk, anchor);
   }
 
-  // what xbin refused, said in a tool's answer: a card after the call
+  // what xbin refused: a card after the call — from the session's cards (refusals[]: in fields, by the call each answers; the
+  // kinds the cards have words for), else from the tool's answer as an older backend worded it
+  const refused = new Map((Array.isArray(c.refusals) ? c.refusals : []).filter((x) => x && x.callId && ['hidden', 'policy', 'cannot', 'slow'].includes(x.kind)).map((x) => [x.callId, x]));
   for (const b of tools) {
-    const ref = b.state !== 'writing' ? refusalOf(b.result) : null;
+    const f = b.callId ? refused.get(b.callId) : null;
+    const why = f ? String(f.reason || '').trim().replace(/\.$/, '') : '';
+    const ref = f ? { kind: f.kind, reason: f.kind === 'hidden' ? '' : why, tile: f.tile || '', ...(f.kind === 'policy' ? { private: /private/i.test(why) } : {}) }
+      : b.state !== 'writing' ? refusalOf(b.result) : null;
     if (ref && ref.kind !== 'slow') place(host('refusal', 'ws:ref:' + b.id, ref), b.id);
     else if (ref) place(host('slow', 'ws:slow:' + b.id, ref), b.id);
   }

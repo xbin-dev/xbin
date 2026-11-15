@@ -41,6 +41,13 @@
 // in the host's words); it ships with xbind, so the two always match.
 export const NEEDS = Object.freeze({ kit: 4, ws: 5, xbind: 'v0.3.80' });
 
+// What xbin's chrome said before the page listened: the dock tells a workspace agent's page what it was opened about
+// (xbin:agent-context) once, when its frame has loaded — and ws/page.js is asked for only after /ws/state answered, later
+// than that. The last such message from the framing window is kept here; ws/dock.js listen() takes it first.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('message', (e) => { if (e.source === window.parent && e.data && e.data.type === 'xbin:agent-context') globalThis.wsEarlyContext = e.data; });
+}
+
 /**
  * pageMode(fetch, self): 'workspace' when this page is a sealed component's
  * (self xbin/<name>) and its backend says it is a workspace agent, else

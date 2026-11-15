@@ -3,18 +3,33 @@
 // tray and the lists, on /xbin/agent at desktop width and at 430 px, and
 // the chip in the shell.
 //
-// THE DELEGATION STATE IS FAKED BY ROUTE INTERCEPTION. xbind on main ships
-// no sealed workspace-agent component, so no credential can post a request
-// or propose a change set, and the delegation package's test hooks are Go's
-// (they do not reach a running harness). This pass therefore answers
-// /api/xbin/delegate/…, /api/xbin/llm and /api/xbin/agent/prefs itself, in
-// the shapes of docs/protocol/delegation.md, and asserts what the chrome
-// draws and SENDS. Everything it asserts about the wire must be run again
-// against a real holder once one exists: that an approval reaches xbind and
-// the ticket works, the `delegate` events (here the store is told to read
-// again), the recent-sign-in step, and the holder's own frame.
+// Two halves.
 //
-// It asserts: each request kind approved, denied and expired; Allow not
+// THE MATRIX, WITH THE DELEGATION STATE FAKED BY ROUTE INTERCEPTION: what no
+// running xbind can be made to hold on demand — every request kind in every
+// state, a change set with a warning, a blocked item and a failure, the
+// recent-sign-in step (a --dev xbind asks for none), a hostile page in the
+// dock's frame. There the pass answers /api/xbin/delegate/…, /api/xbin/llm
+// and /api/xbin/agent/prefs itself, in the shapes of
+// docs/protocol/delegation.md, and asserts what the chrome draws and SENDS.
+//
+// THE REAL HOLDER (realHolder, below): the sealed component xbin/wsagent, a
+// person's own backend, the scripted model — nothing of the delegation
+// intercepted. It needs sandboxes (HARNESS_ISOLATE=1; SKIP otherwise, said
+// so) and, for the setup clicks, a workspace where workspace agents were
+// never turned on (a fresh run). It asserts: the setup state's own buttons
+// (Turn on; Just me for now) and what they give whom; the holder's page in
+// the dock's sandboxed frame; a request the agent really files — the tray's
+// count by xbind's `delegate` event, the sheet opened by the page's
+// xbin:agent-open-request and from the tray, drawn from xbind's reading;
+// Allow reaching xbind, the ticket used, the tile changed, the log's rows; a
+// denial from elsewhere arriving live; a standing approval and Take back;
+// Pause and Resume; an admin change set proposed, reviewed, applied and
+// undone; the shell's chip and dock (the page told what it was opened
+// about); a person who is no admin, before and after they are given one, and
+// the alert that names /xbin/agent.
+//
+// The matrix asserts: each request kind approved, denied and expired; Allow not
 // armed at once and never by Enter; the wider grant's second step; a
 // session start in a mode that never asks; a change set with a warning and
 // a blocked item, the sign-in step, partial results, Undo; pause and
@@ -22,7 +37,8 @@
 // states shown in place of the page; and that a hostile page in the dock's
 // frame cannot grant — forged messages, an overlay, focus and keys.
 // Screenshots: out/agent-chrome-*.png.
-const { URL, login, shot, checker, log } = require('../lib');
+const { URL, login, closeCtx, shot, checker, log, openShell, usePersonalScreen, openTile, sh, settle } = require('../lib');
+const R = require('./wsagentpage'); // the real holder's plumbing: the scripted model, the note tile, the page's frame
 
 const NOW = Date.now();
 const iso = (ms) => new Date(NOW + ms).toISOString();
@@ -107,7 +123,7 @@ const SHEET = `${DOCK} bx-agent-approve`;
 const DLG = 'bx-agent-changes';
 
 async function agentChrome(browser) {
-  const { check, done } = checker('agent-chrome');
+  const { check, skip, done } = checker('agent-chrome');
   for (const width of [1280, 430]) {
     const tag = width < 640 ? '-430' : '';
     const { ctx, page } = await login(browser, 'admin', 'admin', { viewport: { width, height: 900 } });
@@ -136,7 +152,10 @@ async function agentChrome(browser) {
     await page.waitForSelector(`${DOCK} bx-agent-setup [data-state="held"]`);
     check(/Locked after a restart\./.test(await text(`${DOCK} bx-agent-setup .st`)), `[${width}] held: locked after a restart`);
     await shot(page, `agent-chrome-states${tag}`, { fullPage: false });
-    delete S.state.held; S.state.workspace = false; S.state.workspaceAt = new Date().toISOString(); await refresh();
+    S.state.held = 'unavailable'; S.state.heldWhy = 'it keeps people\'s data in partitions, which need sandboxes (--isolate).'; await refresh();
+    await page.waitForFunction(() => /Not available on this xbin\./.test(document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-setup').shadowRoot.textContent));
+    check(/can't run here right now: it keeps people's data in partitions, which need sandboxes \(--isolate\)\. Your conversations/.test(await text(`${DOCK} bx-agent-setup .st`)), `[${width}] held for another reason: not available on this xbin, with xbind's reason`);
+    delete S.state.held; delete S.state.heldWhy; S.state.workspace = false; S.state.workspaceAt = new Date().toISOString(); await refresh();
     await page.waitForSelector(`${DOCK} bx-agent-setup [data-state="off"]`);
     check(/Turned off for this workspace\./.test(await text(`${DOCK} bx-agent-setup .st`)), `[${width}] turned off by an admin (the switch was set once): it says so, not the setup steps`);
     S.state.workspace = true; delete S.state.workspaceAt; await refresh();
@@ -400,8 +419,332 @@ async function agentChrome(browser) {
     check(!(await U.page.$('bx-shell button.chip.agent')), 'a non-admin before setup sees no chip');
     await U.ctx.close();
   }
-  log('agentChrome: the delegation state was faked by route interception (no holder on this xbind): re-run against a real one');
+  await realHolder(browser, check, skip);
   done();
+}
+
+// ---- against the REAL holder: xbin/wsagent, a person's own backend, the scripted model -------------------------
+//
+// Nothing of /api/xbin/delegate/… is intercepted here: what the chrome
+// sends reaches xbind, and what it shows is what xbind and the agent's
+// backend answered. The model is hack/fakeopenai, scripted by the message
+// ("ws: tool {json} ;; …"); the tile the agent changes is apps/wsnote
+// (wsagentpage.js).
+async function realHolder(browser, check, skip) {
+  const why = R.noHolder();
+  if (why) { skip(`the real holder (${R.AGENT}): ${why} — only the faked matrix ran`); return; }
+  const stamp = Date.now().toString(36);
+  const { ctx, page } = await login(browser, 'admin', 'admin', { viewport: { width: 1280, height: 900 } });
+  const call = R.caller(ctx);
+  const st0 = (await call('GET', '/delegate/state')).data || {};
+  if (st0.agent !== R.AGENT) { skip(`the real holder: this xbind ships no ${R.AGENT} (GET /delegate/state: agent ${JSON.stringify(st0.agent || '')}) — only the faked matrix ran`); await ctx.close(); return; }
+  const D = await login(browser, 'dev1', 'devpass123', { viewport: { width: 1400, height: 900 } }); // a person who is no admin
+  const dcall = R.caller(D.ctx);
+  const text = (sel) => page.textContent(sel).then((t) => (t || '').replace(/\s+/g, ' ').trim());
+  const state = async (c = call) => (await c('GET', '/delegate/state')).data || {};
+  const pending = async () => (((await call('GET', '/delegate/requests')).data || {}).requests || []).filter((r) => r.state === 'pending');
+  const audit = async () => ((await call('GET', '/delegate/audit')).data || {}).calls || [];
+  const note = async () => (await call('GET', `/api/${R.NOTE}/note`)).text;
+  const agentAlert = async (c) => (((await c('GET', '/alerts')).data || {}).alerts || []).find((a) => a.kind === 'agent-page');
+  const count = async () => { const e = await page.$(`${DOCK} [data-needs] [data-count]`); return e ? (await e.textContent()).trim() : ''; };
+  const waitCount = (n) => R.until(async () => (await count()) === (n ? String(n) : ''), `Needs you counts ${n || 'nothing'}`, 20000, 100);
+  const sheetId = () => page.evaluate(() => { const s = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return s && s.request ? s.request.id : ''; });
+  const noSheet = () => page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+  const put = (body, said) => `ws: tile_call {"tile":"${R.NOTE}","method":"PUT","path":"/note","body":"\\"${body}\\"","why":"${said}"}`;
+  const dock = (fn, arg) => page.evaluate(`(${fn.toString()})(document.querySelector('bx-agent-dock'), ${JSON.stringify(arg ?? null)})`);
+
+  // ---- setup, through the chrome's own state: Turn on, then who gets one ----
+  await R.connectModel(call); // (the model is /xbin/llm's to connect — the llm pass; the step here only reads it)
+  await page.goto(`${URL}/xbin/agent`);
+  await page.waitForSelector(`${DOCK} header`);
+  if (!st0.workspace && !st0.workspaceAt) {
+    await page.waitForSelector(`${DOCK} bx-agent-setup [data-state="setup"] [data-step="on"] button`);
+    const steps = await page.$$eval(`${DOCK} bx-agent-setup [data-step]`, (els) => els.map((e) => `${e.dataset.step}${e.classList.contains('done') ? '+' : ''}${e.classList.contains('off') ? '-' : ''}`));
+    check(steps.join(' ') === 'model+ on who-' && !(await page.$(`${DOCK} [data-who]`)) && !(await page.$(`${DOCK} iframe`)), `[real] before setup, a model connected: step 1 done, Turn on offered, step 3 waits (${steps.join(' ')})`);
+    const d0 = await state(dcall);
+    check(d0.workspace === false && d0.access === false && d0.who === undefined && !(await agentAlert(dcall)), `[real] a person who is no admin has nothing of it yet (${JSON.stringify({ workspace: d0.workspace, access: d0.access })})`);
+    await page.click(`${DOCK} bx-agent-setup [data-step="on"] button`);
+    await page.waitForSelector(`${DOCK} bx-agent-setup [data-state="setup"] [data-who="everyone"]`);
+    const s1 = await state();
+    const who = await page.$$eval(`${DOCK} bx-agent-setup [data-who]`, (els) => els.map((e) => `${e.dataset.who}:${e.textContent.trim()}${e.classList.contains('primary') ? '*' : ''}`));
+    check(s1.workspace === true && s1.who && s1.who.chosen === false && who.join(' | ') === 'everyone:Everyone* | me:Just me for now' && !(await page.$(`${DOCK} iframe`)),
+      `[real] "Turn on" turned workspace agents on at xbind; nobody has one yet, so the third step asks who (${who.join(' | ')})`);
+    check((await state(dcall)).access === false && !(await agentAlert(dcall)), '[real] …and on alone gives nobody an agent: the other person still has none, and no notice');
+    await shot(page, 'agent-chrome-real-setup', { fullPage: false });
+    await page.click(`${DOCK} bx-agent-setup [data-who="me"]`);
+    await page.waitForSelector(`${DOCK} iframe`, { state: 'attached', timeout: 30000 });
+    const s2 = await state();
+    check(s2.who && s2.who.chosen === true && s2.who.everyone === false && s2.who.entries === 1 && s2.access === true, `[real] "Just me for now" gave the admin one (${JSON.stringify(s2.who)}): the setup steps make way for the page`);
+    check((await state(dcall)).access === false && !(await agentAlert(dcall)), '[real] …and nobody else');
+  } else {
+    skip('[real] the setup state\'s own buttons (Turn on; Just me for now): workspace agents were turned on in this workspace before — a fresh run clicks them');
+    await R.agentOn(call);
+    await page.reload();
+  }
+
+  // ---- the holder's own page, in the dock's frame ----
+  const t0 = Date.now();
+  let f = await R.agentFrame(page);
+  log(`agentChrome: the holder's page was up ${Math.round((Date.now() - t0) / 1000)} s after it was given (a --dev xbind compiles its backend on first use)`);
+  const fr = await page.$eval(`${DOCK} iframe`, (e) => ({ src: e.getAttribute('src'), sandbox: e.getAttribute('sandbox'), title: e.title }));
+  check(fr.src.startsWith(`/c/${R.AGENT}/`) && /allow-scripts/.test(fr.sandbox) && !/allow-same-origin|allow-top-navigation/.test(fr.sandbox) && fr.title === 'Your workspace agent',
+    `[real] the dock frames the holder's page, sandboxed (${fr.src.replace(/\?.*/, '?…')}; ${fr.sandbox})`);
+  const inside = await f.evaluate(() => { let p = 'closed'; try { p = parent.document ? 'READ THE PARENT' : 'closed'; } catch { /* another origin */ } return { p, page: !!document.querySelector('#ws-page .wsp'), self: globalThis.xbin && globalThis.xbin.self }; });
+  check(inside.page && inside.self === R.AGENT && inside.p === 'closed', `[real] …the agent's own page (ws/page.js), which cannot read the chrome (${JSON.stringify(inside)})`);
+  const frameApprove = await f.evaluate(async () => { const r = await globalThis.xbin.fetch('/api/xbin/delegate/workspace', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"who":"everyone"}' }); return r.status; });
+  check(frameApprove >= 400 && (await state()).who.everyone === (st0.who ? !!st0.who.everyone : false), `[real] …nor decide who gets one (its credential: ${frameApprove})`);
+  log(`agentChrome: ${R.NOTE} says ${await R.noteTile(call)}`);
+  await R.nothingWaits(call);
+  await waitCount(0);
+  await R.pickMain(f);
+
+  // ---- a request the agent files: the tray by xbind's event, the sheet from the page and from the tray ----
+  const w0 = Number((/writes=(\d+)/.exec(await note()) || [])[1]);
+  const body1 = `allowed once ${stamp}`;
+  const turn1 = await R.say(f, put(body1, `set the note ${stamp}`));
+  await waitCount(1);
+  const p1 = await pending();
+  const id1 = p1.length ? p1[0].id : '';
+  check(/Pending — request/.test(turn1) && p1.length === 1 && p1[0].agent === R.AGENT && p1[0].kind === 'call' && p1[0].target === `/api/${R.NOTE}/note` && p1[0].body === `"${body1}"`,
+    `[real] the agent's tile_call filed a request at xbind, exactly as it will be sent (${id1}: ${p1[0] && p1[0].method} ${p1[0] && p1[0].target})`);
+  check((await count()) === '1' && /^\(1\) /.test(await page.title()), `[real] Needs you counts it without a reload — xbind's delegate event (${await page.title()})`);
+  check((await note()).includes(`writes=${w0}`), '[real] nothing ran: the note is as it was');
+  await f.waitForSelector(`.wsc-req[data-ref="${id1}"][data-state="pending"]`);
+  await f.click(`.wsc-req[data-ref="${id1}"] button.primary`);
+  await page.waitForSelector(`${SHEET} [role="dialog"]`);
+  const sheet = await text(`${SHEET} [role="dialog"]`);
+  check((await sheetId()) === id1 && /xbin · approval/i.test(sheet) && /Your agent wants to change something in Wsnote/.test(sheet) && sheet.includes(`PUT /api/${R.NOTE}/note`) && sheet.includes(`"${body1}"`),
+    `[real] the page's Review… (xbin:agent-open-request {id}) opens the sheet, drawn from xbind's reading (${sheet.slice(0, 150)})`);
+  check(sheet.includes(`${p1[0] ? p1[0].bodySize : '?'} bytes · shown in full`) && /you can write here/.test(sheet) && /xbin can't undo this/.test(sheet), `[real] …the body in full, the person's level in words (${(/Sends.*?Undo/.exec(sheet) || [''])[0].slice(0, 90)})`);
+  check(/The agent's own words — not checked by xbin/i.test(sheet) && sheet.includes(`set the note ${stamp}`) && /Always, this exact action/.test(sheet) && /EVERY write to apps\/wsnote's API/.test(sheet),
+    '[real] …the agent\'s sentence quoted as the agent\'s; the standing choices in xbind\'s own words');
+  await shot(page, 'agent-chrome-real-approve', { fullPage: false });
+  await page.keyboard.press('Escape');
+  await noSheet();
+  check((await pending()).length === 1 && (await count()) === '1', '[real] Escape is "not now": the request still waits at xbind');
+  await page.click(`${DOCK} [data-needs]`);
+  await page.waitForSelector(`${DOCK} bx-agent-needs li[data-id="${id1}"]`);
+  const row = await text(`${DOCK} bx-agent-needs li[data-id="${id1}"]`);
+  check(/Approve a change to Wsnote/.test(row) && /Review…/.test(row) && (await page.$$(`${DOCK} bx-agent-needs li`)).length === 1, `[real] the tray lists it (${row})`);
+  await shot(page, 'agent-chrome-real-tray', { fullPage: false });
+  await page.click(`${DOCK} bx-agent-needs li[data-id="${id1}"] button`);
+  await page.waitForSelector(`${SHEET} [role="dialog"]`);
+  check((await sheetId()) === id1, '[real] …and its Review… opens the same sheet');
+  await R.armed(page, ['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+  await page.click(`${SHEET} button[data-allow]`);
+  await noSheet();
+  const used = await R.until(async () => { const r = (await call('GET', `/delegate/requests/${id1}`)).data || {}; return r.state === 'used' ? r : null; }, `the request ${id1} is used`, 30000);
+  const n1 = await R.until(async () => { const n = await note(); return n.includes(body1) ? n : ''; }, 'the note changed', 15000);
+  check(used.grant === 'once' && n1.includes(`note="${body1}" writes=${w0 + 1}`) && n1.includes(`user=admin agent=${R.AGENT}`), `[real] Allow once reached xbind and the ticket was used: the tile changed, once, by the person's agent (${n1})`);
+  const rows1 = await audit();
+  const ran = rows1.find((r) => r.method === 'PUT' && r.path === `/api/${R.NOTE}/note` && !r.dryRun) || {};
+  const decided = rows1.find((r) => /^decision:/.test(r.class || '')) || {};
+  log(`agentChrome: the log's rows: ${JSON.stringify(ran)} ${JSON.stringify(decided)}`);
+  check(ran.status === 200 && ran.agent === R.AGENT && ran.ticket === id1 && /^decision:/.test(decided.class || ''), `[real] GET /delegate/audit shows the call under its ticket, and the person's decision (${ran.class} ${ran.status} ticket ${ran.ticket}; ${decided.class})`);
+  await waitCount(0);
+  check(!/^\(/.test(await page.title()), `[real] the tray empties by itself (${await page.title()})`);
+  await f.waitForSelector(`.wsc-req[data-ref="${id1}"][data-state="used"]`, { timeout: 30000 });
+  check(/Allowed once by you/.test(await f.textContent(`.wsc-req[data-ref="${id1}"]`)), '[real] …and the page\'s card says what came of it');
+  await dock((d) => d.show('activity'));
+  await page.waitForSelector(`${DOCK} bx-agent-activity li`);
+  const did = await page.$$eval(`${DOCK} bx-agent-activity li`, (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
+  log(`agentChrome: What my agent did: ${JSON.stringify(did.slice(0, 6))}`);
+  check(did.length >= 2 && /^Changed Wsnote/.test(did[0]) && did[0].includes(`PUT /api/${R.NOTE}/note`) && /you allowed it once/.test(did[0]) && /^You allowed a request\s*Wsnote · once/.test(did[1]),
+    `[real] What my agent did says the change and the person's decision in sentences — and not its asking (${did.join(' | ')})`);
+  await page.click(`${DOCK} bx-agent-activity [data-filter="all"]`);
+  const every = await R.until(async () => { const all = await page.$$eval(`${DOCK} bx-agent-activity li`, (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim())); return all.length > did.length ? all : null; }, 'Everything lists more');
+  check(every.some((x) => /^Asked for your approval/.test(x)) && every.some((x) => /^Checked what a change would do in Wsnote/.test(x)) && !every.some((x) => /true|undefined|\[object|Changed (POST|DELETE) /.test(x)),
+    `[real] …Everything adds what it asked and checked (${every.slice(0, 5).join(' | ')})`);
+  await shot(page, 'agent-chrome-real-activity', { fullPage: false });
+  await page.click(`${DOCK} bx-agent-activity [data-back]`);
+  f = await R.agentFrame(page);
+
+  // ---- a decision made elsewhere arrives live; a standing approval, used and taken back ----
+  await R.say(f, put(`denied ${stamp}`, 'a second change'));
+  await waitCount(1);
+  const id2 = (await pending())[0].id;
+  check((await call('POST', `/delegate/requests/${id2}/deny`, {})).status === 200, '[real] the person denies a second request somewhere else (their own session, another client)');
+  await waitCount(0);
+  await f.waitForSelector(`.wsc-req[data-ref="${id2}"][data-state="denied"]`, { timeout: 30000 });
+  check(/Denied by you/.test(await f.textContent(`.wsc-req[data-ref="${id2}"]`)) && (await note()).includes(`writes=${w0 + 1}`), '[real] the tray and the page\'s card follow without a reload; nothing ran');
+  const body3 = `always ${stamp}`;
+  await R.say(f, put(body3, 'a third change'));
+  await waitCount(1);
+  const id3 = (await pending())[0].id;
+  await page.click(`${DOCK} [data-needs]`);
+  await page.click(`${DOCK} bx-agent-needs li[data-id="${id3}"] button`);
+  await page.waitForSelector(`${SHEET} [role="dialog"]`);
+  await page.click(`${SHEET} [data-choice="call"] input`);
+  check((await text(`${SHEET} button[data-allow]`)) === 'Allow always', '[real] "Always, this exact action" on a real request');
+  await R.armed(page, ['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+  await page.click(`${SHEET} button[data-allow]`);
+  await noSheet();
+  await R.until(async () => (await note()).includes(body3), 'the third change ran', 30000);
+  const ap = ((await call('GET', '/delegate/approvals')).data || {}).approvals || [];
+  const forever = ap.length === 1 && !(Date.parse(ap[0].until) > 0); // (a time never set is year 1)
+  check(ap.length === 1 && ap[0].scope === 'call' && ap[0].tile === R.NOTE && (await state()).standingApprovals === 1, `[real] the approval stands at xbind (${JSON.stringify(ap.map((a) => [a.scope, a.method, a.path, forever ? 'until taken back' : a.until]))})`);
+  const body4 = `under it ${stamp}`;
+  const turn4 = await R.say(f, put(body4, 'a fourth change'));
+  const n4 = await note();
+  const under = (await audit()).find((r) => r.method === 'PUT' && r.path === `/api/${R.NOTE}/note` && !r.dryRun) || {};
+  check(/PUT \/note → 200/.test(turn4) && n4.includes(`note="${body4}" writes=${w0 + 3}`) && (await pending()).length === 0 && (await count()) === '' && under.under === `approval:${ap[0] && ap[0].id}`,
+    `[real] the same action again runs without asking, logged as under that standing approval (${turn4.slice(0, 60)}; under ${under.under})`);
+  await dock((d) => d.show('approvals'));
+  await page.waitForSelector(`${DOCK} bx-agent-approvals li`);
+  const standing = await text(`${DOCK} bx-agent-approvals li`);
+  check((await page.$$(`${DOCK} bx-agent-approvals li`)).length === 1 && /Wsnote/.test(standing) && standing.includes(`this action: PUT /api/${R.NOTE}/note`) && /Take back/.test(standing)
+    && (forever ? /· until you take it back/.test(standing) : /· ends in \d+ min/.test(standing)), `[real] Approvals lists it, and how long it lasts (${standing})`);
+  await shot(page, 'agent-chrome-real-approvals', { fullPage: false });
+  await page.click(`${DOCK} bx-agent-approvals li button`);
+  await page.waitForSelector(`${DOCK} bx-agent-approvals [data-empty]`);
+  check((((await call('GET', '/delegate/approvals')).data || {}).approvals || []).length === 0, '[real] Take back ends it at xbind');
+  await page.click(`${DOCK} bx-agent-approvals [data-back]`);
+  f = await R.agentFrame(page);
+  const turn5 = await R.say(f, put(`asks again ${stamp}`, 'a fifth change'));
+  await waitCount(1);
+  check(/Pending — request/.test(turn5) && (await note()).includes(`writes=${w0 + 3}`), '[real] …and the next such change asks again');
+  await R.nothingWaits(call);
+  await waitCount(0);
+  await dock((d) => d.show('activity'));
+  await page.waitForSelector(`${DOCK} bx-agent-activity li`);
+  const did2 = await page.$$eval(`${DOCK} bx-agent-activity li`, (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
+  check(did2.some((x) => /^You denied a request\s*Wsnote/.test(x)) && did2.some((x) => /^Changed Wsnote.* · under a standing approval of yours/.test(x))
+    && did2.some((x) => /^You allowed a request\s*Wsnote · (until you take it back|for one hour), this action/.test(x)) && !did2.some((x) => /Changed (POST|PATCH|DELETE) |true|undefined/.test(x)),
+  `[real] What my agent did tells a denial from an allowance, and a change under a standing approval (${did2.slice(0, 5).join(' | ')})`);
+  await page.click(`${DOCK} bx-agent-activity [data-back]`);
+  f = await R.agentFrame(page);
+
+  // ---- Pause in the header: at once, xbin's own state in place of the page; Resume ----
+  await page.click(`${DOCK} [data-pause]`);
+  await page.waitForSelector(`${DOCK} bx-agent-setup [data-state="paused"]`);
+  const ps = await state();
+  const refused = (await call('GET', `/api/${R.AGENT}/ws/state`)).data || {};
+  check(ps.paused === true && !!ps.pausedAt && /Paused by you at \d\d:\d\d\./.test(await text(`${DOCK} bx-agent-setup .st`)) && !(await page.$(`${DOCK} iframe`)) && (await text(`${DOCK} [data-pause]`)) === 'Resume',
+    `[real] Pause: paused at xbind, and the dock says so in place of the page (${(await text(`${DOCK} bx-agent-setup .st`)).slice(0, 60)})`);
+  check(!refused.delegation && /paused/.test(refused.delegationError || ''), `[real] …it stops the agent: xbind refuses its backend's calls (${String(refused.delegationError || '').slice(0, 70)})`);
+  await shot(page, 'agent-chrome-real-paused', { fullPage: false });
+  await page.click(`${DOCK} bx-agent-setup [data-resume]`);
+  f = await R.agentFrame(page);
+  check((await state()).paused === false && (await text(`${DOCK} [data-pause]`)) === 'Pause', '[real] Resume: the person\'s own click, and the page is back');
+
+  // ---- an admin's change set: proposed by the agent, reviewed, applied in xbin's dialog, undone ----
+  await dock((d) => d.show('prefs'));
+  await page.waitForSelector(`${DOCK} bx-agent-prefs [data-admin-changes]`);
+  if (!(await state()).adminChanges) await page.click(`${DOCK} bx-agent-prefs [data-admin-changes]`);
+  await R.until(async () => (await state()).adminChanges === true, 'adminChanges is on at xbind');
+  check(true, '[real] Preferences: "Let my agent propose admin changes" is the admin\'s own switch at xbind');
+  await page.click(`${DOCK} bx-agent-prefs [data-back]`);
+  f = await R.agentFrame(page);
+  const grant = { from: 'apps/welcome', target: R.NOTE, role: 'reader' };
+  const grants = async () => (((await call('GET', '/grants')).data || {}).grants || []).some((g) => g.from === grant.from && g.target === grant.target && g.role === grant.role);
+  if (await grants()) await call('DELETE', '/grants', grant); // (an earlier run that stopped half-way)
+  const turn6 = await R.say(f, `ws: admin_propose {"title":"Let welcome read the note ${stamp}","changes":[{"kind":"grant.add","args":${JSON.stringify(grant)},"why":"welcome shows the note"}]}`);
+  await waitCount(1);
+  const sets = (((await call('GET', '/delegate/changesets')).data || {}).changesets || []).filter((c) => c.state === 'proposed');
+  const cid = sets.length ? sets[0].id : '';
+  log(`agentChrome: the change set: ${JSON.stringify(sets[0] || null).slice(0, 600)}`);
+  check(/^Done: Change set /.test(turn6) && sets.length === 1 && sets[0].items.length === 1 && !!sets[0].items[0].line && !(await grants()), `[real] admin_propose filed a change set at xbind, in xbind's own words; nothing applied (${sets[0] && sets[0].items[0].line})`);
+  await f.waitForSelector(`.wsc-req[data-kind="changeset"][data-ref="${cid}"]`);
+  await f.click(`.wsc-req[data-ref="${cid}"] button.primary`);
+  await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"]`);
+  const dl = await text(`${DLG} [role="dialog"]`);
+  const ticks = await page.$$eval(`${DLG} .item`, (els) => els.map((e) => `${e.dataset.n}${e.querySelector('input').checked ? '+' : '-'}${e.querySelector('input').disabled ? 'x' : ''}`));
+  check((await page.evaluate(() => document.querySelector('bx-agent-changes').set.id)) === cid && /xbin · admin changes/i.test(dl) && /Your agent proposes 1 admin change/.test(dl) && dl.includes(sets[0].items[0].line)
+    && /The agent's title — not checked by xbin/i.test(dl) && dl.includes(`Let welcome read the note ${stamp}`) && /Agent's reason — not checked by xbin/i.test(dl) && /welcome shows the note/.test(dl),
+  `[real] the page's Review… (xbin:agent-open-changeset {id}) opens xbin's dialog over the page: xbind's line, the agent's title and reason quoted (${dl.slice(0, 140)}; ${ticks.join(' ')})`);
+  await shot(page, 'agent-chrome-real-changes', { fullPage: false });
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
+  await page.click(`${DOCK} [data-needs]`);
+  await page.waitForSelector(`${DOCK} bx-agent-needs li[data-kind="changeset"][data-id="${cid}"]`);
+  await page.click(`${DOCK} bx-agent-needs li[data-id="${cid}"] button`);
+  await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"]`);
+  if (!ticks.includes('1+')) await page.check(`${DLG} .item[data-n="1"] input`);
+  await R.armed(page, ['bx-agent-changes', 'button[data-apply]']);
+  await page.click(`${DLG} [data-apply]`);
+  await page.waitForSelector(`${DLG} [role="dialog"]:is([data-view="results"], [data-view="stepup"])`);
+  const asked = (await page.getAttribute(`${DLG} [role="dialog"]`, 'data-view')) === 'stepup';
+  if (asked) {
+    check(!!(await page.$(`${DLG} [data-stepup="password"]`)) && !(await grants()), '[real] xbind asks for a recent sign-in first: the password step, nothing applied yet');
+    await page.fill(`${DLG} #pw`, 'admin');
+    await R.armed(page, ['bx-agent-changes', 'button[data-apply]']);
+    await page.click(`${DLG} [data-apply]`);
+    await page.waitForSelector(`${DLG} [role="dialog"][data-view="results"]`);
+  } else skip('[real] the recent-sign-in step: this xbind asked for none — a --dev xbind never does (docs/protocol/delegation.md "Developing an agent") — so it stays in the faked matrix');
+  const res = await page.$$eval(`${DLG} .item [data-result]`, (els) => els.map((e) => e.dataset.result));
+  const applied = (await audit()).some((r) => r.class === 'changeset:grant.add' && r.status < 400);
+  check(res.join(' ') === 'applied' && (await grants()) && applied, `[real] Apply applied it as the admin: the grant is there, the log has it (${await text(`${DLG} h2`)}; ${res.join(' ')})`);
+  await waitCount(0);
+  await f.waitForSelector(`.wsc-req[data-ref="${cid}"][data-state="applied"]`, { timeout: 30000 });
+  check(/1 of 1 changes? applied/.test(await f.textContent(`.wsc-req[data-ref="${cid}"]`)), `[real] …and the page's card says what came of it (${(await f.textContent(`.wsc-req[data-ref="${cid}"]`)).replace(/\s+/g, ' ').trim().slice(0, 120)})`);
+  await shot(page, 'agent-chrome-real-results', { fullPage: false });
+  await page.click(`${DLG} [data-undo]`);
+  await page.waitForFunction((id) => { const d = document.querySelector('bx-agent-changes'); return !!(d && d.set && d.set.undoOf === id); }, cid);
+  check((await page.getAttribute(`${DLG} [role="dialog"]`, 'data-view')) === 'review' && (await grants()), '[real] Undo proposes a new set at xbind, to review like any other: nothing is undone by the click');
+  if (!(await page.$eval(`${DLG} .item input`, (i) => i.checked))) await page.check(`${DLG} .item input`);
+  await R.armed(page, ['bx-agent-changes', 'button[data-apply]']);
+  await page.click(`${DLG} [data-apply]`);
+  await page.waitForSelector(`${DLG} [role="dialog"]:is([data-view="results"], [data-view="stepup"])`);
+  if ((await page.getAttribute(`${DLG} [role="dialog"]`, 'data-view')) === 'stepup') { await page.fill(`${DLG} #pw`, 'admin'); await R.armed(page, ['bx-agent-changes', 'button[data-apply]']); await page.click(`${DLG} [data-apply]`); await page.waitForSelector(`${DLG} [role="dialog"][data-view="results"]`); }
+  check(!(await grants()), '[real] …and applying that one takes the grant away again');
+  await page.click(`${DLG} [data-done]`);
+  await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
+  await call('PUT', '/delegate/state', { adminChanges: false });
+  await R.nothingWaits(call);
+
+  // ---- the shell: the chip, the dock beside the canvas with the real page, told what it was opened about ----
+  await openShell(page);
+  await usePersonalScreen(page);
+  await page.waitForSelector('bx-shell button.chip.agent');
+  check(/workspace agent/.test(await page.textContent('bx-shell button.chip.agent')) && (await page.getAttribute('bx-shell button.chip.agent', 'aria-label')) === 'Workspace agent', '[real] the shell\'s chip, from xbind\'s state');
+  check(!(await page.locator('bx-shell .alerts').allInnerTexts()).join(' ').includes('/xbin/agent') && !!(await agentAlert(call)), '[real] xbind sends the admin the notice that names /xbin/agent (for a shell without the chip); this shell leaves it out');
+  await openTile(page, R.NOTE);
+  await page.click(`.card[data-path="${R.NOTE}"]`, { position: { x: 80, y: 12 } }); // its title bar: the window in front
+  await settle(page);
+  await page.click('bx-shell button.chip.agent');
+  const sf = await R.agentFrame(page, 'bx-shell bx-agent-dock[open]');
+  const about = await sf.waitForFunction(() => globalThis.wsAgentPage.testApi().context, null, { timeout: 5000 }).then((h) => h.jsonValue(), () => null);
+  check(!!about && about.tile === R.NOTE && /About/.test(await sf.textContent('.wsp-ctx')), `[real] opened with a tile in front, the dock tells the page (xbin:agent-context): the message box offers "About …" (${JSON.stringify(about)})`);
+  await shot(page, 'agent-chrome-real-shell', { fullPage: false });
+  await page.click('bx-shell bx-agent-dock [data-close]');
+  await sh(page, (t, p) => t.closeTile(p), R.NOTE);
+  await closeCtx(ctx, page);
+
+  // ---- a person who is no admin: nothing until they are given one; then the chip, their own agent, the notice ----
+  await D.page.goto(`${URL}/`);
+  await D.page.waitForSelector('bx-shell button.chip.settings');
+  const everyone = !!(await state(dcall)).access;
+  if (!everyone) {
+    await D.page.waitForTimeout(500); // (a negative: the chip must not appear)
+    check(!(await D.page.$('bx-shell button.chip.agent')) && !(await agentAlert(dcall)), '[real] workspace agents on, and this person was given none: no chip, no notice');
+    await D.page.goto(`${URL}/xbin/agent`);
+    await D.page.waitForSelector(`${DOCK} header`);
+    await D.page.waitForTimeout(500); // (a negative)
+    check(!(await D.page.$(`${DOCK} iframe`)) && !(await D.page.$(`${DOCK} [data-needs]`)) && !(await D.page.$(`${DOCK} bx-agent-setup .st`)), '[real] …and /xbin/agent shows them nothing of it');
+    const A = await login(browser, 'admin', 'admin');
+    check((await R.caller(A.ctx)('PUT', '/delegate/workspace', { who: 'everyone' })).status === 200, '[real] the admin gives everyone one (PUT /delegate/workspace {who: "everyone"} — the setup step\'s other button)');
+    await A.ctx.close();
+    await D.page.goto(`${URL}/`);
+  } else skip('[real] a person without an agent (no chip, no notice): everyone was given one in this workspace before — a fresh run covers it');
+  await D.page.waitForSelector('bx-shell button.chip.agent');
+  const ds = await state(dcall);
+  check(ds.access === true && ds.agent === R.AGENT && ds.who === undefined && (await D.page.getAttribute('bx-shell button.chip.agent', 'aria-label')) === 'Workspace agent', '[real] given one, the person\'s shell shows the chip (who has one is the admins\' to read)');
+  const al = await agentAlert(dcall);
+  if (al) {
+    check(al.message.includes('/xbin/agent') && al.dismiss === '/delegate/page/dismiss' && !(await D.page.locator('bx-shell .alerts').allInnerTexts()).join(' ').includes('/xbin/agent'),
+      `[real] xbind's notice for them names /xbin/agent — what a shell without the chip shows; this one leaves it out (${al.message.slice(0, 60)}…)`);
+    check((await dcall('POST', '/delegate/page/dismiss', {})).status < 300 && !(await agentAlert(dcall)), '[real] …and their dismissal ends it, for them');
+  } else skip('[real] the notice that names /xbin/agent, for a person given an agent: this person dismissed it in an earlier run');
+  await D.page.click('bx-shell button.chip.agent');
+  const df = await R.agentFrame(D.page, 'bx-shell bx-agent-dock[open]');
+  const mine = await df.evaluate(() => ({ t: globalThis.wsAgentPage.testApi(), text: document.querySelector('.wsp-main').textContent }));
+  // (asked from their page: a person who is no admin reaches the agent's backend from its own page only)
+  const theirs = await df.evaluate(async (agent) => { const r = await globalThis.xbin.fetch(`/api/${agent}/ws/state`); return r.ok ? (await r.json()).user : `HTTP ${r.status}`; }, R.AGENT);
+  const direct = (await dcall('GET', `/api/${R.AGENT}/ws/state`)).status;
+  check(theirs === 'dev1' && direct === 403 && mine.t.sessions.length >= 1 && !mine.text.includes(stamp), `[real] their dock frames their own agent — a partition of their own, nothing of the admin's conversation (${theirs}, ${mine.t.sessions.length} session)`);
+  await shot(D.page, 'agent-chrome-real-person', { fullPage: false });
+  await D.ctx.close();
+  log(`agentChrome: the real holder (${R.AGENT}) was driven end to end; the faked matrix covers what it cannot hold on demand`);
 }
 
 module.exports = { agentChrome };

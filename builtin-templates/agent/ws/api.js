@@ -53,4 +53,17 @@ export const ws = {
   takeBack: (run, iid) => call(`/runs/${run}/inbox/${iid}`, { method: 'DELETE' }),
   // xbind's own: the full view of what a session is connected to, for this page's frame only
   fullConnection: (handle, whatIf) => call(`/api/xbin/agents/connection${q({ session: handle, whatIf })}`),
+  // …and the person's delegation state, which the page's credential may read (docs/protocol/delegation.md): asked when the
+  // backend could not — xbind refuses a paused or turned-off agent its every call, this read too (state: delegationError)
+  delegation: () => call('/api/xbin/delegate/state'),
 };
+
+/** state(): GET /ws/state, with `delegation` read from xbind itself when the backend was refused it. */
+export async function state() {
+  const r = await ws.state();
+  if (r.ok && r.data && !r.data.delegation && r.data.delegationError) {
+    const d = await ws.delegation();
+    if (d.ok && d.data && typeof d.data === 'object') r.data.delegation = d.data;
+  }
+  return r;
+}
