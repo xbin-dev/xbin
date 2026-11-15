@@ -38,7 +38,8 @@ type fakeXbin struct {
 	logs      map[string]string
 	api       map[string]func(body []byte) (int, string) // "METHOD /api/<tile>/path": a tile's API
 	state     wsState
-	startAsk  bool // starting a tile agent asks (false: the person's preference lets it through)
+	startAsk  bool  // starting a tile agent asks (false: the person's preference lets it through)
+	startDry  *bool // what a start's dry run answers for needsApproval, when it isn't startAsk (the preference changed in between)
 	paused    bool
 	pages     map[string]string // what a tile's page shows (a preview's snapshot)
 	noPreview bool              // previews are off on this xbind
@@ -494,6 +495,9 @@ func (f *fakeXbin) call(sid string, c wsCall) (wsAnswer, error) {
 	}
 	if c.DryRun {
 		d := &wsDry{Allowed: true, Class: "tile-write", SideEffect: !read, NeedsApproval: needs}
+		if f.startDry != nil && strings.HasPrefix(c.Path, "/api/xbin/term/sessions") {
+			d.NeedsApproval = *f.startDry
+		}
 		if t != nil {
 			d.Tile, d.Level, d.Role = t.Path, t.Level, "writer"
 		}

@@ -550,8 +550,30 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 			xbin.WriteJSON(w, http.StatusOK, map[string]any{"request": req.Ref, "id": req.ID})
 			return
 		}
-		agent.wsDecide(ctx, s, req, wsRequest{}) // the click is the confirmation
+		// the click is the confirmation only where xbind says, now, that
+		// none is needed: its dry run answers for the person's preference as
+		// it stands, not as it stood when the agent asked
+		start := wsStartOf(b, s.Owner)
+		var dry *wsDry
+		if err := agent.wsWith(ctx, s, func(sid string) (err error) { _, dry, err = wsX.AgentStart(ctx, sid, start, "", true); return }); err != nil {
+			wsWriteErr(w, err)
+			return
+		}
+		if dry == nil || !dry.Allowed {
+			xbin.WriteError(w, http.StatusForbidden, orStr(dryErr(dry), "xbin would refuse this start"))
+			return
+		}
+		if !dry.NeedsApproval {
+			agent.wsDecide(ctx, s, req, wsRequest{})
+		} else if err := agent.wsRefile(ctx, s, req, start); err != nil {
+			wsWriteErr(w, err)
+			return
+		}
 		cur, _ := agent.db.wsReq(req.ID)
+		if cur != nil && cur.State == "pending" && !wsLocalRef(cur.Ref) { // filed for their approval: the chrome opens it
+			xbin.WriteJSON(w, http.StatusOK, map[string]any{"request": cur.Ref, "id": cur.ID})
+			return
+		}
 		xbin.WriteJSON(w, http.StatusOK, map[string]any{"started": cur != nil && cur.State == "used", "id": req.ID, "outcome": cur.Outcome})
 		return
 	}
@@ -563,11 +585,7 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if dry == nil || !dry.Allowed {
-		msg := "xbin would refuse this start"
-		if dry != nil {
-			msg = orStr(dry.Error, msg)
-		}
-		xbin.WriteError(w, http.StatusForbidden, msg)
+		xbin.WriteError(w, http.StatusForbidden, orStr(dryErr(dry), "xbin would refuse this start"))
 		return
 	}
 	raw, _ := json.Marshal(start)
@@ -597,7 +615,19 @@ func handleWsBriefStart(w http.ResponseWriter, r *http.Request) {
 	}
 	agent.wsDecide(ctx, s, req, wsRequest{})
 	cur, _ := agent.db.wsReq(req.ID)
+	if cur != nil && cur.State == "pending" && !wsLocalRef(cur.Ref) { // xbind wanted an approval after all: filed, for the chrome to open
+		xbin.WriteJSON(w, http.StatusOK, map[string]any{"request": cur.Ref, "id": cur.ID})
+		return
+	}
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"started": cur != nil && cur.State == "used", "id": req.ID, "outcome": cur.Outcome})
+}
+
+// dryErr is a dry run's refusal in xbind's words ("" none).
+func dryErr(d *wsDry) string {
+	if d == nil {
+		return ""
+	}
+	return d.Error
 }
 
 // handleWsNeeds is what waits for the person because of their agent: the

@@ -26,7 +26,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `save_as` writes over an existing page only where the session may read
   it, and adds to its stamps instead of replacing them. `admin_changes`
   lists the change sets its own conversation proposed, no other
-  session's.
+  session's. A tile agent's start follows xbind's dry run at the brief's
+  Start: no request where the person lets starts through, one filed
+  wherever xbind says it is needed.
 
 - **Agent sessions: "offered" versus "on" the LLM connector**
   ([llm.md](/docs/llm.md#agent-sessions),
