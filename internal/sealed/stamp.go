@@ -113,6 +113,8 @@ func (s *Set) settleData(c *Component) (Hold, bool) {
 	}
 	s.stamps[c.Path] = st
 	switch want := modeName(c.Partition); {
+	case st.Mode == "" && st.Data > c.data():
+		// a newer release's stamp without a mode: not this release's to write
 	case st.Mode == "": // a stamp from before modes were recorded: this table's is taken down
 		st.Mode = want
 		if b, err := json.MarshalIndent(st, "", "  "); err == nil && fsutil.WriteFileAtomic(stampPath(ws, c.Name), append(b, '\n'), 0o600) == nil {
