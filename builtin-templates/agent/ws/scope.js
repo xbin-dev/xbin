@@ -107,7 +107,7 @@ function modelsView(s, act) {
       <input type="radio" name="wsp-model" .checked=${s.pick === m.id} @change=${() => act.pick(m.id)}>
       <span><b>${m.name || short(m.id)}</b>${m.id === s.model ? html` <span class="wsc-muted">current</span>` : nothing}
         ${m.private ? html` <span class="wsp-tag ok">${icon('lock')}private</span>` : nothing}
-        ${m.where ? html`<span class="wsc-muted wsp-where">${m.where}</span>` : nothing}</span></label>`)}
+        ${m.where || m.upstream ? html`<span class="wsc-muted wsp-where">${m.where || m.upstream}</span>` : nothing}</span></label>`)}
       ${list.length ? nothing : html`<div class="wsc-muted wsp-pad">No other model is open to you.</div>`}</div>
     ${s.pick && s.pick !== s.model ? (w ? html`<div class="wsp-whatif" role="status">
         <div class="wsp-wh">${icon('plug')}If you switch to ${short(w.model || s.pick)}${w.private ? html` <span class="wsp-tag ok">${icon('lock')}private</span>` : nothing}</div>

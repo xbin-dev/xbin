@@ -29,7 +29,7 @@
 // fails to load, and the app shows this page instead (/docs/native.md →
 // Fallback) — which says which xbind it needs.
 //
-// Workspace mode (API.md §Workspace mode; D231, D232): the same backend is a
+// Workspace mode (API.md §Workspace mode; D231, D235): the same backend is a
 // person's workspace agent when xbind starts it so, and then its page is
 // another one — ws/page.js, a small tree of its own over the same models —
 // in place of agent.js, whose routes that backend doesn't serve. A

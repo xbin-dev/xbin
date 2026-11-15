@@ -15047,14 +15047,12 @@ Deviations and refinements made while implementing; all deliberate:
     start preference is set); naming the admins in "An admin can fix
     this" (no route lists admins to a non-admin); the setup's "Choose who
     gets one" step links the docs rather than an editor.
-- **D235 — The workspace agent on the web: xbin's chrome grants, the
-  agent's page shows (2026-11-15; issue #51; `plans/wsagent/ux.md`).**
-  *(Part 1, xbin's own chrome — the dock, the approval sheet, the change
-  set, Needs you, pause — is written on `wsagent/d1-chrome` and merges in
-  here.)*
-  - **Part 2 — the agent's own page (package D2).** The conversation with
-    a person's workspace agent is the agent template's page in workspace
-    mode, `builtin-templates/agent/ws/`, framed by the dock.
+- **D235 — The workspace agent's own page on the web: it shows, xbin's
+  chrome grants (2026-11-15; issue #51; `plans/wsagent/ux.md`; package
+  D2).** The chrome around it — the dock, the approval sheet, the change
+  set, Needs you, pause — is D232. The conversation with a person's
+  workspace agent is the agent template's page in workspace mode,
+  `builtin-templates/agent/ws/`, framed by the dock.
   - **A page of its own, not a mode of agent.js.** `boot.js` chooses: on a
     sealed component's path (`xbin/<name>`, which no workspace can hold)
     it asks `GET /ws/state` after the kit check and loads `ws/page.js` when
@@ -15085,13 +15083,23 @@ Deviations and refinements made while implementing; all deliberate:
     the line before it in time. A row may draw several cards or none, so
     the session's paging and the kit's window keep their indices.
     Rejected: a second list of blocks for the window (its `keep()` cuts by
-    the fold's indices). The phrases it reads in tool answers are the
-    backend's, pinned by a node test against the Go source, and so is every
-    JSON field it reads.
-  - **The context chip goes as a line of text** (`About tile "<name>"
-    (<path>):`): the message route takes text only; the page splits it back
-    to draw the chip above the person's words. A structured field is a gap
-    for the backend's owner.
+    the fold's indices). Every JSON field it reads is pinned by a node
+    test against the backend's Go source.
+  - **Fields, never the model's sentences** (follow-up round, after the
+    backend's a1c7c312). The context chip goes as the message route's
+    `context: {tile} | {screen}`; requests settle from `by`, `grant`,
+    `grantUntilMs`, `via`, `resultStatus`, `result`, `expiresMs`; refusals
+    are `cards.refusals[]` by kind, each with the copy deck's words and
+    ways forward; a question's `kind` decides its card — a redirect offers
+    "Hand this to <tile>'s own agent" (`xbin:open-session {session: "new",
+    tile, draft}`, the draft the person's own words) and "Tell me the
+    outcome instead"; the quota banner and pause time are `state.quota`
+    and `delegation.pausedAt`. The first version drew from the backend's
+    prose (a first-line prefix for the context, outcome sentences, refusal
+    phrases) because the fields didn't exist; that is gone. Two readings
+    remain, pinned by the test: a request and a brief find their tool call
+    by the call's answer ("Pending — request N", "Brief N for"), since
+    `requests[].callId` is no longer set and briefs carry none.
   - **Kit, generic** (KIT 5): a plan's title, meta, note, numbering and a
     step's tag; a question's button words; the composer's accessible name.
     The page needs `NEEDS.ws` = 5; the normal page still needs 4.

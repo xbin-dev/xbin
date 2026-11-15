@@ -1,5 +1,5 @@
 // hack/agent-template-ws-page.test.mjs — the pure parts of the workspace
-// agent's page (builtin-templates/agent/ws/; D232), run by `make js-test`:
+// agent's page (builtin-templates/agent/ws/; D235), run by `make js-test`:
 // the message contract with xbin's chrome (ws/dock.js), the words and
 // readings of the backend's shapes (ws/words.js), the scope panel's model
 // (ws/scope-model.js), where the agent's cards sit in its transcript
@@ -20,7 +20,7 @@ const { compose, askBlock, UPDATES } = await import(new URL('ws/place.js', T));
 const { pageMode, NEEDS } = await import(new URL('boot.js', T));
 const src = (f) => readFileSync(new URL(f, T), 'utf8');
 const backend = readdirSync(new URL('_backend/', T)).filter((f) => /^ws_.*\.go$/.test(f) && !f.endsWith('_test.go')).map((f) => src('_backend/' + f)).join('\n')
-  + src('_backend/coord_workspace.go');
+  + src('_backend/coord_workspace.go') + src('_backend/inbox.go'); // inbox.go: the message route's `context`
 
 // ---- the contract with the chrome --------------------------------------------------------------
 
@@ -28,6 +28,9 @@ test('dock: the messages out carry ids only, and only ids that are ids', () => {
   assert.deepEqual(dock.openRequest('rq-12'), { type: 'xbin:agent-open-request', id: 'rq-12' });
   assert.deepEqual(dock.openChangeset('cs_1'), { type: 'xbin:agent-open-changeset', id: 'cs_1' });
   assert.deepEqual(dock.openSession('ts-7', '/sales/orders/'), { type: 'xbin:open-session', session: 'ts-7', tile: 'sales/orders' });
+  assert.deepEqual(dock.openSession('new', 'sales/orders', 'change line 40'), { type: 'xbin:open-session', session: 'new', tile: 'sales/orders', draft: 'change line 40' }, 'a redirect: the person\'s words as a draft');
+  assert.deepEqual(dock.openSession('ts-7', 'sales/orders', 'x'), { type: 'xbin:open-session', session: 'ts-7', tile: 'sales/orders' }, 'a draft rides only on a new session');
+  assert.equal(dock.openSession('new', 'sales/orders', 'y'.repeat(9000)).draft.length, dock.DRAFT_MAX);
   for (const bad of ['', 'a b', '<x>', 'x'.repeat(81), null, 7]) assert.equal(dock.openRequest(bad), null, String(bad));
   assert.equal(dock.openSession('ts 7', 'a/b'), null);
   assert.equal(dock.openSession('ts-7', 'a/../b'), null);
@@ -75,49 +78,57 @@ test('a tile agent\'s card: status as glyph and word, Answer only when it waits 
   assert.equal(W.running(3_723_000), '1:02:03');
 });
 
-test('a request\'s card: waiting with Review…, settled in the person\'s words, never an Allow', () => {
+test('a request\'s card from its fields: waiting with Review… and its expiry; settled — who, how wide, where, what ran; never an Allow', () => {
   const t0 = 10_000_000;
-  const r = (q) => W.requestCard({ id: 1, kind: 'call', ref: 'rq-1', tile: 'sales/invoices', method: 'POST', path: '/x', createdMs: t0, ...q }, t0 + 120_000, () => 'Invoices');
+  const r = (q) => W.requestCard({ id: 1, kind: 'call', ref: 'rq-1', tile: 'sales/invoices', method: 'POST', path: '/x', createdMs: t0, expiresMs: t0 + 86_400_000, decidedMs: t0, ...q }, t0 + 120_000, () => 'Invoices');
   const p = r({ state: 'pending' });
   assert.equal(p.button, 'Review…');
   assert.match(p.line, /expires in 23 h 58 min/);
+  assert.equal(r({ state: 'pending', expiresMs: t0 + 3_600_000 }).line.split(' · ')[1], 'expires in 58 min', 'the expiry is the field, not 24 h from asking');
   assert.equal(r({ state: 'proposed', kind: 'changeset', title: '5 admin changes proposed' }).button, 'Review…');
-  assert.equal(r({ state: 'used', outcome: 'approved by your person — it ran: 200 OK' }).head, 'Allowed once by you');
-  assert.equal(r({ state: 'used', outcome: 'approved by your person — it ran: 200 OK' }).result, '200 OK');
-  assert.equal(r({ state: 'used', outcome: 'approved by your person, for an hour — it ran: 204' }).head, 'Allowed for an hour by you');
-  assert.equal(r({ state: 'used', outcome: 'approved by your person, from now on — it ran: 204' }).head, 'Allowed always by you');
-  assert.equal(r({ state: 'denied' }).head, 'Denied by you');
-  assert.equal(r({ state: 'expired' }).head, 'Expired — not approved within 24 hours.');
+  const used = r({ state: 'used', by: 'person', grant: 'once', via: 'app', resultStatus: 200, result: 'POST /x → 200', outcome: 'never drawn' });
+  assert.deepEqual([used.head, used.result], ['Allowed once by you', 'POST /x → 200']);
+  assert.match(used.line, / · in the app · POST \/x · 200$/);
+  assert.equal(r({ state: 'used', grant: 'call' }).head, 'Allowed always, this exact action, by you');
+  assert.equal(r({ state: 'used', grant: 'tile', grantUntilMs: 0 }).head, 'Allowed every change to Invoices, by you');
+  assert.match(r({ state: 'used', grant: 'tile', grantUntilMs: t0 + 3_600_000 }).head, /^Allowed every change to Invoices until \d\d:\d\d, by you$/);
+  assert.equal(r({ state: 'failed', grant: 'once', result: 'the tile answered 500' }).head, 'Allowed once by you — it failed');
+  assert.equal(r({ state: 'denied', by: 'person' }).head, 'Denied by you');
+  assert.equal(r({ state: 'expired', by: 'xbin' }).head, 'Expired — not approved within 24 hours.');
   assert.equal(r({ state: 'expired' }).button, 'Ask again');
-  assert.equal(r({ state: 'withdrawn' }).head, 'Withdrawn by the agent');
+  assert.equal(r({ state: 'withdrawn', by: 'agent' }).head, 'Withdrawn by the agent');
+  assert.equal(r({ state: 'applied', kind: 'changeset', result: '2 of 3 changes applied' }).head, '2 of 3 changes applied');
   assert.equal(r({ state: 'pending', ref: 'brief:1:4' }).button, '', 'a start the brief confirms has no Review…');
   for (const st of ['pending', 'proposed', 'approved', 'running', 'used', 'failed', 'denied', 'expired', 'withdrawn', 'applied']) {
     assert.doesNotMatch(r({ state: st }).button, /allow|approve|deny/i, st);
   }
 });
 
-test('the backend\'s words the page reads are the backend\'s: approvals, outcomes, refusals, the updates head', () => {
-  for (const phrase of ['approved by your person', 'approved by your person, for an hour', 'approved by your person, from now on', ' — it ran: ', ' — tile agent #',
-    'refused for this tile — ', '. This is a rule', 'an agent can\'t do this, whatever is approved — ', '. Tell your person', 'this tile is outside what your person let this session see',
-    'too many actions in a minute', 'Brief %d for %s is in front of your person', 'Pending — request %d (', 'tile agent #%d started in']) {
-    assert.ok(backend.includes(phrase), `the backend says "${phrase}"`);
-  }
+test('refusals from their fields: each kind its words and ways forward; the two phrases still read are the backend\'s', () => {
+  const card = (kind, reason = '') => W.refusalCard({ callId: 'c', tool: 'tile_call', kind, reason, tile: 'finance/ledger' }, () => 'Ledger');
+  assert.deepEqual([card('policy', 'Finance allows private models only').title, card('policy', 'Finance allows private models only').text, card('policy').ways], ['Ledger is blocked by a rule', 'Finance allows private models only.', ['model', 'scope']]);
+  assert.deepEqual([card('cannot', 'deleting a tile is its person\'s').title, card('cannot').ways], ['Can’t do this', ['whatCan']]);
+  assert.match(card('hidden').text, /You left Ledger out of this session’s scope/);
+  assert.equal(card('not-connected').title, 'Ledger isn’t connected in this session');
+  assert.deepEqual(card('taint').ways, ['model']);
+  for (const k of ['paused', 'off', 'slow']) assert.equal(card(k).quiet, true, k);
+  assert.equal(card('something-new').title, 'xbin refused this');
+  // what the page still reads of the tool answers (no field links a request or a brief to its call yet)
+  for (const phrase of ['Brief %d for %s is in front of your person', 'Pending — request %d (']) assert.ok(backend.includes(phrase), `the backend says "${phrase}"`);
   assert.ok(backend.includes(`wsUpdatesHead = "${UPDATES}xbin and tile agents reporting, not your person]"`));
-  assert.deepEqual(W.refusalOf('POST /x would be refused: refused for this tile — Finance allows private models only. This is a rule (…): tell your person'),
-    { kind: 'policy', reason: 'Finance allows private models only', private: true });
-  assert.deepEqual(W.refusalOf('an agent can\'t do this, whatever is approved — deleting a tile is its person\'s. Tell your person it is theirs'), { kind: 'cannot', reason: 'deleting a tile is its person\'s' });
-  assert.equal(W.refusalOf('this tile is outside what your person let this session see (hidden by them)').kind, 'hidden');
-  assert.equal(W.refusalOf('HTTP 200 ok'), null);
 });
 
 test('every field the page reads is a JSON name the backend writes', () => {
   // a struct's json tag, a map literal's key, a key set on a map, a request body's field (decoded by name)
   const names = new Set([...backend.matchAll(/json:"([A-Za-z]+)/g), ...backend.matchAll(/"([A-Za-z]+)":/g), ...backend.matchAll(/\["([A-Za-z]+)"\]/g)].map((m) => m[1])
     .concat([...backend.matchAll(/^\s+([A-Z]\w*)(?:, \w+)*\s+\*?(?:int64|bool|string)\b/gm)].map((m) => m[1][0].toLowerCase() + m[1].slice(1))));
-  const read = ['user', 'mode', 'delegation', 'workspace', 'paused', 'models', 'default', 'sessions', 'name', 'main', 'model', 'handle', 'connection', 'summary', 'status', 'waiting',
+  const read = ['user', 'mode', 'delegation', 'workspace', 'paused', 'pausedAt', 'models', 'default', 'upstream', 'private', 'where', 'quota', 'stopped', 'resets', 'limitWords', 'raise',
+    'sessions', 'name', 'main', 'model', 'handle', 'connection', 'summary', 'status', 'waiting', 'ask',
     'archivedAt', 'agents', 'requests', 'activityMs', 'counts', 'tiles', 'orgs', 'notConnected', 'hidden', 'blocked', 'noAccess', 'whatIf', 'connects', 'disconnects', 'allowed', 'taintedOrgs',
-    'code', 'reason', 'offer', 'kind', 'ref', 'tile', 'title', 'method', 'path', 'brief', 'state', 'outcome', 'createdMs', 'decidedMs', 'session', 'harness', 'asks', 'waits', 'last', 'startedMs',
-    'goal', 'doneWhen', 'leaveAlone', 'checkBy', 'edited', 'updatedMs', 'plan', 'text', 'request', 'started', 'heading', 'line', 'can', 'cant', 'hint', 'startersTitle', 'starters', 'blank',
+    'code', 'reason', 'offer', 'kind', 'ref', 'tile', 'title', 'method', 'path', 'brief', 'state', 'createdMs', 'decidedMs', 'expiresMs', 'grant', 'grantUntilMs', 'by', 'via', 'resultStatus', 'result',
+    'refusals', 'callId', 'tool', 'question', 'choices', 'context', 'connected', 'screen',
+    'session', 'harness', 'asks', 'waits', 'last', 'startedMs',
+    'goal', 'doneWhen', 'leaveAlone', 'checkBy', 'edited', 'updatedMs', 'plan', 'text', 'started', 'heading', 'line', 'can', 'cant', 'hint', 'startersTitle', 'starters', 'blank',
     'pages', 'slug', 'version', 'updatedBy', 'rev', 'locked', 'lockedWhy', 'body', 'base', 'clearStamps', 'page', 'lastSession', 'defaults', 'harnesses', 'ticket', 'harnessName', 'needsTicket', 'scope', 'archived'];
   const missing = read.filter((n) => !names.has(n));
   assert.deepEqual(missing, [], 'fields the page reads that no workspace route writes');
@@ -152,13 +163,12 @@ test('the plan: numbered, each step tagged, the go-ahead\'s meaning said once', 
   assert.equal(q.block.note, '');
 });
 
-test('the context chip: one line before the words, split back for the transcript', () => {
-  const line = W.aboutLine({ tile: 'sales/orders', name: 'Orders' });
-  assert.equal(line, 'About tile "Orders" (sales/orders):');
-  assert.deepEqual(W.splitAbout(`${line}\nAdd a CSV export`), { about: { tile: 'sales/orders', name: 'Orders' }, text: 'Add a CSV export' });
-  assert.deepEqual(W.splitAbout(`${W.aboutLine({ screen: 'Sales desk' })}\nhi`), { about: { screen: 'Sales desk' }, text: 'hi' });
-  assert.equal(W.aboutLine({ tile: 'a/b', name: 'say "hi"\nnow' }), 'About tile "say ’hi’’now" (a/b):');
-  assert.deepEqual(W.splitAbout('About tile "x" (y): no newline'), { about: null, text: 'About tile "x" (y): no newline' });
+test('the context chip: sent as a field, drawn from the one the backend answers back', () => {
+  assert.deepEqual(W.aboutOf({ tile: 'sales/orders', name: 'Orders', connected: true }), { tile: 'sales/orders', name: 'Orders', connected: true });
+  assert.deepEqual(W.aboutOf({ tile: 'sales/orders' }), { tile: 'sales/orders', name: 'sales/orders', connected: undefined });
+  assert.deepEqual(W.aboutOf({ screen: 'Sales desk' }), { screen: 'Sales desk' });
+  assert.equal(W.aboutOf(null), null);
+  assert.equal(W.aboutOf({}), null);
   assert.deepEqual(W.blankAt('Add ___ to Invoices'), [4, 7]);
   assert.equal(W.blankAt('no blank'), null);
 });
@@ -176,11 +186,13 @@ test('sessions, the chip, the notebook, the states', () => {
   assert.deepEqual(W.pageClosed({ locked: true, lockedWhy: 'Not available in this session: Finance isn’t connected' }), { closed: true, why: 'Not available in this session: Finance isn’t connected' });
   assert.deepEqual(W.pageClosed({ readable: false, reason: 'r' }), { closed: true, why: 'r' });
   assert.equal(W.pageTag({ orgs: [] }), 'yours');
-  // quota: the state's word, else the connector's error in the run
-  assert.ok(W.quotaOf({ quota: { stopped: true, resets: '2030-01-02T01:00:00Z' } }, null).until.startsWith('Sending resumes at '));
-  assert.ok(W.quotaOf(null, { status: 'error', result: '429 xbin_llm_quota_exceeded: reached; resets 2030-01-02T01:00:00Z' }));
-  assert.equal(W.quotaOf(null, { status: 'error', result: 'model unreachable' }), null);
-  assert.equal(W.quotaOf(null, { status: 'idle', result: 'quota exceeded' }), null);
+  // quota: the state's fields
+  const q = W.quotaOf({ quota: { stopped: true, resets: '2030-01-02T01:00:00Z', limitWords: 'your 2M tokens for today', raise: 'an admin of sales, or a workspace admin' } });
+  assert.ok(q.until.startsWith('Sending resumes at '));
+  assert.match(q.words, /^You've used your 2M tokens for today\. It resets at /);
+  assert.equal(q.raise, 'An admin of sales, or a workspace admin can raise your limit.');
+  assert.equal(W.quotaOf({}), null);
+  assert.equal(W.quotaOf({ quota: { stopped: false } }), null);
   // the composer: paused before a quota before the connection; offline keeps the draft
   assert.deepEqual(W.composerState({ paused: true, quota: { until: 'x' } }), { placeholder: 'Resume to send a message', disabled: true, note: '' });
   assert.equal(W.composerState({ quota: { until: 'Sending resumes at 01:00' } }).placeholder, 'Sending resumes at 01:00');
@@ -250,6 +262,7 @@ test('compose: each card where the conversation made it; nothing lost; the redun
     plan: [{ text: 'x', kind: 'asks', state: 'todo' }],
     briefs: [{ id: 4, tile: 'sales/orders', state: 'started', createdMs: 0 }],
     requests: [{ id: 12, kind: 'call', ref: 'rq-12', state: 'pending', createdMs: 0 }, { id: 11, kind: 'session', ref: 'rq-11', brief: 4, state: 'used', outcome: 'approved by your person — tile agent #7 started in sales/orders', createdMs: 0 }],
+    refusals: [{ id: 3, callId: 'c1', tool: 'tile_call', kind: 'slow', reason: '', tile: '' }, { id: 2, callId: 'zz', tool: 'tile_call', kind: 'policy', reason: 'r', tile: 'f/l', createdMs: 0 }],
     agents: [{ id: 7, tile: 'sales/orders', brief: 4, status: 'running', startedMs: 0 }, { id: 9, tile: 'x/y', status: 'running', startedMs: 999_999_999 }],
   };
   const L = compose(blocks, cards, { status: 'idle' }, { words: W.W });
@@ -267,13 +280,20 @@ test('compose: each card where the conversation made it; nothing lost; the redun
   // the agent started by request 11 sits with the brief's group; one of no request or brief, by time (the end)
   const placed = [...L.at.values()].flatMap((e) => [...(e.replace || []), ...e.after]).concat(L.tail).map((b) => b.k);
   assert.ok(placed.includes('ws:agent:7') && placed.includes('ws:agent:9'));
-  for (const k of ['ws:brief:4', 'ws:req:11', 'ws:req:12', 'ws:agent:7', 'ws:agent:9']) assert.equal(placed.filter((x) => x === k).length, 1, `${k} once`);
+  for (const k of ['ws:brief:4', 'ws:req:11', 'ws:req:12', 'ws:agent:7', 'ws:agent:9', 'ws:ref:3', 'ws:ref:2']) assert.equal(placed.filter((x) => x === k).length, 1, `${k} once`);
+  assert.deepEqual(at('cc1').after.map((b) => b.k), ['ws:ref:3'], 'a refusal after the call it answers (its callId)');
   // a host block's version moves with what it shows
   const v1 = at('cc1').replace[0].v;
   cards.requests[0].state = 'used';
   assert.notEqual(compose(blocks, cards, {}, { words: W.W }).at.get('cc1').replace[0].v, v1);
   // no transcript yet: everything at the tail
-  assert.equal(compose([], cards, {}, { words: W.W }).tail.length, 7);
+  assert.equal(compose([], cards, {}, { words: W.W }).tail.length, 9);
+  // a redirect: a card of its own, carrying the tile and the person's own words before it
+  const red = [{ k: 'user', id: 'm1', text: 'change line 40 in export.go' }, tool('r1', 'ask_user', '', { args: JSON.stringify({ question: 'Q', kind: 'redirect', tile: 'sales/orders/' }) })];
+  const R = compose(red, { ask: null }, {}, { words: W.W }).at.get('cr1').replace[0];
+  assert.deepEqual([R.type, R.data.tile, R.data.draft, R.data.waits], ['redirect', 'sales/orders', 'change line 40 in export.go', true]);
+  const C = compose(red, { ask: { callId: 'r1', kind: 'cant', question: 'Q', choices: ['nearest'] } }, {}, { words: W.W }).at.get('cr1').replace[0];
+  assert.deepEqual([C.type, C.data.choices], ['cant', ['nearest']], 'the cards\' ask wins over the call\'s arguments');
 });
 
 test('a question: choices with something else, answered by the next message', () => {

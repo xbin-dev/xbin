@@ -1,6 +1,6 @@
 // ws/dock.js — the workspace agent's page and xbin's chrome around it: the
 // whole of what they say to each other (API.md §Workspace mode → "The
-// page and the chrome"; D232).
+// page and the chrome"; D235).
 //
 // The page renders what a model wrote, so xbin treats it as untrusted: it
 // never grants anything. It shows that something waits and asks the chrome
@@ -21,6 +21,12 @@
 //                                                   window (D229; through
 //                                                   xbin.openSession when the
 //                                                   client has it)
+//                               {session: "new",   open a new session of the
+//                                tile, draft}      tile's own agent with the
+//                                                   person's own words as a
+//                                                   draft (a redirect: "Hand
+//                                                   this to <tile>'s own
+//                                                   agent"); nothing is sent
 //   chrome → page
 //     xbin:agent-context        {tile} | {screen}  what the dock was opened
 //                                                   about: a tile's path, or
@@ -50,12 +56,16 @@ export function tilePath(v) {
   return t && t.length <= 512 && !t.split('/').some((x) => !x || x === '.' || x === '..') ? t : '';
 }
 
-/** openRequest(id) / openChangeset(id) / openSession(session, tile): the message, or null when the ids aren't ids. */
+/** openRequest(id) / openChangeset(id) / openSession(session, tile, draft?): the message, or null when the ids aren't ids (a draft rides only on session "new"). */
 export const openRequest = (id) => (typeof id === 'string' && ID.test(id) ? { type: MSG.openRequest, id } : null);
 export const openChangeset = (id) => (typeof id === 'string' && ID.test(id) ? { type: MSG.openChangeset, id } : null);
-export function openSession(session, tile) {
+export const DRAFT_MAX = 8000;
+export function openSession(session, tile, draft) {
   const t = tilePath(tile);
-  return typeof session === 'string' && SESSION.test(session) && t ? { type: MSG.openSession, session, tile: t } : null;
+  if (!(typeof session === 'string' && SESSION.test(session) && t)) return null;
+  const msg = { type: MSG.openSession, session, tile: t };
+  if (session === 'new' && typeof draft === 'string' && draft.trim()) msg.draft = draft.slice(0, DRAFT_MAX);
+  return msg;
 }
 
 /**
@@ -85,11 +95,11 @@ export function post(msg, win = globalThis.window) {
  * session — xbin.openSession (D229: the same message, with a reply) when
  * the client has it, else the bare message.
  */
-export async function showSession(session, tile, win = globalThis.window) {
-  const msg = openSession(session, tile);
+export async function showSession(session, tile, win = globalThis.window, draft) {
+  const msg = openSession(session, tile, draft);
   if (!msg) return false;
   const x = win && win.xbin;
-  if (x && typeof x.openSession === 'function') {
+  if (x && typeof x.openSession === 'function' && !msg.draft) {
     try { return await x.openSession({ tile: msg.tile, session: msg.session }); } catch { /* the bare message below */ }
   }
   return post(msg, win);

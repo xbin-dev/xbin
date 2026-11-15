@@ -12,7 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
-- **The workspace agent's page** (D232; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
+- **The workspace agent's page draws from fields** (D235): the context
+  chip is sent as the message's `context`; request cards, refusals
+  (`cards.refusals`), the agent's question kinds (a redirect, can't), the
+  quota banner and the pause time come from the backend's fields, never
+  its sentences. A redirect's "Hand this to <tile>'s own agent" posts
+  `xbin:open-session {session: "new", tile, draft}`.
+- **The workspace agent's page** (D235; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
   the agent template's `API.md` §Workspace mode → The page). On the sealed
   component's path the agent template's `boot.js` asks `GET /ws/state` and
   loads its workspace page (`ws/`) in place of `agent.js`; an instance of

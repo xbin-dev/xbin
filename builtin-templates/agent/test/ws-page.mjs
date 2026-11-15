@@ -20,7 +20,7 @@
 //
 //   node test/ws-page.mjs        (needs playwright + a chromium build)
 import { launch, checker } from './backend.mjs';
-import { openWs, fresh, SESSIONS, FULL, EMPTY, CONVERSATION, CARDS, now } from './ws-stub.mjs';
+import { openWs, fresh, SESSIONS, FULL, EMPTY, CONVERSATION, CARDS, msg, call } from './ws-stub.mjs';
 
 const { ok, done } = checker();
 const browser = await launch();
@@ -68,7 +68,8 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   ok('a request that waits: what, for which tile, how long it has, one Review…', req && req.t.includes('Waiting for your approval') && req.t.includes('Invoices') && /expires in/.test(req.t) && req.btns.join() === 'Review…', JSON.stringify(req));
   ok('…in place of the call that filed it', (await page.$$eval('.bxc-row', (rows) => rows.filter((r) => r.querySelector('.wsc-req[data-req="12"]')).length)) === 1);
   const ref = await text(page, '[data-refusal="policy"]');
-  ok('xbin\'s refusal: the org\'s sentence, the rule, two ways forward', ref.includes('Finance allows private models only') && ref.includes('not something the agent can work around') && ref.includes('See what a private model connects') && ref.includes('Open scope'), ref);
+  ok('xbin\'s refusal (cards.refusals, kind policy): the tile, the org\'s sentence, the rule, two ways forward', ref.includes('Ledger is blocked by a rule') && ref.includes('Finance allows private models only') && ref.includes('not something the agent can work around') && ref.includes('Change the model…') && ref.includes('Open scope'), ref);
+  ok('…after the call it answers', (await page.$$eval('.bxc-row', (rows) => rows.filter((r) => r.dataset.k === 'cl1' && r.querySelector('[data-refusal="policy"]')).length)) === 1);
   const agents = await page.$$eval('.wsc-agent', (cs) => cs.map((c) => ({ tile: c.dataset.tile, t: c.innerText, btn: c.querySelector('button').innerText.trim() })));
   ok('two tile agents: tile, coding agent, status as glyph and word, last line', agents.length === 2 && /Orders/.test(agents[0].t) && /Claude Code/.test(agents[0].t) && /working \d+:\d\d/.test(agents[0].t) && /3 of 5 cases pass/.test(agents[0].t), JSON.stringify(agents));
   ok('…the one that waits says so, and only the person can answer: Answer', agents[1] && /waiting for you/.test(agents[1].t) && /Only you can answer/.test(agents[1].t) && agents[1].btn === 'Answer', JSON.stringify(agents[1]));
@@ -100,14 +101,16 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   // the request settles: a run event says the cards changed
   await page.evaluate(() => {
     const q = window.__seed.cards[1].requests.find((x) => x.id === 12);
-    Object.assign(q, { state: 'used', decidedMs: Date.now(), outcome: 'approved by your person — it ran: 200 OK · 38 links rebuilt' });
+    Object.assign(q, { state: 'used', decidedMs: Date.now(), by: 'person', via: 'session', grant: 'once', resultStatus: 200, result: 'POST /links/rebuild → 200 · 38 links rebuilt', outcome: 'the model\'s sentence, never drawn' });
     window.__push({ type: 'run', run: 1, data: { id: 1, status: 'running' } });
   });
   await until(async () => (await text(page, '.wsc-req[data-req="12"]')).includes('Allowed once by you'));
   const settled = await text(page, '.wsc-req[data-req="12"]');
-  ok('settled: who allowed it, what ran, the result — and no button', settled.includes('Allowed once by you') && settled.includes('POST /links/rebuild') && settled.includes('38 links rebuilt')
+  ok('settled (its fields): who allowed it, how wide, what ran, the status, the result — and no button', settled.includes('Allowed once by you') && settled.includes('POST /links/rebuild · 200') && settled.includes('38 links rebuilt') && !settled.includes('never drawn')
     && (await page.$$('.wsc-req[data-req="12"] button')).length === 0, settled);
   ok('…said once to a screen reader', /Rebuild the order links.*Allowed once by you/.test(await page.evaluate(() => window.wsAgentPage.testApi().said)), await page.evaluate(() => window.wsAgentPage.testApi().said));
+  await page.evaluate(() => { Object.assign(window.__seed.cards[1].requests.find((x) => x.id === 12), { grant: 'tile', grantUntilMs: 0 }); window.__push({ type: 'run', run: 1, data: { id: 1 } }); });
+  ok('a standing approval says how wide: every change to the tile', await until(async () => (await text(page, '.wsc-req[data-req="12"]')).includes('Allowed every change to Invoices, by you')));
   // denied, expired, withdrawn
   for (const [state, words] of [['denied', 'Denied by you'], ['expired', 'Expired — not approved within 24 hours.'], ['withdrawn', 'Withdrawn by the agent']]) {
     await page.evaluate((st) => { window.__seed.cards[1].requests.find((x) => x.id === 12).state = st; window.__push({ type: 'run', run: 1, data: { id: 1 } }); }, state);
@@ -184,7 +187,7 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   await page.keyboard.press('Enter');
   await until(async () => (await calls(page, 'POST', /\/message$/)).length === 1);
   const body = JSON.parse((await calls(page, 'POST', /\/message$/))[0].body);
-  ok('the chip goes with the next message: the tile\'s name and path, then the words', body.text === 'About tile "Orders" (sales/orders):\nAdd a CSV export', JSON.stringify(body));
+  ok('the chip goes with the next message as its context field; the words are the person\'s own', body.text === 'Add a CSV export' && JSON.stringify(body.context) === JSON.stringify({ tile: 'sales/orders' }), JSON.stringify(body));
   await page.waitForTimeout(100);
   ok('…and only that one: it is gone after', !(await page.$('.wsp-ctx')));
   await page.evaluate(() => window.postMessage({ type: 'xbin:agent-context', screen: 'Sales desk' }, '*'));
@@ -197,6 +200,45 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   await page.evaluate(() => new Promise((r) => { const f = document.createElement('iframe'); f.srcdoc = '<script>parent.postMessage({type:"xbin:agent-context",tile:"x/evil"},"*")<\/script>'; f.onload = () => setTimeout(r, 100); document.body.append(f); }));
   ok('a context message from another window is ignored', (await page.evaluate(() => window.wsAgentPage.testApi().context)) === null, await page.evaluate(() => JSON.stringify(window.wsAgentPage.testApi().context)));
   ok('no page errors (context)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- the agent's question as a redirect, and as "can't" -------------------------------------------
+{
+  const v = { messages: [
+    msg(1, 'user', 'in export.go change line 40 to use a semicolon separator', { context: { tile: 'sales/orders', name: 'Orders', connected: true } }),
+    msg(2, 'assistant', '', { toolCalls: [call('r1', 'ask_user', { question: 'Should Orders’ own agent do this, or tell me the outcome?', kind: 'redirect', tile: 'sales/orders' })] }),
+    msg(3, 'tool', '(asked the user; awaiting their reply)', { toolCallId: 'r1', name: 'ask_user' }),
+  ] };
+  const cards = { requests: [], agents: [], briefs: [], plan: [], refusals: [], ask: { callId: 'r1', kind: 'redirect', question: 'Should Orders’ own agent do this, or tell me the outcome?', tile: 'sales/orders' } };
+  const { ctx, page, errors } = await openWs(browser, { sessions: fresh(SESSIONS).slice(0, 1), full: FULL, views: { 1: v }, cards: { 1: cards } });
+  const r = await text(page, '[data-ask="redirect"]');
+  ok('a redirect (ask kind redirect): not an error, two ways forward', r.includes('doesn’t open or edit code') && r.includes('Hand this to Orders’ own agent') && r.includes('Tell me the outcome instead'), r);
+  await page.click('[data-ask="redirect"] .wsc-way >> nth=0');
+  await page.waitForTimeout(100);
+  ok('…"Hand this to Orders\' own agent": a new session there, the person\'s own words as its draft — nothing sent',
+    JSON.stringify((await posted(page))[0]) === JSON.stringify({ type: 'xbin:open-session', session: 'new', tile: 'sales/orders', draft: 'in export.go change line 40 to use a semicolon separator' })
+    && (await calls(page, 'POST', /\/message$/)).length === 0, JSON.stringify(await posted(page)));
+  await page.click('[data-ask="redirect"] .wsc-way >> nth=1');
+  await page.waitForTimeout(100);
+  ok('…"Tell me the outcome instead" puts the cursor in the composer', (await page.$eval('bx-chat-composer textarea', (t) => t.value)) === 'The outcome I want: ');
+  ok('NO GRANT (redirect)', (await grants(page)).length === 0);
+  ok('no page errors (redirect)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+{
+  const v = { messages: [
+    msg(1, 'user', 'delete the old Leave requests tile'),
+    msg(2, 'assistant', '', { toolCalls: [call('k1', 'ask_user', { question: 'Deleting a tile is yours to do. I can:', kind: 'cant', choices: ['Show where it is and what still uses it'] })] }),
+    msg(3, 'tool', '(asked the user; awaiting their reply)', { toolCallId: 'k1', name: 'ask_user' }),
+  ] };
+  const cards = { requests: [], agents: [], briefs: [], plan: [], refusals: [], ask: { callId: 'k1', kind: 'cant', question: 'Deleting a tile is yours to do. I can:', choices: ['Show where it is and what still uses it'] } };
+  const { ctx, page } = await openWs(browser, { sessions: fresh(SESSIONS).slice(0, 1), full: FULL, empty: EMPTY, views: { 1: v }, cards: { 1: cards } });
+  const c = await text(page, '[data-ask="cant"]');
+  ok('"can\'t" (ask kind cant): Can\'t do this, the nearest thing it can, What can it do?', c.includes('Can’t do this') && c.includes('Show where it is and what still uses it') && c.includes('What can it do?'), c);
+  await page.click('[data-ask="cant"] .wsc-way');
+  await until(async () => (await calls(page, 'POST', /\/message$/)).length === 1);
+  ok('…the nearest thing, picked, is the person\'s answer', JSON.parse((await calls(page, 'POST', /\/message$/))[0].body).text === 'Show where it is and what still uses it');
   await ctx.close();
 }
 
