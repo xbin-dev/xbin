@@ -349,6 +349,32 @@ export function steerTracker(ms = 6000) {
   };
 }
 
+// ---- the files of a message ---------------------------------------------------------------
+
+/** The session API's limits for a message's files (/docs/protocol/agents.md → POST …/prompt): how many, each, together. */
+export const ATTACH_LIMITS = Object.freeze({ files: 10, bytes: 10 << 20, total: 20 << 20 });
+
+/** fmtSize(n): bytes in a person's words ("12 KiB", "1.5 MiB"). */
+export const fmtSize = (n) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MiB` : n >= 1024 ? `${Math.round(n / 1024)} KiB` : `${Number(n) || 0} B`);
+
+/**
+ * stageFiles(staged, incoming, limits): the files a message would carry
+ * after adding `incoming` ([{name, size, …}]) to `staged` — {files, refused:
+ * [why, …]}: one past a limit is left out, and said.
+ */
+export function stageFiles(staged, incoming, limits = ATTACH_LIMITS) {
+  const files = [...(staged || [])], refused = [];
+  let total = files.reduce((n, f) => n + (f.size || 0), 0);
+  for (const f of incoming || []) {
+    if (files.length >= limits.files) { refused.push(`${f.name}: at most ${limits.files} files go with a message`); continue; }
+    if ((f.size || 0) > limits.bytes) { refused.push(`${f.name} is ${fmtSize(f.size)}: a file may be ${fmtSize(limits.bytes)} at most`); continue; }
+    if (total + (f.size || 0) > limits.total) { refused.push(`${f.name}: the files of a message may be ${fmtSize(limits.total)} together`); continue; }
+    total += f.size || 0;
+    files.push(f);
+  }
+  return { files, refused };
+}
+
 // ---- a sign-in code -----------------------------------------------------------------------
 
 /** cleanCode(s): a pasted code as a CLI reads it — one line, nothing but what a code is made of (a paste may carry spaces, a newline, a control character). */

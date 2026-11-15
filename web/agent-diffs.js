@@ -14,35 +14,9 @@
  */
 import { fileDiffs } from './code-shared.js';
 
-export const DIFF_LINES = 400; // a file's diff lines shown before "Show all"
-
-// lineCount(s): the lines of a patch (its final newline ends the last one)
-export function lineCount(s) {
-  if (!s) return 0;
-  let n = 0;
-  for (let i = s.indexOf('\n'); i >= 0; i = s.indexOf('\n', i + 1)) n++;
-  return s.endsWith('\n') ? n : n + 1;
-}
-
-// headLines(s, n): the first n lines of s
-export function headLines(s, n) {
-  let i = -1;
-  for (let k = 0; k < n; k++) {
-    i = s.indexOf('\n', i + 1);
-    if (i < 0) return s;
-  }
-  return s.slice(0, i + 1);
-}
-
-// diffBody(s): one file's diff without git's header lines (its row already
-// names the file and its status) — a rename, a mode change or "Binary files
-// … differ" stay, as does everything from the first hunk on
-const HEADER = /^(diff --git |index |--- |\+\+\+ |new file mode|deleted file mode|similarity index|dissimilarity index)/;
-export function diffBody(s) {
-  const at = s.search(/^@@/m);
-  const kept = (at < 0 ? s : s.slice(0, at)).split('\n').filter((l) => l && !HEADER.test(l));
-  return (kept.length ? kept.join('\n') + '\n' : '') + (at < 0 ? '' : s.slice(at));
-}
+// a file's diff lines shown before "Show all", and the text helpers that
+// cut one — the chat kit's now (/vendor/chat/tools.js, D224), under their names
+export { DIFF_LINES, lineCount, headLines, diffBody } from './chat/tools.js';
 
 // inlinePart(parts, truncated, path): a file's part of an event's own patch
 // (parts: fileDiffs of it) → {text, cut} — cut when the patch was truncated
