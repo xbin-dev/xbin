@@ -135,12 +135,19 @@ test('the empty state: what it can and can\'t do in three lines, starters that f
   assert.equal(find(pad.tree, { t: 'connection' }).p.connected, '3 tiles · 2 orgs', 'the whole line where there is room');
 });
 
-test('paused: the banner, and no composer at all — Resume is the app\'s', async () => {
-  const state = { user: 'ana', mode: 'workspace', delegation: { workspace: true, paused: true, pausedAt: new Date(NOW - 60e3).toISOString() }, models: { default: 'hosted/big', models: [] } };
-  const r = await run(talking({ state }));
-  assert.match(find(r.tree, { t: 'notice', has: 'Paused by you' }).p.title, /^Paused by you at \d\d:\d\d\.$/);
-  assert.equal(find(r.tree, { t: 'composer' }), null);
-  assert.ok(!json(r.tree).includes('Resume'), 'no Resume of the tile\'s own');
+test('paused: no banner of its own (the app\'s bar says it, with Resume), the draft kept in a read-only composer', async () => {
+  const state = { user: 'ana', mode: 'workspace', delegation: { workspace: true, paused: false }, models: { default: 'hosted/big', models: [] } };
+  const t = talking({ state });
+  const paused = { ...state, delegation: { workspace: true, paused: true, pausedAt: new Date(NOW - 60e3).toISOString() } };
+  const r = await run(t, [{ input: [{ t: 'composer' }, 'tell me what changed'] }, { call: ['seed', { state: paused }] },
+    { call: ['event', { type: 'delegate', data: { op: 'state', user: 'ana' } }] }, { wait: 400 }]);
+  assert.equal(find(r.tree, { t: 'notice', has: 'Paused by you' }), null, 'one place says it is paused: the app\'s bar');
+  const c = find(r.tree, { t: 'composer' });
+  assert.ok(c, 'the composer stays, with the words in it');
+  assert.equal(c.p.value, 'tell me what changed');
+  assert.equal(c.p.disabled, true, 'read-only: nothing can be sent while paused');
+  assert.equal(c.p.placeholder, W.paused);
+  assert.ok(!labels(r.tree, { t: 'button' }).some((l) => /resume/i.test(l)), 'no Resume of the tile\'s own');
 });
 
 test('a used-up quota and a turned-off workspace hold the composer, in words', async () => {

@@ -29,6 +29,7 @@ export const W = Object.freeze({
   paused: 'Resume to send a message',
   reconnecting: 'Reconnecting…',
   keptOffline: 'Your message is kept here and is not sent until you’re connected.',
+  keptPaused: 'Kept here, unsent. Resume your agent to send it.',
   answer: 'Answer',
   skip: 'Skip — let the agent look around first',
   skipSent: '(Skipped the question: look around first, and ask again only if you still need to.)',

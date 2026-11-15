@@ -640,33 +640,46 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         e.expect(e.wsComposer, 60, "turned on again: the conversation is back")
     }
 
-    /// Words typed and not sent stay in the composer through a pause: the
-    /// composer goes while paused (the app draws Resume), and comes back
-    /// with them — nothing was sent, nothing queued.
+    /// Words typed and not sent stay in the composer through a pause: in
+    /// view, read-only, above the app's paused bar — the one place that
+    /// says it is paused, covering nothing — and editable again after
+    /// Resume. Nothing was sent, nothing queued.
     @MainActor
     func test13LiveDraftSurvivesAPause() async throws {
         try requireAgent()
-        let e = try E2E(self)
-        let run = try await e.server.wsPrepare("E2E draft")
-        let before = try await e.server.wsMessageCount(run)
-        e.launch()
-        e.ensureWorkspace()
-        e.goHome()
-        e.wsOpen()
-        e.expect(e.wsComposer, 90, "the composer")
-        e.wsComposer.tap()
-        e.wsComposer.typeText("Tell me what changed in Note")
-        _ = try await e.server.send("PUT", "/api/xbin/delegate/state", json: ["paused": true])
-        let resume = e.app.buttons.matching(identifier: "agent-resume").firstMatch
-        e.expect(resume, 30, "paused from elsewhere: the app's Resume")
-        XCTAssertEqual(resume.label, "Resume my agent")
-        XCTAssertTrue(e.until(20) { !e.wsComposer.exists }, "no composer while paused")
-        e.shot("wsagent2-30-live-paused-with-draft")
-        resume.tap()
-        let kept = e.app.descendants(matching: .any).matching(NSPredicate(format: "value CONTAINS %@", "Tell me what changed in Note")).firstMatch
-        e.expect(kept, 60, "resumed: the words are still in the composer")
-        let after = try await e.server.wsMessageCount(run)
-        XCTAssertEqual(after, before, "nothing was sent meanwhile")
+        for mode in ["light", "dark"] {
+            let e = try E2E(self)
+            let run = try await e.server.wsPrepare("E2E draft")
+            let before = try await e.server.wsMessageCount(run)
+            e.app.launchArguments += ["-XbinAppearance", mode]
+            e.launch()
+            e.ensureWorkspace()
+            e.goHome()
+            e.wsOpen()
+            e.expect(e.wsComposer, 90, "the composer")
+            // (the round before resumed the agent: the view takes words once its backend has heard so)
+            XCTAssertTrue(e.until(60) { e.wsComposer.isEnabled }, "the composer takes words")
+            e.wsComposer.tap()
+            e.wsComposer.typeText("Tell me what changed in Note")
+            _ = try await e.server.send("PUT", "/api/xbin/delegate/state", json: ["paused": true])
+            let resume = e.app.buttons.matching(identifier: "agent-resume").firstMatch
+            e.expect(resume, 30, "paused from elsewhere: the app's Resume")
+            XCTAssertEqual(resume.label, "Resume my agent")
+            let kept = e.app.descendants(matching: .any).matching(NSPredicate(format: "value CONTAINS %@", "Tell me what changed in Note")).firstMatch
+            e.expect(kept, 30, "paused: the words are still in view")
+            XCTAssertTrue(e.until(20) { !kept.isEnabled }, "…read-only while paused")
+            let bar = e.element("agent-paused")
+            XCTAssertTrue(kept.frame.maxY <= bar.frame.minY + 1, "the draft sits above the bar, not under it: \(kept.frame) \(bar.frame)")
+            let said = e.app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Paused by you")).count
+            XCTAssertEqual(said, 1, "one place says it is paused")
+            XCTAssertTrue(e.containing("can't read or change anything").exists || e.containing("can’t read or change anything").exists, "…and what that means")
+            e.shot("wsagent2-30-live-paused-with-draft-\(mode)")
+            resume.tap()
+            XCTAssertTrue(e.until(60) { kept.exists && kept.isEnabled }, "resumed: the words are still in the composer, editable")
+            let after = try await e.server.wsMessageCount(run)
+            XCTAssertEqual(after, before, "nothing was sent meanwhile")
+            e.app.terminate()
+        }
     }
 
     /// An admin batch, live: proposed by the scripted model, reviewed and

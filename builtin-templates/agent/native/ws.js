@@ -113,7 +113,7 @@ function mainScreen() {
       </menu>
     </toolbar>
     ${s && has('connection') ? connectionTpl(s) : nothing}
-    ${[...store.banners(), ...switchBanner()].map(bannerTpl)}
+    ${[...store.banners().filter(appSays), ...switchBanner()].map(bannerTpl)}
     ${S.err ? html`<notice tone="danger" text=${S.err}/><button @tap=${() => { S.err = ''; store.boot(); }}>Try again</button>` : nothing}
     ${ui.err ? html`<notice tone="danger" text=${ui.err}/>` : nothing}
     ${tpl}
@@ -133,6 +133,11 @@ function connectionTpl(s) {
   return html`<connection connected=${w.conn} not=${w.not || nothing} model=${short(s.model) || nothing} ?private=${store.isPrivate()} label=${w.label}
     @tap=${() => store.openScope({})} @model=${() => store.openScope({ models: true })}/>`;
 }
+
+// what the app's own chrome says itself, in one place: paused is its bar under the composer, with Resume (a grant,
+// never this view's) — the same words in a banner here too said it twice, and a banner pinned above the conversation
+// covered what it scrolled over
+const appSays = (b) => b.key !== 'paused';
 
 // a state of the page: its words, and what to do about it — one button, or a held session's ways forward, a row of
 // them under the notice (a notice has no children) — never Resume: that is the app's

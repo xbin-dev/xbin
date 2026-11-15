@@ -282,9 +282,12 @@ struct AgentChromeMenu: View {
     }
 }
 
-/// While paused: that it is, and Resume — in place of the composer, which
-/// the agent's view doesn't draw then (its banner says what pausing means).
-/// Resuming is a grant, so the button is the app's.
+/// While paused: that it is, what that means, and Resume — under the
+/// view's composer, which keeps the person's unsent words in view,
+/// read-only. The one place that says the agent is paused: the view draws
+/// no banner of its own then (a second one, pinned above the conversation,
+/// covered what it scrolled over). Resuming is a grant, so the button is
+/// the app's.
 struct AgentPausedBar: View {
     let workspace: WorkspaceModel
     @State private var working = false
@@ -298,8 +301,10 @@ struct AgentPausedBar: View {
             } icon: {
                 Image(systemName: "pause.fill").foregroundStyle(XbinColor.warn)
             }
-            // (what pausing means is said once, by the conversation's own
-            // banner above; here is the one thing to do about it)
+            if let text = w?.text {
+                Text(verbatim: text).font(.footnote).foregroundStyle(XbinColor.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let problem { Text(verbatim: problem).font(.footnote).foregroundStyle(XbinColor.danger) }
             Button {
                 working = true

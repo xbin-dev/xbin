@@ -362,16 +362,22 @@ function emptyFallback(e) {
 
 /**
  * composerTpl(pill): the message box — the context chip, the quick replies
- * and the hint (composer rev 2; rev 1: chips above the box). Paused, there
- * is none: the app's own chrome draws Resume in its place — resuming is a
- * grant, and this view draws none. Its `value` is the draft, controlled
+ * and the hint (composer rev 2; rev 1: chips above the box). Paused, it is
+ * read-only and keeps the draft in view (nothing can be sent until the
+ * person resumes, and an editable box with nowhere to send would invite
+ * words that go nowhere); the app's own bar under it says it is paused and
+ * holds Resume — resuming is a grant, and this view draws none. Its
+ * `value` is the draft, controlled
  * (docs/native.md §Controlled props): a send takes the words as the draft,
  * and only a message the backend took clears it — one it refused (the
  * agent's switch, 409 agent-off; no connection) stays in the box, unsent.
  */
 export function composerTpl(pill = '') {
   const S = st.S;
-  if (st.paused()) return nothing;
+  if (st.paused()) {
+    // the words the person typed stay where they were, read-only, until they resume
+    return html`<composer value=${S.drafts.get(S.sel) || ''} placeholder=${W.paused} disabled hint=${has('composer', 2) ? W.keptPaused : nothing}></composer>`;
+  }
   const cs = st.composerNow();
   const c2 = has('composer', 2);
   const c = st.contextNow();
