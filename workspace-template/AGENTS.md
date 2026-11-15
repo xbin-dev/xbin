@@ -631,6 +631,10 @@ node/python: no SDK needed — listen on `process.env.XBIN_SOCKET` /
 `os.environ["XBIN_SOCKET"]`, read `X-XBin-From`/`X-XBin-Role` (and
 `X-XBin-User`/`X-XBin-User-Level` — the signed-in human driving the call,
 D29; `X-XBin-Viewed-By` when an admin is viewing as that user, D64;
+`X-XBin-Preview: 1` when xbind itself is rendering that user's view
+read-only, D234 — a GET or a socket message must have **no side effect**
+then: no mark-as-read, no presence, no cursor; `xbin.Caller(r).Preview` in
+Go, `/docs/sdk.md`;
 `X-XBin-Partition`/`X-XBin-Partition-Id` when a partitioned tile calls you
 for a person — see Auth) headers,
 call outbound via the `XBIN_GATEWAY` unix socket with

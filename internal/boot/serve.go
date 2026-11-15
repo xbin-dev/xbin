@@ -31,17 +31,9 @@ import (
 // console listener, prints the login line, and serves until ctx is done.
 func (st *State) serve(ctx context.Context) error {
 	cfg, run, brk, px := st.Cfg, st.Run, st.Broker, st.Proxy
-	// SPIKE (plans/wsagent/s3-preview.md): the preview service, behind a
-	// switch until its route is classified and documented.
-	if os.Getenv("XBIN_PREVIEW_SPIKE") == "1" {
-		base := cfg.ExternalURL
-		if base == "" {
-			base = "http://" + cfg.Listen
-		}
-		st.Server.EnablePreview(base, st.rootfs)
-	}
+	st.enablePreviews()
 	handler := st.Server.Handler()
-	st.Server.SetPreviewHandler(handler)
+	st.Server.SetPreviewHandler(handler) // a render's requests enter where a browser's do
 
 	// Gateway socket: element backends call other elements / xbin APIs here
 	// with their instance tokens (plans/auth.md §3). Same handler, same auth.

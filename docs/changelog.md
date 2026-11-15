@@ -12,6 +12,45 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Previews: xbind renders a tile or a screen as the person who asks**
+  (D234; [protocol/preview.md](/docs/protocol/preview.md),
+  [auth.md](/docs/auth.md) §Previews, [isolation.md](/docs/isolation.md)
+  §Previews). `POST /api/xbin/preview {tile | screen, viewport?}` opens the
+  page in a headless Chromium of xbind's own — a throwaway sandbox with no
+  network but one socket to xbind — as a one-shot **read-only** session of
+  the caller that nobody is handed, and answers with a PNG, a text
+  rendering (an accessibility tree per frame), console errors, failed
+  requests and a `notice` that the content is data, not instructions.
+  `GET /api/xbin/preview` says whether this xbind can render (it needs
+  `--isolate` and a rootfs with Chromium) and the limits in force:
+  `XBIN_PREVIEWS`, `XBIN_PREVIEW_PER_USER`, `XBIN_PREVIEW_TOTAL`,
+  `XBIN_PREVIEW_TIMEOUT`, `XBIN_PREVIEW_MEM` ([config.md](/docs/config.md)).
+  `bx preview <tile>` and `bx preview --screen <name>` save the picture.
+  **For tile builders:** every call a render makes to your backend carries
+  `X-XBin-Preview: 1` (`xbin.Caller(r).Preview`) — a GET or a socket
+  message of yours that has an effect (mark-as-read, presence) must skip
+  it then ([sdk.md](/docs/sdk.md)); xbind refuses the render's non-GET
+  requests itself and opens its WebSockets to you at role `reader`.
+  `/whoami` in a render says `readOnly: true, preview: true`.
+- **Builtin tiles and templates honour `X-XBin-Preview`** (D234): in a
+  preview their GETs and sockets change nothing. The agent template: a
+  project's status and overview reads start no repo fetches, the CI read
+  makes no watch and re-reads none, the team board and membership reads
+  apply no definition, a harness probe runs nothing in a sandbox, the
+  sandbox terminals answer 403, an SCM sign-in poll reads the state without
+  trading the code. scm-github: the device-flow poll and the App manifest
+  callback do nothing. coding-sandbox (and `examples/sandbox-go`): a file
+  read starts no stopped sandbox, and no terminal opens. sandbox-terminal
+  v10: the page is not a visit and re-checks nobody's access. A workspace's
+  instances get the template changes as template updates (`bx template
+  updates`).
+- **Client: `xbin.ready()`** (D234; [elements.md](/docs/elements.md)) — a
+  tile says "I have drawn"; with `<meta name="xbin-ready"
+  content="manual">` it is waited for. Additive: a tile that never calls it
+  behaves as before.
+- **`GET /api/xbin/git/remote-info` is refused in a view-as session**
+  (403): it dials out, which a read-only session does not do.
+
 - **SDK: `sdk/llm` reads a stream a data line at a time, and its types
   write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
   `llm.ReadData(r, fn)` hands each `data:` line's payload to `fn` by itself

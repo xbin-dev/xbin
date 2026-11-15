@@ -20,12 +20,13 @@ const readOnlyMsg = "read-only: you are viewing the workspace as another user â€
 
 // readOnlyAllowed lists what an impersonation session may still call:
 // reads, and the way out.
-func readOnlyAllowed(r *http.Request) bool {
+func readOnlyAllowed(r *http.Request, p auth.Principal) bool {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		return true
 	}
-	return r.Method == http.MethodPost && r.URL.Path == "/api/xbin/impersonate/stop"
+	// the way out is an admin's view's; a preview has none (it ends with its render, D234)
+	return p.ViewAs() && r.Method == http.MethodPost && r.URL.Path == "/api/xbin/impersonate/stop"
 }
 
 // refuseReadOnly answers a write from an impersonation session: the API's

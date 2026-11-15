@@ -28,7 +28,7 @@ import (
 func (s *Server) partitionEventFor(p auth.Principal, tile string, e events.Event) bool {
 	owner := s.owningTile(e.Component)
 	switch {
-	case p.ReadOnly(), p.Component != "" && tile != owner, p.Component != "" && personOnlyEvent(e):
+	case p.ViewAs(), p.Component != "" && tile != owner, p.Component != "" && personOnlyEvent(e):
 		return false
 	case p.Component != "":
 		p.Component = owner // an xbin.window sub-path acts as its tile (ownPartition)
@@ -51,7 +51,7 @@ func (s *Server) termEventVisible(p auth.Principal, e events.Event) bool {
 	if !s.tilePartitioned(e.Component) {
 		return termEventFor(p, e)
 	}
-	if p.ReadOnly() || p.Component != "" && !(p.Via == "terminal" && e.Component == p.Component) {
+	if p.ViewAs() || p.Component != "" && !(p.Via == "terminal" && e.Component == p.Component) {
 		return false
 	}
 	o, ok := e.Data.(owned)

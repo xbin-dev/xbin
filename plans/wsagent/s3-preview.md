@@ -1,10 +1,14 @@
 # Spike S3 — see what the user sees (the preview service)
 
-> Status: **spike findings + working prototype** (2026-11-15, branch
-> `wsagent/s3-preview`, on `wsagent/main` 3944adba). Feeds
-> `plans/workspace-agent.md` §5.5. The route is live only under
-> `XBIN_PREVIEW_SPIKE=1`; nothing is documented for builders yet. Line
-> numbers are this branch's. Items marked *(sweep)* come from two read-only
+> Status: **superseded by the implementation — D234** (2026-11-15, same
+> branch). The owner decided O1–O8 (section 10) as recommended, with O5 "no:
+> admins use view-as"; the production change closed what section 8 lists as
+> not run (https workspaces, partitioned tiles, backends and sockets, the
+> memory cap, the route through `RegisterAPI`) and found one thing this
+> document guessed wrong: Chromium's own sandbox cannot start in the confine
+> sandbox (it refuses uid 0). Read `docs/protocol/preview.md` and D234 for
+> what is; this file stays as the spike's record. Line numbers are the
+> spike commit's (eb190bd3). Items marked *(sweep)* come from two read-only
 > code sweeps and were not each re-read by hand.
 
 ## 1. Result in short

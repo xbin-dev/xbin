@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// Preview sessions — "see what the user sees" (plans/wsagent/s3-preview.md,
-// plans/workspace-agent.md §5.5). xbind renders a tile or a screen for a
-// person in a headless browser of its own; that browser acts through a
+// Preview sessions — "see what the user sees" (D234, docs/auth.md
+// §Previews, docs/protocol/preview.md). xbind renders a tile or a screen for
+// a person in a headless browser of its own; that browser acts through a
 // one-shot session that is the PERSON'S OWN AUTHORITY REDUCED TO READ.
 //
 // It rides the view-as machinery (impersonate.go): the session's
@@ -22,13 +22,18 @@ import (
 //     person's private data from an admin's eyes (a partitioned tile, PD-08)
 //     open: the session reaches the person's own partitions, read-only;
 //   - it is never handed to anyone: the id leaves this package only towards
-//     the preview listener (internal/server/preview.go), which sets it on
+//     the render's socket (internal/server/preview.go), which sets it on
 //     requests server-side. The browser, the caller and the page never hold
 //     it;
-//   - it is not persisted (framegens.go skips it) and ends with the render.
+//   - it is not a sign-in: not listed (Sessions), not persisted
+//     (framegens.go), with no way out to "stop" (StopImpersonation), and it
+//     ends with the render — or at its ttl.
 //
-// PreviewViewer cannot be a user id (users.validID: [a-z0-9][a-z0-9._-]*)
-// nor "owner".
+// The reserved viewer is nobody: it cannot be a user id (users.validID:
+// [a-z0-9][a-z0-9._-]*, and reserved by name), is not "owner", and neither
+// mints nor redeems a view-as (impersonate.go). Code outside this package
+// never reads Principal.Impersonator to learn WHO is looking without first
+// asking ViewAs() — TestImpersonatorReadsAreClassified holds that line.
 const PreviewViewer = "~preview"
 
 // Preview reports a preview session's principal (or a tile credential

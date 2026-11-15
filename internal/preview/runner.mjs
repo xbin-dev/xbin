@@ -3,16 +3,16 @@
 //
 //   node runner.mjs '<json>'
 //     {url, sock, port, viewport:{width,height}, wait_ms, budget_ms,
-//      full_page, map_all, spki, probe}
+//      full_page, map_hosts, spki, trust_origin, probe}
 //
 // The sandbox has no network but its own loopback. The one way out is the
 // unix socket `sock` (bound in read-only), which xbind serves for this
 // render alone: this script listens on 127.0.0.1:<port> inside the sandbox
 // and pipes every connection to it, bytes untouched. Chromium then opens the
 // workspace's own URL: on a loopback name (127.0.0.1, *.localhost — a dev
-// workspace) as it is; any other name through `map_all`, a resolver rule
-// sending every host to the forwarder, with xbind ending TLS on the socket
-// under a throwaway key pinned by `spki`.
+// workspace) as it is; any other name through `map_hosts`, resolver rules
+// sending the workspace's names — and no others — to the forwarder, with
+// xbind ending TLS on the socket under a throwaway key pinned by `spki`.
 //
 // Output: ONE line of JSON after the marker on stdout — the picture as
 // base64 PNG, a text snapshot of the page and of each frame in it, console
@@ -116,21 +116,34 @@ const watchdog = setTimeout(async () => {
 
 try {
   const args = [
-    '--no-sandbox', // Chromium's own sandbox is off (whether it can nest in here is untested): the confine sandbox is the boundary
     '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run', '--mute-audio',
     '--disable-background-networking', '--disable-component-update', '--disable-sync',
     '--disable-default-apps', '--disable-extensions', '--no-default-browser-check',
     '--disable-features=Translate,MediaRouter,OptimizationHints,AutofillServerCommunication',
   ];
-  if (req.map_all) args.push(`--host-resolver-rules=MAP * 127.0.0.1:${req.port}`);
+  // the workspace's own names (and its tile origins') resolve to the
+  // forwarder; every other name finds no resolver at all
+  if (req.map_hosts?.length) args.push('--host-resolver-rules=' + req.map_hosts.map((h) => `MAP ${h} 127.0.0.1:${req.port}`).join(', '));
   if (req.spki) args.push(`--ignore-certificate-errors-spki-list=${req.spki}`);
+  // A plain-http workspace on a real name: Chromium sends Fetch Metadata
+  // (Sec-Fetch-Site) only to origins it calls trustworthy, and xbind's
+  // socket decides by it which requests carry the session — so the
+  // workspace's own origin is named trustworthy here. Only the full
+  // Chromium build honours the switch (the headless shell ignores it:
+  // measured), so that case launches it (channel below). The page then
+  // sees isSecureContext true, which the person's own browser does not.
+  if (req.trust_origin) args.push(`--unsafely-treat-insecure-origin-as-secure=${req.trust_origin}`);
+  // --no-sandbox: Chromium's own renderer sandbox can't start here (it
+  // refuses uid 0, which this process is in its user namespace); xbind's
+  // sandbox around the whole browser is the boundary (preview.go).
   try {
-    browser = await pw.chromium.launch({ headless: true, args });
+    browser = await pw.chromium.launch({ headless: true, args: ['--no-sandbox', ...args], ...(req.trust_origin ? { channel: 'chromium' } : {}) });
   } catch (e) {
     clearTimeout(watchdog);
     emit({ ok: false, error: 'browser-missing', detail: clip(String(e.message || e).split('\n').filter(Boolean).slice(0, 6).join('\n'), 1200) }, 4);
     process.exit();
   }
+  out.browser = 'chromium ' + browser.version();
   out.timing.launch_ms = since();
   const vp = req.viewport || {};
   const context = await browser.newContext({
@@ -145,6 +158,7 @@ try {
     if (out.console.length >= CAP.console) { out.console_dropped++; return; }
     out.console.push({ type: m.type(), text: clip(m.text(), CAP.text), at_ms: since() });
   });
+  page.on('crash', () => { out.crashed = true; });
   page.on('pageerror', (e) => {
     if (out.page_errors.length < CAP.errors) out.page_errors.push({ message: clip(e.message || String(e), CAP.text), at_ms: since() });
   });
@@ -152,6 +166,11 @@ try {
     if (out.requests_failed.length >= CAP.requests) { out.requests_dropped++; return; }
     out.requests_failed.push(r);
   };
+  // what is still loading when the page is taken as drawn (out.still_loading)
+  const inflight = new Map();
+  page.on('request', (r) => inflight.set(r, since()));
+  page.on('requestfinished', (r) => inflight.delete(r));
+  page.on('requestfailed', (r) => inflight.delete(r));
   page.on('requestfailed', (r) => failed({ url: clip(r.url(), 300), method: r.method(), error: (r.failure() || {}).errorText || 'failed', at_ms: since() }));
   page.on('response', (r) => {
     if (r.status() >= 400) failed({ url: clip(r.url(), 300), method: r.request().method(), status: r.status(), at_ms: since() });
@@ -167,20 +186,56 @@ try {
   out.status = resp ? resp.status() : null;
   out.timing.load_ms = since() - navStart;
 
-  // Settling. Nothing in the shell or a tile says "ready" today, so: the
-  // network quiet for 500 ms, then every frame loaded and the set of frames
-  // unchanged across a quiet period, then the caller's wait.
+  // When is the page drawn? A tile may say so: xbin.ready() (xbin-client.js)
+  // marks its document "1", and a tile that declares <meta name="xbin-ready"
+  // content="manual"> is "pending" until it does. The tiles are the page's
+  // child frames, or the page itself when it has none (a tile's own page).
+  //   - every tile said ready                      → drawn (out.ready: signal)
+  //   - else settled — the network quiet for 500 ms, every frame loaded and
+  //     the set of frames unchanged across a quiet period — and no tile
+  //     pending                                    → drawn (settled)
+  //   - a pending tile is waited for, at most READY_CAP after settling
+  //                                                (timeout)
   const left = () => budget - since() - 2500;
-  const quiet = async (ms) => { try { await page.waitForLoadState('networkidle', { timeout: Math.max(1, Math.min(ms, left())) }); } catch { /* still busy: go on */ } };
-  await quiet(6000);
-  for (let i = 0, last = -1; i < 6 && left() > 0; i++) {
-    const fr = page.frames();
-    await Promise.all(fr.map((f) => f.waitForLoadState('load', { timeout: Math.max(1, Math.min(4000, left())) }).catch(() => {})));
-    if (fr.length === last) break;
-    last = fr.length;
-    await page.waitForTimeout(250);
-    await quiet(2500);
+  const READY_CAP = 10000;
+  const readiness = async () => {
+    const all = page.frames();
+    const tiles = all.length > 1 ? all.filter((f) => f !== page.mainFrame()) : all;
+    const marks = await Promise.all(tiles.map((f) => Promise.race([
+      f.evaluate(() => document.documentElement.dataset.xbinReady || '').catch(() => ''),
+      new Promise((res) => setTimeout(() => res(''), 500)),
+    ])));
+    return { total: tiles.length, ready: marks.filter((m) => m === '1').length, pending: marks.filter((m) => m === 'pending').length };
+  };
+  let busy = false;
+  const quiet = async (ms) => { try { await page.waitForLoadState('networkidle', { timeout: Math.max(1, Math.min(ms, left())) }); busy = false; } catch { busy = true; /* still busy: go on */ } };
+  let settled = false;
+  const settling = (async () => {
+    await quiet(4000);
+    for (let i = 0, last = -1; i < 6 && left() > 0; i++) {
+      const fr = page.frames();
+      await Promise.all(fr.map((f) => f.waitForLoadState('load', { timeout: Math.max(1, Math.min(4000, left())) }).catch(() => {})));
+      if (fr.length === last) break;
+      last = fr.length;
+      await page.waitForTimeout(250);
+      await quiet(1500);
+    }
+    settled = true;
+  })();
+  let settledAt = 0;
+  for (;;) {
+    const r = await readiness();
+    if (r.total > 0 && r.ready === r.total) { out.ready = 'signal'; break; }
+    if (settled) {
+      settledAt ||= since();
+      if (r.pending === 0) { out.ready = 'settled'; break; }
+      if (since() - settledAt > READY_CAP) { out.ready = 'timeout'; break; }
+    }
+    if (left() <= 0) { out.ready = 'timeout'; break; }
+    await (settled ? page.waitForTimeout(100) : Promise.race([settling, page.waitForTimeout(100)]));
   }
+  if (out.ready === 'signal') await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)))).catch(() => {});
+  if (busy) out.still_loading = [...inflight].slice(0, 10).map(([r, at]) => ({ url: clip(r.url(), 300), method: r.method(), resource: r.resourceType(), since_ms: at }));
   const wait = Math.max(0, Math.min(Number(req.wait_ms) || 0, 15000, left()));
   if (wait > 0) await page.waitForTimeout(wait);
   out.timing.settle_ms = since() - navStart - out.timing.load_ms;

@@ -278,6 +278,21 @@ with sandboxed tile frames `[ND8]`:
   frame ancestors, chrome only itself, and the session cookie becomes
   `__Host-xbin_session`. The VM/host remains the real outer boundary.
 
+### Previews (D234)
+
+xbind renders a tile or a screen as a person in a browser of its own
+(docs/protocol/preview.md). The principal is that person's, read-only: a
+session whose impersonator is the reserved `~preview` — so `ReadOnly()`
+gates every write as for view-as, and frame tokens, tile cookies, asset
+tokens and path tickets minted under it carry the mark — while `ViewAs()`
+is false, so the gates that keep a person's data from an admin's eyes stay
+open to it. The session is set server-side on a per-render socket and never
+handed to the browser, the caller or the page; the socket itself refuses
+everything but reads and admits only what the render shows. Tiles see
+`X-XBin-Preview: 1`, never `X-XBin-Viewed-By`. A preview is asked for by
+the person themselves (or their terminal, for its own tile); the root
+token, tiles and view-as sessions get none.
+
 ## 7. Documentation standard (elements teach their own auth)
 
 Every exposing element ships a **standard, tooling-visible contract** so a builder in

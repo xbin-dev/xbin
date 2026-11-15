@@ -121,7 +121,7 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 		may = nil
 	}
 	rows := s.Term.ListFor(homeKey, r.URL.Query().Get("cwd"), may)
-	if homeKey != term.HomeKey(p) || p.ReadOnly() {
+	if homeKey != term.HomeKey(p) || p.ViewAs() {
 		for i := range rows {
 			if rows[i].Personal() {
 				rows[i].Name = ""

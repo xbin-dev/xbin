@@ -179,6 +179,15 @@ if probs=$(helpers_manifest_check); then
 else
   fail "hack/helpers.sha256 is malformed: $(echo "$probs" | tr '\n' ' ')"
 fi
+# The preview browser (D234): the rootfs's Playwright — and so its Chromium
+# build — is a pin, never "latest": it renders people's tiles for them.
+pw=$(sed -n 's/^ARG PLAYWRIGHT_VERSION=\([0-9.]*\).*/\1/p' "$repo/docker/rootfs.Dockerfile" | head -1)
+# shellcheck disable=SC2016 # the Dockerfile's own ${…}, literally
+if [ -n "$pw" ] && grep -q 'playwright@${PLAYWRIGHT_VERSION}' "$repo/docker/rootfs.Dockerfile"; then
+  ok "rootfs Playwright (the preview browser's Chromium) is pinned: $pw"
+else
+  fail "docker/rootfs.Dockerfile installs Playwright unpinned — previews render tiles in its Chromium: keep ARG PLAYWRIGHT_VERSION and install playwright@\${PLAYWRIGHT_VERSION}"
+fi
 alp="${pins##*:}"
 ub=$(sed -n 's|^FROM docker.io/library/ubuntu:\([0-9.]*\).*|\1|p' "$repo/docker/rootfs.Dockerfile" | head -1)
 traefik=$(grep -oE 'V=[0-9]+\.[0-9]+\.[0-9]+' "$repo/builtin-tiles/traefik/xbin.json" | head -1 | cut -d= -f2)

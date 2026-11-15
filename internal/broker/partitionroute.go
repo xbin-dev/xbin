@@ -131,6 +131,22 @@ func (b *Broker) userPartition(userID, tile string) (util.Partition, error) {
 	return part, nil
 }
 
+// partitionOpened reports whether person userID has a partition of tile's
+// primary already: their uid is recorded and the partition's record exists
+// (notePartition writes it at the first start). Nothing is minted here.
+func (b *Broker) partitionOpened(userID, tile string) bool {
+	uid := b.storedPartitionUID(userID)
+	if uid == "" {
+		return false
+	}
+	dir, err := b.partitionRecordDir(tile, b.primaryOf(tile), util.PartitionKey(userID, uid))
+	if err != nil {
+		return false
+	}
+	_, ok, err := readPartitionRecordAt(dir)
+	return ok && err == nil
+}
+
 // globalOf is tile's global partition, when its mode declares one; err
 // says why a principal without a person reaches nothing.
 func globalOf(spec registry.PartitionSpec, err error) (util.Partition, error) {
@@ -199,6 +215,10 @@ func (b *Broker) addressedPartition(p auth.Principal, tile string) (util.Partiti
 		// anonymous principal
 		refused := fmt.Errorf("sign in as a person: %s keeps each person's data apart", tile)
 		switch {
+		case p.UserID != "" && p.Preview() && !b.partitionOpened(p.UserID, tile):
+			// D234: a preview reads a partition, it never makes one (a uid
+			// minted, a volume created, a process started for a picture)
+			return "", fmt.Errorf("%s keeps each person's data apart and %s has not opened it yet: open it once first — a preview never creates a partition", tile, p.UserID)
 		case p.UserID != "":
 			return b.userPartition(p.UserID, tile)
 		case !own && !p.Owner:

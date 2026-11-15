@@ -190,7 +190,6 @@ func (s *Server) Handler() http.Handler {
 	handle("GET "+LLMPagePath, s.authed(http.HandlerFunc(s.handleLLMPage)))         // the LLM connector's page (llmpage.go, D226)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
-	s.mountPreview(handle) // the preview spike's route, when enabled (preview.go)
 
 	handle("GET /ws/term", s.authedTerminal(http.HandlerFunc(s.Term.ServeWS)))
 	handle("DELETE /ws/term", s.authedTerminal(http.HandlerFunc(s.handleTermKill)))
@@ -199,6 +198,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
+	s.registerPreviewAPI() // previews (preview.go, D234)
 	s.registerBrandingAPI()
 	return logRequests(s.tunnelGate(s.tileOrigins(nullOriginCORS(mux)))) // tunnelgate.go: the app tunnel (D204)
 }
@@ -271,7 +271,7 @@ func (s *Server) authed(next http.Handler) http.Handler {
 		}
 		// An admin viewing as a user reads everything the user reads and
 		// changes nothing (impersonate.go).
-		if p.ReadOnly() && !readOnlyAllowed(r) {
+		if p.ReadOnly() && !readOnlyAllowed(r, p) {
 			refuseReadOnly(w, r)
 			return
 		}

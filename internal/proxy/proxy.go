@@ -108,6 +108,10 @@ type Proxy struct {
 	Reg    *registry.Registry
 	Runner *runner.Runner
 	Hub    *events.Hub
+	// ReaderClamp narrows role on target to its read form for a preview's
+	// sockets (previewSocket): the broker's read clamp, false when the role
+	// implies no reader. nil = the three blessed roles clamp to reader.
+	ReaderClamp func(target, role string) (string, bool)
 	// Policy decides the role of a call when no Route is installed: the
 	// broker-less proxy of tests, where every call reaches the primary and
 	// no URL names a deployment. nil = DefaultPolicy.
@@ -211,6 +215,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// A partitioned target's ?xbin-partition=global is consumed here and
 	// decided by RouteGlobal (globaladdress.go).
 	d := px.decideAddressed(r, p, comp, qualifier)
+	d = px.previewSocket(r, p, comp, d)
 	if rerr != nil {
 		// An unknown deployment, or a nested tile under a qualifier: a caller
 		// who may not know the tile's deployments gets the gate's refusal,
@@ -452,6 +457,35 @@ func (px *Proxy) nonPrimaryDeployment(p auth.Principal) string {
 		return ""
 	}
 	return dep
+}
+
+// previewSocket narrows a socket opened in a preview (D234): xbind's own
+// render of a person's view is read-only, and the method gate that makes it
+// so reads nothing after an upgrade — a WebSocket is a GET whose messages
+// may write. So an upgrade by a preview principal reaches the backend at
+// `reader`, whatever role the call would have had (a tile's own frame is
+// its tile's admin), X-XBin-User-Level unchanged; a role the read clamp
+// can't narrow (a custom role that implies no reader) is refused. Plain
+// GETs keep their role: the picture shows what the person sees.
+func (px *Proxy) previewSocket(r *http.Request, p auth.Principal, comp *registry.Component, d Decision) Decision {
+	if d.Deny != nil || !p.Preview() || r.Header.Get("Upgrade") == "" {
+		return d
+	}
+	role, ok := "reader", d.Role == "reader" || d.Role == "writer" || d.Role == "admin"
+	if px.ReaderClamp != nil {
+		role, ok = px.ReaderClamp(comp.Path, d.Role)
+	}
+	if !ok {
+		return Decision{Deny: fmt.Errorf("a preview opens sockets read-only, and the role %q on %s can't be narrowed to reader", d.Role, comp.Path)}
+	}
+	d.Clamped = d.Clamped || role != d.Role
+	d.Role = role
+	if d.Attribute != nil {
+		a := *d.Attribute
+		a.Role = role
+		d.Attribute = &a
+	}
+	return d
 }
 
 // identify scrubs any spoofed identity from r and injects the verified one.

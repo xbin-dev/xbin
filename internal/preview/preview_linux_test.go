@@ -43,7 +43,7 @@ func testRootfs(t *testing.T) string {
 
 type fixedHost struct{ h http.Handler }
 
-func (f fixedHost) OpenPreview(string, time.Duration) (http.Handler, func(), error) {
+func (f fixedHost) OpenPreview(string, time.Duration, any) (http.Handler, func(), error) {
 	return f.h, func() {}, nil
 }
 
@@ -70,12 +70,12 @@ func TestSandboxReachesOnlyTheSocket(t *testing.T) {
 			}
 		}
 	}
-	dir, _, stop, err := Serve(http.NotFoundHandler())
+	dir, _, _, stop, err := Serve(http.NotFoundHandler(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer stop()
-	res, err := run(context.Background(), dir, 20*time.Second, map[string]any{"probe": probes})
+	res, err := run(context.Background(), dir, 20*time.Second, nil, map[string]any{"probe": probes})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,8 +135,11 @@ o.textContent = 'host-loopback:' + await t('http://127.0.0.1:19043/') + ' secure
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("%dx%d: wall %s timing %v rss %d kB png %d bytes (%dx%d) snapshot:\n%s", vp[0], vp[1], time.Since(start).Round(time.Millisecond),
-			res.Timing, res.RSSKB, len(res.PNG), res.Width, res.Height, res.Snapshot)
+		t.Logf("%dx%d: wall %s timing %v memory %d kB png %d bytes (%dx%d) %s, its own sandbox: %s, ready: %s; snapshot:\n%s", vp[0], vp[1], time.Since(start).Round(time.Millisecond),
+			res.Timing, res.MemoryKB, len(res.PNG), res.Width, res.Height, res.Browser, res.Sandbox, res.Ready, res.Snapshot)
+		if res.Notice != Notice || !strings.HasPrefix(res.Browser, "chromium ") || res.Sandbox == "" {
+			t.Errorf("the answer lacks its notice, browser or sandbox: %q %q %q", res.Notice, res.Browser, res.Sandbox)
+		}
 		if !res.OK || len(res.PNG) == 0 || res.Width != vp[0] {
 			t.Fatalf("no picture: %+v", res)
 		}

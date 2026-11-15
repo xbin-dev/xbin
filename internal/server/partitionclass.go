@@ -545,7 +545,12 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /partitions/mail/ack": PartitionScoped,
 
 	// ---- reads of workspace facts ----
-	"GET /whoami":               PartitionNeutral,
+	"GET /whoami": PartitionNeutral,
+	// previews (D234): rendered as the PERSON behind the call — themselves,
+	// or their terminal on its own tile — whose partition the render opens
+	// read-only; the route itself has no partition dimension
+	"POST /preview":             PartitionNeutral,
+	"GET /preview":              PartitionNeutral,
 	"GET /status":               PartitionNeutral,
 	"GET /components":           PartitionNeutral,
 	"GET /components/{path...}": PartitionNeutral,
