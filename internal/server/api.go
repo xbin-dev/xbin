@@ -308,6 +308,19 @@ func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := auth.PrincipalOf(r)
+	if comp != util.CanonPath(comp) {
+		// one spelling per component: a token for "/xbin/x" would be read as
+		// nobody's by the exact tests and as the sealed component's by the
+		// forgiving ones (auth.canonicalComponent)
+		apiErr(w, http.StatusBadRequest, "write the component's path without a leading, trailing or doubled slash: "+util.CanonPath(comp))
+		return
+	}
+	if _, registered := s.Reg.Component(comp); !registered && comp != "" {
+		// a frame token is a component's: an admin's level reaches every
+		// path, so without this any string was minted into a principal
+		apiErr(w, http.StatusNotFound, "no such component: "+comp)
+		return
+	}
 	ok := comp != "" && !backendPrincipal(p) && (p.Component == comp || (p.Component == "" && p.CanReadTile(comp)))
 	if !ok {
 		apiErr(w, http.StatusForbidden, "cannot mint frame token for this tile")

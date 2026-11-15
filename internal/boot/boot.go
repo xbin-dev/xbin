@@ -460,7 +460,7 @@ func (st *State) stepTerminals() error {
 	tm.TileDeployments = st.Deployments.TileDeployments // a session's target deployment (D127p)
 	tm.TileAt = func(rel string) (string, bool) {       // a session opens on a registered tile (term/sessiondir.go)
 		c, _, ok := reg.Resolve(rel)
-		if !ok || c == nil {
+		if !ok || c == nil || c.Sealed { // (a sealed component has no terminal, D227)
 			return "", false
 		}
 		return c.Path, true

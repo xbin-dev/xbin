@@ -432,3 +432,152 @@ func TestSealedNoTileRowsTakeNoSealedPath(t *testing.T) {
 		t.Errorf("the component after all that: %d %s", code, out)
 	}
 }
+
+// Every route, every spelling. A sealed path written another way — a
+// leading, doubled or trailing slash, "./", "a/../" — is one path to the
+// code that trims, joins or resolves it; a test that looked at the exact
+// prefix let it through as "no sealed path" (POST /restore
+// {component:"/xbin/x"}, GET /frame-token?component=/xbin/x). With the gate
+// on such a spelling is refused at the edge; with it off the code that
+// acts refuses it as it refuses xbin/<name>. Spellings that are other bytes
+// (case, percent-escapes, look-alike letters) name no component at all:
+// nothing answers them as the sealed one.
+func TestSealedPathSpellings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots two workspaces and builds a backend")
+	}
+	quiet(t)
+	table := []sealed.Spec{probeSpec()}
+	bin := prebuilt(t, table)
+	same := []string{"/xbin/probe", "xbin/probe/", "//xbin/probe", "xbin//probe", "./xbin/probe", "apps/../xbin/probe", "xbin/./probe", "/./xbin/probe/"}
+	foreign := []string{"XBIN/probe", "Xbin/Probe", "xbin%2Fprobe", "%78bin/probe", "xbіn/probe", "ｘbin/probe", "xbin∕probe", "x​bin/probe"}
+	rules, reqs := server.SealedRules(), boundaryReqs()
+	patterns := make([]string, 0, len(reqs))
+	for p := range reqs {
+		patterns = append(patterns, p)
+	}
+	sort.Strings(patterns)
+	respell := func(v any, to string) any { // every occurrence, keys included
+		if v == nil {
+			return nil
+		}
+		var out any
+		if err := json.Unmarshal([]byte(strings.ReplaceAll(mustJSON(v), `"`+P, `"`+strings.ReplaceAll(to, `"`, ``))), &out); err != nil {
+			t.Fatalf("respelling %v: %v", v, err)
+		}
+		var res any
+		_ = json.Unmarshal([]byte(strings.ReplaceAll(mustJSON(out), `"res:`+P, `"res:`+to)), &res)
+		return res
+	}
+	for _, gateOff := range []bool{false, true} {
+		ws := probeWorkspace(t)
+		d := startSealed(t, ws, table, production(bin), func(c *Config) { c.sealedGateOff = gateOff })
+		admin := d.addUser("adm", nil)
+		if code, body := d.do("PATCH", "/api/xbin/users/adm", map[string]any{"role": "admin"}); code != 200 {
+			t.Fatalf("making an admin: %d %s", code, body)
+		}
+		const ownInstance = "test-instance-of-xbin-probe"
+		d.st.Auth.RegisterInstance(ownInstance, probePath)
+		if code, body := d.do("PUT", "/api/xbin/kv/"+R+"/k", boundarySecret, ownInstance); code != 200 {
+			t.Fatalf("its backend's own kv write: %d %s", code, body)
+		}
+		send := func(method, path string, body any, tok string) (int, string) {
+			var rd io.Reader
+			if body != nil {
+				rd = strings.NewReader(mustJSON(body))
+			}
+			req, err := http.NewRequest(method, d.base+path, rd)
+			if err != nil {
+				return 400, err.Error() // a spelling no URL carries
+			}
+			req.Header.Set("Authorization", "Bearer "+tok)
+			resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+			if err != nil {
+				return 0, err.Error()
+			}
+			defer resp.Body.Close()
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			return resp.StatusCode, string(b)
+		}
+		n := 0
+		for _, pat := range patterns {
+			method, base := routeURL(pat, "")
+			for _, rq := range reqs[pat] {
+				for i, sp := range append(append([]string{}, same...), foreign...) {
+					path := "/api/xbin" + base
+					switch {
+					case strings.HasPrefix(rq.path, "?"):
+						path += rq.path
+					case rq.path != "":
+						path = "/api/xbin" + rq.path
+					}
+					path = strings.ReplaceAll(path, P, (&url.URL{Path: sp}).EscapedPath())
+					if strings.Contains(sp, "%") {
+						path = strings.ReplaceAll(path, (&url.URL{Path: sp}).EscapedPath(), url.QueryEscape(sp))
+					}
+					body := respell(rq.body, sp)
+					for who, tok := range map[string]string{"the root token": d.token, "an admin": admin} {
+						n++
+						code, out := send(method, path, body, tok)
+						switch {
+						case code == 0 || code >= 500:
+							t.Errorf("gate off=%v: %s as %s, spelled %q: %d %.200s", gateOff, pat, who, sp, code, out)
+						case strings.Contains(out, boundarySecret):
+							t.Errorf("gate off=%v: %s as %s, spelled %q, shows its data: %.200s", gateOff, pat, who, sp, out)
+						case i < len(same) && code < 400 && rules[pat].Class != server.SealedNoTile:
+							// the same component, so the same answer as xbin/probe: a refusal
+							t.Errorf("gate off=%v: %s as %s, spelled %q, was not refused: %d %.200s", gateOff, pat, who, sp, code, out)
+						}
+					}
+				}
+			}
+		}
+		if n < 2000 {
+			t.Errorf("only %d requests driven", n)
+		}
+		// the two the review executed: a token and a restore under another spelling
+		for _, sp := range append(append([]string{}, same...), foreign...) {
+			code, out := send("GET", "/api/xbin/frame-token?component="+url.QueryEscape(sp), nil, d.token)
+			var ft struct{ Token string }
+			if code == 200 && json.Unmarshal([]byte(out), &ft) == nil && ft.Token != "" {
+				t.Errorf("gate off=%v: a frame token was minted for %q", gateOff, sp)
+			}
+			if code, out := send("POST", "/api/xbin/restore", map[string]any{"component": sp}, d.token); code < 400 {
+				t.Errorf("gate off=%v: POST /restore {component:%q}: %d %.200s", gateOff, sp, code, out)
+			}
+			if code, out := send("PUT", "/api/xbin/cron/jobs", map[string]any{"component": sp, "name": "j", "schedule": "@every 1h", "path": "/hello", "role": "admin"}, d.token); code < 400 {
+				t.Errorf("gate off=%v: a cron job registered for %q: %d %.200s", gateOff, sp, code, out)
+			}
+			req, _ := http.NewRequest("GET", d.base+"/api/"+(&url.URL{Path: sp}).EscapedPath()+"/hello", nil)
+			if req != nil {
+				req.Header.Set("Authorization", "Bearer "+d.token)
+				req.URL.Opaque = "//" + req.URL.Host + "/api/" + (&url.URL{Path: sp}).EscapedPath() + "/hello" // as written: no client-side cleaning
+				if resp, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req); err == nil {
+					b := readAll(resp)
+					resp.Body.Close()
+					if resp.StatusCode == 200 && strings.Contains(b, "self="+probePath) {
+						t.Errorf("gate off=%v: its backend answered at /api/%s/hello", gateOff, sp)
+					}
+				}
+			}
+		}
+		// nothing was left behind, and it still runs
+		// (rows about the other-bytes names are rows about tiles that don't
+		// exist, as any made-up name gets; none is a sealed path)
+		if b, err := os.ReadFile(filepath.Join(ws, "xbin.json")); err != nil || strings.Contains(string(b), "xbin/") || strings.Contains(string(b), `xbin\/`) {
+			t.Errorf("gate off=%v: the workspace manifest names a sealed path: %.600s (%v)", gateOff, b, err)
+		}
+		if code, out := d.do("GET", "/api/xbin/kv/"+R+"/k", nil, ownInstance); code != 200 || !strings.Contains(out, boundarySecret) {
+			t.Errorf("gate off=%v: its backend's data after all that: %d %s", gateOff, code, out)
+		}
+		for _, list := range []string{"/api/xbin/cron/jobs?sealed=1", "/api/xbin/bus/subscriptions?sealed=1"} {
+			if code, out := d.do("GET", list, nil); code != 200 || strings.Contains(out, "xbin/") {
+				t.Errorf("gate off=%v: GET %s names it: %d %.300s", gateOff, list, code, out)
+			}
+		}
+		if code, out := d.do("GET", "/api/"+probePath+"/hello", nil); code != 200 || !strings.Contains(out, "self="+probePath) {
+			t.Errorf("gate off=%v: the component after all that: %d %s", gateOff, code, out)
+		}
+		d.stop()
+	}
+}

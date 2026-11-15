@@ -77,8 +77,47 @@ var ReservedTop = map[string]bool{
 // path under xbin/ is xbind's or nothing.
 const SealedPrefix = "xbin/"
 
-// SealedPath reports whether p lies in the sealed components' namespace.
-func SealedPath(p string) bool { return strings.HasPrefix(p, SealedPrefix) }
+// SealedPath reports whether p lies in the sealed components' namespace —
+// in ANY spelling something downstream could read as a path there. A
+// request's parameter is trimmed, joined to the workspace root or resolved
+// against the registry by code that forgives a leading slash, a doubled
+// one, "./" or "a/../": if this test saw only the exact prefix, "/xbin/x"
+// would pass as "no sealed path" and still become one a few calls later.
+// So the question is asked of the path's canonical form (CanonPath), and
+// every sealed test in xbind goes through here (SealedTarget, the
+// principal's component, the route gate, the decision points).
+func SealedPath(p string) bool { return strings.HasPrefix(CanonPath(p), SealedPrefix) }
+
+// CanonPath is the one spelling of a workspace-relative path: surrounding
+// space trimmed, no leading or trailing slash, no empty, "." or ".."
+// segment (path.Clean's result, rooted: a path that climbs out of the
+// workspace, "../x", is cut at the root — the conservative reading for the
+// sealed test, and SafeJoin refuses such a path anyway). Case, percent-escapes
+// and look-alike characters are not folded: nothing in xbind folds them, so
+// a path that differs in them is another path (and never a sealed one).
+func CanonPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	p = path.Clean("/" + strings.ReplaceAll(p, "\\", "/"))
+	return strings.TrimPrefix(p, "/")
+}
+
+// SealedSpelledOddly reports a path that lies in the sealed namespace but
+// is not written canonically ("/xbin/x", "xbin//x", "./xbin/x/"): what the
+// API refuses at its edge, so that nothing behind it ever holds two
+// spellings of one sealed component.
+func SealedSpelledOddly(p string) bool {
+	t := strings.TrimSpace(p)
+	for _, scheme := range []string{"res:", "code:"} {
+		if rest, ok := strings.CutPrefix(t, scheme); ok {
+			t = rest
+			break
+		}
+	}
+	return SealedPath(t) && (CanonPath(t) != t || strings.TrimSpace(p) != p)
+}
 
 // SealedTarget reports whether t — a grant target, or any name a request
 // gives for a component or a resource — names something in the sealed
@@ -92,7 +131,7 @@ func SealedTarget(t string) bool {
 			break
 		}
 	}
-	return SealedPath(strings.TrimLeft(t, "/"))
+	return SealedPath(t)
 }
 
 // SealedRefusal is the text of a refusal about the sealed component (or
@@ -119,7 +158,7 @@ const SealedNameMax = 19
 // a path is its component's scope too (a sealed component always roots
 // one).
 func SealedComponentPath(p string) bool {
-	name, ok := strings.CutPrefix(p, SealedPrefix)
+	name, ok := strings.CutPrefix(p, SealedPrefix) // the exact spelling: a shape test, not a membership one
 	if !ok || name == "" || len(name) > SealedNameMax || name[0] < 'a' || name[0] > 'z' {
 		return false
 	}

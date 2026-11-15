@@ -63,6 +63,24 @@ func sealedViewer(p auth.Principal) bool {
 	return p.Via == "frame" && util.SealedPath(p.Component)
 }
 
+// componentNamed reports whether name is a component's path as xbind
+// stores one: written canonically (util.CanonPath), and either a workspace
+// component path by shape or a registered sealed component. What takes a
+// component's name to keep — a registration, a restore — asks this first:
+// "/xbin/x" would otherwise be stored as a component of its own and
+// resolved, calls later, into the sealed one (a cron row's delivery goes
+// to /api/<component>/…).
+func (b *Broker) componentNamed(name string) bool {
+	if name == "" || util.CanonPath(name) != name {
+		return false
+	}
+	if util.SealedPath(name) {
+		c, ok := b.Reg.Component(name)
+		return ok && c.Sealed
+	}
+	return util.ComponentPathOK(name)
+}
+
 // sealedError is a refusal about a sealed component; Status is what a
 // handler answers.
 type sealedError struct {
@@ -98,7 +116,7 @@ func sealedNone(name, what string) error {
 // sealedComponentOf is the sealed component a name in the namespace
 // belongs to: "xbin/<name>", from a path, a path below it, or a target.
 func sealedComponentOf(name string) string {
-	name = strings.TrimLeft(strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(name), "res:"), "code:"), "/")
+	name = util.CanonPath(strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(name), "res:"), "code:"))
 	rest, ok := strings.CutPrefix(name, util.SealedPrefix)
 	if !ok {
 		return ""

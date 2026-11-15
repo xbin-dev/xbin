@@ -571,6 +571,13 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // to the component reverse proxy.
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/")
+	if !strings.HasPrefix(rest, util.SealedPrefix) && rest != "xbin" && util.SealedPath(rest) {
+		// /api//xbin/<name>/…, /api/./xbin/…: a sealed component's API has
+		// one address (util.SealedPath sees every spelling; the proxy
+		// would forgive this one)
+		WriteError(w, http.StatusBadRequest, sealedSpelling, SealedDocs)
+		return
+	}
 	if s.sealedOwned(rest) && s.ComponentAPI != nil {
 		// /api/xbin/<name>/… of a sealed component is its backend's, as
 		// /api/<tile>/… is a tile's (sealed.go); no route of xbind's own

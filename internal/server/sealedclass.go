@@ -117,21 +117,58 @@ func (s *Server) sealedGate(r2 *http.Request) http.HandlerFunc {
 		return nil
 	}
 	_, pattern := s.apiMux.Handler(r2)
-	rule := sealedRules[pattern]
-	if rule.Class != SealedRefused && rule.Class != SealedSelf {
+	rule, classified := sealedRules[pattern]
+	q := r2.URL.Query()
+	_, tail, _ := strings.Cut(strings.TrimPrefix(r2.URL.Path, "/"), "/")
+	// One spelling of a sealed path reaches a handler, on every route:
+	// "/xbin/x", "xbin//x" and "./xbin/x/" are refused here, in the path
+	// and the query, so nothing behind holds two spellings of one
+	// component (util.SealedSpelledOddly; the sealed tests themselves see
+	// every spelling, util.SealedPath).
+	odd := util.SealedSpelledOddly(tail)
+	for _, vs := range q {
+		for _, v := range vs {
+			odd = odd || util.SealedSpelledOddly(v)
+		}
+	}
+	if odd {
+		return refusal(http.StatusBadRequest, sealedSpelling)
+	}
+	if pattern != "" && !classified {
+		// A route without a row (the CI guard, apicheck, fails for one):
+		// until it has a rule it takes no sealed path at all.
+		mentions := util.SealedTarget(tail)
+		for _, vs := range q {
+			for _, v := range vs {
+				mentions = mentions || util.SealedTarget(v)
+			}
+		}
+		if !mentions && r2.Body != nil && r2.Body != http.NoBody {
+			body := r2.Body
+			b, _ := io.ReadAll(io.LimitReader(body, sealedGateBody+1))
+			r2.Body = struct {
+				io.Reader
+				io.Closer
+			}{io.MultiReader(bytes.NewReader(b), body), body}
+			mentions = bytes.Contains(b, []byte(util.SealedPrefix)) || bytes.Contains(b, []byte(`xbin\/`))
+		}
+		if mentions {
+			return refusal(http.StatusBadRequest, "this route has no rule for system components yet (server/sealedclass.go): it takes no path under xbin/")
+		}
 		return nil
 	}
 	var names []string
-	q := r2.URL.Query()
 	for _, k := range rule.Query {
 		names = append(names, q[k]...)
 	}
-	if rule.Rest {
-		if _, rest, ok := strings.Cut(strings.TrimPrefix(r2.URL.Path, "/"), "/"); ok {
-			names = append(names, rest)
-		}
+	if rule.Rest && tail != "" {
+		names = append(names, tail)
 	}
-	if len(rule.Body) > 0 && r2.Body != nil && r2.Body != http.NoBody {
+	bodyKeys := rule.Body
+	if rule.Class == SealedHandled {
+		bodyKeys = sealedTileFields // the spelling alone is checked for these rows
+	}
+	if len(bodyKeys) > 0 && r2.Body != nil && r2.Body != http.NoBody {
 		// These are JSON control calls: the first sealedGateBody bytes are
 		// read and put back. A longer body is the handler's alone to read —
 		// the gate is the early answer, not the boundary.
@@ -146,12 +183,20 @@ func (s *Server) sealedGate(r2 *http.Request) http.HandlerFunc {
 			io.Closer
 		}{io.MultiReader(bytes.NewReader(b), body), body}
 		if len(b) <= sealedGateBody {
-			got, twice := sealedBodyNames(b, rule.Body)
+			got, twice := sealedBodyNames(b, bodyKeys)
 			if twice != "" {
 				return refusal(http.StatusBadRequest, "the request body names "+twice+" twice")
 			}
+			for _, v := range append(got, sealedBodyKeys(b)...) {
+				if util.SealedSpelledOddly(v) {
+					return refusal(http.StatusBadRequest, sealedSpelling)
+				}
+			}
 			names = append(names, got...)
 		}
+	}
+	if rule.Class != SealedRefused && rule.Class != SealedSelf {
+		return nil
 	}
 	p := auth.PrincipalOf(r2)
 	for _, v := range names {
@@ -167,6 +212,59 @@ func (s *Server) sealedGate(r2 *http.Request) http.HandlerFunc {
 		}
 	}
 	return nil
+}
+
+// sealedSpelling is the refusal of a sealed path written another way than
+// xbin/<name>.
+const sealedSpelling = "write a system component's path as xbin/<name>: no leading, trailing or doubled slash, no \"./\" or \"../\""
+
+// sealedTileFields are the body fields a route that the handler decides
+// (SealedHandled) may name a tile in: checked for the spelling only.
+var sealedTileFields = []string{"component", "tile", "path", "target", "from", "to", "cwd", "scope", "resource", "provider", "providers", "source", "id"}
+
+// sealedBodyKeys are the keys of the objects nested in the JSON object body
+// begins with (to any depth): where a body is a map from tile paths
+// ({"tiles": {"xbin/x": "read"}}), the paths are keys.
+func sealedBodyKeys(body []byte) []string {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	var keys []string
+	type frame struct{ object, key bool }
+	var stack []frame
+	for {
+		t, err := dec.Token()
+		if err != nil {
+			return keys
+		}
+		switch v := t.(type) {
+		case json.Delim:
+			switch v {
+			case '{':
+				stack = append(stack, frame{object: true, key: true})
+				continue
+			case '[':
+				stack = append(stack, frame{})
+				continue
+			default:
+				if len(stack) > 0 {
+					stack = stack[:len(stack)-1]
+				}
+				if len(stack) == 0 {
+					return keys // the first value, as the handlers' decoder reads
+				}
+			}
+		case string:
+			if n := len(stack); n > 0 && stack[n-1].object && stack[n-1].key {
+				if n > 1 { // nested: the top level's keys are field names
+					keys = append(keys, v)
+				}
+				stack[n-1].key = false
+				continue
+			}
+		}
+		if n := len(stack); n > 0 && stack[n-1].object {
+			stack[n-1].key = true // a value ended: the next string is a key
+		}
+	}
 }
 
 // sealedGateBody is how much of a body the gate reads.

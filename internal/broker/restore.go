@@ -60,6 +60,11 @@ func (b *Broker) restore(comp string, r io.Reader, put deploymentRestorer) (back
 // erased), whose data members are written as an inline archive's are.
 func (b *Broker) restoreFrom(comp string, br, data *backup.Reader, put deploymentRestorer) (backup.Manifest, error) {
 	m := br.M
+	if !b.componentNamed(comp) {
+		// one spelling per component, and for a sealed one a registered
+		// component: "/xbin/x" is neither (sealedguard.go)
+		return m, fmt.Errorf("%q is not a component's path: nothing is restored there", comp)
+	}
 	switch {
 	case m.PartitionArchive(): // never a tile: a person's partition's alone (backup_partition_restore.go)
 		return m, fmt.Errorf("the archive holds a person's partition of %s, not a tile: restore it into that person's partition (POST /partitions/restore)", m.Component)
@@ -155,7 +160,7 @@ func (b *Broker) restoreFrom(comp string, br, data *backup.Reader, put deploymen
 	// role — as the subscriptions below, which always had this check)
 	for _, raw := range m.CronJobs {
 		var j cronJob
-		if json.Unmarshal(raw, &j) == nil && j.Component == m.Component && b.cron != nil {
+		if json.Unmarshal(raw, &j) == nil && j.Component == m.Component && b.componentNamed(j.Component) && b.cron != nil {
 			if b.cron.add(j) == nil {
 				b.cron.persist()
 			}

@@ -2,9 +2,12 @@ package broker
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -430,5 +433,74 @@ func TestSealedAuthorityIsItsBackendsAlone(t *testing.T) {
 	// and nothing calls into it but its own page and admins' sessions
 	if role, ok := b.Policy(tile, self); ok {
 		t.Errorf("a tile called into it as %q", role)
+	}
+}
+
+// One spelling per component, where a name is kept: a restore and a
+// registration take a component's path as xbind stores it, and nothing
+// else. "/xbin/fix" was restored into as a component of its own — from a
+// plain, forged archive, since the sealed test saw no sealed path — and its
+// cron row then fired at /api//xbin/fix/…, which the proxy resolved into
+// the sealed component's backend.
+func TestSealedSpellingsWhereNamesAreKept(t *testing.T) {
+	b := sealedBroker(t)
+	putKV(t, b, "theirs")
+	odd := []string{"/xbin/fix", "xbin/fix/", "//xbin/fix", "xbin//fix", "./xbin/fix", "apps/../xbin/fix", " xbin/fix", "xbin/./fix"}
+	other := []string{"XBIN/fix", "xbin%2Ffix", "xbіn/fix", "xbin/nosuch", "/apps/plain", ".xbin", "data", "../outside"}
+	for _, comp := range append(append([]string{}, odd...), other...) {
+		if b.componentNamed(comp) && comp != "XBIN/fix" && comp != "xbin%2Ffix" && comp != "xbіn/fix" {
+			t.Errorf("componentNamed(%q)", comp)
+		}
+		job, _ := json.Marshal(cronJob{Name: "planted", Schedule: "@every 1h", Component: comp, Path: "/tick", Role: "admin"})
+		m := backup.Manifest{Component: comp, Scope: comp, ScopeRoot: true, Includes: []string{"data"}, CronJobs: []json.RawMessage{job}}
+		arch := plainTar(t, m, map[string]string{backup.KVName: `{"state":{"k":"` + base64.StdEncoding.EncodeToString([]byte("forged")) + `"}}`})
+		_, err := b.restore(comp, bytes.NewReader(arch), nil)
+		if util.SealedPath(comp) || !util.ComponentPathOK(comp) {
+			if err == nil {
+				t.Errorf("a plain archive restored into %q", comp)
+			}
+		}
+		if got := getKV(t, b); got != "theirs" {
+			t.Fatalf("after a restore into %q its data is %q", comp, got)
+		}
+	}
+	if b.cron != nil {
+		b.cron.mu.Lock()
+		for _, j := range b.cron.jobs {
+			if util.SealedPath(j.Component) || j.Component != util.CanonPath(j.Component) {
+				t.Errorf("a cron job was registered for %q", j.Component)
+			}
+		}
+		b.cron.mu.Unlock()
+	}
+	if !b.componentNamed("xbin/fix") || !b.componentNamed("apps/plain") || !b.componentNamed("apps/not-yet-there") {
+		t.Error("componentNamed refuses a component's own path")
+	}
+	// a delivery never leaves for a path that isn't one, whatever a file says
+	reached := ""
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = r.URL.Path })
+	for _, comp := range odd {
+		if code, _ := DispatchViaProxy(h)(auth.Principal{Component: CronPrincipal, Via: "cron", Role: "admin"}, comp, "/tick"); code != 400 || reached != "" {
+			t.Errorf("a cron delivery to %q: %d (reached %q)", comp, code, reached)
+		}
+		if code, _ := DispatchBodyViaProxy(h)(context.Background(), auth.Principal{Component: BusPrincipal, Via: "bus"}, comp, "/bus", nil); code != 400 || reached != "" {
+			t.Errorf("a bus delivery to %q: %d (reached %q)", comp, code, reached)
+		}
+	}
+	// and every sealed test sees every spelling: the decisions are the same
+	for _, comp := range odd {
+		var se *sealedError
+		if err := b.allowRes(auth.Principal{Owner: true, Via: "bearer"}, "res:"+comp+"/state", "reader"); err == nil {
+			t.Errorf("the root token on res:%s/state", comp)
+		}
+		if !errors.As(sealedNone(comp, "x"), &se) || !errors.As(sealedOwn(auth.Principal{Owner: true}, comp, "x"), &se) {
+			t.Errorf("sealedNone/sealedOwn miss %q", comp)
+		}
+		if sealedOwn(auth.Principal{Component: "xbin/fix", Via: "instance"}, comp, "x") != nil {
+			t.Errorf("its backend is refused what is its own, spelled %q", comp)
+		}
+		if _, _, err := b.extractMember(comp, "latest", backup.KVName); !errors.As(err, &se) {
+			t.Errorf("extractMember(%q): %v", comp, err)
+		}
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // The app tunnel's transport rules (D204, plans/app-tunnel.md §4,
@@ -83,7 +85,7 @@ func (a *Auth) TunnelRequired() bool {
 // refused an otherwise valid credential.
 func (a *Auth) Authenticate(r *http.Request) (Principal, bool, Refusal) {
 	p, ok := a.fromRequest(r)
-	if !ok {
+	if !ok || !canonicalComponent(p) {
 		return Principal{}, false, RefuseNone
 	}
 	if why := a.principalRefusal(TransportOf(r), p); why != RefuseNone {
@@ -91,6 +93,18 @@ func (a *Auth) Authenticate(r *http.Request) (Principal, bool, Refusal) {
 	}
 	a.noteAuthed(r) // any real auth warms the source (IP, or device) for the /c/ gate
 	return p, true, RefuseNone
+}
+
+// canonicalComponent reports whether p's component, when it has one, is
+// written the one way a component path is (util.CanonPath). A principal is
+// its component for everything behind this point — grants, resources, the
+// sealed tests — and each of those compares strings: a token minted for
+// "/xbin/x" would be nobody's by the exact tests and the sealed
+// component's by the forgiving ones. No credential yields such a principal
+// (here, TilePrincipal, PathTicketPrincipal), and none is minted for one
+// (mintFrame).
+func canonicalComponent(p Principal) bool {
+	return p.Component == "" || util.CanonPath(p.Component) == p.Component
 }
 
 // principalRefusal applies the gate to a principal: one without a

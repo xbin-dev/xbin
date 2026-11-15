@@ -229,6 +229,9 @@ func firstLine(s string) string {
 // function. Lives here so main stays a one-liner.
 func DispatchViaProxy(h http.Handler) func(p auth.Principal, comp, path string) (int, string) {
 	return func(p auth.Principal, comp, path string) (int, string) {
+		if comp == "" || util.CanonPath(comp) != comp {
+			return http.StatusBadRequest, "not a component's path" // a row from a hand-edited file: never "/api//xbin/…" (sealedguard.go)
+		}
 		req := httptest.NewRequest("POST", "/api/"+comp+path, nil)
 		req = req.WithContext(auth.WithPrincipal(context.Background(), p))
 		rec := httptest.NewRecorder()
@@ -288,6 +291,10 @@ func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 	}
 	if sealedRefused(w, cmp.Or(sealedOwn(p, j.Component, sealedOwnRegs), sealedOwn(p, j.Resource, sealedOwnRegs))) {
 		return // a sealed component's deliveries are its backend's to register (sealedguard.go)
+	}
+	if !b.componentNamed(j.Component) { // its deliveries go to /api/<component>/…: one spelling, a real path
+		server.WriteError(w, http.StatusBadRequest, fmt.Sprintf("%q is not a component's path", j.Component), "/docs/resources.md")
+		return
 	}
 	if b.partitionParamRefused(w, r, j.Component) || b.globalAddressRegRefused(w, j.Component, j.Path, "cron") {
 		return
