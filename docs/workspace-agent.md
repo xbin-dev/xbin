@@ -60,6 +60,18 @@ The dock's header is xbin's, and so is everything a person decides in it; the ag
 - **Pause** stops the agent's every call at once; only the person resumes it.
 
 In place of the conversation the dock says why there is none: not set up (an admin sees the three steps), no language model connected, turned off for the workspace, paused, or held after a restart or a downgrade.
+## The agent's page
+
+The conversation with the agent is its own page — the sealed component's frontend, the agent template's `ws/` page — framed by xbin's dock (or `/xbin/agent`). It shows:
+
+- **The session in view** and a switcher: Main always first and never archived; other sessions with their name, scope, model and status; New session… (it copies the scope and model of the one in view and starts empty), Rename, Archive (archived ones fold under Older).
+- **The scope chip**, always in view: xbin's line ("14 tiles · 3 orgs connected · 6 not connected") and the model. It opens a panel: the four totals; orgs unfolding to tiles, each *connected*, *hidden by you*, *blocked* (with the org's own sentence) or *no access*; ticks staged and applied with one button; the model with a what-if before anything changes, and a change the conversation's data doesn't allow drawn as "This session can't move to …" with a new session as the way forward. Scope is focus, not permission, and the panel says so: a blocked tile can't be ticked.
+- **The conversation**, with the agent's own cards where it made them: the plan (which steps only read and which will ask), the brief for a tile agent (Goal, Done when, Leave alone, Check by — editable, what the tile agent is told first, what it will run on, a pick among the coding agents the tile allows), a request waiting for approval (what, for which tile, when it expires) and afterwards what came of it, a tile agent it started (its status as a glyph and a word, its last line, Open — or Answer when it waits for you: only you can answer it), xbin's refusals with the way forward, and the agent's questions as choices with "Something else".
+- **An empty state** for a new session: what the agent can and can't do in this session, and starters built from your own tiles. A starter fills the message box; it never sends.
+- **The notebook**: every page, read, edited, added or deleted by you; a page a session may not read is listed but closed, with the reason.
+- **Banners** for what stops it: paused, a used-up quota, turned off by an admin, xbin updating, no connection (your draft stays and is not sent).
+
+**The page grants nothing.** It renders what a model wrote, so every approval — a tile call, a tile agent's start, an admin change set, resuming — is drawn by xbin's chrome from xbind's own reading of the request. The page asks the chrome to open one by its id (`xbin:agent-open-request {id}`, `xbin:agent-open-changeset {id}`; a tile agent's session with `xbin:open-session {session, tile}`), and the chrome tells the page what it was opened about (`xbin:agent-context {tile}` or `{screen}`: the message box's "About …" chip). The contract is in the template's `API.md` §Workspace mode → The page.
 
 ## For tile authors
 

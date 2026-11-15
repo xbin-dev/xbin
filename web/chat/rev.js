@@ -44,5 +44,9 @@
  *      notice's icon, tone, md, fold and action (ChatCtx.act); a
  *      sub-conversation's card in a call's words, its request under it;
  *      mdCssText gains headings, lists and the reading colours
+ *   5  a plan in the host's words (cards.js planView: the block's title,
+ *      meta, note and numbered; an entry's tag), a question's buttons in
+ *      the host's words (an ask block's submit and skip; skip '' draws
+ *      none), the composer's accessible name (<bx-chat-composer label>)
  */
-export const KIT = 4;
+export const KIT = 5;

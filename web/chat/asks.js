@@ -216,7 +216,8 @@ function answerLine(f, c) {
  * <bx-chat-form>: a question's form — each field with its choices (radios
  * or checkboxes, an option's description beside it), its "Other" box, a
  * field starting at its schema's default; Submit answers (the required
- * ones first), Skip declines. Properties: block (the ask block), ctx,
+ * ones first), Skip declines — each in the block's own words when it has
+ * them (`submit`, `skip`; `skip: ''` draws no Skip). Properties: block (the ask block), ctx,
  * fields (ask.js formFields), readonly. Its values live in the host's bag
  * for the block.
  */
@@ -256,8 +257,8 @@ export class BxChatForm extends LitElement {
     return html`${(this.fields || []).map((f) => this._field(f, bag.vals, off))}
       ${this._err ? html`<div class="bxc-note bxc-err">${this._err}</div>` : nothing}
       ${this.readonly ? viewOnly(this.ctx) : html`<div class="bxc-btns">
-        <button class="bxc-primary" data-answer="accept" ?disabled=${off} @click=${() => this.submit()}>Submit</button>
-        <button class="bxc-deny" data-answer="decline" ?disabled=${off} @click=${() => this.skip()}>Skip</button>
+        <button class="bxc-primary" data-answer="accept" ?disabled=${off} @click=${() => this.submit()}>${this.block.submit || 'Submit'}</button>
+        ${this.block.skip === '' ? nothing : html`<button class="bxc-deny" data-answer="decline" ?disabled=${off} @click=${() => this.skip()}>${this.block.skip || 'Skip'}</button>`}
       </div>`}`;
   }
 

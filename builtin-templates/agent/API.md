@@ -5918,6 +5918,46 @@ to the session's taint (`…/taint`) first. `PUT /ws/notebook/{slug}` — the
 person's own route — keeps a page's stamps, and clears them only with
 `clearStamps: true` (a deliberate act the page confirms; no tool can).
 
+**The page** (`ws/`; D232). In workspace mode the tile's page is another
+one: `boot.js` — on a sealed component's path (`xbin/<name>`) only, once the
+kit is there — asks `GET /ws/state` and, when it answers `mode:
+"workspace"`, loads `ws/page.js` in place of `agent.js`; anywhere else
+nothing more is asked and the normal page loads as before. It is a small
+tree of its own over the same models (`model/session.js`, `model/fold.js`,
+`chat-window.js`): the session in view and its switcher; the scope chip
+(xbin's connection line and the model) and its panel — the full view, blocked
+tiles named, from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`),
+ticks staged and applied as `PATCH /ws/sessions/{id} {scope}`, a model's
+what-if (`…/connection?whatIf=`) before `{model}`, a `409 model_taint`
+drawn as "This session can't move to …" with a new session as the way
+forward; banners for paused, a stopping quota, turned off, xbin updating
+and back, no connection; the conversation — the run view, drawn with the
+chat kit's rows and window, with the session's cards set where the
+conversation made them (`ws/place.js`: a request in place of the call that
+filed it, a brief in place of `tile_agent_brief`, a tile agent after the
+request that started it, the plan in place of its first `plan` call, an
+`ask_user` with `choices` as the kit's question form; else by time); the
+empty state (`/ws/empty`: a starter fills the composer, never sends);
+the notebook; and the kit's composer with the context chip. The words are
+`ws/words.js`; the choices the owner hasn't settled are its `CHOICES`.
+
+The page renders what a model wrote, so **it grants nothing**. What the
+person decides is decided in xbin's chrome, opened by id (`ws/dock.js`, the
+whole contract):
+
+| Message | Direction | Means |
+|---|---|---|
+| `xbin:agent-open-request {id}` | page → chrome | open the approval of xbind's request `id` (a request's `ref`; the brief's start answers one) |
+| `xbin:agent-open-changeset {id}` | page → chrome | open the review of an admin change set |
+| `xbin:open-session {session, tile}` | page → chrome | show a tile agent's session in its tile's window (`xbin.openSession`, D229) |
+| `xbin:agent-context {tile}` \| `{screen}` | chrome → page | what the dock was opened about: the composer's context chip, one tap to remove, sent with the next message only as its first line — `About tile "<name>" (<path>):` or `About the screen "<name>":` (the message route takes text) |
+
+A message in is taken only from the framing window, and read strictly (a
+path, a short name). Paused, the composer takes nothing ("Resume to send a
+message"); resuming is the chrome's. `globalThis.wsAgentPage.testApi()` is
+what the browser scripts read (`test/ws-page.mjs`, `ws-scope.mjs`,
+`ws-states.mjs`, against `test/ws-stub.mjs`).
+
 **The prompt** is `ws_prompt.go` plus a short map of xbin generated from
 xbin's docs (`ws_model.md`; regenerate with the xbin repository's
 `hack/wsagent-model.sh`). The scripted evaluation is `ws_eval_test.go`;

@@ -15047,6 +15047,72 @@ Deviations and refinements made while implementing; all deliberate:
     start preference is set); naming the admins in "An admin can fix
     this" (no route lists admins to a non-admin); the setup's "Choose who
     gets one" step links the docs rather than an editor.
+- **D235 — The workspace agent on the web: xbin's chrome grants, the
+  agent's page shows (2026-11-15; issue #51; `plans/wsagent/ux.md`).**
+  *(Part 1, xbin's own chrome — the dock, the approval sheet, the change
+  set, Needs you, pause — is written on `wsagent/d1-chrome` and merges in
+  here.)*
+  - **Part 2 — the agent's own page (package D2).** The conversation with
+    a person's workspace agent is the agent template's page in workspace
+    mode, `builtin-templates/agent/ws/`, framed by the dock.
+  - **A page of its own, not a mode of agent.js.** `boot.js` chooses: on a
+    sealed component's path (`xbin/<name>`, which no workspace can hold)
+    it asks `GET /ws/state` after the kit check and loads `ws/page.js` when
+    the mode is `workspace`. Rejected: a field on `GET /me` (the backend is
+    another package's, and `/me` is read after agent.js has loaded half the
+    app); asking every instance (one more call before every normal page —
+    and `test/ci.mjs`, which takes the first call as "the app started",
+    showed what that shifts); a branch inside agent.js (its static imports
+    run the whole app first, and instances patch that file). The ws tree
+    reuses the models (`model/session.js`, `model/fold.js`) and the
+    template's chat window; it never imports agent.js's views, and a test
+    pins that both ways.
+  - **It grants nothing, by construction.** Every way out is a message
+    to the chrome with ids only (`ws/dock.js`: `xbin:agent-open-request
+    {id}`, `xbin:agent-open-changeset {id}`, `xbin:open-session {session,
+    tile}`; in, `xbin:agent-context {tile | screen}` from the framing window
+    only). The one exception is the backend's: where the person's
+    preferences let a start through without a ticket (`start-defaults` →
+    `ticket: false`), the brief's button reads Start and the click is the
+    confirmation. Browser scripts assert that no Allow, Approve, Deny or
+    Resume is ever drawn, whatever waits.
+  - **Cards where the conversation made them, the window untouched.**
+    `ws/place.js` maps the session's cards onto the fold's rows: a request
+    in place of the call that filed it (by `callId`, else the call's own
+    "Pending — request N"), a brief in place of `tile_agent_brief`, a tile
+    agent after the request that started it, the plan once in place of its
+    first call, an `ask_user` with `choices` as the kit's form; else after
+    the line before it in time. A row may draw several cards or none, so
+    the session's paging and the kit's window keep their indices.
+    Rejected: a second list of blocks for the window (its `keep()` cuts by
+    the fold's indices). The phrases it reads in tool answers are the
+    backend's, pinned by a node test against the Go source, and so is every
+    JSON field it reads.
+  - **The context chip goes as a line of text** (`About tile "<name>"
+    (<path>):`): the message route takes text only; the page splits it back
+    to draw the chip above the person's words. A structured field is a gap
+    for the backend's owner.
+  - **Kit, generic** (KIT 5): a plan's title, meta, note, numbering and a
+    step's tag; a question's button words; the composer's accessible name.
+    The page needs `NEEDS.ws` = 5; the normal page still needs 4.
+  - **The recommendations of ux.md §15 that the page follows**, each in
+    `CHOICES` (`ws/words.js`): a starter fills, never sends (Q8); no typing
+    while paused (Q10); no session cap, archived fold under Older (Q17);
+    "can't reach" after 3 s of a dropped stream.
+  - **"xbin is updating"** is the stream's `bye` (the backend is being
+    replaced) followed by a lost connection; back, the page says what
+    continued and what an update cut off (`status: stopped`). A dropped
+    stream without `bye` is "can't reach" — the draft stays and is not
+    sent; Review… is off.
+  - **Tested by faking.** `test/ws-stub.mjs` stubs the backend in
+    workspace mode and xbind's connection view; `ws-page`, `ws-scope`,
+    `ws-states` drive the page in Chromium, `hack/agent-template-ws-page`
+    the pure parts. No UI harness pass: no holder component is registered
+    on this tree, so no real workspace-mode backend can be framed by a
+    real xbind; to re-run against one: the dock's frame, live `delegate`
+    events, a real `bye` on an xbind update, the full connection view's
+    frame check.
+
 - **D231 — The workspace agent: one long-lived coordinating agent per
   person, built from the agent template's engine (2026-11-15; issue
   #51).** The owner: one persistent agent per person that works at a high
