@@ -53,7 +53,11 @@ func (m *Manager) prepare(ctx context.Context, rec record) error {
 // supplementary groups, so %sudo wouldn't reach it — with NOPASSWD (its
 // password is locked), and /etc/xbin-vm-devices has the VM guest make
 // /dev/fuse and /dev/net/tun everyone's at each boot (rootless containers;
-// docs/isolation.md §VM sandboxes). Never for root, or for a name that is
+// docs/isolation.md §VM sandboxes). The guest reads that list as it boots,
+// and this runs after the sandbox's first boot, so the script sets the two
+// modes itself too: without that an image with no setup script (whose
+// sandboxes aren't clones of a prepared build) had them only from its first
+// restart on. Never for root, or for a name that is
 // another uid's. Running it again changes nothing. The /etc it edits is the
 // one under the directory the run starts in — the sandbox's root (Cwd "/"),
 // so a substrate standing a host directory in for a sandbox (the tests'
@@ -110,7 +114,13 @@ put() { cat > "$1.xbin-new" && chmod "$2" "$1.xbin-new" && mv -f -- "$1.xbin-new
 mkdir -p -- "$etc/sudoers.d"
 printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$user" | put "$etc/sudoers.d/$user" 0440
 printf '# the coding sandbox: %s may sudo, and use these at each boot\n0666 /dev/fuse\n0666 /dev/net/tun\n' "$user" |
-	put "$etc/xbin-vm-devices" 0644`
+	put "$etc/xbin-vm-devices" 0644
+# …and in this boot, which began before the list was there (the guest reads
+# it as it boots): the same modes on the same nodes, device nodes only
+for n in fuse net/tun; do
+	d=${root%/}/dev/$n
+	if [ -c "$d" ] && ! [ -L "$d" ]; then chmod 0666 -- "$d" || true; fi
+done`
 
 // ready makes rec usable for a command or a file operation: started (within
 // the quotas) and prepared. A sandbox seen running within LiveTTL is taken

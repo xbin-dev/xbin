@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **coding-sandbox: an image's `sudo` gives `/dev/fuse` and `/dev/net/tun`
+  from the sandbox's first boot** (D182). The template wrote the guest's
+  device list (`/etc/xbin-vm-devices`) after a new sandbox had booted, and
+  the guest reads it only as it boots: a sandbox of a `sudo` image with no
+  setup script had both nodes 0600 until its first restart, where
+  the template's API.md (§Testing on xbind, 8) promises 0666 at the first boot.
+  The first start now sets the two modes itself as well. An instance gets
+  it with `git merge template/main`; a sandbox made before needs nothing
+  but a restart, as before.
 - **Agent sessions: a workspace agent's conversation is a handle xbind
   issues** (D228 part C0;
   [protocol/delegation.md](/docs/protocol/delegation.md) §Agent sessions).

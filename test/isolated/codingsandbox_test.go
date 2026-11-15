@@ -867,11 +867,13 @@ func testCSImages(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 }
 
 // testCSSudo: an image's sudo (D182). In a VM the layout's user becomes root
-// with sudo, and /dev/fuse and /dev/net/tun are everyone's at every boot (a
-// restart's too); in a namespace sandbox the image's sudo gives nothing and
-// hello says why. sudo itself needs a rootfs whose special modes the VM
-// guest puts back (/etc/xbin-rootfs-modes): on an older one that part is
-// skipped, saying so.
+// with sudo, and /dev/fuse and /dev/net/tun are everyone's at every boot —
+// the first, which is before the manager wrote the guest's list, and a
+// restart's; in a namespace sandbox the image's sudo gives nothing and hello
+// says why. sudo itself needs a rootfs whose special modes the VM guest puts
+// back (/etc/xbin-rootfs-modes): on an older one the devices are still
+// checked and then the test is skipped, saying which rootfs and what wasn't
+// run — a failure under XBIN_E2E_REQUIRE=1 (xbindtest.Skip).
 func testCSSudo(t *testing.T, e *csEnv, mode string) {
 	c := e.target().As(t, csCons)
 	e.images(t, map[string]any{"id": "dev", "title": "Dev", "sudo": true})
@@ -899,9 +901,8 @@ func testCSSudo(t *testing.T, e *csEnv, mode string) {
 		}
 	}
 	devices("at the first boot")
-	if !ok("test -s /etc/xbin-rootfs-modes") {
-		t.Log("the rootfs predates /etc/xbin-rootfs-modes (D182): sudo itself isn't checked")
-	} else {
+	current := ok("test -s /etc/xbin-rootfs-modes")
+	if current {
 		if got := c.Sh(sb.ID, "sudo -n id -u"); got != "0\n" {
 			t.Errorf("sudo -n id -u: %q", got)
 		}
@@ -912,6 +913,10 @@ func testCSSudo(t *testing.T, e *csEnv, mode string) {
 	c.Call("POST", "/sandboxes/"+sb.ID+"/stop?wait=60", nil, 200, nil)
 	c.Call("POST", "/sandboxes/"+sb.ID+"/start?wait=60", nil, 200, nil)
 	devices("after a restart")
+	if !current {
+		xbindtest.Skip(t, "STALE ROOTFS: "+e.d.A.Rootfs+" has no /etc/xbin-rootfs-modes (an image built before D182; `make rootfs` builds a current one), "+
+			"so `sudo -n id -u` and the image's setuid and sticky bits were NOT checked — only the devices' modes at the first boot and after a restart were")
+	}
 }
 
 // testCSOperators: the tile's owner and the people with write access to it
