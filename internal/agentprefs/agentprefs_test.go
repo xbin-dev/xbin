@@ -120,3 +120,20 @@ func TestPrefsAreThePersons(t *testing.T) {
 		t.Errorf("the file changed: %s", b)
 	}
 }
+
+// A session the person's agent starts without asking opens only in a mode
+// that asks before every edit and command: the others can't be saved.
+func TestAgentSessionModesMustAsk(t *testing.T) {
+	s := New(t.TempDir())
+	for mode, ok := range map[string]bool{"default": true, "plan": true, "acceptEdits": false, "auto": false, "bypassPermissions": false} {
+		_, err := s.Update("ana", []byte(`{"agentSessions":{"start":"allow","modes":{"claude":"`+mode+`"}}}`))
+		if (err == nil) != ok {
+			t.Errorf("saving claude %s for agent-started sessions: %v", mode, err)
+		}
+	}
+	for harness, mode := range map[string]string{"codex": "agent", "gemini": "autoEdit", "opencode": "build"} {
+		if _, err := s.Update("ana", []byte(`{"agentSessions":{"modes":{"`+harness+`":"`+mode+`"}}}`)); err == nil {
+			t.Errorf("%s %s was saved for agent-started sessions", harness, mode)
+		}
+	}
+}

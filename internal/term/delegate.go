@@ -184,7 +184,7 @@ func (m *Manager) delegateOpen(p auth.Principal, a *AgentOpen, rel string, prov 
 		return "", "", who + "starts without asking only the harness its person's preference is for: that preference is for " + cmp.Or(d.Provider, "none") + ", and this would open " + prov.ID
 	}
 	mode = cmp.Or(d.Prefs.Mode, prov.DefaultMode)
-	if !prov.Safe(mode) { // whatever the store handed over: never a mode that asks nothing, unasked
+	if !prov.Asks(mode) { // whatever the store handed over: unasked, only a mode that asks before every edit and command
 		return "", "", who + "starting without asking needs a mode known to ask its person: choose one for " + prov.ID + " in the agent preferences"
 	}
 	a.NoAPI = !d.Prefs.API

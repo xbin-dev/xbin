@@ -617,7 +617,7 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 		// alone decides it: a delegate's start is strict (acp.Config.Strict)
 		// — the mode is in force or the session ends, and no option but a
 		// model or a thinking level is set
-		"asks":    eff.Provider.Safe(eff.Mode),
+		"asks":    eff.Provider.Asks(eff.Mode),
 		"options": options, // every setting the start carries; none of them can change the mode
 		// what the session will be told first: sent by xbind itself once the
 		// session is up, and bound by the ticket with the rest of the body.

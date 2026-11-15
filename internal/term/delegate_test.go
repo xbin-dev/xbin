@@ -131,6 +131,10 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 	}
 	m.Kill(info.ID)
 	refused("a preference naming a mode that asks nothing", delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Provider: "fake", Prefs: &delegation.StartPrefs{Mode: "yolo", API: true}}}, "known to ask")
+	// "keeps asking" is the harness's ask or plan mode and no other: a mode
+	// that edits or runs on its own (auto here; Claude's acceptEdits and
+	// auto, Codex's agent, Gemini's autoEdit) is not started unasked
+	refused("a preference naming a mode that acts without asking each time", delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Provider: "fake", Prefs: &delegation.StartPrefs{Mode: "auto", API: true}}}, "known to ask")
 	refused("a preference asked about another harness", delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Provider: "claude", Prefs: &delegation.StartPrefs{}}}, "preference is for claude")
 	refused("a preference asked about no harness", delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Delegate: &DelegateStart{Prefs: &delegation.StartPrefs{}}}, "preference is for")
 	// the person's own sessions carry no origin

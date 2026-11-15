@@ -483,13 +483,13 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 		if m, err := prov.ResolveMode(h.Mode); err == nil { // "" is the harness's own default
 			h.Mode = m
 		}
-		if !prov.Safe(h.Mode) {
+		if !prov.Asks(h.Mode) {
 			// a mode not known to ask its person (a harness that keeps its
 			// modes to itself, or a preference the catalog no longer
 			// vouches for): never unasked — the person sees it on a card
 			h.NeedsTicket = true
 		}
-		h.Asks = prov.Safe(h.Mode)
+		h.Asks = prov.Asks(h.Mode)
 		out.Harnesses = append(out.Harnesses, h)
 	}
 	for _, h := range out.Harnesses {
