@@ -382,6 +382,18 @@ async function children(a, check, box, stamp) {
   // message it is given, and a result arriving inside the steer's turn is then the one it answers (this pass
   // once waited 60 s for "Steered it." that way).
   if (told != null) await until(a, (n) => document.querySelectorAll('#timeline .notice').length > n, told, 30000);
+  // …and so do the other two's, whenever they finish: one that lands inside
+  // the steer's turn is the last message the fake model answers ("Got your
+  // steer: [subagent results …] #32 coder 3 (done)" once, never "Steered
+  // it."). Every child's result in the parent's transcript first, then rest.
+  const toldAll = async () => {
+    const msgs = (await call(a, `/api/apps/agent/runs/${parent}`)).body?.messages || [];
+    const users = msgs.filter((m) => m.role === 'user').map((m) => String(m.content || '')).join('\n');
+    return kids.every((k) => users.includes(`--- #${k.id} `));
+  };
+  for (const end = Date.now() + 60000; !(await toldAll()); await new Promise((r) => setTimeout(r, 200))) {
+    if (Date.now() > end) throw new Error(`the coding agents' results never all reached the parent (#${parent})`);
+  }
   await resting(a, 30000);
 
   // "harness steer": the agent messages its newest coding agent
