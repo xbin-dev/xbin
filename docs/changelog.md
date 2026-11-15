@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **Shell: a tile's admin panel no longer puts an old binding back.** Two
+  quick re-binds in the interfaces section (org, then back to internet)
+  could leave the picker showing the first choice while the second was
+  bound: the first change's reload answered last and overwrote the newer
+  one. Only the newest reload's answers land now. Workspaces get it with
+  the scaffold's shell update.
 - **A screen preview leaves the workspace agent out.** The shell's agent
   chip reads `/delegate/state` and `/llm`; a preview render refuses both
   and names them in `leftOut`, beside the admin-only status reads, and the
