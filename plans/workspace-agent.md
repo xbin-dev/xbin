@@ -192,7 +192,7 @@ Landed (D231, package C2): the backend — workspace mode
 (`workspace_tiles`/`workspace_screens` folded into `workspace_map`;
 `tile_agent_start` takes a brief written by `tile_agent_brief` and no
 harness, mode or model; plus `tile_api_doc`, `admin_changes`, `plan` and
-the `notebook_*` tools), sessions and their handles, the parked request,
+the `notebook_*` tools), sessions and their handles, the pending request,
 the notebook's org scoping, the prompt with its generated map, the HTTP
 API for the page (the template's `API.md` §Workspace mode) and the scripted
 evaluation. Open: the page (D, E), previews (F), attachments.

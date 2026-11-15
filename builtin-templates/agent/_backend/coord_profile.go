@@ -84,12 +84,6 @@ type coordProfile struct {
 	// core tool worded for what it coordinates. It adds no tool: a name it
 	// returns that wasn't offered is dropped.
 	Specs func(cfg Config, run *Run, specs []toolSpec) []toolSpec
-	// ParkWords says what run waits for while calls of its step are parked
-	// on a decision outside the engine, and Unpark answers one of them when
-	// its person wrote instead of deciding (coord_park.go; nil: the kit's
-	// words).
-	ParkWords func(d *DB, run *Run, calls []toolCall) string
-	Unpark    func(t *DB, run *Run, tc toolCall) string
 
 	tools map[string]*coordTool
 	order []string
