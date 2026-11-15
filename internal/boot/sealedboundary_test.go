@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -630,7 +631,24 @@ func TestSealedPathSpellings(t *testing.T) {
 			code, out := send("GET", "/api/xbin/frame-token?component="+url.QueryEscape(sp), nil, d.token)
 			var ft struct{ Token string }
 			if code == 200 && json.Unmarshal([]byte(out), &ft) == nil && ft.Token != "" {
-				t.Errorf("gate off=%v: a frame token was minted for %q", gateOff, sp)
+				if slices.Contains(same, sp) {
+					t.Errorf("gate off=%v: a frame token was minted for %q", gateOff, sp)
+				}
+				// other bytes: a token of a tile that doesn't exist, as any
+				// made-up tile path gets — and nothing of the sealed component's
+				for _, path := range []string{"/api/xbin/kv/" + R + "/k", "/api/" + probePath + "/hello"} {
+					req, _ := http.NewRequest("GET", d.base+path, nil)
+					req.Header.Set("X-XBin-Frame-Token", ft.Token)
+					resp, err := http.DefaultClient.Do(req)
+					if err != nil {
+						t.Fatal(err)
+					}
+					b := readAll(resp)
+					resp.Body.Close()
+					if resp.StatusCode < 400 || strings.Contains(b, boundarySecret) {
+						t.Errorf("gate off=%v: the token minted for %q reaches %s: %d %.200s", gateOff, sp, path, resp.StatusCode, b)
+					}
+				}
 			}
 			if code, out := send("POST", "/api/xbin/restore", map[string]any{"component": sp}, d.token); code < 400 {
 				t.Errorf("gate off=%v: POST /restore {component:%q}: %d %.200s", gateOff, sp, code, out)

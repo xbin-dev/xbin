@@ -90,8 +90,8 @@ doubled slash, `./`, `a/../` — is refused with `400` ("write a system
 component's path as xbin/<name> …") on every route; `/api//xbin/<name>/…`
 is not an address of its backend. A path that differs in case,
 percent-escapes or look-alike characters is another path and names no
-component. `GET /frame-token` answers `404` for a path that is no
-registered component, and a cron job or bus subscription is registered
+component. `GET /frame-token` answers `404` for a path under `xbin/` (or
+another of xbind's own names) that is no registered component, and a cron job or bus subscription is registered
 only for a component's path as xbind stores it.
 
 ## The admins' read

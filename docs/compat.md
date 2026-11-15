@@ -425,8 +425,8 @@ none, so a workspace sees no change. When a later release adds one:
     and `homes`, writable. A terminal on a plain folder that is no tile
     (`apps`, a directory without a manifest or an `index.html`) is refused
     now; every shipped shell and `bx` open terminals on tiles.
-  - *A frame token is minted only for a registered component*, written
-    canonically; a cron job, a bus subscription and a restore take a
+  - *A frame token is minted only for a path written canonically* (and,
+    in xbind's own namespace, only for a registered component); a cron job, a bus subscription and a restore take a
     component's path as xbind stores it. A request that named a path with
     a stray slash for these gets `400`/`404` instead of a registration
     nothing would ever have delivered to.

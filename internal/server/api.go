@@ -315,9 +315,13 @@ func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "write the component's path without a leading, trailing or doubled slash: "+util.CanonPath(comp))
 		return
 	}
-	if _, registered := s.Reg.Component(comp); !registered && comp != "" {
-		// a frame token is a component's: an admin's level reaches every
-		// path, so without this any string was minted into a principal
+	if _, registered := s.Reg.Component(comp); !registered && comp != "" && !util.ComponentPathOK(comp) {
+		// A frame token is a component's. An admin's level reaches every
+		// path, so without this any string was minted into a principal:
+		// one in xbind's own namespace (xbin/…, .xbin, data) must be a
+		// registered component. A path with the shape of a tile's is
+		// minted as before — a tile just written is not registered until
+		// the next scan, and its frame asks at once.
 		apiErr(w, http.StatusNotFound, "no such component: "+comp)
 		return
 	}

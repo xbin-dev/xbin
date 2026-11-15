@@ -132,8 +132,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tile or a directory inside one** (403 otherwise). A path that is not a
   tile — a plain folder such as `apps`, a directory with no manifest and
   no `index.html` — takes no terminal: open it on a tile.
-- **`GET /api/xbin/frame-token`** answers `404` for a path that is no
-  registered component, and `400` for a path written with a leading,
+- **`GET /api/xbin/frame-token`** answers `404` for a path in xbind's own
+  namespace (`xbin/…`, `.xbin`, `data`, …) that is no registered
+  component, and `400` for a path written with a leading,
   trailing or doubled slash. A cron job or bus subscription is registered
   only for a component's path as xbind stores it (`400` otherwise), and a
   restore takes the same.
