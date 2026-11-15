@@ -45,6 +45,13 @@
    "sends": {
     "text": "{\"customer\":\"acme\",\"notify\":true}",
     "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
     "note": "34 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
@@ -153,6 +160,13 @@
    "sends": {
     "text": "",
     "binary": false,
+    "clipped": false,
+    "note": "nothing: the call has no body"
+   },
+   "sendsAll": {
+    "text": "",
+    "binary": false,
+    "clipped": false,
     "note": "nothing: the call has no body"
    },
    "undo": "xbin can't undo this. Whether Ledger can is up to Ledger.",
@@ -267,6 +281,13 @@
    "sends": {
     "text": "",
     "binary": true,
+    "clipped": false,
+    "note": "not text — 3.2 MiB, sha256 ffee"
+   },
+   "sendsAll": {
+    "text": "",
+    "binary": true,
+    "clipped": false,
     "note": "not text — 3.2 MiB, sha256 ffee"
    },
    "undo": "xbin can't undo this. Whether Files can is up to Files.",
@@ -384,6 +405,13 @@
    "sends": {
     "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "binary": false,
+    "clipped": false,
+    "note": "14 KiB · shown in full"
+   },
+   "sendsAll": {
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "binary": false,
+    "clipped": false,
     "note": "14 KiB · shown in full"
    },
    "undo": "xbin can't undo this. Whether Team calendar can is up to Team calendar.",
@@ -499,6 +527,13 @@
    "sends": {
     "text": "{\"customer\":\"acme\",\"notify\":true}",
     "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
     "note": "34 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
@@ -614,6 +649,13 @@
    "sends": {
     "text": "{\"customer\":\"acme\",\"notify\":true}",
     "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
     "note": "34 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
@@ -729,6 +771,13 @@
    "sends": {
     "text": "{\"customer\":\"acme\",\"notify\":true}",
     "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
     "note": "34 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
@@ -843,6 +892,13 @@
    "sends": {
     "text": "{\"customer\":\"acme\",\"notify\":true}",
     "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
     "note": "34 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
@@ -956,6 +1012,13 @@
    "sends": {
     "text": "{\"customer\":\"acme\",\"notify\":true}",
     "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
     "note": "34 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
@@ -1069,6 +1132,13 @@
    "sends": {
     "text": "{\"customer\":\"acme\",\"notify\":true}",
     "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
     "note": "34 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
@@ -1184,6 +1254,13 @@
    "sends": {
     "text": "{\"customer\":\"acme\",\"notify\":true}",
     "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
     "note": "34 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
@@ -1255,6 +1332,126 @@
   },
   {
    "json": {
+    "id": "rq_long",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "call",
+    "method": "POST",
+    "target": "apps/invoices/links/rebuild?dry=0",
+    "tile": "apps/invoices",
+    "contentType": "application/json",
+    "body": "é😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀ab",
+    "bodyShown": true,
+    "bodySize": 8800,
+    "bodySha256": "ab12",
+    "summary": "Rebuild the customer links so the overdue ones show.",
+    "state": "pending",
+    "created": "2026-11-16T10:14:00Z",
+    "expires": "2026-11-17T10:14:00Z",
+    "preview": {
+     "class": "tile-write",
+     "tile": "apps/invoices",
+     "level": "write",
+     "role": "writer",
+     "standing": {
+      "call": "POST to apps/invoices/links/rebuild on Invoices, whatever it sends, without asking again.",
+      "tile": "Any write to Invoices that you could make yourself, without asking again."
+     }
+    }
+   },
+   "tile": {
+    "name": "Invoices",
+    "path": "apps/invoices",
+    "org": ""
+   },
+   "level": "you can write here",
+   "needTitle": "Approve a change to Invoices",
+   "heading": {
+    "before": "Your agent wants to change something in ",
+    "strong": "Invoices",
+    "after": ""
+   },
+   "sends": {
+    "text": "é😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀ab",
+    "binary": false,
+    "clipped": true,
+    "note": "8.6 KiB · first 4000 of 4400 characters"
+   },
+   "sendsAll": {
+    "text": "é😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀abé😀ab",
+    "binary": false,
+    "clipped": false,
+    "note": "8.6 KiB · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This request only. The agent has 15 minutes to use it.",
+     "wider": false
+    },
+    {
+     "id": "call",
+     "label": "Always, this exact action",
+     "text": "POST to apps/invoices/links/rebuild on Invoices, whatever it sends, without asking again.",
+     "wider": false
+    },
+    {
+     "id": "tile",
+     "label": "Always, every change to Invoices",
+     "text": "Any write to Invoices that you could make yourself, without asking again.",
+     "wider": true
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow always",
+     "Allow always, this exact action"
+    ],
+    [
+     "Allow every change to Invoices",
+     "Allow every change to Invoices"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "tile"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    },
+    {
+     "grant": "always",
+     "scope": "tile"
+    }
+   ],
+   "wider": {
+    "heading": "Allow every change to Invoices?",
+    "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:14 · expires in 23 h 58 min"
+  },
+  {
+   "json": {
     "id": "rq_soon",
     "user": "ana",
     "agent": "xbin/wsagent",
@@ -1297,6 +1494,13 @@
    "sends": {
     "text": "{\"customer\":\"acme\",\"notify\":true}",
     "binary": false,
+    "clipped": false,
+    "note": "34 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"customer\":\"acme\",\"notify\":true}",
+    "binary": false,
+    "clipped": false,
     "note": "34 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Invoices can is up to Invoices.",
@@ -1412,6 +1616,13 @@
    "sends": {
     "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
     "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
     "note": "96 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
@@ -1518,6 +1729,13 @@
    "sends": {
     "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
     "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
     "note": "96 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
@@ -1624,6 +1842,13 @@
    "sends": {
     "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
     "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
     "note": "96 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
@@ -1728,6 +1953,13 @@
    "sends": {
     "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: export the ‮invoices‬.\\nDone when: the test passes.\"}",
     "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: export the ‮invoices‬.\\nDone when: the test passes.\"}",
+    "binary": false,
+    "clipped": false,
     "note": "96 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
@@ -1833,6 +2065,13 @@
    "sends": {
     "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
     "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
     "note": "96 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
@@ -1928,6 +2167,13 @@
    "sends": {
     "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
     "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
     "note": "96 bytes · shown in full"
    },
    "undo": "xbin can't undo this. Whether the tile can is up to the tile.",
@@ -4090,6 +4336,12 @@
     "id": "rq_named",
     "title": "Approve a change to Team calendar",
     "note": "asked 10:14 · expires in 23 h 58 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_long",
+    "title": "Approve a change to Invoices",
+    "note": "asked 10:14 · expires in 23 h 58 min"
    }
   ],
   "pageViews": [
@@ -4477,6 +4729,57 @@
    }
   ],
   "hiddenNote": "contains hidden characters — shown as ⟨U+…⟩",
+  "clip": 4000,
+  "clips": [
+   {
+    "input": "",
+    "text": "",
+    "clipped": false,
+    "shown": 0,
+    "total": 0,
+    "note": ""
+   },
+   {
+    "input": "short",
+    "text": "short",
+    "clipped": false,
+    "shown": 5,
+    "total": 5,
+    "note": ""
+   },
+   {
+    "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "clipped": false,
+    "shown": 4000,
+    "total": 4000,
+    "note": ""
+   },
+   {
+    "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "clipped": true,
+    "shown": 4000,
+    "total": 4001,
+    "note": "first 4000 of 4001 characters"
+   },
+   {
+    "input": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "clipped": true,
+    "shown": 4000,
+    "total": 4002,
+    "note": "first 4000 of 4002 characters"
+   },
+   {
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀b",
+    "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+    "clipped": true,
+    "shown": 4000,
+    "total": 4001,
+    "note": "first 4000 of 4001 characters"
+   }
+  ],
   "standingNote": "Starting a tile agent and creating a tile are asked every time. Taking an approval back stops a change that is running under it.",
   "didNote": "Kept by xbin for 13 months. Your agent and its page can't read or change this list. It never holds what was sent, only what was called.",
   "arm": 600,

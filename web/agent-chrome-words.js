@@ -105,24 +105,40 @@ export function heading(req) {
   return { before: 'Your agent wants to change something in ', strong: t, after: '' };
 }
 
+/** CLIP: the most of a body or a brief a sheet shows before Show all, in characters (code points) — the app's too. */
+export const CLIP = 4000;
+
+/** clipText(text, all): {text, clipped, shown, total} — all of it, or its first CLIP characters (all: the person asked for all). */
+export function clipText(text, all = false) {
+  const cps = [...String(text ?? '')];
+  if (all || cps.length <= CLIP) return { text: cps.join(''), clipped: false, shown: cps.length, total: cps.length };
+  return { text: cps.slice(0, CLIP).join(''), clipped: true, shown: CLIP, total: cps.length };
+}
+
+/** clipNote(c): "first 4000 of 9321 characters" for clipped text ('' for text shown whole). */
+export const clipNote = (c) => (c.clipped ? `first ${c.shown} of ${c.total} characters` : '');
+
 /**
- * sends(req): what the call carries — {text, note, binary}: the body as
- * text with "48 bytes · shown in full" (or how much of it is shown), or,
- * for bytes nobody can read, no text and "not text — 3.2 MiB, sha256 …".
+ * sends(req, all): what the call carries — {text, note, binary, clipped}:
+ * the body as text — its first CLIP characters unless all — with "48 bytes
+ * · shown in full" only when it is ("14 KiB · first 4000 of 9321
+ * characters" when not), or, for bytes nobody can read, no text and "not
+ * text — 3.2 MiB, sha256 …".
  */
-export function sends(req) {
+export function sends(req, all = false) {
   const size = Number(req.bodySize) || 0;
   const pb = req.preview && req.preview.body;
   if (req.bodyBinary || (pb && pb.binary)) {
     const sha = (pb && pb.sha256) || req.bodySha256 || '';
-    return { text: '', binary: true, note: `not text — ${bytes((pb && pb.size) || size)}${sha ? `, sha256 ${sha}` : ''}` };
+    return { text: '', binary: true, clipped: false, note: `not text — ${bytes((pb && pb.size) || size)}${sha ? `, sha256 ${sha}` : ''}` };
   }
-  if (!size && !req.body) return { text: '', binary: false, note: 'nothing: the call has no body' };
-  const text = String(req.body ?? '');
+  if (!size && !req.body) return { text: '', binary: false, clipped: false, note: 'nothing: the call has no body' };
   // xbind's bodyShown is a boolean — true: `body` is the whole body, as text (delegation.Request); a count is a part of it
   const shown = req.bodyShown === true ? size : Number(req.bodyShown) || 0;
   const partial = shown > 0 && shown < size;
-  return { text, binary: false, note: partial ? `showing the first ${bytes(shown)} of ${bytes(size)}` : `${bytes(size)} · shown in full` };
+  const c = clipText(req.body, all);
+  return { text: c.text, binary: false, clipped: c.clipped,
+    note: partial ? `showing the first ${bytes(shown)} of ${bytes(size)}` : `${bytes(size)} · ${c.clipped ? clipNote(c) : 'shown in full'}` };
 }
 
 // ---- the agent's text, as a sheet shows it -------------------------------------------------

@@ -214,18 +214,38 @@ public enum DelegationWords {
         }
     }
 
+    /// The most of a body or a brief a sheet shows before Show all, in
+    /// characters (Unicode scalars, as the web counts code points) — one
+    /// length for both chromes.
+    public static let clip = 4000
+
+    /// `text` as a sheet shows it: all of it, or its first ``clip``
+    /// characters (`all`: the person asked for all of it).
+    public static func clipText(_ text: String, all: Bool = false) -> (text: String, clipped: Bool, shown: Int, total: Int) {
+        let total = text.unicodeScalars.count
+        guard !all, total > clip else { return (text, false, total, total) }
+        return (String(String.UnicodeScalarView(text.unicodeScalars.prefix(clip))), true, clip, total)
+    }
+
+    /// The note under clipped text: "first 4000 of 9321 characters".
+    public static func clipNote(_ c: (text: String, clipped: Bool, shown: Int, total: Int)) -> String {
+        c.clipped ? "first \(c.shown) of \(c.total) characters" : ""
+    }
+
     /// What the call carries: the body as text with how much of it is
-    /// shown, or — for bytes nobody can read — no text and its size and hash.
-    public static func sends(_ r: DelegateRequest) -> (text: String, note: String, binary: Bool) {
+    /// shown — "shown in full" only when it is — or, for bytes nobody can
+    /// read, no text and its size and hash.
+    public static func sends(_ r: DelegateRequest, all: Bool = false) -> (text: String, note: String, binary: Bool, clipped: Bool) {
         let pb = r.preview["body"]
         if r.bodyBinary || pb?["binary"]?.boolValue == true {
             let sha = pb?["sha256"]?.stringValue ?? r.bodySha256
             let size = Int(pb?["size"]?.intValue ?? 0)
-            return ("", "not text — \(bytes(size > 0 ? size : r.bodySize))\(sha.isEmpty ? "" : ", sha256 \(sha)")", true)
+            return ("", "not text — \(bytes(size > 0 ? size : r.bodySize))\(sha.isEmpty ? "" : ", sha256 \(sha)")", true, false)
         }
-        if r.bodySize == 0, r.body.isEmpty { return ("", "nothing: the call has no body", false) }
+        if r.bodySize == 0, r.body.isEmpty { return ("", "nothing: the call has no body", false, false) }
         // (xbind's bodyShown is a boolean: `body` is the whole body, as text)
-        return (r.body, "\(bytes(r.bodySize)) · shown in full", false)
+        let c = clipText(r.body, all: all)
+        return (c.text, "\(bytes(r.bodySize)) · \(c.clipped ? clipNote(c) : "shown in full")", false, c.clipped)
     }
 
     // MARK: The agent's text, as a sheet shows it

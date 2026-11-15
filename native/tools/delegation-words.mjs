@@ -35,6 +35,8 @@ export const requests = [
   call({ id: 'rq_expired', state: 'expired', expires: t('09:00:00') }),
   call({ id: 'rq_withdrawn', state: 'withdrawn' }),
   call({ id: 'rq_by_xbin', state: 'withdrawn', withdrawnBy: 'xbin', decided: t('10:15:00') }),
+  // a body longer than a sheet shows at once: its first CLIP characters (code points, an emoji one), and a note that says so
+  call({ id: 'rq_long', body: 'é😀ab'.repeat(1100), bodySize: Buffer.byteLength('é😀ab'.repeat(1100)) }),
   call({ id: 'rq_soon', expires: t('10:16:20'), created: '0001-01-01T00:00:00Z' }),
   session(),
   session({ asks: false, mode: 'bypassPermissions', net: 'internet', api: false, model: '', credentials: 'own' }, { id: 'rq_never' }),
@@ -123,7 +125,7 @@ export const states = [
 const out = { now: new Date(NOW).toISOString(), requests: [], changesets: [], approvals: [], audit: [], states: [], small: {} };
 for (const r of requests) {
   const tl = W.tile(r);
-  out.requests.push({ json: r, tile: tl, level: W.levelWords(r.preview && r.preview.level), needTitle: W.needTitle(r), heading: W.heading(r), sends: W.sends(r), undo: W.undoWords(r),
+  out.requests.push({ json: r, tile: tl, level: W.levelWords(r.preview && r.preview.level), needTitle: W.needTitle(r), heading: W.heading(r), sends: W.sends(r), sendsAll: W.sends(r, true), undo: W.undoWords(r),
     choices: W.grantChoices(r).map((c) => ({ id: c.id, label: c.label, text: c.text, wider: c.wider })),
     allow: ['once', 'call', 'tile'].map((c) => [W.allowLabel(r, c), W.allowSpoken(r, c)]),
     bodies: [W.approveBody(r, 'once'), W.approveBody(r, 'call'), W.approveBody(r, 'tile'), W.approveBody(r, 'call', 'hour'), W.approveBody(r, 'tile', 'always')],
@@ -159,6 +161,8 @@ out.small = {
     'lines\nand\ttabs stay', 'cr\r\nlf', 'nul\u0000bel\u0007esc\u001B[31m del\u007F c1\u0085', 'soft\u00ADhyphen', 'tag\u{E0041}s', 'emoji 😀 é 中文', '', '\u202A\u202B\u202D']
     .map((text) => ({ text, ...W.reveal(text), revealed: W.revealed(text) })),
   hiddenNote: W.HIDDEN_NOTE,
+  clip: W.CLIP,
+  clips: ['', 'short', 'x'.repeat(4000), 'x'.repeat(4001), '😀'.repeat(4002), `${'a'.repeat(3999)}😀b`].map((input) => ({ input, ...W.clipText(input), note: W.clipNote(W.clipText(input)) })),
   standingNote: W.STANDING_NOTE, didNote: W.DID_NOTE, arm: W.CHOICES.armMs, duration: W.CHOICES.duration,
 };
 // ---- the app's Debug demo (-XbinAgentDemo <state>, native/AGENTS.md): the same corpus, as xbind would answer it ----

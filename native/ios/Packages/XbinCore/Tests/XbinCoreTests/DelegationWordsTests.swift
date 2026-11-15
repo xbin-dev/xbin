@@ -36,6 +36,9 @@ import Testing
             #expect(sends.text == s(c["sends"], "text"), "\(id)")
             #expect(sends.note == s(c["sends"], "note"), "\(id)")
             #expect(sends.binary == c["sends"]?["binary"]?.boolValue, "\(id)")
+            #expect(sends.clipped == (c["sends"]?["clipped"]?.boolValue ?? false), "\(id)")
+            let all = DelegationWords.sends(r, all: true)
+            #expect(all.text == s(c["sendsAll"], "text") && all.note == s(c["sendsAll"], "note") && !all.clipped, "\(id): Show all")
             #expect(DelegationWords.undoWords(r) == c["undo"]?.stringValue, "\(id)")
             let choices = DelegationWords.grantChoices(r)
             let want = c["choices"]?.arrayValue ?? []
@@ -194,6 +197,14 @@ import Testing
             #expect(DelegationWords.revealed(text) == s(c, "revealed"))
         }
         #expect(DelegationWords.hiddenNote == small["hiddenNote"]?.stringValue)
+        // one clip length for both chromes, counted the same way
+        #expect(DelegationWords.clip == Int(small["clip"]?.intValue ?? 0))
+        for c in small["clips"]?.arrayValue ?? [] {
+            let got = DelegationWords.clipText(s(c, "input"))
+            #expect(got.text == s(c, "text"))
+            #expect(got.clipped == c["clipped"]?.boolValue && got.shown == Int(c["shown"]?.intValue ?? -1) && got.total == Int(c["total"]?.intValue ?? -1))
+            #expect(DelegationWords.clipNote(got) == s(c, "note"))
+        }
         // in place of Allow / Apply while the agent is stopped: the web's words, refusal by refusal
         let stops = small["stops"]?.arrayValue ?? []
         #expect(stops.count == 12)

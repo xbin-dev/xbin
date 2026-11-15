@@ -364,6 +364,23 @@ async function agentChrome(browser) {
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     S.requests = S.requests.filter((r) => r.id !== 'h2'); await refresh();
 
+    // ---- a long body: the note says how much is shown, and Show all shows the rest ----
+    const long = 'line of the body · '.repeat(260); // 4940 characters
+    S.requests.push(callReq('l2', { created: iso(-400), body: long, bodySize: long.length + 260, bodyShown: true }));
+    await refresh();
+    await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 'l2'));
+    await page.waitForSelector(`${SHEET} [data-row="sends"] [data-note]`);
+    const clipNote = await text(`${SHEET} [data-row="sends"] [data-note]`);
+    check(/first 4000 of 4940 characters — Show all$/.test(clipNote) && !/shown in full/.test(clipNote), `[${width}] a long body: "first 4000 of 4940 characters", not "shown in full" (${clipNote})`);
+    await shot(page, `agent-chrome-clipped${tag}`, { fullPage: false });
+    await page.click(`${SHEET} [data-row="sends"] [data-show-all]`);
+    await page.waitForFunction(() => /shown in full/.test(document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve').shadowRoot.querySelector('[data-row="sends"] [data-note]').textContent));
+    const whole = await page.$eval(`${SHEET} [data-row="sends"] pre`, (p) => p.textContent.length);
+    check(whole === long.length, `[${width}] …Show all: the whole of it, and then "shown in full" (${whole})`);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    S.requests = S.requests.filter((r) => r.id !== 'l2'); await refresh();
+
     // ---- Approvals, What my agent did, Preferences ----
     await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
     log('before the menu: ' + JSON.stringify(await page.evaluate(() => { const d = document.querySelector('bx-agent-dock'); const b = d.shadowRoot.querySelector('[data-menu]');

@@ -854,7 +854,9 @@ text to copy.
 The chrome reads the request or change set from xbind itself
 (`GET /delegate/requests/<id>`, `/delegate/changesets/<id>`) and draws
 xbind's reading: the call, its class, the body's text or its size and
-hash, the warnings. The agent's own sentence (`summary`, `why`) is shown
+hash, the warnings. A body or a brief longer than 4000 characters shows
+its first 4000 with "first 4000 of N characters" and Show all; "shown in
+full" is said only of one shown whole. The agent's own sentence (`summary`, `why`) is shown
 quoted and labelled as the agent's. Nothing the agent wrote — a body, a
 brief, a summary, a set's title, a reason — is drawn with the characters
 that reorder or hide text: control characters but newline and tab, and

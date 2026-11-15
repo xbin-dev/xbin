@@ -15,7 +15,7 @@ test('a tile call: its heading, what it sends, the three choices and what each a
   const r = call();
   assert.deepEqual(W.heading(r), { before: 'Your agent wants to change something in ', strong: 'Invoices', after: '' });
   assert.equal(W.needTitle(r), 'Approve a change to Invoices');
-  assert.deepEqual(W.sends(r), { text: '{"all":true}', binary: false, note: '12 bytes · shown in full' });
+  assert.deepEqual(W.sends(r), { text: '{"all":true}', binary: false, clipped: false, note: '12 bytes · shown in full' });
   assert.equal(W.sends(call({ bodySize: 14336, bodyShown: 2048 })).note, 'showing the first 2 KiB of 14 KiB');
   assert.equal(W.levelWords('write'), 'you can write here');
   assert.equal(W.undoWords(r), "xbin can't undo this. Whether Invoices can is up to Invoices.");
@@ -36,7 +36,7 @@ test('a tile call: its heading, what it sends, the three choices and what each a
 
 test('a body nobody can read says so, and is approved only as unseen', () => {
   const r = call({ body: undefined, bodyBinary: true, bodySize: 3355443, bodySha256: 'ab12', preview: { tile: 'apps/invoices', body: { binary: true, size: 3355443, sha256: 'ab12' } } });
-  assert.deepEqual(W.sends(r), { text: '', binary: true, note: 'not text — 3.2 MiB, sha256 ab12' });
+  assert.deepEqual(W.sends(r), { text: '', binary: true, clipped: false, note: 'not text — 3.2 MiB, sha256 ab12' });
   assert.deepEqual(W.approveBody(r, 'once'), { grant: 'once', unseen: true });
 });
 
@@ -252,4 +252,19 @@ test('the agent\'s text in a sheet: every hidden character a visible escape, not
   assert.equal(W.reveal('a\nb\tc é 中 😀').hidden, 0);
   assert.equal(W.revealed('x\u202Ey'), 'x⟨U+202E⟩y');
   assert.equal(W.HIDDEN_NOTE, 'contains hidden characters — shown as ⟨U+…⟩');
+});
+
+test('a long body: the note says how much is shown — "shown in full" only when it is; one clip length, in characters', () => {
+  assert.equal(W.CLIP, 4000);
+  const body = 'é😀ab'.repeat(1100); // 4400 characters, 4 of them an emoji's two UTF-16 units each
+  const req = { kind: 'call', body, bodySize: Buffer.byteLength(body), bodyShown: true };
+  const s = W.sends(req);
+  assert.equal(s.clipped, true);
+  assert.equal([...s.text].length, 4000, 'the first 4000 characters, never half an emoji');
+  assert.match(s.note, /· first 4000 of 4400 characters$/);
+  const all = W.sends(req, true);
+  assert.equal(all.text, body);
+  assert.match(all.note, /· shown in full$/);
+  assert.match(W.sends({ kind: 'call', body: 'x'.repeat(4000), bodySize: 4000, bodyShown: true }).note, /shown in full$/, 'exactly CLIP is whole');
+  assert.equal(W.clipNote(W.clipText('x'.repeat(4001))), 'first 4000 of 4001 characters');
 });

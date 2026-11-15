@@ -376,9 +376,7 @@ struct AgentApprovalSheet: View {
     @State private var problem: String?
     @State private var wider = false
     @State private var showAll = false
-
-    /// How much of a long body shows before "Show all".
-    private static let clip = 4000
+    @State private var showAllBrief = false
     /// A 409's refusal: the agent stopped while the sheet was open.
     @State private var refusal = ""
 
@@ -474,7 +472,7 @@ struct AgentApprovalSheet: View {
 
     @ViewBuilder private func callRows(_ r: DelegateRequest) -> some View {
         let t = DelegationWords.tile(r)
-        let sends = DelegationWords.sends(r)
+        let sends = DelegationWords.sends(r, all: showAll)
         VStack(alignment: .leading, spacing: 0) {
             if r.kind == .call {
                 ApprovalRow(label: "Tile") {
@@ -490,13 +488,12 @@ struct AgentApprovalSheet: View {
             }
             ApprovalRow(label: "Sends") {
                 if !sends.text.isEmpty {
-                    let long = sends.text.count > Self.clip && !showAll
-                    AgentHiddenNote(text: sends.text)
-                    Text(AgentReveal.attributed(long ? String(sends.text.prefix(Self.clip)) + "…" : sends.text, font: XbinFont.code))
+                    AgentHiddenNote(text: r.body)
+                    Text(AgentReveal.attributed(sends.clipped ? sends.text + "…" : sends.text, font: XbinFont.code))
                         .textSelection(.enabled)
                         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
                         .background(XbinColor.surface2, in: .xbinPlate)
-                    if long { Button("Show all") { showAll = true }.font(.caption) }
+                    if sends.clipped { Button("Show all") { showAll = true }.font(.caption).accessibilityIdentifier("approval-show-all") }
                 }
                 Text(verbatim: sends.note).font(.caption).foregroundStyle(XbinColor.muted)
                 if sends.binary {
@@ -580,15 +577,18 @@ struct AgentApprovalSheet: View {
             ApprovalRow(label: "Network") { Text(verbatim: s.network).font(.callout) }
             ApprovalRow(label: "Other tiles") { Text(verbatim: s.others).font(.callout) }
         }
+        let brief = DelegationWords.clipText(s.brief, all: showAllBrief)
         VStack(alignment: .leading, spacing: 4) {
             Text("What it will be told — sent exactly like this").font(.caption.weight(.semibold)).foregroundStyle(XbinColor.muted)
             AgentHiddenNote(text: s.brief)
-            Text(AgentReveal.attributed(s.brief.isEmpty ? "Nothing: it starts without a first message." : s.brief, font: XbinFont.code))
+            Text(AgentReveal.attributed(s.brief.isEmpty ? "Nothing: it starts without a first message." : brief.clipped ? brief.text + "…" : brief.text, font: XbinFont.code))
                 .textSelection(.enabled)
                 .padding(8).frame(maxWidth: .infinity, alignment: .leading)
                 .background(XbinColor.surface2, in: .xbinPlate)
+            if brief.clipped { Text(verbatim: DelegationWords.clipNote(brief)).font(.caption).foregroundStyle(XbinColor.muted) }
         }
         .accessibilityElement(children: .combine)
+        if brief.clipped { Button("Show all") { showAllBrief = true }.font(.caption).accessibilityIdentifier("approval-brief-show-all") }
         Text(verbatim: s.comes).font(.callout).foregroundStyle(XbinColor.muted)
     }
 

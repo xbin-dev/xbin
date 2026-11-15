@@ -36,7 +36,7 @@ import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, asked, settled,
-  stopRefusal, stopWords, reveal, HIDDEN_NOTE,
+  stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote,
 } from '/vendor/agent-chrome-words.js';
 
 /** shown(text): the agent's text as parts — each hidden character (bidi, zero-width, control) a chip, ⟨U+202E⟩, never interpreted. */
@@ -99,7 +99,7 @@ export class BxAgentApprove extends LitElement {
   static properties = {
     request: { attribute: false }, person: { type: String }, position: { type: String },
     _choice: { state: true }, _duration: { state: true }, _step: { state: true }, _armed: { state: true }, _busy: { state: true }, _err: { state: true }, _all: { state: true },
-    _stopped: { state: true },
+    _stopped: { state: true }, _allBrief: { state: true },
   };
 
   static styles = [chromeCss, css`
@@ -128,13 +128,14 @@ export class BxAgentApprove extends LitElement {
     this.request = null; this.person = ''; this.position = '';
     this._choice = 'once'; this._duration = ''; this._step = 'main'; this._armed = false; this._busy = false; this._err = ''; this._all = false;
     this._stopped = ''; // a 409's refusal: the agent stopped while the sheet was open
+    this._allBrief = false;
     this._timer = 0;
     this.store = agentStore();
     this._widen = new WidenGuard(this); // the wider standing choices
   }
 
   willUpdate(ch) {
-    if (ch.has('request')) { this._choice = 'once'; this._duration = ''; this._step = 'main'; this._err = ''; this._all = false; this._stopped = ''; this._arm(); }
+    if (ch.has('request')) { this._choice = 'once'; this._duration = ''; this._step = 'main'; this._err = ''; this._all = false; this._allBrief = false; this._stopped = ''; this._arm(); }
   }
 
   updated(ch) {
@@ -223,14 +224,13 @@ export class BxAgentApprove extends LitElement {
   }
 
   _call(req) {
-    const s = sends(req);
-    const long = s.text.length > 2048 && !this._all;
+    const s = sends(req, this._all); // its first CLIP characters until Show all; the note says which
     const choices = grantChoices(req);
     return html`<dl class="rows">
         ${this._tileRow(req)}
         <dt>Action</dt><dd class="mono" data-row="action">${req.method} ${req.target}</dd>
-        <dt>Sends</dt><dd data-row="sends">${s.text ? html`${hiddenLine(s.text)}<pre class="body">${shown(long ? s.text.slice(0, 2048) : s.text)}</pre>` : nothing}
-          <div class="small muted">${s.note}${long ? html` — <button class="link" @click=${() => { this._all = true; }}>Show all</button>` : nothing}</div>
+        <dt>Sends</dt><dd data-row="sends">${s.text ? html`${hiddenLine(req.body)}<pre class="body" tabindex="-1">${shown(s.text)}${s.clipped ? '…' : ''}</pre>` : nothing}
+          <div class="small muted" data-note>${s.note}${s.clipped ? html` — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}</div>
           ${s.binary ? html`<div class="small err">Nobody can read this before it is sent: allowing it approves bytes you have not seen.</div>` : nothing}</dd>
         <dt>Undo</dt><dd>${undoWords(req)}</dd>
       </dl>
@@ -269,6 +269,7 @@ export class BxAgentApprove extends LitElement {
 
   _session(req) {
     const r = sessionRows(req);
+    const brief = clipText(r.brief, this._allBrief);
     return html`${r.danger ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${r.danger}</span></div>` : nothing}
       <dl class="rows">
         <dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>
@@ -276,7 +277,8 @@ export class BxAgentApprove extends LitElement {
         <dt>Coding agent</dt><dd>${r.agent}</dd>
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>Other tiles</dt><dd>${r.others}</dd>
-        <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="body brief" data-row="brief">${r.brief ? shown(r.brief) : '(nothing: it starts without a message)'}</pre><div class="small muted">sent exactly like this</div></dd>
+        <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="body brief" tabindex="-1" data-row="brief">${r.brief ? html`${shown(brief.text)}${brief.clipped ? '…' : ''}` : '(nothing: it starts without a message)'}</pre>
+          <div class="small muted">${brief.clipped ? html`${clipNote(brief)} — <button class="link" data-show-all @click=${() => this._showAll('_allBrief')}>Show all</button> · ` : nothing}sent exactly like this</div></dd>
       </dl>
       ${this._quote(req.summary)}
       <p class="small muted">${r.comes}</p>`;
@@ -286,11 +288,13 @@ export class BxAgentApprove extends LitElement {
     let b = {};
     try { b = JSON.parse(req.body || '{}') || {}; } catch { /* shown raw below */ }
     const p = req.preview || {};
+    const s = sends(req, this._all);
     return html`<dl class="rows">
         <dt>Template</dt><dd class="mono">${b.source || b.template || '(the default)'}</dd>
         <dt>Name and place</dt><dd class="mono">${b.path || b.name || req.target}</dd>
         <dt>Owner</dt><dd>${p.owner || 'you'}</dd>
-        <dt>Sends</dt><dd>${hiddenLine(req.body)}<pre class="body">${shown(req.body || '')}</pre><div class="small muted">${sends(req).note}</div></dd>
+        <dt>Sends</dt><dd>${hiddenLine(req.body)}<pre class="body" tabindex="-1">${shown(s.text)}${s.clipped ? '…' : ''}</pre>
+          <div class="small muted" data-note>${s.note}${s.clipped ? html` — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}</div></dd>
       </dl>
       ${this._quote(req.summary)}`;
   }
@@ -304,6 +308,14 @@ export class BxAgentApprove extends LitElement {
       ${this.stopped ? this._stop() : html`<button class="${never ? 'danger' : 'primary'} arming" data-allow=${this._choice} aria-disabled=${on ? 'false' : 'true'} aria-label=${allowSpoken(req, this._choice)}
         @click=${this._allow}>${allowLabel(req, this._choice)}</button>`}
     </div>`;
+  }
+
+  // Show all: the rest of the text, and focus — which was on the button that goes — on the text itself (Escape still closes)
+  async _showAll(which) {
+    const at = this.renderRoot.activeElement && this.renderRoot.activeElement.closest('dd');
+    this[which] = true;
+    await this.updateComplete;
+    (at && at.querySelector('pre') || this.renderRoot.querySelector('h2'))?.focus();
   }
 
   // a 409 {refusal}: the reason replaces Allow, and focus — which was on Allow — moves to Deny (Escape still closes)
