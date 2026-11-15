@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-15
 
+- **A backend started on demand right after a save is not restarted for
+  that same save.** A request (or a bus push, a cron tick) that reached a
+  just-saved tile before xbind had finished handling the save started the
+  backend, and the save then rebuilt and replaced it a moment later — the
+  first generation's in-memory state and any request it was still serving
+  went with it. A save the running or building generation already read
+  now moves nothing; a later save rebuilds as before.
 - **The workspace agent's page** (D232; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
   the agent template's `API.md` §Workspace mode → The page). On the sealed
   component's path the agent template's `boot.js` asks `GET /ws/state` and

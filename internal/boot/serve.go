@@ -248,7 +248,8 @@ func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *r
 		}
 		refreshViews()
 		reload, restart := changedComponents(reg, ev.Paths)
-		routeBatch(reload, restart, dp, hub, run.ChangedDeployment)
+		saved := ev.Last
+		routeBatch(reload, restart, dp, hub, func(c *registry.Component, dep string) { run.ChangedSaved(c, dep, saved) })
 		run.WakeAlwaysOn() // a new tile, or the flag added
 	}
 }

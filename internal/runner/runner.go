@@ -92,10 +92,14 @@ type state struct {
 	buildDone chan struct{} // closed when in-flight build settles
 	lastErr   error         // sticky build/crash error until next change
 	dirty     bool          // changed since last successful build
-	lastReq   time.Time
-	active    int // in-flight proxied connections (incl. SSE/WS streams; a partition's passive ones apart)
-	crashes   []time.Time
-	pt        *partInfo // a person's partition's (partitions.go); nil for every other state
+	// readAt is when the latest work-tree build began (ensureState): the
+	// files saved before it are in what it built, so a save batch older
+	// than it moves nothing (ChangedSaved). Zero after a deploy's build.
+	readAt  time.Time
+	lastReq time.Time
+	active  int // in-flight proxied connections (incl. SSE/WS streams; a partition's passive ones apart)
+	crashes []time.Time
+	pt      *partInfo // a person's partition's (partitions.go); nil for every other state
 }
 
 type Runner struct {
@@ -244,6 +248,7 @@ func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *stat
 		// We take the build.
 		s.building = true
 		s.dirty = false
+		s.readAt = time.Now() // the wall clock the watcher's batches carry (watch.Event.Last)
 		s.buildDone = make(chan struct{})
 		s.mu.Unlock()
 
@@ -284,8 +289,33 @@ func (r *Runner) track(s *state) func() {
 
 // Changed marks a component dirty and kicks a background rebuild so build
 // errors surface on save, not on next request.
-func (r *Runner) Changed(c *registry.Component) {
+func (r *Runner) Changed(c *registry.Component) { r.changedAt(c, time.Time{}) }
+
+// ChangedSaved is ChangedDeployment for a batch of saves whose last landed
+// at saved (the watcher's, watch.Event.Last). A build of c's primary that
+// began after it read those files already, so it is left to finish, or to
+// keep running, instead of being followed by a rebuild of the same files:
+// a backend started on demand while the batch was still being handled
+// (its rescan made the tile visible before the batch reached the runner —
+// a new tile's first request, a bus push starting it) once ran twice, the
+// second generation replacing the first a moment after it had answered.
+// A tile with people's partitions is always rebuilt (their shared build
+// follows every change), as is a deployment other than the primary.
+func (r *Runner) ChangedSaved(c *registry.Component, dep string, saved time.Time) {
+	if dep != r.primary(c.Path) {
+		r.ChangedDeployment(c, dep)
+		return
+	}
+	r.changedAt(c, saved)
+}
+
+// changedAt is Changed for saves made before saved (zero: unknown, always
+// rebuilt).
+func (r *Runner) changedAt(c *registry.Component, saved time.Time) {
 	if !c.HasBackend() {
+		return
+	}
+	if !saved.IsZero() && r.hasRead(c, saved) {
 		return
 	}
 	r.nextBuild(c.Path) // a partitioned tile's shared build is a new one, before the primary's (partadmit.go)
@@ -632,4 +662,21 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		close(inst.waitCh)
 	}()
 	return inst, nil
+}
+
+// hasRead reports whether c's primary already builds or runs the work tree
+// as it stood at saved: its latest build began after it, nothing marked it
+// dirty since, and the tile has no partitions (whose builds follow every
+// change).
+func (r *Runner) hasRead(c *registry.Component, saved time.Time) bool {
+	if _, ok := r.partitionSpec(c.Path); ok || len(r.partStates(c.Path)) > 0 {
+		return false
+	}
+	s := r.existingStateOf(c.Path, r.primary(c.Path))
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.dirty && (s.building || s.cur != nil) && !s.readAt.IsZero() && s.readAt.After(saved)
 }

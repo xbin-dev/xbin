@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,5 +77,70 @@ func TestStopAllStopsWhatWasSpawned(t *testing.T) {
 	f.mu.Unlock()
 	if g == nil || !g.closed {
 		t.Errorf("a spawned generation that is no state's current one survived StopAll: %+v", g)
+	}
+}
+
+// A save batch the build in flight already read moves nothing: a backend
+// started on demand while the batch was still being handled (the rescan
+// made the tile visible first) is not built a second time when the batch
+// reaches the runner — that second generation replaced the first a moment
+// after it had answered (TestBusPushSubscription: the push went to the
+// first, the test read the second). A save after the build began still
+// rebuilds.
+func TestChangedSavedBeforeTheBuildMovesNothing(t *testing.T) {
+	c := &registry.Component{Path: "apps/x", Manifest: registry.Manifest{Runtime: "go"}}
+	r, f, _ := newSeamRunner(t, c)
+	builds := func() int {
+		n := 0
+		for _, l := range f.takeLog() {
+			if strings.HasPrefix(l, "build ") {
+				n++
+			}
+		}
+		return n
+	}
+	saved := time.Now()
+	time.Sleep(2 * time.Millisecond) // the build begins after the save
+	f.holdNextBuild()
+	done := make(chan error, 1)
+	go func() { _, err := r.Ensure(context.Background(), c); done <- err }()
+	deadline := time.Now().Add(5 * time.Second)
+	for f.parkedTile() == "" && time.Now().Before(deadline) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if f.parkedTile() == "" {
+		t.Fatal("the build never parked")
+	}
+	r.ChangedSaved(c, "main", saved) // the batch of that save, mid-build
+	f.releaseBuild()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	settle(t, r, f)
+	if _, err := r.Ensure(context.Background(), c); err != nil {
+		t.Fatal(err)
+	}
+	if n := builds(); n != 1 {
+		t.Fatalf("a save the build had read built it %d times, want once", n)
+	}
+
+	// a save after the build began: rebuilt
+	time.Sleep(2 * time.Millisecond)
+	r.ChangedSaved(c, "main", time.Now())
+	settle(t, r, f)
+	if _, err := r.Ensure(context.Background(), c); err != nil {
+		t.Fatal(err)
+	}
+	if n := builds(); n != 1 {
+		t.Fatalf("a later save: %d builds, want 1", n)
+	}
+	// and a change without a time (a grant, a binding) always rebuilds
+	r.Changed(c)
+	settle(t, r, f)
+	if _, err := r.Ensure(context.Background(), c); err != nil {
+		t.Fatal(err)
+	}
+	if n := builds(); n != 1 {
+		t.Fatalf("Changed: %d builds, want 1", n)
 	}
 }
