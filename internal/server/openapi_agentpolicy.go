@@ -9,7 +9,7 @@ func agentPolicyEndpoints() []ep {
 	rules := oapi{"workspaceAgent": str("on | off (null: on)"), "harnesses": freeRule(rule + " of GET /agent/providers (null: any)"),
 		"models": freeRule("\"any\", \"private\" (a model of an upstream the LLM connector marks private), or a list of LLM connector ids — an upstream for all its models, or upstream/model (null: any)"),
 		"web":    str("ask | allow | never — what a workspace agent's conversation that holds this data may do on the web: read only URLs its person approves (the default), read freely, or not at all (null: unset; D239)"),
-		"mcp":    str("any | org — which MCP servers such a conversation may use: any the workspace allows (the default), or only the MCP tiles under the org (null: unset)")}
+		"mcp":    str("any | listed | org | never — which MCP servers such a conversation may use: any MCP tile, and an outside server asking each call (the default); also the listed outside servers by their ordinary approvals (listed); only the MCP tiles under the org and the outside servers listed with it (org); none (never) (null: unset)")}
 	bounds := oapi{"credentials": str("own-first (a person's own sign-in when they have one, else the LLM connector) | connector-first (the connector, unless the person chose their own sign-in for the harness or the session) | connector-only (own sign-ins are not used)")}
 	for k, v := range rules {
 		bounds[k] = v

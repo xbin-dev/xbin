@@ -234,6 +234,19 @@ struct AgentPrefsView: View {
             .widens(armed: p.on || widen.armed)
             .accessibilityIdentifier("prefs-net-\(p.id)")
             Text(verbatim: p.why.isEmpty ? p.note : p.why).font(.caption).foregroundStyle(XbinColor.muted)
+            if p.allowed, !p.servers.isEmpty { // the outside MCP servers the agent may use (D240), by name and host
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(p.servers.enumerated()), id: \.offset) { _, s in
+                        HStack(spacing: 6) {
+                            Text(verbatim: s.name).font(.caption.weight(.semibold))
+                            Text(verbatim: s.host).font(XbinFont.code).foregroundStyle(XbinColor.muted)
+                        }
+                    }
+                }
+                .padding(.leading, 12)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("prefs-mcp-servers")
+            }
         }
         .padding(.leading, p.sub ? 16 : 0)
     }

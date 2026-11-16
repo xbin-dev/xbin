@@ -53,6 +53,8 @@ public struct DelegateState: Sendable, Equatable {
         public var why = ""
         /// The sites the web is held to ([] any public site).
         public var only: [String] = []
+        /// MCP: the outside servers the person's agent may use (D240).
+        public var servers: [OutsideServer] = []
     }
     public var netWeb: NetReach
     public var netMCP: NetReach
@@ -81,11 +83,19 @@ public struct DelegateState: Sendable, Equatable {
         mcp = json["mcp"]?.boolValue ?? false
         mcpReadOnly = json["mcpReadOnly"]?.boolValue ?? false
         let reach = { (v: JSONValue?) in
-            NetReach(policy: v?["policy"]?.stringValue ?? "", why: v?["why"]?.stringValue ?? "", only: (v?["only"]?.arrayValue ?? []).compactMap(\.stringValue))
+            NetReach(policy: v?["policy"]?.stringValue ?? "", why: v?["why"]?.stringValue ?? "", only: (v?["only"]?.arrayValue ?? []).compactMap(\.stringValue),
+                     servers: (v?["servers"]?.arrayValue ?? []).map { OutsideServer(name: $0["name"]?.stringValue ?? $0["server"]?.stringValue ?? "", host: $0["host"]?.stringValue ?? "") })
         }
         netWeb = reach(json["net"]?["web"])
         netMCP = reach(json["net"]?["mcp"])
     }
+}
+
+/// An outside MCP server an admin listed (D240), as a person's
+/// Preferences show it: its name and host.
+public struct OutsideServer: Sendable, Equatable {
+    public var name: String
+    public var host: String
 }
 
 /// Times as xbind writes them (RFC 3339; a time never set is year 1).
@@ -203,10 +213,17 @@ public struct StandingApproval: Sendable, Equatable, Identifiable {
     public var path: String
     public var until: Date?
     public var created: Date?
+    /// An outside MCP server's tool (D240): the server's name and host.
+    public var serverName = ""
+    public var serverHost = ""
 
     public init?(json: JSONValue?) {
         guard let json, let id = json["id"]?.stringValue, !id.isEmpty else { return nil }
         self.id = id
+        if let s = json["server"], s.objectValue != nil {
+            serverName = s["name"]?.stringValue ?? s["server"]?.stringValue ?? ""
+            serverHost = s["host"]?.stringValue ?? ""
+        }
         tile = json["tile"]?.stringValue ?? ""
         scope = json["scope"]?.stringValue ?? ""
         method = json["method"]?.stringValue ?? ""
@@ -351,6 +368,9 @@ public struct AuditRow: Sendable, Equatable {
     public var n: Int
     /// What a web page read came to (D239).
     public var bytes: Int
+    /// An outside MCP server's call or list (D240): the server, the tool.
+    public var server: String
+    public var tool: String
 
     public init(json: JSONValue) {
         ts = DelegateTime.date(json["ts"])
@@ -366,6 +386,8 @@ public struct AuditRow: Sendable, Equatable {
         under = json["under"]?.stringValue ?? ""
         n = Int(json["n"]?.intValue ?? 0)
         bytes = Int(json["bytes"]?.intValue ?? 0)
+        server = json["server"]?.stringValue ?? ""
+        tool = json["tool"]?.stringValue ?? ""
     }
 
     public static func list(_ json: JSONValue?) -> [AuditRow] {

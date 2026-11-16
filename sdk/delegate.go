@@ -167,6 +167,9 @@ type DelegateError struct {
 	// that don't allow the model; Reason the first one's rule.
 	Orgs   []string
 	Reason string
+	// Said: what an outside MCP server itself wrote behind the refusal
+	// (D240) — an outsider's words, never xbind's: show it as data.
+	Said string
 }
 
 func (e *DelegateError) Error() string {
@@ -227,9 +230,10 @@ func DelegateRefusal(resp *http.Response) error {
 		Code    string   `json:"code"`
 		Orgs    []string `json:"orgs"`
 		Reason  string   `json:"reason"`
+		Said    string   `json:"said"`
 	}
 	_ = json.Unmarshal(raw, &b)
-	e := &DelegateError{Status: resp.StatusCode, Refusal: b.Refusal, Class: b.Class, Message: b.Error, Orgs: b.Orgs, Reason: b.Reason}
+	e := &DelegateError{Status: resp.StatusCode, Refusal: b.Refusal, Class: b.Class, Message: b.Error, Orgs: b.Orgs, Reason: b.Reason, Said: b.Said}
 	if b.Refusal == "" && b.Code == "model_taint" {
 		e.Refusal = b.Code
 	}

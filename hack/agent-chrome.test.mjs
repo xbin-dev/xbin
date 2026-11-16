@@ -341,3 +341,30 @@ test('the web and MCP tools: a page is read once, a tool once or always; the log
   // a setting kept on while the policy is off reads as off
   assert.equal(W.netPrefs({ web: true, net: { web: { policy: 'off' } } })[0].on, false);
 });
+
+test('an outside MCP server (D240): the sheet says outside and the host; from a tainted conversation once only; Preferences list the servers', () => {
+  const req = { id: 'x', kind: 'mcp', state: 'pending', tile: 'ext:tracker@1a2b3c4d', created: '2026-11-16T10:00:00Z', expires: '2026-11-17T10:00:00Z',
+    preview: { class: 'mcp', server: 'ext:tracker', serverName: 'Tracker', host: 'mcp.tracker.example', outside: true, tool: 'lookup', readOnly: true, arguments: '{}',
+      standing: { tool: 'lookup on Tracker (outside this workspace: mcp.tracker.example) — this tool again' } } };
+  const r = W.mcpRows(req);
+  assert.equal(r.outsideLine, 'Outside this workspace: mcp.tracker.example');
+  assert.match(r.marked, /an outside server’s word, which your “read-only tools don’t ask me” doesn’t take/);
+  assert.equal(r.eachLine, '');
+  assert.deepEqual(W.grantChoices(req).map((c) => c.id), ['once', 'tool']);
+  assert.equal(W.heading(req).after, ' on Tracker, outside this workspace');
+  const each = { ...req, preview: { ...req.preview, each: true, why: 'This conversation holds data of Sales: what is sent leaves the workspace', standing: undefined } };
+  assert.deepEqual(W.grantChoices(each).map((c) => c.id), ['once']);
+  assert.equal(W.mcpRows(each).eachLine, 'This conversation holds data of Sales: what is sent leaves the workspace.');
+  assert.match(W.mcpRows({ ...each, preview: { ...each.preview, why: '' } }).eachLine, /each call is asked every time\.$/);
+  const trusted = { ...req, preview: { ...req.preview, readOnlyTrusted: true } };
+  assert.match(W.mcpRows(trusted).marked, /the server’s word, not xbin’s/);
+  const prefs = W.netPrefs({ mcp: true, net: { web: { policy: 'off' }, mcp: { policy: 'listed', servers: [{ server: 'ext:tracker', name: 'Tracker', host: 'mcp.tracker.example' }] } } });
+  assert.deepEqual(prefs[1].servers, [{ name: 'Tracker', host: 'mcp.tracker.example' }]);
+  assert.match(prefs[1].note, /leaves the workspace/);
+  assert.match(prefs[2].note, /An outside server’s marks count only where an admin trusts them/);
+  assert.deepEqual(W.netPrefs({ net: { mcp: { policy: 'tiles' } } })[1].servers, []);
+  const row = W.did({ ts: '2026-11-16T10:00:00Z', method: 'POST', path: 'https://mcp.tracker.example:443', class: 'mcp', server: 'ext:tracker', tool: 'post', status: 200, effect: true, ticket: 'r1' });
+  assert.equal(row.text, 'Ran post on ');
+  assert.equal(row.strong, 'ext:tracker');
+  assert.match(row.detail, /mcp\.tracker\.example/);
+});

@@ -1102,7 +1102,9 @@ helpers return; `*DelegateError` carries xbind's `Message`, fit to show):
 | `ErrRateLimited` | more than 30 acts a minute; `RetryAfter` says when | wait |
 
 A `*DelegateError` with an empty `Refusal` is the called tile's own
-refusal. Data that reaches the component from other tiles — bus events,
+refusal. `Said` is what an outside MCP server itself wrote behind xbind's
+refusal (a JSON-RPC error's message, a request it sent): an outsider's
+words, never part of `Message` — show it as data (D240). Data that reaches the component from other tiles — bus events,
 partition mail, anything a tile's API returns — is untrusted input.
 
 ### Tile sandboxes, for manager tiles — `xbin.SandboxAPI()`

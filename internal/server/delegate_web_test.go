@@ -123,8 +123,8 @@ func TestWebFetchLayers(t *testing.T) {
 	if rec := w.policy(`{"web":{"mode":"full"}}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), "not available yet") {
 		t.Errorf("web full: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := w.policy(`{"mcp":{"mode":"listed"}}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), "not available yet") {
-		t.Errorf("mcp listed: %d %s", rec.Code, rec.Body.String())
+	if rec := w.policy(`{"mcp":{"mode":"everything"}}`); rec.Code != 400 { // (listed is built: D240)
+		t.Errorf("mcp everything: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := w.policy(`{"web":{"mode":"read"}}`); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"policy":{"web":{"mode":"read"`) {
 		t.Fatalf("set read: %d %s", rec.Code, rec.Body.String())
@@ -390,7 +390,7 @@ func (n netWorld) AgentMCPIn(org string) (string, string) {
 	if r, ok := n.mcp[org]; ok {
 		return r, org + " keeps its data from MCP servers outside it"
 	}
-	return agentpolicy.MCPAny, ""
+	return "", "" // no rule of its own (the broker's answer)
 }
 
 // covers D239 — the org rules: a conversation that holds the data of an

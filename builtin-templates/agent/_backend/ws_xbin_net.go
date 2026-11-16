@@ -145,3 +145,25 @@ func (h wsHTTP) MCPCall(ctx context.Context, sid string, c wsMCPCall, ticket str
 func (h wsHTTP) AskMCP(ctx context.Context, sid string, c wsMCPCall, summary string) (wsRequest, error) {
 	return h.Ask(ctx, sid, wsCall{Method: http.MethodPost, Path: wsMCPCallPath, Body: wsMCPBody(c), ContentType: "application/json"}, summary)
 }
+
+// --- outside MCP servers (D240) ---------------------------------------------------------
+
+// MCPServers are the outside servers an admin listed that this
+// conversation's person sees, each with the conversation's state.
+func (h wsHTTP) MCPServers(ctx context.Context, sid string) ([]wsMCPServer, error) {
+	var out struct {
+		Servers []wsMCPServer `json:"servers"`
+	}
+	err := h.json(ctx, sid, http.MethodGet, "/api/xbin/delegate/mcp/servers", nil, &out)
+	return out.Servers, err
+}
+
+// MCPServerTools are an outside server's tools: xbind's initialize and
+// tools/list, in the conversation's session with it (xbind's).
+func (h wsHTTP) MCPServerTools(ctx context.Context, sid, server string) ([]wsMCPTool, error) {
+	var out struct {
+		Tools []wsMCPTool `json:"tools"`
+	}
+	err := h.json(ctx, sid, http.MethodPost, "/api/xbin/delegate/mcp/tools", map[string]string{"server": server}, &out)
+	return out.Tools, err
+}

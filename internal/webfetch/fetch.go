@@ -202,6 +202,33 @@ func (f *Fetcher) dial(ctx context.Context, network, addr string) (net.Conn, err
 	return nil, refuse("web-unreachable", http.StatusBadGateway, "%s: can't connect (%v)", host, last)
 }
 
+// Dial is f's guarded DialContext for a transport of the caller's own —
+// xbind's client of an outside MCP server (internal/mcpclient, D240): the
+// name resolved once, every address judged by f's rule (Public, Local),
+// the checked address connected to and judged again by the socket's
+// Control. Its refusals are *Refusal (web-address, web-unreachable).
+func (f *Fetcher) Dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	return f.dial(ctx, network, addr)
+}
+
+// PrivateOK reports an address a server an admin marked as on a private
+// network may be dialled at: loopback, private, CGNAT and public unicast —
+// never link-local (the cloud metadata address among them), multicast,
+// unspecified, broadcast or "this network", nor an address with a zone.
+func PrivateOK(ip netip.Addr) bool {
+	if !ip.IsValid() || ip.Zone() != "" {
+		return false
+	}
+	ip = ip.Unmap()
+	switch {
+	case ip.IsLinkLocalUnicast(), ip.IsLinkLocalMulticast(), ip.IsMulticast(), ip.IsInterfaceLocalMulticast(), ip.IsUnspecified():
+		return false
+	case ip.Is4() && (ip.As4()[0] == 0 || ip == netip.AddrFrom4([4]byte{255, 255, 255, 255})):
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || netip.MustParsePrefix("100.64.0.0/10").Contains(ip) || PublicAddr(ip)
+}
+
 // control refuses a socket about to connect to an address that isn't
 // public — whatever chose that address.
 func (f *Fetcher) control(_, address string, _ syscall.RawConn) error {

@@ -21,6 +21,12 @@ type fakeNet struct {
 	mcpReadOnly bool                   // the person lets read-only tools through
 	mcpStanding map[string]bool        // "tile tool" the person allowed for good
 	mcpCalled   []string               // "tile tool" that ran, in order
+	// outside servers (D240): what GET /delegate/mcp/servers answers, their
+	// tools, and a refusal a server's call meets (server → refusal code)
+	ext       []wsMCPServer
+	extTools  map[string][]wsMCPTool
+	extRefuse map[string]string
+	extSaid   map[string]string // what the server itself wrote behind a refusal (xbind's said)
 }
 
 // reach is the web for handle h, as xbind's webReach says it.
@@ -57,9 +63,44 @@ func (f *fakeXbin) reach(h *wsHandle) wsReach {
 	if f.net.mcpOff != "" {
 		r.MCP = wsReachOne{State: "off", Code: f.net.mcpOff, Why: "Using MCP tools is off for this workspace — an admin can change it (the workspace agent's settings)"}
 	} else {
-		r.MCP = wsReachOne{State: "asks", Why: "Each tool asks you the first time"}
+		r.MCP = wsReachOne{State: "asks", Why: "Each tool asks you the first time", Listed: len(f.net.ext)}
 	}
 	return r
+}
+
+func (f *fakeXbin) MCPServers(_ context.Context, sid string) ([]wsMCPServer, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	h, err := f.handle(sid)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.mcpRefusal(h); err != nil {
+		return nil, err
+	}
+	f.note("MCPServers")
+	out := append([]wsMCPServer(nil), f.net.ext...)
+	for i := range out {
+		if len(h.Tainted) > 0 && out[i].State == "on" { // xbind's: a conversation holding an org's data asks each call
+			out[i].State, out[i].Orgs, out[i].Why = "asks", h.Tainted, "This conversation holds data of "+strings.Join(h.Tainted, ", ")+": what is sent leaves the workspace"
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeXbin) MCPServerTools(_ context.Context, sid, server string) ([]wsMCPTool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	h, err := f.handle(sid)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.mcpRefusal(h); err != nil {
+		return nil, err
+	}
+	f.note("MCPServerTools %s", server)
+	h.Web = true // an outsider's words
+	return append([]wsMCPTool(nil), f.net.extTools[server]...), nil
 }
 
 func (f *fakeXbin) WebFetch(_ context.Context, sid, rawURL, ticket string) (wsWebPage, error) {
@@ -173,13 +214,24 @@ func (f *fakeXbin) MCPCall(_ context.Context, sid string, c wsMCPCall, ticket st
 		f.note("MCPCall refused %s %s", c.Server, c.Tool)
 		return wsMCPResult{}, nil, err
 	}
-	if _, err := f.tile(sid, c.Server, !dry); err != nil {
+	tools := f.net.mcpTools
+	if wsIsExt(c.Server) { // an outside server: no tile, its own refusals; each call asks while the conversation holds data
+		tools = f.net.extTools
+		if code := f.net.extRefuse[c.Server]; code != "" {
+			f.note("MCPCall refused %s %s %s", code, c.Server, c.Tool)
+			msg := "the server refused xbin's credentials (401): an admin checks this server's secret on the workspace agent's card"
+			if code != "mcp-auth" {
+				msg = "the server answered an error (JSON-RPC -32000)"
+			}
+			return wsMCPResult{}, nil, &xbin.DelegateError{Status: 502, Refusal: code, Message: msg, Said: f.net.extSaid[c.Server]}
+		}
+	} else if _, err := f.tile(sid, c.Server, !dry); err != nil {
 		return wsMCPResult{}, nil, err
 	}
 	var tool *wsMCPTool
-	for i, t := range f.net.mcpTools[c.Server] {
+	for i, t := range tools[c.Server] {
 		if t.Name == c.Tool {
-			tool = &f.net.mcpTools[c.Server][i]
+			tool = &tools[c.Server][i]
 		}
 	}
 	if tool == nil {
@@ -187,6 +239,10 @@ func (f *fakeXbin) MCPCall(_ context.Context, sid string, c wsMCPCall, ticket st
 	}
 	key := c.Server + " " + c.Tool
 	free := f.net.mcpStanding[key] || tool.ReadOnly && f.net.mcpReadOnly
+	if wsIsExt(c.Server) {
+		free = f.net.mcpStanding[key] && len(h.Tainted) == 0 // an outside server's read-only mark isn't trusted here
+		h.Web = true
+	}
 	if dry {
 		return wsMCPResult{}, &wsDry{Allowed: true, Class: "act", SideEffect: true, NeedsApproval: !free}, nil
 	}

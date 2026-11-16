@@ -31,7 +31,7 @@ func TestNetRules(t *testing.T) {
 			t.Errorf("%s parsed", bad)
 		}
 	}
-	p, _ = ParsePatch(map[string]json.RawMessage{"web": json.RawMessage(`null`), "mcp": json.RawMessage(`"any"`)})
+	p, _ = ParsePatch(map[string]json.RawMessage{"web": json.RawMessage(`null`), "mcp": json.RawMessage(`null`)})
 	if r = r.Apply(p); !r.IsZero() {
 		t.Errorf("back to the defaults: %+v", r)
 	}
@@ -62,5 +62,64 @@ func TestNetRules(t *testing.T) {
 	}
 	if err := (Rules{}).Within(Rules{Web: WebNever, MCP: MCPOrg}); err != nil {
 		t.Errorf("unset within anything: %v", err)
+	}
+}
+
+// covers D240 — the MCP rule's outside-server values: listed (trusts the
+// admin's list) and never (no MCP server at all); strictest wins — never
+// over org over any over listed — and an org can't loosen a bound
+func TestMCPRuleListedAndNever(t *testing.T) {
+	for in, want := range map[string]MCPRule{`"listed"`: MCPListed, `"never"`: MCPNever, `"org"`: MCPOrg, `"any"`: MCPAny, `null`: ""} {
+		var m MCPRule
+		if err := json.Unmarshal([]byte(in), &m); err != nil || m != want {
+			t.Errorf("%s: %q %v", in, m, err)
+		}
+	}
+	trust := Layer{ID: "ops", Name: "Ops", Rules: Rules{MCP: MCPListed}}
+	if rule, _ := MCP([]Layer{{}, trust}); rule != MCPListed {
+		t.Errorf("listed alone: %s", rule)
+	}
+	if rule, why := MCP([]Layer{trust, {ID: "fin", Name: "Finance", Rules: Rules{MCP: MCPNever}}}); rule != MCPNever || !strings.Contains(why, "every MCP server") {
+		t.Errorf("never over listed: %s %q", rule, why)
+	}
+	if rule, _ := MCP([]Layer{trust, {Rules: Rules{MCP: MCPOrg}}}); rule != MCPOrg {
+		t.Errorf("org over listed: %s", rule)
+	}
+	if rule, _ := MCP(nil); rule != "" {
+		t.Errorf("no rule: %s", rule)
+	}
+	if err := (Rules{MCP: MCPListed}).Within(Rules{MCP: MCPOrg}); err == nil {
+		t.Error("listed within org")
+	}
+	if err := (Rules{MCP: MCPOrg}).Within(Rules{MCP: MCPNever}); err == nil {
+		t.Error("org within never")
+	}
+	if err := (Rules{MCP: MCPNever}).Within(Rules{MCP: MCPListed}); err != nil {
+		t.Errorf("never within listed: %v", err)
+	}
+}
+
+// covers D240 review — an explicit "any" is kept apart from unset, so a
+// bound or a pin can hold an org at it; and every stored value reads as it
+// did (a file without mcp, with org; null is back to unset)
+func TestMCPRuleExplicitAnyAndStored(t *testing.T) {
+	for in, want := range map[string]MCPRule{`{}`: "", `{"mcp":"org"}`: MCPOrg, `{"mcp":null}`: "", `{"mcp":"any"}`: MCPAny, `{"mcp":"listed"}`: MCPListed} {
+		var r Rules
+		if err := json.Unmarshal([]byte(in), &r); err != nil || r.MCP != want {
+			t.Errorf("%s: %q %v", in, r.MCP, err)
+		}
+	}
+	if err := (Rules{MCP: MCPListed}).Within(Rules{MCP: MCPAny}); err == nil {
+		t.Error("listed within a bound of any")
+	}
+	if rule, _ := MCP([]Layer{{Rules: Rules{MCP: MCPAny}}, {ID: "ops", Rules: Rules{MCP: MCPListed}}}); rule != MCPAny {
+		t.Errorf("a pinned any under an org's listed: %s", rule)
+	}
+	if (Rules{MCP: MCPAny}).IsZero() {
+		t.Error("an explicit any is no rule")
+	}
+	b, _ := json.Marshal(Rules{MCP: MCPAny})
+	if !strings.Contains(string(b), `"mcp":"any"`) {
+		t.Errorf("an explicit any isn't kept: %s", b)
 	}
 }

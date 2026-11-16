@@ -3257,8 +3257,15 @@
     "arguments": "{\n  \"table\": \"main\"\n}",
     "standing": "wipe on Dice — this tool again, with any arguments, without asking",
     "changed": [],
+    "outside": false,
+    "host": "",
+    "each": false,
+    "why": "",
+    "trusted": false,
     "marked": "Its server doesn’t mark it read-only: it may change things.",
     "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "outsideLine": "",
+    "eachLine": "",
     "changedLine": ""
    },
    "wider": {
@@ -3400,8 +3407,15 @@
     "arguments": "{}",
     "standing": "",
     "changed": [],
+    "outside": false,
+    "host": "",
+    "each": false,
+    "why": "",
+    "trusted": false,
     "marked": "Its server marks it read-only — the server’s word, not xbin’s.",
     "undo": "xbin can't undo this. Whether apps/dice can is up to apps/dice.",
+    "outsideLine": "",
+    "eachLine": "",
     "changedLine": ""
    },
    "wider": {
@@ -3551,8 +3565,15 @@
     "arguments": "{\n  \"table\": \"main\"\n}",
     "standing": "wipe on Dice — this tool again, with any arguments, without asking",
     "changed": [],
+    "outside": false,
+    "host": "",
+    "each": false,
+    "why": "",
+    "trusted": false,
     "marked": "Its server doesn’t mark it read-only: it may change things.",
     "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "outsideLine": "",
+    "eachLine": "",
     "changedLine": ""
    },
    "wider": {
@@ -3704,8 +3725,15 @@
      "annotations",
      "somethingNew"
     ],
+    "outside": false,
+    "host": "",
+    "each": false,
+    "why": "",
+    "trusted": false,
     "marked": "Its server marks it read-only — the server’s word, not xbin’s.",
     "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "outsideLine": "",
+    "eachLine": "",
     "changedLine": "Changed since you last allowed it or first met it: its description, its marks (read-only and the like), somethingNew."
    },
    "wider": {
@@ -3721,6 +3749,780 @@
    "card": {
     "head": "Waiting for your approval",
     "what": "Run wipe on Dice",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_out",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "ext:tracker@1a2b3c4d",
+    "contentType": "application/json",
+    "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "bodyShown": true,
+    "bodySize": 60,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "server": "ext:tracker",
+     "serverName": "Tracker",
+     "host": "mcp.tracker.example",
+     "outside": true,
+     "tool": "post",
+     "title": "",
+     "description": "Post a comment on a ticket.",
+     "readOnly": false,
+     "arguments": "{\n  \"id\": \"T-7\"\n}",
+     "standing": {
+      "tool": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking"
+     }
+    }
+   },
+   "tile": {
+    "name": "Ext:tracker@1a2b3c4d",
+    "path": "ext:tracker@1a2b3c4d",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run post on Tracker",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "post",
+    "after": " on Tracker, outside this workspace"
+   },
+   "sends": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Ext:tracker@1a2b3c4d can is up to Ext:tracker@1a2b3c4d.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Tracker",
+    "path": "ext:tracker",
+    "tool": "post",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": false,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "standing": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+    "changed": [],
+    "outside": true,
+    "host": "mcp.tracker.example",
+    "each": false,
+    "why": "",
+    "trusted": false,
+    "marked": "Its server doesn’t mark it read-only: it may change things.",
+    "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
+    "outsideLine": "Outside this workspace: mcp.tracker.example",
+    "eachLine": "",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Ext:tracker@1a2b3c4d?",
+    "means": "From now on your agent can create, change and delete anything in Ext:tracker@1a2b3c4d that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run post on Tracker",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_out_ro",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "ext:tracker@1a2b3c4d",
+    "contentType": "application/json",
+    "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "bodyShown": true,
+    "bodySize": 60,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "server": "ext:tracker",
+     "serverName": "Tracker",
+     "host": "mcp.tracker.example",
+     "outside": true,
+     "tool": "lookup",
+     "title": "",
+     "description": "Post a comment on a ticket.",
+     "readOnly": true,
+     "arguments": "{\n  \"id\": \"T-7\"\n}",
+     "standing": {
+      "tool": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking"
+     }
+    }
+   },
+   "tile": {
+    "name": "Ext:tracker@1a2b3c4d",
+    "path": "ext:tracker@1a2b3c4d",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run lookup on Tracker",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "lookup",
+    "after": " on Tracker, outside this workspace"
+   },
+   "sends": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Ext:tracker@1a2b3c4d can is up to Ext:tracker@1a2b3c4d.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Tracker",
+    "path": "ext:tracker",
+    "tool": "lookup",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": true,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "standing": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+    "changed": [],
+    "outside": true,
+    "host": "mcp.tracker.example",
+    "each": false,
+    "why": "",
+    "trusted": false,
+    "marked": "Its server marks it read-only — an outside server’s word, which your “read-only tools don’t ask me” doesn’t take.",
+    "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
+    "outsideLine": "Outside this workspace: mcp.tracker.example",
+    "eachLine": "",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Ext:tracker@1a2b3c4d?",
+    "means": "From now on your agent can create, change and delete anything in Ext:tracker@1a2b3c4d that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run lookup on Tracker",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_out_trusted",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "ext:tracker@1a2b3c4d",
+    "contentType": "application/json",
+    "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "bodyShown": true,
+    "bodySize": 60,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "server": "ext:tracker",
+     "serverName": "Tracker",
+     "host": "mcp.tracker.example",
+     "outside": true,
+     "tool": "lookup",
+     "title": "",
+     "description": "Post a comment on a ticket.",
+     "readOnly": true,
+     "arguments": "{\n  \"id\": \"T-7\"\n}",
+     "standing": {
+      "tool": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking"
+     },
+     "readOnlyTrusted": true
+    }
+   },
+   "tile": {
+    "name": "Ext:tracker@1a2b3c4d",
+    "path": "ext:tracker@1a2b3c4d",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run lookup on Tracker",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "lookup",
+    "after": " on Tracker, outside this workspace"
+   },
+   "sends": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Ext:tracker@1a2b3c4d can is up to Ext:tracker@1a2b3c4d.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Tracker",
+    "path": "ext:tracker",
+    "tool": "lookup",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": true,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "standing": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+    "changed": [],
+    "outside": true,
+    "host": "mcp.tracker.example",
+    "each": false,
+    "why": "",
+    "trusted": true,
+    "marked": "Its server marks it read-only — the server’s word, not xbin’s.",
+    "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
+    "outsideLine": "Outside this workspace: mcp.tracker.example",
+    "eachLine": "",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Ext:tracker@1a2b3c4d?",
+    "means": "From now on your agent can create, change and delete anything in Ext:tracker@1a2b3c4d that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run lookup on Tracker",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_each",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "ext:tracker@1a2b3c4d",
+    "contentType": "application/json",
+    "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "bodyShown": true,
+    "bodySize": 60,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "server": "ext:tracker",
+     "serverName": "Tracker",
+     "host": "mcp.tracker.example",
+     "outside": true,
+     "tool": "post",
+     "title": "",
+     "description": "Post a comment on a ticket.",
+     "readOnly": false,
+     "arguments": "{\n  \"id\": \"T-7\"\n}",
+     "each": true,
+     "orgs": [
+      "sales"
+     ],
+     "why": "This conversation holds data of Sales: what is sent to Tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve"
+    }
+   },
+   "tile": {
+    "name": "Ext:tracker@1a2b3c4d",
+    "path": "ext:tracker@1a2b3c4d",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run post on Tracker",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "post",
+    "after": " on Tracker, outside this workspace"
+   },
+   "sends": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Ext:tracker@1a2b3c4d can is up to Ext:tracker@1a2b3c4d.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Tracker",
+    "path": "ext:tracker",
+    "tool": "post",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": false,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "standing": "",
+    "changed": [],
+    "outside": true,
+    "host": "mcp.tracker.example",
+    "each": true,
+    "why": "This conversation holds data of Sales: what is sent to Tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve",
+    "trusted": false,
+    "marked": "Its server doesn’t mark it read-only: it may change things.",
+    "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
+    "outsideLine": "Outside this workspace: mcp.tracker.example",
+    "eachLine": "This conversation holds data of Sales: what is sent to Tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve.",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Ext:tracker@1a2b3c4d?",
+    "means": "From now on your agent can create, change and delete anything in Ext:tracker@1a2b3c4d that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run post on Tracker",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_each_bare",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "ext:tracker@1a2b3c4d",
+    "contentType": "application/json",
+    "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "bodyShown": true,
+    "bodySize": 60,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "server": "ext:tracker",
+     "serverName": "Tracker",
+     "host": "",
+     "outside": true,
+     "tool": "post",
+     "title": "",
+     "description": "Post a comment on a ticket.",
+     "readOnly": false,
+     "arguments": "{\n  \"id\": \"T-7\"\n}",
+     "each": true
+    }
+   },
+   "tile": {
+    "name": "Ext:tracker@1a2b3c4d",
+    "path": "ext:tracker@1a2b3c4d",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run post on Tracker",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "post",
+    "after": " on Tracker, outside this workspace"
+   },
+   "sends": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Ext:tracker@1a2b3c4d can is up to Ext:tracker@1a2b3c4d.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Tracker",
+    "path": "ext:tracker",
+    "tool": "post",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": false,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "standing": "",
+    "changed": [],
+    "outside": true,
+    "host": "",
+    "each": true,
+    "why": "",
+    "trusted": false,
+    "marked": "Its server doesn’t mark it read-only: it may change things.",
+    "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
+    "outsideLine": "Outside this workspace: an outside server",
+    "eachLine": "This conversation holds an organisation’s data: what is sent leaves the workspace, so each call is asked every time.",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Ext:tracker@1a2b3c4d?",
+    "means": "From now on your agent can create, change and delete anything in Ext:tracker@1a2b3c4d that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run post on Tracker",
     "line": "asked 10:12 · expires in 23 h 56 min",
     "glyph": "shield",
     "tone": "warn",
@@ -4882,6 +5684,26 @@
    "text": "Always · this tool: wipe",
    "wider": false,
    "until": "until you take it back"
+  },
+  {
+   "json": {
+    "id": "ap_5",
+    "user": "ana",
+    "tile": "ext:tracker@1a2b3c4d",
+    "scope": "tool",
+    "method": "MCP",
+    "path": "post",
+    "created": "2026-11-16T09:35:00Z",
+    "server": {
+     "server": "ext:tracker",
+     "name": "Tracker",
+     "host": "mcp.tracker.example"
+    }
+   },
+   "tile": "Tracker",
+   "text": "Always · this tool: post — outside this workspace (mcp.tracker.example)",
+   "wider": false,
+   "until": "until you take it back"
   }
  ],
  "audit": [
@@ -5298,6 +6120,75 @@
    "text": "Was refused: ",
    "strong": "Dice",
    "detail": "Using MCP tools is off for this workspace",
+   "icon": "lock",
+   "group": "refused"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:42:00Z",
+    "method": "POST",
+    "path": "https://mcp.tracker.example",
+    "class": "mcp",
+    "server": "ext:tracker",
+    "tool": "post",
+    "effect": true,
+    "status": 200,
+    "ticket": "rq_mcp_out",
+    "bytes": 2048
+   },
+   "text": "Ran post on ",
+   "strong": "ext:tracker",
+   "detail": "mcp.tracker.example · you allowed it once · 2 KiB",
+   "icon": "plug",
+   "group": "change"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:41:00Z",
+    "method": "POST",
+    "path": "https://mcp.tracker.example",
+    "class": "mcp",
+    "server": "ext:tracker",
+    "tool": "lookup",
+    "effect": true,
+    "status": 200,
+    "under": "preference"
+   },
+   "text": "Ran lookup on ",
+   "strong": "ext:tracker",
+   "detail": "mcp.tracker.example · without asking: your preference",
+   "icon": "plug",
+   "group": "change"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:40:00Z",
+    "method": "POST",
+    "path": "https://mcp.tracker.example",
+    "class": "mcp-read",
+    "server": "ext:tracker",
+    "status": 200
+   },
+   "text": "Read the tools of ",
+   "strong": "ext:tracker",
+   "detail": "mcp.tracker.example",
+   "icon": "plug",
+   "group": "read"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:39:00Z",
+    "method": "POST",
+    "path": "https://mcp.tracker.example",
+    "class": "mcp",
+    "server": "ext:tracker",
+    "tool": "post",
+    "status": 502,
+    "refused": "the server refused xbin's credentials (401)"
+   },
+   "text": "Was refused an outside server, ",
+   "strong": "ext:tracker",
+   "detail": "mcp.tracker.example · the server refused xbin's credentials (401)",
    "icon": "lock",
    "group": "refused"
   }
@@ -6145,6 +7036,36 @@
     "kind": "request",
     "id": "rq_mcp_changed",
     "title": "Run wipe on Dice",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_out",
+    "title": "Run post on Tracker",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_out_ro",
+    "title": "Run lookup on Tracker",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_out_trusted",
+    "title": "Run lookup on Tracker",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_each",
+    "title": "Run post on Tracker",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_each_bare",
+    "title": "Run post on Tracker",
     "note": "asked 10:12 · expires in 23 h 56 min"
    },
    {
@@ -7222,7 +8143,7 @@
     "note": "first 4000 of 4001 characters"
    }
   ],
-  "readWeb": "This conversation has read the web: what your agent asks may come from a page it read.",
+  "readWeb": "This conversation has read the web or an outside server: what your agent asks may come from what it read there.",
   "netPrefs": [
    {
     "state": {},
@@ -7241,7 +8162,8 @@
       "on": false,
       "allowed": false,
       "why": "Off for this workspace — an admin can change it.",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7275,7 +8197,8 @@
       "on": false,
       "allowed": false,
       "why": "Off for this workspace — an admin can change it.",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7316,7 +8239,8 @@
       "on": false,
       "allowed": false,
       "why": "Using MCP tools is off for this workspace — an admin can change it (the workspace agent’s settings)",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7362,7 +8286,8 @@
       "on": true,
       "allowed": true,
       "why": "",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7404,7 +8329,8 @@
       "on": true,
       "allowed": true,
       "why": "",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7445,7 +8371,8 @@
       "on": false,
       "allowed": true,
       "why": "",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7454,6 +8381,107 @@
       "allowed": false,
       "sub": true,
       "why": "Turn on MCP tools first.",
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
+     }
+    ]
+   },
+   {
+    "state": {
+     "mcp": true,
+     "mcpReadOnly": true,
+     "net": {
+      "web": {
+       "policy": "off"
+      },
+      "mcp": {
+       "policy": "listed",
+       "servers": [
+        {
+         "server": "ext:tracker",
+         "name": "Tracker",
+         "host": "mcp.tracker.example"
+        },
+        {
+         "server": "ext:wiki",
+         "host": "wiki.example.org"
+        }
+       ]
+      }
+     }
+    },
+    "prefs": [
+     {
+      "id": "web",
+      "label": "Let my agent read web pages",
+      "on": false,
+      "allowed": false,
+      "why": "Off for this workspace — an admin can change it.",
+      "note": "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve."
+     },
+     {
+      "id": "mcp",
+      "label": "Let my agent use MCP tools",
+      "on": true,
+      "allowed": true,
+      "why": "",
+      "note": "From this workspace’s tiles, as you, and from the servers outside it listed below: what it sends one leaves the workspace. Each tool asks you the first time.",
+      "servers": [
+       {
+        "name": "Tracker",
+        "host": "mcp.tracker.example"
+       },
+       {
+        "name": "ext:wiki",
+        "host": "wiki.example.org"
+       }
+      ]
+     },
+     {
+      "id": "mcpReadOnly",
+      "label": "MCP tools marked read-only don’t ask me",
+      "on": true,
+      "allowed": true,
+      "sub": true,
+      "why": "",
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask. An outside server’s marks count only where an admin trusts them."
+     }
+    ]
+   },
+   {
+    "state": {
+     "mcp": true,
+     "net": {
+      "mcp": {
+       "policy": "listed",
+       "servers": []
+      }
+     }
+    },
+    "prefs": [
+     {
+      "id": "web",
+      "label": "Let my agent read web pages",
+      "on": false,
+      "allowed": false,
+      "why": "Off for this workspace — an admin can change it.",
+      "note": "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve."
+     },
+     {
+      "id": "mcp",
+      "label": "Let my agent use MCP tools from this workspace’s tiles",
+      "on": true,
+      "allowed": true,
+      "why": "",
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
+     },
+     {
+      "id": "mcpReadOnly",
+      "label": "MCP tools marked read-only don’t ask me",
+      "on": false,
+      "allowed": true,
+      "sub": true,
+      "why": "",
       "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
      }
     ]

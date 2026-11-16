@@ -385,15 +385,17 @@ export function chipWords(counts, model, narrow = false, priv = false, reach = n
 /**
  * netWords(reach): the web and MCP tools in the connection line (the
  * session's `reach`, xbind's: {web, mcp: {state: on | asks | off, why}}) —
- * {seg: "web · MCP" | "web" | "MCP" | '', said: the sentence a screen
+ * {seg: "web · MCP" | "web" | "MCP" | "MCP · 2 outside" | '', said: the sentence a screen
  * reader and the title say}. Off says nothing in the line: the empty state
  * and "What can it do?" say why.
  */
 export function netWords(reach) {
   const on = (x) => !!x && (x.state === 'on' || x.state === 'asks');
   const web = on(reach && reach.web), mcp = on(reach && reach.mcp);
-  const seg = [web ? 'web' : '', mcp ? 'MCP' : ''].filter(Boolean).join(' · ');
-  const said = [web ? (reach.web.state === 'asks' ? 'Reads web pages you approve.' : 'Reads the web.') : '', mcp ? 'Uses MCP tools you approve.' : ''].filter(Boolean).join(' ');
+  const out = mcp ? Number(reach.mcp.listed) || 0 : 0; // the outside servers it may use (D240)
+  const seg = [web ? 'web' : '', mcp ? `MCP${out ? ` · ${out} outside` : ''}` : ''].filter(Boolean).join(' · ');
+  const said = [web ? (reach.web.state === 'asks' ? 'Reads web pages you approve.' : 'Reads the web.') : '',
+    mcp ? `Uses MCP tools you approve${out ? `, ${out === 1 ? 'one server' : `${out} servers`} of them outside this workspace` : ''}.` : ''].filter(Boolean).join(' ');
   return { seg, said };
 }
 

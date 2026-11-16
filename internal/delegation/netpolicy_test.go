@@ -52,7 +52,7 @@ func TestNetPolicySetAndKept(t *testing.T) {
 	if got.Web.Mode != WebRead || got.MCP.Mode != MCPTiles || strings.Join(got.Web.Allow, ",") != "*.wiki.test,docs.example.com" {
 		t.Errorf("policy after the switch turned: %+v", got)
 	}
-	for _, p := range []NetPatch{{WebMode: strp(WebFull)}, {MCPMode: strp(MCPListed)}, {WebSearch: boolp(true)}} {
+	for _, p := range []NetPatch{{WebMode: strp(WebFull)}, {WebSearch: boolp(true)}} {
 		if _, err := s.SetNet(p, "user:ana"); !errors.Is(err, ErrNotYet) {
 			t.Errorf("a reserved mode: %v", err)
 		}

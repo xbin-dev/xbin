@@ -310,7 +310,12 @@ var delegateClasses = map[string]delegateRow{
 	// as the person; a ticket per call unless a standing approval of that
 	// tool, or the person's "read-only tools don't ask" for a tool the
 	// server marks read-only, covers it — the handler asks
-	"POST /delegate/mcp/call":          dAct().judged(dryMCP),
+	"POST /delegate/mcp/call": dAct().judged(dryMCP),
+	// outside MCP servers an admin listed (D240, mcpext.go): the ones this
+	// person's agent may use, and a server's tools read by xbind — free,
+	// nothing of the conversation sent; a call is the route above
+	"GET /delegate/mcp/servers":        dRead(),
+	"POST /delegate/mcp/tools":         dAct().judged(dryMCPTools),
 	"POST /delegate/changesets":        dAct(),
 	"POST /delegate/plans":             dAct(), // a plan: a change set that may create tiles and start tile agents (plan.go)
 	"GET /delegate/changesets":         dRead(),
@@ -326,6 +331,7 @@ var delegateClasses = map[string]delegateRow{
 	"PUT /delegate/state":                    dNever(neverApprove),
 	"GET /delegate/workspace":                dNever(neverApprove),
 	"PUT /delegate/workspace":                dNever(neverApprove),
+	"POST /delegate/mcp/test":                dNever(neverAdmin), // an admin tries an outside server (mcpext.go)
 	"POST /delegate/page/dismiss":            dNever(neverApprove),
 	"GET /delegate/audit":                    dNever(neverApprove),
 	"POST /delegate/changesets/{id}/approve": dNever(neverApprove),
