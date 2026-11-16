@@ -816,6 +816,18 @@ and its items carry, beside a change set's:
   `decidedBy`) and the results come back to the asker's lines. Only the
   admin's own session reads a set that is `from` someone. At most 3 of a
   person's requests wait.
+- **What the agent reads of its own proposal.** The person's own session
+  reads every field. Their agent — its credential, its conversation, its
+  page's frame — reads, of a line that is `admin`, `needsAdmin` or
+  `blocked`, only `n`, `kind`, `args`, `why`, `line`, the flags, `needs`,
+  `result` and `out`; `blocked` is one fixed sentence. Nothing of what is
+  there now (`before`, `after`, `inverse`), of what it would open
+  (`effects`, `warnings`) or of why it is refused or failed (`error`) —
+  unless the person is an admin with `adminChanges` on, which is what lets
+  an agent read admin state. This holds for the proposal's answer, both
+  GETs and a withdrawal's answer, and for change sets proposed the old
+  way. A line the person themselves may not make (the handler's 403)
+  carries no state for anyone.
 - **`start`** — what an `agent.start` line starts, as a start request's
   `preview.session`: `{tile, provider, providerName, mode, asks, prompt,
   net, api, …}`. Only a mode xbind vouches for (`asks: true`: a harness's

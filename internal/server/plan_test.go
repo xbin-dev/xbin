@@ -45,6 +45,9 @@ func TestPlanStartsATileAgent(t *testing.T) {
 		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":`+items+`}`, alice)
 		var cs delegation.ChangeSet
 		_ = json.Unmarshal(rec.Body.Bytes(), &cs)
+		if full, ok := w.store.ChangeSet("alice", cs.ID); ok {
+			cs = full // as xbin's chrome reads it for the person (the agent's own answer says less: setFor)
+		}
 		return rec.Code, cs, rec.Body.String()
 	}
 	apply := func(id string) delegation.ChangeSet {

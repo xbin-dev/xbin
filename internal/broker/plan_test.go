@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/users"
 )
@@ -32,7 +34,7 @@ func (w *csWorld) plan(t *testing.T, user, items string) delegation.ChangeSet {
 	if err := json.Unmarshal([]byte(body), &cs); err != nil {
 		t.Fatal(err)
 	}
-	return cs
+	return w.set(t, user, cs.ID) // as xbin's chrome reads it for the person (the agent's own answer says less: setFor)
 }
 
 func (w *csWorld) set(t *testing.T, user, id string) delegation.ChangeSet {
@@ -476,5 +478,80 @@ func TestPersonalLinesNeedNoAdmin(t *testing.T) {
 		if personal[k] == 0 {
 			t.Errorf("no personal %s line in the corpus: the property is checked on nothing (%v)", k, personal)
 		}
+	}
+}
+
+// A proposal is no way to read admin state. Of a line that takes an admin's
+// rights, or that xbind can't apply, the agent — its credential, its
+// conversation, its page — reads xbind's one sentence and nothing else: not
+// what is there now, not what it would open, not why it is refused; the
+// person's own session reads the whole line. An admin who lets their agent
+// read admin state (adminChanges) lets it read these too.
+func TestPlanShowsTheAgentNoAdminState(t *testing.T) {
+	w := changeSetWorld(t)
+	planTemplates(t, w)
+	_, bob := w.session("bob")
+	frame := func(r *http.Request) {
+		rq := httptest.NewRequest("GET", "/", nil)
+		bob(rq)
+		p, _ := w.a.FromRequest(rq)
+		r.Header.Set(auth.FrameTokenHeader, w.a.MintFrameTokenFor(p, "apps/q", time.Minute))
+	}
+	// apps/x holds grants an agent has no business reading; fin has members
+	const lines = `[{"kind":"grant.revoke","args":{"from":"apps/x","target":"apps/pu","role":"reader"}},
+		{"kind":"grant.add","args":{"from":"apps/x","target":"users/alice/mcp","role":"reader"}},
+		{"kind":"binding.set","args":{"component":"apps/x","slot":"nope","provider":"apps/pg"}},
+		{"kind":"org.share","args":{"org":"fin","tile":"apps/x","level":"read"}},
+		{"kind":"tile.create","args":{"template":"tool","path":"apps/x"}}]`
+	secrets := []string{`"roles"`, `"before"`, `"beforeText"`, `"after"`, `"effects"`, `"warnings"`, `"inverse"`, `"basis"`, "does not request", "already exists", "member(s)"}
+	leaks := func(body string) (out []string) {
+		for _, s := range secrets {
+			if strings.Contains(body, s) {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	code, body := w.do("POST", "/delegate/plans", `{"title":"probe","items":`+lines+`}`, agentOf("bob"))
+	var cs delegation.ChangeSet
+	if json.Unmarshal([]byte(body), &cs); code != 200 || len(cs.Items) != 5 {
+		t.Fatalf("plan: %d %s", code, body)
+	}
+	if l := leaks(body); len(l) > 0 {
+		t.Fatalf("the agent reads admin state from its own proposal's answer: %v\n%s", l, body)
+	}
+	for i, it := range cs.Items {
+		if it.Line == "" || (i == 2 || i == 4) && it.Blocked != "xbin can't apply this line as proposed: your person sees why on xbin's review" {
+			t.Errorf("line %d as the agent reads it: %+v", i+1, it)
+		}
+	}
+	for name, c := range map[string]func(*http.Request){"the agent": agentOf("bob"), "its page": frame} {
+		for _, path := range []string{"/delegate/changesets", "/delegate/changesets/" + cs.ID} {
+			code, body := w.do("GET", path, "", c)
+			if l := leaks(body); code != 200 || len(l) > 0 || !strings.Contains(body, "Take away apps/x's reader access to apps/pu") {
+				t.Errorf("%s reads %s: %d, admin state %v", name, path, code, l)
+			}
+		}
+	}
+	// the person's own session reads the whole line
+	if code, body := w.do("GET", "/delegate/changesets/"+cs.ID, "", bob); code != 200 || len(leaks(body)) < 6 || !strings.Contains(body, "does not request") {
+		t.Fatalf("bob's own review is short of what xbind knows: %d %v", code, leaks(body))
+	}
+	// applied or failed is all the agent learns of an admin's line it proposed blind
+	_, _ = w.do("PUT", "/delegate/state", `{"adminChanges":true}`, bob)
+	done := w.approve(t, cs.ID, `{"items":[1,2],"password":"password1"}`, bob)
+	_, _ = w.do("PUT", "/delegate/state", `{"adminChanges":false}`, bob)
+	if results(done) != "applied,applied,blocked,rejected,blocked" {
+		t.Fatalf("bob applies: %s", results(done))
+	}
+	if code, body := w.do("GET", "/delegate/changesets/"+cs.ID, "", agentOf("bob")); code != 200 || len(leaks(body)) > 0 || !strings.Contains(body, `"result":"applied"`) || strings.Contains(body, `"error"`) {
+		t.Fatalf("after the approval the agent reads: %d %v %s", code, leaks(body), body)
+	}
+	// with the opt-in on, the agent reads what the person reads
+	if code, _ := w.do("PUT", "/delegate/state", `{"adminChanges":true}`, bob); code != 200 {
+		t.Fatal("opt in")
+	}
+	if code, body := w.do("POST", "/delegate/plans", `{"title":"probe","items":`+lines+`}`, agentOf("bob")); code != 200 || len(leaks(body)) < 4 {
+		t.Fatalf("an opted-in admin's agent: %d %v", code, leaks(body))
 	}
 }

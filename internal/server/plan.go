@@ -71,6 +71,58 @@ func (s *Server) registerPlanAPI() {
 	s.RegisterAPI("POST /delegate/changesets/{id}/ask", s.apiChangeSetAsk)
 }
 
+// lineBlockedForAgent is all an agent is told of why xbind can't apply a
+// line: the reason is the person's to read, on xbin's review.
+const lineBlockedForAgent = "xbin can't apply this line as proposed: your person sees why on xbin's review"
+
+// optedIn reports whether user is an admin (of the workspace or of an org)
+// who lets their agent read admin state and propose admin changes.
+func (s *Server) optedIn(user string) bool {
+	if s.Delegation == nil || !s.Delegation.State(user).AdminChanges {
+		return false
+	}
+	if s.DelegationDev && s.Auth != nil && s.Auth.NoAuth() {
+		return true // --no-auth: the implicit owner
+	}
+	if s.Auth == nil || s.Auth.Users == nil {
+		return false
+	}
+	u, ok := s.Auth.Users.Get(user)
+	if !ok || u.Disabled {
+		return false
+	}
+	acc, _ := s.Auth.Users.Access(user)
+	return u.IsAdmin() || acc != nil && len(acc.AdminOrgs()) > 0
+}
+
+// setFor is cs as caller a may read it. The person's own session — xbin's
+// chrome — reads all of it. Their agent, its conversation and its page's
+// frame read, of a line that takes an admin's rights or that xbind can't
+// apply, xbind's one sentence and nothing else: not what is there now
+// (before, after, the inverse), not what it would open (effects,
+// warnings), not why it is refused or failed — unless the person is an
+// admin who let their agent read admin state (adminChanges). Otherwise a
+// proposal would be a way to read grants and bindings: propose a line
+// about any tile and read its state from the answer.
+func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.ChangeSet {
+	if a.own || s.optedIn(a.user) {
+		return cs
+	}
+	cs.Items = slices.Clone(cs.Items)
+	for i, it := range cs.Items {
+		if !it.Admin && !it.NeedsAdmin && it.Blocked == "" {
+			continue
+		}
+		red := delegation.ChangeItem{N: it.N, ChangeOp: it.ChangeOp, Why: it.Why, Line: it.Line, Admin: it.Admin, NeedsAdmin: it.NeedsAdmin,
+			Needs: it.Needs, Deferred: it.Deferred, Result: it.Result, Out: it.Out, Of: it.Of}
+		if it.Blocked != "" {
+			red.Blocked = lineBlockedForAgent
+		}
+		cs.Items[i] = red
+	}
+	return cs
+}
+
 // planAgent is who a plan's lines are judged for beside the person: the
 // agent that proposed it, as a delegate principal of its conversation.
 // zero (Agent ""): a set xbind made for the person (an undo), which no
@@ -378,7 +430,7 @@ func (s *Server) apiPlanNew(w http.ResponseWriter, r *http.Request) {
 	s.delegateEvent(a.user, "changeset", cs.ID)
 	s.delegatePush(a.user, a.p.Agent, "agent.changeset", "Your agent proposes a plan",
 		fmt.Sprintf("%d change(s) wait for your approval. Nothing is applied until you approve it.", len(cs.Items)), "agent-changeset:"+cs.ID)
-	WriteJSON(w, http.StatusOK, cs)
+	WriteJSON(w, http.StatusOK, s.setFor(a, cs))
 }
 
 // planChosen judges what a person chose of a plan before anything runs:

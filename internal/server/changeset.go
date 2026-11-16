@@ -154,7 +154,7 @@ func (s *Server) apiChangeSetNew(w http.ResponseWriter, r *http.Request) {
 	s.delegateEvent(a.user, "changeset", cs.ID)
 	s.delegatePush(a.user, a.p.Agent, "agent.changeset", "Your agent proposes admin changes",
 		fmt.Sprintf("%d change(s) wait for your approval. Nothing is applied until you approve it.", len(cs.Items)), "agent-changeset:"+cs.ID)
-	WriteJSON(w, http.StatusOK, cs)
+	WriteJSON(w, http.StatusOK, s.setFor(a, cs))
 }
 
 // apiChangeSets — GET /delegate/changesets: the person, their agent's page
@@ -171,6 +171,9 @@ func (s *Server) apiChangeSets(w http.ResponseWriter, r *http.Request) {
 	}
 	if !a.own { // another person's request to an admin is the admin's to read — not their agent's, nor its page's
 		sets = slices.DeleteFunc(slices.Clone(sets), func(cs delegation.ChangeSet) bool { return cs.From != "" })
+		for i := range sets {
+			sets[i] = s.setFor(a, sets[i]) // …and of an admin's or a blocked line, xbind's sentence only (plan.go)
+		}
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"changesets": sets})
 }
@@ -186,7 +189,7 @@ func (s *Server) apiChangeSet(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, "no such change set", delegationDocs)
 		return
 	}
-	WriteJSON(w, http.StatusOK, cs)
+	WriteJSON(w, http.StatusOK, s.setFor(a, cs))
 }
 
 // endChangeSet moves an open set to state (withdrawn, rejected).
@@ -219,7 +222,7 @@ func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state 
 		return
 	}
 	s.delegateEvent(a.user, "changeset", cs.ID)
-	WriteJSON(w, http.StatusOK, cs)
+	WriteJSON(w, http.StatusOK, s.setFor(a, cs))
 }
 
 // apiChangeSetWithdraw — DELETE /delegate/changesets/{id}: the agent takes

@@ -108,6 +108,10 @@ type ChangePreview struct {
 	Blocked               string    // why the handler would refuse it; "" when it would apply
 	Inverse               *ChangeOp // what undoes it, when something does
 	Call                  AdminCall
+	// Forbidden: the person themselves may not make this change (the
+	// handler's 403): the preview then says the line and the refusal, and
+	// nothing of the state behind it.
+	Forbidden bool
 	// Admin: applying it takes an admin's rights — it is not something the
 	// person could do with their own hands and no admin (a plan's line).
 	Admin bool

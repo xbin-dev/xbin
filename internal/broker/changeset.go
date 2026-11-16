@@ -231,6 +231,11 @@ func (b *Broker) previewChange(p auth.Principal, op delegation.ChangeOp, planned
 	default:
 		return delegation.ChangePreview{}, fmt.Errorf("no such kind of change (one of %s)", strings.Join(ChangeKinds(), ", "))
 	}
+	if err == nil && pv.Forbidden {
+		// not theirs to change, so not theirs to read through a proposal:
+		// the line and the refusal, nothing of what is there now
+		pv = delegation.ChangePreview{Line: pv.Line, Call: pv.Call, Blocked: pv.Blocked, Forbidden: true, Admin: true, Tiles: pv.Tiles}
+	}
 	return pv, err
 }
 
@@ -301,7 +306,7 @@ func (b *Broker) previewGrant(p auth.Principal, op delegation.ChangeOp) (delegat
 		pv.Effects = append(pv.Effects, g.From+"'s backend may restart")
 	}
 	if why := b.grantCheck(p, g, revoke); why != nil {
-		pv.Blocked = why.msg
+		pv.Blocked, pv.Forbidden = why.msg, why.status == http.StatusForbidden
 	}
 	return pv, nil
 }
@@ -437,6 +442,7 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp, planne
 	pv.Admin = why != nil || !b.bindPersonal(p, body, plan)
 	if why != nil {
 		pv.Blocked, pv.After, pv.AfterText = why.msg, pv.Before, pv.BeforeText
+		pv.Forbidden = why.status == http.StatusForbidden
 		return pv, nil
 	}
 	pv.After, pv.AfterText = mustJSON(map[string]any{"binding": refsOf(plan.next)}), bindingWords(plan.next)
@@ -523,7 +529,7 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 	_, tileOK := b.Reg.Component(a.Tile)
 	switch why := b.accessCheck(p, a.Tile, a.Org); {
 	case why != nil:
-		pv.Blocked = why.msg
+		pv.Blocked, pv.Forbidden = why.msg, why.status == http.StatusForbidden
 	case a.Level != "" && a.Level != users.LevelRead && a.Level != users.LevelWrite && a.Level != users.LevelTerminal:
 		pv.Blocked = fmt.Sprintf("unknown level %q (want read|write|terminal, or empty to remove)", a.Level)
 	case b.Users == nil || org == nil:
@@ -578,7 +584,7 @@ func (b *Broker) previewLimit(p auth.Principal, op delegation.ChangeOp) (delegat
 	w := &captured{header: http.Header{}, status: http.StatusOK}
 	v, t, ci, ok := b.limitsCheck(w, p, body)
 	if !ok {
-		pv.Blocked = w.refusal()
+		pv.Blocked, pv.Forbidden = w.refusal(), w.status == http.StatusForbidden
 		pv.Before, pv.After = mustJSON(map[string]any{}), mustJSON(map[string]any{"value": a.Value})
 		return pv, nil
 	}
