@@ -870,7 +870,8 @@ func (s *Server) delegateAudit(c delegation.Call) {
 	}
 	if c.Effect || c.Refused != "" {
 		slog.Info("audit", "who", "user:"+c.User, "agent", c.Agent, "method", c.Method, "path", c.Path,
-			"class", c.Class, "status", c.Status, "refused", c.Refused, "dryRun", c.DryRun, "ticket", c.Ticket, "under", c.Under, "leftOut", c.N)
+			"class", c.Class, "status", c.Status, "refused", c.Refused, "dryRun", c.DryRun, "ticket", c.Ticket, "under", c.Under, "leftOut", c.N,
+			"from", c.From, "by", c.By)
 	}
 }
 

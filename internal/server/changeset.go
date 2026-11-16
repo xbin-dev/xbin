@@ -468,8 +468,17 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 				it.Result, it.Inverse, it.Out = delegation.ItemApplied, pv.Inverse, out
 			}
 		}
-		s.delegateAudit(delegation.Call{User: cs.User, Agent: cs.Agent, Method: pv.Call.Method, Path: "/api/xbin" + pv.Call.Path,
-			Class: "changeset:" + it.Kind, Effect: true, Status: resultStatus(it.Result), Refused: it.Error, Ticket: cs.ID, Session: cs.Session})
+		row := delegation.Call{User: cs.User, Agent: cs.Agent, Method: pv.Call.Method, Path: "/api/xbin" + pv.Call.Path,
+			Class: "changeset:" + it.Kind, Effect: true, Status: resultStatus(it.Result), Refused: it.Error, Ticket: cs.ID, Session: cs.Session}
+		if cs.From != "" {
+			// an admin applied what another person asked for: the admin's log
+			// says whose request (and whose agent proposed it), and the
+			// asker's log says who applied their line — under their own set
+			row.From, row.Session = cs.From, ""
+			s.delegateAudit(delegation.Call{User: cs.From, Agent: cs.Agent, Method: row.Method, Path: row.Path, Class: row.Class, Effect: true,
+				Status: row.Status, Refused: row.Refused, Ticket: cs.AskOf, Session: cs.Session, By: cs.User})
+		}
+		s.delegateAudit(row)
 		if it.Result != delegation.ItemApplied {
 			failed = true
 			problems++

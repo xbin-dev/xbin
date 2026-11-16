@@ -303,6 +303,23 @@ func TestPlanOfAPersonAndAskAnAdmin(t *testing.T) {
 	if got := w.set(t, "alice", cs.ID); got.Items[2].Result != delegation.ItemApplied {
 		t.Fatalf("alice's line after the admin applied it: %+v", got.Items[2])
 	}
+	// both people's logs say what happened, truthfully: bob's that he applied alice's request (her agent's
+	// proposal, not his), alice's that bob applied her line
+	find := func(user string) (out delegation.Call) {
+		rows, _ := w.store.Audit.Read(user, time.Time{}, 0)
+		for _, c := range rows {
+			if c.Class == "changeset:binding.set" && c.Status == 200 && strings.HasSuffix(c.Path, "/bindings") && (c.From != "" || c.By != "") {
+				out = c
+			}
+		}
+		return out
+	}
+	if row := find("bob"); row.From != "alice" || row.By != "" || row.Ticket != asked.ID {
+		t.Errorf("bob's log of applying alice's request: %+v", row)
+	}
+	if row := find("alice"); row.By != "bob" || row.From != "" || row.Ticket != cs.ID {
+		t.Errorf("alice's log of her line being applied by bob: %+v", row)
+	}
 
 	// a request an admin turns down; and one withdrawn when the asker's agent stops for good
 	for _, end := range []string{"reject", "off"} {

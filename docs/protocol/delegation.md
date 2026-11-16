@@ -922,7 +922,11 @@ GET    /delegate/audit          the person, in their own session, app or
 ```
 
 A row: `{ts, user, agent, method, path, tile?, class, effect?, dryRun?,
-status, refused?, ticket?, under?, n?}`. Written for every side effect
+status, refused?, ticket?, under?, from?, by?, n?}`. A line an admin
+applied at another person's request (§Plans, Ask an admin) is a row in
+both logs: in the admin's with `from` — the person who asked, whose agent
+`agent` is — and in the asker's with `by`, the admin, under the asker's
+own set (`ticket`); asking is a row too (`class: "decision:ask"`). Written for every side effect
 that ran, every approval decision (`class: "decision:…"`) and every
 applied change-set item (`class: "changeset:<kind>"`) — always — and for
 tile reads, refusals, dry runs and reads of code, logs and admin state up
