@@ -200,23 +200,41 @@ func (m *mcpWriter) Write(b []byte) (int, error) {
 func (m *mcpWriter) Flush() {}
 
 // mcpError is a JSON-RPC error a server answered, or why its answer
-// couldn't be read.
+// couldn't be read. HTTP is the status of an answer that wasn't 200 — the
+// tile's rules refusing the call (403) among them.
 type mcpError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	HTTP    int    `json:"-"`
+}
+
+// refusedBy is the refusal of a call the tile's rules (the proxy, the
+// broker) answered — a 403 or 404 — and not a server that didn't answer:
+// the agent is told why, never "unreachable".
+func refusedBy(err error) (string, bool) {
+	var me *mcpError
+	if errors.As(err, &me) && (me.HTTP == http.StatusForbidden || me.HTTP == http.StatusNotFound || me.HTTP == http.StatusUnauthorized) {
+		return me.Message, true
+	}
+	return "", false
 }
 
 func (e *mcpError) Error() string { return e.Message }
 
 // mcpRPC makes one JSON-RPC call to tile's MCP endpoint as p — the person's
 // agent — through the component proxy, where the broker's Route judges it
-// as any call of the agent's to the tile. It answers the result and the
+// as any call of the agent's to the tile. read marks a call xbind judged a
+// read (a read method, a read-only tool's call): a tile at agent level
+// "read" takes it (auth.WithAgentRead). It answers the result and the
 // session id the server gave.
-func (s *Server) mcpRPC(ctx context.Context, p auth.Principal, tile, session string, id int, method string, params any) (json.RawMessage, string, error) {
+func (s *Server) mcpRPC(ctx context.Context, p auth.Principal, tile, session string, id int, method string, params any, read bool) (json.RawMessage, string, error) {
 	if s.ComponentAPI == nil {
 		return nil, session, errors.New("component backends are not enabled on this xbind")
 	}
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+	if read {
+		ctx = auth.WithAgentRead(ctx)
+	}
 	req, err := http.NewRequestWithContext(auth.WithPrincipal(ctx, p), http.MethodPost, "/api/"+tile+"/mcp", bytes.NewReader(body))
 	if err != nil {
 		return nil, session, err
@@ -238,7 +256,10 @@ func (s *Server) mcpRPC(ctx context.Context, p auth.Principal, tile, session str
 	if mw.status != http.StatusOK {
 		var e struct{ Error string }
 		_ = json.Unmarshal(raw, &e)
-		return nil, session, &mcpError{Code: mw.status, Message: fmt.Sprintf("%s answered %d: %s", tile, mw.status, clipText(orStr(e.Error, strings.TrimSpace(string(raw))), 300))}
+		if mw.status == http.StatusForbidden || mw.status == http.StatusNotFound || mw.status == http.StatusUnauthorized {
+			return nil, session, &mcpError{Code: mw.status, HTTP: mw.status, Message: clipText(orStr(orStr(e.Error, strings.TrimSpace(string(raw))), tile+" refused the call"), 300)}
+		}
+		return nil, session, &mcpError{Code: mw.status, HTTP: mw.status, Message: fmt.Sprintf("%s answered %d: %s", tile, mw.status, clipText(orStr(e.Error, strings.TrimSpace(string(raw))), 300))}
 	}
 	if strings.Contains(mw.hdr.Get("Content-Type"), "text/event-stream") {
 		raw = sseData(raw)
@@ -306,11 +327,11 @@ func (t mcpTool) pin() delegation.ToolPin { return delegation.PinOf(t.def, t.Ann
 // tools.
 func (s *Server) mcpOpen(ctx context.Context, p auth.Principal, tile string) (session string, tools []mcpTool, err error) {
 	_, session, err = s.mcpRPC(ctx, p, tile, "", 1, "initialize", map[string]any{
-		"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "xbin-workspace-agent", "version": "1"}})
+		"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "xbin-workspace-agent", "version": "1"}}, true)
 	if err != nil {
 		return "", nil, err
 	}
-	res, session, err := s.mcpRPC(ctx, p, tile, session, 2, "tools/list", map[string]any{})
+	res, session, err := s.mcpRPC(ctx, p, tile, session, 2, "tools/list", map[string]any{}, true)
 	if err != nil {
 		return session, nil, err
 	}
@@ -399,7 +420,9 @@ func (s *Server) mcpJudge(ctx context.Context, p auth.Principal, h delegation.Ag
 		return tool, "", "", http.StatusForbidden, "tile", err.Error()
 	}
 	session, tools, err := s.mcpOpen(ctx, p, c.Server)
-	if err != nil {
+	if why, refused := refusedBy(err); refused {
+		return tool, "", "", http.StatusForbidden, "tile", why
+	} else if err != nil {
 		return tool, "", "", http.StatusBadGateway, "mcp-unreachable", "the MCP server didn't answer: " + err.Error()
 	}
 	i := slices.IndexFunc(tools, func(t mcpTool) bool { return t.Name == c.Tool })
@@ -529,8 +552,13 @@ func (s *Server) apiDelegateMCPCall(w http.ResponseWriter, r *http.Request) {
 	if args == nil {
 		args = map[string]any{}
 	}
-	res, _, err := s.mcpRPC(ctx, p, c.Server, session, 3, "tools/call", map[string]any{"name": c.Tool, "arguments": args})
+	// a tool its server marks read-only is a read: what a tile at agent level "read" takes (mcpJudge let nothing else through for one)
+	res, _, err := s.mcpRPC(ctx, p, c.Server, session, 3, "tools/call", map[string]any{"name": c.Tool, "arguments": args}, tool.Annotations.ReadOnlyHint)
 	s.taint(p, c.Server) // what the tool answered is the tile's data in the conversation
+	if why, refused := refusedBy(err); refused {
+		mcpRefuse(w, row, http.StatusForbidden, "tile", why)
+		return
+	}
 	if err != nil {
 		var me *mcpError
 		if errors.As(err, &me) {

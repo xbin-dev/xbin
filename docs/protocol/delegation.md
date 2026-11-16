@@ -487,8 +487,13 @@ what xbind judged.
   the request says what changed (`preview.changed`: `description`,
   `inputSchema`, `annotations`, …); a ticket for the tool as it was is
   refused (`ticket`). A call the person allowed pins the definition it ran
-  with, so a `readOnlyHint` that appears later asks once. A tile at `"agent": "read"` takes read-only
-  tools only (`403 {refusal: "tile"}`), whatever is approved.
+  with, so a `readOnlyHint` that appears later asks once.
+- **A tile at `"agent": "read"`** takes the reads on its endpoint and the
+  calls of its read-only tools — xbind marks each as a read for the
+  tile's proxy, which takes no other non-GET from an agent there — and
+  nothing else (`403 {refusal: "tile"}`), whatever is approved. A refusal
+  of the tile's rules is said as one (`tile`), never as a server that
+  didn't answer.
 - **What a tool answers is the tile's data**: the conversation is tainted
   with the tile's orgs, as by any read of it. An org whose rule is `mcp:
   "org"` keeps a conversation that holds its data to the MCP tiles under it

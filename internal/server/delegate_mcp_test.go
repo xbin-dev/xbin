@@ -59,6 +59,16 @@ func newMCPRig(t *testing.T) *mcpRig {
 			rw.WriteHeader(404)
 			return
 		}
+		// the proxy's rule for a tile at agent level "read" (proxy.ServeHTTP): a GET, or a POST xbind judged a read
+		w.dWorld.policy.mu.Lock()
+		ro := w.dWorld.policy.readLevel["apps/dice"]
+		w.dWorld.policy.mu.Unlock()
+		if ro && r.Method != http.MethodGet && !auth.AgentRead(r.Context()) {
+			rw.Header().Set("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(rw, `{"error":"apps/dice lets a person's agent read only (its agent level is \"read\")"}`)
+			return
+		}
 		var rq struct {
 			ID     any
 			Method string
@@ -260,6 +270,9 @@ func TestMCPToolCalls(t *testing.T) {
 	}
 	if rec := w.call("roll_dice"); rec.Code != 200 {
 		t.Errorf("a read-only tool on a read-level tile: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := w.rpc(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`); rec.Code != 200 {
+		t.Errorf("a read on a read-level tile's endpoint: %d %s", rec.Code, rec.Body.String())
 	}
 	w.dWorld.policy.set(func(d *dPolicy) { d.readLevel = nil })
 	// an org that keeps its data from servers outside it

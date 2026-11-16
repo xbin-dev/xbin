@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -113,5 +114,61 @@ func TestDelegateCallReachesBackend(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &seen)
 	if rec.Code != 200 || seen["X-Xbin-Agent"] != "" {
 		t.Errorf("alice's own frame: %d, X-XBin-Agent %q", rec.Code, seen["X-Xbin-Agent"])
+	}
+}
+
+// covers D239 — a tile at agent level "read" takes a person's agent's GET,
+// and a POST only when xbind itself judged it a read (an MCP server's read
+// method, a read-only tool's call: auth.WithAgentRead); any other POST is
+// refused before the backend
+func TestDelegateReadLevelTakesXbindsReads(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "apps", "dice", "xbin.json")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(`{"runtime":"go","agent":"read"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg := &registry.Registry{Root: root}
+	if err := reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reached []string
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = append(reached, r.Method+" "+r.URL.Path) })}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	px := &Proxy{Reg: reg, Partitions: &fakeParts{sock: sock, holds: map[string]int{}}, Hub: events.NewHub(), UserLevel: func(uid, tile string) string { return "write" }}
+	px.Route = func(auth.Principal, *registry.Component, string) Decision {
+		return Decision{Deployment: "main", Role: "reader", Partition: "user:alice", CallerPartition: "user:alice", CallerPartitionID: alicePKey,
+			Attribute: &auth.Attribution{UserID: "alice", Level: "write", Role: "reader", Agent: "xbin/agent", ReadOnly: true}}
+	}
+	delegate := auth.Principal{UserID: "alice", Via: "delegate", Agent: "xbin/agent"}
+	do := func(method string, read bool) int {
+		r := httptest.NewRequest(method, "/api/apps/dice/mcp", nil)
+		ctx := auth.WithPrincipal(r.Context(), delegate)
+		if read {
+			ctx = auth.WithAgentRead(ctx)
+		}
+		rec := httptest.NewRecorder()
+		px.ServeHTTP(rec, r.WithContext(ctx))
+		return rec.Code
+	}
+	if c := do("POST", false); c != 403 {
+		t.Errorf("a POST nobody judged a read: %d", c)
+	}
+	if c := do("POST", true); c != 200 {
+		t.Errorf("a POST xbind judged a read: %d", c)
+	}
+	if c := do("GET", false); c != 200 {
+		t.Errorf("a GET: %d", c)
+	}
+	if got := strings.Join(reached, ","); got != "POST /mcp,GET /mcp" {
+		t.Errorf("what reached the backend: %s", got)
 	}
 }

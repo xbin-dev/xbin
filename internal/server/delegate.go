@@ -698,6 +698,9 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		ctx = context.WithValue(ctx, delegateAdminReadKey{}, true)
 	}
 	ctx = context.WithValue(ctx, delegateRowKey{}, &row) // a handler that knows more of the call says it in the row (delegateRowOf)
+	if mcpRead {
+		ctx = auth.WithAgentRead(ctx) // a tile at agent level "read" takes an MCP read as it takes a GET
+	}
 
 	// 7. run it, under a context that ends when it may no longer run: the
 	// call is registered FIRST and judged again after, so a pause that lands

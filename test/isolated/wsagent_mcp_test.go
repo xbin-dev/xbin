@@ -20,6 +20,8 @@ package isolated
 //	go test -tags=integration -count=1 -v -run '^TestWorkspaceAgentMCPTile$' ./test/isolated/
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -126,6 +128,37 @@ func TestWorkspaceAgentMCPTile(t *testing.T) {
 		}
 		if !pref {
 			t.Errorf("alice's log has no mcp row under her preference: %+v", e.audit("alice"))
+		}
+	})
+
+	t.Run("5 a tile at agent level read: its reads and its read-only tools, through the real proxy", func(t *testing.T) {
+		e.in(t)
+		raw, err := os.ReadFile(filepath.Join(d.WS, dice, "xbin.json"))
+		if err != nil || !strings.Contains(string(raw), `"agent": "full"`) {
+			t.Fatalf("apps/dice's manifest: %v %s", err, raw)
+		}
+		d.WriteTile(t, dice, map[string]string{"xbin.json": strings.Replace(string(raw), `"agent": "full"`, `"agent": "read"`, 1)})
+		var got []wsDelegateCall
+		deadline := time.Now().Add(time.Minute) // the lowered level is in force once the manifest is read again
+		for {
+			got = e.asDelegate("alice", alice.handle, "GET /api/xbin/delegate/map", "POST /api/"+dice+`/mcp {"jsonrpc":"2.0","id":1,"method":"tools/list"}`, "POST /api/"+dice+"/other {}")
+			if strings.Contains(got[0].Body, `"agent":"read"`) || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		if !strings.Contains(got[0].Body, `"agent":"read"`) {
+			t.Fatalf("apps/dice's agent level on the map isn't read: %s", got[0].Body)
+		}
+		if got[1].Status != 200 || !strings.Contains(got[1].Body, `"roll_dice"`) {
+			t.Errorf("tools/list on a read-level MCP tile: %d %s", got[1].Status, got[1].Body)
+		}
+		if got[2].Status != 403 {
+			t.Errorf("a POST elsewhere on it: %d %s", got[2].Status, got[2].Body)
+		}
+		turn := alice.say(`ws: mcp_call {"tile":"` + dice + `","tool":"roll_dice","arguments":{"sides":20},"why":"a d20 from a read-level tile"}`)
+		if got := turn.tool("mcp_call", 0); !strings.HasPrefix(got, "roll_dice on "+dice+" answered") || !rolled.MatchString(got) {
+			t.Errorf("a read-only tool on a read-level tile: %q, want the roll", got)
 		}
 	})
 }
