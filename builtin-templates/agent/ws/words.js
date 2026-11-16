@@ -171,8 +171,33 @@ export function requestCard(r, now = Date.now(), tileName = (p) => p) {
     case 'expired': return { ...out, head: 'Expired — not approved within 24 hours.', glyph: 'clock', button: 'Ask again' };
     case 'withdrawn': return { ...out, head: 'Withdrawn by the agent', glyph: 'xmark' };
   }
-  // a change set's end (applied, partial, rejected, …): its result line, else xbin's word
-  return { ...out, head: r.result || (r.state ? `Decided — ${r.state}` : 'Decided'), line: when(r.decidedMs) };
+  // a change set's end (applied, partial, rejected, …): its result line, else xbin's word. A plan's card keeps
+  // each line's outcome (xbin's review closes itself after an Apply in which nothing failed), stays open on a
+  // failure with what to do, and opens the results in xbin
+  const lines = planLines(r);
+  const open = lines.some((l) => l.open);
+  return { ...out, head: r.result || (r.state ? `Decided — ${r.state}` : 'Decided'), line: when(r.decidedMs), lines,
+    ...(lines.length && r.ref ? { button: W.open } : {}),
+    ...(open ? { settled: false, tone: 'bad', glyph: 'error', todo: 'A line was not applied, so the lines after it were skipped; the earlier ones stay. Open it to read why in xbin’s words, then ask your agent for what is left.' } : {}) };
+}
+
+const LINE_WORD = Object.freeze({
+  applied: ['check', 'ok', 'applied'], rejected: ['xmark', '', 'left out'], failed: ['error', 'bad', 'failed'],
+  stale: ['error', 'bad', 'not applied — it changed after you saw it'], skipped: ['xmark', 'warn', 'skipped'], asked: ['clock', '', 'sent to an admin'],
+});
+
+/**
+ * planLines(r): a decided plan's lines as its card lists them (cards →
+ * requests[].lines: xbind's sentence and the outcome of each) — [{n, text,
+ * result, glyph, tone, word, note, open}]; open: it failed, went stale or
+ * was skipped. [] for a row that is no decided plan.
+ */
+export function planLines(r) {
+  return (Array.isArray(r && r.lines) ? r.lines : []).map((l) => {
+    const result = l.result || '';
+    const [glyph, tone, word] = LINE_WORD[result] || (l.needsAdmin ? ['lock', 'warn', 'needs an admin'] : l.blocked || result === 'blocked' ? ['lock', 'warn', 'can’t be applied'] : ['xmark', '', result || 'not applied']);
+    return { n: l.n, text: String(l.line || l.kind || ''), result, glyph, tone, word, note: ['failed', 'stale'].includes(result) ? String(l.error || '') : '', open: ['failed', 'stale', 'skipped'].includes(result) };
+  });
 }
 
 /** grantWords(r, tile): who allowed a request and how wide — "Allowed once by you", "Allowed always, this exact action, by you", "Allowed every change to Invoices until 11:02, by you". */

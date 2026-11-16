@@ -32,7 +32,7 @@ func wsPlanTools() []coordTool {
 			Description: "Propose multi-step work as ONE plan your person reviews once: create tiles, bind their slots, start a tile agent, and any admin change. " +
 				"Use it whenever an outcome takes more than one change that creates or binds something — never a chain of single requests (tile_create, then tile_agent_start, then admin_propose), which is a sheet a step. " +
 				"Nothing is applied: xbin writes what each line does and its warnings; your person ticks lines and applies them in order. A later line may name a tile an earlier tile.create line makes (by its path). " +
-				"Lines your person could do themselves need nothing more; a line that takes an admin's rights (binding the workspace's LLM connector, a grant) is offered to an admin on the review, and for a person who is no admin xbin offers to ask one. " +
+				"Lines your person could do themselves need nothing more; a line that takes an admin's rights (binding the workspace's LLM connector, a grant) starts unticked for an admin, who ticks it on the review themselves, and for a person who is no admin xbin offers to ask one. " +
 				"This returns xbin's description at once and does not wait; the decision reaches you as a workspace update, with each line's result and the tile agents it started.",
 			Parameters: obj([]string{"title", "changes"}, map[string]any{
 				"title": strProp("what the plan is for, in a few words (shown as yours)"),
@@ -56,6 +56,42 @@ type wsPlanMeta struct {
 	Plan    bool           `json:"plan"`
 	Starts  map[int]string `json:"starts,omitempty"`  // line → tile
 	Creates []string       `json:"creates,omitempty"` // the tiles it creates
+	Lines   []wsPlanLine   `json:"lines,omitempty"`   // each line's outcome, once the plan is decided
+}
+
+// wsPlanLine is one line of a decided plan as the conversation's card
+// keeps it: xbind's sentence and what came of it. xbin's review closes
+// itself after an Apply in which nothing failed, so this is where the
+// outcome stays. Every string is xbind's (the agent's own words about a
+// line are not kept here) and cut to a line.
+type wsPlanLine struct {
+	N          int    `json:"n"`
+	Kind       string `json:"kind"`
+	Line       string `json:"line"`
+	Result     string `json:"result,omitempty"`
+	Error      string `json:"error,omitempty"`
+	NeedsAdmin bool   `json:"needsAdmin,omitempty"`
+	Blocked    bool   `json:"blocked,omitempty"`
+}
+
+// wsPlanLines keeps a decided plan's lines with its request row.
+func (ag *Agent) wsPlanLines(r *wsReq, cs wsChangeSet) {
+	var meta wsPlanMeta
+	if json.Unmarshal(r.Body, &meta) != nil || !meta.Plan {
+		return
+	}
+	meta.Lines = meta.Lines[:0]
+	for _, it := range cs.Items {
+		meta.Lines = append(meta.Lines, wsPlanLine{N: it.N, Kind: it.Kind, Line: clip(it.Line, 300), Result: it.Result, Error: clip(it.Error, 300),
+			NeedsAdmin: it.NeedsAdmin, Blocked: it.Blocked != ""})
+	}
+	body, err := json.Marshal(meta)
+	if err != nil {
+		return
+	}
+	if _, err := ag.db.q.Exec(`UPDATE ws_requests SET body=? WHERE id=?`, body, r.ID); err == nil {
+		r.Body = body
+	}
 }
 
 // wsPlanCovers is the open plan of run that already holds this step — a
@@ -221,7 +257,7 @@ func wsPlanProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 		items = append(items, xbin.Change{Kind: ch.Kind, Args: args, Why: clip(strings.TrimSpace(ch.Why), 400)})
 	}
 	if a.DryRun {
-		return fmt.Sprintf("This would propose %d change(s) to your person as one plan. Nothing would be applied: xbin describes each line, they tick what to apply, and xbin applies those in order as them — the lines that take an admin's rights only for an admin who lets you propose those. Nothing was proposed.", len(items)), nil
+		return fmt.Sprintf("This would propose %d change(s) to your person as one plan. Nothing would be applied: xbin describes each line, they tick what to apply, and xbin applies those in order as them — the lines that take an admin's rights only for an admin, who ticks them there themselves. Nothing was proposed.", len(items)), nil
 	}
 	if e := projEng(); e != nil && e.halted() {
 		return "", errors.New("this agent is halted: nothing is proposed until it is resumed")
@@ -259,7 +295,7 @@ func wsPlanNotes(cs wsChangeSet) string {
 		out += "xbin can't apply line " + strings.Join(blocked, ", ") + " as proposed (its reason is above): say so, or propose a plan without it. "
 	}
 	if len(admin) > 0 {
-		out += "Line " + strings.Join(admin, ", ") + " takes an admin's rights: xbin offers your person, on the review, to let you propose such changes, and asks for a recent sign-in. "
+		out += "Line " + strings.Join(admin, ", ") + " takes an admin's rights: it starts unticked, your person ticks it on the review themselves and xbin asks them for a recent sign-in. Of such a line you are told only whether it was applied. "
 	}
 	if len(needs) > 0 {
 		out += "Line " + strings.Join(needs, ", ") + " needs an admin, and your person is none: they can apply the rest and send that line to an admin from the review (\"Ask an admin\") — you can't ask for them. Tell them so in one line. "

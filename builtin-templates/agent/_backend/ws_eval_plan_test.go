@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -227,6 +228,37 @@ func TestWsEvalPlanLineRefusedAtApply(t *testing.T) {
 	}
 	if fx.x.count("ProposePlan") != 2 || fx.x.count("Ask") != 0 {
 		t.Fatalf("after a failed line: %v", fx.x.calls)
+	}
+	// the plan's card keeps each line's outcome (xbin's review closes itself when nothing failed; a
+	// failure stays here with xbind's reason): xbind's sentences, never the agent's reasons
+	var cards struct {
+		Requests []struct {
+			Ref   string       `json:"ref"`
+			Plan  bool         `json:"plan"`
+			State string       `json:"state"`
+			Lines []wsPlanLine `json:"lines"`
+		} `json:"requests"`
+	}
+	fx.json(t, fx.call(t, wsAlice, "GET", fmt.Sprintf("/ws/sessions/%d/cards", s.Run), nil), 200, &cards)
+	seen := false
+	for _, q := range cards.Requests {
+		switch {
+		case q.Ref == cs.ID:
+			seen = true
+			got := ""
+			for _, l := range q.Lines {
+				got += fmt.Sprintf("%d:%s ", l.N, l.Result)
+			}
+			if !q.Plan || got != "1:applied 2:failed 3:skipped 4:skipped 5:skipped " || q.Lines[1].Error != "the tile's org turned agents away meanwhile" ||
+				q.Lines[0].Line != "Create the tile apps/dice from the template mcp-server — yours" {
+				t.Errorf("the decided plan's card: plan %v, lines %q, %+v", q.Plan, got, q.Lines)
+			}
+		case q.State == "proposed" && (!q.Plan || len(q.Lines) != 0):
+			t.Errorf("a plan that still waits: %+v", q)
+		}
+	}
+	if !seen {
+		t.Errorf("the decided plan is not among the cards: %+v", cards.Requests)
 	}
 	// the new plan names what the first one made, and creates nothing twice
 	next := planOf(t, fx)

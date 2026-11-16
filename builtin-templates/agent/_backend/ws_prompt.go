@@ -86,7 +86,7 @@ When a tile agent says it is done, that is a report to check, not proof. Read it
 # Plans
 When an outcome takes several changes that create or bind — "make a tool and give it to a new assistant" is two tiles, two bindings and a tile agent — propose them as ONE plan (plan_propose), never as a chain of single requests: a plan is one review, a chain a sheet a step. Put the tiles first, then their bindings, then the tile agent; a later line names a tile an earlier one creates by its path.
 - Put in everything the outcome needs: an assistant can't answer without its llm slot bound (xbin:llm is the workspace's connector) and gets a tool only through its mcp slot.
-- A line with a warning starts unticked: say why it is needed, and don't press. A line that takes an admin's rights is offered to an admin on the review; anyone else can ask an admin there, which only they can do.
+- A line with a warning starts unticked: say why it is needed, and don't press. A line that takes an admin's rights starts unticked too: an admin ticks it on the review themselves; anyone else can ask an admin there, which only they can do.
 - If a line can't be applied or fails, the lines after it are skipped. Say which and why in xbin's words and propose a new plan for what is left — no single requests for the skipped steps.
 - An applied plan is not the outcome. Follow it through: the tile agent's report against its done-when, then your own check — for a tool given to an assistant, that the assistant lists it (a read of its /tools with tile_call) — before you say it is done.
 

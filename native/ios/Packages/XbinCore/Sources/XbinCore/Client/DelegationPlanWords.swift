@@ -19,7 +19,6 @@ public enum PlanWords {
     public enum LineState: String, Sendable {
         case ok, blocked, decided, unknown
         case needsAdmin = "needs-admin"
-        case optIn = "opt-in"
     }
 
     private static func plural(_ n: Int, _ one: String) -> String { "\(n) \(n == 1 ? one : one + "s")" }
@@ -28,14 +27,14 @@ public enum PlanWords {
         return s.count < 2 ? s.joined() : "\(s.dropLast().joined(separator: ", ")) and \(s[s.count - 1])"
     }
 
-    /// `asked`: the set is a request from another person (no opt-in of
-    /// one's own applies to it).
-    public static func lineState(_ item: AdminChangeSet.Item, state: DelegateState?, asked: Bool = false) -> LineState {
+    /// An admin's line of an admin's own plan is `.ok`: their tick and
+    /// their Apply (on a recent sign-in, xbind's rule) are the consent for
+    /// that line.
+    public static func lineState(_ item: AdminChangeSet.Item) -> LineState {
         if !knownKind(item.kind) { return .unknown }
         if !item.result.isEmpty { return .decided }
         if !item.blocked.isEmpty { return .blocked }
         if item.needsAdmin { return .needsAdmin }
-        if item.admin, !asked, !(state?.adminChanges ?? false) { return .optIn }
         return .ok
     }
 
@@ -59,18 +58,23 @@ public enum PlanWords {
 
     /// The person may tick it now: nothing stands in its way, and every
     /// line it needs is ticked or applied.
-    public static func canTick(_ c: AdminChangeSet, ticks: [Int], item: AdminChangeSet.Item, state: DelegateState?, asked: Bool = false) -> Bool {
-        guard lineState(item, state: state, asked: asked) == .ok else { return false }
+    public static func canTick(_ c: AdminChangeSet, ticks: [Int], item: AdminChangeSet.Item) -> Bool {
+        guard lineState(item) == .ok else { return false }
         return item.needs.allSatisfy { ticks.contains($0) || result(c, $0) == "applied" }
     }
 
     /// The lines ticked when the review opens: never one with a warning,
-    /// one that can't be ticked, or one whose needed line isn't ticked.
-    public static func planTicks(_ c: AdminChangeSet, state: DelegateState?, asked: Bool = false) -> [Int] {
+    /// one that can't be ticked, or one whose needed line isn't ticked —
+    /// and never an admin's line of the person's own plan: ticking it is
+    /// how an admin consents to it. (A request from another person is all
+    /// admin lines, opened to apply them: those start as any line does.)
+    public static func planTicks(_ c: AdminChangeSet) -> [Int] {
         var ticks: [Int] = []
+        let asked = !c.from.isEmpty
         for it in c.items {
             if AgentChoices.warnedStartUnticked, !it.warnings.isEmpty { continue }
-            if canTick(c, ticks: ticks, item: it, state: state, asked: asked) { ticks.append(it.n) }
+            if it.admin, !asked { continue }
+            if canTick(c, ticks: ticks, item: it) { ticks.append(it.n) }
         }
         return ticks
     }
@@ -83,23 +87,38 @@ public enum PlanWords {
         return ticks.filter { !gone.contains($0) }
     }
 
-    /// Ticks that still stand (after the opt-in changed), in order.
-    public static func keepTicks(_ c: AdminChangeSet, ticks: [Int], state: DelegateState?, asked: Bool = false) -> [Int] {
+    /// Ticks that still stand, in order.
+    public static func keepTicks(_ c: AdminChangeSet, ticks: [Int]) -> [Int] {
         var out: [Int] = []
-        for it in c.items where ticks.contains(it.n) && canTick(c, ticks: out, item: it, state: state, asked: asked) { out.append(it.n) }
+        for it in c.items where ticks.contains(it.n) && canTick(c, ticks: out, item: it) { out.append(it.n) }
         return out
     }
 
+    /// How long a plan's results stay up before its review closes itself.
+    public static let closeAfter: TimeInterval = 1.8
+    /// What the results say while they close themselves.
+    public static let closingWords = "Applied. This closes by itself — each line’s outcome stays in the conversation."
+
+    /// After Apply the review needs no tap to end: it is the person's own
+    /// plan (the conversation's card keeps each line's outcome), every
+    /// line they chose was applied, and nothing is left to do here (a line
+    /// still to send to an admin). A failure keeps the results open.
+    public static func closesItself(_ c: AdminChangeSet, chosen: [Int]) -> Bool {
+        guard c.plan, c.from.isEmpty, c.undoOf.isEmpty, !chosen.isEmpty else { return false }
+        if c.items.contains(where: { $0.needsAdmin && $0.result.isEmpty }) { return false }
+        return chosen.allSatisfy { result(c, $0) == "applied" }
+    }
+
     /// What the review says under a line, beside xbind's own words.
-    public static func lineNotes(_ c: AdminChangeSet, item: AdminChangeSet.Item, state: DelegateState?, asked: Bool = false)
+    public static func lineNotes(_ c: AdminChangeSet, item: AdminChangeSet.Item)
         -> (tag: String, needs: String, neededBy: String, why: String) {
-        let st = lineState(item, state: state, asked: asked)
+        let st = lineState(item)
         let by = neededBy(c, item.n)
         let why: String
         switch st {
         case .unknown: why = "This page is older than this xbin and does not know this kind of change. Reload the page to review it."
         case .needsAdmin: why = "Not yours to apply: it takes an admin’s rights. xbin shows what it would change to an admin."
-        case .optIn: why = "An admin change: tick it once you let your agent propose those (above)."
+        case .ok where item.admin: why = "An admin change — applied as you."
         default: why = ""
         }
         return (item.needsAdmin ? "needs an admin" : item.admin ? "admin" : "",
@@ -115,17 +134,9 @@ public enum PlanWords {
         public var footer: String
         public var apply: String
         public var reject: String
-        /// The switch to offer on the review (nil: none).
-        public var optIn: OptIn?
         /// The Ask an admin row (nil: no line waits for an admin).
         public var ask: Ask?
         public var byHand: [String]
-
-        public struct OptIn: Sendable, Equatable {
-            public var text: String
-            public var label: String
-            public var note: String
-        }
 
         public struct Ask: Sendable, Equatable {
             public var text: String
@@ -135,19 +146,13 @@ public enum PlanWords {
         }
     }
 
-    /// The review's bar, heading, intro, footer, Apply button, and what it
-    /// says about admin lines.
-    public static func planWords(_ c: AdminChangeSet, ticks: [Int], state: DelegateState?) -> Words {
+    /// The review's bar, heading, intro, footer, Apply button, and the Ask
+    /// an admin row for lines that take an admin the person is not.
+    public static func planWords(_ c: AdminChangeSet, ticks: [Int]) -> Words {
         let total = c.items.count, n = ticks.count
         let asked = !c.from.isEmpty
-        let admin = c.items.filter { $0.admin && !$0.needsAdmin && $0.blocked.isEmpty && $0.result.isEmpty }.count
         let waits = c.items.filter { $0.needsAdmin && $0.result.isEmpty }
         let blockedBy = Set(waits.flatMap { $0.needs.filter { result(c, $0) != "applied" } }).sorted()
-        var optIn: Words.OptIn?
-        if !asked, admin > 0, let st = state, st.canAdminChanges, !st.adminChanges {
-            optIn = .init(text: "This plan has \(plural(admin, "admin change")).", label: "Let my agent propose admin changes",
-                          note: "It can then read grants, bindings, org shares and limits, and propose changes to them. Nothing is applied until you tick it and press Apply; you can turn this off in Preferences.")
-        }
         var ask: Words.Ask?
         if !waits.isEmpty {
             ask = .init(text: "\(plural(waits.count, "line")) \(waits.count == 1 ? "needs" : "need") an admin.", button: "Ask an admin", can: blockedBy.isEmpty,
@@ -165,7 +170,7 @@ public enum PlanWords {
             footer: "\(n) of \(total) ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
             apply: n > 0 ? "Apply \(plural(n, "change"))…" : "Apply none",
             reject: asked ? "Decline" : "Reject all",
-            optIn: optIn, ask: ask, byHand: c.byHand)
+            ask: ask, byHand: c.byHand)
     }
 
     /// An agent.start line as a single start's sheet draws it

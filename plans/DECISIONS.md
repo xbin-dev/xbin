@@ -5397,11 +5397,28 @@ here: cut from the old end, never reword.
     delegate-clamped check — and an org only where they hold Create), a
     binding between tiles they own (D88; never `xbin:llm` or a named set),
     a start. Grants, org shares and limits stay an admin's whoever asks.
-    Personal lines apply with no opt-in and no step-up, and only while
-    they are still personal (`TestPersonalLinesNeedNoAdmin`,
-    `TestPersonalLineThatBecameAnAdmins`). An admin's line needs
-    `adminChanges` (offered on the review: `403 {optIn}`) and a recent
-    sign-in.
+    Personal lines apply with no step-up, and only while they are still
+    personal (`TestPersonalLinesNeedNoAdmin`,
+    `TestPersonalLinesOnPlannedTilesNeedNoAdmin`,
+    `TestPersonalLineThatBecameAnAdmins`). An admin's line needs a recent
+    sign-in and the admin's own tick (it starts unticked, "applied as
+    you"): that is the consent for that line of that plan. The standing
+    opt-in (`adminChanges`) is not asked for on a plan's review — first it
+    was offered there, a click the owner's bar counts — and stays what
+    lets an agent READ admin state: of a line that takes an admin, or that
+    xbind can't apply, the agent, its conversation and its page read
+    xbind's sentence and the result, nothing of the state behind it,
+    unless the person opted in (`TestPlanShowsTheAgentNoAdminState`).
+  - **No Done.** After an Apply in which every chosen line was applied
+    the review closes itself and the conversation's card keeps each
+    line's outcome; a failure keeps the results open until the person
+    closes them.
+  - **A creation says what the template gives.** The line's effects are
+    read from the template's manifest — a use of something in the scope
+    the tile lands in is its own grant, so it is a warning (`ACCESS`), as
+    are endpoints for the outside (`EXPOSES`) — and the line is pinned to
+    that manifest (`pin`), as a start is to its network and API access: a
+    template edited, or a start resolving differently, by Apply is stale.
   - **Needs an admin.** For a person who is no admin such a line carries
     xbind's sentence and nothing of the state behind it (an agent could
     otherwise read bindings it may not see by proposing them), can't be

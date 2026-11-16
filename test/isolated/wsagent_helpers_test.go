@@ -103,7 +103,13 @@ func (e *wsEnv) in(t *testing.T) {
 // registered as the provider "fake" (its binary in wsNoteTile's own
 // directory, which that tile's sandbox mounts at the same path) and
 // hack/fakeopenai connected as the LLM connector's one upstream.
-func startWsAgent(t *testing.T) *wsEnv {
+func startWsAgent(t *testing.T) *wsEnv { return startWsAgentAt(t, wsNoteTile) }
+
+// startWsAgentAt is startWsAgent with the scripted coding agent's binary in
+// fakeTile's directory — which need not be a tile yet: a tile a plan
+// creates there finds it in its sandbox (a real coding agent comes from
+// the rootfs, and needs no such thing).
+func startWsAgentAt(t *testing.T, fakeTile string) *wsEnv {
 	t.Helper()
 	a := xbindtest.Require(t)
 	if a.Gocryptfs == "" {
@@ -116,7 +122,7 @@ func startWsAgent(t *testing.T) *wsEnv {
 	}
 	t.Cleanup(func() { xbindtest.RemoveTree(dir) }) // after the daemon's own cleanup
 	ws := filepath.Join(dir, "ws")
-	acp := filepath.Join(ws, wsNoteTile, ".bin", "fakeacp")
+	acp := filepath.Join(ws, fakeTile, ".bin", "fakeacp")
 	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true, Production: true, WS: ws,
 		Env: []string{"XBIN_VAULT_PASSPHRASE=xbindtest-vault", "XBIN_AGENT_FAKE=" + acp}})
 	if err := os.MkdirAll(filepath.Dir(acp), 0o755); err != nil {
@@ -210,6 +216,7 @@ func (e *wsEnv) request(person, id string) wsRequest {
 // wsAuditRow is a row of a person's log (GET /delegate/audit).
 type wsAuditRow struct {
 	User, Agent, Method, Path, Tile, Class, Refused, Ticket, Under, Session string
+	From, By                                                                string // a line an admin applied at another person's request
 	Status                                                                  int
 	Effect, DryRun                                                          bool
 }
@@ -453,6 +460,11 @@ type wsCards struct {
 		Kind, Ref, CallID, Tile, Title, Method, Path, State, Outcome string
 		By, Via, Grant, Result                                       string
 		ResultStatus                                                 int
+		Plan                                                         bool
+		Lines                                                        []struct { // a decided plan's lines
+			N                         int
+			Kind, Line, Result, Error string
+		}
 	}
 	Agents []struct {
 		ID, Request                                                 int64 // Request: the request that started it

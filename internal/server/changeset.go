@@ -317,9 +317,14 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// a plan: what was chosen must be the person's to apply, with the lines
-	// it needs; only an admin's line takes the opt-in and the step-up
-	// (plan.go). A request from another person is an admin's act: the
-	// step-up, no opt-in (it isn't their agent's proposal).
+	// it needs; only an admin's line takes the step-up (plan.go). An admin
+	// who ticks an admin's line and applies it, on a recent sign-in, has
+	// consented to that line of that plan: the standing opt-in
+	// (adminChanges) is what lets the agent READ admin state and propose
+	// admin-only change sets, and is not asked for here — without it the
+	// agent proposed the line blind and learns of it only whether it was
+	// applied (setFor). A request from another person is an admin's act
+	// too: the step-up.
 	stepUp := true
 	if cs.Plan {
 		admin, refusal := planChosen(cs, chosen)
@@ -327,11 +332,7 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusBadRequest, refusal, delegationDocs)
 			return
 		}
-		if stepUp = admin || cs.From != ""; admin && cs.From == "" && cs.Agent != "" && (!mayOptInAdmin(personOf(a.p)) || !s.Delegation.State(a.user).AdminChanges) && !s.devOwner(a.p) {
-			WriteJSON(w, http.StatusForbidden, map[string]any{"error": "this plan has admin changes: they are applied only for an admin who lets their agent propose admin changes — turn that on (the review offers it), or leave those lines out",
-				"optIn": true, "docs": delegationDocs})
-			return
-		}
+		stepUp = admin || cs.From != ""
 	}
 	// the step-up — except under --dev / --no-auth, where an agent is being
 	// developed and (--no-auth) nobody signs in at all

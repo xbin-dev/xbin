@@ -361,6 +361,11 @@ type wsReq struct {
 	ResultStatus int    `json:"resultStatus,omitempty"`
 	Result       string `json:"result,omitempty"`
 	Expires      int64  `json:"expiresMs,omitempty"`
+	// A plan's row, for the page's card (handleWsCards fills them from the
+	// row's body): Plan says it is one, Lines each line's outcome once it
+	// is decided.
+	Plan  bool         `json:"plan,omitempty"`
+	Lines []wsPlanLine `json:"lines,omitempty"`
 }
 
 // open: nothing came of it yet.

@@ -805,9 +805,14 @@ and its items carry, beside a change set's:
   it is one the person could do with their own hands and no admin: a
   creation their own rule allows, a binding between tiles they own
   (never `xbin:llm` or a named set), a tile agent's start. An approval
-  whose chosen lines are all personal needs no opt-in and no recent
-  sign-in. One that holds an `admin` line needs `adminChanges` on (`403
-  {error, optIn: true}` — the review offers the switch) and the step-up.
+  whose chosen lines are all personal needs no recent sign-in. One that
+  holds an `admin` line needs the step-up and nothing else: an admin who
+  ticks that line (it starts unticked on xbin's review) and applies it has
+  consented to that line of that plan. The standing opt-in
+  (`adminChanges`) is not asked for and not turned on — it remains what
+  lets an agent read admin state and propose through `POST
+  /delegate/changesets`; without it the agent proposed the line blind and
+  reads of it only its result (below).
   A personal line is applied only while it still is one.
 - **`needsAdmin`** — an `admin` line of a person who is no admin. It
   carries xbind's `line` and nothing of the state behind it, and can't be
@@ -815,7 +820,7 @@ and its items carry, beside a change set's:
   applied, to every workspace admin as a change set `from` that person
   (`askOf`, `askId`; each item's `of` is its number in the asker's set),
   described as that admin would apply it. An admin applies it with a
-  recent sign-in (no opt-in: it is not their agent's proposal) or rejects
+  recent sign-in or rejects
   it; the first to decide ends the others' copies (`withdrawn`,
   `decidedBy`) and the results come back to the asker's lines. Only the
   admin's own session reads a set that is `from` someone. At most 3 of a

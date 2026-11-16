@@ -15,9 +15,10 @@
 // example tool is roll_dice: nothing to build), plan_propose, wait, then
 // check the hook-up itself by reading the assistant's GET /tools.
 //
-// What the review costs is what this pass counts: Review…, the opt-in for
-// admin changes offered on the review (the first time; the model's binding
-// is an admin's), the tick of the line with the SPEND warning, Apply, Done.
+// What the review costs is what this pass counts: Review…, the tick of the
+// model's binding (an admin's line, with its SPEND warning: it starts
+// unticked, and the admin's own tick is the consent for it), Apply. The
+// results show in place and the review closes itself into the plan's card.
 // The person's own roll in the assistant comes after the agent's "done" and
 // is counted apart. Then, not counted, a second plan with a tile agent's
 // start (the scripted ACP agent): the start line as the single start's
@@ -113,20 +114,14 @@ async function journeyAgent(browser) {
     const notes = await page.$$eval(`${DLG} .item`, (els) => els.map((e) => `${(e.querySelector('[data-admin]') || { dataset: {} }).dataset.admin || '-'}|${(e.querySelector('[data-needs]') || {}).textContent || ''}`));
     check(/^-\|Needed by line 4/.test(notes[0]) && /^-\|Needed by line 3 and 4/.test(notes[1]) && /^admin\|Needs line 2/.test(notes[2]) && /^-\|Needs line 1 and 2/.test(notes[3]),
       `each line says which lines it needs and which need it; the admin's is marked (${JSON.stringify(notes)})`);
-    check(await page.$eval(`${DLG} .item[data-n="3"] input`, (e) => e.disabled) && !!(await page.$(`${DLG} [data-optin]`)) && /This plan has 1 admin change\. Let my agent propose admin changes\?/.test(review),
-      'the admin line can\'t be ticked yet: the review itself offers "Let my agent propose admin changes" (no trip to Preferences)');
+    check(!(await page.$eval(`${DLG} .item[data-n="3"] input`, (e) => e.disabled)) && !(await page.$(`${DLG} [data-optin]`)) && !/Let my agent propose admin changes/.test(review)
+      && /An admin change — applied as you\./.test(await page.$eval(`${DLG} .item[data-n="3"] [data-why]`, (e) => e.textContent)),
+    'the admin line is the admin\'s to tick, "applied as you": no switch to turn on first, here or in Preferences');
     await planShot('review');
     // unticking a line unticks the lines that need it (and ticking them back is the person's)
     await page.uncheck(`${DLG} .item[data-n="1"] input`);
     check((await ticksOf()) === '1- 2+ 3- 4-', `unticking the dice tile unticks the binding that needs it (${await ticksOf()})`);
     await page.check(`${DLG} .item[data-n="1"] input`); await page.check(`${DLG} .item[data-n="4"] input`);
-    await J.click('the review: "Let my agent propose admin changes" (offered here the first time)', async () => {
-      await page.waitForSelector(`${DLG} [data-optin] input[aria-disabled="false"]`, { timeout: 20000 });
-      await page.click(`${DLG} [data-optin] input`);
-      await page.waitForFunction(async () => (await (await fetch('/api/xbin/delegate/state')).json()).adminChanges === true, null, { timeout: 20000, polling: 300 });
-      await page.waitForSelector(`${DLG} .item[data-n="3"] input:not([disabled])`, { timeout: 20000 });
-    });
-    check((await ticksOf()) === '1+ 2+ 3- 4+' && !(await page.$(`${DLG} [data-optin]`)), 'the opt-in ticks nothing by itself');
     await J.click('the review: tick the llm binding (it starts unticked: it spends the workspace\'s quota)', () => page.check(`${DLG} .item[data-n="3"] input`));
     await planShot('review-ticked');
     await J.click('the review: "Apply 4 changes…"', async () => { await page.click(`${DLG} button[data-apply][aria-disabled="false"]`, { timeout: 20000 }); await page.waitForSelector(`${DLG} [role="dialog"]:is([data-view="results"], [data-view="stepup"])`, { timeout: 180000 }); });
@@ -135,10 +130,17 @@ async function journeyAgent(browser) {
       await J.field('the review: the password (a recent sign-in)', () => page.fill(`${DLG} #pw`, PERSON.password));
       await J.click('the review: apply', async () => { await page.click(`${DLG} button[data-apply][aria-disabled="false"]`); await page.waitForSelector(`${DLG} [role="dialog"][data-view="results"]`, { timeout: 180000 }); });
     } else J.hand(2, 'applying an admin\'s line asks for the password when the sign-in is older than ten minutes: one field and one click (a plan of personal lines never asks)');
-    const results = await page.$$eval(`${DLG} .item [data-result]`, (els) => els.map((e) => e.dataset.result).join(' '));
-    check(results === 'applied applied applied applied' && /All 4 changes applied/.test(await dlg()), `the plan applied in order (${results})`);
+    // the results show in place and the review closes itself: nothing failed, so there is nothing to press
+    const shown = await page.evaluate(() => { const r = document.querySelector('bx-agent-changes').shadowRoot; return { results: [...r.querySelectorAll('.item [data-result]')].map((e) => e.dataset.result).join(' '), text: r.querySelector('[role="dialog"]').innerText.replace(/\s+/g, ' '), done: !!r.querySelector('button[data-done]'), closing: !!r.querySelector('[data-closing]') }; });
+    check(shown.results === 'applied applied applied applied' && /All 4 changes applied/.test(shown.text) && shown.closing && !shown.done, `the plan applied in order, and its results ask for no click (${shown.results})`);
     await planShot('results');
-    await J.click('the results: "Done"', () => page.click(`${DLG} button[data-done]`));
+    await J.wait('the review closes itself into the plan\'s card', () => page.waitForFunction(() => !document.querySelector('bx-agent-changes'), null, { timeout: 10000 }));
+    await f.waitForSelector('.wsc-req[data-kind="changeset"] [data-lines] li[data-result]', { timeout: 30000 });
+    const kept = await f.$$eval('.wsc-req[data-kind="changeset"] [data-lines] li', (els) => els.map((e) => `${e.dataset.n}:${e.dataset.result}`).join(' '));
+    const card = (await f.locator('.wsc-req[data-kind="changeset"]').last().innerText()).replace(/\s+/g, ' ');
+    check(kept === '1:applied 2:applied 3:applied 4:applied' && card.includes(`Bind ${ASSISTANT}'s mcp to ${J0.DICE}`) && /4 of 4 changes applied/.test(card), `the plan's card in the conversation keeps each line's outcome (${kept})`);
+    await page.screenshot({ path: path.join(J0.SHOTS, 'plan-card.png') }).catch(() => {});
+    check(((await call('GET', '/delegate/state')).data || {}).adminChanges !== true, 'applying an admin\'s line of a plan did not turn on "Let my agent propose admin changes": that stays the person\'s, in Preferences');
     const b = ((await call('GET', '/bindings')).data || {}).bindings || {};
     const owners = (((await call('GET', '/components')).data || {}).components || []).filter((c) => [J0.DICE, ASSISTANT].includes(c.path)).map((c) => `${c.path}:${c.owner || ''}`).join(' ');
     check(!!b[ASSISTANT] && String(b[ASSISTANT].llm) === 'xbin:llm' && String(b[ASSISTANT].mcp) === J0.DICE, `the plan made the tiles and bound the assistant's slots: ${JSON.stringify(b[ASSISTANT])} (${owners})`);
@@ -174,14 +176,14 @@ async function journeyAgent(browser) {
     await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"] .item[data-kind="agent.start"] [data-start]`, { timeout: 20000 });
     const sr = await dlg();
     check(/Start a tile agent in apps\/dice — Fake agent \(tests\), in its mode/.test(sr) && /ASKS BEFORE ACTING/i.test(sr) && /Coding agent Fake agent \(tests\)/.test(sr) && sr.includes(START.changes[0].args.done_when) && /sent exactly like this/.test(sr)
-      && (await ticksOf()) === '1+' && !(await page.$(`${DLG} [data-optin]`)),
-    `a start as a plan's line: the coding agent, the mode xbind vouches for, the brief as sent — a personal line, ticked, no opt-in asked (${sr.slice(0, 200)})`);
+      && (await ticksOf()) === '1+',
+    `a start as a plan's line: the coding agent, the mode xbind vouches for, the brief as sent — a personal line, ticked (${sr.slice(0, 200)})`);
     await planShot('start');
     await page.click(`${DLG} button[data-apply][aria-disabled="false"]`, { timeout: 20000 });
     await page.waitForSelector(`${DLG} [role="dialog"][data-view="results"]`, { timeout: 120000 });
     check((await page.getAttribute(`${DLG} .item [data-result]`, 'data-result')) === 'applied', `the start applied with no sign-in step: a plan of personal lines asks for none (${(await dlg()).slice(0, 160)})`);
     await planShot('start-results');
-    await page.click(`${DLG} button[data-done]`);
+    await page.waitForFunction(() => !document.querySelector('bx-agent-changes'), null, { timeout: 10000 }); // it closes itself
     const sess = [].concat((await call('GET', '/term/sessions?origin=agent&compact=1')).data || []).filter((x) => x && x.cwd === J0.DICE);
     check(sess.length === 1 && sess[0].provider === 'fake', `the tile agent runs in ${J0.DICE}, started by the plan (${JSON.stringify(sess.map((x) => `${x.provider}:${x.status}`))})`);
     await f.waitForFunction(() => /tile agent #1|Fake agent/.test(document.querySelector('.wsp-main').innerText), null, { timeout: 60000 }).catch(() => {});

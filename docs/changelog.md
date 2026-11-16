@@ -15,18 +15,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the
   web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
   generated vectors): lines that create a tile or start a tile agent, what
-  a line needs and what needs it, an admin's line behind the opt-in the
-  review offers, "needs an admin" with Ask an admin, and a request from
-  another person. A line of a kind the app doesn't know is shown and can't
+  a line needs and what needs it, an admin's line ("applied as you": it
+  starts unticked, and the admin's own tick is the consent for it), "needs
+  an admin" with Ask an admin, and a request from another person. After an
+  Apply in which nothing failed the sheet closes itself; a failure stays
+  until it is closed. A line of a kind the app doesn't know is shown and can't
   be ticked. A change's before and after are xbind's words.
 - workspace agent's chrome (web): **a plan is reviewed once.** The
   change-set dialog draws a plan's lines — a tile's creation, a tile
   agent's start with its coding agent, mode and the brief "sent exactly
   like this", bindings — with what each line needs and what needs it
-  (unticking a line unticks those). An admin's line is marked; an admin
-  who has not let their agent propose admin changes is offered that switch
-  on the review (no trip to Preferences), and anyone else sees "needs an
-  admin" with **Ask an admin**. An admin sees such a request in Needs you
+  (unticking a line unticks those). An admin's line is marked, starts
+  unticked and reads "An admin change — applied as you": ticking it and
+  pressing Apply (with a recent sign-in) is the consent for that line —
+  "Let my agent propose admin changes" is not asked for and stays what it
+  was, in Preferences. Anyone else sees "needs an admin" with **Ask an
+  admin**. After Apply the results show in place and, when every chosen
+  line was applied, the review closes itself (`bx-agent-done` with `self:
+  true`); a failure keeps it open with **Close**. An admin sees such a request in Needs you
   as "<person> asks for N admin changes". A line of a kind the page
   doesn't know is shown and can't be ticked. New module
   `/vendor/agent-plan-words.js` ([frontend-kit.md](/docs/frontend-kit.md));
@@ -42,7 +48,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   done. The tile agents a plan starts become the conversation's to follow.
   While a plan waits, `tile_create` and `tile_agent_start` for one of its
   steps file nothing. `tile_create`, `tile_agent_start` and `admin_propose`
-  work as before (the template's `API.md` §Workspace mode → Plans).
+  work as before (the template's `API.md` §Workspace mode → Plans). A
+  decided plan's card in the conversation keeps each line's outcome (`GET
+  /ws/sessions/<id>/cards` → `requests[].plan`, `lines: [{n, kind, line,
+  result?, error?, needsAdmin?, blocked?}]`), stays marked when a line
+  failed, and opens xbin's results.
 - delegation: **plans — multi-step work is one change set.** `POST
   /delegate/plans` (a person's agent, no opt-in to propose) takes the
   admin kinds and two new ones, `tile.create {template, path, owner?}` and
@@ -50,17 +60,28 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tile an earlier line creates (described from the template's manifest,
   checked against the tile when applied; lines apply in order, a line with
   the lines it `needs`). Each line is the person's own to do or an
-  `admin`'s: an approval of personal lines needs no opt-in and no recent
-  sign-in, one with an admin's line needs both (`403 {optIn: true}`; the
-  review offers the switch). For a person who is no admin such a line is
+  `admin`'s: an approval of personal lines needs no recent sign-in, one
+  with an admin's line needs one and nothing else — the admin's tick and
+  Apply are the consent for that line, and of a line that takes an admin
+  the agent reads only xbind's sentence and its result unless the person
+  turned `adminChanges` on. For a person who is no admin such a line is
   `needsAdmin` — xbind's sentence and nothing of the state behind it — and
   `POST /delegate/changesets/<id>/ask` sends it to the admins as a change
   set `from` that person. Additive: the two routes; on a change set `plan`,
   `session`, `from`, `askOf`, `askId`, `decidedBy`, `byHand`; on an item
   `admin`, `needsAdmin`, `needs`, `deferred`, `start`, `out`, `undoByHand`,
-  `of` and the result `asked`. `POST /delegate/changesets` and the sets it
-  makes are as they were ([protocol/delegation.md](/docs/protocol/delegation.md)
-  §Plans).
+  `of`, `pin` and the result `asked`. A `tile.create` line says what the
+  template gives the new tile — `ACCESS:` and `EXPOSES:` warnings where it
+  gains access by being created or declares endpoints for the outside —
+  and is stale when the template changed since; a start is pinned to its
+  network and API access too. `…/ask {retract: true}` takes a request
+  back. Audit rows gain `from` and `by` for a line an admin applied at
+  another person's request. A tile's `"agent"` level is about calls to
+  its API and reads of its data: a plan's line about a `read` tile is
+  proposed and says so; `off` refuses a line on either side. `POST
+  /delegate/changesets` and the sets it makes are as they were
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §Plans, §A
+  tile's agent level, §The audit log).
 - delegation: **an admin's workspace agent can create a tile, and a dry
   run says what the real call does.** Under delegation a creation that
   names no owner is the person's (`user:<id>`) for an admin too — it was

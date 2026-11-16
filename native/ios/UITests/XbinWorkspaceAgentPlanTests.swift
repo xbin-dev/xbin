@@ -7,10 +7,11 @@ import XCTest
 /// words' vectors are made of — in light and in dark:
 ///
 /// - an admin who never opted in: the personal lines ticked, the admin's
-///   line not tickable until "Let my agent propose admin changes" (offered
-///   on the review, armed) is on — which ticks nothing by itself; a line
-///   says what it needs and what needs it, and unticking it unticks those;
-///   a start line shows the coding agent, the mode and the brief;
+///   line unticked and theirs to tick ("applied as you") with no switch to
+///   turn on; a line says what it needs and what needs it, and unticking
+///   it unticks those; a start line shows the coding agent, the mode and
+///   the brief; after Apply (and xbind's recent-sign-in step) the results
+///   show in place and the sheet closes itself;
 /// - a person who is no admin: "needs an admin", xbind's line only, never
 ///   tickable; Ask an admin after the rest is applied;
 /// - an admin asked by someone else: who asks, a warned line unticked.
@@ -51,30 +52,45 @@ final class XbinWorkspaceAgentPlanTests: XCTestCase {
             XCTAssertTrue(e.containing("xbin plan, asking").exists || e.containing("XBIN · PLAN").exists, "the bar says it is xbin's sheet for a plan")
             XCTAssertTrue(tick(e, 1).label.hasPrefix("Change 1 of 5, selected. Create the tile apps/dice"), tick(e, 1).label)
             XCTAssertTrue(tick(e, 1).label.contains("Needed by line 4 and 5") && tick(e, 1).label.contains("Before: nothing at apps/dice"), tick(e, 1).label)
-            XCTAssertTrue(tick(e, 3).label.hasPrefix("Change 3 of 5, can't be selected."), "an admin's line before the opt-in: \(tick(e, 3).label)")
-            XCTAssertTrue(tick(e, 3).label.contains("admin") && tick(e, 3).label.contains("Warning, spend"), tick(e, 3).label)
-            XCTAssertFalse(tick(e, 3).isEnabled, "…can't be ticked")
+            // an admin's line: unticked, the admin's own to tick, "applied as you" — the review asks for no switch
+            XCTAssertTrue(tick(e, 3).label.hasPrefix("Change 3 of 5, not selected."), "an admin's line starts unticked: \(tick(e, 3).label)")
+            XCTAssertTrue(tick(e, 3).label.contains("An admin change — applied as you") && tick(e, 3).label.contains("Warning, spend"), tick(e, 3).label)
+            XCTAssertTrue(tick(e, 3).isEnabled, "…and is theirs to tick")
             let apply = e.app.buttons.matching(identifier: "changeset-allow").firstMatch
             XCTAssertEqual(apply.label, "Apply 4 changes…")
-            let optIn = e.app.buttons.matching(identifier: "changeset-optin").firstMatch
-            XCTAssertTrue(optIn.exists, "the opt-in is offered on the review")
-            XCTAssertTrue(e.containing("This plan has 1 admin change.").exists)
+            XCTAssertFalse(e.app.buttons.matching(identifier: "changeset-optin").firstMatch.exists, "no switch is offered on the review")
+            XCTAssertFalse(e.containing("Let my agent propose admin changes").exists)
             shot(e, "plan-review")
             // unticking the dice tile unticks the binding and the start that need it
             tick(e, 1).tap()
             XCTAssertTrue(e.until(10) { apply.label == "Apply 1 change…" }, "unticking a line unticks the lines that need it: \(apply.label)")
             tick(e, 1).tap()
-            // the opt-in: armed, the person's own tap — and it ticks nothing
-            XCTAssertTrue(e.until(15) { optIn.isEnabled }, "the opt-in arms")
-            optIn.tap()
-            XCTAssertTrue(e.until(15) { !optIn.exists && tick(e, 3).isEnabled }, "after the opt-in the admin's line can be ticked")
-            XCTAssertTrue(tick(e, 3).label.hasPrefix("Change 3 of 5, not selected."), "…and was not ticked for them: \(tick(e, 3).label)")
             // the start line: the mode xbind vouches for, the coding agent, the brief as sent
             let brief = e.element("changeset-brief-5")
             e.wsScrollTo(tick(e, 5))
             XCTAssertTrue(e.containing("asks before acting").exists && e.containing("Coding agent: Codex").exists, "the start's mode and coding agent")
             XCTAssertTrue(brief.exists && e.containing("sent exactly like this").exists, "the brief, as it will be sent")
             shot(e, "plan-start-line")
+            // the admin's tick and Apply (with xbind's recent sign-in) are the consent; then the results show in
+            // place and the sheet closes itself — no Done to tap
+            e.wsScrollTo(tick(e, 3))
+            tick(e, 3).tap()
+            XCTAssertTrue(e.until(10) { apply.label == "Apply 5 changes…" }, apply.label)
+            XCTAssertTrue(e.until(15) { apply.isEnabled }, "Apply arms again after a tick")
+            apply.tap()
+            e.expect(e.element("changeset-stepup"), 30, "an admin's line: xbind's recent-sign-in step")
+            let field = e.app.secureTextFields.firstMatch
+            e.expect(field, 10, "the password field")
+            field.tap()
+            field.typeText("demo-password")
+            e.tapAfterTyping(e.app.buttons.matching(identifier: "stepup-allow").firstMatch)
+            let results = e.element("changeset-results")
+            e.expect(results, 30, "the results, in place")
+            XCTAssertEqual(results.label, "All 5 changes applied")
+            XCTAssertTrue(e.element("changeset-closing").exists, "the results say they close by themselves")
+            XCTAssertFalse(e.app.buttons.matching(identifier: "changeset-done").firstMatch.exists, "no Done to tap")
+            shot(e, "plan-results-closing")
+            XCTAssertTrue(e.until(15) { !results.exists && !heading.exists }, "the sheet closed itself")
             e.app.terminate()
 
             // ---- a person who is no admin ----
@@ -84,7 +100,6 @@ final class XbinWorkspaceAgentPlanTests: XCTestCase {
             XCTAssertTrue(tick(e, 3).label.contains("needs an admin") && tick(e, 3).label.contains("Not yours to apply"), tick(e, 3).label)
             XCTAssertFalse(tick(e, 3).label.contains("Before:") || tick(e, 3).label.contains("Warning"), "xbind's line and nothing of the state behind it: \(tick(e, 3).label)")
             XCTAssertFalse(tick(e, 3).isEnabled)
-            XCTAssertFalse(e.app.buttons.matching(identifier: "changeset-optin").firstMatch.exists, "no opt-in for a person who is no admin")
             e.wsScrollTo(tick(e, 3))
             shot(e, "plan-needs-admin")
             let go = e.app.buttons.matching(identifier: "changeset-allow").firstMatch
@@ -92,6 +107,7 @@ final class XbinWorkspaceAgentPlanTests: XCTestCase {
             go.tap() // personal lines: no password step
             e.expect(e.element("changeset-results"), 30, "the results, with no sign-in step")
             XCTAssertTrue(e.containing("1 line needs an admin and was not applied.").exists)
+            XCTAssertTrue(e.app.buttons.matching(identifier: "changeset-done").firstMatch.exists && !e.element("changeset-closing").exists, "a line still to send to an admin: the results stay until the person closes them")
             let ask = e.app.buttons.matching(identifier: "changeset-ask-admin").firstMatch
             e.wsScrollTo(ask)
             XCTAssertTrue(e.until(15) { ask.isEnabled })
@@ -108,7 +124,6 @@ final class XbinWorkspaceAgentPlanTests: XCTestCase {
             XCTAssertEqual(asked.label, "bob asks for 2 admin changes")
             XCTAssertTrue(tick(e, 1).label.hasPrefix("Change 1 of 2, not selected."), "a warned line starts unticked for the admin too: \(tick(e, 1).label)")
             XCTAssertEqual(e.app.buttons.matching(identifier: "changeset-deny").firstMatch.label, "Decline")
-            XCTAssertFalse(e.app.buttons.matching(identifier: "changeset-optin").firstMatch.exists, "no opt-in of one's own for someone else's request")
             shot(e, "plan-request")
             e.app.terminate()
         }

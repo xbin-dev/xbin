@@ -185,13 +185,11 @@ final class AgentDemo {
                 })
                 return ok(.object(changesets[i]))
             case "approve" where changesets[i]["plan"] == true:
-                // a plan: an admin's line needs the opt-in (and then the recent sign-in); personal lines need neither
+                // a plan: an admin's line needs the recent sign-in — the admin's own tick is the consent for it —;
+                // personal lines need nothing
                 let ticked = (body["items"]?.arrayValue ?? []).compactMap { $0.intValue.map(Int.init) }
                 let items = (changesets[i]["items"]?.arrayValue ?? []).compactMap(\.objectValue)
                 let admin = items.contains { ticked.contains(Int($0["n"]?.intValue ?? 0)) && $0["admin"] == true }
-                if admin, changesets[i]["from"] == nil, state["adminChanges"] != true {
-                    return err(403, ["error": "this plan has admin changes: turn on \"Let my agent propose admin changes\" first", "optIn": true])
-                }
                 if admin, body["password"]?.stringValue != Self.password {
                     return err(403, ["error": body["password"] == nil ? "a recent sign-in is needed" : "wrong password", "stepUp": "password"])
                 }

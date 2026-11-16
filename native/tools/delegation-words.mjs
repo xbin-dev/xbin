@@ -157,21 +157,23 @@ export const plans = [
   { id: 'pl_undo', plan: true, undoOf: 'pl_dice', title: 'Undo: A dice tool', state: 'proposed', created: t('09:20:00'), expires: '2026-11-23T09:00:00Z', byHand: ["xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"],
     items: [{ n: 1, kind: 'binding.remove', args: {}, line: "Unbind apps/assistant's mcp", before: { binding: [{ provider: 'apps/dice' }] }, after: { binding: [] }, beforeText: 'apps/dice', afterText: 'not bound' }] },
 ];
-const people = [{ name: 'admin', state: S({ canAdminChanges: true, adminChanges: false }) }, { name: 'opted', state: S({ canAdminChanges: true, adminChanges: true }) }, { name: 'user', state: S() }, { name: 'none', state: null }];
+// a plan decided: what was chosen applied (or line failAt failed and the rest was skipped), the rest left out
+const decided = (c, chosen, failAt = 0) => ({ ...c, state: failAt ? 'partial' : 'applied', items: c.items.map((it) => (it.needsAdmin || it.result ? it
+  : { ...it, result: !chosen.includes(it.n) ? 'rejected' : failAt && it.n === failAt ? 'failed' : failAt && it.n > failAt ? 'skipped' : 'applied' })) });
 
 const out = { now: new Date(NOW).toISOString(), requests: [], changesets: [], approvals: [], audit: [], states: [], small: {}, plans: [] };
 for (const c of plans) {
-  const asked = !!c.from;
+  const ticks = P.planTicks(c);
+  const every = c.items.filter((it) => P.canTick(c, c.items.map((x) => x.n), it)).map((it) => it.n);
   out.plans.push({ json: c, need: W.needChangeTitle(c), askedWords: P.askedWords(c),
     items: c.items.map((it) => ({ tag: W.kindTag(it.kind), known: P.knownKind(it.kind), result: W.resultOf(it), before: W.stateText(it, 'before'), after: W.stateText(it, 'after'), neededBy: P.neededBy(c, it.n),
       start: it.kind === 'agent.start' ? P.startRows(it) : null })),
-    people: people.map((p) => {
-      const ticks = P.planTicks(c, p.state, asked);
-      return { name: p.name, state: p.state, ticks, words: P.planWords(c, ticks, p.state), none: P.planWords(c, [], p.state).apply,
-        lines: c.items.map((it) => ({ state: P.lineState(it, p.state, asked), can: P.canTick(c, ticks, it, p.state, asked), alone: P.canTick(c, [], it, p.state, asked), notes: P.lineNotes(c, it, p.state, asked),
-          off: P.setTick(c, ticks, it.n, false), on: P.setTick(c, ticks, it.n, true) })),
-        kept: [c.items.map((it) => it.n), [3, 4, 5], [1, 2, 3], [6]].map((k) => P.keepTicks(c, k, p.state, asked)) };
-    }) });
+    ticks, words: P.planWords(c, ticks), none: P.planWords(c, []).apply,
+    lines: c.items.map((it) => ({ state: P.lineState(it), can: P.canTick(c, ticks, it), alone: P.canTick(c, [], it), notes: P.lineNotes(c, it),
+      off: P.setTick(c, ticks, it.n, false), on: P.setTick(c, ticks, it.n, true) })),
+    kept: [c.items.map((it) => it.n), [3, 4, 5], [1, 2, 3], [6]].map((k) => P.keepTicks(c, k)),
+    // after Apply: does the review close itself? — what was ticked, every line that can be, and a failure
+    closes: [[ticks, 0], [every, 0], [every, every[0] || 0], [[], 0]].map(([chosen, failAt]) => { const json = decided(c, chosen, failAt); return { json, chosen, want: P.closesItself(json, chosen) }; }) });
 }
 for (const r of requests) {
   const tl = W.tile(r);

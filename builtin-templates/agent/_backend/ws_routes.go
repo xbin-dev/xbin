@@ -391,6 +391,12 @@ func handleWsCards(w http.ResponseWriter, r *http.Request) {
 	if reqs == nil {
 		reqs = []*wsReq{}
 	}
+	for _, q := range reqs {
+		var meta wsPlanMeta
+		if q.Kind == wsReqChangeSet && json.Unmarshal(q.Body, &meta) == nil && meta.Plan {
+			q.Plan, q.Lines = true, meta.Lines
+		}
+	}
 	briefs := agent.db.wsBriefs(s.Run)
 	if briefs == nil {
 		briefs = []*wsBrief{}

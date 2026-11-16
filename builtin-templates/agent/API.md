@@ -5944,7 +5944,14 @@ When xbind says it was decided, each applied `agent.start` line's session
 `request` the plan's), and the update says what was applied, what failed
 (the rest skipped), and what waits for an admin. While a plan waits, a
 single `tile_create` or `tile_agent_start` for one of its steps files
-nothing and says so. `GET /ws/needs` lists a plan as any change set.
+nothing and says so. `GET /ws/needs` lists a plan as any change set. A
+plan's row in `cards.requests[]` carries `plan: true` and, once decided,
+`lines: [{n, kind, line, result?, error?, needsAdmin?, blocked?}]` —
+xbind's sentence and each line's outcome, which the card lists (xbin's
+review closes itself after an Apply in which nothing failed); a card with
+a failed, stale or skipped line stays marked, and **Open** shows xbin's
+results. Of a line that takes an admin's rights the agent is told only
+whether it was applied, unless its person lets it read admin state.
 
 **Brief templates** (`_backend/ws_brief_kinds.go`): `tile_agent_brief`
 takes `template` — one so far, `"mcp-tool"`, a tool an agent instance

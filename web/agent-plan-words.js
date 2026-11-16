@@ -22,20 +22,18 @@ export const PLAN_KINDS = Object.freeze(['grant.add', 'grant.revoke', 'binding.s
 export const knownKind = (kind) => PLAN_KINDS.includes(kind);
 
 /**
- * lineState(item, state): what stands between a line and its tick —
- * 'ok' nothing; 'blocked' xbind can't apply it; 'needs-admin' it is an
- * admin's and the person is none; 'opt-in' it is an admin's and the person
- * has not let their agent propose admin changes; 'decided' it has a result
- * already (applied before, or sent to an admin); 'unknown' a kind this
- * chrome doesn't know. state: GET /delegate/state. asked: the set is a
- * request from another person (no opt-in of one's own applies to it).
+ * lineState(item): what stands between a line and its tick — 'ok'
+ * nothing; 'blocked' xbind can't apply it; 'needs-admin' it is an admin's
+ * and the person is none; 'decided' it has a result already (applied
+ * before, or sent to an admin); 'unknown' a kind this chrome doesn't know.
+ * An admin's line of an admin's own plan is 'ok': their tick and their
+ * Apply (on a recent sign-in, xbind's rule) are the consent for that line.
  */
-export function lineState(item, state, asked = false) {
+export function lineState(item) {
   if (!knownKind(item.kind)) return 'unknown';
   if (item.result) return 'decided';
   if (item.blocked) return 'blocked';
   if (item.needsAdmin) return 'needs-admin';
-  if (item.admin && !asked && !(state && state.adminChanges)) return 'opt-in';
   return 'ok';
 }
 
@@ -53,18 +51,25 @@ export function neededBy(cs, n) {
   return [...out].sort((a, b) => a - b);
 }
 
-/** canTick(cs, ticks, item, state, asked): the person may tick it now — nothing stands in its way, and every line it needs is ticked or applied. */
-export function canTick(cs, ticks, item, state, asked = false) {
-  if (lineState(item, state, asked) !== 'ok') return false;
+/** canTick(cs, ticks, item): the person may tick it now — nothing stands in its way, and every line it needs is ticked or applied. */
+export function canTick(cs, ticks, item) {
+  if (lineState(item) !== 'ok') return false;
   return (item.needs || []).every((d) => ticks.includes(d) || (items(cs)[d - 1] || {}).result === 'applied');
 }
 
-/** planTicks(cs, state, asked): the lines ticked when the review opens — never one with a warning, one that can't be ticked, or one whose needed line isn't ticked. */
-export function planTicks(cs, state, asked = false) {
-  const ticks = [];
+/**
+ * planTicks(cs): the lines ticked when the review opens — never one with a
+ * warning, one that can't be ticked, or one whose needed line isn't ticked;
+ * and never an admin's line of the person's own plan: ticking it is how an
+ * admin consents to it. (A request from another person is all admin lines,
+ * and an admin opened it to apply them: those start as any line does.)
+ */
+export function planTicks(cs) {
+  const ticks = [], asked = !!(cs && cs.from);
   for (const it of items(cs)) {
     if (CHOICES.warnedStartUnticked && it.warnings && it.warnings.length) continue;
-    if (canTick(cs, ticks, it, state, asked)) ticks.push(it.n);
+    if (it.admin && !asked) continue;
+    if (canTick(cs, ticks, it)) ticks.push(it.n);
   }
   return ticks;
 }
@@ -76,23 +81,24 @@ export function setTick(cs, ticks, n, on) {
   return ticks.filter((x) => !gone.has(x));
 }
 
-/** keepTicks(cs, ticks, state, asked): ticks that still stand (kept across a sign-in, or after the opt-in changed), in order. */
-export function keepTicks(cs, ticks, state, asked = false) {
+/** keepTicks(cs, ticks): ticks that still stand (kept across a sign-in), in order. */
+export function keepTicks(cs, ticks) {
   const out = [];
-  for (const it of items(cs)) if (ticks.includes(it.n) && canTick(cs, out, it, state, asked)) out.push(it.n);
+  for (const it of items(cs)) if (ticks.includes(it.n) && canTick(cs, out, it)) out.push(it.n);
   return out;
 }
 
 const list = (ns) => (ns.length < 2 ? ns.join('') : `${ns.slice(0, -1).join(', ')} and ${ns[ns.length - 1]}`);
 
 /**
- * lineNotes(cs, item, state, asked): what the review says under a line,
- * beside xbind's own words — {tag, needs, neededBy, why}: tag 'admin' |
- * 'needs an admin' | ''; needs "Needs line 1 and 2"; neededBy "Needed by
- * line 5 — unticking this unticks it"; why: why it can't be ticked now.
+ * lineNotes(cs, item): what the review says under a line, beside xbind's
+ * own words — {tag, needs, neededBy, why}: tag 'admin' | 'needs an admin'
+ * | ''; needs "Needs line 1 and 2"; neededBy "Needed by line 5 —
+ * unticking this unticks it"; why: why it can't be ticked now — or, of an
+ * admin's line, whose rights it is applied with.
  */
-export function lineNotes(cs, item, state, asked = false) {
-  const st = lineState(item, state, asked);
+export function lineNotes(cs, item) {
+  const st = lineState(item);
   const by = neededBy(cs, item.n);
   const needs = item.needs || [];
   return {
@@ -101,19 +107,18 @@ export function lineNotes(cs, item, state, asked = false) {
     neededBy: by.length ? `Needed by line ${list(by)} — unticking this unticks ${by.length === 1 ? 'it' : 'them'}` : '',
     why: st === 'unknown' ? 'This page is older than this xbin and does not know this kind of change. Reload the page to review it.'
       : st === 'needs-admin' ? 'Not yours to apply: it takes an admin’s rights. xbin shows what it would change to an admin.'
-        : st === 'opt-in' ? 'An admin change: tick it once you let your agent propose those (above).' : '',
+        : st === 'ok' && item.admin ? 'An admin change — applied as you.' : '',
   };
 }
 
 /**
- * planWords(cs, ticks, state): the review's bar, heading, intro, footer,
- * Apply button, and what it says about admin lines — optIn (the switch to
- * offer, '' none), ask (the Ask an admin row: {text, button, can, why}).
+ * planWords(cs, ticks): the review's bar, heading, intro, footer, Apply
+ * button, and ask — the Ask an admin row ({text, button, can, why}) for
+ * lines that take an admin the person is not.
  */
-export function planWords(cs, ticks, state) {
+export function planWords(cs, ticks) {
   const all = items(cs), total = all.length, n = ticks.length;
   const asked = !!(cs && cs.from);
-  const admin = all.filter((it) => it.admin && !it.needsAdmin && !it.blocked && !it.result).length;
   const waits = all.filter((it) => it.needsAdmin && !it.result);
   const blockedBy = waits.flatMap((it) => (it.needs || []).filter((d) => (all[d - 1] || {}).result !== 'applied'));
   const undo = !!(cs && cs.undoOf);
@@ -126,9 +131,6 @@ export function planWords(cs, ticks, state) {
     footer: `${n} of ${total} ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.`,
     apply: n ? `Apply ${plural(n, 'change')}…` : 'Apply none',
     reject: asked ? 'Decline' : 'Reject all',
-    optIn: !asked && admin && state && state.canAdminChanges && !state.adminChanges
-      ? { text: `This plan has ${plural(admin, 'admin change')}.`, label: 'Let my agent propose admin changes',
-        note: 'It can then read grants, bindings, org shares and limits, and propose changes to them. Nothing is applied until you tick it and press Apply; you can turn this off in Preferences.' } : null,
     ask: waits.length ? {
       text: `${plural(waits.length, 'line')} ${waits.length === 1 ? 'needs' : 'need'} an admin.`,
       button: 'Ask an admin',
@@ -139,6 +141,27 @@ export function planWords(cs, ticks, state) {
     byHand: (cs && cs.byHand) || [],
   };
 }
+
+/** PLAN_CLOSE_MS: how long a plan's results stay up before its review closes itself (closesItself). */
+export const PLAN_CLOSE_MS = 1800;
+
+/**
+ * closesItself(cs, chosen): after Apply the review needs no click to end —
+ * it is the person's own plan (the conversation's card keeps each line's
+ * outcome), every line they chose was applied, and nothing is left for
+ * them to do here (a line still to send to an admin). Anything else —
+ * a line that failed, went stale or was skipped — keeps the results open
+ * until the person closes them.
+ */
+export function closesItself(cs, chosen) {
+  if (!cs || !cs.plan || cs.from || cs.undoOf || !(chosen || []).length) return false;
+  const all = items(cs);
+  if (all.some((it) => it.needsAdmin && !it.result)) return false;
+  return chosen.every((n) => (all[n - 1] || {}).result === 'applied');
+}
+
+/** closingWords: what the results say while they close themselves. */
+export const closingWords = 'Applied. This closes by itself — each line’s outcome stays in the conversation.';
 
 /** startRows(item): an agent.start line as a single start's sheet draws it (sessionRows) — from xbind's `start`. */
 export function startRows(item) {

@@ -27,23 +27,27 @@
  * single start's sheet draws them. A line says which lines it needs and
  * which need it; unticking one unticks the lines that need it, and a line
  * can be ticked only with the lines it needs. A line that takes an admin's
- * rights is marked: an admin who has not let their agent propose such
- * changes is offered the switch here (a control that widens, armed like
- * Apply); for anyone else it reads "needs an admin", can't be ticked, and
- * Ask an admin sends it to the workspace's admins as a request from them
- * (set.from on the admin's side: the same dialog, saying who asks). A line
- * of a kind this page doesn't know is shown and can't be ticked.
+ * rights is marked: for an admin it starts unticked and reads "applied as
+ * you" — their tick and Apply (on a recent sign-in) are the consent for
+ * that line; for anyone else it reads "needs an admin", can't be ticked,
+ * and Ask an admin sends it to the workspace's admins as a request from
+ * them (set.from on the admin's side: the same dialog, saying who asks). A
+ * line of a kind this page doesn't know is shown and can't be ticked.
+ * After Apply the results show in place; when every chosen line was
+ * applied and nothing is left to do, the review closes itself (the plan's
+ * card in the conversation keeps each line's outcome) — a failure stays
+ * open until the person closes it.
  *
- *   events      bx-agent-done {id, verdict: 'applied' | 'rejected' | 'later'}
+ *   events      bx-agent-done {id, verdict: 'applied' | 'rejected' | 'later', self?: true}
  *               bx-agent-review {kind: 'changeset', id}   (Undo made a new set: review it)
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
-import { uncovered, shown, hiddenLine, WidenGuard } from '/vendor/bx-agent-approve.js';
+import { uncovered, shown, hiddenLine } from '/vendor/bx-agent-approve.js';
 import { CHOICES, kindTag, warning, stateText, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp, stopRefusal, stopWords, endedWords, knownState, UNKNOWN_STATE, clipText, clipNote } from '/vendor/agent-chrome-words.js';
-import { lineState, canTick, planTicks, setTick, keepTicks, lineNotes, planWords, startRows, askedWords } from '/vendor/agent-plan-words.js';
+import { lineState, canTick, planTicks, setTick, keepTicks, lineNotes, planWords, startRows, askedWords, closesItself, closingWords, PLAN_CLOSE_MS } from '/vendor/agent-plan-words.js';
 
 const KEEP = 'xbin-agent-ticks:'; // sessionStorage: a set's ticks, kept across signing in again
 
@@ -51,7 +55,7 @@ export class BxAgentChanges extends LitElement {
   static properties = {
     set: { attribute: false }, person: { type: String },
     _ticks: { state: true }, _view: { state: true }, _step: { state: true }, _busy: { state: true }, _err: { state: true }, _armed: { state: true },
-    _stopped: { state: true }, _briefs: { state: true },
+    _stopped: { state: true }, _briefs: { state: true }, _closing: { state: true },
   };
 
   static styles = [chromeCss, css`
@@ -86,7 +90,7 @@ export class BxAgentChanges extends LitElement {
     .item dl.rows dt { color: var(--bx-muted, #A3A6B6); } .item dl.rows dd { margin: 0; min-width: 0; }
     .item pre.brief { margin: 4px 0 0; padding: 6px 8px; max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
       background: var(--bx-code-bg, #16171D); border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); }
-    .optin, .ask { display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; border: 1px solid var(--bx-warn, #F2994A); border-radius: var(--bx-radius, 2px); }
+    .ask { display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; border: 1px solid var(--bx-warn, #F2994A); border-radius: var(--bx-radius, 2px); }
     .ask { align-items: center; flex-wrap: wrap; border-color: var(--bx-border, #33353F); }
     .ask .fw { flex: 1; min-width: 200px; }
   `];
@@ -95,10 +99,9 @@ export class BxAgentChanges extends LitElement {
     super();
     this.set = null; this.person = '';
     this._ticks = []; this._view = 'review'; this._step = null; this._busy = false; this._err = ''; this._armed = false;
-    this._stopped = ''; this._briefs = [];
-    this._timer = 0;
+    this._stopped = ''; this._briefs = []; this._closing = false;
+    this._timer = 0; this._closeTimer = 0;
     this.store = agentStore();
-    this._widen = new WidenGuard(this);
   }
 
   /** asked: the set is a request from another person (this is an admin's review of it). */
@@ -107,12 +110,13 @@ export class BxAgentChanges extends LitElement {
   willUpdate(ch) {
     if (!ch.has('set') || !this.set) return;
     const cs = this.set;
+    if ((ch.get('set') || {}).id !== cs.id) { this._closing = false; clearTimeout(this._closeTimer); } // another set: nothing of the last one's closing
     this._view = cs.state === 'proposed' ? 'review' : 'results';
     this._step = null; this._err = ''; this._stopped = '';
     let kept = null;
     try { kept = JSON.parse(sessionStorage.getItem(KEEP + cs.id) || 'null'); } catch { /* none kept */ }
     const ok = new Set((cs.items || []).filter(tickable).map((it) => it.n));
-    if (cs.plan) this._ticks = Array.isArray(kept) ? keepTicks(cs, kept, this.store.state, this.asked) : planTicks(cs, this.store.state, this.asked);
+    if (cs.plan) this._ticks = Array.isArray(kept) ? keepTicks(cs, kept) : planTicks(cs);
     else this._ticks = Array.isArray(kept) ? kept.filter((n) => ok.has(n)) : initialTicks(cs);
     this._briefs = [];
     this._arm();
@@ -121,7 +125,7 @@ export class BxAgentChanges extends LitElement {
   updated(ch) { if (ch.has('set') || ch.has('_view') || ch.has('_step')) this.renderRoot.querySelector('h2')?.focus(); }
 
   connectedCallback() { super.connectedCallback(); this._unsub = this.store.subscribe(() => this.requestUpdate()); }
-  disconnectedCallback() { super.disconnectedCallback(); clearTimeout(this._timer); if (this._unsub) this._unsub(); }
+  disconnectedCallback() { super.disconnectedCallback(); clearTimeout(this._timer); clearTimeout(this._closeTimer); if (this._unsub) this._unsub(); }
 
   /** stopped: why nothing can be applied now ('' when it can) — xbind's 409, else the state (the asker's agent's, for a request from someone else: only xbind knows it). */
   get stopped() { return this._stopped || (this.asked ? '' : stopRefusal(this.store.state)); }
@@ -134,10 +138,13 @@ export class BxAgentChanges extends LitElement {
 
   _arm() { this._armed = false; clearTimeout(this._timer); this._timer = setTimeout(() => { this._armed = true; }, CHOICES.armMs); }
 
-  _done(verdict) { this.dispatchEvent(new CustomEvent('bx-agent-done', { detail: { id: this.set && this.set.id, verdict }, bubbles: true, composed: true })); }
+  _done(verdict, self = false) {
+    clearTimeout(this._closeTimer);
+    this.dispatchEvent(new CustomEvent('bx-agent-done', { detail: { id: this.set && this.set.id, verdict, ...(self ? { self: true } : {}) }, bubbles: true, composed: true }));
+  }
 
   _tick(n, on) {
-    if (this.set.plan) this._ticks = on && !canTick(this.set, this._ticks, this.set.items[n - 1], this.store.state, this.asked) ? this._ticks : setTick(this.set, this._ticks, n, on);
+    if (this.set.plan) this._ticks = on && !canTick(this.set, this._ticks, this.set.items[n - 1]) ? this._ticks : setTick(this.set, this._ticks, n, on);
     else this._ticks = on ? [...new Set([...this._ticks, n])].sort((a, b) => a - b) : this._ticks.filter((x) => x !== n);
     try { sessionStorage.setItem(KEEP + this.set.id, JSON.stringify(this._ticks)); } catch { /* not kept */ }
   }
@@ -151,7 +158,11 @@ export class BxAgentChanges extends LitElement {
     this._busy = false;
     if (r.ok) {
       try { sessionStorage.removeItem(KEEP + this.set.id); } catch { /* nothing kept */ }
+      const chosen = this._ticks;
       this.set = r.set; this._view = 'results'; this._step = null;
+      // every chosen line applied, nothing left to do here: the results show for a moment and the review closes
+      // itself — the plan's card in the conversation keeps them. A failure stays open until the person closes it
+      if (closesItself(r.set, chosen)) { this._closing = true; this._closeTimer = setTimeout(() => this._done('applied', true), PLAN_CLOSE_MS); }
       return;
     }
     if (r.stopped) { // never sent again: the reason shows where Apply was, and focus moves to Reject all
@@ -162,17 +173,6 @@ export class BxAgentChanges extends LitElement {
     }
     if (r.stepUp) { this._step = { kind: r.stepUp, error: r.error || '' }; this._arm(); return; }
     this._err = r.error; this._arm();
-  }
-
-  // the opt-in, offered on the review: the person's own click on a control that widens. The admin lines can be ticked after it — none is ticked for them
-  async _optIn(e) {
-    if (!e.target.checked || this._busy) return;
-    this._busy = true; this._err = '';
-    const r = await this.store.setAdminChanges(true);
-    this._busy = false;
-    if (!r.ok) { this._err = r.error; return; }
-    this._ticks = keepTicks(this.set, this._ticks, this.store.state, this.asked);
-    this._arm();
   }
 
   async _ask(e) {
@@ -222,7 +222,7 @@ export class BxAgentChanges extends LitElement {
     if (!cs) return nothing;
     return html`<div class="scrim"></div>
       <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="h" data-view=${this._step ? 'stepup' : this._view} @keydown=${this._key}>
-        <div class="xbar"><bx-icon name="shield"></bx-icon><span data-bar>${cs.plan ? planWords(cs, this._ticks, this.store.state).bar : 'xbin · admin changes'}</span>${this.person ? html`<span class="who">asking ${this.person}</span>` : nothing}</div>
+        <div class="xbar"><bx-icon name="shield"></bx-icon><span data-bar>${cs.plan ? planWords(cs, this._ticks).bar : 'xbin · admin changes'}</span>${this.person ? html`<span class="who">asking ${this.person}</span>` : nothing}</div>
         ${this._step ? this._stepUp(cs) : this._view === 'results' ? this._results(cs) : this._review(cs)}
       </div>`;
   }
@@ -231,9 +231,9 @@ export class BxAgentChanges extends LitElement {
     const cs = this.set, plan = !!cs.plan;
     const on = this._ticks.includes(it.n);
     const res = review ? null : resultOf(it);
-    const st = plan ? lineState(it, this.store.state, this.asked) : (it.blocked ? 'blocked' : 'ok');
-    const notes = plan ? lineNotes(cs, it, this.store.state, this.asked) : { tag: '', needs: '', neededBy: '', why: '' };
-    const can = plan ? canTick(cs, this._ticks, it, this.store.state, this.asked) : tickable(it);
+    const st = plan ? lineState(it) : (it.blocked ? 'blocked' : 'ok');
+    const notes = plan ? lineNotes(cs, it) : { tag: '', needs: '', neededBy: '', why: '' };
+    const can = plan ? canTick(cs, this._ticks, it) : tickable(it);
     return html`<li class="item ${it.blocked ? 'blocked' : ''} ${st !== 'ok' && st !== 'blocked' ? 'off' : ''}" data-n=${it.n} data-kind=${it.kind} data-line=${st} role="group"
         aria-label=${`Change ${i + 1} of ${total}${review ? (on ? ', selected' : ', not selected') : ''}`}>
       ${review ? html`<input type="checkbox" aria-label=${`Apply: ${it.line || it.kind}`} .checked=${on} ?disabled=${!can && !on} @change=${(e) => { this._tick(it.n, e.target.checked); e.target.checked = this._ticks.includes(it.n); }}>` : nothing}
@@ -268,14 +268,12 @@ export class BxAgentChanges extends LitElement {
   }
 
   _review(cs) {
-    const w = cs.plan ? planWords(cs, this._ticks, this.store.state) : { ...reviewWords(cs, this._ticks), reject: 'Reject all', optIn: null, ask: null, byHand: [] };
+    const w = cs.plan ? planWords(cs, this._ticks) : { ...reviewWords(cs, this._ticks), reject: 'Reject all', ask: null, byHand: [] };
     const items = cs.items || [];
     return html`<div class="in">
         <h2 id="h" tabindex="-1">${w.heading}</h2>
         ${cs.title ? html`<div class="quote"><span class="ql">${this.asked ? `Their agent's title — not checked by xbin` : `The agent's title — not checked by xbin`}</span>${hiddenLine(cs.title)}<span class="qt">${shown(cs.title)}</span></div>` : nothing}
         <p class="muted">${w.intro}</p>
-        ${w.optIn ? html`<label class="optin" data-optin><input type="checkbox" data-widen="on" .checked=${false} ?disabled=${this._busy} @click=${this._widen.click} @keydown=${this._widen.key} @change=${this._optIn}>
-          <span><b>${w.optIn.text} ${w.optIn.label}?</b><div class="small muted">${w.optIn.note}</div></span></label>` : nothing}
         <ul class="items">${items.map((it, i) => this._item(it, i, items.length, true))}</ul>
         ${w.byHand.length ? html`<div class="banner" data-byhand><bx-icon name="info"></bx-icon><span><b>Not undone by this.</b> ${w.byHand.join('. ')}.</span></div>` : nothing}
         ${w.ask ? this._askRow(w.ask) : nothing}
@@ -318,12 +316,13 @@ export class BxAgentChanges extends LitElement {
         ${w.banner ? html`<div class="banner warn" role="status"><bx-icon name="warning"></bx-icon><span>${w.banner}</span></div>` : nothing}
         ${cs.plan && askedWords(cs) ? html`<p class="muted" data-asked>${askedWords(cs)}</p>` : nothing}
         <ul class="items">${items.map((it, i) => this._item(it, i, items.length, false))}</ul>
-        ${cs.plan && !state && planWords(cs, [], this.store.state).ask ? this._askRow(planWords(cs, [], this.store.state).ask) : nothing}
+        ${cs.plan && !state && planWords(cs, []).ask ? this._askRow(planWords(cs, []).ask) : nothing}
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
       </div>
-      <div class="foot"><span class="fw"></span>
+      ${this._closing ? html`<div class="foot" data-closing><span class="fw small muted" role="status">${closingWords}</span></div>`
+        : html`<div class="foot"><span class="fw"></span>
         ${w.undo && !state ? html`<button data-undo ?disabled=${this._busy} @click=${this._undo}>${w.undo}</button>` : nothing}
-        <button class="primary" data-done @click=${() => this._done(cs.state === 'rejected' ? 'rejected' : 'applied')}>Done</button></div>`;
+        <button class="primary" data-done @click=${() => this._done(cs.state === 'rejected' ? 'rejected' : 'applied')}>${cs.plan && w.banner ? 'Close' : 'Done'}</button></div>`}`;
   }
 }
 if (!customElements.get('bx-agent-changes')) customElements.define('bx-agent-changes', BxAgentChanges);

@@ -120,14 +120,12 @@ func TestPlanOfAnAdmin(t *testing.T) {
 	if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", `{"items":[4]}`, old); code != 400 || !strings.Contains(body, "needs line 1") {
 		t.Fatalf("line 4 without the tiles it names: %d %s", code, body)
 	}
-	// the admin's line: the opt-in first (offered on the review), then a recent sign-in
-	if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", `{"items":[1,2,3]}`, old); code != 403 || !strings.Contains(body, `"optIn":true`) {
-		t.Fatalf("an admin's line without the opt-in: %d %s", code, body)
+	// the admin's line: ticking it and applying on a recent sign-in is the consent for that line of that
+	// plan — no standing opt-in is asked for (bob never let his agent propose admin changes)
+	if w.store.State("bob").AdminChanges {
+		t.Fatal("the fixture's admin opted in")
 	}
-	if code, _ := w.do("PUT", "/delegate/state", `{"adminChanges":true}`, old); code != 200 {
-		t.Fatal("opt in")
-	}
-	if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", `{"items":[1,2,3]}`, old); code != 403 || !strings.Contains(body, `"stepUp":"password"`) {
+	if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", `{"items":[1,2,3]}`, old); code != 403 || !strings.Contains(body, `"stepUp":"password"`) || strings.Contains(body, "optIn") {
 		t.Fatalf("an admin's line on an old sign-in: %d %s", code, body)
 	}
 	if _, ok := w.b.Reg.Component("apps/dice"); ok || w.set(t, "bob", cs.ID).State != delegation.SetProposed {
@@ -580,10 +578,12 @@ func TestPlanShowsTheAgentNoAdminState(t *testing.T) {
 	if code, body := w.do("GET", "/delegate/changesets/"+cs.ID, "", bob); code != 200 || len(leaks(body)) < 6 || !strings.Contains(body, "does not request") {
 		t.Fatalf("bob's own review is short of what xbind knows: %d %v", code, leaks(body))
 	}
-	// applied or failed is all the agent learns of an admin's line it proposed blind
-	_, _ = w.do("PUT", "/delegate/state", `{"adminChanges":true}`, bob)
+	// applied or failed is all the agent learns of an admin's line it proposed blind — applied by an
+	// admin who never opted in: their tick and their Apply, on a recent sign-in, are the consent
 	done := w.approve(t, cs.ID, `{"items":[1,2],"password":"password1"}`, bob)
-	_, _ = w.do("PUT", "/delegate/state", `{"adminChanges":false}`, bob)
+	if w.store.State("bob").AdminChanges {
+		t.Fatal("applying a plan's admin line turned the standing opt-in on")
+	}
 	if results(done) != "applied,applied,blocked,rejected,blocked" {
 		t.Fatalf("bob applies: %s", results(done))
 	}

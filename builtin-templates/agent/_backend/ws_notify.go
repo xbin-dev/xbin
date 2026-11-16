@@ -263,6 +263,7 @@ func (ag *Agent) wsCheckReq(ctx context.Context, s *wsSession, r *wsReq) bool {
 			done.Result = fmt.Sprintf("%d of %d changes applied", applied, chosen)
 		}
 		if cs.Plan { // the tile agents it started are this conversation's to follow; what still waits is said
+			ag.wsPlanLines(r, cs) // each line's outcome, for the plan's card: xbin's review closes itself
 			done.Outcome += ag.wsPlanDecided(ctx, s, r, cs)
 			ag.wsRefresh(ctx, s, true)
 		}

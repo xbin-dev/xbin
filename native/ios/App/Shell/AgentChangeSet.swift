@@ -48,6 +48,10 @@ struct AgentChangeSetSheet: View {
 
     /// Briefs shown whole (a start line's "Show all").
     @State private var wholeBriefs: Set<Int> = []
+    /// The results close themselves: every chosen line of the plan was
+    /// applied and nothing is left to do here (PlanWords.closesItself).
+    @State private var closing = false
+    @State private var closeTask: Task<Void, Never>?
 
     /// Why nothing can be applied now ("" when it can): xbind's 409, else the
     /// state — the asker's agent's, for a request from someone else, which
@@ -57,13 +61,12 @@ struct AgentChangeSetSheet: View {
         return set?.from.isEmpty == false ? "" : DelegationWords.stopRefusal(workspace.agent.state)
     }
 
-    private var state: DelegateState? { workspace.agent.state }
     private func asked(_ s: AdminChangeSet) -> Bool { !s.from.isEmpty }
     private var order: [Int] { ticks.sorted() }
 
     var body: some View {
         VStack(spacing: 0) {
-            AgentTrustedBar(title: set?.plan == true ? PlanWords.planWords(set!, ticks: [], state: state).bar.uppercased() : "XBIN · ADMIN CHANGES",
+            AgentTrustedBar(title: set?.plan == true ? PlanWords.planWords(set!, ticks: []).bar.uppercased() : "XBIN · ADMIN CHANGES",
                             asking: workspace.userLabel) { scene.agentReview = nil }
             if let s = set {
                 if let kind = stepUp {
@@ -86,10 +89,12 @@ struct AgentChangeSetSheet: View {
         .presentationDragIndicator(.hidden)
         .interactiveDismissDisabled(working)
         .task(id: id) {
+            closeTask?.cancel()
+            closing = false
             let s = await workspace.agent.changeset(id)
             set = s
             loaded = true
-            if let s { ticks = Set(s.plan ? PlanWords.planTicks(s, state: state, asked: asked(s)) : DelegationWords.initialTicks(s)) }
+            if let s { ticks = Set(s.plan ? PlanWords.planTicks(s) : DelegationWords.initialTicks(s)) }
             arming.arm(settle: 0.4)
         }
         .onChange(of: phase) { _, p in if p == .active { arming.arm() } else { arming.disarm() } }
@@ -98,7 +103,7 @@ struct AgentChangeSetSheet: View {
     // MARK: The review
 
     @ViewBuilder private func review(_ s: AdminChangeSet) -> some View {
-        let plan = s.plan ? PlanWords.planWords(s, ticks: order, state: state) : nil
+        let plan = s.plan ? PlanWords.planWords(s, ticks: order) : nil
         let w = DelegationWords.reviewWords(s, ticked: ticks.count)
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
@@ -108,7 +113,6 @@ struct AgentChangeSetSheet: View {
                     AgentQuote(label: asked(s) ? "Their agent's title — not checked by xbin" : "The agent's title — not checked by xbin", text: s.title)
                 }
                 Text(verbatim: plan?.intro ?? w.intro).font(.callout).foregroundStyle(XbinColor.muted)
-                if let o = plan?.optIn { optInRow(s, o) }
                 ForEach(s.items) { item in itemCard(item, in: s) }
                 if let hand = plan?.byHand, !hand.isEmpty {
                     Label { Text(verbatim: "Not undone by this. " + hand.joined(separator: ". ") + ".") } icon: { Image(systemName: "info.circle") }
@@ -128,31 +132,6 @@ struct AgentChangeSetSheet: View {
         AgentDecisionBar(deny: plan?.reject ?? "Reject all", allow: plan?.apply ?? w.apply, id: "changeset", armed: arming.armed, working: working,
                          stopped: ticks.isEmpty ? "" : DelegationWords.stopLine(stop, changeset: true),
                          onDeny: { decide(s, apply: false) }, onAllow: { decide(s, apply: !ticks.isEmpty) })
-    }
-
-    /// "Let my agent propose admin changes", offered on the review the first
-    /// time a plan has an admin's line: it widens, so it is taken only once
-    /// armed — and it ticks nothing.
-    @ViewBuilder private func optInRow(_ s: AdminChangeSet, _ o: PlanWords.Words.OptIn) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(verbatim: o.text).font(.callout.weight(.semibold))
-            Button {
-                guard AgentWidening.takes(widening: true, armed: arming.armed), !working else { return }
-                working = true
-                Task {
-                    problem = await workspace.agent.setAdminChanges(true)
-                    working = false
-                    ticks = Set(PlanWords.keepTicks(s, ticks: order, state: state, asked: asked(s)))
-                    arming.arm()
-                }
-            } label: { Text(verbatim: o.label).frame(maxWidth: .infinity, minHeight: 44) }
-                .xbinSecondary()
-                .widens(armed: arming.armed)
-                .accessibilityIdentifier("changeset-optin")
-            Text(verbatim: o.note).font(.caption).foregroundStyle(XbinColor.muted)
-        }
-        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(XbinColor.warnBackground, in: .xbinPlate)
     }
 
     /// The lines that need an admin, and the person's own tap that sends
@@ -185,9 +164,9 @@ struct AgentChangeSetSheet: View {
     @ViewBuilder private func itemCard(_ item: AdminChangeSet.Item, in s: AdminChangeSet) -> some View {
         let total = s.items.count
         let on = ticks.contains(item.n)
-        let notes = s.plan ? PlanWords.lineNotes(s, item: item, state: state, asked: asked(s)) : (tag: "", needs: "", neededBy: "", why: "")
+        let notes = s.plan ? PlanWords.lineNotes(s, item: item) : (tag: "", needs: "", neededBy: "", why: "")
         // a ticked line can always be unticked; an unticked one only when nothing stands in its way
-        let canTick = s.plan ? on || PlanWords.canTick(s, ticks: order, item: item, state: state, asked: asked(s)) : DelegationWords.tickable(item)
+        let canTick = s.plan ? on || PlanWords.canTick(s, ticks: order, item: item) : DelegationWords.tickable(item)
         VStack(alignment: .leading, spacing: 8) {
             Button {
                 guard canTick else { return }
@@ -328,16 +307,28 @@ struct AgentChangeSetSheet: View {
                     return
                 }
             }
-            settle(await workspace.agent.apply(s, items: s.items.map(\.n).filter { ticks.contains($0) }, password: password))
+            let chosen = s.items.map(\.n).filter { ticks.contains($0) }
+            settle(await workspace.agent.apply(s, items: chosen, password: password), chosen: chosen)
         }
     }
 
-    private func settle(_ out: DelegateOutcome) {
+    private func settle(_ out: DelegateOutcome, chosen: [Int] = []) {
         switch out {
         case .done(let j):
             stepUp = nil
             password = ""
-            if let s = AdminChangeSet(json: j) { set = s } else { Task { set = await workspace.agent.changeset(id) } }
+            if let s = AdminChangeSet(json: j) {
+                set = s
+                // every chosen line applied, nothing left to do here: the results show for a moment and the
+                // sheet closes itself — the plan's card in the conversation keeps them. A failure stays open
+                if PlanWords.closesItself(s, chosen: chosen) {
+                    closing = true
+                    closeTask = Task {
+                        try? await Task.sleep(for: .seconds(PlanWords.closeAfter))
+                        if !Task.isCancelled, closing { scene.agentReview = nil }
+                    }
+                }
+            } else { Task { set = await workspace.agent.changeset(id) } }
             Haptics.settle()
         case .stepUp(let kind, let wrong):
             stepUp = kind
@@ -437,7 +428,7 @@ struct AgentChangeSetSheet: View {
                     .xbinCard()
                     .accessibilityElement(children: .combine)
                 }
-                if s.plan, decided, let a = PlanWords.planWords(s, ticks: [], state: state).ask { askRow(s, a) }
+                if s.plan, decided, let a = PlanWords.planWords(s, ticks: []).ask { askRow(s, a) }
                 if let problem {
                     Label { Text(verbatim: problem) } icon: { Image(systemName: "exclamationmark.octagon") }
                         .font(.callout).foregroundStyle(XbinColor.danger)
@@ -447,18 +438,26 @@ struct AgentChangeSetSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         VStack(spacing: 8) {
-            if decided, !w.undo.isEmpty {
-                // Undo proposes a new set to review; it undoes nothing by itself.
-                Button { undo(s) } label: { Text(verbatim: w.undo).frame(maxWidth: .infinity, minHeight: 44) }
-                    .xbinSecondary().disabled(working)
-                    .accessibilityIdentifier("changeset-undo")
+            if closing {
+                // nothing to press: it closes by itself, and the conversation's card keeps the outcome
+                Text(verbatim: PlanWords.closingWords).font(.callout).foregroundStyle(XbinColor.muted)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .accessibilityIdentifier("changeset-closing")
+            } else {
+                if decided, !w.undo.isEmpty {
+                    // Undo proposes a new set to review; it undoes nothing by itself.
+                    Button { undo(s) } label: { Text(verbatim: w.undo).frame(maxWidth: .infinity, minHeight: 44) }
+                        .xbinSecondary().disabled(working)
+                        .accessibilityIdentifier("changeset-undo")
+                }
+                Button { scene.agentReview = nil } label: { Text(verbatim: s.plan && decided && !w.banner.isEmpty ? "Close" : "Done").frame(maxWidth: .infinity, minHeight: 44) }
+                    .xbinPrimary()
+                    .accessibilityIdentifier("changeset-done")
             }
-            Button { scene.agentReview = nil } label: { Text("Done").frame(maxWidth: .infinity, minHeight: 44) }
-                .xbinPrimary()
-                .accessibilityIdentifier("changeset-done")
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .background(XbinColor.surface)
+        .onDisappear { closeTask?.cancel() }
     }
 
     private func stateTitle(_ s: AdminChangeSet) -> String {
