@@ -123,8 +123,8 @@ func TestWebFetchLayers(t *testing.T) {
 	if rec := w.policy(`{"web":{"mode":"full"}}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), "not available yet") {
 		t.Errorf("web full: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := w.policy(`{"mcp":{"mode":"listed"}}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), "not available yet") {
-		t.Errorf("mcp listed: %d %s", rec.Code, rec.Body.String())
+	if rec := w.policy(`{"mcp":{"mode":"everything"}}`); rec.Code != 400 { // (listed is built: D240)
+		t.Errorf("mcp everything: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := w.policy(`{"web":{"mode":"read"}}`); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"policy":{"web":{"mode":"read"`) {
 		t.Fatalf("set read: %d %s", rec.Code, rec.Body.String())

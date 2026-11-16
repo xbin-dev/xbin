@@ -1,20 +1,17 @@
 package llm
 
 import (
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
-	"sync"
 
-	"github.com/xbin-dev/xbin/internal/fsutil"
+	"github.com/xbin-dev/xbin/internal/vault"
 )
 
 // keys.go — the upstream keys an admin set, in xbind's vault (docs/llm.md
 // "Keys and the vault"). They live in data/llm/keys.json, one map upstream →
 // key, sealed whole under a subkey of the vault barrier (label
-// "llm/upstream-keys") — the same envelope a tile's vault file uses, under
-// a key no tile's vault shares.
+// "llm/upstream-keys") — the envelope of internal/vault's SealedMap, the one
+// store of xbind-held secrets (the workspace agent's outside MCP servers'
+// keep theirs in one too, D240), under a key no tile's vault shares.
 //
 // What the connector does in each vault state:
 //
@@ -33,22 +30,17 @@ import (
 
 // Vault is what the connector needs of xbind's vault barrier
 // (*vault.Barrier).
-type Vault interface {
-	Initialized() bool
-	Sealed() bool
-	EncryptFor(label string, plaintext []byte) ([]byte, error)
-	DecryptFor(label string, blob []byte) ([]byte, error)
-}
+type Vault = vault.Sealer
 
 // keyLabel names the barrier subkey the map is sealed under.
 const keyLabel = "llm/upstream-keys"
 
 // The vault states (the admin's view's "vault").
 const (
-	VaultOpen      = "open"
-	VaultSealed    = "sealed"
-	VaultLocked    = "locked"
-	VaultPlaintext = "plaintext"
+	VaultOpen      = vault.MapOpen
+	VaultSealed    = vault.MapSealed
+	VaultLocked    = vault.MapLocked
+	VaultPlaintext = vault.MapPlaintext
 )
 
 var (
@@ -58,147 +50,34 @@ var (
 	ErrVaultLocked = errors.New("the workspace vault isn't set up yet: an admin sets it up (bx vault unseal) before an upstream key can be stored")
 )
 
-// keyEnvelope is data/llm/keys.json: sealed (enc 1) or, in the plaintext
-// vault mode, the map itself.
-type keyEnvelope struct {
-	Enc  int               `json:"enc,omitempty"`
-	Data []byte            `json:"data,omitempty"`
-	Keys map[string]string `json:"keys,omitempty"`
+// keyStore is the upstream keys' SealedMap, in the connector's words.
+type keyStore struct{ m *vault.SealedMap }
+
+func newKeyStore(path string, v Vault, allowPlain bool) *keyStore {
+	return &keyStore{m: &vault.SealedMap{Path: path, Label: keyLabel, Name: "data/llm/keys.json", Vault: v, AllowPlain: allowPlain}}
 }
 
-type keyStore struct {
-	path       string
-	vault      Vault // nil: no barrier (tests, the plaintext mode's shape)
-	allowPlain bool
+func (k *keyStore) state() string { return k.m.State() }
 
-	mu     sync.Mutex
-	cache  map[string]string
-	cached bool
-}
-
-func (k *keyStore) state() string {
+// words is err in the connector's words.
+func words(err error) error {
 	switch {
-	case k.vault != nil && k.vault.Initialized() && k.vault.Sealed():
-		return VaultSealed
-	case k.vault != nil && k.vault.Initialized():
-		return VaultOpen
-	case k.allowPlain:
-		return VaultPlaintext
-	}
-	return VaultLocked
-}
-
-// load reads the map. k.mu held.
-func (k *keyStore) load() (map[string]string, error) {
-	st := k.state()
-	if st == VaultSealed {
-		k.cache, k.cached = nil, false // nothing decrypted outlives a seal
-		return nil, ErrVaultSealed
-	}
-	if k.cached {
-		return k.cache, nil
-	}
-	b, err := os.ReadFile(k.path)
-	if os.IsNotExist(err) {
-		k.cache, k.cached = map[string]string{}, true
-		return k.cache, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var env keyEnvelope
-	if err := json.Unmarshal(b, &env); err != nil {
-		return nil, errors.New("data/llm/keys.json is unreadable")
-	}
-	m := env.Keys
-	if env.Enc > 0 {
-		if st != VaultOpen {
-			return nil, ErrVaultLocked // sealed keys, and no barrier to open them with
-		}
-		pt, err := k.vault.DecryptFor(keyLabel, env.Data)
-		if err != nil {
-			return nil, errors.New("data/llm/keys.json can't be opened with this vault")
-		}
-		m = map[string]string{}
-		if err := json.Unmarshal(pt, &m); err != nil {
-			return nil, errors.New("data/llm/keys.json is unreadable")
-		}
-	}
-	if m == nil {
-		m = map[string]string{}
-	}
-	k.cache, k.cached = m, true
-	if env.Enc == 0 && st == VaultOpen && len(m) > 0 {
-		_ = k.save(m) // kept in the clear before the barrier existed: seal it now
-	}
-	return m, nil
-}
-
-// save writes the map. k.mu held.
-func (k *keyStore) save(m map[string]string) error {
-	var env keyEnvelope
-	switch k.state() {
-	case VaultSealed:
+	case errors.Is(err, vault.ErrMapSealed):
 		return ErrVaultSealed
-	case VaultLocked:
+	case errors.Is(err, vault.ErrMapLocked):
 		return ErrVaultLocked
-	case VaultPlaintext:
-		env.Keys = m
-	default:
-		pt, err := json.Marshal(m)
-		if err != nil {
-			return err
-		}
-		ct, err := k.vault.EncryptFor(keyLabel, pt)
-		if err != nil {
-			return err
-		}
-		env.Enc, env.Data = 1, ct
 	}
-	b, err := json.MarshalIndent(env, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(k.path), 0o700); err != nil {
-		return err
-	}
-	if err := fsutil.WriteFileAtomic(k.path, append(b, '\n'), 0o600); err != nil {
-		return err
-	}
-	k.cache, k.cached = m, true
-	return nil
+	return err
 }
 
 // get is upstream name's key ("" when it has none stored).
 func (k *keyStore) get(name string) (string, error) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	m, err := k.load()
-	if err != nil {
-		return "", err
-	}
-	return m[name], nil
+	v, err := k.m.Get(name)
+	return v, words(err)
 }
 
 // set stores (or, with key "", removes) name's key.
-func (k *keyStore) set(name, key string) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	cur, err := k.load()
-	if err != nil {
-		return err
-	}
-	next := cloneMap(cur)
-	if key == "" {
-		if _, has := next[name]; !has {
-			return nil
-		}
-		delete(next, name)
-	} else {
-		next[name] = key
-	}
-	return k.save(next)
-}
+func (k *keyStore) set(name, key string) error { return words(k.m.Set(name, key)) }
 
 // hint shows a key as its last four characters.
 func hint(key string) string {

@@ -42,7 +42,15 @@ func refuse(code string, status int, format string, args ...any) *Refusal {
 // would read as an address (numericHost). The host comes back in its
 // ASCII form (IDNA), lower case; the fragment is dropped (it is never
 // sent).
-func CheckURL(raw string) (*url.URL, error) {
+func CheckURL(raw string) (*url.URL, error) { return checkURL(raw, false) }
+
+// CheckServerURL is CheckURL for an address an admin lists (an outside MCP
+// server, D240): with local, a name of this machine or a local network
+// (localhost, *.internal…) is taken — the admin marked the server as on a
+// private network; the address rule at the dial is the caller's.
+func CheckServerURL(raw string, local bool) (*url.URL, error) { return checkURL(raw, local) }
+
+func checkURL(raw string, allowLocal bool) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, refuse("web-url", http.StatusBadRequest, "url: an absolute http or https URL")
@@ -104,7 +112,7 @@ func CheckURL(raw string) (*url.URL, error) {
 	if numericHost(ascii) {
 		return nil, refuse("web-url", http.StatusBadRequest, "url: %q reads as an address in a non-standard form: name the host, or write the address as a.b.c.d", host)
 	}
-	if localName(ascii) {
+	if localName(ascii) && !allowLocal {
 		return nil, refuse("web-address", http.StatusForbidden, "%s names this machine or a local network, not the public web", ascii)
 	}
 	if port != "" {

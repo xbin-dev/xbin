@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- workspace agent: **outside MCP servers** (D240). `mcp.mode: "listed"` of
+  `PUT /delegate/workspace` is built: the MCP tiles, and the servers an
+  admin lists in `mcp.servers` — `{id, name, url, auth: none | bearer |
+  header, header?, secret (write-only), note?, orgs?, plainHttp?,
+  privateNetwork?, trustReadOnly?}`; reads say `hasSecret`, never the
+  secret, which xbind keeps sealed under the vault (`409 {refusal:
+  "vault"}` while it can't). The host's file may name the list in its
+  `workspaceAgent.mcp.servers` (secrets by `secretFile` or `secretEnv`),
+  and then the list is the host's (`locks["mcp.servers"]`, a `PUT` of it
+  `409`). `GET /delegate/state`'s `net.mcp.servers` lists the ones a
+  person's agent may use.
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the
   web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
   generated vectors): lines that create a tile or start a tile agent, what

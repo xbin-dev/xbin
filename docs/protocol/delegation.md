@@ -530,8 +530,36 @@ what xbind judged.
   tile, the ticket or `under`); a read on the endpoint is `class:
   "mcp-read"`.
 - `GET /delegate/map` marks an MCP tile's row `mcp: true`.
-- **Not yet**: `mcp.mode: "listed"` — servers an admin lists by URL, with
-  credentials xbind holds — is refused (`400 "not available yet"`).
+
+### Outside MCP servers
+
+With `mcp.mode` at `listed` the agent also uses the MCP servers outside
+the workspace that an admin **lists by URL** (D240). xbind holds their
+credentials and is their client: the agent's sandbox keeps its network to
+its model, and nothing of a server's — its address beyond its host, its
+secret, its session — reaches the agent, its page or the model.
+
+**The list** is `mcp.servers` of `PUT /delegate/workspace`, the whole list
+at once (at most 50), each:
+
+| Field | |
+|---|---|
+| `id` | `[a-z0-9][a-z0-9-]{0,31}`, unique: the agent names the server `ext:<id>` (a `server` starting `ext:` is never a tile) |
+| `name` | what people and the model read (≤ 80 bytes, one line) |
+| `url` | the server's streamable-HTTP endpoint: `https`, no user name or password, a host that is a name or a canonical address, never one of the workspace's own hosts; `http` only with `plainHttp: true` — the secret and every argument then cross the network in the clear |
+| `auth` | `none` (the default), `bearer` (`Authorization: Bearer <secret>`) or `header` (the secret as the value of `header`, a header xbind doesn't set itself — not `Host`, `Content-*`, `Accept*`, `Mcp-*`, `Cookie`, `User-Agent`, `Connection` and their like) |
+| `secret` | **write-only**: absent keeps the stored one — unless the address moved to another host, when it must be given again (xbind never sends one host's secret to another) — `""` removes it; one line, ≤ 4 KiB. A read says `hasSecret` |
+| `note` | the admin's words, shown to people and the agent (≤ 500 bytes) |
+| `orgs` | `[]`: everyone given an agent; else org ids — only their active members see the server (to anyone else it doesn't exist: not listed, `404` on a call), and for those orgs' `mcp` rule it counts as theirs |
+| `privateNetwork` | its addresses may be private, loopback or xbind's own host's — say so only for a server you run on your network; link-local (the cloud metadata address), multicast and unspecified stay refused |
+| `trustReadOnly` | its `readOnlyHint` counts for a person's "read-only tools don't ask me" (off: an outside server's tools always ask the first time — its mark is an outsider's claim) |
+
+Secrets are kept apart from the list, in `data/delegation/mcp-secrets.json`,
+sealed under the vault barrier as the LLM connector's upstream keys are: a
+write with a secret is `409 {refusal: "vault"}` while the vault is sealed
+or not set up (only the plaintext vault mode keeps it in the clear). A
+secret is never in an answer, a log line or the audit log, and whatever a
+server answers is scrubbed of it.
 
 ### The host's file
 
@@ -561,6 +589,21 @@ that is invalid; a bad change is refused and the last good file stays):
 - `web.allow` and `web.deny` always hold, beside the admin's own lists;
   they lock nothing (`policy.web.hostAllow`, `hostDeny`). `host: {web?,
   mcp?}` in the view is what the file sets.
+- `mcp.servers` — the outside MCP servers — **locks outright** when the
+  file names it (`[]` too): the list in force is the host's, the admin's
+  is kept but unused, and a `PUT` of it is `409 {settings:
+  ["mcp.servers"]}`. A server's secret is named, never written: `secretFile`
+  (one line, relative to the file, read again when it changes — as an
+  upstream's `keyFile`) or `secretEnv` (an environment variable of xbind's,
+  read when the file loads); one that can't be read stops the boot.
+
+```jsonc
+"mcp": { "mode": "listed", "servers": [
+  { "id": "tracker", "name": "Issue tracker", "url": "https://mcp.tracker.example/mcp",
+    "auth": "bearer", "secretFile": "tracker.token" },
+  { "id": "wiki", "name": "Wiki", "url": "https://wiki.example/mcp", "auth": "header",
+    "header": "X-Api-Key", "secretEnv": "WIKI_MCP_KEY", "orgs": ["eng"] } ] }
+```
 
 ## Notices to the agent's backend
 
@@ -656,28 +699,33 @@ GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?,
                                  web, mcp, policy, locks?}: off until
                                  an admin turns it on; who as in the
                                  state; web {mode, allow, deny, search}
-                                 and mcp {mode} the admin's own
-                                 settings, policy what is in force under
-                                 the host's file ({web: {mode, allow,
-                                 deny, hostAllow?, hostDeny?, search,
-                                 byHost?}, mcp: {mode, byHost?}}).
+                                 and mcp {mode, servers} the admin's own
+                                 settings (each outside server without
+                                 its secret: hasSecret), policy what is in
+                                 force under the host's file ({web: {mode,
+                                 allow, deny, hostAllow?, hostDeny?,
+                                 search, byHost?}, mcp: {mode, byHost?,
+                                 servers, serversByHost?}}).
                                  locks: what the host's file sets — its
                                  workspaceAgent key (docs/workspace-
                                  agent.md §Set by your host, D237) —
                                  {enabled?, who?, "web.mode"?,
-                                 "web.search"?, "mcp.mode"?: {locked:
-                                 true, reason: "set by your host",
-                                 ceiling?}}, absent when it sets nothing
+                                 "web.search"?, "mcp.mode"?,
+                                 "mcp.servers"?: {locked: true, reason:
+                                 "set by your host", ceiling?}}, absent
+                                 when it sets nothing
                                  (by is "host" when the file set the
                                  switch; a ceiling: §Web and MCP)
 PUT    /delegate/workspace      admin. {enabled?, who?, web?: {mode?:
                                  "off" | "read", allow?, deny?, search?},
-                                 mcp?: {mode?: "off" | "tiles"}}, at least
+                                 mcp?: {mode?: "off" | "tiles" |
+                                 "listed", servers?: [...]}}, at least
                                  one; what the host's file locks is 409.
                                  web and mcp are off by default;
-                                 web.mode "full", web.search true and
-                                 mcp.mode "listed" are reserved: 400 "not
-                                 available yet". allow
+                                 web.mode "full" and web.search true are
+                                 reserved: 400 "not available yet";
+                                 servers, the outside MCP servers, is the
+                                 whole list (§Outside MCP servers). allow
                                  and deny are host patterns (example.com:
                                  it and the names under it; *.example.com:
                                  only the names under it), at most 200
