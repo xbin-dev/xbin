@@ -83,6 +83,10 @@ type Options struct {
 	Keys KeySource
 	Now  func() time.Time
 	Log  *slog.Logger
+	// HostChanged, if set, is called after a changed host file loaded:
+	// what reads it beside the connector (its workspaceAgent key,
+	// hostagent.go) puts it in force again. On a goroutine of its own.
+	HostChanged func()
 }
 
 // CallPolicy judges one call before it runs: an error refuses it, with that
@@ -201,13 +205,17 @@ func (s *Service) rebuild() {
 func (s *Service) current() *snapshot {
 	if s.host.poll(s.now()) {
 		s.mu.Lock()
-		if _, herr := s.host.current(); herr != "" {
+		_, herr := s.host.current()
+		if herr != "" {
 			s.log.Error("llm: the host's configuration was not reloaded; the earlier one stays in force", "err", herr)
 		} else {
 			s.log.Info("llm: the host's configuration was reloaded")
 		}
 		s.rebuild()
 		s.mu.Unlock()
+		if herr == "" && s.opt.HostChanged != nil {
+			go s.opt.HostChanged() // never under a caller's lock
+		}
 	}
 	return s.snap.Load()
 }

@@ -403,7 +403,9 @@ GET    /delegate/state          the person, their agent's page, or their
                                  chosen} — whether the workspace
                                  defaults name the agent, how many
                                  people and orgs have an entry of their
-                                 own, and whether anyone was given one
+                                 own, and whether anyone was given one;
+                                 locks?, what the host's file sets
+                                 (below)
 PUT    /delegate/state          the person, or their agent's page —
                                  which may send {paused: true} and nothing
                                  else (403). {paused?, adminChanges?} → the
@@ -415,9 +417,16 @@ PUT    /delegate/state          the person, or their agent's page —
                                  the person's own session's; only a
                                  workspace or org admin turns adminChanges
                                  on (403)
-GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?}:
-                                 off until an admin turns it on; who as
-                                 in the state
+GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?,
+                                 locks?}: off until an admin turns it
+                                 on; who as in the state. locks: what
+                                 the host's file sets — its
+                                 workspaceAgent key (docs/workspace-
+                                 agent.md §Set by your host, D237) —
+                                 {enabled?, who?: {locked: true,
+                                 reason: "set by your host"}}, absent
+                                 when it sets nothing (by is "host"
+                                 when the file set the switch)
 PUT    /delegate/workspace      admin. {enabled?, who?}, at least one.
                                  Off refuses every person's agent at
                                  once. who gives the agent to people —
@@ -430,7 +439,10 @@ PUT    /delegate/workspace      admin. {enabled?, who?}, at least one.
                                  stay). One person or org at a time is
                                  an ordinary access entry that names the
                                  component, at read. 409 where this
-                                 xbind ships no agent or has no accounts
+                                 xbind ships no agent or has no accounts,
+                                 and for a key the host's file locks
+                                 (enabled while it sets the switch, who
+                                 while it names who): nothing changes
 POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
                                  the alert that names /xbin/agent for
                                  them (§The chrome). {ok}

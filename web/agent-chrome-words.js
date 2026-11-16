@@ -708,6 +708,7 @@ export function admins(names) {
 const STATES = {
   unavailable: { title: 'Not available right now.', text: 'The workspace agent needs a language model, and this workspace has none connected at the moment. Your earlier conversations and the notebook are kept.', more: 'An admin can fix this: {admins}.' },
   off: { title: 'Turned off for this workspace.', text: 'An admin turned workspace agents off{at}. Nothing an agent started is running on your behalf. Your conversations and notebook are kept for when it is turned on again.' },
+  offHost: { title: 'Turned off by your host.', text: 'Whoever runs this xbin has turned workspace agents off for this workspace, and it isn\'t switched here. Nothing an agent started is running on your behalf. Your conversations and notebook are kept.' },
   paused: { title: 'Paused by you{at}.', text: "Your agent can't read or change anything in the workspace until you resume. Tile agents that are already running keep going; their questions still come to you." },
   locked: { title: 'Locked after a restart.', text: "Your agent's conversations and notebook are encrypted, and the workspace was restarted. They stay locked until an admin unlocks the workspace. Nothing is lost.", more: 'An admin can fix this: {admins}.' },
   older: { title: 'Waiting for a newer xbin.', text: "This workspace is running an older xbin than the one that last saved your agent's data. To keep that data safe the agent stays off until xbin is updated again. Nothing has been changed or removed." },
@@ -715,9 +716,9 @@ const STATES = {
   heldOther: { title: 'Not available on this xbin.', text: "The workspace agent can't run here right now{why}. Your conversations and notebook are kept.", more: 'An admin can fix this: {admins}.' },
   soon: { title: 'Workspace agents are on.', text: "Approvals, what your agent did and your preferences work here already. The agent's own conversation is not part of this xbin yet: it arrives with an update." },
 };
-/** stateWords(kind, {admins, at, held}): a state's {title, text, more}. */
+/** stateWords(kind, {admins, at, held, host}): a state's {title, text, more} (host: the host's file set the switch — state.locks.enabled). */
 export function stateWords(kind, x = {}) {
-  const w = STATES[kind === 'held' ? (x.held === 'older' ? 'older' : x.held === 'unavailable' ? 'heldOther' : 'locked') : kind];
+  const w = STATES[kind === 'held' ? (x.held === 'older' ? 'older' : x.held === 'unavailable' ? 'heldOther' : 'locked') : kind === 'off' && x.host ? 'offHost' : kind];
   if (!w) return null;
   // (no route names the admins to a non-admin yet: without names the sentence ends at "this")
   const known = (x.admins || []).some(Boolean);
@@ -734,14 +735,17 @@ export function stateWords(kind, x = {}) {
 export function setupSteps({ llm = null, state = null } = {}) {
   const model = !!(llm && llm.configured), hosted = !!(llm && llm.host), on = !!(state && state.workspace);
   const who = (state && state.who) || null, chosen = !!(who && who.chosen), n = who ? Number(who.entries) || 0 : 0;
+  const locks = (state && state.locks) || {}, HOST = 'Set by your host'; // what the host's file sets is read-only here (D237)
   return [
-    { id: 'model', title: 'Connect a language model', done: model, enabled: true, tag: hosted ? 'Set by your host' : '',
+    { id: 'model', title: 'Connect a language model', done: model, enabled: true, tag: hosted ? HOST : '',
       text: model ? (hosted ? "Your host provides the models and sets the limits; those can't be changed here." : 'Connected.') : 'None is connected. Use a provider key, or a model your organisation runs itself.', action: model ? '' : 'Connect…' },
-    { id: 'on', title: 'Turn workspace agents on', done: on, enabled: model, text: on ? 'On. You can turn it off again at any time; every agent stops at once.' : 'Off. You can turn it off again at any time; every agent stops at once.', action: on ? '' : 'Turn on' },
-    { id: 'who', title: 'Choose who gets one', done: chosen, enabled: on, action: '',
-      text: chosen ? (who.everyone ? 'Everyone in this workspace.' : `${n} ${n === 1 ? 'person or org' : 'people and orgs'} so far.`) + ' Change it under Admin → People: access to “Workspace agent”.'
+    { id: 'on', title: 'Turn workspace agents on', done: on, enabled: model, tag: locks.enabled ? HOST : '',
+      text: locks.enabled ? `${on ? 'On' : 'Off'}, as your host set it: it isn't switched here.` : on ? 'On. You can turn it off again at any time; every agent stops at once.' : 'Off. You can turn it off again at any time; every agent stops at once.',
+      action: on || locks.enabled ? '' : 'Turn on' },
+    { id: 'who', title: 'Choose who gets one', done: chosen, enabled: on, action: '', tag: locks.who ? HOST : '',
+      text: chosen ? (who.everyone ? 'Everyone in this workspace.' : `${n} ${n === 1 ? 'person or org' : 'people and orgs'} so far.`) + (locks.who ? ' Your host chose this.' : ' Change it under Admin → People: access to “Workspace agent”.')
         : 'Nobody has one yet. Give everyone one, or start with yourself and add people and orgs later (Admin → People). Orgs can add their own rules.',
-      choices: on && !chosen ? [{ who: 'everyone', label: 'Everyone', primary: true }, { who: 'me', label: 'Just me for now', primary: false }] : [] },
+      choices: on && !chosen && !locks.who ? [{ who: 'everyone', label: 'Everyone', primary: true }, { who: 'me', label: 'Just me for now', primary: false }] : [] },
   ];
 }
 export const SETUP_INTRO = { title: 'Set up the workspace agent', text: 'One agent per person that plans work across tiles and asks before anything changes. It is off until you finish these three steps. Nobody else sees it yet.' };

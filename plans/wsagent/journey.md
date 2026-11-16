@@ -1,8 +1,8 @@
 # Workspace agent — the first-run journey, measured (the owner's UX benchmark)
 
 > Status: live — a measurement and a plan (2026-11-16, branch
-> `wsagent/journey`, from `wsagent/main`). Nothing here is built except the
-> harness passes that produce the numbers. Read with
+> `wsagent/journey`, from `wsagent/main`). Built since: G3, G5, G7 — the
+> first-run sheet (branch `wsagent/first-run`, D237; §8). Read with
 > [ux.md](ux.md) and [../workspace-agent.md](../workspace-agent.md).
 
 The owner's benchmark: *"starting with an installed workspace that has a
@@ -27,6 +27,14 @@ no coding agent, no prompt, +0 by hand, 2 to know; the assistant's slots
 fold into one line once `llm` is bound) and **48** through the agent (the
 popover fold gone; the brief's card names the coding agents that need no
 sign-in and defaults to one).
+
+**And with the first-run sheet** (G3, G5, G7 — `wsagent/first-run`, D237;
+the same passes on the tree with both, measured 2026-11-16; §8):
+
+| Path | Interactions | + by hand | Prompts | Dead ends | Things to know |
+|---|---|---|---|---|---|
+| by hand | **21** (1 navigation, 12 clicks, 6 fields, 2 keys) | 0 | — | 0 | 2 |
+| through the workspace agent | **36** (1 navigation, 21 clicks, 11 fields, 3 keys) | 4 | 3 | 3 | 1 |
 
 The agent path costs almost twice the manual one today. It needs an account
 the manual path never makes (10 interactions), it cannot create a tile for
@@ -470,6 +478,33 @@ first-run sheet (G3, G5, G7) should exist natively for a hosted workspace,
 where the app may be the first thing a person opens. That is the one piece
 of new native UI.
 
+**What a native first run would need** (the web sheet is built, D237; the
+app is not touched — it joins a workspace that already has an account):
+
+- **A way in without an account.** The app signs in with a password, SSO
+  or a device key, all of an account; the bootstrap token is a browser
+  cookie or bx's bearer. A native first run needs the token handed to the
+  app once — a pairing link or QR code the installer prints beside the
+  login URL (`xbin://<host>/first-run?token=…`, never kept by the app) —
+  and an xbind route that takes it as a bearer for exactly `GET
+  /first-run`, `POST /users` and the swap, answering an **app** session
+  (`NewBearerSession`) rather than a cookie: today's swap sets a browser
+  cookie and refuses bx's bearer on purpose.
+- **The same sheet, natively**: name, password (iOS's strong-password
+  suggestion — `textContentType .newPassword` with `.username` beside it),
+  the vault's two fields under the "cannot be recovered" line, the agent's
+  sentence and the two buttons; its words the web sheet's
+  (`web/first-run-words.js`), kept in step the way the app's delegation
+  words are kept with `agent-chrome-words.js`; Face ID offered for the
+  device key right after, since the account is new.
+- **Then the device**: enrolment of this phone as the new account's first
+  device in the same flow (today a signed-in browser makes a code), so the
+  app keeps working after the token's session is gone.
+- **The hand-over**: the app's agent sheet opened, message box focused —
+  the counterpart of the dock's `focusComposer()`.
+- The host's preset needs nothing native beyond the words: the app reads
+  the same `locks` on `GET /delegate/state`.
+
 ## 7. What was not measured
 
 - A real model: whether it makes this plan from the prompt, and in how many
@@ -483,3 +518,50 @@ of new native UI.
   scripted run is too fast to meet it; counted by hand.
 - A person who is no admin: `tile_create` should work for them (the refusal
   is the admin's default owner) — not driven.
+
+## 8. After the first-run sheet (G3, G5, G7 — D237)
+
+Built on `wsagent/first-run`; the passes above, run again on it
+(`journeyManual`, `journeyAgent`), and `firstRun`, which asserts the sheet's
+own states. Measured first on its own (49 → 37 through the agent, 27 → 28 by
+hand), then again with `wsagent/main`'s G8–G10 merged in (48 → **36**, 20 →
+**21**) — the second is the table at the top.
+
+**The agent path: 48 → 36.** Steps 2–18 of §3 (the vault's banner, an
+account in the admin console, sign out and in, the three setup steps — 17
+interactions and one "know") are now five: the login URL lands on one sheet
+— your name (the sign-in name follows from it), a password, the vault's
+passphrase twice, **Create my account and turn on my workspace agent** — and
+the shell comes back as that account with the agent's dock open and its
+message box focused. The rest is G8–G10's path (G1, G2, G4, G6 are other
+packages'): 3 prompts, 3 dead ends, 1 thing to know.
+
+**By hand: 20 → 21.** The by-hand path's first stretch is the sheet's quiet
+button now: name, password, the passphrase twice, "Create my account without
+it" — five where the banner's vault was four — and the person ends on an
+account of their own, not the reusable token. Skipping the sheet ("Not now")
+and finding the banner costs the same five.
+
+**Where the host unseals the vault** the sheet has no vault fields: three
+interactions to an agent with its message box focused (name, password, the
+button), so §4's target becomes reachable once G1 + G2 land: 12, or 10.
+
+**What the sheet keeps** (`firstRun` and `internal/server/firstrun_test.go`
+assert each): only the owner token's
+browser session in a workspace with no accounts sees it (`GET /first-run`);
+an existing workspace, `--dev` and `--no-auth` never do; "Not now" is
+per-browser; the account is an ordinary admin from `POST /users`; the swap
+(`POST /first-run/session`) opens no session for an account that existed
+before or was used, only from the token's browser session, same origin,
+throttled; the token's browser sign-in stays until it is turned off (the
+sheet says where), the token itself until it is rotated; "Everyone" is
+never chosen; a vault or agent step that
+fails is said as what is left, with the person signed in; the host's
+`workspaceAgent` preset turns the agent on (or off) with no click and locks
+the controls.
+
+**Not done here:** a shell from before the hook keeps today's path (xbind
+rewrites no HTML); the iOS app's first run (§6e says what it would need); a
+password manager's save prompt is offered the right fields
+(`autocomplete` name / username / new-password, the vault's fields in a
+form of their own) but a headless browser can't show that it saves.

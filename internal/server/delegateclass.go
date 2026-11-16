@@ -346,6 +346,8 @@ var delegateClasses = map[string]delegateRow{
 	"POST /login":                        dNever(neverAccount),
 	"POST /invite/redeem":                dNever(neverAccount),
 	"POST /account/password":             dNever(neverAccount),
+	"GET /first-run":                     dNever(neverAccount),
+	"POST /first-run/session":            dNever(neverAccount),
 	"POST /devices/enroll":               dNever(neverAccount),
 	"POST /devices/enroll-code":          dNever(neverAccount),
 	"DELETE /devices/{id}":               dNever(neverAccount),

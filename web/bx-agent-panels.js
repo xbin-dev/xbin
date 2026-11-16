@@ -201,7 +201,7 @@ export class BxAgentSetup extends StoreView {
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}</div>`;
     }
     const st = s.state || {};
-    const w = stateWords(kind, { admins: st.admins, at: kind === 'paused' ? st.pausedAt : st.workspaceAt, held: st.held, why: st.heldWhy });
+    const w = stateWords(kind, { admins: st.admins, at: kind === 'paused' ? st.pausedAt : st.workspaceAt, held: st.held, why: st.heldWhy, host: !!(st.locks && st.locks.enabled) });
     const ask = `The workspace agent needs a language model and none is connected. Could you connect one? (${location.origin}/xbin/llm)`;
     return html`<div class="st" data-state=${kind}>
       <div class="banner ${kind === 'paused' || kind === 'unavailable' || kind === 'held' ? 'warn' : ''}" role="status"><bx-icon name=${kind === 'paused' ? 'pause' : kind === 'soon' ? 'info' : 'warning'}></bx-icon>

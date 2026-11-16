@@ -639,7 +639,8 @@ bring its own models and hold quotas the workspace's admins can't lift.
   "quotas": {
     "workspace": { "costPerMonth": 500 },
     "default": { "tokensPerDay": 2000000 }   // a ceiling: admins may narrow it per user or org
-  }
+  },
+  "workspaceAgent": { "enabled": true, "who": "admins" }   // not the connector's: workspace agents (below)
   // "lockAll": true                      // every setting is the host's
 }
 ```
@@ -674,6 +675,17 @@ bring its own models and hold quotas the workspace's admins can't lift.
 - Reads mark each locked setting: `locks: {"defaults.model": {"locked":
   true, "reason": "set by your host"}}`; a write to one answers `409` with
   the settings it named.
+- **`workspaceAgent`** (D237) is the file's one key that isn't the
+  connector's: the host's say over workspace agents
+  ([workspace-agent.md §Set by your host](/docs/workspace-agent.md#set-by-your-host)),
+  read, validated and reloaded with the rest of the file and locked the
+  same way. `false` locks them off; `true` locks them on and leaves who
+  gets one to the admins; `{"enabled": true, "who": "admins" |
+  "everyone"}` locks who too — `"admins"`: every admin account has an
+  agent of its own (those there when the key appears, and each made
+  after; taken back when they stop being admins). What the key wrote is
+  taken back when it changes or goes, and nothing else. `lockAll` doesn't
+  touch it.
 
 ## Limits today
 
