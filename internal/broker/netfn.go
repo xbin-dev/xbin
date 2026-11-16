@@ -603,6 +603,29 @@ type pendingBind struct {
 	// owns or writes: the prompt lists it for information, bind is not
 	// offered (mirrors /grants pending[].approvable).
 	Approvable bool `json:"approvable"`
+	// Required: the manifest marks the slot "required" — the tile can't do
+	// its work unbound. Optional: it isn't, and every slot the tile marks
+	// required is bound, so the tile works as it is: UIs fold such rows
+	// into one line rather than put them over the tile (a tile that marks
+	// none is never optional — nothing says what it needs).
+	Required bool `json:"required,omitempty"`
+	Optional bool `json:"optional,omitempty"`
+}
+
+// requiredBound: the interfaces mark at least one slot required, and every
+// one of them is bound.
+func requiredBound(ifaces map[string]registry.Iface, bound map[string]registry.Binding) bool {
+	has := false
+	for slot, req := range ifaces {
+		if !req.Required {
+			continue
+		}
+		has = true
+		if len(bound[slot]) == 0 {
+			return false
+		}
+	}
+	return has
 }
 
 // orEmpty keeps a slot nobody provides as "options": [] on the wire — a
@@ -622,14 +645,16 @@ func (b *Broker) pendingBindings(wsAdmin bool) []pendingBind {
 		if registry.IsOffloaded(b.Reg.LifecycleState(c.Path)) {
 			continue // offloaded components make no live bind requests
 		}
+		ready := requiredBound(c.Manifest.Interfaces, b.Reg.Workspace().Bindings[c.Path])
 		for slot, req := range c.Manifest.Interfaces {
 			if len(b.Reg.Workspace().Bindings[c.Path][slot]) > 0 {
 				continue // already bound (multi slots grow via the bindings UI)
 			}
 			pb := pendingBind{
 				Component: c.Path, Slot: slot, Kind: req.Kind, Service: req.Service,
-				Multi:   req.Multi,
-				Options: orEmpty(b.bindOptions(c.Path, req, wsAdmin)),
+				Multi:    req.Multi,
+				Options:  orEmpty(b.bindOptions(c.Path, req, wsAdmin)),
+				Required: req.Required, Optional: !req.Required && ready,
 			}
 			if req.Kind == "net" && b.orgNetDefault(c.Path) {
 				pb.Default = NetRefOrg

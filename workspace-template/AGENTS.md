@@ -892,6 +892,10 @@ you can't self-bind, same rule as grants) — unbound means no capability.
 - **Providing a standard API?** Declare it so others can bind you:
   `"provides": { "openai": { "kind": "http", "service": "openai", "role": "writer" } }`
   (`role` = the exposed role a binding grants callers).
+- **A slot your tile can't work without?** Add `"required": true` (an
+  agent's model): the shell shows it first, and once every required slot is
+  bound it folds the others into one line above the tile instead of a
+  popover over it.
 - **Many inputs on one slot** (http only): add `"multi": true` to a request
   slot when you genuinely want a *set* of providers (a comm agent binding
   Slack + N email accounts on one `channels` slot). You must opt in — you

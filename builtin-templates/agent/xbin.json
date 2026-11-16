@@ -80,8 +80,10 @@
     // any tile that provides service "openai" — bound like the chat tile's.
     // Their models are offered in the chat's picker, grouped by provider;
     // the binding is the grant. Unbound, the agent falls back to apps/llm-gw
-    // by name (an older instance's grant).
-    "llm": { "kind": "http", "service": "openai", "multi": true },
+    // by name (an older instance's grant). Required: without a model the
+    // agent can't answer, so the shell shows this slot first and folds the
+    // others into one line once it is bound (docs/overview/11-interfaces.md).
+    "llm": { "kind": "http", "service": "openai", "multi": true, "required": true },
     "mcp": { "kind": "http", "service": "mcp", "multi": true },
     // Coding sandboxes (D115): one or more sandbox managers — the builtin
     // coding-sandbox template once it ships, or any tile that provides service

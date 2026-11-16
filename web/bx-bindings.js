@@ -14,6 +14,12 @@
  * `tile="<path>"` shows only that tile's slots: the shell puts one on each
  * tile's window (D195) instead of a strip at the top. Every instance on a
  * page reads the same slots and dismissals (/vendor/bx-requests.js).
+ *
+ * Optional slots (xbind's `optional`: a tile that marks slots `required`
+ * and has them all bound — it works as it is) fold into one line, "3
+ * optional interfaces — show", until it is clicked: they are choices, not
+ * blockers. Nothing is bound or dismissed by the fold. `show-optional`
+ * (the shell's popover, which folds them itself) shows them at once.
  */
 import { LitElement, html, css, nothing, repeat } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
@@ -37,6 +43,8 @@ export class BxBindings extends LitElement {
     _approvable: { state: true },
     _showAll: { state: true },
     _dismissed: { state: true }, // the person's dismissals (bx-dismiss.js); null until read
+    showOptional: { type: Boolean, attribute: 'show-optional' }, // optional slots unfolded from the start
+    _optOpen: { state: true }, // the optional slots' line was clicked open
   };
 
   static styles = [scrollCss, css`
@@ -96,6 +104,8 @@ export class BxBindings extends LitElement {
     .panel > a { margin-top: 8px; }
     select.mode { flex: none; width: auto; }
     .rerr { color: var(--bx-danger, #FF7A7A); padding: 0 0 4px 2px; }
+    /* the optional slots, folded: one quiet line */
+    .row.opt { color: var(--bx-muted, #A3A6B6); }
     .rerr bx-icon { margin-right: 6px; }
     /* Dismiss: a quiet row action (R1), last on the row */
     button.quiet { background: transparent; color: var(--bx-muted, #A3A6B6); border-color: transparent; font-weight: 400; }
@@ -112,6 +122,8 @@ export class BxBindings extends LitElement {
     this._showAll = false;
     this._approvable = null; // comp → true: the wiring this person may change (GET /bindings)
     this._dismissed = null;
+    this.showOptional = false;
+    this._optOpen = false;
   }
 
   connectedCallback() {
@@ -240,10 +252,18 @@ export class BxBindings extends LitElement {
     // no count, no restore line (the shell's settings menu shows dismissed
     // items again, D188). "show all bindings" lives inside the open panel.
     if (shown.length === 0 && !this._showAll) return nothing;
+    // optional slots fold into one line until it is clicked (or the page shows them: show-optional)
+    const optional = shown.filter((p) => p.optional);
+    const folded = optional.length > 0 && !this.showOptional && !this._optOpen;
+    const rows = folded ? shown.filter((p) => !p.optional) : shown;
+    const n = optional.length;
     return html`<div class="panel">
       ${shown.length > 0 ? html`
         <h4>interfaces to bind</h4>
-        ${repeat(shown, (p) => this._key(p), (p) => {
+        ${folded ? html`<div class="row opt" data-optional=${n}>
+          ${toggle(`${n} optional interface${n === 1 ? '' : 's'} — show`, () => { this._optOpen = true; },
+            'the tile works without these: bind them when you need them')}</div>` : nothing}
+        ${repeat(rows, (p) => this._key(p), (p) => {
           // keyed: a row's <select> is never reused for another slot's row,
           // so what it shows is what its bind submits
           const key = this._key(p);

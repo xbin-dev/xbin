@@ -23,6 +23,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   its call's role, so it can tell a binding reached the backend without an
   approval (the template's `API.md`, [mcp.md](/docs/mcp.md)). Merge the
   template's update into an instance to get it.
+- interfaces, the shell, `<bx-bindings>`: **required slots; the rest fold
+  into one line.** A request slot may say `"required": true` — the
+  component can't work without it; the agent template's `llm` does. `GET
+  /bindings` marks pending rows `required`, and `optional` once every
+  required slot of the tile is bound (additive; a tile marking none has no
+  optional rows). The shell then shows such a tile's optional slots (and
+  its grant requests) as one line above the tile — "1 grant request · 3
+  optional interfaces · show" — instead of a popover over it, so a freshly
+  made assistant opens on its chat; `<bx-bindings>` (also in an older
+  shell's popover) folds optional rows into one line until clicked.
+  Nothing is bound or dismissed for the person
+  ([overview/11-interfaces.md](/docs/overview/11-interfaces.md)).
 - delegation: **an agent-started tile agent defaults to a coding agent
   that can run.** `GET /delegate/start-defaults` (and a start that names
   no harness) no longer default to the catalog's first when the person has
