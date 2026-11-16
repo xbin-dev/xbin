@@ -5516,3 +5516,48 @@ here: cut from the old end, never reword.
   - **Not yet**: `web.mode: "full"`, `web.search` and `mcp.mode: "listed"`
     (external MCP servers with credentials held by xbind) are refused with
     "not available yet" rather than half-built.
+- **D240 — Outside MCP servers for the workspace agent: listed by an
+  admin, spoken to by xbind, a way out like a URL (2026-11-16; issue #51;
+  `plans/wsagent/web-mcp.md` §6.1).** The part D239 left out
+  (`mcp.mode: "listed"`), as the owner asked for it next.
+  - **An admin lists them; xbind holds the secret and is the client.**
+    `mcp.servers` of `PUT /delegate/workspace`: `{id, name, url, auth:
+    none | bearer | header, secret (write-only), note, orgs,
+    privateNetwork, plainHttp, trustReadOnly}`. The secrets live in the
+    LLM connector's sealed envelope, now `internal/vault`'s `SealedMap`
+    (one implementation for xbind-held secrets), under a label of their
+    own; reads say `hasSecret`, and whatever a server answers is scrubbed
+    of its secret before the agent, its page or the model reads it. The
+    host's file may preset the list — and then locks it, unlike a mode:
+    a list is the addresses that leave the workspace — naming secrets by
+    `secretFile` (as an upstream's `keyFile`) or `secretEnv`. Rejected:
+    giving the agent's sandbox the server's address (its network stays
+    "model only", and the org rules and taint are xbind's), and the
+    agent naming a URL (only the admin's list is ever dialled).
+  - **The web's dialer, one host per server.** Requests go through
+    `internal/webfetch`'s guarded dial to the listed host alone (checked
+    when the socket connects), TLS verified, redirects only to the same
+    origin, 1 MiB and 20/60 s, an event stream read within those until
+    the request's answer. A server's own requests (sampling, elicitation,
+    roots) end the call: xbind is a client for tools only. A private
+    address needs the admin's explicit `privateNetwork` (link-local, the
+    metadata address, stays refused). The session id is xbind's, per
+    person, server and conversation.
+  - **Sending arguments out is the web's way out.** From a conversation
+    that holds an org's data a call is approved each time (no hour or
+    always), unless the org trusts the list (its rule `mcp: "listed"`)
+    or the server is listed with that org (`orgs`: it counts as inside).
+    The org rule grows to `any | listed | org | never`, strictest
+    `never > org > any > listed` — `listed` is the one loosening value,
+    as `web: "allow"` is. What a server answers taints no org but marks
+    the conversation as having read the web.
+  - **A tool's first call always asks**, the standing approval pinned to
+    its definition as for a tile — and the key of what is allowed is the
+    server's id and a hash of its URL, so an address that changes (or an
+    id reused for another server) is allowed by nobody. "Read-only tools
+    don't ask" doesn't reach an outside server unless the admin trusts
+    its marks (`trustReadOnly`, off by default): a `readOnlyHint` there
+    is an outsider's claim. Listing a server's tools is free once the
+    person's MCP setting is on and the server is visible to them.
+  - **Not yet**: OAuth sign-ins to an outside server, its resources and
+    prompts, and the server's `GET` stream.
