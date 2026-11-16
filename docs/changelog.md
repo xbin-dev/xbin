@@ -32,7 +32,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   not bound to anything else the tile declares (`wait.held` says why), is
   cancelled by `POST …/reject` or `…/undo` on the decided set, by the
   agent's end and by changes to its tiles, and every Apply-time check runs
-  again when it would apply. Audit rows `under: "waits"` and `"waited"`
+  again when it would apply. The approved role is recorded with the
+  binding (`bindingCaps` in the workspace's `xbin.json`) and stays the
+  most it grants, whatever the tile declares later. Audit rows
+  `under: "waits"` and `"waited"`
   ([protocol/delegation.md](/docs/protocol/delegation.md) §Lines that
   wait). Additive.
 - the workspace agent: **a tool for an assistant is built, in one plan.**

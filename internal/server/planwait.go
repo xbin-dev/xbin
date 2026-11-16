@@ -189,6 +189,19 @@ func (s *Server) judgeWait(cs delegation.ChangeSet, i int) bool {
 		s.waitAudit(cs, it, http.StatusConflict, why)
 		return false
 	}
+	// stays: the tile provides nothing of it yet, or something other than was approved — the line waits on
+	stays := func(state delegation.WaitState, why string) bool {
+		if state == delegation.WaitPending {
+			why = ""
+		}
+		if w.Held != why { // said once: the line, Needs you and the log
+			s.settleWait(cs, i, delegation.ItemWaiting, why, nil)
+			if why != "" {
+				s.waitAudit(cs, it, http.StatusConflict, why)
+			}
+		}
+		return true
+	}
 	wp, ok := s.ChangeSets.(WaitPreviewer)
 	if !ok {
 		return true
@@ -214,17 +227,8 @@ func (s *Server) judgeWait(cs delegation.ChangeSet, i int) bool {
 		return end(err.Error())
 	case state == delegation.WaitGone:
 		return end(why)
-	case state == delegation.WaitPending:
-		if w.Held != "" {
-			s.settleWait(cs, i, delegation.ItemWaiting, "", nil)
-		}
-		return true
-	case state == delegation.WaitHeld:
-		if w.Held != why { // said once: the line, Needs you and the log
-			s.settleWait(cs, i, delegation.ItemWaiting, why, nil)
-			s.waitAudit(cs, it, http.StatusConflict, why)
-		}
-		return true
+	case state == delegation.WaitPending, state == delegation.WaitHeld:
+		return stays(state, why)
 	}
 	// the tile provides exactly what was approved: every check a line gets
 	// when it is applied, as things are now
@@ -248,7 +252,13 @@ func (s *Server) judgeWait(cs delegation.ChangeSet, i int) bool {
 	case string(pv.Before) != w.Was:
 		return end(fmt.Sprintf("%s's %s was bound by someone since you approved this: nothing was changed", w.Component, w.Slot))
 	}
-	status, msg, _ := s.adminCallOut(context.Background(), person, pv.Call)
+	// (the bind reads the tile once more, under the lock it writes under, and records the approved role: WithBindWait)
+	status, msg, _ := s.adminCallOut(delegation.WithBindWait(context.Background(), w.PlanWait), person, pv.Call)
+	if status == http.StatusConflict { // the tile changed between the look above and the bind's own, under its lock: judged again as it is
+		if _, state, why, err := wp.PreviewWait(person, it.ChangeOp, w.PlanWait); err == nil && (state == delegation.WaitPending || state == delegation.WaitHeld) {
+			return stays(state, why)
+		}
+	}
 	if status >= 300 {
 		s.settleWait(cs, i, delegation.ItemFailed, msg, nil)
 		s.waitAudit(cs, it, status, msg)

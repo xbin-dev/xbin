@@ -1169,6 +1169,14 @@ manifest). Without such a start before it, the line is `blocked` as ever.
   rights now, the proposing conversation's scope and hidden tiles, both
   tiles' agent levels, their orgs' agent rules, the account. `result`
   becomes `applied` (with its `inverse`: it can be undone). At most once.
+- **The approved role stays the binding's limit.** The bind reads the
+  tile's manifest once more under the lock the binding is written under,
+  and records the role with it (`bindingCaps` in the workspace's
+  `xbin.json`). A tile that declares `writer` or `admin` afterwards gets
+  no more than `reader` through that binding; one that declares a role
+  outside reader / writer / admin gets nothing through it. Binding the
+  slot again — by hand, or in a new review — is a new decision, to what
+  the tile declares then.
 - **A tile that declares something else** — another role, another kind or
   service, by instance, the service twice — is **not bound**: the line
   stays `waiting`, `wait.held` says why in xbind's words (the person's own

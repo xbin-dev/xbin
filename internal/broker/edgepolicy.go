@@ -204,7 +204,8 @@ func (b *Broker) grantEdge(c *registry.Component, target, role string) (outEdge,
 func (b *Broker) httpSlotEdge(c *registry.Component, slot string, req registry.Iface, only string) (outEdge, bool) {
 	e := outEdge{id: "slot:" + slot, kind: edgeHTTP}
 	seen := map[string]bool{}
-	for _, ref := range b.Reg.Workspace().Bindings[c.Path][slot].Refs() {
+	ws := b.Reg.Workspace()
+	for _, ref := range ws.Bindings[c.Path][slot].Refs() {
 		prov, _ := splitRef(ref)
 		if only != "" && prov != only || seen[prov] {
 			continue
@@ -222,13 +223,38 @@ func (b *Broker) httpSlotEdge(c *registry.Component, slot string, req registry.I
 		if !ok {
 			continue
 		}
+		role := cappedRole(ws.BindingCaps[c.Path][slot][prov], provideRole(def))
+		if role == "" {
+			continue // the tile declares a role nobody approved for this binding: it grants nothing
+		}
 		seen[prov] = true
-		e.legs = append(e.legs, b.clampLeg(prov, provideRole(def)))
+		e.legs = append(e.legs, b.clampLeg(prov, role))
 	}
 	if len(e.legs) == 0 {
 		return outEdge{}, false
 	}
 	return clampEdge(e), true
+}
+
+// cappedRole is the role a binding grants: the role its provider's
+// manifest names now (role) — but never more than the role the binding was
+// approved for, where one is on record (limit, BindingCaps: a plan's line
+// that waited was approved "as reader" before the tile declared anything).
+// A provider that declares more later gets no more through the binding;
+// one that declares a role outside the conventional order gets nothing
+// ("") — neither was approved, and widening takes a new review. Only the
+// conventional order counts here: the provider's own expose.implies is the
+// provider's word.
+func cappedRole(limit, role string) string {
+	switch {
+	case limit == "" || role == limit:
+		return role
+	case roleSatisfies(role, limit, nil):
+		return limit // it declares more: held to what was approved
+	case roleSatisfies(limit, role, nil):
+		return role // it declares less
+	}
+	return ""
 }
 
 // httpSlotsTo lists from's http slots bound to target, sorted by slot, with

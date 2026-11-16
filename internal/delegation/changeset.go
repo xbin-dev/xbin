@@ -10,6 +10,7 @@ package delegation
 // the records: <hex(user)>/changesets/<id>.json.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,6 +82,21 @@ type ItemWait struct {
 	Owners []string  `json:"owners,omitempty"`
 	Was    string    `json:"was,omitempty"`
 	Held   string    `json:"held,omitempty"`
+}
+
+type bindWaitKey struct{}
+
+// WithBindWait marks ctx as the bind of a plan's line that waited: the
+// binding is made for exactly w — its handler checks the provider once
+// more against it, and records w.Role as the most the binding grants.
+func WithBindWait(ctx context.Context, w PlanWait) context.Context {
+	return context.WithValue(ctx, bindWaitKey{}, w)
+}
+
+// BindWait is the waiting line ctx's bind is made for (false: an ordinary bind).
+func BindWait(ctx context.Context) (PlanWait, bool) {
+	w, ok := ctx.Value(bindWaitKey{}).(PlanWait)
+	return w, ok
 }
 
 // PlannedStart is an earlier agent.start line of the same set: a tile

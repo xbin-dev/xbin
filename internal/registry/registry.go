@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -176,6 +177,12 @@ type WorkspaceManifest struct {
 	// A ref is "<provider>[#<instance>]". Single bindings marshal as a plain
 	// string (the pre-multi format); multi-bind slots as an array. Owner-managed.
 	Bindings map[string]map[string]Binding `json:"bindings,omitempty"`
+	// BindingCaps holds the role a binding was approved for where that was
+	// said before its provider declared one: bindingCaps[component][slot]
+	// [provider] = the most that binding grants, whatever the provider's
+	// manifest names later (a plan's line that waited, D243). Set with the
+	// binding by xbind, dropped when the slot is bound again by hand.
+	BindingCaps map[string]map[string]map[string]string `json:"bindingCaps,omitempty"`
 	// IfaceInstances holds the runtime-registered instances of provides
 	// declared {instances:true}: ifaceInstances[provider][instance] = the
 	// provider's API path prefix for that instance ("" = the provider root).
@@ -700,14 +707,53 @@ func (r *Registry) ImportMapFor(c *Component) map[string]string {
 // is where such a row would be written, so it is where it is refused,
 // whatever the caller checked.
 func (r *Registry) MutateWorkspace(fn func(*WorkspaceManifest)) error {
+	return r.MutateWorkspaceWhen(nil, fn)
+}
+
+// pruneBindingCaps drops the approved roles on record for bindings that are
+// no longer there: a cap lives exactly as long as the binding it was
+// approved with (whoever removed it: an unbind, a tile deleted or handed
+// over).
+func pruneBindingCaps(ws *WorkspaceManifest) {
+	for comp, slots := range ws.BindingCaps {
+		for slot, provs := range slots {
+			for prov := range provs {
+				if !slices.Contains(ws.Bindings[comp][slot].Refs(), prov) {
+					delete(provs, prov)
+				}
+			}
+			if len(provs) == 0 {
+				delete(slots, slot)
+			}
+		}
+		if len(slots) == 0 {
+			delete(ws.BindingCaps, comp)
+		}
+	}
+	if len(ws.BindingCaps) == 0 {
+		ws.BindingCaps = nil
+	}
+}
+
+// MutateWorkspaceWhen is MutateWorkspace for a write that holds only while
+// the components are as its caller judged them: when reads the components
+// under the lock the write is made under — no scan lands between the two —
+// and an error from it is returned with nothing written.
+func (r *Registry) MutateWorkspaceWhen(when func(component func(path string) (*Component, bool)) error, fn func(*WorkspaceManifest)) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if when != nil {
+		if err := when(func(p string) (*Component, bool) { c, ok := r.components[p]; return c, ok }); err != nil {
+			return err
+		}
+	}
 	had := sealedRows(r.workspace, r.sealed)
 	snap, err := json.Marshal(r.workspace)
 	if err != nil {
 		return err
 	}
 	fn(&r.workspace)
+	pruneBindingCaps(&r.workspace)
 	for row := range sealedRows(r.workspace, r.sealed) {
 		if !had[row] {
 			var prev WorkspaceManifest

@@ -605,12 +605,37 @@ func article(kind string) string {
 // ordinary preview of the binding, the handler's own check — when it
 // provides exactly what was approved.
 func (b *Broker) PreviewWait(p auth.Principal, op delegation.ChangeOp, w delegation.PlanWait) (delegation.ChangePreview, delegation.WaitState, string, error) {
-	if _, ok := b.Reg.Component(w.Component); !ok {
-		return delegation.ChangePreview{}, delegation.WaitGone, w.Component + " no longer exists", nil
+	state, why := b.waitState(w)
+	if state != delegation.WaitReady {
+		return delegation.ChangePreview{}, state, why, nil
 	}
-	pc, ok := b.Reg.Component(w.Tile)
+	pv, err := b.preview(p, op, nil, nil, true)
+	return pv, delegation.WaitReady, "", err
+}
+
+// waitState is where the tile a waiting line is pinned to (w) stands now,
+// read from one view of the registry: pending, ready, held (with why) or
+// gone.
+func (b *Broker) waitState(w delegation.PlanWait) (delegation.WaitState, string) {
+	return waitStateIn(b.Reg.Component, w)
+}
+
+// waitChanged: the tile a waiting line binds to is no longer as the line
+// was judged a moment before its bind (apiBindingSet, under the registry's
+// lock).
+type waitChanged struct{ why string }
+
+func (e *waitChanged) Error() string { return e.why }
+
+// waitStateIn is waitState over component — the registry's lookup, or the
+// one MutateWorkspaceWhen hands a write.
+func waitStateIn(component func(string) (*registry.Component, bool), w delegation.PlanWait) (delegation.WaitState, string) {
+	if _, ok := component(w.Component); !ok {
+		return delegation.WaitGone, w.Component + " no longer exists"
+	}
+	pc, ok := component(w.Tile)
 	if !ok {
-		return delegation.ChangePreview{}, delegation.WaitGone, w.Tile + " no longer exists", nil
+		return delegation.WaitGone, w.Tile + " no longer exists"
 	}
 	var found []registry.Iface
 	names := make([]string, 0, len(pc.Manifest.Provides))
@@ -625,19 +650,18 @@ func (b *Broker) PreviewWait(p auth.Principal, op delegation.ChangeOp, w delegat
 	}
 	switch {
 	case len(found) == 0:
-		return delegation.ChangePreview{}, delegation.WaitPending, "", nil
+		return delegation.WaitPending, ""
 	case len(found) > 1:
-		return delegation.ChangePreview{}, delegation.WaitHeld, fmt.Sprintf("%s declares %s more than once: what you approved is one %s interface for the role %s", w.Tile, w.Service, w.Kind, w.Role), nil
+		return delegation.WaitHeld, fmt.Sprintf("%s declares %s more than once: what you approved is one %s interface for the role %s", w.Tile, w.Service, w.Kind, w.Role)
 	}
 	def := found[0]
 	switch {
 	case def.Kind != w.Kind || def.Service != w.Service:
-		return delegation.ChangePreview{}, delegation.WaitHeld, fmt.Sprintf("%s declares %s as %s interface (service %q): what you approved is %s interface of the service %s", w.Tile, w.Service, article(cmp.Or(def.Kind, "unnamed")), def.Service, article(w.Kind), w.Service), nil
+		return delegation.WaitHeld, fmt.Sprintf("%s declares %s as %s interface (service %q): what you approved is %s interface of the service %s", w.Tile, w.Service, article(cmp.Or(def.Kind, "unnamed")), def.Service, article(w.Kind), w.Service)
 	case def.Role != w.Role:
-		return delegation.ChangePreview{}, delegation.WaitHeld, fmt.Sprintf("%s declares %s for the role %q: what you approved is the role %s, and a binding grants the role the tile names", w.Tile, w.Service, def.Role, w.Role), nil
+		return delegation.WaitHeld, fmt.Sprintf("%s declares %s for the role %q: what you approved is the role %s, and a binding grants the role the tile names", w.Tile, w.Service, def.Role, w.Role)
 	case def.Instances:
-		return delegation.ChangePreview{}, delegation.WaitHeld, fmt.Sprintf("%s declares %s as bound by instance: what you approved is the tile itself", w.Tile, w.Service), nil
+		return delegation.WaitHeld, fmt.Sprintf("%s declares %s as bound by instance: what you approved is the tile itself", w.Tile, w.Service)
 	}
-	pv, err := b.preview(p, op, nil, nil, true)
-	return pv, delegation.WaitReady, "", err
+	return delegation.WaitReady, ""
 }
