@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/webfetch"
 )
@@ -342,5 +343,66 @@ func TestTaintCarriesWeb(t *testing.T) {
 	}
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/sessions/"+w.handle+"/taint", `{}`, w.bob); rec.Code != 400 {
 		t.Errorf("an empty taint: %d", rec.Code)
+	}
+}
+
+// netWorld is fakeWorld with org rules on the web and MCP servers.
+type netWorld struct {
+	fakeWorld
+	web map[string]string
+	mcp map[string]string
+}
+
+func (n netWorld) AgentWebIn(org string) (string, string) {
+	if r, ok := n.web[org]; ok {
+		if r == agentpolicy.WebNever {
+			return r, org + " keeps its data off the web"
+		}
+		return r, ""
+	}
+	return agentpolicy.WebAsk, ""
+}
+
+func (n netWorld) AgentMCPIn(org string) (string, string) {
+	if r, ok := n.mcp[org]; ok {
+		return r, org + " keeps its data from MCP servers outside it"
+	}
+	return agentpolicy.MCPAny, ""
+}
+
+// covers D236 — the org rules: a conversation that holds the data of an
+// org whose rule is never loses the web for the rest of the conversation
+// (refused with the reason, and no request can be filed for it); one whose
+// every org allows the web outright fetches without asking
+func TestWebFetchOrgRules(t *testing.T) {
+	w := newWebRig(t)
+	w.s.AgentWorld = netWorld{web: map[string]string{"fin": agentpolicy.WebNever, agentpolicy.WorkspaceID: agentpolicy.WebAllow}}
+	w.on()
+	page := w.url("site.test", "/p")
+	// the tiles in no org allow the web: a conversation that read one fetches freely
+	_ = w.do(w.full, "GET", "/api/apps/x/notes", "", w.bob)
+	if h, _ := w.store.AgentSession("bob", dHolder, w.handle); len(h.Tainted) != 1 || h.Tainted[0] != agentpolicy.WorkspaceID {
+		t.Fatalf("taint: %+v", h.Tainted)
+	}
+	if rec := w.fetch(page); rec.Code != 200 {
+		t.Errorf("an org that allows the web: %d %s", rec.Code, rec.Body.String())
+	}
+	// it reads Finance's tile: the web is gone for this conversation
+	_ = w.do(w.full, "GET", "/api/apps/mail/inbox", "", w.bob)
+	rec := w.fetch(page)
+	if rec.Code != 403 || refusalOf(rec) != "web-org" || !strings.Contains(rec.Body.String(), "fin keeps its data off the web") {
+		t.Errorf("after reading Finance's data: %d %s", rec.Code, rec.Body.String())
+	}
+	if w.reach("web") != reachOff || w.reach("search") != reachOff {
+		t.Errorf("reach after Finance: web %s search %s", w.reach("web"), w.reach("search"))
+	}
+	in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/delegate/web/fetch", "body": `{"url":"` + page + `"}`})
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), w.bob); rec.Code != 403 {
+		t.Errorf("a request the org's rule refuses whatever approves it: %d %s", rec.Code, rec.Body.String())
+	}
+	// a new conversation that hasn't read it can
+	h2, _ := w.store.NewAgentSession("bob", dHolder, nil, "local/test")
+	if rec := w.fetch(page, header(HeaderAgentSession, h2.ID)); rec.Code != 200 {
+		t.Errorf("a new session: %d %s", rec.Code, rec.Body.String())
 	}
 }

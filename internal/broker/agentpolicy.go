@@ -294,7 +294,7 @@ func decodeAgentRules(w http.ResponseWriter, r *http.Request) (map[string]json.R
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	var body map[string]json.RawMessage
 	if err := server.DecodeJSON(r, &body); err != nil || body == nil {
-		server.WriteError(w, http.StatusBadRequest, `need {"workspaceAgent": "on"|"off", "harnesses": "any"|["claude", …], "models": "any"|"private"|["upstream", "upstream/model", …]}: each optional, null puts a rule back to its default`, agentPolicyDocs)
+		server.WriteError(w, http.StatusBadRequest, `need {"workspaceAgent": "on"|"off", "harnesses": "any"|["claude", …], "models": "any"|"private"|["upstream", "upstream/model", …], "web": "ask"|"allow"|"never", "mcp": "any"|"org"}: each optional, null puts a rule back to its default`, agentPolicyDocs)
 		return nil, false
 	}
 	return body, true

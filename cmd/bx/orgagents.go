@@ -4,7 +4,7 @@ package main
 // docs/auth.md §Agent constraints):
 //
 //	bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>]
-//	              [--models any|private|none|<id,…>]
+//	              [--models any|private|none|<id,…>] [--web ask|allow|never] [--mcp any|org]
 //	              [--credentials own-first|connector-first|connector-only] [--json]
 //	    an org's rules for agents on its tiles — with --pin, the rules a
 //	    workspace admin pins on it (its admins can't loosen those); with no
@@ -24,7 +24,7 @@ import (
 const noAgentPolicyMsg = "this xbind has no agent constraints (no /api/xbin/agents/policy); upgrade xbind"
 
 func init() {
-	dcUsage["org agents"] = "bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>] [--models any|private|none|<id,…>] [--credentials own-first|connector-first|connector-only] [--json]"
+	dcUsage["org agents"] = "bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>] [--models any|private|none|<id,…>] [--web ask|allow|never] [--mcp any|org] [--credentials own-first|connector-first|connector-only] [--json]"
 	dcUsage["agent connection"] = "bx agent connection [--model <upstream/model>] [--orgs <id,…>] [--tiles <tile,…>] [--what-if <upstream/model>] [--json]"
 }
 
@@ -88,7 +88,11 @@ type agentRules struct {
 	WorkspaceAgent string          `json:"workspaceAgent"`
 	Harnesses      json.RawMessage `json:"harnesses"`
 	Models         json.RawMessage `json:"models"`
-	Credentials    string          `json:"credentials"`
+	// Web, MCP: what a workspace agent's conversation holding the data may
+	// do on the web and with MCP servers (D236); "" unset (ask, any)
+	Web         string `json:"web"`
+	MCP         string `json:"mcp"`
+	Credentials string `json:"credentials"`
 }
 
 // allowText renders "any" | "private" | [ids] for a person.
@@ -115,6 +119,10 @@ func printAgentRules(who string, r agentRules, bounds *agentRules) {
 	if r.Credentials != "" {
 		fmt.Fprintf(dcOut, "  credentials      %s\n", r.Credentials)
 	}
+	if r.Web != "" || r.MCP != "" { // set only (the defaults, ask and any, aren't printed: older output stays as it was)
+		fmt.Fprintf(dcOut, "  web              %s\n", orDefault(r.Web, "ask"))
+		fmt.Fprintf(dcOut, "  mcp              %s\n", orDefault(r.MCP, "any"))
+	}
 	if bounds != nil {
 		fmt.Fprintf(dcOut, "within the workspace's bounds: workspace agent %s · harnesses %s · models %s\n",
 			bounds.WorkspaceAgent, allowText(bounds.Harnesses), allowText(bounds.Models))
@@ -132,7 +140,7 @@ func cmdOrgAgents(args []string) error {
 			rest = append(rest, a)
 		}
 	}
-	pos, vals, asJSON, err := flagValues(cmd, rest, "--workspace-agent", "--harnesses", "--models", "--credentials")
+	pos, vals, asJSON, err := flagValues(cmd, rest, "--workspace-agent", "--harnesses", "--models", "--web", "--mcp", "--credentials")
 	if err != nil {
 		return err
 	}
@@ -157,6 +165,18 @@ func cmdOrgAgents(args []string) error {
 	}
 	if v, ok := vals["--models"]; ok {
 		body["models"] = allowValue(v)
+	}
+	if v, ok := vals["--web"]; ok {
+		if v != "ask" && v != "allow" && v != "never" {
+			return usageError(cmd, "--web is ask, allow or never")
+		}
+		body["web"] = v
+	}
+	if v, ok := vals["--mcp"]; ok {
+		if v != "any" && v != "org" {
+			return usageError(cmd, "--mcp is any or org")
+		}
+		body["mcp"] = v
 	}
 	if v, ok := vals["--credentials"]; ok {
 		if len(pos) == 1 {
@@ -329,4 +349,12 @@ func cmdAgentConnection(args []string) error {
 		}
 	}
 	return nil
+}
+
+// orDefault is s, or def when it is "".
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }

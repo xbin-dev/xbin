@@ -1773,8 +1773,10 @@ audit log.
 | `workspaceAgent` | `on` (default) · `off` | whether people's workspace agents may work on the org's tiles at all |
 | `harnesses` | `any` (default) · a list of harness ids (`claude`, `codex`, …) | which coding agents an agent session on its tiles may run — for the person who opens one themselves and for a workspace agent alike |
 | `models` | `any` (default) · `private` · a list of LLM connector ids (an upstream, or `upstream/model`) | which models may see its tiles' data: a workspace agent's current model must satisfy it |
+| `web` | `ask` (default) · `allow` · `never` | what a workspace agent's conversation that holds the org's data may do on the web (D236): read only URLs its person approves one by one, read freely within the workspace's policy, or not read the web at all for the rest of that conversation |
+| `mcp` | `any` (default) · `org` | which MCP servers such a conversation may use: any the workspace's policy allows, or only the MCP tiles under the org |
 
-The workspace has the same three rules as **outer bounds**, plus the
+The workspace has the same rules as **outer bounds**, plus the
 mode for whose credentials serve a coding agent's model calls: `own-first`
 (the default: the person's own sign-in when they have one, else the LLM
 connector), `connector-first` (the connector, unless the person chose
@@ -1820,6 +1822,13 @@ sign-ins are not used).
   ended; it can't be restarted or, once ended, resumed while its harness is
   disallowed (the refusal says why, and the transcript stays readable).
   `GET /agent/providers?cwd=<tile>` lists what may start there.
+- **The web and MCP rules follow the data, not the tile.** They are asked
+  for every org whose data a workspace agent's conversation holds (its
+  session's taint), whatever tile it calls next: a conversation that read
+  Finance's tiles takes Finance's `web` rule to every page it would read.
+  The strictest of the bounds, the pin and the org's own wins (`never`,
+  then `ask`, then `allow`); the tiles in no org follow the bounds.
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §Web and MCP.)
 - **`private` is the connector's word.** Whether a model's upstream is
   private is the LLM connector's configuration; no caller can claim it.
 - **What it is not.** The harness list and the model rule govern the agent
