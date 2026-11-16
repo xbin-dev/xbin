@@ -29,8 +29,13 @@ export function promptsByTile({ grants, bindings, consents, limits } = {}, hidde
     m.set(path, e);
   };
   for (const p of grants?.pending ?? []) if (!hidden('grants', p)) add(p.from, 'grants');
-  // only the slots this person may wire: a tile they merely own is listed for information
-  for (const p of bindings?.pending ?? []) if (p.approvable !== false && !hidden('bindings', p)) add(p.component, 'bindings');
+  // only the slots this person may wire: a tile they merely own is listed for information;
+  // `optional`: the tile's required slots are all bound (xbind's word) — counted apart
+  for (const p of bindings?.pending ?? []) {
+    if (p.approvable === false || hidden('bindings', p)) continue;
+    add(p.component, 'bindings');
+    if (p.optional) m.get(p.component).optional = (m.get(p.component).optional || 0) + 1;
+  }
   for (const a of consents ?? []) add(a.from, 'consents');
   for (const p of limits?.pending ?? []) {
     if (!(p?.approvable || p?.mine) || hidden('limits', p)) continue;
@@ -38,6 +43,18 @@ export function promptsByTile({ grants, bindings, consents, limits } = {}, hidde
     if (p.why === 'cap' && m.has(p.tile)) m.get(p.tile).caps = (m.get(p.tile).caps || 0) + 1;
   }
   return m;
+}
+
+// foldsToLine(e) → whether a tile's waiting decisions fold into one line
+// above it instead of a popover over it: every slot it waits on is
+// optional (its required slots are bound — it works as it is), beside at
+// most grant requests; a consent ask or a limit keeps the popover.
+export const foldsToLine = (e) => !!e?.bindings && (e.optional || 0) === e.bindings && !e.consents && !e.limits;
+
+// lineWords(e) → that line: "3 optional interfaces", "1 grant request · 2 optional interfaces".
+export function lineWords(e) {
+  const part = (n, one, many) => (n ? `${n} ${n === 1 ? one : many}` : '');
+  return [part(e?.grants, 'grant request', 'grant requests'), part(e?.optional, 'optional interface', 'optional interfaces')].filter(Boolean).join(' · ');
 }
 
 // flaggedIn(prompts, paths) → how many of these tiles have something waiting

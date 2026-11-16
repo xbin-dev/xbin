@@ -36,6 +36,68 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   "not available yet" ([workspace-agent.md](/docs/workspace-agent.md) §The
   web and MCP tools, [protocol/delegation.md](/docs/protocol/delegation.md)
   §Web and MCP, [protocol/orgs.md](/docs/protocol/orgs.md)).
+- agent template: **`GET /tools` — what a conversation would be offered
+  now.** Per class the caller may start in, every tool with its source (a
+  built-in, or which MCP server), and per MCP server where it comes from
+  (the `mcp` slot's binding — personal or global —, `config.mcp`, a server
+  connected by URL), whether it answers (`initialize` + `tools/list` asked
+  now, reused for 10 s) and its error. A read that stores nothing and
+  carries no header, token or address credential; open to anyone who can
+  use the instance and — the one route so — to their workspace agent at
+  its call's role, so it can tell a binding reached the backend without an
+  approval (the template's `API.md`, [mcp.md](/docs/mcp.md)). Merge the
+  template's update into an instance to get it.
+- interfaces, the shell, `<bx-bindings>`: **required slots; the rest fold
+  into one line.** A request slot may say `"required": true` — the
+  component can't work without it; the agent template's `llm` does. `GET
+  /bindings` marks pending rows `required`, and `optional` once every
+  required slot of the tile is bound (additive; a tile marking none has no
+  optional rows). The shell then shows such a tile's optional slots (and
+  its grant requests) as one line above the tile — "1 grant request · 3
+  optional interfaces · show" — instead of a popover over it, so a freshly
+  made assistant opens on its chat; `<bx-bindings>` (also in an older
+  shell's popover) marks a required row "required" and folds optional rows
+  into one line until clicked.
+  Nothing is bound or dismissed for the person
+  ([overview/11-interfaces.md](/docs/overview/11-interfaces.md)).
+- delegation: **an agent-started tile agent defaults to a coding agent
+  that can run.** `GET /delegate/start-defaults` (and a start that names
+  no harness) no longer default to the catalog's first when the person has
+  no saved choice and that one can't run as things are — the workspace's
+  LLM connector can't serve it and no session saw a sign-in of theirs (Claude
+  Code on a workspace whose host provides the model): the first allowed
+  one the connector serves is the default instead. A saved choice (a
+  harness the person lets start unasked) always wins; org rules as before.
+  Each harness gains `noSignIn` (additive; also the sdk's `StartHarness`):
+  it runs on the connector with no sign-in — the brief's card names those
+  "— no sign-in", and its line says it ([protocol/delegation.md](/docs/protocol/delegation.md)).
+- the workspace agent: **a brief template for a tool.** `tile_agent_brief`
+  takes `template: "mcp-tool"` with `tool: {name, arguments, result}`; the
+  fields it leaves out come from the template — done when `tools/list`
+  names the tool and a call returns that shape, check by those two calls
+  from the tile's own sandbox, leave alone the manifest's `provides` and
+  the wire — so a hand-off of MCP-tool work to a tile's coding agent says
+  how to tell it is done (the template's `API.md` §Workspace mode).
+- docs: **[mcp.md](/docs/mcp.md), "Give an agent a tool"**: the
+  `mcp-server` template, the `mcp` slot and the binding as the grant, the
+  JSON-RPC methods, adding and checking a tool, how an assistant picks it
+  up, personal and global binds; and two lines of the workspace agent's
+  map of xbin from it (tools come from MCP tiles bound to an instance's
+  `mcp` slot; an instance needs its `llm` slot bound, `xbin:llm` the
+  workspace's connector).
+- templates: **`mcp-server`, tools for an agent.** A new builtin template
+  (`bx template new mcp-server as apps/dice`, the Tile Manager's "New from
+  template"): a small Go backend on the sdk serving MCP over streamable
+  HTTP at `POST /mcp` — `initialize` (protocol version negotiation),
+  `ping`, `tools/list`, `tools/call`, JSON-RPC errors — with one example
+  tool, `roll_dice {sides?, count?}` (`readOnlyHint`), a page that lists
+  the tools and calls one, and an `AGENTS.md` for the tile's coding agent
+  (where tools go: one function and one line in `_backend/tools.go`; how to
+  check with `tools/list` and `tools/call` from its own terminal). Its
+  manifest provides `mcp` from the first second, so an agent instance's
+  `mcp` slot can be bound to a fresh copy before anyone has written a tool.
+  No third-party modules: it builds in its sandbox with no network
+  ([mcp.md](/docs/mcp.md)).
 - access: **`GET /access?tile=` says what reaches everyone.** A new
   `defaults: [{level, source}]` lists the workspace defaults that reach the
   tile (additive; none on an org-owned tile), and a system component no

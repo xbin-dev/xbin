@@ -5225,6 +5225,60 @@ here: cut from the old end, never reword.
     events, a real `bye` on an xbind update, the full connection view's
     frame check.
 
+- **D236 — Give an agent a tool: the `mcp-server` template, `GET /tools`,
+  required slots, a default coding agent that runs (2026-11-16; issue #51,
+  plans/wsagent/journey.md G4 instance half, G8, G9, G10).** Building an
+  MCP tile needed knowledge no page held (three comment lines in the agent
+  template's manifest), the hook-up couldn't be checked without an
+  approval, the default coding agent for an agent-started session was one
+  the workspace's connector can't serve, and a fresh assistant opened
+  under a popover of five rows.
+  - **The template is the contract.** `builtin-templates/mcp-server`: a Go
+    backend on the zero-dependency sdk (no third-party module: it builds
+    with no network), MCP over streamable HTTP at `POST /mcp` —
+    `initialize` with version negotiation (2025-11-25, 2025-06-18,
+    2025-03-26, 2024-11-05; the client's when spoken, else the newest),
+    `ping`, `tools/list`, `tools/call`, notifications 202, batches, JSON-RPC
+    errors, a tool's failure as `isError` (the model reads and corrects it,
+    rather than a protocol error). Stateless: no session id, because the
+    agent's client initializes before every call and a backend restarts
+    between any two. A tool is one function and one line (`tools.go`), the
+    example `roll_dice` (readOnlyHint). `"agent": "full"`: reads free, each
+    `tools/call` by a person's agent approved by them; narrow it for tools
+    that act. The manifest provides `mcp` from the first second, so a
+    binding is valid before anyone wrote a tool — what lets a plan create,
+    bind and brief in one batch.
+  - **`docs/mcp.md`** is the page docs_search must find (a test holds it
+    first for eight queries); two lines of the agent's map are generated
+    from it; `tile_agent_brief` takes `template: "mcp-tool"` with the
+    tool's name, arguments and result and fills done-when, check-by and
+    leave-alone — the always-true parts live in code, not in a model's
+    memory.
+  - **`GET /tools` on an agent instance** answers what a conversation
+    would be offered now: per class every tool with its source, per MCP
+    server where it comes from and whether it answers (a live
+    `initialize` + `tools/list`, reused 10 s; a URL-connected server is
+    never probed, since its sign-in may refresh a token). Nothing stored;
+    no header, token or address credential, errors' URLs cut to scheme,
+    host and path. It is the one route of the template opened to a
+    person's workspace agent at its call's role (`agentReadOpen`): every
+    other needs `admin`, which an agent's call never has. Rejected: opening
+    all of `agentMay`'s reads the same way — each needs its own look.
+  - **`"required": true` on a request slot** (the agent template's `llm`).
+    Pending rows say `required`, and `optional` once every required slot
+    is bound; a tile that marks none has no optional rows, so nothing
+    changes for any tile today. The shell then shows optional slots and
+    grant requests as one line in the card's flow above the tile, not a
+    popover over it; `<bx-bindings>` (xbind-served, so old shells get it)
+    folds optional rows behind one line. Rejected: hiding optional rows
+    from `/bindings` (old shells would lose them, and dismissals would be
+    pruned); folding grant requests of tiles that mark nothing required.
+  - **start-defaults' default** with no saved choice is the first allowed
+    harness that can run as things are (a sign-in a session saw, or the
+    connector), else the first allowed; the saved choice wins; each
+    harness says `noSignIn`. Rejected: changing the catalog's order — a
+    person signed in to Claude Code keeps it first.
+
 - **D239 — The workspace agent on the web and with MCP servers:
   workspace policy, org rules, the person's settings; xbind fetches and
   speaks MCP (2026-11-16; issue #51; `plans/wsagent/web-mcp.md`).** The
@@ -5274,4 +5328,3 @@ here: cut from the old end, never reword.
   - **Not yet**: `web.mode: "full"`, `web.search` and `mcp.mode: "listed"`
     (external MCP servers with credentials held by xbind) are refused with
     "not available yet" rather than half-built.
-

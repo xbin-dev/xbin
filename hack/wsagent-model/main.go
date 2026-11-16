@@ -53,6 +53,8 @@ var passages = []passage{
 	{Label: "Partitions", File: "partitions.md", Marker: "xbind then runs **one backend instance per person**", Max: 170},
 	{Label: "Grants", File: "overview/06-authorization.md", Max: 420},
 	{Label: "Interfaces and bindings", File: "overview/11-interfaces.md", Max: 460},
+	{Label: "Tools for an agent instance", File: "mcp.md", Max: 150},
+	{Label: "An agent instance's model", File: "mcp.md", Marker: "An agent instance needs its `llm` slot bound", Max: 170},
 	{Label: "Sandboxes", File: "overview/08-sandbox.md", Max: 360},
 	{Label: "Terminals", File: "overview/09-terminals.md", Max: 360},
 	{Label: "Tile agents", File: "overview/09-terminals.md", Heading: "Agent sessions (D74)", Max: 420},

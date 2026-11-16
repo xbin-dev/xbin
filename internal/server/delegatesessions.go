@@ -444,12 +444,15 @@ type startHarness struct {
 	Net         string `json:"net"`         // "" the tile's default network
 	API         bool   `json:"api"`         // tile-API access
 	NeedsTicket bool   `json:"needsTicket"` // the person approves each start (their preference doesn't let it start unasked)
+	// NoSignIn: it runs here with no sign-in of the person's — the
+	// workspace's LLM connector serves it (G8). A brief's card says so.
+	NoSignIn bool `json:"noSignIn"`
 }
 
 // startDefaultsView is GET /delegate/start-defaults' answer.
 type startDefaultsView struct {
 	Tile      string         `json:"tile"`
-	Harness   string         `json:"harness"` // the default: the first the person lets start unasked, else the first allowed
+	Harness   string         `json:"harness"` // the default: the first the person lets start unasked, else the first allowed that can run (startDefaults)
 	Harnesses []startHarness `json:"harnesses"`
 	Why       string         `json:"why,omitempty"` // no harness may run there: the rule's reason
 }
@@ -473,11 +476,21 @@ func (d startDefaultsView) netFor(id string) string  { h, _ := d.of(id); return 
 // or, where they ask to approve each start, the harness's asking mode. One
 // place: the preview of a start request, the unasked start and
 // GET /delegate/start-defaults all read it.
+//
+// The default, when no harness is the person's saved choice (one their
+// preference lets start unasked): the first allowed one that can run as
+// things are — on the person's own sign-in where an agent session saw
+// one, or on the workspace's LLM connector — else the first allowed. So a
+// start the agent asks for doesn't open on a coding agent the connector
+// can't serve and nobody is signed in to (the journey's G8: Claude Code
+// first in the catalog, on a workspace whose host provides the model).
 func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView {
 	out := startDefaultsView{Tile: tile, Harnesses: []startHarness{}}
 	pol := s.agentPolicy()
 	sub := delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}
-	for _, prov := range agent.Providers() {
+	provs := agent.Providers()
+	llm := startLLMOf(s, p, tile, provs)
+	for _, prov := range provs {
 		if err := pol.SessionAllows(sub, prov.ID); err != nil {
 			if out.Why == "" {
 				out.Why = err.Error()
@@ -498,12 +511,21 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 			h.NeedsTicket = true
 		}
 		h.Asks = prov.Asks(h.Mode)
+		h.NoSignIn = noSignIn(llm[prov.ID])
 		out.Harnesses = append(out.Harnesses, h)
 	}
 	for _, h := range out.Harnesses {
 		if !h.NeedsTicket {
-			out.Harness = h.ID
+			out.Harness = h.ID // the person's saved choice: always wins
 			break
+		}
+	}
+	if out.Harness == "" && len(out.Harnesses) > 0 && llm != nil && !runsNow(llm[out.Harnesses[0].ID]) {
+		for _, h := range out.Harnesses {
+			if h.NoSignIn {
+				out.Harness = h.ID
+				break
+			}
 		}
 	}
 	if out.Harness == "" && len(out.Harnesses) > 0 {
@@ -515,6 +537,31 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 		out.Why = "no coding agent may run on " + tile
 	}
 	return out
+}
+
+// startLLMOf is what a new agent session of p's on tile would run on, per
+// harness (term's AgentLLM: the connector, their own sign-in, or neither);
+// nil when sessions get nothing of the connector. A var for tests.
+var startLLMOf = func(s *Server, p auth.Principal, tile string, provs []agent.Provider) map[string]*term.ProviderLLM {
+	if s.Term == nil {
+		return nil
+	}
+	person := personOf(p)
+	return s.Term.AgentLLM(person.UserID, term.HomeKey(person), tile, provs)
+}
+
+// noSignIn: the connector serves this harness here, whatever sign-ins the
+// person has — "connector", or "own-first" (their own sign-in when a
+// session finds one, else the connector).
+func noSignIn(row *term.ProviderLLM) bool {
+	return row != nil && row.Connector && (row.Use == "connector" || row.Use == "own-first")
+}
+
+// runsNow: a session of this harness would start as things are — on the
+// connector, or on the person's own sign-in where a session saw one. nil
+// (sessions get nothing of the connector) says nothing against it.
+func runsNow(row *term.ProviderLLM) bool {
+	return row == nil || noSignIn(row) || row.Use == "own" && row.SignedIn != nil && *row.SignedIn
 }
 
 // byTileQuery is the tile a request names in ?tile=.

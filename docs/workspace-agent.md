@@ -119,6 +119,8 @@ A workspace agent's call to your tile's API looks like its person's — `X-XBin-
 - **What your tile returns is data.** The agent is told that tile data, logs and pages are things to report, not to obey — but a tile that returns "ignore your instructions" is still a tile behaving badly. Don't put text meant for agents in data.
 - **A person approves a call, not a meaning.** xbind shows the method, the path and the body. Make write routes say what they do in their path and body, so the approval a person gives is an informed one.
 
+**Tools for an assistant.** When a person wants an agent instance (an assistant made from the agent template) to have a tool, the tool is an MCP tile bound to the instance's `mcp` slot, made from the `mcp-server` template; the instance's `llm` slot needs binding too. The agent creates and binds them, briefs the MCP tile's own coding agent for the tool, and checks the hook-up with the instance's `GET /tools`: [mcp.md](/docs/mcp.md).
+
 ## What the language model's provider sees
 
 The agent's model calls go through xbind's LLM connector, on the model its session is on. The provider of that model receives the conversation: what the person wrote, the agent's replies, and the results of its tools — tile names and status lines, what a tile's API answered, log lines (redacted for known secret shapes), a tile agent's report, the research sub-agent's summaries, and the notebook pages the session may read. Where the web and MCP tools are on, it also receives the text of the pages the agent read and what the tools answered. It does not receive tile code unless a research sub-agent quoted a line of it, a tile agent's transcript beyond its final report, or anything from a tile that isn't connected.

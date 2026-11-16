@@ -1,0 +1,135 @@
+<!doctype html>
+<!--
+  This file was copied from the "mcp-server" builtin template. It's now a
+  component you own. The page lists the tools the backend serves (MCP's
+  tools/list) and lets a person call one (tools/call) — a test bench for the
+  tools in _backend/tools.go; it needs no change when you add one.
+  data-bx-theme="auto": it follows the person's light or dark theme, styled
+  with theme.css's tokens only (docs/frontend-kit.md).
+-->
+<html lang="en" data-bx-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MCP server</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { margin: 0; padding: 16px; font: var(--bx-font-body); box-sizing: border-box; }
+    main { max-width: 760px; }
+    h1 { margin: 0 0 4px; font: var(--bx-font-heading); letter-spacing: var(--bx-tracking-heading); }
+    h2 { margin: 0; font: var(--bx-font-title); overflow-wrap: anywhere; }
+    p { margin: 4px 0; color: var(--bx-muted); }
+    code { background: var(--bx-code-bg); padding: 0 4px; border-radius: var(--bx-radius); font: var(--bx-font-code); overflow-wrap: anywhere; }
+    .tool { margin-top: 16px; padding: 12px; background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); }
+    .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+    .tag { font: var(--bx-font-meta); color: var(--bx-muted); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 0 6px; }
+    .tag.ro { color: var(--bx-ok); border-color: var(--bx-ok); }
+    form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 8px; }
+    label { display: flex; flex-direction: column; gap: 2px; font: var(--bx-font-meta); color: var(--bx-muted); min-width: 0; flex: 1 1 8em; max-width: 16em; }
+    label input { width: 100%; }
+    label.check { flex-direction: row; align-items: center; gap: 6px; flex: 0 1 auto; }
+    label.check input { width: auto; }
+    form button { flex: none; }
+    pre { margin: 8px 0 0; padding: 8px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bx-code-bg); border-radius: var(--bx-radius); font: var(--bx-font-code); }
+    pre.err { color: var(--bx-danger); }
+    .note { font: var(--bx-font-meta); }
+    .fail { color: var(--bx-danger); }
+  </style>
+</head>
+<body class="bx">
+  <main>
+    <h1>MCP server</h1>
+    <p>Tools for an agent, served at <code id="endpoint">POST /mcp</code>. Bind an agent's
+       <code>mcp</code> slot to this tile and its conversations can call them; add a tool in
+       <code>_backend/tools.go</code> (its <code>AGENTS.md</code> says how).</p>
+    <div id="tools"><p>Listing the tools…</p></div>
+  </main>
+  <script type="module">
+    // Every call is the page's own, to its tile's backend (xbin.fetch: always
+    // allowed). The JSON-RPC shapes are MCP's (API.md).
+    const self = window.xbin?.self ?? '';
+    document.getElementById('endpoint').textContent = `POST /api/${self}/mcp`;
+    let id = 0;
+    async function rpc(method, params) {
+      const r = await xbin.fetch(`/api/${self}/mcp`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, ...(params ? { params } : {}) }),
+      });
+      const body = await r.json().catch(() => null);
+      if (!body) throw new Error(`HTTP ${r.status}: the backend didn't answer (is it running? its log is in the tile's terminal)`);
+      if (body.error) throw new Error(body.error.message || `error ${body.error.code}`);
+      return body.result;
+    }
+    const el = (tag, props = {}, ...kids) => {
+      const e = Object.assign(document.createElement(tag), props);
+      e.append(...kids.filter((k) => k != null));
+      return e;
+    };
+    // a form field per argument the schema names: numbers, strings, booleans
+    function field(name, s, required) {
+      const t = s.type;
+      const hint = [s.description, s.minimum != null && s.maximum != null ? `${s.minimum}–${s.maximum}` : '', s.default != null ? `default ${s.default}` : ''].filter(Boolean).join(' · ');
+      if (t === 'boolean') {
+        const input = el('input', { type: 'checkbox', name });
+        input.dataset.type = t;
+        return el('label', { className: 'check', title: hint }, input, `${name}${required ? ' *' : ''}`);
+      }
+      const input = el('input', { name, type: t === 'integer' || t === 'number' ? 'number' : 'text', placeholder: s.default != null ? String(s.default) : '', required });
+      if (t === 'integer') input.step = '1';
+      if (s.minimum != null) input.min = s.minimum;
+      if (s.maximum != null) input.max = s.maximum;
+      input.dataset.type = t || 'string';
+      return el('label', { title: hint }, `${name}${required ? ' *' : ''}`, input);
+    }
+    function argsOf(form) {
+      const out = {};
+      for (const input of form.querySelectorAll('input')) {
+        const t = input.dataset.type;
+        if (t === 'boolean') { if (input.checked) out[input.name] = true; continue; }
+        if (input.value === '') continue; // left out: the tool's default
+        out[input.name] = t === 'integer' || t === 'number' ? Number(input.value) : t === 'string' ? input.value : JSON.parse(input.value);
+      }
+      return out;
+    }
+    function toolCard(tool) {
+      const schema = tool.inputSchema || {};
+      const props = schema.properties || {};
+      const req = new Set(schema.required || []);
+      const out = el('pre', { hidden: true });
+      const button = el('button', { type: 'submit', className: 'primary', textContent: 'Call' });
+      const form = el('form', {}, ...Object.entries(props).map(([n, s]) => field(n, s || {}, req.has(n))), button);
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        button.disabled = true;
+        out.hidden = false; out.className = ''; out.textContent = 'Calling…';
+        try {
+          const args = argsOf(form);
+          const res = await rpc('tools/call', { name: tool.name, arguments: args });
+          const text = (res.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+          out.className = res.isError ? 'err' : '';
+          out.textContent = (res.isError ? 'The tool failed: ' : '') + text +
+            (res.structuredContent ? `\n\nstructuredContent: ${JSON.stringify(res.structuredContent)}` : '');
+        } catch (err) {
+          out.className = 'err'; out.textContent = String(err.message || err);
+        } finally { button.disabled = false; }
+      };
+      const ro = tool.annotations?.readOnlyHint === true;
+      return el('section', { className: 'tool' },
+        el('div', { className: 'head' }, el('h2', { textContent: tool.title || tool.name }),
+          el('code', { textContent: tool.name }),
+          el('span', { className: `tag ${ro ? 'ro' : ''}`, textContent: ro ? 'read-only' : 'may change things' })),
+        el('p', { textContent: tool.description || '' }), form, out);
+    }
+    const box = document.getElementById('tools');
+    try {
+      const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'mcp-server page', version: '1' } });
+      const { tools = [] } = await rpc('tools/list');
+      box.replaceChildren(
+        el('p', { className: 'note', textContent: `${tools.length} tool${tools.length === 1 ? '' : 's'} · MCP ${init.protocolVersion} · ${init.serverInfo?.name ?? ''} ${init.serverInfo?.version ?? ''}` }),
+        ...tools.map(toolCard));
+    } catch (err) {
+      box.replaceChildren(el('p', { className: 'fail', textContent: `Couldn't list the tools: ${err.message || err}` }));
+    }
+  </script>
+</body>
+</html>

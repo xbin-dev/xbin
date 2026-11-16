@@ -4,7 +4,7 @@
 // dismissal and an unapprovable slot leave out, a folder's count, the words.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { promptsByTile, flaggedIn, promptWords } from '../workspace-template/shell/prompts.js';
+import { promptsByTile, flaggedIn, promptWords, foldsToLine, lineWords } from '../workspace-template/shell/prompts.js';
 
 test('each decision lands on the tile that asked', () => {
   const m = promptsByTile({
@@ -36,4 +36,25 @@ test('a folder counts its flagged tiles; the words name what waits', () => {
   assert.equal(promptWords(m.get('apps/a')), '1 grant request, 1 interface to bind waiting for your decision');
   assert.equal(promptWords(m.get('apps/b')), '2 interfaces to bind waiting for your decision');
   assert.equal(promptWords(null), '');
+});
+
+test('a tile that works as it is folds its optional slots into one line (G10)', () => {
+  const m = promptsByTile({
+    grants: { pending: [{ from: 'apps/assistant', target: 'cap:open-links', role: 'writer' }] },
+    bindings: { pending: [
+      { component: 'apps/assistant', slot: 'mcp', optional: true }, { component: 'apps/assistant', slot: 'net', optional: true },
+      { component: 'apps/assistant', slot: 'scm', optional: true },
+      { component: 'apps/fresh', slot: 'llm', required: true }, { component: 'apps/fresh', slot: 'mcp' },
+      { component: 'apps/old', slot: 'net' },
+    ] },
+  });
+  const a = m.get('apps/assistant');
+  assert.equal(a.optional, 3);
+  assert.equal(foldsToLine(a), true, 'its required slots are bound: the rest are choices');
+  assert.equal(lineWords(a), '1 grant request · 3 optional interfaces');
+  assert.equal(foldsToLine(m.get('apps/fresh')), false, 'a required slot unbound: the popover');
+  assert.equal(foldsToLine(m.get('apps/old')), false, 'a tile that marks nothing required: as before');
+  assert.equal(foldsToLine({ grants: 1, bindings: 0, consents: 0, n: 1 }), false, 'grant requests alone: as before');
+  assert.equal(foldsToLine({ ...a, limits: 1 }), false, 'a limit ask keeps the popover');
+  assert.equal(lineWords({ optional: 1 }), '1 optional interface');
 });

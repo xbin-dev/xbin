@@ -156,6 +156,9 @@ test('the brief: the backend\'s button, what it runs on, the coding agents to pi
   assert.equal(w.button, 'Review and start…');
   assert.equal(w.runsOn, 'Claude Code · asks before acting');
   assert.deepEqual(w.harnesses.map((h) => h.id), ['claude', 'codex']);
+  // xbind's noSignIn: the picker names the coding agents that run on the workspace's model with no sign-in
+  const sd2 = { ...sd, defaults: { harnesses: [{ id: 'claude', name: 'Claude Code' }, { id: 'codex', name: 'Codex', noSignIn: true }] } };
+  assert.deepEqual(W.briefCard(b, undefined, sd2).harnesses.map((h) => h.name), ['Claude Code', 'Codex — no sign-in']);
   assert.match(w.note, /told first/);
   // "asks before acting" only where xbind says the mode asks (ask or plan); not before it said
   assert.match(w.note, /the tile agent asks you before it acts/);

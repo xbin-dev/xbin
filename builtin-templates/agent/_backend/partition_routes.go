@@ -47,6 +47,10 @@ func agentRole(h http.HandlerFunc) http.Handler {
 			h(w, r)
 			return
 		}
+		if agentReadOpen[r.Pattern] && agentReadsAsPerson(r) { // the few reads opened to a person's workspace agent (wsagent.go)
+			h(w, r)
+			return
+		}
 		admin.ServeHTTP(w, r)
 	})
 }
