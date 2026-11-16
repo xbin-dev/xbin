@@ -208,7 +208,7 @@ export function manageView(el, onClose) {
   const hs = el.harness && el.view !== 'manage' ? d.harnesses.filter((h) => h.id === el.harness).concat(d.harnesses.filter((h) => h.id !== el.harness)) : d.harnesses;
   return html`<div class="list">
     ${head}
-    <p class="lead">Sign in to a coding agent once. xbind keeps the sign-in sealed with the workspace vault — it is never shown again, to you or anyone — and uses it for the coding agents you start, on every tile only you can open a terminal on. On a tile other people can open a terminal on it is left out, and the session says so.</p>
+    <p class="lead">Sign in to a coding agent once. xbind keeps the sign-in sealed with the workspace vault — it is never shown again, to you or anyone — and uses it for the coding agents you start, on every tile only you can change. On a tile other people can change it is left out, and the session says so.</p>
     ${d.notice ? html`<div class="banner notice"><span>${d.notice.text}</span><button class="dismiss" @click=${() => act(el, 'notice', () => el.api.dismissNotice())}>OK</button></div>` : nothing}
     ${not ? html`<div class="banner why-not"><span>${not}</span></div>` : nothing}
     ${d.unisolated && !not ? html`<div class="banner"><span>This workspace runs without sandboxes (a development workspace): everything it runs could read a coding agent's sign-in.</span></div>` : nothing}

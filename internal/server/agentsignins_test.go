@@ -433,7 +433,7 @@ func TestSigninsInProviders(t *testing.T) {
 	alice, bob := s.Auth.NewSession("alice", ""), s.Auth.NewSession("bob", "")
 	others := []string{}
 	s.Term.Signins, s.Term.SigninDev = s.Signins, true
-	s.Term.SigninOthers = func(user, tile string) []string { return others }
+	s.Term.SigninOthers = func(user, tile string) (string, []string, bool) { return tile, others, true }
 	if _, _, err := s.Signins.Save("alice", "claude", "Personal", fakeSigninToken, false); err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func TestSigninsInProviders(t *testing.T) {
 		t.Fatal("bob's row names alice's sign-in")
 	}
 	others = []string{"bob"}
-	if sv := get(alice, "?cwd=apps/x")["claude"].Saved; sv == nil || sv.Inject || !strings.Contains(sv.Why, "bob can also open terminals on apps/x") {
+	if sv := get(alice, "?cwd=apps/x")["claude"].Saved; sv == nil || sv.Inject || !strings.Contains(sv.Why, "bob can also change apps/x") {
 		t.Fatalf("a shared tile: %+v", sv)
 	}
 

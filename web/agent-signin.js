@@ -363,8 +363,8 @@ export class BxAgentSignin extends LitElement {
   // where a saved sign-in is used, in one sentence — and whether here
   _usedWords() {
     const here = this._here;
-    if (here && !here.inject) return `It is used on tiles only you can open a terminal on — not on this one: ${here.why}.`;
-    return 'xbind uses it for your coding agents on every tile only you can open a terminal on.';
+    if (here && !here.inject) return `It is used on tiles only you can change — not on this one: ${here.why}.`;
+    return 'xbind uses it for your coding agents on every tile only you can change.';
   }
 
   // the line under the status while idle: what the main button will do, or
@@ -375,7 +375,7 @@ export class BxAgentSignin extends LitElement {
     if (not) return not;
     const here = this._here;
     if (here && !here.inject) return `A sign-in saved with xbind isn't used on this tile: ${here.why}.`;
-    if (this._primary === 'saved') return `xbind keeps the sign-in sealed and uses it for your coding agents on every tile only you can open a terminal on.${this._data.unisolated ? ' This workspace runs without sandboxes (a development workspace): everything it runs could read it.' : ''}`;
+    if (this._primary === 'saved') return `xbind keeps the sign-in sealed and uses it for your coding agents on every tile only you can change.${this._data.unisolated ? ' This workspace runs without sandboxes (a development workspace): everything it runs could read it.' : ''}`;
     return '';
   }
 

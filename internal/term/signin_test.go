@@ -104,7 +104,7 @@ func signinRig(t *testing.T, fakeArgs string) (*agentRig, *fakeSignins, *[]strin
 	f := &fakeSignins{}
 	others := &[]string{}
 	r.m.Signins, r.m.SigninDev = f, true
-	r.m.SigninOthers = func(user, tile string) []string { return *others }
+	r.m.SigninOthers = func(user, tile string) (string, []string, bool) { return tile, *others, true }
 	return r, f, others
 }
 
@@ -241,21 +241,18 @@ func TestSigninRule(t *testing.T) {
 	}
 	// someone else can open a terminal on the tile: left out, and it says who
 	*others = []string{"bob"}
-	if pl := plan(alice, openOpts{}, false, false); pl.saved == nil || !strings.Contains(pl.why, "bob can also open terminals on apps/x") {
+	if pl := plan(alice, openOpts{}, false, false); pl.saved == nil || !strings.Contains(pl.why, "bob can also change apps/x") {
 		t.Fatalf("a shared tile: %+v", pl)
 	}
 	*others = []string{"bob", "carol", "dave"}
 	if pl := plan(alice, openOpts{}, false, false); !strings.Contains(pl.why, "bob, carol and 1 more can also") {
 		t.Fatalf("a tile shared with three: %q", pl.why)
 	}
-	// …unless the tile is partitioned and the session is in her partition
+	// a partitioned tile is no exception (review finding 2): its directory
+	// is shared code, bound read-write into every partition's sessions
 	mine := openOpts{part: sessionPart{on: true, tile: "apps/x", part: "user:alice", key: "k-alice"}}
-	if pl := plan(alice, mine, false, false); pl.why != "" {
-		t.Fatalf("her own partition of a shared tile: %q", pl.why)
-	}
-	global := openOpts{part: sessionPart{on: true, tile: "apps/x", part: "global"}} // no person's partition
-	if pl := plan(alice, global, false, false); pl.why == "" {
-		t.Fatal("a session in the tile's global partition got it")
+	if pl := plan(alice, mine, false, false); !strings.Contains(pl.why, "bob, carol and 1 more can also change apps/x") {
+		t.Fatalf("her own partition of a tile others can change: %q", pl.why)
 	}
 	*others = nil
 	// the connector alone may serve, or she chose it
@@ -285,7 +282,7 @@ func TestSigninRule(t *testing.T) {
 		t.Fatalf("signin none: %+v", pl)
 	}
 	// the launcher's preview is the same answer
-	m.SigninOthers = func(string, string) []string { return []string{"bob"} }
+	m.SigninOthers = func(_, tile string) (string, []string, bool) { return tile, []string{"bob"}, true }
 	if sg, why := m.SigninPreview(alice, "apps/x", prov, false); sg == nil || !strings.Contains(why, "bob can also") {
 		t.Fatalf("preview: %+v %q", sg, why)
 	}
@@ -305,7 +302,7 @@ func TestSigninLeftOut(t *testing.T) {
 		t.Fatalf("a shared tile's session signed in with %q", got)
 	}
 	row, _ := r.m.Info(info.ID)
-	if row.Signin == nil || row.Signin.Source != SigninHome || row.Signin.Name != "Personal" || !strings.Contains(row.Signin.Why, "bob can also open terminals") {
+	if row.Signin == nil || row.Signin.Source != SigninHome || row.Signin.Name != "Personal" || !strings.Contains(row.Signin.Why, "bob can also change apps/x") {
 		t.Fatalf("the row: %+v", row.Signin)
 	}
 	if len(f.used()) != 0 {
@@ -551,18 +548,15 @@ func TestSigninRuleJudgesTheTileADirectoryLiesIn(t *testing.T) {
 	m := r.m
 	var asked []string
 	shared := true
-	m.TileAt = func(rel string) (string, bool) {
-		if rel == "apps/x" || strings.HasPrefix(rel, "apps/x/") {
-			return "apps/x", true
+	m.SigninOthers = func(user, path string) (string, []string, bool) { // as the real one: the tile the path lies in
+		if path != "apps/x" && !strings.HasPrefix(path, "apps/x/") {
+			return "", nil, false
 		}
-		return "", false
-	}
-	m.SigninOthers = func(user, tile string) []string { // as the real one: by the tile's own path
-		asked = append(asked, tile)
-		if shared && tile == "apps/x" {
-			return []string{"bob"}
+		asked = append(asked, "apps/x")
+		if shared {
+			return "apps/x", []string{"bob"}, true
 		}
-		return nil
+		return "apps/x", nil, true
 	}
 	alice := termAdmin("alice")
 	for _, dir := range []string{"apps/x", "apps/x/src", "apps/x/src/deep/er"} {

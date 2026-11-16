@@ -3,7 +3,6 @@ package boot
 import (
 	"log/slog"
 	"path/filepath"
-	"sort"
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -63,24 +62,9 @@ func (st *State) setupSignins(srv *server.Server) {
 		tm.Signins = store
 		tm.SigninDev = !isolate && dev
 		// who else could change what a session on a tile runs: the other
-		// enabled people with terminal access there. Workspace admins aren't
-		// counted: they can change any tile and are in the trust base.
-		tm.SigninOthers = func(user, tile string) []string {
-			if userStore == nil {
-				return nil
-			}
-			var out []string
-			for _, u := range userStore.List() {
-				if u.ID == user || u.Disabled || u.IsAdmin() {
-					continue
-				}
-				if acc, ok := userStore.Access(u.ID); ok && acc.CanTerminal() && acc.CanTerminalTile(tile) {
-					out = append(out, u.ID)
-				}
-			}
-			sort.Strings(out)
-			return out
-		}
+		// enabled people with write level or more on the tile the path lies
+		// in (broker/signinothers.go). Workspace admins aren't counted.
+		tm.SigninOthers = brk.SigninOthers
 		// people or their access changed: a session on a saved sign-in whose
 		// tile someone else can now open a terminal on is ended
 		prevPeople := brk.OnPeopleChanged

@@ -114,7 +114,7 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	w.s.Signins = signins.New(signins.Options{Dir: filepath.Join(t.TempDir(), "signins"), AllowPlaintext: true})
 	others := []string{}
 	w.s.Term.Signins, w.s.Term.SigninDev = w.s.Signins, true
-	w.s.Term.SigninOthers = func(user, tile string) []string { return others }
+	w.s.Term.SigninOthers = func(user, tile string) (string, []string, bool) { return tile, others, true }
 	llm := map[string]*term.ProviderLLM{
 		"claude": {Use: "own"}, "gemini": {Use: "own"},
 		"codex": {Use: "own-first", Connector: true}, "opencode": {Use: "connector", Connector: true},

@@ -22,11 +22,13 @@ package term
 //     frame or backend, a terminal's or an agent session's token), the root
 //     token;
 //  2. sandboxes are on (a development workspace excepted: SigninDev);
-//  3. nobody else can change what the sandbox runs: the tile is partitioned
-//     and the session is in its person's own partition (their own layer,
-//     started in their $HOME), or no other person holds terminal access to
-//     the tile (SigninOthers: workspace admins aren't counted — they can
-//     change any tile and are in the trust base);
+//  3. nobody else can change what the sandbox runs: no other person who
+//     isn't a workspace admin holds write level or more on the tile the
+//     session's directory lies in (SigninOthers: by any source — ownership,
+//     an entry, a pattern, an org). A partitioned tile is no exception: a
+//     partition keeps people's data apart, and the tile's directory — its
+//     code — is bound read-write into every partition's sessions. Admins
+//     aren't counted: they can change any tile and are in the trust base;
 //  4. the connector isn't the only one allowed to serve the session, and
 //     the person didn't choose it.
 //
@@ -67,11 +69,12 @@ type SigninStore interface {
 type SigninHook struct {
 	// Signins is the store; nil ⇒ sessions are exactly as before.
 	Signins SigninStore
-	// SigninOthers lists the other people — enabled, not workspace admins —
-	// who hold terminal access to tile: each could change what a session
-	// there runs. nil ⇒ unknown, and no saved sign-in goes into a session
-	// on a tile that isn't partitioned.
-	SigninOthers func(user, tile string) []string
+	// SigninOthers answers the registered tile a path is or lies in and the
+	// other people — enabled, not workspace admins — who hold write level or
+	// more there (the broker's SigninOthers): each could change what a
+	// session there runs. ok false: the path lies in no tile. nil ⇒ unknown,
+	// and no saved sign-in goes into any session.
+	SigninOthers func(user, path string) (tile string, others []string, ok bool)
 	// SigninDev: a development workspace (--dev, --no-auth), where saved
 	// sign-ins work without sandboxes.
 	SigninDev bool
@@ -170,11 +173,6 @@ func (m *Manager) SigninPreview(p auth.Principal, tile string, prov agent.Provid
 		return nil, ""
 	}
 	var o openOpts
-	if m.SessionPartition != nil && tile != "" {
-		if ans, err := m.SessionPartition(p, tile, ""); err == nil && ans.Partitioned {
-			o.part = sessionPart{on: true, tile: ans.Tile, part: ans.Part, key: ans.Key}
-		}
-	}
 	pl := m.signinPlanFor(p, o, tile, prov, "", forced, false)
 	return pl.saved, pl.why
 }
@@ -187,11 +185,6 @@ func (m *Manager) SigninRule(p auth.Principal, tile string, prov agent.Provider)
 		return "this xbind keeps no saved sign-ins"
 	}
 	var o openOpts
-	if m.SessionPartition != nil && tile != "" {
-		if ans, err := m.SessionPartition(p, tile, ""); err == nil && ans.Partitioned {
-			o.part = sessionPart{on: true, tile: ans.Tile, part: ans.Part, key: ans.Key}
-		}
-	}
 	o.userID = p.UserID
 	return m.signinWhy(p, o, tile, prov, m.credentialRule(o, tile, prov.ID, "").Forced, false)
 }
@@ -246,32 +239,20 @@ func (m *Manager) signinWhy(p auth.Principal, o openOpts, rel string, prov agent
 		return "coding agents on " + rel + " run on the workspace's LLM connector only"
 	case chosen:
 		return "this session was started on the workspace's LLM connector"
-	case o.part.personal():
-		return "" // their own partition: their own layer, their own $HOME, no admin pass
 	case m.SigninOthers == nil:
-		return "xbind can't tell who else may open a terminal on " + rel
+		return "xbind can't tell who else can change " + rel
 	}
 	// the tile the directory lies in, never the directory as written: a
 	// person's access is to the tile, and its hooks run in every directory
-	// of it
-	tile, ok := m.signinTile(rel)
+	// of it — on a partitioned tile too, whose directory is shared code
+	tile, others, ok := m.SigninOthers(p.UserID, rel)
 	if !ok {
 		return rel + " is in no registered tile, so xbind can't tell who else can change what runs there"
 	}
-	if others := m.SigninOthers(p.UserID, tile); len(others) > 0 {
-		return othersWords(others) + " can also open terminals on " + tile + " and could change what your agent runs there"
+	if len(others) > 0 {
+		return othersWords(others) + " can also change " + tile + " and could change what your agent runs there"
 	}
 	return ""
-}
-
-// signinTile is the registered tile a session's directory is or lies in
-// (TileAt: the registry's Resolve) — what the rule is judged on. false: in
-// none. Without a registry (tests) the path is its own tile.
-func (m *Manager) signinTile(rel string) (string, bool) {
-	if m.TileAt == nil {
-		return rel, rel != ""
-	}
-	return m.TileAt(rel)
 }
 
 // othersWords names up to two people and counts the rest.
@@ -498,17 +479,15 @@ func (m *Manager) SigninSweep() int {
 			user = ss.user
 		}
 		s.mu.Unlock()
-		if !carries || s.part.personal() {
+		if !carries {
 			continue
 		}
-		tile, ok := m.signinTile(s.Cwd)
+		tile, others, ok := m.SigninOthers(user, s.Cwd)
 		if !ok { // its tile is gone from the registry: nothing vouches for it any more
 			m.endForSignin(s, s.Cwd+" is no longer a registered tile, so this session — which ran on your saved sign-in — was ended.")
 			n++
-			continue
-		}
-		if others := m.SigninOthers(user, tile); len(others) > 0 {
-			m.endForSignin(s, othersWords(others)+" can now open terminals on "+tile+", so this session — which ran on your saved sign-in — was ended. Start it again: it will say what it runs on.")
+		} else if len(others) > 0 {
+			m.endForSignin(s, othersWords(others)+" can now change "+tile+", so this session — which ran on your saved sign-in — was ended. Start it again: it will say what it runs on.")
 			n++
 		}
 	}

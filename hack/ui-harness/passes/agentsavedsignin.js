@@ -16,7 +16,7 @@
 // the list: rename, add a pasted key, make default, remove (which says
 // what it does first), where it was used; (e) admins: who has sign-ins —
 // no names, no secrets — and the switch, which stops saving; (f) a tile
-// someone else can open a terminal on: the card says the saved sign-in
+// someone else can change: the card says the saved sign-in
 // isn't used there and offers the tile's own sign-in first, and a session
 // there says who; (g) the element alone at phone width, light and dark.
 const { URL, OUT, login, closeCtx, settle, fr, waitFor, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
@@ -68,7 +68,7 @@ async function agentSavedSignin(browser) {
   await waitFor(page, (t, a) => { const g = t.frameFor(a.tile)?.testApi().agent(a.i)?.signin; return !!g && g.data && g.primary === 'saved'; }, { tile: TILE, i: idx }, { timeout: 15000, label: 'the signed-out agent shows the card, with xbind\'s sign-in first' });
   const card = () => fr(page, TILE, (f, t, i) => { const s = f.agent(i).signin; return s && { phase: s.phase, how: s.how, url: s.url, code: s.code, status: s.status, hint: s.hint, primary: s.primary, session: s.session, saved: s.saved }; }, idx);
   let s = await card();
-  check(s.phase === 'idle' && /Not signed in to Fake agent/.test(s.status) && /keeps the sign-in sealed/.test(s.hint) && /every tile only you can open a terminal on/.test(s.hint) && /without sandboxes/.test(s.hint),
+  check(s.phase === 'idle' && /Not signed in to Fake agent/.test(s.status) && /keeps the sign-in sealed/.test(s.hint) && /every tile only you can change/.test(s.hint) && /without sandboxes/.test(s.hint),
     `the card says what Sign in does, where a saved sign-in is used, and that this workspace runs without sandboxes (${JSON.stringify(s)})`);
   const links = await page.locator(`${CARD} .links button`).allTextContents();
   check(['Paste a key instead', 'Sign in on this tile only', 'Use a terminal instead', 'Saved sign-ins…'].every((l) => links.includes(l)), `…and the other ways beside it (${JSON.stringify(links)})`);
@@ -200,7 +200,7 @@ async function agentSavedSignin(browser) {
   await page.locator(DLG).waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
   check((await page.locator(DLG).count()) === 0, 'Escape closes the list');
 
-  // ---- (f) a tile someone else can open a terminal on ----
+  // ---- (f) a tile someone else can change ----
   await fr(page, TILE, (f) => { while (f.tabs.length) f.closeTab(0); });
   await settle(page);
   await openTile(page, SHARED);
@@ -211,13 +211,13 @@ async function agentSavedSignin(browser) {
   const sidx = await fr(page, SHARED, (f) => f.tabs.length - 1);
   const shared = await fr(page, SHARED, (f, t, i) => ({ chip: f.agent(i).signinChip, state: f.agent(i).signinState }), sidx);
   // (what it runs on instead depends on the home: the tile's own login where an earlier pass signed the fake in, else nothing)
-  check(shared.state.source !== 'saved' && /dev1.* can also open terminals on apps\/leads/.test(shared.state.why) && /saved sign-in not used|this tile's own login/.test(shared.chip),
+  check(shared.state.source !== 'saved' && /dev1.* can also change apps\/leads/.test(shared.state.why) && /saved sign-in not used|this tile's own login/.test(shared.chip),
     `on ${SHARED} the saved sign-in is left out, and the session says who can also open a terminal there (${JSON.stringify(shared)})`);
   await fr(page, SHARED, (f, t, i) => f.agent(i).send('please fail'), sidx);
   await waitFor(page, (t, a) => { const g = t.frameFor(a.tile)?.testApi().agent(a.i)?.signin; return !!g && g.data && g.primary === 'tile'; }, { tile: SHARED, i: sidx }, { timeout: 15000, label: 'the shared tile\'s card offers the tile\'s own sign-in first' });
   const scard = await fr(page, SHARED, (f, t, i) => { const g = f.agent(i).signin; return { hint: g.hint, primary: g.primary }; }, sidx);
   const sbtn = await page.locator(`bx-frame[src="${SHARED}"] bx-agent-signin:not([view]) button.start`).textContent();
-  check(/isn't used on this tile: dev1.* can also open terminals/.test(scard.hint) && sbtn.trim() === 'Sign in on this tile', `…and its card says so and signs in on the tile ("${sbtn.trim()}": ${scard.hint})`);
+  check(/isn't used on this tile: dev1.* can also change/.test(scard.hint) && sbtn.trim() === 'Sign in on this tile', `…and its card says so and signs in on the tile ("${sbtn.trim()}": ${scard.hint})`);
   await shotEl(page, `bx-frame[src="${SHARED}"] .pop`, 'signin-card-shared-tile');
   await fr(page, SHARED, (f) => { while (f.tabs.length) f.closeTab(0); });
   await settle(page);

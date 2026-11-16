@@ -216,7 +216,7 @@ func TestSavedSignInInSandbox(t *testing.T) {
 	})
 	id = open(nil)
 	r := rowOf(id)
-	if r == nil || r.Source == "saved" || !strings.Contains(r.Why, "bob can also open terminals on "+tile) {
+	if r == nil || r.Source == "saved" || !strings.Contains(r.Why, "bob can also change "+tile) {
 		t.Fatalf("a shared tile's session: %+v", r)
 	}
 	var provs []struct {
