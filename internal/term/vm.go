@@ -118,6 +118,24 @@ func (m *Manager) vmDisk(layer string) string {
 	return disk
 }
 
+func (s *Session) kill() {
+	if s.agent != nil {
+		s.agent.killed.Store(true) // before the agent goes: no held message is sent after it (flushQueue)
+	}
+	if s.cmd.Process != nil {
+		if s.pgid { // the non-isolated agent host and its agent: the whole group
+			_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		}
+		if s.vm && s.hangupVM() {
+			return
+		}
+		_ = s.cmd.Process.Kill()
+	}
+	if s.pty != nil {
+		_ = s.pty.Close()
+	}
+}
+
 // hangupVM ends a VM session gracefully: SIGHUP makes the shim have the
 // guest flush its disk before the VM dies, then the usual SIGKILL follows
 // (the pump sees the exit either way). false = not sent; kill outright.
