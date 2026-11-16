@@ -112,7 +112,7 @@ func (w *mcpRig) call(tool string, extra ...cred) *httptest.ResponseRecorder {
 	return w.do(w.full, "POST", "/api/xbin/delegate/mcp/call", string(b), append([]cred{w.bob}, extra...)...)
 }
 
-// covers D236 / journey G4 — the agent reads an MCP tile's server itself:
+// covers D239 / journey G4 — the agent reads an MCP tile's server itself:
 // exactly initialize, ping and tools/list on the endpoint the tile
 // declares, as the person, nobody asked; anything else POSTed there is
 // refused, and nothing passes while MCP is off
@@ -172,7 +172,7 @@ func TestMCPReadsOnTheEndpoint(t *testing.T) {
 	}
 }
 
-// covers D236 — a tool's call: xbind is the client, the tool asks the
+// covers D239 — a tool's call: xbind is the client, the tool asks the
 // first time ("always for this tool" is a standing approval of exactly that
 // server and tool), a tool the server marks read-only runs unasked only
 // under the person's own setting, a read-level tile takes read-only tools

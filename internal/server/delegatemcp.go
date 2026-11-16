@@ -1,6 +1,6 @@
 package server
 
-// delegatemcp.go — a person's workspace agent with MCP servers (D236;
+// delegatemcp.go — a person's workspace agent with MCP servers (D239;
 // docs/protocol/delegation.md §Web and MCP). An MCP tile is one whose
 // manifest provides an http interface of service "mcp"; its endpoint is
 // /api/<tile>/mcp.

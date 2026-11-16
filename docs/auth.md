@@ -1773,7 +1773,7 @@ audit log.
 | `workspaceAgent` | `on` (default) · `off` | whether people's workspace agents may work on the org's tiles at all |
 | `harnesses` | `any` (default) · a list of harness ids (`claude`, `codex`, …) | which coding agents an agent session on its tiles may run — for the person who opens one themselves and for a workspace agent alike |
 | `models` | `any` (default) · `private` · a list of LLM connector ids (an upstream, or `upstream/model`) | which models may see its tiles' data: a workspace agent's current model must satisfy it |
-| `web` | `ask` (default) · `allow` · `never` | what a workspace agent's conversation that holds the org's data may do on the web (D236): read only URLs its person approves one by one, read freely within the workspace's policy, or not read the web at all for the rest of that conversation |
+| `web` | `ask` (default) · `allow` · `never` | what a workspace agent's conversation that holds the org's data may do on the web (D239): read only URLs its person approves one by one, read freely within the workspace's policy, or not read the web at all for the rest of that conversation |
 | `mcp` | `any` (default) · `org` | which MCP servers such a conversation may use: any the workspace's policy allows, or only the MCP tiles under the org |
 
 The workspace has the same rules as **outer bounds**, plus the

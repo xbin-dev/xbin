@@ -94,7 +94,7 @@ async function sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot,
       if (await page.$(`${SHEET} [role="dialog"]`)) await page.keyboard.press('Escape');
       await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     };
-    // ---- the web and MCP tools (D236): a page is approved once, with its whole address; a tool once or always ----
+    // ---- the web and MCP tools (D239): a page is approved once, with its whole address; a tool once or always ----
     S.requests.push({ id: 'w2', user: 'admin', agent: 'system/agent', kind: 'web', method: 'POST', target: '/api/xbin/delegate/web/fetch', body: '{"url":"https://status.example.com/incidents?since=today"}',
       bodyShown: true, bodySize: 57, summary: 'To see whether the payment provider reports an outage.', state: 'pending', created: iso(-200), expires: iso(86390000),
       preview: { class: 'web', url: 'https://status.example.com/incidents?since=today', host: 'status.example.com', orgs: ['sales'], readWeb: true,

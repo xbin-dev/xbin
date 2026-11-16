@@ -179,7 +179,7 @@ func (ag *Agent) wsOpenHolding(ctx context.Context, s *wsSession, scope *wsScope
 	if h.Model == "" {
 		h.Model = model
 	}
-	if s.Conn.Web && !h.Web { // it has read the web: the new handle holds that too (D236)
+	if s.Conn.Web && !h.Web { // it has read the web: the new handle holds that too (D239)
 		if err := wsX.MarkWeb(ctx, h.ID); err == nil {
 			h.Web = true
 		}

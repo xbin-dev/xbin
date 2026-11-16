@@ -227,7 +227,7 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 		"user": a.user, "workspace": ws.Enabled,
 		"paused": st.Paused, "adminChanges": st.AdminChanges, "canAdminChanges": mayOptInAdmin(a.p),
 		"pendingRequests": len(pend), "standingApprovals": len(aps), "openChangeSets": open,
-		// the web and MCP (D236): the person's own settings, and what the
+		// the web and MCP (D239): the person's own settings, and what the
 		// workspace policy lets them turn on
 		"web": st.Web, "mcp": st.MCP, "mcpReadOnly": st.MCPReadOnly, "net": s.netForPerson(),
 	}
@@ -286,7 +286,7 @@ func (s *Server) apiDelegateStatePut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Paused       *bool `json:"paused"`
 		AdminChanges *bool `json:"adminChanges"`
-		// the web and MCP (D236): what widens is the person's own
+		// the web and MCP (D239): what widens is the person's own
 		Web         *bool `json:"web"`
 		MCP         *bool `json:"mcp"`
 		MCPReadOnly *bool `json:"mcpReadOnly"`
@@ -359,7 +359,7 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 	var body struct {
 		Enabled *bool   `json:"enabled"`
 		Who     *string `json:"who"`
-		// the web and MCP policy (D236): what a person's agent may do there
+		// the web and MCP policy (D239): what a person's agent may do there
 		Web *struct {
 			Mode   *string   `json:"mode"`
 			Allow  *[]string `json:"allow"`

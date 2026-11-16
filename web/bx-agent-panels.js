@@ -138,7 +138,7 @@ export class BxAgentPrefs extends StoreView {
     if (!r.ok) { this._err = r.error; e.target.checked = !e.target.checked; }
   }
 
-  // the web and MCP tools (D236): the person's own toggles, within what the workspace policy allows
+  // the web and MCP tools (D239): the person's own toggles, within what the workspace policy allows
   async _net(e, id) {
     if (!e.isTrusted) return;
     this._err = '';

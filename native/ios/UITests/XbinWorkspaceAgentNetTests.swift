@@ -3,7 +3,7 @@ import UIKit
 #endif
 import XCTest
 
-/// The web and MCP tools of the workspace agent (D236) in the app's chrome:
+/// The web and MCP tools of the workspace agent (D239) in the app's chrome:
 /// a web page to approve (its whole address, asked every time), an MCP
 /// tool (once, or always this tool — armed like any standing choice), and
 /// the person's two settings in Preferences, turned on only armed. Demo

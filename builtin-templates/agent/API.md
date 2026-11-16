@@ -5895,7 +5895,7 @@ proposed, never another session's); `preview`; `plan`; `notebook_search`,
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
 
-**MCP tiles** (D236; `/docs/protocol/delegation.md` §MCP tiles). A tile
+**MCP tiles** (D239; `/docs/protocol/delegation.md` §MCP tiles). A tile
 xbind's map marks `mcp: true` serves MCP at `/api/<tile>/mcp`.
 `mcp_tools {tile?}` reads its tools there with the template's own MCP
 client (`MCPServer` with `delegate`: the SDK's delegate client, in the
@@ -5913,7 +5913,7 @@ answer is framed as the tile's data. Refused with the MCP policy or the
 person's setting off (`mcp-off`, `mcp-person`), the refusal is said once
 and the tools leave the list.
 
-**The web** (D236; xbin's `/docs/protocol/delegation.md` §Web and MCP).
+**The web** (D239; xbin's `/docs/protocol/delegation.md` §Web and MCP).
 `web_read {url, why?, offset?, dry_run?}` reads one page through xbind's
 `POST /api/xbin/delegate/web/fetch`: xbind judges it — the workspace's
 policy, the person's own setting, the rules of the orgs whose data the

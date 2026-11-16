@@ -1,6 +1,6 @@
 import Foundation
 
-// The web and MCP tools of a person's workspace agent (D236), in the web
+// The web and MCP tools of a person's workspace agent (D239), in the web
 // chrome's words (/vendor/agent-chrome-words.js: webOf, mcpOf, webRows,
 // mcpRows, netPrefs, and the web and MCP branches of needTitle, heading,
 // grantChoices, allowLabel and did) — held to it by DelegationWordsTests.

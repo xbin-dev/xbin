@@ -96,7 +96,7 @@ type wsXbin interface {
 	ChangeSets(ctx context.Context, sid string) ([]wsChangeSet, error)
 	Preview(ctx context.Context, sid string, p wsPreviewAsk) (wsPreview, error)
 
-	// The web and MCP servers (ws_xbin_net.go; D236): xbind reads a page for
+	// The web and MCP servers (ws_xbin_net.go; D239): xbind reads a page for
 	// the conversation (with ticket: under its person's approval of that
 	// URL), files the approval, and keeps "this conversation has read the
 	// web" with a handle that is renewed (MarkWeb). What the conversation
@@ -135,7 +135,7 @@ type wsHandle struct {
 	// Web: the conversation has read the web — as xbind holds it for the
 	// handle, and as the conversation keeps it across handles (it only goes
 	// from false to true). Reach: what it may do on the web and with MCP
-	// servers now, by xbind (an xbind before D236 says nothing: off).
+	// servers now, by xbind (an xbind before D239 says nothing: off).
 	Web   bool    `json:"web,omitempty"`
 	Reach wsReach `json:"reach,omitempty"`
 }

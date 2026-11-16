@@ -1,7 +1,7 @@
 package delegation
 
 // netpolicy.go — the workspace's policy for a person's workspace agent on
-// the web and with MCP servers (D236; docs/protocol/delegation.md §Web and
+// the web and with MCP servers (D239; docs/protocol/delegation.md §Web and
 // MCP): what a workspace admin set (Workspace.Web, Workspace.MCP, kept
 // with the workspace's switch) and what the host's deployment file holds
 // (hostfile.go), merged into what is in force (NetInForce). Each layer

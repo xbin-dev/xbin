@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The workspace agent with MCP tiles (D236), scripted: the tools are offered
+// The workspace agent with MCP tiles (D239), scripted: the tools are offered
 // while xbind's reach has MCP; a tool's call asks the first time, runs at
 // once where the person let it (a read-only tool under their setting, a
 // tool they allowed for good), and its answer is the tile's data.

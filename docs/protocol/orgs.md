@@ -262,7 +262,7 @@ shape for both:
                                       //   of an upstream the connector marks private
  "web": "ask",                        // "ask" | "allow" | "never": a workspace agent's conversation that holds
                                       //   this org's data reads only URLs its person approves, reads freely,
-                                      //   or never reads the web (D236); omitted when unset
+                                      //   or never reads the web (D239); omitted when unset
  "mcp": "any"}                        // "any" | "org": such a conversation uses any MCP server the workspace
                                       //   allows, or only the MCP tiles under this org; omitted when unset
 ```

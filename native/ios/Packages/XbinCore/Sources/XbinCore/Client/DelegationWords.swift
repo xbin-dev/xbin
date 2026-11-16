@@ -355,7 +355,7 @@ public enum DelegationWords {
     public static func approveBody(_ r: DelegateRequest, choice: GrantChoice.ID = .once, duration: String = "") -> JSONValue {
         var o: [String: JSONValue] = [:]
         if sends(r).binary { o["unseen"] = true }
-        let tool = r.kind == .mcp && choice == .tool // an MCP tool: always, this tool (D236)
+        let tool = r.kind == .mcp && choice == .tool // an MCP tool: always, this tool (D239)
         if !tool, r.kind != .call || choice == .once {
             o["grant"] = "once"
             return .object(o)

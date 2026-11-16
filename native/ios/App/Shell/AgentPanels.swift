@@ -163,7 +163,7 @@ struct AgentActivityView: View {
 /// (`widens(armed:)`): "Start without asking" and turning the admin opt-in
 /// ON answer only a tap made 600 ms after the panel shows, with the app in
 /// front. Narrowing — back to asking, the opt-in off — is never held. The
-/// web and MCP tools (D236) are the person's own switches and widen too:
+/// web and MCP tools (D239) are the person's own switches and widen too:
 /// the same gate, and one the workspace policy has off can't be turned on
 /// and says why. (The
 /// web's Preferences also set a started tile agent's network and whether it
@@ -220,7 +220,7 @@ struct AgentPrefsView: View {
         .onChange(of: phase) { _, p in if p == .active { widen.arm() } else { widen.disarm() } }
     }
 
-    /// One of the web and MCP settings (D236): the person's own, turned on
+    /// One of the web and MCP settings (D239): the person's own, turned on
     /// only armed (it widens); one the workspace policy has off can't be
     /// turned on and says why.
     @ViewBuilder private func netRow(_ p: NetPref) -> some View {

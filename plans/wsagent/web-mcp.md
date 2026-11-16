@@ -4,7 +4,7 @@
 
 Owner's decision (2026-11-16): "Web access/MCP — let's make this
 configurable in agent settings + have workspace policy." The decision and
-its reasons are D236 in `plans/DECISIONS.md`; the contract, once built, is
+its reasons are D239 in `plans/DECISIONS.md`; the contract, once built, is
 `docs/workspace-agent.md` and `docs/protocol/delegation.md` (§Web and MCP).
 This file is the spec the implementation follows, with every route, field
 and setting and its class in the delegation cap

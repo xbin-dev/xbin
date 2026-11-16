@@ -583,7 +583,7 @@ an org's rules; a flag sets one and leaves the others
 `--harnesses any|none|claude,codex`, `--models
 any|private|none|local,hosted/small`, `--web ask|allow|never` and `--mcp
 any|org` (what a workspace agent's conversation that holds the org's data
-may do on the web and with MCP servers, D236; printed when set). `--pin` reads and sets the rules a workspace admin
+may do on the web and with MCP servers, D239; printed when set). `--pin` reads and sets the rules a workspace admin
 pins on the org instead (`…/agents/pin`): its own admins narrow below
 them, never loosen them. With no org it reads and sets the workspace's
 bounds (`/api/xbin/agents/policy`), which also take `--credentials

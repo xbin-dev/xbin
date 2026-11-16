@@ -321,7 +321,7 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
 ## Web and MCP
 
 A person's agent reads the web and uses MCP servers only through xbind
-(D236): its backend's sandbox has no network but its model. Both are **off
+(D239): its backend's sandbox has no network but its model. Both are **off
 until an admin turns them on** for the workspace, and then each person
 turns them on for their own agent; an org may keep its data off the web.
 Each layer only narrows the one above:

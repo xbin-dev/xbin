@@ -60,7 +60,7 @@ export const requests = [
     body: JSON.stringify({ cwd: 'apps/orders', kind: 'agent', prompt: 'Goal: export the \u202Einvoices\u202C.\nDone when: the test passes.' }) }),
   session({ asks: 'yes', mode: 'odd' }, { id: 'rq_odd_asks' }),
   session({}, { id: 'rq_tmpl', kind: 'template', tile: '', target: 'xbin/templates/new', preview: { class: 'act' } }),
-  // the web and MCP tools (D236): a page is asked every time, with its whole address; a tool once or always
+  // the web and MCP tools (D239): a page is asked every time, with its whole address; a tool once or always
   web(), web({ id: 'rq_web_used', state: 'used', grant: 'once', decided: t('10:15:00') }),
   web({ id: 'rq_web_bare', body: '{"url":"HTTPS://Docs.Example.com:8443/a?b=1"}', bodySize: 44, preview: { class: 'web', url: 'HTTPS://Docs.Example.com:8443/a?b=1' } }),
   mcp(), mcp({ id: 'rq_mcp_ro', preview: { class: 'mcp', tile: 'apps/dice', server: 'apps/dice', tool: 'roll_dice', readOnly: true, arguments: '{}' } }),
@@ -229,7 +229,7 @@ out.small = {
     .map(([tileAgents, working, count]) => ({ dock, tileAgents, working, count, out: W.homeStatus(dock, { tileAgents, working, count }) }))),
   clip: W.CLIP,
   clips: ['', 'short', 'x'.repeat(4000), 'x'.repeat(4001), '😀'.repeat(4002), `${'a'.repeat(3999)}😀b`].map((input) => ({ input, ...W.clipText(input), note: W.clipNote(W.clipText(input)) })),
-  // the Preferences of the web and MCP tools (D236), from GET /delegate/state: what the person set, what the policy lets them
+  // the Preferences of the web and MCP tools (D239), from GET /delegate/state: what the person set, what the policy lets them
   readWeb: W.READ_WEB,
   netPrefs: [
     {}, { web: true, mcp: true, mcpReadOnly: true },
@@ -251,7 +251,7 @@ out.small = {
 const byId = (list, id) => list.find((x) => x.id === id);
 export const demo = {
   requests: ['rq_call', 'rq_never', 'rq_unknown_mode', 'rq_sess'].map((id) => byId(requests, id)),
-  // the demo `net` (D236): a web page and an MCP tool to approve, the web on by the workspace's policy and MCP tiles too
+  // the demo `net` (D239): a web page and an MCP tool to approve, the web on by the workspace's policy and MCP tiles too
   netRequests: ['rq_web', 'rq_mcp'].map((id) => byId(requests, id)),
   net: { web: { policy: 'read' }, mcp: { policy: 'tiles' } },
   changeset: byId(changesets, 'cs_1'),

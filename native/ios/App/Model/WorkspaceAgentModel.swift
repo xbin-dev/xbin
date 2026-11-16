@@ -356,7 +356,7 @@ final class WorkspaceAgentModel {
         return nil
     }
 
-    /// One of the web and MCP settings (D236; ``NetPref/id``). xbind refuses
+    /// One of the web and MCP settings (D239; ``NetPref/id``). xbind refuses
     /// one its workspace policy has off (409, in its words).
     func setNet(_ id: String, _ on: Bool) async -> String? {
         guard let req = DelegateRoute.setNet(id, on) else { return nil }

@@ -285,7 +285,7 @@ export class BxAgentApprove extends LitElement {
       <p class="small muted">${r.comes}</p>`;
   }
 
-  // a web page the conversation would read (D236): the whole address, why xbin asks, once only
+  // a web page the conversation would read (D239): the whole address, why xbin asks, once only
   _web(req) {
     const w = webRows(req);
     return html`<dl class="rows">
@@ -298,7 +298,7 @@ export class BxAgentApprove extends LitElement {
       <p class="small muted">${w.once}</p>`;
   }
 
-  // one tool of an MCP tile (D236): the server, the tool, its mark, the arguments as sent; once or always for this tool
+  // one tool of an MCP tile (D239): the server, the tool, its mark, the arguments as sent; once or always for this tool
   _mcp(req) {
     const m = mcpRows(req);
     const args = clipText(m.arguments, this._all);

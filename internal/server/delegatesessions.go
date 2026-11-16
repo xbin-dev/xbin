@@ -630,7 +630,7 @@ func (s *Server) apiAgentSessionTaint(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if web { // the conversation has read the web: a handle it renews carries that too (D236)
+	if web { // the conversation has read the web: a handle it renews carries that too (D239)
 		if err := s.Delegation.MarkWeb(p.UserID, p.Agent, id); err != nil {
 			s.writeSessionErr(w, err)
 			return

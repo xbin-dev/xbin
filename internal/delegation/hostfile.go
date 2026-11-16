@@ -1,7 +1,7 @@
 package delegation
 
 // hostfile.go — the host's deployment file for the workspace agent's web
-// and MCP policy (XBIN_WSAGENT_CONFIG; D236), as XBIN_LLM_CONFIG is the
+// and MCP policy (XBIN_WSAGENT_CONFIG; D239), as XBIN_LLM_CONFIG is the
 // connector's (internal/llm/host.go): JSON with comments, read at boot — a
 // file that can't be read or is invalid stops the boot, so a host never
 // runs without the limits it wrote — and looked at again, at most every

@@ -50,7 +50,7 @@ import (
 func (st *State) setupDelegation(srv *server.Server) error {
 	store := delegation.OpenStore(filepath.Join(st.WS, "data", "delegation"))
 	srv.Delegation = store
-	// the host's web and MCP policy for workspace agents (D236): a file that
+	// the host's web and MCP policy for workspace agents (D239): a file that
 	// can't be read stops the boot — a host never runs without the limits
 	// it wrote
 	if path := st.Cfg.WsAgentConfig; path != "" {

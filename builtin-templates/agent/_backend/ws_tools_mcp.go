@@ -1,5 +1,5 @@
 // ws_tools_mcp.go — the workspace agent with the MCP tiles of its person's
-// workspace (docs/protocol/delegation.md §MCP tiles; D236). mcp_tools reads
+// workspace (docs/protocol/delegation.md §MCP tiles; D239). mcp_tools reads
 // what a tile's server offers on its own endpoint — initialize and
 // tools/list are reads at xbind, made with the template's own MCP client
 // as the person — and mcp_call has xbind call one tool: each asks the

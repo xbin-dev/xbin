@@ -285,7 +285,7 @@ test('a draft cut at its cap never keeps half an emoji', () => {
   assert.equal(W.plainDraft(`${'a'.repeat(7998)}😀😀`), `${'a'.repeat(7998)}😀`);
 });
 
-// D236 — a web page and an MCP tool: their sheets' words, what each choice approves, the log's rows, the Preferences
+// D239 — a web page and an MCP tool: their sheets' words, what each choice approves, the log's rows, the Preferences
 test('the web and MCP tools: a page is read once, a tool once or always; the log and Preferences say so', () => {
   const web = { id: 'w1', kind: 'web', method: 'POST', target: '/api/xbin/delegate/web/fetch', body: '{"url":"https://status.example.com/x?q=1"}', state: 'pending',
     preview: { class: 'web', url: 'https://status.example.com/x?q=1', host: 'status.example.com', orgs: ['sales'], why: 'This conversation holds data of Sales: an address can carry it out', readWeb: true } };

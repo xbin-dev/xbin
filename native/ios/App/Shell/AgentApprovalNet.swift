@@ -2,7 +2,7 @@ import SwiftUI
 import XbinCore
 import XbinRenderer
 
-// The approval sheet's rows for the web and MCP tools (D236), as the web
+// The approval sheet's rows for the web and MCP tools (D239), as the web
 // chrome draws them (web/bx-agent-approve.js): a web page by its whole
 // address, why xbin asks, asked every time; an MCP tool by its server, the
 // tool, its read-only mark (the server's word), the server's own words

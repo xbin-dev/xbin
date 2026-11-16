@@ -5225,7 +5225,7 @@ here: cut from the old end, never reword.
     events, a real `bye` on an xbind update, the full connection view's
     frame check.
 
-- **D236 — The workspace agent on the web and with MCP servers:
+- **D239 — The workspace agent on the web and with MCP servers:
   workspace policy, org rules, the person's settings; xbind fetches and
   speaks MCP (2026-11-16; issue #51; `plans/wsagent/web-mcp.md`).** The
   owner: "Web access/MCP — let's make this configurable in agent settings

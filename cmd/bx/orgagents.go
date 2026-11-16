@@ -89,7 +89,7 @@ type agentRules struct {
 	Harnesses      json.RawMessage `json:"harnesses"`
 	Models         json.RawMessage `json:"models"`
 	// Web, MCP: what a workspace agent's conversation holding the data may
-	// do on the web and with MCP servers (D236); "" unset (ask, any)
+	// do on the web and with MCP servers (D239); "" unset (ask, any)
 	Web         string `json:"web"`
 	MCP         string `json:"mcp"`
 	Credentials string `json:"credentials"`

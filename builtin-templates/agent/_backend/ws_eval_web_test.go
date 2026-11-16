@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The workspace agent on the web (D236), scripted: what xbind says of the
+// The workspace agent on the web (D239), scripted: what xbind says of the
 // session's reach decides the tool list and the prompt; a page is framed as
 // the web's words; a fetch while the conversation holds data asks its
 // person; an org that keeps its data off the web takes the tool away, said

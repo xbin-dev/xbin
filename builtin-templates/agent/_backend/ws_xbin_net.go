@@ -1,5 +1,5 @@
 // ws_xbin_net.go — wsXbin's web and MCP calls over xbind's delegation
-// (docs/protocol/delegation.md §Web and MCP; D236). xbind reads the page:
+// (docs/protocol/delegation.md §Web and MCP; D239). xbind reads the page:
 // this backend's sandbox reaches its model and xbind, nothing else.
 package main
 

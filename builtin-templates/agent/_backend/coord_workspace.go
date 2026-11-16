@@ -50,7 +50,7 @@ func init() {
 			"tile_agent_brief", "tile_agent_start", "tile_agent_message", "tile_agent_status", "tile_agent_result", "tile_agent_cancel", "tile_agents",
 			"research", "tile_create", "admin_propose", "admin_changes", "preview",
 			"plan", "notebook_search", "notebook_read", "notebook_write", "notebook_edit", "notebook_archive",
-			"web_read",              // the web, through xbind (ws_tools_web.go; D236)
+			"web_read",              // the web, through xbind (ws_tools_web.go; D239)
 			"mcp_tools", "mcp_call", // MCP tiles, through xbind (ws_tools_mcp.go)
 		},
 		Limits: coordBounds{Research: wsResearchMax, ResearchTimeout: wsResearchTimeout, Wakes: wsWakeBurst},

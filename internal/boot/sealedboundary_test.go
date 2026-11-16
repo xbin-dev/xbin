@@ -136,7 +136,7 @@ func boundaryReqs() map[string][]boundaryReq {
 		// (a person's agent alone asks; for it the terminal level a start
 		// needs doesn't exist on a sealed component — auth's sealed tests)
 		"GET /delegate/start-defaults": {{path: "?tile=" + P, person: true, other: "agent sessions are a person's workspace agent's"}},
-		// …and never calls its tools as an MCP server's (D236): only a
+		// …and never calls its tools as an MCP server's (D239): only a
 		// person's agent calls one, and for it a sealed component is no MCP tile
 		"POST /delegate/mcp/call": {{body: map[string]any{"server": P, "tool": "t", "arguments": map[string]any{}}, person: true, other: "only a person's workspace agent asks this"}},
 		// …and no render shows its page (previews, D234)

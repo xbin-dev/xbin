@@ -1,6 +1,6 @@
 package broker
 
-// agentnet.go — the org rules on the web and on MCP servers (D236;
+// agentnet.go — the org rules on the web and on MCP servers (D239;
 // internal/agentpolicy netrules.go) as the server asks them
 // (server.agentNetRules): for one org whose data a workspace agent's
 // conversation holds, the rule over every layer that holds for its tiles —

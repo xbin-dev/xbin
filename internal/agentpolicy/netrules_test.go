@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// covers D236 — an org's web and MCP rules: parsed, strictest over the
+// covers D239 — an org's web and MCP rules: parsed, strictest over the
 // layers, never past the bounds or a pin, and unset in a file from before
 func TestNetRules(t *testing.T) {
 	var old Rules

@@ -169,7 +169,7 @@ type Rules struct {
 	Models Allow `json:"models"`
 	// Web and MCP say what a workspace agent's conversation that holds the
 	// layer's data may do on the web and with MCP servers (netrules.go;
-	// D236). Unset (omitted): no rule of the layer's own.
+	// D239). Unset (omitted): no rule of the layer's own.
 	Web WebRule `json:"web,omitempty"`
 	MCP MCPRule `json:"mcp,omitempty"`
 }

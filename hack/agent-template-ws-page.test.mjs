@@ -385,13 +385,13 @@ test('the page is its own tree: the normal app never imports ws/, ws/ never impo
   for (const f of readdirSync(T).filter((x) => x.endsWith('.js') && x !== 'boot.js')) assert.doesNotMatch(src(f), /['"]\.\/ws\//, `${f} does not load the workspace page`);
 });
 
-// D236: the web and MCP tools in the connection line, and the cards of what xbin didn't read or run
+// D239: the web and MCP tools in the connection line, and the cards of what xbin didn't read or run
 test('the chip says when the web and MCP tools are on; a web refusal has its card', () => {
   const on = W.chipWords({ tiles: 3, orgs: 1 }, 'h/big', false, false, { web: { state: 'asks' }, mcp: { state: 'off', why: 'off' } });
   assert.equal(on.net, 'web');
   assert.match(on.label, /Reads web pages you approve\.$/);
   assert.equal(W.chipWords({ tiles: 3, orgs: 1 }, 'h/big', false, false, { web: { state: 'on' }, mcp: { state: 'asks' } }).net, 'web · MCP');
-  assert.equal(W.chipWords({ tiles: 3, orgs: 1 }, 'h/big').net, '', 'an xbind before D236 says nothing: nothing in the line');
+  assert.equal(W.chipWords({ tiles: 3, orgs: 1 }, 'h/big').net, '', 'an xbind before D239 says nothing: nothing in the line');
   assert.equal(W.chipWords({ tiles: 3, orgs: 1 }, 'h/big', false, false, { web: { state: 'off' } }).net, '');
   const c = W.refusalCard({ kind: 'web', reason: 'Sales keeps its data off the web.' });
   assert.equal(c.title, 'xbin didn’t read that web page');

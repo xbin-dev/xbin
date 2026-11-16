@@ -202,7 +202,7 @@ type Workspace struct {
 	By      string    `json:"by,omitempty"`
 	At      time.Time `json:"at,omitempty"`
 	// Web and MCP are the admin's settings for the agent on the web and
-	// with MCP servers (netpolicy.go; D236) — nil: never set, off. NetBy
+	// with MCP servers (netpolicy.go; D239) — nil: never set, off. NetBy
 	// and NetAt say who set them last, and when.
 	Web   *WebPolicy `json:"web,omitempty"`
 	MCP   *MCPPolicy `json:"mcp,omitempty"`
@@ -256,7 +256,7 @@ type State struct {
 	// one alert a shell without the agent's chip shows them; D232).
 	PageSeen bool `json:"pageSeen,omitempty"`
 	// Web, MCP: the person lets their agent read the web, use MCP tools —
-	// within what the workspace policy allows (D236); MCPReadOnly: MCP
+	// within what the workspace policy allows (D239); MCPReadOnly: MCP
 	// tools marked read-only don't ask them. All three widen what the agent
 	// does: their own session's to turn on.
 	Web         bool      `json:"web,omitempty"`

@@ -298,12 +298,12 @@ var delegateClasses = map[string]delegateRow{
 	"GET /docs/search":                    dRead(),
 	"GET /docs/page":                      dRead(),
 	"GET /delegate/approvals":             dRead(),
-	// the web (D236, delegateweb.go): one page read by xbind for the
+	// the web (D239, delegateweb.go): one page read by xbind for the
 	// conversation, under the workspace's policy, the orgs' rules and the
 	// person's setting; a conversation holding any org's data needs a
 	// ticket for each URL — the handler asks, as the web's reach decides
 	"POST /delegate/web/fetch": dAct(),
-	// MCP tiles (D236, delegatemcp.go): one tool's call, xbind the client,
+	// MCP tiles (D239, delegatemcp.go): one tool's call, xbind the client,
 	// as the person; a ticket per call unless a standing approval of that
 	// tool, or the person's "read-only tools don't ask" for a tool the
 	// server marks read-only, covers it — the handler asks

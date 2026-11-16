@@ -268,7 +268,7 @@ async function agentPolicy(browser) {
     await until(async () => (await ed.locator('.ok').count()) === 1, 'saved');
     const got = (await a.get('/orgs')).body.orgs.find((o) => o.id === ORG)?.agents;
     check(JSON.stringify(got) === '{"workspaceAgent":"on","harnesses":["claude","codex"],"models":"private"}', `the org's rules are stored (${JSON.stringify(got)})`);
-    // the web and MCP rules (D236): the org's data never to the web, its MCP tools only from its own tiles
+    // the web and MCP rules (D239): the org's data never to the web, its MCP tools only from its own tiles
     check(await ed.locator('select[data-rule=web]').inputValue() === '' && await ed.locator('select[data-rule=mcp]').inputValue() === '', 'an org with no web or MCP rule reads "no rule" for both');
     await ed.locator('select[data-rule=web]').selectOption('never');
     await ed.locator('select[data-rule=mcp]').selectOption('org');

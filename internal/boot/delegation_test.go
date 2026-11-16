@@ -141,7 +141,7 @@ func TestHolderModelCallsAreTheSessions(t *testing.T) {
 	}
 }
 
-// covers D236 — the host's web and MCP policy for workspace agents
+// covers D239 — the host's web and MCP policy for workspace agents
 // (XBIN_WSAGENT_CONFIG): a file that is invalid stops the boot, naming the
 // variable — a host never runs without the limits it wrote.
 func TestWsAgentHostFileStopsBoot(t *testing.T) {

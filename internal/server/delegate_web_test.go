@@ -101,7 +101,7 @@ func (w *webRig) reach(what string) string {
 	return v.Reach[what].State
 }
 
-// covers D236 — the three layers: off by default; the workspace policy,
+// covers D239 — the three layers: off by default; the workspace policy,
 // then the person's own setting, each needed; the person turns it on only
 // in their own session and only while the policy allows it
 func TestWebFetchLayers(t *testing.T) {
@@ -185,7 +185,7 @@ func (w *webRig) on() {
 	}
 }
 
-// covers D236 — a URL is a way out: a conversation that holds an org's data
+// covers D239 — a URL is a way out: a conversation that holds an org's data
 // reads only a URL its person approved, once, for exactly that body
 func TestWebFetchTaintTicket(t *testing.T) {
 	w := newWebRig(t)
@@ -255,7 +255,7 @@ func TestWebFetchTaintTicket(t *testing.T) {
 	}
 }
 
-// covers D236 — the lists, the workspace's own hosts, the address rules at
+// covers D239 — the lists, the workspace's own hosts, the address rules at
 // the route, and the person's web limit
 func TestWebFetchHostsAndLimit(t *testing.T) {
 	w := newWebRig(t)
@@ -299,7 +299,7 @@ func TestWebFetchHostsAndLimit(t *testing.T) {
 	}
 }
 
-// covers D236 — the host's file: a preset and a ceiling the admin narrows
+// covers D239 — the host's file: a preset and a ceiling the admin narrows
 // and never passes, and lockAll freezes every web and MCP setting (409)
 func TestWebPolicyHostFile(t *testing.T) {
 	w := newWebRig(t)
@@ -377,7 +377,7 @@ func (n netWorld) AgentMCPIn(org string) (string, string) {
 	return agentpolicy.MCPAny, ""
 }
 
-// covers D236 — the org rules: a conversation that holds the data of an
+// covers D239 — the org rules: a conversation that holds the data of an
 // org whose rule is never loses the web for the rest of the conversation
 // (refused with the reason, and no request can be filed for it); one whose
 // every org allows the web outright fetches without asking

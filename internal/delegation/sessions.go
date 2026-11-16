@@ -47,7 +47,7 @@ type AgentSession struct {
 	// ("workspace" for tiles in no org). It only grows.
 	Tainted []string `json:"tainted"`
 	// Web: the conversation has read the web (a fetch under this handle,
-	// or the holder said so of the conversation it renews; D236). It only
+	// or the holder said so of the conversation it renews; D239). It only
 	// goes from false to true.
 	Web     bool      `json:"web,omitempty"`
 	Created time.Time `json:"created"`

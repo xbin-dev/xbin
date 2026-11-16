@@ -463,7 +463,7 @@ export function stepUp(kind) {
       sso: 'Use sign in again instead; your ticks are kept.' };
 }
 
-// ---- the web and MCP tools (D236) -------------------------------------------------------------
+// ---- the web and MCP tools (D239) -------------------------------------------------------------
 
 /** webOf(req): a web request's page as xbind previews it — {url, host, why, orgs}. */
 export function webOf(req) {

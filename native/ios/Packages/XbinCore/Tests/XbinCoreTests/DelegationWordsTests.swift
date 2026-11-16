@@ -57,7 +57,7 @@ import Testing
                 DelegationWords.approveBody(r, choice: .tile, duration: "always"),
             ]
             #expect(JSONValue.array(bodies) == c["bodies"], "\(id)")
-            // an MCP tool's own choice (D236): always, this tool — and what every other kind makes of it
+            // an MCP tool's own choice (D239): always, this tool — and what every other kind makes of it
             #expect(DelegationWords.allowLabel(r, choice: .tool) == c["tool"]?[0]?.stringValue, "\(id) tool")
             #expect(DelegationWords.allowSpoken(r, choice: .tool) == c["tool"]?[1]?.stringValue, "\(id) tool")
             #expect(DelegationWords.approveBody(r, choice: .tool) == c["tool"]?[2], "\(id) tool")
@@ -160,7 +160,7 @@ import Testing
         }
         #expect(DelegationWords.standingNote == v["small"]?["standingNote"]?.stringValue)
         #expect(DelegationWords.readWeb == v["small"]?["readWeb"]?.stringValue)
-        // the Preferences of the web and MCP tools (D236): what the person set, what the policy lets them
+        // the Preferences of the web and MCP tools (D239): what the person set, what the policy lets them
         let prefs = try #require(v["small"]?["netPrefs"]?.arrayValue)
         #expect(prefs.count >= 5)
         for (i, c) in prefs.enumerated() {
@@ -554,7 +554,7 @@ import Testing
         #expect(AgentWidening.widens(from: .once, to: .call) && AgentWidening.widens(from: .once, to: .tile) && AgentWidening.widens(from: .call, to: .tile))
         #expect(!AgentWidening.widens(from: .tile, to: .once) && !AgentWidening.widens(from: .call, to: .once) && !AgentWidening.widens(from: .tile, to: .call))
         #expect(!AgentWidening.widens(from: .call, to: .call))
-        // an MCP tool's "always, this tool" (D236) widens Once; Once never widens it
+        // an MCP tool's "always, this tool" (D239) widens Once; Once never widens it
         #expect(AgentWidening.widens(from: .once, to: .tool) && !AgentWidening.widens(from: .tool, to: .once))
         #expect(AgentWidening.widens(fromDuration: "hour", toDuration: "always"))
         #expect(!AgentWidening.widens(fromDuration: "always", toDuration: "hour") && !AgentWidening.widens(fromDuration: "always", toDuration: "always"))

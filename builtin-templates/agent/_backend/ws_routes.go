@@ -180,7 +180,7 @@ func handleWsState(w http.ResponseWriter, r *http.Request) {
 func wsSessionItem(s *wsSession, owner string) map[string]any {
 	it := map[string]any{"id": s.Run, "main": s.Main, "model": s.Model, "scope": s.Scope, "handle": s.Handle,
 		"connection": s.Conn.Connection, "summary": wsConnLine(s.Conn.Connection), "tainted": s.Tainted, "createdMs": s.Created,
-		"web": s.Conn.Web, "reach": s.Conn.Reach} // the web and MCP tools: what the header says (D236)
+		"web": s.Conn.Web, "reach": s.Conn.Reach} // the web and MCP tools: what the header says (D239)
 	if s.Held != nil { // it can't go on on its model: why, and the ways forward
 		it["held"] = wsHeldItem(*s.Held)
 	}

@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// The org rules on the web and on MCP servers (D236): what an org says of
+// The org rules on the web and on MCP servers (D239): what an org says of
 // its data in a workspace agent's conversation that holds it. Unlike the
 // other rules they don't decide whether the agent reaches the org's tiles:
 // they decide what a conversation that HAS read them may do next — the

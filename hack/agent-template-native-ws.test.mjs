@@ -131,8 +131,8 @@ test('the empty state: what it can and can\'t do in three lines, starters that f
   const pad = await run(seedOf(), [], { caps: PAD });
   const e2 = find(pad.tree, { t: 'transcript' }).p.empty;
   assert.equal(e2.suggestions.length, 4, 'four beside the work');
-  assert.equal(e2.lists[0].items.length, 5, 'its four, and the web its person approves page by page (D236)');
-  assert.equal(find(pad.tree, { t: 'connection' }).p.connected, '3 tiles · 2 orgs · web', 'the whole line where there is room, the web on it (D236)');
+  assert.equal(e2.lists[0].items.length, 5, 'its four, and the web its person approves page by page (D239)');
+  assert.equal(find(pad.tree, { t: 'connection' }).p.connected, '3 tiles · 2 orgs · web', 'the whole line where there is room, the web on it (D239)');
 });
 
 test('paused: no banner of its own (the app\'s bar says it, with Resume), the draft kept in a read-only composer', async () => {

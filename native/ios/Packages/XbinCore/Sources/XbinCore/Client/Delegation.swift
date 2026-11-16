@@ -41,12 +41,12 @@ public struct DelegateState: Sendable, Equatable {
     public var heldWhy: String
     /// A workspace admin's view of who was given one.
     public var who: Who?
-    /// The person's own settings of the web and MCP tools (D236).
+    /// The person's own settings of the web and MCP tools (D239).
     public var web: Bool
     public var mcp: Bool
     public var mcpReadOnly: Bool
     /// What the workspace policy lets them turn on (`net`); empty on an
-    /// xbind before D236, which reads as off.
+    /// xbind before D239, which reads as off.
     public struct NetReach: Sendable, Equatable {
         /// "off" | "read" (the web) · "off" | "tiles" (MCP) · "" absent.
         public var policy = ""
@@ -116,7 +116,7 @@ public enum DelegateTime {
 /// creation), as xbind reads it — the only thing an approval sheet is
 /// drawn from.
 public struct DelegateRequest: Sendable, Equatable, Identifiable {
-    /// `web` and `mcp`: a web page and an MCP tool (D236).
+    /// `web` and `mcp`: a web page and an MCP tool (D239).
     public enum Kind: String, Sendable { case call, session, template, web, mcp }
     /// `unknown`: a state this app doesn't know (a newer xbind's) — never
     /// read as one that can be decided.
@@ -313,7 +313,7 @@ public struct AuditRow: Sendable, Equatable {
     public var ticket: String
     public var under: String
     public var n: Int
-    /// What a web page read came to (D236).
+    /// What a web page read came to (D239).
     public var bytes: Int
 
     public init(json: JSONValue) {

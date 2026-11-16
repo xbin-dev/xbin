@@ -1,6 +1,6 @@
 /**
  * <bx-wsagent-policy> — what people's workspace agents may reach of the web
- * and of MCP servers, as a workspace admin sets it (D236;
+ * and of MCP servers, as a workspace admin sets it (D239;
  * /docs/protocol/delegation.md §Web and MCP): the workspace agent's card
  * on /xbin/system shows it. Read with GET /api/xbin/delegate/workspace and
  * written with PUT (`web: {mode, allow, deny}`, `mcp: {mode}`), with the

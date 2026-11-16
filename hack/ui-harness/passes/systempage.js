@@ -135,7 +135,7 @@ async function systemPage(browser) {
         await A.page.evaluate(() => document.querySelector('bx-system-page').testApi().reload());
         await until(async () => !(await card.innerText()).includes('Everyone in this workspace'), 'the everyone line goes');
         check((await card.innerText()).includes('Nobody but workspace admins'), `${P}: taken back, nobody but admins again`);
-        // the web and MCP tools (D236): off until an admin sets them here; the modes not built yet can't be picked
+        // the web and MCP tools (D239): off until an admin sets them here; the modes not built yet can't be picked
         const pol = card.locator('bx-wsagent-policy');
         await until(async () => (await pol.locator('[data-save]').count()) === 1, 'the web and MCP settings');
         const offFirst = await pol.locator('input[name=web][value=off]').isChecked() && await pol.locator('input[name=mcp][value=off]').isChecked();

@@ -1,5 +1,5 @@
 // Package webfetch is how xbind reads a web page for a person's workspace
-// agent (D236; docs/protocol/delegation.md §Web and MCP): one GET, judged
+// agent (D239; docs/protocol/delegation.md §Web and MCP): one GET, judged
 // before it is made and again at every redirect, dialled only to an
 // address checked when the socket connects, bounded in size and time, and
 // turned into text. It holds no policy of its own beyond what makes a

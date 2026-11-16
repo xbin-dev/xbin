@@ -1,7 +1,7 @@
 package server
 
 // delegatenet.go — the web and MCP settings around a person's workspace
-// agent (D236): what the person's own Preferences show and may turn on
+// agent (D239): what the person's own Preferences show and may turn on
 // (GET/PUT /delegate/state's web, mcp, mcpReadOnly and net), and what an
 // admin's settings read (GET/PUT /delegate/workspace's web, mcp, policy,
 // host, locks).
@@ -128,7 +128,7 @@ func orStr(s, def string) string {
 	return s
 }
 
-// sessionNet is what a session's answers carry of the web (D236): whether
+// sessionNet is what a session's answers carry of the web (D239): whether
 // the conversation has read it, and its reach now.
 func (s *Server) sessionNet(p auth.Principal, h delegation.AgentSession, out map[string]any) {
 	out["web"] = h.Web

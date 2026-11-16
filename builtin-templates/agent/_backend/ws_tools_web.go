@@ -1,5 +1,5 @@
 // ws_tools_web.go — the workspace agent on the web (docs/workspace-agent.md;
-// docs/protocol/delegation.md §Web and MCP; D236): web_read reads one page
+// docs/protocol/delegation.md §Web and MCP; D239): web_read reads one page
 // through xbind, which judges and makes the request — this backend's
 // sandbox reaches only its model and xbind. What the conversation may do
 // there is xbind's answer for its handle (wsHandle.Reach): the workspace's

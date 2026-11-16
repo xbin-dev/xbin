@@ -277,7 +277,7 @@ export function refusalCard(r, tileName = (p) => p) {
     case 'mode': return { kind: 'mode', icon: 'lock', title: 'That tile agent takes no more messages from your agent', text: reason ? `${reason}.` : '',
       note: 'You switched it to a mode that doesn’t ask before it acts, so only you can drive it now. Switch it back to a mode that asks to let your agent message it again.', ways: [] };
     case 'command': return { kind: 'command', icon: 'lock', title: 'Not sent: it began with “/”', text: 'A coding agent reads a message that begins with “/” as one of its own commands, and those are yours to give. Your agent should say it in words.', ways: [] };
-    // the web (D236): a page xbin didn't read — the policy, your setting, an org's rule, or the address itself
+    // the web (D239): a page xbin didn't read — the policy, your setting, an org's rule, or the address itself
     case 'web': return { kind: 'web', icon: 'globe', title: 'xbin didn’t read that web page', text: reason ? `${reason}.` : '',
       note: 'What your agent may read of the web is set by an admin for the workspace, by you in Preferences, and by the orgs whose data this conversation holds.', ways: ['whatCan'] };
     case 'mcp': return { kind: 'mcp', icon: 'plug', title: 'xbin didn’t run that tool', text: reason ? `${reason}.` : '',

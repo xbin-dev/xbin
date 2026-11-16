@@ -392,7 +392,7 @@ async function agentChrome(browser) {
     const refused = await ctx.request.put(`${URL}/api/xbin/agent/prefs`, { data: { agentSessions: { modes: { claude: 'bypassPermissions' } } } }); // (the real route: page routes don't reach ctx.request)
     const refusedWhy = (await refused.json().catch(() => ({}))).error || '';
     check(refused.status() === 400 && /can't be saved/.test(refusedWhy), `[${width}] …and xbind itself refuses a mode that never asks (${refused.status()} ${refusedWhy})`);
-    // the web and MCP tools (D236): turning one on widens — armed like Allow; one the workspace policy has off says why and can't be ticked
+    // the web and MCP tools (D239): turning one on widens — armed like Allow; one the workspace policy has off says why and can't be ticked
     const netRows = await page.$$eval(`${DOCK} bx-agent-prefs [data-net-pref]`, (els) => els.map((e) => `${e.dataset.netPref}:${e.disabled}`));
     await page.$eval(`${DOCK} bx-agent-prefs [data-net-pref="web"]`, (e) => e.click()); // a script's click
     await page.waitForTimeout(150); // (a negative: nothing may be sent)

@@ -58,8 +58,8 @@ const (
 	KindCall     = "call"     // a tile API call
 	KindSession  = "session"  // POST /term/sessions
 	KindTemplate = "template" // POST /templates/new
-	KindWeb      = "web"      // POST /delegate/web/fetch: a URL the conversation may read (D236)
-	KindMCP      = "mcp"      // POST /delegate/mcp/call: a tool of an MCP server (D236)
+	KindWeb      = "web"      // POST /delegate/web/fetch: a URL the conversation may read (D239)
+	KindMCP      = "mcp"      // POST /delegate/mcp/call: a tool of an MCP server (D239)
 )
 
 // Standing approval scopes.
@@ -71,7 +71,7 @@ const (
 	// explicitly.
 	ScopeTile = "tile"
 	// ScopeTool: one tool of an MCP tile — "always for this tool", any
-	// arguments (D236). Method is MCPMethod and Path the tool's name.
+	// arguments (D239). Method is MCPMethod and Path the tool's name.
 	ScopeTool = "tool"
 )
 

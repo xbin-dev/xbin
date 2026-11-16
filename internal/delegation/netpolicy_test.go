@@ -21,7 +21,7 @@ func writeHost(t *testing.T, dir, body string) string {
 	return p
 }
 
-// covers D236 — the web and MCP policy is off until an admin sets it, and
+// covers D239 — the web and MCP policy is off until an admin sets it, and
 // a file of the release before it (no web, no mcp) reads as off
 func TestNetPolicyOffByDefault(t *testing.T) {
 	dir := t.TempDir()
@@ -80,7 +80,7 @@ func TestNetPolicySetAndKept(t *testing.T) {
 	}
 }
 
-// covers D236 — the host's file presets and caps: a mode is a ceiling the
+// covers D239 — the host's file presets and caps: a mode is a ceiling the
 // admin may narrow and never pass, the lists always hold, lockAll freezes
 // every setting
 func TestNetPolicyHostFile(t *testing.T) {

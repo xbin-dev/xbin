@@ -1,6 +1,6 @@
 package server
 
-// delegateweb.go — a person's workspace agent on the web (D236;
+// delegateweb.go — a person's workspace agent on the web (D239;
 // docs/protocol/delegation.md §Web and MCP): POST /delegate/web/fetch, the
 // one way the agent reads a page. Its backend's sandbox stays "model
 // only"; xbind judges and makes the fetch (internal/webfetch):
@@ -171,7 +171,7 @@ func (s *Server) searchReach(p auth.Principal, h delegation.AgentSession) netRea
 		return netReach{State: reachOff, Code: "search-taint", Orgs: web.Orgs, Why: web.Why + "; a search can't be approved query by query, so this conversation reads only pages you approve"}
 	}
 	// a provider's native search, held by the LLM connector, isn't built yet
-	// (D236): the policy refuses web.search, and nothing offers it
+	// (D239): the policy refuses web.search, and nothing offers it
 	return netReach{State: reachOff, Code: "search-off", Why: "Web search isn't available yet: the agent reads the pages whose addresses it knows"}
 }
 

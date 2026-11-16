@@ -115,7 +115,7 @@ export class BxOrgAgents extends LitElement {
     if (!sameAllow(now.harnesses, was.harnesses)) body.harnesses = wireOf(now.harnesses);
     if (!sameAllow(now.models, was.models)) body.models = wireOf(now.models);
     if (!this.org && now.credentials !== was.credentials) body.credentials = now.credentials;
-    if (now.web !== was.web) body.web = now.web || null; // D236: '' is no rule of its own (null puts it back)
+    if (now.web !== was.web) body.web = now.web || null; // D239: '' is no rule of its own (null puts it back)
     if (now.mcp !== was.mcp) body.mcp = now.mcp || null;
     return body;
   }

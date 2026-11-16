@@ -67,7 +67,7 @@ final class AgentDemo {
         llm = chosen?["llm"] ?? ["configured": true]
         if llm.isNull { llm = ["configured": true] }
         if name == "net" {
-            // the web and MCP tools (D236): the workspace's policy has both on; the person hasn't yet
+            // the web and MCP tools (D239): the workspace's policy has both on; the person hasn't yet
             state["net"] = data["net"] ?? .null
             let now = Date()
             requests = (data["netRequests"]?.arrayValue ?? []).compactMap(\.objectValue).map { r in
