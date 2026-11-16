@@ -604,17 +604,17 @@ Each fails without its rule:
 
 | rule | test |
 |---|---|
-| the category is chosen from the request's fields and settings only — a summary, a title, a question can't make an action appear; xbind's `offer` alone isn't enough | XbinCore `AgentNoticeTests.testCategoryIgnoresWords`, `testOfferAndOwnCheckBothNeeded`, `testHiddenCharactersNeverAllow`, `testWiderShapesReviewOnly` |
-| an action decides only what was shown: a changed field, a gone request, an unreachable xbind → nothing sent | XbinCore `AgentNoticeDecisionTests` (every field; 404; not pending; network failure) |
-| a Reply is a message whatever it says; no action id but allow-once/deny/reject reaches a decision | `AgentNoticeActionTests.testReplyIsNeverADecision` |
-| the setting is read when the action runs | `AgentNoticeDecisionTests.testSettingOffAtActionTime` |
-| the agent's view has no way to a notification | `AgentBridgeTests.testNoNotificationMessage` (every corpus message decides to nothing that posts one) |
-| xbind refuses a notification Allow for an ineligible request, or wider than once | Go `TestDelegateNotificationAllowRule` |
-| a decision from a notification is audited as such | Go `TestDelegateNotificationAudited` |
-| a request push carries the call only with `offer: once`, never the summary; a holder's words never reach a notification | Go `TestDelegatePushPayload`, `TestHolderNotifyWords` |
-| withdrawn / decided / expired and the off switches clear | Go `TestDelegatePushClears` (decided on the web, withdrawn, workspace off, agent taken away) |
-| pause and off end the card; the pushed state holds no string | Go `TestAgentActivityEnds`, `TestAgentActivityStateIsCounts`; relay `TestAgentActivityRefusesText` |
-| the NSE holds no credential beyond the push keys | `native/tools/store-check.py` (the extension's sources reference no session, device key or `auth`) |
+| the category is chosen from the request's fields and settings only — a summary, a title, a question can't make an action appear; xbind's `offer` alone isn't enough | XbinCore `AgentNoticeTests.categoryIgnoresWords`, `offerAndOwnCheckBothNeeded`, `hiddenCharactersNeverAllow`, `widerShapesReviewOnly` |
+| an action decides only what was shown: a changed field, a gone request, an unreachable xbind → nothing sent | XbinCore `AgentNoticeDecisionTests` (`anyChangedFieldSendsNothing`, `goneAndUnreachable`, `ruleOnTheReRead`) |
+| a Reply is a message whatever it says; no action id but allow-once/deny/reject reaches a decision | `AgentNoticeActionTests.replyIsNeverADecision`; UI `XbinWorkspaceAgentNotifyTests.test04ReplyIsAMessage` |
+| the setting is read when the action runs | `AgentNoticeDecisionTests.settingOffAtActionTime` |
+| the agent's view has no way to a notification | `AgentNoticeBridgeTests.theViewCannotMakeANotification` |
+| xbind refuses a notification Allow for an ineligible request, or wider than once | Go `TestDelegateNotificationAllowRule`, `delegation.TestLockScreenOffer` |
+| a decision from a notification is audited as such | Go `TestDelegateNotificationAudited`, `TestDelegatePushChangeSet` (Reject) |
+| a request push carries the call only with `offer: once`, never the summary; a holder's words never reach a notification | Go `TestDelegatePushPayload`, push `TestHolderNotifyWords` |
+| withdrawn / decided / expired and the off switches clear | Go `TestDelegatePushClears` (decided on the web, denied, withdrawn by the agent, workspace agents off) |
+| pause and off end the card; the pushed state holds no string | push `TestAgentActivityFollowsAndEnds`, `TestAgentActivityOlderRelay`; relay `TestAgentActivityRefusesText`; XbinAgent `WorkspaceAgentActivityTests.stateHoldsNoText` |
+| the NSE holds no credential beyond the push keys | `native/tools/store-check.py` §8 (the extension's sources and names) |
 
 ## 14. Not verifiable here (the owner's manual checks)
 

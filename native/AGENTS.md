@@ -916,8 +916,25 @@ paragraph there in the same change.
 passcode stands in). `NSFaceIDUsageDescription` — already declared for the device key
 — now names those approvals too; no new permission, entitlement or background
 mode came with the workspace agent, and it collects nothing (the privacy
-table above is unchanged). Not built: notification actions, a Live Activity
-for it, dictation (a microphone and a speech permission when it comes).
+table above is unchanged).
+
+**Stage 2** (D241) added, and the owner's steps for each are
+plans/wsagent/ios-stage2.md §12: the background modes `remote-notification`
+and `fetch` (Info.plist keys only: the `agent.clear` background push and
+`BGAppRefreshTask` `dev.xbin.app.refresh`, listed in
+`BGTaskSchedulerPermittedIdentifiers`) — the review notes say what they are
+for; the microphone and speech-recognition purpose strings
+(`NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription`) for
+the agent composer's dictation, which is on-device only
+(`requiresOnDeviceRecognition`: no audio leaves the phone, nothing is
+collected — the privacy table stays as it is); notifications at
+`.timeSensitive` for approvals, which iOS treats as `.active` until the
+owner enables **Time Sensitive Notifications** on the App ID and adds
+`com.apple.developer.usernotifications.time-sensitive` to
+`Support/Xbin.entitlements` (left out so builds sign without it). No
+associated domains: a self-hosted workspace's domain can't be claimed by
+the App Store app; the browsing-web continuation handler is there for a
+domain the project might add.
 
 ### The help screenshots
 
@@ -1400,6 +1417,72 @@ plans/wsagent/ux.md):
   native/ios/App/Model/AgentDemoData.swift`; `make js-test` fails while it
   is stale); `-XbinAgentDebugAsk prefs|approvals|needs|draft` sends an ask
   as the view would. A Release build has none of them.
+
+### The workspace agent away from the app (D241)
+
+What plans/wsagent/ios-stage2.md built, and where (the rules of the
+section above hold for all of it):
+
+- **XbinCore `Client/AgentNotice.swift`** — a payload's `agent` member
+  (`AgentNoticeData`), the action matrix (`AgentNotice.category`: Allow once
+  needs xbind's `offer` AND `AgentNotice.eligible`, the app's own check of
+  the same fields, AND the person's setting), the text the extension draws
+  from those fields (`content`: the call in full only where eligible,
+  xbind's sentence otherwise, the agent's question quoted below xbind's
+  title, all revealed), the check an action runs (`AgentNoticeDecision.verify`:
+  as shown, still waiting, the setting on now — unreachable sends nothing),
+  the follow-ups' words, the sweep and the badge; `AgentRoute` and
+  `DeepLink.workspaceAgent` (`xbin/agent#r=` `cs=` `ts=` `c=` `needs`
+  `first`: stage 1's app reads them as the agent page, an older one as the
+  workspace). **The tests name the security rules** (`AgentNoticeTests`:
+  words never make an action, both checks needed, hidden characters, wider
+  shapes, every changed field, the setting at action time, a reply is a
+  message).
+- **`NotificationService`** draws the agent kinds through it; it holds the
+  push keys and reads the settings (`Shared/AgentNoticeStore.swift`, the
+  shared Keychain group: per workspace `AgentNotifyPrefs` and the last
+  count) — no session, no device key.
+- **`App/Push/AgentNotifications.swift`** — the categories (every action
+  `.authenticationRequired`; Allow once and Deny never `.foreground`), the
+  actions (re-read with `WorkspaceAgentModel.readForNotice`, then
+  `DelegateRoute.approveFromNotification` / `denyFromNotification` /
+  `rejectFromNotification` — `via: "notification"`), the follow-ups (same
+  identifier: they replace the notification acted on; Retry carries the
+  shown fields again), Reply (`WorkspaceAgentModel.message`: `POST
+  /api/<holder>/runs/<conversation>/message`), the background `agent.clear`
+  (`PushOpen`, the extension's opening rule in the app), the sweep on every
+  foreground and refresh, the badge (`setBadgeCount`, the NSE's
+  `content.badge`), `BGAppRefreshTask`.
+- **The router** is `SceneModel.openAgent(_:in:)` (a cold start's link waits
+  in `AppModel.register`); the approval sheet says where a settled request
+  was decided (`AgentNotifications.placeOf`, `AgentNoticeWords.decidedWhere`).
+- **The Live Activity**: XbinAgent `WorkspaceAgentActivity.swift` (state,
+  attributes, policy, words), `Widgets/WorkspaceAgentActivityWidget.swift`,
+  `App/Push/AgentLiveActivity.swift` (one card per workspace from
+  `WorkspaceAgentModel.cardCounts`, Observation-tracked; its token as
+  `{agent: true}`, its push-to-start as `agentStartHandle` from
+  `PushManager.maintainAgentStart`, only with an xbind listing
+  `agent-activity/1`).
+- **Settings**: `App/Shell/AgentNotifySettings.swift` (Settings → the
+  workspace, and the agent's Preferences); the registration's kinds follow
+  (`AgentNotifyPrefs.kinds`).
+- **Dictation and the agent's suggestions**: XbinRenderer's
+  `XbinServices.dictation` (`XbinDictationModel`, drawn by the composer) and
+  `suggestionsLabel`, both given only to the person's agent's view
+  (`NativeTileRuntime.services`); the engine is `App/Shell/AgentDictation.swift`.
+- **Handoff**: `HandoffActivity.fill(…, agent:)` → `/xbin/agent`;
+  `HandoffLink.agentLink` maps a web URL handed to the app.
+- **Debug hooks**: `-XbinAgentNotice request:<id>|changeset:<id>|ask:<conv>|done:<conv>`
+  (`-XbinAgentNoticeDelay N`) posts the notification such a push makes, drawn
+  by the same `AgentNotice` (a simulator gets no push sealed to the
+  install's key); `-XbinAgentAllowOnce YES` turns Allow once on for the first
+  workspace; `-XbinAgentCardDemo running|waiting|paused|idle` starts the card
+  in that state. `XbinWorkspaceAgentNotifyTests` drives them in Springboard.
+- **Stub checks**: widget-stubcheck covers `App/Push` (with
+  `Shared/AgentNoticeStore.swift`, UserNotifications and BackgroundTasks
+  stubs), app-stubcheck `App/Shell` (Speech and AVFoundation stubs for
+  the dictation). `NotificationService` and `XbinApp.swift` are type-checked
+  only by a real build (`mac-remote.sh build`).
 
 ### Footage (the promo video, the website)
 

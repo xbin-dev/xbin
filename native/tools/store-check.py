@@ -28,6 +28,9 @@ its code (native/AGENTS.md → "App Store"). Runs anywhere python3 does
      rule fits App Store Connect's 4000 characters, and it describes the
      features the app has that a reviewer must be told about (guideline
      2.5.19) — the workspace agent while the app ships its chrome (D233)
+  8. the Notification Service Extension holds no credential (D241): its
+     sources are the push keys' and the settings' files only, and name no
+     session, device key or workspace call
 
 Exit status: non-zero on any failure.
 """
@@ -184,6 +187,33 @@ try:
         check("workspace agent" in body.lower(), f"{notes_rel}: the app has the workspace agent (D233) and the notes don't describe it")
 except OSError as e:
     errs.append(f"{notes_rel}: {e}")
+
+# 8. The Notification Service Extension holds no credential (D241): it opens
+# pushes with the per-workspace push keys and reads the person's notification
+# settings — nothing else. Its sources (project.yml's list) never name a
+# session, a device key, the app's auth or a way to call a workspace, so a
+# notification's action can't be decided there: only the app decides, with
+# the person's session, after re-reading the request.
+nse_allowed = {"NotificationService", "Shared/PushCrypto.swift", "Shared/Keychain.swift", "Shared/AgentNoticeStore.swift"}
+try:
+    with open(os.path.join(ios, "project.yml"), encoding="utf-8") as f:
+        proj = f.read()
+    m = re.search(r"\n  XbinNotificationService:\n(.*?)\n  [A-Za-z]+:\n", proj, re.S)
+    nse = m.group(1) if m else ""
+    srcs = set(re.findall(r"- path: (\S+)", nse.split("dependencies:")[0]))
+    check(srcs and srcs <= nse_allowed, f"project.yml: the notification extension's sources are {sorted(srcs)}; only {sorted(nse_allowed)} may be (it holds no credential)")
+    forbidden = ["WorkspaceAuth", "SessionCredential", "DeviceKey", "EnclaveKey", "dev.xbin.session", "APITransport",
+                 "URLSession", "AppTransport", "Authorization", "approve", "DelegateRoute"]
+    files = [os.path.join(ios, p) for p in srcs if p.endswith(".swift")]
+    d = os.path.join(ios, "NotificationService")
+    files += [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".swift")] if os.path.isdir(d) else []
+    for path in files:
+        with open(path, encoding="utf-8") as f:
+            code = "\n".join(l for l in f.read().splitlines() if not l.strip().startswith("//"))
+        for word in forbidden:
+            check(word not in code, f"{os.path.relpath(path, ios)}: the notification extension names {word!r} — it holds no credential and decides nothing")
+except OSError as e:
+    errs.append(f"project.yml: {e}")
 
 if errs:
     for e in errs:
