@@ -257,6 +257,8 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
             XCTAssertTrue(e.containing("It edits files and runs commands in Orders without asking you.").exists)
             XCTAssertEqual(allow.label, "Start without asking", id)
             XCTAssertEqual(deny.label, "Deny")
+            // the trusted bar's Not now is a whole target too (it was 28 pt high)
+            e.wsAssertWholeTarget(e.app.buttons.matching(identifier: "approval-later").firstMatch, "\(id): Not now")
             // the mode's row comes before the tile's: it is what stands between the brief and a change
             let mode = e.app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Mode")).firstMatch
             let tile = e.app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Tile")).firstMatch
@@ -891,6 +893,56 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         XCTAssertTrue(deny.isEnabled, "Deny works while paused")
         deny.tap()
         await e.eventually("denied at xbind", timeout: 15) { try await server.wsRequestState(ref) == "denied" }
+    }
+
+    // MARK: The bar's button, everywhere
+
+    /// The agent's button on the bar in each state a person meets it in — a
+    /// count, paused, not set up — on Home and over a tile: there, tappable,
+    /// the size of the bar's other items, inside the window. On an iPhone Duo (D200) the
+    /// bar is the system's vertical bar at the screen's side, which the
+    /// button must never leave (the owner: "always visible on the duo status
+    /// sidebar"). Shots: `wsagent3-<light|dark>-NN-<state>-<where>.png`.
+    @MainActor
+    func test21DemoBarButtonEverywhere() throws {
+        for mode in ["light", "dark"] {
+            var n = 0
+            for (state, spoken) in [("grants", "Workspace agent, 5 need you"), ("paused", "Workspace agent, paused"),
+                                    ("setup", "Set up the workspace agent")] {
+                let e = try E2E(self)
+                e.wsDemo(state)
+                e.app.launchArguments += ["-XbinAppearance", mode]
+                e.launch()
+                e.ensureWorkspace()
+                e.goHome()
+                for place in ["home", "tile"] {
+                    if place == "tile" {
+                        e.openTile("apps/counter")
+                        e.expect(e.app.buttons["+1"], 60, "the counter")
+                    }
+                    e.expect(e.wsButton, 60, "the bar's agent button (\(state), \(place))")
+                    XCTAssertTrue(e.until(20) { e.wsButton.label == spoken }, "\(state), \(place): \(e.wsButton.label)")
+                    XCTAssertTrue(e.wsHittable(e.wsButton), "\(state), \(place): the button can be tapped")
+                    e.wsAssertBarItem(e.wsButton, "\(state), \(place): the agent's button")
+                    if place == "tile" {
+                        // Back fits its item: in a Duo's vertical bar, a glyph
+                        // (its "‹ Home" spilled out of the bar's capsule)
+                        let back = e.app.buttons.matching(identifier: "panel-back").firstMatch
+                        e.wsAssertBarItem(back, "\(state): Back")
+                        if e.wsVerticalBar {
+                            XCTAssertLessThanOrEqual(back.frame.width, e.app.buttons["Workspaces"].frame.width + 0.5,
+                                                     "\(state): Back as narrow as the vertical bar's other items: \(back.frame)")
+                        }
+                    }
+                    n += 1
+                    e.shot(String(format: "wsagent3-%@-%02d-%@-%@", mode, n, state, place))
+                }
+                // …and it opens the agent from the tile
+                e.wsButton.tap()
+                e.expect(e.wsClose, 30, "the agent's container from the tile (\(state))")
+                e.app.terminate()
+            }
+        }
     }
 
     // MARK: The gallery

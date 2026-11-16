@@ -36,10 +36,26 @@ extension ToolbarContent {
     }
 }
 
+extension View {
+    /// Keeps `present` saying whether the system draws its vertical bar
+    /// where this view is (an iPhone Duo — closed too: its outer screen has
+    /// the bar at its side). Always false without the 27.1 SDK.
+    public func trackVerticalBar(_ present: Binding<Bool>) -> some View {
+        background {
+            #if XBIN_SDK_27_1
+            if #available(iOS 27.1, *) {
+                VerticalBarProbe(present: present).frame(width: 0, height: 0).accessibilityHidden(true)
+            }
+            #endif
+        }
+    }
+}
+
 #if XBIN_SDK_27_1
-/// Whether the system places a vertical bar where this view is (an open
-/// Duo): reported on appearance and whenever the traits that decide it
-/// change. The two-pane `split` arranges itself for the hinge only there.
+/// Whether the system places a vertical bar where this view is (an iPhone
+/// Duo, open or closed): reported on appearance and whenever the traits that
+/// decide it change. The two-pane `split` arranges itself for the hinge only
+/// there.
 @available(iOS 27.1, *)
 struct VerticalBarProbe: UIViewRepresentable {
     @Binding var present: Bool
