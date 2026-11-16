@@ -5252,19 +5252,26 @@ here: cut from the old end, never reword.
     once (`kind: "web"`), unless every org it holds allows the web
     outright; one that holds an org's data whose rule is `never` loses the
     tool. No standing approval of a URL: a URL is the data.
-  - **xbind is the MCP client, not the template's.** To judge a
+  - **xbind is the MCP client for a tool's call.** To judge a
     `tools/call` — which tool, its `readOnlyHint`, the tile's agent level
-    — xbind must read it; forwarding the backend's JSON-RPC through the
-    gate would mean parsing a streamed protocol at the gate. So
-    `GET /delegate/mcp/servers` and `POST /delegate/mcp/call {server,
+    — xbind must read it, and the tool's annotation must come from the
+    server, not from the agent. So `POST /delegate/mcp/call {server,
     tool, arguments}`, xbind calling the MCP tile as the person. The
-    template's own MCP client keeps serving ordinary instances. A tool
-    asks the first time; "always for this tool" is a standing approval of
+    template's own MCP client is reused for the reads (`initialize`,
+    `tools/list` on the tile's endpoint, through the gate). A tool asks
+    the first time; "always for this tool" is a standing approval of
     scope `tool`.
-  - **Search only where the provider has it.** A native search tool of an
-    upstream an admin marked `webSearch`, refused by the connector unless
-    the session's reach allows it; no third-party search service.
-  - **Not yet**: `web.mode: "full"` and `mcp.mode: "listed"` (external
-    MCP servers with credentials held by xbind) are refused with "not
-    available yet" rather than half-built.
+  - **Search only where the provider has it** — a native search tool of
+    an upstream an admin marked, refused by the connector unless the
+    session's reach allows it; never a third-party search service. Not
+    built in this change: `web.search: true` is refused "not available
+    yet", and the reach's `search` is off.
+  - **The reads of an MCP server are reads** (the journey plan's G4): on
+    a tile's declared endpoint, exactly `initialize`, `ping` and
+    `tools/list` (one JSON-RPC request) pass unasked; every other POST
+    there is refused, so a tile-call ticket or standing approval of the
+    endpoint never covers a tool.
+  - **Not yet**: `web.mode: "full"`, `web.search` and `mcp.mode: "listed"`
+    (external MCP servers with credentials held by xbind) are refused with
+    "not available yet" rather than half-built.
 

@@ -87,6 +87,46 @@ async function sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot,
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     S.requests = S.requests.filter((r) => r.id !== 'u2'); await refresh();
+
+    // after a decision the dock shows the next request that waits (another of the matrix's): put it off, "not now"
+    const decided = async (id) => {
+      await page.waitForFunction((i) => document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')?.request?.id !== i, id);
+      if (await page.$(`${SHEET} [role="dialog"]`)) await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    };
+    // ---- the web and MCP tools (D236): a page is approved once, with its whole address; a tool once or always ----
+    S.requests.push({ id: 'w2', user: 'admin', agent: 'system/agent', kind: 'web', method: 'POST', target: '/api/xbin/delegate/web/fetch', body: '{"url":"https://status.example.com/incidents?since=today"}',
+      bodyShown: true, bodySize: 57, summary: 'To see whether the payment provider reports an outage.', state: 'pending', created: iso(-200), expires: iso(86390000),
+      preview: { class: 'web', url: 'https://status.example.com/incidents?since=today', host: 'status.example.com', orgs: ['sales'], readWeb: true,
+        why: 'This conversation holds data of Sales: an address can carry it out, so each page it reads is one you approve' } });
+    S.requests.push({ id: 'm2', user: 'admin', agent: 'system/agent', kind: 'mcp', method: 'POST', target: '/api/xbin/delegate/mcp/call', tile: 'apps/dice', body: '{"server":"apps/dice","tool":"wipe","arguments":{"table":"main"}}',
+      bodyShown: true, bodySize: 62, summary: 'You asked to clear the table.', state: 'pending', created: iso(-100), expires: iso(86390000),
+      preview: { class: 'mcp', tile: 'apps/dice', server: 'apps/dice', serverName: 'Dice', tool: 'wipe', title: 'Wipe the table', description: 'Clears every die from the table.', readOnly: false,
+        arguments: '{\n  "table": "main"\n}', standing: { tool: 'wipe on Dice — this tool again, with any arguments, without asking' } } });
+    await refresh();
+    await review(page, 'request', 'w2');
+    await page.waitForSelector(`${SHEET} [data-row="url"]`);
+    const webText = await text(`${SHEET} [role="dialog"]`);
+    check(/Your agent wants to read a page on status\.example\.com/.test(webText) && /https:\/\/status\.example\.com\/incidents\?since=today/.test(webText) && /holds data of Sales/.test(webText)
+      && !!(await page.$(`${SHEET} [data-read-web]`)) && !(await page.$(`${SHEET} [data-choice]`)) && /Read this page/.test(await text(`${SHEET} button[data-allow]`)),
+      `[${width}] a web page: its whole address, why xbin asks, "has read the web", once only (${webText.slice(0, 160)})`);
+    await shot(page, `agent-chrome-web${tag}`, { fullPage: false });
+    await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+    await page.click(`${SHEET} button[data-allow]`);
+    await decided('w2');
+    check(JSON.stringify(sentTo(/w2\/approve$/).map((c) => c.body)) === '[{"grant":"once"}]', `[${width}] …allowed once ({grant: once})`);
+    await review(page, 'request', 'm2');
+    await page.waitForSelector(`${SHEET} [data-row="tool"]`);
+    const mcpText = await text(`${SHEET} [role="dialog"]`);
+    check(/Your agent wants to run wipe on Dice/.test(mcpText) && /doesn’t mark it read-only/.test(mcpText) && /"table": "main"/.test(mcpText) && (await page.$$(`${SHEET} [data-choice]`)).length === 2,
+      `[${width}] an MCP tool: the server, the tool, its mark, the arguments as sent; once or always for this tool`);
+    await page.click(`${SHEET} [data-choice="tool"] input`);
+    await shot(page, `agent-chrome-mcp${tag}`, { fullPage: false });
+    await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+    await page.click(`${SHEET} button[data-allow]`);
+    await decided('m2');
+    check(JSON.stringify(sentTo(/m2\/approve$/).map((c) => c.body)) === '[{"grant":"always","scope":"tool"}]', `[${width}] …always for this tool ({grant: always, scope: tool})`);
+    S.requests = S.requests.filter((r) => r.id !== 'w2' && r.id !== 'm2'); S.approvals = S.approvals.filter((a) => a.scope !== 'tool'); await refresh();
 }
 
 module.exports = { sheetChecks };

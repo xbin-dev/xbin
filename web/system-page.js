@@ -16,6 +16,7 @@
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
+import '/vendor/wsagent-policy.js';
 
 const pageCss = css`
   :host { display: block; color: var(--bx-text, #E9EAF0); font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif); }
@@ -237,6 +238,7 @@ export class BxSystemPage extends LitElement {
         <dt>Limits</dt><dd><a href="/xbin/limits?tile=${encodeURIComponent(c.path)}">Memory and disk</a></dd>
       </dl>
       ${this._renderAccess(c)}
+      ${c.path === this._agent ? html`<bx-wsagent-policy></bx-wsagent-policy>` : nothing}
       ${this._renderSlots(c)}
     </section>`;
   }

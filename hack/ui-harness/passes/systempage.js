@@ -29,7 +29,7 @@
 //   6. the tile listing the shell reads (GET /components) has no xbin/ row,
 //      and the shell shows none (shots: systempage-<theme>,
 //      systempage-phone-<theme>).
-const { URL, login, closeCtx, settle, shot, checker, THEME } = require('../lib');
+const { URL, login, closeCtx, settle, shot, shotEl, checker, THEME } = require('../lib');
 const { snapshot, putBack, putBackChecked, caller } = require('./wsagentpage'); // the component's access, read and put back
 
 async function until(fn, label, timeout = 15000) {
@@ -135,6 +135,23 @@ async function systemPage(browser) {
         await A.page.evaluate(() => document.querySelector('bx-system-page').testApi().reload());
         await until(async () => !(await card.innerText()).includes('Everyone in this workspace'), 'the everyone line goes');
         check((await card.innerText()).includes('Nobody but workspace admins'), `${P}: taken back, nobody but admins again`);
+        // the web and MCP tools (D236): off until an admin sets them here; the modes not built yet can't be picked
+        const pol = card.locator('bx-wsagent-policy');
+        await until(async () => (await pol.locator('[data-save]').count()) === 1, 'the web and MCP settings');
+        const offFirst = await pol.locator('input[name=web][value=off]').isChecked() && await pol.locator('input[name=mcp][value=off]').isChecked();
+        const notYet = await pol.locator('input[name=web][value=full]').isDisabled() && await pol.locator('input[name=mcp][value=listed]').isDisabled();
+        check(offFirst && notYet, `${P}: the web and MCP read off; "send to the web" and listed servers can't be picked yet`);
+        await pol.locator('input[name=web][value=read]').check();
+        await pol.locator('textarea[data-field=deny]').fill('intranet.example.com\nbank.test');
+        await pol.locator('input[name=mcp][value=tiles]').check();
+        const [put] = await Promise.all([A.page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/xbin/delegate/workspace')), pol.locator('[data-save]').click()]);
+        await until(async () => (await pol.locator('[role=status]').count()) === 1, 'saved');
+        const ws = await (await A.ctx.request.get(`${URL}/api/xbin/delegate/workspace`)).json();
+        check(JSON.parse(put.postData()).web.mode === 'read' && ws.web?.mode === 'read' && JSON.stringify(ws.web?.deny) === '["bank.test","intranet.example.com"]' && ws.mcp?.mode === 'tiles',
+          `${P}: Save sets the policy (${put.postData()} → ${JSON.stringify({ web: ws.web, mcp: ws.mcp })})`);
+        await shotEl(A.page, 'bx-system-page bx-wsagent-policy', `systempage-netpolicy-${THEME}`);
+        const back = await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { web: { mode: 'off', allow: [], deny: [] }, mcp: { mode: 'off' } } });
+        check(back.status() === 200, `${P}: put back off (${back.status()})`);
       } else skip(`${P} isn't the workspace agent here: the everyone line (its who: everyone) is the release table's to drive`);
 
       // 4. off and on

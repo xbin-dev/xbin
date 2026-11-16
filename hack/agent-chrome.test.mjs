@@ -284,3 +284,36 @@ test('a draft cut at its cap never keeps half an emoji', () => {
   assert.equal(d, 'a'.repeat(7999), 'the pair that does not fit goes whole');
   assert.equal(W.plainDraft(`${'a'.repeat(7998)}😀😀`), `${'a'.repeat(7998)}😀`);
 });
+
+// D236 — a web page and an MCP tool: their sheets' words, what each choice approves, the log's rows, the Preferences
+test('the web and MCP tools: a page is read once, a tool once or always; the log and Preferences say so', () => {
+  const web = { id: 'w1', kind: 'web', method: 'POST', target: '/api/xbin/delegate/web/fetch', body: '{"url":"https://status.example.com/x?q=1"}', state: 'pending',
+    preview: { class: 'web', url: 'https://status.example.com/x?q=1', host: 'status.example.com', orgs: ['sales'], why: 'This conversation holds data of Sales: an address can carry it out', readWeb: true } };
+  assert.equal(W.needTitle(web), 'Read a web page on status.example.com');
+  assert.deepEqual(W.heading(web), { before: 'Your agent wants to read a page on ', strong: 'status.example.com', after: '' });
+  assert.deepEqual(W.grantChoices(web), [], 'a page is approved once: no standing choice');
+  assert.equal(W.allowLabel(web), 'Read this page');
+  assert.deepEqual(W.approveBody(web, 'always'), { grant: 'once' });
+  assert.equal(W.webRows(web).url, 'https://status.example.com/x?q=1');
+  const mcp = { id: 'm1', kind: 'mcp', tile: 'apps/dice', state: 'pending', body: '{"server":"apps/dice","tool":"wipe","arguments":{}}',
+    preview: { class: 'mcp', server: 'apps/dice', serverName: 'Dice', tool: 'wipe', readOnly: false, arguments: '{}', standing: { tool: 'wipe on Dice — this tool again, with any arguments, without asking' } } };
+  assert.equal(W.needTitle(mcp), 'Run wipe on Dice');
+  assert.deepEqual(W.grantChoices(mcp).map((c) => [c.id, c.scope, c.wider]), [['once', '', false], ['tool', 'tool', false]]);
+  assert.deepEqual(W.approveBody(mcp, 'tool'), { grant: 'always', scope: 'tool' });
+  assert.deepEqual(W.approveBody(mcp, 'tool', 'hour'), { grant: 'hour', scope: 'tool' });
+  assert.deepEqual(W.approveBody(mcp, 'once'), { grant: 'once' });
+  assert.match(W.mcpRows(mcp).marked, /doesn’t mark it read-only/);
+  assert.equal(W.standingRow({ tile: 'apps/dice', scope: 'tool', method: 'MCP', path: 'wipe' }).text, 'Always · this tool: wipe');
+  assert.equal(W.did({ class: 'web', path: 'https://status.example.com/x?…', bytes: 2048, status: 200, method: 'POST', ts: '2026-11-16T10:00:00Z' }).strong, 'status.example.com');
+  assert.equal(W.did({ class: 'web', path: 'http://10.0.0.1/', refused: '10.0.0.1 isn’t a public address', method: 'POST' }).group, 'refused');
+  assert.equal(W.did({ class: 'mcp', tile: 'apps/dice', under: 'preference', method: 'POST' }).text, 'Ran a tool of ');
+  // Preferences: off by policy says why and can't be turned on; the read-only one waits for MCP
+  const off = W.netPrefs({ web: false, mcp: false, net: { web: { policy: 'off', why: 'Reading the web is off for this workspace — an admin can change it' }, mcp: { policy: 'off' } } });
+  assert.deepEqual(off.map((x) => [x.id, x.on, x.allowed]), [['web', false, false], ['mcp', false, false], ['mcpReadOnly', false, false]]);
+  assert.equal(off[0].why, 'Reading the web is off for this workspace — an admin can change it');
+  const on = W.netPrefs({ web: true, mcp: true, mcpReadOnly: false, net: { web: { policy: 'read', only: ['docs.example.com'] }, mcp: { policy: 'tiles' } } });
+  assert.deepEqual(on.map((x) => [x.id, x.on, x.allowed]), [['web', true, true], ['mcp', true, true], ['mcpReadOnly', false, true]]);
+  assert.match(on[0].note, /Only docs\.example\.com\./);
+  // a setting kept on while the policy is off reads as off
+  assert.equal(W.netPrefs({ web: true, net: { web: { policy: 'off' } } })[0].on, false);
+});

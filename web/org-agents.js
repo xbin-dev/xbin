@@ -44,6 +44,10 @@ export function rulesText(r) {
   if (r.workspaceAgent === 'off') out.push('workspace agent off');
   if (r.harnesses != null && r.harnesses !== 'any') out.push(`coding agents: ${words(r.harnesses)}`);
   if (r.models != null && r.models !== 'any') out.push(r.models === 'private' ? 'private models only' : `models: ${words(r.models)}`);
+  if (r.web === 'never') out.push('data never to the web');
+  else if (r.web === 'allow') out.push('web allowed');
+  else if (r.web === 'ask') out.push('web asks');
+  if (r.mcp === 'org') out.push('MCP: the org’s own servers');
   return out.join(' · ');
 }
 
@@ -98,7 +102,8 @@ export class BxOrgAgents extends LitElement {
   get _stored() {
     const r = (!this.org ? this._policy : this.pinned ? this.pin : this.rules) ?? {};
     const mode = r.credentials === 'connector' ? 'connector-only' : r.credentials; // (the name connector-only had)
-    return { workspaceAgent: r.workspaceAgent === 'off' ? 'off' : 'on', harnesses: allowOf(r.harnesses), models: allowOf(r.models), credentials: MODES.includes(mode) ? mode : 'own-first' };
+    return { workspaceAgent: r.workspaceAgent === 'off' ? 'off' : 'on', harnesses: allowOf(r.harnesses), models: allowOf(r.models), credentials: MODES.includes(mode) ? mode : 'own-first',
+      web: ['ask', 'allow', 'never'].includes(r.web) ? r.web : '', mcp: r.mcp === 'org' ? 'org' : '' };
   }
   get _now() { return { ...this._stored, ...this._draft }; }
   _set(patch) { this._draft = { ...this._draft, ...patch }; this._saved = false; this._err = ''; }
@@ -110,6 +115,8 @@ export class BxOrgAgents extends LitElement {
     if (!sameAllow(now.harnesses, was.harnesses)) body.harnesses = wireOf(now.harnesses);
     if (!sameAllow(now.models, was.models)) body.models = wireOf(now.models);
     if (!this.org && now.credentials !== was.credentials) body.credentials = now.credentials;
+    if (now.web !== was.web) body.web = now.web || null; // D236: '' is no rule of its own (null puts it back)
+    if (now.mcp !== was.mcp) body.mcp = now.mcp || null;
     return body;
   }
 
@@ -173,6 +180,25 @@ export class BxOrgAgents extends LitElement {
           <input type="text" data-models aria-label="allowed models" placeholder="upstream, upstream/model, …" .value=${a.ids.join(', ')}
             @change=${(e) => this._set({ models: { kind: 'list', ids: splitIds(e.target.value) } })}>
           <span class="hint">LLM connector ids: an upstream for all its models, or upstream/model</span>`)}
+        <span class="k">the web</span>
+        <div>
+          <div class="row">
+            <select data-rule="web" aria-label="the web" @change=${(e) => this._set({ web: e.target.value })}>
+              <option value="" ?selected=${!now.web}>no rule — a conversation holding ${ws ? 'tiles’' : 'this org’s'} data asks its person for each page</option>
+              <option value="allow" ?selected=${now.web === 'allow'}>allow — such a conversation reads the web freely</option>
+              <option value="ask" ?selected=${now.web === 'ask'}>ask — its person approves each page</option>
+              <option value="never" ?selected=${now.web === 'never'}>never — its data never goes to the web</option>
+            </select>
+          </div>
+          <div class="hint">for a workspace agent’s conversation that has read ${ws ? 'a tile' : 'this org’s tiles'}: an address can carry their data out</div>
+        </div>
+        <span class="k">MCP servers</span>
+        <div class="row">
+          <select data-rule="mcp" aria-label="MCP servers" @change=${(e) => this._set({ mcp: e.target.value })}>
+            <option value="" ?selected=${!now.mcp}>any MCP tile the workspace allows</option>
+            <option value="org" ?selected=${now.mcp === 'org'}>only ${ws ? 'the MCP tiles in no org' : 'this org’s own MCP tiles'}</option>
+          </select>
+        </div>
         ${ws ? html`
           <span class="k">credentials</span>
           <div class="row">
