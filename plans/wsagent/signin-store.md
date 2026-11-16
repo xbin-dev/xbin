@@ -219,8 +219,9 @@ A saved sign-in is injected only when **all** hold:
    a workspace admin holds **write level or more** on the tile, by any
    source — ownership, an entry of their own, a pattern, an org's share
    (`Broker.SigninOthers`, the one real answer; table-tested). The tile is
-   the **registered tile the session's directory lies in** (the
-   registry's resolver), never the directory as written: a session in
+   the **registered tile the session's directory lies in**
+   (`term.Manager.TileOf`, the one resolver every session decision uses),
+   never the directory as written: a session in
    `apps/crm/src` is judged on `apps/crm`, and a directory in no tile gets
    nothing. **Partitioned tiles are not exempt**: a partition isolates
    data, and the tile's directory is bound read-write into every
