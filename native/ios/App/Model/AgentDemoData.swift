@@ -529,6 +529,47 @@ enum AgentDemoData {
    "class": "mcp",
    "status": 403,
    "refused": "Using MCP tools is off for this workspace"
+  },
+  {
+   "ts": "2026-11-16T09:42:00Z",
+   "method": "POST",
+   "path": "https://mcp.tracker.example",
+   "class": "mcp",
+   "server": "ext:tracker",
+   "tool": "post",
+   "effect": true,
+   "status": 200,
+   "ticket": "rq_mcp_out",
+   "bytes": 2048
+  },
+  {
+   "ts": "2026-11-16T09:41:00Z",
+   "method": "POST",
+   "path": "https://mcp.tracker.example",
+   "class": "mcp",
+   "server": "ext:tracker",
+   "tool": "lookup",
+   "effect": true,
+   "status": 200,
+   "under": "preference"
+  },
+  {
+   "ts": "2026-11-16T09:40:00Z",
+   "method": "POST",
+   "path": "https://mcp.tracker.example",
+   "class": "mcp-read",
+   "server": "ext:tracker",
+   "status": 200
+  },
+  {
+   "ts": "2026-11-16T09:39:00Z",
+   "method": "POST",
+   "path": "https://mcp.tracker.example",
+   "class": "mcp",
+   "server": "ext:tracker",
+   "tool": "post",
+   "status": 502,
+   "refused": "the server refused xbin's credentials (401)"
   }
  ],
  "states": {

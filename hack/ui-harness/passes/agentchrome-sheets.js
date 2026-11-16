@@ -142,6 +142,27 @@ async function sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot,
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     S.requests = S.requests.filter((r) => r.id !== 'm3'); await refresh();
+
+    // an outside server's tool (D240): "outside this workspace" and its host, xbind's; from a conversation that holds an org's data, once only
+    S.requests.push({ id: 'm4', user: 'admin', agent: 'system/agent', kind: 'mcp', method: 'POST', target: '/api/xbin/delegate/mcp/call', tile: 'ext:tracker@1a2b3c4d',
+      body: '{"server":"ext:tracker","tool":"post","arguments":{"id":"T-7","text":"fixed"}}', bodyShown: true, bodySize: 70, summary: 'You asked me to comment on T-7.', state: 'pending',
+      created: iso(-80), expires: iso(86390000),
+      preview: { class: 'mcp', server: 'ext:tracker', serverName: 'Issue tracker', host: 'mcp.tracker.example', outside: true, tool: 'post', title: 'Post a comment', description: 'Posts a comment on a ticket.',
+        readOnly: false, arguments: '{\n  "id": "T-7",\n  "text": "fixed"\n}', each: true, orgs: ['sales'], readWeb: true,
+        why: 'This conversation holds data of Sales: what is sent to Issue tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve' } });
+    await refresh();
+    await review(page, 'request', 'm4');
+    await page.waitForSelector(`${SHEET} [data-outside]`);
+    const outText = await text(`${SHEET} [role="dialog"]`);
+    check(/Your agent wants to run post on Issue tracker, outside this workspace/.test(outText) && /Outside this workspace: mcp\.tracker\.example/.test(await text(`${SHEET} [data-outside]`))
+      && /asked every time/.test(await text(`${SHEET} [data-each]`)) && (await page.$$(`${SHEET} [data-choice]`)).length === 1 && !!(await page.$(`${SHEET} [data-read-web]`)),
+      `[${width}] an outside server's tool: outside this workspace and its host, said plainly; from a tainted conversation once only (${outText.replace(/\s+/g, ' ').slice(0, 200)})`);
+    await shot(page, `agent-chrome-mcp-outside${tag}`, { fullPage: false });
+    await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+    await page.click(`${SHEET} button[data-allow]`);
+    await decided('m4');
+    check(JSON.stringify(sentTo(/m4\/approve$/).map((c) => c.body)) === '[{"grant":"once"}]', `[${width}] …allowed once ({grant: once})`);
+    S.requests = S.requests.filter((r) => r.id !== 'm4'); await refresh();
 }
 
 module.exports = { sheetChecks };

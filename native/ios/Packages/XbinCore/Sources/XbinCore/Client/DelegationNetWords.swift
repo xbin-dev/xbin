@@ -33,6 +33,14 @@ public struct MCPToolCall: Sendable, Equatable {
     /// The parts of the tool that changed since its person allowed or
     /// first met it (xbind's `changed`: description, inputSchema, …).
     public var changed: [String]
+    /// An outside server (D240): its host (xbind's), whether each call
+    /// asks (the conversation holds an organisation's data) and why, and
+    /// whether an admin trusts its read-only marks.
+    public var outside = false
+    public var host = ""
+    public var each = false
+    public var why = ""
+    public var trusted = false
 }
 
 /// One of the Preferences controls of the web and MCP tools.
@@ -47,12 +55,14 @@ public struct NetPref: Sendable, Equatable, Identifiable {
     public var why: String
     /// Drawn under the one before it.
     public var sub: Bool
+    /// MCP: the outside servers the agent may use (D240), listed under it.
+    public var servers: [OutsideServer] = []
 }
 
 extension DelegationWords {
     /// What a sheet says when the conversation that asks has read the web
     /// (`preview.readWeb`).
-    public static let readWeb = "This conversation has read the web: what your agent asks may come from a page it read."
+    public static let readWeb = "This conversation has read the web or an outside server: what your agent asks may come from what it read there."
 
     /// The host of a URL ("" when none) — the web's `webHost`.
     public static func webHost(_ url: String) -> String {
@@ -79,7 +89,9 @@ extension DelegationWords {
                            title: p["title"]?.stringValue ?? "", description: p["description"]?.stringValue ?? "",
                            readOnly: p["readOnly"]?.boolValue == true, arguments: p["arguments"]?.stringValue ?? "",
                            standing: p["standing"]?["tool"]?.stringValue ?? "",
-                           changed: (p["changed"]?.arrayValue ?? []).compactMap(\.stringValue))
+                           changed: (p["changed"]?.arrayValue ?? []).compactMap(\.stringValue),
+                           outside: p["outside"]?.boolValue == true, host: p["host"]?.stringValue ?? "", each: p["each"]?.boolValue == true,
+                           why: p["why"]?.stringValue ?? "", trusted: p["readOnlyTrusted"]?.boolValue == true)
     }
 
     private static let changedPart = ["name": "its name", "title": "its title", "description": "its description", "inputSchema": "its arguments",
@@ -94,11 +106,17 @@ extension DelegationWords {
 
     /// An MCP request as the sheet's rows: the tool, its mark in words, who
     /// can undo it, and what of it changed since it was allowed ("" nothing).
-    public static func mcpRows(_ r: DelegateRequest) -> (call: MCPToolCall, marked: String, undo: String, changedLine: String) {
+    /// An outside server's (D240) says so — "Outside this workspace: <host>" —
+    /// and, while each call asks, why.
+    public static func mcpRows(_ r: DelegateRequest) -> (call: MCPToolCall, marked: String, undo: String, changedLine: String, outsideLine: String, eachLine: String) {
         let m = mcpOf(r)
         let changed = m.changed.isEmpty ? "" : "Changed since you last allowed it or first met it: \(m.changed.map { changedPart[$0] ?? $0 }.joined(separator: ", "))."
-        return (m, m.readOnly ? "Its server marks it read-only — the server’s word, not xbin’s." : "Its server doesn’t mark it read-only: it may change things.",
-                "xbin can't undo this. Whether \(m.server) can is up to \(m.server).", changed)
+        let ro = m.outside && !m.trusted ? "Its server marks it read-only — an outside server’s word, which your “read-only tools don’t ask me” doesn’t take."
+            : "Its server marks it read-only — the server’s word, not xbin’s."
+        return (m, m.readOnly ? ro : "Its server doesn’t mark it read-only: it may change things.",
+                "xbin can't undo this. Whether \(m.server) can is up to \(m.server).", changed,
+                m.outside ? "Outside this workspace: \(nonEmpty(m.host, "an outside server"))" : "",
+                m.each ? "\(nonEmpty(m.why, "This conversation holds an organisation’s data")) — so it is asked every time." : "")
     }
 
     /// A request of a kind this app doesn't know (a newer xbind's): said
@@ -116,14 +134,16 @@ extension DelegationWords {
         if r.kind == .unknown { return ApprovalHeading(before: unknownKind, strong: "", after: "") }
         if r.kind == .web { return ApprovalHeading(before: "Your agent wants to read a page on ", strong: nonEmpty(webOf(r).host, "the web"), after: "") }
         let m = mcpOf(r)
-        return ApprovalHeading(before: "Your agent wants to run ", strong: nonEmpty(m.tool, "a tool"), after: " on \(m.server)")
+        return ApprovalHeading(before: "Your agent wants to run ", strong: nonEmpty(m.tool, "a tool"), after: " on \(m.server)\(m.outside ? ", outside this workspace" : "")")
     }
 
     /// An MCP tool's two ways to allow: once, or always this tool.
+    /// An outside server's call from a conversation that holds an
+    /// organisation's data (D240): once only.
     static func mcpChoices(_ r: DelegateRequest) -> [GrantChoice] {
         let m = mcpOf(r)
-        return [
-            GrantChoice(id: .once, label: "Once", text: "This call only. The agent has 15 minutes to make it.", wider: false),
+        let once = GrantChoice(id: .once, label: "Once", text: "This call only. The agent has 15 minutes to make it.", wider: false)
+        return m.each ? [once] : [once,
             GrantChoice(id: .tool, label: "Always, this tool",
                         text: m.standing.isEmpty ? "\(m.tool) on \(m.server), as it is described now, with any arguments, without asking again." : m.standing, wider: false),
         ]
@@ -136,6 +156,13 @@ extension DelegationWords {
     /// The web's and MCP's rows of the log ("" class: nil, the general sentence).
     static func netDid(_ row: AuditRow) -> Did? {
         let t = lastOf(row.tile)
+        if (row.cls == "mcp" || row.cls == "mcp-read") && !row.server.isEmpty { // an outside server (D240)
+            let call = row.cls == "mcp"
+            let text = !row.refused.isEmpty ? "Was refused an outside server, " : call ? "Ran \(nonEmpty(row.tool, "a tool")) on " : "Read the tools of "
+            let detail = [webHost(row.path), !row.refused.isEmpty ? row.refused : call ? underWords(row) : "", row.bytes > 0 ? bytes(row.bytes) : ""].filter { !$0.isEmpty }
+            return Did(text: text, strong: row.server, detail: detail.joined(separator: " · "), icon: row.refused.isEmpty ? "plug" : "lock",
+                       group: !row.refused.isEmpty ? "refused" : call ? "change" : "read", at: row.ts)
+        }
         switch row.cls {
         case "web":
             let host = webHost(row.path)
@@ -162,15 +189,17 @@ extension DelegationWords {
         let person = (web: state?.web ?? false, mcp: state?.mcp ?? false, readOnly: state?.mcpReadOnly ?? false)
         let only = web.only.isEmpty ? "" : " Only \(web.only.joined(separator: ", "))."
         let off = "Off for this workspace — an admin can change it."
+        let servers = mcp.servers // the outside ones (D240)
         return [
             NetPref(id: "web", label: "Let my agent read web pages",
                     note: "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve.\(only)",
                     on: person.web && webOk, allowed: webOk, why: webOk ? "" : nonEmpty(web.why, off), sub: false),
-            NetPref(id: "mcp", label: "Let my agent use MCP tools from this workspace’s tiles",
-                    note: "As you, on the tiles you can reach. Each tool asks you the first time.",
-                    on: person.mcp && mcpOk, allowed: mcpOk, why: mcpOk ? "" : nonEmpty(mcp.why, off), sub: false),
+            NetPref(id: "mcp", label: servers.isEmpty ? "Let my agent use MCP tools from this workspace’s tiles" : "Let my agent use MCP tools",
+                    note: servers.isEmpty ? "As you, on the tiles you can reach. Each tool asks you the first time."
+                        : "From this workspace’s tiles, as you, and from the servers outside it listed below: what it sends one leaves the workspace. Each tool asks you the first time.",
+                    on: person.mcp && mcpOk, allowed: mcpOk, why: mcpOk ? "" : nonEmpty(mcp.why, off), sub: false, servers: servers),
             NetPref(id: "mcpReadOnly", label: "MCP tools marked read-only don’t ask me",
-                    note: "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask.",
+                    note: "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask.\(servers.isEmpty ? "" : " An outside server’s marks count only where an admin trusts them.")",
                     on: person.readOnly && mcpOk && person.mcp, allowed: mcpOk && person.mcp,
                     why: !mcpOk || person.mcp ? "" : "Turn on MCP tools first.", sub: true),
         ]

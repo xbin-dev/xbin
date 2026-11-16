@@ -99,7 +99,7 @@ export function needTitle(req) {
 /** heading(req): the sheet's heading — {before, strong, after}: the tile's name is the strong part. */
 export function heading(req) {
   if (req.kind === 'web') return { before: 'Your agent wants to read a page on ', strong: webOf(req).host || 'the web', after: '' };
-  if (req.kind === 'mcp') return { before: 'Your agent wants to run ', strong: mcpOf(req).tool || 'a tool', after: ` on ${mcpOf(req).server}` };
+  if (req.kind === 'mcp') return { before: 'Your agent wants to run ', strong: mcpOf(req).tool || 'a tool', after: ` on ${mcpOf(req).server}${mcpOf(req).outside ? ', outside this workspace' : ''}` };
   const t = tileOf(req).name || 'a tile';
   if (req.kind === 'session') {
     return req.preview && req.preview.session && req.preview.session.resume
@@ -197,10 +197,9 @@ export const undoWords = (req) => `xbin can't undo this. Whether ${tileOf(req).n
 export function grantChoices(req) {
   if (req.kind === 'mcp') {
     const m = mcpOf(req);
-    return [
-      { id: 'once', scope: '', label: 'Once', text: 'This call only. The agent has 15 minutes to make it.', wider: false },
-      { id: 'tool', scope: 'tool', label: 'Always, this tool', text: m.standing || `${m.tool} on ${m.server}, as it is described now, with any arguments, without asking again.`, wider: false },
-    ];
+    const once = { id: 'once', scope: '', label: 'Once', text: 'This call only. The agent has 15 minutes to make it.', wider: false };
+    return m.each ? [once] : [once, // an outside server's call from a conversation holding an org's data: once only (D240)
+      { id: 'tool', scope: 'tool', label: 'Always, this tool', text: m.standing || `${m.tool} on ${m.server}, as it is described now, with any arguments, without asking again.`, wider: false }];
   }
   if (req.kind !== 'call') return [];
   const t = tileOf(req).name || 'this tile';
@@ -509,19 +508,20 @@ export function webOf(req) {
 /** webHost(url): the host of a URL ('' when none). */
 export function webHost(url) { const m = /^[a-z]+:\/\/([^/?#:]+)/i.exec(String(url || '')); return m ? m[1] : ''; }
 
-/** mcpOf(req): an MCP request's tool as xbind previews it — {server, path, tool, title, description, readOnly, arguments, standing}. */
+/** mcpOf(req): an MCP request's tool as xbind previews it — {server, path, tool, title, description, readOnly, arguments, standing}; an outside server's (D240) adds outside, host, each, why. */
 export function mcpOf(req) {
   const p = (req && req.preview) || {};
   return { server: String(p.serverName || p.server || lastOf(req && req.tile) || 'an MCP server'), path: String(p.server || (req && req.tile) || ''), tool: String(p.tool || ''),
     title: String(p.title || ''), description: String(p.description || ''), readOnly: p.readOnly === true, arguments: String(p.arguments || ''),
-    standing: (p.standing && p.standing.tool) || '', changed: Array.isArray(p.changed) ? p.changed.map(String) : [] };
+    standing: (p.standing && p.standing.tool) || '', changed: Array.isArray(p.changed) ? p.changed.map(String) : [],
+    outside: p.outside === true, host: String(p.host || ''), each: p.each === true, why: String(p.why || ''), trusted: p.readOnlyTrusted === true };
 }
 
 const CHANGED = Object.freeze({ name: 'its name', title: 'its title', description: 'its description', inputSchema: 'its arguments',
   outputSchema: 'its answer’s form', annotations: 'its marks (read-only and the like)' });
 
-/** READ_WEB: what a sheet says when the conversation that asks has read the web (preview.readWeb). */
-export const READ_WEB = 'This conversation has read the web: what your agent asks may come from a page it read.';
+/** READ_WEB: what a sheet says when the conversation that asks has read the web or an outside server (preview.readWeb). */
+export const READ_WEB = 'This conversation has read the web or an outside server: what your agent asks may come from what it read there.';
 /** webRows(req): a web request as the sheet's rows — {url, host, why, once}. */
 export function webRows(req) {
   const w = webOf(req);
@@ -531,8 +531,10 @@ export function webRows(req) {
 /** mcpRows(req): an MCP request as the sheet's rows. */
 export function mcpRows(req) {
   const m = mcpOf(req);
-  return { ...m, marked: m.readOnly ? 'Its server marks it read-only — the server’s word, not xbin’s.' : 'Its server doesn’t mark it read-only: it may change things.',
-    undo: `xbin can't undo this. Whether ${m.server} can is up to ${m.server}.`,
+  const ro = m.outside && !m.trusted ? 'Its server marks it read-only — an outside server’s word, which your “read-only tools don’t ask me” doesn’t take.' : 'Its server marks it read-only — the server’s word, not xbin’s.';
+  return { ...m, marked: m.readOnly ? ro : 'Its server doesn’t mark it read-only: it may change things.',
+    undo: `xbin can't undo this. Whether ${m.server} can is up to ${m.server}.`, outsideLine: m.outside ? `Outside this workspace: ${m.host || 'an outside server'}` : '',
+    eachLine: m.each ? `${m.why || 'This conversation holds an organisation’s data'} — so it is asked every time.` : '',
     changedLine: m.changed.length ? `Changed since you last allowed it or first met it: ${m.changed.map((k) => CHANGED[k] || k).join(', ')}.` : '' };
 }
 
@@ -548,13 +550,15 @@ export function netPrefs(state) {
   const web = net.web || {}, mcp = net.mcp || {};
   const webOk = !!web.policy && web.policy !== 'off', mcpOk = !!mcp.policy && mcp.policy !== 'off';
   const only = Array.isArray(web.only) && web.only.length ? ` Only ${web.only.join(', ')}.` : '';
+  const servers = (Array.isArray(mcp.servers) ? mcp.servers : []).map((s) => ({ name: String((s && s.name) || (s && s.server) || ''), host: String((s && s.host) || '') })); // the outside ones (D240)
   return [
     { id: 'web', label: 'Let my agent read web pages', on: !!st.web && webOk, allowed: webOk, why: webOk ? '' : (web.why || 'Off for this workspace — an admin can change it.'),
       note: `It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve.${only}` },
-    { id: 'mcp', label: 'Let my agent use MCP tools from this workspace’s tiles', on: !!st.mcp && mcpOk, allowed: mcpOk, why: mcpOk ? '' : (mcp.why || 'Off for this workspace — an admin can change it.'),
-      note: 'As you, on the tiles you can reach. Each tool asks you the first time.' },
+    { id: 'mcp', label: servers.length ? 'Let my agent use MCP tools' : 'Let my agent use MCP tools from this workspace’s tiles', on: !!st.mcp && mcpOk, allowed: mcpOk, why: mcpOk ? '' : (mcp.why || 'Off for this workspace — an admin can change it.'),
+      note: servers.length ? 'From this workspace’s tiles, as you, and from the servers outside it listed below: what it sends one leaves the workspace. Each tool asks you the first time.' : 'As you, on the tiles you can reach. Each tool asks you the first time.',
+      servers },
     { id: 'mcpReadOnly', label: 'MCP tools marked read-only don’t ask me', on: !!st.mcpReadOnly && mcpOk && !!st.mcp, allowed: mcpOk && !!st.mcp, sub: true,
-      why: !mcpOk ? '' : st.mcp ? '' : 'Turn on MCP tools first.', note: '“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask.' },
+      why: !mcpOk ? '' : st.mcp ? '' : 'Turn on MCP tools first.', note: `“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask.${servers.length ? ' An outside server’s marks count only where an admin trusts them.' : ''}` },
   ];
 }
 
@@ -623,6 +627,8 @@ export function did(row) {
     return row.refused ? { text: 'Was refused a web page on ', strong: host, detail: String(row.refused), icon: 'lock', group: 'refused', at }
       : { text: 'Read a web page on ', strong: host, detail: [row.path, row.bytes ? bytes(row.bytes) : '', row.ticket ? 'you allowed it once' : ''].filter(Boolean).join(' · '), icon: 'globe', group: 'change', at };
   }
+  if ((cls === 'mcp' || cls === 'mcp-read') && row.server) return { text: row.refused ? 'Was refused an outside server, ' : cls === 'mcp' ? `Ran ${row.tool || 'a tool'} on ` : 'Read the tools of ', strong: String(row.server), // an outside server (D240)
+    detail: [webHost(row.path), row.refused ? String(row.refused) : cls === 'mcp' ? underWords(row) : '', row.bytes ? bytes(row.bytes) : ''].filter(Boolean).join(' · '), icon: row.refused ? 'lock' : 'plug', group: row.refused ? 'refused' : cls === 'mcp' ? 'change' : 'read', at };
   if (cls === 'mcp' && !row.refused) return { text: 'Ran a tool of ', strong: t, detail: [row.under === 'preference' ? 'without asking: marked read-only, your preference' : underWords(row), row.status >= 400 ? 'failed' : ''].filter(Boolean).join(' · '), icon: 'plug', group: 'change', at };
   if (cls === 'mcp-read' && !row.refused) return { text: 'Read the tools of ', strong: t, detail: '', icon: 'eye', group: 'read', at };
   if (cls.startsWith('changeset:')) return { text: 'Applied an admin change as you', strong: '', detail: `${kindTag(cls.slice(10))}${row.status >= 400 ? ' · failed' : ''}`, icon: 'shield', group: 'change', at };

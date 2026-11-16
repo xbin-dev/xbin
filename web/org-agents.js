@@ -48,6 +48,8 @@ export function rulesText(r) {
   else if (r.web === 'allow') out.push('web allowed');
   else if (r.web === 'ask') out.push('web asks');
   if (r.mcp === 'org') out.push('MCP: the org’s own servers');
+  else if (r.mcp === 'listed') out.push('MCP: listed outside servers trusted');
+  else if (r.mcp === 'never') out.push('MCP: none');
   return out.join(' · ');
 }
 
@@ -103,7 +105,7 @@ export class BxOrgAgents extends LitElement {
     const r = (!this.org ? this._policy : this.pinned ? this.pin : this.rules) ?? {};
     const mode = r.credentials === 'connector' ? 'connector-only' : r.credentials; // (the name connector-only had)
     return { workspaceAgent: r.workspaceAgent === 'off' ? 'off' : 'on', harnesses: allowOf(r.harnesses), models: allowOf(r.models), credentials: MODES.includes(mode) ? mode : 'own-first',
-      web: ['ask', 'allow', 'never'].includes(r.web) ? r.web : '', mcp: r.mcp === 'org' ? 'org' : '' };
+      web: ['ask', 'allow', 'never'].includes(r.web) ? r.web : '', mcp: ['listed', 'org', 'never'].includes(r.mcp) ? r.mcp : '' };
   }
   get _now() { return { ...this._stored, ...this._draft }; }
   _set(patch) { this._draft = { ...this._draft, ...patch }; this._saved = false; this._err = ''; }
@@ -195,10 +197,13 @@ export class BxOrgAgents extends LitElement {
         <span class="k">MCP servers</span>
         <div class="row">
           <select data-rule="mcp" aria-label="MCP servers" @change=${(e) => this._set({ mcp: e.target.value })}>
-            <option value="" ?selected=${!now.mcp}>any MCP tile the workspace allows</option>
-            <option value="org" ?selected=${now.mcp === 'org'}>only ${ws ? 'the MCP tiles in no org' : 'this org’s own MCP tiles'}</option>
+            <option value="" ?selected=${!now.mcp}>any MCP tile; an outside server asks each call</option>
+            <option value="listed" ?selected=${now.mcp === 'listed'}>also the outside servers an admin listed, as approved</option>
+            <option value="org" ?selected=${now.mcp === 'org'}>only ${ws ? 'the MCP tiles in no org' : 'this org’s own MCP tiles and the servers listed for it'}</option>
+            <option value="never" ?selected=${now.mcp === 'never'}>none — no MCP server</option>
           </select>
         </div>
+        <div class="hint">what a call sends an outside server leaves the workspace</div>
         ${ws ? html`
           <span class="k">credentials</span>
           <div class="row">
