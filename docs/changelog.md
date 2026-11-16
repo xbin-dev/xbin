@@ -45,6 +45,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   lists a waiting line as "waits for apps/dice to provide mcp" (`GET
   /ws/sessions/<id>/cards` → `requests[].state: "waiting"`, `lines[].waits`,
   `untilMs`).
+- workspace agent's chrome (web): **a tile agent's permission requests
+  are answered in the dock.** Needs you draws each request of a session
+  the person's sessions wait on with the chat kit's permission card (new
+  `/vendor/bx-agent-permits.js`, `<bx-agent-permits>`): Allow once, Allow
+  always where xbind scopes it to a session rule, Reject — the person's
+  own `POST /term/sessions/<id>/permissions/<pid>`. The agent's page
+  draws none; its "Answer" opens the tray. In the app such a session
+  still opens its tile.
 - workspace agent's chrome (web, app): a line that waits reads `waiting`
   with what it waits for (or why it is held), a decided plan with one
   shows in **Needs you** as "Waiting: …" with **Open**, and its results
