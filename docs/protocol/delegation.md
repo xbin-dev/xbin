@@ -828,6 +828,15 @@ and its items carry, beside a change set's:
   GETs and a withdrawal's answer, and for change sets proposed the old
   way. A line the person themselves may not make (the handler's 403)
   carries no state for anyone.
+- **What a `tile.create` line says** is read from the template's
+  manifest: the new tile's own resources; what its code asks for, which
+  waits for an approval — except a use of something in the scope the tile
+  lands in, which is its own grant: `ACCESS: …`, a warning (the line then
+  gives access by itself, so it starts unticked); what it offers to tiles
+  bound to it; `EXPOSES: …` for endpoints it declares for the outside. The
+  line is pinned to that manifest (`pin`, a hash, part of what makes a
+  line `stale`): a template edited between the proposal and the approval
+  is not what the person approved.
 - **`start`** — what an `agent.start` line starts, as a start request's
   `preview.session`: `{tile, provider, providerName, mode, asks, prompt,
   net, api, …}`. Only a mode xbind vouches for (`asks: true`: a harness's

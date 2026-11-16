@@ -67,7 +67,11 @@ func personOf(p auth.Principal) auth.Principal {
 // that appeared since (the tile was published meanwhile, a network set
 // grew) is not something the person approved.
 func changeBasis(pv delegation.ChangePreview) string {
-	b, _ := json.Marshal([]any{pv.Before, pv.After, pv.Line, pv.Effects, pv.Warnings})
+	parts := []any{pv.Before, pv.After, pv.Line, pv.Effects, pv.Warnings}
+	if pv.Pin != "" { // what else the line was described from (a template's manifest, a start's resolved settings)
+		parts = append(parts, pv.Pin)
+	}
+	b, _ := json.Marshal(parts)
 	return delegation.BodyHash(b)
 }
 

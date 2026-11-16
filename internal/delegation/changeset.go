@@ -132,6 +132,11 @@ type ChangePreview struct {
 	// UndoByHand: what undoing it takes when xbind can't (a created tile is
 	// its person's to delete).
 	UndoByHand string
+	// Pin is what else the line was described from, hashed: a template's
+	// manifest (a creation), the coding agent, mode, network and API access
+	// a start resolves to. It moving between the proposal and the approval
+	// makes the line stale, as its before and after moving does.
+	Pin string
 }
 
 // PlannedTile is a tile an earlier tile.create line of the same set makes
@@ -205,6 +210,9 @@ type ChangeItem struct {
 	// Of: in a set an admin was asked to apply, the line's number in the
 	// asker's set.
 	Of int `json:"of,omitempty"`
+	// Pin: ChangePreview.Pin as the line was described — what a deferred
+	// line, which has no Basis to hold it, is held to beside its sentence.
+	Pin string `json:"pin,omitempty"`
 }
 
 // ChangeSet is one proposal.

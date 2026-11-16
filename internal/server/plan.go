@@ -384,7 +384,7 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 		}
 		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, BeforeText: pv.BeforeText, AfterText: pv.AfterText,
 			Effects: pv.Effects, Warnings: pv.Warnings, Blocked: pv.Blocked, Inverse: pv.Inverse, Basis: changeBasis(pv),
-			Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred, Start: pv.Start, UndoByHand: pv.UndoByHand}
+			Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred, Start: pv.Start, UndoByHand: pv.UndoByHand, Pin: pv.Pin}
 		if i < len(whys) {
 			if it.Why = whys[i]; len(it.Why) > 500 {
 				it.Why = it.Why[:500]

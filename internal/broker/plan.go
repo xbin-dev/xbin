@@ -35,6 +35,7 @@ package broker
 // the same person with no admin right).
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"net/http"
@@ -228,16 +229,98 @@ func (b *Broker) previewTileCreate(p auth.Principal, op delegation.ChangeOp, pla
 		created.Partitioned = slices.Contains(plan.def, "user")
 		pv.Effects = append(pv.Effects, "it keeps each person's data apart ("+strings.Join(plan.def, ", ")+")")
 	}
+	var m registry.Manifest
+	tplPath, ownScope := "", false
 	switch {
 	case plan.builtin:
 		created.Manifest, _ = b.templates.Manifest(a.Template)
+		_ = jsonc.Unmarshal(created.Manifest, &m)
+		if t, ok := b.templates.Get(a.Template); ok {
+			tplPath = t.DefaultPath
+		}
+		ownScope = b.templates.Has(a.Template, "scope.json")
 	default:
-		created.Manifest = mustJSON(plan.src.Manifest)
+		m = plan.src.Manifest
+		created.Manifest = mustJSON(m)
+		tplPath, ownScope = plan.src.Path, plan.src.Scope == plan.src.Path
 		pv.Tiles = []string{plan.src.Path} // the template is a tile: copying it reads it
 	}
-	pv.Effects = append(pv.Effects, "it starts with nothing bound and no access to other tiles: what its code asks for waits for an approval of its own")
+	// what the new tile has from its first second is the template's to say,
+	// and a template that is a tile can be edited: xbind reads its manifest
+	// now, says what it gives, and pins the line to it
+	effects, warnings := b.createEffects(m, tplPath, plan.target, ownScope)
+	pv.Effects, pv.Warnings = append(pv.Effects, effects...), warnings
+	pv.Pin = delegation.BodyHash(created.Manifest)
 	pv.Creates = &created
 	return pv, nil
+}
+
+// createEffects says what a tile made at target from a template with
+// manifest m (authored at tplPath) has from the moment it exists: its own
+// resources; what its code asks for, which waits for an approval — except
+// a use of something in the scope it lands in, which is its own grant
+// (hasGrant's same-scope rule): a warning, since the line then gives
+// access by itself; what it offers to tiles bound to it; and endpoints it
+// declares for the outside. ownScope: the template brings a scope of its
+// own, so the new tile shares one with nothing.
+func (b *Broker) createEffects(m registry.Manifest, tplPath, target string, ownScope bool) (effects, warnings []string) {
+	scope := ""
+	if !ownScope {
+		scope = b.scopeAt(target)
+	}
+	own := func(t string) bool { return t == target || strings.HasPrefix(t, target+"/") }
+	inScope := func(t string) bool {
+		if scope == "" {
+			return false
+		}
+		if rt, _, ok := b.parseRes("res:" + t); ok {
+			return rt.Scope == scope
+		}
+		tc, ok := b.Reg.Component(t)
+		return ok && tc.Scope == scope
+	}
+	mine, asks := 0, []string{}
+	for _, u := range m.Uses {
+		t := u.Target
+		if tplPath != "" { // the copy's own names follow it to its new place (CopyTree)
+			t = strings.ReplaceAll(t, tplPath, target)
+		}
+		bare, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(t, "res:"), "code:"), "#")
+		switch {
+		case own(bare):
+			mine++
+		case inScope(bare):
+			warnings = append(warnings, fmt.Sprintf("ACCESS: its code can use %s as %s from the moment it exists: it lands in the scope %s, where declaring a use is the grant", t, u.Role, scope))
+		default:
+			asks = append(asks, t+" as "+u.Role)
+		}
+	}
+	if mine > 0 {
+		effects = append(effects, fmt.Sprintf("it keeps its own data (%d of its own resources)", mine))
+	}
+	if len(asks) > 0 {
+		slices.Sort(asks)
+		effects = append(effects, "its code asks for "+strings.Join(asks, ", ")+": that waits for an approval of its own")
+	}
+	var offers, outside []string
+	for name, def := range m.Provides {
+		offers = append(offers, cmp.Or(def.Service, name))
+	}
+	for name := range m.Exposes {
+		outside = append(outside, name)
+	}
+	slices.Sort(offers)
+	slices.Sort(outside)
+	if len(offers) > 0 {
+		effects = append(effects, "it offers "+strings.Join(offers, ", ")+" to tiles bound to it")
+	}
+	if len(outside) > 0 {
+		warnings = append(warnings, "EXPOSES: it declares "+strings.Join(outside, ", ")+" for the outside: nothing reaches it until it is bound, and binding it is a line of its own")
+	}
+	if len(warnings) == 0 {
+		effects = append(effects, "it starts with nothing bound, and with no access to another tile")
+	}
+	return effects, warnings
 }
 
 // previewPlannedBinding describes a binding that names a tile an earlier
