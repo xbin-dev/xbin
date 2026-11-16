@@ -87,6 +87,8 @@ import Testing
                 #expect(r.neverAsks == !rows.modeAsks && rows.danger.isEmpty == rows.modeAsks, "\(id)")
                 #expect(rows.network == s(want, "network") && rows.others == s(want, "others"), "\(id)")
                 #expect(rows.brief == s(want, "brief") && rows.danger == s(want, "danger") && rows.comes == s(want, "comes"), "\(id)")
+                // the sign-in a start would use is said before it is allowed, with who will hold it (D230)
+                #expect(rows.signIn == s(want["signin"], "text") && rows.signInHolds == s(want["signin"], "holds"), "\(id)")
             }
             if r.state == .unknown {
                 // a newer xbind's state: the web says reload, the app — which can be older — the web

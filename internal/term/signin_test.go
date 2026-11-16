@@ -199,7 +199,7 @@ func TestSigninInjected(t *testing.T) {
 		}
 		return nil
 	})
-	if s.signin.carries() {
+	if s.sig().carries() {
 		t.Fatal("the ended session kept its copy")
 	}
 }
@@ -517,7 +517,7 @@ func TestSigninKeyThroughAuthenticate(t *testing.T) {
 	if row.Signin == nil || row.Signin.Source != SigninHome || !strings.Contains(row.Signin.Why, "signed in on its own") {
 		t.Fatalf("the row: %+v", row.Signin)
 	}
-	if s, _, _ := r.m.agentOf(info.ID); s.signin.carries() {
+	if s, _, _ := r.m.agentOf(info.ID); s.sig().carries() {
 		t.Fatal("the session kept the key it left out")
 	}
 }
@@ -547,7 +547,7 @@ func TestSigninConnectorChosen(t *testing.T) {
 	if len(f.used()) != before {
 		t.Fatal("a session on the connector took the sign-in")
 	}
-	if s, _, _ := r.m.agentOf(conn.ID); s.signin.carries() {
+	if s, _, _ := r.m.agentOf(conn.ID); s.sig().carries() {
 		t.Fatal("a session on the connector carries the sign-in")
 	}
 }

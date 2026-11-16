@@ -184,6 +184,15 @@ type sessionSignin struct {
 	choice string
 }
 
+// sig is s's sign-in state: nil for a terminal, and where no store is
+// wired. s.mu held.
+func (s *Session) sig() *sessionSignin {
+	if s.agent == nil {
+		return nil
+	}
+	return s.agent.signin
+}
+
 func (ss *sessionSignin) carries() bool { return ss != nil && len(ss.secret) > 0 }
 
 // signinMask is what a redacted secret reads as.
@@ -395,7 +404,7 @@ func (m *Manager) signinTake(pl signinPlan, id, rel string, prov agent.Provider,
 // again, and the rule is judged anew.
 func (m *Manager) signinRestart(s *Session, provider string) string {
 	s.mu.Lock()
-	ss, origin := s.signin, s.origin
+	ss, origin := s.sig(), s.origin
 	s.mu.Unlock()
 	if ss == nil || m.Signins == nil {
 		return ""
@@ -420,7 +429,7 @@ func (m *Manager) signinRestart(s *Session, provider string) string {
 // carries a saved sign-in: the key an adapter wants through authenticate,
 // and where a refusal goes.
 func (s *Session) signinCredential(m *Manager, prov agent.Provider, sp *acp.SpawnSignin) *sdkacp.Credential {
-	ss := s.signin
+	ss := s.sig()
 	if sp == nil || !ss.carries() {
 		return nil
 	}
@@ -438,7 +447,7 @@ func (s *Session) signinCredential(m *Manager, prov agent.Provider, sp *acp.Spaw
 // environment, or left out because the CLI is signed in on its own in this
 // $HOME — and says, in the session, what it runs on.
 func (s *Session) signinHello(m *Manager, h acp.HelloParams) {
-	ss := s.signin
+	ss := s.sig()
 	if ss == nil {
 		return
 	}
@@ -497,7 +506,7 @@ type signinNotice struct {
 
 // signinView is s's sign-in for its row (nil: nothing to say). s.mu held.
 func (s *Session) signinView() *SessionSignin {
-	ss := s.signin
+	ss := s.sig()
 	if ss == nil || (ss.view.Source == "" && ss.view.Why == "") {
 		return nil
 	}
@@ -512,7 +521,8 @@ func (s *Session) signinView() *SessionSignin {
 func (s *Session) carriesSignin() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.signin != nil && (s.signin.held || s.signin.carries())
+	ss := s.sig()
+	return ss != nil && (ss.held || ss.carries())
 }
 
 // redact is a line of the session's own log with its saved sign-in masked
@@ -530,17 +540,17 @@ func (s *Session) redactEvents(e agent.Event) []agent.Event {
 func (s *Session) redactor() *redactor {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.signin == nil {
-		return nil
+	if ss := s.sig(); ss != nil {
+		return ss.red
 	}
-	return s.signin.red
+	return nil
 }
 
 // dropSignin forgets the session's copy of the secret (the session ended).
 func (s *Session) dropSignin() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if ss := s.signin; ss != nil {
+	if ss := s.sig(); ss != nil {
 		for i := range ss.secret {
 			ss.secret[i] = 0
 		}
@@ -566,7 +576,7 @@ func (m *Manager) EndSigninSessions(user, id, why string) int {
 	n := 0
 	for _, s := range m.sorted() {
 		s.mu.Lock()
-		ss := s.signin
+		ss := s.sig()
 		hit := ss.carries() && ss.user == user && (id == "" || ss.view.ID == id)
 		s.mu.Unlock()
 		if hit {
@@ -590,7 +600,7 @@ func (m *Manager) SigninSweep() int {
 	n := 0
 	for _, s := range m.sorted() {
 		s.mu.Lock()
-		ss := s.signin
+		ss := s.sig()
 		carries, user := ss.carries(), ""
 		if carries {
 			user = ss.user

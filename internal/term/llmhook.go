@@ -119,6 +119,11 @@ const kindLaunch = "agent-launch"
 // LLMHook is the Manager's share of the hook-up: what boot wires, and what
 // sessions' hosts reported.
 type LLMHook struct {
+	// SigninHook: people's saved coding-agent sign-ins, the other way a
+	// session gets its model — Signins, SigninOthers, SigninsOff, SigninDev
+	// (signin.go, D230)
+	SigninHook
+
 	// LLM is the workspace's LLM connector as sessions use it: with one
 	// configured, an agent session's CLI and a terminal's tools are pointed
 	// at it with a key of the session's own. nil ⇒ sessions get nothing of

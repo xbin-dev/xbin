@@ -124,6 +124,7 @@ type agentState struct {
 	llm       *llmSession         // the session's hold on the LLM connector (llmhook.go); nil = none
 	llmChoice string              // the session's own choice of who serves it, kept for a restart
 	redact    func(string) string // masks the session's saved sign-in in a log line (signin.go); nil = none
+	signin    *sessionSignin      // the session's sign-in and the saved one it carries (signin.go); under the Session's mu
 }
 
 func (st *agentState) logf(line string) {
@@ -454,7 +455,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	// the person's saved sign-in, taken for this session (signin.go): what
 	// the session carries, and the spawn frame's part
 	var signinSpawn *acp.SpawnSignin
-	s.signin, signinSpawn = m.signinTake(o.signin, id, rel, prov, o.llm != nil && o.llm.token != "" && o.llm.rule == sdkacp.UseConnector)
+	st.signin, signinSpawn = m.signinTake(o.signin, id, rel, prov, o.llm != nil && o.llm.token != "" && o.llm.rule == sdkacp.UseConnector)
 	if signinSpawn != nil && signinSpawn.KeyHome != nil && !m.Isolate {
 		d, rm := keyHomeDir() // isolation off: the daemon owns the key's directory, as it does the attachments'
 		signinSpawn.KeyHome.At = d

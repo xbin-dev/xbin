@@ -143,7 +143,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   the person approved a start whose sheet named it ("Uses your saved … —
   the tile's coding agent will hold that sign-in"), and then exactly that
   one; the approval sheet and the plan review show the sign-in card where
-  one is needed. Agent template: `GET
+  one is needed. The iOS app's approval sheet and plan review say the same
+  ("Uses your saved … sign-in", who will hold it; "Needs your … sign-in"),
+  without the sign-in's label. Agent template: `GET
   …/briefs/{bid}/start-defaults` adds `needsSignIn` and each harness's
   `signIn`.
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the

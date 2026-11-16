@@ -55,6 +55,10 @@ export const requests = [
   session(),
   session({ asks: false, mode: 'bypassPermissions', net: 'internet', api: false, model: '', credentials: 'own' }, { id: 'rq_never' }),
   session({ resume: 'ses_1', providerName: '', model: '' }, { id: 'rq_resume' }),
+  // a saved sign-in (D230): named by xbind's id, with who will hold it — a label in the request is never shown; one that would start signed out
+  session({ model: '', credentials: 'own', signIn: 'saved', signInId: 'si_1a2b', savedSignIn: 'a label the agent wrote' }, { id: 'rq_saved_signin' }),
+  session({ model: '', signIn: 'saved' }, { id: 'rq_saved_no_id' }),
+  session({ model: '', signIn: 'needed' }, { id: 'rq_needs_signin' }),
   // a mode xbind doesn't vouch for (no `asks`): never the green tag
   // …whose words hold characters that reorder or hide text: the sheets show each as its escape
   session({ asks: undefined, mode: 'acceptEdits' }, { id: 'rq_unknown_mode', summary: 'Start it \u2066in a mode\u2069 xbin doesn’t vouch for.\u200B',
