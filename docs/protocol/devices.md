@@ -286,12 +286,24 @@ POST   /devices/push                     a signed-in person (the app's device
                                          handle of the app's push-to-start
                                          token ("" removes it, absent keeps
                                          it); a new handle drops it and the
-                                         device's Live Activities
+                                         device's Live Activities.
+                                         agentStartHandle: the same for the
+                                         workspace agent's card, whose
+                                         ActivityKit type has its own token
+                                         (D241; below)
 GET    /devices/push                     a signed-in person. {workspace, enabled,
                                          devices:[{deviceId, kinds, created,
                                          updated, lastSent?, needsNewHandle?,
                                          relayError?, pushToStart?,
-                                         activities?: [session]}]} — your own.
+                                         activities?: [session], agentStart?,
+                                         agentActivity?}], features} — your
+                                         own. features: what this xbind's push
+                                         plane does beyond the first version
+                                         ("agent-push/1", "agent-actions/1",
+                                         "agent-activity/1": the workspace
+                                         agent's notifications, their actions'
+                                         rule, its card — absent on an older
+                                         xbind, which has none of them).
                                          needsNewHandle: the relay no longer
                                          delivers to that handle for this
                                          workspace (relayError handle_bound |
@@ -303,9 +315,12 @@ DELETE /devices/push/<deviceId>          a signed-in person: your own → 204 | 
 POST   /devices/push/activities          a signed-in person, for a registration
                                          of theirs (a device session: its own
                                          deviceId, else 403). body {deviceId,
-                                         session | ref, handle, since?} →
-                                         {activity: {session, created,
-                                         ended?}}. A Live Activity the device
+                                         session | ref | agent: true, handle,
+                                         since?} → {activity: {session | agent,
+                                         created, ended?}}. agent: true is the
+                                         workspace agent's card (D241, below);
+                                         a ref it was started by answers agent
+                                         too. A Live Activity the device
                                          shows for one of your agent sessions:
                                          handle = the relay's Live Activity
                                          handle of its update token; ref = the
@@ -332,7 +347,10 @@ DELETE /devices/push/<deviceId>/activities/<session>
                                          for the rest of the turn (noted even
                                          with no card registered). 404: no
                                          registration and no running turn of
-                                         yours by that id
+                                         yours by that id. <session> @agent is
+                                         the workspace agent's card: none comes
+                                         back by push for the rest of its
+                                         stretch
 GET    /push/prefs                       a signed-in person. {mutedTiles:[path]}
 PUT    /push/prefs                       a signed-in person. body {mutedTiles}
                                          (replaces; ≤1000) → the stored prefs.
@@ -415,10 +433,10 @@ person whose data in a partitioned tile another one's call was refused for
 want of their consent (`tile.partition-consent`, at most one a day per
 edge, collapse `partition-consent:<from>→<to>`), all linking
 `xbin/partitions`; and a person's workspace agent waiting for them
-(`agent.approval`: a side effect needs their approval; `agent.changeset`:
-admin changes are proposed — both link the path of the sealed component
-that is their agent, with text that is
-xbind's own, never the agent's; protocol/delegation.md). `xbin/partitions`
+(`agent.approval`, `agent.changeset`, `agent.ask`, `agent.done` — one a
+thing, its words xbind's, never the agent's, the request's own fields
+sealed with them; and the background `agent.clear` that takes them back:
+§The workspace agent's notifications below). `xbin/partitions`
 is the partitions page, `GET /xbin/partitions`, where
 managers decide and people consent (an app that doesn't know the link
 opens the workspace; `tile.partition-reset` and `account.credential` link
@@ -491,6 +509,51 @@ device removed or signed out, sign-out-everywhere, an admin's revoke) ends
 its activities at once. Updates are limited to 240/hour per activity (burst
 30); one over the limit goes out, with the state then current, once the
 limit allows. Wire formats: native/spec/push.md §7.
+
+**The workspace agent's notifications** (D241;
+plans/wsagent/ios-stage2.md; protocol/delegation.md §Events and pushes).
+One notification a thing that waits for the person, after a 3 s grace (one
+decided at once raises nothing): `agent.approval` a request (collapse
+`agent-approval:<id>`, link `xbin/agent#r=<id>`), `agent.changeset` a plan,
+admin changes or another person's ask to an admin (`agent-changeset:<id>`,
+`xbin/agent#cs=<id>`), and from the person's agent itself, through `POST
+/notify` — xbind writes the words for a delegation holder, whose title and
+body never reach a screen — `agent.ask` its question and `agent.done` a
+finished request (`agent-conv:<conversation>`, `xbin/agent#c=<conversation>`;
+none per turn: the agent tells xbind when nothing of the request is open).
+The sealed payload carries `agent` beside the text: `{v: 1, badge, request?
+| changeset? | conversation?, ask?}` — `badge` what waits for the person in
+the workspace; `request` `{id, kind, tile, tileName, expires, offer}` and,
+only when `offer` is `once`, the call itself (`method, target, contentType,
+body, bodySize, bodySha256`): xbind's lock-screen rule (a tile call whose
+whole call fits a notification, nothing hidden, no warning) — the app
+checks the same fields again, and an approval sent from a notification
+(`via: "notification"`) is held to the rule once more. Past 12 at once,
+then one a minute, single notifications stop and one summary (collapse
+`agent-approval`, link `xbin/agent#needs`) goes out when the budget allows.
+When the thing no longer waits — decided anywhere, withdrawn, expired, or
+withdrawn by a switch — xbind sends `agent.clear` (`agent: {v, clear:
+[collapse id], badge}`) as a **background** push (relay type `background`,
+priority 5, nothing shown); a relay that doesn't list `background` (`GET
+/v1/workspace` → `features`) gets none, and the app sweeps on foreground and
+background refresh. A registration's `kinds` hold back what the person
+turned off (the app lists the kinds it wants when one is off).
+
+**The workspace agent's card** (D241). One Live Activity per person and
+workspace while their agent works or something waits for them: the
+Activity of session `@agent` (`POST /devices/push/activities {agent: true}`)
+and, for push-to-start, the device's `agentStartHandle`. Its state is
+`{phase: running | waiting | paused | idle, since, pending, agents}` —
+counts only (`agents`: tile agents it started that are working). xbind
+reads the person's picture on every delegate event, every status change of
+their agent sessions and every model call of their agent (a turn runs for
+90 s after one), coalesced (500 ms): a stretch begins when it works or
+something waits (a push-to-start after 30 s on a device that shows none,
+takes `agent.wsactivity` and didn't dismiss this stretch's — only on a relay
+that lists `activity-agent`); idle, the card says so and ends 2 minutes
+later; paused, it ends at once on `paused`; workspace agents off, the agent
+taken away or held, it ends. To a relay without `activity-agent` xbind sends
+the tile agents' fields only (no count; paused ends as idle; no start).
 
 **Relay proof of work.** A relay may ask an anonymous workspace
 registration for a proof of work (`xbin-relay -registration-pow <bits>`,

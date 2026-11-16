@@ -49,9 +49,12 @@ type Activity struct {
 // ActivityState is a Live Activity's content state (the relay's
 // ActivityState, the app's AgentActivityState).
 type ActivityState struct {
-	Phase   string `json:"phase"`   // running | waiting | idle
+	Phase   string `json:"phase"`   // running | waiting | idle (and paused: the workspace agent's card)
 	Since   int64  `json:"since"`   // unix seconds the turn started (0 = unknown)
 	Pending int    `json:"pending"` // permission requests and questions waiting (0–99)
+	// Agents: the workspace agent's card only — the tile agents it started
+	// that are working (0–99; agentactivity.go)
+	Agents int `json:"agents,omitempty"`
 }
 
 // Phases.
@@ -59,6 +62,7 @@ const (
 	PhaseRunning = "running"
 	PhaseWaiting = "waiting"
 	PhaseIdle    = "idle"
+	PhasePaused  = "paused" // the workspace agent's card only, to a relay that lists activity-agent
 )
 
 // KindAgentActivity is the kind a push-to-start counts as: a device whose
@@ -139,6 +143,9 @@ func (s *Service) endLate(user, deviceID, handle string, e endedRef, since int64
 
 // activityPush is the relay's "activity" (relay.ActivityPush).
 type activityPush struct {
+	// Kind "agent": the workspace agent's card (the relay's attributes type
+	// for a start, its phases and counts); "" a tile agent's turn
+	Kind          string        `json:"kind,omitempty"`
 	Event         string        `json:"event"`
 	Timestamp     int64         `json:"timestamp"`
 	State         ActivityState `json:"state"`

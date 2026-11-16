@@ -98,6 +98,7 @@ The plaintext is the UTF-8 JSON of:
 | `body` | string | plain text, may contain `\n`, at most 1000 characters |
 | `link` | string | workspace-relative: `c/<tile>/[path][?query][#fragment]` for a tile, `agent/<session id>` for an agent session, `xbin/<page>` for one of xbind's own pages, `""` = none |
 | `collapseId` | string | notifications with the same one replace each other (`""` = none) |
+| `agent` | object, optional | the workspace agent's kinds only (`agent.approval`, `agent.changeset`, `agent.ask`, `agent.done`, `agent.clear`; D241): the request, set or conversation the notification is about, the person's count, what to take back — §2.1 |
 
 Kinds (registration `kinds` match a kind and everything under it: `agent`
 matches `agent.turn`; `test` is always delivered):
@@ -109,8 +110,11 @@ matches `agent.turn`; `test` is always delivered):
 | `agent.turn` | a turn ends (`turn.end`), except when the user cancelled it | `agent/<session>` |
 | `tile`, `tile.<kind>` | a tile called `POST /api/xbin/notify` | `c/<tile>/…` |
 | `tile.partition-switch`, `tile.partition-deleted` | xbind: a tile's partition mode switch is requested (its managers), or deleted the person's partition | `xbin/partitions` — the partitions page, where managers decide and the person's notice is |
-| `agent.approval` | xbind: the person's workspace agent asks them to approve one side effect (collapse `agent-approval:<request id>`; the text is xbind's, never the agent's) | the agent's component path, e.g. `xbin/wsagent` |
-| `agent.changeset` | xbind: the person's workspace agent proposed admin changes that wait for their approval (collapse `agent-changeset:<id>`) | the agent's component path |
+| `agent.approval` | xbind: a request of the person's workspace agent has waited 3 s for their approval — one a request (collapse `agent-approval:<request id>`; the text is xbind's, never the agent's); past the person's budget one summary (collapse `agent-approval`, link `xbin/agent#needs`) | `xbin/agent#r=<request id>` (an app before D241: `xbin/wsagent`, the holder's path, which it could not open) |
+| `agent.changeset` | xbind: a plan, admin changes, or (to an admin) another person's ask waits (collapse `agent-changeset:<id>`) | `xbin/agent#cs=<id>` |
+| `agent.ask` | xbind, for the person's agent (its `POST /notify` kind `question`): the agent asks them something; the question rides in `agent.ask`, never the title (collapse `agent-conv:<conversation>`) | `xbin/agent#c=<conversation>` |
+| `agent.done` | xbind, for the person's agent (kind `done`): a request of theirs is finished (the same collapse: it replaces that conversation's question) | `xbin/agent#c=<conversation>` |
+| `agent.clear` | xbind: what notifications were about no longer waits — sent as a **background** push (§4.1), nothing shown | — |
 | `tile.partition-consent` | xbind: a partitioned tile's call into the person's data in another was refused for want of their consent (the workspace policy partitionConsent on; one a day per edge, collapse `partition-consent:<from>→<to>`) | `xbin/partitions` |
 | `tile.partition-reset` | xbind: someone else (a tile manager or an admin) reset the person's partition of a tile | `xbin/partitions` |
 | `account.credential` | xbind: someone else made a sign-in link, password, single sign-on email or provider change for the person's account, a partition holder (held for them to allow or refuse while the workspace policy credentialResetConfirm is on; collapse `credential:<id>`) | `xbin/partitions` |
@@ -123,6 +127,32 @@ manager's switch decisions. It opens only top-level — never in a frame —
 with the person's own sign-in: an app shows it in a browser view of its own
 (signed in with a one-shot `POST /api/xbin/web-ticket`), and an app that
 doesn't know the link opens the workspace.
+
+### 2.1 The workspace agent's `agent` member (D241)
+
+```json
+{"v": 1, "badge": 3,
+ "request": {"id": "<24 hex>", "kind": "call", "tile": "apps/invoices", "tileName": "Invoices",
+             "expires": 1763400000, "offer": "once",
+             "method": "POST", "target": "/api/apps/invoices/links/rebuild",
+             "contentType": "application/json", "body": "{\"ids\":[1,2]}", "bodySize": 13, "bodySha256": "<hex>"}}
+```
+
+`badge` is what waits for the person in this workspace (requests, change
+sets, their agent sessions that wait). `request` (`agent.approval`): `id`,
+`kind` (`call` | `session` | `template` | `web` | `mcp`), `tile`,
+`tileName` (xbind's name), `expires` (unix s), `offer` — and, **only when
+`offer` is `once`**, the call itself: `method`, `target`, `contentType`,
+`body` (whole), `bodySize`, `bodySha256`. `offer: "once"` is xbind's
+lock-screen rule (protocol/delegation.md §Events and pushes): the app may
+offer Allow once on the lock screen if its own check of the same fields
+agrees and the person turned it on. `changeset` (`agent.changeset`):
+`{id, items, warned, plan, asks, expires}`. `conversation`
+(`agent.ask`, `agent.done`): `{id}` — where a Reply goes; `ask`: the
+agent's question, at most 200 characters, for the app to draw quoted as the
+agent's own words (revealed). `clear` (`agent.clear`): `[collapse id]`. An
+unknown `v` is not read. The title and body stay xbind's words with no
+request data: what an app before D241 shows.
 
 What the iOS app does with it (D181): it parses `xbin/<page>` for the pages
 it knows (`partitions`; any other page is refused, so the notification opens
@@ -148,6 +178,9 @@ The kinds' categories and groups (§4):
 | any other kind linking `xbin/partitions` | `xbin.page.partitions` — Open your partitions (no Mute this tile) | `<ws>/xbin/partitions` |
 | `tile`, `tile.<kind>` (a tile's link), unknown kinds | `xbin.tile` — Open, Mute this tile | `<ws>` |
 | `agent.permission`, `agent.question` / `agent.turn` / `test` | as before | `<ws>` |
+| `agent.approval` | by the action matrix (plans/wsagent/ios-stage2.md §3.5): `xbin.agent.request.allow-deny` (Allow once · Deny · Review…), `.allow`, `.deny`, `.review` | `<ws>/xbin/agent` |
+| `agent.changeset` | `xbin.agent.changeset.reject` (Reject · Review…) or `.review` | `<ws>/xbin/agent` |
+| `agent.ask`, `agent.done` | `xbin.agent.conversation` (Reply · Open) | `<ws>/xbin/agent` |
 
 `collapseId` collapses through the relay (APNs' collapse id) as for every
 kind. Once the partitions page has loaded, the app removes the delivered
@@ -233,6 +266,17 @@ The Notification Service Extension:
 
 Live Activity updates cannot be decrypted by an extension, so they carry only
 generic state (running, waiting, elapsed): §7.
+
+### 4.1 Background pushes (`agent.clear`)
+
+With relay type `background` (relay/README.md; listed in `GET
+/v1/workspace` → `features`) the device receives
+`{"aps": {"content-available": 1}, "xbin": <envelope>}` at priority 5: no
+alert, no extension. The app opens it in `didReceiveRemoteNotification`
+with the same keys and rules (§3, §4 steps 1–3), removes the delivered
+notifications whose `collapseId` the payload's `agent.clear` names, and sets
+the badge. iOS rations these and delivers none to an app the person
+force-quit, so the app also sweeps on foreground and background refresh.
 
 ## 5. Test vectors
 
@@ -397,6 +441,19 @@ by `ref`, and xbind answers with the session and sends what changed since
 the start (or `ended` and the end, §7.3). A registration that failed —
 offline, a 5xx or 429, the app suspended mid-way — is retried when the app
 next becomes active, for the app's own cards as for push-started ones.
+
+### 7.5 The workspace agent's card (D241)
+
+A card of its own type, `WorkspaceAgentActivityAttributes` (XbinAgent):
+`{ws, ref, workspace, appWorkspace}` (a push-started one carries `ws` and
+`ref` only); content state `{"phase": "running" | "waiting" | "paused" |
+"idle", "since": <unix s>, "pending": <0–99>, "agents": <0–99>}` — one per
+workspace while the person's agent works or something waits for them;
+`agents` counts the tile agents it started that are working. Registered as
+the Activity `{agent: true}` (§7.3; the store's session `@agent`), its
+push-to-start token as the registration's `agentStartHandle`; relay activity
+`kind: "agent"`. xbind's side: protocol/devices.md §The workspace agent's
+card; the app's: plans/wsagent/ios-stage2.md §5.
 
 ## 8. Relay registration and proof of work
 

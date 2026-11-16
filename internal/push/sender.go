@@ -25,7 +25,8 @@ type job struct {
 	env                    Envelope
 	collapse               string
 	priority               int
-	attempt                int // deliveries tried so far
+	background             bool // relay type "background" (agent.clear)
+	attempt                int  // deliveries tried so far
 }
 
 const maxAttempts = 5
@@ -153,6 +154,9 @@ func (d *sender) fanOut(n note) {
 	if acct.Created > 0 {
 		s.st.removeOlder(n.user, acct.Created)
 	}
+	if n.background && !s.relayHas(featureBackground) {
+		return // a relay without background pushes: the app sweeps on its own (D241)
+	}
 	ws, e := s.Workspace(), s.currentEpoch()
 	for _, dev := range s.devices(n.user) {
 		if !kindAllowed(dev.Kinds, n.kind) || dev.stale(e) {
@@ -162,7 +166,7 @@ func (d *sender) fanOut(n note) {
 		if err != nil {
 			continue
 		}
-		pt, err := fit(Payload{V: 1, WS: ws, Kind: n.kind, Title: n.title, Body: n.body, Link: n.link, CollapseID: n.collapse})
+		pt, err := fit(Payload{V: 1, WS: ws, Kind: n.kind, Title: n.title, Body: n.body, Link: n.link, CollapseID: n.collapse, Agent: n.agent})
 		if err != nil {
 			continue
 		}
@@ -172,8 +176,12 @@ func (d *sender) fanOut(n note) {
 			d.noteErr("seal: " + err.Error())
 			continue
 		}
-		d.deliver(job{user: dev.User, deviceID: dev.DeviceID, handle: dev.Handle, env: env,
-			collapse: s.relayCollapse(n.collapse), priority: n.priority})
+		j := job{user: dev.User, deviceID: dev.DeviceID, handle: dev.Handle, env: env,
+			collapse: s.relayCollapse(n.collapse), priority: n.priority, background: n.background}
+		if n.background {
+			j.collapse, j.priority = "", 5 // APNs: a background push is priority 5
+		}
+		d.deliver(j)
 	}
 }
 
@@ -194,7 +202,11 @@ func (d *sender) deliver(j job) {
 	if cfg == nil {
 		return
 	}
-	out, code, wait, msg := d.post(cfg, map[string]any{"handle": j.handle, "envelope": j.env, "collapseId": j.collapse, "priority": j.priority})
+	push := map[string]any{"handle": j.handle, "envelope": j.env, "collapseId": j.collapse, "priority": j.priority}
+	if j.background {
+		push["type"] = "background"
+	}
+	out, code, wait, msg := d.post(cfg, push)
 	j.attempt++
 	switch out {
 	case delivered:
@@ -258,16 +270,32 @@ func (d *sender) deliverLive(j job) {
 	if cfg == nil {
 		return
 	}
-	out, code, wait, msg := d.post(cfg, map[string]any{"handle": l.handle, "type": "liveactivity", "activity": l.act, "priority": l.priority})
+	act := l.act
+	if act.Kind == agentKind && !s.relayHas(featureActivityAgent) {
+		// an older relay: the tile agents' card's fields only — no count, no
+		// paused (the card ends on idle); never a start of this kind (the
+		// caller checked), which it would draw as a tile agent's turn
+		act.Kind, act.State.Agents = "", 0
+		if act.State.Phase == PhasePaused {
+			act.State.Phase = PhaseIdle
+		}
+		if act.Event == "start" {
+			return
+		}
+	}
+	out, code, wait, msg := d.post(cfg, map[string]any{"handle": l.handle, "type": "liveactivity", "activity": act, "priority": l.priority})
 	j.attempt++
 	switch out {
 	case delivered:
 		d.sent.Add(1)
 	case deadHandle, staleHandle:
 		d.failed.Add(1)
-		if l.start {
+		switch {
+		case l.start && l.act.Kind == agentKind:
+			s.st.clearAgentStartHandle(l.user, l.deviceID, l.handle)
+		case l.start:
 			s.st.clearStartHandle(l.user, l.deviceID, l.handle)
-		} else {
+		default:
 			s.st.removeActivity(l.user, l.deviceID, l.session, l.handle)
 		}
 		s.o.Log.Debug("push: a Live Activity handle is gone", "user", l.user, "device", l.deviceID, "code", code)
@@ -277,7 +305,11 @@ func (d *sender) deliverLive(j job) {
 		if l.start && code == relayBadRequest {
 			// a push-to-start handle the relay takes no start on (one the
 			// app registered as a card's): the app registers it again
-			s.st.clearStartHandle(l.user, l.deviceID, l.handle)
+			if l.act.Kind == agentKind {
+				s.st.clearAgentStartHandle(l.user, l.deviceID, l.handle)
+			} else {
+				s.st.clearStartHandle(l.user, l.deviceID, l.handle)
+			}
 		}
 		s.o.Log.Warn("push: relay refused a Live Activity push", "why", msg)
 	case retryLater:

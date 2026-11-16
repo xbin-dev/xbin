@@ -801,8 +801,15 @@ POST   /delegate/requests/<id>/approve
                                  the person, in their own session, app or
                                  device — never the agent's page (403).
                                  {grant?: "once" | "hour" | "always",
-                                 scope?: "call" | "tile", unseen?: true}
-                                 → {request, approval?}. A request whose
+                                 scope?: "call" | "tile", unseen?: true,
+                                 via?: "notification"}
+                                 → {request, approval?}. via: the person
+                                 decided from a notification's action
+                                 (D241): only once, and only a request the
+                                 lock-screen rule passes (§Events and
+                                 pushes) — else 409 {error, review: true};
+                                 recorded as decidedFrom and in the log
+                                 (via). A request whose
                                  body can't be shown (bodyBinary) is
                                  approved only with unseen: true — 409
                                  {unseen, bodySize, bodySha256} without. once is the default; hour and
@@ -813,7 +820,8 @@ POST   /delegate/requests/<id>/approve
                                  no longer pending; 409 {refusal} while
                                  the agent is stopped (§The switches)
 POST   /delegate/requests/<id>/deny
-                                 the person. → {request}
+                                 the person. {via?: "notification"} →
+                                 {request}
 DELETE /delegate/requests/<id>  the person, or their agent. withdraws a
                                  pending or approved request
 ```
@@ -825,7 +833,8 @@ A request:
  method, target, tile?, contentType?, body?, bodyShown, bodySize, bodySha256,
  summary?, preview: {class, tile?, owner?, level?, role?, standing?, session?},
  state: "pending" | "approved" | "denied" | "used" | "expired" | "withdrawn",
- grant?, created, decided?, expires, decidedVia?, withdrawnBy?}
+ grant?, created, decided?, expires, decidedVia?, decidedFrom?, decidedDevice?,
+ withdrawnBy?}
 ```
 
 `body` is shown while the request is pending or approved, when it is text.
@@ -833,7 +842,11 @@ A body that isn't — not UTF-8, or with control characters — sets
 `bodyBinary`, and `preview.body` is `{binary: true, size, sha256}`: show
 that, and that approving it approves bytes nobody read (`approvedUnseen` is
 recorded on the request);
-`summary` is the agent's own text — show it as the agent's. For a tile
+`summary` is the agent's own text — show it as the agent's.
+`decidedVia` is the credential that decided (`session` a browser, `device`,
+`app`); `decidedDevice` the enrolled device whose session it was;
+`decidedFrom` `notification` for a notification's action — what "already
+decided on the web / on Ana's iPhone / from a notification" is said from. For a tile
 call `preview.standing` is `{call, tile}`: xbind's sentence for what each
 standing scope would allow from then on — show the one the person is about
 to choose. For a session start `preview.session` is `{tile, provider,
@@ -948,7 +961,9 @@ POST   /delegate/changesets/<id>/approve
                                  {refusal} while the agent is stopped
                                  (§The switches); nothing is applied
 POST   /delegate/changesets/<id>/reject
-                                 the person. → the set
+                                 the person. {via?: "notification"} → the
+                                 set (via: rejected from a notification's
+                                 action — the log says so)
 POST   /delegate/changesets/<id>/undo
                                  the person. → a new change set that
                                  undoes the applied items of this one that
@@ -1189,7 +1204,8 @@ GET    /delegate/audit          the person, in their own session, app or
 ```
 
 A row: `{ts, user, agent, method, path, tile?, class, effect?, dryRun?,
-status, refused?, ticket?, under?, from?, by?, n?}`. A line an admin
+status, refused?, ticket?, under?, from?, by?, via?, n?}` — `via`
+`notification` on a decision the person made from a notification's action. A line an admin
 applied at another person's request (§Plans, Ask an admin) is a row in
 both logs: in the admin's with `from` — the person who asked, whose agent
 `agent` is — and in the asker's with `by`, the admin, under the asker's
@@ -1213,11 +1229,25 @@ appeared, was decided, withdrawn or used), `approval`, `changeset`,
 `state` (the person paused or resumed, changed the admin opt-in or who gets
 an agent — and the workspace's switch going on or off, told to every
 person who has an agent and to the admin who turned it). Refetch the list
-it names. Pushes: `agent.approval` (a request
-waits — one notification a person: the same collapse key, a count, at most
-one a minute) and `agent.changeset` (a proposal waits). Their link is the path of
-the sealed component that is the person's agent (the `agent` of the request
-or change set); their text is xbind's, never the agent's.
+it names.
+
+Pushes (D241; the wire: protocol/devices.md §The workspace agent's
+notifications, native/spec/push.md): **one notification a thing that
+waits** — `agent.approval` a request, once it has waited 3 s;
+`agent.changeset` a proposed set (a plan, admin changes, an admin's ask) —
+linking `xbin/agent#r=<id>` (`#cs=<id>`), its text xbind's, never the
+agent's, and the request's own fields sealed with it for the app; taken back
+(`agent.clear`, a background push) the moment the thing no longer waits,
+whatever decided it. **The lock-screen rule**: a notification may offer
+Allow once only for a tile API call (not a session start, a create, a web
+page or an MCP tool) that isn't a GET, with a text body of at most 200 bytes
+and 3 lines (none, `application/json` or `text/plain`), a target of at most
+120 bytes, no character that hides or reorders text, from a conversation
+that read no web page, with no warning — what iOS shows whole above a
+notification's actions. The push says so (`offer: "once"`), the app checks
+the same fields again, and `via: "notification"` holds the approval to it.
+A change set is never approved from a notification; it may be rejected
+(`POST …/changesets/<id>/reject {via: "notification"}`, logged so).
 
 ## The chrome
 

@@ -551,8 +551,10 @@ drain:
 func TestDelegationAPICallers(t *testing.T) {
 	w := delegateWorld(t)
 	var pushes []string
-	w.s.DelegatePush = func(user, kind, title, body, link, collapse string) {
-		pushes = append(pushes, user+" "+kind+" "+link+" | "+title+" "+body)
+	w.s.dpush.grace = -1 // at once: the grace is TestDelegatePushGrace's
+	w.s.AgentPush = func(user string, n AgentPush) (bool, bool) {
+		pushes = append(pushes, user+" "+n.Kind+" "+n.Link+" | "+n.Title+" "+n.Body)
+		return true, false
 	}
 	bob, person, page := delegateCred("d-bob"), w.cookie("bob"), w.loginFrame(dHolder, "bob")
 	get := func(path string, c ...cred) (int, string) {
@@ -609,8 +611,8 @@ func TestDelegationAPICallers(t *testing.T) {
 			t.Errorf("%s gets bob's delegate event", name)
 		}
 	}
-	if len(pushes) != 1 || !strings.HasPrefix(pushes[0], "bob agent.approval "+dHolder+" | ") || strings.Contains(pushes[0], "IGNORE") || strings.Contains(pushes[0], "the agent's words") {
-		t.Errorf("the push (xbind's words only; its link the holder's own path): %v", pushes)
+	if len(pushes) != 1 || !strings.HasPrefix(pushes[0], "bob agent.approval xbin/agent#r="+req.ID+" | ") || strings.Contains(pushes[0], "IGNORE") || strings.Contains(pushes[0], "the agent's words") {
+		t.Errorf("the push (xbind's words only; its link the agent's page, on the request): %v", pushes)
 	}
 
 	// listing: the person and the page; never the agent (it asks, they answer)
@@ -1295,28 +1297,5 @@ func TestDelegateBinaryBodyIsApprovedKnowingly(t *testing.T) {
 	w.approve(person, req.ID, "once")
 	if got, _ := w.store.Request("bob", req.ID); got.ApprovedUnseen {
 		t.Fatal("a text body approved 'unseen'")
-	}
-}
-
-// Requests that pile up are one notification, not twenty (N7).
-func TestDelegateRequestPushesCollapse(t *testing.T) {
-	w := delegateWorld(t)
-	bob := delegateCred("d-bob")
-	now := time.Now()
-	w.s.delegateRT.setClock(func() time.Time { return now })
-	type push struct{ body, collapse string }
-	var pushes []push
-	w.s.DelegatePush = func(user, kind, title, body, link, collapse string) { pushes = append(pushes, push{body, collapse}) }
-	for i := 0; i < 5; i++ {
-		w.ask(bob, "POST", "/api/apps/mail/send", fmt.Sprintf(`{"n":%d}`, i))
-		now = now.Add(2 * time.Second)
-	}
-	if len(pushes) != 1 {
-		t.Fatalf("5 requests in 10 s pushed %d times", len(pushes))
-	}
-	now = now.Add(2 * time.Minute)
-	w.ask(bob, "POST", "/api/apps/mail/send", `{"n":6}`)
-	if len(pushes) != 2 || pushes[0].collapse != pushes[1].collapse || !strings.Contains(pushes[1].body, "6 requests") {
-		t.Fatalf("the later push: %+v", pushes)
 	}
 }

@@ -3,6 +3,7 @@ package boot
 import (
 	"path/filepath"
 
+	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/push"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -62,6 +63,9 @@ func (st *State) setupPush(srv *server.Server) error {
 			}
 			return push.SessionInfo{Owner: st.Term.Owner(id), Status: info.Status}, true
 		},
+		// the workspace agent's notifications and card: what waits, what runs
+		AgentBadge:   srv.AgentBadgeOf,
+		AgentPicture: func(user string) push.AgentPicture { return push.AgentPicture(srv.AgentPictureOf(user)) },
 	})
 	if err != nil {
 		return err
@@ -73,7 +77,16 @@ func (st *State) setupPush(srv *server.Server) error {
 	// agent sessions do not outlive xbind: Live Activities still showing
 	// one of the last run's turns end now
 	ps.EndActivities()
-	srv.DelegatePush = ps.Notice // a person's agent waits for them: an approval request, a change set (D228)
+	// a person's agent waits for them: a request, a change set — one
+	// notification a thing, taken back when it no longer waits; and its
+	// Live Activity (D241)
+	srv.AgentPush = func(user string, n server.AgentPush) (bool, bool) {
+		return ps.AgentNotice(user, push.AgentNote{Kind: n.Kind, Title: n.Title, Body: n.Body, Link: n.Link, Collapse: n.Collapse,
+			Agent: n.Agent, Priority: n.Priority})
+	}
+	srv.AgentClear = ps.AgentClear
+	srv.AgentChanged = ps.AgentChanged
+	srv.AgentWorked = ps.AgentWorked
 	if st.Broker != nil {
 		// partition mode acts: a switch request to the tile's managers, a
 		// wipe notice to each person whose partition went (F13a)
@@ -130,6 +143,11 @@ func (st *State) setupPush(srv *server.Server) error {
 				publish(cwd, ev)
 			}
 			ps.AgentEvent(ev.User, ev.ID, cwd, ev.Event)
+			switch ev.Event.Type {
+			case agent.EvStatus, agent.EvPermissionRequest, agent.EvPermissionResolved, agent.EvElicitRequest,
+				agent.EvElicitResolved, agent.EvTurnEnd:
+				ps.AgentChanged(ev.User) // what waits for the person, what their agent's tile agents do (D241)
+			}
 		}
 		// a session that closes ends its Live Activities (it may go
 		// without a last status event)
@@ -140,6 +158,9 @@ func (st *State) setupPush(srv *server.Server) error {
 			}
 			if op == "close" {
 				ps.SessionClosed(id)
+			}
+			if op == "open" || op == "close" {
+				ps.AgentChanged(homeKey)
 			}
 		}
 	}

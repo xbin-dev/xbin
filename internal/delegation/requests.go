@@ -137,6 +137,12 @@ type Request struct {
 	// DecidedVia names the credential that decided: "session", "device",
 	// "app" ("dev" on an xbind run with --no-auth).
 	DecidedVia string `json:"decidedVia,omitempty"`
+	// DecidedFrom is "notification" for a decision the person made from a
+	// notification's action on their device (D241); "" otherwise.
+	DecidedFrom string `json:"decidedFrom,omitempty"`
+	// DecidedDevice is the enrolled device whose session decided ("" for
+	// any other sign-in): what "already decided on <device>" names.
+	DecidedDevice string `json:"decidedDevice,omitempty"`
 	// WithdrawnBy is "xbin" for a request xbind withdrew itself because its
 	// person's agent stopped for good (WithdrawPending); "" when the agent
 	// or the person took it back.
@@ -294,6 +300,7 @@ func (s *Store) NewRequest(r Request, body []byte) (Request, error) {
 	now := s.now().UTC().Truncate(time.Second)
 	r.ID, r.State, r.Grant = util.RandomToken(12), Pending, ""
 	r.Created, r.Decided, r.Expires, r.DecidedVia = now, time.Time{}, now.Add(PendingTTL), ""
+	r.DecidedFrom, r.DecidedDevice = "", ""
 	r.BodySize, r.BodySHA256 = len(body), BodyHash(body)
 	r.Body, r.BodyShown, r.BodyBinary, r.ApprovedUnseen = "", false, false, false
 	switch {
@@ -377,6 +384,22 @@ func TextBody(body []byte) bool {
 // shown: unseen says they know (ErrUnseenBody without it), and the request
 // records it (ApprovedUnseen).
 func (s *Store) DecideWith(user, id, grant, scope, via string, unseen bool) (Request, *Approval, error) {
+	return s.DecideAs(user, id, Decision{Grant: grant, Scope: scope, Via: via, Unseen: unseen})
+}
+
+// Decision is how a person decided a request: the grant ("" denies), its
+// scope, the credential kind (Via), whether they approve a body they
+// couldn't be shown (Unseen), and where — From "notification" for a
+// notification's action (D241) — on which enrolled device (Device).
+type Decision struct {
+	Grant, Scope, Via string
+	Unseen            bool
+	From, Device      string
+}
+
+// DecideAs is DecideWith with where the decision was made recorded.
+func (s *Store) DecideAs(user, id string, d Decision) (Request, *Approval, error) {
+	grant, scope, via, unseen := d.Grant, d.Scope, d.Via, d.Unseen
 	if s == nil {
 		return Request{}, nil, ErrNoStore
 	}
@@ -424,6 +447,7 @@ func (s *Store) DecideWith(user, id, grant, scope, via string, unseen bool) (Req
 	}
 	now := s.now().UTC().Truncate(time.Second)
 	r.Decided, r.DecidedVia, r.Grant = now, via, grant
+	r.DecidedFrom, r.DecidedDevice = d.From, d.Device
 	r.ApprovedUnseen = grant != "" && r.BodyBinary
 	var ap *Approval
 	if grant == "" {

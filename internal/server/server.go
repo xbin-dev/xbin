@@ -58,9 +58,22 @@ type Server struct {
 	// AgentPolicy answers the orgs' agent rules and people's agent
 	// preferences for the delegate gate; nil refuses (delegation.NoPolicy).
 	AgentPolicy delegation.Policy
-	// DelegatePush tells a person, on their devices, that their agent waits
-	// for them (an approval request, a change set); nil = no push.
-	DelegatePush func(user, kind, title, body, link, collapse string)
+	// AgentPush tells a person, on their devices, about their workspace
+	// agent: something waits for them (a request, a change set) — one
+	// notification a thing, in xbind's words (delegatepush.go, D241).
+	// sent: it went to at least one device; limited: over the push plane's
+	// own limit. nil = no push.
+	AgentPush func(user string, n AgentPush) (sent, limited bool)
+	// AgentClear takes back what such notifications said: the things they
+	// were about no longer wait (decided, withdrawn, expired). nil = none.
+	AgentClear func(user string, collapses []string, badge int)
+	// AgentChanged says a person's agent picture may have changed (what
+	// waits, what runs, the switches): the push plane's Live Activity reads
+	// it again (AgentPicture). nil = nobody follows it.
+	AgentChanged func(user string)
+	// AgentWorked says a person's workspace agent called its model (the LLM
+	// connector's holder rule): its turn runs. nil = nobody follows it.
+	AgentWorked func(user string)
 	// ChangeSets previews admin change-set operations (changeset.go: the
 	// broker's); nil = change sets can't be proposed.
 	ChangeSets ChangePreviewer
@@ -93,6 +106,7 @@ type Server struct {
 	// delegation route names (delegateapi.go). Never set in production.
 	DelegationDev bool
 	delegateRT    delegateRuntime // the gate's rate limit and running calls
+	dpush         delegatePushes  // the workspace agent's notifications: held, sent, cleared (delegatepush.go)
 	docsIx        docsIndex       // the docs search index, built at first use (docsapi.go)
 	// delegationGate is the off-switch check (SetDelegationGate, DelegationOff)
 	delegationGate func(holder, user string) error

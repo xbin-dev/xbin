@@ -222,9 +222,8 @@ type delegateRuntime struct {
 	net     map[string]*actBucket // a person's and a conversation's web fetches and MCP tool calls (delegateweb.go)
 	calls   map[string]map[uint64]*runningCall
 	nextID  uint64
-	pushed  map[string]time.Time // person + kind → the last "something waits" push
-	now     func() time.Time     // tests (setClock)
-	recheck time.Duration        // tests (setRecheck); 0: delegateRecheck
+	now     func() time.Time // tests (setClock)
+	recheck time.Duration    // tests (setRecheck); 0: delegateRecheck
 }
 
 // setClock and setRecheck are the tests' knobs, set under the lock the
@@ -239,31 +238,6 @@ func (d *delegateRuntime) setRecheck(every time.Duration) {
 	d.mu.Lock()
 	d.recheck = every
 	d.mu.Unlock()
-}
-
-// delegatePushEvery spaces the "your agent waits for you" pushes of one
-// kind to one person: requests that pile up are one notification (the
-// same collapse key, a count), not one each.
-const delegatePushEvery = time.Minute
-
-// pushDue reports whether user is due a push of kind now, and notes it.
-func (d *delegateRuntime) pushDue(user, kind string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	now, key := d.clock(), user+"\x00"+kind
-	if last, ok := d.pushed[key]; ok && now.Sub(last) < delegatePushEvery {
-		return false
-	}
-	if d.pushed == nil {
-		d.pushed = map[string]time.Time{}
-	}
-	for k, at := range d.pushed { // bounded by the people who were pushed to this minute
-		if now.Sub(at) >= delegatePushEvery {
-			delete(d.pushed, k)
-		}
-	}
-	d.pushed[key] = now
-	return true
 }
 
 func (d *delegateRuntime) recheckEvery() time.Duration {

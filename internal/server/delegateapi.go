@@ -168,6 +168,7 @@ func (s *Server) delegateEvent(user, op, id string) {
 		s.Hub.Publish(events.Event{Type: "delegate", Data: delegateChange{Op: op, ID: id, User: user}})
 	}
 	s.notifyHolders(user, op, id)
+	s.delegatePushFollow(user, op, id) // the person's notifications and Live Activity follow (delegatepush.go)
 }
 
 // notifyHolders tells the backend of each holder that acts for user — each
@@ -197,15 +198,6 @@ func (s *Server) notifyAt(t time.Time, user, id, holder string) {
 	}
 	if d := time.Until(t) + time.Second; d > 0 && d < 48*time.Hour {
 		time.AfterFunc(d, func() { s.HolderNotify(holder, user, "request", id) })
-	}
-}
-
-// delegatePush tells user on their devices that their agent waits for
-// them. The link is the holder's own path — the sealed component that is
-// their agent — never a name written here.
-func (s *Server) delegatePush(user, holder, kind, title, body, collapse string) {
-	if s.DelegatePush != nil {
-		s.DelegatePush(user, kind, title, body, holder, collapse)
 	}
 }
 
@@ -647,21 +639,8 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
 		return
 	}
-	s.delegateEvent(a.user, "request", out.ID)
+	s.delegateEvent(a.user, "request", out.ID) // and its notification, once it has waited the grace (delegatepush.go)
 	s.notifyAt(out.Expires, a.user, out.ID, out.Agent)
-	what := method + " " + strings.TrimPrefix(u.Path, "/api/")
-	if out.Kind == delegation.KindSession {
-		what = "start a tile agent on " + out.Tile
-	}
-	// one notification for what waits, not one a request: the same
-	// collapse key, a count, and at most one a minute
-	if s.delegateRT.pushDue(a.user, "agent.approval") {
-		text := "It wants to " + what + ". Open your agent to see exactly what, and approve or deny it."
-		if pend, _ := s.Delegation.Requests(a.user, true); len(pend) > 1 {
-			text = fmt.Sprintf("%d requests wait for your approval. Open your agent to see exactly what each is, and approve or deny it.", len(pend))
-		}
-		s.delegatePush(a.user, p.Agent, "agent.approval", "Your agent asks for your approval", text, "agent-approval")
-	}
 	WriteJSON(w, http.StatusOK, out)
 }
 
@@ -785,35 +764,62 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		return
 	}
 	grant, scope, unseen := "", "", false
-	if strings.HasSuffix(r.URL.Path, "/approve") {
-		var body struct {
-			Grant string `json:"grant"`
-			Scope string `json:"scope"`
-			// Unseen: "I approve a body I couldn't be shown" — needed, and
-			// only meaningful, for a request whose body is binary
-			Unseen bool `json:"unseen"`
+	approve := strings.HasSuffix(r.URL.Path, "/approve")
+	var body struct {
+		Grant string `json:"grant"`
+		Scope string `json:"scope"`
+		// Unseen: "I approve a body I couldn't be shown" — needed, and
+		// only meaningful, for a request whose body is binary
+		Unseen bool `json:"unseen"`
+		// Via "notification": the person decided from a notification's
+		// action on their device (D241) — held to the lock screen's rule
+		// and recorded as such
+		Via string `json:"via"`
+	}
+	if r.ContentLength != 0 {
+		if err := DecodeJSON(r, &body); err != nil {
+			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, via?: "notification"}`, delegationDocs)
+			return
 		}
-		if r.ContentLength != 0 {
-			if err := DecodeJSON(r, &body); err != nil {
-				WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true}`, delegationDocs)
-				return
-			}
-		}
+	}
+	if body.Via != "" && body.Via != viaNotification {
+		WriteError(w, http.StatusBadRequest, `via: "notification" or nothing`, delegationDocs)
+		return
+	}
+	if approve {
 		grant, scope, unseen = body.Grant, body.Scope, body.Unseen
 		if grant == "" {
 			grant = delegation.GrantOnce
 		}
+		cur, found := s.Delegation.Request(a.user, r.PathValue("id"))
 		// allowing is refused while the agent is stopped (denying never is):
 		// a ticket or a standing approval given now would be live the moment
 		// it runs again
-		if cur, found := s.Delegation.Request(a.user, r.PathValue("id")); found && cur.State == delegation.Pending {
+		if found && cur.State == delegation.Pending {
 			if refusal, msg := s.decideRefusal(a.user, cur.Agent); refusal != "" {
 				refuseDecision(w, refusal, msg)
 				return
 			}
 		}
+		// from a notification: once, and only what the lock screen could
+		// show in full (the same rule the push offered it by)
+		if body.Via == viaNotification && found && cur.State == delegation.Pending {
+			ok, why := delegation.LockScreenOffer(cur)
+			if grant != delegation.GrantOnce || scope != "" || unseen {
+				ok, why = false, "only an approval of this one call can be given from a notification"
+			}
+			if !ok {
+				WriteJSON(w, http.StatusConflict, map[string]any{"error": "This request needs a look in the app: " + why, "review": true, "docs": delegationDocs})
+				return
+			}
+		}
 	}
-	req, ap, err := s.Delegation.DecideWith(a.user, r.PathValue("id"), grant, scope, a.via, unseen)
+	device := ""
+	if a.p.Via == "device" {
+		device = a.p.DeviceID
+	}
+	req, ap, err := s.Delegation.DecideAs(a.user, r.PathValue("id"), delegation.Decision{Grant: grant, Scope: scope, Via: a.via,
+		Unseen: unseen, From: body.Via, Device: device})
 	switch {
 	case errors.Is(err, delegation.ErrUnseenBody):
 		// say what would be approved: bytes of this size and hash, unread
@@ -854,7 +860,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		under += " " + ap.Scope
 	}
 	s.delegateAudit(delegation.Call{User: a.user, Agent: req.Agent, Method: req.Method, Path: req.Path(), Tile: req.Tile,
-		Class: "decision:" + req.State, Effect: true, Status: http.StatusOK, Ticket: req.ID, Under: under})
+		Class: "decision:" + req.State, Effect: true, Status: http.StatusOK, Ticket: req.ID, Under: under, Via: body.Via})
 	s.delegateEvent(a.user, "request", req.ID)
 	WriteJSON(w, http.StatusOK, out)
 }

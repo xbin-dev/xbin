@@ -59,6 +59,9 @@ type Call struct {
 	Session string    `json:"session,omitempty"` // the agent session (handle) the call ran under
 	Under   string    `json:"under,omitempty"`   // …or the standing approval, or "preference" for a session started unasked
 	Bytes   int64     `json:"bytes,omitempty"`   // what a web fetch read (D239)
+	// Via is "notification" for a decision the person made from a
+	// notification's action (D241): the log says so.
+	Via string `json:"via,omitempty"`
 	// From and By are for a line an admin applied at another person's
 	// request (a plan's "Ask an admin"): in the admin's log From is the
 	// person who asked (Agent is THEIR agent, which proposed it); in the
@@ -143,7 +146,7 @@ func bound(s string, max int) string {
 func bounded(c Call) Call {
 	c.Agent, c.Tile, c.Class = bound(c.Agent, MaxField), bound(c.Tile, MaxField), bound(c.Class, 64)
 	c.Ticket, c.Under, c.Method, c.Session = bound(c.Ticket, 64), bound(c.Under, 96), bound(c.Method, 16), bound(c.Session, 64)
-	c.From, c.By = bound(c.From, MaxField), bound(c.By, MaxField)
+	c.From, c.By, c.Via = bound(c.From, MaxField), bound(c.By, MaxField), bound(c.Via, 32)
 	c.Path, c.Refused = bound(c.Path, MaxPath), bound(c.Refused, MaxPath)
 	return c
 }
