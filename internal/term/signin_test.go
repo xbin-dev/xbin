@@ -621,3 +621,55 @@ func TestSigninRuleJudgesTheTileADirectoryLiesIn(t *testing.T) {
 		}
 	}
 }
+
+// A restart never widens what a session signs in with (review finding 6):
+// one started with no saved sign-in stays without, one started on a named
+// sign-in keeps that one (or none, once it is gone), and a session the
+// person's workspace agent started — which the agent still steers — gets
+// only what it carried.
+func TestSigninRestartKeepsTheChoice(t *testing.T) {
+	r, f, _ := signinRig(t, "--require-login")
+	f.put("alice", "fake", "Personal", "CLAUDE_CODE_OAUTH_TOKEN", signins.KindSetupToken, fakeSavedToken)
+	signIn(t, r.root, "alice")
+	alice := termAdmin("alice")
+	restart := func(id string) SessionInfo {
+		t.Helper()
+		info, _, code, err := r.m.RestartAgent(alice, id, "", "", true, nil)
+		if err != nil || code != 200 {
+			t.Fatalf("restart: %d %v", code, err)
+		}
+		r.until(t, func(e SessionEvent) bool {
+			return e.ID == info.ID && e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
+		})
+		row, _ := r.m.Info(info.ID)
+		return row
+	}
+	// started with none: none after a restart
+	none := r.openLLM(t, alice, AgentOpen{Signin: SigninNone})
+	row := restart(none.ID)
+	if row.Signin == nil || row.Signin.Source == SigninSaved {
+		t.Fatalf("a session started with no saved sign-in got one at its restart: %+v", row.Signin)
+	}
+	r.endSession(t, row.ID)
+	// started on the default: still the default
+	def := r.openLLM(t, alice, AgentOpen{})
+	row = restart(def.ID)
+	if row.Signin == nil || row.Signin.Source != SigninSaved {
+		t.Fatalf("a session on the default sign-in lost it at its restart: %+v", row.Signin)
+	}
+	r.endSession(t, row.ID)
+	// a session her workspace agent started without one: none at a restart,
+	// though she restarts it herself and has a default
+	ag, code, err := r.m.OpenAgentWith(alice, AgentOpen{Cwd: "apps/x", Provider: "fake", Signin: SigninNone, origin: "xbin/wsagent"})
+	if err != nil || code != 200 {
+		t.Fatalf("open: %d %v", code, err)
+	}
+	r.until(t, func(e SessionEvent) bool {
+		return e.ID == ag.ID && e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
+	})
+	row = restart(ag.ID)
+	if row.Origin != OriginAgent || row.Signin == nil || row.Signin.Source == SigninSaved {
+		t.Fatalf("an agent-started session without a sign-in got her default at a restart: %+v (origin %q)", row.Signin, row.Origin)
+	}
+	r.endSession(t, row.ID)
+}

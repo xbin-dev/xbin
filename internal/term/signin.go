@@ -161,6 +161,10 @@ type sessionSignin struct {
 	view   SessionSignin
 	user   string
 	secret []byte
+	// choice is what the open asked for: "" (the person's default),
+	// SigninNone, or a sign-in's id — kept so a restart asks for no more
+	// (signinRestart)
+	choice string
 }
 
 func (ss *sessionSignin) carries() bool { return ss != nil && len(ss.secret) > 0 }
@@ -318,7 +322,7 @@ func (m *Manager) signinTake(pl signinPlan, id, rel string, prov agent.Provider,
 	if m.Signins == nil {
 		return nil, nil // no store: the session is exactly as before — nothing said, nothing noted
 	}
-	ss := &sessionSignin{user: pl.user}
+	ss := &sessionSignin{user: pl.user, choice: pl.choice}
 	if pl.saved == nil {
 		return ss, nil
 	}
@@ -349,6 +353,37 @@ func (m *Manager) signinTake(pl signinPlan, id, rel string, prov agent.Provider,
 		sp.KeyHome = &acp.SpawnKeyHome{Env: k.Env, Dir: k.Dir, File: k.File}
 	}
 	return ss, sp
+}
+
+// signinRestart is the sign-in a restarted session asks for (RestartAgent):
+// what it was opened with and never more — a restart may be one nobody in
+// the session asked for (a tile manager's protect or reassign). A session
+// opened with none stays without; one opened on a named sign-in keeps that
+// one, or none once it is gone; one the person's workspace agent started
+// (which the agent still steers) keeps the sign-in its approval put in, or
+// none. Only a session opened on the person's default asks for the default
+// again, and the rule is judged anew.
+func (m *Manager) signinRestart(s *Session, provider string) string {
+	s.mu.Lock()
+	ss, origin := s.signin, s.origin
+	s.mu.Unlock()
+	if ss == nil || m.Signins == nil {
+		return ""
+	}
+	want := ss.choice
+	if origin != "" { // agent-started: exactly what it carried
+		want = SigninNone
+		if ss.carries() {
+			want = ss.view.ID
+		}
+	}
+	if want == "" || want == SigninNone {
+		return want
+	}
+	if sg, err := m.Signins.Peek(ss.user, provider, want); err != nil || sg == nil {
+		return SigninNone // removed or revoked since: never another in its place
+	}
+	return want
 }
 
 // signinCredential is what the ACP client is told of a session that

@@ -53,6 +53,7 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 		inVM = *vm // nil keeps the session's sandbox kind
 	}
 	options := currentOptions(st.log)
+	signin := m.signinRestart(s, provider) // what it was opened with, never more (signin.go)
 	probe := openOpts{api: api}
 	if c, err := m.pickTarget(p, &probe, s.Cwd, deployment); err != nil {
 		return SessionInfo{}, false, c, err
@@ -80,7 +81,7 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 		}
 	}
 	info, code, err = m.OpenAgentWith(p, AgentOpen{Cwd: s.Cwd, Net: net, GPU: gpu, NoAPI: !api, VM: inVM,
-		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options, Deployment: deployment, LLM: llm,
+		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options, Deployment: deployment, LLM: llm, Signin: signin,
 		origin: s.origin, originMode: s.originMode}) // still the session the person's agent started (delegate.go)
 	return info, resume != "", code, err
 }
