@@ -28,8 +28,8 @@ export async function firstRun(shell) {
   try { if (localStorage.getItem(w.SKIP_KEY)) return; } catch { /* no storage: ask */ }
   const st = await fetch('/api/xbin/first-run', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   if (!st || !st.bootstrap || shell._firstRun) return;
-  try { await import('/vendor/bx-first-run.js'); } catch { return; }
-  shell._firstRun = true;
+  shell._firstRun = true; // (claimed before the import: a second probe meanwhile mounts nothing)
+  try { await import('/vendor/bx-first-run.js'); } catch { shell._firstRun = false; return; }
   shell.inert = true; // the sheet is modal: nothing behind it takes a click or the keys
   shell.requestUpdate();
   const el = document.createElement('bx-first-run');
