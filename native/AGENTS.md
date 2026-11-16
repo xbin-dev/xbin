@@ -1294,6 +1294,35 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   so the tile behind is out of reach while the agent is open (the wider
   grant's sheet does take a medium detent); test10 skips the medium step
   on a side bar.
+  More ways the pose was looked for (2026-11-16, none sets it): `simctl`
+  has no posture verb (`help`, `ui`, `io`); `xcrun devicectl device` (it
+  sees simulators) only *monitors* the hinge (`motion hinge-angle`) and
+  sets orientation; the pose buttons live in DeviceHub's
+  `CoreDevicePopDeviceKitExtension` plugin ("Send a commanded angle to the
+  device"), with no command line; the runtime has posture override hooks
+  (`DevicePoseOverride`, `hingePoseForTestIfNeeded:`) but no documented
+  default or launch key; DeviceHub has a URL scheme, but no GUI session
+  exists for dev (`launchctl print gui/<uid>`: none).
+- **Recording the app** (videos for people, not checks):
+  `XBIN_E2E_RECORD=1 mac-remote.sh e2e --only XbinUITests/XbinDuoRecordingTests`
+  films the simulator for the whole test run (`simctl io recordVideo`,
+  H.264; `XBIN_E2E_RECORD_DISPLAY=LCD` on a closed Duo — unset, simctl
+  picks a screen and on a Duo that may be the black inner one), and
+  `XbinDuoRecordingTests` (skipped unless `XBIN_E2E_RECORD=1`; the live ones
+  need `XBIN_E2E_WSAGENT=1`) mark each clip's start and end in
+  `e2e/clips.tsv` after the app is already where the flow starts. Then
+  `rec-clips.sh` cuts and transcodes them with macOS's `avconvert`
+  (`Preset1280x720`: 880 × 1280 for a closed Duo) into `e2e/clips/`.
+  `XBIN_E2E_RECORD_THEMES="light"` records one theme.
+  `XBIN_E2E_RECORD_OPEN=1` adds `open-sim-*` clips of the open layout on
+  **simulated geometry**: Debug's `-XbinDuoOpenGeometry YES`
+  (`DuoOpenGeometry` in `App/Shell/RootView.swift`, Release has none) lays
+  the workspace out on the inner screen's 669 × 951 pt at a regular width
+  and scales it into the closed Duo's outer screen — the agent in its half
+  beside a tile, each with its own vertical bar; sheets still come up on
+  the real outer screen, and the composer's text view takes no focus in
+  the scaled canvas (the request is sent through the agent's API there).
+  Never a test of the layout: say "simulated" wherever these are shown.
 - **A link into the running app**: `XCUIApplication.open(url)` relaunches
   the app (a cold start with the link); `XCUIDevice.shared.system.open(url)`
   hands it to the running app as a notification's tap does

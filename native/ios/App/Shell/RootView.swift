@@ -28,6 +28,7 @@ struct RootView: View {
             if let w = scene.selected {
                 WorkspaceView(workspace: w, nav: scene.nav(for: w))
                     .id(w.id)
+                    .modifier(DuoOpenGeometry())
             } else {
                 WelcomeView()
             }
@@ -156,6 +157,42 @@ private struct WorkspaceShortcuts: View {
 /// One workspace in one window: its panels (PanelStack) — Home, a screen,
 /// a tile, terminal or agent full screen. The window's navigation is in
 /// the environment for the screens under it (`@Environment(WorkspaceNav.self)`).
+/// Debug builds' `-XbinDuoOpenGeometry YES` — for recordings, never a test
+/// of the layout (native/AGENTS.md → "Recording the app"): no simulator can
+/// open an iPhone Duo without DeviceHub's GUI, so this draws the workspace
+/// on the open Duo's inner-screen geometry (669 × 951 pt, a regular width:
+/// the agent in its half beside the panels, D233) scaled down into the
+/// closed Duo's outer screen, whose vertical bar stays the system's. The
+/// sheets still come up on the real (outer) screen. Release builds have
+/// none of it.
+struct DuoOpenGeometry: ViewModifier {
+    static let inner = CGSize(width: 669, height: 951)
+
+    static var on: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "XbinDuoOpenGeometry")
+        #else
+        return false
+        #endif
+    }
+
+    func body(content: Content) -> some View {
+        if Self.on {
+            GeometryReader { geo in
+                let s = min(geo.size.width / Self.inner.width, geo.size.height / Self.inner.height)
+                content
+                    .environment(\.horizontalSizeClass, .regular)
+                    .frame(width: Self.inner.width, height: Self.inner.height)
+                    .scaleEffect(s, anchor: .topLeading)
+                    .frame(width: Self.inner.width * s, height: Self.inner.height * s, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else {
+            content
+        }
+    }
+}
+
 struct WorkspaceView: View {
     let workspace: WorkspaceModel
     @Bindable var nav: WorkspaceNav
