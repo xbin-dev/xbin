@@ -150,3 +150,48 @@ func TestLockScreenFitVectors(t *testing.T) {
 		t.Fatalf("%s is not xbind's rule any more: XBIN_UPDATE_VECTORS=1 go test -run TestLockScreenFitVectors ./internal/delegation/", path)
 	}
 }
+
+// The request shapes that came after D241 (master 02c51e51: outside MCP
+// servers, a start that names a saved sign-in, waiting plan lines, a tile
+// agent's permission prompt answered from the dock) are never offered
+// Allow once from a notification — and a tile call whose preview says
+// anything the lock screen's rule doesn't know (a new shape riding a call)
+// is reviewed in the app.
+func TestLockScreenOfferNewShapesReviewOnly(t *testing.T) {
+	call := Request{Kind: KindCall, State: Pending, Tile: "apps/note", Method: "PUT", Target: "/api/apps/note/note",
+		ContentType: "application/json", Body: `{"note":"ok"}`, BodyShown: true,
+		Preview: map[string]any{"class": "tile-write", "tile": "apps/note", "level": "write", "role": "writer", "owner": "",
+			"reversible": false, "standing": map[string]any{"call": "…", "tile": "…"}}}
+	call.BodySize = len(call.Body)
+	if ok, why := LockScreenOffer(call); !ok {
+		t.Fatalf("the plain call with its usual preview: %s", why)
+	}
+	for name, r := range map[string]Request{
+		"an outside MCP server's tool": {Kind: KindMCP, State: Pending, Tile: "ext:crm", Method: "POST", Target: "tools/call",
+			Preview: map[string]any{"class": "mcp", "outside": true, "host": "crm.example", "each": true}},
+		"a web page": {Kind: KindWeb, State: Pending, Tile: "", Method: "GET", Target: "https://status.example.com/"},
+		"a start naming a sign-in": {Kind: KindSession, State: Pending, Tile: "apps/note", Method: "POST", Target: "/api/xbin/term/sessions",
+			Preview: map[string]any{"session": map[string]any{"signIn": "Ana's Claude", "signInId": "si_1"}}},
+		"a tile's creation": {Kind: KindTemplate, State: Pending, Tile: "apps/new", Method: "POST", Target: "/api/xbin/templates/new"},
+	} {
+		if ok, _ := LockScreenOffer(r); ok {
+			t.Errorf("%s: offered Allow once", name)
+		}
+	}
+	for _, key := range []string{"outside", "host", "each", "wait", "later", "signIn", "signInId", "session", "create", "something-new"} {
+		r := call
+		r.Preview = map[string]any{}
+		for k, v := range call.Preview {
+			r.Preview[k] = v
+		}
+		r.Preview[key] = true
+		if ok, _ := LockScreenOffer(r); ok {
+			t.Errorf("a call whose preview says %q: offered Allow once", key)
+		}
+	}
+	notTile := call
+	notTile.Preview = map[string]any{"class": "mcp"}
+	if ok, _ := LockScreenOffer(notTile); ok {
+		t.Errorf("a call previewed as something but a tile's write: offered")
+	}
+}

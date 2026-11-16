@@ -182,7 +182,15 @@ the notification stays and its Allow answers "your agent is paused" (§4.4).
   `LockScreenFit` are the same function, held together by
   `lockscreen-fit.json` (written by the Go test, read by the Swift one);
 - the request does not say the conversation read the web (`preview.readWeb`:
-  what it asks may come from a page) and its preview carries no warning.
+  what it asks may come from a page) and its preview carries no warning;
+- its preview holds only what a tile call's does (`class` a `tile-…`,
+  `reversible`, `tile`, `owner`, `level`, `role`, `standing`, `readWeb`,
+  `warnings`): the shapes that came after this plan (master 02c51e51) — an
+  outside MCP server's tool (`outside`, `host`, `each`), a web fetch, a start
+  that names a saved sign-in, a plan's waiting lines (`wait`, `later`), a
+  tile agent's permission prompt from the dock (its own `agent.permission`
+  push, Open only) — and any later one are Review only, in xbind's rule
+  and the app's (`AgentNotice.plainCallPreview`) alike.
 
 Why so short: iOS shows a notification's action menu (swipe → Options, or a
 long press) over the notification as it is drawn — the collapsed form shows

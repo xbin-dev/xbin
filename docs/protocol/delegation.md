@@ -1516,7 +1516,11 @@ character counted at or above its width, and only printable Latin and a few
 typographic marks counted at all — a line or paragraph separator, a tab, a
 space but U+0020, two spaces together, a right-to-left, wide, combining or
 emoji character mean Review only (`delegation.LockScreenFits`; the app runs
-the same function). The push says so (`offer: "once"`), the app checks
+the same function). A call whose preview says anything a tile call's
+doesn't (an outside server, a host, a sign-in, a waiting line) is reviewed
+in the app too — and an outside MCP server's tool, a web page, a start that
+names a saved sign-in, a plan with waiting lines and a tile agent's
+permission prompt never have Allow once. The push says so (`offer: "once"`), the app checks
 the same fields again, and `via: "notification"` holds the approval to it.
 A change set is never approved from a notification; it may be rejected
 (`POST …/changesets/<id>/reject {via: "notification"}`, logged so).

@@ -247,6 +247,19 @@ public enum AgentNotice {
 
     static func hides(_ s: String) -> Bool { s.unicodeScalars.contains(where: DelegationWords.isHidden) }
 
+    /// A tile call's preview, as xbind writes one (delegation.LockScreenOffer's
+    /// lockScreenPreviewKeys): anything else it says — an outside server, a
+    /// host, a sign-in, a waiting line, a shape that came later — and a class
+    /// but a tile's write are reviewed in the app.
+    public static func plainCallPreview(_ preview: JSONValue) -> Bool {
+        guard let o = preview.objectValue else { return preview.isNull }
+        let known: Set<String> = ["class", "reversible", "tile", "owner", "level", "role", "standing", "readWeb", "warnings"]
+        guard o.keys.allSatisfy(known.contains) else { return false }
+        if let c = o["class"]?.stringValue, !c.isEmpty, !c.hasPrefix("tile-") { return false }
+        if let w = o["warnings"]?.arrayValue, !w.isEmpty { return false }
+        return true
+    }
+
     /// The category of an agent notification: §3.5's matrix, from the
     /// payload's kind and fields and this workspace's settings.
     public static func category(kind: String, data: AgentNoticeData?, prefs: AgentNotifyPrefs, device: AgentNoticeDevice) -> String {
@@ -438,7 +451,7 @@ public enum AgentNoticeDecision {
                   r.bodyShown, !r.bodyBinary, r.body == shown.body, r.bodySha256 == shown.bodySha256,
                   r.bodySize == shown.body.utf8.count else { return .changed }
             let again = AgentNoticeData.Request.reading(r)
-            guard AgentNotice.eligible(again), r.preview["readWeb"]?.boolValue != true else {
+            guard AgentNotice.eligible(again), r.preview["readWeb"]?.boolValue != true, AgentNotice.plainCallPreview(r.preview) else {
                 return .review("This request needs a look in the app.")
             }
         }

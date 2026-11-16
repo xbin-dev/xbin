@@ -61,6 +61,17 @@ func LockScreenOffer(r Request) (bool, string) {
 		return false, "its content type is reviewed in the app"
 	}
 	if r.Preview != nil {
+		// a tile call's preview, as xbind writes one (delegateapi.go): anything
+		// else it says — an outside server, a host, a sign-in, a waiting line, a
+		// shape that came later — is reviewed in the app
+		for k := range r.Preview {
+			if !lockScreenPreviewKeys[k] {
+				return false, "its preview says more than a tile call's: reviewed in the app"
+			}
+		}
+		if c, _ := r.Preview["class"].(string); c != "" && !strings.HasPrefix(c, "tile-") {
+			return false, "not a write to a tile's API"
+		}
 		if web, _ := r.Preview["readWeb"].(bool); web {
 			return false, "the conversation read a web page: what it asks may come from it"
 		}
@@ -73,6 +84,11 @@ func LockScreenOffer(r Request) (bool, string) {
 	}
 	return true, ""
 }
+
+// lockScreenPreviewKeys are what a tile call's preview holds: anything else
+// refuses the offer.
+var lockScreenPreviewKeys = map[string]bool{"class": true, "reversible": true, "tile": true, "owner": true, "level": true,
+	"role": true, "standing": true, "readWeb": true, "warnings": true}
 
 // HidesText reports a string holding a character the approval chrome draws
 // as its escape (agent-chrome-words.js reveal, DelegationWords.reveal):

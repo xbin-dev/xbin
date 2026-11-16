@@ -512,3 +512,30 @@ private let shown = AgentShownRequest(id: rid, kind: "call", tile: "apps/notes",
         #expect(AgentNotice.quotedName("", fallback: "apps/x") == "“x”")
     }
 }
+
+/// The shapes after D241 (outside MCP servers, a start naming a sign-in,
+/// waiting plan lines, permission prompts from the dock) are never allowed
+/// from a notification: the app's own check on the re-read refuses a call
+/// whose preview says anything a tile call's doesn't, as xbind's does.
+@Suite struct AgentNoticeNewShapesTests {
+    @Test func aCallSayingMoreIsReviewed() {
+        let usual: JSONValue = ["class": "tile-write", "tile": "apps/notes", "level": "write", "role": "writer", "owner": "",
+                                "reversible": false, "standing": ["call": "…", "tile": "…"]]
+        #expect(AgentNoticeDecision.verify(.allowOnce, shown: shown, current: reading(["preview": usual]), reachable: true, prefs: allowOn()) == .send)
+        for key in ["outside", "host", "each", "wait", "later", "signIn", "signInId", "session", "create", "something-new"] {
+            var o = usual.objectValue ?? [:]
+            o[key] = true
+            let v = AgentNoticeDecision.verify(.allowOnce, shown: shown, current: reading(["preview": .object(o)]), reachable: true, prefs: allowOn())
+            if case .review = v {} else { Issue.record("a re-read whose preview says \(key): \(v)") }
+        }
+        var mcp = usual.objectValue ?? [:]
+        mcp["class"] = "mcp"
+        if case .review = AgentNoticeDecision.verify(.allowOnce, shown: shown, current: reading(["preview": .object(mcp)]), reachable: true, prefs: allowOn()) {} else {
+            Issue.record("a call previewed as an MCP tool")
+        }
+        // a tile agent's permission prompt: its own category, Open only — never an agent approval's actions
+        let permission = PushPayload(ws: "w", kind: "agent.permission", title: "t", body: "b", link: "c/apps/note")
+        #expect(permission.category == "xbin.agent.needs-you")
+        #expect(AgentNotice.content(permission, appWorkspace: "a", prefs: allowOn(), device: AgentNoticeDevice()) == nil)
+    }
+}
