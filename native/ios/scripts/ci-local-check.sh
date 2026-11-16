@@ -21,7 +21,9 @@
 #      what refuses that
 #   2. actionlint on both workflows, when installed (or ACTIONLINT=…; with
 #      CI_LOCAL_FETCH_ACTIONLINT=1 the pinned release is fetched, checked
-#      against its SHA-256)
+#      against its SHA-256; config .github/actionlint.yaml). Without it the
+#      check is skipped, and the summary says so: a skipped lint is not a
+#      pass (a shellcheck finding in ci.yml got to CI that way)
 #   3. bash -n, then shellcheck (hack/check-sh.sh: a local binary, else the
 #      pinned container image, else skipped with a note) on these scripts
 #   4. ci-dry-test.sh and mac-dry-test.sh: every script here against fake
@@ -39,7 +41,8 @@
 #      collected data (vs the push relay the app ships with), the
 #      export-compliance key, the app icon
 #
-# Exit status: non-zero when any check fails.
+# Exit status: non-zero when any check fails. Every skipped check is listed
+# in the summary.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -48,11 +51,17 @@ wf=.github/workflows/ios.yml
 ciwf=.github/workflows/ci.yml
 scripts=native/ios/scripts
 failed=""
+skipped=""
 
 step() { printf '\n== %s\n' "$*"; }
 fail() {
   echo "FAIL: $*" >&2
   failed="$failed
+  - $*"
+}
+skip() {
+  echo "skipped: $*"
+  skipped="$skipped
   - $*"
 }
 
@@ -284,14 +293,12 @@ if [ -z "$al" ] && [ "${CI_LOCAL_FETCH_ACTIONLINT:-0}" = 1 ]; then
   fi
 fi
 if [ -n "$al" ] && [ -x "$al" ]; then
-  cfg=$(mktemp "${TMPDIR:-/tmp}/actionlint.XXXXXX")
-  # xcode-27 is a GitHub-hosted larger runner's label, xbin-mini the Mac
-  # mini's; actionlint knows neither.
-  printf 'self-hosted-runner:\n  labels: [xcode-27, xbin-mini]\n' >"$cfg"
-  if "$al" -config-file "$cfg" "$wf" "$ciwf"; then echo "ok ($("$al" --version | head -n 1))"; else fail "actionlint $wf $ciwf"; fi
-  rm -f "$cfg"
-else
-  echo "skipped: no actionlint (go install github.com/rhysd/actionlint/cmd/actionlint@latest, ACTIONLINT=…, or CI_LOCAL_FETCH_ACTIONLINT=1)"
+  if "$al" -config-file .github/actionlint.yaml "$wf" "$ciwf"; then echo "ok ($("$al" --version | head -n 1))"; else fail "actionlint $wf $ciwf"; fi
+  # actionlint shellchecks each run: script only with a shellcheck on PATH,
+  # and says nothing when there is none (CI's runners have one)
+  command -v shellcheck >/dev/null 2>&1 || skip "actionlint's shellcheck of the run: scripts (no shellcheck on PATH)"
+elif [ -z "$altmp" ]; then # (a failed fetch has failed already)
+  skip "actionlint (set CI_LOCAL_FETCH_ACTIONLINT=1 — Linux only —, ACTIONLINT=…, or install it)"
 fi
 [ -z "$altmp" ] || rm -rf "$altmp"
 
@@ -330,7 +337,7 @@ step "UI tests against the XCUITest stubs"
 if command -v swift >/dev/null 2>&1; then
   native/tools/uitest-stubcheck/run.sh || fail "native/tools/uitest-stubcheck"
 else
-  echo "skipped: no swift on PATH (native/AGENTS.md §3)"
+  skip "UI test stubcheck (no swift on PATH: native/AGENTS.md §3)"
 fi
 
 step "xcodegen generate (project.yml)"
@@ -348,7 +355,7 @@ if [ -n "${XCODEGEN:-}" ]; then
   fi
   rm -rf "$gen"
 else
-  echo "skipped: XCODEGEN=/path/to/xcodegen to generate the project here"
+  skip "xcodegen generate (set XCODEGEN=/path/to/xcodegen)"
 fi
 
 step "App Store metadata (native/tools/store-check.py)"
@@ -358,8 +365,13 @@ else
   fail "python3 not found (store-check.py)"
 fi
 
+[ -z "$skipped" ] || printf '\nci-local-check: SKIPPED (not checked here)%s\n' "$skipped"
 if [ -n "$failed" ]; then
   printf '\nci-local-check: FAILED%s\n' "$failed" >&2
   exit 1
 fi
-printf '\nci-local-check: ok\n'
+if [ -n "$skipped" ]; then
+  printf '\nci-local-check: ok, with the skips above\n'
+else
+  printf '\nci-local-check: ok\n'
+fi
