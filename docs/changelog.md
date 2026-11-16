@@ -12,6 +12,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- coding agents: **xbind keeps your coding-agent sign-ins** (D230;
+  [agent-signins.md](/docs/agent-signins.md),
+  [protocol/signins.md](/docs/protocol/signins.md)). A person saves a
+  sign-in once — the guided sign-in, which xbind now runs itself in a
+  throwaway sandbox (`claude setup-token`: a link to open, a code to
+  paste; the token never reaches the browser), or a pasted API key — and it
+  is kept per person, sealed under the workspace vault: named, several per
+  coding agent, one the default. New routes, all a person's own
+  (`/api/xbin/agent/signins`, `…/{id}`, `…/guided`, `…/guided/{flow}`,
+  `…/uses`, `…/notice`) and three for workspace admins (`…/people`,
+  `…/people/{user}/{id}`, `…/policy`): admins see that people have
+  sign-ins — never a name or a secret — revoke one, and set the workspace's
+  switch. No route answers a secret or a part of one. The host's file
+  (`XBIN_LLM_CONFIG`) gains `"agentSignIns": true | false`, which sets and
+  locks the switch. The store needs sandboxes (`--isolate`; a development
+  workspace is excepted and says so). `sdk/acp` gains `Guided` (the guided
+  sign-in's driver over any `GuidedExec`), `CleanCode`, `MaskCredentials`
+  and `MintCommand`.
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the
   web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
   generated vectors): lines that create a tile or start a tile agent, what

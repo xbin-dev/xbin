@@ -193,6 +193,9 @@ func (st *State) serve(ctx context.Context) error {
 	if st.LLM != nil {
 		st.LLM.Close() // the usage counters not yet saved; every LLM key ends
 	}
+	if st.signinFlows != nil {
+		st.signinFlows.Close() // guided sign-ins under way: their sandboxes end
+	}
 	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor, the resources' decrypted views
 	// Open tiles keep their login binding across the restart (auth/framegens.go).
 	st.Auth.FlushGens()

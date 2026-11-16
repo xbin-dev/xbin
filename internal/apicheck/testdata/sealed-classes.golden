@@ -4,6 +4,10 @@
 /sandboxes/{name}/ports/{port}/{path...}	no-tile
 DELETE /access-requests	handled
 DELETE /agent/history/{id}	no-tile
+DELETE /agent/signins/guided/{flow}	no-tile
+DELETE /agent/signins/notice	no-tile
+DELETE /agent/signins/people/{user}/{id}	no-tile
+DELETE /agent/signins/{id}	no-tile
 DELETE /backup-schedule	handled
 DELETE /bindings	refused	body.provider body.providers
 DELETE /blob/{rest...}	self	path
@@ -52,6 +56,9 @@ GET /agent/history	handled
 GET /agent/history/{id}/events	no-tile
 GET /agent/prefs	no-tile
 GET /agent/providers	no-tile
+GET /agent/signins	no-tile
+GET /agent/signins/people	no-tile
+GET /agent/signins/uses	no-tile
 GET /agents/connection	no-tile
 GET /agents/policy	no-tile
 GET /alerts	no-tile
@@ -198,6 +205,9 @@ PATCH /users/{id}	handled
 POST /access-requests	handled
 POST /access-requests/approve	handled
 POST /account/password	no-tile
+POST /agent/signins	no-tile
+POST /agent/signins/guided	no-tile
+POST /agent/signins/guided/{flow}	no-tile
 POST /app-tunnel/relay-tokens	no-tile
 POST /app-tunnel/test	no-tile
 POST /auth-rotate-token	no-tile
@@ -336,6 +346,8 @@ POST /web-ticket	no-tile
 PUT /access	handled
 PUT /agent-levels	refused	body.tile
 PUT /agent/prefs	no-tile
+PUT /agent/signins/policy	no-tile
+PUT /agent/signins/{id}	no-tile
 PUT /agents/policy	no-tile
 PUT /app-tunnel	no-tile
 PUT /blob/{rest...}	self	path

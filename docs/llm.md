@@ -640,7 +640,8 @@ bring its own models and hold quotas the workspace's admins can't lift.
     "workspace": { "costPerMonth": 500 },
     "default": { "tokensPerDay": 2000000 }   // a ceiling: admins may narrow it per user or org
   },
-  "workspaceAgent": { "enabled": true, "who": "admins" }   // not the connector's: workspace agents (below)
+  "workspaceAgent": { "enabled": true, "who": "admins" },  // not the connector's: workspace agents (below)
+  "agentSignIns": true                   // nor this: people may save coding-agent sign-ins (below)
   // "lockAll": true                      // every setting is the host's
 }
 ```
@@ -689,6 +690,10 @@ bring its own models and hold quotas the workspace's admins can't lift.
   there is a preset and a ceiling an admin may narrow, not a lock;
   without `enabled` the switch stays the admins'. `lockAll` doesn't touch
   the key.
+- **`agentSignIns`** (D230) is its sibling: `true` or `false` sets — and
+  locks — whether people may save coding-agent sign-ins
+  ([agent-signins.md](/docs/agent-signins.md)). Absent, the switch is the
+  admins' (`PUT /agent/signins/policy`). `lockAll` doesn't touch it.
 
 ## Limits today
 

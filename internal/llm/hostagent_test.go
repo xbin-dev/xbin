@@ -114,3 +114,35 @@ func TestHostAgentWebAndMCP(t *testing.T) {
 		}
 	}
 }
+
+// The host's agentSignIns key (D230): a bool that sets and locks whether
+// people may save coding-agent sign-ins; absent, the admins' switch.
+func TestHostAgentSignIns(t *testing.T) {
+	dir := t.TempDir()
+	p := writeHost(t, dir, `{"agentSignIns": false}`, "")
+	now := time.Now()
+	s, err := New(Options{Dir: t.TempDir(), HostFile: p, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if set, on := s.HostAgentSignIns(); !set || on {
+		t.Fatalf("false: set %v on %v", set, on)
+	}
+	for body, want := range map[string][2]bool{`{"agentSignIns": true}`: {true, true}, `{}`: {false, false}, `{"agentSignIns": null}`: {false, false}} {
+		writeHost(t, dir, body, "")
+		now = now.Add(time.Hour)
+		if err := os.Chtimes(p, now, now); err != nil {
+			t.Fatal(err)
+		}
+		if set, on := s.HostAgentSignIns(); set != want[0] || on != want[1] {
+			t.Errorf("%s: set %v on %v", body, set, on)
+		}
+	}
+	if _, err := loadHost(writeHost(t, dir, `{"agentSignIns": "yes"}`, "")); err == nil {
+		t.Fatal("a value that isn't a bool loaded")
+	}
+	if _, err := loadHost(writeHost(t, dir, `{"agentSignin": true}`, "")); err == nil {
+		t.Fatal("a misspelled key loaded")
+	}
+}

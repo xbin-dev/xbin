@@ -114,3 +114,15 @@ func (s *Service) HostWorkspaceAgent() HostAgent {
 	}
 	return h.WorkspaceAgent
 }
+
+// HostAgentSignIns is the host's file's word on saved coding-agent
+// sign-ins (its agentSignIns key, D230): set false when no file is in force
+// or it doesn't name the key — the switch is the admins' then.
+func (s *Service) HostAgentSignIns() (set, enabled bool) {
+	s.current() // the file's reload, when it is due
+	h, _ := s.host.current()
+	if h == nil || h.AgentSignIns == nil {
+		return false, false
+	}
+	return true, *h.AgentSignIns
+}
