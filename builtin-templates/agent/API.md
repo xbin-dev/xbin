@@ -5922,6 +5922,18 @@ proposed, never another session's); `preview`; `plan`; `notebook_search`,
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
 
+**Brief templates** (`_backend/ws_brief_kinds.go`): `tile_agent_brief`
+takes `template` — one so far, `"mcp-tool"`, a tool an agent instance
+should get, built in an MCP tile made from the `mcp-server` template
+(/docs/mcp.md) — with `tool: {name, arguments, result}`, the specifics only
+the agent knows. The brief's fields the model leaves out come from it: the
+goal from the tool's three fields; done when `tools/list` on the tile's
+`/mcp` names the tool and a `tools/call` returns that result; check by the
+two calls from the tile's own sandbox (and `go test`); leave alone the
+manifest's `provides` and the wire (`_backend/mcp.go`), with the model's own
+words after; known, where tools go in the template. A field the model gave
+is kept, and the brief is shown and approved as ever.
+
 **When the agent's switch is off** — its person paused it, workspace
 agents are off, it is held, or its person wasn't given one — xbind refuses
 its every call and its model turns, and says which (the refusal of its

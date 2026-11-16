@@ -35,15 +35,16 @@ func wsAgentTools() []coordTool {
 			Description: "Write the brief for a tile agent — a coding agent that works inside one tile — and show it to your person, who can edit it. This starts nothing. " +
 				"Use it whenever an outcome needs something built, changed or fixed in a tile: you don't change code, a tile's agent does. " +
 				"Write the brief for someone who saw none of this conversation: the outcome wanted (not the steps), how anyone can tell it is done, what must not be touched, how to check, and what you already found out. " +
+				"For a tool an agent instance should get (an MCP tile made from the mcp-server template, bound to the instance's mcp slot): template \"mcp-tool\" with tool {name, arguments, result} — it fills done_when, check_by and what to leave alone. " +
 				"Next: tile_agent_start with the brief's number.",
-			Parameters: obj([]string{"tile", "goal", "done_when"}, map[string]any{
+			Parameters: obj([]string{"tile"}, withBriefTemplate(map[string]any{
 				"tile":        strProp("the tile's path, as workspace_map lists it"),
 				"goal":        strProp("the outcome wanted, in the person's terms"),
 				"done_when":   strProp("what is true when it is done — something that can be checked"),
 				"leave_alone": strProp("what it must not change (data, other features, the look)"),
 				"check_by":    strProp("how it should verify its work (which tests, which request, what to look at)"),
 				"known":       strProp("what you already found out that it would otherwise have to rediscover (from research, logs, the person)"),
-			})}},
+			}))}},
 			Run: wsTool(wsBriefTool)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_start",
 			Description: "Start a tile agent from a brief (or continue one that stopped, with resume). Your person is asked, unless their preference lets tile agents start without asking (then Start on the brief's card is their go-ahead): xbin shows them the brief exactly as it will be sent, and the coding agent and mode it will run in. This tool answers \"pending\" at once; the session, or their refusal, reaches you as a workspace update. " +
@@ -121,16 +122,23 @@ func wsBriefWords(b *wsBrief) string {
 
 func wsBriefTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (string, error) {
 	var a struct {
-		Tile       string `json:"tile"`
-		Goal       string `json:"goal"`
-		DoneWhen   string `json:"done_when"`
-		LeaveAlone string `json:"leave_alone"`
-		CheckBy    string `json:"check_by"`
-		Known      string `json:"known"`
+		Tile       string          `json:"tile"`
+		Goal       string          `json:"goal"`
+		DoneWhen   string          `json:"done_when"`
+		LeaveAlone string          `json:"leave_alone"`
+		CheckBy    string          `json:"check_by"`
+		Known      string          `json:"known"`
+		Template   string          `json:"template"` // a brief template's id (ws_brief_kinds.go)
+		Tool       *wsBriefToolAsk `json:"tool"`
 	}
 	if err := coordArgs(c.Args, &a); err != nil {
 		return "", err
 	}
+	f := wsBriefFields{Goal: a.Goal, DoneWhen: a.DoneWhen, LeaveAlone: a.LeaveAlone, CheckBy: a.CheckBy, Known: a.Known}
+	if err := wsApplyBriefTemplate(a.Template, a.Tool, &f); err != nil {
+		return "", err
+	}
+	a.Goal, a.DoneWhen, a.LeaveAlone, a.CheckBy, a.Known = f.Goal, f.DoneWhen, f.LeaveAlone, f.CheckBy, f.Known
 	t, err := wsFindTile(ctx, ag, s, a.Tile)
 	if err != nil {
 		return "", err

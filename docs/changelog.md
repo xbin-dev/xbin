@@ -23,6 +23,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   its call's role, so it can tell a binding reached the backend without an
   approval (the template's `API.md`, [mcp.md](/docs/mcp.md)). Merge the
   template's update into an instance to get it.
+- the workspace agent: **a brief template for a tool.** `tile_agent_brief`
+  takes `template: "mcp-tool"` with `tool: {name, arguments, result}`; the
+  fields it leaves out come from the template — done when `tools/list`
+  names the tool and a call returns that shape, check by those two calls
+  from the tile's own sandbox, leave alone the manifest's `provides` and
+  the wire — so a hand-off of MCP-tool work to a tile's coding agent says
+  how to tell it is done (the template's `API.md` §Workspace mode).
 - docs: **[mcp.md](/docs/mcp.md), "Give an agent a tool"**: the
   `mcp-server` template, the `mcp` slot and the binding as the grant, the
   JSON-RPC methods, adding and checking a tool, how an assistant picks it
