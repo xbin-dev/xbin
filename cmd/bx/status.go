@@ -232,6 +232,11 @@ type tileStatus struct {
 			MemMax      int64 `json:"memMax"`
 			PidsCurrent int64 `json:"pidsCurrent"`
 		} `json:"cgroup"`
+		Retry *struct { // a failed start's pending retry (internal/runner/retry.go)
+			Attempt int   `json:"attempt"`
+			Of      int   `json:"of"`
+			InSec   int64 `json:"inSec"`
+		} `json:"retry"`
 	} `json:"backend"`
 	Net struct { // the effective network (D54)
 		Ref    string   `json:"netRef"`
@@ -265,7 +270,11 @@ func printTileStatus(s *tileStatus) {
 		if b.Restarts > 0 {
 			rs = fmt.Sprintf(" · %d restart(s)", b.Restarts)
 		}
-		fmt.Printf("  backend    %s · gen %d%s%s\n", b.State, b.Gen, up, rs)
+		state := b.State
+		if rt := b.Retry; rt != nil {
+			state += fmt.Sprintf(" · retrying in %s (%d of %d)", time.Duration(rt.InSec)*time.Second, rt.Attempt, rt.Of)
+		}
+		fmt.Printf("  backend    %s · gen %d%s%s\n", state, b.Gen, up, rs)
 		if b.Error != "" {
 			fmt.Printf("  error      %s\n", b.Error)
 		}

@@ -184,6 +184,7 @@ export function requestCard(r, now = Date.now(), tileName = (p) => p) {
 const LINE_WORD = Object.freeze({
   applied: ['check', 'ok', 'applied'], rejected: ['xmark', '', 'left out'], failed: ['error', 'bad', 'failed'],
   stale: ['error', 'bad', 'not applied — it changed after you saw it'], skipped: ['xmark', 'warn', 'skipped'], asked: ['clock', '', 'sent to an admin'],
+  lapsed: ['clock', '', 'lapsed — never applied'], cancelled: ['xmark', '', 'cancelled — never applied'],
 });
 
 /**
@@ -195,8 +196,10 @@ const LINE_WORD = Object.freeze({
 export function planLines(r) {
   return (Array.isArray(r && r.lines) ? r.lines : []).map((l) => {
     const result = l.result || '';
-    const [glyph, tone, word] = LINE_WORD[result] || (l.needsAdmin ? ['lock', 'warn', 'needs an admin'] : l.blocked || result === 'blocked' ? ['lock', 'warn', 'can’t be applied'] : ['xmark', '', result || 'not applied']);
-    return { n: l.n, text: String(l.line || l.kind || ''), result, glyph, tone, word, note: ['failed', 'stale'].includes(result) ? String(l.error || '') : '', open: ['failed', 'stale', 'skipped'].includes(result) };
+    // a line that waits: approved, and xbin applies it by itself once its tile provides what was approved
+    const [glyph, tone, word] = result === 'waiting' ? ['clock', 'warn', `waits for ${l.waits || 'its tile'}`]
+      : LINE_WORD[result] || (l.needsAdmin ? ['lock', 'warn', 'needs an admin'] : l.blocked || result === 'blocked' ? ['lock', 'warn', 'can’t be applied'] : ['xmark', '', result || 'not applied']);
+    return { n: l.n, text: String(l.line || l.kind || ''), result, glyph, tone, word, note: ['failed', 'stale', 'lapsed', 'cancelled'].includes(result) ? String(l.error || '') : '', open: ['failed', 'stale', 'skipped'].includes(result) };
   });
 }
 
@@ -221,8 +224,10 @@ export const BRIEF_FIELDS = Object.freeze([['goal', 'Goal'], ['doneWhen', 'Done 
  * runsOn, harnesses, picked, note}. sd is the backend's start-defaults for
  * the brief (GET …/briefs/{bid}/start-defaults: what the start would run
  * on, from xbind — {line, harness, harnesses: [{id, name, asks, net,
- * needsTicket, noSignIn}], ticket}; a harness that runs with no sign-in is
- * named so in the picker). The one button is the backend's: "Review and
+ * needsTicket, noSignIn, signIn}], ticket, needsSignIn}; a
+ * harness that runs with no sign-in, on the person's saved sign-in or
+ * only after they sign in is named so in the picker, and `signin` is the
+ * harness to sign in to first — the card's button asks xbin's chrome). The one button is the backend's: "Review and
  * start…" (xbind's approval opens) or, where the person's preferences let
  * this start through without a ticket (`ticket: false`), "Start" — the
  * click is then the confirmation. The brief is what the tile agent is told
@@ -234,7 +239,9 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
   const words = { draft: '', asked: 'Waiting for your approval', started: 'Started', denied: 'Denied by you', replaced: 'Replaced by a newer brief' };
   // xbind says which run on the workspace's model with no sign-in (noSignIn): the picker says so
   const harnesses = (sd && sd.defaults && Array.isArray(sd.defaults.harnesses) ? sd.defaults.harnesses : [])
-    .map((h) => ({ id: h.id, name: `${h.name || harness(h.id)}${h.noSignIn ? ' — no sign-in' : ''}`, noSignIn: !!h.noSignIn }));
+    .map((h) => ({ id: h.id, name: `${h.name || harness(h.id)}${h.signIn === 'saved' ? ' — your saved sign-in' : h.signIn === 'needed' ? ' — needs your sign-in' : h.noSignIn ? ' — no sign-in' : ''}`, noSignIn: !!h.noSignIn, signIn: h.signIn || '' }));
+  const pickedId = (sd && sd.harness) || b.harness || '';
+  const needs = sd && sd.needsSignIn && (st === 'draft' || st === 'asked') ? (sd.defaults.harnesses || []).find((h) => h.id === pickedId) : null;
   const runsOn = sd ? sd.line || '' : [b.harness ? harness(b.harness) : ''].filter(Boolean).join('');
   const free = !!sd && sd.ticket === false && !!sd.harness;
   return {
@@ -242,7 +249,11 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
     fields: BRIEF_FIELDS.map(([k, label]) => ({ key: k, label, value: b[k] || '' })),
     editable: st === 'draft' || st === 'asked',
     button: st === 'draft' ? (free ? W.start : W.reviewStart) : st === 'asked' ? W.review : '',
-    runsOn, harnesses, picked: (sd && sd.harness) || b.harness || '', none: !!sd && !sd.harness,
+    runsOn, harnesses, picked: pickedId, none: !!sd && !sd.harness,
+    // xbind says a session of the picked coding agent would start signed out (D230): sign in first, in xbin's own card
+    signin: needs ? { harness: needs.id, name: needs.name || harness(needs.id), button: `Sign in to ${needs.name || harness(needs.id)}…`,
+      // where no chrome can draw the sign-in (the app's native view): the truth, and where to go
+      elsewhere: `Needs your ${needs.name || harness(needs.id)} sign-in — set it up on the web: open this workspace in a browser and sign in to ${needs.name || harness(needs.id)} there. A saved sign-in is then used here too.` } : null,
     // only xbind's word that the mode asks (a harness's ask or plan mode) says it asks — unknown is not "asks"
     note: `This is what the tile agent is told first. What your agent sends it later isn’t approved message by message${sd && sd.asks === true ? ': the tile agent asks you before it acts.' : sd && sd.asks === false ? ', and in this mode it acts without asking you.' : '. Whether it asks you before it acts shows once xbin says what it runs on.'}`,
     edited: !!b.edited,
@@ -385,15 +396,17 @@ export function chipWords(counts, model, narrow = false, priv = false, reach = n
 /**
  * netWords(reach): the web and MCP tools in the connection line (the
  * session's `reach`, xbind's: {web, mcp: {state: on | asks | off, why}}) —
- * {seg: "web · MCP" | "web" | "MCP" | '', said: the sentence a screen
+ * {seg: "web · MCP" | "web" | "MCP" | "MCP · 2 outside" | '', said: the sentence a screen
  * reader and the title say}. Off says nothing in the line: the empty state
  * and "What can it do?" say why.
  */
 export function netWords(reach) {
   const on = (x) => !!x && (x.state === 'on' || x.state === 'asks');
   const web = on(reach && reach.web), mcp = on(reach && reach.mcp);
-  const seg = [web ? 'web' : '', mcp ? 'MCP' : ''].filter(Boolean).join(' · ');
-  const said = [web ? (reach.web.state === 'asks' ? 'Reads web pages you approve.' : 'Reads the web.') : '', mcp ? 'Uses MCP tools you approve.' : ''].filter(Boolean).join(' ');
+  const out = mcp ? Number(reach.mcp.listed) || 0 : 0; // the outside servers it may use (D240)
+  const seg = [web ? 'web' : '', mcp ? `MCP${out ? ` · ${out} outside` : ''}` : ''].filter(Boolean).join(' · ');
+  const said = [web ? (reach.web.state === 'asks' ? 'Reads web pages you approve.' : 'Reads the web.') : '',
+    mcp ? `Uses MCP tools you approve${out ? `, ${out === 1 ? 'one server' : `${out} servers`} of them outside this workspace` : ''}.` : ''].filter(Boolean).join(' ');
   return { seg, said };
 }
 

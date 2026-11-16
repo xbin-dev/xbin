@@ -38,7 +38,8 @@ function register(P) {
   P.journeyManual = require('./passes/journeymanual').journeyManual; // the owner's UX benchmark, by hand: first login → vault → an MCP tile → an agent instance that calls its tool; every interaction counted (plans/wsagent/journey.md; its own xbind, HARNESS_ISOLATE=1, make sealed)
   P.journeyAgent = require('./passes/journeyagent').journeyAgent; // …and through the workspace agent, as far as today's agent gets: its approvals, its dead ends and what the person still does by hand, counted the same way
   P.firstRun = require('./passes/firstrun').firstRun; // D237: the first-run sheet — bootstrap with/without the host's vault and a model, the host's preset, skip, a second browser, a weak password, a repeat that doesn't match, a vault that fails, the swap refused (its own xbinds, HARNESS_ISOLATE=1, make sealed)
-  P.mcpTemplate = require('./passes/mcptemplate').mcpTemplate; // the mcp-server template's page (HARNESS_ISOLATE=1) and a tile whose required slot is bound folding the rest into one line (docs/mcp.md, overview/11-interfaces.md)
+  P.mcpTemplate = require('./passes/mcptemplate').mcpTemplate; // the MCP server example's page (HARNESS_ISOLATE=1) and a tile whose required slot is bound folding the rest into one line (docs/mcp.md, overview/11-interfaces.md)
+  P.agentSavedSignin = require('./passes/agentsavedsignin').agentSavedSignin; // D230: the sign-ins xbind keeps, through <bx-agent-signin> in the Agent tab
 }
 
 module.exports = { register };

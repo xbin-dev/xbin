@@ -1219,6 +1219,24 @@ sets, the owner's *personal network* is added (§Personal tiles, D88). An
 account with `noTerminal` gets no terminal anywhere. Grant `terminal` levels
 only if you mean root in that directory.
 
+**A session inside a tile is that tile's.** A terminal or agent session
+(`/ws/term?cwd=`, `POST /api/xbin/term/sessions`, a resume, a restart, a
+person's workspace agent's start) may open in a directory *inside* a tile —
+`cwd=apps/crm/src` — and it is decided on the **registered tile that
+directory lies in**, exactly as a session on the tile itself: the person's
+level there (its exact entries, its owner, its org, §Ownership — D31), the
+org's network sets and harness rules, the deployment target, the
+partition, the terminal token and `XBIN_COMPONENT`, who may reattach, drive,
+list or restart it, and its past sessions in the history. The directory's
+own path never decides: an exact `apps/crm: none` (or `read`) beside
+`apps/*: terminal` gives no shell anywhere in apps/crm, and a personal
+pattern gives none inside an org's tile. The directory is only where the
+session starts and what it may write: it alone is bound read-write, the
+rest of the tile read-only, as before. It must be a real directory of the
+tile — one reached through a link (`apps/a/sub -> ../b`) is refused. The
+source reads (`/code/*`, `/git/*`) and `/ws/term/env` decide a directory
+inside a tile on its tile the same way.
+
 **User management API** — gated by `xbin:users` (distinct from
 `xbin:admin`, so a dedicated user-admin tile can hold just this; admin
 implies it):

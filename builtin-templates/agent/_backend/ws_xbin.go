@@ -114,6 +114,11 @@ type wsXbin interface {
 	MCPTools(ctx context.Context, sid, tile string) ([]wsMCPTool, error)
 	MCPCall(ctx context.Context, sid string, c wsMCPCall, ticket string, dry bool) (wsMCPResult, *wsDry, error)
 	AskMCP(ctx context.Context, sid string, c wsMCPCall, summary string) (wsRequest, error)
+	// Outside MCP servers an admin listed (D240): the ones this
+	// conversation may use, and a server's tools as xbind reads them; a
+	// call is MCPCall with server "ext:<id>".
+	MCPServers(ctx context.Context, sid string) ([]wsMCPServer, error)
+	MCPServerTools(ctx context.Context, sid, server string) ([]wsMCPTool, error)
 }
 
 // wsX is xbind for this process: the delegate client, or a test's fake.
@@ -158,7 +163,26 @@ type wsReachOne struct {
 	Why   string   `json:"why,omitempty"`
 	Code  string   `json:"code,omitempty"`
 	Orgs  []string `json:"orgs,omitempty"`
+	// Listed (mcp): the outside servers the conversation may use (D240)
+	Listed int `json:"listed,omitempty"`
 }
+
+// wsMCPServer is an outside MCP server an admin listed (D240), as xbind
+// names it for the conversation: never its address beyond the host.
+type wsMCPServer struct {
+	Server        string   `json:"server"` // ext:<id>
+	Name          string   `json:"name"`
+	Host          string   `json:"host"`
+	Note          string   `json:"note,omitempty"`
+	TrustReadOnly bool     `json:"trustReadOnly,omitempty"`
+	State         string   `json:"state"` // on | asks (each call) | off
+	Why           string   `json:"why,omitempty"`
+	Code          string   `json:"code,omitempty"`
+	Orgs          []string `json:"orgs,omitempty"`
+}
+
+// wsIsExt reports an outside server's name.
+func wsIsExt(server string) bool { return strings.HasPrefix(server, "ext:") }
 
 // on: the capability may be used now, freely or asking.
 func (r wsReachOne) on() bool { return r.State == "on" || r.State == "asks" }
@@ -515,6 +539,12 @@ type wsHarness struct {
 	Net         string `json:"net,omitempty"`
 	NeedsTicket bool   `json:"needsTicket"`
 	NoSignIn    bool   `json:"noSignIn,omitempty"` // it runs on the workspace's LLM connector: no sign-in needed (xbind's word)
+	// SignIn is what a session of it would sign in with (xbind's word,
+	// D230): saved (a saved sign-in of the person's, used only when they
+	// approve the start — xbind's approval names it; nothing here does) |
+	// connector | own | needed (the person signs in first); "" unknown, and
+	// from an xbind that doesn't say.
+	SignIn string `json:"signIn,omitempty"`
 }
 
 // wsStartDefaults is what a start in a tile resolves to, for the brief's

@@ -51,6 +51,11 @@ type Config struct {
 	// codex-acp model and reasoning effort (thought_level); opencode model
 	// and its agents (mode); gemini none.
 	Strict bool
+	// Credential: the agent was started on a credential of the host's own
+	// (credential.go) — its status probe isn't believed, a key it wants
+	// through authenticate is handed over, and a refusal is reported. nil:
+	// it signs in from its $HOME, as ever.
+	Credential *Credential
 }
 
 // Process is a spawned agent as the client sees it: its stdio and a way to

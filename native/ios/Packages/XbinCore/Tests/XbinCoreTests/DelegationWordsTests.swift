@@ -72,6 +72,9 @@ import Testing
                     #expect(m.call.description == s(want, "description") && m.call.readOnly == want["readOnly"]?.boolValue && m.call.arguments == s(want, "arguments"), "\(id)")
                     #expect(m.call.standing == s(want, "standing") && m.marked == s(want, "marked") && m.undo == s(want, "undo"), "\(id)")
                     #expect(m.changedLine == s(want, "changedLine") && m.call.changed == (want["changed"]?.arrayValue ?? []).compactMap(\.stringValue), "\(id)")
+                    // an outside server (D240): outside this workspace and its host; once only while each call asks
+                    #expect(m.outsideLine == s(want, "outsideLine") && m.eachLine == s(want, "eachLine") && m.call.outside == (want["outside"]?.boolValue ?? false)
+                        && m.call.host == s(want, "host") && m.call.each == (want["each"]?.boolValue ?? false) && m.call.trusted == (want["trusted"]?.boolValue ?? false), "\(id) outside")
                 }
             }
             let w = DelegationWords.widerWords(r)
@@ -87,6 +90,8 @@ import Testing
                 #expect(r.neverAsks == !rows.modeAsks && rows.danger.isEmpty == rows.modeAsks, "\(id)")
                 #expect(rows.network == s(want, "network") && rows.others == s(want, "others"), "\(id)")
                 #expect(rows.brief == s(want, "brief") && rows.danger == s(want, "danger") && rows.comes == s(want, "comes"), "\(id)")
+                // the sign-in a start would use is said before it is allowed, with who will hold it (D230)
+                #expect(rows.signIn == s(want["signin"], "text") && rows.signInHolds == s(want["signin"], "holds"), "\(id)")
             }
             if r.state == .unknown {
                 // a newer xbind's state: the web says reload, the app — which can be older — the web
@@ -174,6 +179,7 @@ import Testing
             for (a, b) in zip(got, want) {
                 #expect(a.id == s(b, "id") && a.label == s(b, "label") && a.note == s(b, "note"), "netPrefs \(i) \(a.id)")
                 #expect(a.on == b["on"]?.boolValue && a.allowed == b["allowed"]?.boolValue && a.why == s(b, "why") && a.sub == (b["sub"]?.boolValue ?? false), "netPrefs \(i) \(a.id)")
+                #expect(a.servers == (b["servers"]?.arrayValue ?? []).map { OutsideServer(name: s($0, "name"), host: s($0, "host")) }, "netPrefs \(i) \(a.id) servers")
             }
         }
         #expect(DelegateRoute.setNet("web", true)?.method == "PUT" && DelegateRoute.setNet("paused", true) == nil, "only the three settings")

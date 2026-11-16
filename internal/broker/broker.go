@@ -153,6 +153,15 @@ type Broker struct {
 	// them. Called on the request goroutine; return promptly.
 	OnNoTerminal func(userID string)
 
+	// OnCredentialMade, if set, is told when someone other than the person
+	// made a way into their account — a password set on them, a sign-in
+	// link minted for them, an SSO email bound to them, the SSO provider
+	// changed under their bound email (partitioncreds.go) — whether or not
+	// it is held for their confirmation: what the account alone unlocks
+	// (their saved coding-agent sign-ins, D230) must not pass to whoever
+	// made it. Called on the request goroutine; return promptly.
+	OnCredentialMade func(userID, by string)
+
 	// OnUserSignedOut, if set, is called after a user was signed out
 	// everywhere — by an admin, by disabling the account, or by deleting it
 	// (deleted) — so per-user state bound to their devices (push

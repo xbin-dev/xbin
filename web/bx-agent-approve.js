@@ -34,6 +34,7 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
+import '/vendor/agent-signin.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, asked, settled,
   stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote, ownerWords, webRows, mcpRows, READ_WEB,
@@ -72,6 +73,20 @@ export function uncovered(el) {
  * radio or a checkbox) and binds @click=${guard.click} @keydown=${guard.key};
  * the control carries aria-disabled until it is armed.
  */
+/**
+ * signinRow(r): a start's "Sign-in" row (sessionRows' signin, D230), drawn
+ * here — in the person's own document, never by the agent's page. A start
+ * that would use the person's saved sign-in names it (its label read from
+ * their own list by id) and says who will hold it: approving is what puts
+ * it into the session. One that would start signed out gets the chrome's
+ * sign-in card. Nothing where neither is the case.
+ */
+export const signinRow = (r) => (!r.signin ? nothing : r.signin.saved
+  ? html`<dt>Sign-in</dt><dd data-row="signin" data-signin-id=${r.signin.id}>${r.signin.text} <bx-agent-signin view="name" sid=${r.signin.id}></bx-agent-signin>.
+      <div class="small muted">${r.signin.holds}</div></dd>`
+  : html`<dt>Sign-in</dt><dd data-row="signin"><div class="small">${r.signin.text}</div>
+      <bx-agent-signin harness=${r.signin.harness} provider=${r.signin.name}></bx-agent-signin></dd>`);
+
 export class WidenGuard {
   constructor(host) { this.host = host; this.seen = new WeakMap(); host.addController(this); }
   hostUpdated() {
@@ -276,6 +291,7 @@ export class BxAgentApprove extends LitElement {
         <dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>
         ${this._tileRow(req)}
         <dt>Coding agent</dt><dd>${r.agent}</dd>
+        ${signinRow(r)}
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>Other tiles</dt><dd>${r.others}</dd>
         <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="body brief" tabindex="-1" data-row="brief">${r.brief ? html`${shown(brief.text)}${brief.clipped ? '…' : ''}` : '(nothing: it starts without a message)'}</pre>
@@ -298,13 +314,17 @@ export class BxAgentApprove extends LitElement {
       <p class="small muted">${w.once}</p>`;
   }
 
-  // one tool of an MCP tile (D239): the server, the tool, its mark, the arguments as sent; once or always for this tool
+  // one tool of an MCP tile (D239) or of an outside server (D240): the server — outside: its host, said plainly —, the tool, its mark, the
+  // arguments as sent; once or always for this tool (once only while each call asks)
   _mcp(req) {
     const m = mcpRows(req);
     const args = clipText(m.arguments, this._all);
     const choices = grantChoices(req);
-    return html`<dl class="rows">
-        <dt>Server</dt><dd><b>${shown(m.server)}</b> <span class="mono muted">${shown(m.path)}</span></dd>
+    return html`${m.outside ? html`<div class="banner warn" data-outside><bx-icon name="globe"></bx-icon><span><b>${shown(m.outsideLine)}</b>
+        <span class="small">What is sent goes out of the workspace, to the server an admin listed.</span></span></div>` : nothing}
+      ${m.eachLine ? html`<div class="banner warn" data-each><bx-icon name="warning"></bx-icon><span>${shown(m.eachLine)}</span></div>` : nothing}
+      <dl class="rows">
+        <dt>Server</dt><dd><b>${shown(m.server)}</b> <span class="mono muted">${shown(m.outside ? m.host : m.path)}</span></dd>
         <dt>Tool</dt><dd data-row="tool"><b class="mono">${shown(m.tool)}</b>${m.title ? html` <span class="muted">${shown(m.title)}</span>` : nothing}
           <div class="small ${m.readOnly ? 'muted' : ''}" data-row="marked">${m.marked}</div>
           ${m.changedLine ? html`<div class="small err" data-row="changed">${m.changedLine}</div>` : nothing}</dd>

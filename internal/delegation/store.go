@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/fsutil"
+	"github.com/xbin-dev/xbin/internal/vault"
 )
 
 // Store is the delegation store. A nil *Store answers the closed state.
@@ -46,6 +47,9 @@ type Store struct {
 	ws     cached[Workspace]
 	// host is the host's deployment file (hostfile.go; nil: none)
 	host func() HostNet
+	// Secrets holds the admin's outside MCP servers' secrets, sealed under
+	// the vault (mcpservers.go, D240; nil: none can be kept)
+	Secrets *vault.SealedMap
 
 	// Audit is the per-person audit log, under the same directory.
 	Audit *Log

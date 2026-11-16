@@ -119,6 +119,11 @@ const kindLaunch = "agent-launch"
 // LLMHook is the Manager's share of the hook-up: what boot wires, and what
 // sessions' hosts reported.
 type LLMHook struct {
+	// SigninHook: people's saved coding-agent sign-ins, the other way a
+	// session gets its model — Signins, SigninOthers, SigninsOff, SigninDev
+	// (signin.go, D230)
+	SigninHook
+
 	// LLM is the workspace's LLM connector as sessions use it: with one
 	// configured, an agent session's CLI and a terminal's tools are pointed
 	// at it with a key of the session's own. nil ⇒ sessions get nothing of
@@ -145,6 +150,7 @@ type llmOpts struct {
 	llm       *llmSession // the session's hold on the connector (llmArm); nil = none
 	llmChoice string      // an agent session's own choice of who serves it ("" | connector | own)
 	noLLM     bool        // a person whose terminals hold no tile API token (D17): no LLM key in one either
+	signin    signinPlan  // an agent session's saved sign-in, as decided (signin.go, D230)
 }
 
 // llmKeyShape is an LLM key as it shows in text (internal/llm's KeyPrefix).
@@ -650,7 +656,7 @@ func (s *Session) llmEnd(m *Manager, why error) {
 	text := why.Error() + ". The session was ended."
 	s.logEvent(m, agent.New(EvNotice, noticeData{Text: text}))
 	st.logf(text)
-	slog.Warn("agent session ended: not on the LLM connector, which alone may serve it", "id", s.ID, "tile", s.Cwd)
+	slog.Warn("agent session ended: not on the LLM connector, which alone may serve it", "id", s.ID, "tile", m.tileOf(s))
 	s.kill()
 }
 
@@ -868,11 +874,12 @@ func (m *Manager) llmRestart(p auth.Principal, s *Session, st *agentState, net, 
 	if st.llmChoice == "" {
 		return ""
 	}
-	o := m.openOptsFor(p, s.Cwd, s.Cwd, normalizeNet(net), gpu, api)
-	if _, err := m.pickTarget(p, &o, s.Cwd, deployment); err != nil {
+	tile := m.tileOf(s)
+	o := m.openOptsFor(p, tile, s.Cwd, normalizeNet(net), gpu, api)
+	if _, err := m.pickTarget(p, &o, tile, deployment); err != nil {
 		return "" // the restart's own target check refuses it, before the session ends
 	}
-	if _, err := m.llmGate(&o, s.Cwd, st.provider, st.llmChoice, nil); err != nil {
+	if _, err := m.llmGate(&o, tile, st.provider, st.llmChoice, nil); err != nil {
 		return ""
 	}
 	return st.llmChoice

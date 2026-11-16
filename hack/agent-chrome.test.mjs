@@ -47,6 +47,16 @@ test('a tile agent start: the mode leads, and one that never asks is the danger 
   assert.deepEqual([asks.mode.tag, asks.mode.tone, asks.danger], ['asks before acting', 'ok', '']);
   assert.equal(asks.agent, "Claude Code · model sonnet, through the workspace's connector");
   assert.equal(asks.network, 'Its model only. No internet.');
+  // what it signs in with, by xbind's word (D230): a saved sign-in named; none at all said, with the harness to sign in to
+  assert.equal(asks.signin, null);
+  // a saved sign-in: named on the approval by xbind's id (the chrome draws its label), with who will hold it — never a label from the request
+  const uses = W.sessionRows(s({ model: '', provider: 'claude', signIn: 'saved', signInId: 'si_1a2b', savedSignIn: 'a label the agent wrote' }));
+  assert.equal(uses.agent, 'Claude Code');
+  assert.deepEqual(uses.signin, { saved: true, id: 'si_1a2b', name: 'Claude Code', text: 'Uses your saved Claude Code sign-in',
+    holds: "The tile's coding agent will hold that sign-in: it, and anything it runs in Invoices, can read it." });
+  assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'saved' })).signin, null, 'saved without an id names nothing');
+  assert.deepEqual(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'needed' })).signin, { harness: 'claude', name: 'Claude Code', text: 'Needs your Claude Code sign-in: without it the tile agent starts signed out.' });
+  assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'needed' })).agent, 'Claude Code');
   assert.equal(asks.brief, 'Fix the export');
   assert.deepEqual(W.heading(s({})), { before: 'Start a tile agent in ', strong: 'Invoices', after: '?' });
   assert.equal(W.heading(s({ resume: 'abc' })).before, 'Continue the tile agent in ');
@@ -179,6 +189,10 @@ test('what the dock takes from the agent\'s page: a word and an id, nothing else
   }
   assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 's-1', tile: '/apps/notes/', id: 7 }), { type: 'session', tile: 'apps/notes', session: 's-1' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'approvals' }), { type: 'open', view: 'approvals' });
+  // a coding agent's sign-in (D230): the harness's id and nothing else — the chrome draws the card
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-signin', harness: 'claude', secret: 'x', url: 'https://evil.example' }), { type: 'signin', harness: 'claude' });
+  for (const harness of ['', 'Claude', 'a b', '../x', 'x'.repeat(40), 7, null]) assert.equal(W.pageMessage({ type: 'xbin:agent-open-signin', harness }), null, String(harness));
+  assert.deepEqual(W.SIGNINS_MESSAGE, { type: 'xbin:agent-signins' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'activity' }), { type: 'open', view: 'activity' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'needs' }), { type: 'open', view: 'needs' });
   // Preferences widen what the agent may do: the page can't open them (only the chrome's own menu does)
@@ -340,4 +354,31 @@ test('the web and MCP tools: a page is read once, a tool once or always; the log
   assert.match(on[0].note, /Only docs\.example\.com\./);
   // a setting kept on while the policy is off reads as off
   assert.equal(W.netPrefs({ web: true, net: { web: { policy: 'off' } } })[0].on, false);
+});
+
+test('an outside MCP server (D240): the sheet says outside and the host; from a tainted conversation once only; Preferences list the servers', () => {
+  const req = { id: 'x', kind: 'mcp', state: 'pending', tile: 'ext:tracker@1a2b3c4d', created: '2026-11-16T10:00:00Z', expires: '2026-11-17T10:00:00Z',
+    preview: { class: 'mcp', server: 'ext:tracker', serverName: 'Tracker', host: 'mcp.tracker.example', outside: true, tool: 'lookup', readOnly: true, arguments: '{}',
+      standing: { tool: 'lookup on Tracker (outside this workspace: mcp.tracker.example) — this tool again' } } };
+  const r = W.mcpRows(req);
+  assert.equal(r.outsideLine, 'Outside this workspace: mcp.tracker.example');
+  assert.match(r.marked, /an outside server’s word, which your “read-only tools don’t ask me” doesn’t take/);
+  assert.equal(r.eachLine, '');
+  assert.deepEqual(W.grantChoices(req).map((c) => c.id), ['once', 'tool']);
+  assert.equal(W.heading(req).after, ' on Tracker, outside this workspace');
+  const each = { ...req, preview: { ...req.preview, each: true, why: 'This conversation holds data of Sales: what is sent leaves the workspace', standing: undefined } };
+  assert.deepEqual(W.grantChoices(each).map((c) => c.id), ['once']);
+  assert.equal(W.mcpRows(each).eachLine, 'This conversation holds data of Sales: what is sent leaves the workspace.');
+  assert.match(W.mcpRows({ ...each, preview: { ...each.preview, why: '' } }).eachLine, /each call is asked every time\.$/);
+  const trusted = { ...req, preview: { ...req.preview, readOnlyTrusted: true } };
+  assert.match(W.mcpRows(trusted).marked, /the server’s word, not xbin’s/);
+  const prefs = W.netPrefs({ mcp: true, net: { web: { policy: 'off' }, mcp: { policy: 'listed', servers: [{ server: 'ext:tracker', name: 'Tracker', host: 'mcp.tracker.example' }] } } });
+  assert.deepEqual(prefs[1].servers, [{ name: 'Tracker', host: 'mcp.tracker.example' }]);
+  assert.match(prefs[1].note, /leaves the workspace/);
+  assert.match(prefs[2].note, /An outside server’s marks count only where an admin trusts them/);
+  assert.deepEqual(W.netPrefs({ net: { mcp: { policy: 'tiles' } } })[1].servers, []);
+  const row = W.did({ ts: '2026-11-16T10:00:00Z', method: 'POST', path: 'https://mcp.tracker.example:443', class: 'mcp', server: 'ext:tracker', tool: 'post', status: 200, effect: true, ticket: 'r1' });
+  assert.equal(row.text, 'Ran post on ');
+  assert.equal(row.strong, 'ext:tracker');
+  assert.match(row.detail, /mcp\.tracker\.example/);
 });

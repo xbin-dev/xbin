@@ -66,6 +66,11 @@ type DelegateStart struct {
 	// anything else.
 	Approved       bool
 	Provider, Mode string
+	// Signin is the saved sign-in the person was shown the start would use
+	// ("uses your saved … sign-in", the request's preview) and approved: its
+	// id, "" when the approval named none. Only an approved start that
+	// names one gets one, and exactly that one (signin.go).
+	Signin string
 	// Net is the network the person was shown, used when the request names
 	// none (xbind resolved it from their preferences: the request's preview).
 	Net string
@@ -90,10 +95,14 @@ type EffectiveStart struct {
 // session this agent started. The int is the HTTP status of a refusal.
 func (m *Manager) DelegateEffective(p auth.Principal, a AgentOpen) (EffectiveStart, int, error) {
 	_, rel, err := util.SafeJoin(m.Root, a.Cwd)
-	if a.Cwd == "" || err != nil || rel == "" || !p.CanTerminalTileVia(rel) {
+	tile := ""
+	if err == nil && rel != "" {
+		tile, _ = m.sessionTile(rel) // the level is the tile's (sessiondir.go); "" for no tile: refused
+	}
+	if a.Cwd == "" || err != nil || tile == "" || !p.CanTerminalTileVia(tile) {
 		return EffectiveStart{}, 403, fmt.Errorf("%s doesn't have terminal access to %s: their agent can't start a tile agent there", p.UserID, strings.Trim(a.Cwd, "/"))
 	}
-	if auth.HoldsDelegation(rel) {
+	if auth.HoldsDelegation(tile) || auth.HoldsDelegation(rel) {
 		return EffectiveStart{}, 403, errors.New("a workspace agent starts no tile agent on a system component")
 	}
 	providerID, mode := a.Provider, a.Mode
@@ -121,7 +130,7 @@ func (m *Manager) DelegateEffective(p auth.Principal, a AgentOpen) (EffectiveSta
 	if mode, err = prov.ResolveMode(mode); err != nil {
 		return EffectiveStart{}, 400, err
 	}
-	return EffectiveStart{Tile: rel, Provider: prov, Mode: mode, Resumes: a.Resume != ""}, 0, nil
+	return EffectiveStart{Tile: tile, Provider: prov, Mode: mode, Resumes: a.Resume != ""}, 0, nil
 }
 
 // resumeOwn: a delegate reopens only what it opened — a past session of

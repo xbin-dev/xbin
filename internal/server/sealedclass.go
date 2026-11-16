@@ -709,18 +709,33 @@ var sealedRules = map[string]SealedRule{
 	"POST /delegate/page/dismiss":            {Class: SealedNoTile}, // a person's own notice
 	"POST /delegate/web/fetch":               {Class: SealedNoTile}, // a URL, never a tile
 	"POST /delegate/mcp/call":                {Class: SealedRefused, Body: []string{"server"}, What: sealedNoAgentWhat},
+	"GET /delegate/mcp/servers":              {Class: SealedNoTile}, // outside servers, never a tile (D240)
+	"POST /delegate/mcp/tools":               {Class: SealedNoTile},
+	"POST /delegate/mcp/test":                {Class: SealedNoTile},
 	// what a tile agent started on ?tile= would open with: none starts on one
 	// (auth.CanTerminalTileVia, and the delegate gate's DelegateTile)
 	"GET /delegate/start-defaults": {Class: SealedRefused, Query: []string{"tile"}, What: "it has no terminal and no agent sessions"},
 	// previews (D234): a render shows tiles, never a system component's page
-	"POST /preview":             {Class: SealedRefused, Body: []string{"tile"}, What: sealedNoPreview},
-	"GET /preview":              {Class: SealedNoTile},
-	"GET /docs/search":          {Class: SealedNoTile},
-	"GET /docs/page":            {Class: SealedNoTile},
-	"POST /llm/keys":            {Class: SealedNoTile},
-	"DELETE /llm/keys":          {Class: SealedNoTile},
-	"DELETE /llm/keys/{id}":     {Class: SealedNoTile},
-	"POST /llm/keys/{id}/renew": {Class: SealedNoTile},
-	"GET /agent/prefs":          {Class: SealedNoTile},
-	"PUT /agent/prefs":          {Class: SealedNoTile},
+	"POST /preview":                            {Class: SealedRefused, Body: []string{"tile"}, What: sealedNoPreview},
+	"GET /preview":                             {Class: SealedNoTile},
+	"GET /docs/search":                         {Class: SealedNoTile},
+	"GET /docs/page":                           {Class: SealedNoTile},
+	"POST /llm/keys":                           {Class: SealedNoTile},
+	"DELETE /llm/keys":                         {Class: SealedNoTile},
+	"DELETE /llm/keys/{id}":                    {Class: SealedNoTile},
+	"POST /llm/keys/{id}/renew":                {Class: SealedNoTile},
+	"GET /agent/prefs":                         {Class: SealedNoTile},
+	"PUT /agent/prefs":                         {Class: SealedNoTile},
+	"GET /agent/signins":                       {Class: SealedNoTile},
+	"POST /agent/signins":                      {Class: SealedNoTile},
+	"PUT /agent/signins/{id}":                  {Class: SealedNoTile},
+	"DELETE /agent/signins/{id}":               {Class: SealedNoTile},
+	"DELETE /agent/signins/notice":             {Class: SealedNoTile},
+	"GET /agent/signins/uses":                  {Class: SealedNoTile},
+	"POST /agent/signins/guided":               {Class: SealedNoTile},
+	"POST /agent/signins/guided/{flow}":        {Class: SealedNoTile},
+	"DELETE /agent/signins/guided/{flow}":      {Class: SealedNoTile},
+	"GET /agent/signins/people":                {Class: SealedNoTile},
+	"DELETE /agent/signins/people/{user}/{id}": {Class: SealedNoTile},
+	"PUT /agent/signins/policy":                {Class: SealedNoTile},
 }

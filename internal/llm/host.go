@@ -37,6 +37,10 @@ type hostConfig struct {
 	// WorkspaceAgent is the one key that isn't the connector's: the host's
 	// rule for workspace agents (hostagent.go).
 	WorkspaceAgent HostAgent `json:"workspaceAgent"`
+	// AgentSignIns is its sibling (D230): whether people may save
+	// coding-agent sign-ins. Set, it is the host's: admins can't change it.
+	// Absent (null): the admins' switch.
+	AgentSignIns *bool `json:"agentSignIns,omitempty"`
 
 	keys   map[string]string // upstream → the key read from its keyFile
 	stamps map[string]fileStamp
@@ -101,6 +105,9 @@ func loadHost(path string) (*hostConfig, error) {
 			return nil, fmt.Errorf("XBIN_LLM_CONFIG %s: upstream %s: its key file holds no key (one line)", path, name)
 		}
 		h.keys[name] = key
+	}
+	if err := hostServerSecrets(h, path); err != nil {
+		return nil, fmt.Errorf("XBIN_LLM_CONFIG %s: %w", path, err)
 	}
 	return h, nil
 }

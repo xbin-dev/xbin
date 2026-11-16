@@ -99,7 +99,7 @@ export function needTitle(req) {
 /** heading(req): the sheet's heading — {before, strong, after}: the tile's name is the strong part. */
 export function heading(req) {
   if (req.kind === 'web') return { before: 'Your agent wants to read a page on ', strong: webOf(req).host || 'the web', after: '' };
-  if (req.kind === 'mcp') return { before: 'Your agent wants to run ', strong: mcpOf(req).tool || 'a tool', after: ` on ${mcpOf(req).server}` };
+  if (req.kind === 'mcp') return { before: 'Your agent wants to run ', strong: mcpOf(req).tool || 'a tool', after: ` on ${mcpOf(req).server}${mcpOf(req).outside ? ', outside this workspace' : ''}` };
   const t = tileOf(req).name || 'a tile';
   if (req.kind === 'session') {
     return req.preview && req.preview.session && req.preview.session.resume
@@ -197,10 +197,9 @@ export const undoWords = (req) => `xbin can't undo this. Whether ${tileOf(req).n
 export function grantChoices(req) {
   if (req.kind === 'mcp') {
     const m = mcpOf(req);
-    return [
-      { id: 'once', scope: '', label: 'Once', text: 'This call only. The agent has 15 minutes to make it.', wider: false },
-      { id: 'tool', scope: 'tool', label: 'Always, this tool', text: m.standing || `${m.tool} on ${m.server}, as it is described now, with any arguments, without asking again.`, wider: false },
-    ];
+    const once = { id: 'once', scope: '', label: 'Once', text: 'This call only. The agent has 15 minutes to make it.', wider: false };
+    return m.each ? [once] : [once, // an outside server's call from a conversation holding an org's data: once only (D240)
+      { id: 'tool', scope: 'tool', label: 'Always, this tool', text: m.standing || `${m.tool} on ${m.server}, as it is described now, with any arguments, without asking again.`, wider: false }];
   }
   if (req.kind !== 'call') return [];
   const t = tileOf(req).name || 'this tile';
@@ -272,11 +271,18 @@ export function sessionRows(req) {
   const asks = s.asks === true;
   const who = s.providerName || s.provider || 'A coding agent';
   const model = s.model ? ` · model ${s.model}` : '';
-  const cred = s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';
+  // what it signs in with, as xbind read it when the request was filed (D230): a saved sign-in is named; none at all is said, with the harness to sign in to
+  const cred = s.signIn === 'saved' || s.signIn === 'needed' ? ''
+    : s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';
   let brief = '';
   try { const b = JSON.parse(req.body || '{}'); brief = String(b.prompt ?? b.brief ?? b.message ?? ''); } catch { brief = String(req.body || ''); }
   return {
     agent: `${who}${model}${cred}`,
+    // a saved sign-in is named on the approval, in xbind's words — its label is drawn by the chrome from the person's own list (id),
+    // and approving is what puts it into the session: say who then holds it
+    signin: s.signIn === 'saved' && typeof s.signInId === 'string' && s.signInId
+      ? { saved: true, id: s.signInId, name: who, text: `Uses your saved ${who} sign-in`, holds: `The tile's coding agent will hold that sign-in: it, and anything it runs in ${t}, can read it.` }
+      : s.signIn === 'needed' && typeof s.provider === 'string' ? { harness: s.provider, name: who, text: `Needs your ${who} sign-in: without it the tile agent starts signed out.` } : null,
     mode: asks ? { tag: 'asks before acting', tone: 'ok', text: 'It asks you before it edits a file or runs a command.', name: s.mode || '' }
       : { tag: 'acts without asking', tone: 'bad', text: `It edits files and runs commands in ${t} without asking you.`, name: s.mode || '' },
     network: !s.net || s.net === 'none' ? 'Its model only. No internet.' : `Network: ${s.net}`,
@@ -359,12 +365,12 @@ export function stopWords(refusal, kind = 'request') {
 
 /** standingRow(a, now): one standing approval — {tile, text, wider, since, until}. */
 export function standingRow(a, now = Date.now()) {
-  const until = toMs(a.until);
+  const until = toMs(a.until), srv = a.server && typeof a.server === 'object' ? a.server : null; // an outside server's tool (D240)
   return {
-    tile: lastOf(a.tile) || a.tile || '',
-    path: a.tile || '',
+    tile: srv ? String(srv.name || srv.server || '') : lastOf(a.tile) || a.tile || '',
+    path: srv ? String(srv.server || '') : a.tile || '',
     wider: a.scope === 'tile',
-    text: a.scope === 'tile' ? 'Always · every change' : a.scope === 'tool' ? `Always · this tool: ${a.path || ''}` : `Always · this action: ${a.method || ''} ${a.path || ''}`.trim(),
+    text: a.scope === 'tile' ? 'Always · every change' : a.scope === 'tool' ? `Always · this tool: ${a.path || ''}${srv ? ` — outside this workspace (${srv.host || ''})` : ''}` : `Always · this action: ${a.method || ''} ${a.path || ''}`.trim(),
     since: toMs(a.created) ? `since ${new Date(toMs(a.created)).toLocaleDateString()} ${clock(toMs(a.created))}` : '',
     until: until ? (until > now ? `ends in ${left(until - now)}` : 'ended') : 'until you take it back',
   };
@@ -453,11 +459,21 @@ const RESULT = {
   stale: { word: 'out of date', icon: 'refresh', tone: 'warn', text: 'Someone changed this after the agent proposed it. What you ticked no longer matches, so xbin left it alone.' },
   rejected: { word: 'left out by you', icon: 'minus', tone: '' }, blocked: { word: "couldn't be applied", icon: 'lock', tone: 'warn' },
   asked: { word: 'sent to an admin', icon: 'clock', tone: '' },
+  // a plan's line that waits (item.wait): approved, applied by xbin once its tile provides what was approved — or never
+  waiting: { word: 'waiting', icon: 'clock', tone: 'warn' }, lapsed: { word: 'lapsed — never applied', icon: 'clock', tone: '' }, cancelled: { word: 'cancelled — never applied', icon: 'minus', tone: '' },
 };
+/** waitText(item): where a waiting line stands, from xbind's fields — what it waits for, or why it is held ('' for a line that doesn't wait). */
+export function waitText(item) {
+  const w = item && item.wait;
+  if (!w || item.result !== 'waiting') return '';
+  const what = `${w.tile} provides ${w.service}`;
+  return w.held ? `Not bound — ${w.held}. xbin applies it once ${what} as you approved it.` : `xbin applies it by itself once ${what}; nothing is bound until then.`;
+}
 /** resultOf(item): an item's result as {word, icon, tone, text} ("xbin said: …" for a failure). */
 export function resultOf(item) {
   const r = RESULT[item.result] || (item.needsAdmin && !item.result ? { word: 'needs an admin', icon: 'lock', tone: '' } : { word: item.result || '', icon: '', tone: '' });
-  const text = item.result === 'failed' ? `xbin said: “${item.error || 'it failed'}”` : item.result === 'blocked' ? String(item.blocked || item.error || '') : r.text || '';
+  const text = item.result === 'failed' ? `xbin said: “${item.error || 'it failed'}”` : item.result === 'blocked' ? String(item.blocked || item.error || '')
+    : item.result === 'waiting' ? waitText(item) : ['lapsed', 'cancelled'].includes(item.result) ? String(item.error || '') : r.text || '';
   return { ...r, text };
 }
 
@@ -509,19 +525,20 @@ export function webOf(req) {
 /** webHost(url): the host of a URL ('' when none). */
 export function webHost(url) { const m = /^[a-z]+:\/\/([^/?#:]+)/i.exec(String(url || '')); return m ? m[1] : ''; }
 
-/** mcpOf(req): an MCP request's tool as xbind previews it — {server, path, tool, title, description, readOnly, arguments, standing}. */
+/** mcpOf(req): an MCP request's tool as xbind previews it — {server, path, tool, title, description, readOnly, arguments, standing}; an outside server's (D240) adds outside, host, each, why. */
 export function mcpOf(req) {
   const p = (req && req.preview) || {};
   return { server: String(p.serverName || p.server || lastOf(req && req.tile) || 'an MCP server'), path: String(p.server || (req && req.tile) || ''), tool: String(p.tool || ''),
     title: String(p.title || ''), description: String(p.description || ''), readOnly: p.readOnly === true, arguments: String(p.arguments || ''),
-    standing: (p.standing && p.standing.tool) || '', changed: Array.isArray(p.changed) ? p.changed.map(String) : [] };
+    standing: (p.standing && p.standing.tool) || '', changed: Array.isArray(p.changed) ? p.changed.map(String) : [],
+    outside: p.outside === true, host: String(p.host || ''), each: p.each === true, why: String(p.why || ''), trusted: p.readOnlyTrusted === true };
 }
 
 const CHANGED = Object.freeze({ name: 'its name', title: 'its title', description: 'its description', inputSchema: 'its arguments',
   outputSchema: 'its answer’s form', annotations: 'its marks (read-only and the like)' });
 
-/** READ_WEB: what a sheet says when the conversation that asks has read the web (preview.readWeb). */
-export const READ_WEB = 'This conversation has read the web: what your agent asks may come from a page it read.';
+/** READ_WEB: what a sheet says when the conversation that asks has read the web or an outside server (preview.readWeb). */
+export const READ_WEB = 'This conversation has read the web or an outside server: what your agent asks may come from what it read there.';
 /** webRows(req): a web request as the sheet's rows — {url, host, why, once}. */
 export function webRows(req) {
   const w = webOf(req);
@@ -531,8 +548,10 @@ export function webRows(req) {
 /** mcpRows(req): an MCP request as the sheet's rows. */
 export function mcpRows(req) {
   const m = mcpOf(req);
-  return { ...m, marked: m.readOnly ? 'Its server marks it read-only — the server’s word, not xbin’s.' : 'Its server doesn’t mark it read-only: it may change things.',
-    undo: `xbin can't undo this. Whether ${m.server} can is up to ${m.server}.`,
+  const ro = m.outside && !m.trusted ? 'Its server marks it read-only — an outside server’s word, which your “read-only tools don’t ask me” doesn’t take.' : 'Its server marks it read-only — the server’s word, not xbin’s.';
+  return { ...m, marked: m.readOnly ? ro : 'Its server doesn’t mark it read-only: it may change things.',
+    undo: `xbin can't undo this. Whether ${m.server} can is up to ${m.server}.`, outsideLine: m.outside ? `Outside this workspace: ${m.host || 'an outside server'}` : '',
+    eachLine: m.each ? (m.why ? `${m.why}.` : 'This conversation holds an organisation’s data: what is sent leaves the workspace, so each call is asked every time.') : '',
     changedLine: m.changed.length ? `Changed since you last allowed it or first met it: ${m.changed.map((k) => CHANGED[k] || k).join(', ')}.` : '' };
 }
 
@@ -548,13 +567,15 @@ export function netPrefs(state) {
   const web = net.web || {}, mcp = net.mcp || {};
   const webOk = !!web.policy && web.policy !== 'off', mcpOk = !!mcp.policy && mcp.policy !== 'off';
   const only = Array.isArray(web.only) && web.only.length ? ` Only ${web.only.join(', ')}.` : '';
+  const servers = (Array.isArray(mcp.servers) ? mcp.servers : []).map((s) => ({ name: String((s && s.name) || (s && s.server) || ''), host: String((s && s.host) || '') })); // the outside ones (D240)
   return [
     { id: 'web', label: 'Let my agent read web pages', on: !!st.web && webOk, allowed: webOk, why: webOk ? '' : (web.why || 'Off for this workspace — an admin can change it.'),
       note: `It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve.${only}` },
-    { id: 'mcp', label: 'Let my agent use MCP tools from this workspace’s tiles', on: !!st.mcp && mcpOk, allowed: mcpOk, why: mcpOk ? '' : (mcp.why || 'Off for this workspace — an admin can change it.'),
-      note: 'As you, on the tiles you can reach. Each tool asks you the first time.' },
+    { id: 'mcp', label: servers.length ? 'Let my agent use MCP tools' : 'Let my agent use MCP tools from this workspace’s tiles', on: !!st.mcp && mcpOk, allowed: mcpOk, why: mcpOk ? '' : (mcp.why || 'Off for this workspace — an admin can change it.'),
+      note: servers.length ? 'From this workspace’s tiles, as you, and from the servers outside it listed below: what it sends one leaves the workspace. Each tool asks you the first time.' : 'As you, on the tiles you can reach. Each tool asks you the first time.',
+      servers },
     { id: 'mcpReadOnly', label: 'MCP tools marked read-only don’t ask me', on: !!st.mcpReadOnly && mcpOk && !!st.mcp, allowed: mcpOk && !!st.mcp, sub: true,
-      why: !mcpOk ? '' : st.mcp ? '' : 'Turn on MCP tools first.', note: '“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask.' },
+      why: !mcpOk ? '' : st.mcp ? '' : 'Turn on MCP tools first.', note: `“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask.${servers.length ? ' An outside server’s marks count only where an admin trusts them.' : ''}` },
   ];
 }
 
@@ -570,6 +591,13 @@ export function needs({ requests = [], changesets = [], sessions = [] } = {}, no
   const rows = [];
   for (const r of requests) if (r.state === 'pending') rows.push({ kind: 'request', id: r.id, title: needTitle(r), note: asked(r, now), action: 'Review…', at: toMs(r.created) });
   for (const c of changesets) {
+    // a decided plan whose line still waits for xbin: nothing to decide, but it is the person's to see — and to cancel
+    for (const it of c.state === 'proposed' ? [] : c.items || []) {
+      if (it.result !== 'waiting' || !it.wait) continue;
+      const u = toMs(it.wait.until);
+      rows.push({ kind: 'changeset', id: c.id, waits: true, title: `Waiting: ${it.line || 'a line of your plan'}`,
+        note: [it.wait.held ? `not bound — ${it.wait.held}` : `xbin applies it once ${it.wait.tile} provides ${it.wait.service}`, u > now ? `lapses in ${left(u - now)}` : ''].filter(Boolean).join(' · '), action: 'Open', at: toMs(c.decided || c.created) });
+    }
     if (c.state !== 'proposed') continue;
     const w = needChangeTitle(c), e = toMs(c.expires);
     rows.push({ kind: 'changeset', id: c.id, title: w.title, note: [w.note, e > now ? `expires in ${left(e - now)}` : ''].filter(Boolean).join(' · '), action: 'Review…', at: toMs(c.created) });
@@ -578,7 +606,9 @@ export function needs({ requests = [], changesets = [], sessions = [] } = {}, no
     if (!(s.pending > 0 || s.questions > 0 || s.status === 'waiting_permission')) continue;
     const t = lastOf(s.cwd || s.tile) || 'A tile';
     rows.push({ kind: 'session', id: s.id, tile: s.cwd || s.tile || '', title: `${t} · ${s.providerName || s.provider || 'the tile agent'} ${s.questions > 0 ? 'asks a question' : 'asks permission'}`,
-      note: s.origin === 'agent' ? 'started by your agent' : '', action: 'Open', at: toMs(s.waitingSince || s.updated || s.created) });
+      note: s.origin === 'agent' ? 'started by your agent' : '', action: 'Open', at: toMs(s.waitingSince || s.updated || s.created),
+      // a permission request is answered right here (bx-agent-permits.js); a question still opens the tile's window
+      permits: !(s.questions > 0) && (s.pending > 0 || s.status === 'waiting_permission'), agentName: s.providerName || s.provider || '' });
   }
   return rows.sort((a, b) => a.at - b.at);
 }
@@ -623,6 +653,8 @@ export function did(row) {
     return row.refused ? { text: 'Was refused a web page on ', strong: host, detail: String(row.refused), icon: 'lock', group: 'refused', at }
       : { text: 'Read a web page on ', strong: host, detail: [row.path, row.bytes ? bytes(row.bytes) : '', row.ticket ? 'you allowed it once' : ''].filter(Boolean).join(' · '), icon: 'globe', group: 'change', at };
   }
+  if ((cls === 'mcp' || cls === 'mcp-read') && row.server) return { text: row.refused ? 'Was refused an outside server, ' : cls === 'mcp' ? `Ran ${row.tool || 'a tool'} on ` : 'Read the tools of ', strong: String(row.server), // an outside server (D240)
+    detail: [webHost(row.path), row.refused ? String(row.refused) : cls === 'mcp' ? underWords(row) : '', row.bytes ? bytes(row.bytes) : ''].filter(Boolean).join(' · '), icon: row.refused ? 'lock' : 'plug', group: row.refused ? 'refused' : cls === 'mcp' ? 'change' : 'read', at };
   if (cls === 'mcp' && !row.refused) return { text: 'Ran a tool of ', strong: t, detail: [row.under === 'preference' ? 'without asking: marked read-only, your preference' : underWords(row), row.status >= 400 ? 'failed' : ''].filter(Boolean).join(' · '), icon: 'plug', group: 'change', at };
   if (cls === 'mcp-read' && !row.refused) return { text: 'Read the tools of ', strong: t, detail: '', icon: 'eye', group: 'read', at };
   if (cls.startsWith('changeset:')) return { text: 'Applied an admin change as you', strong: '', detail: `${kindTag(cls.slice(10))}${row.status >= 400 ? ' · failed' : ''}`, icon: 'shield', group: 'change', at };
@@ -919,6 +951,7 @@ export const handoffLink = (tile) => `/?tile=${encodeURIComponent(tilePath(tile)
  *   xbin:open-session {session: "new", tile, draft}
  *                                     → {type: 'new-session', tile, draft}  (draft: plainDraft)
  *   xbin:agent-open {view}            → {type: 'open', view}  (needs | approvals | activity — never prefs)
+ *   xbin:agent-open-signin {harness}  → {type: 'signin', harness}  (a coding agent's id: the chrome draws the sign-in, D230)
  *
  * or null. Ids and a word — and a new session's draft, the person's own
  * words, kept as plain text for its composer: no other field of a message
@@ -935,10 +968,18 @@ export function pageMessage(data) {
     if (tile && session === 'new') return { type: 'new-session', tile, draft: plainDraft(data.draft) };
     return tile && session ? { type: 'session', tile, session } : null;
   }
+  // a coding agent's sign-in: the page names the harness, the chrome draws the card and talks to xbind (D230)
+  if (data.type === 'xbin:agent-open-signin') return typeof data.harness === 'string' && HARNESS.test(data.harness) ? { type: 'signin', harness: data.harness } : null;
   // only views that change nothing: Preferences — where the agent's reach widens — opens from the chrome's own menu alone
   if (data.type === 'xbin:agent-open') return PAGE_VIEWS.includes(data.view) ? { type: 'open', view: data.view } : null;
   return null;
 }
+
+// a coding agent's id, as the catalog spells them
+const HARNESS = /^[a-z][a-z0-9-]{0,31}$/;
+
+/** SIGNINS_MESSAGE: what the dock tells the page after the person's saved sign-ins changed — re-read what a start would run on. */
+export const SIGNINS_MESSAGE = Object.freeze({ type: 'xbin:agent-signins' });
 
 /** PAGE_VIEWS: the dock's views the agent's page may ask for (xbin:agent-open {view}) — the ones that change nothing. */
 export const PAGE_VIEWS = Object.freeze(['needs', 'approvals', 'activity']);

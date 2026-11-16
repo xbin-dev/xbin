@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,7 +27,69 @@ import (
 // acptest.Command() — this binary, re-executed as the adapter.
 func TestMain(m *testing.M) {
 	acptest.MainIfAdapter()
-	os.Exit(m.Run())
+	ran, done := noRealHarnessCLIs()
+	code := m.Run()
+	if _, err := os.Stat(ran); err == nil {
+		b, _ := os.ReadFile(ran)
+		fmt.Fprintf(os.Stderr, "FAIL: a test resolved a coding agent's CLI it did not script (%s): on a developer's machine that is the real one. Script it (testClaude) or give the command a PATH without it.\n", strings.TrimSpace(string(b)))
+		code = 1
+	}
+	done()
+	os.Exit(code)
+}
+
+// noRealHarnessCLIs makes this test binary unable to start a real coding
+// agent's CLI, whatever the machine has installed. The fake manager runs a
+// sandbox's commands on the host with this process's PATH, and a mint
+// looks in the image's directories (mintPath: /usr/bin and so on — where a
+// developer's own claude lives). So: mintPath is a directory of plain tools alone (an
+// unscripted mint is "not installed"), and stand-ins for every harness CLI
+// lead PATH — one that runs says so in the file ran and fails, and TestMain
+// fails the run. A test that needs a CLI scripts it in front (testClaude).
+func noRealHarnessCLIs() (ran string, done func()) {
+	dir, err := os.MkdirTemp("", "no-real-harness-")
+	if err != nil {
+		panic(err)
+	}
+	ran = filepath.Join(dir, "ran")
+	guard, empty := filepath.Join(dir, "guard"), filepath.Join(dir, "tools")
+	for _, d := range []string{guard, empty} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			panic(err)
+		}
+	}
+	for _, name := range []string{"claude", "codex", "gemini", "opencode"} {
+		stub := "#!/bin/sh\nprintf '%s %s\\n' " + name + " \"$*\" >> " + ran + "\nprintf 'TEST BUG: %s is not scripted in this test\\n' " + name + " >&2\nexit 97\n"
+		if err := os.WriteFile(filepath.Join(guard, name), []byte(stub), 0o755); err != nil {
+			panic(err)
+		}
+	}
+	// the plain tools a scripted CLI calls (the mint gives it this path and
+	// nothing else): links to this machine's, by name — never a directory of it
+	for _, tool := range []string{"sh", "ls", "tr", "cut", "grep", "sed", "cat", "env", "id", "stty", "sleep", "mktemp", "rm"} {
+		if at, err := exec.LookPath(tool); err == nil {
+			_ = os.Symlink(at, filepath.Join(empty, tool))
+		}
+	}
+	os.Setenv("PATH", guard+string(os.PathListSeparator)+os.Getenv("PATH"))
+	mintPath = empty
+	return ran, func() { _ = os.RemoveAll(dir) }
+}
+
+// covers D230 (review 8) — the guard itself: no harness CLI resolves to
+// anything of this machine's, on PATH or where a mint looks.
+func TestNoRealHarnessCLIResolves(t *testing.T) {
+	for _, name := range []string{"claude", "codex", "gemini", "opencode"} {
+		at, err := exec.LookPath(name)
+		if err != nil || !strings.Contains(at, "no-real-harness-") {
+			t.Errorf("%s resolves to %q (%v), not the test binary's stand-in", name, at, err)
+		}
+		for _, dir := range filepath.SplitList(mintPath) {
+			if !strings.Contains(dir, "no-real-harness-") && !strings.HasPrefix(dir, os.TempDir()) {
+				t.Errorf("a mint looks in %s — this machine's own directory", dir)
+			}
+		}
+	}
 }
 
 // pipeSandbox binds a fake manager (hack/fakesandbox), tuned by tune, makes

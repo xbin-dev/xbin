@@ -27,7 +27,7 @@ func (h HostNet) Set() bool { return h.Web != nil || h.MCP != nil }
 
 // NetSettings are the web and MCP settings an admin writes, by their names
 // in PUT /delegate/workspace.
-var NetSettings = []string{"web.mode", "web.allow", "web.deny", "web.search", "mcp.mode"}
+var NetSettings = []string{"web.mode", "web.allow", "web.deny", "web.search", "mcp.mode", "mcp.servers"}
 
 // HostLock is one setting the host's file holds: a write past its ceiling
 // is refused.
@@ -55,6 +55,9 @@ func (h HostNet) Locks() map[string]HostLock {
 	if h.MCP != nil && h.MCP.Mode != "" {
 		out["mcp.mode"] = HostLock{Locked: true, Reason: HostLockReason, Ceiling: h.MCP.Mode}
 	}
+	if h.MCP != nil && h.MCP.Servers != nil { // a list of the host's is the list: locked outright (D240)
+		out["mcp.servers"] = HostLock{Locked: true, Reason: HostLockReason}
+	}
 	return out
 }
 
@@ -71,6 +74,9 @@ func (h HostNet) Refuses(p NetPatch) []string {
 	}
 	if c, held := l["mcp.mode"]; held && p.MCPMode != nil && mcpRank(*p.MCPMode) > mcpRank(c.Ceiling) {
 		out = append(out, "mcp.mode")
+	}
+	if _, held := l["mcp.servers"]; held && p.MCPServers != nil {
+		out = append(out, "mcp.servers")
 	}
 	return out
 }

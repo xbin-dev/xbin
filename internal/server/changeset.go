@@ -196,6 +196,19 @@ func (s *Server) apiChangeSet(w http.ResponseWriter, r *http.Request) {
 
 // endChangeSet moves an open set to state (withdrawn, rejected).
 func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state string) bool {
+	if cur, ok := s.Delegation.ChangeSet(a.user, id); ok && !cur.Open() && unsettled(cur) && (cur.From == "" || a.own) {
+		// decided, with a line that still waits — for xbind, or with the
+		// admins: taking the plan back ends both, here and in every admin's
+		// copy. The person's own act, or their agent's (it only narrows)
+		why := "you cancelled it before it was applied"
+		if !a.own {
+			why = "your agent took the plan back before it was applied"
+		}
+		s.takeBack(a.user, id, why)
+		cur, _ = s.Delegation.ChangeSet(a.user, id)
+		WriteJSON(w, http.StatusOK, s.setFor(a, cur))
+		return true
+	}
 	cs, err := s.Delegation.UpdateChangeSet(a.user, id, func(cs *delegation.ChangeSet) error {
 		switch {
 		case cs.From != "" && !a.own:
@@ -315,6 +328,20 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusForbidden, "a request to the admins is applied by a workspace admin", delegationDocs)
 			return
 		}
+		// …and to the asker's own set as it stands now: a plan they took
+		// back, that expired or that is gone asks for nothing any more —
+		// whatever path ended it (the copies are withdrawn where xbind sees
+		// the end happen; this holds for the ones it did not)
+		if why := s.askWithdrawn(cs); why != "" {
+			now := time.Now().UTC().Truncate(time.Second)
+			_, _ = s.Delegation.UpdateChangeSet(a.user, id, func(c *delegation.ChangeSet) error {
+				c.State, c.Decided, c.DecidedBy = delegation.SetWithdrawn, now, cs.From
+				return nil
+			})
+			s.delegateEvent(a.user, "changeset", id)
+			WriteError(w, http.StatusConflict, why, delegationDocs)
+			return
+		}
 	}
 	if refusal, msg := s.decideRefusal(whose, cs.Agent); refusal != "" {
 		refuseDecision(w, refusal, msg)
@@ -396,6 +423,12 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "the change set's results can't be written (what was applied stays applied: see the audit log)", delegationDocs)
 		return
 	}
+	if cs.Waiting() { // on record now: watched from here, and looked at once (planwait.go)
+		s.watchWaits(a.user)
+		if now, ok := s.Delegation.ChangeSet(a.user, cs.ID); ok {
+			cs = now
+		}
+	}
 	s.askDecided(cs)
 	s.delegateEvent(a.user, "changeset", cs.ID)
 	WriteJSON(w, http.StatusOK, cs)
@@ -405,6 +438,8 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 // as approver, filling each item's result and the set's state; an
 // operation that wasn't chosen is rejected.
 func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs *delegation.ChangeSet, chosen []int) {
+	// its own lines: the store's copy changes when the results are written, not line by line under its readers
+	cs.Items = slices.Clone(cs.Items)
 	failed, problems, applied := false, 0, 0
 	agent := planAgent{}
 	if cs.Plan {
@@ -450,7 +485,11 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 			}
 			approver, agent = cur, s.agentOf(*cs, cur)
 		}
-		pv, err := s.previewLine(approver, agent, pinStart(it.ChangeOp, it.Start), nil)
+		var started []delegation.PlannedStart
+		if it.Wait != nil && cs.From == "" { // it waits on a tile agent this plan started (no line of a request to the admins waits)
+			started = startsOf(cs.Items, it.N, true)
+		}
+		pv, err := s.previewLine(approver, agent, pinStart(it.ChangeOp, it.Start), nil, started...)
 		why := ""
 		if err == nil && cs.Plan {
 			why = cmpOr(s.lineAgentRefusal(agent, pv.Tiles), s.createScopeRefusal(agent, pv.Creates))
@@ -466,10 +505,21 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 			it.Result, it.Error = delegation.ItemFailed, "this now takes an admin's rights — it was yours to do when it was proposed: nothing was applied; ask your agent to propose it again"
 		case cs.Plan && lineStale(*it, pv), !cs.Plan && changeBasis(pv) != it.Basis:
 			it.Result, it.Error = delegation.ItemStale, "it changed since the change set was proposed: nothing was applied — ask your agent to propose it again"
+		case it.Wait != nil && (it.Admin || pv.Admin || cs.From != ""):
+			// only a person's own binding waits (planwait.go): never an admin's line, never a line of a request
+			it.Result, it.Error = delegation.ItemFailed, "a line that takes an admin's rights doesn't wait: nothing was applied — ask your agent to propose it again once the tile provides what it binds"
+		case it.Wait != nil && pv.Waits != nil:
+			// approved, and it waits: xbind applies it by itself once the
+			// tile provides exactly what was approved (planwait.go)
+			s.startWaiting(it, pv)
+			s.delegateAudit(delegation.Call{User: cs.User, Agent: cs.Agent, Method: pv.Call.Method, Path: "/api/xbin" + pv.Call.Path, Tile: it.Wait.Component,
+				Class: "changeset:" + it.Kind, Effect: true, Status: http.StatusAccepted, Ticket: cs.ID, Session: cs.Session, Under: "waits", From: cs.From})
+			applied++
+			continue
 		default:
 			status, msg, out := 0, "", json.RawMessage(nil)
 			if it.Kind == delegation.KindAgentStart {
-				status, msg, out = s.planStart(ctx, agent, pv)
+				status, msg, out = s.planStart(ctx, agent, pv, it.Start)
 			} else {
 				status, msg, out = s.adminCallOut(ctx, approver, pv.Call)
 				if it.Kind != delegation.KindTileCreate {
@@ -586,6 +636,10 @@ func (s *Server) apiChangeSetUndo(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		WriteError(w, http.StatusNotFound, "no such change set", delegationDocs)
 		return
+	}
+	if unsettled(cs) && cs.From == "" { // undoing a plan ends what of it still waits — for xbind, or with the admins
+		s.takeBack(a.user, cs.ID, "you undid the plan before it was applied")
+		cs, _ = s.Delegation.ChangeSet(a.user, cs.ID)
 	}
 	var ops []delegation.ChangeOp
 	var byHand []string // what was applied that xbind can't undo: said, not done

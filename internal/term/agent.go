@@ -74,9 +74,22 @@ type SessionEvent struct {
 	agent.Event
 	User string `json:"user"`
 	ID   string `json:"id"`
+	// private: the session carries its person's saved sign-in (signin.go)
+	// and is theirs alone — no admin follows it.
+	private bool
 }
 
 func (e SessionEvent) Owner() string { return e.User }
+
+// PrivateSessionEvent is an event of a session that carries its person's
+// saved sign-in, for a consumer's tests of who may follow it.
+func PrivateSessionEvent(user, id string) SessionEvent {
+	return SessionEvent{User: user, ID: id, private: true}
+}
+
+// Private reports an event of a session only its person may follow: one
+// that carries their saved sign-in (signin.go).
+func (e SessionEvent) Private() bool { return e.private }
 
 // agentState is the agent half of a KindAgent session.
 type agentState struct {
@@ -106,14 +119,20 @@ type agentState struct {
 	flushing  bool                // the queue is being sent as a prompt; under mu
 	queueing  atomic.Bool         // a message for the queue is being taken (ReserveQueue)
 	det       sdkacp.DetachedTurn // a turn the agent runs on its own (agentdetached.go); under mu
+	statusMu  sync.Mutex          // a status's logging, one step against det's begin (logEvent, beginDetached); before mu
 	quiet     *time.Timer         // looks at det's deadline; under mu
 	said      []byte              // the tail of what the agent wrote since its last prompt (agentstatus.go); under mu
 	llm       *llmSession         // the session's hold on the LLM connector (llmhook.go); nil = none
 	llmChoice string              // the session's own choice of who serves it, kept for a restart
+	redact    func(string) string // masks the session's saved sign-in in a log line (signin.go); nil = none
+	signin    *sessionSignin      // the session's sign-in and the saved one it carries (signin.go); under the Session's mu
 }
 
 func (st *agentState) logf(line string) {
 	line = maskLLMKeys(line) // a hook that printed the environment (llmhook.go)
+	if st.redact != nil {
+		line = st.redact(line) // …or the saved sign-in (signin.go)
+	}
 	st.mu.Lock()
 	st.text = append(st.text, line...)
 	st.text = append(st.text, '\n')
@@ -147,6 +166,9 @@ type AgentOpen struct {
 	// the workspace has an LLM connector: "connector", "own", or "" — the
 	// person's saved default, then the workspace's (llmhook.go).
 	LLM string
+	// Signin is the session's own choice of saved sign-in (signin.go): ""
+	// (the person's default for the harness), "none", or a sign-in's id.
+	Signin string
 	// Delegate says how a delegate's open was authorised (delegate.go): the
 	// server's delegate gate fills it; nil for everyone else, and a
 	// delegate's open without it is refused.
@@ -164,13 +186,15 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		return SessionInfo{}, 403, errors.New("an agent session runs on a tile — pass cwd")
 	}
 	_, rel, err := util.SafeJoin(m.Root, cwd)
+	tile := ""
 	if err == nil && rel != "" {
-		if why := m.sessionDir(rel); why != "" {
+		var why string
+		if tile, why = m.sessionTile(rel); why != "" { // the level, rules and target are the tile's (sessiondir.go)
 			return SessionInfo{}, 403, errors.New(why)
 		}
 	}
-	if err != nil || rel == "" || !p.CanTerminalTileVia(rel) {
-		return SessionInfo{}, 403, errors.New("your account doesn't have terminal access to this tile")
+	if err != nil || rel == "" || !p.CanTerminalTileVia(tile) {
+		return SessionInfo{}, 403, errors.New(noTerminalLevel)
 	}
 	// resume: reopen one of the caller's past sessions on this tile
 	// (history.go) — its provider, mode and name carry over; the agent must
@@ -205,7 +229,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	}
 	if p.Agent != "" { // a person's workspace agent: narrowed beyond the person's own gates (delegate.go)
 		var why string
-		if mode, netMode, why = m.delegateOpen(p, &a, rel, prov, mode, netMode, resumeFrom); why != "" {
+		if mode, netMode, why = m.delegateOpen(p, &a, tile, prov, mode, netMode, resumeFrom); why != "" {
 			return SessionInfo{}, 403, errors.New(why)
 		}
 	}
@@ -218,7 +242,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		return SessionInfo{}, 403, fmt.Errorf("a workspace agent opens exactly the session its person approved (%s in mode %s): this would be %s in mode %s — ask again",
 			d.Provider, d.Mode, prov.ID, mode)
 	}
-	if err := m.HarnessAllowed(p, rel, prov.ID); err != nil { // the tile's orgs' harness rules (D229)
+	if err := m.HarnessAllowed(p, tile, prov.ID); err != nil { // the tile's orgs' harness rules (D229)
 		if resume != "" {
 			return SessionInfo{}, 403, fmt.Errorf("this session can't be resumed here any more: %w", err)
 		}
@@ -227,20 +251,34 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if m.BxPath == "" {
 		return SessionInfo{}, 503, errors.New("agent sessions need the bx binary the daemon could not find at startup (build it: CGO_ENABLED=0 go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
-	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
+	o := m.openOptsFor(p, tile, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
 	o.origin = cmp.Or(p.Agent, a.origin) // a delegate's open; a restart keeps its session's (delegate.go)
 	if o.originMode = a.originMode; p.Agent != "" {
 		o.originMode = mode // the mode its person approved, or their preference's
 	}
-	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
+	if code, err := m.pickTarget(p, &o, tile, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
-	if code, err := m.llmGate(&o, rel, prov, a.LLM, options); err != nil { // who serves its model calls (llmhook.go)
+	if code, err := m.llmGate(&o, tile, prov, a.LLM, options); err != nil { // who serves its model calls (llmhook.go)
 		return SessionInfo{}, code, err
 	}
-	if code, err := m.pickPartition(p, &o, rel); err != nil { // partition.go
+	if code, err := m.pickPartition(p, &o, tile); err != nil { // partition.go
 		return SessionInfo{}, code, err
+	}
+	// the person's saved sign-in for the harness, and whether the rule lets
+	// it into this session (signin.go) — after the partition is known
+	o.signin = m.signinPlanFor(p, o, rel, prov, a.Signin, m.credentialRule(o, rel, prov.ID, o.llmChoice).Forced, a.LLM == sdkacp.UseConnector, a.Delegate)
+	o.signin.past = resumeFrom != nil && resumeFrom.Signin // its transcript comes back with it
+	if o.signin.bound && (o.signin.saved == nil || o.signin.why != "") {
+		// its person approved a start that uses their saved sign-in: it
+		// opens with that one, or not at all
+		m.partOpened(&o)
+		return SessionInfo{}, 403, fmt.Errorf("a workspace agent opens exactly the session its person approved, and that one used their saved %s sign-in, which can't go in now (%s) — ask again", prov.Name, o.signin.why)
+	}
+	if a.Signin != "" && a.Signin != SigninNone && o.signin.saved == nil {
+		m.partOpened(&o)
+		return SessionInfo{}, 404, errors.New("signin: you have no such saved sign-in for " + prov.Name + " (GET /api/xbin/agent/signins lists them)")
 	}
 	if code, err := m.resumeHere(resume, fromPart, o); err != nil { // partition.go
 		m.partOpened(&o)
@@ -305,11 +343,11 @@ func (m *Manager) MayDrive(id string, p auth.Principal) error {
 	}
 	if s.homeKey != HomeKey(p) {
 		if p.IsAdmin() {
-			return fmt.Errorf("%w: %s", ErrForbidden, notYours(s.Cwd))
+			return fmt.Errorf("%w: %s", ErrForbidden, notYours(m.tileOf(s)))
 		}
 		return fmt.Errorf("%w: session belongs to another user", ErrForbidden)
 	}
-	if !p.CanTerminalTileVia(s.Cwd) {
+	if !p.CanTerminalTileVia(m.tileOf(s)) {
 		return fmt.Errorf("%w: terminal access to this tile was revoked", ErrForbidden)
 	}
 	return nil
@@ -347,7 +385,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
-	if revokeTok, err = m.llmArm(&o, rel, &prov, revokeTok); err != nil { // the session's LLM key, ended with its token (llmhook.go)
+	if revokeTok, err = m.llmArm(&o, o.onTile(rel), &prov, revokeTok); err != nil { // the session's LLM key, ended with its token (llmhook.go)
 		revokeTok()
 		return nil, err
 	}
@@ -355,7 +393,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	cmd, cleanup, postStart, envKey, env, err := m.shellCmd(start, rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
-		m.sbxFail(o, rel, err)
+		m.sbxFail(o, o.onTile(rel), err)
 		return nil, err
 	}
 	// A prompt's files (agent/host/attach.go): in a sandbox they go to its
@@ -394,7 +432,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return fail(err)
 	}
 	if err := cmd.Start(); err != nil {
-		m.sbxFail(o, rel, err)
+		m.sbxFail(o, o.onTile(rel), err)
 		return fail(fmt.Errorf("spawn agent host: %w", err))
 	}
 	id := util.RandomToken(8)
@@ -407,7 +445,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed,
 		attachDir: attachDir, replay: replayState{on: resumeID != ""}, llm: o.llm, llmChoice: o.llmChoice}
 	s := &Session{
-		ID: id, Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
+		ID: id, Cwd: rel, tile: o.onTile(rel), Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
@@ -415,8 +453,22 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
-	drv := acp.NewFor(func(h acp.HelloParams) { s.llmHello(m, h) }) // who serves its model calls (llmhook.go)
-	st.drv = drv                                                    // before the session is visible: info() and the API read it
+	// the person's saved sign-in, taken for this session (signin.go): what
+	// the session carries, and the spawn frame's part
+	var signinSpawn *acp.SpawnSignin
+	st.signin, signinSpawn = m.signinTake(o.signin, id, rel, prov, o.llm != nil && o.llm.token != "" && o.llm.rule == sdkacp.UseConnector)
+	if signinSpawn != nil && signinSpawn.KeyHome != nil && !m.Isolate {
+		d, rm := keyHomeDir() // isolation off: the daemon owns the key's directory, as it does the attachments'
+		signinSpawn.KeyHome.At = d
+		sandboxCleanup := s.cleanup
+		s.cleanup = func() { sandboxCleanup(); rm() }
+	}
+	st.redact = s.redact
+	drv := acp.NewFor(func(h acp.HelloParams) {
+		s.llmHello(m, h)    // who serves its model calls (llmhook.go)
+		s.signinHello(m, h) // what it signs in with (signin.go)
+	})
+	st.drv = drv // before the session is visible: info() and the API read it
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -439,21 +491,26 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		if err != nil {
 			return nil, err
 		}
-		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir, LLM: llm})
+		// the saved sign-in rides this one frame, to the agent's process alone (signin.go)
+		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir, LLM: llm,
+			Signin: signinSpawn, LoginFiles: prov.LoginFiles})
 		if err := acp.Encode(stdin, &acp.Message{Method: acp.MXbinSpawn, Params: params}); err != nil {
 			return nil, err
 		}
 		return &agent.Process{Stdin: stdin, Stdout: stdout, Stderr: stderr, Kill: s.kill}, nil
 	}
 	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: start, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
-		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel},
+		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": o.onTile(rel)},
 		// a session a person's workspace agent opened: its mode is the one
 		// its person approved, and no option may move it (an agent's config
 		// option of category mode is set after the mode; delegate.go)
 		SkipModeOptions: o.origin != "",
 		// a workspace agent's start is the harness and mode its person
 		// approved (or their preference) or it isn't at all (acp.Config.Strict)
-		Strict: o.origin != ""}
+		Strict: o.origin != "",
+		// a saved sign-in in its environment: the adapter's probe isn't
+		// believed, a key it wants through authenticate is handed over
+		Credential: s.signinCredential(m, prov, signinSpawn)}
 	if onAgentConfig != nil {
 		onAgentConfig(cfg)
 	}
@@ -466,6 +523,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		m.remove(s.ID)
 		m.changed("close", s)
 		revokeTok()
+		s.dropSignin() // its copy of the saved sign-in (signin.go)
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
@@ -615,7 +673,20 @@ ended:
 // logEvent numbers an event into the log, updates the session's summary
 // fields from it, and publishes it.
 func (s *Session) logEvent(m *Manager, e agent.Event) {
+	// a saved sign-in is masked before the log, the hub or history see the
+	// event — on the joined stream, so a piece may wait for the next one
+	// (signinredact.go)
+	for _, e := range s.redactEvents(e) {
+		s.logOne(m, e)
+	}
+}
+
+func (s *Session) logOne(m *Manager, e agent.Event) {
 	st := s.agent
+	if e.Type == agent.EvStatus {
+		st.statusMu.Lock() // unlocked once st.status says it (below)
+		e = s.restated(e)  // the agent's own turn runs: not idle (agentdetached.go)
+	}
 	ev := st.log.Append(e)
 	st.noteSaid(e) // its last line, for a status poll (agentstatus.go)
 	renamed := false
@@ -640,6 +711,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 			}
 		}
 		st.mu.Unlock()
+		st.statusMu.Unlock()
 		// the agent's own title (most adapters generate one after the first
 		// turn) names a tab the user has not named — it follows the user like
 		// any name (D73) — never the sign-in's reserved one (purpose.go)
@@ -656,7 +728,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 	}
 	s.hub.Touch()
 	if m.OnEvent != nil && !s.replayed(m, ev) {
-		m.OnEvent(s.Cwd, SessionEvent{Event: ev, User: s.homeKey, ID: s.ID})
+		m.OnEvent(m.tileOf(s), SessionEvent{Event: ev, User: s.homeKey, ID: s.ID, private: s.carriesSignin()})
 	}
 	if renamed {
 		m.changed("rename", s)

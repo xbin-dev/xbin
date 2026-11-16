@@ -55,6 +55,10 @@ export const requests = [
   session(),
   session({ asks: false, mode: 'bypassPermissions', net: 'internet', api: false, model: '', credentials: 'own' }, { id: 'rq_never' }),
   session({ resume: 'ses_1', providerName: '', model: '' }, { id: 'rq_resume' }),
+  // a saved sign-in (D230): named by xbind's id, with who will hold it — a label in the request is never shown; one that would start signed out
+  session({ model: '', credentials: 'own', signIn: 'saved', signInId: 'si_1a2b', savedSignIn: 'a label the agent wrote' }, { id: 'rq_saved_signin' }),
+  session({ model: '', signIn: 'saved' }, { id: 'rq_saved_no_id' }),
+  session({ model: '', signIn: 'needed' }, { id: 'rq_needs_signin' }),
   // a mode xbind doesn't vouch for (no `asks`): never the green tag
   // …whose words hold characters that reorder or hide text: the sheets show each as its escape
   session({ asks: undefined, mode: 'acceptEdits' }, { id: 'rq_unknown_mode', summary: 'Start it \u2066in a mode\u2069 xbin doesn’t vouch for.\u200B',
@@ -68,6 +72,12 @@ export const requests = [
   mcp({ id: 'rq_mcp_used', state: 'approved', grant: 'always', decided: t('10:16:00') }),
   // a tool that changed since it was allowed or first met: what changed, said
   mcp({ id: 'rq_mcp_changed', preview: { class: 'mcp', tile: 'apps/dice', server: 'apps/dice', serverName: 'Dice', tool: 'wipe', readOnly: true, arguments: '{}', changed: ['description', 'annotations', 'somethingNew'] } }),
+  // an outside server's tool (D240): outside this workspace and its host, said; a read-only mark it isn't trusted for; once only while each call asks
+  ...[['rq_mcp_out', {}], ['rq_mcp_out_ro', { tool: 'lookup', readOnly: true }], ['rq_mcp_out_trusted', { tool: 'lookup', readOnly: true, readOnlyTrusted: true }],
+    ['rq_mcp_each', { each: true, orgs: ['sales'], why: 'This conversation holds data of Sales: what is sent to Tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve', standing: undefined }],
+    ['rq_mcp_each_bare', { each: true, standing: undefined, host: '' }]].map(([id, o]) => mcp({ id, tile: 'ext:tracker@1a2b3c4d', body: '{"server":"ext:tracker","tool":"post","arguments":{"id":"T-7"}}', bodySize: 60,
+    preview: { class: 'mcp', server: 'ext:tracker', serverName: 'Tracker', host: 'mcp.tracker.example', outside: true, tool: 'post', title: '', description: 'Post a comment on a ticket.',
+      readOnly: false, arguments: '{\n  "id": "T-7"\n}', standing: { tool: 'post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking' }, ...o } })),
 ];
 
 const item = (n, o = {}) => ({ n, kind: 'grant.add', args: {}, line: `Give Invoices read access to Orders (${n})`, before: 'no access', after: 'read', ...o });
@@ -98,6 +108,8 @@ export const approvals = [
   { id: 'ap_2', user: 'ana', tile: 'apps/orders', scope: 'tile', until: t('10:40:00'), created: t('09:40:00') },
   { id: 'ap_3', user: 'ana', tile: 'apps/orders', scope: 'tile', until: t('10:00:00'), created: t('09:00:00') },
   { id: 'ap_4', user: 'ana', tile: 'apps/dice', scope: 'tool', method: 'MCP', path: 'wipe', created: t('09:30:00') },
+  { id: 'ap_5', user: 'ana', tile: 'ext:tracker@1a2b3c4d', scope: 'tool', method: 'MCP', path: 'post', created: t('09:35:00'),
+    server: { server: 'ext:tracker', name: 'Tracker', host: 'mcp.tracker.example' } }, // an outside server's tool (D240)
 ];
 
 export const audit = [
@@ -128,6 +140,11 @@ export const audit = [
   { ts: t('09:45:00'), method: 'POST', path: '/api/apps/dice/mcp', tile: 'apps/dice', class: 'mcp', effect: true, status: 502, under: 'approval:ap_4' },
   { ts: t('09:44:00'), method: 'POST', path: '/api/apps/dice/mcp', tile: 'apps/dice', class: 'mcp-read', status: 200 },
   { ts: t('09:43:00'), method: 'POST', path: '/api/apps/dice/mcp', tile: 'apps/dice', class: 'mcp', status: 403, refused: 'Using MCP tools is off for this workspace' },
+  // outside servers (D240): the server and the tool, the URL's scheme and host as path
+  { ts: t('09:42:00'), method: 'POST', path: 'https://mcp.tracker.example', class: 'mcp', server: 'ext:tracker', tool: 'post', effect: true, status: 200, ticket: 'rq_mcp_out', bytes: 2048 },
+  { ts: t('09:41:00'), method: 'POST', path: 'https://mcp.tracker.example', class: 'mcp', server: 'ext:tracker', tool: 'lookup', effect: true, status: 200, under: 'preference' },
+  { ts: t('09:40:00'), method: 'POST', path: 'https://mcp.tracker.example', class: 'mcp-read', server: 'ext:tracker', status: 200 },
+  { ts: t('09:39:00'), method: 'POST', path: 'https://mcp.tracker.example', class: 'mcp', server: 'ext:tracker', tool: 'post', status: 502, refused: 'the server refused xbin\'s credentials (401)' },
 ];
 
 const S = (o = {}) => ({ user: 'ana', workspace: true, paused: false, adminChanges: false, canAdminChanges: false, pendingRequests: 2, standingApprovals: 1, openChangeSets: 1, access: true, agent: 'xbin/wsagent', workspaceAt: t('09:12:00'), ...o });
@@ -157,7 +174,7 @@ export const states = [
 const start = (o = {}) => ({ tile: 'apps/dice', provider: 'codex', providerName: 'Codex', mode: 'default', asks: true, net: 'none', api: true, prompt: 'Goal: roll_dice.\nDone when: tools/list names it.', ...o });
 const dice = (o = {}, edit = (items) => items) => ({ id: 'pl_dice', user: 'ana', agent: 'xbin/wsagent', plan: true, session: 'h1', title: 'A dice tool and an assistant', state: 'proposed', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z',
   items: edit([
-    { n: 1, kind: 'tile.create', args: {}, line: 'Create the tile apps/dice from the template MCP server (mcp-server) — yours', before: { tile: null }, after: { owner: 'user:ana', tile: 'apps/dice' }, beforeText: 'nothing at apps/dice', afterText: 'a new tile, yours',
+    { n: 1, kind: 'tile.create', args: {}, line: 'Create the tile apps/dice from the template Starter (starter) — yours', before: { tile: null }, after: { owner: 'user:ana', tile: 'apps/dice' }, beforeText: 'nothing at apps/dice', afterText: 'a new tile, yours',
       undoByHand: "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu" },
     { n: 2, kind: 'tile.create', args: {}, line: 'Create the tile apps/assistant from the template AI Agent (agent) — yours', before: {}, after: { tile: 'apps/assistant' } },
     { n: 3, kind: 'binding.set', args: {}, line: "Bind apps/assistant's llm to xbin:llm", admin: true, deferred: true, needs: [2], before: { binding: [] }, after: { binding: [{ provider: 'xbin:llm' }] }, beforeText: 'not bound',
@@ -175,6 +192,10 @@ export const plans = [
   // a warned creation, a blocked one, a kind this client doesn't know, a start in a mode xbind doesn't vouch for
   dice({ id: 'pl_odd' }, (it) => { it[0] = { ...it[0], warnings: ['PUBLIC: x'] }; it[1] = { ...it[1], blocked: 'a tile is there already' }; it[4] = { ...it[4], needs: [], start: start({ asks: false, mode: 'full-auto', prompt: 'Goal: pay \u202Eevil\u202C now' }),
     warnings: ['ACTS WITHOUT ASKING: in the mode "full-auto" Codex edits files and runs commands in apps/dice without asking you.'] }; return [...it, { n: 6, kind: 'tile.delete', args: {}, line: 'Delete the tile apps/old' }]; }),
+  // decided, with a line that waits for its tile to provide what was approved (D243) — and one held because the tile declared something else
+  dice({ id: 'pl_waits', state: 'applied' }, (it) => it.map((x) => (x.n === 4 ? { ...x, result: 'waiting', wait: { component: 'apps/assistant', slot: 'mcp', tile: 'apps/dice', kind: 'http', service: 'mcp', role: 'reader', until: '2026-11-17T09:00:00Z' } } : { ...x, result: 'applied' }))),
+  dice({ id: 'pl_held', state: 'applied' }, (it) => it.map((x) => (x.n === 4 ? { ...x, result: 'waiting', wait: { component: 'apps/assistant', slot: 'mcp', tile: 'apps/dice', kind: 'http', service: 'mcp', role: 'reader', until: '2026-11-17T09:00:00Z', held: 'apps/dice declares mcp for the role "writer": what you approved is the role reader' } }
+    : x.n === 5 ? { ...x, result: 'lapsed', error: 'apps/dice did not provide mcp within 24 hours of the plan being applied: nothing was bound' } : { ...x, result: 'applied' }))),
   // a chain: 3 needs 2 needs 1
   { id: 'pl_chain', plan: true, title: 't', state: 'proposed', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [{ n: 1, kind: 'tile.create', line: 'a' }, { n: 2, kind: 'binding.set', line: 'b', needs: [1] }, { n: 3, kind: 'agent.start', line: 'c', needs: [2], start: start({ providerName: '', asks: 'yes' }) }] },
   // an admin's copy of another person's request, and an undo set that says what it can't undo
@@ -192,7 +213,7 @@ const out = { now: new Date(NOW).toISOString(), requests: [], changesets: [], ap
 for (const c of plans) {
   const ticks = P.planTicks(c);
   const every = c.items.filter((it) => P.canTick(c, c.items.map((x) => x.n), it)).map((it) => it.n);
-  out.plans.push({ json: c, need: W.needChangeTitle(c), askedWords: P.askedWords(c),
+  out.plans.push({ json: c, need: W.needChangeTitle(c), askedWords: P.askedWords(c), waitingWords: P.waitingWords(c),
     items: c.items.map((it) => ({ tag: W.kindTag(it.kind), known: P.knownKind(it.kind), result: W.resultOf(it), before: W.stateText(it, 'before'), after: W.stateText(it, 'after'), neededBy: P.neededBy(c, it.n),
       start: it.kind === 'agent.start' ? P.startRows(it) : null })),
     ticks, words: P.planWords(c, ticks), none: P.planWords(c, []).apply,
@@ -288,6 +309,9 @@ out.small = {
     { web: false, mcp: true, mcpReadOnly: false, net: { web: { policy: 'read', only: ['docs.example.com', '*.wiki.test'] }, mcp: { policy: 'tiles' } } },
     { web: true, mcp: true, mcpReadOnly: true, net: { web: { policy: 'off' }, mcp: { policy: 'tiles' } } },
     { mcp: false, mcpReadOnly: true, net: { web: { policy: 'read' }, mcp: { policy: 'tiles' } } },
+    // outside servers (D240): listed under the MCP toggle, by name and host
+    { mcp: true, mcpReadOnly: true, net: { web: { policy: 'off' }, mcp: { policy: 'listed', servers: [{ server: 'ext:tracker', name: 'Tracker', host: 'mcp.tracker.example' }, { server: 'ext:wiki', host: 'wiki.example.org' }] } } },
+    { mcp: true, net: { mcp: { policy: 'listed', servers: [] } } },
   ].map((state) => ({ state, prefs: W.netPrefs(state) })),
   standingNote: W.STANDING_NOTE, didNote: W.DID_NOTE, arm: W.CHOICES.armMs, duration: W.CHOICES.duration,
 };
@@ -303,8 +327,9 @@ const byId = (list, id) => list.find((x) => x.id === id);
 export const demo = {
   requests: ['rq_call', 'rq_never', 'rq_unknown_mode', 'rq_sess'].map((id) => byId(requests, id)),
   // the demo `net` (D239): a web page and an MCP tool to approve, the web on by the workspace's policy and MCP tiles too
-  netRequests: ['rq_web', 'rq_mcp'].map((id) => byId(requests, id)),
-  net: { web: { policy: 'read' }, mcp: { policy: 'tiles' } },
+  netRequests: ['rq_web', 'rq_mcp', 'rq_mcp_each'].map((id) => byId(requests, id)),
+  // …and an outside server listed (D240): its tool asked once only, the server in Preferences
+  net: { web: { policy: 'read' }, mcp: { policy: 'listed', servers: [{ server: 'ext:tracker', name: 'Tracker', host: 'mcp.tracker.example' }] } },
   changeset: byId(changesets, 'cs_1'),
   approvals,
   audit,

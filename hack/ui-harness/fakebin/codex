@@ -1,0 +1,7 @@
+#!/bin/sh
+# hack/ui-harness/fakebin/codex — the harness never starts a real coding-agent CLI:
+# fakebin/ leads the harness xbind's PATH (run.sh), and a pass that reaches for
+# codex gets this instead of whatever this machine has installed. Script it here
+# (as fakebin/claude is) before a pass uses it.
+printf 'ui-harness: %s is not scripted (hack/ui-harness/fakebin) — a pass must never run the real one\n' codex >&2
+exit 97

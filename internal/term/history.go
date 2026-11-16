@@ -23,6 +23,7 @@ package term
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -75,7 +76,16 @@ type HistoryMeta struct {
 	// (delegate.go); Agent names that component (kept in the file only).
 	Origin string `json:"origin,omitempty"`
 	Agent  string `json:"agent,omitempty"`
+	// Signin: the session ran on its person's saved sign-in (D230). Its
+	// transcript holds whatever its tools printed, so it is the person's
+	// alone: an admin viewing as them reads neither it nor its first prompt
+	// (ErrSigninHistory), as with the live session.
+	Signin bool `json:"signin,omitempty"`
 }
+
+// ErrSigninHistory refuses an admin viewing as a person on a past session
+// that ran on the person's saved sign-in.
+var ErrSigninHistory = errors.New("viewing as someone opens no past session that ran on their saved sign-in")
 
 type historyFile struct {
 	Meta   HistoryMeta   `json:"meta"`
@@ -134,6 +144,7 @@ func (m *Manager) saveHistory(s *Session) {
 		Created: born.UTC().Format(time.RFC3339), Ended: time.Now().UTC().Format(time.RFC3339),
 		Turns: turns, Preview: firstPrompt(evs), ACPSessionID: acpID, Loadable: loadable && acpID != "",
 		Deployment: s.target.Deployment, Origin: originOf(s.origin), Agent: s.origin,
+		Signin: s.carriesSignin(),
 	}, Events: evs}
 	dir := m.sessionHistoryDir(s)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -261,8 +272,11 @@ func (m *Manager) ListHistory(h HistoryScope, cwd string, may func(rel string) b
 				continue
 			}
 			meta, ok := readHistoryMeta(filepath.Join(d.path, e.Name()))
-			if !ok || (may != nil && !may(meta.Cwd)) || (d.cwd != "" && meta.Cwd != d.cwd) {
+			if !ok || (may != nil && !may(m.historyTile(meta))) || (d.cwd != "" && meta.Cwd != d.cwd) {
 				continue
+			}
+			if h.ViewAs && meta.Signin {
+				meta.Preview = "" // listed, as its live row was; nothing of what was said in it
 			}
 			out = append(out, meta)
 		}
@@ -283,6 +297,13 @@ func (m *Manager) historyPath(h HistoryScope, id string) (path string, fromPart 
 			continue
 		}
 		if matches, _ := filepath.Glob(filepath.Join(root, "*", id+".json")); len(matches) > 0 {
+			if h.ViewAs { // never a session that ran on the person's saved sign-in — meta, transcript or removal
+				if meta, ok := readHistoryMeta(matches[0]); !ok {
+					return "", false, ErrNoSession
+				} else if meta.Signin {
+					return "", false, ErrSigninHistory
+				}
+			}
 			return matches[0], i == 1, nil
 		}
 	}

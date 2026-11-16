@@ -597,6 +597,14 @@ struct AgentApprovalSheet: View {
                 Text(AgentReveal.attributed([t.path, t.org].filter { !$0.isEmpty }.joined(separator: " · "), font: XbinFont.code)).foregroundStyle(XbinColor.muted)
             }
             ApprovalRow(label: "Coding agent") { Text(verbatim: s.agent).font(.callout) }
+            if !s.signIn.isEmpty {
+                // allowing is what puts a saved sign-in into the session: said here, in xbin's words (D230)
+                ApprovalRow(label: "Sign-in") {
+                    Text(verbatim: s.signIn).font(.callout)
+                    if !s.signInHolds.isEmpty { Text(verbatim: s.signInHolds).font(.callout).foregroundStyle(XbinColor.muted) }
+                }
+                .accessibilityIdentifier("approval-signin")
+            }
             ApprovalRow(label: "Network") { Text(verbatim: s.network).font(.callout) }
             ApprovalRow(label: "Other tiles") { Text(verbatim: s.others).font(.callout) }
         }

@@ -8,7 +8,7 @@ const W = await import(new URL('../web/agent-plan-words.js', import.meta.url).hr
 const C = await import(new URL('../web/agent-chrome-words.js', import.meta.url).href);
 
 const dice = (o = {}) => ({ id: 'cs', plan: true, state: 'proposed', title: 't', items: [
-  { n: 1, kind: 'tile.create', line: 'Create the tile apps/dice from the template MCP server (mcp-server) — yours' },
+  { n: 1, kind: 'tile.create', line: 'Create the tile apps/dice from the template Starter (starter) — yours' },
   { n: 2, kind: 'tile.create', line: 'Create the tile apps/assistant from the template AI Agent (agent) — yours' },
   { n: 3, kind: 'binding.set', line: "Bind apps/assistant's llm to xbin:llm", admin: true, deferred: true, needs: [2], warnings: ['SPEND: it spends the quota'] },
   { n: 4, kind: 'binding.set', line: "Bind apps/assistant's mcp to apps/dice", deferred: true, needs: [1, 2] },
@@ -144,4 +144,28 @@ test('the review closes itself only when every chosen line was applied and nothi
   assert.equal(W.closesItself({ id: 'x', state: 'applied', items: [{ n: 1, kind: 'grant.add', result: 'applied' }] }, [1]), false, 'an admin change set (no plan) keeps its Done');
   assert.equal(W.closesItself(done(['rejected', 'rejected', 'rejected', 'rejected', 'rejected']), []), false);
   assert.ok(W.PLAN_CLOSE_MS >= 1000);
+});
+
+test('a line that waits: approved, xbin\'s to apply — the review closes itself, the results and Needs you say what it waits for', () => {
+  const cs = dice({ state: 'applied' });
+  ['applied', 'applied', 'applied', 'waiting', 'applied'].forEach((r, i) => { cs.items[i].result = r; });
+  cs.items[3].wait = { component: 'apps/assistant', slot: 'mcp', tile: 'apps/dice', kind: 'http', service: 'mcp', role: 'reader', until: '2026-11-17T10:00:00Z' };
+  assert.equal(W.closesItself(cs, [1, 2, 3, 4, 5]), true, 'nothing is left for the person to do');
+  assert.equal(W.waitingWords(cs), '1 line waits: xbin applies it by itself once the tile provides what you approved. Rejecting the plan from here cancels it.');
+  assert.deepEqual([C.resultOf(cs.items[3]).word, C.resultOf(cs.items[3]).tone], ['waiting', 'warn']);
+  assert.equal(C.resultOf(cs.items[3]).text, 'xbin applies it by itself once apps/dice provides mcp; nothing is bound until then.');
+  const now = Date.parse('2026-11-16T10:00:00Z');
+  const row = C.needs({ changesets: [cs] }, now)[0];
+  assert.deepEqual([row.kind, row.waits, row.action], ['changeset', true, 'Open']);
+  assert.match(row.title, /^Waiting: Bind apps\/assistant's mcp to apps\/dice$/);
+  assert.match(row.note, /xbin applies it once apps\/dice provides mcp · lapses in /);
+  // held: the tile declared something else than was approved
+  cs.items[3].wait.held = 'apps/dice declares mcp for the role "writer": what you approved is the role reader';
+  assert.match(C.resultOf(cs.items[3]).text, /^Not bound — apps\/dice declares mcp for the role "writer"/);
+  assert.match(C.needs({ changesets: [cs] }, now)[0].note, /^not bound — apps\/dice declares mcp for the role "writer": what you approved is the role reader · lapses in /, 'the person reads the whole mismatch in Needs you');
+  // ended
+  Object.assign(cs.items[3], { result: 'lapsed', error: 'apps/dice did not provide mcp within 24 hours of the plan being applied: nothing was bound' });
+  assert.deepEqual([C.resultOf(cs.items[3]).word, C.resultOf(cs.items[3]).text], ['lapsed — never applied', cs.items[3].error]);
+  assert.equal(C.needs({ changesets: [cs] }, now).length, 0);
+  assert.equal(W.waitingWords(cs), '');
 });

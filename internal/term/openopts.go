@@ -3,20 +3,21 @@ package term
 import "github.com/xbin-dev/xbin/internal/auth"
 
 // openOptsFor is the "user" half of opening a session on a tile the
-// principal may open one on (rel: the tile; the caller has passed the
-// CanTerminalTile gate): the scope clamps, the effective network, and the
+// principal may open one on (tile: the registered tile cwd is or lies in,
+// sessionTile; the caller has passed the CanTerminalTile gate on it): the
+// scope clamps, the effective network, and the
 // restricted tier — shared by the shell (ServeWS) and agent (agent.go)
 // kinds. Non-admin users get the restricted tier: the D18 kernel lockdown
 // (no nested user/mount namespaces, dangerous caps dropped — apt still
 // works), the D17 scope clamps (api/net), source visibility cut to their
 // allow-list, and resource limits. Admins and the owner keep full caps +
 // full view for dev work.
-func (m *Manager) openOptsFor(p auth.Principal, rel, cwd, netMode, gpuMode string, apiAccess bool) openOpts {
+func (m *Manager) openOptsFor(p auth.Principal, tile, cwd, netMode, gpuMode string, apiAccess bool) openOpts {
 	o := openOpts{
-		cwd: cwd, net: netMode, gpu: gpuMode,
+		cwd: cwd, tile: tile, net: netMode, gpu: gpuMode,
 		homeKey: HomeKey(p), userID: p.UserID,
 		api: apiAccess, restricted: !p.IsAdmin(),
-		netGrant: m.termNetFor(p, rel),
+		netGrant: m.termNetFor(p, tile), // the tile's org's network sets (D54)
 	}
 	o.noLLM = !p.IsAdmin() && !p.CanTermAPI() // no tile API token in their terminals (D17): no LLM key either
 	asked := o.net

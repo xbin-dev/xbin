@@ -142,6 +142,109 @@ async function sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot,
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     S.requests = S.requests.filter((r) => r.id !== 'm3'); await refresh();
+
+    // an outside server's tool (D240): "outside this workspace" and its host, xbind's; from a conversation that holds an org's data, once only
+    S.requests.push({ id: 'm4', user: 'admin', agent: 'system/agent', kind: 'mcp', method: 'POST', target: '/api/xbin/delegate/mcp/call', tile: 'ext:tracker@1a2b3c4d',
+      body: '{"server":"ext:tracker","tool":"post","arguments":{"id":"T-7","text":"fixed"}}', bodyShown: true, bodySize: 70, summary: 'You asked me to comment on T-7.', state: 'pending',
+      created: iso(-80), expires: iso(86390000),
+      preview: { class: 'mcp', server: 'ext:tracker', serverName: 'Issue tracker', host: 'mcp.tracker.example', outside: true, tool: 'post', title: 'Post a comment', description: 'Posts a comment on a ticket.',
+        readOnly: false, arguments: '{\n  "id": "T-7",\n  "text": "fixed"\n}', each: true, orgs: ['sales'], readWeb: true,
+        why: 'This conversation holds data of Sales: what is sent to Issue tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve' } });
+    await refresh();
+    await review(page, 'request', 'm4');
+    await page.waitForSelector(`${SHEET} [data-outside]`);
+    const outText = await text(`${SHEET} [role="dialog"]`);
+    check(/Your agent wants to run post on Issue tracker, outside this workspace/.test(outText) && /Outside this workspace: mcp\.tracker\.example/.test(await text(`${SHEET} [data-outside]`))
+      && /each call is one you approve\.$/.test(await text(`${SHEET} [data-each]`)) && (await page.$$(`${SHEET} [data-choice]`)).length === 1 && !!(await page.$(`${SHEET} [data-read-web]`)),
+      `[${width}] an outside server's tool: outside this workspace and its host, said plainly; from a tainted conversation once only (${outText.replace(/\s+/g, ' ').slice(0, 200)})`);
+    await shot(page, `agent-chrome-mcp-outside${tag}`, { fullPage: false });
+    await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+    await page.click(`${SHEET} button[data-allow]`);
+    await decided('m4');
+    check(JSON.stringify(sentTo(/m4\/approve$/).map((c) => c.body)) === '[{"grant":"once"}]', `[${width}] …allowed once ({grant: once})`);
+    S.requests = S.requests.filter((r) => r.id !== 'm4'); await refresh();
+    await signinChecks({ page, S, check, refresh, sentTo, armed, text, shot, width, tag, iso, SHEET });
+}
+
+// ---- saved coding-agent sign-ins in the chrome (D230): a start that would use one names it on the sheet — xbind's
+// id, the label from the person's own list, and who will hold it; one that would start signed out gets the sign-in
+// card; and the agent's page can only ask the dock to show the card (xbin:agent-open-signin), never draw it ----
+async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot, width, tag, iso, SHEET }) {
+    const ctx = page.context();
+    const mine = { available: true, vault: 'open', policy: { enabled: true }, flows: [], harnesses: [{ id: 'claude', name: 'Claude Code', guided: true, keys: [{ env: 'ANTHROPIC_API_KEY', label: 'Anthropic API key' }],
+      signins: [{ id: 'si_harness01', harness: 'claude', name: 'Personal', kind: 'setup-token', default: true, createdAt: Date.now() - 86400000 }] }] };
+    const list = (route) => (route.request().method() === 'GET' ? route.fulfill({ contentType: 'application/json', body: JSON.stringify(mine) }) : route.fallback());
+    await ctx.route('**/api/xbin/agent/signins', list);
+    const start = (id, session) => ({ id, user: 'admin', agent: 'system/agent', kind: 'session', method: 'POST', target: '/api/xbin/term/sessions', tile: 'apps/crawler', body: JSON.stringify({ prompt: 'Fix the export test.' }),
+      bodyShown: 30, bodySize: 30, summary: 'I will fix the export', state: 'pending', created: iso(-500), expires: iso(86390000),
+      preview: { class: 'session', tile: 'apps/crawler', session: { tile: 'apps/crawler', provider: 'claude', providerName: 'Claude Code', mode: 'default', asks: true, net: 'none', api: true, ...session } } });
+    const row = `${SHEET} [data-row="signin"]`;
+    // a label the agent put in its request is never what the sheet shows: the id is xbind's, the label the person's own list's
+    S.requests.push(start('g1', { signIn: 'saved', signInId: 'si_harness01', savedSignIn: 'FORGED LABEL' }));
+    await refresh();
+    await review(page, 'request', 'g1');
+    await page.waitForSelector(row);
+    await page.waitForFunction((sel) => { const q = (root, parts) => parts.reduce((r, p) => r && (r.shadowRoot || r).querySelector(p), root);
+      const n = q(document, ['bx-agent-dock', 'bx-agent-approve', '[data-row="signin"] bx-agent-signin']); return n && n.shadowRoot.querySelector('.label')?.dataset.known === 'true'; }, row);
+    const label = await page.evaluate(() => { const q = (root, parts) => parts.reduce((r, p) => r && (r.shadowRoot || r).querySelector(p), root);
+      return q(document, ['bx-agent-dock', 'bx-agent-approve', '[data-row="signin"] bx-agent-signin']).shadowRoot.textContent.trim(); });
+    const uses = await text(row);
+    check(/Uses your saved Claude Code sign-in/.test(uses) && label === 'Personal' && /The tile's coding agent will hold that sign-in: it, and anything it runs in Crawler, can read it\./.test(uses) && !/FORGED/.test(uses + label)
+      && (await page.$eval(row, (e) => e.dataset.signinId)) === 'si_harness01', `[${width}] a start on a saved sign-in: named on the sheet by its label from your own list, with who will hold it (${uses} / ${label})`);
+    await shot(page, `agent-chrome-approve-saved-signin${tag}`, { fullPage: false });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    // a sign-in that is gone by the time the sheet is read says so (the open would be refused)
+    S.requests = S.requests.filter((r) => r.id !== 'g1'); S.requests.push(start('g2', { signIn: 'saved', signInId: 'si_gone' })); await refresh();
+    await review(page, 'request', 'g2');
+    await page.waitForSelector(row);
+    await page.waitForFunction(() => { const q = (root, parts) => parts.reduce((r, p) => r && (r.shadowRoot || r).querySelector(p), root);
+      const n = q(document, ['bx-agent-dock', 'bx-agent-approve', '[data-row="signin"] bx-agent-signin']); return n && n.shadowRoot.querySelector('.label')?.dataset.known === 'false' && !/…/.test(n.shadowRoot.textContent); });
+    check(true, `[${width}] …and one that is no longer saved says so`);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    // a start that would begin signed out: the card, in the sheet — xbin's own, with the guided sign-in and the pasted key
+    S.requests = S.requests.filter((r) => r.id !== 'g2'); S.requests.push(start('g3', { signIn: 'needed' })); await refresh();
+    await review(page, 'request', 'g3');
+    await page.waitForSelector(`${row} bx-agent-signin`);
+    await page.waitForFunction(() => { const q = (root, parts) => parts.reduce((r, p) => r && (r.shadowRoot || r).querySelector(p), root);
+      const n = q(document, ['bx-agent-dock', 'bx-agent-approve', '[data-row="signin"] bx-agent-signin']); return n && n.shadowRoot.querySelector('button'); });
+    const card = await page.evaluate(() => { const q = (root, parts) => parts.reduce((r, p) => r && (r.shadowRoot || r).querySelector(p), root);
+      const n = q(document, ['bx-agent-dock', 'bx-agent-approve', '[data-row="signin"] bx-agent-signin']); return { harness: n.harness, buttons: [...n.shadowRoot.querySelectorAll('button')].map((b) => b.textContent.trim()) }; });
+    check(/Needs your Claude Code sign-in/.test(await text(row)) && card.harness === 'claude' && card.buttons.some((b) => /^Sign in/.test(b)), `[${width}] a start that would begin signed out: the sign-in card in the sheet (${card.buttons.join(' | ')})`);
+    await shot(page, `agent-chrome-approve-needs-signin${tag}`, { fullPage: false });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    S.requests = S.requests.filter((r) => r.id !== 'g3'); await refresh();
+
+    // the dock's overlay: the agent's page names a coding agent; the card is the chrome's, outside the page's frame
+    await ctx.route('**/signin-page.html', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body><h1>the agent's page</h1><script>
+      const got = [];
+      addEventListener('message', (e) => { if (e.data && e.data.type === 'xbin:agent-signins') { got.push(e.data); parent.postMessage({ type: 'signin-page', got }, '*'); } });
+      parent.postMessage({ type: 'xbin:agent-open-signin', harness: 'claude', label: 'FORGED', url: 'https://evil.example', secret: 'x' }, '*');
+      parent.postMessage({ type: 'signin-page', got }, '*');
+      </script>` }));
+    const was = await page.evaluate(() => { const d = document.querySelector('bx-agent-dock'); const was = d.page; window.signinPage = null;
+      addEventListener('message', (e) => { if (e.data && e.data.type === 'signin-page') window.signinPage = e.data.got; });
+      d.show('chat'); d.page = '/signin-page.html'; return was; });
+    const OVER = 'bx-agent-dock [data-signin]';
+    await page.waitForSelector(`${OVER} bx-agent-signin`);
+    await page.waitForFunction(() => { const n = document.querySelector('bx-agent-dock').shadowRoot.querySelector('[data-signin] bx-agent-signin'); return n && n.shadowRoot.querySelector('button'); });
+    const over = await page.evaluate(() => { const d = document.querySelector('bx-agent-dock').shadowRoot, n = d.querySelector('[data-signin] bx-agent-signin'), f = d.querySelector('iframe');
+      return { harness: n.harness, inFrame: !!(f && f.contains(n)), words: n.shadowRoot.textContent.replace(/\s+/g, ' ').trim(), buttons: [...n.shadowRoot.querySelectorAll('button')].map((b) => b.textContent.trim()) }; });
+    check(over.harness === 'claude' && !over.inFrame && !/FORGED|evil\.example/.test(over.words) && over.buttons.some((b) => /^Sign in/.test(b)),
+      `[${width}] the page asks for a sign-in by the coding agent's id alone: the card is drawn by the dock, not in the page's frame (${over.buttons.join(' | ')})`);
+    await shot(page, `agent-chrome-dock-signin${tag}`, { fullPage: false });
+    // a change to the list is told to the page — that it changed, nothing of what
+    await page.evaluate(() => { document.querySelector('bx-agent-dock').shadowRoot.querySelector('[data-signin] bx-agent-signin').dispatchEvent(new CustomEvent('bx-signins-changed', { bubbles: true, composed: true })); });
+    await page.waitForFunction(() => window.signinPage && window.signinPage.length > 0);
+    const told = await page.evaluate(() => window.signinPage);
+    check(told.length === 1 && Object.keys(told[0]).join() === 'type', `[${width}] …and the page is told only that sign-ins changed (${JSON.stringify(told)})`);
+    await page.click(`${OVER} [data-signin-close]`);
+    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('[data-signin]'));
+    check(sentTo(/signins/).length === 0, `[${width}] nothing was saved or sent by any of it`);
+    await page.evaluate((p) => { document.querySelector('bx-agent-dock').page = p; }, was);
+    await ctx.unroute('**/api/xbin/agent/signins', list);
 }
 
 module.exports = { sheetChecks };

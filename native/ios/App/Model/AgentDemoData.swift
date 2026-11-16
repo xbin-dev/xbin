@@ -188,6 +188,41 @@ enum AgentDemoData {
      "tool": "wipe on Dice — this tool again, with any arguments, without asking"
     }
    }
+  },
+  {
+   "id": "rq_mcp_each",
+   "user": "ana",
+   "agent": "xbin/wsagent",
+   "kind": "mcp",
+   "method": "POST",
+   "target": "xbin/delegate/mcp/call",
+   "tile": "ext:tracker@1a2b3c4d",
+   "contentType": "application/json",
+   "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+   "bodyShown": true,
+   "bodySize": 60,
+   "bodySha256": "9a8b",
+   "summary": "You asked to clear the table.",
+   "state": "pending",
+   "created": "2026-11-16T10:12:00Z",
+   "expires": "2026-11-17T10:12:00Z",
+   "preview": {
+    "class": "mcp",
+    "server": "ext:tracker",
+    "serverName": "Tracker",
+    "host": "mcp.tracker.example",
+    "outside": true,
+    "tool": "post",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": false,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "each": true,
+    "orgs": [
+     "sales"
+    ],
+    "why": "This conversation holds data of Sales: what is sent to Tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve"
+   }
   }
  ],
  "net": {
@@ -195,7 +230,14 @@ enum AgentDemoData {
    "policy": "read"
   },
   "mcp": {
-   "policy": "tiles"
+   "policy": "listed",
+   "servers": [
+    {
+     "server": "ext:tracker",
+     "name": "Tracker",
+     "host": "mcp.tracker.example"
+    }
+   ]
   }
  },
  "changeset": {
@@ -300,6 +342,20 @@ enum AgentDemoData {
    "method": "MCP",
    "path": "wipe",
    "created": "2026-11-16T09:30:00Z"
+  },
+  {
+   "id": "ap_5",
+   "user": "ana",
+   "tile": "ext:tracker@1a2b3c4d",
+   "scope": "tool",
+   "method": "MCP",
+   "path": "post",
+   "created": "2026-11-16T09:35:00Z",
+   "server": {
+    "server": "ext:tracker",
+    "name": "Tracker",
+    "host": "mcp.tracker.example"
+   }
   }
  ],
  "audit": [
@@ -529,6 +585,47 @@ enum AgentDemoData {
    "class": "mcp",
    "status": 403,
    "refused": "Using MCP tools is off for this workspace"
+  },
+  {
+   "ts": "2026-11-16T09:42:00Z",
+   "method": "POST",
+   "path": "https://mcp.tracker.example",
+   "class": "mcp",
+   "server": "ext:tracker",
+   "tool": "post",
+   "effect": true,
+   "status": 200,
+   "ticket": "rq_mcp_out",
+   "bytes": 2048
+  },
+  {
+   "ts": "2026-11-16T09:41:00Z",
+   "method": "POST",
+   "path": "https://mcp.tracker.example",
+   "class": "mcp",
+   "server": "ext:tracker",
+   "tool": "lookup",
+   "effect": true,
+   "status": 200,
+   "under": "preference"
+  },
+  {
+   "ts": "2026-11-16T09:40:00Z",
+   "method": "POST",
+   "path": "https://mcp.tracker.example",
+   "class": "mcp-read",
+   "server": "ext:tracker",
+   "status": 200
+  },
+  {
+   "ts": "2026-11-16T09:39:00Z",
+   "method": "POST",
+   "path": "https://mcp.tracker.example",
+   "class": "mcp",
+   "server": "ext:tracker",
+   "tool": "post",
+   "status": 502,
+   "refused": "the server refused xbin's credentials (401)"
   }
  ],
  "states": {
@@ -887,7 +984,7 @@ enum AgentDemoData {
      "n": 1,
      "kind": "tile.create",
      "args": {},
-     "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+     "line": "Create the tile apps/dice from the template Starter (starter) — yours",
      "before": {
       "tile": null
      },
@@ -994,7 +1091,7 @@ enum AgentDemoData {
      "n": 1,
      "kind": "tile.create",
      "args": {},
-     "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+     "line": "Create the tile apps/dice from the template Starter (starter) — yours",
      "before": {
       "tile": null
      },

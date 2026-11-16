@@ -2108,6 +2108,7 @@
    },
    "session": {
     "agent": "Claude Code · model sonnet, through the workspace's connector",
+    "signin": null,
     "mode": {
      "tag": "asks before acting",
      "tone": "ok",
@@ -2241,6 +2242,7 @@
    },
    "session": {
     "agent": "Claude Code, on your own sign-in",
+    "signin": null,
     "mode": {
      "tag": "acts without asking",
      "tone": "bad",
@@ -2374,6 +2376,7 @@
    },
    "session": {
     "agent": "claude",
+    "signin": null,
     "mode": {
      "tag": "asks before acting",
      "tone": "ok",
@@ -2391,6 +2394,421 @@
    "card": {
     "head": "Waiting for your approval",
     "what": "Continue the tile agent in Orders",
+    "line": "asked 10:02 · expires in 23 h 46 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_saved_signin",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "session",
+    "method": "POST",
+    "target": "xbin/term/sessions",
+    "tile": "apps/orders",
+    "body": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "bodyShown": true,
+    "bodySize": 96,
+    "bodySha256": "cd34",
+    "summary": "Start Claude Code on the export.",
+    "state": "pending",
+    "created": "2026-11-16T10:02:00Z",
+    "expires": "2026-11-17T10:02:00Z",
+    "preview": {
+     "class": "act",
+     "session": {
+      "tile": "apps/orders",
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "default",
+      "asks": true,
+      "net": "none",
+      "api": true,
+      "model": "",
+      "credentials": "own",
+      "signIn": "saved",
+      "signInId": "si_1a2b",
+      "savedSignIn": "a label the agent wrote"
+     }
+    }
+   },
+   "tile": {
+    "name": "Orders",
+    "path": "apps/orders",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Start a tile agent in Orders",
+   "heading": {
+    "before": "Start a tile agent in ",
+    "strong": "Orders",
+    "after": "?"
+   },
+   "sends": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
+   "choices": [],
+   "allow": [
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Start",
+    "Start",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
+   "wider": {
+    "heading": "Allow every change to Orders?",
+    "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": {
+    "agent": "Claude Code",
+    "signin": {
+     "saved": true,
+     "id": "si_1a2b",
+     "name": "Claude Code",
+     "text": "Uses your saved Claude Code sign-in",
+     "holds": "The tile's coding agent will hold that sign-in: it, and anything it runs in Orders, can read it."
+    },
+    "mode": {
+     "tag": "asks before acting",
+     "tone": "ok",
+     "text": "It asks you before it edits a file or runs a command.",
+     "name": "default"
+    },
+    "network": "Its model only. No internet.",
+    "others": "It can call the tile APIs this tile is granted.",
+    "brief": "Goal: add CSV export.\nDone when: the export test passes.",
+    "danger": "",
+    "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them."
+   },
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:02 · expires in 23 h 46 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Start a tile agent in Orders",
+    "line": "asked 10:02 · expires in 23 h 46 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_saved_no_id",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "session",
+    "method": "POST",
+    "target": "xbin/term/sessions",
+    "tile": "apps/orders",
+    "body": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "bodyShown": true,
+    "bodySize": 96,
+    "bodySha256": "cd34",
+    "summary": "Start Claude Code on the export.",
+    "state": "pending",
+    "created": "2026-11-16T10:02:00Z",
+    "expires": "2026-11-17T10:02:00Z",
+    "preview": {
+     "class": "act",
+     "session": {
+      "tile": "apps/orders",
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "default",
+      "asks": true,
+      "net": "none",
+      "api": true,
+      "model": "",
+      "signIn": "saved"
+     }
+    }
+   },
+   "tile": {
+    "name": "Orders",
+    "path": "apps/orders",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Start a tile agent in Orders",
+   "heading": {
+    "before": "Start a tile agent in ",
+    "strong": "Orders",
+    "after": "?"
+   },
+   "sends": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
+   "choices": [],
+   "allow": [
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Start",
+    "Start",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
+   "wider": {
+    "heading": "Allow every change to Orders?",
+    "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": {
+    "agent": "Claude Code",
+    "signin": null,
+    "mode": {
+     "tag": "asks before acting",
+     "tone": "ok",
+     "text": "It asks you before it edits a file or runs a command.",
+     "name": "default"
+    },
+    "network": "Its model only. No internet.",
+    "others": "It can call the tile APIs this tile is granted.",
+    "brief": "Goal: add CSV export.\nDone when: the export test passes.",
+    "danger": "",
+    "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them."
+   },
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:02 · expires in 23 h 46 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Start a tile agent in Orders",
+    "line": "asked 10:02 · expires in 23 h 46 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_needs_signin",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "session",
+    "method": "POST",
+    "target": "xbin/term/sessions",
+    "tile": "apps/orders",
+    "body": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "bodyShown": true,
+    "bodySize": 96,
+    "bodySha256": "cd34",
+    "summary": "Start Claude Code on the export.",
+    "state": "pending",
+    "created": "2026-11-16T10:02:00Z",
+    "expires": "2026-11-17T10:02:00Z",
+    "preview": {
+     "class": "act",
+     "session": {
+      "tile": "apps/orders",
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "default",
+      "asks": true,
+      "net": "none",
+      "api": true,
+      "model": "",
+      "signIn": "needed"
+     }
+    }
+   },
+   "tile": {
+    "name": "Orders",
+    "path": "apps/orders",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Start a tile agent in Orders",
+   "heading": {
+    "before": "Start a tile agent in ",
+    "strong": "Orders",
+    "after": "?"
+   },
+   "sends": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
+   "choices": [],
+   "allow": [
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Start",
+    "Start",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
+   "wider": {
+    "heading": "Allow every change to Orders?",
+    "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": {
+    "agent": "Claude Code",
+    "signin": {
+     "harness": "claude",
+     "name": "Claude Code",
+     "text": "Needs your Claude Code sign-in: without it the tile agent starts signed out."
+    },
+    "mode": {
+     "tag": "asks before acting",
+     "tone": "ok",
+     "text": "It asks you before it edits a file or runs a command.",
+     "name": "default"
+    },
+    "network": "Its model only. No internet.",
+    "others": "It can call the tile APIs this tile is granted.",
+    "brief": "Goal: add CSV export.\nDone when: the export test passes.",
+    "danger": "",
+    "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them."
+   },
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:02 · expires in 23 h 46 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Start a tile agent in Orders",
     "line": "asked 10:02 · expires in 23 h 46 min",
     "glyph": "shield",
     "tone": "warn",
@@ -2505,6 +2923,7 @@
    },
    "session": {
     "agent": "Claude Code · model sonnet, through the workspace's connector",
+    "signin": null,
     "mode": {
      "tag": "acts without asking",
      "tone": "bad",
@@ -2637,6 +3056,7 @@
    },
    "session": {
     "agent": "Claude Code · model sonnet, through the workspace's connector",
+    "signin": null,
     "mode": {
      "tag": "acts without asking",
      "tone": "bad",
@@ -3257,8 +3677,15 @@
     "arguments": "{\n  \"table\": \"main\"\n}",
     "standing": "wipe on Dice — this tool again, with any arguments, without asking",
     "changed": [],
+    "outside": false,
+    "host": "",
+    "each": false,
+    "why": "",
+    "trusted": false,
     "marked": "Its server doesn’t mark it read-only: it may change things.",
     "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "outsideLine": "",
+    "eachLine": "",
     "changedLine": ""
    },
    "wider": {
@@ -3400,8 +3827,15 @@
     "arguments": "{}",
     "standing": "",
     "changed": [],
+    "outside": false,
+    "host": "",
+    "each": false,
+    "why": "",
+    "trusted": false,
     "marked": "Its server marks it read-only — the server’s word, not xbin’s.",
     "undo": "xbin can't undo this. Whether apps/dice can is up to apps/dice.",
+    "outsideLine": "",
+    "eachLine": "",
     "changedLine": ""
    },
    "wider": {
@@ -3551,8 +3985,15 @@
     "arguments": "{\n  \"table\": \"main\"\n}",
     "standing": "wipe on Dice — this tool again, with any arguments, without asking",
     "changed": [],
+    "outside": false,
+    "host": "",
+    "each": false,
+    "why": "",
+    "trusted": false,
     "marked": "Its server doesn’t mark it read-only: it may change things.",
     "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "outsideLine": "",
+    "eachLine": "",
     "changedLine": ""
    },
    "wider": {
@@ -3704,8 +4145,15 @@
      "annotations",
      "somethingNew"
     ],
+    "outside": false,
+    "host": "",
+    "each": false,
+    "why": "",
+    "trusted": false,
     "marked": "Its server marks it read-only — the server’s word, not xbin’s.",
     "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "outsideLine": "",
+    "eachLine": "",
     "changedLine": "Changed since you last allowed it or first met it: its description, its marks (read-only and the like), somethingNew."
    },
    "wider": {
@@ -3721,6 +4169,780 @@
    "card": {
     "head": "Waiting for your approval",
     "what": "Run wipe on Dice",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_out",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "ext:tracker@1a2b3c4d",
+    "contentType": "application/json",
+    "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "bodyShown": true,
+    "bodySize": 60,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "server": "ext:tracker",
+     "serverName": "Tracker",
+     "host": "mcp.tracker.example",
+     "outside": true,
+     "tool": "post",
+     "title": "",
+     "description": "Post a comment on a ticket.",
+     "readOnly": false,
+     "arguments": "{\n  \"id\": \"T-7\"\n}",
+     "standing": {
+      "tool": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking"
+     }
+    }
+   },
+   "tile": {
+    "name": "Ext:tracker@1a2b3c4d",
+    "path": "ext:tracker@1a2b3c4d",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run post on Tracker",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "post",
+    "after": " on Tracker, outside this workspace"
+   },
+   "sends": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Ext:tracker@1a2b3c4d can is up to Ext:tracker@1a2b3c4d.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Tracker",
+    "path": "ext:tracker",
+    "tool": "post",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": false,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "standing": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+    "changed": [],
+    "outside": true,
+    "host": "mcp.tracker.example",
+    "each": false,
+    "why": "",
+    "trusted": false,
+    "marked": "Its server doesn’t mark it read-only: it may change things.",
+    "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
+    "outsideLine": "Outside this workspace: mcp.tracker.example",
+    "eachLine": "",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Ext:tracker@1a2b3c4d?",
+    "means": "From now on your agent can create, change and delete anything in Ext:tracker@1a2b3c4d that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run post on Tracker",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_out_ro",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "ext:tracker@1a2b3c4d",
+    "contentType": "application/json",
+    "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "bodyShown": true,
+    "bodySize": 60,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "server": "ext:tracker",
+     "serverName": "Tracker",
+     "host": "mcp.tracker.example",
+     "outside": true,
+     "tool": "lookup",
+     "title": "",
+     "description": "Post a comment on a ticket.",
+     "readOnly": true,
+     "arguments": "{\n  \"id\": \"T-7\"\n}",
+     "standing": {
+      "tool": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking"
+     }
+    }
+   },
+   "tile": {
+    "name": "Ext:tracker@1a2b3c4d",
+    "path": "ext:tracker@1a2b3c4d",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run lookup on Tracker",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "lookup",
+    "after": " on Tracker, outside this workspace"
+   },
+   "sends": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Ext:tracker@1a2b3c4d can is up to Ext:tracker@1a2b3c4d.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Tracker",
+    "path": "ext:tracker",
+    "tool": "lookup",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": true,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "standing": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+    "changed": [],
+    "outside": true,
+    "host": "mcp.tracker.example",
+    "each": false,
+    "why": "",
+    "trusted": false,
+    "marked": "Its server marks it read-only — an outside server’s word, which your “read-only tools don’t ask me” doesn’t take.",
+    "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
+    "outsideLine": "Outside this workspace: mcp.tracker.example",
+    "eachLine": "",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Ext:tracker@1a2b3c4d?",
+    "means": "From now on your agent can create, change and delete anything in Ext:tracker@1a2b3c4d that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run lookup on Tracker",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_out_trusted",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "ext:tracker@1a2b3c4d",
+    "contentType": "application/json",
+    "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "bodyShown": true,
+    "bodySize": 60,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "server": "ext:tracker",
+     "serverName": "Tracker",
+     "host": "mcp.tracker.example",
+     "outside": true,
+     "tool": "lookup",
+     "title": "",
+     "description": "Post a comment on a ticket.",
+     "readOnly": true,
+     "arguments": "{\n  \"id\": \"T-7\"\n}",
+     "standing": {
+      "tool": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking"
+     },
+     "readOnlyTrusted": true
+    }
+   },
+   "tile": {
+    "name": "Ext:tracker@1a2b3c4d",
+    "path": "ext:tracker@1a2b3c4d",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run lookup on Tracker",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "lookup",
+    "after": " on Tracker, outside this workspace"
+   },
+   "sends": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Ext:tracker@1a2b3c4d can is up to Ext:tracker@1a2b3c4d.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Tracker",
+    "path": "ext:tracker",
+    "tool": "lookup",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": true,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "standing": "post on Tracker (outside this workspace: mcp.tracker.example) — this tool again, as it is described now, with any arguments, without asking",
+    "changed": [],
+    "outside": true,
+    "host": "mcp.tracker.example",
+    "each": false,
+    "why": "",
+    "trusted": true,
+    "marked": "Its server marks it read-only — the server’s word, not xbin’s.",
+    "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
+    "outsideLine": "Outside this workspace: mcp.tracker.example",
+    "eachLine": "",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Ext:tracker@1a2b3c4d?",
+    "means": "From now on your agent can create, change and delete anything in Ext:tracker@1a2b3c4d that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run lookup on Tracker",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_each",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "ext:tracker@1a2b3c4d",
+    "contentType": "application/json",
+    "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "bodyShown": true,
+    "bodySize": 60,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "server": "ext:tracker",
+     "serverName": "Tracker",
+     "host": "mcp.tracker.example",
+     "outside": true,
+     "tool": "post",
+     "title": "",
+     "description": "Post a comment on a ticket.",
+     "readOnly": false,
+     "arguments": "{\n  \"id\": \"T-7\"\n}",
+     "each": true,
+     "orgs": [
+      "sales"
+     ],
+     "why": "This conversation holds data of Sales: what is sent to Tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve"
+    }
+   },
+   "tile": {
+    "name": "Ext:tracker@1a2b3c4d",
+    "path": "ext:tracker@1a2b3c4d",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run post on Tracker",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "post",
+    "after": " on Tracker, outside this workspace"
+   },
+   "sends": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Ext:tracker@1a2b3c4d can is up to Ext:tracker@1a2b3c4d.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Tracker",
+    "path": "ext:tracker",
+    "tool": "post",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": false,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "standing": "",
+    "changed": [],
+    "outside": true,
+    "host": "mcp.tracker.example",
+    "each": true,
+    "why": "This conversation holds data of Sales: what is sent to Tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve",
+    "trusted": false,
+    "marked": "Its server doesn’t mark it read-only: it may change things.",
+    "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
+    "outsideLine": "Outside this workspace: mcp.tracker.example",
+    "eachLine": "This conversation holds data of Sales: what is sent to Tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve.",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Ext:tracker@1a2b3c4d?",
+    "means": "From now on your agent can create, change and delete anything in Ext:tracker@1a2b3c4d that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run post on Tracker",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_each_bare",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "ext:tracker@1a2b3c4d",
+    "contentType": "application/json",
+    "body": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "bodyShown": true,
+    "bodySize": 60,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "server": "ext:tracker",
+     "serverName": "Tracker",
+     "host": "",
+     "outside": true,
+     "tool": "post",
+     "title": "",
+     "description": "Post a comment on a ticket.",
+     "readOnly": false,
+     "arguments": "{\n  \"id\": \"T-7\"\n}",
+     "each": true
+    }
+   },
+   "tile": {
+    "name": "Ext:tracker@1a2b3c4d",
+    "path": "ext:tracker@1a2b3c4d",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run post on Tracker",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "post",
+    "after": " on Tracker, outside this workspace"
+   },
+   "sends": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"ext:tracker\",\"tool\":\"post\",\"arguments\":{\"id\":\"T-7\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "60 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Ext:tracker@1a2b3c4d can is up to Ext:tracker@1a2b3c4d.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Tracker",
+    "path": "ext:tracker",
+    "tool": "post",
+    "title": "",
+    "description": "Post a comment on a ticket.",
+    "readOnly": false,
+    "arguments": "{\n  \"id\": \"T-7\"\n}",
+    "standing": "",
+    "changed": [],
+    "outside": true,
+    "host": "",
+    "each": true,
+    "why": "",
+    "trusted": false,
+    "marked": "Its server doesn’t mark it read-only: it may change things.",
+    "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
+    "outsideLine": "Outside this workspace: an outside server",
+    "eachLine": "This conversation holds an organisation’s data: what is sent leaves the workspace, so each call is asked every time.",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Ext:tracker@1a2b3c4d?",
+    "means": "From now on your agent can create, change and delete anything in Ext:tracker@1a2b3c4d that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run post on Tracker",
     "line": "asked 10:12 · expires in 23 h 56 min",
     "glyph": "shield",
     "tone": "warn",
@@ -4882,6 +6104,26 @@
    "text": "Always · this tool: wipe",
    "wider": false,
    "until": "until you take it back"
+  },
+  {
+   "json": {
+    "id": "ap_5",
+    "user": "ana",
+    "tile": "ext:tracker@1a2b3c4d",
+    "scope": "tool",
+    "method": "MCP",
+    "path": "post",
+    "created": "2026-11-16T09:35:00Z",
+    "server": {
+     "server": "ext:tracker",
+     "name": "Tracker",
+     "host": "mcp.tracker.example"
+    }
+   },
+   "tile": "Tracker",
+   "text": "Always · this tool: post — outside this workspace (mcp.tracker.example)",
+   "wider": false,
+   "until": "until you take it back"
   }
  ],
  "audit": [
@@ -5298,6 +6540,75 @@
    "text": "Was refused: ",
    "strong": "Dice",
    "detail": "Using MCP tools is off for this workspace",
+   "icon": "lock",
+   "group": "refused"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:42:00Z",
+    "method": "POST",
+    "path": "https://mcp.tracker.example",
+    "class": "mcp",
+    "server": "ext:tracker",
+    "tool": "post",
+    "effect": true,
+    "status": 200,
+    "ticket": "rq_mcp_out",
+    "bytes": 2048
+   },
+   "text": "Ran post on ",
+   "strong": "ext:tracker",
+   "detail": "mcp.tracker.example · you allowed it once · 2 KiB",
+   "icon": "plug",
+   "group": "change"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:41:00Z",
+    "method": "POST",
+    "path": "https://mcp.tracker.example",
+    "class": "mcp",
+    "server": "ext:tracker",
+    "tool": "lookup",
+    "effect": true,
+    "status": 200,
+    "under": "preference"
+   },
+   "text": "Ran lookup on ",
+   "strong": "ext:tracker",
+   "detail": "mcp.tracker.example · without asking: your preference",
+   "icon": "plug",
+   "group": "change"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:40:00Z",
+    "method": "POST",
+    "path": "https://mcp.tracker.example",
+    "class": "mcp-read",
+    "server": "ext:tracker",
+    "status": 200
+   },
+   "text": "Read the tools of ",
+   "strong": "ext:tracker",
+   "detail": "mcp.tracker.example",
+   "icon": "plug",
+   "group": "read"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:39:00Z",
+    "method": "POST",
+    "path": "https://mcp.tracker.example",
+    "class": "mcp",
+    "server": "ext:tracker",
+    "tool": "post",
+    "status": 502,
+    "refused": "the server refused xbin's credentials (401)"
+   },
+   "text": "Was refused an outside server, ",
+   "strong": "ext:tracker",
+   "detail": "mcp.tracker.example · the server refused xbin's credentials (401)",
    "icon": "lock",
    "group": "refused"
   }
@@ -6101,6 +7412,24 @@
    },
    {
     "kind": "request",
+    "id": "rq_saved_signin",
+    "title": "Start a tile agent in Orders",
+    "note": "asked 10:02 · expires in 23 h 46 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_saved_no_id",
+    "title": "Start a tile agent in Orders",
+    "note": "asked 10:02 · expires in 23 h 46 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_needs_signin",
+    "title": "Start a tile agent in Orders",
+    "note": "asked 10:02 · expires in 23 h 46 min"
+   },
+   {
+    "kind": "request",
     "id": "rq_unknown_mode",
     "title": "Start a tile agent in Orders",
     "note": "asked 10:02 · expires in 23 h 46 min"
@@ -6145,6 +7474,36 @@
     "kind": "request",
     "id": "rq_mcp_changed",
     "title": "Run wipe on Dice",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_out",
+    "title": "Run post on Tracker",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_out_ro",
+    "title": "Run lookup on Tracker",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_out_trusted",
+    "title": "Run lookup on Tracker",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_each",
+    "title": "Run post on Tracker",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_each_bare",
+    "title": "Run post on Tracker",
     "note": "asked 10:12 · expires in 23 h 56 min"
    },
    {
@@ -7222,7 +8581,7 @@
     "note": "first 4000 of 4001 characters"
    }
   ],
-  "readWeb": "This conversation has read the web: what your agent asks may come from a page it read.",
+  "readWeb": "This conversation has read the web or an outside server: what your agent asks may come from what it read there.",
   "netPrefs": [
    {
     "state": {},
@@ -7241,7 +8600,8 @@
       "on": false,
       "allowed": false,
       "why": "Off for this workspace — an admin can change it.",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7275,7 +8635,8 @@
       "on": false,
       "allowed": false,
       "why": "Off for this workspace — an admin can change it.",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7316,7 +8677,8 @@
       "on": false,
       "allowed": false,
       "why": "Using MCP tools is off for this workspace — an admin can change it (the workspace agent’s settings)",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7362,7 +8724,8 @@
       "on": true,
       "allowed": true,
       "why": "",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7404,7 +8767,8 @@
       "on": true,
       "allowed": true,
       "why": "",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7445,7 +8809,8 @@
       "on": false,
       "allowed": true,
       "why": "",
-      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
      },
      {
       "id": "mcpReadOnly",
@@ -7454,6 +8819,107 @@
       "allowed": false,
       "sub": true,
       "why": "Turn on MCP tools first.",
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
+     }
+    ]
+   },
+   {
+    "state": {
+     "mcp": true,
+     "mcpReadOnly": true,
+     "net": {
+      "web": {
+       "policy": "off"
+      },
+      "mcp": {
+       "policy": "listed",
+       "servers": [
+        {
+         "server": "ext:tracker",
+         "name": "Tracker",
+         "host": "mcp.tracker.example"
+        },
+        {
+         "server": "ext:wiki",
+         "host": "wiki.example.org"
+        }
+       ]
+      }
+     }
+    },
+    "prefs": [
+     {
+      "id": "web",
+      "label": "Let my agent read web pages",
+      "on": false,
+      "allowed": false,
+      "why": "Off for this workspace — an admin can change it.",
+      "note": "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve."
+     },
+     {
+      "id": "mcp",
+      "label": "Let my agent use MCP tools",
+      "on": true,
+      "allowed": true,
+      "why": "",
+      "note": "From this workspace’s tiles, as you, and from the servers outside it listed below: what it sends one leaves the workspace. Each tool asks you the first time.",
+      "servers": [
+       {
+        "name": "Tracker",
+        "host": "mcp.tracker.example"
+       },
+       {
+        "name": "ext:wiki",
+        "host": "wiki.example.org"
+       }
+      ]
+     },
+     {
+      "id": "mcpReadOnly",
+      "label": "MCP tools marked read-only don’t ask me",
+      "on": true,
+      "allowed": true,
+      "sub": true,
+      "why": "",
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask. An outside server’s marks count only where an admin trusts them."
+     }
+    ]
+   },
+   {
+    "state": {
+     "mcp": true,
+     "net": {
+      "mcp": {
+       "policy": "listed",
+       "servers": []
+      }
+     }
+    },
+    "prefs": [
+     {
+      "id": "web",
+      "label": "Let my agent read web pages",
+      "on": false,
+      "allowed": false,
+      "why": "Off for this workspace — an admin can change it.",
+      "note": "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve."
+     },
+     {
+      "id": "mcp",
+      "label": "Let my agent use MCP tools from this workspace’s tiles",
+      "on": true,
+      "allowed": true,
+      "why": "",
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time.",
+      "servers": []
+     },
+     {
+      "id": "mcpReadOnly",
+      "label": "MCP tools marked read-only don’t ask me",
+      "on": false,
+      "allowed": true,
+      "sub": true,
+      "why": "",
       "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
      }
     ]
@@ -7485,7 +8951,7 @@
       "n": 1,
       "kind": "tile.create",
       "args": {},
-      "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+      "line": "Create the tile apps/dice from the template Starter (starter) — yours",
       "before": {
        "tile": null
       },
@@ -7582,6 +9048,7 @@
     "note": "1 has a warning"
    },
    "askedWords": "",
+   "waitingWords": "",
    "items": [
     {
      "tag": "new tile",
@@ -7659,6 +9126,7 @@
      "neededBy": [],
      "start": {
       "agent": "Codex",
+      "signin": null,
       "mode": {
        "tag": "asks before acting",
        "tone": "ok",
@@ -7834,7 +9302,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -7955,7 +9423,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -8077,7 +9545,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -8199,7 +9667,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -8317,7 +9785,7 @@
       "n": 1,
       "kind": "tile.create",
       "args": {},
-      "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+      "line": "Create the tile apps/dice from the template Starter (starter) — yours",
       "before": {
        "tile": null
       },
@@ -8399,6 +9867,7 @@
     "note": "1 needs an admin"
    },
    "askedWords": "1 line needs an admin and was not applied.",
+   "waitingWords": "",
    "items": [
     {
      "tag": "new tile",
@@ -8476,6 +9945,7 @@
      "neededBy": [],
      "start": {
       "agent": "Codex",
+      "signin": null,
       "mode": {
        "tag": "asks before acting",
        "tone": "ok",
@@ -8654,7 +10124,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -8759,7 +10229,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -8864,7 +10334,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -8969,7 +10439,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -9071,7 +10541,7 @@
       "n": 1,
       "kind": "tile.create",
       "args": {},
-      "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+      "line": "Create the tile apps/dice from the template Starter (starter) — yours",
       "before": {
        "tile": null
       },
@@ -9157,6 +10627,7 @@
     "note": "1 needs an admin"
    },
    "askedWords": "1 line needs an admin and was not applied.",
+   "waitingWords": "",
    "items": [
     {
      "tag": "new tile",
@@ -9234,6 +10705,7 @@
      "neededBy": [],
      "start": {
       "agent": "Codex",
+      "signin": null,
       "mode": {
        "tag": "asks before acting",
        "tone": "ok",
@@ -9365,7 +10837,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -9465,7 +10937,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -9565,7 +11037,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -9665,7 +11137,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -9767,7 +11239,7 @@
       "n": 1,
       "kind": "tile.create",
       "args": {},
-      "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+      "line": "Create the tile apps/dice from the template Starter (starter) — yours",
       "before": {
        "tile": null
       },
@@ -9854,6 +11326,7 @@
     "note": ""
    },
    "askedWords": "1 line was sent to the workspace's admins. You are told here when one of them decides.",
+   "waitingWords": "",
    "items": [
     {
      "tag": "new tile",
@@ -9931,6 +11404,7 @@
      "neededBy": [],
      "start": {
       "agent": "Codex",
+      "signin": null,
       "mode": {
        "tag": "asks before acting",
        "tone": "ok",
@@ -10057,7 +11531,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -10158,7 +11632,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -10259,7 +11733,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -10360,7 +11834,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -10463,7 +11937,7 @@
       "n": 1,
       "kind": "tile.create",
       "args": {},
-      "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+      "line": "Create the tile apps/dice from the template Starter (starter) — yours",
       "before": {
        "tile": null
       },
@@ -10571,6 +12045,7 @@
     "note": "3 have a warning · 1 can't be applied"
    },
    "askedWords": "",
+   "waitingWords": "",
    "items": [
     {
      "tag": "new tile",
@@ -10647,6 +12122,7 @@
      "neededBy": [],
      "start": {
       "agent": "Codex",
+      "signin": null,
       "mode": {
        "tag": "acts without asking",
        "tone": "bad",
@@ -10809,7 +12285,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -10937,7 +12413,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -11070,7 +12546,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -11203,7 +12679,7 @@
         "n": 1,
         "kind": "tile.create",
         "args": {},
-        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
         "before": {
          "tile": null
         },
@@ -11319,6 +12795,1652 @@
   },
   {
    "json": {
+    "id": "pl_waits",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "plan": true,
+    "session": "h1",
+    "title": "A dice tool and an assistant",
+    "state": "applied",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/dice from the template Starter (starter) — yours",
+      "before": {
+       "tile": null
+      },
+      "after": {
+       "owner": "user:ana",
+       "tile": "apps/dice"
+      },
+      "beforeText": "nothing at apps/dice",
+      "afterText": "a new tile, yours",
+      "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+      "result": "applied"
+     },
+     {
+      "n": 2,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+      "before": {},
+      "after": {
+       "tile": "apps/assistant"
+      },
+      "result": "applied"
+     },
+     {
+      "n": 3,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's llm to xbin:llm",
+      "admin": true,
+      "deferred": true,
+      "needs": [
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "xbin:llm"
+        }
+       ]
+      },
+      "beforeText": "not bound",
+      "afterText": "the workspace's LLM connector (xbin:llm)",
+      "warnings": [
+       "SPEND: its calls spend the workspace's LLM quota"
+      ],
+      "result": "applied"
+     },
+     {
+      "n": 4,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's mcp to apps/dice",
+      "deferred": true,
+      "needs": [
+       1,
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "apps/dice"
+        }
+       ]
+      },
+      "afterText": "apps/dice",
+      "result": "waiting",
+      "wait": {
+       "component": "apps/assistant",
+       "slot": "mcp",
+       "tile": "apps/dice",
+       "kind": "http",
+       "service": "mcp",
+       "role": "reader",
+       "until": "2026-11-17T09:00:00Z"
+      }
+     },
+     {
+      "n": 5,
+      "kind": "agent.start",
+      "args": {},
+      "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+      "deferred": true,
+      "needs": [
+       1
+      ],
+      "start": {
+       "tile": "apps/dice",
+       "provider": "codex",
+       "providerName": "Codex",
+       "mode": "default",
+       "asks": true,
+       "net": "none",
+       "api": true,
+       "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+      },
+      "result": "applied"
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 5 changes",
+    "note": "1 has a warning"
+   },
+   "askedWords": "",
+   "waitingWords": "1 line waits: xbin applies it by itself once the tile provides what you approved. Rejecting the plan from here cancels it.",
+   "items": [
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "nothing at apps/dice",
+     "after": "a new tile, yours",
+     "neededBy": [
+      4,
+      5
+     ],
+     "start": null
+    },
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "(nothing)",
+     "after": "tile: \"apps/assistant\"",
+     "neededBy": [
+      3,
+      4
+     ],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "not bound",
+     "after": "the workspace's LLM connector (xbin:llm)",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "waiting",
+      "icon": "clock",
+      "tone": "warn",
+      "text": "xbin applies it by itself once apps/dice provides mcp; nothing is bound until then."
+     },
+     "before": "binding: []",
+     "after": "apps/dice",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "tile agent",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": {
+      "agent": "Codex",
+      "signin": null,
+      "mode": {
+       "tag": "asks before acting",
+       "tone": "ok",
+       "text": "It asks you before it edits a file or runs a command.",
+       "name": "default"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "brief": "Goal: roll_dice.\nDone when: tools/list names it.",
+      "danger": "",
+      "comes": "Its questions and permission requests come to you, in Dice and in Needs you. Your workspace agent can't answer them."
+     }
+    }
+   ],
+   "ticks": [],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Your agent proposes 5 changes",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "0 of 5 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply none",
+    "reject": "Reject all",
+    "ask": null,
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 4 and 5 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      1
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 3 and 4 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      2
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "admin",
+      "needs": "Needs line 2 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      3
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 and 2 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      4
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      5
+     ]
+    }
+   ],
+   "kept": [
+    [],
+    [],
+    [],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_waits",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "waiting",
+        "wait": {
+         "component": "apps/assistant",
+         "slot": "mcp",
+         "tile": "apps/dice",
+         "kind": "http",
+         "service": "mcp",
+         "role": "reader",
+         "until": "2026-11-17T09:00:00Z"
+        }
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_waits",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "waiting",
+        "wait": {
+         "component": "apps/assistant",
+         "slot": "mcp",
+         "tile": "apps/dice",
+         "kind": "http",
+         "service": "mcp",
+         "role": "reader",
+         "until": "2026-11-17T09:00:00Z"
+        }
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_waits",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "waiting",
+        "wait": {
+         "component": "apps/assistant",
+         "slot": "mcp",
+         "tile": "apps/dice",
+         "kind": "http",
+         "service": "mcp",
+         "role": "reader",
+         "until": "2026-11-17T09:00:00Z"
+        }
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_waits",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "waiting",
+        "wait": {
+         "component": "apps/assistant",
+         "slot": "mcp",
+         "tile": "apps/dice",
+         "kind": "http",
+         "service": "mcp",
+         "role": "reader",
+         "until": "2026-11-17T09:00:00Z"
+        }
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "pl_held",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "plan": true,
+    "session": "h1",
+    "title": "A dice tool and an assistant",
+    "state": "applied",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/dice from the template Starter (starter) — yours",
+      "before": {
+       "tile": null
+      },
+      "after": {
+       "owner": "user:ana",
+       "tile": "apps/dice"
+      },
+      "beforeText": "nothing at apps/dice",
+      "afterText": "a new tile, yours",
+      "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+      "result": "applied"
+     },
+     {
+      "n": 2,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+      "before": {},
+      "after": {
+       "tile": "apps/assistant"
+      },
+      "result": "applied"
+     },
+     {
+      "n": 3,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's llm to xbin:llm",
+      "admin": true,
+      "deferred": true,
+      "needs": [
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "xbin:llm"
+        }
+       ]
+      },
+      "beforeText": "not bound",
+      "afterText": "the workspace's LLM connector (xbin:llm)",
+      "warnings": [
+       "SPEND: its calls spend the workspace's LLM quota"
+      ],
+      "result": "applied"
+     },
+     {
+      "n": 4,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's mcp to apps/dice",
+      "deferred": true,
+      "needs": [
+       1,
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "apps/dice"
+        }
+       ]
+      },
+      "afterText": "apps/dice",
+      "result": "waiting",
+      "wait": {
+       "component": "apps/assistant",
+       "slot": "mcp",
+       "tile": "apps/dice",
+       "kind": "http",
+       "service": "mcp",
+       "role": "reader",
+       "until": "2026-11-17T09:00:00Z",
+       "held": "apps/dice declares mcp for the role \"writer\": what you approved is the role reader"
+      }
+     },
+     {
+      "n": 5,
+      "kind": "agent.start",
+      "args": {},
+      "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+      "deferred": true,
+      "needs": [
+       1
+      ],
+      "start": {
+       "tile": "apps/dice",
+       "provider": "codex",
+       "providerName": "Codex",
+       "mode": "default",
+       "asks": true,
+       "net": "none",
+       "api": true,
+       "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+      },
+      "result": "lapsed",
+      "error": "apps/dice did not provide mcp within 24 hours of the plan being applied: nothing was bound"
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 5 changes",
+    "note": "1 has a warning"
+   },
+   "askedWords": "",
+   "waitingWords": "1 line waits: xbin applies it by itself once the tile provides what you approved. Rejecting the plan from here cancels it.",
+   "items": [
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "nothing at apps/dice",
+     "after": "a new tile, yours",
+     "neededBy": [
+      4,
+      5
+     ],
+     "start": null
+    },
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "(nothing)",
+     "after": "tile: \"apps/assistant\"",
+     "neededBy": [
+      3,
+      4
+     ],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "not bound",
+     "after": "the workspace's LLM connector (xbin:llm)",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "waiting",
+      "icon": "clock",
+      "tone": "warn",
+      "text": "Not bound — apps/dice declares mcp for the role \"writer\": what you approved is the role reader. xbin applies it once apps/dice provides mcp as you approved it."
+     },
+     "before": "binding: []",
+     "after": "apps/dice",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "tile agent",
+     "known": true,
+     "result": {
+      "word": "lapsed — never applied",
+      "icon": "clock",
+      "tone": "",
+      "text": "apps/dice did not provide mcp within 24 hours of the plan being applied: nothing was bound"
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": {
+      "agent": "Codex",
+      "signin": null,
+      "mode": {
+       "tag": "asks before acting",
+       "tone": "ok",
+       "text": "It asks you before it edits a file or runs a command.",
+       "name": "default"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "brief": "Goal: roll_dice.\nDone when: tools/list names it.",
+      "danger": "",
+      "comes": "Its questions and permission requests come to you, in Dice and in Needs you. Your workspace agent can't answer them."
+     }
+    }
+   ],
+   "ticks": [],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Your agent proposes 5 changes",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "0 of 5 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply none",
+    "reject": "Reject all",
+    "ask": null,
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 4 and 5 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      1
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 3 and 4 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      2
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "admin",
+      "needs": "Needs line 2 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      3
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 and 2 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      4
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      5
+     ]
+    }
+   ],
+   "kept": [
+    [],
+    [],
+    [],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_held",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "waiting",
+        "wait": {
+         "component": "apps/assistant",
+         "slot": "mcp",
+         "tile": "apps/dice",
+         "kind": "http",
+         "service": "mcp",
+         "role": "reader",
+         "until": "2026-11-17T09:00:00Z",
+         "held": "apps/dice declares mcp for the role \"writer\": what you approved is the role reader"
+        }
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "lapsed",
+        "error": "apps/dice did not provide mcp within 24 hours of the plan being applied: nothing was bound"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_held",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "waiting",
+        "wait": {
+         "component": "apps/assistant",
+         "slot": "mcp",
+         "tile": "apps/dice",
+         "kind": "http",
+         "service": "mcp",
+         "role": "reader",
+         "until": "2026-11-17T09:00:00Z",
+         "held": "apps/dice declares mcp for the role \"writer\": what you approved is the role reader"
+        }
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "lapsed",
+        "error": "apps/dice did not provide mcp within 24 hours of the plan being applied: nothing was bound"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_held",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "waiting",
+        "wait": {
+         "component": "apps/assistant",
+         "slot": "mcp",
+         "tile": "apps/dice",
+         "kind": "http",
+         "service": "mcp",
+         "role": "reader",
+         "until": "2026-11-17T09:00:00Z",
+         "held": "apps/dice declares mcp for the role \"writer\": what you approved is the role reader"
+        }
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "lapsed",
+        "error": "apps/dice did not provide mcp within 24 hours of the plan being applied: nothing was bound"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_held",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template Starter (starter) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "waiting",
+        "wait": {
+         "component": "apps/assistant",
+         "slot": "mcp",
+         "tile": "apps/dice",
+         "kind": "http",
+         "service": "mcp",
+         "role": "reader",
+         "until": "2026-11-17T09:00:00Z",
+         "held": "apps/dice declares mcp for the role \"writer\": what you approved is the role reader"
+        }
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "lapsed",
+        "error": "apps/dice did not provide mcp within 24 hours of the plan being applied: nothing was bound"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
     "id": "pl_chain",
     "plan": true,
     "title": "t",
@@ -11364,6 +14486,7 @@
     "note": ""
    },
    "askedWords": "",
+   "waitingWords": "",
    "items": [
     {
      "tag": "new tile",
@@ -11412,6 +14535,7 @@
      "neededBy": [],
      "start": {
       "agent": "codex",
+      "signin": null,
       "mode": {
        "tag": "acts without asking",
        "tone": "bad",
@@ -11780,6 +14904,7 @@
     "note": "1 has a warning"
    },
    "askedWords": "",
+   "waitingWords": "",
    "items": [
     {
      "tag": "binding",
@@ -12156,6 +15281,7 @@
     "note": ""
    },
    "askedWords": "",
+   "waitingWords": "",
    "items": [
     {
      "tag": "binding",

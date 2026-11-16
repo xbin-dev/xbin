@@ -1547,8 +1547,9 @@ subagent's `result` is the full answer its parent receives; and a channel
 conversation's or a trigger's top-level run keeps `result` as the full
 reply, because that is what is posted (§Channels).
 MCP servers are bound via the `mcp` interface (multi:true, like the chat tile):
-make one from the `mcp-server` template and bind this tile's `mcp` slot to
-it ([/docs/mcp.md](/docs/mcp.md)); `GET /tools` says what reached a
+write one — a Go backend tile that provides `mcp` — and bind this tile's
+`mcp` slot to it ([/docs/mcp.md](/docs/mcp.md) has the interface and a
+complete server); `GET /tools` says what reached a
 conversation. Extend these in `_backend/tools.go`.
 
 ### The task and compaction (D133)
@@ -5957,6 +5958,15 @@ review closes itself after an Apply in which nothing failed); a card with
 a failed, stale or skipped line stays marked, and **Open** shows xbin's
 results. Of a line that takes an admin's rights the agent is told only
 whether it was applied, unless its person lets it read admin state.
+A **line that waits** (xbind's `wait`: a binding to a tile that provides
+nothing until the tile agent an earlier line starts has written it —
+/docs/protocol/delegation.md §Lines that wait) keeps the plan's row in
+`state: "waiting"` after the decision, its line `result: "waiting"` with
+`waits` ("apps/dice to provide mcp") and `untilMs`; the backend follows it
+on, and when xbind has applied it, or it ended, the conversation gets a
+second update ("Line 5 of the plan, which waited for …, was applied by
+xbin now" — or why not) and the row its final state. Until then the
+decision's update says the outcome isn't reached.
 
 **MCP tiles** (D239; `/docs/protocol/delegation.md` §MCP tiles). A tile
 xbind's map marks `mcp: true` serves MCP at `/api/<tile>/mcp`.
@@ -6000,15 +6010,19 @@ handle made again is told the conversation has read the web (`POST
 
 **Brief templates** (`_backend/ws_brief_kinds.go`): `tile_agent_brief`
 takes `template` — one so far, `"mcp-tool"`, a tool an agent instance
-should get, built in an MCP tile made from the `mcp-server` template
-(/docs/mcp.md) — with `tool: {name, arguments, result}`, the specifics only
-the agent knows. The brief's fields the model leaves out come from it: the
-goal from the tool's three fields; done when `tools/list` on the tile's
-`/mcp` names the tool and a `tools/call` returns that result; check by the
-two calls from the tile's own sandbox (and `go test`); leave alone the
-manifest's `provides` and the wire (`_backend/mcp.go`), with the model's own
-words after; known, where tools go in the template. A field the model gave
-is kept, and the brief is shown and approved as ever.
+should get, built as an MCP server in a tile of its own, which may be empty
+when its coding agent starts (/docs/mcp.md is the interface) — with `tool:
+{name, arguments, result}`, the specifics only the agent knows. The brief's
+fields the model leaves out come from it: the goal from the tool's three
+fields; done when the tile's manifest declares `"provides": {"mcp":
+{"kind": "http", "service": "mcp", "role": "reader"}}`, `tools/list` on
+its `/mcp` names the tool and a `tools/call` returns that result; check by
+the two calls from the tile's own sandbox; leave alone everything outside
+the tile and the provide's role (a plan's waiting binding is pinned to
+it), with the model's own words after; known, that `/docs/mcp.md` carries
+a complete server and how to read it from the sandbox, and the three files
+a Go backend tile needs. A field the model gave is kept, and the brief is
+shown and approved as ever.
 
 **When the agent's switch is off** — its person paused it, workspace
 agents are off, it is held, or its person wasn't given one — xbind refuses
@@ -6155,9 +6169,18 @@ resolve from the person's preferences and the tile's org's rules; a brief
 carries a `harness` only when its person picked one of the allowed ones on
 its card (`PUT …/briefs/{bid} {harness}`; `GET …/briefs/{bid}/start-defaults`
 → `{defaults: {tile, harness, harnesses: [{id, name, mode, asks, net,
-needsTicket}], why?}, picked, harness, harnessName, mode, asks, net,
-ticket, line}` — the top-level fields are the picked harness's, else the
-default's; every name and `asks` in it is xbind's answer (`GET
+needsTicket, noSignIn, signIn?}], why?}, picked, harness,
+harnessName, mode, asks, net, ticket, line, needsSignIn?}` — the top-level
+fields are the picked harness's, else the default's; `signIn` is xbind's
+word on what a session of the harness would sign in with (`saved`: a
+saved sign-in of the person's, used only once they approve the start —
+xbind's approval names it, nothing here does; `connector`; `own`;
+`needed`),
+and `needsSignIn: true` puts "Needs your ‹coding agent› sign-in" and a
+button on the card — the button asks xbin's chrome (`xbin:agent-open-signin
+{harness}`), which draws the sign-in and says `xbin:agent-signins` when
+the person's sign-ins changed; nothing of a sign-in is ever in this page
+or its backend (D230); every name and `asks` in it is xbind's answer (`GET
 /delegate/start-defaults?tile=`), read anew for the card: the backend has
 no list of coding agents of its own in this mode). Where the person's
 preferences let starts through without a ticket — xbind's dry run says
@@ -6277,7 +6300,8 @@ native view asks of the app with `xbin.native.agent(msg)` — the same
 messages, built by `ws/dock.js`: `xbin:agent-open-request {id}` (a brief's
 "Review and start…", once the backend filed the start),
 `xbin:agent-open-changeset {id}`, `xbin:open-session {session: "new", tile,
-draft}` (a redirect's hand-off), and `xbin:agent-open {view}` — `needs`
+draft}` (a redirect's hand-off), `xbin:agent-open-signin {harness}` (a
+brief that needs the person's sign-in to a coding agent: D230), and `xbin:agent-open {view}` — `needs`
 | `approvals` | `activity`, the app's own panels that change nothing, from
 the view's ⋯ (the web dock has them in its header; the chrome refuses any
 other view: Preferences are the app's own, in its shield menu). The app tells the view what it was opened

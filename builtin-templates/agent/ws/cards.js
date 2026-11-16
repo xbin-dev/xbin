@@ -20,7 +20,8 @@ const icon = (name, label) => (name ? html`<bx-icon name=${name} aria-hidden=${l
  * request, brief, refusal, redirect, cant, replies, notice. act is the page's:
  * {now(), tileName(path), offline, bag(k), openSession(a), review(q),
  * send(text), fill(text), handTo(tile, draft), briefSave(b, vals), briefStart(b),
- * startDefaults(b) (the brief's start-defaults, read once), openScope(o),
+ * startDefaults(b) (the brief's start-defaults, read once), signIn(harness)
+ * (ask xbin's chrome for a coding agent's sign-in), openScope(o),
  * whatCan(), repaint(), cards()}.
  */
 export function hostCard(b, act) {
@@ -117,6 +118,8 @@ function briefView(blk, act) {
             ${w.harnesses.map((h) => html`<option value=${h.id} ?selected=${h.id === w.picked}>${h.name}</option>`)}</select></label>` : nothing}
       ${w.runsOn ? html`<span class="wsc-muted wsc-runs">${w.runsOn}</span>` : nothing}
     </div>
+    ${w.signin ? html`<div class="wsc-line wsc-wrap wsc-signin" data-signin=${w.signin.harness}>${icon('warning')}<span>Needs your ${w.signin.name} sign-in: without it the tile agent starts signed out. xbin shows the sign-in; nothing of it passes through your agent.</span>
+      <button class="wsc-signin-go" ?disabled=${act.offline} @click=${() => act.signIn(w.signin.harness)}>${w.signin.button}</button></div>` : nothing}
     ${w.editable ? html`<div class="wsc-line wsc-wrap">${w.note}</div>` : nothing}
   </div>`;
 }

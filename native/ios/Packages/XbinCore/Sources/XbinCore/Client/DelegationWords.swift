@@ -387,6 +387,12 @@ public enum DelegationWords {
         public var brief: String
         public var danger: String
         public var comes: String
+        /// What the session would sign in with, when that is the person's
+        /// to know before allowing (D230): "Uses your saved … sign-in" with
+        /// `signInHolds` — who will hold it; approving is what puts it into
+        /// the session — or "Needs your … sign-in". "" otherwise.
+        public var signIn: String = ""
+        public var signInHolds: String = ""
     }
 
     public static func sessionRows(_ r: DelegateRequest) -> SessionRows {
@@ -397,7 +403,10 @@ public enum DelegationWords {
         let modelName = s["model"]?.stringValue ?? ""
         let model = modelName.isEmpty ? "" : " · model \(modelName)"
         let credentials = s["credentials"]?.stringValue ?? ""
-        let cred = credentials == "own" ? ", on your own sign-in"
+        let signIn = s["signIn"]?.stringValue ?? ""
+        let saved = signIn == "saved" && !(s["signInId"]?.stringValue ?? "").isEmpty
+        let cred = signIn == "saved" || signIn == "needed" ? ""
+            : credentials == "own" ? ", on your own sign-in"
             : credentials == "connector" || !modelName.isEmpty ? ", through the workspace's connector" : ""
         var brief = ""
         if let b = try? JSONValue(parsing: r.body.isEmpty ? "{}" : r.body), b.objectValue != nil {
@@ -417,7 +426,10 @@ public enum DelegationWords {
             others: s["api"]?.boolValue == false ? "It can call no other tile." : "It can call the tile APIs this tile is granted.",
             brief: brief,
             danger: asks ? "" : "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
-            comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.")
+            comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.",
+            signIn: saved ? "Uses your saved \(who) sign-in"
+                : signIn == "needed" && s["provider"]?.stringValue != nil ? "Needs your \(who) sign-in: without it the tile agent starts signed out." : "",
+            signInHolds: saved ? "The tile's coding agent will hold that sign-in: it, and anything it runs in \(t), can read it." : "")
     }
 
     private static func nonEmpty(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }
@@ -547,10 +559,10 @@ public enum DelegationWords {
     }
 
     public static func standingRow(_ a: StandingApproval, now: Date = Date()) -> StandingRow {
-        let name = lastOf(a.tile)
+        let name = a.serverName.isEmpty ? lastOf(a.tile) : a.serverName, outside = a.serverName.isEmpty ? "" : " — outside this workspace (\(a.serverHost))"
         return StandingRow(
             tile: name.isEmpty ? a.tile : name,
-            text: a.scope == "tile" ? "Always · every change" : a.scope == "tool" ? "Always · this tool: \(a.path)"
+            text: a.scope == "tile" ? "Always · every change" : a.scope == "tool" ? "Always · this tool: \(a.path)\(outside)"
                 : "Always · this action: \(a.method) \(a.path)".trimmingCharacters(in: .whitespaces),
             wider: a.scope == "tile",
             until: a.until.map { $0 > now ? "ends in \(left($0.timeIntervalSince(now)))" : "ended" } ?? "until you take it back")
@@ -632,8 +644,21 @@ public enum DelegationWords {
         case "rejected": return ("left out by you", "minus", "", "")
         case "blocked": return ("couldn't be applied", "lock", "warn", item.blocked.isEmpty ? item.error : item.blocked)
         case "asked": return ("sent to an admin", "clock", "", "")
+        // a plan's line that waits: approved, applied by xbin once its tile provides what was approved — or never
+        case "waiting": return ("waiting", "clock", "warn", waitText(item))
+        case "lapsed": return ("lapsed — never applied", "clock", "", item.error)
+        case "cancelled": return ("cancelled — never applied", "minus", "", item.error)
         default: return item.needsAdmin && item.result.isEmpty ? ("needs an admin", "lock", "", "") : (item.result, "", "", "")
         }
+    }
+
+    /// Where a waiting line stands, from xbind's fields ("" for a line
+    /// that doesn't wait).
+    public static func waitText(_ item: AdminChangeSet.Item) -> String {
+        guard item.result == "waiting", !item.waitTile.isEmpty else { return "" }
+        let what = "\(item.waitTile) provides \(item.waitService)"
+        return item.waitHeld.isEmpty ? "xbin applies it by itself once \(what); nothing is bound until then."
+            : "Not bound — \(item.waitHeld). xbin applies it once \(what) as you approved it."
     }
 
     private static let numbers = ["none", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]

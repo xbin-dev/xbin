@@ -387,7 +387,7 @@ func (s *Server) apiDelegateMap(w http.ResponseWriter, r *http.Request) {
 	if s.Term != nil {
 		for _, si := range s.Term.ListFor(term.HomeKey(personOf(p)), "", nil) {
 			if si.Kind == term.KindAgent {
-				running[si.Cwd]++
+				running[s.sessionTile(si.Cwd)]++ // a session inside a tile is that tile's
 			}
 		}
 	}
@@ -447,6 +447,17 @@ type startHarness struct {
 	// NoSignIn: it runs here with no sign-in of the person's — the
 	// workspace's LLM connector serves it (G8). A brief's card says so.
 	NoSignIn bool `json:"noSignIn"`
+	// SignIn: what a session of it would sign in with here (D230) — "saved"
+	// (a saved sign-in of the person's, which a start uses only when they
+	// approve it: the approval names it, this answer — read by their
+	// agent's model — never does), "connector" (none: the workspace's LLM
+	// connector serves), "own" (the tile's own login, as a session last saw
+	// it), "needed" (none of these: the person signs in first — a brief's
+	// card offers it). Absent: nothing is known yet.
+	SignIn string `json:"signIn,omitempty"`
+	// signInID: the saved sign-in's id, for the approval's preview only
+	// (sessionPreview); never in this route's answer
+	signInID string
 }
 
 // startDefaultsView is GET /delegate/start-defaults' answer.
@@ -512,6 +523,11 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 		}
 		h.Asks = prov.Asks(h.Mode)
 		h.NoSignIn = noSignIn(llm[prov.ID])
+		// (a start the person's preference lets through unasked never gets a saved sign-in)
+		h.SignIn, h.signInID = startSignIn(s, p, tile, prov, llm[prov.ID], h.NeedsTicket)
+		if h.SignIn == "saved" {
+			h.NoSignIn = false // it runs on their saved sign-in, not on the connector
+		}
 		out.Harnesses = append(out.Harnesses, h)
 	}
 	for _, h := range out.Harnesses {
@@ -520,9 +536,12 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 			break
 		}
 	}
-	if out.Harness == "" && len(out.Harnesses) > 0 && llm != nil && !runsNow(llm[out.Harnesses[0].ID]) {
+	if first := out.Harnesses; out.Harness == "" && len(first) > 0 && first[0].SignIn != "saved" &&
+		(llm != nil && !runsNow(llm[first[0].ID]) || llm == nil && first[0].SignIn == "needed") {
+		// the first allowed can't run as things are: the first that can — on
+		// the person's saved sign-in (D230) or on the connector
 		for _, h := range out.Harnesses {
-			if h.NoSignIn {
+			if h.NoSignIn || h.SignIn == "saved" {
 				out.Harness = h.ID
 				break
 			}
@@ -548,6 +567,42 @@ var startLLMOf = func(s *Server, p auth.Principal, tile string, provs []agent.Pr
 	}
 	person := personOf(p)
 	return s.Term.AgentLLM(person.UserID, term.HomeKey(person), tile, provs)
+}
+
+// startSignIn is what a session of prov started for p — a person's agent —
+// on tile would sign in with, and the saved sign-in's id: the person's
+// saved sign-in where they approve the start (approved: an unasked start
+// never gets one) and the shared-tile rule lets it in (term's
+// SigninForApproval), unless the connector serves by a rule or their own
+// choice; else the connector, the tile's own login as a session last saw
+// it, or "needed". A var for tests.
+var startSignIn = func(s *Server, p auth.Principal, tile string, prov agent.Provider, row *term.ProviderLLM, approved bool) (signIn, id string) {
+	if s.Term == nil {
+		return "", ""
+	}
+	person := personOf(p)
+	connector := row != nil && row.Connector && row.Use == "connector"
+	if approved && !connector && s.Signins != nil && s.signinsAvail().OK {
+		if sg, _ := s.Term.SigninForApproval(p, tile, prov, row != nil && row.Forced); sg != nil {
+			return "saved", sg.ID
+		}
+	}
+	signedIn, known := s.Term.HomeLogin(term.HomeKey(person), prov.ID)
+	switch {
+	case noSignIn(row) && !(known && signedIn && row.Use == "own-first"):
+		return "connector", ""
+	case known && signedIn:
+		return "own", ""
+	case known:
+		return "needed", ""
+	}
+	return "", ""
+}
+
+// approvalSignIn is startSignIn for a start the person is about to approve
+// (a request's preview, a plan's start line).
+func (s *Server) approvalSignIn(p auth.Principal, tile string, prov agent.Provider) (signIn, id string) {
+	return startSignIn(s, p, tile, prov, startLLMOf(s, p, tile, []agent.Provider{prov})[prov.ID], true)
 }
 
 // noSignIn: the connector serves this harness here, whatever sign-ins the
@@ -580,6 +635,9 @@ func (s *Server) apiStartDefaults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
+	if tile != "" {
+		tile = s.sessionTile(tile) // a directory inside a tile starts on that tile, and is decided on it
+	}
 	if tile == "" || !p.CanTerminalTileVia(tile) {
 		WriteError(w, http.StatusForbidden, p.UserID+" doesn't have terminal access there: their agent can't start a tile agent", delegationDocs)
 		return

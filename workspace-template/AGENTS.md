@@ -117,8 +117,9 @@ new coding-sandbox as apps/coding-sandbox`), and the `sandbox-terminal` tile
 gives people browser terminals and SSH onto their sandboxes;
 the `scm-github` template (`bx template new scm-github`) offers the `scm`
 service — repos, credentials, pull requests, CI — docs/scm.md;
-tools for an agent instance are an MCP tile: `bx template new mcp-server as
-apps/dice`, then `bx bind apps/agent mcp+=apps/dice` — docs/mcp.md;
+tools for an agent instance are an MCP tile — a Go backend tile that
+provides `mcp`, bound with `bx bind apps/agent mcp+=apps/dice`: docs/mcp.md
+has the interface and a complete server;
 for a chat platform, instantiate the `agent-messaging-bridge` template and
 have a coding agent add the platform);
 `bx tile import <name> [as <path>]` copies one in (or use the Tile Manager's
@@ -664,10 +665,12 @@ Lifecycle facts you must design around:
   30 s drain — clients must reconnect.
 - 3 fast crashes ⇒ marked failed until you save a change (until the next
   deploy or restart, for a pinned tile deployment). `bx logs` first.
-- Start ⇒ `xbin.Serve` within **5 s**, or it is marked failed the same way
-  ("never started listening"). Calls to xbind before Serve (registering cron
-  jobs, reading kv/config) are fine and don't count; long work (db
-  migrations, another tile's API) goes after Serve. /docs/sdk.md#startup.
+- Start ⇒ `xbin.Serve` within **5 s**, or it is marked failed ("never
+  started listening") and retried by itself after 10 s, 1 min and 5 min
+  (`bx status`: "failed · retrying in …"), then failed until a save.
+  Calls to xbind before Serve (registering cron jobs, reading kv/config)
+  are fine and don't count; long work (db migrations, another tile's API)
+  goes after Serve. /docs/sdk.md#startup.
 - Limits: the backend gets the workspace's default memory (2 GiB unless
   the admin changed it) and its scope the default data quota (50 GiB).
   Over memory, it is OOM-killed (the log says so) and the workspace's

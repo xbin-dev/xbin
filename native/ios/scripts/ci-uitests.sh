@@ -27,6 +27,15 @@
 #                         loopback forwarder, as through an app tunnel (D204)
 #   XBIN_E2E_ONLY         run only these tests (-only-testing: values, space
 #                         separated, e.g. XbinUITests/XbinE2ETests/test03NativeCounter)
+#   XBIN_E2E_RECORD=1     film the simulator for the whole test run (simctl io
+#                         recordVideo, H.264) into $TEST_RUNNER_E2E_DIR/
+#                         recording.mov, its first frame's wall-clock time in
+#                         recording.start; XbinDuoRecordingTests run only then
+#                         and mark their clips in clips.tsv (rec-clips.sh cuts
+#                         them). XBIN_E2E_RECORD_OPEN=1: those tests also
+#                         record the Duo's open layout on simulated geometry
+#                         (Debug's -XbinDuoOpenGeometry); XBIN_E2E_RECORD_DISPLAY
+#                         the screen to film (a closed Duo: LCD)
 #   XBIN_SIGNING          none (default when only building) or adhoc
 #                         (default when running: the app's Keychain needs
 #                         its entitlements)
@@ -106,8 +115,13 @@ TEST_RUNNER_XBIN_E2E_TUNNEL=${XBIN_E2E_TUNNEL:-}
 TEST_RUNNER_XBIN_E2E_WSAGENT=${XBIN_E2E_WSAGENT:-}
 # …and its push relay (D241): the app's -pushRelay, xbind's sealed pushes spooled and handed to the simulator.
 TEST_RUNNER_XBIN_E2E_PUSH_RELAY=${XBIN_E2E_PUSH_RELAY:-}
+# 1: this run is filmed (XbinDuoRecordingTests run; below)
+TEST_RUNNER_XBIN_E2E_RECORD=${XBIN_E2E_RECORD:-}
+TEST_RUNNER_XBIN_E2E_RECORD_OPEN=${XBIN_E2E_RECORD_OPEN:-}
+TEST_RUNNER_XBIN_E2E_RECORD_THEMES=${XBIN_E2E_RECORD_THEMES:-}
 export TEST_RUNNER_E2E_DIR TEST_RUNNER_XBIN_E2E_URL TEST_RUNNER_XBIN_E2E_USER TEST_RUNNER_XBIN_E2E_PASSWORD \
-  TEST_RUNNER_XBIN_E2E_TUNNEL_FORWARD TEST_RUNNER_XBIN_E2E_TUNNEL TEST_RUNNER_XBIN_E2E_WSAGENT TEST_RUNNER_XBIN_E2E_PUSH_RELAY
+  TEST_RUNNER_XBIN_E2E_TUNNEL_FORWARD TEST_RUNNER_XBIN_E2E_TUNNEL TEST_RUNNER_XBIN_E2E_WSAGENT TEST_RUNNER_XBIN_E2E_PUSH_RELAY \
+  TEST_RUNNER_XBIN_E2E_RECORD TEST_RUNNER_XBIN_E2E_RECORD_OPEN TEST_RUNNER_XBIN_E2E_RECORD_THEMES
 shots=$TEST_RUNNER_E2E_DIR
 rm -rf "$shots"
 mkdir -p "$shots"
@@ -170,9 +184,39 @@ status=0
 # the simulator up to 10 minutes and the log + screenshots say enough.
 diag=never
 [ "${XBIN_E2E_DIAGNOSE:-0}" = 1 ] && diag=on-failure
+# XBIN_E2E_RECORD=1: the whole run on film. recordVideo says "Recording
+# started" once its first frame is in; that moment, in wall-clock seconds,
+# is what the tests' clip marks are measured from.
+rec_pid=""
+if [ "${XBIN_E2E_RECORD:-0}" = 1 ] && [ -n "${udid:-}" ]; then
+  # XBIN_E2E_RECORD_DISPLAY: which screen (simctl io <udid> enumerate) — a
+  # closed iPhone Duo's is "LCD" (the outer one); without it simctl picks one,
+  # not always the same from boot to boot, and the inner screen stays black
+  disp=()
+  [ -n "${XBIN_E2E_RECORD_DISPLAY:-}" ] && disp=("--display=$XBIN_E2E_RECORD_DISPLAY")
+  xcrun simctl io "$udid" recordVideo --codec=h264 ${disp[@]+"${disp[@]}"} --force "$shots/recording.mov" 2>"$shots/recording.log" &
+  rec_pid=$!
+  i=0
+  until grep -q "Recording started" "$shots/recording.log" 2>/dev/null || [ "$i" -ge 120 ]; do sleep 0.25; i=$((i + 1)); done
+  python3 -c 'import time; print("%.3f" % time.time())' >"$shots/recording.start"
+  grep -q "Recording started" "$shots/recording.log" || ci_warn "recordVideo did not say it started: $(cat "$shots/recording.log")"
+fi
 ci_xcodebuild "$XBIN_CI_OUT/uitests.log" test-without-building "${common[@]}" \
   -resultBundlePath "$XBIN_CI_OUT/uitests.xcresult" -collect-test-diagnostics "$diag" \
   ${only[@]+"${only[@]}"} || status=$?
+if [ -n "$rec_pid" ]; then
+  # SIGINT ends the film; recordVideo then writes out the frames in flight
+  kill -INT "$rec_pid" 2>/dev/null || true
+  i=0
+  while kill -0 "$rec_pid" 2>/dev/null && [ "$i" -lt 120 ]; do sleep 0.5; i=$((i + 1)); done
+  if kill -0 "$rec_pid" 2>/dev/null; then
+    ci_warn "recordVideo ($rec_pid) did not end in 60 s: killing it"
+    kill "$rec_pid" 2>/dev/null || true
+  fi
+  wait "$rec_pid" 2>/dev/null || true
+  echo "recording: $shots/recording.mov ($(du -h "$shots/recording.mov" 2>/dev/null | cut -f1))"
+  "$(dirname "$0")/rec-clips.sh" "$shots" || ci_warn "rec-clips.sh could not cut the clips"
+fi
 
 # The app tunnel's runs: the app's own tunnel lines (Debug builds' NSLog,
 # `xbin-tunnel …`), so what the tunnel did is in the results (D211).

@@ -1,11 +1,14 @@
 package server
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/signins"
 	"github.com/xbin-dev/xbin/internal/term"
 )
 
@@ -98,4 +101,101 @@ func anyNoSignIn(d startDefaultsView) bool {
 		}
 	}
 	return false
+}
+
+// covers D230 — a brief's card is truthful about sign-ins: with a saved
+// sign-in the preferred harness is usable and named as running on it;
+// where the shared-tile rule leaves it out, the connector-served harness is
+// the default again; a harness nobody is signed in to says "needed". The
+// agent is refused the sign-ins themselves.
+func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
+	w := delegateWorld(t)
+	alice := delegateCred("d-alice")
+	w.s.Signins = signins.New(signins.Options{Dir: filepath.Join(t.TempDir(), "signins"), AllowPlaintext: true})
+	others := []string{}
+	w.s.Term.Signins, w.s.Term.SigninDev = w.s.Signins, true
+	w.s.Term.SigninOthers = func(user, tile string) (string, []string, bool) { return tile, others, true }
+	llm := map[string]*term.ProviderLLM{
+		"claude": {Use: "own"}, "gemini": {Use: "own"},
+		"codex": {Use: "own-first", Connector: true}, "opencode": {Use: "connector", Connector: true},
+	}
+	saved := startLLMOf
+	startLLMOf = func(_ *Server, _ auth.Principal, _ string, _ []agent.Provider) map[string]*term.ProviderLLM {
+		out := map[string]*term.ProviderLLM{}
+		for k, v := range llm {
+			c := *v
+			out[k] = &c
+		}
+		return out
+	}
+	t.Cleanup(func() { startLLMOf = saved })
+	get := func() startDefaultsView {
+		t.Helper()
+		rec := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice)
+		if rec.Code != 200 {
+			t.Fatalf("start-defaults: %d %s", rec.Code, rec.Body.String())
+		}
+		return decode[startDefaultsView](t, rec)
+	}
+	first := get().Harnesses[0].ID
+	if first != "claude" {
+		t.Skipf("the catalog's preferred harness here is %s", first)
+	}
+	// none saved: Claude Code can't run, the connector's first harness is the default
+	d := get()
+	if c, _ := d.of("claude"); d.Harness != "codex" || c.SignIn == "saved" {
+		t.Fatalf("nothing saved: %q %+v", d.Harness, c)
+	}
+	if x, _ := d.of("codex"); x.SignIn != "connector" || !x.NoSignIn {
+		t.Fatalf("codex on the connector: %+v", x)
+	}
+
+	if _, _, err := w.s.Signins.Save("alice", "claude", "Personal", fakeSigninToken, false); err != nil {
+		t.Fatal(err)
+	}
+	d = get()
+	c, _ := d.of("claude")
+	if d.Harness != "claude" || c.SignIn != "saved" || c.NoSignIn {
+		t.Fatalf("with a saved sign-in: %q %+v", d.Harness, c)
+	}
+	// the agent's model learns that a saved sign-in exists — never its label
+	// or its id (review finding 7): those are on the approval, for the person
+	if b := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice).Body.String(); strings.Contains(b, "Personal") || strings.Contains(b, "si_") {
+		t.Fatalf("start-defaults names the sign-in: %s", b)
+	}
+	// a start she is asked to approve says what it would use, by id: the
+	// sheet shows the label from her own list, and the open is bound to it
+	req := w.ask(alice, "POST", "/api/xbin/term/sessions", `{"cwd":"apps/x","kind":"agent","provider":"claude","prompt":"p"}`)
+	sess, _ := req.Preview["session"].(map[string]any)
+	mine, _, _ := w.s.Signins.List("alice")
+	if sess["signIn"] != "saved" || sess["signInId"] != mine[0].ID || sess["savedSignIn"] != nil {
+		t.Fatalf("the approval's preview: %v", sess)
+	}
+	// where her preference lets the agent start unasked, no saved sign-in is used: the answer doesn't promise one
+	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: c.Mode, API: true} })
+	if c2, _ := get().of("claude"); c2.SignIn == "saved" || c2.NeedsTicket {
+		t.Fatalf("a start that isn't approved was promised the saved sign-in: %+v", c2)
+	}
+	w.policy.set(func(p *dPolicy) { delete(p.prefs, "alice") })
+	// a session saw no login of Claude Code's in her home, and the tile is
+	// shared: the saved sign-in is left out, the card says a sign-in is needed
+	w.s.Term.NoteHomeLogin("alice", "claude", false)
+	others = []string{"bob"}
+	d = get()
+	c, _ = d.of("claude")
+	if d.Harness != "codex" || c.SignIn != "needed" {
+		t.Fatalf("a shared tile: %q %+v", d.Harness, c)
+	}
+	// the answer never carries the sign-in's id or anything of its secret
+	rec := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice)
+	if b := rec.Body.String(); strings.Contains(b, "FAKEFAKE") || strings.Contains(b, "si_") {
+		t.Fatalf("start-defaults says too much: %s", b)
+	}
+	// …and the agent is refused the sign-ins themselves
+	for _, try := range [][3]string{{"GET", "/api/xbin/agent/signins", ""}, {"GET", "/api/xbin/agent/signins/uses", ""},
+		{"POST", "/api/xbin/agent/signins", `{"harness":"claude","secret":"` + fakeSigninKey + `"}`}, {"POST", "/api/xbin/agent/signins/guided", `{"harness":"claude"}`}} {
+		if rec := w.do(w.full, try[0], try[1], try[2], alice); rec.Code != 403 {
+			t.Errorf("her agent, %s %s: %d %s", try[0], try[1], rec.Code, rec.Body.String())
+		}
+	}
 }

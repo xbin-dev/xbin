@@ -48,6 +48,7 @@ func (r *Runner) changedAt(c *registry.Component, saved time.Time) {
 	s.mu.Lock()
 	s.dirty = true
 	s.crashes = nil
+	resetRetryLocked(s) // retry.go: a save starts once, now
 	hadProcess := s.cur != nil || s.building || s.lastErr != nil
 	s.mu.Unlock()
 	// Don't respawn a disabled/offloaded component on a file change (Ensure would

@@ -37,11 +37,13 @@ var detachedQuiet = sdkacp.DetachedQuiet
 // beginDetached: the agent started a turn of its own with a steered message.
 func (s *Session) beginDetached(m *Manager) {
 	st := s.agent
+	st.statusMu.Lock() // a status being logged lands before the turn began, or says it runs (restated)
 	st.mu.Lock()
 	st.det.Quiet = detachedQuiet
 	st.det.Begin(time.Now())
 	s.armQuietLocked(m)
 	st.mu.Unlock()
+	st.statusMu.Unlock()
 	s.logEvent(m, agent.New(agent.EvStatus, map[string]any{"status": agent.StatusRunning}))
 }
 
@@ -83,18 +85,28 @@ func (s *Session) quietDue(m *Manager) {
 }
 
 // detachedEvent is an event of the driver's while the agent's own turn
-// runs (the pump, before the event is logged): the turn goes on, and a
-// status that says the session rests — the client runs no prompt, so each
-// one it restates does — says what the turn does instead.
+// runs (the pump, before the event is logged): the turn goes on.
 func (s *Session) detachedEvent(m *Manager, e agent.Event) agent.Event {
 	st := s.agent
 	st.mu.Lock()
-	on := st.det.Event(time.Now())
-	if on {
+	if st.det.Event(time.Now()) {
 		s.armQuietLocked(m)
 	}
 	st.mu.Unlock()
-	if !on || e.Type != agent.EvStatus {
+	return e
+}
+
+// restated is a status about to be logged (logEvent, st.statusMu held —
+// so the turn can't begin between this look and the log): while the
+// agent's own turn runs, one that says the session rests — the client runs
+// no prompt, so each one it restates does — says what the turn does
+// instead. The turn's own end says idle once it is over (endDetached).
+func (s *Session) restated(e agent.Event) agent.Event {
+	st := s.agent
+	st.mu.Lock()
+	on := st.det.Running()
+	st.mu.Unlock()
+	if !on {
 		return e
 	}
 	var d map[string]json.RawMessage

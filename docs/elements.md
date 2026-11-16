@@ -575,8 +575,11 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   one.
 - **Build state**: `buildState` is `'live'`, `'building'` (a build started)
   or `'failed'` (its last build failed: the overlay shows why); a change
-  fires `bx-build` (`detail: {state}`, bubbles, composed), so an embedder's
-  title bar can draw it (the shell's live square).
+  fires `bx-build` (`detail: {state, phase, retry}`, bubbles, composed), so
+  an embedder's title bar can draw it (the shell's live square). While
+  `'failed'`, `buildRetry` is the start xbind will try again —
+  `{attempt, of, at, inSec}` (D242; §Runtimes & backend lifecycle) — or
+  `null`.
 - **Appearance relay**: when the frame's own document follows the person
   (`<html data-bx-theme="auto">`), the frame posts `xbin:appearance` to its
   iframe on every load and every change of the person's theme or density
@@ -1041,6 +1044,28 @@ Lifecycle facts that matter when writing backends:
   resource, not a sleeping goroutine. A backend that must hold an outbound
   connection (a chat adapter) sets `"alwaysOn": true` instead: it starts at
   boot, is never reaped, and is restarted after an exit.
+- **Failed starts retry** (D242): a start that failed for a reason that
+  can clear by itself is started again after 10 s, 1 min and 5 min — each a
+  new generation of the same code, as a request after a save starts — and
+  then stays failed with its last reason. Meanwhile the state is still
+  `failed`, with the pending retry beside it (`bx status`: *failed ·
+  retrying in 48s (2 of 3)*; the window's title bar: *failed · retrying*),
+  one line per retry in the log, and a request gets the failure without
+  shortening the wait. A save, a deploy, a restart or a healthy start
+  resets the count; a stop, a hold or xbind's shutdown cancels a pending
+  retry. People's partitions retry on their person's next request instead;
+  a failed deploy or restart is the deploy's answer (the previous
+  generation keeps serving).
+
+  | the start's outcome | retried |
+  |---|---|
+  | running but never listened by the deadline (also: still waiting on xbind) | yes, 3× |
+  | listening but never accepted a connection | yes, 3× |
+  | the launch met a transient error: `EAGAIN`, `ENOMEM`, `EMFILE`, `ENFILE`, `ETXTBSY` | yes, 3× |
+  | exited before it listened | once; exiting again stops the retries (a crash loop) |
+  | a build or compile error, a manifest error | no — save a fix |
+  | refused by policy or a limit, disabled, held, sealed | no |
+  | any other failure (a missing binary, the sandbox refused, …) | no |
 - **Crash loops**: 3 quick exits → marked failed (overlay + `bx status`)
   until you save a change — or, for a pinned deployment, until a deploy
   or a restart (a save doesn't reach it). Logs: `bx logs -f <component>`,

@@ -56,6 +56,7 @@ func (s *Server) registerDelegationAPI() {
 	s.registerDocsAPI()             // the docs, searchable on /api/ (docsapi.go)
 	s.registerDelegateWebAPI()      // the web (delegateweb.go)
 	s.registerDelegateMCPAPI()      // MCP tiles (delegatemcp.go)
+	s.registerDelegateMCPExtAPI()   // outside MCP servers (mcpext.go)
 	s.RegisterAPI("GET /delegate/state", s.apiDelegateState)
 	s.RegisterAPI("PUT /delegate/state", s.apiDelegateStatePut)
 	s.RegisterAPI("GET /delegate/workspace", s.apiDelegateWorkspace)
@@ -231,7 +232,7 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 		"pendingRequests": len(pend), "standingApprovals": len(aps), "openChangeSets": open,
 		// the web and MCP (D239): the person's own settings, and what the
 		// workspace policy lets them turn on
-		"web": st.Web, "mcp": st.MCP, "mcpReadOnly": st.MCPReadOnly, "net": s.netForPerson(),
+		"web": st.Web, "mcp": st.MCP, "mcpReadOnly": st.MCPReadOnly, "net": s.netForPerson(a.user),
 	}
 	// what xbin's own chrome draws its states from (agentpage.go; D232)
 	if !ws.At.IsZero() {
@@ -371,12 +372,10 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 			Deny   *[]string `json:"deny"`
 			Search *bool     `json:"search"`
 		} `json:"web"`
-		MCP *struct {
-			Mode *string `json:"mode"`
-		} `json:"mcp"`
+		MCP *mcpWorkspaceIn `json:"mcp"` // mode, and the outside servers (mcpextpolicy.go, D240)
 	}
 	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil && body.Who == nil && body.Web == nil && body.MCP == nil {
-		WriteError(w, http.StatusBadRequest, `need {enabled?: bool, who?: "everyone" | "me" | "chosen", web?: {mode?, allow?, deny?, search?}, mcp?: {mode?}} with at least one key`, delegationDocs)
+		WriteError(w, http.StatusBadRequest, `need {enabled?: bool, who?: "everyone" | "me" | "chosen", web?: {mode?, allow?, deny?, search?}, mcp?: {mode?, servers?}} with at least one key`, delegationDocs)
 		return
 	}
 	defer s.hostAgentHold()()                        // the host's check and this write under one lock (agenthost.go)
@@ -388,19 +387,22 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 		if body.Web != nil {
 			np.WebMode, np.WebAllow, np.WebDeny, np.WebSearch = body.Web.Mode, body.Web.Allow, body.Web.Deny, body.Web.Search
 		}
+		var err error
 		if body.MCP != nil {
 			np.MCPMode = body.MCP.Mode
-		}
-		if _, err := s.Delegation.SetNet(np, p.From()); err != nil {
-			var lk *delegation.ErrHostLocked
-			if errors.As(err, &lk) {
-				WriteJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "settings": lk.Settings, "docs": delegationDocs})
+			if np.MCPServers, err = s.mcpServersPatch(body.MCP.Servers); err != nil {
+				netWriteError(w, err)
 				return
 			}
-			WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
+		}
+		if _, err := s.Delegation.SetNet(np, p.From()); err != nil {
+			netWriteError(w, err)
 			return
 		}
 		s.netPolicyChanged()
+		if np.MCPServers != nil {
+			s.SweepDelegation() // approvals of a server that left the list, or moved, go now
+		}
 		if body.Enabled == nil && body.Who == nil {
 			WriteJSON(w, http.StatusOK, s.delegateWorkspaceView(p))
 			return
@@ -682,7 +684,8 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	// what the request leaves out, xbind fills from the person's
 	// preferences for sessions their agent starts and the tile's orgs'
 	// rules (startDefaults) — and shows: the card says the EFFECTIVE values
-	if def := s.startDefaults(p, strings.Trim(b.Cwd, "/")); b.Resume == "" {
+	def := s.startDefaults(p, strings.Trim(b.Cwd, "/"))
+	if b.Resume == "" {
 		if b.Provider == "" {
 			if def.Harness == "" {
 				return nil, def.Why
@@ -713,7 +716,13 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	if b.Model != "" { // the body's shorthand for options.model
 		options["model"] = b.Model
 	}
+	// what it would sign in with if the person approves this start (D230):
+	// signInId names their saved sign-in — the chrome shows its label from
+	// the person's own list, the open is bound to this id, and the label
+	// itself is not here (the agent reads its own requests)
+	signIn, signInID := s.approvalSignIn(p, eff.Tile, eff.Provider)
 	return map[string]any{
+		"signIn": signIn, "signInId": signInID,
 		"tile": eff.Tile, "provider": eff.Provider.ID, "providerName": eff.Provider.Name, "mode": eff.Mode,
 		// false: this mode lets the tile agent act without asking. The mode
 		// alone decides it: a delegate's start is strict (acp.Config.Strict)
@@ -912,7 +921,7 @@ func (s *Server) apiDelegateApprovals(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "the approvals can't be read", delegationDocs)
 		return
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{"approvals": rows})
+	WriteJSON(w, http.StatusOK, map[string]any{"approvals": s.mcpExtApprovalRows(rows)})
 }
 
 // apiDelegateApprovalAdd — POST /delegate/approvals {tile, grant: "hour" |

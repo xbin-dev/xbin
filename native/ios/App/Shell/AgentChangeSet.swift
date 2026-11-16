@@ -247,6 +247,10 @@ struct AgentChangeSetSheet: View {
             }
             Text(verbatim: r.modeText).font(.callout)
             Text(verbatim: "Coding agent: \(r.agent)").font(.callout)
+            if !r.signIn.isEmpty { // applying the line is what puts a saved sign-in into the session (D230)
+                Text(verbatim: r.signInHolds.isEmpty ? r.signIn : "\(r.signIn). \(r.signInHolds)").font(.callout)
+                    .accessibilityIdentifier("changeset-signin-\(item.n)")
+            }
             Text(verbatim: r.network).font(.callout)
             let brief = DelegationWords.clipText(r.brief, all: wholeBriefs.contains(item.n))
             Text("What it will be told — sent exactly like this").font(.caption.weight(.semibold)).foregroundStyle(XbinColor.muted)
@@ -408,6 +412,9 @@ struct AgentChangeSetSheet: View {
                         .font(.callout.weight(.semibold))
                         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
                         .background(XbinColor.warnBackground, in: .xbinPlate)
+                }
+                if s.plan, !PlanWords.waitingWordsInApp(s).isEmpty {
+                    Text(verbatim: PlanWords.waitingWordsInApp(s)).font(.callout).foregroundStyle(XbinColor.muted).accessibilityIdentifier("changeset-waiting")
                 }
                 if s.plan, !PlanWords.askedWords(s).isEmpty {
                     Text(verbatim: PlanWords.askedWords(s)).font(.callout).foregroundStyle(XbinColor.muted).accessibilityIdentifier("changeset-asked")

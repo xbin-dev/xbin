@@ -39,8 +39,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
@@ -331,7 +333,7 @@ func (b *Broker) createEffects(m registry.Manifest, tplPath, target string, ownS
 // manifests. Only what a new tile needs wired is planned: an http slot,
 // to tiles and the LLM connector, replacing the slot. The handler's own
 // check runs when the line is applied, after the tile exists.
-func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePreview, body bindingBody, remove bool, planned []delegation.PlannedTile, uses []int) (delegation.ChangePreview, error) {
+func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePreview, body bindingBody, remove bool, planned []delegation.PlannedTile, starts []delegation.PlannedStart, uses []int) (delegation.ChangePreview, error) {
 	const later = " — a plan binds a new tile's http slots, to tiles and to the LLM connector; propose this once the tile exists"
 	switch {
 	case remove:
@@ -391,6 +393,7 @@ func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePre
 	}
 	personal := owns(body.Component)
 	seen := map[string]bool{}
+	var wait *delegation.PlanWait
 	for _, ref := range refs {
 		prov, inst := splitRef(ref)
 		switch {
@@ -424,6 +427,20 @@ func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePre
 		}
 		personal = personal && owns(prov)
 		pd, ok := httpProvideFor(pc, def.Service)
+		if st, built := startIn(starts, prov); !ok && built && def.Service != "" && providesNone(pc, def.Service) {
+			// the tile provides nothing of the kind yet, and an earlier line
+			// starts a tile agent in it: the line waits for what that agent
+			// writes, and is pinned to exactly this
+			if len(refs) != 1 {
+				return block("a line that waits for %s to provide %s binds that one provider: put the others on a line of their own", prov, def.Service)
+			}
+			wait = &delegation.PlanWait{Component: body.Component, Slot: body.Slot, Tile: prov, Kind: "http", Service: def.Service, Role: delegation.WaitRole}
+			if st.N > 0 && !slices.Contains(pv.Uses, st.N) {
+				pv.Uses = append(pv.Uses, st.N)
+				slices.Sort(pv.Uses)
+			}
+			continue
+		}
 		switch {
 		case !ok && def.Service != "":
 			return block("%s does not provide the %q service the slot wants", prov, def.Service)
@@ -446,6 +463,22 @@ func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePre
 		}
 	}
 	pv.Effects = append([]string{body.Component + "'s backend restarts"}, pv.Effects...)
+	if wait != nil && !personal {
+		// only a person's own binding waits: one that takes an admin's
+		// rights is approved with a recent sign-in, and that sign-in must
+		// not reach 24 hours ahead. It is a line of a later review.
+		later := fmt.Sprintf("%s provides no %s yet, and this binding takes an admin's rights — only a binding between your own tiles may wait for a tile to be built. Propose it again, in a plan of its own, once %s provides %s",
+			wait.Tile, wait.Service, wait.Tile, wait.Service)
+		pv, _ = block("%s", later)
+		pv.Later = later
+		return pv, nil
+	}
+	if wait != nil {
+		pv.Waits, pv.Deferred = wait, true
+		pv.Pin = delegation.BodyHash(mustJSON(wait))
+		pv.AfterText = wait.Tile + ", once it provides " + wait.Service
+		pv.Effects = append(waitWords(*wait), fmt.Sprintf("once bound: %s's backend restarts, and its code, and everyone who can change it, can call %s as %s", body.Component, wait.Tile, wait.Role))
+	}
 	pv.Admin = !personal
 	if pv.Admin && !b.IsAdmin(p) && !(p.Access != nil && len(p.Access.AdminOrgs()) > 0) {
 		// the refusal POST /bindings gives anyone who is neither the owner within their own property nor an admin
@@ -501,4 +534,151 @@ func (b *Broker) AgentLineAllows(holder, user, model, tile string) error {
 		return fmt.Errorf("%s's agent can't change %s: %s", user, tile, msg)
 	}
 	return b.agentPolicy().TileAllows(delegation.Subject{Holder: holder, User: user, Tile: tile, Model: model})
+}
+
+// startIn is the earlier agent.start line of the plan that starts a tile
+// agent in tile.
+func startIn(starts []delegation.PlannedStart, tile string) (delegation.PlannedStart, bool) {
+	for _, st := range starts {
+		if st.Tile == tile {
+			return st, true
+		}
+	}
+	return delegation.PlannedStart{}, false
+}
+
+// providesNone: c declares no provide of service at all — of any kind,
+// under any role. (One that declares it differently than a slot wants is
+// refused as ever; only nothing-yet waits.)
+func providesNone(c *registry.Component, service string) bool {
+	for name, def := range c.Manifest.Provides {
+		if def.Service == service || name == service {
+			return false
+		}
+	}
+	return true
+}
+
+// waitsOn: a binding names one existing provider that an earlier line of
+// the plan starts a tile agent in and that provides nothing of what the
+// slot wants yet.
+func (b *Broker) waitsOn(body bindingBody, starts []delegation.PlannedStart) bool {
+	if len(starts) == 0 || body.Provider == "" && len(body.Providers) != 1 {
+		return false
+	}
+	c, ok := b.Reg.Component(body.Component)
+	if !ok {
+		return false
+	}
+	def, ok := c.Manifest.Interfaces[body.Slot]
+	if !ok || def.Kind != "http" || def.Service == "" {
+		return false
+	}
+	prov, _ := splitRef(cmp.Or(body.Provider, strings.Join(body.Providers, "")))
+	pc, ok := b.Reg.Component(prov)
+	if _, built := startIn(starts, prov); !ok || !built {
+		return false
+	}
+	return providesNone(pc, def.Service)
+}
+
+// waitWords are xbind's sentences for a line that waits (w): what it waits
+// for, how long, and what does not get bound.
+func waitWords(w delegation.PlanWait) []string {
+	return []string{
+		fmt.Sprintf("applies once %s provides %s; nothing is bound until then", w.Tile, w.Service),
+		fmt.Sprintf("xbin applies it by itself, as you, when %s's manifest declares %s as %s interface for the role %s — and only that: if it declares anything else it is not bound, and you are told", w.Tile, w.Service, article(w.Kind), w.Role),
+		fmt.Sprintf("it waits at most %d hours after you apply this plan, then lapses", int(delegation.MaxWait/time.Hour)),
+	}
+}
+
+func article(kind string) string {
+	if kind == "http" {
+		return "an http"
+	}
+	return "a " + kind
+}
+
+// PreviewWait judges a waiting line (op, pinned to w) as p would apply it
+// NOW: pending while the tile provides nothing of the kind; held, with
+// xbind's words for why, when it provides something else than was
+// approved; gone when a tile of the line is no more; ready — with the
+// ordinary preview of the binding, the handler's own check — when it
+// provides exactly what was approved.
+func (b *Broker) PreviewWait(p auth.Principal, op delegation.ChangeOp, w delegation.PlanWait) (delegation.ChangePreview, delegation.WaitState, string, error) {
+	state, why := b.waitState(w)
+	if state != delegation.WaitReady {
+		return delegation.ChangePreview{}, state, why, nil
+	}
+	pv, err := b.preview(p, op, nil, nil, true)
+	return pv, delegation.WaitReady, "", err
+}
+
+// TileIdentity is what tells the tile at a path from another made later at
+// the same path: its directory's own identity on disk (dirIdentity). ""
+// for a sealed component — its tree is xbind's — and where nothing can be
+// read. A waiting line is pinned to the tiles it was approved for, not to
+// their paths.
+func (b *Broker) TileIdentity(tile string) string {
+	dir := filepath.Join(b.Reg.Root, filepath.FromSlash(tile))
+	if c, ok := b.Reg.Component(tile); ok {
+		if c.Sealed {
+			return ""
+		}
+		dir = c.Dir
+	}
+	return dirIdentity(dir)
+}
+
+// waitState is where the tile a waiting line is pinned to (w) stands now,
+// read from one view of the registry: pending, ready, held (with why) or
+// gone.
+func (b *Broker) waitState(w delegation.PlanWait) (delegation.WaitState, string) {
+	return waitStateIn(b.Reg.Component, w)
+}
+
+// waitChanged: the tile a waiting line binds to is no longer as the line
+// was judged a moment before its bind (apiBindingSet, under the registry's
+// lock).
+type waitChanged struct{ why string }
+
+func (e *waitChanged) Error() string { return e.why }
+
+// waitStateIn is waitState over component — the registry's lookup, or the
+// one MutateWorkspaceWhen hands a write.
+func waitStateIn(component func(string) (*registry.Component, bool), w delegation.PlanWait) (delegation.WaitState, string) {
+	if _, ok := component(w.Component); !ok {
+		return delegation.WaitGone, w.Component + " no longer exists"
+	}
+	pc, ok := component(w.Tile)
+	if !ok {
+		return delegation.WaitGone, w.Tile + " no longer exists"
+	}
+	var found []registry.Iface
+	names := make([]string, 0, len(pc.Manifest.Provides))
+	for name := range pc.Manifest.Provides {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		if def := pc.Manifest.Provides[name]; def.Service == w.Service || name == w.Service {
+			found = append(found, def)
+		}
+	}
+	switch {
+	case len(found) == 0:
+		return delegation.WaitPending, ""
+	case len(found) > 1:
+		return delegation.WaitHeld, fmt.Sprintf("%s declares %s more than once: what you approved is one %s interface for the role %s", w.Tile, w.Service, w.Kind, w.Role)
+	}
+	def := found[0]
+	switch {
+	case def.Kind != w.Kind || def.Service != w.Service:
+		return delegation.WaitHeld, fmt.Sprintf("%s declares %s as %s interface (service %q): what you approved is %s interface of the service %s", w.Tile, w.Service, article(cmp.Or(def.Kind, "unnamed")), def.Service, article(w.Kind), w.Service)
+	case def.Role != w.Role:
+		return delegation.WaitHeld, fmt.Sprintf("%s declares %s for the role %q: what you approved is the role %s, and a binding grants the role the tile names", w.Tile, w.Service, def.Role, w.Role)
+	case def.Instances:
+		return delegation.WaitHeld, fmt.Sprintf("%s declares %s as bound by instance: what you approved is the tile itself", w.Tile, w.Service)
+	}
+	return delegation.WaitReady, ""
 }

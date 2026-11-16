@@ -28,6 +28,7 @@ import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import { WidenGuard } from '/vendor/bx-agent-approve.js';
+import '/vendor/bx-agent-permits.js';
 import { needs, standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, neverAsks, netPrefs } from '/vendor/agent-chrome-words.js';
 
 // an element that draws the store: it subscribes while it is in the page
@@ -46,12 +47,15 @@ export class BxAgentNeeds extends StoreView {
     box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6)); max-height: 60vh; overflow: auto; } .hd { padding: 8px 12px 0; display: flex; gap: 8px; align-items: baseline; }`];
 
   connectedCallback() { super.connectedCallback(); this.store.readSessions(); }
+  /** rearm(): every permission card waits again (something brought the tray into view — a page's message may). */
+  rearm() { for (const p of this.renderRoot.querySelectorAll('bx-agent-permits')) p.rearm(); }
 
   render() {
     const rows = needs(this.store);
     return html`<div class="hd"><h3>Needs you</h3><span class="small muted">oldest first · approvals expire</span></div>
       ${rows.length ? html`<ul class="list" aria-label="Needs you">${rows.map((r) => html`<li data-kind=${r.kind} data-id=${r.id}>
-        <span class="tx"><b>${r.title}</b>${r.note ? html`<div class="small muted">${r.note}</div>` : nothing}</span>
+        <span class="tx"><b>${r.title}</b>${r.note ? html`<div class="small muted">${r.note}</div>` : nothing}
+          ${r.permits ? html`<bx-agent-permits data-permits .session=${r.id} .agentName=${r.agentName} @bx-agent-permitted=${() => this.store.readSessions()}></bx-agent-permits>` : nothing}</span>
         <button @click=${() => (r.kind === 'session' ? this.fire('bx-agent-open-session', { tile: r.tile, session: r.id }) : this.fire('bx-agent-review', { kind: r.kind, id: r.id }))}>${r.action}</button></li>`)}</ul>`
         : html`<div class="empty" data-empty>Nothing needs you</div>`}`;
   }
@@ -116,7 +120,7 @@ export class BxAgentPrefs extends StoreView {
   static styles = [chromeCss, css`:host { display: flex; flex-direction: column; min-height: 0; flex: 1; } .sec { padding: 12px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--bx-border, #33353F); }
     label.row { display: flex; gap: 8px; align-items: flex-start; } label.row input { margin-top: 3px; } label.row.sub { padding-left: 24px; }
     label.mode { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } label.mode .nm { flex: 1 1 120px; min-width: 0; }
-    label.mode select { flex: 1 1 160px; min-width: 0; max-width: 100%; }`];
+    label.mode select { flex: 1 1 160px; min-width: 0; max-width: 100%; } ul.outside { margin: 0 0 0 24px; padding-left: 16px; overflow-wrap: anywhere; }`];
   // what widens the agent's reach — starting without asking, the internet, other tiles' APIs, the admin opt-in — answers
   // only a deliberate click, as Allow does (bx-agent-approve.js WidenGuard)
   constructor() { super(); this._prefs = null; this._provs = []; this._err = ''; this._widen = new WidenGuard(this); }
@@ -171,7 +175,8 @@ export class BxAgentPrefs extends StoreView {
       <div class="sec" data-net-tools><h3>The web and MCP tools</h3>
         ${netPrefs(st).map((x) => html`<label class="row ${x.sub ? 'sub' : ''}"><input type="checkbox" data-net-pref=${x.id} data-widen="on" .checked=${x.on} ?disabled=${!x.allowed}
             @click=${this._widen.click} @keydown=${this._widen.key} @change=${(e) => this._net(e, x.id)}>
-          <span><b>${x.label}</b><div class="small muted">${x.allowed ? x.note : x.why}</div></span></label>`)}</div>
+          <span><b>${x.label}</b><div class="small muted">${x.allowed ? x.note : x.why}</div></span></label>
+        ${x.allowed && x.servers && x.servers.length ? html`<ul class="small outside" data-mcp-servers aria-label="MCP servers outside this workspace">${x.servers.map((s) => html`<li><b>${s.name}</b> <span class="mono muted">${s.host}</span></li>`)}</ul>` : nothing}`)}</div>
       ${st.canAdminChanges ? html`<div class="sec" data-admin><h3>Admin changes</h3>
         <label class="row"><input type="checkbox" data-admin-changes data-widen="on" .checked=${!!st.adminChanges} @click=${this._widen.click} @keydown=${this._widen.key}
           @change=${this._admin}><span><b>Let my agent propose admin changes</b>

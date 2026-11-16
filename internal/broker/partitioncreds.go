@@ -100,6 +100,14 @@ func credentialBy(p auth.Principal, target string) string {
 	return "owner"
 }
 
+// credentialMade tells OnCredentialMade that by ("": the person themself —
+// nothing is told) made a way into target's account.
+func (b *Broker) credentialMade(target, by string) {
+	if by != "" && b.OnCredentialMade != nil {
+		b.OnCredentialMade(target, by)
+	}
+}
+
 // inviteHeldFor is the invite route's question before it mints a link for
 // target: noticed — a partition holder, made by someone else; held — and
 // the policy credentialResetConfirm is on, so the link is minted held
@@ -125,6 +133,7 @@ func (b *Broker) mintInvite(r *http.Request, st *users.Store, target string) (to
 	if tok, err = mint(target, 0); err != nil {
 		return "", nil, err
 	}
+	b.credentialMade(target, credentialBy(auth.PrincipalOf(r), target))
 	return tok, func(out map[string]any) error {
 		if !noticed {
 			return nil
@@ -176,14 +185,20 @@ func (b *Broker) credentialChange(w http.ResponseWriter, r *http.Request, cur, n
 	if email != "" && email != cur.Email {
 		made = append(made, heldCredential{Kind: credEmail, Email: email})
 	}
+	made0 := by != "" && len(made) > 0
 	if _, holder := b.credentialPerson(cur.ID); by == "" || !holder || len(made) == 0 {
-		return func() {}
+		return func() {
+			if made0 {
+				b.credentialMade(cur.ID, by)
+			}
+		}
 	}
 	held := b.Policies().CredentialResetConfirm
 	if held {
 		*password, nu.Email = "", cur.Email // the old ones keep working meanwhile
 	}
 	return func() {
+		b.credentialMade(cur.ID, by)
 		var kinds []string
 		for _, h := range made {
 			h.ID, h.By, h.At = newNoticeID(), by, peopleNow().UTC()

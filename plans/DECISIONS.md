@@ -5516,6 +5516,268 @@ here: cut from the old end, never reword.
   - **Not yet**: `web.mode: "full"`, `web.search` and `mcp.mode: "listed"`
     (external MCP servers with credentials held by xbind) are refused with
     "not available yet" rather than half-built.
+- **D240 — Outside MCP servers for the workspace agent: listed by an
+  admin, spoken to by xbind, a way out like a URL (2026-11-16; issue #51;
+  `plans/wsagent/web-mcp.md` §6.1).** The part D239 left out
+  (`mcp.mode: "listed"`), as the owner asked for it next.
+  - **An admin lists them; xbind holds the secret and is the client.**
+    `mcp.servers` of `PUT /delegate/workspace`: `{id, name, url, auth:
+    none | bearer | header, secret (write-only), note, orgs,
+    privateNetwork, plainHttp, trustReadOnly}`. The secrets live in the
+    LLM connector's sealed envelope, now `internal/vault`'s `SealedMap`
+    (one implementation for xbind-held secrets), under a label of their
+    own; reads say `hasSecret`, and whatever a server answers is scrubbed
+    of its secret before the agent, its page or the model reads it. The
+    host's file may preset the list — and then locks it, unlike a mode:
+    a list is the addresses that leave the workspace — naming secrets by
+    `secretFile` (as an upstream's `keyFile`) or `secretEnv`. Rejected:
+    giving the agent's sandbox the server's address (its network stays
+    "model only", and the org rules and taint are xbind's), and the
+    agent naming a URL (only the admin's list is ever dialled).
+  - **The web's dialer, one host per server.** Requests go through
+    `internal/webfetch`'s guarded dial to the listed host alone (checked
+    when the socket connects), TLS verified, redirects only to the same
+    origin, 1 MiB and 20/60 s, an event stream read within those until
+    the request's answer. A server's own requests (sampling, elicitation,
+    roots) end the call: xbind is a client for tools only. A private
+    address needs the admin's explicit `privateNetwork` (link-local, the
+    metadata address, stays refused). The session id is xbind's, per
+    person, server and conversation.
+  - **Sending arguments out is the web's way out.** From a conversation
+    that holds an org's data a call is approved each time (no hour or
+    always), unless the org trusts the list (its rule `mcp: "listed"`)
+    or the server is listed with that org (`orgs`: it counts as inside).
+    The org rule grows to `any | listed | org | never`, strictest
+    `never > org > any > listed` — `listed` is the one loosening value,
+    as `web: "allow"` is. What a server answers taints no org but marks
+    the conversation as having read the web.
+  - **A tool's first call always asks**, the standing approval pinned to
+    its definition as for a tile — and the key of what is allowed is the
+    server's id and a hash of its URL, so an address that changes (or an
+    id reused for another server) is allowed by nobody. "Read-only tools
+    don't ask" doesn't reach an outside server unless the admin trusts
+    its marks (`trustReadOnly`, off by default): a `readOnlyHint` there
+    is an outsider's claim. Listing a server's tools is free once the
+    person's MCP setting is on and the server is visible to them.
+  - **Not yet**: OAuth sign-ins to an outside server, its resources and
+    prompts, and the server's `GET` stream.
+
+- **D230 — Coding-agent sign-ins are held by xbind: one sign-in per
+  person serves their sessions on every tile, sealed under the vault, put
+  into a session only where nobody else can change what it runs
+  (2026-11-16; issue #51; `plans/workspace-agent.md` §5.7,
+  `plans/agent-dedupe.md` B4/F5; spec `plans/wsagent/signin-store.md`).**
+  internal/signins (store, flows, the confined runner), sdk/acp guided.go,
+  internal/term signin.go, internal/server agentsignins*.go,
+  web/agent-signin.js; docs/agent-signins.md, docs/protocol/signins.md.
+  The owner: "That's for agents like Claude Code? Would say do now, very
+  important to UX." Lifts D179's saved sign-ins out of the agent template
+  into xbind and extends D178's guided strip.
+  - **Before.** A subscription login lived in one place at a time: the
+    `$HOME` of a person's terminals (`claude auth login`, D178) or one
+    agent-template instance's partition vault (D179). A session the
+    workspace agent started on a fresh setup stopped at "sign in first".
+  - **A per-person store sealed like the connector's keys.**
+    `data/signins/<hex(user)>.json`: metadata in the clear (so the list,
+    the admin's counts and "the vault is sealed" work while sealed), the
+    secrets sealed whole under a barrier subkey of the person's own. No
+    read returns a secret or a part of one — not "last four" either; the
+    only way out is the store's `Use`, called by xbind's own session
+    start. Rejected: the workspace settings file (a secret is not a
+    setting), a tile's vault (a tile's code reads its own vault), one
+    workspace-wide file (one person's write would re-seal everyone's).
+  - **The guided flow runs in a throwaway confined sandbox.** xbind runs
+    `claude setup-token` itself through `internal/confine`: the base
+    image, no tile, no home, no layer, an empty `HOME`, internet egress, a
+    1000-column terminal. Nobody can enter it and nothing a tile wrote is
+    in it — stricter than D179, which had to mint in the person's own
+    sandbox. Never a copy of a CLI's credential file (D179: refresh tokens
+    are single-use). So only Claude Code has a guided flow: Codex, Gemini
+    and OpenCode have no mint, and take a pasted key. The plan's "and its
+    equivalents for the other harnesses" names something that doesn't
+    exist.
+  - **Into the adapter's environment, through the spawn frame.** The path
+    the LLM connector's key takes (D226): to the agent host, set on the
+    adapter alone — not the sandbox spec, not PID 1, not a terminal. A
+    setup-token is already the least-exposed form Claude Code has (model
+    requests only); nothing shorter-lived exists. Codex needs ACP
+    `authenticate` and then writes `auth.json`: the host gives that
+    session a private `CODEX_HOME` in the sandbox's own `/tmp` (links to
+    the person's `~/.codex` but for `auth.json`), so the file is never in
+    the shared home — rather than D179's "write it, then remove it".
+  - **The shared-tile rule (the hard part).** Each session is a sandbox
+    of its own, so a co-user can't read another's environment — but they
+    can change what it runs: the tile's shared environment layer holds
+    the binaries, the tile's directory the project's hooks. So a saved
+    sign-in goes in only when the session is the person's own (their
+    sign-in — never view-as, a component, the root token), sandboxes are
+    on, and nobody else can change the tile's code: no other non-admin
+    holds write level or more, by any source, on the registered tile the
+    session's directory lies in (`Broker.SigninOthers`). Partitioned tiles
+    are not exempt — a partition isolates data, and the tile's directory
+    is bound read-write into every partition's sessions (the first cut
+    exempted them and judged the directory as written; the review of
+    2026-11-16 found both). A session the workspace agent starts gets one
+    only when the person's approval named it in xbind's words and the
+    ticket bound its id: the agent steers that session, so its model can
+    get the credential — redaction (the joined stream, separators,
+    base64/hex, credential shapes) lowers accidents and is not a
+    boundary; the approval is. Otherwise it is left out, the session says
+    why and offers the connector or the tile's own login.
+    `term.signinPlanFor` decides; the UI repeats it. A session that
+    carries one is its person's alone — admins and view-as get no pass to
+    drive or read it, live or in history — a restart never widens what it
+    was started with, and it
+    is ended when someone else becomes able to change its tile, or the
+    switch goes off. Rejected:
+    injecting everywhere (the brief's worry is real: one hook in a shared
+    tile takes a year-long token); counting admins as "other people" (in
+    any workspace with two admins nothing would ever be injected, people
+    would fall back to the `$HOME` login — a full login with a refresh
+    token, readable by the same code — and an admin can change any tile
+    anyway: they are in the trust base, D179 N20); a private layer for
+    such sessions (the person would lose the tile's installed tools, and
+    the directory's hooks would still run).
+  - **An admin can't take the sign-ins by resetting the account.** A
+    credential someone else makes for a person (a password, a sign-in
+    link, an SSO email) removes that person's saved sign-ins. Without it
+    the store would be one password reset away from any admin. A deleted
+    account's file goes at once and the account stamp keeps a later
+    account under the same id from reading it; a disabled account's are
+    unusable.
+  - **A removed sign-in ends the sessions running on it.** They hold a
+    copy in their environment; ending them is the only way "removed"
+    means anything inside xbind. The credential stays valid at its vendor
+    until the person revokes it there, and Remove says so.
+  - **What xbind keeps is redacted.** The session's exact secret in any
+    frame from the agent host becomes `[saved sign-in]` before an event
+    is logged, published or written to history: an admin, the workspace
+    agent's model and a backup never see it. The harness's own model does
+    see what its tools print — stated, not solved.
+  - **Policy.** A workspace switch (default on), the host's
+    `"agentSignIns"` key beside `workspaceAgent` (set = locked), the
+    orgs' harness lists as before; admins see counts and metadata per
+    person without names, and revoke.
+  - **One element.** `<bx-agent-signin>` keeps its URL and its D178
+    properties and gains the server-driven card, the list and the chip;
+    `signin-scan.js` stays served and is no longer used by new code.
+  - **The consumer interface is designed, not built.** "A component never
+    receives the secret as data" can't hold for a component that controls
+    the sandbox its coding agent runs in: it can read that process. So
+    the interface is the person's consent per component, a single-use
+    grant, and redemption by the tile-sandbox runtime at a launch it
+    performs — the agent template's own store stays the fallback and
+    existing instances are untouched. Left for a change of its own.
+  - **Not chosen:** a proxy that holds subscription credentials (D179's
+    policy stands); validating a pasted key against its vendor (xbind
+    calls no provider); showing a hint of the secret; a per-tile opt-in
+    for shared tiles (possible later: the person's informed choice).
+- **D242 — A failed start retries by itself (2026-11-16; the postfix
+  report: a tile sat `failed` for eight days after one slow start).** The
+  owner: "a failed start retries by itself." Until now every start failure
+  stayed failed until the next save; only a crash after a healthy run
+  restarted by itself.
+  - **Only what can clear by itself.** Retried: the process was alive at
+    the health deadline — it never listened (also while waiting on xbind:
+    the grace of 52d21da2 was used up) or listened and never accepted — a
+    launch that met a transient errno (`EAGAIN`, `ENOMEM`, `EMFILE`,
+    `ENFILE`, `ETXTBSY`), and an exit before it listened once (a second
+    one in the series is a crash loop). Never: a build or manifest error,
+    a refusal by policy, a hold or a limit, xbind shutting down, anything
+    else (`retryable`, internal/runner/retry.go).
+  - **Three retries at 10 s, 1 min, 5 min**, then plain `failed` with the
+    last reason, as before. The alwaysOn restart's mechanism — a one-shot
+    timer per deployment, nothing polls — on the engine's seam (`after`),
+    so the tests fire it. Each retry goes through `runCurrent` like a
+    request after a save: the record's code, its build, its launch spec.
+  - **What resets.** A save or grant (`Changed`), a deploy or restart (the
+    build turn), a healthy start: the count is zero again and a pending
+    retry never starts (an epoch on the state). A stop, a removal and
+    shutdown cancel it; a retry that comes due while the tile builds,
+    may not run (held, disabled, sealed) or xbind stops starts nothing.
+    A request meanwhile gets the failure, as before: demand never
+    shortens the wait, so a polling client can't turn it into a loop.
+  - **Additive wire.** The state stays `failed`; rows gain `retry
+    {attempt, of, at, inSec}` (`/backends`, `/runtime`, `/tile-status`);
+    a `backend-retry` event follows the primary's `build-error`; the
+    frame's `buildRetry`. An older shell draws plain `failed`. Not timed:
+    people's partitions (their next request already retries), a failed
+    deploy or restart (its answer is the deploy's; the previous generation
+    serves).
+
+- **D243 — The MCP tile is built, not stamped: no `mcp-server` template,
+  the docs carry the interface, and a plan's binding waits for what a
+  tile agent writes (2026-11-16; issue #51; `plans/wsagent/journey.md`
+  §10).** The owner: "why mcp-server template? Shouldn't be needed, really
+  it's just clutter-ish for users, maybe useful as a docs artifact for the
+  interface."
+  - **The template is removed; the example and the page stay.** It landed
+    the same day and is in no release, so nothing in the wild has an
+    instance and there is no retired-template entry: `POST /templates/new
+    {source: "mcp-server"}` is the 404 of any unknown template. Its content
+    is `examples/mcp-server/` — one file, so that `docs/mcp.md` can carry
+    it whole, held to the same bytes by `TestDocsMCPServerIsTheExample` —
+    and the page is the interface (manifest, wire, errors, version
+    negotiation, `readOnlyHint`). Rejected: keeping a richer multi-file
+    example (the page could not carry it, and a page that summarises code
+    drifts from it); a "Go backend" starter template (one more template is
+    what was objected to; `starter` plus three files a coding agent writes
+    is the path).
+  - **A line that waits (`planwait.go`).** The tile a plan binds to
+    provides nothing until its coding agent has written the manifest; a
+    second review for one binding would be the chain of sheets a plan
+    replaces. So a `binding.set` to a tile that declares nothing of what
+    the slot wants, *after* an `agent.start` line in that tile, is approved
+    with the plan and applied by xbind itself, as the person, when the
+    tile's manifest declares exactly what was approved — pinned to the
+    consumer's slot, the provider, and the provide's kind, service and
+    role (`reader`: the least a tool's caller needs; a coding agent that
+    declares a wider role, another kind or the service twice is not bound,
+    and the line says why). It lapses after 24 hours; the person or their
+    agent taking the plan back, undo, the agent's end, either tile deleted
+    or changing owner, and the slot being bound meanwhile cancel it; every
+    Apply-time check runs again at the moment it would apply and a refusal
+    cancels it; a pause holds it. At most once (`waitMu` and the item's
+    result); audited as a line of the plan (`under: "waits"`, `"waited"`).
+    **Only a personal binding waits** — between the person's own tiles.
+    A line that takes an admin's rights is approved with a recent sign-in,
+    and that sign-in must not reach 24 hours ahead: it never waits, nor
+    does any line of a request to the admins. Such a binding is blocked
+    with xbind's words for what to do (`later`: propose it again, in a
+    plan of its own, once the tile provides the interface), which the
+    agent reads. (First built with admin lines waiting; reversed in
+    review.) Rejected: letting any line wait (only what a tile agent must write is
+    a reason to; `TestOnlyABindingWaits`); binding at once to a tile that
+    provides nothing (the handler refuses it, rightly: a binding is a
+    grant of a role the tile does not yet define); a standing "bind
+    whatever it provides" (a coding agent would choose the role).
+  - **What the review promised holds after the line fired** (review of
+    7d17c1ff). The approved role is recorded with the binding
+    (`bindingCaps`) and is the most it grants whatever the tile declares
+    later; the bind re-reads the tile under the lock it writes under. The
+    line is held to its two tiles' own identities, not their paths (a
+    tile made again at the same path is another tile). It is watched only
+    once its set is written, and every stop of its person's agent but a
+    pause or a hold ends it, judged at the line — not left to each stop
+    path to remember. Of a held line the agent reads one fixed sentence;
+    the mismatch is the person's. Taking a plan back ends what it asked
+    of the admins.
+  - **The start must come before the line that waits on it.** The line
+    needs the start (it is applied only with it), and without one the
+    binding is blocked as ever: nothing waits on a tile nobody is
+    building.
+  - **The permissions are answered in the dock.** A tile agent the
+    workspace agent started asks its person, not the agent; the dock's
+    Needs you draws each request with the chat kit's permission card and
+    the answer is the person's own call (`bx-agent-permits.js`). "Allow
+    always" is offered only where xbind scopes it to a session rule, as in
+    the tile's window.
+  - **Counts.** `journeyAgent` 13 to "done" (11 with the template, which
+    built nothing); `journeyManual` 28 (21).
+  - **Not built:** the start line's alternative mode (edit without asking,
+    limited to the tile) as a warned choice on the review; the app's tray
+    for permission requests and waiting lines; telling the asker's
+    conversation when an admin's copy of a waiting line applies.
 
 - **D241 — The workspace agent reachable when the app is not open:
   pushes, lock-screen actions, one Live Activity per workspace, one router

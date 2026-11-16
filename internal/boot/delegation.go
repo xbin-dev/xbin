@@ -44,10 +44,18 @@ import (
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/term"
+	"github.com/xbin-dev/xbin/internal/vault"
 )
 
 func (st *State) setupDelegation(srv *server.Server) {
 	store := delegation.OpenStore(filepath.Join(st.WS, "data", "delegation"))
+	// the outside MCP servers' secrets an admin sets: sealed under the vault
+	// barrier, in the clear only in the plaintext vault mode (D240)
+	var barrier vault.Sealer
+	if b := st.Broker.Barrier(); b != nil {
+		barrier = b
+	}
+	store.SetSecrets(filepath.Join(st.WS, "data", "delegation", "mcp-secrets.json"), barrier, st.Broker.AllowInsecureVault)
 	srv.Delegation = store
 	// (the host's web and MCP policy comes with the LLM connector's file:
 	// hostagent.go)

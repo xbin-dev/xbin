@@ -37,7 +37,17 @@
 //                                                   app for them, D233; the
 //                                                   web dock has them in its
 //                                                   own header)
+//     xbin:agent-open-signin    {harness}          the sign-in for one coding
+//                                                   agent (its id): the chrome
+//                                                   draws the card and talks
+//                                                   to xbind — nothing of a
+//                                                   sign-in is ever in this
+//                                                   page (D230)
 //   chrome → page
+//     xbin:agent-signins        {}                 the person's saved
+//                                                   sign-ins changed: read
+//                                                   what a start would run on
+//                                                   again
 //     xbin:agent-context        {tile} | {screen}  what the dock was opened
 //                                                   about: a tile's path, or
 //                                                   a screen — offered as
@@ -54,6 +64,8 @@ export const MSG = Object.freeze({
   openChangeset: 'xbin:agent-open-changeset',
   openSession: 'xbin:open-session',
   context: 'xbin:agent-context',
+  openSignin: 'xbin:agent-open-signin',
+  signins: 'xbin:agent-signins',
 });
 
 // what an id may look like (the chrome reads the same shapes)
@@ -69,6 +81,8 @@ export function tilePath(v) {
 /** openRequest(id) / openChangeset(id) / openSession(session, tile, draft?): the message, or null when the ids aren't ids (a draft rides only on session "new"). */
 export const openRequest = (id) => (typeof id === 'string' && ID.test(id) ? { type: MSG.openRequest, id } : null);
 export const openChangeset = (id) => (typeof id === 'string' && ID.test(id) ? { type: MSG.openChangeset, id } : null);
+/** openSignin(harness): the message that asks the chrome for a coding agent's sign-in, or null when it isn't an id. */
+export const openSignin = (harness) => (typeof harness === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(harness) ? { type: MSG.openSignin, harness } : null);
 /** VIEWS: the chrome's own panels a page may ask for (docs/protocol/delegation.md §The chrome). */
 export const VIEWS = Object.freeze(['needs', 'approvals', 'activity']); // the chrome refuses any other (Preferences are the app's own, its shield menu)
 /** openView(view): the message that asks the chrome for one of its panels, or null for anything else. */
@@ -120,11 +134,16 @@ export async function showSession(session, tile, win = globalThis.window, draft)
   return post(msg, win);
 }
 
-/** listen(onContext, win): take context messages from the framing window; returns the unsubscribe. */
-export function listen(onContext, win = globalThis.window) {
+/**
+ * listen(onContext, win, onSignins): take context messages from the framing
+ * window — and its word that the person's saved sign-ins changed
+ * (onSignins, no data) — returns the unsubscribe.
+ */
+export function listen(onContext, win = globalThis.window, onSignins = null) {
   if (!win || typeof win.addEventListener !== 'function') return () => {};
   const h = (e) => {
     if (e.source !== win.parent) return; // only the chrome that frames this page
+    if (onSignins && e.data && typeof e.data === 'object' && e.data.type === MSG.signins) { onSignins(); return; }
     const c = contextOf(e.data);
     if (c) onContext(c);
   };

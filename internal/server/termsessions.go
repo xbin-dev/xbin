@@ -20,8 +20,9 @@ import (
 func (s *Server) registerTermAPI() {
 	s.RegisterAPI("GET /term/sessions", s.apiTermSessions)
 	s.RegisterAPI("PATCH /term/sessions/{id}", s.apiTermRename)
-	s.registerAgentAPI()      // agent sessions (agentapi.go, D74)
-	s.registerAgentPrefsAPI() // a person's agent preferences (agentprefsapi.go, D229)
+	s.registerAgentAPI()        // agent sessions (agentapi.go, D74)
+	s.registerAgentPrefsAPI()   // a person's agent preferences (agentprefsapi.go, D229)
+	s.registerAgentSigninsAPI() // their saved coding-agent sign-ins (agentsignins.go, D230)
 }
 
 // termChange is a `term` event's data: which session changed, whose, and
@@ -57,6 +58,18 @@ func (s *Server) TermStatus(cwd string, st term.StatusChange) {
 	s.Hub.Publish(events.Event{Type: "term", Component: cwd, Data: termStatus{Op: "status", StatusChange: st}})
 }
 
+// sessionTile is the registered tile a session's directory (cwd), or a past
+// session's, is or lies in (term.Manager.TileOf): what every decision about
+// that session is made on — the directory may be inside its tile, and its
+// own path matches only patterns. The directory itself when no tile holds it.
+func (s *Server) sessionTile(cwd string) string {
+	if s.Term == nil {
+		return strings.Trim(cwd, "/")
+	}
+	tile, _ := s.Term.TileOf(cwd)
+	return tile
+}
+
 // owned is what the per-user event kinds (`term`, `session`) carry: whose
 // they are, for the filter.
 type owned interface{ Owner() string }
@@ -86,7 +99,9 @@ func (s *Server) TermChanged(op, homeKey, id, cwd string) {
 func termEventFor(p auth.Principal, e events.Event) bool {
 	switch {
 	case p.Component == "": // a human principal
-		if p.IsAdmin() {
+		// (an admin follows everyone's — but for a session that carries its
+		// person's saved sign-in, which is theirs alone: D230, term/signin.go)
+		if pr, ok := e.Data.(interface{ Private() bool }); p.IsAdmin() && !(ok && pr.Private()) {
 			return true
 		}
 		if p.UserID == "" { // no one in particular (never the owner's home by default)
@@ -124,7 +139,7 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := s.Term.ListFor(homeKey, r.URL.Query().Get("cwd"), may)
 	if p.Agent != "" { // a person's agent: not the tiles whose org keeps it out (delegate.go)
-		rows = slices.DeleteFunc(rows, func(si term.SessionInfo) bool { return s.delegateHides(p, si.Cwd) })
+		rows = slices.DeleteFunc(rows, func(si term.SessionInfo) bool { return s.delegateHides(p, s.sessionTile(si.Cwd)) })
 	}
 	q := r.URL.Query()
 	if q.Get("origin") == term.OriginAgent {

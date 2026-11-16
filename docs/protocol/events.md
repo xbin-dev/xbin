@@ -24,6 +24,8 @@ required). JSON text frames:
 {"type":"build-start","component":"apps/thing"}     // the build; with text ("setting up environment…") its environment layer's setup first
 {"type":"backend-starting","component":"apps/thing"} // D196: built (or cached), its backend spawned and waited for until healthy; build-ok or build-error follows
 {"type":"build-error","component":"apps/thing","text":"compiler output"}
+{"type":"backend-retry","component":"apps/thing",     // D242: after a build-error, xbind will start it again (the primary's;
+ "data":{"attempt":2,"of":3,"at":"2026-11-16T10:42:13Z","inSec":60}} //   a deployment's is in its status row): build-start follows when it does
 {"type":"build-ok","component":"apps/thing"}
 {"type":"grants"}                                    // grant table changed
 {"type":"branding"}                                  // the workspace title/icon changed (D76): re-read GET /branding

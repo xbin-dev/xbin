@@ -20,7 +20,9 @@ export { GRID, GAP, DEF_W, DEF_H, MIN_W, MIN_H, snap } from './grid-layout.js';
 // and the word "failed" when the build failed, hollow for a tile that is
 // switched off. The runtime, which the square's colour used to say, is in
 // its tooltip. state: 'live' | 'building' | 'failed' (bx-frame buildState)
-// or 'off' (liveState below); runtime: the /components row's.
+// or 'off' (liveState below); runtime: the /components row's; retry: the
+// frame's buildRetry (D242) — a failed start xbind will try again, "failed ·
+// retrying" with its time in the tooltip (an older xbind's frame has none).
 const RUNTIME_NAME = { go: 'a Go backend', node: 'a Node backend', python: 'a Python backend' };
 const LIVE_WORD = { live: 'live', building: 'building', failed: 'build failed', off: 'switched off' };
 export const runtimeName = (runtime) => RUNTIME_NAME[runtime] ?? 'static (no backend)';
@@ -51,10 +53,11 @@ export function buildChip(phase, runtime) {
   const w = PHASE[phase]?.(runtime);
   return w ? html`<span class="bchip" role="status" data-build=${phase} title=${w[1]}>${w[0]}</span>` : nothing;
 }
-export function liveSquare(state, runtime) {
-  const title = `${LIVE_WORD[state] ?? 'live'} · ${runtimeName(runtime)}`;
+export function liveSquare(state, runtime, retry) {
+  const again = state === 'failed' && retry ? ` · retrying at ${new Date(retry.at).toLocaleTimeString()} (${retry.attempt} of ${retry.of})` : '';
+  const title = `${LIVE_WORD[state] ?? 'live'}${again} · ${runtimeName(runtime)}`;
   return html`<span class="lsq ${state}" role="img" aria-label=${title} title=${title}></span>${state === 'failed'
-    ? html`<span class="lfail">failed</span>` : nothing}`;
+    ? html`<span class="lfail" title=${title}>${again ? 'failed · retrying' : 'failed'}</span>` : nothing}`;
 }
 
 // The status levels (tiles → workspace, /alerts): a glyph of its own shape

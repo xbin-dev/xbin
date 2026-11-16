@@ -78,8 +78,11 @@ export function agentTestApi(a) {
     resumeHistory() { a._doResume(); },
     signIn() { const lg = a._login(); if (lg) a._doSignIn(lg); },
     // the guided sign-in strip (agent-signin.js, D178), when it shows; the note after it worked
-    get signin() { return a.renderRoot?.querySelector('bx-agent-signin')?.testApi() || null; },
+    get signin() { return a.renderRoot?.querySelector('bx-agent-signin:not([view])')?.testApi() || null; },
     get signedNote() { return a._signedNote || ''; },
+    // what the session signs in with, as the header says it (D230)
+    get signinChip() { return a.renderRoot?.querySelector('.signin-chip')?.textContent.trim() || ''; },
+    get signinState() { return a._tx.st.signin || null; },
     get error() { return a._error || ''; }, // what the tab says went wrong (a refused start's reason)
     setOption(id, value) { a._setOption(id, value); },
     start() { return a._create(); },

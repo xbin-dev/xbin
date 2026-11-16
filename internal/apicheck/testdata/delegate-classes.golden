@@ -5,6 +5,10 @@
 /sandboxes/{name}/ports/{port}/{path...}	refused
 DELETE /access-requests	never
 DELETE /agent/history/{id}	never
+DELETE /agent/signins/guided/{flow}	never
+DELETE /agent/signins/notice	never
+DELETE /agent/signins/people/{user}/{id}	never
+DELETE /agent/signins/{id}	never
 DELETE /backup-schedule	never
 DELETE /bindings	never
 DELETE /blob/{rest...}	never
@@ -53,6 +57,9 @@ GET /agent/history	read
 GET /agent/history/{id}/events	read	tile:byHistory
 GET /agent/prefs	refused
 GET /agent/providers	read
+GET /agent/signins	refused
+GET /agent/signins/people	refused
+GET /agent/signins/uses	refused
 GET /agents/connection	refused
 GET /agents/policy	refused
 GET /alerts	read
@@ -87,6 +94,7 @@ GET /delegate/audit	never
 GET /delegate/changesets	read
 GET /delegate/changesets/{id}	read
 GET /delegate/map	read
+GET /delegate/mcp/servers	read
 GET /delegate/requests	never
 GET /delegate/requests/{id}	read
 GET /delegate/sessions/{id}	read
@@ -199,6 +207,9 @@ PATCH /users/{id}	never
 POST /access-requests	never
 POST /access-requests/approve	never
 POST /account/password	never
+POST /agent/signins	never
+POST /agent/signins/guided	never
+POST /agent/signins/guided/{flow}	never
 POST /app-tunnel/relay-tokens	never
 POST /app-tunnel/test	never
 POST /auth-rotate-token	never
@@ -224,6 +235,8 @@ POST /delegate/changesets/{id}/ask	never
 POST /delegate/changesets/{id}/reject	never
 POST /delegate/changesets/{id}/undo	never
 POST /delegate/mcp/call	act
+POST /delegate/mcp/test	never
+POST /delegate/mcp/tools	act
 POST /delegate/page/dismiss	never
 POST /delegate/plans	act
 POST /delegate/requests	act
@@ -337,6 +350,8 @@ POST /web-ticket	never
 PUT /access	never
 PUT /agent-levels	never
 PUT /agent/prefs	never
+PUT /agent/signins/policy	never
+PUT /agent/signins/{id}	never
 PUT /agents/policy	never
 PUT /app-tunnel	never
 PUT /blob/{rest...}	never

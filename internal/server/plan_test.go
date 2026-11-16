@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/term"
 )
 
 // planStub stands for the broker in a server-only world: it describes no
@@ -232,5 +235,66 @@ func TestPlanStartIsPinnedToWhatWasShown(t *testing.T) {
 	done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, own))
 	if done.Items[0].Result != delegation.ItemStale {
 		t.Fatalf("a start whose network changed since it was shown: %+v", done.Items[0])
+	}
+}
+
+// A plan's start line gets a saved sign-in only when the line its person
+// approved NAMES it (D230) — the one named then, bound as a ticket binds a
+// single start's: not whatever the person's default is by the time the
+// plan is applied, and none at all where the line named none (a tile an
+// earlier line creates is described before it exists: no sign-in can be
+// shown for it, so none is used). The open checks the named one again.
+func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
+	w := delegateWorld(t)
+	w.s.AgentWorld = fakeWorld{}
+	w.s.ChangeSets = planStub{}
+	alice := delegateCred("d-alice")
+	sid := w.s.Auth.NewSession("alice", "")
+	own := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: sid}) }
+	now := "" // the saved sign-in a start of alice's would use at this moment ("": none)
+	was := startSignIn
+	startSignIn = func(*Server, auth.Principal, string, agent.Provider, *term.ProviderLLM, bool) (string, string) {
+		if now == "" {
+			return "needed", ""
+		}
+		return "saved", now
+	}
+	t.Cleanup(func() { startSignIn = was })
+	var opened []term.DelegateStart
+	w.s.PlanStarter = func(ctx context.Context, _ auth.Principal, _ []byte) (string, int, string) {
+		d, _ := ctx.Value(delegateStartKey{}).(*term.DelegateStart)
+		if d == nil {
+			t.Error("a plan's start reached the open with no authorisation")
+			return "", 500, "no authorisation"
+		}
+		opened = append(opened, *d)
+		return "sess", 200, ""
+	}
+	for _, c := range []struct{ name, shown, atApply, want string }{
+		{"the sign-in the line named, though the default moved", "sg-work", "sg-other", "sg-work"},
+		{"none named: none used, though one exists by Apply", "", "sg-work", ""},
+		{"the one named, unchanged", "sg-work", "sg-work", "sg-work"},
+	} {
+		now = c.shown
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"claude"}}]}`, alice)
+		var cs delegation.ChangeSet
+		_ = json.Unmarshal(rec.Body.Bytes(), &cs)
+		full, ok := w.store.ChangeSet("alice", cs.ID)
+		if rec.Code != 200 || !ok {
+			t.Fatalf("%s: plan: %d %s", c.name, rec.Code, rec.Body.String())
+		}
+		var start struct{ SignIn, SignInID string }
+		_ = json.Unmarshal(full.Items[0].Start, &start)
+		if start.SignInID != c.shown || (c.shown != "") != (start.SignIn == "saved") || len(full.Items[0].Warnings) != 0 || full.Items[0].Wait != nil {
+			t.Fatalf("%s: the line as its person is shown it: %+v (warnings %v, wait %v)", c.name, start, full.Items[0].Warnings, full.Items[0].Wait)
+		}
+		now, opened = c.atApply, nil
+		done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, own))
+		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 {
+			t.Fatalf("%s: applying: %+v (%d opens)", c.name, done.Items[0], len(opened))
+		}
+		if d := opened[0]; d.Signin != c.want || !d.Approved || d.Provider != "claude" {
+			t.Errorf("%s: the open was authorised for the sign-in %q — the line named %q", c.name, d.Signin, c.shown)
+		}
 	}
 }

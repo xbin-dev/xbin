@@ -35,7 +35,11 @@ const termRootHint = "the tile's persistent terminal layer holds it: reset the t
 // D17a source-visibility cut for non-admin users: tiles below read level
 // aren't just unlisted in the UI, their source disappears from the terminal's
 // filesystem too. nil for admins.
-func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind, hide []string) []sandbox.Bind {
+//
+// tile is the registered tile the session is on (sessionTile) and rel its
+// directory: the tile itself, or a directory inside it, which is what is
+// bound read-write. What is masked is decided on the tile.
+func scopedBinds(root, tile, rel, homeDir string, extra []sandbox.Bind, hide []string) []sandbox.Bind {
 	if rel == "" {
 		return append([]sandbox.Bind{{Src: root, Dst: root}}, extra...) // owner plane: all rw (root terminals are disabled)
 	}
@@ -73,14 +77,17 @@ func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind, hide []string)
 	// read-write bind over the masks above; sessionDir refuses such a
 	// session before it comes to this)
 	// D17a: mask unreadable tiles' source. Sealed (RO) covers — nothing may
-	// nest back on top. Anything overlapping the session's own component is
-	// skipped defensively (can't happen while levels stay monotone — terminal
-	// implies read — but a mask over the shell's cwd must never win a race
-	// against that invariant).
+	// nest back on top. Skipped, decided on the session's TILE: the tile
+	// itself and a tile it lies in (can't happen while levels stay monotone
+	// — the gate asks the tile, and terminal implies read — but a mask over
+	// the shell's cwd must never win a race against that invariant), and a
+	// tile inside the read-write directory. That a session's tile is one its
+	// person may read is the gate's to ensure (sessionTile): it once asked
+	// the directory's own path, and this skip let apps/crm/src open
+	// read-write in an apps/crm its person had no level on.
 	for _, h := range hide {
 		h = strings.Trim(filepath.ToSlash(h), "/")
-		if h == "" || h == rel ||
-			strings.HasPrefix(rel+"/", h+"/") || strings.HasPrefix(h+"/", rel+"/") {
+		if h == "" || h == tile || strings.HasPrefix(tile+"/", h+"/") || strings.HasPrefix(h+"/", rel+"/") {
 			continue
 		}
 		binds = append(binds, sandbox.Bind{Dst: filepath.Join(root, filepath.FromSlash(h)), Mask: true, RO: true})
@@ -188,10 +195,17 @@ func (m *Manager) RefreshViews() {
 // masks: unreadable tiles don't exist here, names included, and neither do
 // .xbin/data contents or the resenc mount-table names the recursive
 // real-root bind used to carry.
-func scopedBindsView(root, rel, homeDir, viewDir string, readable []string, extra []sandbox.Bind) []sandbox.Bind {
+//
+// tile is the session's tile and rel its directory (scopedBinds): rel is
+// bound read-write only when the tile is one the principal may read — it
+// always is, past the terminal gate, which asks the tile; otherwise the
+// session's directory stays the view's empty, read-only mountpoint.
+func scopedBindsView(root, tile, rel, homeDir, viewDir string, readable []string, extra []sandbox.Bind) []sandbox.Bind {
 	binds := []sandbox.Bind{{Src: viewDir, Dst: root, RO: true}}
+	own := false
 	for _, r := range readable {
 		r = strings.Trim(filepath.ToSlash(r), "/")
+		own = own || r != "" && r == tile
 		if r == "" || r == rel {
 			continue // own component binds RW below
 		}
@@ -200,8 +214,9 @@ func scopedBindsView(root, rel, homeDir, viewDir string, readable []string, extr
 			binds = append(binds, sandbox.Bind{Src: src, Dst: src, RO: true})
 		}
 	}
-	comp := filepath.Join(root, filepath.FromSlash(rel))
-	binds = append(binds, sandbox.Bind{Src: comp, Dst: comp}) // own component: rw
+	if comp := filepath.Join(root, filepath.FromSlash(rel)); own {
+		binds = append(binds, sandbox.Bind{Src: comp, Dst: comp}) // own component (or a directory in it): rw
+	}
 	if pathIsDir(homeDir) {
 		binds = append(binds, sandbox.Bind{Src: homeDir, Dst: homeDir}) // own $HOME: rw
 	}

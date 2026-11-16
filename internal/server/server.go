@@ -5,6 +5,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"html"
 	"io/fs"
 	"log/slog"
@@ -25,8 +26,10 @@ import (
 	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/mcpclient"
 	"github.com/xbin-dev/xbin/internal/preview"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/signins"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/webfetch"
@@ -55,6 +58,16 @@ type Server struct {
 	// switches, approvals, change sets and the audit log (delegate.go;
 	// internal/delegation); nil = the closed state: nothing is approved.
 	Delegation *delegation.Store
+	// a plan's lines that wait (planwait.go): the people who have one, and
+	// the lock under which one is applied or ended — at most once
+	waitMu      sync.Mutex
+	waitUsers   map[string]bool
+	waitsLoaded bool
+	// PlanStarter, when set, opens the session of a plan's agent.start
+	// line in place of POST /term/sessions — after every check of the line
+	// passed (a workspace without terminals: tests of plans). → the
+	// session's id, or the refusal's status and words.
+	PlanStarter func(ctx context.Context, p auth.Principal, body []byte) (session string, status int, refusal string)
 	// AgentPolicy answers the orgs' agent rules and people's agent
 	// preferences for the delegate gate; nil refuses (delegation.NoPolicy).
 	AgentPolicy delegation.Policy
@@ -107,12 +120,20 @@ type Server struct {
 	DelegationDev bool
 	delegateRT    delegateRuntime // the gate's rate limit and running calls
 	dpush         delegatePushes  // the workspace agent's notifications: held, sent, cleared (delegatepush.go)
+	mcpExt        mcpExtRuntime   // xbind's sessions with outside MCP servers (mcpext.go)
 	docsIx        docsIndex       // the docs search index, built at first use (docsapi.go)
 	// delegationGate is the off-switch check (SetDelegationGate, DelegationOff)
 	delegationGate func(holder, user string) error
 	// AgentPrefs is the people's agent preferences (D229, agentprefsapi.go);
 	// nil = none.
 	AgentPrefs *agentprefs.Store
+	// Signins is the coding-agent sign-ins xbind holds for each person, and
+	// SigninFlows the guided sign-ins under way (D230, agentsignins.go);
+	// nil = none. SigninsAvail answers whether this xbind keeps any (it
+	// needs sandboxes, a development workspace excepted); nil = it does.
+	Signins      *signins.Store
+	SigninFlows  *signins.Flows
+	SigninsAvail func() SigninsAvailability
 	// AgentLevel answers the level of a tile's API a person's workspace
 	// agent may use as it is in force (the broker's: the manifest's, never
 	// above what was last approved), and the raise its manifest asks for;
@@ -128,6 +149,10 @@ type Server struct {
 	// (delegateweb.go): nil is the real one; tests give a resolver and a
 	// local server's address. Its Check is always the server's.
 	WebFetch *webfetch.Fetcher
+	// MCPClient is the client outside MCP servers are spoken to with
+	// (mcpext.go, D240): nil is the real one; tests give a resolver and
+	// their server's CA.
+	MCPClient *mcpclient.Client
 	// OwnHost reports a hostname this workspace's tiles are published at
 	// (ingress): a workspace agent's fetch never names one. nil: none.
 	OwnHost func(host string) bool

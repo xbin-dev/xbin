@@ -36,7 +36,14 @@ func (s *Server) SweepDelegation() {
 		acc, ok := s.Auth.Users.Access(user)
 		u, live := s.Auth.Users.Get(user)
 		gone := func(a delegation.Approval) bool {
-			return !ok || !live || u.Disabled || !s.tileExists(a.Tile) || !acc.CanReadTile(a.Tile)
+			if !ok || !live || u.Disabled {
+				return true
+			}
+			if delegation.IsExt(a.Tile) { // an outside server's tool (D240): gone with the server, its address, or the person's place in its orgs
+				m, in := s.Delegation.MCPKeyInForce(a.Tile)
+				return !in || !m.Visible(s.personOrgs(user))
+			}
+			return !s.tileExists(a.Tile) || !acc.CanReadTile(a.Tile)
 		}
 		if n, _ := s.Delegation.DropApprovals(user, gone); n > 0 {
 			s.delegateEvent(user, "approval", "")
@@ -110,6 +117,8 @@ func (s *Server) delegationStopped(user string, keepApprovals bool) {
 			s.delegateEvent(user, "changeset", id)
 		}
 		s.withdrawAsksFrom(user) // and what they asked the admins to apply for it (plan.go)
+		s.cancelWaits(user, "", "your workspace agent was stopped before it was applied")
+		s.cancelWaitsFrom(user, "the workspace agent of "+user+", which proposed it, was stopped before it was applied")
 	}
 	changed := false
 	if n, _ := s.Delegation.VoidTickets(user); n > 0 {

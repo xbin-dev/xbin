@@ -291,75 +291,87 @@ var routeClasses = map[string]RouteClass{
 	"PUT /screens/folders":              PrimaryOnly,
 
 	// ---- admin APIs: the workspace's operator ----
-	"POST /backup":                           PrimaryOnly,
-	"GET /backups":                           PrimaryOnly,
-	"POST /restore":                          PrimaryOnly,
-	"GET /backup-schedule":                   PrimaryOnly,
-	"POST /backup-schedule":                  PrimaryOnly,
-	"DELETE /backup-schedule":                PrimaryOnly,
-	"GET /backup-keys":                       PrimaryOnly,
-	"POST /backup-keys/export":               PrimaryOnly,
-	"POST /backup-keys/import":               PrimaryOnly,
-	"POST /backup/erase":                     PrimaryOnly,
-	"GET /partitions/backups":                PrimaryOnly, // a person's partition's archives: the person or an admin (plans/partitions/11 §4)
-	"POST /partitions/restore":               PrimaryOnly, // … restored into their partition: a person's act, never tile code
-	"GET /vault-status":                      PrimaryOnly,
-	"POST /vault-unseal":                     PrimaryOnly,
-	"POST /vault-seal":                       PrimaryOnly,
-	"POST /vault-rekey":                      PrimaryOnly,
-	"GET /vaults":                            PrimaryOnly,
-	"GET /resources":                         PrimaryOnly,
-	"GET /auth-overview":                     PrimaryOnly,
-	"GET /sealed":                            PrimaryOnly, // the admins' read of sealed components (D227)
-	"GET /backends":                          PrimaryOnly,
-	"GET /runtime":                           PrimaryOnly,
-	"GET /ingress":                           PrimaryOnly,
-	"GET /gpus":                              PrimaryOnly,
-	"GET /go-build-versions":                 PrimaryOnly,
-	"POST /go-build-versions/check":          PrimaryOnly,
-	"POST /go-build-versions/dismiss":        PrimaryOnly,
-	"PUT /vm/policy":                         PrimaryOnly,
-	"POST /auth-rotate-token":                PrimaryOnly,
-	"POST /impersonate":                      PrimaryOnly,
-	"POST /preview":                          PrimaryOnly, // a preview shows what people see: the primary (D234)
-	"POST /impersonate/stop":                 PrimaryOnly,
-	"PUT /native-runtime":                    PrimaryOnly,
-	"PUT /chrome":                            PrimaryOnly,
-	"PUT /agent-levels":                      PrimaryOnly,
-	"PUT /branding":                          PrimaryOnly,
-	"PUT /workspace-policies":                PrimaryOnly,
-	"POST /partitions/limits":                PrimaryOnly, // admins and tile managers judged in the handler; never tile code (06 §6)
-	"POST /limits":                           PrimaryOnly, // tile limits (D203): a person's decision; never tile code
-	"DELETE /limits":                         PrimaryOnly,
-	"POST /limits/dismiss":                   PrimaryOnly,
-	"PUT /orgs/{org}/limits":                 PrimaryOnly,
-	"GET /agents/policy":                     PrimaryOnly, // org constraints on agents (D229): people's and admins', never tile code
-	"PUT /agents/policy":                     PrimaryOnly,
-	"PUT /orgs/{org}/agents":                 PrimaryOnly,
-	"PUT /orgs/{org}/agents/pin":             PrimaryOnly,
-	"GET /agents/connection":                 PrimaryOnly,
-	"GET /agent/prefs":                       PrimaryOnly, // a person's agent preferences (D229)
-	"PUT /agent/prefs":                       PrimaryOnly,
-	"PUT /workspace-settings":                PrimaryOnly,
-	"GET /push/config":                       PrimaryOnly,
-	"PUT /push/config":                       PrimaryOnly,
-	"GET /app-tunnel":                        PrimaryOnly,
-	"PUT /app-tunnel":                        PrimaryOnly,
-	"POST /app-tunnel/relay-tokens":          PrimaryOnly,
-	"POST /app-tunnel/test":                  PrimaryOnly,
-	"GET /llm/config":                        PrimaryOnly, // the LLM connector's settings, usage and quotas (D226)
-	"PUT /llm/config":                        PrimaryOnly,
-	"PUT /llm/upstreams/{name}":              PrimaryOnly,
-	"DELETE /llm/upstreams/{name}":           PrimaryOnly,
-	"POST /llm/upstreams/{name}/test":        PrimaryOnly,
-	"GET /llm/usage":                         PrimaryOnly,
-	"GET /llm/quotas":                        PrimaryOnly,
-	"PUT /llm/quotas":                        PrimaryOnly,
-	"POST /llm/setup/dismiss":                PrimaryOnly,
-	"DELETE /push/config":                    PrimaryOnly,
-	"GET /push/devices":                      PrimaryOnly,
-	"DELETE /push/devices/{user}":            PrimaryOnly,
-	"DELETE /push/devices/{user}/{deviceId}": PrimaryOnly,
+	"POST /backup":                             PrimaryOnly,
+	"GET /backups":                             PrimaryOnly,
+	"POST /restore":                            PrimaryOnly,
+	"GET /backup-schedule":                     PrimaryOnly,
+	"POST /backup-schedule":                    PrimaryOnly,
+	"DELETE /backup-schedule":                  PrimaryOnly,
+	"GET /backup-keys":                         PrimaryOnly,
+	"POST /backup-keys/export":                 PrimaryOnly,
+	"POST /backup-keys/import":                 PrimaryOnly,
+	"POST /backup/erase":                       PrimaryOnly,
+	"GET /partitions/backups":                  PrimaryOnly, // a person's partition's archives: the person or an admin (plans/partitions/11 §4)
+	"POST /partitions/restore":                 PrimaryOnly, // … restored into their partition: a person's act, never tile code
+	"GET /vault-status":                        PrimaryOnly,
+	"POST /vault-unseal":                       PrimaryOnly,
+	"POST /vault-seal":                         PrimaryOnly,
+	"POST /vault-rekey":                        PrimaryOnly,
+	"GET /vaults":                              PrimaryOnly,
+	"GET /resources":                           PrimaryOnly,
+	"GET /auth-overview":                       PrimaryOnly,
+	"GET /sealed":                              PrimaryOnly, // the admins' read of sealed components (D227)
+	"GET /backends":                            PrimaryOnly,
+	"GET /runtime":                             PrimaryOnly,
+	"GET /ingress":                             PrimaryOnly,
+	"GET /gpus":                                PrimaryOnly,
+	"GET /go-build-versions":                   PrimaryOnly,
+	"POST /go-build-versions/check":            PrimaryOnly,
+	"POST /go-build-versions/dismiss":          PrimaryOnly,
+	"PUT /vm/policy":                           PrimaryOnly,
+	"POST /auth-rotate-token":                  PrimaryOnly,
+	"POST /impersonate":                        PrimaryOnly,
+	"POST /preview":                            PrimaryOnly, // a preview shows what people see: the primary (D234)
+	"POST /impersonate/stop":                   PrimaryOnly,
+	"PUT /native-runtime":                      PrimaryOnly,
+	"PUT /chrome":                              PrimaryOnly,
+	"PUT /agent-levels":                        PrimaryOnly,
+	"PUT /branding":                            PrimaryOnly,
+	"PUT /workspace-policies":                  PrimaryOnly,
+	"POST /partitions/limits":                  PrimaryOnly, // admins and tile managers judged in the handler; never tile code (06 §6)
+	"POST /limits":                             PrimaryOnly, // tile limits (D203): a person's decision; never tile code
+	"DELETE /limits":                           PrimaryOnly,
+	"POST /limits/dismiss":                     PrimaryOnly,
+	"PUT /orgs/{org}/limits":                   PrimaryOnly,
+	"GET /agents/policy":                       PrimaryOnly, // org constraints on agents (D229): people's and admins', never tile code
+	"PUT /agents/policy":                       PrimaryOnly,
+	"PUT /orgs/{org}/agents":                   PrimaryOnly,
+	"PUT /orgs/{org}/agents/pin":               PrimaryOnly,
+	"GET /agents/connection":                   PrimaryOnly,
+	"GET /agent/prefs":                         PrimaryOnly, // a person's agent preferences (D229)
+	"PUT /agent/prefs":                         PrimaryOnly,
+	"GET /agent/signins":                       PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"POST /agent/signins":                      PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"PUT /agent/signins/{id}":                  PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"DELETE /agent/signins/{id}":               PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"DELETE /agent/signins/notice":             PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"GET /agent/signins/uses":                  PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"POST /agent/signins/guided":               PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"POST /agent/signins/guided/{flow}":        PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"DELETE /agent/signins/guided/{flow}":      PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"GET /agent/signins/people":                PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"DELETE /agent/signins/people/{user}/{id}": PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"PUT /agent/signins/policy":                PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"PUT /workspace-settings":                  PrimaryOnly,
+	"GET /push/config":                         PrimaryOnly,
+	"PUT /push/config":                         PrimaryOnly,
+	"GET /app-tunnel":                          PrimaryOnly,
+	"PUT /app-tunnel":                          PrimaryOnly,
+	"POST /app-tunnel/relay-tokens":            PrimaryOnly,
+	"POST /app-tunnel/test":                    PrimaryOnly,
+	"GET /llm/config":                          PrimaryOnly, // the LLM connector's settings, usage and quotas (D226)
+	"PUT /llm/config":                          PrimaryOnly,
+	"PUT /llm/upstreams/{name}":                PrimaryOnly,
+	"DELETE /llm/upstreams/{name}":             PrimaryOnly,
+	"POST /llm/upstreams/{name}/test":          PrimaryOnly,
+	"GET /llm/usage":                           PrimaryOnly,
+	"GET /llm/quotas":                          PrimaryOnly,
+	"PUT /llm/quotas":                          PrimaryOnly,
+	"POST /llm/setup/dismiss":                  PrimaryOnly,
+	"DELETE /push/config":                      PrimaryOnly,
+	"GET /push/devices":                        PrimaryOnly,
+	"DELETE /push/devices/{user}":              PrimaryOnly,
+	"DELETE /push/devices/{user}/{deviceId}":   PrimaryOnly,
 
 	// ---- reads of workspace facts ----
 	"GET /preview":              Neutral, // availability and limits (D234)
@@ -481,6 +493,9 @@ var routeClasses = map[string]RouteClass{
 	"GET /delegate/map":                      PrimaryOnly,
 	"POST /delegate/web/fetch":               PrimaryOnly,
 	"POST /delegate/mcp/call":                PrimaryOnly,
+	"GET /delegate/mcp/servers":              PrimaryOnly,
+	"POST /delegate/mcp/tools":               PrimaryOnly,
+	"POST /delegate/mcp/test":                PrimaryOnly,
 	"GET /delegate/start-defaults":           PrimaryOnly,
 	"POST /delegate/sessions/{id}/allows":    PrimaryOnly,
 	"POST /delegate/sessions/{id}/taint":     PrimaryOnly,

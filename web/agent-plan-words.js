@@ -157,7 +157,14 @@ export function closesItself(cs, chosen) {
   if (!cs || !cs.plan || cs.from || cs.undoOf || !(chosen || []).length) return false;
   const all = items(cs);
   if (all.some((it) => it.needsAdmin && !it.result)) return false;
-  return chosen.every((n) => (all[n - 1] || {}).result === 'applied');
+  // (a line that waits was approved and is xbin's to apply: nothing is left for the person to do here)
+  return chosen.every((n) => ['applied', 'waiting'].includes((all[n - 1] || {}).result));
+}
+
+/** waitingWords(cs): the results' line about lines that wait for xbin ('' none). */
+export function waitingWords(cs) {
+  const n = items(cs).filter((it) => it.result === 'waiting').length;
+  return n ? `${plural(n, 'line')} ${n === 1 ? 'waits' : 'wait'}: xbin applies ${n === 1 ? 'it' : 'them'} by itself once the tile provides what you approved. Rejecting the plan from here cancels ${n === 1 ? 'it' : 'them'}.` : '';
 }
 
 /** closingWords: what the results say while they close themselves. */

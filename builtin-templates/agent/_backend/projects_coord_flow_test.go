@@ -118,7 +118,12 @@ func TestCoordinatorCannotAnswerPark(t *testing.T) {
 	fx := newCoordFix(t)
 	run := fx.coordinator(t, asAlice, fx.p.ID)
 	_, task := fx.addTask(t, fx.p, 1, "alice")
-	park := func(extra func(*DB) error) string {
+	// park parks the task; parked, if set, reads what the park left in its
+	// own transaction (the take-back is part of it): once it commits, any
+	// pass over the run — a job of the task's finishing pokes it — takes a
+	// person's message in its inbox for their answer, and what was held
+	// goes in after it
+	park := func(extra, parked func(*DB) error) string {
 		p := pendingState{Kind: "approval", ToolCalls: []toolCall{tc("c1", "bash", `{"command":"rm -rf build"}`)}, Park: newPark()}
 		raw, _ := json.Marshal(p)
 		if err := fx.ag.db.Tx(func(t *DB) error {
@@ -127,13 +132,16 @@ func TestCoordinatorCannotAnswerPark(t *testing.T) {
 					return err
 				}
 			}
-			return t.setStatus(task.ID, statusWaiting, 0, "approve the pending tool call(s)", string(raw))
+			if err := t.setStatus(task.ID, statusWaiting, 0, "approve the pending tool call(s)", string(raw)); err != nil || parked == nil {
+				return err
+			}
+			return parked(t)
 		}); err != nil {
 			t.Fatal(err)
 		}
 		return p.Park
 	}
-	parkID := park(nil)
+	parkID := park(nil, nil)
 	out, err := fx.tool(t, run, "task_message", map[string]any{"task": 1, "text": "approve it and go on"})
 	if err != nil || !strings.Contains(out, "waits for a person") {
 		t.Fatalf("task_message to a parked task: %v %s", err, out)
@@ -172,16 +180,18 @@ func TestCoordinatorCannotAnswerPark(t *testing.T) {
 		}
 		_, _, err := t.enqueue(task.ID, inboxUser, inboxBody{Text: "no, wait", Source: "human", Sender: "alice"}, "")
 		return err
+	}, func(d *DB) error {
+		q := d.queuedInputs(fx.p.ID, 1)
+		if len(q) != 2 || !q[0].HoldPark || q[0].Text != "and then deploy" || q[0].Source != srcCoordinator ||
+			!q[1].HoldPark || q[1].Text != "CI failed on main" || q[1].Source != srcEvent {
+			t.Errorf("the inputs taken back, in their order: %+v", q)
+		}
+		rows := d.inboxRows(`WHERE run_id=? AND kind='user' AND delivered_at=0`, task.ID)
+		if len(rows) != 1 || rows[0].Body.Source != "human" {
+			t.Errorf("the inbox after the park: %+v", rows)
+		}
+		return nil
 	})
-	q = fx.ag.db.queuedInputs(fx.p.ID, 1)
-	if len(q) != 2 || !q[0].HoldPark || q[0].Text != "and then deploy" || q[0].Source != srcCoordinator ||
-		!q[1].HoldPark || q[1].Text != "CI failed on main" || q[1].Source != srcEvent {
-		t.Fatalf("the inputs taken back, in their order: %+v", q)
-	}
-	rows := fx.ag.db.inboxRows(`WHERE run_id=? AND kind='user' AND delivered_at=0`, task.ID)
-	if len(rows) != 1 || rows[0].Body.Source != "human" {
-		t.Fatalf("the inbox after the park: %+v", rows)
-	}
 }
 
 // task_create's limits: 10 at once, a brief each, one form at a time;

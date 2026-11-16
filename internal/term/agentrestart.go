@@ -46,18 +46,20 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 	s.mu.Unlock()
 	// a harness the tile's orgs no longer allow can't open again: refused
 	// before the session ends, so it keeps running as it is (D229)
-	if err := m.HarnessAllowed(p, s.Cwd, provider); err != nil {
+	tile := m.tileOf(s) // the rules are its tile's; the new session opens in the same directory
+	if err := m.HarnessAllowed(p, tile, provider); err != nil {
 		return SessionInfo{}, false, 403, fmt.Errorf("this session keeps running, but can't restart: %w", err)
 	}
 	if vm != nil {
 		inVM = *vm // nil keeps the session's sandbox kind
 	}
 	options := currentOptions(st.log)
+	signin := m.signinRestart(s, provider) // what it was opened with, never more (signin.go)
 	probe := openOpts{api: api}
-	if c, err := m.pickTarget(p, &probe, s.Cwd, deployment); err != nil {
+	if c, err := m.pickTarget(p, &probe, tile, deployment); err != nil {
 		return SessionInfo{}, false, c, err
 	}
-	if c, err := m.pickPartition(p, &probe, s.Cwd); err != nil { // a refusal leaves the session running too
+	if c, err := m.pickPartition(p, &probe, tile); err != nil { // a refusal leaves the session running too
 		return SessionInfo{}, false, c, err
 	}
 	m.partOpened(&probe) // only a probe: the open below counts again
@@ -80,7 +82,7 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 		}
 	}
 	info, code, err = m.OpenAgentWith(p, AgentOpen{Cwd: s.Cwd, Net: net, GPU: gpu, NoAPI: !api, VM: inVM,
-		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options, Deployment: deployment, LLM: llm,
+		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options, Deployment: deployment, LLM: llm, Signin: signin,
 		origin: s.origin, originMode: s.originMode}) // still the session the person's agent started (delegate.go)
 	return info, resume != "", code, err
 }

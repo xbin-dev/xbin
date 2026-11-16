@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: guards sealed dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check agent-ui-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck app-check theme-check tile-check shellcheck pins pins-offline hooks release vulncheck sidecar-check xbin-iroh
+.PHONY: guards sealed dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check agent-ui-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck app-check theme-check tile-check shellcheck actionlint pins pins-offline hooks release vulncheck sidecar-check xbin-iroh
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -197,8 +197,8 @@ sealed:
 test:
 ifeq ($(SHARD),)
 	go test ./...
-	# the sdk and the push relay are their own modules (go.work)
-	go test ./sdk/... ./relay/...
+	# the sdk, the push relay and the MCP example are their own modules (go.work)
+	go test ./sdk/... ./relay/... ./examples/mcp-server/...
 else
 	@go run ./hack/testshard unit -shard $(SHARD)
 endif
@@ -221,7 +221,7 @@ integration:
 
 vet:
 	go vet ./...
-	go vet ./sdk/... ./relay/...
+	go vet ./sdk/... ./relay/... ./examples/mcp-server/...
 
 # Every tree that holds Go sources — listed explicitly so gofmt never walks
 # devws*/ or .rootfs/ (a whole distro of files; the old `gofmt -l .` spent
@@ -238,7 +238,7 @@ fmt:
 # tests. CI runs the same split over parallel jobs (`make guards`, `make test
 # SHARD=i/N`), and `make integration`'s shards. Each guard is its own target
 # so a failure names itself.
-GUARDS := fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files website-guard
+GUARDS := fmt-check vet js-check js-test native-check theme-check shellcheck actionlint pins-offline large-files website-guard
 guards: $(GUARDS)
 check: $(GUARDS) test
 	@echo ">> make check: green"
@@ -356,6 +356,16 @@ js-check:
 
 shellcheck:
 	@./hack/check-sh.sh
+
+# The workflows through actionlint (config .github/actionlint.yaml) when it
+# is installed — CI's native ci-local-check job always runs it; here a
+# missing binary says SKIP rather than passing quietly.
+actionlint:
+	@if command -v actionlint >/dev/null 2>&1; then \
+		actionlint -config-file .github/actionlint.yaml .github/workflows/ci.yml .github/workflows/ios.yml || exit 1; \
+		echo "actionlint: ok"; \
+		command -v shellcheck >/dev/null 2>&1 || echo "SKIP actionlint's shellcheck of run: scripts: no shellcheck on PATH"; \
+	else echo "SKIP actionlint: not installed (CI_LOCAL_FETCH_ACTIONLINT=1 native/ios/scripts/ci-local-check.sh fetches the pinned one)"; fi
 
 # No big or native binaries in git (hack/large-files.allow for the
 # exceptions): helpers and bundles live in the bucket and on release tags.

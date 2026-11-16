@@ -10,7 +10,7 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
-## 2026-11-16
+## 2026-11-17
 
 - **The workspace agent reaches you when the app is not open** (D241;
   [workspace-agent.md §In the xbin app](/docs/workspace-agent.md#in-the-xbin-app),
@@ -51,6 +51,234 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (the composer's chips, the plan card's Go ahead) now fill the message
   box and never send by themselves — on the web too.
 
+## 2026-11-16
+
+- templates, docs: **an MCP server tile is written, not stamped — and
+  [mcp.md](/docs/mcp.md) is its interface** (D243). The builtin template
+  for one, which landed earlier today (in no release), is gone from the
+  template list, `POST /templates/new`, the Tile Manager and `bx template
+  new`. `mcp.md` now carries the interface — the manifest's
+  `provides.mcp`, the JSON-RPC wire (`initialize` with version
+  negotiation, `ping`, `tools/list`, `tools/call`, errors,
+  `readOnlyHint`) — and a complete Go server inline, the same file as the
+  one in the repository's examples (a test holds them to the same bytes).
+- delegation: **a plan's line can wait** (D243). A person's own
+  `binding.set` (between their own tiles; never a line that takes an
+  admin's rights, which is `blocked` with `later` — propose it again once
+  the tile provides the interface) to a tile that provides nothing of what
+  the slot wants yet, after an `agent.start` line in that tile, is approved on the plan's review and applied by xbind
+  itself once the tile's manifest declares exactly what was approved (kind
+  `http`, the slot's service, role `reader`): new item field `wait`, new
+  results `waiting`, `lapsed`, `cancelled`. It waits at most 24 hours, is
+  not bound to anything else the tile declares (`wait.held` says why), is
+  cancelled by `POST …/reject` or `…/undo` on the decided set, by the
+  agent's end and by changes to its tiles, and every Apply-time check runs
+  again when it would apply. The approved role is recorded with the
+  binding (`bindingCaps` in the workspace's `xbin.json`) and stays the
+  most it grants, whatever the tile declares later. Audit rows
+  `under: "waits"` and `"waited"`
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §Lines that
+  wait). Additive.
+- the workspace agent: **a tool for an assistant is built, in one plan.**
+  "Make a tool that rolls dice and give it to a new assistant" is now: an
+  empty tile, that tile's coding agent started with the `mcp-tool` brief
+  (which says to declare `provides.mcp`, points at `/docs/mcp.md` and
+  names the files a Go backend tile needs), the assistant, its `llm`
+  binding, and its `mcp` binding as a line that waits. The agent is told
+  when the waiting line is applied or ends, checks the hook-up (the
+  assistant's `GET /tools`) and says what it checked. The plan's card
+  lists a waiting line as "waits for apps/dice to provide mcp" (`GET
+  /ws/sessions/<id>/cards` → `requests[].state: "waiting"`, `lines[].waits`,
+  `untilMs`).
+- workspace agent's chrome (web): **a tile agent's permission requests
+  are answered in the dock.** Needs you draws each request of a session
+  the person's sessions wait on with the chat kit's permission card (new
+  `/vendor/bx-agent-permits.js`, `<bx-agent-permits>`): Allow once, Allow
+  always where xbind scopes it to a session rule, Reject — the person's
+  own `POST /term/sessions/<id>/permissions/<pid>`. The agent's page
+  draws none; its "Answer" opens the tray. In the app such a session
+  still opens its tile.
+- workspace agent's chrome (web, app): a line that waits reads `waiting`
+  with what it waits for (or why it is held), a decided plan with one
+  shows in **Needs you** as "Waiting: …" with **Open**, and its results
+  offer **Cancel what waits**. `agent-chrome-words.js` gains `waitText`,
+  `agent-plan-words.js` `waitingWords`; XbinCore's `DelegationWords` and
+  `PlanWords` likewise.
+
+- terminals, agent sessions: **BREAKING (security) — a session inside a
+  tile is decided on that tile** ([changes/2026-11-16-sessions-inside-tiles.md](/docs/changes/2026-11-16-sessions-inside-tiles.md)).
+  A terminal or agent session may open in a directory inside a tile
+  (`cwd=apps/crm/src`), but up to v0.3.79 the access check asked the
+  person's level on that literal path, where only *patterns* match: the
+  tile's exact entries, its owner and its org were never consulted. So a
+  person holding a terminal **pattern** (`apps/*: terminal`) beside an
+  **exact** `apps/crm: none` or `read` could open a read-write shell or a
+  coding agent in any directory of apps/crm — and keep reattaching to it
+  after the exact entry was set — and a personal pattern reached inside an
+  **org's tile** past D31 (its network sets and harness rules didn't apply
+  there either). The same held for reading that tile's source through
+  `GET /api/xbin/code/tree` and `/code/file` with `component=<a directory
+  of it>` and a read pattern. Now every gate asks the tile the directory lies in, and
+  the session's token, `XBIN_COMPONENT`, network, target, partition,
+  events and listing are the tile's; a directory reached through a link is
+  refused. **No configuration change is needed.** To see whether anyone
+  used it, look for people who hold a terminal or read **pattern**
+  together with an exact `none`/lower entry on a tile under it, or whose
+  pattern covers an org's tile they are no member of, and check the
+  terminal-session lines in xbind's log (`terminal session created` /
+  `agent session created`) for a `cwd` deeper than a tile's path. Someone
+  whose level on the tile itself is `terminal` (an exact entry, its owner,
+  its org's members) can now open a session in its directories too.
+
+- orgs: an explicit `mcp: "any"` is now kept (it read as unset): a bound or
+  a pin can hold an org at it; `null` is back to unset. With no `mcp` rule,
+  an org whose `web` is `never` keeps its data from outside MCP servers
+  (D240) unless it says `mcp: "listed"`.
+- SDK: `DelegateError.Said` — what an outside MCP server itself wrote
+  behind xbind's refusal (`said`, D240), apart from xbind's `Message`: an
+  outsider's words, to show as data. A refusal of an outside server's list
+  or call (`mcp-error`, `mcp-redirect`, `mcp-protocol`…) never carries the
+  server's text in `error`; the admin's `POST /delegate/mcp/test` adds
+  `said` and `page` (its error page, scrubbed).
+- workspace agent: **outside MCP servers** (D240). `mcp.mode: "listed"` of
+  `PUT /delegate/workspace` is built: the MCP tiles, and the servers an
+  admin lists in `mcp.servers` — `{id, name, url, auth: none | bearer |
+  header, header?, secret (write-only), note?, orgs?, plainHttp?,
+  privateNetwork?, trustReadOnly?}`; reads say `hasSecret`, never the
+  secret, which xbind keeps sealed under the vault (`409 {refusal:
+  "vault"}` while it can't). The host's file may name the list in its
+  `workspaceAgent.mcp.servers` (secrets by `secretFile` or `secretEnv`),
+  and then the list is the host's (`locks["mcp.servers"]`, a `PUT` of it
+  `409`). New routes: `GET /delegate/mcp/servers` and `POST
+  /delegate/mcp/tools {server}` for the person's agent, `POST
+  /delegate/mcp/test {id}` for an admin; `POST /delegate/mcp/call` takes
+  `server: "ext:<id>"` (its answer adds `name`, `host`, `outside`). xbind is
+  the client — to the listed address alone, through the web's guarded
+  dialer (a private address only with `privateNetwork`), TLS verified,
+  1 MiB and 20/60 s, a server's own requests refused. A tool asks the first
+  time; from a conversation that holds an org's data each call asks
+  (`preview.each`, once only). An org's `mcp` rule takes `listed` (trusts
+  the list) and `never` beside `any` and `org` (`bx org agents --mcp`).
+  `GET /delegate/state`'s `net.mcp.servers` lists the servers a person's
+  agent may use; a session's `reach.mcp.listed` counts them; audit rows
+  gain `server` and `tool`. The agent's `mcp_tools` and `mcp_call` take
+  `server`; the chrome's sheets and the app's say "Outside this workspace:"
+  and the host; Preferences (web and app) list the servers; the card on
+  `/xbin/system` edits the list and tests a server. The sheets' "has read
+  the web" line now reads "the web or an outside server". See
+  [protocol/delegation.md §Outside MCP servers](/docs/protocol/delegation.md)
+  and [mcp.md §Use an outside MCP server](/docs/mcp.md).
+- runner: **a failed start retries by itself** (D242). A start that failed
+  for a reason that can clear by itself — the backend was running but never
+  listened by its deadline (also while still waiting on xbind), it listened
+  but never accepted, the launch met a transient error (`EAGAIN`, `ENOMEM`,
+  `EMFILE`, `ENFILE`, `ETXTBSY`), or it exited before it listened (once) —
+  is started again after 10 s, 1 min and 5 min, each a new generation of
+  the same code, then stays `failed` with its last reason as before. A
+  build or manifest error, a refusal, a hold or a limit never retries.
+  While one is pending the state is still `failed`: `bx status` reads
+  *failed · retrying in 48s (2 of 3)*, the window's title bar *failed ·
+  retrying*, the admin console's Runtime tab the same; the log gets one
+  line per retry. A save, deploy, restart or healthy start resets the
+  count; a stop, a hold or xbind's shutdown cancels the pending retry.
+  Additive wire: `retry {attempt, of, at, inSec}` on the rows of
+  `/backends`, `/runtime` and `/tile-status`, a `backend-retry` event after
+  the primary's `build-error`, `<bx-frame>.buildRetry` and `bx-build`'s
+  `detail.retry` ([elements.md](/docs/elements.md) §Runtimes & backend
+  lifecycle has the table; [sdk.md](/docs/sdk.md#startup)). The shell's
+  cards draw it from this version's workspace template; an older shell
+  keeps drawing plain `failed`.
+- coding agents: **xbind keeps your coding-agent sign-ins** (D230;
+  [agent-signins.md](/docs/agent-signins.md),
+  [protocol/signins.md](/docs/protocol/signins.md)). A person saves a
+  sign-in once — the guided sign-in, which xbind now runs itself in a
+  throwaway sandbox (`claude setup-token`: a link to open, a code to
+  paste; the token never reaches the browser), or a pasted API key — and it
+  is kept per person, sealed under the workspace vault: named, several per
+  coding agent, one the default. New routes, all a person's own
+  (`/api/xbin/agent/signins`, `…/{id}`, `…/guided`, `…/guided/{flow}`,
+  `…/uses`, `…/notice`) and three for workspace admins (`…/people`,
+  `…/people/{user}/{id}`, `…/policy`): admins see that people have
+  sign-ins — never a name or a secret — revoke one, and set the workspace's
+  switch. No route answers a secret or a part of one. The host's file
+  (`XBIN_LLM_CONFIG`) gains `"agentSignIns": true | false`, which sets and
+  locks the switch. The store needs sandboxes (`--isolate`; a development
+  workspace is excepted and says so). `sdk/acp` gains `Guided` (the guided
+  sign-in's driver over any `GuidedExec`), `CleanCode`, `MaskCredentials`
+  and `MintCommand`.
+- coding agents: **a saved sign-in is used by your sessions on every
+  tile where nobody else can change what the session runs** (D230). At an
+  agent session's start xbind puts your default sign-in for the coding
+  agent into the agent's environment — through the spawn frame, to the
+  agent's process alone — on ordinary tiles, partitioned tiles and VM
+  sandboxes: Claude Code's token or key, OpenCode's provider key, and for
+  Codex and Gemini the key handed over through the adapter's own
+  `authenticate` (Codex's `auth.json` then lands in a `CODEX_HOME` of the
+  session's own, never in your home). Not on a tile someone else who isn't an
+  admin can change (write level or more, by any source; judged on the
+  registered tile the session's directory lies in; partitioned tiles
+  included — a partition keeps data apart, not code), not where the
+  connector alone may serve, never into a session opened by view-as, a
+  tile's credentials or the root token; the session then says why and
+  runs on the tile's own login or the connector. A session your workspace
+  agent starts gets one only when you approve a start whose sheet names
+  it ("Uses your saved … sign-in — the tile's coding agent will hold
+  that sign-in"): `preview.session.signInId`, bound by the ticket. What
+  xbind keeps or sends of a session that holds one is masked
+  (`[saved sign-in]`; the value on the joined stream, with separators,
+  base64, hex, `%XX`; credential shapes) — that lowers accidental
+  exposure and **is not a guarantee**: the coding agent, its model and
+  what it runs can read the credential, and the coding agent's own
+  transcripts in your home are not masked. A login in
+  `$HOME` keeps working as before and is what a session uses when no saved
+  sign-in goes in. Additive: `POST /term/sessions` takes `signin` (an id,
+  `"none"`); a session's row and one of its first `notice` events carry
+  `signin: {source: saved | home | connector | none, id?, name?, why?}`;
+  `GET /agent/providers` rows carry `saved: {id, name, kind, expiresAt?,
+  inject, why?}`; `GET /delegate/start-defaults` harnesses carry `signIn`
+  (`saved` | `connector` | `own` | `needed`), and the default harness
+  prefers one that runs on a saved sign-in. **Changed for
+  admins**: a session that carries its person's saved sign-in is that
+  person's alone — an admin's read or prompt of it is 403 (ending it is
+  allowed) and its `session` events reach its person's sockets only, as
+  on a partitioned tile — in history too (`signin: true` on the entry; an
+  admin viewing as the person reads no such transcript, 403). A sign-in
+  removed, replaced or revoked ends the sessions running on it; so does
+  someone else becoming able to change the tile, and the switch going off
+  (`PUT /agent/signins/policy` → `{policy, ended}`). A restart keeps the
+  sign-in a session was started with and never adds one. An admin-made credential for an account (a password set, a
+  sign-in link, an SSO email) removes that person's saved sign-ins.
+  `sdk/acp`: `Config.Credential`, `Credential`, `KeyHome`,
+  `Provider.KeyHome`, `APIKeyMeta`.
+- core elements: **`<bx-agent-signin>` is xbin's one sign-in for coding
+  agents** (`/vendor/agent-signin.js`, the same URL as before; its `spec`,
+  `provider` and `component` properties and its events keep working). With
+  `harness` it offers the sign-in xbind saves (the guided flow, or a pasted
+  key) and, beside it, the tile's own sign-in; `view="manage"` is the list
+  of your saved sign-ins (rename, default, remove, add, where they were
+  used; for admins the workspace's switch and who has sign-ins),
+  `view="button"` a button that opens it. `bx-signin-done` now carries
+  `{saved?}`; new: `bx-signins-changed`. New modules
+  `/vendor/agent-signins.js` (the calls and words, no DOM) and
+  `/vendor/agent-signin-list.js`. The Agent tab shows what a session signs
+  in with in its status line and restarts the agent after a sign-in is
+  saved (`bx-agent-restart` to the tile window). `GET /agent/providers`
+  rows gain `savable`; `GET /agent/signins?tile=` adds `here: {inject,
+  why?}` per harness; a page's state header gains `signin`.
+- workspace agent: **a brief and a start say what the tile agent signs in
+  with — and offer the sign-in.** The agent's page may ask the chrome for
+  `xbin:agent-open-signin {harness}` (the chrome draws the card; the page
+  hears `xbin:agent-signins` when the person's sign-ins changed); a start's
+  preview (`preview.session`, a plan's `start`) carries `signIn` and
+  `signInId`: a session the agent starts gets a saved sign-in only where
+  the person approved a start whose sheet named it ("Uses your saved … —
+  the tile's coding agent will hold that sign-in"), and then exactly that
+  one; the approval sheet and the plan review show the sign-in card where
+  one is needed. The iOS app's approval sheet and plan review say the same
+  ("Uses your saved … sign-in", who will hold it; "Needs your … sign-in"),
+  without the sign-in's label. Agent template: `GET
+  …/briefs/{bid}/start-defaults` adds `needsSignIn` and each harness's
+  `signIn`.
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the
   web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
   generated vectors): lines that create a tile or start a tile agent, what
@@ -229,29 +457,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   takes `template: "mcp-tool"` with `tool: {name, arguments, result}`; the
   fields it leaves out come from the template — done when `tools/list`
   names the tool and a call returns that shape, check by those two calls
-  from the tile's own sandbox, leave alone the manifest's `provides` and
-  the wire — so a hand-off of MCP-tool work to a tile's coding agent says
-  how to tell it is done (the template's `API.md` §Workspace mode).
-- docs: **[mcp.md](/docs/mcp.md), "Give an agent a tool"**: the
-  `mcp-server` template, the `mcp` slot and the binding as the grant, the
-  JSON-RPC methods, adding and checking a tool, how an assistant picks it
-  up, personal and global binds; and two lines of the workspace agent's
+  from the tile's own sandbox, known: `/docs/mcp.md` has the interface and
+  a server to start from — so a hand-off of MCP-tool work to a tile's
+  coding agent says what to build and how to tell it is done (the
+  template's `API.md` §Workspace mode).
+- docs: **[mcp.md](/docs/mcp.md), "Give an agent a tool"**: an MCP
+  server tile's interface — the manifest's `provides.mcp`, the JSON-RPC
+  wire — with a complete Go server inline, the `mcp` slot and the binding
+  as the grant, adding and checking a tool, how an assistant picks it up,
+  personal and global binds; and two lines of the workspace agent's
   map of xbin from it (tools come from MCP tiles bound to an instance's
   `mcp` slot; an instance needs its `llm` slot bound, `xbin:llm` the
   workspace's connector).
-- templates: **`mcp-server`, tools for an agent.** A new builtin template
-  (`bx template new mcp-server as apps/dice`, the Tile Manager's "New from
-  template"): a small Go backend on the sdk serving MCP over streamable
-  HTTP at `POST /mcp` — `initialize` (protocol version negotiation),
-  `ping`, `tools/list`, `tools/call`, JSON-RPC errors — with one example
-  tool, `roll_dice {sides?, count?}` (`readOnlyHint`), a page that lists
-  the tools and calls one, and an `AGENTS.md` for the tile's coding agent
-  (where tools go: one function and one line in `_backend/tools.go`; how to
-  check with `tools/list` and `tools/call` from its own terminal). Its
-  manifest provides `mcp` from the first second, so an agent instance's
-  `mcp` slot can be bound to a fresh copy before anyone has written a tool.
-  No third-party modules: it builds in its sandbox with no network
-  ([mcp.md](/docs/mcp.md)).
 - access: **`GET /access?tile=` says what reaches everyone.** A new
   `defaults: [{level, source}]` lists the workspace defaults that reach the
   tile (additive; none on an org-owned tile), and a system component no

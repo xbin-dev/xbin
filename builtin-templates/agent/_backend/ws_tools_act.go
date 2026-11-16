@@ -404,6 +404,12 @@ func wsResultWords(r string) string {
 		return "couldn't be applied"
 	case "asked":
 		return "sent to the admins by your person; not applied yet"
+	case "waiting":
+		return "approved, and waiting: xbin applies it by itself once its tile provides what was approved; nothing is bound yet"
+	case "lapsed":
+		return "never applied: it waited 24 hours and its tile never provided what was approved"
+	case "cancelled":
+		return "never applied: the wait was ended"
 	}
 	return r
 }

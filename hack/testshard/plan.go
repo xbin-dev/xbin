@@ -435,7 +435,7 @@ func floor(w map[string]float64) map[string]float64 {
 // unitPackages are `make test`'s packages: the root module's and the sdk's
 // and relay's (their own modules).
 func unitPackages(root string) ([]string, error) {
-	listed, err := goList(root, "", "./...", "./sdk/...", "./relay/...")
+	listed, err := goList(root, "", "./...", "./sdk/...", "./relay/...", "./examples/mcp-server/...")
 	if err != nil {
 		return nil, err
 	}

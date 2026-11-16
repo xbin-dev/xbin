@@ -44,10 +44,14 @@ idle-reap restart, a deploy, an xbind restart.
 
 What has a deadline is the start itself. After the process starts, xbind
 waits **5 s** for its socket to accept a connection (60 s for a `vm`
-backend, 180 s under emulation), then stops it and marks it failed until
-the next save or restart: `bx status` says *the backend is running but never
-started listening … (it has not called Serve)*, and the same line follows
-the start marker in `bx logs`. Time spent waiting on xbind's own answer (an
+backend, 180 s under emulation), then stops it and marks it failed: `bx
+status` says *the backend is running but never started listening … (it has
+not called Serve)*, and the same line follows the start marker in `bx logs`.
+Such a start is tried again by itself — after 10 s, 1 min and 5 min, each a
+new generation of the same code; `bx status` shows *failed · retrying in 48s
+(2 of 3)* meanwhile — and after the third it stays failed until the next
+save, deploy or restart ([elements.md](/docs/elements.md) §Runtimes &
+backend lifecycle has which failures retry). Time spent waiting on xbind's own answer (an
 `/api/xbin/*` call in flight) doesn't count, up to 60 s more. The rest does:
 
 - long work — opening or migrating a database, warming a cache, fetching
@@ -1098,7 +1102,9 @@ helpers return; `*DelegateError` carries xbind's `Message`, fit to show):
 | `ErrRateLimited` | more than 30 acts a minute; `RetryAfter` says when | wait |
 
 A `*DelegateError` with an empty `Refusal` is the called tile's own
-refusal. Data that reaches the component from other tiles — bus events,
+refusal. `Said` is what an outside MCP server itself wrote behind xbind's
+refusal (a JSON-RPC error's message, a request it sent): an outsider's
+words, never part of `Message` — show it as data (D240). Data that reaches the component from other tiles — bus events,
 partition mail, anything a tile's API returns — is untrusted input.
 
 ### Tile sandboxes, for manager tiles — `xbin.SandboxAPI()`
