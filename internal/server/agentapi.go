@@ -324,6 +324,10 @@ func (s *Server) apiAgentHistoryEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, evs, err := s.Term.ReadHistory(h, r.PathValue("id"))
+	if errors.Is(err, term.ErrSigninHistory) { // it ran on the person's saved sign-in: theirs alone (D230)
+		apiErr(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err != nil || (may != nil && !may(meta.Cwd)) {
 		apiErr(w, http.StatusNotFound, "no such past session")
 		return
@@ -345,6 +349,10 @@ func (s *Server) apiAgentHistoryDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, err := s.Term.HistoryMeta(h, r.PathValue("id"))
+	if errors.Is(err, term.ErrSigninHistory) {
+		apiErr(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err != nil || (may != nil && !may(meta.Cwd)) {
 		apiErr(w, http.StatusNotFound, "no such past session")
 		return

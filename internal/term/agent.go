@@ -265,6 +265,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	// the person's saved sign-in for the harness, and whether the rule lets
 	// it into this session (signin.go) — after the partition is known
 	o.signin = m.signinPlanFor(p, o, rel, prov, a.Signin, m.credentialRule(o, rel, prov.ID, o.llmChoice).Forced, a.LLM == sdkacp.UseConnector, a.Delegate)
+	o.signin.past = resumeFrom != nil && resumeFrom.Signin // its transcript comes back with it
 	if o.signin.bound && (o.signin.saved == nil || o.signin.why != "") {
 		// its person approved a start that uses their saved sign-in: it
 		// opens with that one, or not at all

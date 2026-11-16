@@ -673,3 +673,60 @@ func TestSigninRestartKeepsTheChoice(t *testing.T) {
 	}
 	r.endSession(t, row.ID)
 }
+
+// A finished session that ran on its person's saved sign-in is theirs
+// alone in history too (review finding 4): its transcript holds whatever
+// its tools printed, so an admin viewing as the person — who is refused on
+// the live session — reads neither it nor its first prompt. A session that
+// carried none stays readable as before.
+func TestSigninHistoryIsThePersonsAlone(t *testing.T) {
+	r, f, _ := signinRig(t, "--require-login")
+	f.put("alice", "fake", "Personal", "CLAUDE_CODE_OAUTH_TOKEN", signins.KindSetupToken, fakeSavedToken)
+	signIn(t, r.root, "alice")
+	alice := termAdmin("alice")
+	with := r.openLLM(t, alice, AgentOpen{})
+	r.whoami(t, with.ID)
+	r.endSession(t, with.ID)
+	without := r.openLLM(t, alice, AgentOpen{Signin: SigninNone})
+	r.whoami(t, without.ID)
+	r.endSession(t, without.ID)
+
+	own, viewAs := OwnHistory("alice"), HistoryScope{Home: "alice", ViewAs: true}
+	meta, evs, err := r.m.ReadHistory(own, with.ID)
+	if err != nil || !meta.Signin || len(evs) == 0 {
+		t.Fatalf("her own read: %+v, %d events, %v", meta, len(evs), err)
+	}
+	if meta, _, err := r.m.ReadHistory(own, without.ID); err != nil || meta.Signin {
+		t.Fatalf("a session without a sign-in: %+v %v", meta, err)
+	}
+	if _, evs, err := r.m.ReadHistory(viewAs, with.ID); !errors.Is(err, ErrSigninHistory) || len(evs) != 0 {
+		t.Fatalf("view-as read the transcript of a session that ran on her sign-in: %d events, %v", len(evs), err)
+	}
+	if _, err := r.m.HistoryMeta(viewAs, with.ID); !errors.Is(err, ErrSigninHistory) {
+		t.Fatalf("view-as read its meta: %v", err)
+	}
+	if err := r.m.DeleteHistory(viewAs, with.ID); !errors.Is(err, ErrSigninHistory) {
+		t.Fatalf("view-as deleted it: %v", err)
+	}
+	if _, evs, err := r.m.ReadHistory(viewAs, without.ID); err != nil || len(evs) == 0 {
+		t.Fatalf("view-as on a session without a sign-in, as before: %v", err)
+	}
+	rows := r.m.ListHistory(viewAs, "", nil)
+	var seen int
+	for _, row := range rows {
+		if row.ID == with.ID {
+			seen++
+			if !row.Signin || row.Preview != "" {
+				t.Fatalf("view-as lists it with its first prompt: %+v", row)
+			}
+		}
+	}
+	if seen != 1 || len(rows) != 2 {
+		t.Fatalf("view-as lists %d rows, the sign-in one %d times", len(rows), seen)
+	}
+	for _, row := range r.m.ListHistory(own, "", nil) {
+		if row.Preview == "" {
+			t.Fatalf("her own list lost a preview: %+v", row)
+		}
+	}
+}

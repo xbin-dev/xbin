@@ -149,6 +149,8 @@ type signinPlan struct {
 	why    string          // why it is left out ("" with saved: it goes in)
 	user   string          // whose it is
 	origin string          // "person" | "agent", for the use log
+	// past: the session resumes a past one that ran on a saved sign-in
+	past bool
 	// bound: a workspace agent's start whose approval named this sign-in —
 	// it opens with exactly that one or not at all (OpenAgentWith)
 	bound bool
@@ -161,6 +163,11 @@ type sessionSignin struct {
 	view   SessionSignin
 	user   string
 	secret []byte
+	// held: the session's agent held a saved sign-in at some point (also
+	// after it was taken away), or resumes a past session that did — its
+	// log may hold what its tools printed, so it stays its person's alone
+	// (carriesSignin) and its history says so (HistoryMeta.Signin)
+	held bool
 	// choice is what the open asked for: "" (the person's default),
 	// SigninNone, or a sign-in's id — kept so a restart asks for no more
 	// (signinRestart)
@@ -320,9 +327,12 @@ func othersWords(others []string) string {
 // serves this session by the person's standing choice.
 func (m *Manager) signinTake(pl signinPlan, id, rel string, prov agent.Provider, connector bool) (*sessionSignin, *acp.SpawnSignin) {
 	if m.Signins == nil {
+		if pl.past {
+			return &sessionSignin{user: pl.user, held: true}, nil
+		}
 		return nil, nil // no store: the session is exactly as before — nothing said, nothing noted
 	}
-	ss := &sessionSignin{user: pl.user, choice: pl.choice}
+	ss := &sessionSignin{user: pl.user, choice: pl.choice, held: pl.past}
 	if pl.saved == nil {
 		return ss, nil
 	}
@@ -342,7 +352,7 @@ func (m *Manager) signinTake(pl signinPlan, id, rel string, prov agent.Provider,
 		}
 		return ss, nil
 	}
-	ss.secret = []byte(cred.Secret)
+	ss.secret, ss.held = []byte(cred.Secret), true
 	sp := &acp.SpawnSignin{Env: cred.Env + "=" + cred.Secret}
 	for _, k := range prov.Keys { // none of the provider's other credential variables outranks it
 		if k.Env != cred.Env {
@@ -475,12 +485,14 @@ func (s *Session) signinView() *SessionSignin {
 	return &v
 }
 
-// carriesSignin reports a session whose agent holds a saved sign-in: its
-// person's alone.
+// carriesSignin reports a session whose agent holds a saved sign-in — or
+// held one, or resumes a past session that did: its events, log and diff
+// are its person's alone (partition.go adminPass, viewAsBarred), in history
+// too (history.go).
 func (s *Session) carriesSignin() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.signin.carries()
+	return s.signin != nil && (s.signin.held || s.signin.carries())
 }
 
 // redact is b with the session's saved sign-in masked (b itself when it
