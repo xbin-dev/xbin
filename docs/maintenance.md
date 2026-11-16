@@ -1259,7 +1259,19 @@ sandbox sees) and copies `fixtures/journey-dice` into place where a real
 one would write the server. `journeyAgent` asserts today's dead ends as
 they are (an admin's `tile_create` refused, the admin opt-in, no check
 without another approval): closing one fails the pass until its script and
-its count are brought up to date — that is the point of it.
+its count are brought up to date — that is the point of it. Both go through
+the first-run sheet (D236) the login URL now lands on.
+`firstRun` asserts that sheet on xbinds of its own, booted the journeys' way
+(`boot(name, {llm, host, vault})`: no host file, more of the host's keys, the
+host unsealing) on the same port, one after the other: the installer's
+default (keyboard path, a weak password, a repeat that doesn't match, Not now
+and its per-browser memory, the whole sheet ending in the dock with the
+agent's composer focused, a second browser after, the swap refused), the
+host unsealing with no model, the host's `workspaceAgent` on for admins with
+the vault's setup answered 500 by the pass (what is left), and the host's
+`false`. Its screenshots — every state at 1280 and 390, dark and light, and
+at 200 % — go to `FIRSTRUN_SHOTS` (default `out/firstrun-shots`); its
+passwords and passphrases are made per run. Same needs as the journeys.
 `limitsCaps` drives the tile limits (D203) end to end against the real API
 in both themes: the harness xbind enforces only the data disk quota (no
 cgroup delegation, VM runtime or tile sandboxes), so its tiles root their
