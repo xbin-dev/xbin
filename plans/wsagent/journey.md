@@ -2,7 +2,9 @@
 
 > Status: live — a measurement and a plan (2026-11-16, branch
 > `wsagent/journey`, from `wsagent/main`). Built since: G3, G5, G7 — the
-> first-run sheet (branch `wsagent/first-run`, D237; §8). Read with
+> first-run sheet (branch `wsagent/first-run`, D237; §8); G1, G2, G11, G12
+> and G6's mode on the line — the plan (branch `wsagent/plan`, D238; §9).
+> Read with
 > [ux.md](ux.md) and [../workspace-agent.md](../workspace-agent.md).
 
 The owner's benchmark: *"starting with an installed workspace that has a
@@ -35,6 +37,16 @@ the same passes on the tree with both, measured 2026-11-16; §8):
 |---|---|---|---|---|---|
 | by hand | **21** (1 navigation, 12 clicks, 6 fields, 2 keys) | 0 | — | 0 | 2 |
 | through the workspace agent | **36** (1 navigation, 21 clicks, 11 fields, 3 keys) | 4 | 3 | 3 | 1 |
+
+**And with the plan** (G1, G2, G11, G12 — `wsagent/plan`, D238; the agent's
+pass on the tree with all of the above, measured 2026-11-16; §9):
+
+| Path | Interactions | + by hand | Prompts | Approvals | Dead ends | Things to know |
+|---|---|---|---|---|---|---|
+| through the workspace agent, to its "done" | **13** (1 navigation, 6 clicks, 5 fields, 1 key) | 2 | 1 | 1 review (5 clicks) | 0 | 1 |
+| …and the person's own roll in the assistant | **17** | 2 | 1 | 1 | 0 | 1 |
+
+The paragraphs below describe the first measurement (49).
 
 The agent path costs almost twice the manual one today. It needs an account
 the manual path never makes (10 interactions), it cannot create a tile for
@@ -565,3 +577,73 @@ rewrites no HTML); the iOS app's first run (§6e says what it would need); a
 password manager's save prompt is offered the right fields
 (`autocomplete` name / username / new-password, the vault's fields in a
 form of their own) but a headless browser can't show that it saves.
+
+## 9. After the plan (G1, G2, G11, G12 — D238)
+
+Measured with `journeyAgent` on `wsagent/plan` (which holds D236 and D237):
+**13 interactions from the login URL to the agent's "done"**, 17 with the
+person's own roll; one prompt, one review, no dead end.
+
+| # | Kind | What |
+|---|---|---|
+| 1 | nav | open the login URL |
+| 2–5 | field | first-run sheet: name, password, the vault's passphrase twice |
+| 6 | click | first-run sheet: "Create my account and turn on my workspace agent" |
+| 7–8 | field, key | the prompt, Enter |
+| 9 | click | the plan's card: "Review…" |
+| 10 | click | the review: "Let my agent propose admin changes" (offered there, the first time) |
+| 11 | click | the review: tick the llm binding (SPEND: it starts unticked) |
+| 12 | click | the review: "Apply 4 changes…" |
+| 13 | click | the results: "Done" |
+| 14–17 | | the person's own try: close the dock, open the assistant, type, Send |
+
+What happened to each gap of this package:
+
+- **G1** — under delegation a creation that names no owner is the
+  person's, for an admin too; a dry run runs the handler's own check, for
+  every act (a guard fails when an act is added without one).
+- **G2** — the plan is one change set: `tile.create` and `agent.start`
+  beside the admin kinds, a later line naming a tile an earlier one makes,
+  personal lines with no opt-in and no sign-in step, the opt-in on the
+  review, "needs an admin" with Ask an admin. The agent has `plan_propose`
+  and is told when to use it and to check before it says done.
+- **G6** (its mode on the line only) — a start line shows the coding agent
+  and the mode; only a mode xbind vouches for reads "asks before acting",
+  any other is a warning in the danger wording and starts unticked.
+  Answering a tile agent's permission requests from the dock is not built.
+- **G11** — xbind writes a change's before and after in words; web and app
+  draw those.
+- **G12** — a tile agent's turn that begins and ends between two reads is
+  reported (the turn's number is noted, not only the state).
+
+Where it differs from §4 and §6c:
+
+- **13, not 12.** The review is five clicks, not four: the opt-in for
+  admin changes is its own click the first time (it is a control that
+  widens, and it ticks nothing). A second plan costs four. Without the
+  vault's two fields (a host that unseals) the count is 11.
+- **Four lines, not five.** The `mcp-server` template's example tool is
+  `roll_dice`, so the plan the journey needs has no tile agent: two
+  creations and two bindings. A plan with a start is driven by the same
+  pass afterwards, not counted: its tile agent still asks its person for
+  permissions in the tile's window (G6's other half).
+- **The mcp binding is the person's own line.** A binding between two
+  tiles the person owns is something they can do by hand (D88), so only
+  the `xbin:llm` line is an admin's.
+- **A tile's agent level.** "off" refuses a line about the tile; "read"
+  does not (it is about calls to the tile's API, and the agent template's
+  instances are "read" — binding their slots is this journey).
+- **On a tile that is still to be made** a plan binds http slots (to tiles
+  and `xbin:llm`) and starts a tile agent; a net slot, a route or an
+  instance waits for a plan after the tile exists.
+- **Ask an admin** sends the lines once the lines they need are applied
+  (the admin's copy is judged against tiles that exist), to workspace
+  admins only, and reaches them through the agent chrome's Needs you — an
+  admin without a workspace agent of their own gets the push and no tray.
+- **The person can't change the coding agent on a plan's start line**
+  (the brief's card can): xbind shows the one the person's preferences and
+  the tile's rules resolve, or the one the person named to the agent.
+
+Still costing clicks, and whose: the opt-in (1, once per person), the
+SPEND tick (1, by the rule that a warned line starts unticked), the
+vault's fields (2, the installer's default), the results' Done (1).
