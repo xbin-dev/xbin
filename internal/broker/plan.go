@@ -41,6 +41,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
@@ -331,7 +332,7 @@ func (b *Broker) createEffects(m registry.Manifest, tplPath, target string, ownS
 // manifests. Only what a new tile needs wired is planned: an http slot,
 // to tiles and the LLM connector, replacing the slot. The handler's own
 // check runs when the line is applied, after the tile exists.
-func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePreview, body bindingBody, remove bool, planned []delegation.PlannedTile, uses []int) (delegation.ChangePreview, error) {
+func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePreview, body bindingBody, remove bool, planned []delegation.PlannedTile, starts []delegation.PlannedStart, uses []int) (delegation.ChangePreview, error) {
 	const later = " — a plan binds a new tile's http slots, to tiles and to the LLM connector; propose this once the tile exists"
 	switch {
 	case remove:
@@ -391,6 +392,7 @@ func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePre
 	}
 	personal := owns(body.Component)
 	seen := map[string]bool{}
+	var wait *delegation.PlanWait
 	for _, ref := range refs {
 		prov, inst := splitRef(ref)
 		switch {
@@ -424,6 +426,20 @@ func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePre
 		}
 		personal = personal && owns(prov)
 		pd, ok := httpProvideFor(pc, def.Service)
+		if st, built := startIn(starts, prov); !ok && built && def.Service != "" && providesNone(pc, def.Service) {
+			// the tile provides nothing of the kind yet, and an earlier line
+			// starts a tile agent in it: the line waits for what that agent
+			// writes, and is pinned to exactly this
+			if len(refs) != 1 {
+				return block("a line that waits for %s to provide %s binds that one provider: put the others on a line of their own", prov, def.Service)
+			}
+			wait = &delegation.PlanWait{Component: body.Component, Slot: body.Slot, Tile: prov, Kind: "http", Service: def.Service, Role: delegation.WaitRole}
+			if st.N > 0 && !slices.Contains(pv.Uses, st.N) {
+				pv.Uses = append(pv.Uses, st.N)
+				slices.Sort(pv.Uses)
+			}
+			continue
+		}
 		switch {
 		case !ok && def.Service != "":
 			return block("%s does not provide the %q service the slot wants", prov, def.Service)
@@ -446,6 +462,12 @@ func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePre
 		}
 	}
 	pv.Effects = append([]string{body.Component + "'s backend restarts"}, pv.Effects...)
+	if wait != nil {
+		pv.Waits, pv.Deferred = wait, true
+		pv.Pin = delegation.BodyHash(mustJSON(wait))
+		pv.AfterText = wait.Tile + ", once it provides " + wait.Service
+		pv.Effects = append(waitWords(*wait), fmt.Sprintf("once bound: %s's backend restarts, and its code, and everyone who can change it, can call %s as %s", body.Component, wait.Tile, wait.Role))
+	}
 	pv.Admin = !personal
 	if pv.Admin && !b.IsAdmin(p) && !(p.Access != nil && len(p.Access.AdminOrgs()) > 0) {
 		// the refusal POST /bindings gives anyone who is neither the owner within their own property nor an admin
@@ -501,4 +523,111 @@ func (b *Broker) AgentLineAllows(holder, user, model, tile string) error {
 		return fmt.Errorf("%s's agent can't change %s: %s", user, tile, msg)
 	}
 	return b.agentPolicy().TileAllows(delegation.Subject{Holder: holder, User: user, Tile: tile, Model: model})
+}
+
+// startIn is the earlier agent.start line of the plan that starts a tile
+// agent in tile.
+func startIn(starts []delegation.PlannedStart, tile string) (delegation.PlannedStart, bool) {
+	for _, st := range starts {
+		if st.Tile == tile {
+			return st, true
+		}
+	}
+	return delegation.PlannedStart{}, false
+}
+
+// providesNone: c declares no provide of service at all — of any kind,
+// under any role. (One that declares it differently than a slot wants is
+// refused as ever; only nothing-yet waits.)
+func providesNone(c *registry.Component, service string) bool {
+	for name, def := range c.Manifest.Provides {
+		if def.Service == service || name == service {
+			return false
+		}
+	}
+	return true
+}
+
+// waitsOn: a binding names one existing provider that an earlier line of
+// the plan starts a tile agent in and that provides nothing of what the
+// slot wants yet.
+func (b *Broker) waitsOn(body bindingBody, starts []delegation.PlannedStart) bool {
+	if len(starts) == 0 || body.Provider == "" && len(body.Providers) != 1 {
+		return false
+	}
+	c, ok := b.Reg.Component(body.Component)
+	if !ok {
+		return false
+	}
+	def, ok := c.Manifest.Interfaces[body.Slot]
+	if !ok || def.Kind != "http" || def.Service == "" {
+		return false
+	}
+	prov, _ := splitRef(cmp.Or(body.Provider, strings.Join(body.Providers, "")))
+	pc, ok := b.Reg.Component(prov)
+	if _, built := startIn(starts, prov); !ok || !built {
+		return false
+	}
+	return providesNone(pc, def.Service)
+}
+
+// waitWords are xbind's sentences for a line that waits (w): what it waits
+// for, how long, and what does not get bound.
+func waitWords(w delegation.PlanWait) []string {
+	return []string{
+		fmt.Sprintf("applies once %s provides %s; nothing is bound until then", w.Tile, w.Service),
+		fmt.Sprintf("xbin applies it by itself, as you, when %s's manifest declares %s as %s interface for the role %s — and only that: if it declares anything else it is not bound, and you are told", w.Tile, w.Service, article(w.Kind), w.Role),
+		fmt.Sprintf("it waits at most %d hours after you apply this plan, then lapses", int(delegation.MaxWait/time.Hour)),
+	}
+}
+
+func article(kind string) string {
+	if kind == "http" {
+		return "an http"
+	}
+	return "a " + kind
+}
+
+// PreviewWait judges a waiting line (op, pinned to w) as p would apply it
+// NOW: pending while the tile provides nothing of the kind; held, with
+// xbind's words for why, when it provides something else than was
+// approved; gone when a tile of the line is no more; ready — with the
+// ordinary preview of the binding, the handler's own check — when it
+// provides exactly what was approved.
+func (b *Broker) PreviewWait(p auth.Principal, op delegation.ChangeOp, w delegation.PlanWait) (delegation.ChangePreview, delegation.WaitState, string, error) {
+	if _, ok := b.Reg.Component(w.Component); !ok {
+		return delegation.ChangePreview{}, delegation.WaitGone, w.Component + " no longer exists", nil
+	}
+	pc, ok := b.Reg.Component(w.Tile)
+	if !ok {
+		return delegation.ChangePreview{}, delegation.WaitGone, w.Tile + " no longer exists", nil
+	}
+	var found []registry.Iface
+	names := make([]string, 0, len(pc.Manifest.Provides))
+	for name := range pc.Manifest.Provides {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		if def := pc.Manifest.Provides[name]; def.Service == w.Service || name == w.Service {
+			found = append(found, def)
+		}
+	}
+	switch {
+	case len(found) == 0:
+		return delegation.ChangePreview{}, delegation.WaitPending, "", nil
+	case len(found) > 1:
+		return delegation.ChangePreview{}, delegation.WaitHeld, fmt.Sprintf("%s declares %s more than once: what you approved is one %s interface for the role %s", w.Tile, w.Service, w.Kind, w.Role), nil
+	}
+	def := found[0]
+	switch {
+	case def.Kind != w.Kind || def.Service != w.Service:
+		return delegation.ChangePreview{}, delegation.WaitHeld, fmt.Sprintf("%s declares %s as %s interface (service %q): what you approved is %s interface of the service %s", w.Tile, w.Service, article(cmp.Or(def.Kind, "unnamed")), def.Service, article(w.Kind), w.Service), nil
+	case def.Role != w.Role:
+		return delegation.ChangePreview{}, delegation.WaitHeld, fmt.Sprintf("%s declares %s for the role %q: what you approved is the role %s, and a binding grants the role the tile names", w.Tile, w.Service, def.Role, w.Role), nil
+	case def.Instances:
+		return delegation.ChangePreview{}, delegation.WaitHeld, fmt.Sprintf("%s declares %s as bound by instance: what you approved is the tile itself", w.Tile, w.Service), nil
+	}
+	pv, err := b.preview(p, op, nil, nil, true)
+	return pv, delegation.WaitReady, "", err
 }

@@ -198,6 +198,17 @@ func (s *Server) apiChangeSet(w http.ResponseWriter, r *http.Request) {
 
 // endChangeSet moves an open set to state (withdrawn, rejected).
 func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state string) {
+	if cur, ok := s.Delegation.ChangeSet(a.user, id); ok && !cur.Open() && cur.Waiting() && (cur.From == "" || a.own) {
+		// decided, with a line that still waits: taking the plan back ends the wait — the person's own act, or their agent's (it only narrows)
+		why := "you cancelled it before it was applied"
+		if !a.own {
+			why = "your agent took the plan back before it was applied"
+		}
+		s.cancelWaits(a.user, id, why)
+		cur, _ = s.Delegation.ChangeSet(a.user, id)
+		WriteJSON(w, http.StatusOK, s.setFor(a, cur))
+		return
+	}
 	cs, err := s.Delegation.UpdateChangeSet(a.user, id, func(cs *delegation.ChangeSet) error {
 		switch {
 		case cs.From != "" && !a.own:
@@ -435,7 +446,19 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 			}
 			approver, agent = cur, s.agentOf(*cs, cur)
 		}
-		pv, err := s.previewLine(approver, agent, pinStart(it.ChangeOp, it.Start), nil)
+		var started []delegation.PlannedStart
+		if it.Wait != nil { // it waits on a tile agent this plan started — in the asker's plan, for a request
+			started = startsOf(cs.Items, it.N, true)
+			if cs.From != "" {
+				if asker, ok := s.Delegation.ChangeSet(cs.From, cs.AskOf); ok {
+					started = startsOf(asker.Items, len(asker.Items)+1, true)
+					for i := range started {
+						started[i].N = 0
+					}
+				}
+			}
+		}
+		pv, err := s.previewLine(approver, agent, pinStart(it.ChangeOp, it.Start), nil, started...)
 		why := ""
 		if err == nil && cs.Plan {
 			why = cmpOr(s.lineAgentRefusal(agent, pv.Tiles), s.createScopeRefusal(agent, pv.Creates))
@@ -451,6 +474,14 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 			it.Result, it.Error = delegation.ItemFailed, "this now takes an admin's rights — it was yours to do when it was proposed: nothing was applied; ask your agent to propose it again"
 		case cs.Plan && lineStale(*it, pv), !cs.Plan && changeBasis(pv) != it.Basis:
 			it.Result, it.Error = delegation.ItemStale, "it changed since the change set was proposed: nothing was applied — ask your agent to propose it again"
+		case it.Wait != nil && pv.Waits != nil:
+			// approved, and it waits: xbind applies it by itself once the
+			// tile provides exactly what was approved (planwait.go)
+			s.startWaiting(it, pv, cs.User)
+			s.delegateAudit(delegation.Call{User: cs.User, Agent: cs.Agent, Method: pv.Call.Method, Path: "/api/xbin" + pv.Call.Path, Tile: it.Wait.Component,
+				Class: "changeset:" + it.Kind, Effect: true, Status: http.StatusAccepted, Ticket: cs.ID, Session: cs.Session, Under: "waits", From: cs.From})
+			applied++
+			continue
 		default:
 			status, msg, out := 0, "", json.RawMessage(nil)
 			if it.Kind == delegation.KindAgentStart {
@@ -571,6 +602,10 @@ func (s *Server) apiChangeSetUndo(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		WriteError(w, http.StatusNotFound, "no such change set", delegationDocs)
 		return
+	}
+	if cs.Waiting() { // undoing a plan ends what of it still waits
+		s.cancelWaits(a.user, cs.ID, "you undid the plan before it was applied")
+		cs, _ = s.Delegation.ChangeSet(a.user, cs.ID)
 	}
 	var ops []delegation.ChangeOp
 	var byHand []string // what was applied that xbind can't undo: said, not done

@@ -115,6 +115,11 @@ func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.Cha
 		}
 		red := delegation.ChangeItem{N: it.N, ChangeOp: it.ChangeOp, Why: it.Why, Line: it.Line, Admin: it.Admin, NeedsAdmin: it.NeedsAdmin,
 			Needs: it.Needs, Deferred: it.Deferred, Result: it.Result, Out: it.Out, Of: it.Of}
+		if it.Wait != nil { // what it waits for is the line's own arguments; why it is held is not the agent's to read
+			w := *it.Wait
+			w.Owners, w.Was, w.Held = nil, "", ""
+			red.Wait = &w
+		}
 		if it.Blocked != "" {
 			red.Blocked = lineBlockedForAgent
 		}
@@ -235,12 +240,15 @@ func (s *Server) createScopeRefusal(a planAgent, made *delegation.PlannedTile) s
 }
 
 // previewLine describes one line of a plan as person would apply it now.
-func (s *Server) previewLine(person auth.Principal, a planAgent, op delegation.ChangeOp, planned []delegation.PlannedTile) (delegation.ChangePreview, error) {
+func (s *Server) previewLine(person auth.Principal, a planAgent, op delegation.ChangeOp, planned []delegation.PlannedTile, starts ...delegation.PlannedStart) (delegation.ChangePreview, error) {
 	if op.Kind == delegation.KindAgentStart {
 		if a.p.Agent == "" {
 			return delegation.ChangePreview{}, errors.New("a tile agent is started for the conversation that asks for it")
 		}
 		return s.previewStart(a, op, planned)
+	}
+	if wp, ok := s.ChangeSets.(WaitPreviewer); ok && len(starts) > 0 {
+		return wp.PreviewPlan(person, op, planned, starts) // a line after a start may wait for what that tile agent writes (planwait.go)
 	}
 	if pp, ok := s.ChangeSets.(PlanPreviewer); ok {
 		return pp.PreviewPlanned(person, op, planned)
@@ -376,19 +384,24 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 // describePlan previews ops as person and builds a plan's items; a is the
 // agent that proposes them (zero for a set xbind makes). The error is the
 // first line that isn't one.
-func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegation.ChangeOp, whys []string) ([]delegation.ChangeItem, error) {
+// started are tile agents already running that a line may wait on (an
+// admin's copy of a request: the asker's applied starts).
+func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegation.ChangeOp, whys []string, started ...delegation.PlannedStart) ([]delegation.ChangeItem, error) {
 	plain := !mayOptInAdmin(person) && !s.devOwner(person) // no admin of anything: an admin's line is never theirs to apply
 	var planned []delegation.PlannedTile
 	items := make([]delegation.ChangeItem, 0, len(ops))
 	for i, op := range ops {
 		n := i + 1
-		pv, err := s.previewLine(person, a, op, planned)
+		pv, err := s.previewLine(person, a, op, planned, append(slices.Clone(started), startsOf(items, n, false)...)...)
 		if err != nil {
 			return nil, fmt.Errorf("line %d (%s): %w", n, op.Kind, err)
 		}
 		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, BeforeText: pv.BeforeText, AfterText: pv.AfterText,
 			Effects: pv.Effects, Warnings: pv.Warnings, Blocked: pv.Blocked, Inverse: pv.Inverse, Basis: changeBasis(pv),
 			Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred, Start: pv.Start, UndoByHand: pv.UndoByHand, Pin: pv.Pin}
+		if pv.Waits != nil {
+			it.Wait = &delegation.ItemWait{PlanWait: *pv.Waits}
+		}
 		if i < len(whys) {
 			if it.Why = whys[i]; len(it.Why) > 500 {
 				it.Why = it.Why[:500]
@@ -418,6 +431,7 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 			c.N = n
 			planned = append(planned, c)
 		}
+		it.N = n // (the store numbers them the same: a later line reads the earlier starts by their numbers)
 		items = append(items, it)
 	}
 	return items, nil
@@ -575,6 +589,15 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	defer s.delegateRT.track(a.p.UserID, &runningCall{cancel: cancel, still: still})()
 	if why := still(); why != "" {
 		return http.StatusForbidden, why, nil
+	}
+	if s.PlanStarter != nil {
+		id, status, refusal := s.PlanStarter(ctx, a.p, pv.Call.Body)
+		if refusal != "" {
+			return status, refusal, nil
+		}
+		s.taint(a.p, tile)
+		out, _ := json.Marshal(map[string]string{"session": id})
+		return http.StatusOK, "", out
 	}
 	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/xbin/term/sessions", bytes.NewReader(pv.Call.Body))
@@ -743,7 +766,12 @@ func (s *Server) apiChangeSetAsk(w http.ResponseWriter, r *http.Request) {
 	ask, sent := util.RandomToken(12), 0
 	for _, adm := range admins {
 		// as this admin would apply them, now — and still held to what the asker's agent may touch
-		items, err := s.describePlan(adm, agent, ops, whys)
+		// (a line that waits on a tile agent the asker's plan started waits in the admin's copy too)
+		started := startsOf(cs.Items, len(cs.Items)+1, true)
+		for i := range started {
+			started[i].N = 0
+		}
+		items, err := s.describePlan(adm, agent, ops, whys, started...)
 		if err != nil {
 			continue
 		}
@@ -807,11 +835,14 @@ func (s *Server) askDecided(done delegation.ChangeSet) {
 	}
 	_, err := s.Delegation.UpdateChangeSet(done.From, done.AskOf, func(c *delegation.ChangeSet) error {
 		for _, it := range done.Items {
-			if it.Of < 1 || it.Of > len(c.Items) || c.Items[it.Of-1].Result != delegation.ItemAsked {
+			if it.Of < 1 || it.Of > len(c.Items) || c.Items[it.Of-1].Result != delegation.ItemAsked && c.Items[it.Of-1].Result != delegation.ItemWaiting {
 				continue
 			}
 			mine := &c.Items[it.Of-1]
 			mine.Result, mine.Error = it.Result, it.Error
+			if it.Result == delegation.ItemWaiting { // an admin approved it, and it waits: where it stands is theirs to read
+				mine.Error = "an admin (" + done.User + ") approved it: xbin applies it by itself once " + it.Wait.Tile + " provides " + it.Wait.Service
+			}
 			if it.Result == delegation.ItemRejected || it.Result == "" {
 				mine.Result, mine.Error = delegation.ItemRejected, "an admin ("+done.User+") left it out"
 			}

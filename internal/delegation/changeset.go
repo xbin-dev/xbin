@@ -43,6 +43,61 @@ const (
 	ItemRejected = "rejected" // the person left it out
 	ItemBlocked  = "blocked"  // it could never be applied (the preview's refusal)
 	ItemAsked    = "asked"    // it needs an admin, and its person asked one (ChangeSet.From on the admins' copies)
+	// A plan's line that waits (ChangeItem.Wait): approved, and applied by
+	// xbind itself once what it waits for is there — or never.
+	ItemWaiting   = "waiting"   // approved; xbind applies it when its tile provides what was approved
+	ItemLapsed    = "lapsed"    // it waited MaxWait and nothing came: never applied
+	ItemCancelled = "cancelled" // it was waiting, and its person, their agent's end or a change to its tiles ended that: never applied
+)
+
+// MaxWait is how long a waiting line waits after its plan is applied.
+const MaxWait = 24 * time.Hour
+
+// WaitRole is the role a waiting binding is approved for: what a tool's
+// caller needs of the tile that provides it, and nothing wider.
+const WaitRole = "reader"
+
+// PlanWait is what a waiting binding waits for, and is pinned to: Tile
+// declaring a provide of Service, of Kind, granting Role — to be bound to
+// Component's Slot. Anything else the tile declares is not what was
+// approved.
+type PlanWait struct {
+	Component string `json:"component"`
+	Slot      string `json:"slot"`
+	Tile      string `json:"tile"`
+	Kind      string `json:"kind"`
+	Service   string `json:"service"`
+	Role      string `json:"role"`
+}
+
+// ItemWait is a waiting line's state: PlanWait as approved; from the
+// moment its plan is applied, Until (when it lapses), the two tiles'
+// Owners and the slot's binding then (Was) — a change to either ends the
+// wait —; and Held, xbind's words for why it is not applied though the
+// tile now provides something (it declared something else than approved).
+type ItemWait struct {
+	PlanWait
+	Until  time.Time `json:"until,omitempty"`
+	Owners []string  `json:"owners,omitempty"`
+	Was    string    `json:"was,omitempty"`
+	Held   string    `json:"held,omitempty"`
+}
+
+// PlannedStart is an earlier agent.start line of the same set: a tile
+// agent it starts in Tile may write what a later line waits for.
+type PlannedStart struct {
+	N    int
+	Tile string
+}
+
+// WaitState is where a waiting line stands (PlanPreviewer.PreviewWait).
+type WaitState string
+
+const (
+	WaitPending WaitState = "pending" // the tile provides nothing of the kind yet
+	WaitReady   WaitState = "ready"   // it provides exactly what was approved
+	WaitHeld    WaitState = "held"    // it provides something else: not bound, and said
+	WaitGone    WaitState = "gone"    // a tile of the line is no more
 )
 
 // Limits.
@@ -137,6 +192,11 @@ type ChangePreview struct {
 	// a start resolves to. It moving between the proposal and the approval
 	// makes the line stale, as its before and after moving does.
 	Pin string
+	// Waits: the line can't be applied yet — the tile it binds to provides
+	// nothing of the kind until a tile agent an earlier line starts has
+	// written it. Approved, it waits (ItemWaiting) and xbind applies it by
+	// itself once the tile provides exactly this.
+	Waits *PlanWait
 }
 
 // PlannedTile is a tile an earlier tile.create line of the same set makes
@@ -213,6 +273,9 @@ type ChangeItem struct {
 	// Pin: ChangePreview.Pin as the line was described — what a deferred
 	// line, which has no Basis to hold it, is held to beside its sentence.
 	Pin string `json:"pin,omitempty"`
+	// Wait: a line that waits for a tile to provide what it binds
+	// (ChangePreview.Waits); with Result "waiting", where the wait stands.
+	Wait *ItemWait `json:"wait,omitempty"`
 }
 
 // ChangeSet is one proposal.
@@ -249,6 +312,28 @@ type ChangeSet struct {
 	// ByHand: for an undo set, what xbind can't undo, in its words (a
 	// created tile is its person's to delete).
 	ByHand []string `json:"byHand,omitempty"`
+}
+
+// lapsed turns cs's waiting lines whose time is up to ItemLapsed (cs.Items
+// is copied before it is written), and reports whether any did.
+func lapsed(cs *ChangeSet, now time.Time) bool {
+	changed := false
+	for i, it := range cs.Items {
+		if it.Result != ItemWaiting || it.Wait == nil || it.Wait.Until.IsZero() || now.Before(it.Wait.Until) {
+			continue
+		}
+		if !changed {
+			cs.Items, changed = slices.Clone(cs.Items), true
+		}
+		cs.Items[i].Result = ItemLapsed
+		cs.Items[i].Error = fmt.Sprintf("%s did not provide %s within %d hours of the plan being applied: nothing was bound", it.Wait.Tile, it.Wait.Service, int(MaxWait/time.Hour))
+	}
+	return changed
+}
+
+// Waiting reports whether a line of the set still waits.
+func (c ChangeSet) Waiting() bool {
+	return slices.ContainsFunc(c.Items, func(it ChangeItem) bool { return it.Result == ItemWaiting })
 }
 
 // Open reports a set still waiting for its person.
@@ -374,6 +459,9 @@ func (s *Store) setsLocked(p *person, user string) ([]ChangeSet, error) {
 			_ = os.Remove(filepath.Join(dir, name))
 			delete(p.sets, name)
 			continue
+		}
+		if lapsed(&cs, now) { // a waiting line whose time is up: never applied
+			_ = s.writeSet(p, cs)
 		}
 		out = append(out, cs)
 	}

@@ -23,6 +23,9 @@ func planTemplates(t *testing.T, w *csWorld) {
 		"tool/xbin.json": {Data: []byte(`{"runtime":"go","template": {"title": "MCP server", "defaultName": "tool"},
 			"provides": {"mcp": {"kind": "http", "service": "mcp", "role": "reader"}}}`)},
 		"tool/backend/main.go": {Data: []byte("package main\n")},
+		// an empty tile: what a tool's tile is before its coding agent wrote it
+		"blank/xbin.json":  {Data: []byte(`{"template": {"title": "Starter", "defaultName": "blank"}}`)},
+		"blank/index.html": {Data: []byte("<!doctype html>\n")},
 	})
 	if err != nil {
 		t.Fatal(err)
