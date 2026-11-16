@@ -106,16 +106,6 @@ func delegateActorOf(p auth.Principal) (delegateActor, bool) {
 	return a, true
 }
 
-// shown is req as a's caller may read it: where and how the person decided
-// — from a notification, on which of their devices — is theirs, never the
-// agent's or its page's (review finding 7; D241).
-func (a delegateActor) shown(req delegation.Request) delegation.Request {
-	if !a.own {
-		req.DecidedFrom, req.DecidedDevice = "", ""
-	}
-	return req
-}
-
 // delegateCaller answers the actor of r when it is one of the kinds the
 // route takes; otherwise it writes the 403.
 func (s *Server) delegateCaller(w http.ResponseWriter, r *http.Request, own, frame, agent bool) (delegateActor, bool) {

@@ -307,6 +307,16 @@ func (s *Server) dpushSweep(user string) {
 	}
 }
 
+// shown is req as a's caller may read it: where and how the person decided
+// — from a notification, on which of their devices — is theirs, never the
+// agent's or its page's (review finding 7; D241).
+func (a delegateActor) shown(req delegation.Request) delegation.Request {
+	if !a.own {
+		req.DecidedFrom, req.DecidedDevice = "", ""
+	}
+	return req
+}
+
 // ---- the words (xbind's; never the agent's) ----
 
 // tileDisplay is xbind's name for a tile: its manifest's title, else the
