@@ -1,6 +1,8 @@
 package term
 
 import (
+	"strings"
+
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -18,6 +20,24 @@ func (m *Manager) noTerminal(p auth.Principal, rel string, err error) string {
 		}
 	}
 	return "your account doesn't have terminal access to this tile"
+}
+
+// TileOf is the registered tile the workspace-relative path rel is, or lies
+// in — TileAt, the registry's Resolve that boot installs — and ok; rel
+// itself (trimmed) when the manager knows no registry. A path in no
+// registered tile (nor a sealed component's) is not ok, and rel comes back
+// as it was asked. A session's directory may lie inside its tile: every
+// decision about the session is made on the tile this names, never on the
+// directory's own path, which matches only patterns.
+func (m *Manager) TileOf(rel string) (tile string, ok bool) {
+	rel = strings.Trim(rel, "/")
+	if m.TileAt == nil {
+		return rel, rel != ""
+	}
+	if tile, ok = m.TileAt(rel); !ok || tile == "" {
+		return rel, false
+	}
+	return tile, true
 }
 
 // termKey is the per-component key for a terminal's persistent layer.
