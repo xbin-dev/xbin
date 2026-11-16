@@ -657,6 +657,12 @@ scheme and host — a path or a query can hold the credential — and every
 part of them twelve bytes or longer is scrubbed, with the secret, from
 whatever the server answers (as written, JSON-escaped, percent-encoded).
 
+Every exchange with an outside server — a list, a call, a call's dry run,
+a request's filing (both ask the server for the tool) — is counted against
+the MCP limit, before a ticket is spent; a dry run pins no definition. A
+call in flight ends with what allowed it, as every delegate call does (a
+pause cuts it at once).
+
 Refusals beside §MCP tiles': `mcp-error` (502: the server answered a
 JSON-RPC error; its message in `said`), `mcp-server` (404: no such server for this
 person), `mcp-address` (403), `mcp-redirect`, `mcp-auth` (the server

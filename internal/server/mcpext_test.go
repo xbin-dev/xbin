@@ -489,3 +489,59 @@ func TestMCPExtWebNeverMeansNoOutside(t *testing.T) {
 		t.Error("an org that trusts the list didn't reach the server")
 	}
 }
+
+// covers D240 review — asking a server is counted against the MCP limit on
+// every path (a dry run's, a request's filing), a dry run pins nothing, and
+// a pause cuts an outside call in flight
+func TestMCPExtLimitsDryRunsAndPause(t *testing.T) {
+	w := newExtRig(t, &mcpfake.Server{})
+	if rec := w.call("post", header(HeaderDryRun, "1")); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"needsApproval":true`) {
+		t.Fatalf("a dry run: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, had := w.store.ToolPinOf("bob", mustServer(t, w).Key(), "post"); had {
+		t.Error("a dry run pinned the tool's definition")
+	}
+	for i := 0; i < 40; i++ { // dry runs and filings draw on the bucket: past it, refused without the server being asked
+		w.call("post", header(HeaderDryRun, "1"))
+	}
+	before := len(w.fake.Log())
+	if rec := w.call("post", header(HeaderDryRun, "1")); !strings.Contains(rec.Body.String(), "too fast") {
+		t.Errorf("a dry run past the limit: %d %s", rec.Code, rec.Body.String())
+	}
+	in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/delegate/mcp/call", "body": extBody("post")})
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), w.bob); rec.Code == 200 || !strings.Contains(rec.Body.String(), "too fast") {
+		t.Errorf("a filing past the limit: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(w.fake.Log()) != before {
+		t.Error("the server was asked past the limit")
+	}
+
+	// a pause cuts a call in flight
+	p := newExtRig(t, &mcpfake.Server{Delay: 5 * time.Second})
+	done := make(chan *httptest.ResponseRecorder, 1)
+	start := time.Now()
+	go func() { done <- p.call("post") }()
+	for deadline := time.Now().Add(3 * time.Second); len(p.fake.Log()) == 0 && time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if rec := p.do(p.full, "PUT", "/api/xbin/delegate/state", `{"paused":true}`, p.cookie("bob")); rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	select {
+	case rec := <-done:
+		if rec.Code == 200 || time.Since(start) > 4*time.Second {
+			t.Errorf("the paused call: %d after %v: %s", rec.Code, time.Since(start), rec.Body.String())
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("a pause didn't cut the outside call in flight")
+	}
+}
+
+func mustServer(t *testing.T, w *extRig) delegation.MCPServer {
+	t.Helper()
+	m, ok := w.store.MCPServerNamed("ext:tracker")
+	if !ok {
+		t.Fatal("no ext:tracker")
+	}
+	return m
+}

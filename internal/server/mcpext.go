@@ -300,7 +300,8 @@ type mcpExtJudged struct {
 	status int
 	code   string
 	msg    string
-	said   string // the server's own words, apart (mcpExtFail)
+	said   string        // the server's own words, apart (mcpExtFail)
+	wait   time.Duration // rate-limited: until the next one
 }
 
 func (j mcpExtJudged) fail() mcpExtFail {
@@ -310,8 +311,9 @@ func (j mcpExtJudged) fail() mcpExtFail {
 // mcpExtJudge is mcpJudge for an outside server: the reach, the server
 // (visible to the person), the orgs' rules, the tool (listed by the
 // server), and what covers the call without a ticket — never while it
-// asks each call.
-func (s *Server) mcpExtJudge(ctx context.Context, p auth.Principal, h delegation.AgentSession, c mcpCallBody) (j mcpExtJudged) {
+// asks each call. Asking the server is counted against the MCP limit (a
+// dry run's and a request's filing too); a dry run pins nothing.
+func (s *Server) mcpExtJudge(ctx context.Context, p auth.Principal, h delegation.AgentSession, c mcpCallBody, dry bool) (j mcpExtJudged) {
 	refuse := func(status int, code, msg string) mcpExtJudged {
 		j.status, j.code, j.msg = status, code, msg
 		return j
@@ -334,6 +336,11 @@ func (s *Server) mcpExtJudge(ctx context.Context, p auth.Principal, h delegation
 		return refuse(status, code, msg)
 	}
 	j.t = t
+	// the limit before the server is asked — and before a ticket is spent
+	if ok, wait, whose := s.delegateRT.allowNet("mcp", p.UserID, h.ID); !ok {
+		j.wait = wait
+		return refuse(http.StatusTooManyRequests, "rate-limited", netLimitWords("mcp", whose, wait))
+	}
 	sess, tools, err := s.mcpExtOpen(ctx, mcpExtSessionKey(p.UserID, m, h.ID), t)
 	s.mcpExtHeard(p, h, err)
 	if err != nil {
@@ -349,7 +356,9 @@ func (s *Server) mcpExtJudge(ctx context.Context, p auth.Principal, h delegation
 	j.tool = tools[i]
 	key, def := m.Key(), j.tool.pin()
 	seen, had := s.Delegation.ToolPinOf(p.UserID, key, c.Tool)
-	if !had {
+	if !had && dry {
+		seen = def // (a dry run judges as the first sight would, and keeps nothing)
+	} else if !had {
 		if err := s.Delegation.PinTool(p.UserID, key, c.Tool, def); err == nil {
 			slog.Info("delegation: an outside tool's definition pinned at first sight", "user", p.UserID, "server", m.Server(), "tool", c.Tool, "pin", def.Hash)
 		}
@@ -394,16 +403,13 @@ func (s *Server) apiDelegateMCPExtCall(w http.ResponseWriter, r *http.Request, p
 	mcpExtRow(row, delegation.MCPServer{}, c.Server, c.Tool)
 	ctx, cancel := context.WithTimeout(r.Context(), mcpCallTime+5*time.Second)
 	defer cancel()
-	j := s.mcpExtJudge(ctx, p, h, c)
+	j := s.mcpExtJudge(ctx, p, h, c, false)
 	mcpExtRow(row, j.m, c.Server, c.Tool)
 	if j.msg != "" {
+		if j.wait > 0 { // the limit came before the ticket: a call over it spends nothing the person gave
+			w.Header().Set("Retry-After", strconv.Itoa(int(j.wait/time.Second)+1))
+		}
 		mcpExtRefuse(w, row, j.fail())
-		return
-	}
-	// the limit before the ticket: a call over it spends nothing the person gave
-	if ok, wait, whose := s.delegateRT.allowNet("mcp", p.UserID, h.ID); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(wait/time.Second)+1))
-		mcpRefuse(w, row, http.StatusTooManyRequests, "rate-limited", netLimitWords("mcp", whose, wait))
 		return
 	}
 	if j.under == "" {
@@ -482,7 +488,7 @@ func (s *Server) apiDelegateMCPExtCall(w http.ResponseWriter, r *http.Request, p
 func (s *Server) mcpExtRequestPreview(ctx context.Context, p auth.Principal, h delegation.AgentSession, c mcpCallBody) (map[string]any, string, int, string) {
 	ctx, cancel := context.WithTimeout(ctx, mcpCallTime)
 	defer cancel()
-	j := s.mcpExtJudge(ctx, p, h, c)
+	j := s.mcpExtJudge(ctx, p, h, c, false)
 	switch {
 	case j.msg != "":
 		return nil, "", j.status, j.msg
