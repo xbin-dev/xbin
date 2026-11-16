@@ -209,7 +209,11 @@ func (ag *Agent) wsRunsOn(ctx context.Context, s *wsSession, tile, picked string
 		return ""
 	}
 	h, _ := d.of(id)
-	return orStr(h.Name, id) + ", " + map[bool]string{true: "asks before acting", false: "acts without asking"}[h.Asks]
+	on := orStr(h.Name, id) + ", " + map[bool]string{true: "asks before acting", false: "acts without asking"}[h.Asks]
+	if h.NoSignIn {
+		on += ", on the workspace's model with no sign-in"
+	}
+	return on
 }
 
 func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (string, error) {

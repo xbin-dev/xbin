@@ -23,6 +23,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   its call's role, so it can tell a binding reached the backend without an
   approval (the template's `API.md`, [mcp.md](/docs/mcp.md)). Merge the
   template's update into an instance to get it.
+- delegation: **an agent-started tile agent defaults to a coding agent
+  that can run.** `GET /delegate/start-defaults` (and a start that names
+  no harness) no longer default to the catalog's first when the person has
+  no saved choice and that one can't run as things are — the workspace's
+  LLM connector can't serve it and no session saw a sign-in of theirs (Claude
+  Code on a workspace whose host provides the model): the first allowed
+  one the connector serves is the default instead. A saved choice (a
+  harness the person lets start unasked) always wins; org rules as before.
+  Each harness gains `noSignIn` (additive; also the sdk's `StartHarness`):
+  it runs on the connector with no sign-in — the brief's card names those
+  "— no sign-in", and its line says it ([protocol/delegation.md](/docs/protocol/delegation.md)).
 - the workspace agent: **a brief template for a tool.** `tile_agent_brief`
   takes `template: "mcp-tool"` with `tool: {name, arguments, result}`; the
   fields it leaves out come from the template — done when `tools/list`
