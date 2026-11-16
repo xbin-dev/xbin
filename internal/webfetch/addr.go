@@ -23,9 +23,12 @@ import (
 // notPublic are the ranges no fetch reaches beyond what netip's own
 // predicates say (loopback, private, link-local, multicast, unspecified):
 // this network, CGNAT, IETF protocol assignments, documentation,
-// benchmarking, the 6to4 relay, reserved and broadcast; NAT64, 6to4,
-// Teredo, discard-only, documentation and the old site-local range — the
-// IPv6 forms that carry, or route to, an IPv4 address of the above.
+// benchmarking, the 6to4 relay, reserved and broadcast; the IPv4-compatible
+// and IPv4-translated forms, NAT64 (both), the IETF protocol assignments
+// (Teredo, benchmarking, ORCHID…), 6to4, discard-only, documentation (both),
+// SRv6 SIDs and the old site-local range — the IPv6 forms that carry, or
+// route to, an IPv4 address of the above, and what the IANA special-purpose
+// registries (checked 2026-11) don't call globally reachable.
 var notPublic = []netip.Prefix{
 	netip.MustParsePrefix("0.0.0.0/8"),
 	netip.MustParsePrefix("100.64.0.0/10"),
@@ -36,12 +39,16 @@ var notPublic = []netip.Prefix{
 	netip.MustParsePrefix("198.51.100.0/24"),
 	netip.MustParsePrefix("203.0.113.0/24"),
 	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/96"),           // IPv4-compatible (deprecated): ::a.b.c.d
+	netip.MustParsePrefix("::ffff:0:0:0/96"), // IPv4-translated (SIIT)
 	netip.MustParsePrefix("64:ff9b::/96"),
 	netip.MustParsePrefix("64:ff9b:1::/48"),
 	netip.MustParsePrefix("100::/64"),
-	netip.MustParsePrefix("2001::/32"),
+	netip.MustParsePrefix("2001::/23"), // IETF protocol assignments: Teredo, benchmarking, ORCHID, AMT…
 	netip.MustParsePrefix("2001:db8::/32"),
 	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("3fff::/20"), // documentation (RFC 9637)
+	netip.MustParsePrefix("5f00::/16"), // SRv6 SIDs (RFC 9602)
 	netip.MustParsePrefix("fec0::/10"),
 }
 
