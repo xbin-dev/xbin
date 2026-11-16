@@ -13,8 +13,10 @@ package signins
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -35,6 +37,45 @@ type Confined struct {
 	// the CLI's lookup path (a scripted CLI). "" in service: the sandbox
 	// binds nothing at all.
 	testBin string
+	// tests, without sandboxes: the rest of the lookup path — a directory
+	// of the wrapper's own tools (sh, mktemp, env, rm) and nothing else.
+	// A test never looks a CLI up on this machine's PATH: an unscripted
+	// name must be "not installed", not whatever the developer has.
+	testTools string
+}
+
+// harnessCLIs are the coding agents' own programs: what a test must never
+// start for real.
+var harnessCLIs = []string{"claude", "codex", "gemini", "opencode"}
+
+// testPath is the lookup path of a test's flow, after checking that no
+// name on it is a real CLI: the command itself and every harness CLI
+// resolve into the test's own directory or nowhere. It panics otherwise —
+// loudly, before anything is started.
+func (c Confined) testPath(argv0 string) string {
+	if !confine.Isolated() {
+		path := c.testBin
+		if c.testTools != "" {
+			path += ":" + c.testTools
+		}
+		for _, name := range append([]string{argv0}, harnessCLIs...) {
+			for _, dir := range filepath.SplitList(path) {
+				if fi, err := os.Stat(filepath.Join(dir, name)); err == nil && !fi.IsDir() {
+					if dir != c.testBin {
+						panic(fmt.Sprintf("signins test: %s would run %s — a test's flow runs only the CLI it scripted", name, filepath.Join(dir, name)))
+					}
+					break
+				}
+			}
+		}
+		return path
+	}
+	// in a sandbox the image's directories follow, and the image has the
+	// real CLIs: the command must be the scripted one
+	if fi, err := os.Stat(filepath.Join(c.testBin, argv0)); err != nil || fi.IsDir() {
+		panic(fmt.Sprintf("signins test: %s is not scripted in %s, so the image's real one would run", argv0, c.testBin))
+	}
+	return c.testBin + ":" + sandbox.RootfsPATH
 }
 
 const (
@@ -52,8 +93,12 @@ func (c Confined) Start(spec acp.Signin, life time.Duration) (acp.GuidedExec, er
 		Net:     confine.NetInternet, // the CLI exchanges the code with its vendor
 		Timeout: life,
 	}
-	if c.testBin != "" {
-		path = c.testBin + ":" + path
+	if c.testBin != "" { // a test: never this machine's PATH
+		argv0 := ""
+		if len(spec.Argv) > 0 {
+			argv0 = spec.Argv[0]
+		}
+		path = c.testPath(argv0)
 		if confine.Isolated() {
 			cmd.Binds = []sandbox.Bind{confine.RO(c.testBin)}
 		}

@@ -3,6 +3,7 @@ package signins
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 const flowURL = "https://claude.com/cai/oauth/authorize?code=true&client_id=test-client&response_type=code" +
@@ -72,9 +74,28 @@ func scriptedBin(t *testing.T, marker string) string {
 	return dir
 }
 
+// toolsOnly is a directory holding the mint wrapper's own tools (sh,
+// mktemp, env, rm) and nothing else: the whole of a test flow's lookup path
+// besides its scripted CLI. A test never looks a CLI up on this machine's
+// PATH.
+func toolsOnly(t *testing.T) string {
+	t.Helper()
+	tools := t.TempDir()
+	for _, tool := range []string{"sh", "mktemp", "env", "rm", "ls", "cut", "grep", "tr", "stty"} { // + what the scripted CLI itself calls
+		at, err := exec.LookPath(tool)
+		if err != nil {
+			t.Skip(tool + " not found")
+		}
+		if err := os.Symlink(at, filepath.Join(tools, tool)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return tools
+}
+
 func newFlows(t *testing.T, w *world, bin string) *Flows {
 	t.Helper()
-	f := NewFlows(w.s, Confined{testBin: bin})
+	f := NewFlows(w.s, Confined{testBin: bin, testTools: toolsOnly(t)})
 	f.StartWait, f.CodeWait = 20*time.Second, 20*time.Second
 	t.Cleanup(f.Close)
 	return f
@@ -230,26 +251,85 @@ func TestGuidedFlowRefusals(t *testing.T) {
 		t.Fatalf("switched off: %v", err)
 	}
 	_, _ = w.s.SetPolicy(true)
-	// no CLI at all: said, nothing left running. The PATH holds the
-	// wrapper's own tools and nothing else — never this machine's CLIs.
-	tools := t.TempDir()
-	for _, tool := range []string{"sh", "mktemp", "env", "rm"} {
-		at, err := exec.LookPath(tool)
-		if err != nil {
-			t.Skip(tool + " not found")
-		}
-		if err := os.Symlink(at, filepath.Join(tools, tool)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	g := NewFlows(w.s, Confined{testBin: t.TempDir()})
+	// no CLI at all: said, nothing left running — with a claude on this
+	// process's PATH that must not run: a test's flow looks nothing up there
+	decoy, ran := decoyCLI(t)
+	t.Setenv("PATH", decoy+string(os.PathListSeparator)+os.Getenv("PATH"))
+	g := NewFlows(w.s, Confined{testBin: t.TempDir(), testTools: toolsOnly(t)})
 	g.StartWait = 10 * time.Second
 	t.Cleanup(g.Close)
-	t.Setenv("PATH", tools)
 	if _, err := g.Start(ctx, "alice", "claude", "", false); status(err) != 502 {
 		t.Fatalf("no CLI: %v", err)
 	}
 	if len(g.Of("alice")) != 0 {
 		t.Fatal("a failed start left a flow")
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Fatal("the flow ran the claude on this process's PATH")
+	}
+}
+
+// decoyCLI is a directory with a claude that says it ran (the file ran
+// appears) — a stand-in for the real CLI a developer's machine has.
+func decoyCLI(t *testing.T) (dir, ran string) {
+	t.Helper()
+	dir = t.TempDir()
+	ran = filepath.Join(dir, "ran")
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n: > "+ran+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir, ran
+}
+
+// A test's flow can't start a real CLI by construction (review finding 8):
+// its lookup path is the scripted directory and the wrapper's tools, never
+// this machine's PATH, and a name that would resolve anywhere else stops
+// the test before anything starts.
+func TestFlowTestsNeverResolveARealCLI(t *testing.T) {
+	if confine.Isolated() {
+		t.Skip("the sandboxed flow has its own rule (TestGuidedFlowSandboxed)")
+	}
+	decoy, ran := decoyCLI(t)
+	t.Setenv("PATH", decoy+string(os.PathListSeparator)+os.Getenv("PATH"))
+	spec := acp.Signin{Command: "claude setup-token", Argv: []string{"claude", "setup-token"}, TTY: true}
+	// nothing scripted: the claude on PATH is not found, let alone run
+	ex, err := Confined{testBin: t.TempDir(), testTools: toolsOnly(t)}.Start(spec, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var out []byte
+	for {
+		b, running, _, err := ex.Read(ctx)
+		out = append(out, b...)
+		if err != nil || !running {
+			break
+		}
+	}
+	ex.Close()
+	if !strings.Contains(string(out), "is not installed here") {
+		t.Fatalf("an unscripted CLI: %q", out)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Fatal("the flow ran the claude on this process's PATH")
+	}
+	// a CLI anywhere on the test's own path but its scripted directory: refused loudly, nothing started
+	for _, name := range []string{"claude", "opencode"} {
+		tools := toolsOnly(t)
+		if err := os.Symlink(filepath.Join(decoy, "claude"), filepath.Join(tools, name)); err != nil {
+			t.Fatal(err)
+		}
+		func() {
+			defer func() {
+				if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "would run") {
+					t.Errorf("a %s beside the tools: %v", name, r)
+				}
+			}()
+			_, _ = Confined{testBin: t.TempDir(), testTools: tools}.Start(spec, time.Second)
+		}()
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Fatal("the guard let it start")
 	}
 }
