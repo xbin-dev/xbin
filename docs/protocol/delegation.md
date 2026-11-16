@@ -561,6 +561,97 @@ or not set up (only the plaintext vault mode keeps it in the clear). A
 secret is never in an answer, a log line or the audit log, and whatever a
 server answers is scrubbed of it.
 
+```
+GET    /delegate/mcp/servers    the person's agent. {servers: [{server:
+                                 "ext:<id>", name, host, note?,
+                                 trustReadOnly, state, why?, code?,
+                                 orgs?}], code?, why?}: the outside
+                                 servers its person sees, with the
+                                 conversation's state for each — on (by
+                                 the ordinary approvals), asks (each call
+                                 asks: the conversation holds data of
+                                 orgs), off (an org's rule); [] while MCP
+                                 is off for the conversation
+POST   /delegate/mcp/tools      the person's agent. {server: "ext:<id>"}
+                                 → {server, name, host, outside: true,
+                                 tools: [{name, title?, description?,
+                                 readOnly, inputSchema?}]}: xbind's
+                                 initialize and tools/list. Free — it
+                                 sends nothing of the conversation —
+                                 counted against the MCP limit
+POST   /delegate/mcp/call       (§MCP tiles) with server "ext:<id>": the
+                                 answer adds name, host, outside: true
+POST   /delegate/mcp/test       admin. {id} → {ok, server: {id, name,
+                                 host}, protocolVersion?, serverInfo?,
+                                 tools?, refusal?, error?}, always 200:
+                                 initialize and tools/list as the admin,
+                                 no session kept (the card's Test)
+```
+
+**What xbind sends a server.** Every message is built by xbind from what
+it judged (a tool's arguments read strictly, as for a tile), `POST`ed to
+the listed URL alone with `Content-Type: application/json`, `Accept:
+application/json, text/event-stream`, the fixed `User-Agent`, the
+credential, and after `initialize` (and its `notifications/initialized`)
+`Mcp-Session-Id` and `MCP-Protocol-Version`. Never a cookie or a
+`Referer`, never through a proxy of the environment. The URL's host is the
+one name dialled, through the web's dialer: its addresses checked when the
+socket connects — public ones only, unless the server is marked
+`privateNetwork` — and TLS verified. A redirect is followed only to the
+same scheme, host and port (`307`/`308`, at most 3); any other is
+`mcp-redirect`. xbind never opens the server's `GET` stream.
+
+**What xbind reads.** At most 1 MiB of an answer, in 20 s (`initialize`,
+`tools/list`) or 60 s (`tools/call`): JSON — one response, never a batch
+— or an event stream, read event by event until the response to the
+request. Notifications are skipped; **a request from the server**
+(sampling, elicitation, roots, a ping: a message with a method and an id)
+ends the call (`mcp-protocol`) — xbind is a client for tools and answers
+no server. The session (`Mcp-Session-Id`) is xbind's, one per person,
+server and conversation, kept 30 minutes unused; it is never in an
+answer, and a server that forgets it (`404`) gets a new one once.
+
+**A call is judged** as a tile's tool is (each tool asks the first time;
+`grant: "always" | "hour"` leaves a standing approval of `scope: "tool"`
+pinned to the tool's definition; a changed definition asks again) — and
+as a URL is, because its arguments leave the workspace: while the
+conversation holds data of an org whose `mcp` rule is `any` (the default)
+and the server isn't listed with that org, **each call asks** — no
+standing approval covers it, the request says so (`preview.each: true`,
+`orgs`, `why`) and `hour`/`always` are refused (`400`). An org whose rule
+is `listed` trusts the list; `org` keeps such a conversation to the MCP
+servers under it (its tiles, and the outside servers listed with it);
+`never` keeps it from every MCP server (`403 mcp-org`, the tool leaves
+the conversation's list). A server's `readOnlyHint` lets a tool through
+the person's `mcpReadOnly` only where the admin set `trustReadOnly`.
+
+What is allowed is kept under the server's id and a hash of its URL: a
+server whose address changes — or another server given the same id — is
+one nobody allowed yet, and the sweep drops the approvals of a server no
+longer listed or no longer visible to its person.
+
+The request is `kind: "mcp"` with `preview {class: "mcp", server:
+"ext:<id>", serverName, host, outside: true, tool, title?, description,
+readOnly, readOnlyTrusted, arguments, pin, changed, note?, standing?:
+{tool}, each?, orgs?, why?}` — `host` written by xbind from the listed
+URL: show it as "Outside this workspace: <host>".
+
+**What a server answers** is untrusted input from outside the workspace:
+it taints the conversation with no org (it isn't the workspace's data) and
+marks it `web: true` — "has read the web or an outside server" — so every
+later request says so (`preview.readWeb`). The session's reach counts the
+servers it may use (`reach.mcp.listed`).
+
+Refusals beside §MCP tiles': `mcp-server` (404: no such server for this
+person), `mcp-address` (403), `mcp-redirect`, `mcp-auth` (the server
+refused xbin's credentials), `mcp-protocol` (an answer too long, not
+MCP, or a request from the server), `mcp-unreachable` (502),
+`mcp-timeout` (504), `mcp-sealed` (503: the vault is sealed, the secret
+can't be read). Every list and call is a row of the person's log —
+`class` `mcp-read` or `mcp`, `server`, `tool`, `path` the URL's scheme and
+host (never its path: a URL can hold a token), `bytes`, `status`; never an
+argument's value, never a secret.
+
 ### The host's file
 
 Whoever runs xbind can preset and cap the web and MCP policy in their

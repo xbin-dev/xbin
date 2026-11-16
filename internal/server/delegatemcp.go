@@ -131,7 +131,10 @@ func (s *Server) mcpOrgRefusal(h delegation.AgentSession, tile string) string {
 	}
 	under := s.orgsOf(tile)
 	for _, org := range h.Tainted {
-		if rule, reason := nr.AgentMCPIn(org); rule == agentpolicy.MCPOrg && !slices.Contains(under, org) {
+		switch rule, reason := nr.AgentMCPIn(org); {
+		case rule == agentpolicy.MCPNever:
+			return orStr(reason, orgName(org)+" keeps its data from every MCP server") + ", and this conversation holds its data"
+		case rule == agentpolicy.MCPOrg && !slices.Contains(under, org):
 			return orStr(reason, orgName(org)+" keeps its data from MCP servers outside it") + ", and this conversation holds its data — this server isn't " + orgName(org) + "'s"
 		}
 	}
@@ -506,8 +509,12 @@ func (s *Server) apiDelegateMCPCall(w http.ResponseWriter, r *http.Request) {
 		mcpRefuse(w, row, http.StatusBadRequest, "mcp-call", err.Error())
 		return
 	}
+	if delegation.IsExt(c.Server) { // an outside server (mcpext.go, D240)
+		s.apiDelegateMCPExtCall(w, r, p, h, row, c, body)
+		return
+	}
 	if row != nil {
-		row.Tile, row.Path = c.Server, "/api/"+c.Server+"/mcp"
+		row.Tile, row.Path, row.Tool = c.Server, "/api/"+c.Server+"/mcp", c.Tool
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), mcpCallTime)
 	defer cancel()
@@ -606,6 +613,9 @@ func (s *Server) mcpRequestPreview(ctx context.Context, p auth.Principal, body [
 	c, err := readMCPCall(body)
 	if err != nil {
 		return nil, "", http.StatusBadRequest, "a tool's call's body is " + err.Error()[len("need "):] + ", exactly as it will be sent"
+	}
+	if delegation.IsExt(c.Server) { // an outside server (mcpext.go, D240)
+		return s.mcpExtRequestPreview(ctx, p, h, c)
 	}
 	ctx, cancel := context.WithTimeout(ctx, mcpCallTime)
 	defer cancel()

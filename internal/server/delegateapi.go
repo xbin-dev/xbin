@@ -56,6 +56,7 @@ func (s *Server) registerDelegationAPI() {
 	s.registerDocsAPI()             // the docs, searchable on /api/ (docsapi.go)
 	s.registerDelegateWebAPI()      // the web (delegateweb.go)
 	s.registerDelegateMCPAPI()      // MCP tiles (delegatemcp.go)
+	s.registerDelegateMCPExtAPI()   // outside MCP servers (mcpext.go)
 	s.RegisterAPI("GET /delegate/state", s.apiDelegateState)
 	s.RegisterAPI("PUT /delegate/state", s.apiDelegateStatePut)
 	s.RegisterAPI("GET /delegate/workspace", s.apiDelegateWorkspace)

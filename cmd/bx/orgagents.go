@@ -4,7 +4,7 @@ package main
 // docs/auth.md §Agent constraints):
 //
 //	bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>]
-//	              [--models any|private|none|<id,…>] [--web ask|allow|never] [--mcp any|org]
+//	              [--models any|private|none|<id,…>] [--web ask|allow|never] [--mcp any|listed|org|never]
 //	              [--credentials own-first|connector-first|connector-only] [--json]
 //	    an org's rules for agents on its tiles — with --pin, the rules a
 //	    workspace admin pins on it (its admins can't loosen those); with no
@@ -24,7 +24,7 @@ import (
 const noAgentPolicyMsg = "this xbind has no agent constraints (no /api/xbin/agents/policy); upgrade xbind"
 
 func init() {
-	dcUsage["org agents"] = "bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>] [--models any|private|none|<id,…>] [--web ask|allow|never] [--mcp any|org] [--credentials own-first|connector-first|connector-only] [--json]"
+	dcUsage["org agents"] = "bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>] [--models any|private|none|<id,…>] [--web ask|allow|never] [--mcp any|listed|org|never] [--credentials own-first|connector-first|connector-only] [--json]"
 	dcUsage["agent connection"] = "bx agent connection [--model <upstream/model>] [--orgs <id,…>] [--tiles <tile,…>] [--what-if <upstream/model>] [--json]"
 }
 
@@ -173,8 +173,8 @@ func cmdOrgAgents(args []string) error {
 		body["web"] = v
 	}
 	if v, ok := vals["--mcp"]; ok {
-		if v != "any" && v != "org" {
-			return usageError(cmd, "--mcp is any or org")
+		if v != "any" && v != "listed" && v != "org" && v != "never" {
+			return usageError(cmd, "--mcp is any, listed, org or never")
 		}
 		body["mcp"] = v
 	}

@@ -709,6 +709,9 @@ var sealedRules = map[string]SealedRule{
 	"POST /delegate/page/dismiss":            {Class: SealedNoTile}, // a person's own notice
 	"POST /delegate/web/fetch":               {Class: SealedNoTile}, // a URL, never a tile
 	"POST /delegate/mcp/call":                {Class: SealedRefused, Body: []string{"server"}, What: sealedNoAgentWhat},
+	"GET /delegate/mcp/servers":              {Class: SealedNoTile}, // outside servers, never a tile (D240)
+	"POST /delegate/mcp/tools":               {Class: SealedNoTile},
+	"POST /delegate/mcp/test":                {Class: SealedNoTile},
 	// what a tile agent started on ?tile= would open with: none starts on one
 	// (auth.CanTerminalTileVia, and the delegate gate's DelegateTile)
 	"GET /delegate/start-defaults": {Class: SealedRefused, Query: []string{"tile"}, What: "it has no terminal and no agent sessions"},

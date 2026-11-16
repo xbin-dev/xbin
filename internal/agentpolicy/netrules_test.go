@@ -64,3 +64,37 @@ func TestNetRules(t *testing.T) {
 		t.Errorf("unset within anything: %v", err)
 	}
 }
+
+// covers D240 — the MCP rule's outside-server values: listed (trusts the
+// admin's list) and never (no MCP server at all); strictest wins — never
+// over org over any over listed — and an org can't loosen a bound
+func TestMCPRuleListedAndNever(t *testing.T) {
+	for in, want := range map[string]MCPRule{`"listed"`: MCPListed, `"never"`: MCPNever, `"org"`: MCPOrg, `"any"`: "", `null`: ""} {
+		var m MCPRule
+		if err := json.Unmarshal([]byte(in), &m); err != nil || m != want {
+			t.Errorf("%s: %q %v", in, m, err)
+		}
+	}
+	trust := Layer{ID: "ops", Name: "Ops", Rules: Rules{MCP: MCPListed}}
+	if rule, _ := MCP([]Layer{{}, trust}); rule != MCPListed {
+		t.Errorf("listed alone: %s", rule)
+	}
+	if rule, why := MCP([]Layer{trust, {ID: "fin", Name: "Finance", Rules: Rules{MCP: MCPNever}}}); rule != MCPNever || !strings.Contains(why, "every MCP server") {
+		t.Errorf("never over listed: %s %q", rule, why)
+	}
+	if rule, _ := MCP([]Layer{trust, {Rules: Rules{MCP: MCPOrg}}}); rule != MCPOrg {
+		t.Errorf("org over listed: %s", rule)
+	}
+	if rule, _ := MCP(nil); rule != MCPAny {
+		t.Errorf("no rule: %s", rule)
+	}
+	if err := (Rules{MCP: MCPListed}).Within(Rules{MCP: MCPOrg}); err == nil {
+		t.Error("listed within org")
+	}
+	if err := (Rules{MCP: MCPOrg}).Within(Rules{MCP: MCPNever}); err == nil {
+		t.Error("org within never")
+	}
+	if err := (Rules{MCP: MCPNever}).Within(Rules{MCP: MCPListed}); err != nil {
+		t.Errorf("never within listed: %v", err)
+	}
+}

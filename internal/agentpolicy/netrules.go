@@ -21,20 +21,44 @@ const (
 	// WebNever: such a conversation doesn't read the web at all.
 	WebNever = "never"
 
-	// MCPAny (the default): such a conversation may use any MCP server the
-	// workspace's policy and its person allow.
+	// MCPAny (the default): such a conversation may use any MCP tile the
+	// workspace's policy and its person allow; an outside server (D240) only
+	// with the person's approval of each call — what it is sent leaves the
+	// workspace — unless the server is listed with this org.
 	MCPAny = "any"
-	// MCPOrg: only the MCP tiles under this org.
+	// MCPListed: as any, and the outside servers an admin listed are trusted
+	// with the org's data: their calls go by the ordinary approvals. The one
+	// value that loosens the default, as WebAllow does.
+	MCPListed = "listed"
+	// MCPOrg: only the MCP servers under this org — its MCP tiles, and the
+	// outside servers listed with it.
 	MCPOrg = "org"
+	// MCPNever: no MCP server at all.
+	MCPNever = "never"
 )
 
 // WebRule is the web rule of a layer: "" (unset: no rule of the layer's
 // own), ask, allow or never.
 type WebRule string
 
-// MCPRule is the MCP rule of a layer: "" (unset) or org; "any" reads as
-// unset.
+// MCPRule is the MCP rule of a layer: "" (unset), listed, org or never;
+// "any" — the default — reads as unset (back to the default, as before
+// D240). So a layer's listed holds unless a layer sets org or never.
 type MCPRule string
+
+func (m MCPRule) rank() int {
+	switch m {
+	case MCPListed:
+		return 1
+	case MCPAny:
+		return 2
+	case MCPOrg:
+		return 3
+	case MCPNever:
+		return 4
+	}
+	return 0
+}
 
 func (w WebRule) rank() int {
 	switch w {
@@ -67,15 +91,15 @@ func (w *WebRule) UnmarshalJSON(b []byte) error {
 func (m *MCPRule) UnmarshalJSON(b []byte) error {
 	var v *string
 	if err := json.Unmarshal(b, &v); err != nil {
-		return fmt.Errorf(`mcp: "any" or "org"`)
+		return fmt.Errorf(`mcp: "any", "listed", "org" or "never"`)
 	}
 	switch {
 	case v == nil || *v == "" || *v == MCPAny:
 		*m = ""
-	case *v == MCPOrg:
-		*m = MCPOrg
+	case *v == MCPListed || *v == MCPOrg || *v == MCPNever:
+		*m = MCPRule(*v)
 	default:
-		return fmt.Errorf(`mcp: "any" or "org", not %q`, *v)
+		return fmt.Errorf(`mcp: "any", "listed", "org" or "never", not %q`, *v)
 	}
 	return nil
 }
@@ -89,8 +113,8 @@ func webWithin(r, bound WebRule) error {
 }
 
 func mcpWithin(r, bound MCPRule) error {
-	if bound == MCPOrg && r != MCPOrg && r != "" {
-		return fmt.Errorf("mcp: %s is outside what the workspace allows (org)", r)
+	if r != "" && bound != "" && r.rank() < bound.rank() {
+		return fmt.Errorf("mcp: %s is outside what the workspace allows (%s)", r, bound)
 	}
 	return nil
 }
@@ -115,13 +139,24 @@ func Web(layers []Layer) (rule, reason string) {
 	return string(best), ""
 }
 
-// MCP is the MCP rule that holds over layers: org when any of them sets
-// it, with the reason.
+// MCP is the MCP rule that holds over layers — the strictest any of them
+// sets (never, then org, then any, then listed), any when none sets one —
+// with the reason a person reads when it narrows.
 func MCP(layers []Layer) (rule, reason string) {
+	best := MCPRule("")
+	var by Layer
 	for _, l := range layers {
-		if l.Rules.MCP == MCPOrg {
-			return MCPOrg, l.who() + " keeps its data from MCP servers outside it" + l.note()
+		if l.Rules.MCP.rank() > best.rank() {
+			best, by = l.Rules.MCP, l
 		}
 	}
-	return MCPAny, ""
+	switch best {
+	case "", MCPAny:
+		return MCPAny, ""
+	case MCPNever:
+		return MCPNever, by.who() + " keeps its data from every MCP server" + by.note()
+	case MCPOrg:
+		return MCPOrg, by.who() + " keeps its data from MCP servers outside it" + by.note()
+	}
+	return string(best), ""
 }

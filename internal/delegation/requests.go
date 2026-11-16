@@ -214,6 +214,9 @@ var (
 	// didn't say it approves it unseen.
 	ErrUnseenBody   = errors.New("this request carries a body that can't be shown as text: approving it means approving bytes nobody read — say so ({unseen: true}) or deny it")
 	ErrStandingKind = errors.New("a standing approval covers a tile's API or one MCP tool: a session start, a tile create or a web page is approved each time")
+	// ErrStandingEach: a call to an outside MCP server from a conversation
+	// that holds an org's data is approved each time (D240).
+	ErrStandingEach = errors.New("this conversation holds an organisation's data, so each call to an outside MCP server is approved on its own: once only")
 )
 
 // BodyHash is the hex SHA-256 a ticket binds a body by.
@@ -411,7 +414,12 @@ func (s *Store) DecideWith(user, id, grant, scope, via string, unseen bool) (Req
 			return *r, nil, ErrBadScope
 		}
 	case r.Kind == KindMCP && r.Tile != "" && tool != "":
-		// "always for this tool": that server and that tool, any arguments
+		// "always for this tool": that server and that tool, any arguments —
+		// but not from a conversation whose every call to an outside server
+		// asks (D240): what leaves the workspace then is approved call by call
+		if each, _ := r.Preview["each"].(bool); each {
+			return *r, nil, ErrStandingEach
+		}
 		if scope != "" && scope != ScopeTool {
 			return *r, nil, ErrBadScope
 		}

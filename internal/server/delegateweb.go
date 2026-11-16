@@ -143,6 +143,8 @@ type netReach struct {
 	Why   string   `json:"why,omitempty"`
 	Code  string   `json:"code,omitempty"`
 	Orgs  []string `json:"orgs,omitempty"`
+	// Listed (mcp): how many outside servers the conversation may use (D240)
+	Listed int `json:"listed,omitempty"`
 }
 
 // agentNetRules is what the broker answers about the org rules on the web
@@ -247,10 +249,26 @@ func (s *Server) mcpReach(p auth.Principal, h delegation.AgentSession) netReach 
 	if !s.Delegation.State(p.UserID).MCP {
 		return netReach{State: reachOff, Code: "mcp-person", Why: "Using MCP tools is off in your agent's settings — you can turn it on in Preferences"}
 	}
-	if s.mcpTilesNone() {
-		return netReach{State: reachOff, Code: "mcp-none", Why: "No tile of this workspace is an MCP server"}
+	if nr, ok := s.AgentWorld.(agentNetRules); ok {
+		for _, org := range h.Tainted {
+			if rule, reason := nr.AgentMCPIn(org); rule == agentpolicy.MCPNever {
+				return netReach{State: reachOff, Code: "mcp-org", Orgs: []string{org}, Why: orStr(reason, orgName(org)+" keeps its data from every MCP server") +
+					", and this conversation holds it — a new session that hasn't read it can use MCP tools"}
+			}
+		}
 	}
-	return netReach{State: reachAsks, Why: "Each tool asks you the first time"}
+	visible, listed := 0, 0
+	if pol.MCP.Mode == delegation.MCPListed {
+		visible, listed = len(s.mcpVisible(p.UserID)), s.mcpExtCount(p, h)
+	}
+	if s.mcpTilesNone() && visible == 0 {
+		why := "No tile of this workspace is an MCP server"
+		if pol.MCP.Mode == delegation.MCPListed {
+			why += ", and no outside server is listed for you"
+		}
+		return netReach{State: reachOff, Code: "mcp-none", Why: why}
+	}
+	return netReach{State: reachAsks, Why: "Each tool asks you the first time", Listed: listed}
 }
 
 // ---- the URL ----

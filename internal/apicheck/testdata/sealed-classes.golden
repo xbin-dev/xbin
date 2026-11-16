@@ -86,6 +86,7 @@ GET /delegate/audit	no-tile
 GET /delegate/changesets	no-tile
 GET /delegate/changesets/{id}	no-tile
 GET /delegate/map	no-tile
+GET /delegate/mcp/servers	no-tile
 GET /delegate/requests	no-tile
 GET /delegate/requests/{id}	no-tile
 GET /delegate/sessions/{id}	no-tile
@@ -223,6 +224,8 @@ POST /delegate/changesets/{id}/ask	no-tile
 POST /delegate/changesets/{id}/reject	no-tile
 POST /delegate/changesets/{id}/undo	no-tile
 POST /delegate/mcp/call	refused	body.server
+POST /delegate/mcp/test	no-tile
+POST /delegate/mcp/tools	no-tile
 POST /delegate/page/dismiss	no-tile
 POST /delegate/plans	no-tile
 POST /delegate/requests	no-tile
