@@ -310,7 +310,11 @@ extension E2E {
         if found.waitForExistence(timeout: timeout / 2) { return found }
         springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.003))
             .press(forDuration: 0.05, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
-        _ = found.waitForExistence(timeout: timeout / 2)
+        if found.waitForExistence(timeout: timeout / 4) { return found }
+        // one seen before sits under the list's fold: a drag up shows it
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
+            .press(forDuration: 0.05, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
+        _ = found.waitForExistence(timeout: timeout / 4)
         return found
     }
 

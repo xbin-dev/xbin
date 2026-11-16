@@ -1453,6 +1453,13 @@ section above hold for all of it):
   (`PushOpen`, the extension's opening rule in the app), the sweep on every
   foreground and refresh, the badge (`setBadgeCount`, the NSE's
   `content.badge`), `BGAppRefreshTask`.
+- **A notification's response** (`AppDelegate.userNotificationCenter(_:didReceive:withCompletionHandler:)`)
+  hands its completion back on the main thread (`MainThreadCompletion`):
+  for an action that leaves the app in the background UIKit snapshots the
+  app when it is called, and the `async` form of the method resumes off the
+  main thread — an uncaught exception after the action's effect, seen only
+  in the simulator's log. `XbinWorkspaceAgentNotifyTests` checks the app
+  still runs after Allow once, Deny and Reply.
 - **The router** is `SceneModel.openAgent(_:in:)` (a cold start's link waits
   in `AppModel.register`); the approval sheet says where a settled request
   was decided (`AgentNotifications.placeOf`, `AgentNoticeWords.decidedWhere`).
