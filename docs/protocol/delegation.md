@@ -826,8 +826,9 @@ and its items carry, beside a change set's:
   is that conversation's to follow (`out: {session}`; a creation's `out`
   is `{path}`).
 - Every line is held, when described and when applied, to the tile's
-  agent level (it must be `full`) and its orgs' agent rules, for the tiles
-  it changes.
+  agent level (a tile that is `off` takes no line; `read` and `full` are
+  about calls to its API, which a line is not) and its orgs' agent rules,
+  for the tiles it changes.
 - `beforeText` / `afterText` are `before` and `after` in xbind's words —
   what a review draws. `undoByHand` says what undoing takes when xbind
   can't: `…/undo` lists those in the new set's `byHand` (a created tile is

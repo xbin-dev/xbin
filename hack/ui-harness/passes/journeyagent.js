@@ -1,60 +1,60 @@
 // hack/ui-harness/passes/journeyagent.js — the owner's UX benchmark through
-// the workspace agent, as far as today's agent gets (plans/wsagent/
-// journey.md): the same start as journeymanual.js — a fresh install, the
-// host's LLM, the first login — then the first-run sheet (the account, the
-// vault and the agent turned on, in one: D237) and ONE prompt, "Make
-// a tool that rolls dice and give it to a new assistant I can chat with."
-// Every interaction is counted the same way (journey.js); every place the
-// agent stops and the person has to do something by hand is a "dead-end"
-// row, and what they then do is counted too.
+// the workspace agent (plans/wsagent/journey.md): the same start as
+// journeymanual.js — a fresh install, the host's LLM, the first login —
+// then the first-run sheet (the account, the vault and the agent turned
+// on, in one: D237), ONE prompt — "Make a tool that rolls dice and give it
+// to a new assistant I can chat with." — and ONE review: the agent
+// proposes the whole of it as a plan (D238), four lines in xbind's words.
+// Every interaction is counted the same way (journey.js); a place where
+// the agent stops and the person has to do something by hand would be a
+// "dead-end" row (there is none left).
 //
-// The model is scripted (hack/fakeopenai's "ws:" lines, with "wait" steps
-// for the approvals between them): the plan is the one a model reading the
-// agent's tool descriptions would make — look, create a tile, brief and
-// start its agent, create the assistant from the agent template, propose
-// the two bindings, check. The tile agent is the scripted ACP agent; told
-// the brief, it asks one permission (a real one asks several), and the
-// workspace agent's follow-up message has it copy the prepared source.
+// The model is scripted (hack/fakeopenai's "ws:" lines, with a "wait" step
+// for the review): the plan is the one a model reading the agent's prompt
+// and tools makes — look, read the templates (the mcp-server template's
+// example tool is roll_dice: nothing to build), plan_propose, wait, then
+// check the hook-up itself by reading the assistant's GET /tools.
 //
-// What today's agent can't do is what this pass finds: on this tree an
-// admin's agent can't create a tile at all (xbind refuses the approved call),
-// so the person makes both tiles by hand; the admin opt-in is off until they
-// find it in Preferences. The default coding agent is one the connector
-// serves (G8: Claude Code, first in the catalog, needs a sign-in nobody has
-// here), and the card names the ones that need no sign-in. The table
-// (out/journey-agent.md) has each. It asserts the
-// journey's end like the manual pass. Needs HARNESS_ISOLATE=1, `make sealed`.
+// What the review costs is what this pass counts: Review…, the opt-in for
+// admin changes offered on the review (the first time; the model's binding
+// is an admin's), the tick of the line with the SPEND warning, Apply, Done.
+// The person's own roll in the assistant comes after the agent's "done" and
+// is counted apart. Then, not counted, a second plan with a tile agent's
+// start (the scripted ACP agent): the start line as the single start's
+// sheet draws it, applied with no sign-in step. Screenshots of the review:
+// out/journey-shots/plan-*.png. Needs HARNESS_ISOLATE=1, `make sealed`.
 'use strict';
 const path = require('path');
 const { fs, checker, log } = require('../lib');
 const J0 = require('./journey');
 
 const DOCK = 'bx-agent-dock';
-const SHEET = `${DOCK} bx-agent-approve`;
 const DLG = 'bx-agent-changes';
 const TA = 'bx-chat-composer textarea';
 const ASSISTANT = 'apps/assistant';
 const PERSON = { id: 'ada', name: 'Ada Admin', password: require('crypto').randomBytes(12).toString('base64url') }; // (made per run, never logged)
 
-const BRIEF = { tile: J0.DICE, goal: 'Turn this tile into an MCP server with one tool, roll_dice (sides, count), served as streamable HTTP at /mcp, and declare it in xbin.json as provides.mcp (kind http, service mcp, role reader).',
-  done_when: 'POST /mcp tools/list names roll_dice and tools/call roll_dice returns a roll.', check_by: 'Call tools/list and tools/call against the tile\'s own API.' };
-const BINDINGS = { title: 'Connect the assistant to a model and to the dice tool', changes: [
-  { kind: 'binding.set', args: { component: ASSISTANT, slot: 'llm', providers: ['xbin:llm'] }, why: 'The assistant needs a language model' },
-  { kind: 'binding.set', args: { component: ASSISTANT, slot: 'mcp', providers: [J0.DICE] }, why: 'Give the assistant the dice tool' }] };
 const ws = (words, steps) => `${words}\nws: ${steps.join(' ;; ')}`;
 const j = (name, args) => `${name} ${JSON.stringify(args)}`;
-// the one prompt, and the plan a model makes of it
+// the one prompt, and the plan a model makes of it: it looks, reads the
+// templates (the mcp-server template's example tool IS roll_dice: nothing
+// to build), proposes ONE plan — the tool tile, the assistant, its two
+// slots — waits for the person's review, then checks the hook-up itself:
+// the assistant's own /tools (a read)
 const SAY1 = 'Make a tool that rolls dice and give it to a new assistant I can chat with.';
-const PROMPT1 = ws(SAY1, ['workspace_map', j('docs_search', { query: 'build an MCP server tile for an agent' }), 'tile_create',
-  j('tile_create', { template: 'starter', name: 'Dice', why: 'A new tile to hold the dice tool' }), 'wait request']);
-// …what the person has to say after making the tiles by hand
-const SAY2 = 'I made apps/dice and apps/assistant by hand. Go on.';
-const PROMPT2 = ws(SAY2, [j('tile_agent_brief', BRIEF), j('tile_agent_start', { brief: 1 }), 'wait ended its turn',
-  j('tile_agent_message', { agent: '#1', text: J0.BUILD }), 'wait ended its turn', j('tile_agent_result', { agent: '#1' }), j('admin_propose', BINDINGS)]);
-// …and after finding the opt-in
-const SAY3 = 'I turned that on. Try again.';
-const PROMPT3 = ws(SAY3, [j('admin_propose', BINDINGS), 'wait applied', j('tile_api_doc', { tile: ASSISTANT }), j('tile_call', { tile: J0.DICE, method: 'GET', path: '/roll' }),
-  j('tile_call', { tile: J0.DICE, method: 'POST', path: '/mcp', body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}', dry_run: true })]);
+const PLAN = { title: 'A dice tool and an assistant that can use it', changes: [
+  { kind: 'tile.create', args: { template: 'mcp-server', name: 'Dice' }, why: 'The dice tool: the MCP server template ships roll_dice' },
+  { kind: 'tile.create', args: { template: 'agent', name: 'Assistant' }, why: 'The assistant you will chat with' },
+  { kind: 'binding.set', args: { component: 'Assistant', slot: 'llm', provider: 'xbin:llm' }, why: 'The assistant needs a language model to answer at all' },
+  { kind: 'binding.set', args: { component: 'Assistant', slot: 'mcp', provider: 'Dice' }, why: 'This is what gives the assistant the dice tool' }] };
+const PROMPT1 = ws(SAY1, ['workspace_map', 'tile_create', j('plan_propose', PLAN), 'wait your person decided',
+  j('tile_status', { tile: ASSISTANT }), j('tile_call', { tile: ASSISTANT, method: 'GET', path: '/tools' })]);
+// afterwards, not counted: a plan with a tile agent's start, through the same review
+const SAY2 = 'Have Dice\'s own agent add a "count" argument to roll_dice. Use the test agent.';
+const START = { title: 'A count argument for roll_dice', changes: [
+  { kind: 'agent.start', args: { tile: J0.DICE, harness: 'fake', goal: 'roll_dice takes a count (1 to 20) and rolls that many dice.', done_when: 'tools/call roll_dice {"sides":6,"count":3} returns three rolls and their sum.',
+    leave_alone: 'the manifest\'s provides' }, why: 'A coding agent changes the tool' }] };
+const PROMPT2 = ws(SAY2, [j('plan_propose', START), 'wait started tile agent']);
 
 async function journeyAgent(browser) {
   const { check, skip, done } = checker('journey-agent');
@@ -91,86 +91,66 @@ async function journeyAgent(browser) {
     const say = async (what, text) => { await J.field(`the agent: ${what}`, () => f.fill(TA, text)); await J.key('the agent: Enter', () => f.press(TA, 'Enter')); };
     // the scripted model's "Done: …" after the person's message `after`
     const doneAfter = async (after, timeout = 120000) => { const h = await f.waitForFunction((a) => { const m = /Done: [^\n]*/.exec(document.querySelector('.wsp-main').innerText.split(a).pop()); return m ? m[0] : null; }, after, { timeout, polling: 250 }); return h.jsonValue(); };
-    const allow = async (what) => { // the page's Review… → xbin's sheet → its Allow (armed a moment after it shows)
-      await J.click(`${what}: "Review…" on the request's card`, async () => { await f.locator('.wsc-req[data-state="pending"] button.primary').last().click(); await page.waitForSelector(`${SHEET} [role="dialog"]`, { timeout: 20000 }); });
-      const sheet = (await page.locator(`${SHEET} [role="dialog"]`).innerText()).replace(/\s+/g, ' ');
-      await J.click(`${what}: the sheet's Allow`, async () => { await page.click(`${SHEET} button[data-allow][aria-disabled="false"]`, { timeout: 20000 }); await page.waitForSelector(`${SHEET} [role="dialog"]`, { state: 'detached', timeout: 20000 }); });
-      return sheet;
-    };
+    const dlg = () => page.locator(`${DLG} [role="dialog"]`).innerText().then((t) => t.replace(/\s+/g, ' '));
+    const ticksOf = () => page.$$eval(`${DLG} .item`, (els) => els.map((e) => `${e.dataset.n}${e.querySelector('input').checked ? '+' : '-'}`).join(' '));
+    const planShot = (name) => page.screenshot({ path: path.join(J0.SHOTS, `plan-${name}.png`) }).catch(() => {});
 
     J.section('the one prompt');
     await say(`the prompt ("${SAY1}")`, PROMPT1);
-    await J.wait('the agent looked, and asks to create the tile', () => f.waitForSelector('.wsc-req[data-state="pending"]', { timeout: 120000 }));
-    const sheet1 = await allow('create the dice tile');
-    check(/Your agent wants to create a tile/.test(sheet1) && /Owner you/.test(sheet1), `xbin's sheet for the creation says the tile will be the person's (${sheet1.slice(0, 120)})`);
-    const told1 = await J.wait('the approved creation runs', () => doneAfter(SAY1));
-    const failed = ((await main()).match(/it failed[\s\S]{0,200}/) || [''])[0].replace(/\s+/g, ' ');
-    const made = fs.existsSync(path.join(X.ws, J0.DICE));
-    check(/workspace-admin action/.test(failed) && !made, `DEAD END: the creation the person approved fails for an admin — xbind's dry run had said it would be allowed (${failed.slice(0, 160)})`);
-    log(`journeyAgent: the first turn told the model: ${told1.slice(0, 700)}`);
-    J.deadEnd('tile_create fails for an admin\'s agent: the approved POST /templates/new is refused ("creating workspace-owned tiles is a workspace-admin action") — a delegate call is never an admin\'s, and an admin\'s new tile defaults to the workspace\'s. The sheet had said "Owner: you". The person makes both tiles by hand');
+    await J.wait('the agent looked and proposes one plan', () => f.waitForSelector('.wsc-req[data-kind="changeset"]', { timeout: 120000 }));
+    const filed = await call('GET', '/delegate/requests');
+    check(((filed.data && filed.data.requests) || []).length === 0, 'one plan, and not one single request: nothing else waits for approval');
 
-    J.section('by hand: the two tiles');
-    await J0.makeTile(J, page, 'Dice');
-    J0.plant(X.ws); // (out of band: the scripted coding agent and the source a real one would write)
-    await J0.makeFromTemplate(J, page, 'AI Agent', ASSISTANT);
-
-    J.section('the tile agent');
-    f = await frame();
-    await say(`"${SAY2}"`, PROMPT2);
-    await J.wait('the brief, and a request to start the tile agent', () => f.waitForSelector('.wsc-req[data-state="pending"]', { timeout: 120000 }));
-    const picked = (await main()).match(/(Claude Code|Codex|Gemini CLI|OpenCode|Fake agent \(tests\)) · asks before acting/);
-    check(!!picked && picked[1] !== 'Claude Code' && picked[1] !== 'Gemini CLI', `the start is filed for the default coding agent, ${picked && picked[1]}: one the workspace connector serves (G8), not Claude Code, which nobody is signed in to`);
-    const names = await f.locator('.wsp-main select').last().locator('option').allInnerTexts().catch(() => []);
-    check(names.some((n) => /— no sign-in$/.test(n)) && !names.some((n) => /^Claude Code — no sign-in/.test(n)), `the card names the coding agents that run with no sign-in (${names.join(', ')})`);
-    await J.field('the brief\'s card: the coding agent', async () => { await f.locator('.wsp-main select').last().selectOption('fake'); await f.waitForFunction(() => /Fake agent \(tests\) · asks before acting/.test(document.querySelector('.wsp-main').innerText), null, { timeout: 20000 }); },
-      { note: 'the scripted agent stands in for the default (the connector-served one, G8): a real run keeps the default and skips this pick' });
-    await page.waitForFunction(async () => { const r = await fetch('/api/xbin/delegate/requests'); const p = ((await r.json()).requests || []).filter((x) => x.state === 'pending'); return p.length === 1 && !!p[0].preview && !!p[0].preview.session && p[0].preview.session.provider === 'fake'; }, null, { timeout: 20000, polling: 300 });
-    const sheet2 = await allow('start the tile agent');
-    check(/Start a tile agent in Dice\?/.test(sheet2) && /ASKS BEFORE ACTING/i.test(sheet2) && sheet2.includes(BRIEF.done_when), 'xbin\'s sheet for the start: the mode, the coding agent, the brief as sent');
-    await J.wait('the tile agent asks its first permission', () => f.waitForSelector('button.wsc-open:has-text("Answer")', { timeout: 120000 }));
-    const TILE = `bx-frame[src="${J0.DICE}"]`;
-    await J.click('the tile agent\'s card: "Answer" (opens the tile\'s window on its session)', async () => { await f.locator('button.wsc-open', { hasText: 'Answer' }).click(); await page.waitForSelector(`${TILE} bx-agent button[data-kind="allow_once"]`, { timeout: 30000 }); });
-    await J.click('the tile agent\'s permission: "Allow once"', () => page.locator(`${TILE} bx-agent button[data-kind="allow_once"]`).click());
-    J.hand(2, 'a real coding agent asks more than once (edits, then commands): about two more permission clicks, each in the tile\'s window');
-    const refused = await J.wait('the tile agent builds; the agent reads its result and proposes the bindings', () => doneAfter(SAY2, 180000), 'scripted: under a minute. A real coding agent: one to three minutes');
-    const tools = await J0.servesDice(ctx, X);
-    check(tools.ok, `the tile agent built the MCP server: tools/list names roll_dice (${tools.status})`);
-    check(/hasn't turned on "Let my agent propose admin changes"/.test(refused), `DEAD END: binding is an admin change, and the opt-in is off (${refused.slice(-200)})`);
-    J.deadEnd('admin_propose is refused until the person turns on "Let my agent propose admin changes": the agent can only say so, and the switch is two menus away in the dock');
-
-    J.section('the admin opt-in');
-    await J.click('the dock\'s menu', () => page.click(`${DOCK} [data-menu]`));
-    await J.click('the menu: "Preferences"', async () => { await page.click(`${DOCK} [data-view="prefs"]`); await page.waitForSelector(`${DOCK} bx-agent-prefs [data-admin-changes][aria-disabled="false"]`, { timeout: 20000 }); });
-    await J.click('Preferences: "Let my agent propose admin changes"', async () => { await page.click(`${DOCK} bx-agent-prefs [data-admin-changes]`); await page.waitForFunction(async () => (await (await fetch('/api/xbin/delegate/state')).json()).adminChanges === true, null, { timeout: 20000, polling: 300 }); });
-    await J.click('Preferences: back to the conversation', () => page.click(`${DOCK} bx-agent-prefs [data-back]`));
-
-    J.section('the bindings');
-    f = await frame();
-    await say(`"${SAY3}"`, PROMPT3);
-    await J.wait('the proposed admin changes', () => f.waitForSelector('.wsc-req[data-kind="changeset"]', { timeout: 120000 }));
-    await J.click('the change set\'s card: "Review…"', async () => { await f.locator('.wsc-req[data-kind="changeset"] button.primary').last().click(); await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"]`, { timeout: 20000 }); });
-    const review = (await page.locator(`${DLG} [role="dialog"]`).innerText()).replace(/\s+/g, ' ');
-    const ticks = await page.$$eval(`${DLG} .item`, (els) => els.map((e) => `${e.dataset.n}${e.querySelector('input').checked ? '+' : '-'}`));
-    check(/Your agent proposes 2 admin changes/.test(review) && ticks.join(' ') === '1- 2+', `xbin's review: two bindings, the model's one unticked under its SPEND warning (${ticks.join(' ')})`);
-    if (/\[object Object\]/.test(review)) log('journeyAgent: the review draws a binding\'s before and after as "[object Object]" (web/bx-agent-changes.js)');
-    await J.click('the review: tick the llm binding (it starts unticked: it spends the workspace\'s quota)', () => page.check(`${DLG} .item[data-n="1"] input`));
-    await J.click('the review: "Apply 2 changes…"', async () => { await page.click(`${DLG} button[data-apply][aria-disabled="false"]`, { timeout: 20000 }); await page.waitForSelector(`${DLG} [role="dialog"]:is([data-view="results"], [data-view="stepup"])`, { timeout: 30000 }); });
+    J.section('the one review');
+    await J.click('the plan\'s card: "Review…"', async () => { await f.locator('.wsc-req[data-kind="changeset"] button.primary').last().click(); await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"]`, { timeout: 20000 }); });
+    const review = await dlg();
+    const lines = await page.$$eval(`${DLG} .item .line > span:first-child`, (els) => els.map((e) => e.textContent.trim()));
+    check(/xbin · plan/i.test(review) && /Your agent proposes 4 changes/.test(review) && lines[0] === `Create the tile ${J0.DICE} from the template MCP server (mcp-server) — yours`
+      && lines[1] === `Create the tile ${ASSISTANT} from the template AI Agent (agent) — yours` && lines[2] === `Bind ${ASSISTANT}'s llm to xbin:llm` && lines[3] === `Bind ${ASSISTANT}'s mcp to ${J0.DICE}`,
+    `xbin's review of the plan: four lines in xbind's words (${JSON.stringify(lines)})`);
+    check(!/\[object Object\]/.test(review) && /Before not bound/i.test(review) && /After apps\/dice/i.test(review), 'a binding\'s before and after are drawn in words (G11)');
+    check((await ticksOf()) === '1+ 2+ 3- 4+', `the lines that are the person's own start ticked; the model's — an admin's, with its SPEND warning — doesn't (${await ticksOf()})`);
+    const notes = await page.$$eval(`${DLG} .item`, (els) => els.map((e) => `${(e.querySelector('[data-admin]') || { dataset: {} }).dataset.admin || '-'}|${(e.querySelector('[data-needs]') || {}).textContent || ''}`));
+    check(/^-\|Needed by line 4/.test(notes[0]) && /^-\|Needed by line 3 and 4/.test(notes[1]) && /^admin\|Needs line 2/.test(notes[2]) && /^-\|Needs line 1 and 2/.test(notes[3]),
+      `each line says which lines it needs and which need it; the admin's is marked (${JSON.stringify(notes)})`);
+    check(await page.$eval(`${DLG} .item[data-n="3"] input`, (e) => e.disabled) && !!(await page.$(`${DLG} [data-optin]`)) && /This plan has 1 admin change\. Let my agent propose admin changes\?/.test(review),
+      'the admin line can\'t be ticked yet: the review itself offers "Let my agent propose admin changes" (no trip to Preferences)');
+    await planShot('review');
+    // unticking a line unticks the lines that need it (and ticking them back is the person's)
+    await page.uncheck(`${DLG} .item[data-n="1"] input`);
+    check((await ticksOf()) === '1- 2+ 3- 4-', `unticking the dice tile unticks the binding that needs it (${await ticksOf()})`);
+    await page.check(`${DLG} .item[data-n="1"] input`); await page.check(`${DLG} .item[data-n="4"] input`);
+    await J.click('the review: "Let my agent propose admin changes" (offered here the first time)', async () => {
+      await page.waitForSelector(`${DLG} [data-optin] input[aria-disabled="false"]`, { timeout: 20000 });
+      await page.click(`${DLG} [data-optin] input`);
+      await page.waitForFunction(async () => (await (await fetch('/api/xbin/delegate/state')).json()).adminChanges === true, null, { timeout: 20000, polling: 300 });
+      await page.waitForSelector(`${DLG} .item[data-n="3"] input:not([disabled])`, { timeout: 20000 });
+    });
+    check((await ticksOf()) === '1+ 2+ 3- 4+' && !(await page.$(`${DLG} [data-optin]`)), 'the opt-in ticks nothing by itself');
+    await J.click('the review: tick the llm binding (it starts unticked: it spends the workspace\'s quota)', () => page.check(`${DLG} .item[data-n="3"] input`));
+    await planShot('review-ticked');
+    await J.click('the review: "Apply 4 changes…"', async () => { await page.click(`${DLG} button[data-apply][aria-disabled="false"]`, { timeout: 20000 }); await page.waitForSelector(`${DLG} [role="dialog"]:is([data-view="results"], [data-view="stepup"])`, { timeout: 180000 }); });
     const stepUp = (await page.getAttribute(`${DLG} [role="dialog"]`, 'data-view')) === 'stepup';
     if (stepUp) { // (a sign-in older than ten minutes: a scripted run never is)
       await J.field('the review: the password (a recent sign-in)', () => page.fill(`${DLG} #pw`, PERSON.password));
-      await J.click('the review: apply', async () => { await page.click(`${DLG} button[data-apply][aria-disabled="false"]`); await page.waitForSelector(`${DLG} [role="dialog"][data-view="results"]`, { timeout: 30000 }); });
-    } else J.hand(2, 'applying asks for the password when the sign-in is older than ten minutes — it is, once a real coding agent has built the tile: one field and one click');
+      await J.click('the review: apply', async () => { await page.click(`${DLG} button[data-apply][aria-disabled="false"]`); await page.waitForSelector(`${DLG} [role="dialog"][data-view="results"]`, { timeout: 180000 }); });
+    } else J.hand(2, 'applying an admin\'s line asks for the password when the sign-in is older than ten minutes: one field and one click (a plan of personal lines never asks)');
+    const results = await page.$$eval(`${DLG} .item [data-result]`, (els) => els.map((e) => e.dataset.result).join(' '));
+    check(results === 'applied applied applied applied' && /All 4 changes applied/.test(await dlg()), `the plan applied in order (${results})`);
+    await planShot('results');
     await J.click('the results: "Done"', () => page.click(`${DLG} button[data-done]`));
     const b = ((await call('GET', '/bindings')).data || {}).bindings || {};
-    check(!!b[ASSISTANT] && String(b[ASSISTANT].llm) === 'xbin:llm' && String(b[ASSISTANT].mcp) === J0.DICE, `the change set bound the assistant's slots: ${JSON.stringify(b[ASSISTANT])}`);
-    const end = await J.wait('the agent goes on and reports', () => doneAfter(SAY3));
-    log(`journeyAgent: the last turn told the model: ${end.slice(0, 900)}`);
-    check(/GET \/roll → 200/.test(end), 'the agent read the dice tile\'s GET /roll itself (a read: nobody is asked)');
-    check(/must allow it first/.test(end), 'DEAD END: it can\'t check the tool the way the assistant will use it without another approval — MCP is POST, and every POST is a change to xbin');
-    J.deadEnd('the agent can\'t verify the hook-up: tools/list and tools/call are POSTs (an approval each), and asking the assistant is a POST too. It reports the bindings as applied; whether the assistant can roll is the person\'s to try');
+    const owners = (((await call('GET', '/components')).data || {}).components || []).filter((c) => [J0.DICE, ASSISTANT].includes(c.path)).map((c) => `${c.path}:${c.owner || ''}`).join(' ');
+    check(!!b[ASSISTANT] && String(b[ASSISTANT].llm) === 'xbin:llm' && String(b[ASSISTANT].mcp) === J0.DICE, `the plan made the tiles and bound the assistant's slots: ${JSON.stringify(b[ASSISTANT])} (${owners})`);
+    const end = await J.wait('the agent goes on by itself: it checks the hook-up and reports', () => doneAfter(SAY1, 300000), 'scripted. A real model: a few seconds a turn; the assistant\'s backend builds first (about a minute on a cold cache)');
+    log(`journeyAgent: the turn told the model: ${end.slice(0, 900)}`);
+    const tools = await call('GET', `/../${ASSISTANT}/tools`).catch(() => ({ status: 0 }));
+    const listed = /roll_dice/.test(await main()) || /roll_dice/.test(JSON.stringify(tools.data || ''));
+    check(/GET \/tools → 200/.test(end) && listed, `the agent verified the hook-up itself, with no further approval: the assistant's GET /tools lists roll_dice (${end.slice(-160)})`);
+    const done1 = J.totals();
+    check(done1.deadEnds === 0, `from the login URL to the agent's "done": ${done1.interactions} interactions, one prompt, one review, no dead end`);
 
-    J.section('the chat');
+    J.section('the chat (the person\'s own try: no longer part of "done")');
     await J.click('top bar: the workspace agent chip (closes the dock: it covers the tile)', () => page.locator('button.chip.agent').click());
     await J0.openFromSidebar(J, page, ASSISTANT);
     const pop = page.locator(`.pqpop[data-prompts-for="${ASSISTANT}"]`);
@@ -181,8 +161,31 @@ async function journeyAgent(browser) {
     check(J0.ROLLED.test(said) && /roll_dice · apps\/dice/.test(body), `the journey's end: the assistant called roll_dice on ${J0.DICE} and the answer shows the roll (${said})`);
 
     const t = J.write();
-    check(t.interactions > 0, `the workspace agent's journey: ${t.interactions} interactions (${t.nav} navigation, ${t.click} clicks, ${t.field} fields, ${t.key} keys), +${t.hand} by hand, ${t.know} things to know, ${t.deadEnds} dead ends, 3 prompts where the benchmark wants 1`);
-    log(`journeyAgent: ${JSON.stringify(t)}`);
+    check(t.interactions > 0 && t.deadEnds === 0, `the workspace agent's journey: ${t.interactions} interactions (${t.nav} navigation, ${t.click} clicks, ${t.field} fields, ${t.key} keys), +${t.hand} by hand, ${t.know} things to know, ${t.deadEnds} dead ends, 1 prompt, 1 review — ${done1.interactions} to the agent's "done"`);
+    log(`journeyAgent: ${JSON.stringify({ ...t, toDone: done1.interactions })}`);
+
+    // ---- not counted: a tile agent's start is a line of a plan too, drawn as the single start's sheet draws it ----
+    J0.plant(X.ws); // (out of band: the scripted coding agent, inside the dice tile)
+    await page.locator('button.chip.agent').click();
+    f = await frame();
+    await f.fill(TA, PROMPT2); await f.press(TA, 'Enter');
+    await f.waitForFunction(() => document.querySelectorAll('.wsc-req[data-kind="changeset"][data-state="proposed"], .wsc-req[data-kind="changeset"] button.primary').length > 0 && /A count argument|a plan of 1 change/.test(document.querySelector('.wsp-main').innerText), null, { timeout: 120000 });
+    await f.locator('.wsc-req[data-kind="changeset"] button.primary').last().click();
+    await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"] .item[data-kind="agent.start"] [data-start]`, { timeout: 20000 });
+    const sr = await dlg();
+    check(/Start a tile agent in apps\/dice — Fake agent \(tests\), in its mode/.test(sr) && /ASKS BEFORE ACTING/i.test(sr) && /Coding agent Fake agent \(tests\)/.test(sr) && sr.includes(START.changes[0].args.done_when) && /sent exactly like this/.test(sr)
+      && (await ticksOf()) === '1+' && !(await page.$(`${DLG} [data-optin]`)),
+    `a start as a plan's line: the coding agent, the mode xbind vouches for, the brief as sent — a personal line, ticked, no opt-in asked (${sr.slice(0, 200)})`);
+    await planShot('start');
+    await page.click(`${DLG} button[data-apply][aria-disabled="false"]`, { timeout: 20000 });
+    await page.waitForSelector(`${DLG} [role="dialog"][data-view="results"]`, { timeout: 120000 });
+    check((await page.getAttribute(`${DLG} .item [data-result]`, 'data-result')) === 'applied', `the start applied with no sign-in step: a plan of personal lines asks for none (${(await dlg()).slice(0, 160)})`);
+    await planShot('start-results');
+    await page.click(`${DLG} button[data-done]`);
+    const sess = [].concat((await call('GET', '/term/sessions?origin=agent&compact=1')).data || []).filter((x) => x && x.cwd === J0.DICE);
+    check(sess.length === 1 && sess[0].provider === 'fake', `the tile agent runs in ${J0.DICE}, started by the plan (${JSON.stringify(sess.map((x) => `${x.provider}:${x.status}`))})`);
+    await f.waitForFunction(() => /tile agent #1|Fake agent/.test(document.querySelector('.wsp-main').innerText), null, { timeout: 60000 }).catch(() => {});
+    check(/started tile agent #1 in apps\/dice/.test(await doneAfter(SAY2, 120000).catch(() => '')) || /Fake agent/.test(await main()), 'the conversation follows the tile agent its plan started');
   } finally {
     if (ctx) await ctx.close().catch(() => {});
     await X.stop();

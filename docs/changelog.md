@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- workspace agent's chrome (web): **a plan is reviewed once.** The
+  change-set dialog draws a plan's lines — a tile's creation, a tile
+  agent's start with its coding agent, mode and the brief "sent exactly
+  like this", bindings — with what each line needs and what needs it
+  (unticking a line unticks those). An admin's line is marked; an admin
+  who has not let their agent propose admin changes is offered that switch
+  on the review (no trip to Preferences), and anyone else sees "needs an
+  admin" with **Ask an admin**. An admin sees such a request in Needs you
+  as "<person> asks for N admin changes". A line of a kind the page
+  doesn't know is shown and can't be ticked. New module
+  `/vendor/agent-plan-words.js` ([frontend-kit.md](/docs/frontend-kit.md));
+  an admin change set proposed the old way looks as it did, except that
+  its effects are separated by " · ".
 - workspace agent (the agent template's workspace mode), SDK: **`plan_propose`
   — one proposal for several steps.** The agent proposes "create these
   tiles, bind these slots, start this tile agent" as one plan

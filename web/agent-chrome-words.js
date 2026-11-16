@@ -355,7 +355,8 @@ export const STANDING_NOTE = 'Starting a tile agent and creating a tile are aske
 
 // ---- change sets -------------------------------------------------------------------------
 
-const KIND_TAG = { 'grant.add': 'grant', 'grant.revoke': 'grant', 'binding.set': 'binding', 'binding.remove': 'binding', 'org.share': 'org share', 'limits.set': 'limit' };
+const KIND_TAG = { 'grant.add': 'grant', 'grant.revoke': 'grant', 'binding.set': 'binding', 'binding.remove': 'binding', 'org.share': 'org share', 'limits.set': 'limit',
+  'tile.create': 'new tile', 'agent.start': 'tile agent' };
 /** kindTag(kind): "grant" · "binding" · "org share" · "limit". */
 export const kindTag = (kind) => KIND_TAG[kind] || String(kind || '').split('.')[0];
 
@@ -423,17 +424,21 @@ export function reviewWords(cs, ticked) {
 export function needChangeTitle(cs) {
   const items = (cs && cs.items) || [];
   const w = items.filter((it) => it.warnings && it.warnings.length).length, b = items.filter((it) => it.blocked).length;
-  return { title: `${plural(items.length, 'admin change')} proposed`, note: [w ? `${w} ${w === 1 ? 'has' : 'have'} a warning` : '', b ? `${b} can't be applied` : ''].filter(Boolean).join(' · ') };
+  const na = items.filter((it) => it.needsAdmin && !it.result).length;
+  // a plan (docs/protocol/delegation.md §Plans), or another person's request to an admin, says which it is
+  const title = cs && cs.from ? `${cs.from} asks for ${plural(items.length, 'admin change')}` : cs && cs.plan ? `A plan of ${plural(items.length, 'change')}` : `${plural(items.length, 'admin change')} proposed`;
+  return { title, note: [w ? `${w} ${w === 1 ? 'has' : 'have'} a warning` : '', b ? `${b} can't be applied` : '', na ? `${na} ${na === 1 ? 'needs' : 'need'} an admin` : ''].filter(Boolean).join(' · ') };
 }
 
 const RESULT = {
   applied: { word: 'applied', icon: 'ok', tone: 'ok' }, failed: { word: 'failed', icon: 'error', tone: 'bad' }, skipped: { word: 'skipped', icon: 'minus', tone: '' },
   stale: { word: 'out of date', icon: 'refresh', tone: 'warn', text: 'Someone changed this after the agent proposed it. What you ticked no longer matches, so xbin left it alone.' },
   rejected: { word: 'left out by you', icon: 'minus', tone: '' }, blocked: { word: "couldn't be applied", icon: 'lock', tone: 'warn' },
+  asked: { word: 'sent to an admin', icon: 'clock', tone: '' },
 };
 /** resultOf(item): an item's result as {word, icon, tone, text} ("xbin said: …" for a failure). */
 export function resultOf(item) {
-  const r = RESULT[item.result] || { word: item.result || '', icon: '', tone: '' };
+  const r = RESULT[item.result] || (item.needsAdmin && !item.result ? { word: 'needs an admin', icon: 'lock', tone: '' } : { word: item.result || '', icon: '', tone: '' });
   const text = item.result === 'failed' ? `xbin said: “${item.error || 'it failed'}”` : item.result === 'blocked' ? String(item.blocked || item.error || '') : r.text || '';
   return { ...r, text };
 }

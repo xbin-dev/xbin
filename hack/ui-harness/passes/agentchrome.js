@@ -47,6 +47,7 @@
 const { URL, login, closeCtx, shot, checker, log, openShell, usePersonalScreen, openTile, closeTile, sh, settle, fr, waitFor, waitSel } = require('../lib');
 const R = require('./wsagentpage'); // the real holder's plumbing: the scripted model, the note tile, the page's frame
 const { sheetChecks } = require('./agentchrome-sheets');
+const { planChecks } = require('./agentchrome-plan');
 
 const NOW = Date.now();
 const iso = (ms) => new Date(NOW + ms).toISOString();
@@ -113,7 +114,14 @@ async function fakeDelegation(ctx) {
       if (seg.length === 2) return json(route, c);
       if (seg[2] === 'reject') { c.state = 'rejected'; return json(route, c); }
       if (seg[2] === 'undo') { const u = { ...changeSet(`u${++S.n}`), title: '', undoOf: c.id, items: c.items.filter((it) => it.result === 'applied').map((it, i) => ({ n: i + 1, kind: it.kind, args: {}, line: `Undo: ${it.line}`, before: it.after, after: it.before })) }; S.changesets.push(u); return json(route, u); }
+      if (seg[2] === 'ask') { for (const it of c.items) if (it.needsAdmin && !it.result) it.result = 'asked'; return json(route, c); }
       if (S.refuse) return json(route, { error: 'the agent is stopped', refusal: S.refuse }, 409);
+      if (c.plan) { // a plan (agentchrome-plan.js): an admin's line needs the opt-in; a line that needs an admin is never the person's to apply
+        if (!c.from && !S.state.adminChanges && body.items.some((n) => c.items[n - 1].admin)) return json(route, { error: 'this plan has admin changes', optIn: true }, 403);
+        for (const it of c.items) if (!it.needsAdmin && it.result !== 'asked') it.result = it.blocked ? 'blocked' : body.items.includes(it.n) ? 'applied' : 'rejected';
+        c.state = 'applied';
+        return json(route, c);
+      }
       if (S.stepUp && !(S.stepUp === 'password' && body.password === 'right')) return json(route, { error: body.password ? 'wrong password' : 'a recent sign-in is needed', stepUp: S.stepUp }, 403);
       // apply: item 1 applies, a later binding fails, what follows is skipped; the rest is left out
       let failed = false;
@@ -324,6 +332,8 @@ async function agentChrome(browser) {
 
     // ---- the sheets' own rules: stopped, hidden characters, a long body, an unknown state (agentchrome-sheets.js) ----
     await sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot, width, tag, iso, callReq, changeSet, SHEET, DLG });
+    // ---- a plan's review: lines and the lines they need, the opt-in on the review, a start, "needs an admin" (agentchrome-plan.js) ----
+    await planChecks({ page, S, check, refresh, sentTo, armed, text: (sel) => text(sel), shot, width, tag, iso, DLG });
 
     // ---- Approvals, What my agent did, Preferences ----
     await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));

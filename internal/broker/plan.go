@@ -353,21 +353,21 @@ func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePre
 }
 
 // AgentLineAllows is why a plan's line may not act ON tile for user's agent
-// holder (nil: it may): the tile's own "agent" level must be full — a line
-// changes something — and the policy ceiling and the tile's orgs' agent
-// rules must let the agent in, on the model its conversation is on. What
-// the person may do there is the line's own check; this is what their
-// agent may.
+// holder (nil: it may): a tile whose "agent" level is off takes nothing
+// from a person's agent — no line about it either — and the policy ceiling
+// and the tile's orgs' agent rules must let the agent in, on the model its
+// conversation is on. "read" and "full" are about calls to the tile's own
+// API (GET only, or all the person's level allows): a line is no call to
+// the tile — it is the person's own change to it, written by xbind and
+// applied by them — so both let it be proposed. What the person may do
+// there is the line's own check; this is what their agent may.
 func (b *Broker) AgentLineAllows(holder, user, model, tile string) error {
 	c, ok := b.Reg.Component(tile)
 	if !ok {
 		return nil // nothing there: the line's own check says so
 	}
-	switch inForce, _ := b.agentLevel(c); inForce {
-	case registry.AgentOff:
+	if inForce, _ := b.agentLevel(c); inForce == registry.AgentOff {
 		return fmt.Errorf("%s doesn't let a person's agent use it (its agent level is \"off\")", tile)
-	case registry.AgentRead:
-		return fmt.Errorf("%s lets a person's agent read only (its agent level is \"read\")", tile)
 	}
 	if msg := b.ceilingBlockMsg(holder, tile); msg != "" {
 		return fmt.Errorf("%s's agent can't change %s: %s", user, tile, msg)

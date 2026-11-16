@@ -59,9 +59,9 @@ type PlanPreviewer interface {
 	PreviewPlanned(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile) (delegation.ChangePreview, error)
 }
 
-// AgentLineChecker answers whether a person's agent may change a tile at
-// all (the broker's AgentLineAllows: the tile's agent level, the ceiling,
-// its orgs' rules).
+// AgentLineChecker answers whether a person's agent may propose a change
+// to a tile at all (the broker's AgentLineAllows: a tile whose agent level
+// is off, the ceiling, its orgs' rules).
 type AgentLineChecker interface {
 	AgentLineAllows(holder, user, model, tile string) error
 }

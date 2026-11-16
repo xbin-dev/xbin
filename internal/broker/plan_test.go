@@ -376,6 +376,12 @@ func TestPlanLinesFollowTheAgentRules(t *testing.T) {
 	if !strings.Contains(cs.Items[0].Blocked, `agent level is "off"`) {
 		t.Fatalf("a line on a tile that turns agents away: %+v", cs.Items[0])
 	}
+	// "read" is about calls to the tile's API: a line is no call, and is the person's own change
+	w.write(map[string]string{"apps/pu/xbin.json": `{"runtime":"go","partition":["user"],"agent":"read"}`})
+	w.rescan()
+	if cs = w.plan(t, "bob", `[{"kind":"org.share","args":{"org":"fin","tile":"apps/pu","level":"read"}}]`); cs.Items[0].Blocked != "" {
+		t.Fatalf("a line on a tile whose agent level is read: %+v", cs.Items[0])
+	}
 	// an org's rule that arrives between the proposal and the approval
 	cs = w.plan(t, "bob", `[{"kind":"org.share","args":{"org":"fin","tile":"apps/pg","level":"read"}}]`)
 	if cs.Items[0].Blocked != "" {

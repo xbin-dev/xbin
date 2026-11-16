@@ -178,7 +178,14 @@ class AgentStore {
     this.readState(); this.readChangesets();
     if (r.ok) return { ok: true, set: r.data };
     if (r.status === 403 && r.data && r.data.stepUp) return { ok: false, stepUp: r.data.stepUp, error: password ? say(r, 'That password was not accepted') : '' };
-    return { ok: false, stopped: stopOf(r), error: say(r, "The changes couldn't be applied") };
+    return { ok: false, stopped: stopOf(r), optIn: !!(r.data && r.data.optIn), error: say(r, "The changes couldn't be applied") };
+  }
+
+  /** ask(id, items?) → {ok, set}: send the lines of a plan that need an admin to the workspace's admins, as a request from the person — their own click. */
+  async ask(id, items) {
+    const r = await call(`/delegate/changesets/${encodeURIComponent(id)}/ask`, { method: 'POST', body: items && items.length ? { items } : {} });
+    this.readChangesets();
+    return r.ok ? { ok: true, set: r.data } : { ok: false, stopped: stopOf(r), error: say(r, "The admins couldn't be asked") };
   }
 
   async reject(id) {

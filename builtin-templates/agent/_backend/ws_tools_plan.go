@@ -39,7 +39,7 @@ func wsPlanTools() []coordTool {
 				"changes": map[string]any{"type": "array", "minItems": 1, "maxItems": 20, "items": obj([]string{"kind", "args", "why"}, map[string]any{
 					"kind": map[string]any{"type": "string", "enum": wsPlanKinds,
 						"description": "tile.create {template, name} — a new tile, your person's (name: \"Dice\" or a path, apps/dice); " +
-							"agent.start {tile, goal, done_when, leave_alone?, check_by?, known?} or {tile, template: \"mcp-tool\", tool: {name, arguments, result}} — a tile agent with that brief (tile: an existing tile, or the path of one this plan creates); " +
+							"agent.start {tile, goal, done_when, leave_alone?, check_by?, known?} or {tile, template: \"mcp-tool\", tool: {name, arguments, result}} — a tile agent with that brief (tile: an existing tile, or the path of one this plan creates; harness only when your person named the coding agent: it is theirs to choose); " +
 							"binding.set {component, slot, provider} — provider a tile's path, or xbin:llm for the workspace's LLM connector; and admin_propose's kinds"},
 					"args": map[string]any{"type": "object", "description": "the kind's arguments"},
 					"why":  strProp("the reason for this one line, in plain words (shown as yours)"),
@@ -99,6 +99,7 @@ func wsPlanStart(ctx context.Context, ag *Agent, s *wsSession, args map[string]a
 		Known      string          `json:"known"`
 		Template   string          `json:"template"`
 		Tool       *wsBriefToolAsk `json:"tool"`
+		Harness    string          `json:"harness"` // only what the person named: xbind resolves it otherwise
 	}
 	if err := coordArgs(args, &a); err != nil {
 		return nil, "", err
@@ -130,7 +131,11 @@ func wsPlanStart(ctx context.Context, ag *Agent, s *wsSession, args map[string]a
 		}
 	}
 	b := &wsBrief{Tile: tile, Goal: f.Goal, DoneWhen: f.DoneWhen, LeaveAlone: strings.TrimSpace(f.LeaveAlone), CheckBy: strings.TrimSpace(f.CheckBy), Known: strings.TrimSpace(f.Known)}
-	return map[string]any{"tile": tile, "brief": wsBriefText(b, s.Owner)}, tile, nil
+	line := map[string]any{"tile": tile, "brief": wsBriefText(b, s.Owner)}
+	if h := strings.TrimSpace(a.Harness); h != "" {
+		line["harness"] = h
+	}
+	return line, tile, nil
 }
 
 func wsPlanProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (string, error) {

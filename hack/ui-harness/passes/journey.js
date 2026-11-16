@@ -279,4 +279,4 @@ async function servesDice(ctx, X) {
   return { ok: false, status };
 }
 
-module.exports = { REPO, URL, DICE, servesDice, BUILD, ASK, ROLLED, noJourney, boot, plant, journey, openPage, tileFrame, shellUp, firstLogin, firstRunSheet, makeTile, makeFromTemplate, openFromSidebar, askAssistant };
+module.exports = { REPO, URL, DICE, SHOTS, servesDice, BUILD, ASK, ROLLED, noJourney, boot, plant, journey, openPage, tileFrame, shellUp, firstLogin, firstRunSheet, makeTile, makeFromTemplate, openFromSidebar, askAssistant };
