@@ -192,6 +192,11 @@ type ChangePreview struct {
 	// a start resolves to. It moving between the proposal and the approval
 	// makes the line stale, as its before and after moving does.
 	Pin string
+	// Later: the line would have to wait for a tile to provide what it
+	// binds, and may not — it takes an admin's rights, and only a person's
+	// own binding waits. xbind's words for what to do instead (propose it
+	// again once the tile provides it); Blocked says the same.
+	Later string
 	// Waits: the line can't be applied yet — the tile it binds to provides
 	// nothing of the kind until a tile agent an earlier line starts has
 	// written it. Approved, it waits (ItemWaiting) and xbind applies it by
@@ -276,6 +281,10 @@ type ChangeItem struct {
 	// Wait: a line that waits for a tile to provide what it binds
 	// (ChangePreview.Waits); with Result "waiting", where the wait stands.
 	Wait *ItemWait `json:"wait,omitempty"`
+	// Later: xbind's words for a line that may not wait (ChangePreview.Later):
+	// propose it again once its tile provides what it binds. The agent
+	// reads it — it says nothing the line's own arguments don't.
+	Later string `json:"later,omitempty"`
 }
 
 // ChangeSet is one proposal.

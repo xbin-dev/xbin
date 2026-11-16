@@ -333,6 +333,9 @@ func wsPlanNotes(cs wsChangeSet) string {
 	waiting := ""
 	for _, it := range cs.Items {
 		n := fmt.Sprint(it.N)
+		if it.Later != "" {
+			waiting += fmt.Sprintf("Line %s can't be part of this plan — xbin says: %s. Leave it out now; when the tile agent has reported and you have checked the tile, propose that one line as a plan of its own. ", n, wsPlain(it.Later))
+		}
 		if it.Wait != nil && it.Blocked == "" {
 			waiting += fmt.Sprintf("Line %s waits by design: your person approves it on the review, and xbin applies it by itself once %s provides %s — which the tile agent of an earlier line writes (the brief template \"mcp-tool\" tells it to). ", n, it.Wait.Tile, it.Wait.Service)
 		}

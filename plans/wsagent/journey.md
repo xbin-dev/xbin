@@ -699,7 +699,10 @@ What changed:
   It is approved on the one review and xbind applies it by itself when the
   tile declares exactly what was approved (kind http, service mcp, role
   reader); a tile that declares anything else is not bound. No second
-  review.
+  review. Only a binding between the person's own tiles waits: one that
+  takes an admin's rights is proposed again, in a review of its own, once
+  the tile is built (the journey's is personal: both tiles are the
+  person's).
 - **The permissions come to the person.** The coding agent asks before
   each command; its requests are answered in the dock's Needs you, drawn
   by xbin with the tile window's own card — not in the tile's window, and

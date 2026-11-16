@@ -5584,8 +5584,14 @@ here: cut from the old end, never reword.
     Apply-time check runs again at the moment it would apply and a refusal
     cancels it; a pause holds it. At most once (`waitMu` and the item's
     result); audited as a line of the plan (`under: "waits"`, `"waited"`).
-    An admin's line waits the same way, with the admin's step-up at Apply.
-    Rejected: letting any line wait (only what a tile agent must write is
+    **Only a personal binding waits** — between the person's own tiles.
+    A line that takes an admin's rights is approved with a recent sign-in,
+    and that sign-in must not reach 24 hours ahead: it never waits, nor
+    does any line of a request to the admins. Such a binding is blocked
+    with xbind's words for what to do (`later`: propose it again, in a
+    plan of its own, once the tile provides the interface), which the
+    agent reads. (First built with admin lines waiting; reversed in
+    review.) Rejected: letting any line wait (only what a tile agent must write is
     a reason to; `TestOnlyABindingWaits`); binding at once to a tile that
     provides nothing (the handler refuses it, rightly: a binding is a
     grant of a role the tile does not yet define); a standing "bind

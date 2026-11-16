@@ -193,6 +193,9 @@ func (s *Server) judgeWait(cs delegation.ChangeSet, i int) bool {
 	if !ok {
 		return true
 	}
+	if it.Admin || cs.From != "" { // never: only a person's own binding waits. One on disk all the same ends here
+		return end("a line that takes an admin's rights doesn't wait: nothing was bound")
+	}
 	person, ok := s.personByID(cs.User)
 	if !ok {
 		return end("the account that approved this can no longer apply changes")
@@ -240,7 +243,7 @@ func (s *Server) judgeWait(cs delegation.ChangeSet, i int) bool {
 		return end(s.lineAgentRefusal(agent, []string{w.Component, w.Tile}))
 	case pv.Blocked != "":
 		return end(pv.Blocked)
-	case cs.From == "" && !it.Admin && pv.Admin:
+	case pv.Admin:
 		return end("this now takes an admin's rights — it was yours to do when you approved it: nothing was bound")
 	case string(pv.Before) != w.Was:
 		return end(fmt.Sprintf("%s's %s was bound by someone since you approved this: nothing was changed", w.Component, w.Slot))

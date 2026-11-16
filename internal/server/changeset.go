@@ -463,16 +463,8 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 			approver, agent = cur, s.agentOf(*cs, cur)
 		}
 		var started []delegation.PlannedStart
-		if it.Wait != nil { // it waits on a tile agent this plan started — in the asker's plan, for a request
+		if it.Wait != nil && cs.From == "" { // it waits on a tile agent this plan started (no line of a request to the admins waits)
 			started = startsOf(cs.Items, it.N, true)
-			if cs.From != "" {
-				if asker, ok := s.Delegation.ChangeSet(cs.From, cs.AskOf); ok {
-					started = startsOf(asker.Items, len(asker.Items)+1, true)
-					for i := range started {
-						started[i].N = 0
-					}
-				}
-			}
 		}
 		pv, err := s.previewLine(approver, agent, pinStart(it.ChangeOp, it.Start), nil, started...)
 		why := ""
@@ -490,6 +482,9 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 			it.Result, it.Error = delegation.ItemFailed, "this now takes an admin's rights — it was yours to do when it was proposed: nothing was applied; ask your agent to propose it again"
 		case cs.Plan && lineStale(*it, pv), !cs.Plan && changeBasis(pv) != it.Basis:
 			it.Result, it.Error = delegation.ItemStale, "it changed since the change set was proposed: nothing was applied — ask your agent to propose it again"
+		case it.Wait != nil && (it.Admin || pv.Admin || cs.From != ""):
+			// only a person's own binding waits (planwait.go): never an admin's line, never a line of a request
+			it.Result, it.Error = delegation.ItemFailed, "a line that takes an admin's rights doesn't wait: nothing was applied — ask your agent to propose it again once the tile provides what it binds"
 		case it.Wait != nil && pv.Waits != nil:
 			// approved, and it waits: xbind applies it by itself once the
 			// tile provides exactly what was approved (planwait.go)

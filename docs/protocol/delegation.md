@@ -1139,10 +1139,10 @@ and its items carry, beside a change set's:
 
 #### Lines that wait
 
-One kind of line can be approved before it can be applied: a `binding.set`
-of one http slot to one tile that **provides nothing of what the slot
-wants yet**, where an earlier line of the same plan starts a tile agent in
-that tile ("bind the assistant's `mcp` slot to the dice tile" before the
+One kind of line can be approved before it can be applied: a **personal**
+`binding.set` — between the person's own tiles — of one http slot to one
+tile that **provides nothing of what the slot wants yet**, where an
+earlier line of the same plan starts a tile agent in that tile ("bind the assistant's `mcp` slot to the dice tile" before the
 dice tile is an MCP server — its coding agent is still to write the
 manifest). Without such a start before it, the line is `blocked` as ever.
 
@@ -1153,10 +1153,13 @@ manifest). Without such a start before it, the line is `blocked` as ever.
   start), and xbind's words in `effects`: "applies once apps/dice provides
   mcp; nothing is bound until then", that only exactly that is bound, and
   that it waits at most 24 hours. `afterText` is "apps/dice, once it
-  provides mcp". It is personal or an `admin`'s by the same rule as any
-  binding, and an admin's line that waits is asked of an admin the same
-  way (in the admin's copy it waits on the tile agent the asker's plan
-  started).
+  provides mcp".
+- **A line that takes an admin's rights never waits**, and neither does
+  any line of a request to the admins (`from`): an approval given with a
+  recent sign-in applies now or not at all. Such a binding is `blocked`,
+  and carries `later` — xbind's words for what to do, which the agent
+  reads too: "…Propose it again, in a plan of its own, once apps/dice
+  provides mcp". It is not offered to Ask an admin.
 - **Approved**, its `result` is `waiting` and `wait` gains `until` (24
   hours on). The set's `state` is as if it were applied. Nothing is bound.
 - **xbind applies it by itself**, as the person who approved it, after a

@@ -114,7 +114,7 @@ func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.Cha
 			continue
 		}
 		red := delegation.ChangeItem{N: it.N, ChangeOp: it.ChangeOp, Why: it.Why, Line: it.Line, Admin: it.Admin, NeedsAdmin: it.NeedsAdmin,
-			Needs: it.Needs, Deferred: it.Deferred, Result: it.Result, Out: it.Out, Of: it.Of}
+			Needs: it.Needs, Deferred: it.Deferred, Result: it.Result, Out: it.Out, Of: it.Of, Later: it.Later}
 		if it.Wait != nil { // what it waits for is the line's own arguments; why it is held is not the agent's to read
 			w := *it.Wait
 			w.Owners, w.Was, w.Held = nil, "", ""
@@ -402,6 +402,7 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 		if pv.Waits != nil {
 			it.Wait = &delegation.ItemWait{PlanWait: *pv.Waits}
 		}
+		it.Later = pv.Later
 		if i < len(whys) {
 			if it.Why = whys[i]; len(it.Why) > 500 {
 				it.Why = it.Why[:500]
@@ -419,6 +420,11 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 			}
 		}
 		switch {
+		case plain && pv.Later != "":
+			// it may not wait, and asking an admin now would ask for something
+			// xbind can't apply: said as it is (the words name the line's own
+			// tiles and nothing else), to be proposed again later
+			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: pv.Line, Admin: true, Blocked: pv.Later, Later: pv.Later, Needs: pv.Uses}
 		case plain && (pv.Admin || waits != 0 && op.Kind != delegation.KindAgentStart):
 			// not theirs to apply — and not theirs to read: the line, and
 			// nothing of the state an admin would see behind it
@@ -766,12 +772,8 @@ func (s *Server) apiChangeSetAsk(w http.ResponseWriter, r *http.Request) {
 	ask, sent := util.RandomToken(12), 0
 	for _, adm := range admins {
 		// as this admin would apply them, now — and still held to what the asker's agent may touch
-		// (a line that waits on a tile agent the asker's plan started waits in the admin's copy too)
-		started := startsOf(cs.Items, len(cs.Items)+1, true)
-		for i := range started {
-			started[i].N = 0
-		}
-		items, err := s.describePlan(adm, agent, ops, whys, started...)
+		// (no line of a request waits: an admin's approval, given with a recent sign-in, applies now or not at all)
+		items, err := s.describePlan(adm, agent, ops, whys)
 		if err != nil {
 			continue
 		}

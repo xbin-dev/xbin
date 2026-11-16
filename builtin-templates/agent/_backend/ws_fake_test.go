@@ -896,7 +896,11 @@ func (f *fakeXbin) ProposePlan(_ context.Context, sid, title string, items []xbi
 			}
 			// a tile that provides nothing yet: the line waits when a tile agent is started in it first, else it can't be applied
 			if prov := str(args["provider"]); blank[prov] {
-				if n := started[prov]; n > 0 {
+				if n := started[prov]; n > 0 && item.Admin {
+					// an admin's line never waits
+					item.Later = prov + " provides no " + str(args["slot"]) + " yet, and this binding takes an admin's rights"
+					item.Blocked = item.Later
+				} else if n > 0 {
 					item.Wait = &xbin.ChangeSetWait{Tile: prov, Service: str(args["slot"]), Kind: "http", Role: "reader"}
 					if !hasInt(item.Needs, n) {
 						item.Needs = append(item.Needs, n)

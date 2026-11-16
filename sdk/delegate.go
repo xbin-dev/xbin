@@ -444,6 +444,10 @@ type ChangeSetItem struct {
 	// once its person approved it): xbind applies it by itself then, and
 	// only if the tile declares exactly that.
 	Wait *ChangeSetWait `json:"wait,omitempty"`
+	// Later: xbind's words for a line that would have to wait and may not
+	// (it takes an admin's rights): propose it again once its tile
+	// provides what it binds.
+	Later string `json:"later,omitempty"`
 }
 
 // ChangeSetWait is what a plan's waiting line waits for.

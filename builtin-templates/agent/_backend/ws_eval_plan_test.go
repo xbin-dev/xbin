@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 // the plan the prompt and the tool ask for (D238, D243): the tool's tile —
@@ -319,5 +321,36 @@ func TestWsPlanToolRules(t *testing.T) {
 	}
 	if fx.x.count("ProposePlan") != 0 {
 		t.Fatalf("something was proposed: %v", fx.x.calls)
+	}
+}
+
+// A binding that takes an admin's rights can't wait for a tile to be built:
+// xbind says so on the line, and the tool tells the model what to do with
+// it — leave it out, and propose it alone once the tile agent has reported.
+func TestWsPlanLineThatMayNotWait(t *testing.T) {
+	fx := newWsFix(t)
+	fx.x.mu.Lock()
+	fx.x.state.CanAdminChanges = true
+	fx.x.mu.Unlock()
+	s := fx.main(t)
+	got := fx.tool(t, s, "plan_propose", map[string]any{"title": "A model for the dice tile", "changes": []any{
+		map[string]any{"kind": "tile.create", "args": map[string]any{"template": "starter", "name": "Dice"}, "why": "the tile"},
+		map[string]any{"kind": "agent.start", "args": map[string]any{"tile": "Dice", "goal": "g", "done_when": "d"}, "why": "build it"},
+		// (the fake's admin line: a binding to the connector, written as one that would wait)
+		map[string]any{"kind": "binding.set", "args": map[string]any{"component": "apps/orders", "slot": "llm", "provider": "Dice"}, "why": "x"},
+	}})
+	_ = got
+	cs := planOf(t, fx)
+	if len(cs.Items) != 3 {
+		t.Fatalf("the plan: %+v", cs.Items)
+	}
+	// (the fake marks a provider xbin:llm as an admin's; the words of the tool are what this test holds)
+	it := cs.Items[2]
+	it.Later = "apps/dice provides no mcp yet, and this binding takes an admin's rights"
+	notes := wsPlanNotes(wsChangeSet{Items: []xbin.ChangeSetItem{it}})
+	for _, want := range []string{"Line 3 can't be part of this plan — xbin says: apps/dice provides no mcp yet", "propose that one line as a plan of its own"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("the tool's note lacks %q: %s", want, notes)
+		}
 	}
 }

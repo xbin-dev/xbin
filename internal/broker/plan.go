@@ -462,6 +462,16 @@ func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePre
 		}
 	}
 	pv.Effects = append([]string{body.Component + "'s backend restarts"}, pv.Effects...)
+	if wait != nil && !personal {
+		// only a person's own binding waits: one that takes an admin's
+		// rights is approved with a recent sign-in, and that sign-in must
+		// not reach 24 hours ahead. It is a line of a later review.
+		later := fmt.Sprintf("%s provides no %s yet, and this binding takes an admin's rights — only a binding between your own tiles may wait for a tile to be built. Propose it again, in a plan of its own, once %s provides %s",
+			wait.Tile, wait.Service, wait.Tile, wait.Service)
+		pv, _ = block("%s", later)
+		pv.Later = later
+		return pv, nil
+	}
 	if wait != nil {
 		pv.Waits, pv.Deferred = wait, true
 		pv.Pin = delegation.BodyHash(mustJSON(wait))

@@ -15,7 +15,6 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/term"
-	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // The plan the dice journey makes now that the tool's tile is BUILT, not
@@ -361,28 +360,79 @@ func TestWaitingLineIsHeldToItsPersonsRights(t *testing.T) {
 		t.Fatalf("alice's own line: %s (%s)", got.Result, got.Error)
 	}
 
-	// bob, an admin, binds the workspace's tile apps/x (an admin's line) to a tile his plan builds — then is an admin no longer
-	w = startingWorld(t)
-	w.write(map[string]string{"apps/x/xbin.json": `{"runtime":"go","interfaces":{"mcp":{"kind":"http","service":"mcp","multi":true}}}`})
-	w.rescan()
-	_, bob := w.session("bob")
-	adm := w.plan(t, "bob", `[{"kind":"tile.create","args":{"template":"blank","path":"apps/dice"}},{"kind":"agent.start","args":{"tile":"apps/dice","brief":"b","harness":"claude"}},
-		{"kind":"binding.set","args":{"component":"apps/x","slot":"mcp","provider":"apps/dice"}}]`)
-	if l := adm.Items[2]; !l.Admin || l.Wait == nil || l.Blocked != "" {
-		t.Fatalf("an admin's waiting line: %+v", l)
+	// the account is read again when it would apply: alice, disabled meanwhile, gets nothing bound (TestWaitingLineEnds)
+}
+
+// A line that takes an admin's rights never waits (review decision): an
+// approval given with a recent sign-in applies now or not at all — it must
+// not reach 24 hours ahead. Such a binding is blocked, with xbind's words
+// for what to do (propose it again once the tile provides the interface),
+// which the agent reads too; and no line of a request to the admins waits.
+func TestAnAdminsLineNeverWaits(t *testing.T) {
+	const plan = `[{"kind":"tile.create","args":{"template":"blank","path":"apps/dice"}},{"kind":"agent.start","args":{"tile":"apps/dice","brief":"b","harness":"claude"}},
+		{"kind":"binding.set","args":{"component":"apps/x","slot":"mcp","provider":"apps/dice"}}]`
+	const later = "apps/dice provides no mcp yet, and this binding takes an admin's rights — only a binding between your own tiles may wait for a tile to be built. Propose it again, in a plan of its own, once apps/dice provides mcp"
+	for _, user := range []string{"bob", "alice"} { // an admin; a person who is none
+		t.Run(user, func(t *testing.T) {
+			w := startingWorld(t)
+			w.write(map[string]string{"apps/x/xbin.json": `{"runtime":"go","interfaces":{"mcp":{"kind":"http","service":"mcp","multi":true}}}`})
+			w.rescan()
+			_, cred := w.session(user)
+			_, bob := w.session("bob")
+			cs := w.plan(t, user, plan)
+			l := cs.Items[2]
+			if l.Wait != nil || l.Blocked != later || l.Later != later || !l.Admin || l.NeedsAdmin {
+				t.Fatalf("the workspace's tile bound to a tile still to be built: %+v — want it blocked with xbind's words, not waiting, not to be asked", l)
+			}
+			// the agent reads what to do (the words name the line's own tiles and nothing else), not the refusal's own text
+			code, body := w.do("GET", "/delegate/changesets/"+cs.ID, "", agentOf(user))
+			if code != 200 || !strings.Contains(body, `"later":"apps/dice provides no mcp yet`) {
+				t.Fatalf("the agent reads: %d %s", code, body)
+			}
+			done := w.approve(t, cs.ID, `{"items":[1,2],"password":"password1"}`, cred)
+			if results(done) != "applied,applied,blocked" {
+				t.Fatalf("the plan: %s", results(done))
+			}
+			if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/ask", "", cred); code == 200 {
+				t.Fatalf("a line xbind can't apply was sent to the admins: %s", body)
+			}
+			w.dice(diceProvides)
+			if got := w.set(t, user, cs.ID).Items[2]; got.Result != delegation.ItemBlocked || w.binding("apps/x", "mcp") != "" {
+				t.Fatalf("after the tile provides mcp: %s, bound %q — nothing waited", got.Result, w.binding("apps/x", "mcp"))
+			}
+			// proposed again once the tile provides it: an ordinary admin's line, applied now, with the admin's sign-in
+			again := w.plan(t, user, `[{"kind":"binding.set","args":{"component":"apps/x","slot":"mcp","provider":"apps/dice"}}]`)
+			if again.Items[0].Wait != nil || again.Items[0].Later != "" || again.Items[0].Blocked != "" || !again.Items[0].Admin {
+				t.Fatalf("proposed again: %+v", again.Items[0])
+			}
+			apply := again
+			if user == "alice" { // she asks; no line of the admin's copy waits
+				if code, body := w.do("POST", "/delegate/changesets/"+again.ID+"/ask", "", cred); code != 200 {
+					t.Fatalf("ask: %d %s", code, body)
+				}
+				sets, _ := w.store.ChangeSets("bob")
+				for _, o := range sets {
+					if o.From == "alice" && o.AskOf == again.ID {
+						apply = o
+					}
+				}
+				if apply.From != "alice" || apply.Items[0].Wait != nil {
+					t.Fatalf("the admin's copy: %+v", apply)
+				}
+			}
+			if out := w.approve(t, apply.ID, `{"items":[1],"password":"password1"}`, bob); results(out) != "applied" || w.binding("apps/x", "mcp") != "apps/dice" {
+				t.Fatalf("the admin applies it now: %s, bound %q", results(out), w.binding("apps/x", "mcp"))
+			}
+		})
 	}
-	done := w.approve(t, adm.ID, `{"items":[1,2,3],"password":"password1"}`, bob)
-	if results(done) != "applied,applied,waiting" {
-		t.Fatalf("the admin's plan: %s (%s)", results(done), done.Items[2].Error)
-	}
-	u, _ := w.b.Users.Get("bob")
-	u.Role, u.Tiles = users.RoleUser, map[string]string{"apps/x": users.LevelWrite} // he still sees the tile; binding it is no longer his
-	if _, err := w.b.Users.Upsert(*u, ""); err != nil {
+	// a waiting line that is an admin's, or in a request, can't be made — and one found on disk all the same ends, unbound
+	w, _, cs := waitWorld(t, "bob")
+	if _, err := w.store.UpdateChangeSet("bob", cs.ID, func(c *delegation.ChangeSet) error { c.Items[3].Admin = true; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	w.dice(diceProvides)
-	if got := w.set(t, "bob", adm.ID).Items[2]; got.Result != delegation.ItemCancelled || !strings.Contains(got.Error, "not approvable by you") || w.binding("apps/x", "mcp") != "" {
-		t.Fatalf("an admin's line of someone who is an admin no longer: %s (%q), bound %q", got.Result, got.Error, w.binding("apps/x", "mcp"))
+	if got := w.set(t, "bob", cs.ID).Items[3]; got.Result != delegation.ItemCancelled || !strings.Contains(got.Error, "doesn't wait") || w.binding("apps/assistant", "mcp") != "" {
+		t.Fatalf("an admin's line found waiting: %s (%q), bound %q", got.Result, got.Error, w.binding("apps/assistant", "mcp"))
 	}
 }
 
@@ -441,6 +491,9 @@ func TestOnlyABindingWaits(t *testing.T) {
 			var body bindingBody
 			_ = json.Unmarshal(o.Args, &body)
 			wt := *pv.Waits
+			if pv.Admin || pv.Blocked != "" {
+				t.Errorf("%s: %s waits though it takes an admin's rights or can't be applied (admin %v, blocked %q)", user, o.Args, pv.Admin, pv.Blocked)
+			}
 			if o.Kind != ChangeBindingSet || body.Provider == "" || body.Add || wt.Tile != body.Provider || wt.Component != body.Component || wt.Slot != body.Slot ||
 				wt.Kind != "http" || wt.Service == "" || wt.Role != delegation.WaitRole || body.Provider == "xbin:llm" || !pv.Deferred || pv.Pin == "" {
 				t.Errorf("%s: %s %s waits (%+v): only a binding of one slot to one tile, pinned, may", user, o.Kind, o.Args, wt)
@@ -458,52 +511,92 @@ func TestOnlyABindingWaits(t *testing.T) {
 	}
 }
 
-// A waiting line that takes an admin is asked of one like any other: in
-// the admin's copy it waits on the tile agent the asker's plan started,
-// the admin approves it once, and when it applies both sets and both logs
-// say so.
-func TestWaitingLineAskedOfAnAdmin(t *testing.T) {
+// …and through the API, for every kind in every position after a start, for
+// an admin and for a person who is none, proposed and asked of an admin:
+// a line that waits is a person's own binding, and no line of a request waits.
+func TestOnlyAPersonsOwnBindingWaits(t *testing.T) {
 	w := startingWorld(t)
-	w.write(map[string]string{"apps/x/xbin.json": `{"runtime":"go","interfaces":{"mcp":{"kind":"http","service":"mcp","multi":true}}}`})
+	w.write(map[string]string{"apps/x/xbin.json": `{"runtime":"go","interfaces":{"mcp":{"kind":"http","service":"mcp","multi":true}}}`,
+		"apps/mine/xbin.json": `{"runtime":"go","interfaces":{"mcp":{"kind":"http","service":"mcp","multi":true}}}`})
 	w.rescan()
-	_, alice := w.session("alice")
-	_, bob := w.session("bob")
-	cs := w.plan(t, "alice", `[{"kind":"tile.create","args":{"template":"blank","path":"apps/dice"}},{"kind":"agent.start","args":{"tile":"apps/dice","brief":"b","harness":"claude"}},
-		{"kind":"binding.set","args":{"component":"apps/x","slot":"mcp","provider":"apps/dice"}}]`)
-	if got := flags(cs); got != "[] D[1] AN[1 2]" || cs.Items[2].Wait != nil {
-		t.Fatalf("alice's plan: %s (wait %v)", got, cs.Items[2].Wait)
+	if err := w.b.Users.SetOwner("apps/mine", "user:alice"); err != nil {
+		t.Fatal(err)
 	}
-	if done := w.approve(t, cs.ID, `{"items":[1,2]}`, alice); results(done) != "applied,applied," {
-		t.Fatalf("alice's own lines: %s (%s)", results(done), done.Items[1].Error)
+	lines := []string{
+		`{"kind":"binding.set","args":{"component":"apps/x","slot":"mcp","provider":"apps/dice"}}`,
+		`{"kind":"binding.set","args":{"component":"apps/mine","slot":"mcp","provider":"apps/dice"}}`,
+		`{"kind":"binding.set","args":{"component":"apps/assistant","slot":"mcp","provider":"apps/dice"}}`,
+		`{"kind":"binding.set","args":{"component":"apps/assistant","slot":"llm","provider":"xbin:llm"}}`,
+		`{"kind":"grant.add","args":{"from":"apps/assistant","target":"apps/dice","role":"reader"}}`,
+		`{"kind":"org.share","args":{"org":"fin","tile":"apps/dice","level":"read"}}`,
+		`{"kind":"limits.set","args":{"tile":"apps/dice","kind":"memMiB","value":4096}}`,
+		`{"kind":"binding.remove","args":{"component":"apps/mine","slot":"mcp"}}`,
 	}
-	if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/ask", "", alice); code != 200 {
-		t.Fatalf("ask: %d %s", code, body)
-	}
-	var asked delegation.ChangeSet
-	sets, _ := w.store.ChangeSets("bob")
-	for _, o := range sets {
-		if o.From == "alice" && o.AskOf == cs.ID {
-			asked = o
+	waits := 0
+	for _, user := range []string{"bob", "alice"} {
+		_, cred := w.session(user)
+		for i, line := range lines {
+			for _, pos := range []string{"after the start", "before the start"} {
+				dice, asst := fmt.Sprintf("apps/dice-%s-%d-%d", user, i, len(pos)), fmt.Sprintf("apps/asst-%s-%d-%d", user, i, len(pos))
+				l := strings.NewReplacer("apps/dice", dice, "apps/assistant", asst).Replace(line)
+				start := `{"kind":"agent.start","args":{"tile":"` + dice + `","brief":"b","harness":"claude"}}`
+				items := `[{"kind":"tile.create","args":{"template":"blank","path":"` + dice + `"}},{"kind":"tile.create","args":{"template":"assistant","path":"` + asst + `"}},` + start + `,` + l + `]`
+				if pos == "before the start" {
+					items = `[{"kind":"tile.create","args":{"template":"blank","path":"` + dice + `"}},{"kind":"tile.create","args":{"template":"assistant","path":"` + asst + `"}},` + l + `,` + start + `]`
+				}
+				code, body := w.do("POST", "/delegate/plans", `{"title":"t","items":`+items+`}`, agentOf(user))
+				if code != 200 {
+					continue // (a line a plan can't hold on a tile still to be made: nothing to wait)
+				}
+				var got delegation.ChangeSet
+				_ = json.Unmarshal([]byte(body), &got)
+				cs := w.set(t, user, got.ID)
+				for _, it := range cs.Items {
+					if it.Wait == nil {
+						continue
+					}
+					waits++
+					if it.Kind != ChangeBindingSet || it.Admin || it.NeedsAdmin || it.Blocked != "" || pos != "after the start" || it.Wait.Tile != dice {
+						t.Errorf("%s, %s, %s: waits — %+v", user, pos, l, it)
+					}
+				}
+				// applied, then asked of an admin: whatever reaches an admin's copy does not wait
+				var chosen []string
+				for _, it := range cs.Items {
+					if !it.NeedsAdmin && it.Blocked == "" && !it.Admin {
+						chosen = append(chosen, fmt.Sprint(it.N))
+					}
+				}
+				if len(chosen) > 0 {
+					w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", `{"items":[`+strings.Join(chosen, ",")+`]}`, cred)
+				}
+				w.do("POST", "/delegate/changesets/"+cs.ID+"/ask", "", cred)
+				for _, adm := range []string{"bob"} {
+					sets, _ := w.store.ChangeSets(adm)
+					for _, o := range sets {
+						for _, it := range o.Items {
+							if o.From != "" && (it.Wait != nil || it.Result == delegation.ItemWaiting) {
+								t.Errorf("%s, %s, %s: a line of a request to the admins waits — %+v", user, pos, l, it)
+							}
+							if it.Result == delegation.ItemWaiting && (it.Admin || it.Kind != ChangeBindingSet) {
+								t.Errorf("%s, %s, %s: an admin's line is waiting — %+v", user, pos, l, it)
+							}
+						}
+					}
+				}
+				// keep the store's open sets under its cap
+				for _, u := range []string{"alice", "bob"} {
+					sets, _ := w.store.ChangeSets(u)
+					for _, o := range sets {
+						if o.Open() {
+							_, _ = w.store.UpdateChangeSet(u, o.ID, func(c *delegation.ChangeSet) error { c.State = delegation.SetRejected; return nil })
+						}
+					}
+				}
+			}
 		}
 	}
-	if len(asked.Items) != 1 || asked.Items[0].Wait == nil || asked.Items[0].Blocked != "" || !strings.Contains(strings.Join(asked.Items[0].Effects, "\n"), "applies once apps/dice provides mcp") {
-		t.Fatalf("the admin's copy: %+v", asked.Items)
-	}
-	done := w.approve(t, asked.ID, `{"items":[1],"password":"password1"}`, bob)
-	if results(done) != "waiting" || w.set(t, "alice", cs.ID).Items[2].Result != delegation.ItemWaiting {
-		t.Fatalf("approved by the admin: his copy %s, alice's line %s", results(done), w.set(t, "alice", cs.ID).Items[2].Result)
-	}
-	w.dice(diceProvides)
-	if got := w.set(t, "bob", asked.ID).Items[0]; got.Result != delegation.ItemApplied || w.binding("apps/x", "mcp") != "apps/dice" {
-		t.Fatalf("once apps/dice provides mcp: %s (%s), bound %q", got.Result, got.Error, w.binding("apps/x", "mcp"))
-	}
-	if got := w.set(t, "alice", cs.ID).Items[2]; got.Result != delegation.ItemApplied {
-		t.Fatalf("alice's line: %s (%s)", got.Result, got.Error)
-	}
-	if ok, _ := w.waitRows(t, "bob", asked.ID); len(ok) != 1 || ok[0].From != "alice" {
-		t.Fatalf("the admin's log: %+v", ok)
-	}
-	if ok, _ := w.waitRows(t, "alice", cs.ID); len(ok) != 1 || ok[0].By != "bob" {
-		t.Fatalf("alice's log: %+v", ok)
+	if waits == 0 {
+		t.Fatal("nothing waited: the property is checked on nothing")
 	}
 }

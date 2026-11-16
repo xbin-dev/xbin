@@ -21,9 +21,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   negotiation, `ping`, `tools/list`, `tools/call`, errors,
   `readOnlyHint`) — and a complete Go server inline, the same file as the
   one in the repository's examples (a test holds them to the same bytes).
-- delegation: **a plan's line can wait** (D243). A `binding.set` to a tile
-  that provides nothing of what the slot wants yet, after an `agent.start`
-  line in that tile, is approved on the plan's review and applied by xbind
+- delegation: **a plan's line can wait** (D243). A person's own
+  `binding.set` (between their own tiles; never a line that takes an
+  admin's rights, which is `blocked` with `later` — propose it again once
+  the tile provides the interface) to a tile that provides nothing of what
+  the slot wants yet, after an `agent.start` line in that tile, is approved on the plan's review and applied by xbind
   itself once the tile's manifest declares exactly what was approved (kind
   `http`, the slot's service, role `reader`): new item field `wait`, new
   results `waiting`, `lapsed`, `cancelled`. It waits at most 24 hours, is
