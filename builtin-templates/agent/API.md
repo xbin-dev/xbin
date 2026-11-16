@@ -53,9 +53,13 @@ A person's **workspace agent** (xbind's delegation, `/docs/auth.md`
 §Delegation) calls tiles as that person; such a call carries
 `X-XBin-Agent`. What it gets here, as things are:
 
-- **Nothing, today.** Every route of this API asks for the `admin` role
-  (the tile's own frames and backend, and admins), and an agent's call
-  carries `reader` or `writer` — never `admin`. An agent's call is answered
+- **One read, today: `GET /tools`** (§Config, models, features): what a
+  conversation would be offered, so an agent can tell that a binding it
+  proposed reached the backend without asking anyone. It answers an
+  agent's `GET` at the role its call carries, as its person (`agentReadOpen`
+  in `_backend/wsagent.go`). Every other route of this API asks for the
+  `admin` role (the tile's own frames and backend, and admins), and an
+  agent's call carries `reader` or `writer` — never `admin`: it is answered
   `403`, reads included.
 - **That is not the rule this tile relies on.** Two rules say it on
   purpose, and hold if the role gate is ever opened:
@@ -1105,6 +1109,31 @@ defaults: `PUT /config` drops them, as it drops `sandbox` and `attached`.
   providers: [{path, ok, legacy?, error?}], error?}` — every bound provider's
   models (for the composer's picker and the tier dropdowns; anyone who can
   use the tile). `ref` is what a tier, `pick` or `{model}` stores.
+- `GET /tools` → `{default, classes: [{id, name, tools: [{name, source,
+  call?, server?}], mcp: [server names], note?}], mcp: [{name, via, slot?,
+  tile?, instance?, personal?, global?, url?, state?, probed, reachable,
+  error?, tools: [names], listedAt?, checkedAt?}]}` — what a conversation
+  would be offered **now**, for anyone who can use the tile and for their
+  workspace agent (the one route open to it at its call's role, §A
+  person's workspace agent). Per class the caller may start in (`default`:
+  theirs), every tool it gets: a built-in (`source: "builtin"`) or an MCP
+  tool (`source: "mcp"`, `server`, and `call` — `mcp:<server>:<tool>`, the
+  name a conversation calls it by); `mcp` names the servers the class may
+  use, and `note` says why it gets none (no `internal` toolset) or fewer.
+  Per MCP server a conversation of the caller's could use — `via: "slot"`
+  (bound to the `mcp` slot: `tile`, `instance`; `personal` for a person's
+  own bind, offered in their conversations only), `"config"` (the legacy
+  `config.mcp` list: `url` is its scheme, host and path only) or
+  `"direct"` (connected by URL, §Direct MCP servers: its row's `state`;
+  `global` when reached through the global instance) — whether it answers:
+  a bound or configured server is asked `initialize` and `tools/list` now
+  (`probed`, `reachable`, `error`; an answer is reused for 10 s), a direct
+  one is never asked (its sign-in could refresh a token) and is
+  `reachable` while its row is ready. `tools` is the probe's list, else
+  the one conversations last cached (`listedAt`). A read: nothing is
+  stored, and no header, token, query or user info of an address is in the
+  answer, nor in an error. So "`apps/dice` is bound, answers, and the
+  internal class offers `roll_dice` from it" is one `GET`.
 
 **Where the models come from (D111).** The manifest's `llm` interface slot
 (`http`, service `openai`, multi): bind it to llm-gw, or to any tile that
@@ -1511,8 +1540,10 @@ renders markdown) with the answer itself in the reply before it; a
 subagent's `result` is the full answer its parent receives; and a channel
 conversation's or a trigger's top-level run keeps `result` as the full
 reply, because that is what is posted (§Channels).
-MCP servers are bound via the `mcp` interface (multi:true, like the chat tile).
-Extend these in `_backend/tools.go`.
+MCP servers are bound via the `mcp` interface (multi:true, like the chat tile):
+make one from the `mcp-server` template and bind this tile's `mcp` slot to
+it ([/docs/mcp.md](/docs/mcp.md)); `GET /tools` says what reached a
+conversation. Extend these in `_backend/tools.go`.
 
 ### The task and compaction (D133)
 

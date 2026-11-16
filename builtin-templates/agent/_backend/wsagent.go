@@ -38,11 +38,13 @@
 // before they get here; this file is what holds if someone widens that.
 // (Every route also needs the admin role, which xbind never gives an
 // agent's call — an accident of how the tile is called, not a rule to lean
-// on.)
+// on — except the reads in agentReadOpen, which a workspace agent reaches
+// at the role xbind gives its call, as its person.)
 package main
 
 import (
 	"net/http"
+	"strings"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
@@ -51,7 +53,8 @@ import (
 // list of patterns, reads included. What it reads is a conversation as its
 // person sees it — the list, a run and its view, stream, tree, tasks,
 // members and files — and what the tile offers (features, models, classes,
-// schedules, skills, automations, the halt). What it may do is stop a run
+// schedules, skills, automations, the halt, the tools a conversation gets
+// and whether their MCP servers answer). What it may do is stop a run
 // and mark one read.
 //
 // Deliberately absent, reads too: GET /config (it holds MCP servers'
@@ -63,7 +66,7 @@ import (
 // adapters' routes, the bus trigger and the mailbox are for the channel
 // role, the bus and xbind, never for a person's agent.
 var agentMay = map[string]bool{
-	"GET /me": true, "GET /health": true, "GET /features": true, "GET /models": true, "GET /classes": true,
+	"GET /me": true, "GET /health": true, "GET /features": true, "GET /models": true, "GET /classes": true, "GET /tools": true,
 	"GET /halt": true, "GET /schedules": true, "GET /skills": true,
 	"GET /runs": true, "GET /conversations": true, "GET /needs": true, "GET /stream": true,
 	"GET /runs/{id}": true, "GET /runs/{id}/view": true, "GET /runs/{id}/stream": true, "GET /runs/{id}/tree": true,
@@ -75,6 +78,22 @@ var agentMay = map[string]bool{
 	"POST /runs/{id}/interrupt": true,
 	"POST /runs/{id}/cancel":    true,
 	"POST /runs/{id}/read":      true,
+}
+
+// agentReadOpen are the reads a person's workspace agent reaches at the
+// role xbind gives its call (reader or writer, never admin), as its person:
+// what this tile would offer a conversation (GET /tools, tools_view.go), so
+// the agent can tell that a binding it proposed reached the backend without
+// asking for an approval. Each is in agentMay too, and a GET that changes
+// nothing.
+var agentReadOpen = map[string]bool{"GET /tools": true}
+
+// agentReadsAsPerson: r is a person's workspace agent reading as them — a
+// delegated GET (X-XBin-Agent, attributed to user:<id>), never a socket.
+func agentReadsAsPerson(r *http.Request) bool {
+	c := xbin.Caller(r)
+	return c.Agent != "" && c.User != "" && strings.HasPrefix(c.From, "user:") &&
+		(r.Method == http.MethodGet || r.Method == http.MethodHead) && r.Header.Get("Upgrade") == ""
 }
 
 // workspaceAgent is the component acting for the caller's person — their
