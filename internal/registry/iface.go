@@ -71,6 +71,11 @@ type Iface struct {
 	// JSON list injected instead of a single URL (plans/interfaces.md
 	// §Multiplicity).
 	Multi bool `json:"multi,omitempty"`
+	// Required (REQUEST side) marks a slot the component can't do its work
+	// without (an agent's model). The others are optional: once every
+	// required slot is bound, UIs offer them folded, not over the tile.
+	// Advisory: an unbound slot grants nothing either way.
+	Required bool `json:"required,omitempty"`
 	// Instances (PROVIDE side) marks the provide as a template: the provider
 	// registers concrete instances at runtime (PUT /api/xbin/iface-instances),
 	// each addressable as "<provider>#<instance>" in bindings.

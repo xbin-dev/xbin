@@ -286,6 +286,9 @@ async function oldScaffold(browser) {
     const adminScheme = await scheme(S.page.mainFrame());
     check(adminScheme === 'dark', `${OLD}'s admin console stays Night too (--bx-scheme ${adminScheme})`);
     for (const t of [PART, PEND]) {
+      // the components table fills after the tab's first paint (its rows come
+      // from /components): wait for the row, not a count of the first frame
+      await S.page.locator(`text=${t}`).first().waitFor({ timeout: 15000 }).catch(() => {});
       check(await S.page.locator(`text=${t}`).count() > 0, `the old admin console renders and lists ${t}`);
     }
     for (const p of sealedPaths) {

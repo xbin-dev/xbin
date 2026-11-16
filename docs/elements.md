@@ -185,6 +185,11 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // /docs/isolation.md §Network egress), and — provide-side — ingress (an
   // HTTP ingress terminator tile, docs/ingress.md).
   //
+  // Required (request side): "required": true marks a slot the component
+  // can't do its work without (an agent's model); once every required slot
+  // is bound, the shell folds the others into one line above the tile
+  // instead of a popover over it. Grants nothing by itself.
+  //
   // Multiplicity (http only): a REQUEST slot with "multi": true explicitly
   // accepts a SET of bindings — the backend gets XBIN_IFACE_<slot> as a JSON
   // array [{provider, instance?, url, service}] and xbin.iface(slot) returns
