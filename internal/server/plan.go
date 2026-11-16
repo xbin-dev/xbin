@@ -405,6 +405,26 @@ func lineStale(it delegation.ChangeItem, pv delegation.ChangePreview) bool {
 	return false
 }
 
+// pinStart is an agent.start line as its person was shown it: where the
+// line named no coding agent or mode, the ones xbind resolved and showed
+// (start) are what is asked for when it is applied — a default that moved
+// since never starts something else.
+func pinStart(op delegation.ChangeOp, start json.RawMessage) delegation.ChangeOp {
+	var shown struct{ Provider, Mode string }
+	var args map[string]any
+	if op.Kind != delegation.KindAgentStart || json.Unmarshal(start, &shown) != nil || json.Unmarshal(op.Args, &args) != nil {
+		return op
+	}
+	if h, _ := args["harness"].(string); h == "" && shown.Provider != "" {
+		args["harness"] = shown.Provider
+	}
+	if m, _ := args["mode"].(string); m == "" && shown.Mode != "" {
+		args["mode"] = shown.Mode
+	}
+	op.Args, _ = json.Marshal(args)
+	return op
+}
+
 // planStart applies an agent.start line: POST /term/sessions as the
 // conversation that proposed it, authorised as a ticket authorises a
 // single start — the harness and mode its person was shown, and no other.

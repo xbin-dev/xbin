@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- workspace agent (the agent template's workspace mode), SDK: **`plan_propose`
+  — one proposal for several steps.** The agent proposes "create these
+  tiles, bind these slots, start this tile agent" as one plan
+  (`xbin.ProposePlan`, additive, with `ChangeSet.Plan` and
+  `ChangeSetItem.Admin`, `NeedsAdmin`, `Needs`, `Out`) instead of a request
+  a step; its prompt says when, and that an applied plan is followed
+  through — the tile agent's report, then its own check — before it says
+  done. The tile agents a plan starts become the conversation's to follow.
+  While a plan waits, `tile_create` and `tile_agent_start` for one of its
+  steps file nothing. `tile_create`, `tile_agent_start` and `admin_propose`
+  work as before (the template's `API.md` §Workspace mode → Plans).
 - delegation: **plans — multi-step work is one change set.** `POST
   /delegate/plans` (a person's agent, no opt-in to propose) takes the
   admin kinds and two new ones, `tile.create {template, path, owner?}` and

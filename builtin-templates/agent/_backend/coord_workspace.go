@@ -48,7 +48,7 @@ func init() {
 			"workspace_map", "tile_status", "tile_logs", "docs_search", "docs_read", "tile_api_doc",
 			"tile_call",
 			"tile_agent_brief", "tile_agent_start", "tile_agent_message", "tile_agent_status", "tile_agent_result", "tile_agent_cancel", "tile_agents",
-			"research", "tile_create", "admin_propose", "admin_changes", "preview",
+			"research", "tile_create", "admin_propose", "admin_changes", "preview", "plan_propose",
 			"plan", "notebook_search", "notebook_read", "notebook_write", "notebook_edit", "notebook_archive",
 		},
 		Limits: coordBounds{Research: wsResearchMax, ResearchTimeout: wsResearchTimeout, Wakes: wsWakeBurst},
@@ -66,6 +66,7 @@ func init() {
 	coordWorkspace.mustRegister(wsActTools()...)
 	coordWorkspace.mustRegister(wsAgentTools()...)
 	coordWorkspace.mustRegister(wsOtherTools()...)
+	coordWorkspace.mustRegister(wsPlanTools()...)
 	coordWorkspace.mustRegister(wsTalkTools()...)
 }
 

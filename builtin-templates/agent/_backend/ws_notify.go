@@ -251,7 +251,7 @@ func (ag *Agent) wsCheckReq(ctx context.Context, s *wsSession, r *wsReq) bool {
 		}
 		applied, chosen := 0, 0
 		for _, it := range cs.Items {
-			if it.Result != "" && it.Result != "rejected" {
+			if it.Result != "" && it.Result != "rejected" && it.Result != "asked" {
 				chosen++
 			}
 			if it.Result == "applied" {
@@ -261,6 +261,10 @@ func (ag *Agent) wsCheckReq(ctx context.Context, s *wsSession, r *wsReq) bool {
 		done := wsDone{State: cs.State, By: "person", Outcome: "your person decided — " + wsChangeSetText(cs)}
 		if chosen > 0 || applied > 0 {
 			done.Result = fmt.Sprintf("%d of %d changes applied", applied, chosen)
+		}
+		if cs.Plan { // the tile agents it started are this conversation's to follow; what still waits is said
+			done.Outcome += ag.wsPlanDecided(ctx, s, r, cs)
+			ag.wsRefresh(ctx, s, true)
 		}
 		ag.wsSettled(r, done)
 		return false

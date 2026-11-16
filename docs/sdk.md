@@ -1027,6 +1027,15 @@ cs, err := xbin.ProposeChanges(ctx, "let the report read the calendar", []xbin.C
 // later: xbin.ChangeSetOf(ctx, cs.ID) → State and each item's Result
 ```
 
+Multi-step work is one proposal: `xbin.ProposePlan(ctx, title, lines)`
+takes the same kinds and two more — `tile.create {template, path, owner?}`
+and `agent.start {tile, brief, harness?, mode?}` — and a later line may
+name a tile an earlier line creates. Any person's agent may propose one;
+each item says whether it is the person's own to apply or an admin's
+(`Admin`, `NeedsAdmin`), which lines it needs (`Needs`), and, once
+applied, what it made (`Out`: `{"path"}` or `{"session"}`)
+([protocol/delegation.md](/docs/protocol/delegation.md) §Plans).
+
 The refusals to tell apart (`errors.Is` on what `DelegateRefusal` and the
 helpers return; `*DelegateError` carries xbind's `Message`, fit to show):
 

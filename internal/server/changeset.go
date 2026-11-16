@@ -410,7 +410,7 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 		// what the person saw must still be what is there — and, for a plan,
 		// what their agent may touch, and theirs to do without an admin if
 		// that is what it was
-		pv, err := s.previewLine(approver, agent, it.ChangeOp, nil)
+		pv, err := s.previewLine(approver, agent, pinStart(it.ChangeOp, it.Start), nil)
 		why := ""
 		if err == nil && pv.Blocked == "" && cs.Plan {
 			why = s.lineAgentRefusal(agent, pv.Tiles)

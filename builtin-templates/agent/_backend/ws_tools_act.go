@@ -62,7 +62,7 @@ func wsOtherTools() []coordTool {
 		{Spec: researchSpecWs(), Engine: researchTool(wsResearch)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_create",
 			Description: "Make a new tile from a template, where your person may create tiles. Your person is asked every time — xbin shows them the template and the place. This tool answers \"pending\" at once; the outcome reaches you as a workspace update. " +
-				"The new tile is theirs. Use it when the outcome needs something that doesn't exist yet; a tile agent can then build in it. Without template it lists the templates.",
+				"The new tile is theirs. Use it when the outcome needs one new tile and nothing else; when the tile also needs something bound to it or built in it, propose all of it as one plan (plan_propose) instead. Without template it lists the templates.",
 			Parameters: obj(nil, map[string]any{
 				"template": strProp("the template's id (call with no template to list them)"),
 				"name":     strProp("the new tile's name or path (Team calendar, or apps/team-calendar)"),
@@ -337,6 +337,9 @@ func wsTileCreateTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall
 	if !strings.Contains(name, "/") {
 		path = "apps/" + strings.Trim(wsSlugBad.ReplaceAllString(strings.ToLower(name), "-"), "-")
 	}
+	if r := ag.wsPlanCovers(s.Run, path, ""); r != nil && args["dry_run"] != true {
+		return wsPlanWaits(r), nil
+	}
 	create := wsTileCreate{Template: tpl.ID, Path: path}
 	what := fmt.Sprintf("create the tile %s from the template %s", path, orStr(tpl.Name, tpl.ID))
 	var dry *wsDry
@@ -373,6 +376,12 @@ func wsChangeSetText(cs wsChangeSet) string {
 		if it.Blocked != "" {
 			fmt.Fprintf(&b, " — can't be applied: %s", wsPlain(it.Blocked))
 		}
+		switch {
+		case it.NeedsAdmin && it.Result == "":
+			b.WriteString(" — needs an admin (your person is none; they can ask one from the review)")
+		case it.Admin && it.Result == "":
+			b.WriteString(" — an admin's change")
+		}
 		if it.Result != "" {
 			fmt.Fprintf(&b, " — %s", wsResultWords(it.Result))
 			if it.Error != "" {
@@ -393,6 +402,8 @@ func wsResultWords(r string) string {
 		return "left out by your person"
 	case "blocked":
 		return "couldn't be applied"
+	case "asked":
+		return "sent to the admins by your person; not applied yet"
 	}
 	return r
 }

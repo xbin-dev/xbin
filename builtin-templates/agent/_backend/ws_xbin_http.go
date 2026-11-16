@@ -839,6 +839,11 @@ func (h wsHTTP) Propose(ctx context.Context, sid, title string, items []xbin.Cha
 	return out, h.json(ctx, sid, http.MethodPost, "/api/xbin/delegate/changesets", map[string]any{"title": title, "items": items}, &out)
 }
 
+func (h wsHTTP) ProposePlan(ctx context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
+	var out wsChangeSet
+	return out, h.json(ctx, sid, http.MethodPost, "/api/xbin/delegate/plans", map[string]any{"title": title, "items": items}, &out)
+}
+
 func (h wsHTTP) ChangeSet(ctx context.Context, sid, id string) (wsChangeSet, error) {
 	var out wsChangeSet
 	return out, h.get(ctx, sid, "/api/xbin/delegate/changesets/"+url.PathEscape(id), &out)

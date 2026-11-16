@@ -5916,11 +5916,29 @@ orgs, reason, offer: {newSession: {model}}}`.
 `tile_api_doc`; `tile_call`; `tile_agent_brief`, `tile_agent_start`,
 `tile_agent_message`, `tile_agent_status`, `tile_agent_result`,
 `tile_agent_cancel`, `tile_agents`; `research`; `tile_create`;
-`admin_propose`, `admin_changes` (the change sets this conversation
-proposed, never another session's); `preview`; `plan`; `notebook_search`,
+`plan_propose`; `admin_propose`, `admin_changes` (the change sets and
+plans this conversation proposed, never another session's); `preview`;
+`plan`; `notebook_search`,
 `notebook_read`, `notebook_write`, `notebook_edit`, `notebook_archive` —
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
+
+**Plans** (`_backend/ws_tools_plan.go`; xbind's
+/docs/protocol/delegation.md §Plans): `plan_propose {title, changes:
+[{kind, args, why}]}` files multi-step work as ONE change set
+(`xbin.ProposePlan`) — `tile.create {template, name}` (a name becomes
+`apps/<slug>`; later lines may use the name or the path), `agent.start`
+with a brief's fields (`{tile, goal, done_when, …}` or `{tile, template:
+"mcp-tool", tool}`; the brief is composed here and is the line's own
+argument, shown by xbin "exactly as sent"), `binding.set`, and
+`admin_propose`'s kinds. The request's card is a change set's
+(`cards.requests[]`, kind `changeset`, titled "a plan of N change(s): …").
+When xbind says it was decided, each applied `agent.start` line's session
+(`out.session`) becomes a tile agent of this conversation (`cards.agents[]`,
+`request` the plan's), and the update says what was applied, what failed
+(the rest skipped), and what waits for an admin. While a plan waits, a
+single `tile_create` or `tile_agent_start` for one of its steps files
+nothing and says so. `GET /ws/needs` lists a plan as any change set.
 
 **Brief templates** (`_backend/ws_brief_kinds.go`): `tile_agent_brief`
 takes `template` — one so far, `"mcp-tool"`, a tool an agent instance
@@ -6000,7 +6018,7 @@ beside them are the model's, and neither is parsed out of the other.
   sentence the model was told.
 - **Where a card sits** (`cards.requests[].callId`, `cards.briefs[].callId`):
   the id of the tool call that made it — the `tile_call`, `tile_agent_start`,
-  `tile_create` or `admin_propose` that filed a request, the
+  `tile_create`, `plan_propose` or `admin_propose` that filed a request, the
   `tile_agent_brief` that wrote a brief — kept for the item's life: a
   request asked again after its brief was edited, and one decided, keep
   theirs. Absent where no tool call made it: a request the brief's Start

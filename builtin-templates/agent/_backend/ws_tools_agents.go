@@ -247,6 +247,9 @@ func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (st
 		}
 		brief, start = b, wsStartOf(b, s.Owner)
 		title = fmt.Sprintf("start a tile agent in %s", b.Tile)
+		if r := ag.wsPlanCovers(s.Run, "", b.Tile); r != nil && args["dry_run"] != true {
+			return wsPlanWaits(r), nil
+		}
 	}
 	if n := ag.db.wsOne(`SELECT count(*) FROM ws_agents WHERE run_id=? AND status IN ('starting','running','idle')`, s.Run); n >= wsAgentsLive {
 		return "", fmt.Errorf("this session already has %d tile agents open (at most %d): let one finish, or message one of them", n, wsAgentsLive)
