@@ -93,7 +93,9 @@
 //	             data.csv, a missing file and a web page), then render_html
 //	             it (D207: the step's links) → "Report shown with its files."
 //	ws: <steps>  (a line of the message) the steps it lists, one tool call a
-//	             request — any tools, in the test's own order (ws.go) →
+//	             request — any tools, in the test's own order (ws.go; a
+//	             step "wait <words>" ends the turn until xbin's workspace
+//	             update with those words arrives) →
 //	             "Done: <each result's first line>"
 //	huge context "ok: <text>", reporting a 5 000 000-token prompt: the agent's
 //	             next step compacts (D133)
