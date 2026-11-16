@@ -564,11 +564,17 @@ func TestSigninRuleJudgesTheTileADirectoryLiesIn(t *testing.T) {
 	m := r.m
 	var asked []string
 	shared := true
-	m.SigninOthers = func(user, path string) (string, []string, bool) { // as the real one: the tile the path lies in
-		if path != "apps/x" && !strings.HasPrefix(path, "apps/x/") {
+	m.TileAt = func(rel string) (string, bool) { // the registry's resolver, as boot installs it
+		if rel == "apps/x" || strings.HasPrefix(rel, "apps/x/") {
+			return "apps/x", true
+		}
+		return "", false
+	}
+	m.SigninOthers = func(user, tile string) (string, []string, bool) { // asked about the tile TileOf named, never a directory
+		asked = append(asked, tile)
+		if tile != "apps/x" {
 			return "", nil, false
 		}
-		asked = append(asked, "apps/x")
 		if shared {
 			return "apps/x", []string{"bob"}, true
 		}

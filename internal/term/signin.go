@@ -70,7 +70,9 @@ type SigninStore interface {
 type SigninHook struct {
 	// Signins is the store; nil ⇒ sessions are exactly as before.
 	Signins SigninStore
-	// SigninOthers answers the registered tile a path is or lies in and the
+	// SigninOthers answers, for a tile (the rule resolves a session's
+	// directory with TileOf first; the broker's answer resolves again and
+	// says the tile it judged), the registered tile and the
 	// other people — enabled, not workspace admins — who hold write level or
 	// more there (the broker's SigninOthers): each could change what a
 	// session there runs. ok false: the path lies in no tile. nil ⇒ unknown,
@@ -309,7 +311,11 @@ func (m *Manager) signinWhy(p auth.Principal, o openOpts, rel string, prov agent
 	// the tile the directory lies in, never the directory as written: a
 	// person's access is to the tile, and its hooks run in every directory
 	// of it — on a partitioned tile too, whose directory is shared code
-	tile, others, ok := m.SigninOthers(p.UserID, rel)
+	tile, ok := m.TileOf(rel) // the one resolver every session decision uses (sessiondir.go)
+	var others []string
+	if ok {
+		tile, others, ok = m.SigninOthers(p.UserID, tile)
+	}
 	if !ok {
 		return rel + " is in no registered tile, so xbind can't tell who else can change what runs there"
 	}
@@ -598,7 +604,11 @@ func (m *Manager) SigninSweep() int {
 			n++
 			continue
 		}
-		tile, others, ok := m.SigninOthers(user, s.Cwd)
+		tile, ok := m.TileOf(s.Cwd) // judged afresh, on the tile as the registry has it now
+		var others []string
+		if ok && m.SigninOthers != nil {
+			tile, others, ok = m.SigninOthers(user, tile)
+		}
 		if !ok { // its tile is gone from the registry: nothing vouches for it any more
 			m.endForSignin(s, s.Cwd+" is no longer a registered tile, so this session — which ran on your saved sign-in — was ended.")
 			n++
