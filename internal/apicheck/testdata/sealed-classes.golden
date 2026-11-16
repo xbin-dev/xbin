@@ -227,6 +227,7 @@ POST /delegate/requests/{id}/deny	no-tile
 POST /delegate/sessions	no-tile
 POST /delegate/sessions/{id}/allows	no-tile
 POST /delegate/sessions/{id}/taint	no-tile
+POST /delegate/web/fetch	no-tile
 POST /deployments/add	refused	?tile body.tile
 POST /deployments/always-on	refused	?tile body.tile
 POST /deployments/backup	refused	?tile body.tile

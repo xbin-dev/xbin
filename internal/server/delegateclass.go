@@ -298,10 +298,15 @@ var delegateClasses = map[string]delegateRow{
 	"GET /docs/search":                    dRead(),
 	"GET /docs/page":                      dRead(),
 	"GET /delegate/approvals":             dRead(),
-	"POST /delegate/changesets":           dAct(),
-	"GET /delegate/changesets":            dRead(),
-	"GET /delegate/changesets/{id}":       dRead(),
-	"DELETE /delegate/changesets/{id}":    dAct(),
+	// the web (D236, delegateweb.go): one page read by xbind for the
+	// conversation, under the workspace's policy, the orgs' rules and the
+	// person's setting; a conversation holding any org's data needs a
+	// ticket for each URL — the handler asks, as the web's reach decides
+	"POST /delegate/web/fetch":         dAct(),
+	"POST /delegate/changesets":        dAct(),
+	"GET /delegate/changesets":         dRead(),
+	"GET /delegate/changesets/{id}":    dRead(),
+	"DELETE /delegate/changesets/{id}": dAct(),
 
 	// ---- never: answering itself ----
 	"GET /delegate/requests":                 dNever(neverApprove),

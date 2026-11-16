@@ -84,7 +84,7 @@ forwards them):
 |---|---|
 | reads, at the person's level | `GET /whoami`, `/components`, `/components/<path>`, `/tile-status`, `/tile-report`, `/logs`, `/alerts`, `/screens`, `/templates`, `/agent/providers`, `/term/sessions`, `/term/sessions/<id>`, `…/events`, `…/log`, `…/diff`, `/agent/history`, `/agent/history/<id>/events`, `/code/tree`, `/code/file`, and its own `/delegate/state`, `/delegate/approvals`, `/delegate/requests/<id>`, `/delegate/changesets[/<id>]` |
 | a tile's API | `/api/<tile>/…` where the person can read the tile: `GET`/`HEAD` freely; any other method needs the person's approval |
-| acts | `POST /preview` (a picture of one tile, as the person: [preview.md](/docs/protocol/preview.md) — no approval; rate-limited), `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…` |
+| acts | `POST /preview` (a picture of one tile, as the person: [preview.md](/docs/protocol/preview.md) — no approval; rate-limited), `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…`; the web: `POST /delegate/web/fetch` (§Web and MCP: the person's approval of the URL when the conversation holds data) |
 | admin reads, only for an admin who opted in | `GET /grants`, `/bindings`, `/orgs` (without SSO group rules), `/limits` — answered as the person |
 | refused | everything else: `403 {error, refusal: "not-delegated", class}`. In particular: answering a tile agent's permission request or question, a session's options and restart, terminals, deleting or disabling tiles, code writes and pull requests, the account, devices and sign-in tickets, frame tokens and path tickets, view-as, a person's consents, tile stores, the admin API, and every approval on this page |
 
@@ -107,8 +107,8 @@ not in the cap. No WebSocket upgrade (`403`). An admin's
 agent is not an admin.
 
 Refusals are `403 {error, refusal, class, docs}` with `refusal` one of
-`not-delegated`, `tile`, `needs-approval`, `ticket`, `admin-read`, and the
-off reasons above;
+`not-delegated`, `tile`, `needs-approval`, `ticket`, `admin-read`, the
+off reasons above, and the web's (§Web and MCP);
 `413 {refusal: "too-large"}` for a ticketed body over 256 KiB; and
 `429 {refusal: "rate-limited"}` + `Retry-After` past 30 acts a minute (a
 burst of 30, one more every 2 seconds; reads and dry runs don't count).
@@ -318,6 +318,128 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   means the conversation can't go on on that model.
 - Audit rows carry `session`.
 
+## Web and MCP
+
+A person's agent reads the web and uses MCP servers only through xbind
+(D236): its backend's sandbox has no network but its model. Both are **off
+until an admin turns them on** for the workspace, and then each person
+turns them on for their own agent; an org may keep its data off the web.
+Each layer only narrows the one above:
+
+1. **the workspace policy** — `web` and `mcp` of `PUT /delegate/workspace`
+   (§The switches), preset and capped by the host's file
+   (`XBIN_WSAGENT_CONFIG`, below);
+2. **the org rules** — `web` and `mcp` of an org's agent rules
+   ([protocol/orgs.md](/docs/protocol/orgs.md)), asked for every org
+   whose data the conversation holds (its handle's `tainted`);
+3. **the person** — `web`, `mcp`, `mcpReadOnly` of `PUT /delegate/state`,
+   their own session's to turn on (the agent's page can't).
+
+```
+POST   /delegate/web/fetch      the person's agent. {url} → {url,
+                                 finalUrl, status, contentType, title?,
+                                 text, bytes, truncated, redirects,
+                                 readWeb: true}
+```
+
+**What a fetch is.** One `GET`, made by xbind: no body, no cookies, no
+`Authorization` or `Referer`, a fixed `User-Agent`
+(`xbin-workspace-agent/1 …`), never through a proxy of the environment.
+The name is resolved and **every address it resolves to must be public**
+— not loopback, private (RFC 1918, ULA), link-local (the cloud metadata
+address among them), multicast, unspecified, CGNAT, documentation,
+benchmarking or reserved, nor an IPv6 form that maps or translates to one
+(`::ffff:…`, NAT64, 6to4, Teredo) — and the connection is made to the
+address that was checked, the socket's own peer checked again as it
+connects: a DNS answer that changes in between reaches nothing. Names of
+this machine and of local networks (`localhost`, `*.local`, `*.home.arpa`,
+`*.internal`) are refused by name. Redirects are followed by xbind, at
+most 5, each hop judged again (scheme, length, the lists, the address). At
+most 2 MiB of the answer is read (`truncated` past it), in 20 s in all;
+the types read are `text/html`, `application/xhtml+xml`, `text/plain`,
+`text/markdown`, `text/csv`, `application/json`, `application/xml`,
+`text/xml`, `application/rss+xml` and `application/atom+xml` (UTF-8 or
+Latin-1) — anything else is refused unread. HTML comes back as text —
+scripts, styles and comments dropped, headings marked `#`, a link's
+address after its words — at most 64 KiB.
+
+**The URL.** `http` or `https`, at most 2 KiB, no user name or password, a
+host that is a name or a canonical address (a dotted quad, a bracketed
+IPv6 address without a zone — `http://2130706433/`, `http://0x7f.1/`,
+`http://0177.0.0.1/` are refused), allowed by the lists in force (a URL
+must match every allow list that isn't empty, and no deny list), and never
+one of the workspace's own hosts (its external URL, the tiles' domain and
+the names under it, the hostnames its tiles are published at).
+
+**A URL is a way out.** While the handle's `tainted` names any org — the
+tiles in no org (`workspace`) included — a fetch needs its person's
+approval of that exact URL: the agent files `POST /delegate/requests
+{method: "POST", path: "/api/xbin/delegate/web/fetch", body:
+"{\"url\": …}"}` — the URL in its canonical form (400 with the form to use
+otherwise) — and sends the same body with `X-XBin-Ticket` once it is
+approved. The request is `kind: "web"`, its `preview` `{class: "web",
+url, host, orgs, why}`; it is approved once (`hour` and `always` are
+refused: the URL is the data). That holds unless every org in `tainted`
+allows the web outright (its rule `web: "allow"`); an untainted
+conversation fetches freely within the policy. A request for a fetch that
+needs no approval is `400`; one the reach refuses whatever approves it,
+or a URL that would be refused anyway, `403`.
+
+**After a fetch** the handle is `web: true` — "this conversation has read
+the web" — and every request filed under it says so (`preview.readWeb`).
+A backend that renews a handle gives it that too (`POST
+/delegate/sessions/<id>/taint {web: true}`). What a page says is
+untrusted input: the agent reads it as data, never as instructions.
+
+**The reach.** Every answer that carries a session (`POST`, `GET`,
+`PATCH /delegate/sessions…`, `…/taint`) adds `web` and `reach: {web,
+search, mcp}`, each `{state, why?, code?, orgs?}`: `state` is `on` (it
+may), `asks` (each use needs the person's approval — the conversation
+holds data of `orgs`) or `off` (`why` in a person's words, `code` the
+refusal a call meets). Search is `on` only where an upstream of the LLM
+connector has a native web search an admin switched on, the policy offers
+it (`web.search`) and the web is `on` without asking: a search's words
+can't be approved one by one.
+
+**Refusals** (`403 {error, refusal, class: "web", docs}` unless said):
+`web-off` (the workspace policy, or the host's), `web-person` (the
+person's setting), `web-org` (an org whose data the conversation holds
+keeps its data off the web: no fetch for the rest of the conversation — a
+new session that hasn't read it can), `needs-approval`, `ticket`,
+`web-url` (400), `web-host`, `web-address`, `web-redirect`, `web-type`
+(415), `web-unreachable` (502), `web-timeout` (504), `rate-limited` (429
+with `Retry-After`: 12 fetches a burst, one more every 5 s, a person; on
+top of the act limit). Every fetch — refused ones up to the log's rate —
+is a row of the person's log (`class: "web"`, `path` the URL's scheme,
+host and path with `?…` for a query, `bytes`, `status`).
+
+### The host's file (`XBIN_WSAGENT_CONFIG`)
+
+Whoever runs xbind can preset and cap the web and MCP policy from a file,
+as `XBIN_LLM_CONFIG` holds the LLM connector ([llm.md](/docs/llm.md)):
+JSON with comments, read at boot — xbind doesn't start with a file it
+can't read — and again when it changes (looked at at most every 2 s); an
+invalid change is refused, the last good file stays in force and the
+admin's view says so (`host.error`).
+
+```jsonc
+// XBIN_WSAGENT_CONFIG=/etc/xbin/wsagent.jsonc
+{
+  "web": { "mode": "read", "allow": ["docs.example.com"], "deny": ["intranet.example.com"], "search": false },
+  "mcp": { "mode": "tiles" }
+  // "lockAll": true    // every web and MCP setting is the host's
+}
+```
+
+- `web.mode`, `web.search` and `mcp.mode` are a **preset and a ceiling**:
+  in force is the admin's value when they set one, never past the host's,
+  and the host's without one. An admin can narrow (turn it off), never
+  widen; their settings read `locks: {"web.mode": {locked, reason: "set by
+  your host", ceiling}}`.
+- `web.allow` and `web.deny` always hold, beside the admin's own lists.
+- `"lockAll": true`: every web and MCP setting is the host's; writing one
+  is `409 {settings}`.
+
 ## Notices to the agent's backend
 
 A holder's backend learns that something it waits on changed without
@@ -383,11 +505,22 @@ GET    /delegate/state          the person, their agent's page, or their
                                  chosen} — whether the workspace
                                  defaults name the agent, how many
                                  people and orgs have an entry of their
-                                 own, and whether anyone was given one
+                                 own, and whether anyone was given one.
+                                 web, mcp, mcpReadOnly: the person's own
+                                 settings (§Web and MCP); net: {web:
+                                 {policy, why?, only?}, mcp: {policy,
+                                 why?}, search} — what the workspace
+                                 policy lets them turn on, and why not
 PUT    /delegate/state          the person, or their agent's page —
                                  which may send {paused: true} and nothing
-                                 else (403). {paused?, adminChanges?} → the
-                                 state. Pausing refuses the agent's every
+                                 else (403). {paused?, adminChanges?, web?,
+                                 mcp?, mcpReadOnly?} → the state. web, mcp
+                                 (my agent may read the web, use MCP tools)
+                                 and mcpReadOnly (tools marked read-only
+                                 don't ask me) are the person's own
+                                 session's, and turn on only while the
+                                 workspace policy allows them (409
+                                 {refusal: "policy"}). Pausing refuses the agent's every
                                  call at once and cuts the calls running
                                  (a followed event stream ends). Resuming,
                                  and adminChanges — the agent may read what
@@ -395,10 +528,27 @@ PUT    /delegate/state          the person, or their agent's page —
                                  the person's own session's; only a
                                  workspace or org admin turns adminChanges
                                  on (403)
-GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?}:
-                                 off until an admin turns it on; who as
-                                 in the state
-PUT    /delegate/workspace      admin. {enabled?, who?}, at least one.
+GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?,
+                                 web, mcp, policy, host, locks}: off until
+                                 an admin turns it on; who as in the state;
+                                 web {mode, allow, deny, search} and mcp
+                                 {mode} the admin's own settings, policy
+                                 what is in force under the host's file
+                                 ({web: {mode, allow, deny, hostAllow?,
+                                 hostDeny?, search, byHost?}, mcp: {mode,
+                                 byHost?}}), host {active, lockAll,
+                                 error?, web?, mcp?} and locks what of it
+                                 holds (§Web and MCP)
+PUT    /delegate/workspace      admin. {enabled?, who?, web?: {mode?:
+                                 "off" | "read", allow?, deny?, search?},
+                                 mcp?: {mode?: "off" | "tiles"}}, at least
+                                 one. web and mcp are off by default;
+                                 web.mode "full" and mcp.mode "listed" are
+                                 reserved: 400 "not available yet". allow
+                                 and deny are host patterns (example.com:
+                                 it and the names under it; *.example.com:
+                                 only the names under it), at most 200
+                                 each.
                                  Off refuses every person's agent at
                                  once. who gives the agent to people —
                                  access to the component, written where

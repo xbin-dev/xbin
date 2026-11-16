@@ -45,7 +45,11 @@ type AgentSession struct {
 	Model string        `json:"model"` // "<upstream>/<model>"
 	// Tainted: the orgs whose tiles a call under this handle touched
 	// ("workspace" for tiles in no org). It only grows.
-	Tainted []string  `json:"tainted"`
+	Tainted []string `json:"tainted"`
+	// Web: the conversation has read the web (a fetch under this handle,
+	// or the holder said so of the conversation it renews; D236). It only
+	// goes from false to true.
+	Web     bool      `json:"web,omitempty"`
 	Created time.Time `json:"created"`
 	Used    time.Time `json:"used"`
 }
@@ -265,6 +269,7 @@ func (s *Store) UpdateAgentSession(user, holder, id string, change func(*AgentSe
 			a.Tainted = append(a.Tainted, o)
 		}
 	}
+	a.Web = a.Web || doc.Sessions[i].Web
 	slices.Sort(a.Tainted)
 	a.ID, a.User, a.Agent, a.Created, a.Used = id, user, holder, doc.Sessions[i].Created, s.now().UTC()
 	doc.Sessions[i] = a
@@ -298,6 +303,29 @@ func (s *Store) TaintAgentSession(user, holder, id string, orgs []string) error 
 		return nil
 	}
 	slices.Sort(doc.Sessions[i].Tainted)
+	return s.saveSessions(p, user, doc)
+}
+
+// MarkWeb records that the conversation of the handle has read the web;
+// it writes only the first time.
+func (s *Store) MarkWeb(user, holder, id string) error {
+	if s == nil {
+		return nil
+	}
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	doc, _, err := s.sessions(p, user)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(doc.Sessions, func(a AgentSession) bool { return a.ID == id && a.Agent == holder })
+	if i < 0 {
+		return ErrNoAgentSession
+	}
+	if doc.Sessions[i].Web {
+		return nil
+	}
+	doc.Sessions[i].Web = true
 	return s.saveSessions(p, user, doc)
 }
 

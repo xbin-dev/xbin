@@ -58,6 +58,7 @@ type Call struct {
 	Ticket  string    `json:"ticket,omitempty"`  // the approved request it ran under
 	Session string    `json:"session,omitempty"` // the agent session (handle) the call ran under
 	Under   string    `json:"under,omitempty"`   // …or the standing approval, or "preference" for a session started unasked
+	Bytes   int64     `json:"bytes,omitempty"`   // what a web fetch read (D236)
 	// N: rows the gate left out before this one — refusals, dry runs and
 	// reads beyond what it writes a minute (the gate's audit limit).
 	N int `json:"n,omitempty"`

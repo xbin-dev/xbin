@@ -218,6 +218,7 @@ type delegateRuntime struct {
 	mu      sync.Mutex
 	buckets map[string]*actBucket
 	noise   map[string]*noiseBucket
+	web     map[string]*actBucket // a person's web fetches (delegateweb.go)
 	calls   map[string]map[uint64]*runningCall
 	nextID  uint64
 	pushed  map[string]time.Time // person + kind → the last "something waits" push
@@ -614,6 +615,14 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 			}
 		}
 		preview["allowed"] = true
+		if v.pattern == webFetchPattern && hasHandle { // what a fetch would need now: the conversation's reach (delegateweb.go)
+			switch reach := s.webReach(p, handle); reach.State {
+			case reachOff:
+				preview["allowed"], preview["refusal"] = false, reach.Why
+			case reachAsks:
+				preview["needsApproval"] = true
+			}
+		}
 		if v.pattern == "POST /term/sessions" { // what THIS start would need: the person's preference may start it unasked
 			body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, delegation.MaxBody))
 			ask := sessionAskOf(body)
@@ -653,6 +662,7 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 	if v.row.class == DelegateAdminRead {
 		ctx = context.WithValue(ctx, delegateAdminReadKey{}, true)
 	}
+	ctx = context.WithValue(ctx, delegateRowKey{}, &row) // a handler that knows more of the call says it in the row (delegateRowOf)
 
 	// 7. run it, under a context that ends when it may no longer run: the
 	// call is registered FIRST and judged again after, so a pause that lands

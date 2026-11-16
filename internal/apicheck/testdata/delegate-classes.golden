@@ -228,6 +228,7 @@ POST /delegate/requests/{id}/deny	never
 POST /delegate/sessions	act
 POST /delegate/sessions/{id}/allows	act
 POST /delegate/sessions/{id}/taint	act
+POST /delegate/web/fetch	act
 POST /deployments/add	refused
 POST /deployments/always-on	refused
 POST /deployments/backup	refused

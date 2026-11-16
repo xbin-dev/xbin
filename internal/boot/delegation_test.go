@@ -1,8 +1,13 @@
 package boot
 
 import (
+	"context"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -133,5 +138,35 @@ func TestHolderModelCallsAreTheSessions(t *testing.T) {
 		if why := call(c, hosted, "big"); why != "" {
 			t.Errorf("%+v: %s", c, why)
 		}
+	}
+}
+
+// covers D236 — the host's web and MCP policy for workspace agents
+// (XBIN_WSAGENT_CONFIG): a file that is invalid stops the boot, naming the
+// variable — a host never runs without the limits it wrote.
+func TestWsAgentHostFileStopsBoot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace")
+	}
+	quiet(t)
+	bad := filepath.Join(t.TempDir(), "wsagent.jsonc")
+	if err := os.WriteFile(bad, []byte(`{"web": {"mode": "full"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ws := filepath.Join(t.TempDir(), "ws")
+	if err := InitWorkspace(ws); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	cfg := testConfig(ws, ln)
+	cfg.WsAgentConfig = bad
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := Run(ctx, cfg); err == nil || !strings.Contains(err.Error(), "XBIN_WSAGENT_CONFIG") {
+		t.Fatalf("Run with an invalid XBIN_WSAGENT_CONFIG: %v", err)
 	}
 }

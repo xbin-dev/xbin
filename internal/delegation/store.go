@@ -44,6 +44,8 @@ type Store struct {
 	people map[string]*person
 	wsMu   sync.Mutex
 	ws     cached[Workspace]
+	// host is the host's deployment file (hostfile.go; nil: none)
+	host *HostFile
 
 	// Audit is the per-person audit log, under the same directory.
 	Audit *Log
@@ -199,6 +201,13 @@ type Workspace struct {
 	Enabled bool      `json:"enabled"`
 	By      string    `json:"by,omitempty"`
 	At      time.Time `json:"at,omitempty"`
+	// Web and MCP are the admin's settings for the agent on the web and
+	// with MCP servers (netpolicy.go; D236) — nil: never set, off. NetBy
+	// and NetAt say who set them last, and when.
+	Web   *WebPolicy `json:"web,omitempty"`
+	MCP   *MCPPolicy `json:"mcp,omitempty"`
+	NetBy string     `json:"netBy,omitempty"`
+	NetAt time.Time  `json:"netAt,omitempty"`
 }
 
 // Workspace reads the switch: off when it was never set or can't be read.
@@ -222,7 +231,11 @@ func (s *Store) SetWorkspace(enabled bool, by string) (Workspace, error) {
 	}
 	s.wsMu.Lock()
 	defer s.wsMu.Unlock()
-	w := Workspace{Enabled: enabled, By: by, At: s.now().UTC().Truncate(time.Second)}
+	w, err := load(&s.ws, filepath.Join(s.dir, "workspace.json"))
+	if err != nil {
+		w = Workspace{} // unreadable: what the admin now sets replaces it
+	}
+	w.Enabled, w.By, w.At = enabled, by, s.now().UTC().Truncate(time.Second)
 	return w, save(&s.ws, filepath.Join(s.dir, "workspace.json"), w)
 }
 
@@ -241,8 +254,15 @@ type State struct {
 	PausedAt time.Time `json:"pausedAt,omitempty"`
 	// PageSeen: the person dismissed the notice that names /xbin/agent (the
 	// one alert a shell without the agent's chip shows them; D232).
-	PageSeen bool      `json:"pageSeen,omitempty"`
-	Updated  time.Time `json:"updated,omitempty"`
+	PageSeen bool `json:"pageSeen,omitempty"`
+	// Web, MCP: the person lets their agent read the web, use MCP tools —
+	// within what the workspace policy allows (D236); MCPReadOnly: MCP
+	// tools marked read-only don't ask them. All three widen what the agent
+	// does: their own session's to turn on.
+	Web         bool      `json:"web,omitempty"`
+	MCP         bool      `json:"mcp,omitempty"`
+	MCPReadOnly bool      `json:"mcpReadOnly,omitempty"`
+	Updated     time.Time `json:"updated,omitempty"`
 }
 
 // State reads user's state. A file that can't be read is the closed state:

@@ -58,6 +58,8 @@ const (
 	KindCall     = "call"     // a tile API call
 	KindSession  = "session"  // POST /term/sessions
 	KindTemplate = "template" // POST /templates/new
+	KindWeb      = "web"      // POST /delegate/web/fetch: a URL the conversation may read (D236)
+	KindMCP      = "mcp"      // POST /delegate/mcp/call: a tool of an MCP server (D236)
 )
 
 // Standing approval scopes.
