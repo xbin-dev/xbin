@@ -22,7 +22,7 @@ import { fmtBytes, fmtDur, setLifecycle, WithFilter, WithRouter } from '../share
 
 // A backend state's icon before its word (a status badge, R2 of D184).
 const STATE_ICON = { healthy: 'ok', failed: 'error', building: 'wait' };
-// rt: a failed start's pending retry (D240; an older xbind sends none)
+// rt: a failed start's pending retry (D242; an older xbind sends none)
 const retryText = (rt) => (rt ? ` · retrying in ${fmtDur(rt.inSec)} (${rt.attempt} of ${rt.of})` : '');
 const stateBadge = (st, rt) => html`<span class="state ${st}">${STATE_ICON[st] ? html`<bx-icon name=${STATE_ICON[st]}></bx-icon>` : nothing}${st}${st === 'failed' ? retryText(rt) : ''}</span>`;
 // How a backend is isolated, in words with its glyph: a VM, the rootless

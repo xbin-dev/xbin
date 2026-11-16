@@ -1,6 +1,6 @@
 package runner
 
-// retry.go — a failed start that can clear by itself is tried again (D240).
+// retry.go — a failed start that can clear by itself is tried again (D242).
 //
 // A start failure was sticky until the next save: a backend that missed its
 // health deadline once — a slow disk under its first write, a slow answer —

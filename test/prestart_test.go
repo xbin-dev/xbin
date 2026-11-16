@@ -289,7 +289,7 @@ func main() {
 }
 
 // A backend whose first start is stuck past its deadline, and whose next
-// would be fine, becomes healthy by itself with no save (D240): xbind
+// would be fine, becomes healthy by itself with no save (D242): xbind
 // starts a new generation of the same code 10 s after the failure. The
 // first start marks a kv key and blocks before Serve; the retry finds the
 // mark and serves. Before, the tile stayed failed until the next save.

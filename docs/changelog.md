@@ -12,7 +12,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
-- runner: **a failed start retries by itself** (D240). A start that failed
+- runner: **a failed start retries by itself** (D242). A start that failed
   for a reason that can clear by itself — the backend was running but never
   listened by its deadline (also while still waiting on xbind), it listened
   but never accepted, the launch met a transient error (`EAGAIN`, `ENOMEM`,

@@ -21,7 +21,7 @@ import '/vendor/bx-icons.js';
 
 // The live square (product-ui 3): the tile's code is live (the accent),
 // building (hollow) or its build failed (a danger outline and the word) —
-// "failed · retrying" while xbind will start it again (D240: retry is the
+// "failed · retrying" while xbind will start it again (D242: retry is the
 // frame's buildRetry, the time and count in the tooltip).
 const LIVE = { live: 'live', building: 'building', failed: 'build failed' };
 const retryWords = (r) => (r ? `retrying at ${new Date(r.at).toLocaleTimeString()} (${r.attempt} of ${r.of})` : '');

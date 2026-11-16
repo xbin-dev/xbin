@@ -144,7 +144,7 @@ export class BxFrame extends LitElement {
     _buildError: { state: true },
     _building: { state: true }, // a build-start without its build-ok / build-error yet
     _phase: { state: true },    // while building (D196): 'compile' | 'env' | 'starting'
-    _retry: { state: true },    // a failed start xbind tries again (D240): {attempt, of, at, inSec} | null
+    _retry: { state: true },    // a failed start xbind tries again (D242): {attempt, of, at, inSec} | null
     _popActive: { state: true }, // the pop-up is the page's active window
     _autoHeight: { state: true },
     _ide: { state: true },     // the window's panes, tabs, side panel and dock (frame-ide.js, D202)
@@ -233,7 +233,7 @@ export class BxFrame extends LitElement {
   // buildPhase, buildSeen (D196): which part of a build, while building — compile | env | starting (frame-build.js)
   get buildPhase() { return this._building ? this._phase || 'compile' : ''; }
   get buildSeen() { return !!this._buildSeen; }
-  // buildRetry (D240): while 'failed', the retry xbind has scheduled — {attempt, of, at} — or null
+  // buildRetry (D242): while 'failed', the retry xbind has scheduled — {attempt, of, at} — or null
   get buildRetry() { return this.buildState === 'failed' ? this._retry || null : null; }
   _setBuild(phase, error = null) { setBuild(this, phase, error); }
 

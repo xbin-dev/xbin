@@ -21,7 +21,7 @@ export { GRID, GAP, DEF_W, DEF_H, MIN_W, MIN_H, snap } from './grid-layout.js';
 // switched off. The runtime, which the square's colour used to say, is in
 // its tooltip. state: 'live' | 'building' | 'failed' (bx-frame buildState)
 // or 'off' (liveState below); runtime: the /components row's; retry: the
-// frame's buildRetry (D240) — a failed start xbind will try again, "failed ·
+// frame's buildRetry (D242) — a failed start xbind will try again, "failed ·
 // retrying" with its time in the tooltip (an older xbind's frame has none).
 const RUNTIME_NAME = { go: 'a Go backend', node: 'a Node backend', python: 'a Python backend' };
 const LIVE_WORD = { live: 'live', building: 'building', failed: 'build failed', off: 'switched off' };

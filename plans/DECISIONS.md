@@ -5517,7 +5517,7 @@ here: cut from the old end, never reword.
     (external MCP servers with credentials held by xbind) are refused with
     "not available yet" rather than half-built.
 
-- **D240 — A failed start retries by itself (2026-11-16; the postfix
+- **D242 — A failed start retries by itself (2026-11-16; the postfix
   report: a tile sat `failed` for eight days after one slow start).** The
   owner: "a failed start retries by itself." Until now every start failure
   stayed failed until the next save; only a crash after a healthy run

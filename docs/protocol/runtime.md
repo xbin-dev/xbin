@@ -29,7 +29,7 @@ GET    /status                     admin. terminals ({id,cwd,net,kind,vm,user,
 GET    /backends                   admin. per-component backend state
                                    {<path>: {state, gen, error?, retry?}}
                                    (retry {attempt, of, at, inSec}: a
-                                   failed start xbind will try again, D240
+                                   failed start xbind will try again, D242
                                    — the state stays failed). The row
                                    stays the primary's; a tile with
                                    deployments adds deployment (the primary's
