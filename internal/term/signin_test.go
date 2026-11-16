@@ -131,13 +131,7 @@ func (r *agentRig) whoami(t *testing.T, id string) string {
 	if _, err := r.m.AgentPrompt(context.Background(), id, "whoami"); err != nil {
 		t.Fatal(err)
 	}
-	e := r.until(t, func(e SessionEvent) bool {
-		text, _ := edata(e.Event)["text"].(string)
-		return e.ID == id && e.Type == agent.EvMessageDelta && strings.HasPrefix(text, "account: ")
-	})
-	text, _ := edata(e.Event)["text"].(string)
-	r.until(t, func(e SessionEvent) bool { return e.ID == id && e.Type == agent.EvTurnEnd })
-	return text
+	return "account: " + r.turnSaid(t, id, "account: ")
 }
 
 // logWith is the session's text log once it holds want. The host's stderr
