@@ -1493,6 +1493,17 @@ section above hold for all of it):
   install's key); `-XbinAgentAllowOnce YES` turns Allow once on for the first
   workspace; `-XbinAgentCardDemo running|waiting|paused|idle` starts the card
   in that state. `XbinWorkspaceAgentNotifyTests` drives them in Springboard.
+  Its test01 takes the real path instead (review finding 8; `XBIN_E2E_PUSH=1`
+  for `mac-remote.sh e2e`): e2e-xbind.sh runs the real relay with
+  `-spool-dir` (relay/README.md) and turns xbind's push on with it; the app
+  registers through it (`-pushRelay`, and `-XbinFakeAPNsToken` where the
+  Mac can't reach Apple for a token); what xbind sends — sealed to the
+  install's key — is spooled, and mac-remote.sh hands each file to the
+  simulator (`sim-push.sh` → `xcrun simctl push`). `simctl push` doesn't wake
+  the Notification Service Extension, so `-XbinDrawPushInApp` has the app,
+  in front, open the sealed push (`PushOpen`, the extension's rule) and draw
+  it with the extension's own code (`Shared/AgentNoticeDraw.swift`) — the
+  extension's class around it is all a device adds.
 - **Stub checks**: widget-stubcheck covers `App/Push` (with
   `Shared/AgentNoticeStore.swift`, UserNotifications and BackgroundTasks
   stubs), app-stubcheck `App/Shell` (Speech and AVFoundation stubs for

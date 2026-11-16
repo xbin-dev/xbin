@@ -15,9 +15,11 @@ import XCTest
 /// the request — and the test acts on it in Springboard as a person does.
 /// What the app then sends, it sends to the real xbind, which is checked.
 ///
-/// - test01: Allow once from the banner's actions: the request is approved
-///   from a notification (xbind's decidedFrom), the note changed; the
-///   settings first, with the explanation and its armed Turn on.
+/// - test01: a REAL sealed push (XBIN_E2E_PUSH: xbind seals it, the
+///   development relay spools it, simctl push hands it over, the extension
+///   opens and draws it): Allow once from the banner's actions approves the
+///   request from a notification (xbind's decidedFrom), the note changed;
+///   the settings first, with the explanation and its armed Turn on.
 /// - test02: Deny after it was decided elsewhere: nothing sent, and the
 ///   sheet the notification opens says where it was decided.
 /// - test03: a request too long for the notification: Deny and Review only;
@@ -42,13 +44,27 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
 
     @MainActor
     func test01AllowOnceFromTheBanner() async throws {
+        // the real path (review finding 8): xbind seals the push to this
+        // install's key, the development relay spools it, mac-remote.sh hands
+        // it to the simulator (simctl push), the app's Notification Service
+        // Extension opens it and draws it — the offer xbind's, the category
+        // the extension's — and the action decides on xbind
+        let relay = ProcessInfo.processInfo.environment["XBIN_E2E_PUSH_RELAY"] ?? ""
+        try XCTSkipIf(relay.isEmpty, "XBIN_E2E_PUSH unset: no push relay spooling to the simulator (e2e-xbind.sh)")
         let e = try E2E(self)
         let run = try await e.server.wsPrepare("E2E notify allow")
-        let ref = try await e.server.wsFileNoteRequest(run, note: "allowed from a notification")
-        e.app.launchArguments += ["-XbinAgentNotice", "request:\(ref)", "-XbinAgentNoticeDelay", "3"]
+        // (the Mac may not reach Apple: a stand-in device token, which the
+        // spooling relay takes as it is — the push itself is xbind's, sealed)
+        e.app.launchArguments += ["-pushRelay", relay, "-XbinFakeAPNsToken", String(repeating: "ab", count: 32), "-XbinDrawPushInApp", "YES"]
         e.launch()
         e.ensureWorkspace()
+        // push starts at a launch with a workspace (a fresh simulator's first has none)
+        e.app.terminate()
+        e.launch()
         e.notifyAllowPermission()
+        await e.eventually("this install registered for push with xbind", timeout: 120) {
+            try await e.server.pushDevices() > 0
+        }
         e.goHome()
 
         // the person turns Allow once on: Settings → the workspace → Workspace agent
@@ -66,10 +82,12 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
         turnOn.tap()
         XCTAssertTrue(e.until(10) { allow.value as? String == "1" }, "on, after Turn on")
 
-        // leave the app (Settings open as it is); the notification comes
-        XCUIDevice.shared.press(.home)
-        let banner = e.notifyBanner("Approval needed")
-        e.expect(banner, 60, "the approval's banner")
+        // the agent asks; xbind's push comes — the app in front opens the sealed
+        // push and draws it with the extension's code (simctl push wakes no
+        // extension), its banner over the app
+        let ref = try await e.server.wsFileNoteRequest(run, note: "allowed from a notification")
+        // its banner, or — gone up before the request's filing returned — Notification Center's
+        e.expect(e.notifyFind("Approval needed", timeout: 90), 10, "the approval's notification")
         XCTAssertTrue(e.notifyContaining("PUT /api/apps/note").exists || e.notifyContaining("/api/apps/note").exists,
                       "the call itself, in full, on an eligible request")
         e.notifyActions("Approval needed", until: "Allow once")
@@ -395,6 +413,12 @@ extension E2E {
 }
 
 extension E2EServer {
+    /// How many push registrations the account has (GET /api/xbin/devices/push).
+    func pushDevices() async throws -> Int {
+        let o = (try JSONSerialization.jsonObject(with: await send("GET", "/api/xbin/devices/push")) as? [String: Any]) ?? [:]
+        return (o["devices"] as? [Any])?.count ?? 0
+    }
+
     /// One request as xbind reads it (GET /api/xbin/delegate/requests/<id>).
     func wsRequest(_ id: String) async throws -> [String: Any] {
         (try JSONSerialization.jsonObject(with: await send("GET", "/api/xbin/delegate/requests/\(id)")) as? [String: Any]) ?? [:]

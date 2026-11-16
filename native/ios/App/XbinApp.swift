@@ -70,7 +70,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         PushManager.shared.didRegister(deviceToken: deviceToken)
     }
 
-    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {}
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        #if DEBUG
+        NSLog("xbin-push: APNs registration failed: %@", String(describing: error))
+        #endif
+    }
 
     /// A background push: the workspace agent's `agent.clear` takes back
     /// notifications that no longer stand (D241); the relay's silent token
@@ -85,6 +89,28 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
         -> UNNotificationPresentationOptions {
         let info = notification.request.content.userInfo
+        #if DEBUG
+        // The UI tests (D241): a simulator's simctl push doesn't wake the
+        // Notification Service Extension, so with -XbinDrawPushInApp the app
+        // opens xbind's sealed push itself and draws it with the extension's
+        // own code (Shared/AgentNoticeDraw.swift), under the push's identifier.
+        if UserDefaults.standard.bool(forKey: "XbinDrawPushInApp"), info["xbin"] != nil {
+            let opened = PushOpen.open(userInfo: info, group: AppInfo.sharedKeychainGroup)
+            NSLog("xbin-push: a sealed push in front, opened: %@", opened.map { $0.payload.kind } ?? "no")
+            if let opened {
+                let content = UNMutableNotificationContent()
+                if AgentNoticeDraw.agent(opened.payload, appWorkspace: opened.appWorkspace, group: AppInfo.sharedKeychainGroup, into: content) {
+                    content.sound = .default
+                    do {
+                        try await center.add(UNNotificationRequest(identifier: "drawn." + notification.request.identifier, content: content, trigger: nil))
+                    } catch {
+                        NSLog("xbin-push: drawing it failed: %@", String(describing: error))
+                    }
+                    return []
+                }
+            }
+        }
+        #endif
         let app = info["app"] as? String
         let link = info["link"] as? String ?? ""
         let showing = await MainActor.run { AppDelegate.isShowing(app: app, link: link) }

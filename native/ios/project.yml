@@ -97,6 +97,7 @@ targets:
       - path: Shared/PushCrypto.swift
       - path: Shared/Keychain.swift
       - path: Shared/AgentNoticeStore.swift
+      - path: Shared/AgentNoticeDraw.swift
     dependencies:
       - package: XbinCore
     settings:

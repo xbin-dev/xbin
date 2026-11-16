@@ -47,6 +47,16 @@ final class PushManager {
         center.setNotificationCategories(Self.categories.union(AgentNotifications.categories))
         guard relay != nil else { return }
         let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        #if DEBUG
+        // The UI tests (D241): a simulator whose Mac can't reach Apple gets no
+        // APNs token; `-XbinFakeAPNsToken <hex>` stands in for it — the
+        // development relay spools, and simctl push delivers, whatever it says.
+        if granted, let fake = UserDefaults.standard.string(forKey: "XbinFakeAPNsToken"), !fake.isEmpty {
+            apnsToken = fake
+            await maintainAll()
+            return
+        }
+        #endif
         if granted { UIApplication.shared.registerForRemoteNotifications() }
     }
 

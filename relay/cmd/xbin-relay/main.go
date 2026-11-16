@@ -65,6 +65,7 @@ func main() {
 		tlsCert    = flag.String("tls-cert", env("XBIN_RELAY_TLS_CERT", ""), "TLS certificate (PEM); empty = plain HTTP behind a TLS proxy")
 		tlsKey     = flag.String("tls-key", env("XBIN_RELAY_TLS_KEY", ""), "TLS key (PEM)")
 		verify     = flag.Bool("verify-tokens", os.Getenv("XBIN_RELAY_NO_VERIFY_TOKENS") == "", "check each device token with APNs before storing a handle (needs -apns-key)")
+		spoolDir   = flag.String("spool-dir", env("XBIN_RELAY_SPOOL_DIR", ""), "development only: write each notification to this directory (simctl push's JSON) instead of sending it to APNs")
 		regTokens  = flag.String("registration-tokens", env("XBIN_RELAY_REGISTRATION_TOKENS", ""), "comma-separated tokens POST /v1/workspaces then requires (Authorization: Bearer); empty = open registration")
 		regPoW     = flag.Int("registration-pow", intEnv("XBIN_RELAY_REGISTRATION_POW"), "proof of work (bits, 0–32) an anonymous POST /v1/workspaces must carry; 0 = none")
 		maxWS      = flag.Int("max-workspaces", intEnv("XBIN_RELAY_MAX_WORKSPACES"), "workspaces at most (0 = 200000)")
@@ -107,6 +108,18 @@ func main() {
 			cfg.RegistrationTokens = append(cfg.RegistrationTokens, t)
 		}
 	}
+	if *spoolDir != "" {
+		if *keyPath != "" {
+			fmt.Fprintln(os.Stderr, "xbin-relay: -spool-dir is a development relay's: not with -apns-key")
+			os.Exit(2)
+		}
+		if cfg.APNs, err = spoolAPNs(*spoolDir); err != nil {
+			fmt.Fprintln(os.Stderr, "xbin-relay:", err)
+			os.Exit(1)
+		}
+		cfg.VerifyTokens = false
+		slog.Warn("spooling notifications instead of sending them (development only)", "dir", *spoolDir)
+	}
 	if err := run(cfg, *listen, *keyPath, *keyID, *teamID, *topics, *tlsCert, *tlsKey); err != nil {
 		fmt.Fprintln(os.Stderr, "xbin-relay:", err)
 		os.Exit(1)
@@ -132,7 +145,7 @@ func run(cfg relay.Config, listen, keyPath, keyID, teamID, topics, tlsCert, tlsK
 			return errors.New("-apns-key needs -apns-key-id and -apns-team-id")
 		}
 		cfg.APNs = &relay.APNs{KeyID: keyID, TeamID: teamID, Key: k, Client: &http.Client{Timeout: 20 * time.Second}}
-	} else {
+	} else if cfg.APNs == nil {
 		slog.Warn("no APNs key: pushes are refused with 503 (registration still works)")
 	}
 	if len(cfg.Topics) == 0 {

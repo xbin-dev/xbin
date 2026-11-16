@@ -41,6 +41,7 @@ go build -o xbin-relay ./relay/cmd/xbin-relay
 | `-topics` | `XBIN_RELAY_TOPICS` | any | comma-separated bundle ids a handle may name — **set it in production** |
 | `-trust-proxy` | `XBIN_RELAY_TRUST_PROXY` | off | client IP = the last `X-Forwarded-For` hop (registration rate limits) |
 | `-verify-tokens` | `XBIN_RELAY_NO_VERIFY_TOKENS` (set = off) | on | check each device token with APNs before storing a handle (needs `-apns-key`) |
+| `-spool-dir` | `XBIN_RELAY_SPOOL_DIR` | — | development only (not with `-apns-key`): each notification is written to this directory as the JSON `xcrun simctl push` takes (the APNs body plus `"Simulator Target Bundle"`) instead of going to APNs; tokens aren't checked. The iOS UI tests hand them to a simulator (`XBIN_E2E_PUSH`, native/ios/scripts/mac-remote.sh) |
 | `-tls-cert`, `-tls-key` | `XBIN_RELAY_TLS_CERT`, `XBIN_RELAY_TLS_KEY` | — | serve TLS directly; otherwise run behind a TLS proxy |
 | `-registration-tokens` | `XBIN_RELAY_REGISTRATION_TOKENS` | open | comma-separated tokens `POST /v1/workspaces` then requires (see *Capacity and retention*) |
 | `-registration-pow` | `XBIN_RELAY_REGISTRATION_POW` | 0 (none) | bits of proof of work an anonymous `POST /v1/workspaces` must carry, 0–32 (see *Proof of work*) |

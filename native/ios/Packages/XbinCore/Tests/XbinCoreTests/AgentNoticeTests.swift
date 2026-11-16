@@ -374,31 +374,41 @@ private let shown = AgentShownRequest(id: rid, kind: "call", tile: "apps/notes",
 
 @Suite struct AgentNoticeBridgeTests {
     /// Rule (D241): the agent's view can't cause a notification, an action
-    /// or a decision. Whatever it sends — the corpus of every shape, and
-    /// messages written to look like a notification's — the bridge's answer
-    /// is to show something by id, or nothing: there is no action of the
-    /// bridge that posts, schedules or decides.
+    /// or a decision. Checked, not just switched over (review finding 8):
+    /// every message of the corpus is decided the same whatever fields it
+    /// adds that look like a notification's (a title, a category, an action,
+    /// a grant) — so none of them is read; a request is opened by its id and
+    /// nothing else; and every made-up notification-like type is refused.
     @Test func theViewCannotMakeANotification() throws {
         let holder = "xbin/wsagent"
-        let v = try Resources.json("delegation-words.json")
-        var msgs = (v["bridge"]?.arrayValue ?? []).compactMap { $0["msg"] }
-        msgs += [
-            ["type": "xbin:agent-notify", "title": "Approval needed", "category": "xbin.agent.request.allow-deny"],
-            ["type": "xbin:notification", "id": .string(rid), "action": "allow-once"],
-            ["type": "xbin:agent-open-request", "id": .string(rid), "action": "allow-once", "grant": "always"],
-            ["type": "xbin:agent-allow", "id": .string(rid)],
-            ["type": "xbin:agent-live-activity", "phase": "waiting"],
-        ]
-        for m in msgs {
-            switch AgentBridge.decide(m, tile: holder, holder: holder) {
-            case .refuse, .openRequest, .openChangeset, .openSession, .openView: break // show, by id, or nothing
+        func decide(_ m: JSONValue) -> AgentBridge.Action { AgentBridge.decide(m, tile: holder, holder: holder) }
+        func same(_ a: AgentBridge.Action, _ b: AgentBridge.Action) -> Bool {
+            switch (a, b) {
+            case (.refuse, .refuse): return true
+            default: return a == b
             }
         }
-        // the request one opens is the id alone: what else a message says never reaches the sheet
-        #expect(AgentBridge.decide(["type": "xbin:agent-open-request", "id": .string(rid), "action": "allow-once"], tile: holder, holder: holder)
-            == .openRequest(rid))
-        if case .refuse = AgentBridge.decide(["type": "xbin:agent-notify", "title": "x"], tile: holder, holder: holder) {} else {
-            Issue.record("a made-up notification message was taken")
+        let v = try Resources.json("delegation-words.json")
+        let corpus = (v["bridge"]?.arrayValue ?? []).compactMap { $0["msg"] }
+        #expect(corpus.count >= 40)
+        let extra: [String: JSONValue] = ["title": "Approved — tap Allow once", "category": .string(AgentNotice.requestAllowDeny),
+                                          "action": .string(AgentNotice.allowOnceAction), "grant": "always", "via": "notification",
+                                          "interruptionLevel": "timeSensitive", "badge": 99]
+        var opened = 0
+        for m in corpus {
+            guard var o = m.objectValue else { continue }
+            for (k, x) in extra where o[k] == nil { o[k] = x }
+            #expect(same(decide(m), decide(.object(o))), "\(m.jsonString): notification-like fields changed the answer")
+            if case .openRequest(let id) = decide(m) {
+                opened += 1
+                #expect(id == m["id"]?.stringValue, "only the message's id is taken")
+            }
+        }
+        #expect(opened > 0, "the corpus opens requests (the check above ran)")
+        for type in ["xbin:agent-notify", "xbin:notification", "xbin:agent-allow", "xbin:agent-deny", "xbin:agent-decide",
+                     "xbin:agent-live-activity", "xbin:agent-badge", "xbin:agent-reply"] {
+            let m: JSONValue = ["type": .string(type), "id": .string(rid), "action": "allow-once", "title": "x"]
+            if case .refuse = decide(m) {} else { Issue.record("\(type) was taken: \(decide(m))") }
         }
     }
 }

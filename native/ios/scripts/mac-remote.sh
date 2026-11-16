@@ -53,6 +53,9 @@
 #                      returned — never when ssh's forwarded connections
 #                      close, which something on the Mac can hold open for
 #                      hours (remote_until_done)
+#   XBIN_E2E_PUSH (1: e2e-xbind.sh runs a spooling push relay; its pushes
+#     reach the simulator through sim-push.sh — XbinWorkspaceAgentNotifyTests'
+#     sealed push, D241),
 #   XBIN_E2E_TUNNEL (1: e2e-xbind.sh runs the app tunnel and its relay,
 #                      whose port the ssh carries too; XbinTunnelTests run)
 #   XBIN_E2E_WSAGENT (1: e2e-xbind.sh sets the workspace agent up — it needs
@@ -277,7 +280,7 @@ remote() {
   [ $# -gt 0 ] && shift
   local v
   for v in XBIN_MAC_SENTINEL XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_E2E_WARMUP XBIN_SIM_ENSURE \
-    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL XBIN_E2E_WSAGENT XBIN_DUO; do
+    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL XBIN_E2E_WSAGENT XBIN_E2E_PUSH_RELAY XBIN_DUO; do
     if [ -n "${!v:-}" ]; then envs="$envs $v=$(printf '%q' "${!v}")"; fi
   done
   REMOTE_SSH=(ssh ${ssh_opts[@]+"${ssh_opts[@]}"} ${opts[@]+"${opts[@]}"} "$XBIN_MAC"
@@ -437,7 +440,29 @@ e2e)
   # endpoints meet on it, at the same loopback URL on both sides.
   relay=$(sed -n 's/^XBIN_E2E_RELAY_PORT=//p' "${e2e_dir:-/nonexistent}/env" 2>/dev/null || true)
   [ -n "$relay" ] && tunnel+=(-R "127.0.0.1:$relay:127.0.0.1:$relay")
+  # …and a push run's relay (XBIN_E2E_PUSH=1, D241): the app reaches it on
+  # the same loopback URL, and what it spools here — xbind's sealed pushes —
+  # goes to the simulator one file at a time (sim-push.sh on the Mac), until
+  # this script ends.
+  push_relay=$(sed -n 's/^XBIN_E2E_PUSH_RELAY=//p' "${e2e_dir:-/nonexistent}/env" 2>/dev/null || true)
   sync_tree
+  if [ -n "$push_relay" ]; then
+    pp=${push_relay##*:}
+    tunnel+=(-R "127.0.0.1:$pp:127.0.0.1:$pp")
+    export XBIN_E2E_PUSH_RELAY=$push_relay
+    sim_name=${XBIN_SIM_ENSURE:-xbin-e2e}
+    (
+      while kill -0 $$ 2>/dev/null; do
+        for f in "$e2e_dir/spool"/*.apns; do
+          [ -e "$f" ] || continue
+          ssh ${ssh_opts[@]+"${ssh_opts[@]}"} "$XBIN_MAC" \
+            "cd $(printf '%q' "$rtree") && /bin/bash native/ios/scripts/sim-push.sh $(printf '%q' "$sim_name")" <"$f" >>"$e2e_dir/sim-push.log" 2>&1 || true
+          rm -f "$f"
+        done
+        sleep 1
+      done
+    ) &
+  fi
   remote_until_done ${tunnel[@]+"${tunnel[@]}"} -- e2e --url "$url" ${only[@]+"${only[@]}"} < <(printf '%s\n%s\n' "$user" "$password") || status=$?
   pull e2e
   if [ "$started" = 1 ] && [ "$keep" = 1 ]; then say "the xbind stays up: $url (e2e-xbind.sh stop)"; fi

@@ -25,22 +25,7 @@ final class NotificationService: UNNotificationServiceExtension {
         let content = (request.content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
         if let opened = Self.open(userInfo: request.content.userInfo) {
             let p = opened.payload
-            let prefs = AgentNoticeStore.prefs(opened.appWorkspace, group: Self.keychainGroup)
-            let device = AgentNoticeStore.device(group: Self.keychainGroup)
-            if let c = AgentNotice.content(p, appWorkspace: opened.appWorkspace, prefs: prefs, device: device) {
-                content.title = c.title
-                content.body = c.body
-                content.threadIdentifier = c.threadID
-                content.categoryIdentifier = c.category
-                content.userInfo = c.userInfo
-                content.interruptionLevel = c.timeSensitive ? .timeSensitive : .active
-                content.relevanceScore = c.timeSensitive ? 1 : 0.5
-                if let b = c.badge {
-                    // this workspace's count, with the others' last ones: the
-                    // app icon says what waits across workspaces
-                    content.badge = NSNumber(value: AgentNoticeStore.setCount(b, for: opened.appWorkspace, group: Self.keychainGroup))
-                }
-            } else {
+            if !AgentNoticeDraw.agent(p, appWorkspace: opened.appWorkspace, group: Self.keychainGroup, into: content) {
                 content.title = p.title
                 content.body = p.body
                 // Per workspace; xbind's notices linking one of its pages (the

@@ -29,7 +29,7 @@ done
 
 # The app's push code, with the app-type shims.
 mkdir -p "$out/Sources/AppPushCheck"
-cp "$ios/App/Push/"*.swift "$ios/Widgets/Shared/"*.swift "$ios/Shared/AgentNoticeStore.swift" "$here/Stubs/AppShims/AppShims.swift" "$out/Sources/AppPushCheck/"
+cp "$ios/App/Push/"*.swift "$ios/Widgets/Shared/"*.swift "$ios/Shared/AgentNoticeStore.swift" "$ios/Shared/AgentNoticeDraw.swift" "$here/Stubs/AppShims/AppShims.swift" "$out/Sources/AppPushCheck/"
 
 cat >"$out/Package.swift" <<PKG
 // swift-tools-version: 6.2
