@@ -693,7 +693,8 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	// what the request leaves out, xbind fills from the person's
 	// preferences for sessions their agent starts and the tile's orgs'
 	// rules (startDefaults) — and shows: the card says the EFFECTIVE values
-	if def := s.startDefaults(p, strings.Trim(b.Cwd, "/")); b.Resume == "" {
+	def := s.startDefaults(p, strings.Trim(b.Cwd, "/"))
+	if b.Resume == "" {
 		if b.Provider == "" {
 			if def.Harness == "" {
 				return nil, def.Why
@@ -724,7 +725,9 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	if b.Model != "" { // the body's shorthand for options.model
 		options["model"] = b.Model
 	}
+	sign, _ := def.of(eff.Provider.ID) // what it would sign in with, as things are now (D230)
 	return map[string]any{
+		"signIn": sign.SignIn, "savedSignIn": sign.SavedSignIn,
 		"tile": eff.Tile, "provider": eff.Provider.ID, "providerName": eff.Provider.Name, "mode": eff.Mode,
 		// false: this mode lets the tile agent act without asking. The mode
 		// alone decides it: a delegate's start is strict (acp.Config.Strict)

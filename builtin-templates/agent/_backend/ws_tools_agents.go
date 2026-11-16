@@ -213,6 +213,12 @@ func (ag *Agent) wsRunsOn(ctx context.Context, s *wsSession, tile, picked string
 	if h.NoSignIn {
 		on += ", on the workspace's model with no sign-in"
 	}
+	switch h.SignIn { // xbind's word on the sign-in (D230): never more than that
+	case "saved":
+		on += ", on the person's saved sign-in"
+	case "needed":
+		on += " — it needs the person's sign-in first: the brief's card has the button, the agent can't sign in for them"
+	}
 	return on
 }
 

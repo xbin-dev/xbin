@@ -179,6 +179,23 @@ func (m *Manager) SigninPreview(p auth.Principal, tile string, prov agent.Provid
 	return pl.saved, pl.why
 }
 
+// SigninRule answers the rule alone for a launcher or a sign-in card: why a
+// saved sign-in of p's would not go into a session of prov they open on
+// tile ("" = it would), whether or not they have one saved yet.
+func (m *Manager) SigninRule(p auth.Principal, tile string, prov agent.Provider) string {
+	if m.Signins == nil {
+		return "this xbind keeps no saved sign-ins"
+	}
+	var o openOpts
+	if m.SessionPartition != nil && tile != "" {
+		if ans, err := m.SessionPartition(p, tile, ""); err == nil && ans.Partitioned {
+			o.part = sessionPart{on: true, tile: ans.Tile, part: ans.Part, key: ans.Key}
+		}
+	}
+	o.userID = p.UserID
+	return m.signinWhy(p, o, tile, prov, m.credentialRule(o, tile, prov.ID, "").Forced, false)
+}
+
 // signinPlanFor decides a new session's saved sign-in: which one, and
 // whether the rule lets it in. chosen: the start named the connector.
 func (m *Manager) signinPlanFor(p auth.Principal, o openOpts, rel string, prov agent.Provider, choice string, forced, chosen bool) signinPlan {
@@ -235,7 +252,7 @@ func (m *Manager) signinWhy(p auth.Principal, o openOpts, rel string, prov agent
 		return "xbind can't tell who else may open a terminal on " + rel
 	}
 	if others := m.SigninOthers(p.UserID, rel); len(others) > 0 {
-		return othersWords(others) + " can also open terminals on " + rel + " and could change what your agent runs there, so your saved " + prov.Name + " sign-in isn't used on this tile"
+		return othersWords(others) + " can also open terminals on " + rel + " and could change what your agent runs there"
 	}
 	return ""
 }

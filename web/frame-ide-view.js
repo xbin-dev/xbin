@@ -36,7 +36,7 @@
 import { html, css, nothing, repeat } from 'lit';
 import '/vendor/bx-icons.js';
 import { dragPointer, clampBox } from '/vendor/bx-kit.js';
-import { launcher, handoff, resumeHistory } from '/vendor/frame-launcher.js';
+import { launcher, handoff, resumeHistory, restartAgent } from '/vendor/frame-launcher.js';
 import { hasLayout } from '/vendor/frame-deploy.js';
 import { sessionTarget } from '/vendor/deploy-state.js';
 import { layoutToPref, uid } from '/vendor/term-sessions.js';
@@ -286,6 +286,7 @@ function stage(f, placed) {
           @bx-session=${(ev) => f._gotSession(t.key, ev)}
           @bx-resume=${(ev) => resumeHistory(f, ev.detail, t.key)} @bx-new-agent=${(ev) => f._startKind('agent', ev.detail.provider)}
           @bx-open-terminal=${(ev) => f._signIn(ev)}
+          @bx-agent-restart=${(ev) => restartAgent(f, f._sessions.findIndex((s) => s.key === t.key), {}, ev.detail?.what || '', ev.detail?.quiet)}
           @bx-exit=${() => f._endTab(t.key)}></bx-agent>`
       : html`<bx-terminal style=${style} data-key=${t.key} @pointerdown=${focus} @focusin=${focus}
           cwd=${f.src} session=${t.id ?? nothing} net=${t.net || nothing} gpu=${t.gpu || 'none'} deployment=${t.deployment || nothing} api=${t.api === false ? '0' : '1'} vm=${t.vm ? '1' : '0'} run=${t.run || nothing}

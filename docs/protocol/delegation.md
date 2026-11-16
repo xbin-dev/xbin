@@ -1278,6 +1278,11 @@ xbin:open-session         {session: "new", a new session of the tile's own
 xbin:agent-open           {view}           needs | approvals | activity — a
                                            view that changes nothing; never
                                            Preferences
+xbin:agent-open-signin    {harness}        show the sign-in for one coding
+                                           agent (its id): the chrome draws
+                                           the card and talks to xbind; the
+                                           page never sees a link, a code
+                                           or a key (D230)
 ```
 
 A new session's `draft` is read as plain text — line ends made `\n`,
@@ -1325,7 +1330,10 @@ the window has their attention — and never Enter. Until then it carries
 `aria-disabled="true"`. Narrowing (back to asking, no internet, the
 opt-in off) is never held up.
 
-**What the chrome tells the page**: `{type: "xbin:agent-context", tile}`
+**What the chrome tells the page**: `{type: "xbin:agent-signins"}` after
+the person saved, changed or removed a coding-agent sign-in in the
+chrome's card — no data: the page reads `GET /delegate/start-defaults`
+again — and `{type: "xbin:agent-context", tile}`
 or `{…, screen}` when the dock was opened about a tile or a screen — once
 the frame has loaded, and when it changes. A shell opens it about a tile
 from the chip (the window in front) and from a tile's menu, **Ask my agent

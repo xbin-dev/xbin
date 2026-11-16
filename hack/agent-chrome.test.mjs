@@ -47,6 +47,11 @@ test('a tile agent start: the mode leads, and one that never asks is the danger 
   assert.deepEqual([asks.mode.tag, asks.mode.tone, asks.danger], ['asks before acting', 'ok', '']);
   assert.equal(asks.agent, "Claude Code · model sonnet, through the workspace's connector");
   assert.equal(asks.network, 'Its model only. No internet.');
+  // what it signs in with, by xbind's word (D230): a saved sign-in named; none at all said, with the harness to sign in to
+  assert.equal(asks.signin, null);
+  assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'saved', savedSignIn: 'Personal' })).agent, 'Claude Code, on your saved sign-in (Personal)');
+  assert.deepEqual(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'needed' })).signin, { harness: 'claude', name: 'Claude Code', text: 'Needs your Claude Code sign-in: without it the tile agent starts signed out.' });
+  assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'needed' })).agent, 'Claude Code');
   assert.equal(asks.brief, 'Fix the export');
   assert.deepEqual(W.heading(s({})), { before: 'Start a tile agent in ', strong: 'Invoices', after: '?' });
   assert.equal(W.heading(s({ resume: 'abc' })).before, 'Continue the tile agent in ');
@@ -179,6 +184,10 @@ test('what the dock takes from the agent\'s page: a word and an id, nothing else
   }
   assert.deepEqual(W.pageMessage({ type: 'xbin:open-session', session: 's-1', tile: '/apps/notes/', id: 7 }), { type: 'session', tile: 'apps/notes', session: 's-1' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'approvals' }), { type: 'open', view: 'approvals' });
+  // a coding agent's sign-in (D230): the harness's id and nothing else — the chrome draws the card
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-signin', harness: 'claude', secret: 'x', url: 'https://evil.example' }), { type: 'signin', harness: 'claude' });
+  for (const harness of ['', 'Claude', 'a b', '../x', 'x'.repeat(40), 7, null]) assert.equal(W.pageMessage({ type: 'xbin:agent-open-signin', harness }), null, String(harness));
+  assert.deepEqual(W.SIGNINS_MESSAGE, { type: 'xbin:agent-signins' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'activity' }), { type: 'open', view: 'activity' });
   assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open', view: 'needs' }), { type: 'open', view: 'needs' });
   // Preferences widen what the agent may do: the page can't open them (only the chrome's own menu does)

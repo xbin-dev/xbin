@@ -26,6 +26,13 @@ func (m *Manager) AgentPage(id string, before uint64, limit int) (agent.Page, er
 		p.State.Elicitations = st.drv.PendingElicitations()
 		p.State.LLM = st.llmServes() // who serves its model calls (llmhook.go)
 		p.State.LLMOffered = st.llmOffered()
+		if s, _, err := m.agentOf(id); err == nil { // what it signs in with (signin.go)
+			s.mu.Lock()
+			if v := s.signinView(); v != nil {
+				p.State.Signin = v
+			}
+			s.mu.Unlock()
+		}
 		st.mu.Lock()
 		if len(st.queue) > 0 {
 			q, _ := json.Marshal(st.queuedLocked())

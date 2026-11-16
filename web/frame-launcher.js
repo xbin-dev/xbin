@@ -215,10 +215,11 @@ export function resumeHistory(f, row, replaceKey) {
 // the provider). A tab whose target changed restarts onto it (?deployment=);
 // one the server doesn't echo ends (targetRefused, 11-contract §7.4).
 // Resolves false when declined (the picker snaps back).
-export async function restartAgent(f, i, patch, what) {
+export async function restartAgent(f, i, patch, what, quiet) {
   const cur = f._sessions[i];
   if (!cur?.id || cur.ended) return false;
-  const ok = await f._confirm(`Restart this agent ${what}?`,
+  // quiet: the person just asked for what needs it (a sign-in they saved, D230)
+  const ok = quiet || await f._confirm(`Restart this agent ${what}?`,
     'Its sandbox restarts with the new setting. The conversation continues where the agent can reopen its own session (Claude Code, OpenCode); otherwise it starts fresh, and this conversation stays under Recent sessions.',
     'Restart');
   if (!ok) return false;

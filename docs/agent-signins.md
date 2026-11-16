@@ -130,10 +130,10 @@ hold, and decides it itself at every start:
 4. The connector isn't the only one allowed to serve, and you didn't
    choose it.
 
-Otherwise the session starts without it and says why — "bob can also open
-terminals on apps/crm and could change what your agent runs there, so your
-saved Claude Code sign-in isn't used on this tile" — and runs on the
-tile's own login or the connector.
+Otherwise the session starts without it and says why — "Your saved
+sign-in Personal isn't used here: bob can also open terminals on apps/crm
+and could change what your agent runs there" — and runs on the tile's own
+login or the connector.
 
 Workspace admins are not counted as "other people" in 3: an admin can
 change any tile, its grants and the workspace itself. What an admin
@@ -171,6 +171,35 @@ transcript, as on a partitioned tile. An admin can still end it.
 Every use is logged for you (`GET /agent/signins/uses`: when, which
 sign-in, which tile and session, whether you or your agent started it) and
 in xbind's audit log — never the secret.
+
+## Where you meet it
+
+One element, `<bx-agent-signin>`, in xbin's own chrome:
+
+- **The Agent tab.** A coding agent that says it is signed out shows the
+  card: **Sign in** runs the guided sign-in (a link, a code, Finish — the
+  code field has the focus, Enter finishes, Escape cancels), **Paste a key
+  instead**, and **Sign in on this tile only** — the CLI's own sign-in,
+  whose login stays in your home on this workspace. After a sign-in is
+  saved the agent restarts on it and its conversation resumes where the
+  coding agent can reopen it. On a tile where a saved sign-in would not be
+  used the card says so and signs in on the tile first. The tab's status
+  line says what a session signs in with ("your saved sign-in: Personal",
+  "this tile's own login", "saved sign-in not used" with the reason), and
+  **Sign-ins…** opens the list.
+- **The list**: per coding agent, each sign-in's name, kind, when it was
+  saved and last used, and when it expires; Make default, Rename, Remove
+  (which says what it does first), Add; where they were used; for
+  workspace admins the switch and who has sign-ins.
+- **Your workspace agent.** A brief or a plan line whose coding agent
+  would start signed out says "Needs your Claude Code sign-in" with a
+  button. The agent's page only names the coding agent
+  (`xbin:agent-open-signin`): the card is drawn by xbin's chrome, so no
+  link, code or key passes through the agent or its page. The approval
+  sheet and a plan's start line say what the session will sign in with.
+- **The app (iOS)** uses a saved sign-in like every other client — it is
+  xbind that puts it into the session — and shows what a session signs in
+  with; saving one is done on the web.
 
 ## Admins and hosts
 

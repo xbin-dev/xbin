@@ -25,6 +25,9 @@ type providerRow struct {
 	// have one — and whether a session of theirs on the tile asked about
 	// would get it.
 	Saved *providerSaved `json:"saved,omitempty"`
+	// Savable: xbind keeps sign-ins for this harness and the caller is a
+	// person who may save one (GET /agent/signins has the rest).
+	Savable bool `json:"savable,omitempty"`
 }
 
 // providerSaved is a provider row's `saved`: the person's default saved
@@ -57,6 +60,7 @@ func (s *Server) withAgentLLM(r *http.Request, tile string, rows []providerRow) 
 	for i := range rows {
 		rows[i].LLM = llm[rows[i].ID]
 		rows[i].Saved = s.providerSaved(p, tile, rows[i].Provider, rows[i].LLM)
+		rows[i].Savable = s.Signins != nil && len(rows[i].Keys) > 0 && s.signinsAvail().OK && p.UserID != "" && p.Component == "" && p.Impersonator == "" && p.Agent == ""
 		if sv, l := rows[i].Saved, rows[i].LLM; sv != nil && sv.Inject && l != nil && (l.Use == "signin" || l.Use == "own-first") {
 			l.Use = "own" // their saved sign-in is their own: it serves
 		}

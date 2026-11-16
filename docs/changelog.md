@@ -60,6 +60,30 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   sign-in link, an SSO email) removes that person's saved sign-ins.
   `sdk/acp`: `Config.Credential`, `Credential`, `KeyHome`,
   `Provider.KeyHome`, `APIKeyMeta`.
+- core elements: **`<bx-agent-signin>` is xbin's one sign-in for coding
+  agents** (`/vendor/agent-signin.js`, the same URL as before; its `spec`,
+  `provider` and `component` properties and its events keep working). With
+  `harness` it offers the sign-in xbind saves (the guided flow, or a pasted
+  key) and, beside it, the tile's own sign-in; `view="manage"` is the list
+  of your saved sign-ins (rename, default, remove, add, where they were
+  used; for admins the workspace's switch and who has sign-ins),
+  `view="button"` a button that opens it. `bx-signin-done` now carries
+  `{saved?}`; new: `bx-signins-changed`. New modules
+  `/vendor/agent-signins.js` (the calls and words, no DOM) and
+  `/vendor/agent-signin-list.js`. The Agent tab shows what a session signs
+  in with in its status line and restarts the agent after a sign-in is
+  saved (`bx-agent-restart` to the tile window). `GET /agent/providers`
+  rows gain `savable`; `GET /agent/signins?tile=` adds `here: {inject,
+  why?}` per harness; a page's state header gains `signin`.
+- workspace agent: **a brief and a start say what the tile agent signs in
+  with — and offer the sign-in.** The agent's page may ask the chrome for
+  `xbin:agent-open-signin {harness}` (the chrome draws the card; the page
+  hears `xbin:agent-signins` when the person's sign-ins changed); a start's
+  preview (`preview.session`, a plan's `start`) carries `signIn` and
+  `savedSignIn`, and the approval sheet and the plan review show the card
+  where a sign-in is needed. Agent template: `GET
+  …/briefs/{bid}/start-defaults` adds `needsSignIn` and each harness's
+  `signIn` / `savedSignIn`.
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the
   web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
   generated vectors): lines that create a tile or start a tile agent, what

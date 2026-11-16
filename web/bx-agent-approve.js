@@ -34,6 +34,7 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
+import '/vendor/agent-signin.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, asked, settled,
   stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote, ownerWords, webRows, mcpRows, READ_WEB,
@@ -72,6 +73,15 @@ export function uncovered(el) {
  * radio or a checkbox) and binds @click=${guard.click} @keydown=${guard.key};
  * the control carries aria-disabled until it is armed.
  */
+/**
+ * signinRow(r): a start's "Sign-in" row where xbind said the coding agent
+ * would start signed out (sessionRows' signin, D230): the chrome's own
+ * sign-in card — drawn here, in the person's document, never by the
+ * agent's page. Nothing where no sign-in is needed.
+ */
+export const signinRow = (r) => (r.signin ? html`<dt>Sign-in</dt><dd data-row="signin"><div class="small">${r.signin.text}</div>
+  <bx-agent-signin harness=${r.signin.harness} provider=${r.signin.name}></bx-agent-signin></dd>` : nothing);
+
 export class WidenGuard {
   constructor(host) { this.host = host; this.seen = new WeakMap(); host.addController(this); }
   hostUpdated() {
@@ -276,6 +286,7 @@ export class BxAgentApprove extends LitElement {
         <dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>
         ${this._tileRow(req)}
         <dt>Coding agent</dt><dd>${r.agent}</dd>
+        ${signinRow(r)}
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>Other tiles</dt><dd>${r.others}</dd>
         <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="body brief" tabindex="-1" data-row="brief">${r.brief ? html`${shown(brief.text)}${brief.clipped ? '…' : ''}` : '(nothing: it starts without a message)'}</pre>

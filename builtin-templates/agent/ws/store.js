@@ -294,6 +294,14 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     announce('xbin shows the request to review.');
     return ok;
   }
+  /** signIn(harness): ask the chrome for a coding agent's sign-in; the chrome draws it and tells us when the sign-ins changed. */
+  function signIn(harness) {
+    const ok = post(dock.openSignin(harness));
+    announce(ok ? 'xbin shows the sign-in.' : 'Open the workspace agent in xbin to sign in.');
+    return ok;
+  }
+  /** signinsChanged(): the chrome says the person's saved sign-ins changed — what a start would run on is read again. */
+  function signinsChanged() { S.sd.clear(); S.rev++; paint(); }
   function startDefaults(b) {
     const key = `${b.id}:${b.harness || ''}:${b.updatedMs || 0}`;
     if (S.sd.has(key)) return S.sd.get(key);
@@ -543,7 +551,7 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     S, session, bag, soon, get layout() { return layout; }, place,
     loadState, loadSessions, loadCards, loadConnection, loadEmpty, current, select, boot, announce,
     offline, paused, delegation, fill, send, stop, takeBack, composerNow, hint, hasUserMessage, replies, reply,
-    tileName, onContext, dropContext, contextNow, review, chrome: (msg) => post(msg), startDefaults, briefSave, briefStart,
+    tileName, onContext, dropContext, contextNow, review, chrome: (msg) => post(msg), startDefaults, signIn, signinsChanged, briefSave, briefStart,
     openScope, models, scope, counts, isPrivate, sessions, openNotebook, notebook, showWhatCan,
     banners, needs, working, wire, busy: () => { const v = session.current(); return !!(v && busy(v.run.status)); },
   };

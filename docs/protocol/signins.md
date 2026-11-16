@@ -16,7 +16,8 @@ root token, or a person's workspace agent — each is 403.
 
 ```
 GET    /agent/signins             a person. your saved sign-ins —
-                                   metadata only (below)
+                                   metadata only (below); with ?tile=<p>,
+                                   whether a session there would get one
 POST   /agent/signins             a person. {harness, secret, name?,
                                    default?} → 201 {signin}: a pasted key
                                    or token
@@ -81,6 +82,10 @@ person ([agent-signins.md](/docs/agent-signins.md)).
   "flows": [ {"id": "sf_91ab…", "harness": "claude", "url": "https://claude.com/cai/oauth/authorize?…", "paste": true, "expiresAt": 1794840900000} ] }
 ```
 
+- With `?tile=` (a tile you may open a terminal on) each harness carries
+  `here: {inject, why?}`: whether a session of yours on that tile would
+  get a saved sign-in of it — the shared-tile rule's answer, whether or not
+  you saved one yet — and why not.
 - `harnesses` are the coding agents that take a credential xbind can keep
   (today: Claude Code, Codex, Gemini CLI, OpenCode). `guided` is true where
   the CLI has a sign-in that prints a long-lived credential — Claude Code's

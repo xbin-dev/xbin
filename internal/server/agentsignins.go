@@ -28,6 +28,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -129,6 +130,16 @@ type signinHarness struct {
 	Login   string           `json:"login"`
 	Max     int              `json:"max"`
 	Signins []signins.Signin `json:"signins"`
+	// Here, with ?tile=: whether a session of the caller's on that tile
+	// would get a saved sign-in of this coding agent (term's rule) — and
+	// why not. Absent without a tile, or for one they can't open a
+	// terminal on.
+	Here *signinHere `json:"here,omitempty"`
+}
+
+type signinHere struct {
+	Inject bool   `json:"inject"`
+	Why    string `json:"why,omitempty"`
 }
 
 type agentKey struct {
@@ -160,6 +171,7 @@ func (s *Server) signinsViewFor(r *http.Request, user string) (signinsView, erro
 		return out, err
 	}
 	out.Notice = notice
+	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
 	for _, prov := range agent.Providers() {
 		if len(prov.Keys) == 0 {
 			continue // it takes no credential xbind could keep
@@ -173,6 +185,10 @@ func (s *Server) signinsViewFor(r *http.Request, user string) (signinsView, erro
 			if sg.Harness == prov.ID {
 				h.Signins = append(h.Signins, sg)
 			}
+		}
+		if p := auth.PrincipalOf(r); tile != "" && s.Term != nil && p.CanTerminalTile(tile) {
+			why := s.Term.SigninRule(p, tile, prov)
+			h.Here = &signinHere{Inject: why == "", Why: why}
 		}
 		out.Harnesses = append(out.Harnesses, h)
 	}
