@@ -12,7 +12,9 @@ bx ls                                  list components (runtime, exposed roles, 
 bx status [<component>] [--all]         backend states (building/healthy/failed, generations);
                                        --all = workspace-wide, else this terminal's tile;
                                        <tile>+<name> or --deployment <name>: one tile
-                                       deployment's (docs/tile-deployments.md)
+                                       deployment's (docs/tile-deployments.md); a backend
+                                       that never reached Serve gets a hint line
+                                       (docs/sdk.md#startup)
 bx new <path> [--runtime R] [--expose] [--title "Pretty Name"] [--owner user:U|org:O]
                                        scaffold a component you'll own, at any
                                        free path outside tiles/ and others'
