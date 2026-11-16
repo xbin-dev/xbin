@@ -106,6 +106,7 @@ type agentState struct {
 	flushing  bool                // the queue is being sent as a prompt; under mu
 	queueing  atomic.Bool         // a message for the queue is being taken (ReserveQueue)
 	det       sdkacp.DetachedTurn // a turn the agent runs on its own (agentdetached.go); under mu
+	statusMu  sync.Mutex          // a status's logging, one step against det's begin (logEvent, beginDetached); before mu
 	quiet     *time.Timer         // looks at det's deadline; under mu
 	said      []byte              // the tail of what the agent wrote since its last prompt (agentstatus.go); under mu
 	llm       *llmSession         // the session's hold on the LLM connector (llmhook.go); nil = none
@@ -618,6 +619,10 @@ ended:
 // fields from it, and publishes it.
 func (s *Session) logEvent(m *Manager, e agent.Event) {
 	st := s.agent
+	if e.Type == agent.EvStatus {
+		st.statusMu.Lock() // unlocked once st.status says it (below)
+		e = s.restated(e)  // the agent's own turn runs: not idle (agentdetached.go)
+	}
 	ev := st.log.Append(e)
 	st.noteSaid(e) // its last line, for a status poll (agentstatus.go)
 	renamed := false
@@ -642,6 +647,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 			}
 		}
 		st.mu.Unlock()
+		st.statusMu.Unlock()
 		// the agent's own title (most adapters generate one after the first
 		// turn) names a tab the user has not named — it follows the user like
 		// any name (D73) — never the sign-in's reserved one (purpose.go)
