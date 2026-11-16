@@ -81,7 +81,8 @@ func lookupOrder() Tool {
 		Input:       Object(map[string]any{"number": StringProp("the order number, e.g. A-1042")}, "number"),
 		Annotations: map[string]any{"readOnlyHint": true},
 		Run: func(ctx context.Context, raw json.RawMessage) (Result, error) {
-			a, err := Args[struct{ Number string `json:"number"` }](raw)
+			decode := Args[orderArgs] // its arguments, by the struct below
+			a, err := decode(raw)
 			if err != nil {
 				return Result{}, err
 			}
@@ -89,6 +90,10 @@ func lookupOrder() Tool {
 			return Result{Text: "A-1042: shipped, 42.00 EUR"}, nil
 		},
 	}
+}
+
+type orderArgs struct {
+	Number string `json:"number"`
 }
 ```
 
