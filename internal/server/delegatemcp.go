@@ -125,18 +125,12 @@ func (s *Server) mcpOrgRefusal(h delegation.AgentSession, tile string) string {
 	return ""
 }
 
-// rpcRequest is one JSON-RPC request as the gate reads it.
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
 // mcpGate judges a delegate's POST to a declared MCP endpoint (the
 // delegate gate, before the tile's rules): read says it is one of the read
-// methods; otherwise code and msg are the refusal. r's body is read and
-// put back.
+// methods; otherwise code and msg are the refusal. The body is read
+// strictly (mcpjson.go), and on a read r's body becomes the request xbind
+// built from it: the tile never sees bytes the gate could have read
+// differently.
 func (s *Server) mcpGate(w http.ResponseWriter, r *http.Request, p auth.Principal, h delegation.AgentSession, tile string) (read bool, code, msg string) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, mcpBodyMax))
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -150,14 +144,15 @@ func (s *Server) mcpGate(w http.ResponseWriter, r *http.Request, p auth.Principa
 	if why := s.mcpOrgRefusal(h, tile); why != "" {
 		return false, "mcp-org", why
 	}
-	var rq rpcRequest
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.DisallowUnknownFields() // nothing beside the four members a server might act on
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 || trimmed[0] != '{' || dec.Decode(&rq) != nil || dec.More() || rq.JSONRPC != "2.0" {
-		return false, "mcp-call", "an agent sends an MCP server one JSON-RPC request at a time (no batch)"
+	rq, err := readRPC(body)
+	if err != nil {
+		return false, "mcp-call", "an agent sends an MCP server one JSON-RPC request at a time — one object, {jsonrpc, id, method, params?}, each member once, in lower case: " + err.Error()
 	}
-	if mcpReadMethods[rq.Method] && len(rq.ID) > 0 {
+	if mcpReadMethods[rq.Method] {
+		wire := rq.wire()
+		r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(wire)), int64(len(wire))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Del("Content-Length")
 		return true, "", ""
 	}
 	return false, "mcp-call", "only initialize, ping and tools/list are read on an MCP server; a tool is called with POST /api/xbin/delegate/mcp/call {server, tool, arguments}, which xbin shows your person"
@@ -310,14 +305,29 @@ type mcpCallBody struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
+// readMCPCall reads a tool's call strictly (mcpjson.go): one object,
+// exact-case members server, tool and arguments, none twice at any depth.
+// The call xbind then makes is built from what it read (mcpRPC).
 func readMCPCall(body []byte) (mcpCallBody, error) {
 	var c mcpCallBody
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.DisallowUnknownFields()
-	if dec.Decode(&c) != nil || strings.TrimSpace(c.Server) == "" || strings.TrimSpace(c.Tool) == "" || len(c.Tool) > 200 {
-		return c, errors.New(`need {server: "<tile>", tool: "<name>", arguments: {…}}`)
+	bad := errors.New(`need {server: "<tile>", tool: "<name>", arguments: {…}} — one object, each member once, in lower case`)
+	obj, err := strictObject(body, "server", "tool", "arguments")
+	if err != nil {
+		return c, fmt.Errorf("%w (%v)", bad, err)
 	}
-	c.Server = strings.Trim(c.Server, "/")
+	server, ok1 := obj["server"].(string)
+	tool, ok2 := obj["tool"].(string)
+	if !ok1 || !ok2 || strings.TrimSpace(server) == "" || strings.TrimSpace(tool) == "" || len(tool) > 200 {
+		return c, bad
+	}
+	switch a := obj["arguments"].(type) {
+	case nil:
+	case map[string]any:
+		c.Arguments = a
+	default:
+		return c, bad
+	}
+	c.Server, c.Tool = strings.Trim(server, "/"), tool
 	return c, nil
 }
 

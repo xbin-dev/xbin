@@ -440,6 +440,16 @@ POST   /delegate/mcp/call       the person's agent. {server: "<tile>",
                                  content: [{type, text?}], structured?}
 ```
 
+**Read one way.** Every body xbind judges for an MCP server — a read on
+the endpoint, a tool's call — is read strictly: one JSON object, UTF-8,
+its members in exact lower case from the route's list, no key twice in
+any object at any depth, nothing after it (else `mcp-call`: 403 on the
+endpoint, 400 on `/delegate/mcp/call`). What reaches the tile is the
+request xbind builds from what it read — `{"id", "jsonrpc", "method",
+"params"}`, re-encoded — never the agent's bytes: a tile whose own parser
+reads keys case-sensitively or keeps the first of two equal keys sees
+what xbind judged.
+
 - **A tool's call goes through xbind**, which is the MCP client: it opens
   a session with the server as the person (`initialize`), lists its tools
   (the tool must be there: `404 {refusal: "mcp-tool"}`), and calls it. A

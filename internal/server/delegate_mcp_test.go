@@ -19,12 +19,15 @@ import (
 
 // mcpRig is the delegate world with an MCP tile, apps/dice, that bob
 // reads: its server (the component proxy's stand-in) has two tools,
-// roll_dice marked read-only and wipe, which isn't.
+// roll_dice marked read-only and wipe, which isn't. It reads a request the
+// way a hand-written parser might: keys in exact case, the first of two
+// equal keys winning (firstKey).
 type mcpRig struct {
 	*webRig
 	mu    sync.Mutex
 	seen  []mcpSeen
 	calls []string // tools/call names, in order
+	raw   []string // the bodies the server was sent
 }
 
 type mcpSeen struct {
@@ -63,7 +66,9 @@ func newMCPRig(t *testing.T) *mcpRig {
 		}
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &rq)
+		rq.Method = firstKey(b, "method") // case-sensitive, first key wins: not encoding/json's reading
 		w.mu.Lock()
+		w.raw = append(w.raw, string(b))
 		w.seen = append(w.seen, mcpSeen{p: auth.PrincipalOf(r), method: rq.Method, session: r.Header.Get("Mcp-Session-Id")})
 		if rq.Method == "tools/call" {
 			w.calls = append(w.calls, rq.Params.Name)
@@ -87,6 +92,31 @@ func newMCPRig(t *testing.T) *mcpRig {
 		_ = json.NewEncoder(rw).Encode(map[string]any{"jsonrpc": "2.0", "id": rq.ID, "result": result})
 	})
 	return w
+}
+
+// firstKey is the string value of the first top-level member named
+// exactly key — how a tile's own parser might read a request.
+func firstKey(b []byte, key string) string {
+	dec := json.NewDecoder(strings.NewReader(string(b)))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return ""
+	}
+	for dec.More() {
+		k, err := dec.Token()
+		if err != nil {
+			return ""
+		}
+		var v json.RawMessage
+		if dec.Decode(&v) != nil {
+			return ""
+		}
+		if k == key {
+			var s string
+			_ = json.Unmarshal(v, &s)
+			return s
+		}
+	}
+	return ""
 }
 
 func (w *mcpRig) mcpOn(readOnly bool) {
