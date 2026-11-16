@@ -355,9 +355,16 @@ CI_LOCAL_BASH32=1 native/ios/scripts/ci-local-check.sh   # + the dry tests under
                                        # (macOS's) in a container — after editing a script
 XCODEGEN=/path/to/xcodegen native/ios/scripts/ci-local-check.sh   # + project.yml generates, with
                                        # the three schemes (XcodeGen builds on Linux: swift build)
+CI_LOCAL_FETCH_ACTIONLINT=1 native/ios/scripts/ci-local-check.sh   # + the pinned actionlint, fetched
 ```
 
-`make shellcheck` (part of `make check`) covers `native/ios/scripts/` too, and
+Its summary lists every check it skipped (`SKIPPED`): a skipped check is not
+a pass. actionlint shellchecks each `run:` script only with `shellcheck` on
+PATH (CI's runners have it; a container image is not enough).
+
+`make shellcheck` (part of `make check`) covers `native/ios/scripts/` too,
+`make actionlint` (part of `make check`) lints both workflows when actionlint
+is installed and prints `SKIP` when it isn't, and
 ci.yml's **`native` job** (Linux, on master and pull requests) runs Swift 6.4
 through swiftly (`ci-linux-swift.sh`: the pinned swiftly, SHA-256 checked;
 the toolchain cached on the script's pins) with `make swift-test` and `make
