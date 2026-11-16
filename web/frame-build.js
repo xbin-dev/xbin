@@ -4,7 +4,9 @@
 // 'compile' (the code is being built), 'env' (its environment layer is
 // being set up: a build-start with text), 'starting' (built; the backend
 // is starting and waited for). The frame announces a change as `bx-build`
-// {state, phase}; the shell's title bar and sidebar draw it.
+// {state, phase, retry}; the shell's title bar and sidebar draw it. A
+// failed start xbind will try again (`backend-retry`) keeps the state
+// 'failed' and adds f._retry {attempt, of, at, inSec} until the next event.
 
 // setBuild(f, phase | null, error?): a build event for f's page — phase
 // while building, null when it ended (error: why it failed, or null).
@@ -12,6 +14,7 @@
 // the frame says beats an older /components row.
 export function setBuild(f, phase, error = null) {
   f._buildSeen = true;
+  f._retry = null;
   if (phase) { f._building = true; f._phase = phase; f._buildError = null; return; }
   f._building = false; f._phase = ''; f._buildError = error;
 }
@@ -31,6 +34,7 @@ export function onBuildEvent(f, e) {
     case 'backend-starting': setBuild(f, 'starting'); return true;
     case 'build-error': setBuild(f, null, text || 'build failed'); return true;
     case 'build-ok': setBuild(f, null); return true;
+    case 'backend-retry': if (f._buildError !== null) f._retry = e.data || null; return true;
   }
   return false;
 }
