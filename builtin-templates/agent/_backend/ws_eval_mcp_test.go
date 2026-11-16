@@ -40,7 +40,7 @@ func TestWsEvalMCPToolBrief(t *testing.T) {
 	}
 	props, _ := spec["properties"].(map[string]any)
 	tmpl, _ := props["template"].(map[string]any)
-	if tmpl == nil || !strings.Contains(asString(tmpl["description"]), "mcp-server") || props["tool"] == nil {
+	if tmpl == nil || !strings.Contains(asString(tmpl["description"]), "MCP server in a tile of its own") || props["tool"] == nil {
 		t.Fatalf("tile_agent_brief as offered: %v", spec)
 	}
 	if got := fx.toolResult(t, s, "tile_agent_brief"); !strings.HasPrefix(got, "Brief 1 for Dice is in front of your person") {
@@ -52,11 +52,11 @@ func TestWsEvalMCPToolBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 	for what, want := range map[string][]string{
-		"goal":        {b.goal, "MCP tool `roll_dice`", "sides: integer, default 6", "each roll and their sum"},
-		"done when":   {b.done, "tools/list", "names `roll_dice`", "tools/call of `roll_dice`"},
+		"goal":        {b.goal, "an MCP server with a tool `roll_dice`", "sides: integer, default 6", "each roll and their sum"},
+		"done when":   {b.done, `"provides": {"mcp": {"kind": "http", "service": "mcp", "role": "reader"}}`, `"runtime": "go"`, "tools/list", "names `roll_dice`", "tools/call of `roll_dice`"},
 		"check by":    {b.check, "$XBIN_URL/api/$XBIN_COMPONENT/mcp", `"method":"tools/list"`, `"name":"roll_dice"`},
-		"leave alone": {b.leave, `the manifest's "provides"`, "_backend/mcp.go"},
-		"known":       {b.known, "mcp-server template", "_backend/tools.go"},
+		"leave alone": {b.leave, "everything outside this tile", `"reader"`, "a wider role is not bound"},
+		"known":       {b.known, "The tile may be empty", `"$XBIN_URL/docs/mcp.md?raw=1"`, "go.mod", "backend/main.go"},
 	} {
 		for _, w := range want[1:] {
 			if !strings.Contains(want[0], w) {
@@ -68,8 +68,8 @@ func TestWsEvalMCPToolBrief(t *testing.T) {
 	req := fx.x.pending(t)
 	var asked wsAgentStart
 	_ = json.Unmarshal(req.call.Body, &asked)
-	if req.Kind != "session" || asked.Tile != "apps/dice" || !strings.Contains(asked.Prompt, "Done when: tools/list on this tile's /mcp names `roll_dice`") ||
-		!strings.Contains(asked.Prompt, "Leave alone: the manifest's \"provides\"") || !strings.Contains(asked.Prompt, "Check by: the two calls from this tile's own sandbox") {
+	if req.Kind != "session" || asked.Tile != "apps/dice" || !strings.Contains(asked.Prompt, "Done when: this tile's xbin.json declares \"provides\"") || !strings.Contains(asked.Prompt, "tools/list on this tile's /mcp names `roll_dice`") ||
+		!strings.Contains(asked.Prompt, "Leave alone: everything outside this tile") || !strings.Contains(asked.Prompt, "Check by: the two calls from this tile's own sandbox") {
 		t.Fatalf("the start asked for:\n%s", asked.Prompt)
 	}
 }

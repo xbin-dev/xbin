@@ -5704,3 +5704,78 @@ here: cut from the old end, never reword.
     people's partitions (their next request already retries), a failed
     deploy or restart (its answer is the deploy's; the previous generation
     serves).
+
+- **D243 — The MCP tile is built, not stamped: no `mcp-server` template,
+  the docs carry the interface, and a plan's binding waits for what a
+  tile agent writes (2026-11-16; issue #51; `plans/wsagent/journey.md`
+  §10).** The owner: "why mcp-server template? Shouldn't be needed, really
+  it's just clutter-ish for users, maybe useful as a docs artifact for the
+  interface."
+  - **The template is removed; the example and the page stay.** It landed
+    the same day and is in no release, so nothing in the wild has an
+    instance and there is no retired-template entry: `POST /templates/new
+    {source: "mcp-server"}` is the 404 of any unknown template. Its content
+    is `examples/mcp-server/` — one file, so that `docs/mcp.md` can carry
+    it whole, held to the same bytes by `TestDocsMCPServerIsTheExample` —
+    and the page is the interface (manifest, wire, errors, version
+    negotiation, `readOnlyHint`). Rejected: keeping a richer multi-file
+    example (the page could not carry it, and a page that summarises code
+    drifts from it); a "Go backend" starter template (one more template is
+    what was objected to; `starter` plus three files a coding agent writes
+    is the path).
+  - **A line that waits (`planwait.go`).** The tile a plan binds to
+    provides nothing until its coding agent has written the manifest; a
+    second review for one binding would be the chain of sheets a plan
+    replaces. So a `binding.set` to a tile that declares nothing of what
+    the slot wants, *after* an `agent.start` line in that tile, is approved
+    with the plan and applied by xbind itself, as the person, when the
+    tile's manifest declares exactly what was approved — pinned to the
+    consumer's slot, the provider, and the provide's kind, service and
+    role (`reader`: the least a tool's caller needs; a coding agent that
+    declares a wider role, another kind or the service twice is not bound,
+    and the line says why). It lapses after 24 hours; the person or their
+    agent taking the plan back, undo, the agent's end, either tile deleted
+    or changing owner, and the slot being bound meanwhile cancel it; every
+    Apply-time check runs again at the moment it would apply and a refusal
+    cancels it; a pause holds it. At most once (`waitMu` and the item's
+    result); audited as a line of the plan (`under: "waits"`, `"waited"`).
+    **Only a personal binding waits** — between the person's own tiles.
+    A line that takes an admin's rights is approved with a recent sign-in,
+    and that sign-in must not reach 24 hours ahead: it never waits, nor
+    does any line of a request to the admins. Such a binding is blocked
+    with xbind's words for what to do (`later`: propose it again, in a
+    plan of its own, once the tile provides the interface), which the
+    agent reads. (First built with admin lines waiting; reversed in
+    review.) Rejected: letting any line wait (only what a tile agent must write is
+    a reason to; `TestOnlyABindingWaits`); binding at once to a tile that
+    provides nothing (the handler refuses it, rightly: a binding is a
+    grant of a role the tile does not yet define); a standing "bind
+    whatever it provides" (a coding agent would choose the role).
+  - **What the review promised holds after the line fired** (review of
+    7d17c1ff). The approved role is recorded with the binding
+    (`bindingCaps`) and is the most it grants whatever the tile declares
+    later; the bind re-reads the tile under the lock it writes under. The
+    line is held to its two tiles' own identities, not their paths (a
+    tile made again at the same path is another tile). It is watched only
+    once its set is written, and every stop of its person's agent but a
+    pause or a hold ends it, judged at the line — not left to each stop
+    path to remember. Of a held line the agent reads one fixed sentence;
+    the mismatch is the person's. Taking a plan back ends what it asked
+    of the admins.
+  - **The start must come before the line that waits on it.** The line
+    needs the start (it is applied only with it), and without one the
+    binding is blocked as ever: nothing waits on a tile nobody is
+    building.
+  - **The permissions are answered in the dock.** A tile agent the
+    workspace agent started asks its person, not the agent; the dock's
+    Needs you draws each request with the chat kit's permission card and
+    the answer is the person's own call (`bx-agent-permits.js`). "Allow
+    always" is offered only where xbind scopes it to a session rule, as in
+    the tile's window.
+  - **Counts.** `journeyAgent` 13 to "done" (11 with the template, which
+    built nothing); `journeyManual` 28 (21).
+  - **Not built:** the start line's alternative mode (edit without asking,
+    limited to the tile) as a warned choice on the review; the app's tray
+    for permission requests and waiting lines; telling the asker's
+    conversation when an admin's copy of a waiting line applies.
+

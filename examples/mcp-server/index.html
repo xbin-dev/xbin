@@ -1,9 +1,9 @@
 <!doctype html>
 <!--
-  This file was copied from the "mcp-server" builtin template. It's now a
-  component you own. The page lists the tools the backend serves (MCP's
-  tools/list) and lets a person call one (tools/call) — a test bench for the
-  tools in _backend/tools.go; it needs no change when you add one.
+  The page of examples/mcp-server (docs/mcp.md): it lists the tools the
+  backend serves (MCP's tools/list) and lets a person call one (tools/call)
+  — a test bench for the tools in backend/main.go; it needs no change when
+  you add one.
   data-bx-theme="auto": it follows the person's light or dark theme, styled
   with theme.css's tokens only (docs/frontend-kit.md).
 -->
@@ -40,8 +40,8 @@
   <main>
     <h1>MCP server</h1>
     <p>Tools for an agent, served at <code id="endpoint">POST /mcp</code>. Bind an agent's
-       <code>mcp</code> slot to this tile and its conversations can call them; add a tool in
-       <code>_backend/tools.go</code> (its <code>AGENTS.md</code> says how).</p>
+       <code>mcp</code> slot to this tile and its conversations can call them; a tool is an
+       entry of <code>tools</code> in <code>backend/main.go</code> (<code>/docs/mcp.md</code>).</p>
     <div id="tools"><p>Listing the tools…</p></div>
   </main>
   <script type="module">

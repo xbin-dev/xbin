@@ -98,6 +98,7 @@ the approval record:
 | `grants` | `{from, target, role}` rows — the capability table | grant APIs / `bx grant` |
 | `resources` | workspace-level resource declarations | owner |
 | `bindings` | `bindings[component][slot]` → provider ref(s); a bare ref is a plain string, an ingress binding carries route config `{ref, host\|zone\|listen}` (ING-1) | binding APIs / `bx bind` / `bx expose` |
+| `bindingCaps` | `bindingCaps[component][slot][provider]` → the role a binding was approved for before its provider declared one (a plan's line that waited): the most that binding grants, whatever the provider's manifest names later. Dropped with the binding, and when the slot is bound again by hand | xbind |
 | `ifaceInstances` | runtime-registered provider instances | the provider itself (`PUT /iface-instances`) |
 | `ingressHosts` | zone-bounded hostnames a tile self-registered (ING-2) | the tile itself (`PUT /ingress-hosts`) |
 | `lifecycle`, `lifecycleAt` | non-default component states + timestamps (LC-1) | lifecycle API |

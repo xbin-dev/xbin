@@ -29,6 +29,7 @@ type csWorld struct {
 	h     http.Handler
 	a     *auth.Auth
 	store *delegation.Store
+	srv   *server.Server
 }
 
 func changeSetWorld(t *testing.T) *csWorld { return changeSetWorldWith(t, false, false) }
@@ -64,7 +65,7 @@ func changeSetWorldWith(t *testing.T, noAuth, dev bool) *csWorld {
 		}
 		csHandles.Store(u, h.ID)
 	}
-	return &csWorld{partWS: w, h: srv.Handler(), a: a, store: store}
+	return &csWorld{partWS: w, h: srv.Handler(), a: a, store: store, srv: srv}
 }
 
 func (w *csWorld) do(method, path, body string, cred func(*http.Request)) (int, string) {

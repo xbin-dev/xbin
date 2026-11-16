@@ -444,6 +444,27 @@ type ChangeSetItem struct {
 	NeedsAdmin bool            `json:"needsAdmin,omitempty"`
 	Needs      []int           `json:"needs,omitempty"`
 	Out        json.RawMessage `json:"out,omitempty"`
+	// Wait: the line waits for Tile to provide Service (result "waiting"
+	// once its person approved it): xbind applies it by itself then, and
+	// only if the tile declares exactly that.
+	Wait *ChangeSetWait `json:"wait,omitempty"`
+	// Later: xbind's words for a line that would have to wait and may not
+	// (it takes an admin's rights): propose it again once its tile
+	// provides what it binds.
+	Later string `json:"later,omitempty"`
+}
+
+// ChangeSetWait is what a plan's waiting line waits for.
+type ChangeSetWait struct {
+	Tile    string    `json:"tile"`
+	Service string    `json:"service"`
+	Kind    string    `json:"kind"`
+	Role    string    `json:"role"`
+	Until   time.Time `json:"until,omitempty"`
+	// Held: set while the tile declares something other than what was
+	// approved, so the line is not applied — one fixed sentence of
+	// xbind's; what the tile declared is the person's to read.
+	Held string `json:"held,omitempty"`
 }
 
 // ProposeChanges submits a batch of admin changes for the person to

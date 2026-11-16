@@ -75,6 +75,12 @@ func (s *Server) registerPlanAPI() {
 // line: the reason is the person's to read, on xbin's review.
 const lineBlockedForAgent = "xbin can't apply this line as proposed: your person sees why on xbin's review"
 
+// lineHeldForAgent is all an agent is told of why a waiting line is not
+// applied though its tile declares something: that it does. What the tile
+// declared — its kind, service and role, words its coding agent wrote —
+// is the person's to read, on xbin's card and in Needs you.
+const lineHeldForAgent = "the tile declared something other than what was approved"
+
 // optedIn reports whether user is an admin (of the workspace or of an org)
 // who lets their agent read admin state and propose admin changes.
 func (s *Server) optedIn(user string) bool {
@@ -96,7 +102,8 @@ func (s *Server) optedIn(user string) bool {
 }
 
 // setFor is cs as caller a may read it. The person's own session — xbin's
-// chrome — reads all of it. Their agent, its conversation and its page's
+// chrome — reads all of it (why a waiting line is held included: the full
+// mismatch is theirs). Their agent, its conversation and its page's
 // frame read, of a line that takes an admin's rights or that xbind can't
 // apply, xbind's one sentence and nothing else: not what is there now
 // (before, after, the inverse), not what it would open (effects,
@@ -105,16 +112,35 @@ func (s *Server) optedIn(user string) bool {
 // proposal would be a way to read grants and bindings: propose a line
 // about any tile and read its state from the answer.
 func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.ChangeSet {
-	if a.own || s.optedIn(a.user) {
+	if a.own {
 		return cs
 	}
 	cs.Items = slices.Clone(cs.Items)
+	// A line that waits, whoever's it is — a personal line above all, the
+	// only kind that does: what it waits for is the line's own arguments,
+	// and of a held one the agent reads one fixed sentence. Never what the
+	// tile declared (the tile's coding agent chose those words), nor
+	// xbind's own bookkeeping.
+	for i, it := range cs.Items {
+		if it.Wait == nil {
+			continue
+		}
+		w := *it.Wait
+		w.Owners, w.Ids, w.Was = nil, nil, ""
+		if w.Held != "" {
+			w.Held = lineHeldForAgent
+		}
+		cs.Items[i].Wait = &w
+	}
+	if s.optedIn(a.user) {
+		return cs
+	}
 	for i, it := range cs.Items {
 		if !it.Admin && !it.NeedsAdmin && it.Blocked == "" {
 			continue
 		}
 		red := delegation.ChangeItem{N: it.N, ChangeOp: it.ChangeOp, Why: it.Why, Line: it.Line, Admin: it.Admin, NeedsAdmin: it.NeedsAdmin,
-			Needs: it.Needs, Deferred: it.Deferred, Result: it.Result, Out: it.Out, Of: it.Of}
+			Needs: it.Needs, Deferred: it.Deferred, Result: it.Result, Out: it.Out, Of: it.Of, Later: it.Later, Wait: it.Wait}
 		if it.Blocked != "" {
 			red.Blocked = lineBlockedForAgent
 		}
@@ -235,12 +261,15 @@ func (s *Server) createScopeRefusal(a planAgent, made *delegation.PlannedTile) s
 }
 
 // previewLine describes one line of a plan as person would apply it now.
-func (s *Server) previewLine(person auth.Principal, a planAgent, op delegation.ChangeOp, planned []delegation.PlannedTile) (delegation.ChangePreview, error) {
+func (s *Server) previewLine(person auth.Principal, a planAgent, op delegation.ChangeOp, planned []delegation.PlannedTile, starts ...delegation.PlannedStart) (delegation.ChangePreview, error) {
 	if op.Kind == delegation.KindAgentStart {
 		if a.p.Agent == "" {
 			return delegation.ChangePreview{}, errors.New("a tile agent is started for the conversation that asks for it")
 		}
 		return s.previewStart(a, op, planned)
+	}
+	if wp, ok := s.ChangeSets.(WaitPreviewer); ok && len(starts) > 0 {
+		return wp.PreviewPlan(person, op, planned, starts) // a line after a start may wait for what that tile agent writes (planwait.go)
 	}
 	if pp, ok := s.ChangeSets.(PlanPreviewer); ok {
 		return pp.PreviewPlanned(person, op, planned)
@@ -376,19 +405,25 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 // describePlan previews ops as person and builds a plan's items; a is the
 // agent that proposes them (zero for a set xbind makes). The error is the
 // first line that isn't one.
-func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegation.ChangeOp, whys []string) ([]delegation.ChangeItem, error) {
+// started are tile agents already running that a line may wait on (an
+// admin's copy of a request: the asker's applied starts).
+func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegation.ChangeOp, whys []string, started ...delegation.PlannedStart) ([]delegation.ChangeItem, error) {
 	plain := !mayOptInAdmin(person) && !s.devOwner(person) // no admin of anything: an admin's line is never theirs to apply
 	var planned []delegation.PlannedTile
 	items := make([]delegation.ChangeItem, 0, len(ops))
 	for i, op := range ops {
 		n := i + 1
-		pv, err := s.previewLine(person, a, op, planned)
+		pv, err := s.previewLine(person, a, op, planned, append(slices.Clone(started), startsOf(items, n, false)...)...)
 		if err != nil {
 			return nil, fmt.Errorf("line %d (%s): %w", n, op.Kind, err)
 		}
 		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, BeforeText: pv.BeforeText, AfterText: pv.AfterText,
 			Effects: pv.Effects, Warnings: pv.Warnings, Blocked: pv.Blocked, Inverse: pv.Inverse, Basis: changeBasis(pv),
 			Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred, Start: pv.Start, UndoByHand: pv.UndoByHand, Pin: pv.Pin}
+		if pv.Waits != nil {
+			it.Wait = &delegation.ItemWait{PlanWait: *pv.Waits}
+		}
+		it.Later = pv.Later
 		if i < len(whys) {
 			if it.Why = whys[i]; len(it.Why) > 500 {
 				it.Why = it.Why[:500]
@@ -406,6 +441,11 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 			}
 		}
 		switch {
+		case plain && pv.Later != "":
+			// it may not wait, and asking an admin now would ask for something
+			// xbind can't apply: said as it is (the words name the line's own
+			// tiles and nothing else), to be proposed again later
+			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: pv.Line, Admin: true, Blocked: pv.Later, Later: pv.Later, Needs: pv.Uses}
 		case plain && (pv.Admin || waits != 0 && op.Kind != delegation.KindAgentStart):
 			// not theirs to apply — and not theirs to read: the line, and
 			// nothing of the state an admin would see behind it
@@ -418,6 +458,7 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 			c.N = n
 			planned = append(planned, c)
 		}
+		it.N = n // (the store numbers them the same: a later line reads the earlier starts by their numbers)
 		items = append(items, it)
 	}
 	return items, nil
@@ -549,17 +590,26 @@ func pinStart(op delegation.ChangeOp, start json.RawMessage) delegation.ChangeOp
 // conversation that proposed it, authorised as a ticket authorises a
 // single start — the harness and mode its person was shown, and no other.
 // → the status, the refusal, and {session} for the line's Out.
-func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.ChangePreview) (int, string, json.RawMessage) {
+//
+// approved is the line's start as its person was shown it when it was
+// proposed (ChangeItem.Start), and the saved sign-in is read from THAT
+// (D230): the session gets the sign-in the approved line named — the open
+// uses exactly that one or refuses — and none where it named none. Never
+// the one a fresh preview resolves at Apply: the person's default may have
+// moved since, and a tile an earlier line creates is shown with no sign-in
+// at all (it didn't exist to be judged), so it starts with none.
+func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.ChangePreview, approved json.RawMessage) (int, string, json.RawMessage) {
 	if a.gone != "" || a.p.Agent == "" {
 		return http.StatusConflict, cmpOr(a.gone, "a tile agent is started for the conversation that asks for it"), nil
 	}
-	var shown struct {
-		Provider, Mode, Net string
-		SignInID            string `json:"signInId"` // the saved sign-in the line named (D230)
-	}
+	var shown struct{ Provider, Mode, Net string }
 	if json.Unmarshal(pv.Start, &shown) != nil || shown.Provider == "" || shown.Mode == "" {
 		return http.StatusConflict, "the start names no coding agent and mode: ask your agent to propose it again", nil
 	}
+	var named struct {
+		SignInID string `json:"signInId"` // the saved sign-in the approved line named
+	}
+	_ = json.Unmarshal(approved, &named)
 	if ok, wait := s.delegateRT.allowAct(a.p.UserID); !ok {
 		return http.StatusTooManyRequests, fmt.Sprintf("your agent is acting too fast: try again in %d s", int(wait/time.Second)+1), nil
 	}
@@ -579,7 +629,16 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	if why := still(); why != "" {
 		return http.StatusForbidden, why, nil
 	}
-	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net, Signin: shown.SignInID})
+	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net, Signin: named.SignInID})
+	if s.PlanStarter != nil { // (tests: the open itself, authorised as above)
+		id, status, refusal := s.PlanStarter(ctx, a.p, pv.Call.Body)
+		if refusal != "" {
+			return status, refusal, nil
+		}
+		s.taint(a.p, tile)
+		out, _ := json.Marshal(map[string]string{"session": id})
+		return http.StatusOK, "", out
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/xbin/term/sessions", bytes.NewReader(pv.Call.Body))
 	if err != nil {
 		return http.StatusBadRequest, err.Error(), nil
@@ -746,6 +805,7 @@ func (s *Server) apiChangeSetAsk(w http.ResponseWriter, r *http.Request) {
 	ask, sent := util.RandomToken(12), 0
 	for _, adm := range admins {
 		// as this admin would apply them, now — and still held to what the asker's agent may touch
+		// (no line of a request waits: an admin's approval, given with a recent sign-in, applies now or not at all)
 		items, err := s.describePlan(adm, agent, ops, whys)
 		if err != nil {
 			continue
@@ -810,11 +870,14 @@ func (s *Server) askDecided(done delegation.ChangeSet) {
 	}
 	_, err := s.Delegation.UpdateChangeSet(done.From, done.AskOf, func(c *delegation.ChangeSet) error {
 		for _, it := range done.Items {
-			if it.Of < 1 || it.Of > len(c.Items) || c.Items[it.Of-1].Result != delegation.ItemAsked {
+			if it.Of < 1 || it.Of > len(c.Items) || c.Items[it.Of-1].Result != delegation.ItemAsked && c.Items[it.Of-1].Result != delegation.ItemWaiting {
 				continue
 			}
 			mine := &c.Items[it.Of-1]
 			mine.Result, mine.Error = it.Result, it.Error
+			if it.Result == delegation.ItemWaiting { // an admin approved it, and it waits: where it stands is theirs to read
+				mine.Error = "an admin (" + done.User + ") approved it: xbin applies it by itself once " + it.Wait.Tile + " provides " + it.Wait.Service
+			}
 			if it.Result == delegation.ItemRejected || it.Result == "" {
 				mine.Result, mine.Error = delegation.ItemRejected, "an admin ("+done.User+") left it out"
 			}
@@ -835,7 +898,13 @@ func (s *Server) retractAsks(user, id, why string) int {
 	for _, adm := range s.admins() {
 		sets, _ := s.Delegation.ChangeSets(adm.UserID)
 		for _, o := range sets {
-			if o.From != user || o.AskOf != id || !o.Open() {
+			if o.From != user || o.AskOf != id {
+				continue
+			}
+			if !o.Open() { // decided by an admin: what of it still waits for xbind ends too
+				if o.Waiting() {
+					s.cancelWaits(adm.UserID, o.ID, user+" took the request back before it was applied")
+				}
 				continue
 			}
 			if _, err := s.Delegation.UpdateChangeSet(adm.UserID, o.ID, func(c *delegation.ChangeSet) error {
@@ -849,7 +918,8 @@ func (s *Server) retractAsks(user, id, why string) int {
 	n := 0
 	_, _ = s.Delegation.UpdateChangeSet(user, id, func(c *delegation.ChangeSet) error {
 		for i := range c.Items {
-			if c.Items[i].Result == delegation.ItemAsked {
+			// (a line an admin approved that waits there reads "waiting" here, with no Wait of its own: the admin's copy holds it)
+			if c.Items[i].Result == delegation.ItemAsked || c.Items[i].Result == delegation.ItemWaiting && c.Items[i].Wait == nil {
 				c.Items[i].Result, c.Items[i].Error = delegation.ItemRejected, why
 				n++
 			}
@@ -860,6 +930,41 @@ func (s *Server) retractAsks(user, id, why string) int {
 		s.delegateEvent(user, "changeset", id)
 	}
 	return n
+}
+
+// unsettled: a decided set still has a line waiting — for xbind to apply
+// it, or with the admins.
+func unsettled(cs delegation.ChangeSet) bool {
+	return cs.Waiting() || slices.ContainsFunc(cs.Items, func(it delegation.ChangeItem) bool { return it.Result == delegation.ItemAsked })
+}
+
+// takeBack ends everything of user's set id that is not settled: its own
+// lines that wait for xbind, what it asked the admins for — their open
+// copies, and the lines of copies an admin approved that still wait.
+func (s *Server) takeBack(user, id, why string) {
+	s.cancelWaits(user, id, why)
+	s.retractAsks(user, id, why)
+}
+
+// askWithdrawn is why an admin's copy of a request (cs, From someone) asks
+// for nothing any more ("": it still does): the asker's set is gone,
+// expired, rejected or withdrawn, or none of the copy's lines is still
+// asked there.
+func (s *Server) askWithdrawn(cs delegation.ChangeSet) string {
+	if cs.From == "" || cs.AskOf == "" {
+		return ""
+	}
+	asker, ok := s.Delegation.ChangeSet(cs.From, cs.AskOf)
+	const gone = "this request was taken back: the plan it came from is no longer waiting for an admin"
+	if !ok || asker.State == delegation.SetRejected || asker.State == delegation.SetWithdrawn || asker.State == delegation.SetExpired {
+		return gone
+	}
+	for _, it := range cs.Items {
+		if it.Of >= 1 && it.Of <= len(asker.Items) && asker.Items[it.Of-1].Result == delegation.ItemAsked {
+			return ""
+		}
+	}
+	return gone
 }
 
 // withdrawAsksFrom ends the requests user has waiting with the admins:

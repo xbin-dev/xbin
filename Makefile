@@ -197,8 +197,8 @@ sealed:
 test:
 ifeq ($(SHARD),)
 	go test ./...
-	# the sdk and the push relay are their own modules (go.work)
-	go test ./sdk/... ./relay/...
+	# the sdk, the push relay and the MCP example are their own modules (go.work)
+	go test ./sdk/... ./relay/... ./examples/mcp-server/...
 else
 	@go run ./hack/testshard unit -shard $(SHARD)
 endif
@@ -221,7 +221,7 @@ integration:
 
 vet:
 	go vet ./...
-	go vet ./sdk/... ./relay/...
+	go vet ./sdk/... ./relay/... ./examples/mcp-server/...
 
 # Every tree that holds Go sources — listed explicitly so gofmt never walks
 # devws*/ or .rootfs/ (a whole distro of files; the old `gofmt -l .` spent

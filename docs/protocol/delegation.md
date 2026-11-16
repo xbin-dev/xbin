@@ -1033,7 +1033,11 @@ tile's coding agent will hold that sign-in". The ticket binds the id with
 the harness and the mode: the session opens with exactly that sign-in, or
 is refused (403: it was removed, or someone else can change the tile
 now — ask again). A start the person's preference lets through unasked,
-and one whose approval named none, never gets one. A person's agent never
+and one whose approval named none, never gets one. A plan's start line is
+held to the same: the session gets the sign-in the line named when it was
+proposed — not the person's default as it is when the plan is applied —
+and a start on a tile an earlier line of the plan creates names none (the
+tile didn't exist to be judged), so it gets none. A person's agent never
 names a saved sign-in (`signin` in a start's body is 403 for it), can't
 list them, and is told neither a label nor, outside its own requests, an
 id. The
@@ -1269,7 +1273,11 @@ and its items carry, beside a change set's:
   person's requests wait. The asker takes a request back with `…/ask
   {retract: true}` — or by rejecting or withdrawing the set while it is
   still proposed: the admins' copies end (`withdrawn`, `decidedBy` the
-  asker) and the asked lines read `rejected`.
+  asker) and the asked lines read `rejected`. A plan that was applied in
+  part and still has a line with the admins is taken back the same way —
+  `…/reject`, the agent's `DELETE` and `…/undo` on it end the admins'
+  copies too — and an admin's copy of a plan that ended any other way (it
+  expired, it is gone) is `409` when applied, and withdrawn.
 - **What the agent reads of its own proposal.** The person's own session
   reads every field. Their agent — its credential, its conversation, its
   page's frame — reads, of a line that is `admin`, `needsAdmin` or
@@ -1320,6 +1328,75 @@ and its items carry, beside a change set's:
   its person's to delete), and answers `409 {error, byHand}` when nothing
   else is left.
 - An `agent.start` line carries at most 68 KiB of arguments.
+
+#### Lines that wait
+
+One kind of line can be approved before it can be applied: a **personal**
+`binding.set` — between the person's own tiles — of one http slot to one
+tile that **provides nothing of what the slot wants yet**, where an
+earlier line of the same plan starts a tile agent in that tile ("bind the assistant's `mcp` slot to the dice tile" before the
+dice tile is an MCP server — its coding agent is still to write the
+manifest). Without such a start before it, the line is `blocked` as ever.
+
+- **In the proposal** the item carries `wait: {component, slot, tile,
+  kind, service, role}` — what it is pinned to: the consumer's slot, the
+  provider tile, and a provide of that `service`, of `kind` `http`,
+  granting `role` `reader` — `deferred`, `needs` (the creations and the
+  start), and xbind's words in `effects`: "applies once apps/dice provides
+  mcp; nothing is bound until then", that only exactly that is bound, and
+  that it waits at most 24 hours. `afterText` is "apps/dice, once it
+  provides mcp".
+- **A line that takes an admin's rights never waits**, and neither does
+  any line of a request to the admins (`from`): an approval given with a
+  recent sign-in applies now or not at all. Such a binding is `blocked`,
+  and carries `later` — xbind's words for what to do, which the agent
+  reads too: "…Propose it again, in a plan of its own, once apps/dice
+  provides mcp". It is not offered to Ask an admin.
+- **Approved**, its `result` is `waiting` and `wait` gains `until` (24
+  hours on). The set's `state` is as if it were applied. Nothing is bound.
+- **xbind applies it by itself**, as the person who approved it, after a
+  registry scan in which the tile's manifest declares exactly what was
+  approved — and then runs every check a line gets at Apply again, as
+  things are at that moment: the handler's own check with the person's
+  rights now, the proposing conversation's scope and hidden tiles, both
+  tiles' agent levels, their orgs' agent rules, the account. `result`
+  becomes `applied` (with its `inverse`: it can be undone). At most once.
+- **The approved role stays the binding's limit.** The bind reads the
+  tile's manifest once more under the lock the binding is written under,
+  and records the role with it (`bindingCaps` in the workspace's
+  `xbin.json`). A tile that declares `writer` or `admin` afterwards gets
+  no more than `reader` through that binding; one that declares a role
+  outside reader / writer / admin gets nothing through it. Binding the
+  slot again — by hand, or in a new review — is a new decision, to what
+  the tile declares then.
+- **A tile that declares something else** — another role, another kind or
+  service, by instance, the service twice — is **not bound**: the line
+  stays `waiting`, and `wait.held` says why in xbind's words — to the
+  person's own session: the whole mismatch, shown on the review's card
+  and in Needs you. Their agent reads that the line waits and, as `held`,
+  one fixed sentence — "the tile declared something other than what was
+  approved" — never what the tile declared (nor `was`, `owners`), an
+  admin's agent that reads admin state included. It applies if the tile
+  later declares what was approved.
+- **It ends, never applied:** `lapsed` when `until` passes; `cancelled`
+  (`error` says why) when the person takes the plan back — `POST …/reject`
+  on a decided set with a waiting line cancels it, as does `…/undo` — or
+  their agent does (`DELETE`), when their agent stops for good
+  (workspace agents off, the agent taken from them), when either tile is
+  deleted — a tile made again at the same path is another tile, by the
+  same owner too: the line is held to the tiles it was approved for, not
+  to their paths — or changes owner, when the slot was bound by someone meanwhile,
+  and when a check refuses it at the moment it would apply. While the
+  person's agent is paused or held it neither applies nor ends; any
+  other stop ends it, and xbind judges that at the line each time it
+  looks at it — a waiting line never outlives its person's agent,
+  whichever way the agent was stopped.
+- **Audited** as lines of the person's plan (`class:
+  "changeset:binding.set"`, `ticket` the set): `under: "waits"`, status
+  202, when it was approved; `under: "waited"` when it applied (200) or
+  was refused or ended (409, `refused` why).
+- A `delegate` event (`op: "changeset"`) follows each change. Nothing but
+  such a binding waits.
 
 ## A tile's agent level
 

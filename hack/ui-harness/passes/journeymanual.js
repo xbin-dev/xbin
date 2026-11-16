@@ -7,9 +7,10 @@
 // The path: the first-run sheet the login URL lands on (D237) — an account,
 // the vault's passphrase, its quiet button that leaves the workspace agent
 // off (skipping the sheet and finding the vault's banner costs the same:
-// five); an MCP tile from the mcp-server template (its roll_dice is the
-// template's example tool: no coding agent); an instance of the agent
-// template; its `mcp` slot bound to the new tile and its `llm` slot (marked
+// five); a new tile and its own coding agent, told to make it an MCP server
+// from /docs/mcp.md (D243: there is no template to stamp one from — the
+// scripted agent writes it, asking before each command); an instance of the
+// agent template; its `mcp` slot bound to the new tile and its `llm` slot (marked
 // required) to the workspace's connector — after which the rest of its
 // slots fold into one line above it (G10); one question in its chat. It
 // asserts the journey's end — the answer shows the
@@ -41,16 +42,47 @@ async function journeyManual(browser) {
     const llm = await (await ctx.request.get(`${X.url}/api/xbin/llm/config`)).json();
     check(llm.configured === true && llm.host && llm.host.active === true, 'the LLM connector is the host\'s: nothing to set up (no card, no banner, no key)');
 
-    J.section('the MCP tile');
-    // the mcp-server template (docs/mcp.md): its example tool is roll_dice,
-    // so the tile serves it from its first build — no coding agent, no
-    // prompt, nothing to know about MCP
-    await J0.makeFromTemplate(J, page, 'MCP server', J0.DICE);
-    const tools = await J.wait('the MCP tile\'s backend is built and answers', () => J0.servesDice(ctx, X));
-    check(tools.ok, `the new tile serves MCP: tools/list names roll_dice (${tools.status})`);
+    J.section('the MCP tile (the stretch a coding agent does)');
+    // There is no template to stamp an MCP tile from (D243): the tile is
+    // written — by its own coding agent, told what to build, from
+    // /docs/mcp.md (by hand in a root terminal it is `bx new apps/dice
+    // --runtime go` and two files, as that page says: not a path through
+    // the UI). The scripted agent does what a real one does with that
+    // prompt — reads the page in its sandbox, writes the server, go.mod and
+    // the manifest, checks tools/list — and asks before each command.
+    await J0.makeTile(J, page, 'Dice');
+    J0.plant(X.ws); // (out of band: the scripted coding agent's binary; a real one comes from the rootfs)
+    await J0.openFromSidebar(J, page, J0.DICE);
+    const F = `bx-frame[src="${J0.DICE}"]`;
+    await J.click('the tile\'s title bar: the terminal button (opens its window)', () => page.locator(`.card[data-path="${J0.DICE}"] .wc.term`).click());
+    await page.waitForSelector(`${F} .pop`, { timeout: 20000 });
+    await J.click('the window\'s launcher: a coding agent', async () => { await page.locator(`${F} .pop button`, { hasText: 'Fake agent (tests)' }).first().click(); await page.waitForSelector(`${F} bx-agent textarea`, { timeout: 30000 }); },
+      { note: 'the scripted agent stands in for Codex or OpenCode, which the launcher offers on the workspace connector with no sign-in; Claude Code and Gemini CLI need the person\'s own sign-in (docs/llm.md)' });
+    J.know('that a tool for an assistant is an MCP server tile, and that /docs/mcp.md has its interface — the prompt has to say so, or the coding agent has to find the page (docs_search ranks it first for "MCP", "tool")');
+    const ta = page.locator(`${F} bx-agent textarea`).first();
+    await J.field('the coding agent: the prompt (make this tile an MCP server with a roll_dice tool; /docs/mcp.md has the interface)', () => ta.fill(J0.SAY_BUILD),
+      { note: 'the scripted agent plays the four commands a real one would work out: the server from the docs page, go.mod, the manifest, the check' });
+    await J.key('the coding agent: Enter', () => ta.press('Enter'));
+    // it asks before each command: every answer is a click in the tile's Agent tab
+    const idle = () => page.evaluate((tile) => { const a = document.querySelector('bx-shell').testApi().frameFor(tile)?.testApi().agent(); return !!a && a.status === 'idle' && (a.blocks || []).some((b) => b.kind === 'turn'); }, J0.DICE);
+    let answers = 0;
+    for (let i = 0; i < 2400 && !(await idle()); i++) {
+      const always = page.locator(`${F} bx-agent .bxc-perm button[data-kind="allow_always"]:not([disabled])`).first();
+      const once = page.locator(`${F} bx-agent .bxc-perm button.bxc-primary:not([disabled])`).first();
+      const btn = (await always.count()) ? always : (await once.count()) ? once : null;
+      if (!btn) { await page.waitForTimeout(250); continue; }
+      const label = (await btn.innerText()).trim();
+      await J.click(`the coding agent asks before a command: "${label}"`, async () => { await btn.click(); await page.waitForTimeout(400); });
+      answers++;
+    }
+    check(await idle() && answers >= 1, `the coding agent's turn ended; the person answered ${answers} permission request(s)`);
+    if (answers < 2) J.hand(1, 'a real coding agent asks for edits and for commands separately: one more answer');
+    await J.click('the tile\'s window: close it (it covers the next tile)', () => page.evaluate((tile) => document.querySelector('bx-shell').testApi().frameFor(tile).testApi().closeTerminal(), J0.DICE), { api: true });
+    const tools = await J.wait('the MCP tile\'s backend is built and answers', () => J0.servesDice(ctx, X), 'scripted. A real coding agent on this task: one to three minutes');
+    check(tools.ok, `the tile the coding agent wrote serves MCP: tools/list names roll_dice (${tools.status})`);
 
     J.section('the agent instance');
-    await J0.makeFromTemplate(J, page, 'AI Agent', '', { tabOpen: true });
+    await J0.makeFromTemplate(J, page, 'AI Agent', '');
     await J0.openFromSidebar(J, page, AGENT);
     const pop = page.locator(`.pqpop[data-prompts-for="${AGENT}"]`);
     await pop.waitFor({ timeout: 30000 });

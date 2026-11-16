@@ -118,6 +118,13 @@ test('a decided plan\'s card keeps each line\'s outcome, stays open on a failure
   assert.deepEqual(bad.lines.map((l) => [l.word, l.tone, l.note, l.open]), [['applied', 'ok', '', false], ['failed', 'bad', 'a tile is there', true], ['skipped', 'warn', '', true], ['not applied — it changed after you saw it', 'bad', 'it changed', true]]);
   assert.deepEqual([bad.settled, bad.tone, bad.button], [false, 'bad', 'Open']);
   assert.match(bad.todo, /Open it to read why in xbin’s words/);
+  // a line that waits for xbin, and how a wait ends
+  const waits = plan([{ n: 1, kind: 'tile.create', line: 'Create the tile apps/dice', result: 'applied' }, { n: 2, kind: 'binding.set', line: 'Bind mcp', result: 'waiting', waits: 'apps/dice to provide mcp', untilMs: 10_000_000 + 86_400_000 }],
+    { state: 'waiting', result: '1 of 2 changes applied' });
+  assert.deepEqual(waits.lines.map((l) => [l.word, l.tone, l.open]), [['applied', 'ok', false], ['waits for apps/dice to provide mcp', 'warn', false]]);
+  assert.deepEqual([waits.head, waits.button, waits.settled, waits.todo], ['1 of 2 changes applied', 'Open', true, undefined]);
+  assert.deepEqual(W.planLines({ lines: [{ n: 1, line: 'Bind mcp', result: 'lapsed', error: 'apps/dice did not provide mcp within 24 hours' }, { n: 2, line: 'b', result: 'cancelled', error: 'you cancelled it' }] }).map((l) => [l.word, l.note]),
+    [['lapsed — never applied', 'apps/dice did not provide mcp within 24 hours'], ['cancelled — never applied', 'you cancelled it']]);
   // a row that is no decided plan: as before
   assert.deepEqual(W.planLines({ state: 'applied', kind: 'changeset' }), []);
   assert.equal(plan(undefined).button, '');

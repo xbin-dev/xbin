@@ -2,6 +2,7 @@ package broker
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -641,6 +643,11 @@ func (b *Broker) bindOptions(comp string, req registry.Iface, wsAdmin bool) []bi
 }
 
 // provideRole is the role an http provider grants a bound requester (default reader).
+// bindWaitHook, in tests, runs after a waited line was judged and checked
+// and before its provider is read for the last time, under the registry's
+// lock: where a scan could land.
+var bindWaitHook func()
+
 func provideRole(def registry.Iface) string {
 	if def.Role != "" {
 		return def.Role
@@ -767,10 +774,32 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next, delta, del := plan.next, plan.delta, plan.del
+	// a plan's line that waited (planwait.go): the provider is read once
+	// more under the lock the binding is written under — it must declare
+	// exactly what was approved at that moment, whatever a scan changed
+	// since the line was judged — and the approved role is recorded with
+	// the binding: the most it ever grants (cappedRole)
+	wait, waited := delegation.BindWait(r.Context())
+	var still func(func(string) (*registry.Component, bool)) error
+	if waited {
+		if wait.Component != body.Component || wait.Slot != body.Slot || len(next) != 1 || next[0].Ref != wait.Tile {
+			server.WriteError(w, http.StatusConflict, "this is not the binding that was approved")
+			return
+		}
+		if bindWaitHook != nil {
+			bindWaitHook()
+		}
+		still = func(component func(string) (*registry.Component, bool)) error {
+			if state, why := waitStateIn(component, wait); state != delegation.WaitReady {
+				return &waitChanged{cmp.Or(why, wait.Tile+" no longer provides "+wait.Service+" as it was approved")}
+			}
+			return nil
+		}
+	}
 	sealedDefault, _ := b.Reg.SealedDefault(body.Component, body.Slot) // before the registry's lock is taken below
 	// Restart both the old and new provider (roster change) + the component.
 	oldProvider := b.netProvider(body.Component)
-	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+	if err := b.Reg.MutateWorkspaceWhen(still, func(ws *registry.WorkspaceManifest) {
 		if ws.Bindings == nil {
 			ws.Bindings = map[string]map[string]registry.Binding{}
 		}
@@ -792,7 +821,24 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 			ws.Bindings[body.Component] = map[string]registry.Binding{}
 		}
 		ws.Bindings[body.Component][body.Slot] = next
+		// a slot bound by hand is bound to what its providers declare: what
+		// was on record for it goes; a waited line's approved role is kept
+		delete(ws.BindingCaps[body.Component], body.Slot)
+		if waited {
+			if ws.BindingCaps == nil {
+				ws.BindingCaps = map[string]map[string]map[string]string{}
+			}
+			if ws.BindingCaps[body.Component] == nil {
+				ws.BindingCaps[body.Component] = map[string]map[string]string{}
+			}
+			ws.BindingCaps[body.Component][body.Slot] = map[string]string{wait.Tile: wait.Role}
+		}
 	}); err != nil {
+		var changed *waitChanged
+		if errors.As(err, &changed) {
+			server.WriteError(w, http.StatusConflict, changed.why)
+			return
+		}
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -160,7 +160,7 @@ func wsBoot() {
 // wsOpenSessions are the sessions with a request or a tile agent that may
 // still change.
 func (ag *Agent) wsOpenSessions() []*wsSession {
-	rows, err := ag.db.q.Query(`SELECT DISTINCT run_id FROM ws_requests WHERE state IN ('pending','approved','proposed','applying','running')
+	rows, err := ag.db.q.Query(`SELECT DISTINCT run_id FROM ws_requests WHERE state IN ('pending','approved','proposed','applying','running','waiting')
 		UNION SELECT DISTINCT run_id FROM ws_agents WHERE status IN ('starting','running','idle')`)
 	if err != nil {
 		return nil
@@ -197,7 +197,7 @@ func (ag *Agent) wsReconcile(ctx context.Context) bool {
 // wsReconcileSession reads s's open requests and live tile agents again
 // (boot: the first pass after a start).
 func (ag *Agent) wsReconcileSession(ctx context.Context, s *wsSession, boot bool) (open bool) {
-	for _, r := range ag.db.wsReqs(`WHERE run_id=? AND state IN ('pending','approved','proposed','applying','running') ORDER BY id`, s.Run) {
+	for _, r := range ag.db.wsReqs(`WHERE run_id=? AND state IN ('pending','approved','proposed','applying','running','waiting') ORDER BY id`, s.Run) {
 		if ag.wsCheckReq(ctx, s, r) {
 			open = true
 		}
@@ -258,17 +258,32 @@ func (ag *Agent) wsCheckReq(ctx context.Context, s *wsSession, r *wsReq) bool {
 				applied++
 			}
 		}
-		done := wsDone{State: cs.State, By: "person", Outcome: "your person decided — " + wsChangeSetText(cs)}
+		result := ""
 		if chosen > 0 || applied > 0 {
-			done.Result = fmt.Sprintf("%d of %d changes applied", applied, chosen)
+			result = fmt.Sprintf("%d of %d changes applied", applied, chosen)
 		}
+		if r.State == wsReqWaiting {
+			// decided before, with a line that waited (ws_tools_plan.go): xbind
+			// applied it by itself, or it ended — said as a second update
+			if wsPlanHasWaiting(cs) {
+				ag.wsPlanLines(r, cs)
+				return true
+			}
+			ag.wsPlanLines(r, cs)
+			ag.wsSettled(r, wsDone{State: cs.State, By: "xbin", Outcome: wsPlanWaited(r, cs), Result: result})
+			return false
+		}
+		done := wsDone{State: cs.State, By: "person", Outcome: "your person decided — " + wsChangeSetText(cs), Result: result}
 		if cs.Plan { // the tile agents it started are this conversation's to follow; what still waits is said
 			ag.wsPlanLines(r, cs) // each line's outcome, for the plan's card: xbin's review closes itself
 			done.Outcome += ag.wsPlanDecided(ctx, s, r, cs)
 			ag.wsRefresh(ctx, s, true)
+			if wsPlanHasWaiting(cs) {
+				done.State = wsReqWaiting // followed on: xbind applies the waiting line by itself, or it ends
+			}
 		}
 		ag.wsSettled(r, done)
-		return false
+		return done.State == wsReqWaiting
 	}
 	if r.State == "running" {
 		// a ticket was being used when this backend stopped: xbind knows whether it was spent
@@ -517,10 +532,11 @@ func (ag *Agent) wsOutcome(r *wsReq, state, outcome string) {
 // count a new start) — an idle one starts a turn, one in a turn reads it
 // at its next step.
 func (ag *Agent) wsSettled(r *wsReq, d wsDone) {
-	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state=?, outcome=?, decided_ms=?, owed=1,
+	// (an outcome not delivered yet is kept: a plan's waiting line may end before its decision was told)
+	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state=?, outcome=CASE WHEN owed=1 AND outcome<>'' THEN outcome || char(10) || ? ELSE ? END, decided_ms=?, owed=1,
 		grant_scope=?, grant_until_ms=?, decided_by=?, decided_via=?, result_status=?, result=?
-		WHERE id=? AND state IN ('pending','approved','proposed','applying','running')`,
-		d.State, d.Outcome, nowMs(), d.Grant, d.Until, d.By, d.Via, d.Status, d.Result, r.ID)
+		WHERE id=? AND state IN ('pending','approved','proposed','applying','running','waiting')`,
+		d.State, d.Outcome, d.Outcome, nowMs(), d.Grant, d.Until, d.By, d.Via, d.Status, d.Result, r.ID)
 	if err != nil {
 		return
 	}

@@ -47,7 +47,7 @@ import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import { uncovered, shown, hiddenLine, signinRow } from '/vendor/bx-agent-approve.js';
 import { CHOICES, kindTag, warning, stateText, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp, stopRefusal, stopWords, endedWords, knownState, UNKNOWN_STATE, clipText, clipNote } from '/vendor/agent-chrome-words.js';
-import { lineState, canTick, planTicks, setTick, keepTicks, lineNotes, planWords, startRows, askedWords, closesItself, closingWords, PLAN_CLOSE_MS } from '/vendor/agent-plan-words.js';
+import { lineState, canTick, planTicks, setTick, keepTicks, lineNotes, planWords, startRows, askedWords, waitingWords, closesItself, closingWords, PLAN_CLOSE_MS } from '/vendor/agent-plan-words.js';
 
 const KEEP = 'xbin-agent-ticks:'; // sessionStorage: a set's ticks, kept across signing in again
 
@@ -192,6 +192,15 @@ export class BxAgentChanges extends LitElement {
     if (r.ok) { try { sessionStorage.removeItem(KEEP + this.set.id); } catch { /* nothing kept */ } this._done('rejected'); } else this._err = r.error;
   }
 
+  // a decided plan's line that still waits for xbin: the person takes it back (POST …/reject on a set with a waiting line cancels it)
+  async _cancelWaiting(e) {
+    if (!e || !e.isTrusted || this._busy) return;
+    this._busy = true; this._err = '';
+    const r = await this.store.reject(this.set.id);
+    this._busy = false;
+    if (r.ok && r.set) this.set = r.set; else if (!r.ok) this._err = r.error;
+  }
+
   async _undo(e) {
     if (!e || !e.isTrusted || this._busy) return;
     this._busy = true; this._err = '';
@@ -316,12 +325,14 @@ export class BxAgentChanges extends LitElement {
         ${state ? html`<p class="muted">${state}</p>` : nothing}
         ${w.banner ? html`<div class="banner warn" role="status"><bx-icon name="warning"></bx-icon><span>${w.banner}</span></div>` : nothing}
         ${cs.plan && askedWords(cs) ? html`<p class="muted" data-asked>${askedWords(cs)}</p>` : nothing}
+        ${cs.plan && waitingWords(cs) ? html`<p class="muted" data-waiting>${waitingWords(cs)}</p>` : nothing}
         <ul class="items">${items.map((it, i) => this._item(it, i, items.length, false))}</ul>
         ${cs.plan && !state && planWords(cs, []).ask ? this._askRow(planWords(cs, []).ask) : nothing}
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
       </div>
       ${this._closing ? html`<div class="foot" data-closing><span class="fw small muted" role="status">${closingWords}</span></div>`
         : html`<div class="foot"><span class="fw"></span>
+        ${cs.plan && waitingWords(cs) ? html`<button data-cancel-waiting ?disabled=${this._busy} @click=${this._cancelWaiting}>Cancel what waits</button>` : nothing}
         ${w.undo && !state ? html`<button data-undo ?disabled=${this._busy} @click=${this._undo}>${w.undo}</button>` : nothing}
         <button class="primary" data-done @click=${() => this._done(cs.state === 'rejected' ? 'rejected' : 'applied')}>${cs.plan && w.banner ? 'Close' : 'Done'}</button></div>`}`;
   }

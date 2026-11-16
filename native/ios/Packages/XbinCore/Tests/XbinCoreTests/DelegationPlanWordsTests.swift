@@ -18,7 +18,7 @@ import Testing
 
     @Test func plans() throws {
         let cases = try #require(v["plans"]?.arrayValue)
-        #expect(cases.count >= 8)
+        #expect(cases.count >= 10)
         for c in cases {
             let cs = try #require(AdminChangeSet(json: c["json"]))
             let id = cs.id
@@ -26,6 +26,7 @@ import Testing
             let need = DelegationWords.needChangeTitle(cs)
             #expect(need.title == s(c["need"], "title") && need.note == s(c["need"], "note"), "\(id)")
             #expect(PlanWords.askedWords(cs) == s(c, "askedWords"), "\(id)")
+            #expect(PlanWords.waitingWords(cs) == s(c, "waitingWords"), "\(id): what waits for xbin")
             let wantItems = c["items"]?.arrayValue ?? []
             #expect(cs.items.count == wantItems.count, "\(id)")
             for (it, want) in zip(cs.items, wantItems) {
@@ -118,5 +119,43 @@ import Testing
             #expect(PlanWords.lineState(cs.items[n - 1]) == .unknown)
             #expect(!PlanWords.canTick(cs, ticks: [1, 2, 3], item: cs.items[n - 1]))
         }
+    }
+
+    /// What the app can't act on it says truthfully (review, D243): a line
+    /// that waits is shown as waiting, with xbind's whole reason when it is
+    /// held, and the sheet names no control it doesn't have — cancelling
+    /// is on the web. A tile agent's permission request is its session's
+    /// card: only the person answers, in the app's own agent screen.
+    @Test func whatWaitsIsToldTruthfullyInTheApp() throws {
+        let held = "apps/dice declares mcp for the role \"writer\": what you approved is the role reader"
+        let json = try JSONValue(parsing: #"""
+        {"id":"c1","user":"bob","agent":"apps/q","title":"A dice tool","state":"applied","plan":true,"items":[
+          {"n":1,"kind":"tile.create","line":"Create the tile apps/dice","result":"applied"},
+          {"n":2,"kind":"binding.set","line":"Bind apps/assistant's mcp to apps/dice","result":"waiting",
+           "wait":{"component":"apps/assistant","slot":"mcp","tile":"apps/dice","kind":"http","service":"mcp","role":"reader","until":"2026-11-17T10:00:00Z",
+                   "held":"apps/dice declares mcp for the role \"writer\": what you approved is the role reader"}}]}
+        """#)
+        let cs = try #require(AdminChangeSet(json: json))
+        let r = DelegationWords.resultOf(cs.items[1])
+        #expect(r.word == "waiting" && r.tone == "warn")
+        #expect(r.text == "Not bound — \(held). xbin applies it once apps/dice provides mcp as you approved it.", "the whole mismatch is the person's to read")
+        let words = PlanWords.waitingWordsInApp(cs)
+        #expect(words == "1 line waits: xbin applies it by itself once the tile provides what you approved. To cancel it, open this review on the web.")
+        #expect(!words.contains("from here"), "the sheet has no control that cancels a waiting line")
+        var two = cs
+        two.items.append(cs.items[1])
+        #expect(PlanWords.waitingWordsInApp(two).hasSuffix("To cancel them, open this review on the web."))
+        var none = cs
+        none.items.removeLast()
+        #expect(PlanWords.waitingWordsInApp(none).isEmpty)
+        // a result this app doesn't know is shown as xbind named it, with no tone and nothing to press
+        var unknown = cs.items[1]
+        unknown.result = "parked"
+        let u = DelegationWords.resultOf(unknown)
+        #expect(u.word == "parked" && u.tone.isEmpty && u.text.isEmpty)
+
+        let row = try #require(AgentSessionRow(json: try JSONValue(parsing: #"{"id":"s1","cwd":"apps/dice","provider":"claude","status":"waiting_permission","pending":1,"origin":"agent"}"#)))
+        let card = DelegationWords.sessionCard(row, tileName: "Dice", harnessName: "Claude Code")
+        #expect(card.waits && card.word == "waiting for you" && card.line == "It asks your permission." && card.note == "Only you can answer." && card.button == "Answer")
     }
 }

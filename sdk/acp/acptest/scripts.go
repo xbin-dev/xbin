@@ -18,6 +18,10 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 	mode, cwd, sid := f.mode, f.cwd, f.sid
 	f.mu.Unlock()
 	switch {
+	case stepsOf(text) != nil: // a coding agent's work in an asking mode: commands, each asked for (steps.go)
+		if !f.steps(mode, stepsOf(text)) {
+			return
+		}
 	case strings.Contains(text, "ask-withdraw"):
 		if !f.askWithdraw(text) {
 			return

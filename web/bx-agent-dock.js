@@ -224,11 +224,19 @@ export class BxAgentDock extends LitElement {
     const m = pageMessage(e.data);
     if (!m) return;
     if (m.type === 'review') this.review(m.kind, m.id);
-    else if (m.type === 'session') this.dispatchEvent(new CustomEvent('bx-agent-open-session', { detail: { tile: m.tile, session: m.session, page: true }, bubbles: true, composed: true }));
+    else if (m.type === 'session') {
+      // a session that waits on a permission is answered here, in the tray (bx-agent-permits.js); a question, or one that waits on nothing, opens its tile
+      const s = (this.store.sessions || []).find((x) => x.id === m.session);
+      if (s && !(s.questions > 0) && (s.pending > 0 || s.status === 'waiting_permission')) { this._tray = true; this._menu = false; this.store.readSessions(); } else this.dispatchEvent(new CustomEvent('bx-agent-open-session', { detail: { tile: m.tile, session: m.session, page: true }, bubbles: true, composed: true }));
+    }
     else if (m.type === 'new-session') this._newSession(m.tile, m.draft);
     else if (m.type === 'signin') this._signinFor = m.harness; // the card is the chrome's: the page only named the coding agent (D230)
     else this.show(m.view);
+    // whatever the page just had the dock show — the tray, a view, a sheet, the sign-in card: no permission card is armed at that moment
+    this._rearmTray();
   }
+
+  _rearmTray() { this.renderRoot.querySelector('bx-agent-needs')?.rearm?.(); this.updateComplete.then(() => this.renderRoot.querySelector('bx-agent-needs')?.rearm?.()); }
 
   // the person's sign-ins changed here: the page reads what a start would run on again
   _signinsChanged() {

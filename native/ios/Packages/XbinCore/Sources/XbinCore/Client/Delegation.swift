@@ -268,6 +268,12 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
         public var start: JSONValue?
         /// xbind's words for undoing it by hand, when it can't.
         public var undoByHand: String
+        /// A line that waits (D243): the tile it waits on to provide
+        /// `waitService`; with result "waiting", `waitHeld` is xbind's
+        /// words for why it is not bound though the tile provides something.
+        public var waitTile: String
+        public var waitService: String
+        public var waitHeld: String
 
         public var id: Int { n }
 
@@ -291,6 +297,9 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
             deferred = json["deferred"]?.boolValue ?? false
             start = json["start"].flatMap { $0.objectValue != nil ? $0 : nil }
             undoByHand = json["undoByHand"]?.stringValue ?? ""
+            waitTile = json["wait"]?["tile"]?.stringValue ?? ""
+            waitService = json["wait"]?["service"]?.stringValue ?? ""
+            waitHeld = json["wait"]?["held"]?.stringValue ?? ""
         }
     }
 

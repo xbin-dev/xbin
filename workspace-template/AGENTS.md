@@ -117,8 +117,9 @@ new coding-sandbox as apps/coding-sandbox`), and the `sandbox-terminal` tile
 gives people browser terminals and SSH onto their sandboxes;
 the `scm-github` template (`bx template new scm-github`) offers the `scm`
 service — repos, credentials, pull requests, CI — docs/scm.md;
-tools for an agent instance are an MCP tile: `bx template new mcp-server as
-apps/dice`, then `bx bind apps/agent mcp+=apps/dice` — docs/mcp.md;
+tools for an agent instance are an MCP tile — a Go backend tile that
+provides `mcp`, bound with `bx bind apps/agent mcp+=apps/dice`: docs/mcp.md
+has the interface and a complete server;
 for a chat platform, instantiate the `agent-messaging-bridge` template and
 have a coding agent add the platform);
 `bx tile import <name> [as <path>]` copies one in (or use the Tile Manager's

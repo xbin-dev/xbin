@@ -5,6 +5,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"html"
 	"io/fs"
 	"log/slog"
@@ -57,6 +58,16 @@ type Server struct {
 	// switches, approvals, change sets and the audit log (delegate.go;
 	// internal/delegation); nil = the closed state: nothing is approved.
 	Delegation *delegation.Store
+	// a plan's lines that wait (planwait.go): the people who have one, and
+	// the lock under which one is applied or ended — at most once
+	waitMu      sync.Mutex
+	waitUsers   map[string]bool
+	waitsLoaded bool
+	// PlanStarter, when set, opens the session of a plan's agent.start
+	// line in place of POST /term/sessions — after every check of the line
+	// passed (a workspace without terminals: tests of plans). → the
+	// session's id, or the refusal's status and words.
+	PlanStarter func(ctx context.Context, p auth.Principal, body []byte) (session string, status int, refusal string)
 	// AgentPolicy answers the orgs' agent rules and people's agent
 	// preferences for the delegate gate; nil refuses (delegation.NoPolicy).
 	AgentPolicy delegation.Policy

@@ -117,6 +117,8 @@ func (s *Server) delegationStopped(user string, keepApprovals bool) {
 			s.delegateEvent(user, "changeset", id)
 		}
 		s.withdrawAsksFrom(user) // and what they asked the admins to apply for it (plan.go)
+		s.cancelWaits(user, "", "your workspace agent was stopped before it was applied")
+		s.cancelWaitsFrom(user, "the workspace agent of "+user+", which proposed it, was stopped before it was applied")
 	}
 	changed := false
 	if n, _ := s.Delegation.VoidTickets(user); n > 0 {

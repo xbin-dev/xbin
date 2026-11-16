@@ -609,3 +609,28 @@ func TestNoWritesAfterServe(t *testing.T) {
 		t.Fatalf("the history grew after Serve returned:\n%s", after[len(before):])
 	}
 }
+
+// fakeacp-steps: a brief that carries the mark plays its line of commands,
+// each asked for before it runs; "no" ends the turn at that step.
+func TestSteps(t *testing.T) {
+	if got := stepsOf("Goal: build it.\nIn your person's words: fakeacp-steps: echo a ||| echo b |||  \nDone when: it works."); len(got) != 2 || got[0] != "echo a" || got[1] != "echo b" {
+		t.Fatalf("the steps of a brief: %q", got)
+	}
+	if stepsOf("run: echo a ||| echo b") != nil {
+		t.Fatal("a prompt without the mark has steps")
+	}
+	d, _ := start(t, Options{wait: quick})
+	d.handshake()
+	d.call(3, "session/prompt", promptParams("Goal: x\nfakeacp-steps: echo a ||| echo b\nDone when: y"))
+	r := d.request("session/request_permission")
+	if get(r, "params", "toolCall", "toolCallId") != "step1" || get(r, "params", "toolCall", "title") != "echo a" || get(r, "params", "toolCall", "kind") != "execute" ||
+		get(r, "params", "options", "1", "kind") != "allow_always" {
+		t.Fatalf("the first step's request: %s", r.raw)
+	}
+	d.reply(r, selected("no"))
+	d.chunkText("denied step 1")
+	if r := d.response(3); get(r, "result", "stopReason") != "end_turn" {
+		t.Fatalf("a denied step's end: %s", r.raw)
+	}
+	d.finish()
+}

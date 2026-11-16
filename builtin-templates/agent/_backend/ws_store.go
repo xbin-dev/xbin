@@ -370,6 +370,11 @@ type wsReq struct {
 	Lines []wsPlanLine `json:"lines,omitempty"`
 }
 
+// wsReqWaiting is a decided plan's state while a line of it waits for
+// xbind to apply it (ws_tools_plan.go): told once at the decision, and
+// again when the line is applied or ends.
+const wsReqWaiting = "waiting"
+
 // open: nothing came of it yet.
 func (r *wsReq) open() bool {
 	switch r.State {

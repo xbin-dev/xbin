@@ -2,10 +2,12 @@
 
 package isolated
 
-// mcptemplate_test.go — "give an assistant a dice tool", end to end with no
+// mcpexample_test.go — "give an assistant a dice tool", end to end with no
 // coding agent (docs/mcp.md; the journey's G9a, G4, G10): on a real
-// `xbind --isolate`, the builtin mcp-server template instantiated as
-// apps/dice and the agent template as apps/assistant; the assistant's mcp
+// `xbind --isolate`, examples/mcp-server — the server docs/mcp.md carries
+// inline (TestDocsMCPServerIsTheExample holds them to the same bytes) —
+// copied in as apps/dice, as a tile's coding agent would write it, and the
+// agent template as apps/assistant; the assistant's mcp
 // slot bound to apps/dice and its llm slot to xbin:llm, the workspace's LLM
 // connector, whose upstream is hack/fakeopenai.
 //
@@ -21,12 +23,12 @@ package isolated
 //
 // The daemon's vault is unsealed by passphrase (the agent template's
 // database is an encrypted resource). It gets GOPROXY=off: both backends build from the module cache
-// alone (the template has no third-party module; the agent template's are
+// alone (the example has no third-party module; the agent template's are
 // cached by every earlier run), so a missing module fails the build rather
 // than reaching the network. Run it on a dev box (user namespaces, a rootfs):
 //
 //	set -a; eval "$(sed -n 's/^export \([A-Z_]*\) := \(.*\)$/\1=\2/p' .dev.mk | grep -v ^PATH)"; set +a
-//	go test -tags=integration -count=1 -v -run '^TestMCPServerTemplateLive$' ./test/isolated/
+//	go test -tags=integration -count=1 -v -run '^TestMCPExampleLive$' ./test/isolated/
 
 import (
 	"encoding/json"
@@ -40,7 +42,7 @@ import (
 	"github.com/xbin-dev/xbin/test/xbindtest"
 )
 
-func TestMCPServerTemplateLive(t *testing.T) {
+func TestMCPExampleLive(t *testing.T) {
 	t.Parallel()
 	a := xbindtest.Require(t)
 	d := xbindtest.Start(t, a, xbindtest.Options{Env: []string{"GOPROXY=off", "XBIN_VAULT_PASSPHRASE=xbindtest-vault"}})
@@ -52,9 +54,12 @@ func TestMCPServerTemplateLive(t *testing.T) {
 	d.Must(t, "PUT", "/api/xbin/llm/upstreams/fake", map[string]any{"baseURL": fake + "/v1", "key": "sk-fake-MCP-TEMPLATE-0000"}, 200)
 	d.Must(t, "PUT", "/api/xbin/llm/config", map[string]any{"defaults": map[string]any{"model": "fake/fake-chat"}}, 200)
 
-	d.Must(t, "POST", "/api/xbin/templates/new", map[string]any{"source": "mcp-server", "path": dice}, 200)
+	// there is no template for it: a tool's tile is written, not stamped
+	if r := d.Call(t, "POST", "/api/xbin/templates/new", map[string]any{"source": "mcp-server", "path": "apps/stamped"}); r.Status != 404 {
+		t.Fatalf("POST /templates/new {source: mcp-server}: %d %s, want 404 (no such template)", r.Status, r)
+	}
+	d.CopyTile(t, a.Example("mcp-server"), dice)
 	d.Must(t, "POST", "/api/xbin/templates/new", map[string]any{"source": "agent", "path": assistant, "partition": false}, 200)
-	d.WaitComponent(t, dice)
 	d.WaitComponent(t, assistant)
 
 	// the dice tile answers MCP through xbind as soon as it is built

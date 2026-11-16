@@ -122,7 +122,7 @@ func (c *captured) refusal() string {
 // under --no-auth, where nobody signs in (the server decides when that
 // counts): a tile's, a delegate's or a view-as one previews nothing.
 func (b *Broker) PreviewChange(p auth.Principal, op delegation.ChangeOp) (delegation.ChangePreview, error) {
-	return b.preview(p, op, nil, false)
+	return b.preview(p, op, nil, nil, false)
 }
 
 // PreviewPlanned is PreviewChange for a line of a plan (plan.go): planned
@@ -130,14 +130,23 @@ func (b *Broker) PreviewChange(p auth.Principal, op delegation.ChangeOp) (delega
 // made — a line that names one is described from its template's manifest
 // (ChangePreview.Deferred) and checked against the tile once it exists.
 func (b *Broker) PreviewPlanned(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile) (delegation.ChangePreview, error) {
-	return b.preview(p, op, planned, true)
+	return b.preview(p, op, planned, nil, true)
 }
 
-func (b *Broker) preview(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile, plan bool) (delegation.ChangePreview, error) {
+// PreviewPlan is PreviewPlanned for a line that comes after starts — the
+// set's earlier agent.start lines. A binding to a tile one of them starts
+// a tile agent in, which doesn't provide what the slot wants yet, is a
+// line that waits (ChangePreview.Waits, plan.go) instead of one that can't
+// be applied.
+func (b *Broker) PreviewPlan(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile, starts []delegation.PlannedStart) (delegation.ChangePreview, error) {
+	return b.preview(p, op, planned, starts, true)
+}
+
+func (b *Broker) preview(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile, starts []delegation.PlannedStart, plan bool) (delegation.ChangePreview, error) {
 	if p.Component != "" || p.Agent != "" || p.Impersonator != "" || p.UserID == "" && !p.Owner {
 		return delegation.ChangePreview{}, errors.New("an admin change is described for the person who would apply it")
 	}
-	pv, err := b.previewChange(p, op, planned)
+	pv, err := b.previewChange(p, op, planned, starts)
 	if err == nil && plan && pv.Blocked == "" {
 		b.readOnlyNote(&pv)
 	}
@@ -220,13 +229,13 @@ func (b *Broker) powerOf(tile string) []string {
 // share and a limit always; a binding unless its tile's owner could wire it
 // themselves (bindPersonal); a creation unless the person's own creation
 // rule lets it (plan.go).
-func (b *Broker) previewChange(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile) (pv delegation.ChangePreview, err error) {
+func (b *Broker) previewChange(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile, starts []delegation.PlannedStart) (pv delegation.ChangePreview, err error) {
 	switch op.Kind {
 	case ChangeGrantAdd, ChangeGrantRevoke:
 		pv, err = b.previewGrant(p, op)
 		pv.Admin = true
 	case ChangeBindingSet, ChangeBindingRemove:
-		pv, err = b.previewBinding(p, op, planned)
+		pv, err = b.previewBinding(p, op, planned, starts)
 	case ChangeOrgShare:
 		pv, err = b.previewOrgShare(p, op)
 		pv.Admin = true
@@ -377,7 +386,7 @@ func refsOf(bd registry.Binding) []map[string]string {
 	return out
 }
 
-func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile) (delegation.ChangePreview, error) {
+func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile, starts []delegation.PlannedStart) (delegation.ChangePreview, error) {
 	var body bindingBody
 	if err := strictArgs(op.Args, &body); err != nil {
 		return delegation.ChangePreview{}, err
@@ -448,7 +457,10 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp, planne
 		pv.Call.Method = http.MethodDelete
 	}
 	if uses := plannedIn(planned, append(slices.Clone(body.Providers), body.Provider, body.Component)...); len(uses) > 0 {
-		return b.previewPlannedBinding(p, pv, body, remove, planned, uses) // a tile an earlier line creates (plan.go)
+		return b.previewPlannedBinding(p, pv, body, remove, planned, starts, uses) // a tile an earlier line creates (plan.go)
+	}
+	if !remove && b.waitsOn(body, starts) {
+		return b.previewPlannedBinding(p, pv, body, remove, planned, starts, nil) // a provide a tile agent of this plan is still to write
 	}
 	pv.Tiles = b.bindingTiles(body)
 	cur := b.Reg.Workspace().Bindings[body.Component][body.Slot]

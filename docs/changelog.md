@@ -12,6 +12,58 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- templates, docs: **an MCP server tile is written, not stamped — and
+  [mcp.md](/docs/mcp.md) is its interface** (D243). The builtin template
+  for one, which landed earlier today (in no release), is gone from the
+  template list, `POST /templates/new`, the Tile Manager and `bx template
+  new`. `mcp.md` now carries the interface — the manifest's
+  `provides.mcp`, the JSON-RPC wire (`initialize` with version
+  negotiation, `ping`, `tools/list`, `tools/call`, errors,
+  `readOnlyHint`) — and a complete Go server inline, the same file as the
+  one in the repository's examples (a test holds them to the same bytes).
+- delegation: **a plan's line can wait** (D243). A person's own
+  `binding.set` (between their own tiles; never a line that takes an
+  admin's rights, which is `blocked` with `later` — propose it again once
+  the tile provides the interface) to a tile that provides nothing of what
+  the slot wants yet, after an `agent.start` line in that tile, is approved on the plan's review and applied by xbind
+  itself once the tile's manifest declares exactly what was approved (kind
+  `http`, the slot's service, role `reader`): new item field `wait`, new
+  results `waiting`, `lapsed`, `cancelled`. It waits at most 24 hours, is
+  not bound to anything else the tile declares (`wait.held` says why), is
+  cancelled by `POST …/reject` or `…/undo` on the decided set, by the
+  agent's end and by changes to its tiles, and every Apply-time check runs
+  again when it would apply. The approved role is recorded with the
+  binding (`bindingCaps` in the workspace's `xbin.json`) and stays the
+  most it grants, whatever the tile declares later. Audit rows
+  `under: "waits"` and `"waited"`
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §Lines that
+  wait). Additive.
+- the workspace agent: **a tool for an assistant is built, in one plan.**
+  "Make a tool that rolls dice and give it to a new assistant" is now: an
+  empty tile, that tile's coding agent started with the `mcp-tool` brief
+  (which says to declare `provides.mcp`, points at `/docs/mcp.md` and
+  names the files a Go backend tile needs), the assistant, its `llm`
+  binding, and its `mcp` binding as a line that waits. The agent is told
+  when the waiting line is applied or ends, checks the hook-up (the
+  assistant's `GET /tools`) and says what it checked. The plan's card
+  lists a waiting line as "waits for apps/dice to provide mcp" (`GET
+  /ws/sessions/<id>/cards` → `requests[].state: "waiting"`, `lines[].waits`,
+  `untilMs`).
+- workspace agent's chrome (web): **a tile agent's permission requests
+  are answered in the dock.** Needs you draws each request of a session
+  the person's sessions wait on with the chat kit's permission card (new
+  `/vendor/bx-agent-permits.js`, `<bx-agent-permits>`): Allow once, Allow
+  always where xbind scopes it to a session rule, Reject — the person's
+  own `POST /term/sessions/<id>/permissions/<pid>`. The agent's page
+  draws none; its "Answer" opens the tray. In the app such a session
+  still opens its tile.
+- workspace agent's chrome (web, app): a line that waits reads `waiting`
+  with what it waits for (or why it is held), a decided plan with one
+  shows in **Needs you** as "Waiting: …" with **Open**, and its results
+  offer **Cancel what waits**. `agent-chrome-words.js` gains `waitText`,
+  `agent-plan-words.js` `waitingWords`; XbinCore's `DelegationWords` and
+  `PlanWords` likewise.
+
 - terminals, agent sessions: **BREAKING (security) — a session inside a
   tile is decided on that tile** ([changes/2026-11-16-sessions-inside-tiles.md](/docs/changes/2026-11-16-sessions-inside-tiles.md)).
   A terminal or agent session may open in a directory inside a tile
@@ -364,29 +416,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   takes `template: "mcp-tool"` with `tool: {name, arguments, result}`; the
   fields it leaves out come from the template — done when `tools/list`
   names the tool and a call returns that shape, check by those two calls
-  from the tile's own sandbox, leave alone the manifest's `provides` and
-  the wire — so a hand-off of MCP-tool work to a tile's coding agent says
-  how to tell it is done (the template's `API.md` §Workspace mode).
-- docs: **[mcp.md](/docs/mcp.md), "Give an agent a tool"**: the
-  `mcp-server` template, the `mcp` slot and the binding as the grant, the
-  JSON-RPC methods, adding and checking a tool, how an assistant picks it
-  up, personal and global binds; and two lines of the workspace agent's
+  from the tile's own sandbox, known: `/docs/mcp.md` has the interface and
+  a server to start from — so a hand-off of MCP-tool work to a tile's
+  coding agent says what to build and how to tell it is done (the
+  template's `API.md` §Workspace mode).
+- docs: **[mcp.md](/docs/mcp.md), "Give an agent a tool"**: an MCP
+  server tile's interface — the manifest's `provides.mcp`, the JSON-RPC
+  wire — with a complete Go server inline, the `mcp` slot and the binding
+  as the grant, adding and checking a tool, how an assistant picks it up,
+  personal and global binds; and two lines of the workspace agent's
   map of xbin from it (tools come from MCP tiles bound to an instance's
   `mcp` slot; an instance needs its `llm` slot bound, `xbin:llm` the
   workspace's connector).
-- templates: **`mcp-server`, tools for an agent.** A new builtin template
-  (`bx template new mcp-server as apps/dice`, the Tile Manager's "New from
-  template"): a small Go backend on the sdk serving MCP over streamable
-  HTTP at `POST /mcp` — `initialize` (protocol version negotiation),
-  `ping`, `tools/list`, `tools/call`, JSON-RPC errors — with one example
-  tool, `roll_dice {sides?, count?}` (`readOnlyHint`), a page that lists
-  the tools and calls one, and an `AGENTS.md` for the tile's coding agent
-  (where tools go: one function and one line in `_backend/tools.go`; how to
-  check with `tools/list` and `tools/call` from its own terminal). Its
-  manifest provides `mcp` from the first second, so an agent instance's
-  `mcp` slot can be bound to a fresh copy before anyone has written a tool.
-  No third-party modules: it builds in its sandbox with no network
-  ([mcp.md](/docs/mcp.md)).
 - access: **`GET /access?tile=` says what reaches everyone.** A new
   `defaults: [{level, source}]` lists the workspace defaults that reach the
   tile (additive; none on an org-owned tile), and a system component no
