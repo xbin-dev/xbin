@@ -243,7 +243,8 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
    * replies(): the quick replies above the composer, from what the
    * conversation waits on — "Go ahead" / "Change the plan" while the plan
    * waits for a go, the choices of the question that waits: [{id, label,
-   * send | fill, primary}] (a tap sends, or fills the composer).
+   * send | fill, primary}]. They are the agent's suggestions: a tap fills
+   * the composer, to edit or send — it never sends by itself (xbin D241).
    */
   function replies() {
     const out = [];
@@ -258,8 +259,7 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
   function reply(id) {
     const r = replies().find((x) => x.id === id);
     if (!r) return false;
-    if (r.send) return send(r.send);
-    fill(r.fill || r.label);
+    fill(r.send || r.fill || r.label);
     return true;
   }
 

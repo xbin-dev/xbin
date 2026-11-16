@@ -46,6 +46,15 @@ public struct XbinServices {
     /// workspace agent; nil (every other tile, previews, snapshots): the
     /// renderer draws an inert placeholder, never a button.
     public var trustedNode: (@MainActor (XbinTrustedNode) -> AnyView)?
+    /// The composer's mic (D241): the app's on-device dictation, given only
+    /// to the person's workspace agent's view — the words land in the draft
+    /// as typed text does, and nothing is sent by voice. Nil: no mic (the
+    /// keyboard's own dictation stays).
+    public var dictation: XbinDictationModel?
+    /// The label above a composer's quick replies, where the app says whose
+    /// suggestions they are ("Suggested by your agent — tap to edit, then
+    /// send"); nil: none.
+    public var suggestionsLabel: String?
 
     @MainActor
     public init(

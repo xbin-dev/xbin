@@ -208,6 +208,15 @@ struct AgentPrefsView: View {
                 }
             }
             if let problem { Section { Text(verbatim: problem).foregroundStyle(XbinColor.danger) } }
+            // this phone's notifications, card and lock-screen actions (D241)
+            Section {
+                NavigationLink { AgentNotifySettingsView(workspace: workspace) } label: {
+                    Label("Notifications and the Lock Screen", systemImage: "bell.badge")
+                }
+                .accessibilityIdentifier("prefs-notifications")
+            } header: {
+                Text("On this \(UIDevice.current.model)")
+            }
             AgentPanelNote(text: "Which coding agent a started tile agent uses, its mode, its network and whether it may call other tiles are set on the web: workspace agent → Preferences.")
         }
         .task {

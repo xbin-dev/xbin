@@ -182,6 +182,13 @@ struct SettingsView: View {
                     }
 
                     Section {
+                        // the workspace agent on this phone (D241): its notifications, card and lock-screen actions
+                        if w.agent.chip.shown {
+                            NavigationLink { AgentNotifySettingsView(workspace: w) } label: {
+                                Label { Text("Workspace agent") } icon: { AgentGlyph(size: 16).foregroundStyle(XbinColor.partAgent) }
+                            }
+                            .accessibilityIdentifier("settings-agent-notifications")
+                        }
                         Button("Send a test notification") { Task { pushNote = await PushManager.shared.sendTest(w) } }
                             .disabled(PushManager.shared.relay == nil)
                         if let pushNote { Text(verbatim: pushNote).font(.footnote) }

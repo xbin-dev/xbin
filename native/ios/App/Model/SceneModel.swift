@@ -34,6 +34,9 @@ final class SceneModel: Identifiable {
     /// A review asked for while another sheet is up (the inbox): shown
     /// once that sheet has gone.
     @ObservationIgnored var pendingReview: AgentReview?
+    /// Where the agent's view is to go once it shows (D241's router: a
+    /// conversation, `s=<id>`); the view takes it and it is cleared.
+    var agentAddress: String?
     /// The window is on screen (foreground active or inactive): its
     /// workspace keeps an events socket.
     var isForeground = false
@@ -127,6 +130,11 @@ final class SceneModel: Identifiable {
                 openAgentFromLink(w)
                 return
             }
+            // …on exactly one thing (D241: a push, the Live Activity, Handoff)
+            if case .workspaceAgent(_, let route) = link {
+                openAgent(route, in: w)
+                return
+            }
             w.open(link: link, in: nav(for: w))
         }
     }
@@ -150,6 +158,66 @@ final class SceneModel: Identifiable {
             guard selectedID == w.id else { return }
             if w.agent.chip.shown { openAgent() } else { showAgent = false; nav(for: w).goHome() }
         }
+    }
+
+    /// The router (D241; plans/wsagent/ios-stage2.md §7): the agent opened on
+    /// one thing — a request's sheet, a change set's review, a tile agent's
+    /// session, a conversation, Needs you, or what waits first — once xbind
+    /// has said the person has an agent and the app lock is passed. A person
+    /// without one gets the workspace's Home, as any link to the agent. A
+    /// sheet opened for a thing that no longer waits says what came of it
+    /// (AgentApprovalSheet's settled state), never an empty sheet.
+    func openAgent(_ route: AgentRoute, in w: WorkspaceModel) {
+        Task {
+            if w.agent.state == nil || w.agent.unreachable { await w.agent.refresh() }
+            guard selectedID == w.id else { return }
+            guard w.agent.chip.shown else {
+                showAgent = false
+                nav(for: w).goHome()
+                return
+            }
+            // the app lock first: nothing of the agent shows over it (bounded: a lock left up holds the route)
+            for _ in 0..<600 where AppModel.shared.locked { try? await Task.sleep(nanoseconds: 200_000_000) }
+            guard !AppModel.shared.locked else { return }
+            showInbox = false
+            switch route {
+            case .request(let id):
+                await presentAfterOpening(.request(id))
+            case .changeset(let id):
+                await presentAfterOpening(.changeset(id))
+            case .tileSession(let id):
+                showAgent = false
+                w.open(.agent(cwd: w.sessions.first { $0.id == id }?.cwd, session: id), in: nav(for: w))
+            case .conversation(let id):
+                agentAddress = "s=" + id
+                openAgent()
+                AgentNotifications.shared.seen(conversation: id, in: w)
+            case .needs:
+                openAgent()
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                showAgentInbox = true
+            case .first:
+                await w.agent.refresh()
+                if let n = w.agent.needs.first {
+                    await presentAfterOpening(n.kind == .request ? .request(n.id) : .changeset(n.id))
+                } else if let s = w.agent.waitingSessions.first {
+                    showAgent = false
+                    w.open(.agent(cwd: s.cwd, session: s.id), in: nav(for: w))
+                } else {
+                    openAgent()
+                }
+            }
+        }
+    }
+
+    /// The agent's container first, then the review over it (two sheets in
+    /// one moment would leave the second unshown).
+    private func presentAfterOpening(_ r: AgentReview) async {
+        AgentKeyboard.dismiss()
+        let wasOpen = showAgent
+        openAgent()
+        if !wasOpen { try? await Task.sleep(nanoseconds: 700_000_000) }
+        agentReview = r
     }
 
     /// Shows the approval of one request or change set. `afterInbox`: the

@@ -143,7 +143,8 @@ final class AppModel {
         guard let link = pendingLink, let w = resolve(link) else { return false }
         pendingLink = nil
         scene.select(w.id)
-        w.open(link: link, in: scene.nav(for: w))
+        // a cold start from a notification on the agent: its router (D241)
+        if case .workspaceAgent = link { scene.open(link: link) } else { w.open(link: link, in: scene.nav(for: w)) }
         return true
     }
 
@@ -331,6 +332,14 @@ final class AppModel {
         for w in workspaces where shown.contains(w.id) { await w.refresh() }
         for w in workspaces where !shown.contains(w.id) { await w.refreshSessions() }
         await PushManager.shared.maintainAll()
+        // the workspace agent (D241): notifications whose thing no longer
+        // waits go, the badge and each workspace's card follow what is read
+        for w in workspaces {
+            await w.agent.refresh()
+            await AgentNotifications.shared.sweep(w)
+            AgentLiveActivity.shared.observe(w)
+        }
+        AgentNotifications.shared.updateBadge()
     }
 
     /// Fetches the remote switch when it is due — at once after a run that
@@ -352,6 +361,8 @@ final class AppModel {
     /// Background: the sockets close (reopened, and caught up, on return).
     func enteredBackground() {
         isActive = false
+        AgentNotifications.shared.scheduleRefresh() // the badge stays honest (D241)
+        AgentNotifications.shared.updateBadge()
         foregroundMark.enteredBackground()
         updateSockets()
         // No tunnel lives in the background (D204, iroh #4289).

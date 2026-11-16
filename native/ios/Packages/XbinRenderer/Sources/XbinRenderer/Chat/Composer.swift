@@ -69,8 +69,13 @@ public struct ComposerView<Chips: View>: View {
                 .modifier(ChatCard())
             }
             // Rev 2: quick replies, above the box; they scroll sideways and
-            // stay with the keyboard down.
+            // stay with the keyboard down. Where the app says whose
+            // suggestions they are (the workspace agent's, D241), it says so.
             if !composer.replies.isEmpty {
+                if let label = extras.repliesLabel {
+                    Text(verbatim: label).font(.caption).foregroundStyle(XbinColor.muted)
+                        .accessibilityIdentifier("composer-replies-label")
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(composer.replies) { r in QuickReply(reply: r, disabled: composer.disabled, onReply: extras.onReply) }
@@ -104,6 +109,14 @@ public struct ComposerView<Chips: View>: View {
                 // Base Two's field: the panel, a 1 pt edge, 2 pt corners
                 // (it was a pill, as the send and attach buttons were
                 // circles; the web's composer is square).
+                // Dictating (D241): the level, the time and the words so far
+                // in place of the field; ✓ puts them in the draft.
+                if let d = extras.dictation, d.listening {
+                    DictationBar(model: d) { heard in
+                        let t = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !t.isEmpty { text = text.isEmpty ? t : text + " " + t }
+                    }
+                } else {
                 // Rev 2: what the next message is about sits inside the
                 // box, at its top edge, over the text.
                 VStack(alignment: .leading, spacing: 0) {
@@ -124,6 +137,7 @@ public struct ComposerView<Chips: View>: View {
                 }
                 .background(XbinColor.surface, in: .xbinPlate)
                 .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
+                }
                 if composer.busy, let onStop {
                     Button(action: onStop) {
                         ComposerPlate(symbol: XbinIcons.UI.stop, fill: XbinColor.text, ink: XbinColor.background, small: true)
@@ -131,7 +145,16 @@ public struct ComposerView<Chips: View>: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Stop")
                 }
-                if !composer.busy || onStop == nil || composer.sendWhileBusy {
+                if let d = extras.dictation, d.available, !d.listening, text.isEmpty, !composing, !composer.disabled,
+                   !composer.busy || onStop == nil || composer.sendWhileBusy {
+                    // The mic where Send will be while the draft is empty (D241).
+                    Button { Task { await d.start() } } label: {
+                        ComposerPlate(symbol: "mic", fill: XbinColor.fill, ink: XbinColor.text)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dictate")
+                    .accessibilityIdentifier("composer-dictate")
+                } else if extras.dictation?.listening != true, !composer.busy || onStop == nil || composer.sendWhileBusy {
                     // The accent while there is something to send, else the
                     // neutral fill with the arrow muted (never a near-white
                     // or black square, as the system's disabled button was).
@@ -149,6 +172,9 @@ public struct ComposerView<Chips: View>: View {
                     .disabled(!sendable)
                     .accessibilityLabel("Send")
                 }
+            }
+            if let problem = extras.dictation?.problem, !problem.isEmpty, extras.dictation?.listening != true {
+                Text(verbatim: problem).font(.caption).foregroundStyle(XbinColor.muted)
             }
             // Rev 2: a quiet line under the box.
             if let hint = composer.hint {
@@ -190,12 +216,18 @@ public struct ComposerExtras {
     public var onContext: (@MainActor (String) -> Void)?
     public var onRemoveContext: (@MainActor (String) -> Void)?
     public var onReply: (@MainActor (String) -> Void)?
+    /// The app's dictation (D241; ``XbinServices/dictation``); nil: no mic.
+    public var dictation: XbinDictationModel?
+    /// Whose suggestions the quick replies are (``XbinServices/suggestionsLabel``).
+    public var repliesLabel: String?
 
     public init(onContext: (@MainActor (String) -> Void)? = nil, onRemoveContext: (@MainActor (String) -> Void)? = nil,
-                onReply: (@MainActor (String) -> Void)? = nil) {
+                onReply: (@MainActor (String) -> Void)? = nil, dictation: XbinDictationModel? = nil, repliesLabel: String? = nil) {
         self.onContext = onContext
         self.onRemoveContext = onRemoveContext
         self.onReply = onReply
+        self.dictation = dictation
+        self.repliesLabel = repliesLabel
     }
 }
 

@@ -100,6 +100,8 @@ struct AgentTileView: View {
         .onAppear(perform: open)
         // Opened again, perhaps about another tile — or about none: the view is told.
         .onChange(of: scene.agentOpened) { _, _ in tellContext() }
+        // The router named a conversation (D241): the view goes there.
+        .onChange(of: scene.agentAddress) { _, _ in goToAddress() }
         // Live reload: the component's code is the release's, and a new
         // release reloads its pages.
         .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { box.runtime?.reload() } }
@@ -134,6 +136,14 @@ struct AgentTileView: View {
         let fresh = box.runtime == nil
         box.open(workspace, tile, compact: compact, nav: nav, host: host)
         if fresh { tellContext() }
+        goToAddress()
+    }
+
+    /// An address the router asked for (`s=<conversation>`): once, then forgotten.
+    private func goToAddress() {
+        guard let a = scene.agentAddress, let rt = box.runtime else { return }
+        scene.agentAddress = nil
+        rt.navigate(a)
     }
 
     private func reopen() {

@@ -7,6 +7,13 @@ import XbinCore
 /// extension opens it with the workspace's key (shared by the app through
 /// the Keychain access group) and shows the real title and body. Anything
 /// it can't open stays as delivered.
+///
+/// The workspace agent's kinds (D241) are drawn from the request's own
+/// fields by XbinCore's AgentNotice — the title xbind's words, the call
+/// itself only where Allow once may be offered, the category (which actions
+/// show) from those fields and the person's settings for the workspace,
+/// never from text. This extension holds the push keys and those settings,
+/// nothing else: it draws, it never decides.
 final class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var fallback: UNNotificationContent?
@@ -18,17 +25,33 @@ final class NotificationService: UNNotificationServiceExtension {
         let content = (request.content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
         if let opened = Self.open(userInfo: request.content.userInfo) {
             let p = opened.payload
-            content.title = p.title
-            content.body = p.body
-            // Per workspace; xbind's notices linking one of its pages (the
-            // partitions page, D181) in a group of their own, with that
-            // page's actions (PushPayload.threadID, .category).
-            content.threadIdentifier = p.threadID
-            content.categoryIdentifier = p.category
+            let prefs = AgentNoticeStore.prefs(opened.appWorkspace, group: Self.keychainGroup)
+            if let c = AgentNotice.content(p, appWorkspace: opened.appWorkspace, prefs: prefs) {
+                content.title = c.title
+                content.body = c.body
+                content.threadIdentifier = c.threadID
+                content.categoryIdentifier = c.category
+                content.userInfo = c.userInfo
+                content.interruptionLevel = c.timeSensitive ? .timeSensitive : .active
+                content.relevanceScore = c.timeSensitive ? 1 : 0.5
+                if let b = c.badge {
+                    // this workspace's count, with the others' last ones: the
+                    // app icon says what waits across workspaces
+                    content.badge = NSNumber(value: AgentNoticeStore.setCount(b, for: opened.appWorkspace, group: Self.keychainGroup))
+                }
+            } else {
+                content.title = p.title
+                content.body = p.body
+                // Per workspace; xbind's notices linking one of its pages (the
+                // partitions page, D181) in a group of their own, with that
+                // page's actions (PushPayload.threadID, .category).
+                content.threadIdentifier = p.threadID
+                content.categoryIdentifier = p.category
+                var info = p.userInfo
+                info["app"] = opened.appWorkspace
+                content.userInfo = info
+            }
             if let t = opened.title, !t.isEmpty { content.subtitle = t }
-            var info = p.userInfo
-            info["app"] = opened.appWorkspace
-            content.userInfo = info
         }
         contentHandler(content)
         self.contentHandler = nil

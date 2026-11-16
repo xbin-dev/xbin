@@ -43,6 +43,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // the workspace agent's actions and follow-ups work with or without push (D241)
+        UNUserNotificationCenter.current().setNotificationCategories(PushManager.categories.union(AgentNotifications.categories))
+        AgentNotifications.shared.registerBackgroundRefresh() // before launch ends (BGTaskScheduler's rule)
         BaseTwoChrome.apply()
         #if DEBUG
         // The UI tests (-XbinUITesting): UIKit's animations off, so the app
@@ -55,6 +58,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // straight into one.
         AppModel.shared.refreshRemoteSwitch()
         if !AppModel.shared.workspaces.isEmpty { Task { await PushManager.shared.start() } }
+        #if DEBUG
+        AgentNoticeDemo.runIfAsked()
+        #endif
         return true
     }
 
@@ -64,10 +70,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {}
 
-    /// The relay's silent token check carries no `xbin`: nothing to do.
+    /// A background push: the workspace agent's `agent.clear` takes back
+    /// notifications that no longer stand (D241); the relay's silent token
+    /// check carries no `xbin`: nothing to do.
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async
         -> UIBackgroundFetchResult {
-        .noData
+        await AgentNotifications.shared.backgroundPush(SendableUserInfo(userInfo))
     }
 
     /// Foreground: no banner when the user is already looking at the very
@@ -88,6 +96,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let app = info["app"] as? String ?? ""
         let link = info["link"] as? String ?? ""
         let action = response.actionIdentifier
+        // The workspace agent's (D241): its actions decide only after a
+        // re-read, with the device's session; a reply is a message.
+        let text = (response as? UNTextInputNotificationResponse)?.userText
+        let identifier = response.notification.request.identifier
+        let strings = SendableUserInfo(info).strings
+        if await AgentNotifications.shared.handle(info: strings, action: action, text: text, identifier: identifier) { return }
         await MainActor.run {
             guard let w = AppModel.shared.workspace(app) else { return }
             if action == "mute", link.hasPrefix("c/") {

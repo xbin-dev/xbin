@@ -18,7 +18,7 @@ out=${1:-${TMPDIR:-/tmp}/xbin-widget-stubcheck}
 mkdir -p "$out/Sources"
 rm -rf "$out/Sources"/*
 cp -R "$repo/native/tools/swiftui-stubcheck/Stubs/SwiftUI" "$repo/native/tools/swiftui-stubcheck/Stubs/UIKit" "$out/Sources/"
-cp -R "$here/Stubs/ActivityKit" "$here/Stubs/WidgetKit" "$here/Stubs/UserNotifications" "$out/Sources/"
+cp -R "$here/Stubs/ActivityKit" "$here/Stubs/WidgetKit" "$here/Stubs/UserNotifications" "$here/Stubs/BackgroundTasks" "$out/Sources/"
 
 # The widget extension, with a PushKeyring shim (Shared/Keychain.swift needs Security).
 mkdir -p "$out/Sources/WidgetCheck"
@@ -29,7 +29,7 @@ done
 
 # The app's push code, with the app-type shims.
 mkdir -p "$out/Sources/AppPushCheck"
-cp "$ios/App/Push/"*.swift "$ios/Widgets/Shared/"*.swift "$here/Stubs/AppShims/AppShims.swift" "$out/Sources/AppPushCheck/"
+cp "$ios/App/Push/"*.swift "$ios/Widgets/Shared/"*.swift "$ios/Shared/AgentNoticeStore.swift" "$here/Stubs/AppShims/AppShims.swift" "$out/Sources/AppPushCheck/"
 
 cat >"$out/Package.swift" <<PKG
 // swift-tools-version: 6.2
@@ -48,11 +48,12 @@ let package = Package(
         .target(name: "ActivityKit"),
         .target(name: "WidgetKit", dependencies: ["SwiftUI", "ActivityKit"]),
         .target(name: "UserNotifications", dependencies: ["UIKit"]),
+        .target(name: "BackgroundTasks"),
         .target(name: "WidgetCheck", dependencies: [
             "SwiftUI", "WidgetKit", "ActivityKit", .product(name: "XbinAgent", package: "XbinAgent"),
         ]),
         .target(name: "AppPushCheck", dependencies: [
-            "UIKit", "ActivityKit", "UserNotifications",
+            "UIKit", "ActivityKit", "UserNotifications", "BackgroundTasks",
             .product(name: "XbinCore", package: "XbinCore"), .product(name: "XbinAgent", package: "XbinAgent"),
         ]),
     ],

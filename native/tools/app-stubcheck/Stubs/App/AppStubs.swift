@@ -152,6 +152,22 @@ enum AppLock { static func unlock(reason: String) async -> Bool { true } }
     func endAll() {}
     func workspaceRemoved(_ id: String) {}
 }
+// the workspace agent's notifications and card (D241)
+@MainActor final class AgentNotifications {
+    static let shared = AgentNotifications()
+    func prefs(_ w: WorkspaceModel) -> AgentNotifyPrefs { AgentNotifyPrefs() }
+    func setPrefs(_ p: AgentNotifyPrefs, for w: WorkspaceModel) {}
+    func placeOf(_ r: DelegateRequest, in w: WorkspaceModel) async -> String { "" }
+    func sweep(_ w: WorkspaceModel) async {}
+    func seen(conversation: String, in w: WorkspaceModel) {}
+    func updateBadge() {}
+    func scheduleRefresh() {}
+}
+@MainActor final class AgentLiveActivity {
+    static let shared = AgentLiveActivity()
+    func observe(_ w: WorkspaceModel) {}
+    func end(workspace id: String) {}
+}
 
 // Terminal/
 struct TerminalScreen: View {

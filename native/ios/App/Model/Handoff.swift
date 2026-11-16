@@ -40,9 +40,16 @@ enum HandoffActivity {
         }
     }
 
-    /// Fills `a` (SwiftUI's `.userActivity` hands one in) for Handoff.
-    static func fill(_ a: NSUserActivity, _ w: WorkspaceModel, _ surface: Surface?) {
-        let d = describe(w, surface)
+    /// Fills `a` (SwiftUI's `.userActivity` hands one in) for Handoff. With
+    /// the workspace agent open (`agent`, D241) the activity is its
+    /// conversation: `/xbin/agent` on the web, which opens on the session
+    /// the view last showed, and the agent's link for another device's app.
+    static func fill(_ a: NSUserActivity, _ w: WorkspaceModel, _ surface: Surface?, agent: Bool = false) {
+        var d = describe(w, surface)
+        if agent {
+            let p = HandoffLink.agentPage(origin: w.origin)
+            d = ("Workspace agent", p.page, p.link)
+        }
         a.title = "\(d.title) — \(w.title)"
         a.webpageURL = d.page
         a.userInfo = HandoffLink.userInfo(d.link)

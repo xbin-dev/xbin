@@ -183,7 +183,8 @@ struct ComposerNodeView: View {
         let byID: @Sendable (String) -> JSONValue = { id in ["id": .string(id)] }
         let extras = ComposerExtras(onContext: cx?.action(node, "context", byID),
                                     onRemoveContext: cx?.action(node, "remove-context", byID),
-                                    onReply: cx?.action(node, "reply", byID))
+                                    onReply: cx?.action(node, "reply", byID),
+                                    dictation: cx?.services.dictation, repliesLabel: cx?.services.suggestionsLabel)
         if node.children.isEmpty {
             ComposerView(composer: composer, text: text, onSend: send, onStop: stop, onAttach: attachAction(p),
                          onRemoveAttachment: remove, extras: extras)

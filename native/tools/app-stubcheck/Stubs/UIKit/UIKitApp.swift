@@ -81,6 +81,7 @@ public enum UIUserInterfaceIdiom: Sendable { case phone, pad, mac, unspecified }
 extension UIDevice {
     public var userInterfaceIdiom: UIUserInterfaceIdiom { .phone }
     public var name: String { "" }
+    public var model: String { "iPhone" }
 }
 @MainActor open class UIFeedbackGenerator { public init() {} }
 @MainActor public final class UIImpactFeedbackGenerator: UIFeedbackGenerator {
@@ -108,6 +109,7 @@ extension URL {
 }
 
 /// Foundation's on Apple platforms; absent on Linux.
+public let NSUserActivityTypeBrowsingWeb = "NSUserActivityTypeBrowsingWeb"
 open class NSUserActivity: NSObject, @unchecked Sendable {
     public init(activityType: String) {}
     open var activityType: String { "" }

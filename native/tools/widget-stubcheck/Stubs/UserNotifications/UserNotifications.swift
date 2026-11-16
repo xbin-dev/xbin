@@ -17,22 +17,55 @@ public struct UNNotificationActionOptions: OptionSet, Sendable {
     public static let authenticationRequired = UNNotificationActionOptions(rawValue: 4)
 }
 
-public final class UNNotificationContent: NSObject, @unchecked Sendable {
+public enum UNNotificationInterruptionLevel: UInt, Sendable { case passive, active, timeSensitive, critical }
+
+public final class UNNotificationSound: NSObject, @unchecked Sendable {
+    public static let `default` = UNNotificationSound()
+}
+
+public class UNNotificationContent: NSObject, @unchecked Sendable {
     public var userInfo: [AnyHashable: Any] { [:] }
     public var threadIdentifier: String { "" }
+}
+
+public final class UNMutableNotificationContent: UNNotificationContent, @unchecked Sendable {
+    public var title = ""
+    public var subtitle = ""
+    public var body = ""
+    public var badge: NSNumber?
+    public var sound: UNNotificationSound?
+    public var categoryIdentifier = ""
+    public var interruptionLevel: UNNotificationInterruptionLevel = .active
+    public var relevanceScore: Double = 0
+    public var mutableUserInfo: [AnyHashable: Any] = [:]
+    override public var userInfo: [AnyHashable: Any] { get { mutableUserInfo } set { mutableUserInfo = newValue } }
+    public var mutableThreadIdentifier = ""
+    override public var threadIdentifier: String { get { mutableThreadIdentifier } set { mutableThreadIdentifier = newValue } }
+}
+
+public class UNNotificationTrigger: NSObject, @unchecked Sendable {}
+public final class UNTimeIntervalNotificationTrigger: UNNotificationTrigger, @unchecked Sendable {
+    public init(timeInterval: TimeInterval, repeats: Bool) {}
 }
 
 public final class UNNotificationRequest: NSObject, @unchecked Sendable {
     public var identifier: String { "" }
     public var content: UNNotificationContent { UNNotificationContent() }
+    public init(identifier: String, content: UNNotificationContent, trigger: UNNotificationTrigger?) {}
+    override init() {}
 }
 
 public final class UNNotification: NSObject, @unchecked Sendable {
     public var request: UNNotificationRequest { UNNotificationRequest() }
 }
 
-public final class UNNotificationAction: NSObject, @unchecked Sendable {
+public class UNNotificationAction: NSObject, @unchecked Sendable {
     public init(identifier: String, title: String, options: UNNotificationActionOptions = []) {}
+}
+
+public final class UNTextInputNotificationAction: UNNotificationAction, @unchecked Sendable {
+    public init(identifier: String, title: String, options: UNNotificationActionOptions = [], textInputButtonTitle: String,
+                textInputPlaceholder: String) { super.init(identifier: identifier, title: title, options: options) }
 }
 
 public final class UNNotificationCategory: NSObject, @unchecked Sendable {
@@ -45,6 +78,15 @@ public final class UNUserNotificationCenter: @unchecked Sendable {
     public func requestAuthorization(options: UNAuthorizationOptions = []) async throws -> Bool { true }
     public func getDeliveredNotifications(completionHandler: @escaping @Sendable ([UNNotification]) -> Void) {}
     public func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {}
+    public func add(_ request: UNNotificationRequest, withCompletionHandler completionHandler: (@Sendable (Error?) -> Void)? = nil) {}
+    public func setBadgeCount(_ newBadgeCount: Int, withCompletionHandler completionHandler: (@Sendable (Error?) -> Void)? = nil) {}
+}
+
+public enum UIBackgroundFetchResult: UInt, Sendable { case newData, noData, failed }
+
+public final class UIDevice: @unchecked Sendable {
+    public static let current = UIDevice()
+    public var model: String { "iPhone" }
 }
 
 extension UIApplication {

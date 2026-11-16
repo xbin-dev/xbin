@@ -390,6 +390,73 @@ final class WorkspaceAgentModel {
         return try? r.json()
     }
 
+    // MARK: From a notification (D241; App/Push/AgentNotifications.swift)
+
+    /// One request as xbind reads it now, and whether xbind could be reached
+    /// at all — a notification's action decides nothing on a read that
+    /// didn't happen (nil with reachable: 404 or 403).
+    func readForNotice(_ id: String) async -> (request: DelegateRequest?, reachable: Bool) {
+        guard let r = try? await send(DelegateRoute.request(id)) else {
+            unreachable = true
+            return (nil, false)
+        }
+        unreachable = false
+        guard r.isSuccess else { return (nil, r.status == 404 || r.status == 403) }
+        let req = DelegateRequest(json: try? r.json())
+        if let req { known[req.id] = req }
+        return (req, true)
+    }
+
+    func readSetForNotice(_ id: String) async -> (set: AdminChangeSet?, reachable: Bool) {
+        guard let r = try? await send(DelegateRoute.changeset(id)) else {
+            unreachable = true
+            return (nil, false)
+        }
+        unreachable = false
+        guard r.isSuccess else { return (nil, r.status == 404 || r.status == 403) }
+        return (AdminChangeSet(json: try? r.json()), true)
+    }
+
+    /// Sends a decision a notification's action made (``DelegateRoute``'s
+    /// `…FromNotification`), and reads what changed, as the sheet does.
+    func decideForNotice(_ req: APIRequest, id: String?) async -> DelegateOutcome {
+        let out = await decide(req)
+        await readState()
+        await readRequests()
+        await readChangesets()
+        if let id { await request(id) }
+        return out
+    }
+
+    /// A Reply from a notification: the person's text, as their message, to
+    /// one of their agent's conversations — nil when it went, else why not
+    /// (never a decision: this route takes a message and nothing else).
+    func message(conversation: String, text: String) async -> String? {
+        if holderPath.isEmpty { await readState() }
+        let holder = holderPath
+        guard !holder.isEmpty, AgentRoute.isConversation(conversation) else { return "Your agent isn't available here." }
+        let path = "/api/" + holder.split(separator: "/").map { URLComponent.encode(String($0)) }.joined(separator: "/")
+            + "/runs/\(conversation)/message"
+        do {
+            let r = try await send(.json("POST", path, ["text": .string(text)]))
+            unreachable = false
+            if r.isSuccess { return nil }
+            return (try? r.json())?["error"]?.stringValue ?? APIError.statusText(r.status)
+        } catch {
+            unreachable = true
+            return ""
+        }
+    }
+
+    /// What the workspace agent's card shows of this workspace (D241,
+    /// AgentLiveActivity's `picture`): an agent that may act, paused, what
+    /// waits, the tile agents it started that are working — counts only.
+    var cardCounts: (has: Bool, paused: Bool, pending: Int, agents: Int) {
+        let d = dock
+        let has = (d == .page || d == .paused || d == .offline) && state?.agent.isEmpty == false && state?.held.isEmpty != false
+        return (has, state?.paused ?? false, count, tileAgents.filter(\.isAgentBusy).count)
+    }
+
     private func decide(_ req: APIRequest, sentPassword: Bool = false) async -> DelegateOutcome {
         do {
             return DelegateOutcome.read(try await send(req), sentPassword: sentPassword)

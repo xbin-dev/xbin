@@ -57,8 +57,20 @@ struct RootView: View {
             restored = true
             if let link = HandoffActivity.link(activity) { scene.open(link: link) }
         }
+        // A web URL handed over (Handoff from a browser, a universal link where
+        // the app's link domain allows one): the workspace agent's page of a
+        // workspace this app has opens the agent (D241); anything else stays
+        // the browser's.
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            guard let url = activity.webpageURL,
+                  let link = HandoffLink.agentLink(webURL: url, origins: app.workspaces.map { ($0.id, $0.origin) }) else { return }
+            restored = true
+            scene.open(link: link)
+        }
         .userActivity(HandoffActivity.type, isActive: AppSettings.handoff && scene.selected != nil) { activity in
-            if let w = scene.selected { HandoffActivity.fill(activity, w, scene.existingNav(w.id)?.surface) }
+            if let w = scene.selected {
+                HandoffActivity.fill(activity, w, scene.existingNav(w.id)?.surface, agent: scene.showAgent && w.agent.chip.shown)
+            }
         }
         .onAppear(perform: appeared)
         .onChange(of: phase) { _, p in phaseChanged(p) }
