@@ -672,3 +672,89 @@ Where it differs from §4 and §6c:
 Still costing clicks, and whose: the tick of the llm binding (1: an
 admin's line and a warned one — both start unticked) and the vault's
 fields (2, the installer's default).
+
+## 10. The tool is built, not stamped (D243)
+
+The owner, on the `mcp-server` template that made §9's numbers: "why
+mcp-server template? Shouldn't be needed, really it's just clutter-ish for
+users, maybe useful as a docs artifact for the interface." And the
+benchmark said "creating an MCP tile (sth simple like 'roll dice')" — a
+tile that is made, not one that ships with the tool in it. §9's 11 counted
+a journey in which nothing was built: the template's example tool *was*
+`roll_dice`.
+
+What changed:
+
+- **No template.** The builtin `mcp-server` template is gone (it was in no
+  release). Its content is `examples/mcp-server/` — one file, compiled,
+  tested and run live — and `docs/mcp.md` is the interface, carrying that
+  file whole (a test holds them to the same bytes).
+- **The tile's own coding agent builds it.** The plan is five lines: an
+  empty tile (`starter`), its tile agent with the `mcp-tool` brief (which
+  now tells a coding agent in an empty tile to declare `provides.mcp`,
+  where the interface is and which files a Go backend tile needs), the
+  assistant, its `llm` binding, its `mcp` binding.
+- **A line that waits.** The last line can't be applied at Apply — the
+  tile provides nothing until its coding agent has written the manifest.
+  It is approved on the one review and xbind applies it by itself when the
+  tile declares exactly what was approved (kind http, service mcp, role
+  reader); a tile that declares anything else is not bound. No second
+  review.
+- **The permissions come to the person.** The coding agent asks before
+  each command; its requests are answered in the dock's Needs you, drawn
+  by xbin with the tile window's own card — not in the tile's window, and
+  never by the workspace agent.
+- **Verify before done.** The agent waits for the tile agent's report,
+  reads its result and the assistant's `GET /tools` (which names
+  `roll_dice` from `apps/dice`, so the waiting line was applied), and says
+  what it checked.
+
+Measured (`journeyAgent`, the scripted coding agent writing a working MCP
+server from `/docs/mcp.md` inside its sandbox, four commands, asking
+before each): **13 interactions from the login URL to the agent's
+"done"**, 17 with the person's own roll; one prompt, one review, no dead
+end; +3 by hand (the password when the sign-in is older than ten minutes:
+2; a real coding agent's second "Allow always": 1).
+
+| # | Kind | What |
+|---|---|---|
+| 1 | nav | open the login URL |
+| 2–5 | field | first-run sheet: name, password, the vault's passphrase twice |
+| 6 | click | first-run sheet: "Create my account and turn on my workspace agent" |
+| 7–8 | field, key | the prompt, Enter |
+| 9 | click | the plan's card: "Review…" |
+| 10 | click | the review: tick the llm binding (an admin's line, with SPEND) |
+| 11 | click | the review: "Apply 5 changes…" — four applied, the mcp binding waits; the review closes itself |
+| 12 | click | the dock: "Needs you" (the tile agent asks before its first command) |
+| 13 | click | Needs you: "Allow always" |
+| | | the tile agent builds; xbind binds the assistant by itself; the agent checks and says done |
+| 14–17 | | the person's own try: close the dock, open the assistant, type, Send |
+
+By hand (`journeyManual`): **28** (21 with the template): the tile from
+the Tile Manager, its window, its coding agent from the launcher, the
+prompt (naming `/docs/mcp.md`), Enter, one permission answer, the window
+closed — seven more than a template's one field and one click — then the
+assistant and its two bindings as before. The coding agent's stretch is
+the same work in both journeys; by hand the person also has to know that a
+tool is an MCP server tile and where its interface is (3 things to know;
+through the agent, 1).
+
+What still costs clicks, and whose:
+
+- **The permission (2, of which 1 is opening Needs you).** It is the price
+  of "asks before each change", the mode xbind vouches for. Answered one
+  by one it is 4 for this build (5 with the tray); a real coding agent
+  asks for edits and for commands separately, so "Allow always" is about 2
+  answers. The choice the review could carry — the harness's
+  edit-without-asking mode limited to this tile, as a warned alternative
+  on the start line — is **not built**: with it the count would be 11
+  again, at the person's own risk.
+- **The tick of the llm binding (1)** and **the vault's fields (2)**, as
+  in §9. A host that unseals: 11.
+- Nothing for the binding: the line that waits costs no click.
+
+Not built in this round, and said so: the mode choice on the start line;
+the app's Needs you for permission requests and for lines that wait (the
+app's sheet shows a waiting line's state; its tray does not list it); a
+real coding agent on this task (the scripted one stands in — it reads the
+same page a real one is pointed at).
