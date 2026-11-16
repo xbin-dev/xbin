@@ -82,6 +82,10 @@ type Server struct {
 	// HostAgent, if set, answers the host's rule for workspace agents (the
 	// deployment file's workspaceAgent key; agenthost.go, D236); nil: none.
 	HostAgent func() HostAgentRule
+	// HostAgentFile keeps what the host's rule wrote, to take back exactly
+	// that when the rule changes (agenthost.go); "" = in memory alone.
+	HostAgentFile string
+	hostRec       *hostAgentRecord // its contents, guarded by hostAgentMu
 	// DelegationDev: xbind runs with --dev or --no-auth. Approving admin
 	// change sets then needs no recent sign-in, and under --no-auth — where
 	// nobody signs in — the implicit owner answers for the person a

@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -74,21 +75,18 @@ func TestHostAgentLockedOff(t *testing.T) {
 	}
 }
 
-// "admins": on, the defaults' entry gone, every admin account given an
-// entry of its own — those there when the key appears and those made
-// after — and nobody else; who is the host's.
+// "admins": on, every admin account given an entry of its own — those
+// there when the key appears and those made after — and nobody else; who
+// is the host's.
 func TestHostAgentAdmins(t *testing.T) {
 	rule := HostAgentRule{Set: true, Enabled: true, Who: "admins"}
 	h, s, st, changed := hostServer(t, &rule)
-	if err := st.SetSealedEveryone(hostHolder, true); err != nil {
-		t.Fatal(err)
-	}
 	s.ApplyHostAgent()
 	if !s.Delegation.Workspace().Enabled {
 		t.Fatal("on")
 	}
 	if all, _ := st.SealedGrants(hostHolder); all {
-		t.Fatal("admins: the defaults' everyone entry goes")
+		t.Fatal("admins: the defaults name nobody")
 	}
 	for id, want := range map[string]bool{"alice": true, "dave": true, "bob": false} {
 		if got := st.Given(id, hostHolder); got != want {
@@ -218,5 +216,152 @@ func TestHostAgentPutAndReloadAreSerialised(t *testing.T) {
 	}
 	if s.Delegation.Workspace().Enabled {
 		t.Fatal("the PUT wrote on after the host locked agents off")
+	}
+}
+
+// "admins" gives only where nobody has: an entry a person or an admin made
+// — the defaults' everyone, an admin's own "none" — is never removed,
+// lowered or overwritten.
+func TestHostAgentAdminsNeverTouchesOthersEntries(t *testing.T) {
+	rule := HostAgentRule{Set: true, Enabled: true, Who: "admins"}
+	_, s, st, _ := hostServer(t, &rule)
+	if err := st.SetSealedEveryone(hostHolder, true); err != nil { // an admin gave everyone one
+		t.Fatal(err)
+	}
+	if err := st.SetUserTile("dave", hostHolder, "none"); err != nil { // and kept dave out
+		t.Fatal(err)
+	}
+	s.ApplyHostAgent()
+	if all, _ := st.SealedGrants(hostHolder); !all {
+		t.Fatal("the defaults' everyone entry an admin made was removed")
+	}
+	if u, _ := st.Get("dave"); u.Tiles[hostHolder] != "none" {
+		t.Fatalf("dave's own entry was overwritten: %q", u.Tiles[hostHolder])
+	}
+	if u, _ := st.Get("alice"); u.Tiles[hostHolder] != "" {
+		t.Fatalf("alice has one through the defaults: the host gives her no entry (%q)", u.Tiles[hostHolder])
+	}
+}
+
+// What the host gave it takes back, and nothing else: an admin demoted
+// loses the host's entry; the key no longer saying "admins" takes back
+// every entry it gave; an entry an admin made stays.
+func TestHostAgentAdminsTakesBackWhatItGave(t *testing.T) {
+	rule := HostAgentRule{Set: true, Enabled: true, Who: "admins"}
+	_, s, st, _ := hostServer(t, &rule)
+	if err := st.SetUserTile("bob", hostHolder, "read"); err != nil { // an admin gave bob one
+		t.Fatal(err)
+	}
+	s.ApplyHostAgent()
+	if !st.Given("alice", hostHolder) || !st.Given("dave", hostHolder) {
+		t.Fatal("every admin has one")
+	}
+	alice, _ := st.Get("alice")
+	alice.Role = users.RoleUser
+	if _, err := st.Upsert(*alice, ""); err != nil {
+		t.Fatal(err)
+	}
+	s.ApplyHostAgent() // (boot runs it on every users event)
+	if st.Given("alice", hostHolder) {
+		t.Fatal("alice is no admin now: the host's entry goes")
+	}
+	bob, _ := st.Get("bob")
+	bob.Role = users.RoleAdmin
+	if _, err := st.Upsert(*bob, ""); err != nil {
+		t.Fatal(err)
+	}
+	s.ApplyHostAgent()
+	rule = HostAgentRule{Set: true, Enabled: true} // the key stops saying admins
+	s.ApplyHostAgent()
+	if st.Given("dave", hostHolder) {
+		t.Fatal("the key stopped saying admins: the entry the host gave dave goes")
+	}
+	if !st.Given("bob", hostHolder) {
+		t.Fatal("bob's entry was an admin's, not the host's: it stays")
+	}
+}
+
+// "everyone": the defaults' entry the host added goes when the key stops
+// saying so; one an admin had made stays.
+func TestHostAgentEveryoneTakesBackWhatItAdded(t *testing.T) {
+	rule := HostAgentRule{Set: true, Enabled: true, Who: "everyone"}
+	_, s, st, _ := hostServer(t, &rule)
+	s.ApplyHostAgent()
+	rule = HostAgentRule{Set: true, Enabled: true}
+	s.ApplyHostAgent()
+	if all, _ := st.SealedGrants(hostHolder); all {
+		t.Fatal("the defaults' entry the host added goes with the key")
+	}
+	_, s2, st2, _ := hostServer(t, &rule)
+	if err := st2.SetSealedEveryone(hostHolder, true); err != nil {
+		t.Fatal(err)
+	}
+	rule = HostAgentRule{Set: true, Enabled: true, Who: "everyone"}
+	s2.ApplyHostAgent()
+	rule = HostAgentRule{}
+	s2.ApplyHostAgent()
+	if all, _ := st2.SealedGrants(hostHolder); !all {
+		t.Fatal("the defaults' entry was an admin's: it stays")
+	}
+}
+
+// The key removed: the switch returns to the workspace's own setting from
+// before the host set it (off when it had never been set), unlocked; and
+// an admin's PUT made after the key went is not undone by a later apply.
+func TestHostAgentKeyRemovedReturnsTheSwitch(t *testing.T) {
+	rule := HostAgentRule{}
+	h, s, _, _ := hostServer(t, &rule)
+	alice := s.Auth.NewSession("alice", "10.0.0.1")
+	if code, out := putWorkspace(h, alice, `{"enabled":true}`); code != http.StatusOK {
+		t.Fatalf("%d %s", code, out)
+	}
+	rule = HostAgentRule{Set: true, Enabled: false}
+	s.ApplyHostAgent()
+	if s.Delegation.Workspace().Enabled {
+		t.Fatal("the host locked it off")
+	}
+	rule = HostAgentRule{}
+	s.ApplyHostAgent()
+	if ws := s.Delegation.Workspace(); !ws.Enabled || s.agentLocks() != nil {
+		t.Fatalf("the key went: back to the admin's on, unlocked (%+v)", ws)
+	}
+
+	rule = HostAgentRule{Set: true, Enabled: true}
+	_, s2, _, _ := hostServer(t, &rule)
+	s2.ApplyHostAgent()
+	rule = HostAgentRule{}
+	s2.ApplyHostAgent()
+	if s2.Delegation.Workspace().Enabled {
+		t.Fatal("never set before the host: back to off")
+	}
+
+	rule = HostAgentRule{Set: true, Enabled: true}
+	h3, s3, _, _ := hostServer(t, &rule)
+	s3.ApplyHostAgent()
+	rule = HostAgentRule{} // the key goes; an admin turns agents on before any apply noticed
+	dave := s3.Auth.NewSession("dave", "10.0.0.2")
+	if code, out := putWorkspace(h3, dave, `{"enabled":true}`); code != http.StatusOK {
+		t.Fatalf("%d %s", code, out)
+	}
+	s3.ApplyHostAgent()
+	if !s3.Delegation.Workspace().Enabled {
+		t.Fatal("an admin's choice made after the key went was undone")
+	}
+}
+
+// The record outlives a restart: an xbind started after the key was taken
+// out of the file takes back what the host wrote before.
+func TestHostAgentRecordOutlivesARestart(t *testing.T) {
+	rule := HostAgentRule{Set: true, Enabled: true, Who: "admins"}
+	_, s, st, _ := hostServer(t, &rule)
+	s.HostAgentFile = filepath.Join(t.TempDir(), "data", "hostagent.json")
+	s.ApplyHostAgent()
+	if !st.Given("alice", hostHolder) || !s.Delegation.Workspace().Enabled {
+		t.Fatal("in force")
+	}
+	again := &Server{Auth: s.Auth, Delegation: s.Delegation, AgentHolder: s.AgentHolder, HostAgentFile: s.HostAgentFile} // no host rule now
+	again.ApplyHostAgent()
+	if st.Given("alice", hostHolder) || again.Delegation.Workspace().Enabled {
+		t.Fatal("after the restart the host's entries and switch are taken back")
 	}
 }

@@ -683,7 +683,9 @@ bring its own models and hold quotas the workspace's admins can't lift.
   gets one to the admins; `{"enabled": true, "who": "admins" |
   "everyone"}` locks who too — `"admins"`: every admin account has an
   agent of its own (those there when the key appears, and each made
-  after). `lockAll` doesn't touch it.
+  after; taken back when they stop being admins). What the key wrote is
+  taken back when it changes or goes, and nothing else. `lockAll` doesn't
+  touch it.
 
 ## Limits today
 

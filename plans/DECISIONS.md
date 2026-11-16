@@ -5286,11 +5286,18 @@ here: cut from the old end, never reword.
     change is refused and the last good file stays), and locked as they
     are: `false` locks agents off; `true` locks them on and leaves who to
     admins; `{"enabled": true, "who": "admins" | "everyone"}` locks who
-    too. "admins" is a new value: the defaults' entry goes and every admin
-    account has an entry of its own — at boot (the key first appearing),
-    on every `users` event (an admin made, or made an admin) and when the
+    too. "admins" is a new value: every admin account with no agent and no
+    entry of its own gets one — at boot (the key first appearing), on
+    every `users` event (an admin made, or made an admin) and when the
     file changes. xbind keeps it in force by writing it (the switch by
-    "host", the entries), so every reader of the switch reads the host's;
+    "host", the entries), so every reader of the switch reads the host's,
+    and records what it wrote (`data/hostagent.json`) to take back exactly
+    that: an entry it gave when its person stops being an admin or the key
+    stops saying "admins", the defaults' entry it added when it stops
+    saying "everyone", and, when the key goes, the switch back to the
+    workspace's own setting from before (off if never set; as it is if the
+    host never changed it). An entry a person or an admin made is never
+    removed, lowered or overwritten (review finding 3);
     `GET /delegate/state` and `GET/PUT /delegate/workspace` carry `locks:
     {enabled?, who?: {locked, reason}}` (the connector's shape) and a PUT
     of a locked key is 409. The chrome draws "Set by your host" on the
