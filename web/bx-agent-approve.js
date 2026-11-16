@@ -74,13 +74,18 @@ export function uncovered(el) {
  * the control carries aria-disabled until it is armed.
  */
 /**
- * signinRow(r): a start's "Sign-in" row where xbind said the coding agent
- * would start signed out (sessionRows' signin, D230): the chrome's own
- * sign-in card — drawn here, in the person's document, never by the
- * agent's page. Nothing where no sign-in is needed.
+ * signinRow(r): a start's "Sign-in" row (sessionRows' signin, D230), drawn
+ * here — in the person's own document, never by the agent's page. A start
+ * that would use the person's saved sign-in names it (its label read from
+ * their own list by id) and says who will hold it: approving is what puts
+ * it into the session. One that would start signed out gets the chrome's
+ * sign-in card. Nothing where neither is the case.
  */
-export const signinRow = (r) => (r.signin ? html`<dt>Sign-in</dt><dd data-row="signin"><div class="small">${r.signin.text}</div>
-  <bx-agent-signin harness=${r.signin.harness} provider=${r.signin.name}></bx-agent-signin></dd>` : nothing);
+export const signinRow = (r) => (!r.signin ? nothing : r.signin.saved
+  ? html`<dt>Sign-in</dt><dd data-row="signin" data-signin-id=${r.signin.id}>${r.signin.text} <bx-agent-signin view="name" sid=${r.signin.id}></bx-agent-signin>.
+      <div class="small muted">${r.signin.holds}</div></dd>`
+  : html`<dt>Sign-in</dt><dd data-row="signin"><div class="small">${r.signin.text}</div>
+      <bx-agent-signin harness=${r.signin.harness} provider=${r.signin.name}></bx-agent-signin></dd>`);
 
 export class WidenGuard {
   constructor(host) { this.host = host; this.seen = new WeakMap(); host.addController(this); }

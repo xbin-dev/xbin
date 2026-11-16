@@ -49,7 +49,12 @@ test('a tile agent start: the mode leads, and one that never asks is the danger 
   assert.equal(asks.network, 'Its model only. No internet.');
   // what it signs in with, by xbind's word (D230): a saved sign-in named; none at all said, with the harness to sign in to
   assert.equal(asks.signin, null);
-  assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'saved', savedSignIn: 'Personal' })).agent, 'Claude Code, on your saved sign-in (Personal)');
+  // a saved sign-in: named on the approval by xbind's id (the chrome draws its label), with who will hold it — never a label from the request
+  const uses = W.sessionRows(s({ model: '', provider: 'claude', signIn: 'saved', signInId: 'si_1a2b', savedSignIn: 'a label the agent wrote' }));
+  assert.equal(uses.agent, 'Claude Code');
+  assert.deepEqual(uses.signin, { saved: true, id: 'si_1a2b', name: 'Claude Code', text: 'Uses your saved Claude Code sign-in',
+    holds: "The tile's coding agent will hold that sign-in: it, and anything it runs in Invoices, can read it." });
+  assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'saved' })).signin, null, 'saved without an id names nothing');
   assert.deepEqual(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'needed' })).signin, { harness: 'claude', name: 'Claude Code', text: 'Needs your Claude Code sign-in: without it the tile agent starts signed out.' });
   assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'needed' })).agent, 'Claude Code');
   assert.equal(asks.brief, 'Fix the export');

@@ -221,7 +221,7 @@ export const BRIEF_FIELDS = Object.freeze([['goal', 'Goal'], ['doneWhen', 'Done 
  * runsOn, harnesses, picked, note}. sd is the backend's start-defaults for
  * the brief (GET …/briefs/{bid}/start-defaults: what the start would run
  * on, from xbind — {line, harness, harnesses: [{id, name, asks, net,
- * needsTicket, noSignIn, signIn, savedSignIn}], ticket, needsSignIn}; a
+ * needsTicket, noSignIn, signIn}], ticket, needsSignIn}; a
  * harness that runs with no sign-in, on the person's saved sign-in or
  * only after they sign in is named so in the picker, and `signin` is the
  * harness to sign in to first — the card's button asks xbin's chrome). The one button is the backend's: "Review and

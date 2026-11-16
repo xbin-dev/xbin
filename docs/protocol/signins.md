@@ -197,8 +197,10 @@ the session; never a secret.
   inject, why?}` to a harness the caller has a default sign-in for:
   `inject` — a session of theirs on that tile would get it — and `why`
   not. Its `llm.use` reads `own` where a saved sign-in would serve.
-- `GET /delegate/start-defaults` adds `signIn` and `savedSignIn` per
-  harness ([delegation.md](/docs/protocol/delegation.md)).
+- `GET /delegate/start-defaults` adds `signIn` per harness, and a start's
+  preview `signIn` and `signInId`: a session a person's workspace agent
+  starts gets a saved sign-in only where the person approved a start whose
+  sheet named it ([delegation.md](/docs/protocol/delegation.md)).
 - An admin's `GET`/`POST` on another person's session that carries a saved
   sign-in is 403, as on a partitioned tile; `DELETE` still ends it. Such a
   session's `session` events reach its person's sockets only.

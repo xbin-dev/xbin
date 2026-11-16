@@ -136,13 +136,13 @@ export function savedHint(prov) {
 
 /**
  * startSignInWords(h): a brief's or a plan line's words for one harness of
- * GET /delegate/start-defaults ({name, signIn, savedSignIn}) — {text, needs}
+ * GET /delegate/start-defaults ({name, signIn}) — {text, needs}
  * where needs is true when the person has to sign in first.
  */
 export function startSignInWords(h) {
   const name = h?.name || 'the coding agent';
   switch (h?.signIn) {
-    case 'saved': return { text: `your saved ${name} sign-in (${h.savedSignIn})`, needs: false };
+    case 'saved': return { text: `your saved ${name} sign-in, once you approve the start`, needs: false };
     case 'connector': return { text: "the workspace's model — no sign-in needed", needs: false };
     case 'own': return { text: `the ${name} login on this workspace`, needs: false };
     case 'needed': return { text: `needs your ${name} sign-in`, needs: true };

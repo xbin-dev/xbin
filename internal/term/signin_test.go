@@ -212,15 +212,30 @@ func TestSigninRule(t *testing.T) {
 	m := r.m
 	alice := termAdmin("alice")
 	plan := func(p auth.Principal, o openOpts, forced, chosen bool) signinPlan {
-		return m.signinPlanFor(p, o, "apps/x", prov, "", forced, chosen)
+		return m.signinPlanFor(p, o, "apps/x", prov, "", forced, chosen, nil)
 	}
 	if pl := plan(alice, openOpts{}, false, false); pl.saved == nil || pl.why != "" || pl.origin != "person" {
 		t.Fatalf("alice alone on the tile: %+v", pl)
 	}
-	// her workspace agent, through the delegation gate: for her
+	// her workspace agent: only where her approval of the start named the
+	// sign-in (review finding 3a) — never by default, never on a start her
+	// preference lets through unasked
 	agentP := auth.Principal{UserID: "alice", Via: "delegate", Agent: "xbin/wsagent", User: alice.User}
-	if pl := plan(agentP, openOpts{}, false, false); pl.saved == nil || pl.why != "" || pl.origin != "agent" {
-		t.Fatalf("her workspace agent: %+v", pl)
+	asAgent := func(d *DelegateStart) signinPlan {
+		return m.signinPlanFor(agentP, openOpts{}, "apps/x", prov, "", false, false, d)
+	}
+	for name, d := range map[string]*DelegateStart{
+		"no authorisation":                nil,
+		"started unasked, by preference":  {Provider: "fake"},
+		"approved, no sign-in was named":  {Approved: true, Provider: "fake", Mode: "ask"},
+		"approved, another sign-in named": {Approved: true, Provider: "fake", Mode: "ask", Signin: "si_other"},
+	} {
+		if pl := asAgent(d); pl.why == "" || (d != nil && d.Signin == "" && !strings.Contains(pl.why, "approve")) {
+			t.Errorf("her agent, %s: the sign-in would go in (%+v)", name, pl)
+		}
+	}
+	if pl := asAgent(&DelegateStart{Approved: true, Provider: "fake", Mode: "ask", Signin: "si_Personal"}); pl.saved == nil || pl.why != "" || pl.origin != "agent" || !pl.bound {
+		t.Fatalf("her agent, with her approval of a start that named it: %+v", pl)
 	}
 	// never anyone or anything else: nothing of hers is even looked up
 	for name, p := range map[string]auth.Principal{
@@ -278,7 +293,7 @@ func TestSigninRule(t *testing.T) {
 		t.Fatalf("no answer about the others: %q", pl.why)
 	}
 	// the session's own choice
-	if pl := m.signinPlanFor(alice, openOpts{}, "apps/x", prov, SigninNone, false, false); pl.saved != nil {
+	if pl := m.signinPlanFor(alice, openOpts{}, "apps/x", prov, SigninNone, false, false, nil); pl.saved != nil {
 		t.Fatalf("signin none: %+v", pl)
 	}
 	// the launcher's preview is the same answer
@@ -560,7 +575,7 @@ func TestSigninRuleJudgesTheTileADirectoryLiesIn(t *testing.T) {
 	}
 	alice := termAdmin("alice")
 	for _, dir := range []string{"apps/x", "apps/x/src", "apps/x/src/deep/er"} {
-		pl := m.signinPlanFor(alice, openOpts{}, dir, prov, "", false, false)
+		pl := m.signinPlanFor(alice, openOpts{}, dir, prov, "", false, false, nil)
 		if pl.saved == nil || !strings.Contains(pl.why, "bob can also") || !strings.Contains(pl.why, "apps/x ") {
 			t.Errorf("a session in %s: %+v", dir, pl)
 		}
@@ -573,7 +588,7 @@ func TestSigninRuleJudgesTheTileADirectoryLiesIn(t *testing.T) {
 			t.Fatalf("the others were asked about %q, not the tile", a)
 		}
 	}
-	if pl := m.signinPlanFor(alice, openOpts{}, "apps/nowhere/src", prov, "", false, false); pl.why == "" {
+	if pl := m.signinPlanFor(alice, openOpts{}, "apps/nowhere/src", prov, "", false, false, nil); pl.why == "" {
 		t.Fatal("a directory in no registered tile got the sign-in")
 	}
 

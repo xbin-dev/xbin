@@ -143,7 +143,7 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	}
 	// none saved: Claude Code can't run, the connector's first harness is the default
 	d := get()
-	if c, _ := d.of("claude"); d.Harness != "codex" || c.SignIn == "saved" || c.SavedSignIn != "" {
+	if c, _ := d.of("claude"); d.Harness != "codex" || c.SignIn == "saved" {
 		t.Fatalf("nothing saved: %q %+v", d.Harness, c)
 	}
 	if x, _ := d.of("codex"); x.SignIn != "connector" || !x.NoSignIn {
@@ -155,16 +155,35 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	}
 	d = get()
 	c, _ := d.of("claude")
-	if d.Harness != "claude" || c.SignIn != "saved" || c.SavedSignIn != "Personal" || c.NoSignIn {
+	if d.Harness != "claude" || c.SignIn != "saved" || c.NoSignIn {
 		t.Fatalf("with a saved sign-in: %q %+v", d.Harness, c)
 	}
+	// the agent's model learns that a saved sign-in exists — never its label
+	// or its id (review finding 7): those are on the approval, for the person
+	if b := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice).Body.String(); strings.Contains(b, "Personal") || strings.Contains(b, "si_") {
+		t.Fatalf("start-defaults names the sign-in: %s", b)
+	}
+	// a start she is asked to approve says what it would use, by id: the
+	// sheet shows the label from her own list, and the open is bound to it
+	req := w.ask(alice, "POST", "/api/xbin/term/sessions", `{"cwd":"apps/x","kind":"agent","provider":"claude","prompt":"p"}`)
+	sess, _ := req.Preview["session"].(map[string]any)
+	mine, _, _ := w.s.Signins.List("alice")
+	if sess["signIn"] != "saved" || sess["signInId"] != mine[0].ID || sess["savedSignIn"] != nil {
+		t.Fatalf("the approval's preview: %v", sess)
+	}
+	// where her preference lets the agent start unasked, no saved sign-in is used: the answer doesn't promise one
+	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: c.Mode, API: true} })
+	if c2, _ := get().of("claude"); c2.SignIn == "saved" || c2.NeedsTicket {
+		t.Fatalf("a start that isn't approved was promised the saved sign-in: %+v", c2)
+	}
+	w.policy.set(func(p *dPolicy) { delete(p.prefs, "alice") })
 	// a session saw no login of Claude Code's in her home, and the tile is
 	// shared: the saved sign-in is left out, the card says a sign-in is needed
 	w.s.Term.NoteHomeLogin("alice", "claude", false)
 	others = []string{"bob"}
 	d = get()
 	c, _ = d.of("claude")
-	if d.Harness != "codex" || c.SignIn != "needed" || c.SavedSignIn != "" {
+	if d.Harness != "codex" || c.SignIn != "needed" {
 		t.Fatalf("a shared tile: %q %+v", d.Harness, c)
 	}
 	// the answer never carries the sign-in's id or anything of its secret

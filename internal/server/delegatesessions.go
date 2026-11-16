@@ -448,12 +448,16 @@ type startHarness struct {
 	// workspace's LLM connector serves it (G8). A brief's card says so.
 	NoSignIn bool `json:"noSignIn"`
 	// SignIn: what a session of it would sign in with here (D230) — "saved"
-	// (the person's saved sign-in, named in SavedSignIn), "connector" (none:
-	// the workspace's LLM connector serves), "own" (the tile's own login, as
-	// a session last saw it), "needed" (none of these: the person signs in
-	// first — a brief's card offers it). Absent: nothing is known yet.
-	SignIn      string `json:"signIn,omitempty"`
-	SavedSignIn string `json:"savedSignIn,omitempty"`
+	// (a saved sign-in of the person's, which a start uses only when they
+	// approve it: the approval names it, this answer — read by their
+	// agent's model — never does), "connector" (none: the workspace's LLM
+	// connector serves), "own" (the tile's own login, as a session last saw
+	// it), "needed" (none of these: the person signs in first — a brief's
+	// card offers it). Absent: nothing is known yet.
+	SignIn string `json:"signIn,omitempty"`
+	// signInID: the saved sign-in's id, for the approval's preview only
+	// (sessionPreview); never in this route's answer
+	signInID string
 }
 
 // startDefaultsView is GET /delegate/start-defaults' answer.
@@ -519,7 +523,8 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 		}
 		h.Asks = prov.Asks(h.Mode)
 		h.NoSignIn = noSignIn(llm[prov.ID])
-		h.SignIn, h.SavedSignIn = startSignIn(s, p, tile, prov, llm[prov.ID])
+		// (a start the person's preference lets through unasked never gets a saved sign-in)
+		h.SignIn, h.signInID = startSignIn(s, p, tile, prov, llm[prov.ID], h.NeedsTicket)
 		if h.SignIn == "saved" {
 			h.NoSignIn = false // it runs on their saved sign-in, not on the connector
 		}
@@ -564,21 +569,22 @@ var startLLMOf = func(s *Server, p auth.Principal, tile string, provs []agent.Pr
 	return s.Term.AgentLLM(person.UserID, term.HomeKey(person), tile, provs)
 }
 
-// startSignIn is what a session of prov started for p on tile would sign
-// in with, and the saved sign-in's name: the person's saved sign-in where
-// the shared-tile rule lets it in (term's SigninPreview), unless the
-// connector serves by a rule or their own choice; else the connector, the
-// tile's own login as a session last saw it, or "needed". A var for tests.
-var startSignIn = func(s *Server, p auth.Principal, tile string, prov agent.Provider, row *term.ProviderLLM) (signIn, saved string) {
+// startSignIn is what a session of prov started for p — a person's agent —
+// on tile would sign in with, and the saved sign-in's id: the person's
+// saved sign-in where they approve the start (approved: an unasked start
+// never gets one) and the shared-tile rule lets it in (term's
+// SigninForApproval), unless the connector serves by a rule or their own
+// choice; else the connector, the tile's own login as a session last saw
+// it, or "needed". A var for tests.
+var startSignIn = func(s *Server, p auth.Principal, tile string, prov agent.Provider, row *term.ProviderLLM, approved bool) (signIn, id string) {
 	if s.Term == nil {
 		return "", ""
 	}
 	person := personOf(p)
 	connector := row != nil && row.Connector && row.Use == "connector"
-	if !connector && s.Signins != nil && s.signinsAvail().OK {
-		// asked as the delegate: it is the person's agent's start that would get it
-		if sg, why := s.Term.SigninPreview(p, tile, prov, row != nil && row.Forced); sg != nil && why == "" {
-			return "saved", sg.Name
+	if approved && !connector && s.Signins != nil && s.signinsAvail().OK {
+		if sg, _ := s.Term.SigninForApproval(p, tile, prov, row != nil && row.Forced); sg != nil {
+			return "saved", sg.ID
 		}
 	}
 	signedIn, known := s.Term.HomeLogin(term.HomeKey(person), prov.ID)
@@ -591,6 +597,12 @@ var startSignIn = func(s *Server, p auth.Principal, tile string, prov agent.Prov
 		return "needed", ""
 	}
 	return "", ""
+}
+
+// approvalSignIn is startSignIn for a start the person is about to approve
+// (a request's preview, a plan's start line).
+func (s *Server) approvalSignIn(p auth.Principal, tile string, prov agent.Provider) (signIn, id string) {
+	return startSignIn(s, p, tile, prov, startLLMOf(s, p, tile, []agent.Provider{prov})[prov.ID], true)
 }
 
 // noSignIn: the connector serves this harness here, whatever sign-ins the

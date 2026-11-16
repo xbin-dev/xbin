@@ -19,7 +19,7 @@ export const manageInit = () => ({ busy: '', err: '', renaming: '', removing: ''
 // panel: rows that wrap at phone width, one action per button.
 export const signinCss = css`
   :host { display: block; margin-bottom: 8px; font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif); color: var(--bx-text, #E9EAF0); }
-  :host([view="button"]) { display: inline-block; margin: 0; }
+  :host([view="button"]), :host([view="name"]) { display: inline; margin: 0; }
   :host([view="manage"]) { margin: 0; }
   .box { border: 1px solid var(--bx-warn, #F2994A); border-radius: var(--bx-radius, 2px); background: var(--bx-warn-bg, #382F2C); padding: 8px 12px;
     display: flex; flex-direction: column; gap: 8px; }

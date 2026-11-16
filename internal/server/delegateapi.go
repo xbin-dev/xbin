@@ -725,9 +725,13 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	if b.Model != "" { // the body's shorthand for options.model
 		options["model"] = b.Model
 	}
-	sign, _ := def.of(eff.Provider.ID) // what it would sign in with, as things are now (D230)
+	// what it would sign in with if the person approves this start (D230):
+	// signInId names their saved sign-in — the chrome shows its label from
+	// the person's own list, the open is bound to this id, and the label
+	// itself is not here (the agent reads its own requests)
+	signIn, signInID := s.approvalSignIn(p, eff.Tile, eff.Provider)
 	return map[string]any{
-		"signIn": sign.SignIn, "savedSignIn": sign.SavedSignIn,
+		"signIn": signIn, "signInId": signInID,
 		"tile": eff.Tile, "provider": eff.Provider.ID, "providerName": eff.Provider.Name, "mode": eff.Mode,
 		// false: this mode lets the tile agent act without asking. The mode
 		// alone decides it: a delegate's start is strict (acp.Config.Strict)

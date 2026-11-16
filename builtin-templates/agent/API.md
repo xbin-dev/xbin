@@ -6154,11 +6154,13 @@ resolve from the person's preferences and the tile's org's rules; a brief
 carries a `harness` only when its person picked one of the allowed ones on
 its card (`PUT …/briefs/{bid} {harness}`; `GET …/briefs/{bid}/start-defaults`
 → `{defaults: {tile, harness, harnesses: [{id, name, mode, asks, net,
-needsTicket, noSignIn, signIn?, savedSignIn?}], why?}, picked, harness,
+needsTicket, noSignIn, signIn?}], why?}, picked, harness,
 harnessName, mode, asks, net, ticket, line, needsSignIn?}` — the top-level
 fields are the picked harness's, else the default's; `signIn` is xbind's
-word on what a session of the harness would sign in with (`saved`: the
-person's saved sign-in, named on the line; `connector`; `own`; `needed`),
+word on what a session of the harness would sign in with (`saved`: a
+saved sign-in of the person's, used only once they approve the start —
+xbind's approval names it, nothing here does; `connector`; `own`;
+`needed`),
 and `needsSignIn: true` puts "Needs your ‹coding agent› sign-in" and a
 button on the card — the button asks xbin's chrome (`xbin:agent-open-signin
 {harness}`), which draws the sign-in and says `xbin:agent-signins` when

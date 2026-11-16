@@ -15,6 +15,8 @@
  *     each is, when it was used, rename, make default, remove, add one;
  *     for workspace admins the switch and who has sign-ins.
  *   a button (view="button") — "Sign-ins…", which opens the list.
+ *   a name (view="name", sid) — one saved sign-in's label, inline: how
+ *     the chrome names the sign-in on an approval, from your own list.
  *
  * No secret is ever shown: the guided sign-in's token never leaves xbind,
  * and a pasted key goes from its field into one request.
@@ -44,7 +46,8 @@ export class BxAgentSignin extends LitElement {
     provider: { type: String },
     harness: { type: String },
     component: { type: String },
-    view: { type: String, reflect: true }, // '' (the card) | manage | button
+    view: { type: String, reflect: true }, // '' (the card) | manage | button | name (one sign-in's label, by sid)
+    sid: { type: String },
     // idle → starting → waiting (the link is up) → checking (a code sent) →
     // done | failed | ended | old (no link: an old CLI) | error; paste: the key's form
     _phase: { state: true },
@@ -449,6 +452,10 @@ export class BxAgentSignin extends LitElement {
   _close() { this._open = false; this.updateComplete.then(() => this.renderRoot?.querySelector('button.manage, button.open-list')?.focus()); }
 
   render() {
+    if (this.view === 'name') { // a saved sign-in's label, for xbin's own chrome to name it on an approval
+      const sg = (this._data ? this._data.harnesses : []).flatMap((h) => h.signins).find((x) => x.id === this.sid);
+      return html`<b class="label" data-known=${sg ? 'true' : 'false'}>${sg ? sg.name : this._data === null ? '…' : '(no longer saved)'}</b>`;
+    }
     if (this.view === 'manage') return manageView(this, null);
     if (this.view === 'button') {
       return html`<button class="open-list" @click=${() => { this._open = true; this.reload(); }} title="the coding-agent sign-ins xbind keeps for you">Sign-ins…</button>${this._open ? this._dialog() : nothing}`;

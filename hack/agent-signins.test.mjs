@@ -115,7 +115,7 @@ test('the launcher and a brief say it before anything starts', () => {
   assert.equal(savedHint({ saved: { name: 'Personal', inject: true } }), 'your saved sign-in: Personal');
   assert.equal(savedHint({ saved: { name: 'Personal', inject: false, why: 'bob can also open terminals on apps/crm' } }),
     'saved sign-in Personal not used here — bob can also open terminals on apps/crm');
-  assert.deepEqual(startSignInWords({ name: 'Claude Code', signIn: 'saved', savedSignIn: 'Personal' }), { text: 'your saved Claude Code sign-in (Personal)', needs: false });
+  assert.deepEqual(startSignInWords({ name: 'Claude Code', signIn: 'saved' }), { text: 'your saved Claude Code sign-in, once you approve the start', needs: false });
   assert.deepEqual(startSignInWords({ name: 'Codex', signIn: 'connector' }), { text: "the workspace's model — no sign-in needed", needs: false });
   assert.deepEqual(startSignInWords({ name: 'Claude Code', signIn: 'needed' }), { text: 'needs your Claude Code sign-in', needs: true });
   assert.equal(startSignInWords({ name: 'Claude Code', signIn: 'own' }).needs, false);

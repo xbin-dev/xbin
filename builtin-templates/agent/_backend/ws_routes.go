@@ -534,7 +534,7 @@ func handleWsBriefDefaults(w http.ResponseWriter, r *http.Request) {
 		}
 		switch h.SignIn { // what it signs in with, where xbind keeps sign-ins (D230)
 		case "saved":
-			out["line"] = out["line"].(string) + " · your saved sign-in (" + h.SavedSignIn + ")"
+			out["line"] = out["line"].(string) + " · your saved sign-in, once you approve the start"
 		case "needed":
 			out["line"] = out["line"].(string) + " · needs your sign-in"
 			out["needsSignIn"] = true

@@ -264,7 +264,13 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	}
 	// the person's saved sign-in for the harness, and whether the rule lets
 	// it into this session (signin.go) — after the partition is known
-	o.signin = m.signinPlanFor(p, o, rel, prov, a.Signin, m.credentialRule(o, rel, prov.ID, o.llmChoice).Forced, a.LLM == sdkacp.UseConnector)
+	o.signin = m.signinPlanFor(p, o, rel, prov, a.Signin, m.credentialRule(o, rel, prov.ID, o.llmChoice).Forced, a.LLM == sdkacp.UseConnector, a.Delegate)
+	if o.signin.bound && (o.signin.saved == nil || o.signin.why != "") {
+		// its person approved a start that uses their saved sign-in: it
+		// opens with that one, or not at all
+		m.partOpened(&o)
+		return SessionInfo{}, 403, fmt.Errorf("a workspace agent opens exactly the session its person approved, and that one used their saved %s sign-in, which can't go in now (%s) — ask again", prov.Name, o.signin.why)
+	}
 	if a.Signin != "" && a.Signin != SigninNone && o.signin.saved == nil {
 		m.partOpened(&o)
 		return SessionInfo{}, 404, errors.New("signin: you have no such saved sign-in for " + prov.Name + " (GET /api/xbin/agent/signins lists them)")

@@ -17,8 +17,9 @@ package term
 // therefore goes in only when
 //
 //  1. the session is its person's own: opened by their own signed-in
-//     session, app or device, or by their workspace agent through the
-//     delegation gate — never view-as, a component's credentials (a tile's
+//     session, app or device — or by their workspace agent, and then only
+//     where the person approved a start that named the sign-in (the agent
+//     steers such a session and reads what it prints) — never view-as, a component's credentials (a tile's
 //     frame or backend, a terminal's or an agent session's token), the root
 //     token;
 //  2. sandboxes are on (a development workspace excepted: SigninDev);
@@ -148,6 +149,9 @@ type signinPlan struct {
 	why    string          // why it is left out ("" with saved: it goes in)
 	user   string          // whose it is
 	origin string          // "person" | "agent", for the use log
+	// bound: a workspace agent's start whose approval named this sign-in —
+	// it opens with exactly that one or not at all (OpenAgentWith)
+	bound bool
 }
 
 // sessionSignin is a live session's: what it carries. secret is the
@@ -173,8 +177,28 @@ func (m *Manager) SigninPreview(p auth.Principal, tile string, prov agent.Provid
 		return nil, ""
 	}
 	var o openOpts
-	pl := m.signinPlanFor(p, o, tile, prov, "", forced, false)
+	pl := m.signinPlanFor(p, o, tile, prov, "", forced, false, nil)
 	return pl.saved, pl.why
+}
+
+// SigninForApproval answers, for the approval of a start by p — a
+// person's workspace agent — on tile: the person's default sign-in for
+// prov that the start would use if they approve it (nil: none, or it would
+// not go in — why says). The approval names it by its id, and the open is
+// bound to that id (DelegateStart.Signin).
+func (m *Manager) SigninForApproval(p auth.Principal, tile string, prov agent.Provider, forced bool) (*signins.Signin, string) {
+	if m.Signins == nil || p.Agent == "" {
+		return nil, ""
+	}
+	def, err := m.Signins.Peek(p.UserID, prov.ID, "")
+	if err != nil || def == nil {
+		return nil, ""
+	}
+	pl := m.signinPlanFor(p, openOpts{}, tile, prov, "", forced, false, &DelegateStart{Approved: true, Signin: def.ID})
+	if pl.saved == nil || pl.why != "" {
+		return nil, pl.why
+	}
+	return pl.saved, ""
 }
 
 // SigninRule answers the rule alone for a launcher or a sign-in card: why a
@@ -191,7 +215,7 @@ func (m *Manager) SigninRule(p auth.Principal, tile string, prov agent.Provider)
 
 // signinPlanFor decides a new session's saved sign-in: which one, and
 // whether the rule lets it in. chosen: the start named the connector.
-func (m *Manager) signinPlanFor(p auth.Principal, o openOpts, rel string, prov agent.Provider, choice string, forced, chosen bool) signinPlan {
+func (m *Manager) signinPlanFor(p auth.Principal, o openOpts, rel string, prov agent.Provider, choice string, forced, chosen bool, d *DelegateStart) signinPlan {
 	pl := signinPlan{choice: choice, user: p.UserID, origin: "person"}
 	if p.Agent != "" {
 		pl.origin = "agent"
@@ -202,8 +226,26 @@ func (m *Manager) signinPlanFor(p auth.Principal, o openOpts, rel string, prov a
 	if !signinPerson(p) {
 		return pl // not a person's own session: nothing of theirs is even looked up
 	}
+	if p.Agent != "" {
+		// a workspace agent's start: the agent steers the session and reads
+		// what it prints, so a saved sign-in goes in only where the person
+		// approved a start that named it (DelegateStart.Signin: xbind's own
+		// words on the approval) — never by default, never on a start their
+		// preference lets through unasked — and then exactly that one
+		if d == nil || !d.Approved || d.Signin == "" {
+			if sg, err := m.Signins.Peek(p.UserID, prov.ID, ""); err == nil && sg != nil {
+				pl.saved = sg
+				pl.why = "your workspace agent started this session, and a saved sign-in goes into such a session only when you approve a start that names it"
+			}
+			return pl
+		}
+		choice, pl.bound = d.Signin, true
+	}
 	sg, err := m.Signins.Peek(p.UserID, prov.ID, choice)
 	if err != nil || sg == nil {
+		if pl.bound {
+			pl.why = "the saved sign-in the approval named is no longer there"
+		}
 		return pl
 	}
 	pl.saved = sg

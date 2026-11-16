@@ -49,8 +49,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `signin: {source: saved | home | connector | none, id?, name?, why?}`;
   `GET /agent/providers` rows carry `saved: {id, name, kind, expiresAt?,
   inject, why?}`; `GET /delegate/start-defaults` harnesses carry `signIn`
-  (`saved` | `connector` | `own` | `needed`) and `savedSignIn`, and the
-  default harness prefers one that runs on a saved sign-in. **Changed for
+  (`saved` | `connector` | `own` | `needed`), and the default harness
+  prefers one that runs on a saved sign-in. **Changed for
   admins**: a session that carries its person's saved sign-in is that
   person's alone — an admin's read or prompt of it is 403 (ending it is
   allowed) and its `session` events reach its person's sockets only, as
@@ -80,10 +80,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `xbin:agent-open-signin {harness}` (the chrome draws the card; the page
   hears `xbin:agent-signins` when the person's sign-ins changed); a start's
   preview (`preview.session`, a plan's `start`) carries `signIn` and
-  `savedSignIn`, and the approval sheet and the plan review show the card
-  where a sign-in is needed. Agent template: `GET
+  `signInId`: a session the agent starts gets a saved sign-in only where
+  the person approved a start whose sheet named it ("Uses your saved … —
+  the tile's coding agent will hold that sign-in"), and then exactly that
+  one; the approval sheet and the plan review show the sign-in card where
+  one is needed. Agent template: `GET
   …/briefs/{bid}/start-defaults` adds `needsSignIn` and each harness's
-  `signIn` / `savedSignIn`.
+  `signIn`.
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the
   web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
   generated vectors): lines that create a tile or start a tile agent, what
