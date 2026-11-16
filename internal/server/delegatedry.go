@@ -169,6 +169,17 @@ func dryMCP(s *Server, p auth.Principal, r *http.Request, body []byte, _ *delega
 	if err != nil {
 		return "mcp", err.Error()
 	}
+	if delegation.IsExt(c.Server) { // an outside server (mcpext.go, D240)
+		switch j := s.mcpExtJudge(r.Context(), p, h, c, true); {
+		case j.msg != "":
+			return "mcp", j.msg
+		case j.under != "":
+			preview["under"] = j.under
+		default:
+			preview["needsApproval"] = true
+		}
+		return "", ""
+	}
 	switch _, under, _, _, _, msg := s.mcpJudge(r.Context(), p, h, c); {
 	case msg != "":
 		return "mcp", msg

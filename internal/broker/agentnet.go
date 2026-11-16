@@ -17,10 +17,11 @@ func (b *Broker) AgentWebIn(org string) (rule, reason string) {
 	return agentpolicy.Web(b.Users.OrgAgentLayers(org))
 }
 
-// AgentMCPIn is org's MCP rule: any (the default) or org.
+// AgentMCPIn is org's MCP rule: "" when no layer sets one (the default),
+// any, listed, org or never.
 func (b *Broker) AgentMCPIn(org string) (rule, reason string) {
 	if b.Users == nil {
-		return agentpolicy.MCPAny, ""
+		return "", ""
 	}
 	return agentpolicy.MCP(b.Users.OrgAgentLayers(org))
 }

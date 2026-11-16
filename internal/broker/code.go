@@ -176,18 +176,31 @@ func (b *Broker) codeGrantAllows(from, target string) bool {
 // their terminal and agent work in that code); an element sees its own
 // source, or another component's when granted the "code:<component>"
 // capability (plans/auth.md).
+//
+// comp may be a directory inside a tile (component() takes any directory):
+// it is decided on the registered tile it is, or lies in — that tile's exact
+// entries, owner and org — never on its own path, which matches only
+// patterns (component=apps/crm/src once read apps/crm's source for anyone
+// whose pattern covered apps/*, an exact apps/crm: none and D31 aside).
 func (b *Broker) requireCodeRead(w http.ResponseWriter, r *http.Request, comp string) bool {
 	p := auth.PrincipalOf(r)
 	if sealedRefused(w, sealedNone(comp, sealedNoSource)) {
 		return false
 	}
-	if b.IsAdmin(p) || (p.Component != "" && p.Component == comp) {
+	tile := comp
+	if c, _, ok := b.Reg.Resolve(comp); ok && c != nil {
+		tile = c.Path
+	}
+	if sealedRefused(w, sealedNone(tile, sealedNoSource)) {
+		return false
+	}
+	if b.IsAdmin(p) || (p.Component != "" && p.Component == tile) {
 		return true
 	}
-	if p.Component == "" && p.CanReadTile(comp) { // a person: the same rule as the tile's frame and /c/ plane
+	if p.Component == "" && p.CanReadTile(tile) { // a person: the same rule as the tile's frame and /c/ plane
 		return true
 	}
-	if b.codeReadAllowed(p, comp) { // a non-primary principal's code edges through its edge policy
+	if b.codeReadAllowed(p, tile) { // a non-primary principal's code edges through its edge policy
 		return true
 	}
 	server.WriteJSON(w, http.StatusForbidden, map[string]string{

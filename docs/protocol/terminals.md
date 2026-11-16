@@ -26,7 +26,12 @@ Connect with `?cwd=<component-path>` (new session) or `?session=<id>`
 (reattach; scrollback replays first). A session may only be opened on a tile
 where the caller's access level is **terminal** (docs/auth.md), mounts its
 creator's `$HOME`, and carries a per-session `XBIN_TOKEN` scoped to that tile
-(docs/overview/09-terminals.md). Reattaching re-checks that level: a creator
+(docs/overview/09-terminals.md). `cwd` may be a directory inside the tile:
+the session starts there, and that directory is what it writes, but it is
+the tile's session — the level, the token, `XBIN_COMPONENT`, the network,
+target and partition, its events and its row's rights are the tile's
+(docs/auth.md → "A session inside a tile is that tile's"); a directory
+reached through a link is refused (400). Reattaching re-checks that level: a creator
 whose terminal level on the tile was withdrawn since gets 403 ("revoked")
 until the session ends. Under `--isolate` the workspace mounts read-only
 (all tiles' source — for a non-admin, minus tiles below their read level,

@@ -111,7 +111,14 @@ func wsCanCant(c wsConnection, reach wsReach) (can, cant []string) {
 		can = append(can, "Read web pages you approve, one by one")
 	}
 	if reach.MCP.on() {
-		can = append(can, "Use MCP tools from your tiles, once you approve each")
+		line := "Use MCP tools from your tiles, once you approve each"
+		switch n := reach.MCP.Listed; {
+		case n == 1:
+			line = "Use MCP tools from your tiles and one outside server, once you approve each"
+		case n > 1:
+			line = fmt.Sprintf("Use MCP tools from your tiles and %d outside servers, once you approve each", n)
+		}
+		can = append(can, line)
 	}
 	cant = []string{"Answer a tile agent's questions for you — those come to you", "Act without your approval where a change is involved"}
 	if not := c.Counts.NotConnected; not > 0 {

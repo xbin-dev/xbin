@@ -110,11 +110,15 @@ func (st *State) registerRuntimeAPI(srv *server.Server) {
 			server.WriteError(w, http.StatusBadRequest, util.SealedRefusal(tile, "it has no terminal"), server.SealedDocs)
 			return
 		}
-		if tile == "" || !p.CanTerminalTile(tile) {
+		on := tile // the tile a terminal there opens on (term.Manager.TileOf): its level and its org's sets
+		if st.Term != nil && tile != "" {
+			on, _ = st.Term.TileOf(tile)
+		}
+		if tile == "" || !p.CanTerminalTile(on) {
 			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "no terminal access to this tile"})
 			return
 		}
-		g := brk.TermNetFor(p, tile)
+		g := brk.TermNetFor(p, on)
 		scopes, def := term.ScopesFor(p, g)
 		server.WriteJSON(w, http.StatusOK, map[string]any{
 			"tile": tile, "scopes": scopes, "default": def, "label": g.OrgLabel,

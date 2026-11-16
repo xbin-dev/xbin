@@ -2,6 +2,8 @@ package broker
 
 import (
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -135,5 +137,53 @@ func TestCodeReadBlanket(t *testing.T) {
 		if got := tree(c, stats); got != 200 {
 			t.Fatalf("blanket code grant reading %s: want 200, got %d", c, got)
 		}
+	}
+}
+
+// A component path inside a tile (a directory of it) is decided on the
+// tile it lies in: its exact entries and org, never the path's own level,
+// which only patterns match — `apps/*: read` beside an exact
+// `apps/calendar: none` once read the tile's source through
+// component=apps/calendar/backend. A person who may read the tile reads
+// its directories.
+func TestCodeReadInsideATileIsTheTiles(t *testing.T) {
+	b := testBroker(t)
+	sub := filepath.Join(b.Reg.Root, "apps", "calendar", "backend")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	call := func(path string, p auth.Principal) int {
+		r := httptest.NewRequest("GET", path, nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+		w := httptest.NewRecorder()
+		if strings.HasPrefix(path, "/code/file") {
+			b.apiCodeFile(w, r)
+		} else {
+			b.apiCodeTree(w, r)
+		}
+		return w.Code
+	}
+	person := func(id string, tiles map[string]string) auth.Principal {
+		return auth.Principal{UserID: id, User: &users.User{ID: id, Role: users.RoleUser, Tiles: tiles}, Via: "session"}
+	}
+	shut := person("pat", map[string]string{"apps/*": users.LevelRead, "apps/calendar": users.LevelNone})
+	reader := person("ann", map[string]string{"apps/calendar": users.LevelRead})
+	for _, path := range []string{"/code/tree?component=apps/calendar/backend", "/code/file?component=apps/calendar/backend&file=main.go", "/code/tree?component=apps/calendar"} {
+		if got := call(path, shut); got != 403 {
+			t.Errorf("%s for a pattern beside an exact none: %d, want 403", path, got)
+		}
+		if got := call(path, reader); got != 200 {
+			t.Errorf("%s for a reader of the tile: %d, want 200", path, got)
+		}
+	}
+	self := auth.Principal{Component: "apps/calendar"}
+	if got := call("/code/tree?component=apps/calendar/backend", self); got != 200 {
+		t.Errorf("the tile reading its own directory: %d, want 200", got)
+	}
+	if got := call("/code/tree?component=apps/calendar/backend", auth.Principal{Component: "apps/email"}); got != 403 {
+		t.Errorf("another element: %d, want 403", got)
 	}
 }

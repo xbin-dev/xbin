@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/delegation"
 )
@@ -26,6 +29,12 @@ import (
 //	                                              a mode is a preset and a ceiling an admin
 //	                                              may narrow (internal/delegation/hostfile.go);
 //	                                              without "enabled" the switch stays the admins'
+//	                   "mcp": {"mode": "listed", "servers": [{"id", "name", "url", "auth",
+//	                           "secretFile" | "secretEnv", …}]}
+//	                                              the outside MCP servers (D240): a list the
+//	                                              file names is THE list (locked); each secret
+//	                                              read from its file (relative to this one,
+//	                                              watched like a key file) or env variable
 
 // HostAgent is what the host's file says about workspace agents.
 type HostAgent struct {
@@ -65,7 +74,7 @@ func (h *HostAgent) UnmarshalJSON(b []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields() // a misspelled setting is an error, never a rule silently not applied
 	if err := dec.Decode(&o); err != nil {
-		return fmt.Errorf(`workspaceAgent: want false, true or {"enabled": bool, "who"?: "admins" | "everyone", "web"?: {"mode", "allow", "deny"}, "mcp"?: {"mode"}}: %w`, err)
+		return fmt.Errorf(`workspaceAgent: want false, true or {"enabled": bool, "who"?: "admins" | "everyone", "web"?: {"mode", "allow", "deny"}, "mcp"?: {"mode", "servers"?}}: %w`, err)
 	}
 	if o.Web != nil {
 		w, err := o.Web.Normalized()
@@ -78,6 +87,13 @@ func (h *HostAgent) UnmarshalJSON(b []byte) error {
 		m, err := o.MCP.Normalized()
 		if err != nil {
 			return fmt.Errorf("workspaceAgent: mcp: %w", err)
+		}
+		if m.Servers != nil {
+			list, err := delegation.CheckHostServers(*m.Servers)
+			if err != nil {
+				return fmt.Errorf("workspaceAgent: %w", err)
+			}
+			m.Servers = &list
 		}
 		h.MCP = &m
 	}
@@ -100,6 +116,44 @@ func (h *HostAgent) UnmarshalJSON(b []byte) error {
 		return errors.New(`workspaceAgent: who names who gets an agent, so it goes with "enabled": true`)
 	}
 	h.Who = *o.Who
+	return nil
+}
+
+// hostServerSecrets reads the secret each of the file's outside MCP servers
+// names (D240): its secretFile, relative to the file at path — one line,
+// its stamp kept so a rotated secret is read again — or its secretEnv. A
+// secret that can't be read is the file's error, as a missing key file is.
+func hostServerSecrets(h *hostConfig, path string) error {
+	m := h.WorkspaceAgent.MCP
+	if m == nil || m.Servers == nil {
+		return nil
+	}
+	list := *m.Servers
+	for i, srv := range list {
+		switch {
+		case srv.SecretFile != "":
+			f := srv.SecretFile
+			if !filepath.IsAbs(f) {
+				f = filepath.Join(filepath.Dir(path), f)
+			}
+			h.stamps[f] = stampOf(f)
+			b, err := os.ReadFile(f)
+			if err != nil {
+				return fmt.Errorf("workspaceAgent: mcp.servers %s: its secretFile: %w", srv.ID, err)
+			}
+			v := strings.TrimSpace(string(b))
+			if v == "" || len(b) > maxKeyFile || strings.ContainsAny(v, "\r\n") {
+				return fmt.Errorf("workspaceAgent: mcp.servers %s: its secretFile holds no secret (one line)", srv.ID)
+			}
+			list[i].HostSecret = delegation.NewSecret(v)
+		case srv.SecretEnv != "":
+			v := strings.TrimSpace(os.Getenv(srv.SecretEnv))
+			if v == "" || strings.ContainsAny(v, "\r\n") {
+				return fmt.Errorf("workspaceAgent: mcp.servers %s: the environment variable %s holds no secret (one line)", srv.ID, srv.SecretEnv)
+			}
+			list[i].HostSecret = delegation.NewSecret(v)
+		}
+	}
 	return nil
 }
 

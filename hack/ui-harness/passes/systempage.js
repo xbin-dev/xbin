@@ -139,8 +139,8 @@ async function systemPage(browser) {
         const pol = card.locator('bx-wsagent-policy');
         await until(async () => (await pol.locator('[data-save]').count()) === 1, 'the web and MCP settings');
         const offFirst = await pol.locator('input[name=web][value=off]').isChecked() && await pol.locator('input[name=mcp][value=off]').isChecked();
-        const notYet = await pol.locator('input[name=web][value=full]').isDisabled() && await pol.locator('input[name=mcp][value=listed]').isDisabled();
-        check(offFirst && notYet, `${P}: the web and MCP read off; "send to the web" and listed servers can't be picked yet`);
+        const notYet = await pol.locator('input[name=web][value=full]').isDisabled() && !(await pol.locator('input[name=mcp][value=listed]').isDisabled());
+        check(offFirst && notYet, `${P}: the web and MCP read off; "send to the web" can't be picked yet, listed servers can (D240)`);
         await pol.locator('input[name=web][value=read]').check();
         await pol.locator('textarea[data-field=deny]').fill('intranet.example.com\nbank.test');
         await pol.locator('input[name=mcp][value=tiles]').check();
@@ -152,6 +152,7 @@ async function systemPage(browser) {
         await shotEl(A.page, 'bx-system-page bx-wsagent-policy', `systempage-netpolicy-${THEME}`);
         const back = await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { web: { mode: 'off', allow: [], deny: [] }, mcp: { mode: 'off' } } });
         check(back.status() === 200, `${P}: put back off (${back.status()})`);
+        await outsideServers(A, pol, P, check);
         // the host's file (XBIN_LLM_CONFIG's workspaceAgent key) caps the web: a ceiling the admin may narrow, said on the card
         const HOSTFILE = process.env.LLM_HOST_FILE || '';
         if (HOSTFILE && require('fs').existsSync(HOSTFILE)) {
@@ -243,6 +244,76 @@ async function systemPage(browser) {
     await closeCtx(A.ctx, A.page).catch(() => {});
   }
   done();
+}
+
+// outside MCP servers (D240): the card's list — added, its secret write-only, the widening flags armed and warned, saved whole —
+// and Test against a fake server on the host's loopback (127.0.0.2: not the workspace's own address), listed as on a private network
+async function outsideServers(A, pol, P, check) {
+  const http = require('http');
+  const FAKE_PORT = Number(process.env.MCP_FAKE_PORT || 19437);
+  const seen = [];
+  const fake = http.createServer((req, res) => {
+    let b = '';
+    req.on('data', (c) => { b += c; });
+    req.on('end', () => {
+      let m = {};
+      try { m = JSON.parse(b); } catch { /* answered below */ }
+      seen.push({ method: m.method, auth: req.headers.authorization || '' });
+      if (req.headers.authorization !== 'Bearer harness-secret-1') { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end('{"error":"bad credentials"}'); return; }
+      if (m.id === undefined) { res.writeHead(202); res.end(); return; }
+      const result = m.method === 'initialize' ? { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'harness-tracker', version: '1.0' } }
+        : m.method === 'tools/list' ? { tools: [{ name: 'lookup', description: 'Look a ticket up.', annotations: { readOnlyHint: true }, inputSchema: { type: 'object' } },
+          { name: 'post', description: 'Post a comment on a ticket.', inputSchema: { type: 'object' } }] } : {};
+      res.writeHead(200, { 'Content-Type': 'application/json', ...(m.method === 'initialize' ? { 'Mcp-Session-Id': 'h-1' } : {}) });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+    });
+  });
+  await new Promise((ok) => fake.listen(FAKE_PORT, '127.0.0.2', ok));
+  try {
+    await pol.evaluate((el) => el.testApi().reload());
+    await pol.locator('input[name=mcp][value=listed]').check();
+    const list = pol.locator('bx-wsagent-mcp-servers');
+    await until(async () => (await list.locator('[data-add]').count()) === 1, 'the list editor');
+    await list.locator('[data-add]').click();
+    await list.locator('input[data-field=name]').fill('Issue tracker');
+    await list.locator('input[data-field=url]').fill(`http://127.0.0.2:${FAKE_PORT}/mcp`);
+    await list.locator('input[data-field=secret]').fill('harness-secret-1');
+    await list.locator('textarea[data-field=note]').fill('Our tickets.');
+    // the widening flags answer a deliberate click only, a moment after they show
+    await list.locator('input[data-flag=privateNetwork]').evaluate((e) => e.click()); // a script's click: held
+    const held = !(await list.locator('input[data-flag=privateNetwork]').isChecked());
+    await A.page.waitForTimeout(700);
+    await list.locator('input[data-flag=privateNetwork]').click();
+    await list.locator('input[data-flag=plainHttp]').click();
+    const warned = await list.locator('.warnbox').count();
+    check(held && warned === 2 && await list.locator('input[data-flag=trustReadOnly]').isChecked() === false,
+      `${P}: the flags that widen are armed and, once on, warned beside them (held ${held}, ${warned} warnings; trust read-only off by default)`);
+    await shotEl(A.page, 'bx-system-page bx-wsagent-policy', `systempage-mcpservers-edit-${THEME}`);
+    const [put] = await Promise.all([A.page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/xbin/delegate/workspace')), pol.locator('[data-save]').click()]);
+    await until(async () => (await pol.locator('[role=status]').count()) >= 1, 'saved');
+    const sent = JSON.parse(put.postData()).mcp || {};
+    const ws = await (await A.ctx.request.get(`${URL}/api/xbin/delegate/workspace`)).json();
+    const srv = (ws.mcp?.servers || [])[0] || {};
+    check(sent.mode === 'listed' && sent.servers?.[0]?.secret === 'harness-secret-1' && srv.id === 'issue-tracker' && srv.hasSecret === true && !JSON.stringify(ws).includes('harness-secret-1')
+      && srv.privateNetwork && srv.plainHttp && !srv.trustReadOnly,
+      `${P}: Save sends the list with the typed secret; the read says hasSecret and never the secret (${JSON.stringify(srv).slice(0, 200)})`);
+    // the read shown again: the secret field says it is set, empty
+    await until(async () => (await list.locator('[data-server="issue-tracker"] [data-test]').count()) === 1, 'the saved row');
+    await list.locator('[data-server="issue-tracker"] [data-test]').click();
+    await until(async () => (await list.locator('[data-test-result]').count()) === 1, 'the test answered');
+    const tested = await list.locator('[data-test-result]').innerText();
+    check(/It answered \(harness-tracker 1\.0, MCP 2025-06-18\): 2 tools\./.test(tested) && /lookup/.test(tested) && /marked read-only/.test(tested) && seen.every((x) => x.auth === 'Bearer harness-secret-1'),
+      `${P}: Test runs initialize and tools/list with the secret xbin keeps, and shows the tools (${tested.replace(/\s+/g, ' ').slice(0, 160)})`);
+    await shotEl(A.page, 'bx-system-page bx-wsagent-policy', `systempage-mcpservers-${THEME}`);
+    // a wrong secret: the exact error
+    const wrong = await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { mcp: { servers: [{ ...srv, secret: 'not-it-0000' }] } } });
+    const bad = await (await A.ctx.request.post(`${URL}/api/xbin/delegate/mcp/test`, { data: { id: 'issue-tracker' } })).json();
+    check(wrong.status() === 200 && bad.ok === false && bad.refusal === 'mcp-auth', `${P}: a refused secret is said exactly (${JSON.stringify(bad).slice(0, 200)})`);
+  } finally {
+    fake.close();
+    const off = await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { mcp: { mode: 'off', servers: [] } } });
+    check(off.status() === 200, `${P}: the list emptied, MCP off again (${off.status()})`);
+  }
 }
 
 module.exports = { systemPage };

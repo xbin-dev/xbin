@@ -87,6 +87,7 @@ GET /delegate/audit	never
 GET /delegate/changesets	read
 GET /delegate/changesets/{id}	read
 GET /delegate/map	read
+GET /delegate/mcp/servers	read
 GET /delegate/requests	never
 GET /delegate/requests/{id}	read
 GET /delegate/sessions/{id}	read
@@ -224,6 +225,8 @@ POST /delegate/changesets/{id}/ask	never
 POST /delegate/changesets/{id}/reject	never
 POST /delegate/changesets/{id}/undo	never
 POST /delegate/mcp/call	act
+POST /delegate/mcp/test	never
+POST /delegate/mcp/tools	act
 POST /delegate/page/dismiss	never
 POST /delegate/plans	act
 POST /delegate/requests	act

@@ -233,7 +233,7 @@ func (m *Manager) echoOf(s *Session) string {
 	case s.target.Deployment != "":
 		return s.target.Deployment
 	case s.target.askedPrimary:
-		return m.TileDeployments.deploymentsOf(s.Cwd).Primary
+		return m.TileDeployments.deploymentsOf(m.tileOf(s)).Primary
 	}
 	return ""
 }
@@ -287,7 +287,7 @@ func (m *Manager) PrimaryReassigned(tile, from, to string) (restarted, ended int
 func (m *Manager) retarget(tile string, moved func(Target) bool) (restarted, ended int) {
 	def, _ := ChooseTarget(tile, m.TileDeployments.deploymentsOf(tile), true, "")
 	for _, s := range m.sorted() {
-		if s.Cwd != tile || !s.api || !moved(s.target.Target) {
+		if m.tileOf(s) != tile || !s.api || !moved(s.target.Target) { // a session inside the tile too: its token is the tile's
 			continue
 		}
 		if s.kind == KindAgent && !def.NoAPI {

@@ -30,7 +30,7 @@ const (
 const (
 	MCPOff    = "off"
 	MCPTiles  = "tiles"  // MCP tiles of this workspace the person can reach
-	MCPListed = "listed" // reserved: also servers an admin listed by URL — not built
+	MCPListed = "listed" // those, and the outside servers an admin listed by URL (D240)
 )
 
 // ErrNotYet is the refusal of a mode this xbind reserves and doesn't run.
@@ -48,9 +48,11 @@ type WebPolicy struct {
 	Search *bool    `json:"search,omitempty"`
 }
 
-// MCPPolicy is the MCP part of a policy layer.
+// MCPPolicy is the MCP part of a policy layer. Servers nil: the layer
+// names no list (the host's: the admin's is in force; mcpservers.go).
 type MCPPolicy struct {
-	Mode string `json:"mode,omitempty"`
+	Mode    string       `json:"mode,omitempty"`
+	Servers *[]MCPServer `json:"servers,omitempty"`
 }
 
 func webRank(m string) int {
@@ -86,12 +88,10 @@ func checkWebMode(m string) error {
 
 func checkMCPMode(m string) error {
 	switch m {
-	case "", MCPOff, MCPTiles:
+	case "", MCPOff, MCPTiles, MCPListed:
 		return nil
-	case MCPListed:
-		return fmt.Errorf(`mcp.mode %q: %w — a workspace agent uses the MCP tiles of this workspace (mode "tiles"); servers listed by URL come later`, m, ErrNotYet)
 	}
-	return fmt.Errorf(`mcp.mode: "off" or "tiles", not %q`, m)
+	return fmt.Errorf(`mcp.mode: "off", "tiles" or "listed", not %q`, m)
 }
 
 // normPatterns checks a list and puts it in its canonical form (sorted,
@@ -158,10 +158,14 @@ type WebInForce struct {
 	ByHost bool `json:"byHost,omitempty"`
 }
 
-// MCPInForce is the MCP policy in force.
+// MCPInForce is the MCP policy in force: the mode, and the outside servers
+// listed (used while the mode is listed) — the host's when its file names
+// a list (ServersByHost), else the admin's.
 type MCPInForce struct {
-	Mode   string `json:"mode"`
-	ByHost bool   `json:"byHost,omitempty"`
+	Mode          string          `json:"mode"`
+	ByHost        bool            `json:"byHost,omitempty"`
+	Servers       []MCPServerView `json:"servers"`
+	ServersByHost bool            `json:"serversByHost,omitempty"`
 }
 
 // NetInForce is the whole policy in force.
@@ -248,13 +252,22 @@ func merge(admin Workspace, host HostNet) NetInForce {
 	if hm != "" && mcpRank(m) > mcpRank(hm) {
 		m, out.MCP.ByHost = hm, true
 	}
-	if mcpRank(m) > mcpRank(MCPTiles) {
-		m = MCPTiles
-	}
 	if m == "" {
 		m = MCPOff
 	}
 	out.MCP.Mode = m
+	switch {
+	case host.MCP != nil && host.MCP.Servers != nil:
+		list := slices.Clone(*host.MCP.Servers)
+		for i := range list {
+			list[i].host = true
+		}
+		out.MCP.Servers, out.MCP.ServersByHost = Views(list), true
+	case admin.MCP != nil && admin.MCP.Servers != nil:
+		out.MCP.Servers = Views(*admin.MCP.Servers)
+	default:
+		out.MCP.Servers = []MCPServerView{}
+	}
 	return out
 }
 
@@ -296,6 +309,8 @@ type NetPatch struct {
 	WebDeny   *[]string
 	WebSearch *bool
 	MCPMode   *string
+	// MCPServers replaces the admin's list of outside servers (D240)
+	MCPServers *[]MCPServerPatch
 }
 
 // ErrHostLocked: the change names a setting the host's file holds.
@@ -366,6 +381,21 @@ func (s *Store) SetNet(p NetPatch, by string) (Workspace, error) {
 	}
 	if mcp, err = mcp.Normalized(); err != nil {
 		return Workspace{}, err
+	}
+	if p.MCPServers != nil {
+		var old []MCPServer
+		if mcp.Servers != nil {
+			old = *mcp.Servers
+		}
+		list, secrets, err := planServers(old, *p.MCPServers, s.Secrets != nil)
+		if err != nil {
+			return Workspace{}, err
+		}
+		// the secrets first: a list never says hasSecret for one that wasn't written
+		if err := s.writeSecrets(secrets); err != nil {
+			return Workspace{}, err
+		}
+		mcp.Servers = &list
 	}
 	w.Web, w.MCP = &web, &mcp
 	w.NetBy, w.NetAt = by, s.now().UTC().Truncate(time.Second)

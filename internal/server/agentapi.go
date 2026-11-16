@@ -72,6 +72,9 @@ func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 	// (a tile's own credentials ask about their tile only: CanReadTile passes
 	// every element)
 	cwd := strings.Trim(r.URL.Query().Get("cwd"), "/")
+	if cwd != "" {
+		cwd = s.sessionTile(cwd) // a directory inside a tile: what may run there is the tile's
+	}
 	if cwd == "" || s.Term == nil || !p.CanReadTile(cwd) || (p.Component != "" && p.Component != cwd) {
 		rows := make([]providerRow, len(provs))
 		for i, pr := range provs {
@@ -302,7 +305,7 @@ func (s *Server) apiAgentHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := s.Term.ListHistory(h, r.URL.Query().Get("cwd"), may)
 	if p := auth.PrincipalOf(r); p.Agent != "" { // a person's agent: not the tiles whose org keeps it out
-		rows = slices.DeleteFunc(rows, func(m term.HistoryMeta) bool { return s.delegateHides(p, m.Cwd) })
+		rows = slices.DeleteFunc(rows, func(m term.HistoryMeta) bool { return s.delegateHides(p, s.sessionTile(m.Cwd)) })
 	}
 	WriteJSON(w, http.StatusOK, rows)
 }
@@ -316,7 +319,7 @@ func (s *Server) apiAgentHistoryEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, evs, err := s.Term.ReadHistory(h, r.PathValue("id"))
-	if err != nil || (may != nil && !may(meta.Cwd)) {
+	if err != nil || (may != nil && !may(s.sessionTile(meta.Cwd))) { // the level of the tile it ran on
 		apiErr(w, http.StatusNotFound, "no such past session")
 		return
 	}
@@ -337,7 +340,7 @@ func (s *Server) apiAgentHistoryDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, err := s.Term.HistoryMeta(h, r.PathValue("id"))
-	if err != nil || (may != nil && !may(meta.Cwd)) {
+	if err != nil || (may != nil && !may(s.sessionTile(meta.Cwd))) {
 		apiErr(w, http.StatusNotFound, "no such past session")
 		return
 	}

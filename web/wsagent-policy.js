@@ -9,9 +9,12 @@
  * mode there is a ceiling — narrowed here, never widened — and its lists
  * hold beside these; unlike the switch and who gets an agent, which the
  * same key locks outright. Each person still turns each one on for their
- * own agent, in their agent's Preferences.
+ * own agent, in their agent's Preferences. With MCP at "listed" the card
+ * holds the outside servers' list (<bx-wsagent-mcp-servers>, D240): Save
+ * sends it whole, its secrets only where one was typed.
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
+import '/vendor/wsagent-mcp-servers.js';
 
 const req = async (path, init = {}) => {
   const r = await fetch(`/api/xbin${path}`, { ...init, headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
@@ -19,6 +22,7 @@ const req = async (path, init = {}) => {
 };
 
 const RANK = { off: 0, read: 1, full: 2, tiles: 1, listed: 2 };
+const outside = (list) => { const n = Array.isArray(list) ? list.length : 0; return n === 1 ? 'the one outside server listed' : `the ${n} outside servers listed`; };
 const lines = (s) => [...new Set(String(s || '').split(/[\s,]+/).map((x) => x.trim()).filter(Boolean))];
 
 /** policyWords(view): what the card says of the policy in force — pure, for the harness and the node test. */
@@ -26,11 +30,13 @@ export function policyWords(v) {
   const pol = (v && v.policy) || {}, locks = (v && v.locks) || {}, host = (v && v.host) || {};
   const web = pol.web || {}, mcp = pol.mcp || {};
   const ceiling = (k) => (locks[k] && locks[k].ceiling != null ? String(locks[k].ceiling) : '');
-  const LABEL = { off: 'Off', read: 'Read web pages', tiles: 'The MCP tiles of this workspace' };
+  const LABEL = { off: 'Off', read: 'Read web pages', tiles: 'The MCP tiles of this workspace', listed: 'The MCP tiles, and the servers listed here' };
   const capped = (k) => (ceiling(k) ? `Set by your host: at most “${LABEL[ceiling(k)] || ceiling(k)}”. You can narrow it here, not widen it.` : '');
   return {
     web: web.mode === 'read' ? 'People’s agents may read web pages (each person turns it on for their own).' : 'People’s agents can’t read the web.',
-    mcp: mcp.mode === 'tiles' ? 'People’s agents may use the MCP tiles of this workspace they can reach (each person turns it on).' : 'People’s agents can’t use MCP tools.',
+    mcp: mcp.mode === 'listed' ? `People’s agents may use the MCP tiles of this workspace they can reach and ${outside(mcp.servers)} (each person turns it on).`
+      : mcp.mode === 'tiles' ? 'People’s agents may use the MCP tiles of this workspace they can reach (each person turns it on).' : 'People’s agents can’t use MCP tools.',
+    serversByHost: !!mcp.serversByHost,
     webCeiling: ceiling('web.mode'), mcpCeiling: ceiling('mcp.mode'), webCapped: capped('web.mode'), mcpCapped: capped('mcp.mode'),
     hostSets: !!(host.web || host.mcp),
     hostAllow: web.hostAllow || [], hostDeny: web.hostDeny || [],
@@ -89,6 +95,9 @@ export class BxWsagentPolicy extends LitElement {
     if (lines(d.deny).join() !== lines(was.deny).join()) web.deny = lines(d.deny);
     if (Object.keys(web).length) body.web = web;
     if (d.mcp !== was.mcp) body.mcp = { mode: d.mcp };
+    const servers = this.renderRoot && this.renderRoot.querySelector('bx-wsagent-mcp-servers');
+    const list = servers && servers.changes(); // the outside servers (D240): the whole list, when it changed
+    if (list) body.mcp = { ...(body.mcp || {}), servers: list };
     return body;
   }
 
@@ -102,6 +111,14 @@ export class BxWsagentPolicy extends LitElement {
     if (!r.ok) { this._err = r.body.error || `error ${r.status}`; return; }
     this._saved = true;
     await this._load();
+    await this.updateComplete;
+    this.renderRoot.querySelector('bx-wsagent-mcp-servers')?.saved();
+  }
+
+  /** the outside servers the card shows: the host's when its file names them, else the admin's own */
+  _servers() {
+    const v = this._v || {};
+    return (v.policy && v.policy.mcp && v.policy.mcp.serversByHost ? v.policy.mcp.servers : v.mcp && v.mcp.servers) || [];
   }
 
   _mode(name, value, label, note, { ceiling = '', notYet = false, locked = false } = {}) {
@@ -139,8 +156,10 @@ export class BxWsagentPolicy extends LitElement {
       <fieldset role="radiogroup" data-field="mcp" style="margin-top:10px"><legend>MCP tools ${hostMark('mcp.mode')}</legend>
         ${this._mode('mcp', 'off', 'Off', '', { locked })}
         ${this._mode('mcp', 'tiles', 'The MCP tiles of this workspace', 'Tiles that serve MCP, as each person, on the tiles they can reach. Each tool asks its person the first time.', { ceiling: w.mcpCeiling, locked })}
-        ${this._mode('mcp', 'listed', 'MCP servers listed by URL', 'Outside the workspace, with credentials xbin keeps.', { notYet: true })}
+        ${this._mode('mcp', 'listed', 'The MCP tiles, and servers listed here', 'Servers outside the workspace, by address: xbin signs in to each with the secret you set and makes every call itself. Each tool asks its person the first time.', { ceiling: w.mcpCeiling, locked })}
         ${w.mcpCapped ? html`<div class="small muted" data-capped="mcp">${w.mcpCapped}</div>` : nothing}
+        ${this._draft.mcp === 'listed' || this._servers().length ? html`<bx-wsagent-mcp-servers .servers=${this._servers()} ?locked=${w.serversByHost}
+          @change=${() => { this._saved = false; }}></bx-wsagent-mcp-servers>` : nothing}
       </fieldset>
       <div class="small muted" data-in-force>${w.web} ${w.mcp}</div>
       ${this._err ? html`<div class="banner" role="alert">${this._err}</div>` : nothing}
