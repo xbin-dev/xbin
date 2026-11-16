@@ -50,6 +50,7 @@ type Backend struct {
 	UptimeSec   int64         `json:"uptimeSec,omitempty"`
 	LastReqSec  int64         `json:"lastReqSec"` // seconds since last request (-1 = never)
 	Error       string        `json:"error,omitempty"`
+	Retry       *StartRetry   `json:"retry,omitempty"` // a failed start's pending retry (retry.go); state stays "failed"
 	RSSKB       int64         `json:"rssKb,omitempty"`
 	Threads     int           `json:"threads,omitempty"`
 	FDs         int           `json:"fds,omitempty"`
@@ -131,6 +132,7 @@ func (r *Runner) inspectStates(states []*state, named bool) []Backend {
 		if s.lastErr != nil {
 			b.Error = s.lastErr.Error()
 		}
+		b.Retry = retryInfoLocked(s, r.now())
 		if !s.lastReq.IsZero() {
 			b.LastReqSec = int64(time.Since(s.lastReq).Seconds())
 		} else {

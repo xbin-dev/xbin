@@ -64,6 +64,13 @@ func (l *liveSet) forget(inst *instance) {
 	l.mu.Unlock()
 }
 
+// isStopping reports whether xbind is shutting down: nothing starts.
+func (l *liveSet) isStopping() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.stopping
+}
+
 // stop ends starting — no spawn is admitted afterwards, and the ones under
 // way have returned when it does — and answers every live generation.
 func (l *liveSet) stop() []*instance {

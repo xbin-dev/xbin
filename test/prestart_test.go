@@ -287,3 +287,75 @@ func main() {
 		t.Errorf("bx logs after the marker: %q", logs)
 	}
 }
+
+// A backend whose first start is stuck past its deadline, and whose next
+// would be fine, becomes healthy by itself with no save (D240): xbind
+// starts a new generation of the same code 10 s after the failure. The
+// first start marks a kv key and blocks before Serve; the retry finds the
+// mark and serves. Before, the tile stayed failed until the next save.
+func TestPreServeSlowOnceRetries(t *testing.T) {
+	writeTiles(t, ws, map[string]string{
+		"apps/slowonce/scope.json":     `{"resources":{"kv":{"type":"kv"}}}`,
+		"apps/slowonce/tile/xbin.json": `{"runtime":"go","uses":[{"target":"res:apps/slowonce/kv","role":"writer"}]}`,
+		"apps/slowonce/tile/go.mod":    "module slowonce\n\ngo 1.24\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n",
+		"apps/slowonce/tile/backend/main.go": `package main
+
+import (
+	"net/http"
+	"strings"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
+)
+
+func main() {
+	url := "http://xbin/api/xbin/kv/" + xbin.Resource("kv") + "/started"
+	resp, err := xbin.Client().Get(url)
+	if err == nil {
+		resp.Body.Close()
+	}
+	if err != nil || resp.StatusCode != 200 { // the first start: marked, then stuck before Serve
+		req, _ := http.NewRequest("PUT", url, strings.NewReader(` + "`" + `"1"` + "`" + `))
+		req.Header.Set("Content-Type", "application/json")
+		if r, err := xbin.Client().Do(req); err == nil {
+			r.Body.Close()
+		}
+		select {}
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /hi", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("hi")) })
+	xbin.Serve(mux)
+}
+`})
+	const tile = "apps/slowonce/tile"
+	var c int
+	var body string
+	if !waitFor(func() bool {
+		c, body = get(t, "/api/"+tile+"/hi")
+		return c == 502 && strings.Contains(body, "never started listening")
+	}, 3*time.Minute) {
+		t.Fatalf("the first start never failed: %d %s", c, body)
+	}
+	_, rows := get(t, "/api/xbin/backends")
+	var st map[string]struct {
+		State string `json:"state"`
+		Retry *struct {
+			Attempt int `json:"attempt"`
+			Of      int `json:"of"`
+		} `json:"retry"`
+	}
+	if err := json.Unmarshal([]byte(rows), &st); err != nil {
+		t.Fatalf("/backends: %v: %s", err, rows)
+	}
+	if r := st[tile]; r.State != "failed" || r.Retry == nil || r.Retry.Attempt != 1 || r.Retry.Of != 3 {
+		t.Fatalf("waiting for the retry: %s", rows)
+	}
+	if !waitFor(func() bool { c, body = get(t, "/api/"+tile+"/hi"); return c == 200 }, time.Minute) {
+		t.Fatalf("never became healthy by itself: %d %s", c, body)
+	}
+	_, logs := get(t, "/api/xbin/logs?component="+tile)
+	for _, want := range []string{"--- gen 1 stopped: timeout dialing backend socket", "--- the start failed; retrying in 10s (1 of 3)", "--- gen 2 start"} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("the log lacks %q: %q", want, logs)
+		}
+	}
+}

@@ -93,6 +93,7 @@ func (r *Runner) dropState(s *state) {
 	r.mu.Unlock()
 	s.mu.Lock()
 	s.gone = true
+	resetRetryLocked(s) // retry.go
 	s.mu.Unlock()
 }
 
@@ -443,6 +444,7 @@ func (r *Runner) stopState(s *state) {
 	s.mu.Lock()
 	inst := s.cur
 	s.cur = nil
+	resetRetryLocked(s) // retry.go: a stopped backend isn't started by a timer
 	s.mu.Unlock()
 	if inst != nil {
 		r.stopGen(inst, 5*time.Second)

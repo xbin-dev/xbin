@@ -44,10 +44,14 @@ idle-reap restart, a deploy, an xbind restart.
 
 What has a deadline is the start itself. After the process starts, xbind
 waits **5 s** for its socket to accept a connection (60 s for a `vm`
-backend, 180 s under emulation), then stops it and marks it failed until
-the next save or restart: `bx status` says *the backend is running but never
-started listening … (it has not called Serve)*, and the same line follows
-the start marker in `bx logs`. Time spent waiting on xbind's own answer (an
+backend, 180 s under emulation), then stops it and marks it failed: `bx
+status` says *the backend is running but never started listening … (it has
+not called Serve)*, and the same line follows the start marker in `bx logs`.
+Such a start is tried again by itself — after 10 s, 1 min and 5 min, each a
+new generation of the same code; `bx status` shows *failed · retrying in 48s
+(2 of 3)* meanwhile — and after the third it stays failed until the next
+save, deploy or restart ([elements.md](/docs/elements.md) §Runtimes &
+backend lifecycle has which failures retry). Time spent waiting on xbind's own answer (an
 `/api/xbin/*` call in flight) doesn't count, up to 60 s more. The rest does:
 
 - long work — opening or migrating a database, warming a cache, fetching

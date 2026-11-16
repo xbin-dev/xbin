@@ -18,6 +18,10 @@ import (
 // people grep for it.
 var errNeverListened = errors.New("timeout dialing backend socket: the backend is running but never started listening")
 
+// errNeverAccepted is a backend whose socket exists but never accepted a
+// connection by the health deadline.
+var errNeverAccepted = errors.New("timeout dialing backend socket: the backend listens but never accepted a connection")
+
 // xbindCallGrace is the most time a starting generation's calls to xbind's
 // own API add to its health deadline (docs/sdk.md → Startup); a var for the
 // tests.
@@ -61,7 +65,7 @@ func waitHealthy(sock string, exited <-chan struct{}, timeout time.Duration, wai
 	if _, err := os.Stat(sock); errors.Is(err, os.ErrNotExist) {
 		return errNeverListened
 	}
-	return errors.New("timeout dialing backend socket: the backend listens but never accepted a connection")
+	return errNeverAccepted
 }
 
 // waitingOnXbind reports whether inst has a call to xbind's own API in

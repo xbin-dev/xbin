@@ -69,6 +69,7 @@ func (r *Runner) StopAll() {
 		s.mu.Lock()
 		inst := s.cur
 		s.cur = nil
+		resetRetryLocked(s) // retry.go: no retry outlives xbind
 		s.mu.Unlock()
 		if inst != nil {
 			wg.Add(1)
@@ -89,7 +90,7 @@ func (r *Runner) Status() map[string]any {
 	out := map[string]any{}
 	for _, s := range r.allStates("") {
 		if s.dep == r.primary(s.comp) {
-			out[s.comp] = statusRow(s)
+			out[s.comp] = r.statusRow(s)
 		}
 	}
 	return out
@@ -107,18 +108,22 @@ func (r *Runner) StatusDeployments() map[string]map[string]any {
 		if out[s.comp] == nil {
 			out[s.comp] = map[string]any{}
 		}
-		out[s.comp][s.dep] = statusRow(s)
+		out[s.comp][s.dep] = r.statusRow(s)
 	}
 	return out
 }
 
-// statusRow is s's {state, gen, error?}.
-func statusRow(s *state) map[string]any {
+// statusRow is s's {state, gen, error?, retry?} (retry: a failed start's
+// pending retry, retry.go).
+func (r *Runner) statusRow(s *state) map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e := map[string]any{"state": stateName(s), "gen": s.gen}
 	if s.lastErr != nil {
 		e["error"] = s.lastErr.Error()
+	}
+	if rt := retryInfoLocked(s, r.now()); rt != nil {
+		e["retry"] = rt
 	}
 	return e
 }

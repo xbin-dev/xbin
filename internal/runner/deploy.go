@@ -328,6 +328,7 @@ func (r *Runner) changedState(c *registry.Component, s *state) {
 	s.mu.Lock()
 	s.dirty = true
 	s.crashes = nil
+	resetRetryLocked(s) // retry.go
 	hadProcess := s.cur != nil || s.building || s.lastErr != nil
 	s.mu.Unlock()
 	if hadProcess && r.shouldRun(c.Path, s.dep) {

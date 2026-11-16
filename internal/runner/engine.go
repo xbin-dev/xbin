@@ -2,7 +2,7 @@ package runner
 
 // engine.go — the runner's seam. A generation transition has five effects:
 // build the code, start a process, wait for it to answer, stop a process, and
-// read the clock. buildAndStart, Ensure, Track, the crash watch, the reaper,
+// read the clock; a failed start's retry waits on a timer (retry.go). buildAndStart, Ensure, Track, the crash watch, the reaper,
 // Stop and StopAll reach them only through the methods below. Every shipped
 // runner has a nil engine, which means today's methods, so the seam adds no
 // behaviour; the state-machine tests inject a fake engine and a fake clock
@@ -22,6 +22,7 @@ type engine struct {
 	healthy func(c *registry.Component, inst *instance) error                   // waitHealthy(inst.sock, inst.waitCh, r.healthFor(c), r.waitingOnXbind(inst))
 	stop    func(inst *instance, deadline time.Duration)                        // r.stop
 	now     func() time.Time                                                    // time.Now
+	after   func(d time.Duration, f func()) (stop func() bool)                  // time.AfterFunc(d, f).Stop
 }
 
 // buildGen produces the runnable entry for c's next generation.
@@ -59,6 +60,15 @@ func (r *Runner) stopGen(inst *instance, deadline time.Duration) {
 		return
 	}
 	r.stop(inst, deadline)
+}
+
+// afterFunc runs f once d has passed (a failed start's retry, retry.go);
+// stop cancels it.
+func (r *Runner) afterFunc(d time.Duration, f func()) (stop func() bool) {
+	if e := r.engine; e != nil && e.after != nil {
+		return e.after(d, f)
+	}
+	return time.AfterFunc(d, f).Stop
 }
 
 // now is the runner's clock: request stamps, idle reaping, crash windows.
