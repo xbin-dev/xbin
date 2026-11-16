@@ -12,6 +12,31 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- terminals, agent sessions: **BREAKING (security) — a session inside a
+  tile is decided on that tile** ([changes/2026-11-16-sessions-inside-tiles.md](/docs/changes/2026-11-16-sessions-inside-tiles.md)).
+  A terminal or agent session may open in a directory inside a tile
+  (`cwd=apps/crm/src`), but up to v0.3.79 the access check asked the
+  person's level on that literal path, where only *patterns* match: the
+  tile's exact entries, its owner and its org were never consulted. So a
+  person holding a terminal **pattern** (`apps/*: terminal`) beside an
+  **exact** `apps/crm: none` or `read` could open a read-write shell or a
+  coding agent in any directory of apps/crm — and keep reattaching to it
+  after the exact entry was set — and a personal pattern reached inside an
+  **org's tile** past D31 (its network sets and harness rules didn't apply
+  there either). The same held for reading that tile's source through
+  `GET /api/xbin/code/tree` and `/code/file` with `component=<a directory
+  of it>` and a read pattern. Now every gate asks the tile the directory lies in, and
+  the session's token, `XBIN_COMPONENT`, network, target, partition,
+  events and listing are the tile's; a directory reached through a link is
+  refused. **No configuration change is needed.** To see whether anyone
+  used it, look for people who hold a terminal or read **pattern**
+  together with an exact `none`/lower entry on a tile under it, or whose
+  pattern covers an org's tile they are no member of, and check the
+  terminal-session lines in xbind's log (`terminal session created` /
+  `agent session created`) for a `cwd` deeper than a tile's path. Someone
+  whose level on the tile itself is `terminal` (an exact entry, its owner,
+  its org's members) can now open a session in its directories too.
+
 - runner: **a failed start retries by itself** (D242). A start that failed
   for a reason that can clear by itself — the backend was running but never
   listened by its deadline (also while still waiting on xbind), it listened
