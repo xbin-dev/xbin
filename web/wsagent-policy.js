@@ -24,7 +24,7 @@ const lines = (s) => [...new Set(String(s || '').split(/[\s,]+/).map((x) => x.tr
 export function policyWords(v) {
   const pol = (v && v.policy) || {}, locks = (v && v.locks) || {}, host = (v && v.host) || {};
   const web = pol.web || {}, mcp = pol.mcp || {};
-  const all = !!locks['*'];
+  const all = !!host.lockAll; // (then locks names every setting, without a ceiling)
   const ceiling = (k) => (locks[k] && locks[k].ceiling != null ? String(locks[k].ceiling) : '');
   return {
     web: web.mode === 'read' ? 'People’s agents may read web pages (each person turns it on for their own).' : 'People’s agents can’t read the web.',
@@ -76,13 +76,26 @@ export class BxWsagentPolicy extends LitElement {
     this._v = r.body;
     const w = r.body.web || {}, m = r.body.mcp || {};
     this._draft = { web: w.mode || 'off', allow: (w.allow || []).join('\n'), deny: (w.deny || []).join('\n'), mcp: m.mode || 'off' };
+    this._was = { ...this._draft };
+  }
+
+  /** _body(): only what the admin changed — a setting the host holds and they left alone is never sent (409). */
+  _body() {
+    const d = this._draft, was = this._was || {}, web = {}, body = {};
+    if (d.web !== was.web) web.mode = d.web;
+    if (lines(d.allow).join() !== lines(was.allow).join()) web.allow = lines(d.allow);
+    if (lines(d.deny).join() !== lines(was.deny).join()) web.deny = lines(d.deny);
+    if (Object.keys(web).length) body.web = web;
+    if (d.mcp !== was.mcp) body.mcp = { mode: d.mcp };
+    return body;
   }
 
   async _save() {
     if (this._busy || !this._draft) return;
     this._busy = true; this._err = ''; this._saved = false;
-    const d = this._draft;
-    const r = await req('/delegate/workspace', { method: 'PUT', body: JSON.stringify({ web: { mode: d.web, allow: lines(d.allow), deny: lines(d.deny) }, mcp: { mode: d.mcp } }) });
+    const body = this._body();
+    if (!Object.keys(body).length) { this._busy = false; this._saved = true; return; }
+    const r = await req('/delegate/workspace', { method: 'PUT', body: JSON.stringify(body) });
     this._busy = false;
     if (!r.ok) { this._err = r.body.error || `error ${r.status}`; return; }
     this._saved = true;
@@ -102,7 +115,9 @@ export class BxWsagentPolicy extends LitElement {
     if (!this._v || !this._draft) return this._err ? html`<div class="banner" role="alert">${this._err}</div>` : html`<div class="small muted">Reading…</div>`;
     const w = policyWords(this._v);
     const locked = w.lockAll;
-    const hostMark = (k) => (this._v.locks && this._v.locks[k] ? html`<span class="tag" data-host=${k}>Set by your host</span>` : nothing);
+    // a setting the host's file holds (locks: a mode's ceiling, or each under lockAll); its lists hold beside the admin's
+    const hostMark = (k) => ((this._v.locks && this._v.locks[k]) || (k === 'web.allow' && w.hostAllow.length) || (k === 'web.deny' && w.hostDeny.length)
+      ? html`<span class="tag" data-host=${k}>Set by your host</span>` : nothing);
     return html`
       <h3>The web and MCP tools</h3>
       <div class="small muted">Off until you turn them on here, and then each person turns them on for their own agent in its Preferences. An organisation can keep its data off the web, or from MCP servers outside it, in its agent rules.</div>

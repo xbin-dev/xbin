@@ -307,25 +307,31 @@ func (e *ErrHostLocked) Error() string {
 	return "set by your host: " + strings.Join(e.Settings, ", ") + " — the host's configuration (XBIN_WSAGENT_CONFIG) holds them"
 }
 
-// SetNet applies p to the admin's web and MCP settings, by. A mode past
-// the host's ceiling is taken as asked and held to the ceiling (what is in
-// force says so); under the host's lockAll every write is refused.
+// SetNet applies p to the admin's web and MCP settings, by. What the
+// host's file holds refuses the write (ErrHostLocked: 409): a mode past
+// the host's ceiling, and under its lockAll every setting. Narrowing below
+// a ceiling is the admin's.
 func (s *Store) SetNet(p NetPatch, by string) (Workspace, error) {
 	if s == nil {
 		return Workspace{}, ErrNoStore
 	}
-	if h, _ := s.Host(); h.LockAll {
-		var named []string
-		for name, set := range map[string]bool{"web.mode": p.WebMode != nil, "web.allow": p.WebAllow != nil, "web.deny": p.WebDeny != nil,
-			"web.search": p.WebSearch != nil, "mcp.mode": p.MCPMode != nil} {
-			if set {
-				named = append(named, name)
-			}
+	// a reserved or misspelled value is said as such before the host is asked
+	if p.WebMode != nil || p.WebSearch != nil {
+		probe := WebPolicy{Search: p.WebSearch}
+		if p.WebMode != nil {
+			probe.Mode = *p.WebMode
 		}
-		slices.Sort(named)
-		if len(named) > 0 {
-			return Workspace{}, &ErrHostLocked{Settings: named}
+		if _, err := probe.Normalized(); err != nil {
+			return Workspace{}, err
 		}
+	}
+	if p.MCPMode != nil {
+		if _, err := (MCPPolicy{Mode: *p.MCPMode}).Normalized(); err != nil {
+			return Workspace{}, err
+		}
+	}
+	if h, _ := s.Host(); len(h.Refuses(p)) > 0 {
+		return Workspace{}, &ErrHostLocked{Settings: h.Refuses(p)}
 	}
 	s.wsMu.Lock()
 	defer s.wsMu.Unlock()

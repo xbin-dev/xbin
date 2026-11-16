@@ -311,10 +311,11 @@ func TestWebPolicyHostFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.store.SetHost(h)
+	// the admin's read, set before the host's file came
 	if rec := w.policy(`{"web":{"mode":"read"}}`); rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
+	w.store.SetHost(h)
 	rec := w.do(w.full, "GET", "/api/xbin/delegate/workspace", "", w.cookie("alice"))
 	var v struct {
 		Web    struct{ Mode string }
@@ -325,6 +326,13 @@ func TestWebPolicyHostFile(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &v)
 	if v.Web.Mode != "read" || v.Policy.Web.Mode != "off" || !v.Policy.Web.ByHost || v.Policy.MCP.Mode != "tiles" || v.Locks["web.mode"]["ceiling"] != "off" || !v.Host.Active {
 		t.Errorf("the view under the host's ceiling: %s", rec.Body.String())
+	}
+	// a write past the ceiling is refused by name; narrowing is the admin's
+	if rec := w.policy(`{"web":{"mode":"read"}}`); rec.Code != 409 || !strings.Contains(rec.Body.String(), `"settings":["web.mode"]`) {
+		t.Errorf("a mode past the host's: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := w.policy(`{"mcp":{"mode":"off"}}`); rec.Code != 200 {
+		t.Errorf("narrowing under the host's tiles: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := w.do(w.full, "PUT", "/api/xbin/delegate/state", `{"web":true}`, w.cookie("bob")); rec.Code != 409 || !strings.Contains(rec.Body.String(), "whoever runs this xbin") {
 		t.Errorf("on under the host's off: %d %s", rec.Code, rec.Body.String())

@@ -11,7 +11,10 @@ package delegation
 //
 // What it sets is the host's: a mode is a preset and a ceiling (the admin
 // narrows, never widens), a list always holds, and lockAll makes every web
-// and MCP setting the host's alone.
+// and MCP setting the host's alone. Locks names the settings it holds, by
+// their names in PUT /delegate/workspace, and Refuses the ones of a write
+// it refuses (409 {settings}) — the shape of the host's other settings, so
+// the two can be one file's.
 
 import (
 	"bytes"
@@ -119,6 +122,68 @@ func (h *HostFile) Current() (HostNet, string) {
 		}
 	}
 	return h.cur, h.err
+}
+
+// NetSettings are the web and MCP settings an admin writes, by their names
+// in PUT /delegate/workspace.
+var NetSettings = []string{"web.mode", "web.allow", "web.deny", "web.search", "mcp.mode"}
+
+// HostLock is one setting the host's file holds: a write of it is refused —
+// past its ceiling where it has one, at all under lockAll.
+type HostLock struct {
+	Locked bool   `json:"locked"`
+	Reason string `json:"reason"`
+	// Ceiling: the most an admin may set ("" none: no write at all).
+	Ceiling string `json:"ceiling,omitempty"`
+}
+
+const hostLockReason = "set by your host"
+
+// Locks names the settings the host's file holds. A mode it sets is a
+// ceiling; its lists hold beside the admin's own and lock nothing; under
+// lockAll every setting is locked.
+func (h HostNet) Locks() map[string]HostLock {
+	out := map[string]HostLock{}
+	if h.LockAll {
+		for _, k := range NetSettings {
+			out[k] = HostLock{Locked: true, Reason: hostLockReason}
+		}
+		return out
+	}
+	if h.Web != nil && h.Web.Mode != "" {
+		out["web.mode"] = HostLock{Locked: true, Reason: hostLockReason, Ceiling: h.Web.Mode}
+	}
+	if h.Web != nil && h.Web.Search != nil && !*h.Web.Search {
+		out["web.search"] = HostLock{Locked: true, Reason: hostLockReason, Ceiling: "false"}
+	}
+	if h.MCP != nil && h.MCP.Mode != "" {
+		out["mcp.mode"] = HostLock{Locked: true, Reason: hostLockReason, Ceiling: h.MCP.Mode}
+	}
+	return out
+}
+
+// Refuses names the settings of p the host's file refuses: every one under
+// lockAll, else a mode past the host's or search where the host keeps it off.
+func (h HostNet) Refuses(p NetPatch) []string {
+	set := map[string]bool{"web.mode": p.WebMode != nil, "web.allow": p.WebAllow != nil, "web.deny": p.WebDeny != nil,
+		"web.search": p.WebSearch != nil, "mcp.mode": p.MCPMode != nil}
+	var out []string
+	for _, k := range NetSettings {
+		if !set[k] {
+			continue
+		}
+		l, held := h.Locks()[k]
+		switch {
+		case !held:
+		case l.Ceiling == "":
+			out = append(out, k)
+		case k == "web.mode" && webRank(*p.WebMode) > webRank(l.Ceiling),
+			k == "mcp.mode" && mcpRank(*p.MCPMode) > mcpRank(l.Ceiling),
+			k == "web.search" && *p.WebSearch:
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // SetClock replaces the file's clock (tests).

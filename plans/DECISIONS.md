@@ -5293,7 +5293,10 @@ here: cut from the old end, never reword.
     `mcpReadOnly`), widening and so armed like Allow. The host's mode is a
     ceiling and a preset, not a lock against narrowing: turning a
     capability off is never what a host must prevent (`lockAll` freezes
-    all of it).
+    all of it). Its shape is the host's other settings': `locks` names
+    the held settings by their `PUT` names, and a write it refuses is `409
+    {settings}` — kept in `internal/delegation/hostfile.go` so it can
+    join the `workspaceAgent` key of the host's one file when that lands.
   - **xbind fetches, the sandbox stays "model only".** `POST
     /delegate/web/fetch` (an act): GET only, no credentials, addresses
     checked when the socket connects (no rebinding), redirects judged hop

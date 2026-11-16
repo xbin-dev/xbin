@@ -79,39 +79,14 @@ func (s *Server) netWorkspaceView(out map[string]any) {
 	if hostErr != "" {
 		hv["error"] = hostErr
 	}
-	locks := map[string]any{}
-	lock := func(name string, ceiling any) {
-		l := map[string]any{"locked": true, "reason": "set by your host"}
-		if ceiling != nil {
-			l["ceiling"] = ceiling
-		}
-		locks[name] = l
-	}
 	if host.Web != nil {
 		hv["web"] = host.Web
-		if host.Web.Mode != "" {
-			lock("web.mode", host.Web.Mode)
-		}
-		if len(host.Web.Allow) > 0 {
-			lock("web.allow", nil)
-		}
-		if len(host.Web.Deny) > 0 {
-			lock("web.deny", nil)
-		}
-		if host.Web.Search != nil {
-			lock("web.search", *host.Web.Search)
-		}
 	}
 	if host.MCP != nil {
 		hv["mcp"] = host.MCP
-		if host.MCP.Mode != "" {
-			lock("mcp.mode", host.MCP.Mode)
-		}
 	}
-	if host.LockAll {
-		locks["*"] = map[string]any{"locked": true, "reason": "set by your host"}
-	}
-	out["host"], out["locks"] = hv, locks
+	// the settings the host's file holds, by their PUT names (internal/delegation/hostfile.go)
+	out["host"], out["locks"] = hv, host.Locks()
 }
 
 func orNone(s []string) []string {

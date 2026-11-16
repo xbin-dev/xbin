@@ -100,8 +100,23 @@ func TestNetPolicyHostFile(t *testing.T) {
 	if ok, why := got.Web.HostAllows("a.intranet.example.com"); ok || !strings.Contains(why, "host's deny list") {
 		t.Errorf("the host's deny list: %v %q", ok, why)
 	}
-	// the admin narrows the web; asks MCP past the host's off and is held to it
-	if _, err := s.SetNet(NetPatch{WebMode: strp(WebOff), MCPMode: strp(MCPTiles), WebSearch: boolp(false)}, "user:ana"); err != nil {
+	// what the host holds, by name: its modes are ceilings, its lists lock nothing
+	if l := h.cur.Locks(); l["web.mode"].Ceiling != WebRead || l["mcp.mode"].Ceiling != MCPOff || l["web.search"].Ceiling != "false" || len(l) != 3 {
+		t.Errorf("the locks: %+v", l)
+	}
+	// MCP past the host's off is refused by name (409), a reserved value as not yet (400), a list is the admin's own
+	var held *ErrHostLocked
+	if _, err := s.SetNet(NetPatch{MCPMode: strp(MCPTiles), WebMode: strp(WebOff)}, "user:ana"); !errors.As(err, &held) || strings.Join(held.Settings, ",") != "mcp.mode" {
+		t.Errorf("a mode past the host's: %v", err)
+	}
+	if _, err := s.SetNet(NetPatch{WebSearch: boolp(true)}, "user:ana"); !errors.Is(err, ErrNotYet) {
+		t.Errorf("search under the host's off: %v", err)
+	}
+	if _, err := s.SetNet(NetPatch{WebDeny: &[]string{"bank.test"}}, "user:ana"); err != nil {
+		t.Errorf("the admin's own list beside the host's: %v", err)
+	}
+	// the admin narrows the web
+	if _, err := s.SetNet(NetPatch{WebMode: strp(WebOff), WebSearch: boolp(false)}, "user:ana"); err != nil {
 		t.Fatal(err)
 	}
 	got = s.NetPolicy()
@@ -118,8 +133,11 @@ func TestNetPolicyHostFile(t *testing.T) {
 		t.Errorf("after the reload (lockAll, the admin's off no longer in force): %+v", got)
 	}
 	var lk *ErrHostLocked
-	if _, err := s.SetNet(NetPatch{WebMode: strp(WebOff)}, "user:ana"); !errors.As(err, &lk) || lk.Settings[0] != "web.mode" {
+	if _, err := s.SetNet(NetPatch{WebMode: strp(WebOff), WebDeny: &[]string{"x.test"}}, "user:ana"); !errors.As(err, &lk) || strings.Join(lk.Settings, ",") != "web.mode,web.deny" {
 		t.Errorf("a write under lockAll: %v", err)
+	}
+	if l := h.cur.Locks(); len(l) != len(NetSettings) || l["web.allow"].Ceiling != "" || !l["web.allow"].Locked {
+		t.Errorf("lockAll's locks name every setting: %+v", l)
 	}
 	writeHost(t, dir, `{"web": {"mode": "full"}}`)
 	clock = clock.Add(3 * time.Second)

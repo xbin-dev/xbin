@@ -495,14 +495,18 @@ admin's view says so (`host.error`).
 }
 ```
 
+- `locks` (of `GET /delegate/workspace`) names the settings the file
+  holds, by their names in the `PUT`: `{"web.mode": {locked: true,
+  reason: "set by your host", ceiling?}, …}`. A write the file refuses is
+  `409 {error, settings}`, naming them.
 - `web.mode`, `web.search` and `mcp.mode` are a **preset and a ceiling**:
   in force is the admin's value when they set one, never past the host's,
-  and the host's without one. An admin can narrow (turn it off), never
-  widen; their settings read `locks: {"web.mode": {locked, reason: "set by
-  your host", ceiling}}`.
-- `web.allow` and `web.deny` always hold, beside the admin's own lists.
-- `"lockAll": true`: every web and MCP setting is the host's; writing one
-  is `409 {settings}`.
+  and the host's without one. An admin can narrow (turn it off); a write
+  past the ceiling is refused.
+- `web.allow` and `web.deny` always hold, beside the admin's own lists;
+  they lock nothing (`policy.web.hostAllow`, `hostDeny`).
+- `"lockAll": true`: every web and MCP setting is the host's — `locks`
+  names each, without a ceiling — and writing any is refused.
 
 ## Notices to the agent's backend
 
