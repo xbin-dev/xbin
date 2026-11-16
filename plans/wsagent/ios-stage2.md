@@ -624,7 +624,8 @@ Each fails without its rule:
 | the collapsed lock-screen preview shows a 120-byte target and a 3-line body in full | the longest eligible request on an iPhone with the largest default text size: swipe → Options; the whole call above the menu |
 | Face ID on an action | lock the phone; Allow once → Face ID; the follow-up |
 | time-sensitive delivery through Focus | after step 12.3, with a Focus on |
-| the Dynamic Island | an iPhone with one: compact, minimal (two activities), expanded |
+| the Dynamic Island | an iPhone with one: compact, expanded, and minimal — drawn only beside another app's Live Activity (the island shows one per app), which the simulator has none of, so it is unseen here |
+| the lock screen in the system's dark appearance | the UI tests' `-XbinAppearance dark` darkens the app only; Springboard and the card follow the simulator's own appearance (light in the gallery) |
 | dictation's audio | the mic, a sentence, the draft |
 | Handoff to a Mac | the conversation in front on the phone → the Mac's Dock icon → `/xbin/agent` on the same session |
 | background refresh cadence | a day of use: the badge matches Needs you |

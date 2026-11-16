@@ -72,7 +72,7 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
         e.expect(banner, 60, "the approval's banner")
         XCTAssertTrue(e.notifyContaining("PUT /api/apps/note").exists || e.notifyContaining("/api/apps/note").exists,
                       "the call itself, in full, on an eligible request")
-        banner.press(forDuration: 1.2)
+        e.notifyActions("Approval needed", until: "Allow once")
         let allowOnce = e.springboard.buttons["Allow once"]
         e.expect(allowOnce, 15, "Allow once among the actions")
         XCTAssertTrue(e.springboard.buttons["Deny"].exists && e.springboard.buttons["Review…"].exists, "Deny and Review… beside it")
@@ -86,6 +86,7 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
         await e.eventually("the note changed", timeout: 60) {
             e.server.wsNoteValue(try await e.server.wsNote()).contains("allowed from a notification")
         }
+        e.expectStillRunning("after Allow once")
         e.app.activate()
     }
 
@@ -103,18 +104,18 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
         e.expect(banner, 60, "the approval's banner")
         // meanwhile, elsewhere (the test's own sign-in)
         try await e.server.wsApprove(ref)
-        banner.press(forDuration: 1.2)
+        e.notifyActions("Approval needed", until: "Deny")
         let deny = e.springboard.buttons["Deny"]
         e.expect(deny, 15, "Deny among the actions")
         deny.tap()
         // nothing was sent: it stays what the web made it
-        let follow = e.notifyBanner("Already decided")
-        e.expect(follow, 45, "the follow-up: already decided")
+        e.expect(e.notifyFind("Already decided"), 15, "the follow-up: already decided")
         let state = try await e.server.wsRequest(ref)["state"] as? String
         XCTAssertTrue(["approved", "used"].contains(state ?? ""), "the web's decision stands: \(state ?? "")")
+        e.expectStillRunning("after Deny")
         e.shot("wsnotify-02-already-decided-banner")
         // its Review… opens the sheet, which says where it was decided
-        follow.press(forDuration: 1.2)
+        e.notifyActions("Already decided", until: "Review…")
         let review = e.springboard.buttons["Review…"]
         e.expect(review, 15, "Review… on the follow-up")
         review.tap()
@@ -142,7 +143,7 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
         let banner = e.notifyBanner("Approval needed")
         e.expect(banner, 60, "the approval's banner")
         XCTAssertTrue(e.notifyContaining("Open to see exactly what").exists, "xbind's sentence, not the call")
-        banner.press(forDuration: 1.2)
+        e.notifyActions("Approval needed", until: "Review…")
         e.expect(e.springboard.buttons["Review…"], 15, "Review…")
         XCTAssertFalse(e.springboard.buttons["Allow once"].exists, "no Allow once for what doesn't fit")
         XCTAssertTrue(e.springboard.buttons["Deny"].exists, "Deny is there")
@@ -168,7 +169,7 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
         let banner = e.notifyBanner("Question from your workspace agent")
         e.expect(banner, 60, "the question's banner")
         XCTAssertTrue(e.notifyContaining("Your agent asks: “").exists, "the question, quoted as the agent's")
-        banner.press(forDuration: 1.2)
+        e.notifyActions("Question from your workspace agent", until: "Reply")
         let reply = e.springboard.buttons["Reply"]
         e.expect(reply, 15, "Reply")
         reply.tap()
@@ -181,6 +182,7 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
         }
         let still = try await e.server.wsRequestState(ref)
         XCTAssertEqual(still, "pending", "a reply that says “Allow once” is a message, never a decision")
+        e.expectStillRunning("after Reply")
         e.app.activate()
     }
 
@@ -216,8 +218,11 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
             }
             // the lock screen: the card, and the notification in the list. It is the
             // system's (the simulator's appearance, which the app's flag doesn't change):
-            // once is enough, and a second visit finds the list moved on
-            guard appearance == "light" else { e.app.terminate(); continue }
+            // once is enough, and a second visit finds the list moved on. On an iPad
+            // the simulator's lock screen keeps its first-card prompt over the list
+            // and an action is taken from Notification Center (tests 01–04): the
+            // iPhone's pass has the lock screen
+            guard appearance == "light", !e.isPad else { e.app.terminate(); continue }
             e.lockDevice()
             // the first card on the lock screen: iOS asks whether the app may show
             // them there ("Allow"; again later: "Always Allow")
@@ -244,6 +249,9 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
             }
             e.expect(e.springboard.buttons["Allow once"], 15, "the actions on the lock screen")
             XCTAssertTrue(e.springboard.buttons["Deny"].exists && e.springboard.buttons["Review…"].exists, "Deny and Review… beside it")
+            XCTAssertFalse(e.springboard.buttons["Reply"].exists, "an approval has no Reply")
+            // the simulator brings its keyboard up with an expanded notification: say what has focus
+            print("lock screen actions: text fields \(e.springboard.textFields.count), text views \(e.springboard.textViews.count)")
             e.dismissKeyboardTip()
             e.shot("wsnotify-\(appearance)-06-lock-screen-actions")
             e.springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
@@ -270,6 +278,40 @@ extension E2E {
     /// A banner (or a notification in the list) whose text has `title`.
     func notifyBanner(_ title: String) -> XCUIElement {
         springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+    }
+
+    /// The app handled a notification's action in the background and is
+    /// still there: a completion handler called off the main thread is an
+    /// uncaught exception in UIKit's snapshot, after the action's effect.
+    func expectStillRunning(_ what: String, file: StaticString = #filePath, line: UInt = #line) {
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertNotEqual(app.state, .notRunning, "the app is still running \(what) (it would have crashed handing the action back)", file: file, line: line)
+    }
+
+    /// A long press on the notification whose text has `title` opens its
+    /// actions; `until` is one of them. A banner that went up before the
+    /// press (an iPad's go sooner) is in Notification Center: the press is
+    /// made there.
+    func notifyActions(_ title: String, until action: String) {
+        notifyCell(title).press(forDuration: 1.2)
+        if springboard.buttons[action].waitForExistence(timeout: 5) { return }
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.003))
+            .press(forDuration: 0.05, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
+        _ = notifyBanner(title).waitForExistence(timeout: 10)
+        notifyCell(title).press(forDuration: 1.5)
+        _ = springboard.buttons[action].waitForExistence(timeout: 10)
+    }
+
+    /// A notification whose text has `title`: its banner, or — a follow-up
+    /// that replaces a notification acted on from Notification Center comes
+    /// without one (an iPad's) — the notification in Notification Center.
+    func notifyFind(_ title: String, timeout: TimeInterval = 45) -> XCUIElement {
+        let found = notifyBanner(title)
+        if found.waitForExistence(timeout: timeout / 2) { return found }
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.003))
+            .press(forDuration: 0.05, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
+        _ = found.waitForExistence(timeout: timeout / 2)
+        return found
     }
 
     /// The notification itself whose text has `title`: the smallest element
@@ -302,8 +344,12 @@ extension E2E {
         if !settings.isHittable { app.swipeUp() }
         settings.tap()
         let row = app.buttons.matching(identifier: "settings-agent-notifications").firstMatch
-        for _ in 0..<4 where !(row.exists && row.isHittable) {
-            app.swipeUp()
+        // short drags: an iPad's sheet is small, and a swipe can carry the row past its header
+        let sheet = app.windows.firstMatch
+        for _ in 0..<8 where !(row.exists && row.isHittable) {
+            let up = !row.exists || row.frame.midY > sheet.frame.midY
+            let from = sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.62 : 0.4))
+            from.press(forDuration: 0.05, thenDragTo: sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.47 : 0.55)))
             _ = row.waitForExistence(timeout: 2)
         }
         expect(row, 20, "Workspace agent under Notifications", file: file, line: line)

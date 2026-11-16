@@ -42,6 +42,8 @@ public func XCTAssertFalse(_ expression: @autoclosure () throws -> Bool, _ messa
                            file: StaticString = #filePath, line: UInt = #line) {}
 public func XCTAssertEqual<T: Equatable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
                                          _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
+public func XCTAssertNotEqual<T: Equatable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
+                                            _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
 public func XCTAssertLessThan<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
                                             _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
 public func XCTAssertGreaterThan<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
@@ -249,6 +251,8 @@ open class XCUIApplication: XCUIElement {
     open func activate() {}
     open func terminate() {}
     open func open(_ url: URL) {}
+    public enum State: UInt, Sendable { case unknown, notRunning, runningBackgroundSuspended = 2, runningBackground, runningForeground }
+    open var state: State { .unknown }
 }
 
 @MainActor

@@ -91,7 +91,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return [.banner, .list, .sound]
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    /// A notification's tap or action. The completion handler is called on
+    /// the main thread: for an action that leaves the app in the background
+    /// (Deny, Allow once, Reply — D241) UIKit snapshots the app when it is
+    /// called, and from any other thread that is an uncaught exception (the
+    /// `async` form of this method returns on whatever thread its last await
+    /// resumed on).
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
         let app = info["app"] as? String ?? ""
         let link = info["link"] as? String ?? ""
@@ -101,8 +108,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let text = (response as? UNTextInputNotificationResponse)?.userText
         let identifier = response.notification.request.identifier
         let strings = SendableUserInfo(info).strings
-        if await AgentNotifications.shared.handle(info: strings, action: action, text: text, identifier: identifier) { return }
-        await MainActor.run {
+        let done = MainThreadCompletion(completionHandler)
+        Task { @MainActor in
+            defer { done.call() }
+            if await AgentNotifications.shared.handle(info: strings, action: action, text: text, identifier: identifier) { return }
             guard let w = AppModel.shared.workspace(app) else { return }
             if action == "mute", link.hasPrefix("c/") {
                 let tile = PushPayload(ws: "", kind: "tile", title: "", link: link).deepLink(appWorkspace: w.id)
@@ -141,4 +150,12 @@ enum BaseTwoChrome {
         let large = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: base, maximumPointSize: 64)
         UINavigationBar.appearance().largeTitleTextAttributes = [.font: large]
     }
+}
+
+/// A notification response's completion handler, carried to the main actor
+/// and called there (UIKit's rule for it).
+struct MainThreadCompletion: @unchecked Sendable {
+    private let handler: () -> Void
+    init(_ handler: @escaping () -> Void) { self.handler = handler }
+    @MainActor func call() { handler() }
 }
