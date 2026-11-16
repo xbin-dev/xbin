@@ -213,7 +213,8 @@ func (s *Store) person(user string) (int64, bool) {
 }
 
 // read loads user's file (s.mu held): empty for none, and for one another
-// account of the same id wrote.
+// account of the same id wrote. A file whose secrets are in the clear (the
+// plaintext vault mode) is sealed here as soon as a barrier is open.
 func (s *Store) read(user string) (file, error) {
 	f := file{V: 1, User: user}
 	b, err := os.ReadFile(s.path(user))
@@ -232,6 +233,16 @@ func (s *Store) read(user string) (file, error) {
 	}
 	if got.User != user {
 		return f, nil
+	}
+	if got.Enc == 0 && len(got.Secrets) > 0 && s.VaultState() == VaultOpen {
+		// kept in the clear while the workspace had no vault barrier: sealed
+		// on the first read once one exists, whatever the read is for — not
+		// left until the person next saves a sign-in
+		if err := s.write(got, got.Secrets); err != nil {
+			slog.Warn("signins: sealing a file kept in the clear", "user", user, "err", err)
+			return got, nil
+		}
+		return s.read(user) // sealed now (or gone): no second pass
 	}
 	return got, nil
 }

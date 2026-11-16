@@ -45,8 +45,8 @@ GET    /agent/signins/people      a workspace admin. {available, why?,
 DELETE /agent/signins/people/<user>/<id>
                                    a workspace admin. revoke one →
                                    {ok, ended}
-PUT    /agent/signins/policy      a workspace admin. {enabled} → {policy};
-                                   409 while the host's file sets it
+PUT    /agent/signins/policy      a workspace admin. {enabled} → {policy,
+                                   ended}; 409 while the host's file sets it
 ```
 
 **No answer of any route carries a secret, or a part of one** — not a
@@ -162,11 +162,16 @@ naming who did it.
 
 `PUT /agent/signins/policy {enabled}` is the workspace's switch "people may
 save coding-agent sign-ins", on by default. Off: nothing is put into a
-session and nothing can be saved, replaced or made default; what is saved
-stays listed and removable, and works again when the switch returns. A host
+session and nothing can be saved, replaced or made default; the running
+sessions that carry a saved sign-in are ended (`ended`: how many), as when
+one is removed; what is saved stays listed and removable, and works again
+when the switch returns. A host
 sets it for good with `"agentSignIns": true | false` in the deployment file
 ([llm.md](/docs/llm.md) → "The host's file"): the policy then reads
 `{enabled, locked: true, reason: "set by your host"}` and a write is 409.
+A host's file that turns them off while sessions run ends those sessions
+the next time xbind judges the rule (anyone opens a launcher, starts an
+agent or reads `?tile=`), not at the moment the file changes.
 
 Every save, removal, revoke, switch and use is in xbind's audit log
 (`audit` lines with `event` `signin.save`, `signin.remove`,

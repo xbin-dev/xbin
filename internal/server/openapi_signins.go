@@ -42,7 +42,7 @@ func signinsEndpoints() []ep {
 			"Removes it, ends that person's sessions running on it, and leaves them a notice naming who did it. 404 no such sign-in. Audited.",
 			[]oapi{pathParam("user", "user id"), pathParam("id", "sign-in id")}, nil, "{ok, ended}"},
 		{"PUT", "/agent/signins/policy", "Agent sessions", "Set whether people may save sign-ins", admin,
-			"The workspace's switch, on by default. Off: nothing is put into a session and nothing can be saved or made default; what is saved stays listed and removable, and works again when the switch returns. 409 the host's file sets it (agentSignIns in XBIN_LLM_CONFIG). Audited.",
-			nil, jsonBody("the switch", oapi{"enabled": boolean()}, "enabled"), "{policy}"},
+			"The workspace's switch, on by default. Off: nothing is put into a session, nothing can be saved or made default, and the running sessions that carry a saved sign-in are ended (ended: how many); what is saved stays listed and removable, and works again when the switch returns. 409 the host's file sets it (agentSignIns in XBIN_LLM_CONFIG). Audited.",
+			nil, jsonBody("the switch", oapi{"enabled": boolean()}, "enabled"), "{policy, ended}"},
 	}
 }

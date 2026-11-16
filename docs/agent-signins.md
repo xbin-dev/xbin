@@ -205,8 +205,9 @@ One element, `<bx-agent-signin>`, in xbin's own chrome:
 ## Admins and hosts
 
 - **The workspace's switch** — "people may save coding-agent sign-ins", on
-  by default (`PUT /agent/signins/policy`). Off: none is used or saved;
-  what is saved stays and works again when the switch returns.
+  by default (`PUT /agent/signins/policy`). Off: none is used or saved,
+  and the running sessions that carry one are ended; what is saved stays
+  and works again when the switch returns.
 - **The host** sets and locks it with `"agentSignIns": true | false` in
   the deployment file ([llm.md](/docs/llm.md) → "The host's file").
 - **Admins see that, not what**: who has sign-ins, for which coding agent,

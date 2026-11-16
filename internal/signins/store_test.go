@@ -293,7 +293,8 @@ func TestVaultStates(t *testing.T) {
 		t.Fatalf("locked: %v", err)
 	}
 	// the plaintext vault mode keeps it in the clear, and seals it on the
-	// first write after a barrier exists
+	// first read after a barrier exists — a metadata-only read (a list), not
+	// only the next save (review finding 7)
 	p := New(Options{Dir: w.dir, AllowPlaintext: true, Now: func() time.Time { return w.now }})
 	if _, _, err := p.Save("alice", "claude", "", fakeOAT, false); err != nil {
 		t.Fatal(err)
@@ -302,12 +303,18 @@ func TestVaultStates(t *testing.T) {
 		t.Fatal("plaintext mode didn't keep it in the clear")
 	}
 	w.vault.uninit = false
+	if got, _, err := w.s.List("alice"); err != nil || len(got) != 1 {
+		t.Fatalf("list after the barrier appeared: %v %v", got, err)
+	}
+	if diskHolds(t, w.dir, fakeOAT) {
+		t.Fatal("still in the clear after a read with a barrier")
+	}
 	if c, err := w.s.Use("alice", "claude", "", UseFor{}); err != nil || c.Secret != fakeOAT {
-		t.Fatalf("read after the barrier appeared: %v", err)
+		t.Fatalf("use after it was sealed: %v", err)
 	}
 	save(t, w, "alice", "claude", "Second", fakeKey, false)
-	if diskHolds(t, w.dir, fakeOAT) {
-		t.Fatal("still in the clear after a write with a barrier")
+	if diskHolds(t, w.dir, fakeOAT) || diskHolds(t, w.dir, fakeKey) {
+		t.Fatal("in the clear after a write with a barrier")
 	}
 }
 

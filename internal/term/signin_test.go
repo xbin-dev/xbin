@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -729,4 +730,50 @@ func TestSigninHistoryIsThePersonsAlone(t *testing.T) {
 			t.Fatalf("her own list lost a preview: %+v", row)
 		}
 	}
+}
+
+// Switching saved sign-ins off ends the running sessions that carry one
+// (review finding 7), as removing a sign-in does — by the sweep the route
+// runs, and, where the host's file turned them off, the next time xbind
+// judges any start.
+func TestSigninsOffEndsRunningSessions(t *testing.T) {
+	r, f, _ := signinRig(t, "--require-login")
+	f.put("alice", "fake", "Personal", "CLAUDE_CODE_OAUTH_TOKEN", signins.KindSetupToken, fakeSavedToken)
+	signIn(t, r.root, "alice")
+	alice := termAdmin("alice")
+	prov, _ := agent.Lookup("fake")
+	var off atomic.Bool
+	r.m.SigninsOff = off.Load
+	ended := func(id string) {
+		t.Helper()
+		_, st, err := r.m.agentOf(id)
+		if err != nil {
+			return
+		}
+		select {
+		case <-st.gone:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the session kept running on a sign-in the workspace switched off")
+		}
+	}
+	a := r.openLLM(t, alice, AgentOpen{})
+	plain := r.openLLM(t, alice, AgentOpen{Signin: SigninNone})
+	if n := r.m.SigninSweep(); n != 0 {
+		t.Fatalf("on: the sweep ended %d", n)
+	}
+	off.Store(true)
+	if n := r.m.SigninSweep(); n != 1 {
+		t.Fatalf("off: the sweep ended %d session(s), want the one on a sign-in", n)
+	}
+	ended(a.ID)
+	if _, _, err := r.m.agentOf(plain.ID); err != nil {
+		t.Fatal("a session without a sign-in was ended too")
+	}
+	// the host's file: nobody calls the sweep — the next judgement notices
+	off.Store(false)
+	b := r.openLLM(t, alice, AgentOpen{})
+	off.Store(true)
+	r.m.SigninRule(alice, "apps/x", prov)
+	ended(b.ID)
+	r.endSession(t, plain.ID)
 }

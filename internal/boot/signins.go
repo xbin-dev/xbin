@@ -65,6 +65,7 @@ func (st *State) setupSignins(srv *server.Server) {
 		// enabled people with write level or more on the tile the path lies
 		// in (broker/signinothers.go). Workspace admins aren't counted.
 		tm.SigninOthers = brk.SigninOthers
+		tm.SigninsOff = func() bool { return !store.Policy().Enabled } // the admins' switch, or the host's file
 		// people or their access changed: a session on a saved sign-in whose
 		// tile someone else can now open a terminal on is ended
 		prevPeople := brk.OnPeopleChanged

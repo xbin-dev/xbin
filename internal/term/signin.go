@@ -50,6 +50,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
@@ -76,6 +77,11 @@ type SigninHook struct {
 	// session there runs. ok false: the path lies in no tile. nil ⇒ unknown,
 	// and no saved sign-in goes into any session.
 	SigninOthers func(user, path string) (tile string, others []string, ok bool)
+	// SigninsOff reports saved sign-ins switched off for the workspace (the
+	// admins' switch, or the host's file): running sessions that carry one
+	// are ended, as when a sign-in is removed (SigninSweep). nil ⇒ never.
+	SigninsOff func() bool
+	offSeen    atomic.Bool
 	// SigninDev: a development workspace (--dev, --no-auth), where saved
 	// sign-ins work without sandboxes.
 	SigninDev bool
@@ -283,6 +289,9 @@ func signinPerson(p auth.Principal) bool {
 // signinWhy is the rule: why a saved sign-in of p's does not go into a
 // session of prov they open on rel ("" = it does).
 func (m *Manager) signinWhy(p auth.Principal, o openOpts, rel string, prov agent.Provider, forced, chosen bool) string {
+	if m.signinsOff() { // (seen off for the first time: the running sessions end)
+		return "saved coding-agent sign-ins are switched off for this workspace"
+	}
 	switch {
 	case !signinPerson(p):
 		return "a saved sign-in goes only into a session its person opened themselves"
@@ -552,11 +561,13 @@ func (m *Manager) EndSigninSessions(user, id, why string) int {
 }
 
 // SigninSweep judges the running sessions that carry a saved sign-in
-// again, after people or their access changed: one whose tile someone else
-// can now open a terminal on is ended (the next start is judged afresh and
+// again, after people or their access changed, or the workspace's switch
+// did: with saved sign-ins switched off every one is ended; else one whose
+// tile someone else can now change is (the next start is judged afresh and
 // says why it runs without). It answers how many it ended.
 func (m *Manager) SigninSweep() int {
-	if m.SigninOthers == nil {
+	off := m.signinsOff()
+	if m.SigninOthers == nil && !off {
 		return 0
 	}
 	n := 0
@@ -571,6 +582,11 @@ func (m *Manager) SigninSweep() int {
 		if !carries {
 			continue
 		}
+		if off {
+			m.endForSignin(s, "Saved coding-agent sign-ins were switched off for this workspace, so this session — which ran on yours — was ended.")
+			n++
+			continue
+		}
 		tile, others, ok := m.SigninOthers(user, s.Cwd)
 		if !ok { // its tile is gone from the registry: nothing vouches for it any more
 			m.endForSignin(s, s.Cwd+" is no longer a registered tile, so this session — which ran on your saved sign-in — was ended.")
@@ -581,6 +597,22 @@ func (m *Manager) SigninSweep() int {
 		}
 	}
 	return n
+}
+
+// signinsOff reads the workspace's switch, and — the first time it is seen
+// off — sweeps: the host's file can turn saved sign-ins off with no request
+// to xbind, so every judgement of the rule (signinWhy) looks.
+func (m *Manager) signinsOff() bool {
+	if m.SigninsOff == nil {
+		return false
+	}
+	off := m.SigninsOff()
+	if !off {
+		m.offSeen.Store(false)
+	} else if !m.offSeen.Swap(true) {
+		go m.SigninSweep()
+	}
+	return off
 }
 
 // keyHomeDir makes the directory a non-isolated session's saved key lives

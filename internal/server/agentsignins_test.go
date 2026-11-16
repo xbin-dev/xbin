@@ -410,7 +410,7 @@ func TestSigninsAdminRoutes(t *testing.T) {
 	}
 
 	// the switch
-	if c, b := do(alice, "PUT", "/policy", `{"enabled":false}`); c != 200 || !strings.Contains(b, `"enabled":false`) {
+	if c, b := do(alice, "PUT", "/policy", `{"enabled":false}`); c != 200 || !strings.Contains(b, `"enabled":false`) || !strings.Contains(b, `"ended":0`) {
 		t.Fatalf("off: %d %s", c, b)
 	}
 	if c, b := do(bob, "POST", "", `{"harness":"claude","secret":"`+fakeSigninKey+`"}`); c != 403 || !strings.Contains(b, "switched off") {

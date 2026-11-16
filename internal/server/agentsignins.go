@@ -365,7 +365,8 @@ func (s *Server) apiSigninsRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiSigninsPolicyPut — PUT /agent/signins/policy {enabled}: the
-// workspace's switch. 409 while the host's file holds it.
+// workspace's switch. 409 while the host's file holds it. Off ends the
+// running sessions that carry a saved sign-in → {policy, ended}.
 func (s *Server) apiSigninsPolicyPut(w http.ResponseWriter, r *http.Request) {
 	if !s.signinsAdmin(w, r) {
 		return
@@ -384,6 +385,10 @@ func (s *Server) apiSigninsPolicyPut(w http.ResponseWriter, r *http.Request) {
 		writeSigninsErr(w, err)
 		return
 	}
-	slog.Info("audit", "event", "signin.policy", "who", auth.PrincipalOf(r).From(), "enabled", cur.Enabled, "was", old.Enabled)
-	WriteJSON(w, http.StatusOK, map[string]any{"policy": cur})
+	ended := 0
+	if !cur.Enabled && s.Term != nil { // off: the running sessions that carry a sign-in end, as when one is removed
+		ended = s.Term.SigninSweep()
+	}
+	slog.Info("audit", "event", "signin.policy", "who", auth.PrincipalOf(r).From(), "enabled", cur.Enabled, "was", old.Enabled, "ended", ended)
+	WriteJSON(w, http.StatusOK, map[string]any{"policy": cur, "ended": ended})
 }
