@@ -409,7 +409,20 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 		}
 		// what the person saw must still be what is there — and, for a plan,
 		// what their agent may touch, and theirs to do without an admin if
-		// that is what it was
+		// that is what it was. Each line is judged with the person's rights
+		// as they are NOW: an earlier line of this very set may have made the
+		// tile this one is about (their level on it didn't exist when the
+		// request came in), and an account disabled meanwhile applies nothing
+		if cs.Plan {
+			cur, ok := s.currentPerson(approver)
+			if !ok {
+				it.Result, it.Error = delegation.ItemFailed, "this account can no longer apply changes"
+				failed = true
+				problems++
+				continue
+			}
+			approver, agent = cur, s.agentOf(*cs, cur)
+		}
 		pv, err := s.previewLine(approver, agent, pinStart(it.ChangeOp, it.Start), nil)
 		why := ""
 		if err == nil && pv.Blocked == "" && cs.Plan {

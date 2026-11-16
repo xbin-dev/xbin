@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// the plan the prompt and the tool ask for (plans/wsagent/journey.md §6c):
+// the plan the prompt and the tool ask for (D238):
 // a tool tile, an assistant, its two slots, and the tile agent that builds
 // the tool — one call, five lines.
 const wsDicePlan = `{"title":"A dice tool and an assistant that can use it","changes":[

@@ -198,8 +198,8 @@ func TestCoordWakeAdmitBurst(t *testing.T) {
 	}
 }
 
-// A tile agent's turn that begins and ends between two reads (G12,
-// plans/wsagent/journey.md): both reads say "idle", and only the turn's
+// A tile agent's turn that begins and ends between two reads (D238's G12):
+// both reads say "idle", and only the turn's
 // number moved. It is news all the same — the conversation is told, once.
 // The same for a first turn that was over before the first read after the
 // start (a row that was "idle" from the moment it was made).

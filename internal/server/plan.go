@@ -104,6 +104,22 @@ func (s *Server) agentOf(cs delegation.ChangeSet, person auth.Principal) planAge
 	return planAgent{p: d}
 }
 
+// currentPerson is p with its account and access read again (false: the
+// account is gone or disabled). A principal that is no account's — the
+// implicit owner under --no-auth — is as it was.
+func (s *Server) currentPerson(p auth.Principal) (auth.Principal, bool) {
+	if p.UserID == "" || p.User == nil || s.Auth == nil || s.Auth.Users == nil {
+		return p, true
+	}
+	u, ok := s.Auth.Users.Get(p.UserID)
+	if !ok || u.Disabled {
+		return p, false
+	}
+	p.User = u
+	p.Access, _ = s.Auth.Users.Access(p.UserID)
+	return p, true
+}
+
 // lineAgentRefusal is why the agent may not change one of tiles ("": it
 // may): AgentLineChecker's answer, in its words.
 func (s *Server) lineAgentRefusal(a planAgent, tiles []string) string {
