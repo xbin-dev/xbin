@@ -72,6 +72,9 @@ func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 	// (a tile's own credentials ask about their tile only: CanReadTile passes
 	// every element)
 	cwd := strings.Trim(r.URL.Query().Get("cwd"), "/")
+	if cwd != "" {
+		cwd = s.sessionTile(cwd) // a directory inside a tile: what may run there is the tile's
+	}
 	if cwd == "" || s.Term == nil || !p.CanReadTile(cwd) || (p.Component != "" && p.Component != cwd) {
 		rows := make([]providerRow, len(provs))
 		for i, pr := range provs {
