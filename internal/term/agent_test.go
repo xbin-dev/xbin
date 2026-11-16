@@ -78,7 +78,31 @@ func newAgentRig(t *testing.T) *agentRig {
 		default: // a test that doesn't read them
 		}
 	}
+	// what a test leaves running ends with it (before its directories go):
+	// an agent that outlived its test is one more fake process for a later
+	// test's count of them (TestAgentSessionEndToEnd) under -count
+	t.Cleanup(func() { r.endAll(t) })
 	return r
+}
+
+// endAll ends every session the rig's manager still has and waits for
+// each agent's teardown.
+func (r *agentRig) endAll(t *testing.T) {
+	for _, s := range r.m.sorted() {
+		var gone chan struct{}
+		if s.agent != nil {
+			gone = s.agent.gone
+		}
+		r.m.Kill(s.ID)
+		if gone == nil {
+			continue
+		}
+		select {
+		case <-gone:
+		case <-time.After(10 * time.Second):
+			t.Errorf("session %s did not end with its test", s.ID)
+		}
+	}
 }
 
 // until drains live events until one satisfies pred (5 s).
