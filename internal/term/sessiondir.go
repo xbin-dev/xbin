@@ -4,22 +4,43 @@ import (
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// noTerminal is why p opens no terminal at rel ("" when it may): the path
-// is no tile (sessionDir), or p has no terminal level there. err is
-// SafeJoin's.
-func (m *Manager) noTerminal(p auth.Principal, rel string, err error) string {
+// noTerminal is why p opens no terminal at rel ("" when it may), and the
+// tile the session is on: the path is no tile (sessionTile), or p has no
+// terminal level on the TILE it is, or lies in. err is SafeJoin's.
+func (m *Manager) noTerminal(p auth.Principal, rel string, err error) (tile, why string) {
 	if err == nil && rel != "" {
-		if why := m.sessionDir(rel); why != "" {
-			return why
+		if tile, why = m.sessionTile(rel); why != "" {
+			return "", why
 		}
-		if p.CanTerminalTile(rel) {
-			return ""
+		if p.CanTerminalTile(tile) {
+			return tile, ""
 		}
 	}
-	return "your account doesn't have terminal access to this tile"
+	return "", noTerminalLevel
+}
+
+// noTerminalLevel is the refusal of a session on a tile the caller has no
+// terminal level on.
+const noTerminalLevel = "your account doesn't have terminal access to this tile"
+
+// sessionTile is the tile a session whose directory is rel opens on, or why
+// it opens on none (sessionDir). Every level, owner, org, policy, target,
+// partition and listing of the session is that tile's (TileOf): a level
+// looked up for the directory's own path would meet no exact entry, no
+// owner and no org — only patterns — so `apps/*: terminal` beside an exact
+// `apps/crm: none` opened a shell at apps/crm/src, and a personal pattern
+// reached into an org's tile past D31. The directory stays where the
+// session starts, inside that tile's sandbox.
+func (m *Manager) sessionTile(rel string) (tile, why string) {
+	if why = m.sessionDir(rel); why != "" {
+		return "", why
+	}
+	tile, _ = m.TileOf(rel) // sessionDir found it, with a registry
+	return tile, ""
 }
 
 // TileOf is the registered tile the workspace-relative path rel is, or lies
@@ -38,6 +59,56 @@ func (m *Manager) TileOf(rel string) (tile string, ok bool) {
 		return rel, false
 	}
 	return tile, true
+}
+
+// onTile is the tile o's session is on (sessionTile, at the gate); rel, its
+// directory, for an open that names none.
+func (o openOpts) onTile(rel string) string {
+	if o.tile != "" {
+		return o.tile
+	}
+	return rel
+}
+
+// tileOf is the tile s is on, fixed at its start (sessionTile); a session
+// made without one is on the tile its directory resolves to now.
+func (m *Manager) tileOf(s *Session) string {
+	if s.tile != "" {
+		return s.tile
+	}
+	tile, _ := m.TileOf(s.Cwd)
+	return tile
+}
+
+// onTileOrCwd is tileOf without the manager: the tile s was opened on, else
+// its directory.
+func (s *Session) onTileOrCwd() string {
+	if s.tile != "" {
+		return s.tile
+	}
+	return s.Cwd
+}
+
+// historyTile is the tile a past session ran on: the one its directory
+// resolves to (TileOf); its directory itself once that tile is gone.
+func (m *Manager) historyTile(meta HistoryMeta) string {
+	tile, _ := m.TileOf(meta.Cwd)
+	return tile
+}
+
+// dirWithoutLink reports whether root/rel is a directory reached from root
+// without a symlink at any step (fsutil.OpenIn, as the code API and the /c/
+// plane reach a tile's directory): a session's directory is bound
+// read-write and decided on the tile it lies in, and a link inside a tile
+// (apps/a/sub -> ../b) would make that another tile's directory.
+func dirWithoutLink(root, rel string) bool {
+	d, err := fsutil.OpenIn(root, rel, "")
+	if err != nil {
+		return false
+	}
+	defer d.Close()
+	fi, err := d.Stat()
+	return err == nil && fi.IsDir()
 }
 
 // termKey is the per-component key for a terminal's persistent layer.

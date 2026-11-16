@@ -57,6 +57,18 @@ func (s *Server) TermStatus(cwd string, st term.StatusChange) {
 	s.Hub.Publish(events.Event{Type: "term", Component: cwd, Data: termStatus{Op: "status", StatusChange: st}})
 }
 
+// sessionTile is the registered tile a session's directory (cwd), or a past
+// session's, is or lies in (term.Manager.TileOf): what every decision about
+// that session is made on — the directory may be inside its tile, and its
+// own path matches only patterns. The directory itself when no tile holds it.
+func (s *Server) sessionTile(cwd string) string {
+	if s.Term == nil {
+		return strings.Trim(cwd, "/")
+	}
+	tile, _ := s.Term.TileOf(cwd)
+	return tile
+}
+
 // owned is what the per-user event kinds (`term`, `session`) carry: whose
 // they are, for the filter.
 type owned interface{ Owner() string }
@@ -124,7 +136,7 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := s.Term.ListFor(homeKey, r.URL.Query().Get("cwd"), may)
 	if p.Agent != "" { // a person's agent: not the tiles whose org keeps it out (delegate.go)
-		rows = slices.DeleteFunc(rows, func(si term.SessionInfo) bool { return s.delegateHides(p, si.Cwd) })
+		rows = slices.DeleteFunc(rows, func(si term.SessionInfo) bool { return s.delegateHides(p, s.sessionTile(si.Cwd)) })
 	}
 	q := r.URL.Query()
 	if q.Get("origin") == term.OriginAgent {

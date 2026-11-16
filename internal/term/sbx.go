@@ -85,7 +85,7 @@ func (m *Manager) register(s *Session, o openOpts, leaf string) func() {
 	if m.Sandboxes == nil {
 		return func() {}
 	}
-	e := sbx.Entry{ID: s.ID, Kind: sbxKind(s.kind), Tile: s.Cwd, User: s.homeKey, Mode: m.sbxMode(o.vm),
+	e := sbx.Entry{ID: s.ID, Kind: sbxKind(s.kind), Tile: m.tileOf(s), User: s.homeKey, Mode: m.sbxMode(o.vm),
 		Started: s.born, Leaf: leaf, Net: s.Net, Restricted: o.restricted}
 	if s.cmd != nil && s.cmd.Process != nil {
 		e.PID = s.cmd.Process.Pid
@@ -135,6 +135,6 @@ func (m *Manager) sbxExited(s *Session, isVM bool, tail string) {
 	if tail != "" {
 		why += ": " + tail
 	}
-	m.Sandboxes.Fail(sbx.Failure{Kind: sbxKind(s.kind), Tile: s.Cwd, User: s.homeKey, Mode: mode, Stage: sbx.Exit,
+	m.Sandboxes.Fail(sbx.Failure{Kind: sbxKind(s.kind), Tile: m.tileOf(s), User: s.homeKey, Mode: mode, Stage: sbx.Exit,
 		Error: errors.New(why).Error()})
 }

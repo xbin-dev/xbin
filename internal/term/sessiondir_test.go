@@ -33,14 +33,14 @@ func TestSessionDirIsATile(t *testing.T) {
 	// and whatever asked for it, no read-write bind is laid over the masks
 	root := "/ws"
 	for _, rel := range []string{".xbin", "data", "homes", "apps/../.xbin"} {
-		for _, b := range scopedBinds(root, rel, "/ws/homes/ann", nil, nil) {
+		for _, b := range scopedBinds(root, rel, rel, "/ws/homes/ann", nil, nil) {
 			if !b.RO && !b.Mask && b.Src != "" && b.Src != "/ws/homes/ann" {
 				t.Errorf("scopedBinds(%q) binds %s read-write", rel, b.Src)
 			}
 		}
 	}
 	rw := false
-	for _, b := range scopedBinds(root, "apps/a", "/ws/homes/ann", nil, nil) {
+	for _, b := range scopedBinds(root, "apps/a", "apps/a", "/ws/homes/ann", nil, nil) {
 		rw = rw || (!b.RO && b.Src == filepath.Join(root, "apps/a"))
 	}
 	if !rw {

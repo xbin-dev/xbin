@@ -49,7 +49,8 @@ const (
 
 type Session struct {
 	ID      string
-	Cwd     string // workspace-relative component path
+	Cwd     string // the directory it opened in: its tile, or a directory inside it
+	tile    string // the registered tile Cwd is or lies in, fixed at start: every decision about the session is this tile's (sessiondir.go)
 	Net     string // network scope (NetInternet|NetHost|NetNone|NetOrg|set:<name>)
 	NetNote string // why the requested scope was clamped ("" = as asked)
 	Label   string // human label of the effective scope (org network name)
@@ -289,17 +290,18 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, rel, err := util.SafeJoin(m.Root, cwd)
-		if why := m.noTerminal(p, rel, err); why != "" { // a tile, never xbind's own trees or a sealed component (sessiondir.go)
+		tile, why := m.noTerminal(p, rel, err) // a tile, never xbind's own trees or a sealed component; the level is the tile's (sessiondir.go)
+		if why != "" {
 			http.Error(w, why, http.StatusForbidden)
 			return
 		}
-		o := m.openOptsFor(p, rel, cwd, netMode, gpuMode, apiAccess)
+		o := m.openOptsFor(p, tile, cwd, netMode, gpuMode, apiAccess)
 		o.vm, o.purpose = wantVM, purpose
-		if code, err := m.pickTarget(p, &o, rel, r.URL.Query().Get("deployment")); err != nil {
+		if code, err := m.pickTarget(p, &o, tile, r.URL.Query().Get("deployment")); err != nil {
 			http.Error(w, err.Error(), code)
 			return
 		}
-		if code, err := m.pickPartition(p, &o, rel); err != nil { // partition.go
+		if code, err := m.pickPartition(p, &o, tile); err != nil { // partition.go
 			http.Error(w, err.Error(), code)
 			return
 		}
@@ -324,7 +326,8 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 // openOpts carries a new session's parameters from the WS gate to the spawn.
 type openOpts struct {
-	cwd        string            // workspace-relative component path
+	cwd        string            // the session's directory: its tile, or a directory inside it
+	tile       string            // the registered tile cwd is or lies in (sessionTile): what the session is decided on
 	net        string            // network scope (already clamped)
 	netGrant   TermNet           // what the org scope means here + what's allowed (D54)
 	netHost    bool              // the scope is host networking (resolveNet)
@@ -361,8 +364,8 @@ func (m *Manager) prepare(o openOpts) (dir, rel, homeDir, token string, revokeTo
 		if err != nil {
 			return
 		}
-		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-			return "", "", "", "", nil, fmt.Errorf("cwd %q is not a directory", o.cwd)
+		if !dirWithoutLink(m.Root, rel) {
+			return "", "", "", "", nil, fmt.Errorf("cwd %q is not a directory reached without a link", o.cwd)
 		}
 	}
 
@@ -398,7 +401,7 @@ func (m *Manager) prepare(o openOpts) (dir, rel, homeDir, token string, revokeTo
 	// tile's element principal (plans/terminal-tokens.md), not the owner.
 	// Withheld entirely for a code-only terminal (api=0) — no token, no API.
 	if m.Tokens != nil && o.api {
-		token = m.mintTerminal(rel, o) // bound to the session's target (target.go)
+		token = m.mintTerminal(o.onTile(rel), o) // the tile's, bound to the session's target (target.go)
 	}
 	revokeTok = func() {
 		if token != "" {
@@ -414,17 +417,17 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
-	revokeTok, _ = m.llmArm(&o, rel, nil, revokeTok) // the terminal's LLM key, ended with its token (llmhook.go)
+	revokeTok, _ = m.llmArm(&o, o.onTile(rel), nil, revokeTok) // the terminal's LLM key, ended with its token (llmhook.go)
 	cmd, cleanup, postStart, envKey, _, err := m.shellCmd(o.startDir(dir, homeDir), rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
-		m.sbxFail(o, rel, err)
+		m.sbxFail(o, o.onTile(rel), err)
 		return nil, err
 	}
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
-		m.sbxFail(o, rel, err)
+		m.sbxFail(o, o.onTile(rel), err)
 		cleanup()
 		revokeTok()
 		if envKey != "" {
@@ -445,7 +448,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	}
 
 	s := &Session{
-		ID: id, Cwd: rel, Net: o.net, cmd: cmd, pty: f, kind: KindShell, vm: o.vm,
+		ID: id, Cwd: rel, tile: o.onTile(rel), Net: o.net, cmd: cmd, pty: f, kind: KindShell, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
@@ -527,7 +530,7 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 		}
 		cmd.Env = append(cmd.Env, e)
 	}
-	cmd.Env = append(cmd.Env, "TERM=xterm-256color", "COLORTERM=truecolor", "XBIN_COMPONENT="+rel)
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color", "COLORTERM=truecolor", "XBIN_COMPONENT="+o.onTile(rel))
 	cmd.Env = append(cmd.Env, o.deploymentEnv()...) // XBIN_DEPLOYMENT, next to it (target.go)
 	cmd.Env = append(cmd.Env, o.partitionEnv()...)  // XBIN_PARTITION on a partitioned tile (partition.go)
 	if os.Getenv("LANG") == "" {
@@ -578,7 +581,8 @@ func (m *Manager) releaseEnv(key string) {
 // live session may hold a component's layer; concurrent sessions on the same
 // component fall back to an ephemeral upper. netMode picks the network scope.
 func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string, []string, error) {
-	binds := scopedBinds(m.Root, rel, homeDir, m.ExtraBinds, o.hide)
+	tile := o.onTile(rel) // what the binds are decided on; rel is the directory bound read-write
+	binds := scopedBinds(m.Root, tile, rel, homeDir, m.ExtraBinds, o.hide)
 	viewDir := ""
 	if o.restricted && rel != "" && o.rootFiles != nil { // D40 allow-list view
 		vd, err := m.stageView(rel, o.homeKey, o.readable, o.rootFiles)
@@ -587,7 +591,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		}
 		viewDir = vd
 		m.trackView(viewDir, o.readable) // its go.work follows the workspace (RefreshViews)
-		binds = scopedBindsView(m.Root, rel, homeDir, viewDir, o.readable, m.ExtraBinds)
+		binds = scopedBindsView(m.Root, tile, rel, homeDir, viewDir, o.readable, m.ExtraBinds)
 	}
 	if o.kind == KindAgent { // the daemon's own bx, read-only, is the entry (agent.go)
 		binds = append(binds, sandbox.Bind{Src: m.BxPath, Dst: agentHostPath, RO: true})
@@ -597,7 +601,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			m.dropView(viewDir)
 		}
 	}
-	env := m.sessionEnv(rel, !o.netHost && o.net != NetNone, homeDir, token, o)
+	env := m.sessionEnv(tile, !o.netHost && o.net != NetNone, homeDir, token, o)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
 	if o.gpu != "" && o.gpu != "none" {
 		if gb, genv := gpu.Binds(gpu.Resolve([]string{"gpu:" + o.gpu})); len(gb) > 0 {

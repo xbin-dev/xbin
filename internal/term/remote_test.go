@@ -403,7 +403,7 @@ func TestTerminalMasksDeploymentState(t *testing.T) {
 	for _, rel := range []string{"apps/crm", "apps/shop/admin", "apps/other"} {
 		for _, hide := range [][]string{nil, {"apps/secret"}} {
 			for _, kind := range []string{KindShell, KindAgent} {
-				binds := scopedBinds(root, rel, home, extra, hide)
+				binds := scopedBinds(root, rel, rel, home, extra, hide)
 				if kind == KindAgent { // sandboxShell's one addition for an agent session
 					binds = append(binds, sandbox.Bind{Src: bxBinOr("/opt/xbin/bin/bx"), Dst: agentHostPath, RO: true})
 				}
@@ -436,7 +436,7 @@ func TestTerminalMasksDeploymentState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		binds := scopedBindsView(root, rel, home, viewDir, readable, extra)
+		binds := scopedBindsView(root, rel, rel, home, viewDir, readable, extra)
 		for _, p := range state {
 			abs := filepath.Join(root, filepath.FromSlash(p))
 			b, ok := effective(binds, abs)
