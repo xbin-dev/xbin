@@ -270,14 +270,15 @@ func (b *Broker) createEffects(m registry.Manifest, tplPath, target string, ownS
 		scope = b.scopeAt(target)
 	}
 	own := func(t string) bool { return t == target || strings.HasPrefix(t, target+"/") }
-	inScope := func(t string) bool {
+	// full: a use's target as written (res:<scope>/<name>, a tile's path); bare: the path it names
+	inScope := func(full, bare string) bool {
 		if scope == "" {
 			return false
 		}
-		if rt, _, ok := b.parseRes("res:" + t); ok {
+		if rt, _, ok := b.parseRes(full); ok {
 			return rt.Scope == scope
 		}
-		tc, ok := b.Reg.Component(t)
+		tc, ok := b.Reg.Component(bare)
 		return ok && tc.Scope == scope
 	}
 	mine, asks := 0, []string{}
@@ -286,11 +287,12 @@ func (b *Broker) createEffects(m registry.Manifest, tplPath, target string, ownS
 		if tplPath != "" { // the copy's own names follow it to its new place (CopyTree)
 			t = strings.ReplaceAll(t, tplPath, target)
 		}
-		bare, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(t, "res:"), "code:"), "#")
+		full, _, _ := strings.Cut(t, "#")
+		bare := strings.TrimPrefix(strings.TrimPrefix(full, "res:"), "code:")
 		switch {
 		case own(bare):
 			mine++
-		case inScope(bare):
+		case inScope(full, bare):
 			warnings = append(warnings, fmt.Sprintf("ACCESS: its code can use %s as %s from the moment it exists: it lands in the scope %s, where declaring a use is the grant", t, u.Role, scope))
 		default:
 			asks = append(asks, t+" as "+u.Role)
