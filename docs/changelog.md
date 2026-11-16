@@ -12,16 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
-- templates, docs: **there is no `mcp-server` template — an MCP server
-  tile is written, and [mcp.md](/docs/mcp.md) is its interface** (D243).
-  The template that landed earlier today (in no release) is gone from the
+- templates, docs: **an MCP server tile is written, not stamped — and
+  [mcp.md](/docs/mcp.md) is its interface** (D243). The builtin template
+  for one, which landed earlier today (in no release), is gone from the
   template list, `POST /templates/new`, the Tile Manager and `bx template
   new`. `mcp.md` now carries the interface — the manifest's
   `provides.mcp`, the JSON-RPC wire (`initialize` with version
   negotiation, `ping`, `tools/list`, `tools/call`, errors,
   `readOnlyHint`) — and a complete Go server inline, the same file as the
-  repository's `examples/mcp-server/backend/main.go` (a test holds them to
-  the same bytes).
+  one in the repository's examples (a test holds them to the same bytes).
 - delegation: **a plan's line can wait** (D243). A `binding.set` to a tile
   that provides nothing of what the slot wants yet, after an `agent.start`
   line in that tile, is approved on the plan's review and applied by xbind
