@@ -33,7 +33,7 @@
  */
 import { LitElement, html, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
-import { WORDS, SKIP_KEY, DONE_KEY, signInName, plan, check, fieldOf } from '/vendor/first-run-words.js';
+import { WORDS, SKIP_KEY, DONE_KEY, signInName, plan, check, fieldOf, lostAccount } from '/vendor/first-run-words.js';
 
 async function call(path, { method = 'GET', body } = {}) {
   try {
@@ -206,9 +206,21 @@ export class BxFirstRun extends LitElement {
     }
     this._busy = WORDS.busy.account;
     let r = await call('/users', { method: 'POST', body: { id, name: f.name.trim(), role: 'admin', password: f.password } });
-    if (!r.ok) return this._fail(fieldOf('account', r.status, r.error), r.error);
+    let found = false;
+    if (!r.ok && (r.status === 0 || (r.status === 409 && fieldOf('account', r.status, r.error) === 'id'))) {
+      // a lost answer, or a retry after one: whether this attempt's account
+      // exists is read again before anything is said — never a second admin
+      const [fr, us] = await Promise.all([call('/first-run'), call('/users')]);
+      const next = lostAccount({ status: r.status, bootstrap: fr.ok && fr.data ? !!fr.data.bootstrap : null,
+        ids: us.ok && us.data ? (us.data.users || []).map((u) => u.id) : null, id });
+      if (next === 'unknown') return this._fail('form', WORDS.errors.unknownMade);
+      if (next === 'nothing') return this._fail('form', WORDS.errors.nothingMade);
+      if (next === 'swap') found = true; // the swap, with the password just typed, tells whether it is this attempt's
+    }
+    if (!r.ok && !found) return this._fail(fieldOf('account', r.status, r.error), r.error);
     this._busy = WORDS.busy.signin;
     r = await call('/first-run/session', { method: 'POST', body: { id, password: f.password } });
+    if (!r.ok && found && r.status === 401) return this._fail('id', WORDS.errors.taken); // an account of that name, not this attempt's
     if (!r.ok) { this._busy = ''; this._made = { id, why: r.error }; return; }
     // signed in as the account from here: what fails now is said as what is left
     const left = [];

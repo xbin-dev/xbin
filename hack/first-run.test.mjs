@@ -123,3 +123,20 @@ test('the host\'s locks in the setup steps: "Set by your host", no buttons; off 
   assert.equal(W.stateWords('off', { host: true }).title, 'Turned off by your host.');
   assert.equal(W.stateWords('off', {}).title, 'Turned off for this workspace.');
 });
+
+test('a lost answer to POST /users: the account is looked for before anything is said', () => {
+  assert.equal(typeof F.lostAccount, 'function');
+  // the answer was lost, and the account this attempt made is there: on to the swap with the password just typed
+  assert.equal(F.lostAccount({ status: 0, bootstrap: false, ids: ['ada'], id: 'ada' }), 'swap');
+  // a retry after a lost answer: 409 on the id, and it is there
+  assert.equal(F.lostAccount({ status: 409, bootstrap: false, ids: ['ada'], id: 'ada' }), 'swap');
+  // still no account at all: nothing was made — and only then is that said
+  assert.equal(F.lostAccount({ status: 0, bootstrap: true, ids: null, id: 'ada' }), 'nothing');
+  assert.equal(F.lostAccount({ status: 0, bootstrap: false, ids: ['bob'], id: 'ada' }), 'nothing');
+  // xbind still can't be reached: it isn't known
+  assert.equal(F.lostAccount({ status: 0, bootstrap: null, ids: null, id: 'ada' }), 'unknown');
+  // 409 and the id isn't there: the name is taken as the 409 said
+  assert.equal(F.lostAccount({ status: 409, bootstrap: false, ids: ['bob'], id: 'ada' }), 'taken');
+  assert.doesNotMatch(F.WORDS.errors.offline, /nothing was made/, 'a network error alone never says nothing was made');
+  assert.match(F.WORDS.errors.nothingMade, /nothing was made/);
+});

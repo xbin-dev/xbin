@@ -14,8 +14,10 @@
 //      agent's composer focused; a second browser afterwards gets no sheet,
 //      and the swap route refuses everyone outside the bootstrap state
 //   B  the host unseals and there is no model: no vault field, the agent
-//      needs a model (/xbin/llm), "Create my account" — and the dock stays
-//      closed
+//      needs a model (/xbin/llm), "Create my account" — the answer to POST
+//      /users lost on the way (the pass aborts it after xbind made the
+//      account): the sheet finds the account and goes on, one admin — and
+//      the dock stays closed
 //   C  the host's preset {"workspaceAgent": {"enabled": true, "who":
 //      "admins"}}: on for the new admin with no click, the host's locks on
 //      the API; the vault's setup fails (the route answered 500 by the
@@ -214,12 +216,23 @@ async function stateB(browser, check) {
     check(await page.locator(`${S} [data-primary]`).innerText() === 'Create my account' && await page.locator(`${S} [data-quiet]`).count() === 0, 'B: …and the button is just "Create my account"');
     const wide = await shots(page, 'b-host-vault-no-model');
     check(wide.length === 0, `B: never sideways (${wide.join(' ') || 'none'})`);
+    // the answer to POST /users is lost — the account is made, the page hears a network error: the
+    // sheet looks for it before saying anything, and goes on with it; never a second admin
+    let lost = false;
+    await page.route('**/api/xbin/users', async (r) => {
+      if (r.request().method() !== 'POST' || lost) return r.continue();
+      lost = true;
+      await r.fetch();
+      return r.abort('failed');
+    });
     await page.fill(`${S} #bxfr-name`, 'Bo Builder');
     await page.fill(`${S} #bxfr-pw`, secret());
     await Promise.all([page.waitForNavigation({ timeout: 60000 }), page.press(`${S} #bxfr-pw`, 'Enter')]);
     await J0.shellUp(page);
     const who = await api(page, '/whoami');
     check(who.body.id === 'bo' && who.body.role === 'admin', `B: Enter in the last field is the primary button: signed in as bo (${who.body.id})`);
+    const accounts = ((await bearer(X, '/users')).body.users || []).map((u) => u.id);
+    check(lost && accounts.join(' ') === 'bo', `B: POST /users answered nothing, the account was made: the sheet went on with it, one admin (${accounts.join(' ')})`);
     await page.waitForTimeout(2000);
     check(await page.locator('bx-agent-dock[open]').count() === 0 && (await api(page, '/delegate/workspace')).body.enabled === false, 'B: the agent was not turned on, and the dock stays closed');
   } finally {

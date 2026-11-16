@@ -7,6 +7,7 @@
  *   plan({vault, llm, ws})           what the sheet asks and what its button does
  *   check(fields, plan, only?)       the fields' errors, by field, before anything is sent
  *   fieldOf(step, status, message)   which field a refusal is shown next to
+ *   lostAccount({status, bootstrap, ids, id})   after a lost answer to POST /users: swap, nothing, taken, unknown
  *   SKIP_KEY, DONE_KEY               this browser's "Not now", and the reload's "open the dock"
  */
 
@@ -85,7 +86,10 @@ export const WORDS = Object.freeze({
     repeat: "The two passphrases don't match.",
     unlock: "The vault's passphrase, please.",
     wrongUnlock: "That isn't the vault's passphrase.",
-    offline: "xbin can't be reached: nothing was made. Try again.",
+    offline: "xbin can't be reached. Try again in a moment.",
+    unknownMade: "xbin can't be reached, so it isn't known whether your account was made. Try again: the sheet picks up where it left off.",
+    nothingMade: "xbin couldn't be reached, and nothing was made. Try again.",
+    taken: 'That sign-in name is taken: choose another.',
   },
 });
 
@@ -143,6 +147,22 @@ export function check(f, p, only = '') {
   }
   if (p && p.vault === 'unlock' && want('vault') && !f.vault) e.vault = WORDS.errors.unlock;
   return e;
+}
+
+/**
+ * lostAccount({status, bootstrap, ids, id}): what to do when POST /users
+ * didn't answer (status 0) or answered 409 on the id — a retry after a
+ * lost answer — read again before anything is said: bootstrap from GET
+ * /first-run, ids from GET /users (null where unread). → 'swap' (the
+ * account is there: on to the swap with the password just typed, which
+ * tells whether it is this attempt's), 'nothing' (known: nothing was made),
+ * 'taken' (the 409 stands), 'unknown' (xbind still can't be reached).
+ */
+export function lostAccount({ status = 0, bootstrap = null, ids = null, id = '' } = {}) {
+  const there = Array.isArray(ids) ? ids.includes(id) : bootstrap === true ? false : null;
+  if (there === true) return 'swap';
+  if (there === null) return 'unknown';
+  return status === 409 ? 'taken' : 'nothing';
 }
 
 /**
