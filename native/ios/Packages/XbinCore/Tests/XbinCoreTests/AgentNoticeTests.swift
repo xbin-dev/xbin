@@ -460,3 +460,23 @@ private let shown = AgentShownRequest(id: rid, kind: "call", tile: "apps/notes",
         #expect(AgentNoticeGate.refusal(.retry, tried: .deny, device: AgentNoticeDevice(appLock: true, hasPasscode: true)) != nil)
     }
 }
+
+/// Review finding 4: a decision whose answer was lost on the way back may
+/// have been applied. The app reads the request again before it says
+/// anything, and says only what is true.
+@Suite struct AgentNoticeTransportTests {
+    @Test func whatIsTrueAfterALostAnswer() {
+        // xbind applied the Allow; the answer timed out
+        #expect(AgentNoticeDecision.afterTransportFailure(.allowOnce, reread: reading(["state": "used", "decidedFrom": "notification"]), reachable: true) == .decided)
+        #expect(AgentNoticeDecision.afterTransportFailure(.deny, reread: reading(["state": "denied", "decidedFrom": "notification"]), reachable: true) == .decided)
+        // it never arrived: still pending — only then "nothing was decided"
+        #expect(AgentNoticeDecision.afterTransportFailure(.allowOnce, reread: reading(), reachable: true) == .notDecided)
+        // something else decided it meanwhile
+        #expect(AgentNoticeDecision.afterTransportFailure(.allowOnce, reread: reading(["state": "denied"]), reachable: true) == .elsewhere)
+        // xbind can't be read either: nobody knows — never "nothing was decided"
+        #expect(AgentNoticeDecision.afterTransportFailure(.allowOnce, reread: nil, reachable: false) == .unknown)
+        let n = AgentNoticeWords.unconfirmed("Northwind")
+        #expect(!n.title.contains("nothing was decided") && !n.body.contains("nothing was decided"))
+        #expect(n.title.contains("Northwind"))
+    }
+}

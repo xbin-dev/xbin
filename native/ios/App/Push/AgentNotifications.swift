@@ -166,7 +166,21 @@ final class AgentNotifications {
                 case .stopped(_, let message):
                     followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.stopped(message))
                 case .failed where w.agent.unreachable:
-                    followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.unreachable(w.title, call: call))
+                    // the answer may have been lost after xbind applied it: read again, say what is true
+                    let again = await w.agent.readForNotice(shown.id)
+                    switch AgentNoticeDecision.afterTransportFailure(a, reread: again.request, reachable: again.reachable) {
+                    case .decided:
+                        let note = a == .allowOnce ? AgentNoticeWords.allowed(call: call)
+                            : AgentNoticeWords.denied(call.isEmpty ? "Your agent is told it was denied." : call)
+                        followUp(w, identifier: identifier, info: info, note: note, passive: true)
+                    case .notDecided:
+                        followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.unreachable(w.title, call: call))
+                    case .elsewhere:
+                        let place = await placeOf(again.request!, in: w)
+                        followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.gone(again.request, where: place), passive: true)
+                    case .unknown:
+                        followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.unconfirmed(w.title))
+                    }
                 case .failed(let why), .stepUp(let why, _):
                     followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.failed(why, allow: a == .allowOnce))
                 case .unseen:
@@ -194,7 +208,18 @@ final class AgentNotifications {
                 case .done: followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.rejected(), passive: true)
                 case .failed(let why) where !w.agent.unreachable:
                     followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.failed(why, allow: false))
-                case .failed: followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.unreachable(w.title))
+                case .failed:
+                    // the answer may have been lost after xbind applied it: read again, say what is true
+                    let again = await w.agent.readSetForNotice(id)
+                    if !again.reachable || again.set == nil {
+                        followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.unconfirmed(w.title))
+                    } else if again.set?.isProposed == true {
+                        followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.unreachable(w.title))
+                    } else if again.set?.state == .rejected {
+                        followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.rejected(), passive: true)
+                    } else {
+                        followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.review(again.set.map(AgentNoticeWords.setSettled) ?? ""), passive: true)
+                    }
                 default: followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.review(""))
                 }
             }

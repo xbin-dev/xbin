@@ -427,6 +427,32 @@ public enum AgentNoticeDecision {
         return .send
     }
 
+    /// What is true after a decision's request failed on the way (review
+    /// finding 4): the answer may have been lost after xbind applied it, so
+    /// the app reads the request again before it says anything.
+    public enum AfterFailure: Sendable, Equatable {
+        /// xbind has it decided as asked, from a notification: it was done.
+        case decided
+        /// Still waiting: nothing was decided (Retry).
+        case notDecided
+        /// Something else decided it meanwhile.
+        case elsewhere
+        /// It can't be read either: nobody knows.
+        case unknown
+    }
+
+    public static func afterTransportFailure(_ want: AgentNoticeAction, reread: DelegateRequest?, reachable: Bool) -> AfterFailure {
+        guard reachable, let r = reread else { return .unknown }
+        if r.isPending { return .notDecided }
+        let asked: Bool
+        switch want {
+        case .allowOnce: asked = r.state == .approved || r.state == .used
+        case .deny: asked = r.state == .denied
+        default: asked = false
+        }
+        return asked && r.decidedFrom == "notification" ? .decided : .elsewhere
+    }
+
     /// A change set's Reject: it must still be proposed, and be the one shown.
     public static func verifyReject(setID: String, current: AdminChangeSet?, reachable: Bool, prefs: AgentNotifyPrefs) -> AgentNoticeVerdict {
         guard prefs.lockDeny else { return .review("Reject from the lock screen is off for this workspace.") }
@@ -469,6 +495,12 @@ public enum AgentNoticeWords {
     public static func unreachable(_ workspace: String, call: String = "") -> Note {
         Note(title: "Couldn't reach \(workspace) — nothing was decided",
              body: call.isEmpty ? "Retry, or open it once you're connected." : call, retry: true)
+    }
+
+    /// A decision whose answer was lost and whose request can't be read
+    /// again: it may or may not have been applied — never "nothing was decided".
+    public static func unconfirmed(_ workspace: String) -> Note {
+        Note(title: "Couldn't confirm with \(workspace)", body: "It may have been decided. Open it to check.", retry: false)
     }
 
     public static func changed() -> Note {
