@@ -37,6 +37,7 @@ import (
 	"path"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -513,6 +514,12 @@ func (s *Server) apiDelegateMCPCall(w http.ResponseWriter, r *http.Request) {
 	tool, under, session, status, code, msg := s.mcpJudge(ctx, p, h, c)
 	if msg != "" {
 		mcpRefuse(w, row, status, code, msg)
+		return
+	}
+	// the limit before the ticket: a call over it spends nothing the person gave
+	if ok, wait, whose := s.delegateRT.allowNet("mcp", p.UserID, h.ID); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait/time.Second)+1))
+		mcpRefuse(w, row, http.StatusTooManyRequests, "rate-limited", netLimitWords("mcp", whose, wait))
 		return
 	}
 	if under == "" {

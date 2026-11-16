@@ -46,27 +46,84 @@ func (s *Server) registerDelegateWebAPI() {
 	s.RegisterAPI(webFetchPattern, s.apiDelegateWebFetch)
 }
 
-// A person's fetches: a burst, refilled over a minute — reading a few
-// pages for a question, not crawling a site. On top of the gate's act
-// limit, which a fetch counts against too.
+// A person's fetches and tool calls: a burst, refilled over a minute —
+// reading a few pages for a question, not crawling a site — on top of the
+// gate's act limit, which each counts against too. Under the person's
+// ceiling each conversation has a share of its own, so one that loops
+// can't starve the person's others.
 const (
-	webBurst  = 12
-	webRefill = 5 * time.Second
+	webBurst       = 12
+	webRefill      = 5 * time.Second
+	webShareBurst  = 8
+	webShareRefill = 8 * time.Second
+	mcpBurst       = 30
+	mcpRefill      = 2 * time.Second
+	mcpShareBurst  = 20
+	mcpShareRefill = 3 * time.Second
 )
 
-// allowWeb takes one fetch from user's bucket.
-func (d *delegateRuntime) allowWeb(user string) (bool, time.Duration) {
+// netLimit is one of the two limits: the person's and a conversation's.
+type netLimit struct {
+	burst  float64
+	refill time.Duration
+}
+
+var netLimits = map[string][2]netLimit{
+	"web": {{webBurst, webRefill}, {webShareBurst, webShareRefill}},
+	"mcp": {{mcpBurst, mcpRefill}, {mcpShareBurst, mcpShareRefill}},
+}
+
+// allowNet takes one fetch ("web") or tool call ("mcp") of user's
+// conversation conv — from the person's bucket and the conversation's,
+// both or neither. whose says which was empty ("person" or
+// "conversation"); wait is how long until it has one again.
+func (d *delegateRuntime) allowNet(kind, user, conv string) (ok bool, wait time.Duration, whose string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.web == nil {
-		d.web = map[string]*actBucket{}
+	if d.net == nil {
+		d.net = map[string]*actBucket{}
 	}
-	b := d.web[user]
-	if b == nil {
-		b = &actBucket{}
-		d.web[user] = b
+	now, lim := d.clock(), netLimits[kind]
+	if len(d.net) > 4096 { // a bucket untouched for 10 minutes is full again: forget it
+		for k, b := range d.net {
+			if now.Sub(b.at) > 10*time.Minute {
+				delete(d.net, k)
+			}
+		}
 	}
-	return b.take(d.clock(), webBurst, webRefill)
+	keys := [2]string{kind + "\x00" + user, kind + "\x00" + user + "\x00" + conv}
+	var bs [2]*actBucket
+	for i, k := range keys {
+		if bs[i] = d.net[k]; bs[i] == nil {
+			bs[i] = &actBucket{}
+			d.net[k] = bs[i]
+		}
+	}
+	// look at both before taking from either
+	for i, who := range []string{"person", "conversation"} {
+		probe := *bs[i]
+		if ok, wait := probe.take(now, lim[i].burst, lim[i].refill); !ok {
+			return false, wait, who
+		}
+	}
+	for i := range bs {
+		bs[i].take(now, lim[i].burst, lim[i].refill)
+	}
+	return true, 0, ""
+}
+
+// netLimitWords is the refusal of a fetch or a tool call over its limit.
+func netLimitWords(kind, whose string, wait time.Duration) string {
+	lim := netLimits[kind][0]
+	who, what := "your agent", "reads the web"
+	if whose == "conversation" {
+		lim, who = netLimits[kind][1], "this conversation"
+	}
+	unit := "pages"
+	if kind == "mcp" {
+		what, unit = "calls MCP tools", "calls"
+	}
+	return fmt.Sprintf("%s %s too fast (%d %s at once, one more every %d s): it may try again in %d s", who, what, int(lim.burst), unit, int(lim.refill/time.Second), int(wait/time.Second)+1)
 }
 
 // ---- the session's reach ----
@@ -342,6 +399,12 @@ func (s *Server) apiDelegateWebFetch(w http.ResponseWriter, r *http.Request) {
 	if row != nil {
 		row.Path = webfetch.Describe(u.String())
 	}
+	// the limit before the ticket: a fetch over it spends nothing the person gave
+	if ok, wait, whose := s.delegateRT.allowNet("web", p.UserID, h.ID); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait/time.Second)+1))
+		webRefuse(w, row, http.StatusTooManyRequests, "rate-limited", netLimitWords("web", whose, wait))
+		return
+	}
 	if reach.State == reachAsks {
 		ticket := strings.TrimSpace(r.Header.Get(HeaderTicket))
 		if ticket == "" {
@@ -359,12 +422,6 @@ func (s *Server) apiDelegateWebFetch(w http.ResponseWriter, r *http.Request) {
 			row.Ticket = req.ID
 		}
 		s.delegateEvent(p.UserID, "request", req.ID)
-	}
-	if ok, wait := s.delegateRT.allowWeb(p.UserID); !ok {
-		secs := int(wait/time.Second) + 1
-		w.Header().Set("Retry-After", strconv.Itoa(secs))
-		webRefuse(w, row, http.StatusTooManyRequests, "rate-limited", fmt.Sprintf("your agent reads the web too fast (%d pages at once, one more every %d s): it may try again in %d s", webBurst, int(webRefill/time.Second), secs))
-		return
 	}
 	res, err := s.webFetcher(pol).Fetch(r.Context(), u.String())
 	if err != nil {

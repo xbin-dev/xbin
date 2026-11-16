@@ -219,7 +219,7 @@ type delegateRuntime struct {
 	mu      sync.Mutex
 	buckets map[string]*actBucket
 	noise   map[string]*noiseBucket
-	web     map[string]*actBucket // a person's web fetches (delegateweb.go)
+	net     map[string]*actBucket // a person's and a conversation's web fetches and MCP tool calls (delegateweb.go)
 	calls   map[string]map[uint64]*runningCall
 	nextID  uint64
 	pushed  map[string]time.Time // person + kind → the last "something waits" push

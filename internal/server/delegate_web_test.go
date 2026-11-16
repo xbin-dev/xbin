@@ -289,14 +289,32 @@ func TestWebFetchHostsAndLimit(t *testing.T) {
 	n := 0
 	for ; n < 40; n++ {
 		if rec := w.fetch(w.url("site.test", "/")); rec.Code == 429 {
-			if refusalOf(rec) != "rate-limited" || rec.Header().Get("Retry-After") == "" {
+			if refusalOf(rec) != "rate-limited" || rec.Header().Get("Retry-After") == "" || !strings.Contains(rec.Body.String(), "this conversation") {
 				t.Errorf("the limit's answer: %s", rec.Body.String())
 			}
 			break
 		}
 	}
-	if n != webBurst-1 { // the fetch of docs.site.test above came out of the same bucket; refused URLs take nothing
-		t.Errorf("the web limit let %d fetches through, want %d", n, webBurst-1)
+	if n != webShareBurst-1 { // the fetch of docs.site.test above came out of the same buckets; refused URLs take nothing
+		t.Errorf("a conversation's share let %d fetches through, want %d", n, webShareBurst-1)
+	}
+	// another conversation of the same person: its own share, under what is left of the person's
+	h2, err := w.store.NewAgentSession("bob", dHolder, nil, "local/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := func(r *http.Request) { r.Header.Set(HeaderAgentSession, h2.ID) }
+	m := 0
+	for ; m < 40; m++ {
+		if rec := w.fetch(w.url("site.test", "/"), other); rec.Code == 429 {
+			if !strings.Contains(rec.Body.String(), "your agent reads the web too fast") {
+				t.Errorf("the person's ceiling: %s", rec.Body.String())
+			}
+			break
+		}
+	}
+	if m != webBurst-webShareBurst {
+		t.Errorf("the other conversation fetched %d, want what the person had left (%d)", m, webBurst-webShareBurst)
 	}
 }
 
@@ -420,5 +438,64 @@ func TestWebFetchOrgRules(t *testing.T) {
 	h2, _ := w.store.NewAgentSession("bob", dHolder, nil, "local/test")
 	if rec := w.fetch(page, header(HeaderAgentSession, h2.ID)); rec.Code != 200 {
 		t.Errorf("a new session: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// covers D239 — the limit is checked before the ticket: a fetch over it
+// spends nothing its person gave, and the same ticket works once there is
+// room again
+func TestWebLimitSpendsNoTicket(t *testing.T) {
+	w := newWebRig(t)
+	w.on()
+	now := time.Now()
+	w.s.delegateRT.setClock(func() time.Time { return now })
+	page := w.url("site.test", "/report")
+	_ = w.do(w.full, "GET", "/api/apps/mail/inbox", "", w.bob) // tainted: each page asks
+	body := `{"url":"` + page + `"}`
+	req := w.ask(w.bob, "POST", "/api/xbin/delegate/web/fetch", body)
+	w.approve(w.cookie("bob"), req.ID, "once")
+	// the conversation's share used up by others of its fetches (their URLs asked too: refused, they take a token each)
+	for i := 0; i < webShareBurst; i++ {
+		_, _, _ = w.s.delegateRT.allowNet("web", "bob", w.handle)
+	}
+	if rec := w.fetch(page, header(HeaderTicket, req.ID)); rec.Code != 429 {
+		t.Fatalf("over the limit: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := w.store.Request("bob", req.ID); got.State != delegation.Approved {
+		t.Fatalf("the ticket after a refusal for the limit: %s, want still approved", got.State)
+	}
+	now = now.Add(webShareRefill + time.Second)
+	if rec := w.fetch(page, header(HeaderTicket, req.ID)); rec.Code != 200 {
+		t.Errorf("the same ticket once there is room: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// a conversation's share of MCP calls, under its person's ceiling
+func TestMCPLimitShares(t *testing.T) {
+	var d delegateRuntime
+	now := time.Now()
+	d.setClock(func() time.Time { return now })
+	n := 0
+	for ok := true; ok; n++ {
+		ok, _, _ = d.allowNet("mcp", "bob", "h1")
+	}
+	if n-1 != mcpShareBurst {
+		t.Errorf("one conversation's share: %d, want %d", n-1, mcpShareBurst)
+	}
+	if ok, _, whose := d.allowNet("mcp", "bob", "h1"); ok || whose != "conversation" {
+		t.Errorf("over the share: %v %s", ok, whose)
+	}
+	m := 0
+	for ok := true; ok; m++ {
+		ok, _, _ = d.allowNet("mcp", "bob", "h2")
+	}
+	if m-1 != mcpBurst-mcpShareBurst {
+		t.Errorf("another conversation: %d, want the person's rest %d", m-1, mcpBurst-mcpShareBurst)
+	}
+	if ok, _, whose := d.allowNet("mcp", "bob", "h3"); ok || whose != "person" {
+		t.Errorf("over the person's ceiling: %v %s", ok, whose)
+	}
+	if ok, _, _ := d.allowNet("mcp", "ann", "h9"); !ok {
+		t.Error("another person's calls are their own")
 	}
 }

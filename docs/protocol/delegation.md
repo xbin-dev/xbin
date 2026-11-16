@@ -414,8 +414,10 @@ keeps its data off the web: no fetch for the rest of the conversation — a
 new session that hasn't read it can), `needs-approval`, `ticket`,
 `web-url` (400), `web-host`, `web-address`, `web-redirect`, `web-type`
 (415), `web-unreachable` (502), `web-timeout` (504), `rate-limited` (429
-with `Retry-After`: 12 fetches a burst, one more every 5 s, a person; on
-top of the act limit). Every fetch — refused ones up to the log's rate —
+with `Retry-After`: 12 fetches a burst, one more every 5 s, a person, and
+under that each conversation 8, one more every 8 s — one conversation
+that loops can't starve the person's others; on top of the act limit,
+and judged before a ticket is spent). Every fetch — refused ones up to the log's rate —
 is a row of the person's log (`class: "web"`, `path` the URL's scheme,
 host and path with `?…` for a query, `bytes`, `status`).
 
@@ -500,7 +502,9 @@ what xbind judged.
   (`403 {refusal: "mcp-org"}` for any other, a read included).
 - Refusals beside those: `mcp-off` (the workspace policy), `mcp-person`
   (the person's setting), `mcp-unreachable` (502), `needs-approval`,
-  `ticket`, `tile`, `hidden`. A dry run of a call says whether it would
+  `ticket`, `tile`, `hidden`, `rate-limited` (429 with `Retry-After`: 30
+  tool calls a burst, one more every 2 s, a person, and under that each
+  conversation 20, one more every 3 s; judged before a ticket is spent). A dry run of a call says whether it would
   need approval (`needsApproval`) or what covers it (`under`). Every call
   is a row of the person's log (`class: "mcp"`, the endpoint's path, the
   tile, the ticket or `under`); a read on the endpoint is `class:
