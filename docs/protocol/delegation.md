@@ -1193,7 +1193,10 @@ manifest). Without such a start before it, the line is `blocked` as ever.
   (workspace agents off, the agent taken from them), when either tile is
   deleted or changes owner, when the slot was bound by someone meanwhile,
   and when a check refuses it at the moment it would apply. While the
-  person's agent is paused or held it neither applies nor ends.
+  person's agent is paused or held it neither applies nor ends; any
+  other stop ends it, and xbind judges that at the line each time it
+  looks at it — a waiting line never outlives its person's agent,
+  whichever way the agent was stopped.
 - **Audited** as lines of the person's plan (`class:
   "changeset:binding.set"`, `ticket` the set): `under: "waits"`, status
   202, when it was approved; `under: "waited"` when it applied (200) or

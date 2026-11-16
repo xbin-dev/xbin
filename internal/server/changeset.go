@@ -408,6 +408,12 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "the change set's results can't be written (what was applied stays applied: see the audit log)", delegationDocs)
 		return
 	}
+	if cs.Waiting() { // on record now: watched from here, and looked at once (planwait.go)
+		s.watchWaits(a.user)
+		if now, ok := s.Delegation.ChangeSet(a.user, cs.ID); ok {
+			cs = now
+		}
+	}
 	s.askDecided(cs)
 	s.delegateEvent(a.user, "changeset", cs.ID)
 	WriteJSON(w, http.StatusOK, cs)
@@ -417,6 +423,8 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 // as approver, filling each item's result and the set's state; an
 // operation that wasn't chosen is rejected.
 func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs *delegation.ChangeSet, chosen []int) {
+	// its own lines: the store's copy changes when the results are written, not line by line under its readers
+	cs.Items = slices.Clone(cs.Items)
 	failed, problems, applied := false, 0, 0
 	agent := planAgent{}
 	if cs.Plan {
@@ -488,7 +496,7 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 		case it.Wait != nil && pv.Waits != nil:
 			// approved, and it waits: xbind applies it by itself once the
 			// tile provides exactly what was approved (planwait.go)
-			s.startWaiting(it, pv, cs.User)
+			s.startWaiting(it, pv)
 			s.delegateAudit(delegation.Call{User: cs.User, Agent: cs.Agent, Method: pv.Call.Method, Path: "/api/xbin" + pv.Call.Path, Tile: it.Wait.Component,
 				Class: "changeset:" + it.Kind, Effect: true, Status: http.StatusAccepted, Ticket: cs.ID, Session: cs.Session, Under: "waits", From: cs.From})
 			applied++

@@ -25,7 +25,10 @@ package server
 //     scope and hidden tiles, both tiles' agent levels, the orgs' agent
 //     rules (lineAgentRefusal);
 //   - while the person's agent is paused or held it neither applies nor
-//     ends: it waits;
+//     ends: it waits. Every other stop — workspace agents off, the agent
+//     taken from the person, anything else the gate refuses with — ends
+//     it, judged here at each look (waitStopped), whatever the path that
+//     stopped the agent did;
 //   - it applies at most once (waitMu, and the item's result), and the
 //     call is audited as a line of the person's approved plan.
 //
@@ -83,19 +86,49 @@ func (s *Server) personByID(user string) (auth.Principal, bool) {
 
 // startWaiting marks a chosen line that waits as approved and waiting: from
 // now it lapses in MaxWait, and is held to the tiles' owners and the
-// slot's binding as they are.
-func (s *Server) startWaiting(it *delegation.ChangeItem, pv delegation.ChangePreview, user string) {
+// slot's binding as they are. It is watched once its set is written
+// (watchWaits) — not from here: a look at the waiting lines before the
+// write would find the person and nothing of theirs waiting, and drop them.
+func (s *Server) startWaiting(it *delegation.ChangeItem, pv delegation.ChangePreview) {
 	w := *it.Wait
 	w.Until = time.Now().UTC().Truncate(time.Second).Add(delegation.MaxWait)
 	w.Owners = []string{s.policy().OwnerOf(w.Component), s.policy().OwnerOf(w.Tile)}
 	w.Was, w.Held = string(pv.Before), ""
 	it.Wait, it.Result, it.Error = &w, delegation.ItemWaiting, ""
+}
+
+// watchWaits has user's waiting lines looked at from now on, and looks at
+// them once: called when a set with a waiting line has been written (a
+// scan that landed while the plan was being applied saw nothing of it, and
+// the next may be far off).
+func (s *Server) watchWaits(user string) {
 	s.waitMu.Lock()
+	defer s.waitMu.Unlock()
 	if s.waitUsers == nil {
 		s.waitUsers = map[string]bool{}
 	}
-	s.waitUsers[user] = true
-	s.waitMu.Unlock()
+	if s.waitUsers[user] = true; !s.checkWaitsLocked(user) {
+		delete(s.waitUsers, user)
+	}
+}
+
+// waitStopped is why a waiting line of user's ends because their agent is
+// stopped — "" while it runs, or is only paused or held (the line waits
+// that out). Judged at the line itself, every time it is looked at: a
+// stop cancels what waits wherever it was made, and whether or not that
+// path remembered the waiting lines (delegationStopped does, for those
+// that call it).
+func (s *Server) waitStopped(user, holder string) string {
+	switch refusal, _ := s.decideRefusal(user, holder); refusal {
+	case "", "paused", "held":
+		return ""
+	case "workspace-off":
+		return "workspace agents were turned off for this workspace before it was applied: nothing was bound"
+	case "no-agent":
+		return "you no longer have a workspace agent, and it was its plan: nothing was bound"
+	default:
+		return "your workspace agent was stopped before it was applied: nothing was bound"
+	}
 }
 
 // CheckPlanWaits looks at every waiting line: applies the ones whose tile
@@ -213,6 +246,9 @@ func (s *Server) judgeWait(cs delegation.ChangeSet, i int) bool {
 	if !ok {
 		return end("the account that approved this can no longer apply changes")
 	}
+	if why := s.waitStopped(cs.User, cs.Agent); why != "" {
+		return end(why)
+	}
 	if len(w.Owners) == 2 && (s.policy().OwnerOf(w.Component) != w.Owners[0] || s.policy().OwnerOf(w.Tile) != w.Owners[1]) {
 		for _, t := range []string{w.Component, w.Tile} {
 			if _, there := s.tileThere(t); !there {
@@ -233,12 +269,8 @@ func (s *Server) judgeWait(cs delegation.ChangeSet, i int) bool {
 	// the tile provides exactly what was approved: every check a line gets
 	// when it is applied, as things are now
 	agent := s.agentOf(cs, person)
-	whose := cs.User
-	if cs.From != "" {
-		whose = cs.From
-	}
-	if refusal, _ := s.decideRefusal(whose, cs.Agent); refusal != "" {
-		return true // the agent is paused, held or off for now: the line waits (a stop for good cancels it, delegationStopped)
+	if refusal, _ := s.decideRefusal(cs.User, cs.Agent); refusal != "" {
+		return true // paused or held: the line waits it out (every other stop ended it above, waitStopped)
 	}
 	switch {
 	case agent.gone != "":
