@@ -379,7 +379,7 @@ func (h wsHTTP) Call(ctx context.Context, sid string, c wsCall) (wsAnswer, error
 		// Here it is a refusal like the others: the code "tile", the words
 		// in Error.
 		if !d.Allowed && d.Error == "" && d.Refusal != "" {
-			d.Error, d.Refusal = d.Refusal, "tile"
+			d.Error, d.Refusal = d.Refusal, orStr(d.RefusalCode, "tile")
 		}
 		return wsAnswer{Status: resp.StatusCode, Dry: &d}, nil
 	}
@@ -559,7 +559,7 @@ func (h wsHTTP) AgentStart(ctx context.Context, sid string, a wsAgentStart, tick
 	c := h.startCall(a)
 	c.Ticket, c.DryRun = ticket, dry
 	ans, err := h.Call(ctx, sid, c)
-	if err == nil && dry && ans.Dry != nil && !ans.Dry.Allowed {
+	if err == nil && dry && ans.Dry != nil && !ans.Dry.Allowed && ans.Dry.RefusalCode == "" { // an xbind that names no code
 		// a start refused whatever approves it carries xbind's sentence only;
 		// it has two reasons (docs/protocol/delegation.md §Dry run): a first
 		// prompt that begins with a harness command, or the conversation's

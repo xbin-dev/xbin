@@ -532,6 +532,14 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		preview["tile"], preview["owner"], preview["session"] = req.Tile, s.policy().OwnerOf(req.Tile), ask
 	default:
 		req.Kind = delegation.KindTemplate
+		// the handler's own check, before anything is put in front of the
+		// person: what would be created, where and whose (delegatedry.go)
+		create, why := s.createPreview(p, body)
+		if why != "" {
+			WriteError(w, http.StatusForbidden, why, delegationDocs)
+			return
+		}
+		preview["create"] = create
 	}
 	if len(body) > 0 && !delegation.TextBody(body) {
 		// xbind's words for what can't be shown: the person approves this

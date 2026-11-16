@@ -368,6 +368,37 @@ export function warning(w) {
   return { tag, icon: WARN_ICON[tag] || 'warning', text: m ? m[2] : s };
 }
 
+/**
+ * stateText(item, 'before' | 'after'): a change's state in words — xbind's
+ * own (beforeText / afterText) when it says them; a value it gave as text;
+ * else the value's fields, plainly ("binding: [], host: \"a\""). null:
+ * nothing to show. Never an object's default string.
+ */
+export function stateText(item, which) {
+  const said = item ? item[`${which}Text`] : '';
+  if (typeof said === 'string' && said) return said;
+  const v = item ? item[which] : null;
+  if (v == null) return null;
+  if (typeof v === 'string') return v;
+  if (typeof v !== 'object' || Array.isArray(v)) return JSON.stringify(v);
+  const keys = Object.keys(v).sort();
+  return keys.length ? keys.map((k) => `${k}: ${JSON.stringify(v[k])}`).join(', ') : '(nothing)';
+}
+
+/**
+ * ownerWords(req): whose a tile an approved creation makes would be, from
+ * xbind's own check (preview.create.owner) — "you", "the org sales",
+ * "the workspace"; an xbind that doesn't say is not guessed at.
+ */
+export function ownerWords(req) {
+  const c = req && req.preview && req.preview.create;
+  if (!c || typeof c.owner !== 'string') return 'xbin decides when it is created';
+  if (c.owner === '') return 'the workspace';
+  if (c.owner === `user:${req.user}`) return 'you';
+  const [kind, id] = c.owner.split(':');
+  return kind === 'org' ? `the org ${id}` : kind === 'user' ? `${id} (another person)` : c.owner;
+}
+
 /** tickable(item): the person may tick it (xbind did not block it). */
 export const tickable = (item) => !item.blocked;
 

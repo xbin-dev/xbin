@@ -128,7 +128,8 @@ nothing:
 ```
 {dryRun: true, allowed, class, as, agent, sideEffect,
  tile?, owner?, level?, role?, agentAccess?,
- reversible?: false, needsApproval?, under?, refusal?}
+ reversible?: false, needsApproval?, under?, refusal?, refusalCode?,
+ create?}
 ```
 
 `class` is `read`, `act`, `admin-read`, `tile-read` or `tile-write`;
@@ -145,7 +146,23 @@ start there without asking and the body names no mode, network, API
 access, VM or resume of its own; `allowed: false` with the reason when the
 start would be refused whatever approves it (its first prompt begins with
 a harness command, or the conversation's taint keeps it from briefing a
-session on that tile — §Agent sessions).
+session on that tile — §Agent sessions; or the open itself would refuse it:
+no terminal level there, an unknown coding agent or mode, an org's rule).
+
+**A dry run says what the real call would do.** For every act whose
+handler narrows a delegate below the gate, the dry run runs the handler's
+own check, without the act, and answers `allowed: false` with the
+handler's sentence in `refusal` and a code in `refusalCode` — `command` |
+`taint` | `start` (a session start), `create` (`POST /templates/new`),
+`session` | `mode` (driving or messaging a session), `preview`
+(`POST /preview`). A dry run of `POST /templates/new` (with the body the
+creation would send) answers `create: {template, path, owner,
+partition?}` — where the tile would be made and whose it would be: under
+delegation a creation that names no owner is the person's (`user:<id>`),
+for an admin too. The same check runs when a request for the call is
+filed (403 instead of a request the person could only approve in vain;
+the request's `preview.create` carries the same answer, and the sheet's
+*Owner* row is drawn from it) and again when the approved call is made.
 
 ### What a tile sees
 

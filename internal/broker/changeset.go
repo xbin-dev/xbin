@@ -276,6 +276,7 @@ func (b *Broker) previewGrant(p auth.Principal, op delegation.ChangeOp) (delegat
 		}
 	}
 	pv.After = mustJSON(map[string]any{"roles": after})
+	pv.BeforeText, pv.AfterText = rolesWords(held), rolesWords(after)
 	if strings.HasPrefix(g.Target, "res:") {
 		pv.Effects = append(pv.Effects, g.From+"'s backend may restart")
 	}
@@ -283,6 +284,43 @@ func (b *Broker) previewGrant(p auth.Principal, op delegation.ChangeOp) (delegat
 		pv.Blocked = why.msg
 	}
 	return pv, nil
+}
+
+// rolesWords, bindingWords and shareWords say a change's before and after
+// in words (ChangePreview.BeforeText): what a review draws, so that no
+// client has to make a sentence of the data.
+func rolesWords(roles []string) string {
+	if len(roles) == 0 {
+		return "no access"
+	}
+	return strings.Join(roles, ", ")
+}
+
+func bindingWords(bd registry.Binding) string {
+	if len(bd) == 0 {
+		return "not bound"
+	}
+	parts := make([]string, 0, len(bd))
+	for _, e := range bd {
+		w := e.Ref
+		if e.Ref == LLMRef {
+			w = "the workspace's LLM connector (" + LLMRef + ")"
+		}
+		for _, kv := range [][2]string{{"the public hostname", e.Host}, {"every hostname matching", e.Zone}, {"the host's port", e.Listen}} {
+			if kv[1] != "" {
+				w += ", at " + kv[0] + " " + kv[1]
+			}
+		}
+		parts = append(parts, w)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func shareWords(level string) string {
+	if level == "" {
+		return "not shared"
+	}
+	return "shared at " + level
 }
 
 func refsOf(bd registry.Binding) []map[string]string {
@@ -370,13 +408,13 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp) (deleg
 		pv.Call.Method = http.MethodDelete
 	}
 	cur := b.Reg.Workspace().Bindings[body.Component][body.Slot]
-	pv.Before = mustJSON(map[string]any{"binding": refsOf(cur)})
+	pv.Before, pv.BeforeText = mustJSON(map[string]any{"binding": refsOf(cur)}), bindingWords(cur)
 	plan, why := b.bindingCheck(p, body, remove)
 	if why != nil {
-		pv.Blocked, pv.After = why.msg, pv.Before
+		pv.Blocked, pv.After, pv.AfterText = why.msg, pv.Before, pv.BeforeText
 		return pv, nil
 	}
-	pv.After = mustJSON(map[string]any{"binding": refsOf(plan.next)})
+	pv.After, pv.AfterText = mustJSON(map[string]any{"binding": refsOf(plan.next)}), bindingWords(plan.next)
 	if !plan.del {
 		b.bindingOpens(&pv, body.Component, body.Slot, plan.delta)
 	}
@@ -454,6 +492,7 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 		}
 	}
 	pv.Before, pv.After = mustJSON(map[string]string{"level": before}), mustJSON(map[string]string{"level": a.Level})
+	pv.BeforeText, pv.AfterText = shareWords(before), shareWords(a.Level)
 	// in the handler's order: who manages the tile's access, then what the
 	// store would refuse (SetOrgTile: the level, the org)
 	_, tileOK := b.Reg.Component(a.Tile)
@@ -527,6 +566,10 @@ func (b *Broker) previewLimit(p auth.Principal, op delegation.ChangeOp) (delegat
 	}
 	pv.Before = mustJSON(map[string]any{"value": cur, "default": t.kf.def})
 	pv.After = mustJSON(map[string]any{"value": a.Value})
+	pv.BeforeText, pv.AfterText = limits.Format(k, cur), limits.Format(k, a.Value)
+	if cur == t.kf.def {
+		pv.BeforeText += " (the default)"
+	}
 	pv.Effects = append(pv.Effects, fmt.Sprintf("%s may use up to %s of %s (now %s)", a.Tile, limits.Format(k, a.Value), k.Meta().Label, limits.Format(k, cur)))
 	if k != limits.DiskGiB {
 		pv.Effects = append(pv.Effects, "it applies when "+a.Tile+"'s backend next starts")

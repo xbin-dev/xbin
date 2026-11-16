@@ -721,6 +721,18 @@ func (s *Server) apiPreviewStatus(w http.ResponseWriter, r *http.Request) {
 // the target, nothing of the picture. It is rendered as the person and
 // counts against the person's preview limits.
 func (s *Server) previewDelegate(p auth.Principal, t PreviewTarget) error {
+	if err := s.previewDelegateRefusal(p, t); err != nil {
+		return err
+	}
+	tile := strings.Trim(t.Tile, "/")
+	s.taint(p, tile)
+	s.delegateAudit(delegation.Call{User: p.UserID, Agent: p.Agent, Method: http.MethodPost, Path: "/api/xbin/preview", Tile: tile, Class: "preview", Status: http.StatusOK, Session: p.AgentSession})
+	return nil
+}
+
+// previewDelegateRefusal is previewDelegate's rule, and nothing else: no
+// taint, no row (a dry run asks it too).
+func (s *Server) previewDelegateRefusal(p auth.Principal, t PreviewTarget) error {
 	tile := strings.Trim(t.Tile, "/")
 	h, ok := s.handleOf(p)
 	switch {
@@ -742,7 +754,5 @@ func (s *Server) previewDelegate(p auth.Principal, t PreviewTarget) error {
 	if _, _, _, err := dp.DelegateTile(p, tile, false); err != nil {
 		return previewErr(http.StatusForbidden, "%s", err.Error())
 	}
-	s.taint(p, tile)
-	s.delegateAudit(delegation.Call{User: p.UserID, Agent: p.Agent, Method: http.MethodPost, Path: "/api/xbin/preview", Tile: tile, Class: "preview", Status: http.StatusOK, Session: p.AgentSession})
 	return nil
 }

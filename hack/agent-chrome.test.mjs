@@ -284,3 +284,27 @@ test('a draft cut at its cap never keeps half an emoji', () => {
   assert.equal(d, 'a'.repeat(7999), 'the pair that does not fit goes whole');
   assert.equal(W.plainDraft(`${'a'.repeat(7998)}😀😀`), `${'a'.repeat(7998)}😀`);
 });
+
+test('a change\'s before and after are drawn in words, never as an object (G11)', () => {
+  const it = { n: 1, kind: 'binding.set', before: { binding: [] }, after: { binding: [{ provider: 'apps/dice' }] }, beforeText: 'not bound', afterText: 'apps/dice' };
+  assert.equal(W.stateText(it, 'before'), 'not bound');
+  assert.equal(W.stateText(it, 'after'), 'apps/dice');
+  // an xbind that sent no words: the data's fields, plainly — and never "[object Object]"
+  const old = { n: 1, before: { binding: [] }, after: { binding: [{ provider: 'apps/dice' }], host: 'a' } };
+  assert.equal(W.stateText(old, 'before'), 'binding: []');
+  assert.equal(W.stateText(old, 'after'), 'binding: [{"provider":"apps/dice"}], host: "a"');
+  assert.equal(W.stateText({ before: 'no access' }, 'before'), 'no access');
+  assert.equal(W.stateText({ before: null }, 'before'), null);
+  assert.equal(W.stateText({ after: {} }, 'after'), '(nothing)');
+  assert.equal(W.stateText({ after: 3 }, 'after'), '3');
+  for (const v of [{ a: 1 }, [1], { x: { y: 1 } }]) assert.ok(!String(W.stateText({ before: v }, 'before')).includes('[object'));
+});
+
+test('whose a created tile would be is xbind\'s word, not a guess (G1)', () => {
+  const req = (owner) => ({ user: 'ada', kind: 'template', preview: owner === undefined ? {} : { create: { owner } } });
+  assert.equal(W.ownerWords(req('user:ada')), 'you');
+  assert.equal(W.ownerWords(req('org:sales')), 'the org sales');
+  assert.equal(W.ownerWords(req('')), 'the workspace');
+  assert.equal(W.ownerWords(req('user:bob')), 'bob (another person)');
+  assert.equal(W.ownerWords(req(undefined)), 'xbin decides when it is created');
+});

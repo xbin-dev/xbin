@@ -614,14 +614,10 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 			}
 		}
 		preview["allowed"] = true
-		if v.pattern == "POST /term/sessions" { // what THIS start would need: the person's preference may start it unasked
+		if v.row.judge != nil { // the handler's own narrowing, run without the act (delegatedry.go)
 			body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, delegation.MaxBody))
-			ask := sessionAskOf(body)
-			row.Tile, preview["tile"] = ask.Cwd, ask.Cwd
-			if _, why := s.startRefusal(p, ask); why != "" {
-				preview["allowed"], preview["refusal"] = false, why
-			} else if s.startsUnasked(p, ask) {
-				preview["needsApproval"], preview["under"] = false, "preference"
+			if code, why := v.row.judge(s, p, r, body, &row, preview); why != "" {
+				preview["allowed"], preview["refusal"], preview["refusalCode"] = false, why, code
 			}
 		}
 		s.writeDryRun(w, &row, preview)

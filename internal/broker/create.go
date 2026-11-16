@@ -81,7 +81,8 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 
 // resolveCreateOwner decides the owner ref for a new tile (D24). requested ""
 // defaults to the attributed human (user-owned) — workspace-owned for
-// admin/automation callers. "org:<id>" needs the human to hold the org's
+// admin/automation callers, except through a person's workspace agent,
+// where it is the person's for an admin too. "org:<id>" needs the human to hold the org's
 // Create knob (or be an org/workspace admin); "user:<other>" is admin-only.
 //
 // Under the org-only tile-creation policy (D52), or when their account's
@@ -108,9 +109,13 @@ func (b *Broker) resolveCreateOwner(p auth.Principal, requested string) (ref, ms
 			return "", "" // automation/root: workspace-owned
 		}
 		u, ok := b.Users.Get(human)
-		if !ok || u.IsAdmin() {
+		if !ok || u.IsAdmin() && p.Agent == "" {
 			return "", "" // admins default to workspace-owned
 		}
+		// (an admin's workspace agent — a delegate, p.Agent — creates for its
+		// person like anyone's: the tile is theirs. A delegate call is never
+		// an admin's (auth.Principal.IsAdmin), so a workspace-owned default
+		// would be refused after the person approved it.)
 		if why != "" {
 			return b.defaultOrgOwner(u.ID, why)
 		}

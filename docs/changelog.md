@@ -12,6 +12,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- delegation: **an admin's workspace agent can create a tile, and a dry
+  run says what the real call does.** Under delegation a creation that
+  names no owner is the person's (`user:<id>`) for an admin too — it was
+  the workspace's, which a delegate call may never make, so the approved
+  `POST /templates/new` was refused after the sheet had said "Owner: you".
+  A dry run of an act now runs the handler's own check (additive:
+  `refusalCode`, and `create: {template, path, owner}` for a creation); a
+  request for a creation that would be refused is a 403 instead of a sheet,
+  and its `preview.create` says whose the tile would be. A dry run of a
+  session start is also refused where the open would be (no terminal
+  level, an unknown coding agent or mode). An admin's own creations are
+  workspace-owned by default as before
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §Dry run).
+- workspace agent: **a tile agent's turn that begins and ends between two
+  reads is reported** (the agent template's workspace mode noted a tile
+  agent's state, not its turn — a quick turn left the conversation
+  waiting). The review of a change set draws a binding's before and after
+  in words (`beforeText`, `afterText` on each item, written by xbind;
+  additive) — it showed `[object Object]`.
 - access: **`GET /access?tile=` says what reaches everyone.** A new
   `defaults: [{level, source}]` lists the workspace defaults that reach the
   tile (additive; none on an org-owned tile), and a system component no

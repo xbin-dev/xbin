@@ -547,8 +547,9 @@ func (ag *Agent) wsAddAgent(s *wsSession, r *wsReq, a wsAgent) *wsAgentRow {
 
 // wsSeen brings a tile agent's row up to date with what xbind says, notes
 // a change the conversation hasn't been told (each asks for a wake: a turn
-// that ended, a failure, an end, a question for the person — "working" is
-// never news), and delivers the messages held behind a question once the
+// that ended — also one that began and ended since the last read: the
+// turn's number says so when the state doesn't — a failure, an end, a
+// question for the person; "working" is never news), and delivers the messages held behind a question once the
 // person answered it. True: the conversation is owed news of it and should
 // be woken (wsWake) — the caller's to ask, once for all it read.
 func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a wsAgent, boot bool) (wake bool) {
@@ -587,7 +588,11 @@ func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a ws
 	case a.Mode != "" && a.Mode != row.Mode:
 		next.Mode, next.Asks = a.Mode, false
 	}
-	next.Owed, next.Wake = next.state() != row.Told, next.state() != row.Told
+	// news: a state the conversation wasn't told — or the state it was told,
+	// reached again by a turn it wasn't told of. A turn that begins and ends
+	// between two reads leaves "idle" as it was; only its number moved (G12)
+	news := next.state() != row.Told || next.Status == "idle" && !next.Waits && next.Turn > row.ToldTurn
+	next.Owed, next.Wake = news, news
 	if next.state() == wsWorking {
 		next.Told, next.Owed, next.Wake = wsWorking, false, false
 	}

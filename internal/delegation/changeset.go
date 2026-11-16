@@ -81,14 +81,17 @@ type AdminCall struct {
 // changing anything: the checks of the handler that would apply it, and
 // the state it would change.
 type ChangePreview struct {
-	Line     string
-	Before   json.RawMessage
-	After    json.RawMessage
-	Effects  []string
-	Warnings []string
-	Blocked  string    // why the handler would refuse it; "" when it would apply
-	Inverse  *ChangeOp // what undoes it, when something does
-	Call     AdminCall
+	Line   string
+	Before json.RawMessage
+	After  json.RawMessage
+	// BeforeText and AfterText are Before and After in words — xbind's own,
+	// what a review draws ("not bound", "apps/dice").
+	BeforeText, AfterText string
+	Effects               []string
+	Warnings              []string
+	Blocked               string    // why the handler would refuse it; "" when it would apply
+	Inverse               *ChangeOp // what undoes it, when something does
+	Call                  AdminCall
 }
 
 // ChangeItem is one operation of a set, as xbind described it.
@@ -104,10 +107,14 @@ type ChangeItem struct {
 	// when the set was proposed; Effects what else applying it does (a
 	// backend restarts, who gains or loses access); Warnings what the
 	// handler would say.
-	Before   json.RawMessage `json:"before,omitempty"`
-	After    json.RawMessage `json:"after,omitempty"`
-	Effects  []string        `json:"effects,omitempty"`
-	Warnings []string        `json:"warnings,omitempty"`
+	Before json.RawMessage `json:"before,omitempty"`
+	After  json.RawMessage `json:"after,omitempty"`
+	// BeforeText and AfterText say Before and After in words, written by
+	// xbind: what a review shows (Before and After stay the data).
+	BeforeText string   `json:"beforeText,omitempty"`
+	AfterText  string   `json:"afterText,omitempty"`
+	Effects    []string `json:"effects,omitempty"`
+	Warnings   []string `json:"warnings,omitempty"`
 	// Blocked: why this operation can't be applied at all (the handler's
 	// refusal at the dry run). A blocked item is never applied.
 	Blocked string `json:"blocked,omitempty"`

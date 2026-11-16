@@ -341,6 +341,9 @@ type wsDry struct {
 	Under         string `json:"under,omitempty"`
 	Refusal       string `json:"refusal,omitempty"`
 	Error         string `json:"error,omitempty"`
+	// RefusalCode is xbind's code for a refusal its dry run found below the
+	// gate (the handler's own check): command | taint | start | create | …
+	RefusalCode string `json:"refusalCode,omitempty"`
 }
 
 // wsRequest is a request for the person's approval, as xbind keeps it.

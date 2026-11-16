@@ -136,7 +136,7 @@ func wsDeliver(t *DB, run *Run) *coordUpdate {
 				_, _ = t.q.Exec(`UPDATE ws_requests SET owed=0, msg_id=? WHERE id=?`, msgID, r.ID)
 			}
 			for _, a := range agents {
-				_, _ = t.q.Exec(`UPDATE ws_agents SET owed=0, wake=0, told=?, refused='' WHERE id=?`, a.state(), a.ID)
+				_, _ = t.q.Exec(`UPDATE ws_agents SET owed=0, wake=0, told=?, told_turn=?, refused='' WHERE id=?`, a.state(), a.Turn, a.ID)
 			}
 		}}
 }

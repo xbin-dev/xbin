@@ -29,7 +29,7 @@ import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import { uncovered, shown, hiddenLine } from '/vendor/bx-agent-approve.js';
-import { CHOICES, kindTag, warning, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp, stopRefusal, stopWords, endedWords, knownState, UNKNOWN_STATE } from '/vendor/agent-chrome-words.js';
+import { CHOICES, kindTag, warning, stateText, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp, stopRefusal, stopWords, endedWords, knownState, UNKNOWN_STATE } from '/vendor/agent-chrome-words.js';
 
 const KEEP = 'xbin-agent-ticks:'; // sessionStorage: a set's ticks, kept across signing in again
 
@@ -188,7 +188,7 @@ export class BxAgentChanges extends LitElement {
         ${(it.warnings || []).map((w) => { const x = warning(w); return html`<div class="warning" data-warning=${x.tag}><span class="tag bad"><bx-icon name=${x.icon}></bx-icon>${x.tag}</span><span>${x.text}</span></div>`; })}
         ${it.blocked && review ? html`<div class="banner warn" data-blocked><bx-icon name="lock"></bx-icon><span><b>Can't be applied.</b> ${it.blocked}</span></div>` : nothing}
         ${res && res.text ? html`<div class="small ${res.tone === 'bad' ? 'err' : 'muted'}">${res.text}</div>` : nothing}
-        ${it.before != null || it.after != null ? html`<div class="ba mono small"><div class="b"><span class="lb">Before</span>${it.before ?? '—'}</div><div class="a"><span class="lb">After</span>${it.after ?? '—'}</div></div>` : nothing}
+        ${it.before != null || it.after != null ? html`<div class="ba mono small"><div class="b" data-before><span class="lb">Before</span>${stateText(it, 'before') ?? '—'}</div><div class="a" data-after><span class="lb">After</span>${stateText(it, 'after') ?? '—'}</div></div>` : nothing}
         ${(it.effects || []).length ? html`<div class="small">${[].concat(it.effects).join(' ')}</div>` : nothing}
         ${it.why ? html`<div class="quote"><span class="ql">Agent's reason — not checked by xbin</span>${hiddenLine(it.why)}<span class="qt">${shown(it.why)}</span></div>` : nothing}
       </div></li>`;

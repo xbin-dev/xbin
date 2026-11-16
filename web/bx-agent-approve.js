@@ -36,7 +36,7 @@ import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, asked, settled,
-  stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote,
+  stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote, ownerWords,
 } from '/vendor/agent-chrome-words.js';
 
 /** shown(text): the agent's text as parts — each hidden character (bidi, zero-width, control) a chip, ⟨U+202E⟩, never interpreted. */
@@ -287,12 +287,11 @@ export class BxAgentApprove extends LitElement {
   _template(req) {
     let b = {};
     try { b = JSON.parse(req.body || '{}') || {}; } catch { /* shown raw below */ }
-    const p = req.preview || {};
     const s = sends(req, this._all);
     return html`<dl class="rows">
         <dt>Template</dt><dd class="mono">${b.source || b.template || '(the default)'}</dd>
         <dt>Name and place</dt><dd class="mono">${b.path || b.name || req.target}</dd>
-        <dt>Owner</dt><dd>${p.owner || 'you'}</dd>
+        <dt>Owner</dt><dd data-row="owner">${ownerWords(req)}</dd>
         <dt>Sends</dt><dd>${hiddenLine(req.body)}<pre class="body" tabindex="-1">${shown(s.text)}${s.clipped ? '…' : ''}</pre>
           <div class="small muted" data-note>${s.note}${s.clipped ? html` — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}</div></dd>
       </dl>

@@ -78,7 +78,7 @@ func (s *Server) describeItems(person auth.Principal, ops []delegation.ChangeOp,
 		if err != nil {
 			return nil, fmt.Errorf("operation %d (%s): %w", i+1, op.Kind, err)
 		}
-		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, Effects: pv.Effects,
+		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, BeforeText: pv.BeforeText, AfterText: pv.AfterText, Effects: pv.Effects,
 			Warnings: pv.Warnings, Blocked: pv.Blocked, Inverse: pv.Inverse, Basis: changeBasis(pv)}
 		if i < len(whys) {
 			it.Why = whys[i]
