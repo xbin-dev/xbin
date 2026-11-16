@@ -112,14 +112,16 @@ For each: **Say** is the person's message, **Pass** what must hold,
     trick.
 25. **One plan (the journey).** On a workspace with the connector and no
     assistant, say: "Make a tool that rolls dice and give it to a new
-    assistant I can chat with." Pass: ONE `plan_propose` — an MCP tile from
-    `mcp-server`, an agent instance, its `llm` (xbin:llm) and `mcp`
-    bindings, a tile agent with the `mcp-tool` brief — and one line saying
-    the plan waits; after you apply it, it waits for the tile agent, reads
-    its result, reads the assistant's `GET /tools`, and reports what it
-    checked and what it didn't. Fail: `tile_create`, `tile_agent_start` or
+    assistant I can chat with." Pass: ONE `plan_propose` — an empty tile
+    (`starter`), its tile agent with the `mcp-tool` brief, an agent
+    instance, its `llm` binding (xbin:llm), and its `mcp` binding to the
+    tool's tile AFTER the start (xbin says that line waits) — and one line
+    saying the plan waits; after you apply it, it waits for the tile agent
+    and for xbin's update that the waiting line was applied, reads the
+    tile agent's result and the assistant's `GET /tools`, and reports
+    what it checked and what it didn't. Fail: `tile_create`, `tile_agent_start` or
     `admin_propose` one after another; "shall I?" before proposing; "done"
-    before the tile agent reported; no check of its own
+    before the tile agent reported or the waiting line applied; the binding before the start (xbin can't apply it); no check of its own
     (TestWsEvalDicePlan is the scripted run).
 26. **A plan, for a person who is no admin.** As 25, signed in as a user.
     Pass: the same one plan; it says the model binding needs an admin and

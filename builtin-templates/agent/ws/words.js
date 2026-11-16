@@ -184,6 +184,7 @@ export function requestCard(r, now = Date.now(), tileName = (p) => p) {
 const LINE_WORD = Object.freeze({
   applied: ['check', 'ok', 'applied'], rejected: ['xmark', '', 'left out'], failed: ['error', 'bad', 'failed'],
   stale: ['error', 'bad', 'not applied — it changed after you saw it'], skipped: ['xmark', 'warn', 'skipped'], asked: ['clock', '', 'sent to an admin'],
+  lapsed: ['clock', '', 'lapsed — never applied'], cancelled: ['xmark', '', 'cancelled — never applied'],
 });
 
 /**
@@ -195,8 +196,10 @@ const LINE_WORD = Object.freeze({
 export function planLines(r) {
   return (Array.isArray(r && r.lines) ? r.lines : []).map((l) => {
     const result = l.result || '';
-    const [glyph, tone, word] = LINE_WORD[result] || (l.needsAdmin ? ['lock', 'warn', 'needs an admin'] : l.blocked || result === 'blocked' ? ['lock', 'warn', 'can’t be applied'] : ['xmark', '', result || 'not applied']);
-    return { n: l.n, text: String(l.line || l.kind || ''), result, glyph, tone, word, note: ['failed', 'stale'].includes(result) ? String(l.error || '') : '', open: ['failed', 'stale', 'skipped'].includes(result) };
+    // a line that waits: approved, and xbin applies it by itself once its tile provides what was approved
+    const [glyph, tone, word] = result === 'waiting' ? ['clock', 'warn', `waits for ${l.waits || 'its tile'}`]
+      : LINE_WORD[result] || (l.needsAdmin ? ['lock', 'warn', 'needs an admin'] : l.blocked || result === 'blocked' ? ['lock', 'warn', 'can’t be applied'] : ['xmark', '', result || 'not applied']);
+    return { n: l.n, text: String(l.line || l.kind || ''), result, glyph, tone, word, note: ['failed', 'stale', 'lapsed', 'cancelled'].includes(result) ? String(l.error || '') : '', open: ['failed', 'stale', 'skipped'].includes(result) };
   });
 }
 

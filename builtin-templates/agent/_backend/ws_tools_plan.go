@@ -30,10 +30,11 @@ func wsPlanTools() []coordTool {
 	return []coordTool{
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "plan_propose",
 			Description: "Propose multi-step work as ONE plan your person reviews once: create tiles, bind their slots, start a tile agent, and any admin change. " +
-				"Use it whenever an outcome takes more than one change that creates or binds something — never a chain of single requests (tile_create, then tile_agent_start, then admin_propose), which is a sheet a step. " +
-				"Nothing is applied: xbin writes what each line does and its warnings; your person ticks lines and applies them in order. A later line may name a tile an earlier tile.create line makes (by its path). " +
-				"Lines your person could do themselves need nothing more; a line that takes an admin's rights (binding the workspace's LLM connector, a grant) starts unticked for an admin, who ticks it on the review themselves, and for a person who is no admin xbin offers to ask one. " +
-				"This returns xbin's description at once and does not wait; the decision reaches you as a workspace update, with each line's result and the tile agents it started.",
+				"Use it whenever an outcome takes more than one change that creates or binds something — never a chain of single requests, which is a sheet a step. " +
+				"Nothing is applied: xbin writes what each line does and its warnings; your person ticks lines and applies them in order. Order: a tile, the tile agent that builds it, then what binds to it; a later line names an earlier line's tile by its path. " +
+				"A binding to a tile that provides nothing yet is allowed only after the agent.start line in that tile: it waits, and xbin applies it by itself once the tile agent declared the provide. " +
+				"A line that takes an admin's rights (the workspace's LLM connector, a grant) starts unticked for an admin, and for anyone else xbin offers to ask one. " +
+				"This returns xbin's description at once; the decision reaches you as a workspace update, with each line's result and the tile agents it started.",
 			Parameters: obj([]string{"title", "changes"}, map[string]any{
 				"title": strProp("what the plan is for, in a few words (shown as yours)"),
 				"changes": map[string]any{"type": "array", "minItems": 1, "maxItems": 20, "items": obj([]string{"kind", "args", "why"}, map[string]any{
@@ -72,6 +73,49 @@ type wsPlanLine struct {
 	Error      string `json:"error,omitempty"`
 	NeedsAdmin bool   `json:"needsAdmin,omitempty"`
 	Blocked    bool   `json:"blocked,omitempty"`
+	// Waits: what a waiting line waits for, in xbind's terms ("apps/dice to
+	// provide mcp"), and until when (ms).
+	Waits   string `json:"waits,omitempty"`
+	UntilMs int64  `json:"untilMs,omitempty"`
+}
+
+// wsPlanHasWaiting: a line of the decided plan still waits for xbind.
+func wsPlanHasWaiting(cs wsChangeSet) bool {
+	for _, it := range cs.Items {
+		if it.Result == "waiting" {
+			return true
+		}
+	}
+	return false
+}
+
+// wsPlanWaited is what the conversation is told when a plan's waiting
+// lines have all been applied by xbind, or ended (r: the plan's request).
+func wsPlanWaited(r *wsReq, cs wsChangeSet) string {
+	var meta wsPlanMeta
+	_ = json.Unmarshal(r.Body, &meta)
+	var b strings.Builder
+	applied := false
+	for _, l := range meta.Lines {
+		if l.Waits == "" {
+			continue
+		}
+		switch l.Result {
+		case "applied":
+			applied = true
+			fmt.Fprintf(&b, "Line %d of the plan, which waited for %s, was applied by xbin now: %s.\n", l.N, l.Waits, wsPlain(l.Line))
+		default:
+			fmt.Fprintf(&b, "Line %d of the plan, which waited for %s, was NOT applied — %s", l.N, l.Waits, wsResultWords(l.Result))
+			if l.Error != "" {
+				fmt.Fprintf(&b, " (xbin said: %s)", wsPlain(l.Error))
+			}
+			b.WriteString(". Say so, and what it means for the outcome; propose it again if it is still wanted.\n")
+		}
+	}
+	if applied {
+		b.WriteString("Check the hook-up yourself before you say the outcome is reached (for an assistant's tool: a read of the assistant's GET /tools names it), and say what you checked and what you could not.")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // wsPlanLines keeps a decided plan's lines with its request row.
@@ -82,8 +126,15 @@ func (ag *Agent) wsPlanLines(r *wsReq, cs wsChangeSet) {
 	}
 	meta.Lines = meta.Lines[:0]
 	for _, it := range cs.Items {
-		meta.Lines = append(meta.Lines, wsPlanLine{N: it.N, Kind: it.Kind, Line: clip(it.Line, 300), Result: it.Result, Error: clip(it.Error, 300),
-			NeedsAdmin: it.NeedsAdmin, Blocked: it.Blocked != ""})
+		l := wsPlanLine{N: it.N, Kind: it.Kind, Line: clip(it.Line, 300), Result: it.Result, Error: clip(it.Error, 300),
+			NeedsAdmin: it.NeedsAdmin, Blocked: it.Blocked != ""}
+		if it.Wait != nil {
+			l.Waits = clip(it.Wait.Tile+" to provide "+it.Wait.Service, 200)
+			if !it.Wait.Until.IsZero() {
+				l.UntilMs = it.Wait.Until.UnixMilli()
+			}
+		}
+		meta.Lines = append(meta.Lines, l)
 	}
 	body, err := json.Marshal(meta)
 	if err != nil {
@@ -279,8 +330,12 @@ func wsPlanProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 // can't be applied, which are an admin's, which wait for one.
 func wsPlanNotes(cs wsChangeSet) string {
 	var blocked, admin, needs []string
+	waiting := ""
 	for _, it := range cs.Items {
 		n := fmt.Sprint(it.N)
+		if it.Wait != nil && it.Blocked == "" {
+			waiting += fmt.Sprintf("Line %s waits by design: your person approves it on the review, and xbin applies it by itself once %s provides %s — which the tile agent of an earlier line writes (the brief template \"mcp-tool\" tells it to). ", n, it.Wait.Tile, it.Wait.Service)
+		}
 		switch {
 		case it.Blocked != "":
 			blocked = append(blocked, n)
@@ -290,7 +345,7 @@ func wsPlanNotes(cs wsChangeSet) string {
 			admin = append(admin, n)
 		}
 	}
-	out := ""
+	out := waiting
 	if len(blocked) > 0 {
 		out += "xbin can't apply line " + strings.Join(blocked, ", ") + " as proposed (its reason is above): say so, or propose a plan without it. "
 	}
@@ -335,6 +390,12 @@ func (ag *Agent) wsPlanDecided(ctx context.Context, s *wsSession, r *wsReq, cs w
 		started++
 		fmt.Fprintf(&b, "\nLine %d started tile agent #%d in %s (%s, %s) and it was told the brief. It is your person's session: only they answer its questions. You are told when it ends its turn, fails or waits for them.",
 			it.N, row.ID, row.Tile, orStr(row.Harness, "coding agent"), map[bool]string{true: "asks before acting", false: "acts without asking"}[row.Asks])
+	}
+	for _, it := range cs.Items {
+		if it.Result == "waiting" && it.Wait != nil {
+			fmt.Fprintf(&b, "\nLine %d is approved and waits: xbin applies it by itself, as your person, once %s provides %s — an http interface for the role %s in its manifest, which is the tile agent's to write (its brief says so). Nothing is bound until then, a tile that declares anything else is not bound, and the line lapses in 24 hours. You are told when it is applied or ends; until then the outcome isn't reached — don't say it is.",
+				it.N, it.Wait.Tile, it.Wait.Service, orStr(it.Wait.Role, "reader"))
+		}
 	}
 	if failed > 0 {
 		b.WriteString("\nA line failed, so the lines after it were skipped and the earlier ones stay. Say which, in xbin's words, and what you would propose instead — don't file the skipped steps as single requests.")

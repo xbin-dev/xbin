@@ -1,6 +1,6 @@
 # Give an agent a tool (MCP)
 
-An agent instance gets tools from MCP server tiles bound to its `mcp` slot. An *agent instance* is a copy of the agent template — an assistant people chat with, a channel's bot, an automation — and a *tool* is something its conversations can call: roll dice, look up an order, file a ticket. A tool lives in a tile of its own that speaks MCP (the [Model Context Protocol](https://modelcontextprotocol.io)), and the agent reaches it through a binding, which is also its grant. Nothing else is wired: no key, no URL, no `uses` entry.
+An agent instance gets tools from MCP server tiles bound to its `mcp` slot; one is a Go backend tile written from this page. An *agent instance* is a copy of the agent template — an assistant people chat with, a channel's bot, an automation — and a *tool* is something its conversations can call: roll dice, look up an order, file a ticket. A tool lives in a tile of its own that speaks MCP (the [Model Context Protocol](https://modelcontextprotocol.io)), and the agent reaches it through a binding, which is also its grant. Nothing else is wired: no key, no URL, no `uses` entry.
 
 An MCP server tile is an ordinary Go backend tile: a manifest line and one file. This page is the interface and carries that file whole; there is no `mcp-server` template to instantiate. The same tile, with tests and a page to try its tools by hand, is in the xbin repository as `examples/mcp-server/`.
 

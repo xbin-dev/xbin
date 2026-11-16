@@ -106,7 +106,15 @@ public enum PlanWords {
     public static func closesItself(_ c: AdminChangeSet, chosen: [Int]) -> Bool {
         guard c.plan, c.from.isEmpty, c.undoOf.isEmpty, !chosen.isEmpty else { return false }
         if c.items.contains(where: { $0.needsAdmin && $0.result.isEmpty }) { return false }
-        return chosen.allSatisfy { result(c, $0) == "applied" }
+        // (a line that waits was approved and is xbin's to apply: nothing is left for the person to do here)
+        return chosen.allSatisfy { ["applied", "waiting"].contains(result(c, $0)) }
+    }
+
+    /// The results' line about lines that wait for xbin ("" none).
+    public static func waitingWords(_ c: AdminChangeSet) -> String {
+        let n = c.items.filter { $0.result == "waiting" }.count
+        guard n > 0 else { return "" }
+        return "\(plural(n, "line")) \(n == 1 ? "waits" : "wait"): xbin applies \(n == 1 ? "it" : "them") by itself once the tile provides what you approved. Rejecting the plan from here cancels \(n == 1 ? "it" : "them")."
     }
 
     /// What the review says under a line, beside xbind's own words.

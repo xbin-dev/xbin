@@ -632,8 +632,21 @@ public enum DelegationWords {
         case "rejected": return ("left out by you", "minus", "", "")
         case "blocked": return ("couldn't be applied", "lock", "warn", item.blocked.isEmpty ? item.error : item.blocked)
         case "asked": return ("sent to an admin", "clock", "", "")
+        // a plan's line that waits: approved, applied by xbin once its tile provides what was approved — or never
+        case "waiting": return ("waiting", "clock", "warn", waitText(item))
+        case "lapsed": return ("lapsed — never applied", "clock", "", item.error)
+        case "cancelled": return ("cancelled — never applied", "minus", "", item.error)
         default: return item.needsAdmin && item.result.isEmpty ? ("needs an admin", "lock", "", "") : (item.result, "", "", "")
         }
+    }
+
+    /// Where a waiting line stands, from xbind's fields ("" for a line
+    /// that doesn't wait).
+    public static func waitText(_ item: AdminChangeSet.Item) -> String {
+        guard item.result == "waiting", !item.waitTile.isEmpty else { return "" }
+        let what = "\(item.waitTile) provides \(item.waitService)"
+        return item.waitHeld.isEmpty ? "xbin applies it by itself once \(what); nothing is bound until then."
+            : "Not bound — \(item.waitHeld). xbin applies it once \(what) as you approved it."
     }
 
     private static let numbers = ["none", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]

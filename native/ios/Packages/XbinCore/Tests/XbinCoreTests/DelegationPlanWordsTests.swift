@@ -18,7 +18,7 @@ import Testing
 
     @Test func plans() throws {
         let cases = try #require(v["plans"]?.arrayValue)
-        #expect(cases.count >= 8)
+        #expect(cases.count >= 10)
         for c in cases {
             let cs = try #require(AdminChangeSet(json: c["json"]))
             let id = cs.id
@@ -26,6 +26,7 @@ import Testing
             let need = DelegationWords.needChangeTitle(cs)
             #expect(need.title == s(c["need"], "title") && need.note == s(c["need"], "note"), "\(id)")
             #expect(PlanWords.askedWords(cs) == s(c, "askedWords"), "\(id)")
+            #expect(PlanWords.waitingWords(cs) == s(c, "waitingWords"), "\(id): what waits for xbin")
             let wantItems = c["items"]?.arrayValue ?? []
             #expect(cs.items.count == wantItems.count, "\(id)")
             for (it, want) in zip(cs.items, wantItems) {

@@ -9,6 +9,15 @@
 // Scripts, by the first match in this order (a word matches anywhere in
 // the prompt's text, a prefix only at its start):
 //
+//	fakeacp-steps: <cmd> ||| <cmd> …  (anywhere in the prompt; the rest of
+//	            that line) a coding agent's work in an asking mode: for each
+//	            command an execute tool_call and a session/request_permission
+//	            (once/always/no), then the command in a client terminal
+//	            (terminal/create `sh -c`), its output and exit on the call.
+//	            "always" asks no more this turn; "no" fails that call and
+//	            ends the turn "denied step N"; a failing command ends it
+//	            "step N failed …"; modes auto and yolo ask nothing. Ends
+//	            "steps done: <the last output>"
 //	ask-withdraw <file>  Claude's AskUserQuestion (a tool_call and an
 //	            elicitation/create, one single-select) that the agent withdraws
 //	            ($/cancel_request) once <file> — named after the word's last

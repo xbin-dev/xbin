@@ -887,7 +887,7 @@ enum AgentDemoData {
      "n": 1,
      "kind": "tile.create",
      "args": {},
-     "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+     "line": "Create the tile apps/dice from the template Starter (starter) — yours",
      "before": {
       "tile": null
      },
@@ -994,7 +994,7 @@ enum AgentDemoData {
      "n": 1,
      "kind": "tile.create",
      "args": {},
-     "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+     "line": "Create the tile apps/dice from the template Starter (starter) — yours",
      "before": {
       "tile": null
      },

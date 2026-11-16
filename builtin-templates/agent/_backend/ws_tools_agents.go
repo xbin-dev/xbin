@@ -35,7 +35,7 @@ func wsAgentTools() []coordTool {
 			Description: "Write the brief for a tile agent — a coding agent that works inside one tile — and show it to your person, who can edit it. This starts nothing. " +
 				"Use it whenever an outcome needs something built, changed or fixed in a tile: you don't change code, a tile's agent does. " +
 				"Write the brief for someone who saw none of this conversation: the outcome wanted (not the steps), how anyone can tell it is done, what must not be touched, how to check, and what you already found out. " +
-				"For a tool an agent instance should get (an MCP tile made from the mcp-server template, bound to the instance's mcp slot): template \"mcp-tool\" with tool {name, arguments, result} — it fills done_when, check_by and what to leave alone. " +
+				"For a tool an agent instance should get (an MCP server in a tile of its own, bound to the instance's mcp slot): template \"mcp-tool\" with tool {name, arguments, result} — it fills done_when, check_by, what is known and what to leave alone. " +
 				"Next: tile_agent_start with the brief's number.",
 			Parameters: obj([]string{"tile"}, withBriefTemplate(map[string]any{
 				"tile":        strProp("the tile's path, as workspace_map lists it"),

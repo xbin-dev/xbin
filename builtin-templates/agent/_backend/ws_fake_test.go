@@ -830,7 +830,7 @@ func (f *fakeXbin) AgentReport(_ context.Context, sid, id string) (wsAgentReport
 
 func (f *fakeXbin) Templates(context.Context, string) ([]wsTemplate, error) {
 	return []wsTemplate{{ID: "builtin:starter", Name: "Starter", Description: "An empty tile with a page and a backend"},
-		{ID: "mcp-server", Name: "MCP server", Description: "Tools for an agent"}, {ID: "agent", Name: "AI Agent", Description: "An assistant"}}, nil
+		{ID: "starter", Name: "Starter", Description: "A blank static component"}, {ID: "agent", Name: "AI Agent", Description: "An assistant"}}, nil
 }
 
 func (f *fakeXbin) Propose(_ context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
@@ -864,6 +864,7 @@ func (f *fakeXbin) ProposePlan(_ context.Context, sid, title string, items []xbi
 	}
 	cs := &wsChangeSet{ID: f.id("cs"), Title: title, State: "proposed", Plan: true}
 	made := map[string]int{}
+	blank, started := map[string]bool{}, map[string]int{} // tiles made from the empty template; tiles an earlier line starts a tile agent in
 	for i, it := range items {
 		raw, _ := json.Marshal(it.Args)
 		var args map[string]any
@@ -881,7 +882,9 @@ func (f *fakeXbin) ProposePlan(_ context.Context, sid, title string, items []xbi
 				item.Blocked = "a tile is there already"
 			}
 			made[str(args["path"])] = item.N
+			blank[str(args["path"])] = str(args["template"]) == "starter"
 		case "agent.start":
+			started[str(args["tile"])] = item.N
 			item.Line = "Start a tile agent in " + str(args["tile"]) + " — Claude Code, in its mode \"default\""
 			if f.tiles[str(args["tile"])] == nil && made[str(args["tile"])] == 0 {
 				item.Blocked = "no such tile"
@@ -890,6 +893,17 @@ func (f *fakeXbin) ProposePlan(_ context.Context, sid, title string, items []xbi
 			item.Line = "Bind " + str(args["component"]) + "'s " + str(args["slot"]) + " to " + str(args["provider"])
 			if str(args["provider"]) == "xbin:llm" {
 				item.Admin, item.Warnings = true, []string{"SPEND: its calls spend the workspace's LLM quota"}
+			}
+			// a tile that provides nothing yet: the line waits when a tile agent is started in it first, else it can't be applied
+			if prov := str(args["provider"]); blank[prov] {
+				if n := started[prov]; n > 0 {
+					item.Wait = &xbin.ChangeSetWait{Tile: prov, Service: str(args["slot"]), Kind: "http", Role: "reader"}
+					if !hasInt(item.Needs, n) {
+						item.Needs = append(item.Needs, n)
+					}
+				} else {
+					item.Blocked = prov + " does not provide the \"" + str(args["slot"]) + "\" service the slot wants"
+				}
 			}
 		default:
 			item.Admin = true
@@ -938,6 +952,11 @@ func (f *fakeXbin) applyPlan(id string, ticks []int, failAt int) {
 		case it.N == failAt:
 			it.Result, it.Error, failed = "failed", "the tile's org turned agents away meanwhile", true
 			problems++
+		case it.Wait != nil:
+			it.Result = "waiting"
+			w := *it.Wait
+			w.Until = time.Now().Add(24 * time.Hour)
+			it.Wait = &w
 		default:
 			it.Result = "applied"
 			switch it.Kind {
@@ -957,6 +976,18 @@ func (f *fakeXbin) applyPlan(id string, ticks []int, failAt int) {
 		cs.State = "partial"
 	}
 	f.note("ApplyPlan %s", id)
+}
+
+// waited is xbind settling plan id's waiting line n by itself: applied
+// (the tile agent declared the provide), or ended with result and why.
+func (f *fakeXbin) waited(id string, n int, result, why string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	it := &f.sets[id].Items[n-1]
+	if it.Result == "waiting" {
+		it.Result, it.Error = result, why
+	}
+	f.note("Waited %s/%d %s", id, n, result)
 }
 
 // askAdmin is the person pressing "Ask an admin" on plan id; adminApplies

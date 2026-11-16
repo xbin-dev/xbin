@@ -12,6 +12,46 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- templates, docs: **there is no `mcp-server` template — an MCP server
+  tile is written, and [mcp.md](/docs/mcp.md) is its interface** (D243).
+  The template that landed earlier today (in no release) is gone from the
+  template list, `POST /templates/new`, the Tile Manager and `bx template
+  new`. `mcp.md` now carries the interface — the manifest's
+  `provides.mcp`, the JSON-RPC wire (`initialize` with version
+  negotiation, `ping`, `tools/list`, `tools/call`, errors,
+  `readOnlyHint`) — and a complete Go server inline, the same file as the
+  repository's `examples/mcp-server/backend/main.go` (a test holds them to
+  the same bytes).
+- delegation: **a plan's line can wait** (D243). A `binding.set` to a tile
+  that provides nothing of what the slot wants yet, after an `agent.start`
+  line in that tile, is approved on the plan's review and applied by xbind
+  itself once the tile's manifest declares exactly what was approved (kind
+  `http`, the slot's service, role `reader`): new item field `wait`, new
+  results `waiting`, `lapsed`, `cancelled`. It waits at most 24 hours, is
+  not bound to anything else the tile declares (`wait.held` says why), is
+  cancelled by `POST …/reject` or `…/undo` on the decided set, by the
+  agent's end and by changes to its tiles, and every Apply-time check runs
+  again when it would apply. Audit rows `under: "waits"` and `"waited"`
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §Lines that
+  wait). Additive.
+- the workspace agent: **a tool for an assistant is built, in one plan.**
+  "Make a tool that rolls dice and give it to a new assistant" is now: an
+  empty tile, that tile's coding agent started with the `mcp-tool` brief
+  (which says to declare `provides.mcp`, points at `/docs/mcp.md` and
+  names the files a Go backend tile needs), the assistant, its `llm`
+  binding, and its `mcp` binding as a line that waits. The agent is told
+  when the waiting line is applied or ends, checks the hook-up (the
+  assistant's `GET /tools`) and says what it checked. The plan's card
+  lists a waiting line as "waits for apps/dice to provide mcp" (`GET
+  /ws/sessions/<id>/cards` → `requests[].state: "waiting"`, `lines[].waits`,
+  `untilMs`).
+- workspace agent's chrome (web, app): a line that waits reads `waiting`
+  with what it waits for (or why it is held), a decided plan with one
+  shows in **Needs you** as "Waiting: …" with **Open**, and its results
+  offer **Cancel what waits**. `agent-chrome-words.js` gains `waitText`,
+  `agent-plan-words.js` `waitingWords`; XbinCore's `DelegationWords` and
+  `PlanWords` likewise.
+
 - runner: **a failed start retries by itself** (D242). A start that failed
   for a reason that can clear by itself — the backend was running but never
   listened by its deadline (also while still waiting on xbind), it listened

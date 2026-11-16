@@ -1,20 +1,22 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 )
 
-// the plan the prompt and the tool ask for (D238):
-// a tool tile, an assistant, its two slots, and the tile agent that builds
-// the tool — one call, five lines.
+// the plan the prompt and the tool ask for (D238, D243): the tool's tile —
+// empty: there is no template to stamp one from —, the tile agent that
+// builds the MCP server in it, the assistant, its model, and the binding
+// that waits for what the tile agent writes — one call, five lines.
 const wsDicePlan = `{"title":"A dice tool and an assistant that can use it","changes":[
-	{"kind":"tile.create","args":{"template":"mcp-server","name":"Dice"},"why":"The tool lives in a tile of its own"},
+	{"kind":"tile.create","args":{"template":"starter","name":"Dice"},"why":"The tool lives in a tile of its own"},
+	{"kind":"agent.start","args":{"tile":"Dice","template":"mcp-tool","tool":{"name":"roll_dice","arguments":"sides: integer, default 6","result":"each roll and their sum"}},"why":"A coding agent builds the tool"},
 	{"kind":"tile.create","args":{"template":"agent","name":"Assistant"},"why":"The assistant you will chat with"},
 	{"kind":"binding.set","args":{"component":"Assistant","slot":"llm","provider":"xbin:llm"},"why":"The assistant needs a model to answer at all"},
-	{"kind":"binding.set","args":{"component":"apps/assistant","slot":"mcp","provider":"Dice"},"why":"This is what gives the assistant the tool"},
-	{"kind":"agent.start","args":{"tile":"Dice","template":"mcp-tool","tool":{"name":"roll_dice","arguments":"sides: integer, default 6","result":"each roll and their sum"}},"why":"A coding agent builds the tool"}]}`
+	{"kind":"binding.set","args":{"component":"apps/assistant","slot":"mcp","provider":"Dice"},"why":"This is what gives the assistant the tool"}]}`
 
 func planOf(t *testing.T, fx *wsFix) *wsChangeSet {
 	t.Helper()
@@ -66,16 +68,17 @@ func TestWsEvalDicePlan(t *testing.T) {
 			t.Errorf("plan_propose as offered doesn't say what it replaces: %s", o.Function.Description)
 		}
 	}
-	if !strings.Contains(wsSystem(), "are ONE plan (plan_propose), never a chain of single requests") || !strings.Contains(wsSystem(), "Applied is not done") {
+	if !strings.Contains(wsSystem(), "are ONE plan (plan_propose), never a chain of single requests") || !strings.Contains(wsSystem(), "Applied is not done") || !strings.Contains(wsSystem(), "built, not stamped") {
 		t.Error("the prompt doesn't teach the plan")
 	}
 	got := fx.toolResult(t, s, "plan_propose")
 	for _, want := range []string{
-		"1. [tile.create] Create the tile apps/dice from the template mcp-server — yours",
-		"3. [binding.set] Bind apps/assistant's llm to xbin:llm — WARNING: SPEND:",
-		"4. [binding.set] Bind apps/assistant's mcp to apps/dice",
-		"5. [agent.start] Start a tile agent in apps/dice",
-		"Line 3 takes an admin's rights",
+		"1. [tile.create] Create the tile apps/dice from the template starter — yours",
+		"2. [agent.start] Start a tile agent in apps/dice",
+		"4. [binding.set] Bind apps/assistant's llm to xbin:llm — WARNING: SPEND:",
+		"5. [binding.set] Bind apps/assistant's mcp to apps/dice",
+		"Line 5 waits by design: your person approves it on the review, and xbin applies it by itself once apps/dice provides mcp",
+		"Line 4 takes an admin's rights",
 		"Proposed as one plan; nothing is applied.",
 	} {
 		if !strings.Contains(got, want) {
@@ -88,21 +91,27 @@ func TestWsEvalDicePlan(t *testing.T) {
 	}
 	cs := planOf(t, fx)
 	// the brief the tile agent will be told is the template's, complete — it is the line's own argument
-	if brief := str(fx.x.planArgs[cs.ID+"/5"]["brief"]); !strings.Contains(brief, "Done when: tools/list on this tile's /mcp names `roll_dice`") || !strings.Contains(brief, "handed to you by alice's workspace agent") {
-		t.Fatalf("the start line's brief:\n%s", brief)
+	// — and it tells a coding agent in an EMPTY tile what makes it an MCP server: the provide xbind's waiting line is pinned to, and where the interface is
+	brief := str(fx.x.planArgs[cs.ID+"/2"]["brief"])
+	for _, want := range []string{"Done when: this tile's xbin.json declares \"provides\": {\"mcp\": {\"kind\": \"http\", \"service\": \"mcp\", \"role\": \"reader\"}}", "tools/list on this tile's /mcp names `roll_dice`",
+		"$XBIN_URL/docs/mcp.md?raw=1", "a wider role is not bound", "handed to you by alice's workspace agent"} {
+		if !strings.Contains(brief, want) {
+			t.Fatalf("the start line's brief lacks %q:\n%s", want, brief)
+		}
 	}
-	if n := cs.Items[3].Needs; len(n) != 2 {
-		t.Fatalf("line 4 needs %v", n)
+	if l := cs.Items[4]; len(l.Needs) != 3 || l.Wait == nil || l.Wait.Tile != "apps/dice" || l.Wait.Service != "mcp" {
+		t.Fatalf("line 5 waits on the tile, its tile agent and the assistant: needs %v, wait %+v", l.Needs, l.Wait)
 	}
 
-	// the person ticks the SPEND line and applies all five
-	f.on(forRun(s.Run, lastUser("Line 5 started tile agent #1")), say("Applied. The tile agent is building the tool; I'll check when it reports.")).once()
+	// the person ticks the SPEND line and applies all five: four are applied, the binding waits
+	f.on(forRun(s.Run, lastUser("Line 2 started tile agent #1")), say("Applied. The tile agent is building the tool; the binding waits for it. I'll check when it reports.")).once()
 	fx.x.applyPlan(cs.ID, []int{1, 2, 3, 4, 5}, 0)
 	fx.notify(t)
 	waitFor(t, "the decision's update", func() bool { return strings.HasPrefix(fx.lastAssistant(t, s), "Applied.") })
 	fx.idle(t, s)
 	up := fx.updates(t, s)
-	for _, want := range []string{"your person decided", "Line 5 started tile agent #1 in apps/dice (Claude Code, asks before acting)", "The work isn't done until the tile agent reports and you have checked"} {
+	for _, want := range []string{"your person decided", "Line 2 started tile agent #1 in apps/dice (Claude Code, asks before acting)", "The work isn't done until the tile agent reports and you have checked",
+		"5. [binding.set] Bind apps/assistant's mcp to apps/dice — approved, and waiting", "Line 5 is approved and waits: xbin applies it by itself, as your person, once apps/dice provides mcp", "don't say it is"} {
 		if !strings.Contains(up[0], want) {
 			t.Errorf("the update lacks %q:\n%s", want, up[0])
 		}
@@ -111,27 +120,47 @@ func TestWsEvalDicePlan(t *testing.T) {
 	if len(rows) != 1 || rows[0].Tile != "apps/dice" || rows[0].CallID != "p1" {
 		t.Fatalf("the tile agent the plan started isn't this conversation's to follow: %+v", rows)
 	}
-	if r := fx.ag.db.wsReqs(`WHERE run_id=?`, s.Run); len(r) != 1 || r[0].State != "applied" || !strings.Contains(r[0].Title, "a plan of 5 change(s)") {
+	// the plan's row is followed on while its line waits; its card says what the line waits for
+	if r := fx.ag.db.wsReqs(`WHERE run_id=?`, s.Run); len(r) != 1 || r[0].State != wsReqWaiting || !strings.Contains(r[0].Title, "a plan of 5 change(s)") || r[0].Result != "4 of 5 changes applied" {
 		t.Fatalf("the plan's row: %+v", r)
 	}
+	var meta wsPlanMeta
+	_ = json.Unmarshal(fx.ag.db.wsReqs(`WHERE run_id=?`, s.Run)[0].Body, &meta)
+	if l := meta.Lines[4]; l.Result != "waiting" || l.Waits != "apps/dice to provide mcp" || l.UntilMs == 0 {
+		t.Fatalf("the card's waiting line: %+v", l)
+	}
 
-	// the tile agent reports; the model reads the report and checks the hook-up itself
+	// the tile agent reports; the model reads the report — the binding still waits, so it isn't done
 	fx.x.mu.Lock()
-	fx.x.reports[rows[0].Session] = wsAgentReport{Status: "end_turn", Answer: "Added roll_dice; tools/list names it.", Turn: 1}
+	fx.x.reports[rows[0].Session] = wsAgentReport{Status: "end_turn", Answer: "Wrote the MCP server; tools/list names roll_dice.", Turn: 1}
 	fx.x.mu.Unlock()
-	f.on(forRun(s.Run, lastUser("ended its turn")), callTools(tc("v1", "tile_agent_result", `{"agent":"#1"}`),
-		tc("v2", "tile_call", `{"tile":"apps/assistant","method":"GET","path":"/tools"}`))).once()
-	f.on(forRun(s.Run, lastTool("tile_call")), say("Done: Dice has roll_dice and your assistant lists it. Checked: the tile agent's report and the assistant's tool list. Not checked: a conversation in the assistant.")).once()
-	fx.x.setAgent(rows[0].Session, func(a *wsAgent) { a.Status, a.Last = "idle", "Added roll_dice." })
+	f.on(forRun(s.Run, lastUser("ended its turn")), callTools(tc("v1", "tile_agent_result", `{"agent":"#1"}`))).once()
+	f.on(forRun(s.Run, lastTool("tile_agent_result")), say("The tile agent reports the server is written. The binding to your assistant still waits for xbin; I'll check once it is applied.")).once()
+	fx.x.setAgent(rows[0].Session, func(a *wsAgent) { a.Status, a.Last = "idle", "Wrote the MCP server." })
 	fx.notify(t)
-	waitFor(t, "the report", func() bool { return strings.HasPrefix(fx.lastAssistant(t, s), "Done: Dice has roll_dice") })
+	waitFor(t, "the report", func() bool { return strings.HasPrefix(fx.lastAssistant(t, s), "The tile agent reports") })
 	fx.idle(t, s)
+
+	// xbind applies the waiting line by itself: the conversation is told, and checks the hook-up before it says done
+	f.on(forRun(s.Run, lastUser("was applied by xbin now")), callTools(tc("v2", "tile_call", `{"tile":"apps/assistant","method":"GET","path":"/tools"}`))).once()
+	f.on(forRun(s.Run, lastTool("tile_call")), say("Done: Dice has roll_dice and your assistant lists it. Checked: the tile agent's report and the assistant's tool list. Not checked: a conversation in the assistant.")).once()
+	fx.x.waited(cs.ID, 5, "applied", "")
+	fx.notify(t)
+	waitFor(t, "the waiting line applied", func() bool { return strings.HasPrefix(fx.lastAssistant(t, s), "Done: Dice has roll_dice") })
+	fx.idle(t, s)
+	if up := fx.updates(t, s); !strings.Contains(up[len(up)-1], "Line 5 of the plan, which waited for apps/dice to provide mcp, was applied by xbin now: Bind apps/assistant's mcp to apps/dice") ||
+		!strings.Contains(up[len(up)-1], "Check the hook-up yourself before you say the outcome is reached") {
+		t.Fatalf("the update when the waiting line applied: %s", up[len(up)-1])
+	}
+	if r := fx.ag.db.wsReqs(`WHERE run_id=?`, s.Run); r[0].State != "applied" || r[0].Result != "5 of 5 changes applied" {
+		t.Fatalf("the plan's row once nothing waits: %+v", r[0])
+	}
 	if got := fx.toolResult(t, s, "tile_call"); !strings.Contains(got, "roll_dice") || fx.x.count("Call GET /api/apps/assistant/tools") != 1 {
 		t.Fatalf("the check of the hook-up: %q %v", got, fx.x.calls)
 	}
 	// from the prompt to done: one message of the person's, no request, no question
-	if msgs := fx.userMsgs(t, s); len(msgs) != 3 || fx.x.count("Ask") != 0 {
-		t.Fatalf("the conversation took %d user-side messages (1 prompt and 2 updates wanted): %q", len(msgs), msgs)
+	if msgs := fx.userMsgs(t, s); len(msgs) != 4 || fx.x.count("Ask") != 0 {
+		t.Fatalf("the conversation took %d user-side messages (1 prompt and 3 updates wanted): %q", len(msgs), msgs)
 	}
 }
 
@@ -145,11 +174,11 @@ func TestWsEvalPlanNeedsAnAdmin(t *testing.T) {
 	s := fx.main(t)
 	f := fakeOf(fx.ag)
 	f.on(forRun(s.Run, lastUser("rolls dice")), callTools(tc("p1", "plan_propose", wsDicePlan))).once()
-	f.on(forRun(s.Run, lastTool("plan_propose")), say("One plan of five changes waits for you. Line 3 needs an admin: you can send it to one from the review.")).once()
+	f.on(forRun(s.Run, lastTool("plan_propose")), say("One plan of five changes waits for you. Line 4 needs an admin: you can send it to one from the review.")).once()
 	fx.say(t, s, "Make a tool that rolls dice and give it to a new assistant")
 	fx.idle(t, s)
 	got := fx.toolResult(t, s, "plan_propose")
-	for _, want := range []string{"3. [binding.set] Bind apps/assistant's llm to xbin:llm — needs an admin", "Line 3 needs an admin, and your person is none", "you can't ask for them"} {
+	for _, want := range []string{"4. [binding.set] Bind apps/assistant's llm to xbin:llm — needs an admin", "Line 4 needs an admin, and your person is none", "you can't ask for them"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the plan's result lacks %q:\n%s", want, got)
 		}
@@ -159,11 +188,11 @@ func TestWsEvalPlanNeedsAnAdmin(t *testing.T) {
 	}
 	cs := planOf(t, fx)
 	f.on(forRun(s.Run, lastUser("needs an admin was not applied")), say("Four changes are applied. The model binding waits for an admin — until then the assistant can't answer.")).once()
-	fx.x.applyPlan(cs.ID, []int{1, 2, 4, 5}, 0)
+	fx.x.applyPlan(cs.ID, []int{1, 2, 3, 5}, 0)
 	fx.notify(t)
 	waitFor(t, "the update", func() bool { return strings.HasPrefix(fx.lastAssistant(t, s), "Four changes are applied") })
 	fx.idle(t, s)
-	if up := fx.updates(t, s); !strings.Contains(up[0], "\"Ask an admin\"") || !strings.Contains(up[0], "Until an admin applies it, what depends on it doesn't work") || !strings.Contains(up[0], "4 of 4 changes applied") && !strings.Contains(up[0], "started tile agent #1") {
+	if up := fx.updates(t, s); !strings.Contains(up[0], "\"Ask an admin\"") || !strings.Contains(up[0], "Until an admin applies it, what depends on it doesn't work") || !strings.Contains(up[0], "started tile agent #1") {
 		t.Fatalf("the update: %s", up[0])
 	}
 	// the person asks; an admin applies; the conversation can read where it stands
@@ -172,7 +201,7 @@ func TestWsEvalPlanNeedsAnAdmin(t *testing.T) {
 		t.Fatalf("while it waits for an admin: %s", got)
 	}
 	fx.x.adminApplies(cs.ID)
-	if got := fx.tool(t, s, "admin_changes", map[string]any{}); !strings.Contains(got, "3. [binding.set] Bind apps/assistant's llm to xbin:llm — applied") {
+	if got := fx.tool(t, s, "admin_changes", map[string]any{}); !strings.Contains(got, "4. [binding.set] Bind apps/assistant's llm to xbin:llm — applied") {
 		t.Fatalf("after the admin applied it: %s", got)
 	}
 	if fx.x.count("Ask") != 0 {
@@ -199,28 +228,28 @@ func TestWsEvalPlanLineRefusedAtApply(t *testing.T) {
 
 	// while the plan waits, its steps are not filed one by one
 	const single = "That step is a line of the plan you proposed"
-	if got := fx.tool(t, s, "tile_create", map[string]any{"template": "mcp-server", "name": "Dice", "why": "the tool"}); !strings.Contains(got, single) || !strings.Contains(got, "Nothing was filed") {
+	if got := fx.tool(t, s, "tile_create", map[string]any{"template": "starter", "name": "Dice", "why": "the tool"}); !strings.Contains(got, single) || !strings.Contains(got, "Nothing was filed") {
 		t.Fatalf("a single tile_create for a step of the open plan: %s", got)
 	}
-	if got := fx.tool(t, s, "tile_create", map[string]any{"template": "mcp-server", "name": "Something else", "why": "unrelated", "dry_run": true}); strings.Contains(got, single) {
+	if got := fx.tool(t, s, "tile_create", map[string]any{"template": "starter", "name": "Something else", "why": "unrelated", "dry_run": true}); strings.Contains(got, single) {
 		t.Fatalf("an unrelated creation is held back by the plan: %s", got)
 	}
 	if fx.x.count("Ask") != 0 {
 		t.Fatalf("a single request was filed beside the plan: %v", fx.x.calls)
 	}
 
-	// line 2 fails when applied: 1 stays, 3–5 are skipped
+	// line 3 fails when applied: 1 and 2 stay, 4 and 5 are skipped
 	replan := `{"title":"The assistant, again","changes":[
 		{"kind":"tile.create","args":{"template":"agent","name":"Helper"},"why":"The assistant, at another place"},
 		{"kind":"binding.set","args":{"component":"Helper","slot":"mcp","provider":"apps/dice"},"why":"The tool"}]}`
 	f.on(forRun(s.Run, lastUser("A line failed")), callTools(tc("p2", "plan_propose", replan))).once()
 	f.on(forRun(s.Run, lastTool("plan_propose")), say("The assistant couldn't be created where I proposed it, so the rest was skipped. Dice exists. I've proposed a new plan for the assistant.")).once()
-	fx.x.applyPlan(cs.ID, []int{1, 2, 3, 4, 5}, 2)
+	fx.x.applyPlan(cs.ID, []int{1, 2, 3, 4, 5}, 3)
 	fx.notify(t)
 	waitFor(t, "the new plan", func() bool { return strings.HasPrefix(fx.lastAssistant(t, s), "The assistant couldn't be created") })
 	fx.idle(t, s)
 	up := fx.updates(t, s)
-	for _, want := range []string{"2. [tile.create] Create the tile apps/assistant from the template agent — yours — failed (xbin said: the tile's org turned agents away meanwhile)", "— skipped",
+	for _, want := range []string{"3. [tile.create] Create the tile apps/assistant from the template agent — yours — failed (xbin said: the tile's org turned agents away meanwhile)", "— skipped",
 		"A line failed, so the lines after it were skipped and the earlier ones stay", "don't file the skipped steps as single requests"} {
 		if !strings.Contains(up[0], want) {
 			t.Errorf("the update lacks %q:\n%s", want, up[0])
@@ -249,8 +278,8 @@ func TestWsEvalPlanLineRefusedAtApply(t *testing.T) {
 			for _, l := range q.Lines {
 				got += fmt.Sprintf("%d:%s ", l.N, l.Result)
 			}
-			if !q.Plan || got != "1:applied 2:failed 3:skipped 4:skipped 5:skipped " || q.Lines[1].Error != "the tile's org turned agents away meanwhile" ||
-				q.Lines[0].Line != "Create the tile apps/dice from the template mcp-server — yours" {
+			if !q.Plan || got != "1:applied 2:applied 3:failed 4:skipped 5:skipped " || q.Lines[2].Error != "the tile's org turned agents away meanwhile" ||
+				q.Lines[0].Line != "Create the tile apps/dice from the template starter — yours" {
 				t.Errorf("the decided plan's card: plan %v, lines %q, %+v", q.Plan, got, q.Lines)
 			}
 		case q.State == "proposed" && (!q.Plan || len(q.Lines) != 0):
@@ -265,8 +294,8 @@ func TestWsEvalPlanLineRefusedAtApply(t *testing.T) {
 	if len(next.Items) != 2 || next.Items[1].Line != "Bind apps/helper's mcp to apps/dice" || len(next.Items[1].Needs) != 1 {
 		t.Fatalf("the new plan: %+v", next.Items)
 	}
-	if rows := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run); len(rows) != 0 {
-		t.Fatalf("a skipped start left a tile agent: %+v", rows)
+	if rows := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run); len(rows) != 1 || rows[0].Tile != "apps/dice" {
+		t.Fatalf("the tile agent line 2 started is the conversation's to follow, and no other: %+v", rows)
 	}
 }
 

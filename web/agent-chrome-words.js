@@ -453,11 +453,21 @@ const RESULT = {
   stale: { word: 'out of date', icon: 'refresh', tone: 'warn', text: 'Someone changed this after the agent proposed it. What you ticked no longer matches, so xbin left it alone.' },
   rejected: { word: 'left out by you', icon: 'minus', tone: '' }, blocked: { word: "couldn't be applied", icon: 'lock', tone: 'warn' },
   asked: { word: 'sent to an admin', icon: 'clock', tone: '' },
+  // a plan's line that waits (item.wait): approved, applied by xbin once its tile provides what was approved — or never
+  waiting: { word: 'waiting', icon: 'clock', tone: 'warn' }, lapsed: { word: 'lapsed — never applied', icon: 'clock', tone: '' }, cancelled: { word: 'cancelled — never applied', icon: 'minus', tone: '' },
 };
+/** waitText(item): where a waiting line stands, from xbind's fields — what it waits for, or why it is held ('' for a line that doesn't wait). */
+export function waitText(item) {
+  const w = item && item.wait;
+  if (!w || item.result !== 'waiting') return '';
+  const what = `${w.tile} provides ${w.service}`;
+  return w.held ? `Not bound — ${w.held}. xbin applies it once ${what} as you approved it.` : `xbin applies it by itself once ${what}; nothing is bound until then.`;
+}
 /** resultOf(item): an item's result as {word, icon, tone, text} ("xbin said: …" for a failure). */
 export function resultOf(item) {
   const r = RESULT[item.result] || (item.needsAdmin && !item.result ? { word: 'needs an admin', icon: 'lock', tone: '' } : { word: item.result || '', icon: '', tone: '' });
-  const text = item.result === 'failed' ? `xbin said: “${item.error || 'it failed'}”` : item.result === 'blocked' ? String(item.blocked || item.error || '') : r.text || '';
+  const text = item.result === 'failed' ? `xbin said: “${item.error || 'it failed'}”` : item.result === 'blocked' ? String(item.blocked || item.error || '')
+    : item.result === 'waiting' ? waitText(item) : ['lapsed', 'cancelled'].includes(item.result) ? String(item.error || '') : r.text || '';
   return { ...r, text };
 }
 
@@ -570,6 +580,13 @@ export function needs({ requests = [], changesets = [], sessions = [] } = {}, no
   const rows = [];
   for (const r of requests) if (r.state === 'pending') rows.push({ kind: 'request', id: r.id, title: needTitle(r), note: asked(r, now), action: 'Review…', at: toMs(r.created) });
   for (const c of changesets) {
+    // a decided plan whose line still waits for xbin: nothing to decide, but it is the person's to see — and to cancel
+    for (const it of c.state === 'proposed' ? [] : c.items || []) {
+      if (it.result !== 'waiting' || !it.wait) continue;
+      const u = toMs(it.wait.until);
+      rows.push({ kind: 'changeset', id: c.id, waits: true, title: `Waiting: ${it.line || 'a line of your plan'}`,
+        note: [it.wait.held ? `not bound — ${it.wait.held}` : `xbin applies it once ${it.wait.tile} provides ${it.wait.service}`, u > now ? `lapses in ${left(u - now)}` : ''].filter(Boolean).join(' · '), action: 'Open', at: toMs(c.decided || c.created) });
+    }
     if (c.state !== 'proposed') continue;
     const w = needChangeTitle(c), e = toMs(c.expires);
     rows.push({ kind: 'changeset', id: c.id, title: w.title, note: [w.note, e > now ? `expires in ${left(e - now)}` : ''].filter(Boolean).join(' · '), action: 'Review…', at: toMs(c.created) });

@@ -1133,6 +1133,55 @@ and its items carry, beside a change set's:
   else is left.
 - An `agent.start` line carries at most 68 KiB of arguments.
 
+#### Lines that wait
+
+One kind of line can be approved before it can be applied: a `binding.set`
+of one http slot to one tile that **provides nothing of what the slot
+wants yet**, where an earlier line of the same plan starts a tile agent in
+that tile ("bind the assistant's `mcp` slot to the dice tile" before the
+dice tile is an MCP server — its coding agent is still to write the
+manifest). Without such a start before it, the line is `blocked` as ever.
+
+- **In the proposal** the item carries `wait: {component, slot, tile,
+  kind, service, role}` — what it is pinned to: the consumer's slot, the
+  provider tile, and a provide of that `service`, of `kind` `http`,
+  granting `role` `reader` — `deferred`, `needs` (the creations and the
+  start), and xbind's words in `effects`: "applies once apps/dice provides
+  mcp; nothing is bound until then", that only exactly that is bound, and
+  that it waits at most 24 hours. `afterText` is "apps/dice, once it
+  provides mcp". It is personal or an `admin`'s by the same rule as any
+  binding, and an admin's line that waits is asked of an admin the same
+  way (in the admin's copy it waits on the tile agent the asker's plan
+  started).
+- **Approved**, its `result` is `waiting` and `wait` gains `until` (24
+  hours on). The set's `state` is as if it were applied. Nothing is bound.
+- **xbind applies it by itself**, as the person who approved it, after a
+  registry scan in which the tile's manifest declares exactly what was
+  approved — and then runs every check a line gets at Apply again, as
+  things are at that moment: the handler's own check with the person's
+  rights now, the proposing conversation's scope and hidden tiles, both
+  tiles' agent levels, their orgs' agent rules, the account. `result`
+  becomes `applied` (with its `inverse`: it can be undone). At most once.
+- **A tile that declares something else** — another role, another kind or
+  service, by instance, the service twice — is **not bound**: the line
+  stays `waiting`, `wait.held` says why in xbind's words (the person's own
+  session reads it; their agent reads that it waits), and it applies if
+  the tile later declares what was approved.
+- **It ends, never applied:** `lapsed` when `until` passes; `cancelled`
+  (`error` says why) when the person takes the plan back — `POST …/reject`
+  on a decided set with a waiting line cancels it, as does `…/undo` — or
+  their agent does (`DELETE`), when their agent stops for good
+  (workspace agents off, the agent taken from them), when either tile is
+  deleted or changes owner, when the slot was bound by someone meanwhile,
+  and when a check refuses it at the moment it would apply. While the
+  person's agent is paused or held it neither applies nor ends.
+- **Audited** as lines of the person's plan (`class:
+  "changeset:binding.set"`, `ticket` the set): `under: "waits"`, status
+  202, when it was approved; `under: "waited"` when it applied (200) or
+  was refused or ended (409, `refused` why).
+- A `delegate` event (`op: "changeset"`) follows each change. Nothing but
+  such a binding waits.
+
 ## A tile's agent level
 
 A tile's `"agent"` (`off`, `read`, `full`) governs a person's agent's
