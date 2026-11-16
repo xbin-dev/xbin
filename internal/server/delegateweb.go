@@ -173,7 +173,7 @@ func orgName(org string) string {
 // policyOffWhy is why a capability is off for the whole workspace.
 func policyOffWhy(what string, byHost bool) string {
 	if byHost {
-		return what + " is off for this workspace — set by whoever runs this xbin"
+		return what + " is off for this workspace — set by your host"
 	}
 	return what + " is off for this workspace — an admin can change it (the workspace agent's settings)"
 }

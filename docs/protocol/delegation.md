@@ -331,7 +331,7 @@ Each layer only narrows the one above:
 
 1. **the workspace policy** — `web` and `mcp` of `PUT /delegate/workspace`
    (§The switches), preset and capped by the host's file
-   (`XBIN_WSAGENT_CONFIG`, below);
+   (`XBIN_LLM_CONFIG`'s `workspaceAgent` key, below);
 2. **the org rules** — `web` and `mcp` of an org's agent rules
    ([protocol/orgs.md](/docs/protocol/orgs.md)), asked for every org
    whose data the conversation holds (its handle's `tainted`);
@@ -513,36 +513,34 @@ what xbind judged.
 - **Not yet**: `mcp.mode: "listed"` — servers an admin lists by URL, with
   credentials xbind holds — is refused (`400 "not available yet"`).
 
-### The host's file (`XBIN_WSAGENT_CONFIG`)
+### The host's file
 
-Whoever runs xbind can preset and cap the web and MCP policy from a file,
-as `XBIN_LLM_CONFIG` holds the LLM connector ([llm.md](/docs/llm.md)):
-JSON with comments, read at boot — xbind doesn't start with a file it
-can't read — and again when it changes (looked at at most every 2 s); an
-invalid change is refused, the last good file stays in force and the
-admin's view says so (`host.error`).
+Whoever runs xbind can preset and cap the web and MCP policy in their
+deployment file — the LLM connector's (`XBIN_LLM_CONFIG`,
+[llm.md](/docs/llm.md)) — in its `workspaceAgent` key, read, validated
+and reloaded with the rest of the file (xbind doesn't start with a file
+that is invalid; a bad change is refused and the last good file stays):
 
 ```jsonc
-// XBIN_WSAGENT_CONFIG=/etc/xbin/wsagent.jsonc
-{
-  "web": { "mode": "read", "allow": ["docs.example.com"], "deny": ["intranet.example.com"], "search": false },
+"workspaceAgent": {
+  "web": { "mode": "read", "allow": ["docs.example.com"], "deny": ["intranet.example.com"] },
   "mcp": { "mode": "tiles" }
-  // "lockAll": true    // every web and MCP setting is the host's
+  // "enabled", "who": the switch and who gets an agent (docs/workspace-agent.md §Set by your host)
 }
 ```
 
 - `locks` (of `GET /delegate/workspace`) names the settings the file
-  holds, by their names in the `PUT`: `{"web.mode": {locked: true,
-  reason: "set by your host", ceiling?}, …}`. A write the file refuses is
-  `409 {error, settings}`, naming them.
-- `web.mode`, `web.search` and `mcp.mode` are a **preset and a ceiling**:
-  in force is the admin's value when they set one, never past the host's,
-  and the host's without one. An admin can narrow (turn it off); a write
-  past the ceiling is refused.
+  holds, by their names in the `PUT`, beside the switch's and who's:
+  `{"web.mode": {locked: true, reason: "set by your host", ceiling},
+  …}`. A write the file refuses is `409 {error, settings}`, naming them.
+- `web.mode`, `web.search` and `mcp.mode` are a **preset and a ceiling**,
+  not a lock (the switch and who lock outright): in force is the admin's
+  value when they set one, never past the host's, and the host's without
+  one. An admin can narrow (turn it off); a write past the ceiling is
+  refused.
 - `web.allow` and `web.deny` always hold, beside the admin's own lists;
-  they lock nothing (`policy.web.hostAllow`, `hostDeny`).
-- `"lockAll": true`: every web and MCP setting is the host's — `locks`
-  names each, without a ceiling — and writing any is refused.
+  they lock nothing (`policy.web.hostAllow`, `hostDeny`). `host: {web?,
+  mcp?}` in the view is what the file sets.
 
 ## Notices to the agent's backend
 

@@ -843,10 +843,8 @@ func (st *State) stepServer() error {
 	st.registerSandboxAPI(srv)
 	registerDeploymentsAPI(srv, st.Deployments, st.Broker) // the broker answers the state's vault, registrations, edges, disk
 	st.registerTileSandboxAPI(srv)
-	st.registerGoVersionsAPI(srv)                   // the D166 upgrade check's routes and admin alert
-	if err := st.setupDelegation(srv); err != nil { // people's workspace agents (delegation.go, D228)
-		return err
-	}
+	st.registerGoVersionsAPI(srv)     // the D166 upgrade check's routes and admin alert
+	st.setupDelegation(srv)           // people's workspace agents (delegation.go, D228)
 	srv.AgentHolder = st.Sealed.Agent // which component is the agent here: the table's row (D232), "" in a release without one
 	srv.AgentHeld = st.agentHeld      // …and why it can't run, when it can't (wsagent.go)
 	if err := srv.DelegationChromeConflict(); err != nil {

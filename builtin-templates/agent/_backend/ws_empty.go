@@ -133,8 +133,8 @@ func wsWhoTurnsOn(r wsReachOne, person string) string {
 		return "you can turn it on in Preferences"
 	case r.Code == "web-org":
 		return "this conversation holds data of an org that keeps it off the web; a new session can"
-	case strings.Contains(r.Why, "whoever runs this xbin"):
-		return "off for this workspace, set by whoever runs this xbin"
+	case strings.Contains(r.Why, "set by your host"):
+		return "off for this workspace — set by your host"
 	}
 	return "off for this workspace — an admin can turn it on"
 }

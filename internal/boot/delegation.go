@@ -32,7 +32,6 @@ package boot
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -47,20 +46,11 @@ import (
 	"github.com/xbin-dev/xbin/internal/term"
 )
 
-func (st *State) setupDelegation(srv *server.Server) error {
+func (st *State) setupDelegation(srv *server.Server) {
 	store := delegation.OpenStore(filepath.Join(st.WS, "data", "delegation"))
 	srv.Delegation = store
-	// the host's web and MCP policy for workspace agents (D239): a file that
-	// can't be read stops the boot — a host never runs without the limits
-	// it wrote
-	if path := st.Cfg.WsAgentConfig; path != "" {
-		h, err := delegation.LoadHostFile(path)
-		if err != nil {
-			return err
-		}
-		store.SetHost(h)
-		slog.Info("delegation: the host's web and MCP policy for workspace agents is in force", "file", path)
-	}
+	// (the host's web and MCP policy comes with the LLM connector's file:
+	// hostagent.go)
 	// a workspace agent's fetch never names a host the workspace's tiles
 	// are published at (delegateweb.go)
 	srv.OwnHost = func(host string) bool {
@@ -135,7 +125,6 @@ func (st *State) setupDelegation(srv *server.Server) error {
 	if st.Term != nil {
 		st.Term.AgentPolicy = st.AgentPolicy
 	}
-	return nil
 }
 
 // holderCallPolicy is the LLM connector's side of an agent session (D228

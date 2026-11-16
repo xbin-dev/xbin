@@ -6,20 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func strp(s string) *string { return &s }
 func boolp(b bool) *bool    { return &b }
-
-func writeHost(t *testing.T, dir, body string) string {
-	t.Helper()
-	p := filepath.Join(dir, "wsagent.jsonc")
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
 
 // covers D239 — the web and MCP policy is off until an admin sets it, and
 // a file of the release before it (no web, no mcp) reads as off
@@ -80,19 +70,14 @@ func TestNetPolicySetAndKept(t *testing.T) {
 	}
 }
 
-// covers D239 — the host's file presets and caps: a mode is a ceiling the
-// admin may narrow and never pass, the lists always hold, lockAll freezes
-// every setting
-func TestNetPolicyHostFile(t *testing.T) {
-	dir := t.TempDir()
-	path := writeHost(t, dir, `// the host
-	{"web": {"mode": "read", "deny": ["intranet.example.com"], "search": false}, "mcp": {"mode": "off"}}`)
-	h, err := LoadHostFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+// covers D239 — the host's web and MCP policy (the workspaceAgent key of
+// the host's file, internal/llm) presets and caps: a mode is a ceiling the
+// admin may narrow and never pass, the lists always hold and lock nothing,
+// and the policy follows the file as it reads now
+func TestNetPolicyHost(t *testing.T) {
+	host := HostNet{Web: &WebPolicy{Mode: WebRead, Deny: []string{"intranet.example.com"}, Search: boolp(false)}, MCP: &MCPPolicy{Mode: MCPOff}}
 	s := OpenStore(t.TempDir())
-	s.SetHost(h)
+	s.SetHost(func() HostNet { return host })
 	got := s.NetPolicy()
 	if got.Web.Mode != WebRead || !got.Web.ByHost || got.MCP.Mode != MCPOff {
 		t.Errorf("the host's preset: %+v", got)
@@ -101,12 +86,13 @@ func TestNetPolicyHostFile(t *testing.T) {
 		t.Errorf("the host's deny list: %v %q", ok, why)
 	}
 	// what the host holds, by name: its modes are ceilings, its lists lock nothing
-	if l := h.cur.Locks(); l["web.mode"].Ceiling != WebRead || l["mcp.mode"].Ceiling != MCPOff || l["web.search"].Ceiling != "false" || len(l) != 3 {
+	if l := s.Host().Locks(); l["web.mode"].Ceiling != WebRead || l["mcp.mode"].Ceiling != MCPOff || l["web.search"].Ceiling != "false" || len(l) != 3 {
 		t.Errorf("the locks: %+v", l)
 	}
 	// MCP past the host's off is refused by name (409), a reserved value as not yet (400), a list is the admin's own
 	var held *ErrHostLocked
-	if _, err := s.SetNet(NetPatch{MCPMode: strp(MCPTiles), WebMode: strp(WebOff)}, "user:ana"); !errors.As(err, &held) || strings.Join(held.Settings, ",") != "mcp.mode" {
+	if _, err := s.SetNet(NetPatch{MCPMode: strp(MCPTiles), WebMode: strp(WebOff)}, "user:ana"); !errors.As(err, &held) || strings.Join(held.Settings, ",") != "mcp.mode" ||
+		!strings.Contains(err.Error(), "set by your host") {
 		t.Errorf("a mode past the host's: %v", err)
 	}
 	if _, err := s.SetNet(NetPatch{WebSearch: boolp(true)}, "user:ana"); !errors.Is(err, ErrNotYet) {
@@ -123,38 +109,19 @@ func TestNetPolicyHostFile(t *testing.T) {
 	if got.Web.Mode != WebOff || got.MCP.Mode != MCPOff || !got.MCP.ByHost || got.Web.Search {
 		t.Errorf("under the host's ceiling: %+v", got)
 	}
-	// a change of the file is reloaded; an invalid one is refused and the last good stays
-	clock := time.Now()
-	h.SetClock(func() time.Time { return clock })
-	writeHost(t, dir, `{"web": {"mode": "read"}, "mcp": {"mode": "tiles"}, "lockAll": true}`)
-	clock = clock.Add(3 * time.Second)
+	// the file changes: the policy follows it (the admin's off still in force — it narrows)
+	host = HostNet{Web: &WebPolicy{Mode: WebRead}, MCP: &MCPPolicy{Mode: MCPTiles}}
 	got = s.NetPolicy()
-	if got.Web.Mode != WebRead || got.MCP.Mode != MCPTiles {
-		t.Errorf("after the reload (lockAll, the admin's off no longer in force): %+v", got)
+	if got.Web.Mode != WebOff || got.MCP.Mode != MCPTiles {
+		t.Errorf("after the file changed: %+v", got)
 	}
-	var lk *ErrHostLocked
-	if _, err := s.SetNet(NetPatch{WebMode: strp(WebOff), WebDeny: &[]string{"x.test"}}, "user:ana"); !errors.As(err, &lk) || strings.Join(lk.Settings, ",") != "web.mode,web.deny" {
-		t.Errorf("a write under lockAll: %v", err)
+	if _, err := s.SetNet(NetPatch{WebMode: strp(WebRead), MCPMode: strp(MCPTiles)}, "user:ana"); err != nil {
+		t.Errorf("up to the new ceiling: %v", err)
 	}
-	if l := h.cur.Locks(); len(l) != len(NetSettings) || l["web.allow"].Ceiling != "" || !l["web.allow"].Locked {
-		t.Errorf("lockAll's locks name every setting: %+v", l)
-	}
-	writeHost(t, dir, `{"web": {"mode": "full"}}`)
-	clock = clock.Add(3 * time.Second)
-	if _, why := s.Host(); why == "" {
-		t.Error("an invalid change wasn't said")
-	}
-	if got := s.NetPolicy(); got.Web.Mode != WebRead {
-		t.Errorf("an invalid change took effect: %+v", got)
-	}
-	// at boot an invalid file is an error
-	for _, bad := range []string{`{"web": {"mode": "full"}}`, `{"web": {"mode": "read", "alow": []}}`, `{"mcp": {"mode": "listed"}}`, `not json`} {
-		if _, err := LoadHostFile(writeHost(t, t.TempDir(), bad)); err == nil {
-			t.Errorf("LoadHostFile(%s) took it", bad)
-		}
-	}
-	if _, err := LoadHostFile(filepath.Join(dir, "missing.jsonc")); err == nil {
-		t.Error("a missing file loaded")
+	// the key goes: the admin's own settings, nothing held
+	host = HostNet{}
+	if l := s.Host().Locks(); len(l) != 0 {
+		t.Errorf("no key, no locks: %+v", l)
 	}
 }
 

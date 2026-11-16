@@ -47,6 +47,10 @@ func (s *Server) netSettingRefusal(web, mcp, mcpReadOnly *bool) (refusal, msg st
 // what it may do on the web or with MCP servers changed (a `state`
 // event): the backend reads its sessions' reach again, the chrome its
 // Preferences.
+// NetPolicyChanged tells every person's agent the web and MCP policy may
+// have changed (the host's file changed: internal/boot/llm.go).
+func (s *Server) NetPolicyChanged() { s.netPolicyChanged() }
+
 func (s *Server) netPolicyChanged() {
 	for _, u := range s.Delegation.People() {
 		s.delegateEvent(u, "state", "")
@@ -74,20 +78,20 @@ func (s *Server) netWorkspaceView(out map[string]any) {
 	}
 	pol := s.Delegation.NetPolicy()
 	out["policy"] = pol
-	host, hostErr := s.Delegation.Host()
-	hv := map[string]any{"active": s.Delegation.HostActive(), "lockAll": host.LockAll}
-	if hostErr != "" {
-		hv["error"] = hostErr
-	}
-	if host.Web != nil {
-		hv["web"] = host.Web
-	}
-	if host.MCP != nil {
-		hv["mcp"] = host.MCP
-	}
-	// the settings the host's file holds, by their PUT names (internal/delegation/hostfile.go),
+	// what the host's file sets (its workspaceAgent key's web and mcp), and
+	// the settings it holds by their PUT names (internal/delegation/hostfile.go)
 	// beside the switch's and who's (agenthost.go): one locks map
-	out["host"] = hv
+	host := s.Delegation.Host()
+	if host.Set() {
+		hv := map[string]any{}
+		if host.Web != nil {
+			hv["web"] = host.Web
+		}
+		if host.MCP != nil {
+			hv["mcp"] = host.MCP
+		}
+		out["host"] = hv
+	}
 	locks, _ := out["locks"].(map[string]any)
 	for k, l := range host.Locks() {
 		if locks == nil {

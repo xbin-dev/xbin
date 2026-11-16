@@ -183,11 +183,11 @@ func (w WebInForce) HostAllows(host string) (bool, string) {
 	}
 	switch {
 	case webfetch.MatchAny(pats(w.HostDeny), host):
-		return false, "the host's deny list (set by whoever runs this xbin)"
+		return false, "the host's deny list (set by your host)"
 	case webfetch.MatchAny(pats(w.Deny), host):
 		return false, "this workspace's deny list"
 	case len(w.HostAllow) > 0 && !webfetch.MatchAny(pats(w.HostAllow), host):
-		return false, "the host's allow list (set by whoever runs this xbin), which doesn't name it"
+		return false, "the host's allow list (set by your host), which doesn't name it"
 	case len(w.Allow) > 0 && !webfetch.MatchAny(pats(w.Allow), host):
 		return false, "this workspace's allow list, which doesn't name it"
 	}
@@ -198,7 +198,7 @@ func (w WebInForce) HostAllows(host string) (bool, string) {
 func merge(admin Workspace, host HostNet) NetInForce {
 	var out NetInForce
 	aw, hw := WebPolicy{}, WebPolicy{}
-	if admin.Web != nil && !host.LockAll {
+	if admin.Web != nil {
 		aw = *admin.Web
 	}
 	if host.Web != nil {
@@ -234,7 +234,7 @@ func merge(admin Workspace, host HostNet) NetInForce {
 	}
 	out.Web.Search = search && mode != WebOff
 	am, hm := "", ""
-	if admin.MCP != nil && !host.LockAll {
+	if admin.MCP != nil {
 		am = admin.MCP.Mode
 	}
 	if host.MCP != nil {
@@ -265,29 +265,27 @@ func orEmpty(s []string) []string {
 	return s
 }
 
-// SetHost installs the host's deployment file (nil: none).
-func (s *Store) SetHost(h *HostFile) {
+// SetHost installs the provider of the host's web and MCP policy — the
+// workspaceAgent key of the host's file as it reads now (hostfile.go; nil:
+// none).
+func (s *Store) SetHost(h func() HostNet) {
 	if s != nil {
 		s.host = h
 	}
 }
 
-// Host is the host's file in force now (the zero HostNet without one) and
-// why the latest change to it was refused ("" when it wasn't).
-func (s *Store) Host() (HostNet, string) {
+// Host is the host's web and MCP policy in force now (the zero HostNet
+// without one).
+func (s *Store) Host() HostNet {
 	if s == nil || s.host == nil {
-		return HostNet{}, ""
+		return HostNet{}
 	}
-	return s.host.Current()
+	return s.host()
 }
-
-// HostActive reports whether a host's file is installed.
-func (s *Store) HostActive() bool { return s != nil && s.host != nil }
 
 // NetPolicy is the web and MCP policy in force now.
 func (s *Store) NetPolicy() NetInForce {
-	h, _ := s.Host()
-	return merge(s.Workspace(), h)
+	return merge(s.Workspace(), s.Host())
 }
 
 // NetPatch is a change of the admin's web and MCP settings: a nil field
@@ -304,13 +302,13 @@ type NetPatch struct {
 type ErrHostLocked struct{ Settings []string }
 
 func (e *ErrHostLocked) Error() string {
-	return "set by your host: " + strings.Join(e.Settings, ", ") + " — the host's configuration (XBIN_WSAGENT_CONFIG) holds them"
+	return strings.Join(e.Settings, ", ") + " can't go past what is set by your host (the deployment's file, XBIN_LLM_CONFIG): it can be narrowed here, not widened"
 }
 
 // SetNet applies p to the admin's web and MCP settings, by. What the
 // host's file holds refuses the write (ErrHostLocked: 409): a mode past
-// the host's ceiling, and under its lockAll every setting. Narrowing below
-// a ceiling is the admin's.
+// the host's ceiling, search where it keeps it off. Narrowing below a
+// ceiling is the admin's.
 func (s *Store) SetNet(p NetPatch, by string) (Workspace, error) {
 	if s == nil {
 		return Workspace{}, ErrNoStore
@@ -330,7 +328,7 @@ func (s *Store) SetNet(p NetPatch, by string) (Workspace, error) {
 			return Workspace{}, err
 		}
 	}
-	if h, _ := s.Host(); len(h.Refuses(p)) > 0 {
+	if h := s.Host(); len(h.Refuses(p)) > 0 {
 		return Workspace{}, &ErrHostLocked{Settings: h.Refuses(p)}
 	}
 	s.wsMu.Lock()

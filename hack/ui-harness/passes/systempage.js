@@ -152,6 +152,25 @@ async function systemPage(browser) {
         await shotEl(A.page, 'bx-system-page bx-wsagent-policy', `systempage-netpolicy-${THEME}`);
         const back = await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { web: { mode: 'off', allow: [], deny: [] }, mcp: { mode: 'off' } } });
         check(back.status() === 200, `${P}: put back off (${back.status()})`);
+        // the host's file (XBIN_LLM_CONFIG's workspaceAgent key) caps the web: a ceiling the admin may narrow, said on the card
+        const HOSTFILE = process.env.LLM_HOST_FILE || '';
+        if (HOSTFILE && require('fs').existsSync(HOSTFILE)) {
+          const before = require('fs').readFileSync(HOSTFILE, 'utf8');
+          require('fs').writeFileSync(HOSTFILE, `${JSON.stringify({ workspaceAgent: { web: { mode: 'off', deny: ['intranet.example.com'] } } }, null, 2)}\n`);
+          const wsv = async () => (await (await A.ctx.request.get(`${URL}/api/xbin/delegate/workspace`)).json());
+          await until(async () => (await wsv()).locks?.['web.mode']?.ceiling === 'off', 'the host file read again');
+          await pol.evaluate((el) => el.testApi().reload());
+          await until(async () => (await pol.locator('[data-capped="web"]').count()) === 1, 'the card says the ceiling');
+          const capped = await pol.locator('[data-capped="web"]').innerText();
+          const past = await pol.locator('input[name=web][value=read]').isDisabled();
+          const put = await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { web: { mode: 'read' } } });
+          check(/Set by your host: at most “Off”\. You can narrow it here, not widen it\./.test(capped) && past && put.status() === 409
+            && (await pol.locator('[data-host-note]').count()) === 1 && (await pol.locator('.mono', { hasText: 'intranet.example.com' }).count()) === 1,
+            `${P}: the host's ceiling — said on the card, past it can't be picked, a PUT past it is 409 (${put.status()})`);
+          await shotEl(A.page, 'bx-system-page bx-wsagent-policy', `systempage-netpolicy-host-${THEME}`);
+          require('fs').writeFileSync(HOSTFILE, before);
+          await until(async () => !(await wsv()).locks?.['web.mode'], 'the host file emptied again');
+        } else skip(`${P}: no LLM_HOST_FILE — the host's ceiling on the card is driven by run.sh's xbind`);
       } else skip(`${P} isn't the workspace agent here: the everyone line (its who: everyone) is the release table's to drive`);
 
       // 4. off and on

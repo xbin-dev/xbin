@@ -5375,17 +5375,18 @@ here: cut from the old end, never reword.
   + have workspace policy."
   - **Three layers, each narrowing the one above.** The workspace policy
     (`PUT /delegate/workspace` `web`, `mcp`; off by default), preset and
-    capped by the host's file `XBIN_WSAGENT_CONFIG` the way
-    `XBIN_LLM_CONFIG` holds the connector; the org rules (`web: ask |
+    capped by the host's one deployment file (`XBIN_LLM_CONFIG`'s
+    `workspaceAgent` key, beside D237's `enabled` and `who`); the org rules (`web: ask |
     allow | never`, `mcp: any | org` in `Org.Agents`); the person's
     toggles in Preferences (`PUT /delegate/state` `web`, `mcp`,
     `mcpReadOnly`), widening and so armed like Allow. The host's mode is a
     ceiling and a preset, not a lock against narrowing: turning a
-    capability off is never what a host must prevent (`lockAll` freezes
-    all of it). Its shape is the host's other settings': `locks` names
-    the held settings by their `PUT` names, and a write it refuses is `409
-    {settings}` — kept in `internal/delegation/hostfile.go` so it can
-    join the `workspaceAgent` key of the host's one file when that lands.
+    capability off is never what a host must prevent. One host file, not two: `web` and `mcp` are members of
+    the `workspaceAgent` key (parsed with it in `internal/llm`), and
+    `locks` names the held settings by their `PUT` names in the one locks
+    map; a write past a ceiling is `409 {settings}`. Rejected: a file of
+    its own (`XBIN_WSAGENT_CONFIG`, this change's first version), and
+    `lockAll` for these keys — the switch and who are what locks outright.
   - **xbind fetches, the sandbox stays "model only".** `POST
     /delegate/web/fetch` (an act): GET only, no credentials, addresses
     checked when the socket connects (no rebinding), redirects judged hop

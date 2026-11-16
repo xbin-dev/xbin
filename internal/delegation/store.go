@@ -45,7 +45,7 @@ type Store struct {
 	wsMu   sync.Mutex
 	ws     cached[Workspace]
 	// host is the host's deployment file (hostfile.go; nil: none)
-	host *HostFile
+	host func() HostNet
 
 	// Audit is the per-person audit log, under the same directory.
 	Audit *Log

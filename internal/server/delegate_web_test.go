@@ -8,8 +8,6 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -318,32 +316,27 @@ func TestWebFetchHostsAndLimit(t *testing.T) {
 	}
 }
 
-// covers D239 — the host's file: a preset and a ceiling the admin narrows
-// and never passes, and lockAll freezes every web and MCP setting (409)
+// covers D239 — the host's web and MCP policy (the workspaceAgent key of
+// XBIN_LLM_CONFIG): a preset and a ceiling the admin narrows and never
+// passes (409 naming it), in the one locks map beside the switch's
 func TestWebPolicyHostFile(t *testing.T) {
 	w := newWebRig(t)
-	path := filepath.Join(t.TempDir(), "wsagent.jsonc")
-	if err := os.WriteFile(path, []byte(`{"web": {"mode": "off"}, "mcp": {"mode": "tiles"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	h, err := delegation.LoadHostFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	host := delegation.HostNet{Web: &delegation.WebPolicy{Mode: "off"}, MCP: &delegation.MCPPolicy{Mode: "tiles"}}
 	// the admin's read, set before the host's file came
 	if rec := w.policy(`{"web":{"mode":"read"}}`); rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	w.store.SetHost(h)
+	w.store.SetHost(func() delegation.HostNet { return host })
 	rec := w.do(w.full, "GET", "/api/xbin/delegate/workspace", "", w.cookie("alice"))
 	var v struct {
 		Web    struct{ Mode string }
 		Policy delegation.NetInForce
 		Locks  map[string]map[string]any
-		Host   struct{ Active bool }
+		Host   struct{ Web struct{ Mode string } }
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &v)
-	if v.Web.Mode != "read" || v.Policy.Web.Mode != "off" || !v.Policy.Web.ByHost || v.Policy.MCP.Mode != "tiles" || v.Locks["web.mode"]["ceiling"] != "off" || !v.Host.Active {
+	if v.Web.Mode != "read" || v.Policy.Web.Mode != "off" || !v.Policy.Web.ByHost || v.Policy.MCP.Mode != "tiles" || v.Locks["web.mode"]["ceiling"] != "off" ||
+		v.Locks["web.mode"]["reason"] != "set by your host" || v.Host.Web.Mode != "off" {
 		t.Errorf("the view under the host's ceiling: %s", rec.Body.String())
 	}
 	// a write past the ceiling is refused by name; narrowing is the admin's
@@ -353,18 +346,14 @@ func TestWebPolicyHostFile(t *testing.T) {
 	if rec := w.policy(`{"mcp":{"mode":"off"}}`); rec.Code != 200 {
 		t.Errorf("narrowing under the host's tiles: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := w.do(w.full, "PUT", "/api/xbin/delegate/state", `{"web":true}`, w.cookie("bob")); rec.Code != 409 || !strings.Contains(rec.Body.String(), "whoever runs this xbin") {
+	if rec := w.do(w.full, "PUT", "/api/xbin/delegate/state", `{"web":true}`, w.cookie("bob")); rec.Code != 409 || !strings.Contains(rec.Body.String(), "set by your host") {
 		t.Errorf("on under the host's off: %d %s", rec.Code, rec.Body.String())
 	}
-	if err := os.WriteFile(path, []byte(`{"web": {"mode": "read"}, "lockAll": true}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	h.SetClock(func() time.Time { return time.Now().Add(time.Minute) })
-	if rec := w.policy(`{"web":{"mode":"off"}}`); rec.Code != 409 || !strings.Contains(rec.Body.String(), `"settings":["web.mode"]`) {
-		t.Errorf("a write under lockAll: %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := w.policy(`{"enabled":true}`); rec.Code != 200 {
-		t.Errorf("the switch under lockAll: %d %s", rec.Code, rec.Body.String())
+	// the key goes: nothing held, no host in the view
+	host = delegation.HostNet{}
+	rec = w.do(w.full, "GET", "/api/xbin/delegate/workspace", "", w.cookie("alice"))
+	if strings.Contains(rec.Body.String(), `"locks"`) || strings.Contains(rec.Body.String(), `"host"`) {
+		t.Errorf("the view without the key: %s", rec.Body.String())
 	}
 }
 

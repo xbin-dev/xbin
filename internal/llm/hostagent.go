@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/xbin-dev/xbin/internal/delegation"
 )
 
 // hostagent.go — the workspace agent's key in the host's file (D237;
@@ -19,12 +21,21 @@ import (
 //	"workspaceAgent": true                        locked on; admins choose who
 //	"workspaceAgent": {"enabled": true, "who": "admins" | "everyone"}
 //	"workspaceAgent": {"enabled": false}          the same as false
+//	"workspaceAgent": {"web": {"mode": "read", "allow": [...], "deny": [...]},
+//	                   "mcp": {"mode": "tiles"}}   the web and MCP policy (D239):
+//	                                              a mode is a preset and a ceiling an admin
+//	                                              may narrow (internal/delegation/hostfile.go);
+//	                                              without "enabled" the switch stays the admins'
 
 // HostAgent is what the host's file says about workspace agents.
 type HostAgent struct {
-	Set     bool   // the file has the key: the switch is the host's
+	Set     bool   // the file sets the switch: it is the host's
 	Enabled bool   // agents on (true) or off
 	Who     string // "" (admins choose), "admins" (each admin account has one), "everyone"
+	// Web, MCP: the host's web and MCP policy for people's agents (D239;
+	// nil: unset) — validated as an admin's would be
+	Web *delegation.WebPolicy
+	MCP *delegation.MCPPolicy
 }
 
 // Who values the host's file may name.
@@ -46,18 +57,37 @@ func (h *HostAgent) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	var o struct {
-		Enabled *bool   `json:"enabled"`
-		Who     *string `json:"who"`
+		Enabled *bool                 `json:"enabled"`
+		Who     *string               `json:"who"`
+		Web     *delegation.WebPolicy `json:"web"`
+		MCP     *delegation.MCPPolicy `json:"mcp"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields() // a misspelled setting is an error, never a rule silently not applied
 	if err := dec.Decode(&o); err != nil {
-		return fmt.Errorf(`workspaceAgent: want false, true or {"enabled": bool, "who"?: "admins" | "everyone"}: %w`, err)
+		return fmt.Errorf(`workspaceAgent: want false, true or {"enabled": bool, "who"?: "admins" | "everyone", "web"?: {"mode", "allow", "deny"}, "mcp"?: {"mode"}}: %w`, err)
+	}
+	if o.Web != nil {
+		w, err := o.Web.Normalized()
+		if err != nil {
+			return fmt.Errorf("workspaceAgent: web: %w", err)
+		}
+		h.Web = &w
+	}
+	if o.MCP != nil {
+		m, err := o.MCP.Normalized()
+		if err != nil {
+			return fmt.Errorf("workspaceAgent: mcp: %w", err)
+		}
+		h.MCP = &m
 	}
 	if o.Enabled == nil {
-		return errors.New(`workspaceAgent: enabled is required ({"enabled": true, "who": "admins"})`)
+		if o.Who != nil || (o.Web == nil && o.MCP == nil) {
+			return errors.New(`workspaceAgent: enabled is required ({"enabled": true, "who": "admins"})`)
+		}
+		return nil // the web and MCP policy alone: the switch stays the admins'
 	}
-	*h = HostAgent{Set: true, Enabled: *o.Enabled}
+	h.Set, h.Enabled = true, *o.Enabled
 	if o.Who == nil {
 		return nil
 	}

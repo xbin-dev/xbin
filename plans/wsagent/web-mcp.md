@@ -26,7 +26,7 @@ Three layers decide, each only narrowing the one above:
 1. **the workspace policy** — set by a workspace admin beside the other
    workspace-agent settings (`PUT /delegate/workspace`, additive fields),
    preset and capped by the host's deployment file
-   (`XBIN_WSAGENT_CONFIG`);
+   (`XBIN_LLM_CONFIG`'s `workspaceAgent` key: `web`, `mcp`);
 2. **the org rules** (`Org.Agents`, internal/agentpolicy) — an org may say
    its data never goes to the web, or to MCP servers outside the org; a
    conversation that holds such an org's data loses the tool for the rest
@@ -57,40 +57,41 @@ what is in force once the host's file applied, and `host: {active,
 lockAll, error?, web?, mcp?}` with `locks: {"web.mode": {locked: true,
 reason: "set by your host", ceiling?}}`.
 
-### 2.1 The host's file (`XBIN_WSAGENT_CONFIG`)
+### 2.1 The host's file
 
-Mirrors `XBIN_LLM_CONFIG` (internal/llm/host.go): JSON with comments, read
-at boot (a file that can't be read or is invalid stops the boot), looked
-at again at most every 2 s on use and reloaded when it changes (an invalid
-change is refused, the last good file stays, the admin's view says so).
+One host file, not two: the `workspaceAgent` key of `XBIN_LLM_CONFIG`
+(the first-run work's, D237, `internal/llm/hostagent.go`) carries `web`
+and `mcp` beside `enabled` and `who` — one parser, one reload path, one
+`locks` map, one "Set by your host":
 
 ```jsonc
-{ "web": { "mode": "read", "allow": ["docs.example.com"], "deny": ["intranet.example.com"], "search": false },
-  "mcp": { "mode": "tiles" },
-  // "lockAll": true }
+"workspaceAgent": { "web": { "mode": "read", "allow": ["docs.example.com"], "deny": ["intranet.example.com"] },
+                    "mcp": { "mode": "tiles" } }
 ```
 
-What it sets is the host's, piece by piece, and it narrows:
+Validated as an admin's settings are (a reserved mode is refused, so the
+boot stops on it). Without `enabled` the switch stays the admins'.
 
-- `web.mode`, `mcp.mode`, `web.search` are a **preset and a ceiling**: the
-  value in force is the admin's when they set one, never past the host's;
-  without one of the admin's, the host's. The admin can narrow (turn it
-  off); a write past the ceiling is `409 {settings}` naming it. The
-  admin's controls say "Set by your host".
+- `web.mode`, `mcp.mode`, `web.search` are a **preset and a ceiling** —
+  unlike `enabled` and `who`, which lock outright: the value in force is
+  the admin's when they set one, never past the host's; without one of
+  the admin's, the host's. The admin can narrow (turn it off); a write
+  past the ceiling is `409 {settings}` naming it. The card says "Set by
+  your host: at most …".
 - `web.allow` holds always: a URL must match the host's list (when it has
   one) and the admin's (when they have one). `web.deny`: the host's and the
   admin's both hold. The host's lists lock nothing.
-- `"lockAll": true`: every web and MCP setting is the host's; `locks`
-  names each, and a write of any is `409` naming it.
 
-The shape — `locks` naming held settings by their `PUT` names, `409
-{settings}` for a write the host refuses — is the host's other settings'
-(`internal/delegation/hostfile.go`: `Locks`, `Refuses`), so these keys can
-join the `workspaceAgent` object of the host's one file when the first-run
-work lands it.
+`locks` (`GET /delegate/workspace`) names the held settings by their `PUT`
+names beside the switch's and who's (`internal/delegation/hostfile.go`:
+`Locks`, `Refuses`; `delegation.Store.SetHost` takes the key as the file
+reads now).
 
-Rejected: a lock that also forbids narrowing (the LLM file's "locked"):
-turning a capability off is never a risk a host must prevent.
+Rejected: a lock that also forbids narrowing (the switch's kind):
+turning a capability off is never a risk a host must prevent. Rejected
+too: a file of its own (`XBIN_WSAGENT_CONFIG`, this change's first
+version) — two host files would have meant two parsers and two "Set by
+your host"s.
 
 ## 3. The person's settings
 

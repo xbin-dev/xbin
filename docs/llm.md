@@ -684,8 +684,11 @@ bring its own models and hold quotas the workspace's admins can't lift.
   "everyone"}` locks who too — `"admins"`: every admin account has an
   agent of its own (those there when the key appears, and each made
   after; taken back when they stop being admins). What the key wrote is
-  taken back when it changes or goes, and nothing else. `lockAll` doesn't
-  touch it.
+  taken back when it changes or goes, and nothing else. Its `web` and
+  `mcp` members are the workspace agents' web and MCP policy (D239): a mode
+  there is a preset and a ceiling an admin may narrow, not a lock;
+  without `enabled` the switch stays the admins'. `lockAll` doesn't touch
+  the key.
 
 ## Limits today
 
