@@ -477,7 +477,7 @@ export class BxCanvas extends LitElement {
              @pointerdown=${(e) => { this._activate(o.path); this._press.start(e, () => this._tileMenu(null, o.path), this.mobile); (floating ? this._floatDragStart(e, o.path) : kind === 'doc' ? docDragStart(this, e, o.path) : kind === 'tiled' ? tiledDragStart(this, e, o.path) : this._gridDragStart(e, o.path)); }}
              @pointermove=${(e) => this._press.move(e)}
              @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()} @pointerleave=${() => this._press.cancel()}>
-          ${liveSquare(this._liveOf(o.path), this._runtimeOf(o.path))}
+          ${liveSquare(this._liveOf(o.path), this._runtimeOf(o.path), this.frameFor(o.path)?.buildRetry)}
           ${mark ?? nothing}
           ${icon ? html`<bx-icon class="tico" name=${icon}></bx-icon>` : nothing}
           <span class="t" title=${name === o.path.slice(o.path.lastIndexOf('/') + 1) ? o.path : `${name} — ${o.path}`}><span class="nm">${name}</span><span class="path">${o.path}</span></span>

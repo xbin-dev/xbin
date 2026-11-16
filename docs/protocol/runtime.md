@@ -27,7 +27,10 @@ GET    /status                     admin. terminals ({id,cwd,net,kind,vm,user,
                                    targets a non-primary deployment) and
                                    an empty name
 GET    /backends                   admin. per-component backend state
-                                   {<path>: {state, gen, error?}}. The row
+                                   {<path>: {state, gen, error?, retry?}}
+                                   (retry {attempt, of, at, inSec}: a
+                                   failed start xbind will try again, D242
+                                   — the state stays failed). The row
                                    stays the primary's; a tile with
                                    deployments adds deployment (the primary's
                                    name) and, for admins in a person's own
@@ -51,7 +54,7 @@ GET    /runtime                    admin. full runtime visibility →
                                    {host:{version,kernel,pid,uid,numCPU,goroutines,
                                    heapMB,uptimeSec,isolate,rootfs,scopeUids,
                                    protections:{seccomp,landlock,landlockAbi}},
-                                   backends:[{path,runtime,state,isolated,
+                                   backends:[{path,runtime,state,retry?,isolated,
                                    sandbox,vm?:{memMiB,vcpus,emulated?},
                                    checkpoint?,pid,gen,
                                    uptimeSec,restarts,activeConns,rssKb,threads,fds,
@@ -331,7 +334,7 @@ GET    /tile-status?component=<p>  self or admin; a person's workspace agent
                                    for a tile that person can read
                                    (protocol/delegation.md). one tile's runtime metrics —
                                    backend {state,gen,sandbox,vm?,cpuSec,cgroup:{mem,pids},
-                                   rssKb,fds,activeConns,egress}, disk {usage,
+                                   rssKb,fds,activeConns,egress,retry?}, disk {usage,
                                    quota,blocked}, alerts[], net {netRef, net,
                                    netRules, netSource, netNote} (the effective
                                    network, D54). Readable from that tile's

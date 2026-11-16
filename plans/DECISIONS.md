@@ -5516,3 +5516,36 @@ here: cut from the old end, never reword.
   - **Not yet**: `web.mode: "full"`, `web.search` and `mcp.mode: "listed"`
     (external MCP servers with credentials held by xbind) are refused with
     "not available yet" rather than half-built.
+
+- **D242 — A failed start retries by itself (2026-11-16; the postfix
+  report: a tile sat `failed` for eight days after one slow start).** The
+  owner: "a failed start retries by itself." Until now every start failure
+  stayed failed until the next save; only a crash after a healthy run
+  restarted by itself.
+  - **Only what can clear by itself.** Retried: the process was alive at
+    the health deadline — it never listened (also while waiting on xbind:
+    the grace of 52d21da2 was used up) or listened and never accepted — a
+    launch that met a transient errno (`EAGAIN`, `ENOMEM`, `EMFILE`,
+    `ENFILE`, `ETXTBSY`), and an exit before it listened once (a second
+    one in the series is a crash loop). Never: a build or manifest error,
+    a refusal by policy, a hold or a limit, xbind shutting down, anything
+    else (`retryable`, internal/runner/retry.go).
+  - **Three retries at 10 s, 1 min, 5 min**, then plain `failed` with the
+    last reason, as before. The alwaysOn restart's mechanism — a one-shot
+    timer per deployment, nothing polls — on the engine's seam (`after`),
+    so the tests fire it. Each retry goes through `runCurrent` like a
+    request after a save: the record's code, its build, its launch spec.
+  - **What resets.** A save or grant (`Changed`), a deploy or restart (the
+    build turn), a healthy start: the count is zero again and a pending
+    retry never starts (an epoch on the state). A stop, a removal and
+    shutdown cancel it; a retry that comes due while the tile builds,
+    may not run (held, disabled, sealed) or xbind stops starts nothing.
+    A request meanwhile gets the failure, as before: demand never
+    shortens the wait, so a polling client can't turn it into a loop.
+  - **Additive wire.** The state stays `failed`; rows gain `retry
+    {attempt, of, at, inSec}` (`/backends`, `/runtime`, `/tile-status`);
+    a `backend-retry` event follows the primary's `build-error`; the
+    frame's `buildRetry`. An older shell draws plain `failed`. Not timed:
+    people's partitions (their next request already retries), a failed
+    deploy or restart (its answer is the deploy's; the previous generation
+    serves).

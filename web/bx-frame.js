@@ -144,6 +144,7 @@ export class BxFrame extends LitElement {
     _buildError: { state: true },
     _building: { state: true }, // a build-start without its build-ok / build-error yet
     _phase: { state: true },    // while building (D196): 'compile' | 'env' | 'starting'
+    _retry: { state: true },    // a failed start xbind tries again (D242): {attempt, of, at, inSec} | null
     _popActive: { state: true }, // the pop-up is the page's active window
     _autoHeight: { state: true },
     _ide: { state: true },     // the window's panes, tabs, side panel and dock (frame-ide.js, D202)
@@ -232,6 +233,8 @@ export class BxFrame extends LitElement {
   // buildPhase, buildSeen (D196): which part of a build, while building — compile | env | starting (frame-build.js)
   get buildPhase() { return this._building ? this._phase || 'compile' : ''; }
   get buildSeen() { return !!this._buildSeen; }
+  // buildRetry (D242): while 'failed', the retry xbind has scheduled — {attempt, of, at} — or null
+  get buildRetry() { return this.buildState === 'failed' ? this._retry || null : null; }
   _setBuild(phase, error = null) { setBuild(this, phase, error); }
 
   // Resolve how this frame must load (sandboxed? credentialless? its own
@@ -274,9 +277,10 @@ export class BxFrame extends LitElement {
     if (changed.has('deployment') && changed.get('deployment') !== undefined) { // another deployment's page
       this._buildError = null; this._building = false; this._frameKey++; this._prepareFrame();
     }
-    if ((changed.has('_buildError') || changed.has('_building') || changed.has('_phase')) && `${this.buildState}:${this.buildPhase}` !== this._toldBuild) {
-      this._toldBuild = `${this.buildState}:${this.buildPhase}`;
-      this.dispatchEvent(new CustomEvent('bx-build', { bubbles: true, composed: true, detail: { state: this.buildState, phase: this.buildPhase } }));
+    const told = `${this.buildState}:${this.buildPhase}:${this.buildRetry?.attempt ?? ''}`;
+    if ((changed.has('_buildError') || changed.has('_building') || changed.has('_phase') || changed.has('_retry')) && told !== this._toldBuild) {
+      this._toldBuild = told;
+      this.dispatchEvent(new CustomEvent('bx-build', { bubbles: true, composed: true, detail: { state: this.buildState, phase: this.buildPhase, retry: this.buildRetry } }));
     }
     if (changed.has('_active') || changed.has('_termOpen') || changed.has('_ide')) this._saveTerm();
     if (this._termOpen) revealTabs(this);
