@@ -104,11 +104,18 @@ func TestMCPServerSecrets(t *testing.T) {
 	if sec, err := s.MCPSecret(m); err != nil || sec.Reveal() != "ghp-TOPSECRET" || !m.HasSecret {
 		t.Fatalf("the secret: %v %v", err, m.HasSecret)
 	}
-	// sent again without its secret: kept (the path may move on the same host)
-	keep := srv("gh", "https://mcp.example.com/v2/mcp")
+	// sent again without its secret: kept at the same address…
+	keep := srv("gh", "https://mcp.example.com/mcp")
 	keep.Auth = AuthBearer
+	keep.Note = "a new note"
 	if err := setServers(s, keep); err != nil {
 		t.Fatal(err)
+	}
+	// …and not to another path on the same host (shared hosts route by path)
+	path := keep
+	path.URL = "https://mcp.example.com/v2/mcp"
+	if err := setServers(s, path); err == nil || !strings.Contains(err.Error(), "give its secret again") {
+		t.Errorf("a secret followed its server to another path: %v", err)
 	}
 	if m, _ := s.MCPServerNamed("ext:gh"); !m.HasSecret {
 		t.Error("the secret was dropped")
@@ -120,7 +127,7 @@ func TestMCPServerSecrets(t *testing.T) {
 		t.Errorf("a secret followed its server to another host: %v", err)
 	}
 	clear := keep // …nor to plain http on the same host
-	clear.URL, clear.PlainHTTP = "http://mcp.example.com/v2/mcp", true
+	clear.URL, clear.PlainHTTP = "http://mcp.example.com/mcp", true
 	if err := setServers(s, clear); err == nil || !strings.Contains(err.Error(), "give its secret again") {
 		t.Errorf("a secret followed its server to plain http: %v", err)
 	}
@@ -241,5 +248,31 @@ func TestMCPServerVisible(t *testing.T) {
 	m := MCPServer{Orgs: []string{"finance"}}
 	if !m.Visible([]string{"sales", "finance"}) || m.Visible([]string{"sales"}) || m.Visible(nil) || !(MCPServer{}).Visible(nil) || !m.Inside("finance") || m.Inside("sales") {
 		t.Error("visible")
+	}
+}
+
+// covers D240 — a stored secret is the address's it was given for: a list
+// saved apart from its secrets (a write whose list didn't land, a hand
+// edit) that pairs it with another address gets nothing sent
+func TestMCPServerSecretBoundToItsURL(t *testing.T) {
+	s := plainStore(t)
+	if err := setServers(s, withSecret(srv("gh", "https://mcp.example.com/mcp"), AuthBearer, "ghp-BOUND")); err != nil {
+		t.Fatal(err)
+	}
+	// the list as if its write had failed after the secret's: the old id at another address, hasSecret still
+	w := s.Workspace()
+	list := *w.MCP.Servers
+	list[0].URL = "https://mcp.example.com/other"
+	w.MCP.Servers = &list
+	if err := save(&s.ws, filepath.Join(s.dir, "workspace.json"), w); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := s.MCPServerNamed("ext:gh")
+	if sec, err := s.MCPSecret(m); err == nil || sec.Set() || !strings.Contains(err.Error(), "another address") {
+		t.Errorf("a secret paired with another address: %v", err)
+	}
+	m.URL = "https://mcp.example.com/mcp"
+	if sec, err := s.MCPSecret(m); err != nil || sec.Reveal() != "ghp-BOUND" {
+		t.Errorf("at its own address: %v", err)
 	}
 }

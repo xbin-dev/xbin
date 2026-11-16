@@ -548,7 +548,7 @@ at once (at most 50), each:
 | `name` | what people and the model read (≤ 80 bytes, one line) |
 | `url` | the server's streamable-HTTP endpoint: `https`, no user name or password, a host that is a name or a canonical address, never one of the workspace's own hosts; `http` only with `plainHttp: true` — the secret and every argument then cross the network in the clear |
 | `auth` | `none` (the default), `bearer` (`Authorization: Bearer <secret>`) or `header` (the secret as the value of `header`, a header xbind doesn't set itself — not `Host`, `Content-*`, `Accept*`, `Mcp-*`, `Cookie`, `User-Agent`, `Connection` and their like) |
-| `secret` | **write-only**: absent keeps the stored one — unless the address moved to another host, port or scheme, when it must be given again (xbind never sends a secret elsewhere than where it was given for) — `""` removes it; one line, ≤ 4 KiB. A read says `hasSecret` |
+| `secret` | **write-only**: absent keeps the stored one — unless the URL changed at all (path and query included: a shared host routes by path), when it must be given again; a stored secret is kept with the URL it was given for, and xbind never sends it with another — `""` removes it; one line, ≤ 4 KiB. A read says `hasSecret` |
 | `note` | the admin's words, shown to people and the agent (≤ 500 bytes) |
 | `orgs` | `[]`: everyone given an agent; else org ids — only their active members see the server (to anyone else it doesn't exist: not listed, `404` on a call), and for those orgs' `mcp` rule it counts as theirs |
 | `privateNetwork` | its addresses may be private, loopback or xbind's own host's — say so only for a server you run on your network; link-local (the cloud metadata address), multicast and unspecified stay refused |

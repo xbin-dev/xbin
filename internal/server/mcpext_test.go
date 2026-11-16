@@ -303,7 +303,7 @@ func TestMCPExtKeyFollowsTheURL(t *testing.T) {
 	if rec := w.call("post", header(HeaderTicket, req.ID)); rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	body := `{"mcp":{"servers":[{"id":"tracker","name":"Tracker","url":"` + w.url("/mcp?v=2") + `","auth":"bearer"}]}}`
+	body := `{"mcp":{"servers":[{"id":"tracker","name":"Tracker","url":"` + w.url("/mcp?v=2") + `","auth":"bearer","secret":"` + extSecret + `"}]}}`
 	if rec := w.policy(body); rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}

@@ -381,7 +381,32 @@ func (s *Store) MCPSecret(m MCPServer) (Secret, error) {
 	case v == "":
 		return Secret{}, &ErrSecretUnreadable{Msg: m.Name + " has no secret stored: an admin sets it on the workspace agent's card"}
 	}
-	return NewSecret(v), nil
+	// a secret is the address's it was given for: on every path that could
+	// pair it with another (a list saved apart from its secrets), it isn't sent
+	given, secret, ok := openSecret(v)
+	if !ok || given != urlHash(m.URL) {
+		return Secret{}, &ErrSecretUnreadable{Msg: m.Name + "'s secret was given for another address: an admin gives it again on the workspace agent's card"}
+	}
+	return NewSecret(secret), nil
+}
+
+// A stored secret is "u1:<hash of the URL it was given for>:<secret>".
+const secretForm = "u1:"
+
+func urlHash(u string) string {
+	h := sha256.Sum256([]byte(u))
+	return hex.EncodeToString(h[:12])
+}
+
+func sealSecret(u, secret string) string { return secretForm + urlHash(u) + ":" + secret }
+
+func openSecret(v string) (forURL, secret string, ok bool) {
+	rest, ok := strings.CutPrefix(v, secretForm)
+	if !ok {
+		return "", "", false
+	}
+	forURL, secret, ok = strings.Cut(rest, ":")
+	return forURL, secret, ok && secret != ""
 }
 
 // SetSecrets installs the sealed map the admin's servers' secrets live in
@@ -448,10 +473,10 @@ func planServers(old []MCPServer, in []MCPServerPatch, hasVault bool) ([]MCPServ
 			}
 			has = false
 		case p.Secret == nil:
-			// kept — but never sent elsewhere than where it was given for: another
-			// host, port or scheme (https to http) needs it given again
-			if has && origin(prev.URL) != origin(m.URL) {
-				return nil, nil, fmt.Errorf("mcp.servers %s: its address moved from %s to %s — give its secret again: xbin never sends a secret to another address than the one it was given for", m.ID, origin(prev.URL), origin(m.URL))
+			// kept — but never sent elsewhere than where it was given for: any
+			// change of the URL (a path routes on a shared host) needs it again
+			if has && prev.URL != m.URL {
+				return nil, nil, fmt.Errorf("mcp.servers %s: its address changed (%s) — give its secret again: xbin never sends a secret to another address than the one it was given for", m.ID, origin(m.URL))
 			}
 		case *p.Secret == "":
 			if has {
@@ -462,7 +487,7 @@ func planServers(old []MCPServer, in []MCPServerPatch, hasVault bool) ([]MCPServ
 			if err := checkSecret(m.ID, *p.Secret); err != nil {
 				return nil, nil, err
 			}
-			secrets[m.ID], has = *p.Secret, true
+			secrets[m.ID], has = sealSecret(m.URL, *p.Secret), true
 		}
 		if m.Auth != AuthNone && !has {
 			return nil, nil, fmt.Errorf("mcp.servers %s: auth %s needs its secret", m.ID, m.Auth)
