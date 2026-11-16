@@ -457,6 +457,10 @@ type ChangeSetWait struct {
 	Kind    string    `json:"kind"`
 	Role    string    `json:"role"`
 	Until   time.Time `json:"until,omitempty"`
+	// Held: set while the tile declares something other than what was
+	// approved, so the line is not applied — one fixed sentence of
+	// xbind's; what the tile declared is the person's to read.
+	Held string `json:"held,omitempty"`
 }
 
 // ProposeChanges submits a batch of admin changes for the person to

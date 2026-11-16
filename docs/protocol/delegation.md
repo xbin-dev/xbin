@@ -1179,9 +1179,13 @@ manifest). Without such a start before it, the line is `blocked` as ever.
   the tile declares then.
 - **A tile that declares something else** — another role, another kind or
   service, by instance, the service twice — is **not bound**: the line
-  stays `waiting`, `wait.held` says why in xbind's words (the person's own
-  session reads it; their agent reads that it waits), and it applies if
-  the tile later declares what was approved.
+  stays `waiting`, and `wait.held` says why in xbind's words — to the
+  person's own session: the whole mismatch, shown on the review's card
+  and in Needs you. Their agent reads that the line waits and, as `held`,
+  one fixed sentence — "the tile declared something other than what was
+  approved" — never what the tile declared (nor `was`, `owners`), an
+  admin's agent that reads admin state included. It applies if the tile
+  later declares what was approved.
 - **It ends, never applied:** `lapsed` when `until` passes; `cancelled`
   (`error` says why) when the person takes the plan back — `POST …/reject`
   on a decided set with a waiting line cancels it, as does `…/undo` — or

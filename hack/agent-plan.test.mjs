@@ -162,7 +162,7 @@ test('a line that waits: approved, xbin\'s to apply — the review closes itself
   // held: the tile declared something else than was approved
   cs.items[3].wait.held = 'apps/dice declares mcp for the role "writer": what you approved is the role reader';
   assert.match(C.resultOf(cs.items[3]).text, /^Not bound — apps\/dice declares mcp for the role "writer"/);
-  assert.match(C.needs({ changesets: [cs] }, now)[0].note, /^not bound — /);
+  assert.match(C.needs({ changesets: [cs] }, now)[0].note, /^not bound — apps\/dice declares mcp for the role "writer": what you approved is the role reader · lapses in /, 'the person reads the whole mismatch in Needs you');
   // ended
   Object.assign(cs.items[3], { result: 'lapsed', error: 'apps/dice did not provide mcp within 24 hours of the plan being applied: nothing was bound' });
   assert.deepEqual([C.resultOf(cs.items[3]).word, C.resultOf(cs.items[3]).text], ['lapsed — never applied', cs.items[3].error]);

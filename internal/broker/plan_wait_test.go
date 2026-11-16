@@ -183,9 +183,54 @@ func TestWaitingLineBindsOnlyWhatWasApproved(t *testing.T) {
 			if ok, refused := w.waitRows(t, "bob", cs.ID); len(ok) != 0 || len(refused) != 1 || !strings.Contains(refused[0].Refused, c.held) {
 				t.Fatalf("the log: applied %+v, refused %+v — want it said once", ok, refused)
 			}
-			// the agent's own view says it waits, not why it is held (the reason is the person's to read)
-			if code, body := w.do("GET", "/delegate/changesets/"+cs.ID, "", agentOf("bob")); code != 200 || !strings.Contains(body, `"result":"waiting"`) {
-				t.Fatalf("the agent reads: %d %s", code, body)
+			// the person's own session reads the whole mismatch…
+			_, bob := w.session("bob")
+			var mine delegation.ChangeSet
+			if code, body := w.do("GET", "/delegate/changesets/"+cs.ID, "", bob); code != 200 || json.Unmarshal([]byte(body), &mine) != nil ||
+				mine.Items[3].Wait == nil || !strings.Contains(mine.Items[3].Wait.Held, c.held) {
+				t.Fatalf("the person reads: %d %s", code, body)
+			}
+			// …their agent that it waits, and of why one fixed sentence: nothing the tile declared, none of xbind's bookkeeping —
+			// one set or the list, and an admin who lets their agent read admin state all the same
+			const fixed = "the tile declared something other than what was approved"
+			agentReads := func(when string) {
+				t.Helper()
+				for _, path := range []string{"/delegate/changesets/" + cs.ID, "/delegate/changesets"} {
+					code, body := w.do("GET", path, "", agentOf("bob"))
+					var one delegation.ChangeSet
+					var list struct{ Changesets []delegation.ChangeSet }
+					if path == "/delegate/changesets" {
+						if json.Unmarshal([]byte(body), &list) != nil || len(list.Changesets) == 0 {
+							t.Fatalf("%s: the agent's list: %d %s", when, code, body)
+						}
+						for _, s := range list.Changesets {
+							if s.ID == cs.ID {
+								one = s
+							}
+						}
+					} else if json.Unmarshal([]byte(body), &one) != nil {
+						t.Fatalf("%s: the agent reads: %d %s", when, code, body)
+					}
+					if code != 200 || len(one.Items) != 4 || one.Items[3].Result != delegation.ItemWaiting || one.Items[3].Wait == nil {
+						t.Fatalf("%s: the agent reads %s: %d %s", when, path, code, body)
+					}
+					if aw := one.Items[3].Wait; aw.Held != fixed || aw.Was != "" || aw.Owners != nil || aw.Tile != "apps/dice" || aw.Until.IsZero() {
+						t.Errorf("%s: the agent's view of the held line at %s: %+v — want only %q", when, path, aw, fixed)
+					}
+					for _, leak := range []string{c.held, "apps/dice declares", `"owners"`, `"was"`} {
+						if strings.Contains(strings.ReplaceAll(body, "\\\"", "\""), leak) {
+							t.Errorf("%s: the agent's read of %s carries %q: %s", when, path, leak, body)
+						}
+					}
+				}
+			}
+			agentReads("an agent")
+			if _, err := w.store.SetState("bob", func(st *delegation.State) { st.AdminChanges = true }); err != nil {
+				t.Fatal(err)
+			}
+			agentReads("an admin's agent that reads admin state")
+			if _, err := w.store.SetState("bob", func(st *delegation.State) { st.AdminChanges = false }); err != nil {
+				t.Fatal(err)
 			}
 			w.dice(diceProvides)
 			if got := w.set(t, "bob", cs.ID).Items[3]; got.Result != delegation.ItemApplied || got.Wait.Held != "" || w.binding("apps/assistant", "mcp") != "apps/dice" {

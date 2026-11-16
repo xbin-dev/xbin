@@ -75,6 +75,12 @@ func (s *Server) registerPlanAPI() {
 // line: the reason is the person's to read, on xbin's review.
 const lineBlockedForAgent = "xbin can't apply this line as proposed: your person sees why on xbin's review"
 
+// lineHeldForAgent is all an agent is told of why a waiting line is not
+// applied though its tile declares something: that it does. What the tile
+// declared — its kind, service and role, words its coding agent wrote —
+// is the person's to read, on xbin's card and in Needs you.
+const lineHeldForAgent = "the tile declared something other than what was approved"
+
 // optedIn reports whether user is an admin (of the workspace or of an org)
 // who lets their agent read admin state and propose admin changes.
 func (s *Server) optedIn(user string) bool {
@@ -96,7 +102,8 @@ func (s *Server) optedIn(user string) bool {
 }
 
 // setFor is cs as caller a may read it. The person's own session — xbin's
-// chrome — reads all of it. Their agent, its conversation and its page's
+// chrome — reads all of it (why a waiting line is held included: the full
+// mismatch is theirs). Their agent, its conversation and its page's
 // frame read, of a line that takes an admin's rights or that xbind can't
 // apply, xbind's one sentence and nothing else: not what is there now
 // (before, after, the inverse), not what it would open (effects,
@@ -105,21 +112,35 @@ func (s *Server) optedIn(user string) bool {
 // proposal would be a way to read grants and bindings: propose a line
 // about any tile and read its state from the answer.
 func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.ChangeSet {
-	if a.own || s.optedIn(a.user) {
+	if a.own {
 		return cs
 	}
 	cs.Items = slices.Clone(cs.Items)
+	// A line that waits, whoever's it is — a personal line above all, the
+	// only kind that does: what it waits for is the line's own arguments,
+	// and of a held one the agent reads one fixed sentence. Never what the
+	// tile declared (the tile's coding agent chose those words), nor
+	// xbind's own bookkeeping.
+	for i, it := range cs.Items {
+		if it.Wait == nil {
+			continue
+		}
+		w := *it.Wait
+		w.Owners, w.Was = nil, ""
+		if w.Held != "" {
+			w.Held = lineHeldForAgent
+		}
+		cs.Items[i].Wait = &w
+	}
+	if s.optedIn(a.user) {
+		return cs
+	}
 	for i, it := range cs.Items {
 		if !it.Admin && !it.NeedsAdmin && it.Blocked == "" {
 			continue
 		}
 		red := delegation.ChangeItem{N: it.N, ChangeOp: it.ChangeOp, Why: it.Why, Line: it.Line, Admin: it.Admin, NeedsAdmin: it.NeedsAdmin,
-			Needs: it.Needs, Deferred: it.Deferred, Result: it.Result, Out: it.Out, Of: it.Of, Later: it.Later}
-		if it.Wait != nil { // what it waits for is the line's own arguments; why it is held is not the agent's to read
-			w := *it.Wait
-			w.Owners, w.Was, w.Held = nil, "", ""
-			red.Wait = &w
-		}
+			Needs: it.Needs, Deferred: it.Deferred, Result: it.Result, Out: it.Out, Of: it.Of, Later: it.Later, Wait: it.Wait}
 		if it.Blocked != "" {
 			red.Blocked = lineBlockedForAgent
 		}
