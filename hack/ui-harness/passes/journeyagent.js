@@ -195,6 +195,24 @@ async function journeyAgent(browser) {
     await page.waitForTimeout(300);
     check((await pendingNow()) === 1, 'a click before the card is armed answers nothing');
     await page.waitForSelector(`${DOCK} bx-agent-permits[armed]`, { timeout: 5000 }).catch(() => {});
+    // the page asks for the sign-in card (D230): the chrome draws it for the coding agent the page named and takes nothing else
+    // of the message — no field filled, no tile, no saved sign-in picked — and the permission card beside it is unarmed again
+    await f.evaluate(() => window.parent.postMessage({ type: 'xbin:agent-open-signin', harness: 'claude', component: 'apps/dice', sid: 'sg-1', view: 'manage',
+      spec: { command: 'x' }, code: 'ABCD-1234', key: 'not-a-key', name: 'pre-filled', value: 'pre-filled' }, '*'));
+    const cardUp = await page.waitForSelector(`${DOCK} [data-signin] bx-agent-signin`, { timeout: 3000 }).then(() => true, () => false);
+    check(cardUp, 'the page\'s message opens the chrome\'s sign-in card');
+    const unarmedBySignin = await page.waitForSelector(`${DOCK} bx-agent-permits:not([armed])`, { timeout: 3000 }).then(() => true, () => false);
+    check(unarmedBySignin, 'the sign-in card opening leaves no permission card armed');
+    if (cardUp) {
+      const card = await page.locator(`${DOCK} [data-signin] bx-agent-signin`).evaluate((el) => ({
+        harness: el.harness || '', component: el.component || '', sid: el.sid || '', view: el.view || '', spec: el.spec == null,
+        filled: [...el.shadowRoot.querySelectorAll('input:not([readonly]), textarea')].map((i) => i.value).filter(Boolean) }));
+      check(card.harness === 'claude' && !card.component && !card.sid && !card.view && card.spec && card.filled.length === 0,
+        `the sign-in card holds the coding agent's id and nothing else of the page's message (${JSON.stringify(card)})`);
+      await page.click(`${DOCK} [data-signin-close]`, { timeout: 3000 }).catch(() => {});
+    }
+    check((await pendingNow()) === 1, 'nothing was answered meanwhile');
+    await page.waitForSelector(`${DOCK} bx-agent-permits[armed]`, { timeout: 5000 }).catch(() => {});
     // it asks before each command; every answer is the person's click, right here. "Allow always" is the fewest:
     // the scripted agent then stops asking for the rest of its turn (answered one by one it is four clicks)
     let answers = 0;

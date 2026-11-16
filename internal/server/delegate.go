@@ -842,7 +842,8 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 				return nil, http.StatusForbidden, "ticket", "the ticket says no harness and mode: ask again"
 			}
 			net, _ := shown["net"].(string)
-			start = &term.DelegateStart{Approved: true, Provider: prov, Mode: mode, Net: net}
+			signin, _ := shown["signInId"].(string) // the saved sign-in the sheet named (D230): the open uses that one, or none
+			start = &term.DelegateStart{Approved: true, Provider: prov, Mode: mode, Net: net, Signin: signin}
 		}
 		s.delegateEvent(p.UserID, "request", req.ID)
 		return start, 0, "", ""

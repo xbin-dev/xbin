@@ -495,13 +495,25 @@ var partitionClasses = map[string]PartitionClass{
 	// ---- org constraints on agents (D229): admins', and a person's own
 	// connection view; a person's agent preferences are theirs alone to
 	// read and write — what their workspace agent may start is in them ----
-	"GET /agents/policy":         GlobalOnlyRefused,
-	"PUT /agents/policy":         GlobalOnlyRefused,
-	"PUT /orgs/{org}/agents":     GlobalOnlyRefused,
-	"PUT /orgs/{org}/agents/pin": GlobalOnlyRefused,
-	"GET /agents/connection":     PartitionNeutral, // ?session=: a holder page's one read, from its frame in its person's partition; the handler refuses every other tile credential
-	"GET /agent/prefs":           PersonOnly,
-	"PUT /agent/prefs":           PersonOnly,
+	"GET /agents/policy":                       GlobalOnlyRefused,
+	"PUT /agents/policy":                       GlobalOnlyRefused,
+	"GET /agent/signins/people":                GlobalOnlyRefused, // admins: that people have sign-ins, the switch (D230)
+	"DELETE /agent/signins/people/{user}/{id}": GlobalOnlyRefused, // admins: that people have sign-ins, the switch (D230)
+	"PUT /agent/signins/policy":                GlobalOnlyRefused, // admins: that people have sign-ins, the switch (D230)
+	"PUT /orgs/{org}/agents":                   GlobalOnlyRefused,
+	"PUT /orgs/{org}/agents/pin":               GlobalOnlyRefused,
+	"GET /agents/connection":                   PartitionNeutral, // ?session=: a holder page's one read, from its frame in its person's partition; the handler refuses every other tile credential
+	"GET /agent/prefs":                         PersonOnly,
+	"PUT /agent/prefs":                         PersonOnly,
+	"GET /agent/signins":                       PersonOnly, // a person's saved coding-agent sign-ins (D230)
+	"POST /agent/signins":                      PersonOnly, // a person's saved coding-agent sign-ins (D230)
+	"PUT /agent/signins/{id}":                  PersonOnly, // a person's saved coding-agent sign-ins (D230)
+	"DELETE /agent/signins/{id}":               PersonOnly, // a person's saved coding-agent sign-ins (D230)
+	"DELETE /agent/signins/notice":             PersonOnly, // a person's saved coding-agent sign-ins (D230)
+	"GET /agent/signins/uses":                  PersonOnly, // a person's saved coding-agent sign-ins (D230)
+	"POST /agent/signins/guided":               PersonOnly, // a person's saved coding-agent sign-ins (D230)
+	"POST /agent/signins/guided/{flow}":        PersonOnly, // a person's saved coding-agent sign-ins (D230)
+	"DELETE /agent/signins/guided/{flow}":      PersonOnly, // a person's saved coding-agent sign-ins (D230)
 	// ---- the LLM connector's calls (D226): a person's partition calls as
 	// that person — the handler meters the call to them (internal/llm) ----
 	"POST /llm/v1/chat/completions": PartitionScoped,

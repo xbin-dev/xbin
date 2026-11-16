@@ -45,7 +45,7 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
-import { uncovered, shown, hiddenLine } from '/vendor/bx-agent-approve.js';
+import { uncovered, shown, hiddenLine, signinRow } from '/vendor/bx-agent-approve.js';
 import { CHOICES, kindTag, warning, stateText, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp, stopRefusal, stopWords, endedWords, knownState, UNKNOWN_STATE, clipText, clipNote } from '/vendor/agent-chrome-words.js';
 import { lineState, canTick, planTicks, setTick, keepTicks, lineNotes, planWords, startRows, askedWords, waitingWords, closesItself, closingWords, PLAN_CLOSE_MS } from '/vendor/agent-plan-words.js';
 
@@ -270,6 +270,7 @@ export class BxAgentChanges extends LitElement {
     return html`<dl class="rows small" data-start>
         <dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>
         <dt>Coding agent</dt><dd data-row="agent">${r.agent}</dd>
+        ${signinRow(r)}
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="brief mono" tabindex="-1" data-row="brief">${shown(brief.text)}${brief.clipped ? '…' : ''}</pre>
           <div class="small muted">${brief.clipped ? html`${clipNote(brief)} — <button class="link" data-show-all @click=${() => { this._briefs = [...this._briefs, it.n]; }}>Show all</button> · ` : nothing}sent exactly like this</div></dd>

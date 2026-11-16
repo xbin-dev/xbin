@@ -504,7 +504,7 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 		default:
 			status, msg, out := 0, "", json.RawMessage(nil)
 			if it.Kind == delegation.KindAgentStart {
-				status, msg, out = s.planStart(ctx, agent, pv)
+				status, msg, out = s.planStart(ctx, agent, pv, it.Start)
 			} else {
 				status, msg, out = s.adminCallOut(ctx, approver, pv.Call)
 				if it.Kind != delegation.KindTileCreate {

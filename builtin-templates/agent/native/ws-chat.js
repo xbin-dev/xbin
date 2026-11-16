@@ -146,7 +146,8 @@ function briefTpl(blk) {
   return cardTpl({ icon: 'doc', title: w.title, badge: w.status,
     parts: [...fields, bag.err ? { notice: { tone: 'danger', text: bag.err } } : null,
       w.harnesses.length > 1 && w.editable && !editing ? { picker: { label: 'Coding agent', value: w.picked, options: w.harnesses.map((h) => ({ value: h.id, label: h.name })), change: pick } } : null,
-      w.runsOn ? { text: w.runsOn, style: 'footnote', tone: 'muted' } : null],
+      w.runsOn ? { text: w.runsOn, style: 'footnote', tone: 'muted' } : null,
+      w.signin ? { notice: { tone: 'warn', text: w.signin.elsewhere } } : null], // the app has no sign-in card: say so (D230)
     note: w.editable ? w.note : '', buttons });
 }
 

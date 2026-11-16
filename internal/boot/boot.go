@@ -32,6 +32,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/sealed"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/signins"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/tilesbx"
 	"github.com/xbin-dev/xbin/internal/users"
@@ -75,9 +76,12 @@ type State struct {
 	// AppTunnel is the xbin app's iroh tunnel (apptunnel.go, D204)
 	AppTunnel *apptunnel.Service
 	// LLM is the LLM connector (llm.go, D226)
-	LLM     *llm.Service
-	held    *push.Holder // non-primary notifications, kept as would-notify (push.go)
-	Started time.Time
+	LLM *llm.Service
+	// Signins is the coding-agent sign-in store (signins.go, D230).
+	Signins     *signins.Store
+	signinFlows *signins.Flows
+	held        *push.Holder // non-primary notifications, kept as would-notify (push.go)
+	Started     time.Time
 	// Deployments is the deployments plane: its methods are the registry's,
 	// runner's, broker's and terminal manager's deployment hooks (D119c).
 	Deployments *deployments.Plane
@@ -859,6 +863,7 @@ func (st *State) stepServer() error {
 	if err := st.setupLLM(srv); err != nil { // the LLM connector (llm.go, D226)
 		return err
 	}
+	st.setupSignins(srv)    // people's saved coding-agent sign-ins (signins.go, D230)
 	st.wireSealedDefaults() // a sealed component's slot may default to the connector (sealeddefaults.go)
 	st.Server = srv
 	return nil

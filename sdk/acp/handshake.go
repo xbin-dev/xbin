@@ -48,7 +48,17 @@ func (c *Client) handshake() error {
 	// done once in a terminal serves every agent session. If the home holds
 	// no login, session/new returns -32000 and we surface how to sign in
 	// (an embedder may sign in through the agent instead: Authenticate).
-	return c.openSession(ctx)
+	err := c.openSession(ctx)
+	if err != nil && c.awaitsKey() && IsAuthRequired(err) {
+		// it reads no key from its environment at start: handed over through
+		// its own API-key method (credential.go), the session opens now
+		if c.keySignIn(ctx, err) {
+			err = c.openSession(ctx)
+		} else {
+			c.refusedCredential("the agent took no saved key: " + err.Error())
+		}
+	}
+	return err
 }
 
 // openSession is session/new (or session/load for cfg.ResumeID), then the
@@ -289,6 +299,9 @@ func (c *Client) authHint(err error) error {
 	c.mu.Lock()
 	c.authNeeded = true // signed out until a turn succeeds (prompt.go)
 	c.mu.Unlock()
+	if !c.awaitsKey() { // the agent refused while it held the host's credential (credential.go)
+		c.refusedCredential(re.Message)
+	}
 	hint := defaultAuthHint
 	if c.opts.AuthHint != nil {
 		hint = c.opts.AuthHint

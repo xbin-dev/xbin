@@ -34,7 +34,9 @@ func (c *Client) onNotify(m *Message) {
 		var p struct {
 			AuthStatus struct{ Kind, Label string } `json:"authStatus"`
 		}
-		if json.Unmarshal(m.Params, &p) == nil {
+		// a probe's "none" isn't believed while the agent holds a
+		// credential of the host's (credential.go): only its refusal is
+		if json.Unmarshal(m.Params, &p) == nil && !(c.injected() && p.AuthStatus.Kind == "none") {
 			c.setAuthNeededW(w, p.AuthStatus.Kind == "none")
 		}
 	case MElicitComplete:

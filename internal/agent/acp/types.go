@@ -117,6 +117,45 @@ type SpawnParams struct {
 	// where the daemon does not — decides who serves the agent's model
 	// calls and applies that environment. nil: Env is the agent's, as it is.
 	LLM *SpawnLLM `json:"llm,omitempty"`
+	// Signin is a saved sign-in of the session's person the daemon puts
+	// into the agent's environment (D230): applied by the host before the
+	// connector's part is settled, so a session that carries one has "a
+	// sign-in of its own". nil: none.
+	Signin *SpawnSignin `json:"signin,omitempty"`
+	// LoginFiles are the provider's own login files (shell words): the host
+	// reports whether the session's $HOME holds one (HelloParams.HomeLogin),
+	// so the session can say it runs on the tile's own login.
+	LoginFiles []string `json:"loginFiles,omitempty"`
+}
+
+// SpawnSignin is a saved sign-in for one agent session. Its Env line holds
+// the secret: it is set on the agent's process alone — never on the host's
+// own environment, in a file, or in a log line.
+type SpawnSignin struct {
+	// Env is the credential's line, "NAME=value"; Unset the provider's
+	// other credential variables, dropped first so none outranks it.
+	Env   string   `json:"env"`
+	Unset []string `json:"unset,omitempty"`
+	// KeyHome: the CLI writes a key handed to it through authenticate into
+	// File under the directory its variable Env names (codex: CODEX_HOME,
+	// by default Dir). The host then gives the agent a directory of its
+	// own under the sandbox's /tmp — links to everything in the person's
+	// one but File — so the key file never lands in the shared $HOME, and
+	// removes it when the agent is gone. If the person's directory already
+	// holds File (the CLI signed in on its own there), the saved sign-in is
+	// left out altogether: the CLI would start signed in by that file.
+	KeyHome *SpawnKeyHome `json:"keyHome,omitempty"`
+}
+
+// SpawnKeyHome is sdk/acp's KeyHome on the wire.
+type SpawnKeyHome struct {
+	Env  string `json:"env"`
+	Dir  string `json:"dir"` // a shell word ($HOME)
+	File string `json:"file"`
+	// At is the private directory when the daemon made it (isolation off:
+	// the daemon removes it with the session); "" = the host makes one
+	// under the sandbox's own /tmp and removes it.
+	At string `json:"at,omitempty"`
 }
 
 // SpawnLLM is the connector hook-up of one agent session (sdk/acp
@@ -154,6 +193,12 @@ type HelloParams struct {
 	// person is signed in to here.
 	LLM    string          `json:"llm,omitempty"`
 	Logins map[string]bool `json:"logins,omitempty"`
+	// Signin answers SpawnParams.Signin: "saved" (the saved sign-in is in
+	// the agent's environment) or "home" (left out: the CLI is signed in on
+	// its own in this $HOME, and would start on that).
+	Signin string `json:"signin,omitempty"`
+	// HomeLogin: one of SpawnParams.LoginFiles is there.
+	HomeLogin bool `json:"homeLogin,omitempty"`
 }
 
 type LogParams struct {

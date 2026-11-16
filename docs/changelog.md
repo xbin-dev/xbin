@@ -147,7 +147,97 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   lifecycle has the table; [sdk.md](/docs/sdk.md#startup)). The shell's
   cards draw it from this version's workspace template; an older shell
   keeps drawing plain `failed`.
-
+- coding agents: **xbind keeps your coding-agent sign-ins** (D230;
+  [agent-signins.md](/docs/agent-signins.md),
+  [protocol/signins.md](/docs/protocol/signins.md)). A person saves a
+  sign-in once — the guided sign-in, which xbind now runs itself in a
+  throwaway sandbox (`claude setup-token`: a link to open, a code to
+  paste; the token never reaches the browser), or a pasted API key — and it
+  is kept per person, sealed under the workspace vault: named, several per
+  coding agent, one the default. New routes, all a person's own
+  (`/api/xbin/agent/signins`, `…/{id}`, `…/guided`, `…/guided/{flow}`,
+  `…/uses`, `…/notice`) and three for workspace admins (`…/people`,
+  `…/people/{user}/{id}`, `…/policy`): admins see that people have
+  sign-ins — never a name or a secret — revoke one, and set the workspace's
+  switch. No route answers a secret or a part of one. The host's file
+  (`XBIN_LLM_CONFIG`) gains `"agentSignIns": true | false`, which sets and
+  locks the switch. The store needs sandboxes (`--isolate`; a development
+  workspace is excepted and says so). `sdk/acp` gains `Guided` (the guided
+  sign-in's driver over any `GuidedExec`), `CleanCode`, `MaskCredentials`
+  and `MintCommand`.
+- coding agents: **a saved sign-in is used by your sessions on every
+  tile where nobody else can change what the session runs** (D230). At an
+  agent session's start xbind puts your default sign-in for the coding
+  agent into the agent's environment — through the spawn frame, to the
+  agent's process alone — on ordinary tiles, partitioned tiles and VM
+  sandboxes: Claude Code's token or key, OpenCode's provider key, and for
+  Codex and Gemini the key handed over through the adapter's own
+  `authenticate` (Codex's `auth.json` then lands in a `CODEX_HOME` of the
+  session's own, never in your home). Not on a tile someone else who isn't an
+  admin can change (write level or more, by any source; judged on the
+  registered tile the session's directory lies in; partitioned tiles
+  included — a partition keeps data apart, not code), not where the
+  connector alone may serve, never into a session opened by view-as, a
+  tile's credentials or the root token; the session then says why and
+  runs on the tile's own login or the connector. A session your workspace
+  agent starts gets one only when you approve a start whose sheet names
+  it ("Uses your saved … sign-in — the tile's coding agent will hold
+  that sign-in"): `preview.session.signInId`, bound by the ticket. What
+  xbind keeps or sends of a session that holds one is masked
+  (`[saved sign-in]`; the value on the joined stream, with separators,
+  base64, hex, `%XX`; credential shapes) — that lowers accidental
+  exposure and **is not a guarantee**: the coding agent, its model and
+  what it runs can read the credential, and the coding agent's own
+  transcripts in your home are not masked. A login in
+  `$HOME` keeps working as before and is what a session uses when no saved
+  sign-in goes in. Additive: `POST /term/sessions` takes `signin` (an id,
+  `"none"`); a session's row and one of its first `notice` events carry
+  `signin: {source: saved | home | connector | none, id?, name?, why?}`;
+  `GET /agent/providers` rows carry `saved: {id, name, kind, expiresAt?,
+  inject, why?}`; `GET /delegate/start-defaults` harnesses carry `signIn`
+  (`saved` | `connector` | `own` | `needed`), and the default harness
+  prefers one that runs on a saved sign-in. **Changed for
+  admins**: a session that carries its person's saved sign-in is that
+  person's alone — an admin's read or prompt of it is 403 (ending it is
+  allowed) and its `session` events reach its person's sockets only, as
+  on a partitioned tile — in history too (`signin: true` on the entry; an
+  admin viewing as the person reads no such transcript, 403). A sign-in
+  removed, replaced or revoked ends the sessions running on it; so does
+  someone else becoming able to change the tile, and the switch going off
+  (`PUT /agent/signins/policy` → `{policy, ended}`). A restart keeps the
+  sign-in a session was started with and never adds one. An admin-made credential for an account (a password set, a
+  sign-in link, an SSO email) removes that person's saved sign-ins.
+  `sdk/acp`: `Config.Credential`, `Credential`, `KeyHome`,
+  `Provider.KeyHome`, `APIKeyMeta`.
+- core elements: **`<bx-agent-signin>` is xbin's one sign-in for coding
+  agents** (`/vendor/agent-signin.js`, the same URL as before; its `spec`,
+  `provider` and `component` properties and its events keep working). With
+  `harness` it offers the sign-in xbind saves (the guided flow, or a pasted
+  key) and, beside it, the tile's own sign-in; `view="manage"` is the list
+  of your saved sign-ins (rename, default, remove, add, where they were
+  used; for admins the workspace's switch and who has sign-ins),
+  `view="button"` a button that opens it. `bx-signin-done` now carries
+  `{saved?}`; new: `bx-signins-changed`. New modules
+  `/vendor/agent-signins.js` (the calls and words, no DOM) and
+  `/vendor/agent-signin-list.js`. The Agent tab shows what a session signs
+  in with in its status line and restarts the agent after a sign-in is
+  saved (`bx-agent-restart` to the tile window). `GET /agent/providers`
+  rows gain `savable`; `GET /agent/signins?tile=` adds `here: {inject,
+  why?}` per harness; a page's state header gains `signin`.
+- workspace agent: **a brief and a start say what the tile agent signs in
+  with — and offer the sign-in.** The agent's page may ask the chrome for
+  `xbin:agent-open-signin {harness}` (the chrome draws the card; the page
+  hears `xbin:agent-signins` when the person's sign-ins changed); a start's
+  preview (`preview.session`, a plan's `start`) carries `signIn` and
+  `signInId`: a session the agent starts gets a saved sign-in only where
+  the person approved a start whose sheet named it ("Uses your saved … —
+  the tile's coding agent will hold that sign-in"), and then exactly that
+  one; the approval sheet and the plan review show the sign-in card where
+  one is needed. The iOS app's approval sheet and plan review say the same
+  ("Uses your saved … sign-in", who will hold it; "Needs your … sign-in"),
+  without the sign-in's label. Agent template: `GET
+  …/briefs/{bid}/start-defaults` adds `needsSignIn` and each harness's
+  `signIn`.
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the
   web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
   generated vectors): lines that create a tile or start a tile agent, what

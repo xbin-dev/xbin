@@ -169,6 +169,7 @@ const (
 	neverData       = "a tile's stores and registrations are the tile's: an agent reads and writes a tile's data through the tile's API"
 	neverApprove    = "approving, pausing and the agent's own log are the person's: their agent asks, they answer"
 	neverAgentRules = "what a person's agent may do without asking is the person's to set, never the agent's"
+	neverSignins    = "a person's saved coding-agent sign-ins are made, changed and removed by the person: xbind puts one into a session it starts, and no agent is handed one"
 )
 
 // Why the rest isn't delegated.
@@ -180,6 +181,7 @@ const (
 	noAgentRules  = "the agent rules and the connection view are read by the person and applied by xbind: an agent's listings already leave out what the rules keep it from"
 	noLLM         = "a component calls the LLM connector as itself, through its llm binding: never as a person"
 	neverLLMKey   = "an LLM key is asked for by a tile's backend with its own credential: never in a person's name"
+	noSignins     = "saved coding-agent sign-ins are listed for their person only: what a session would run on is in GET /delegate/start-defaults"
 )
 
 // DelegateClassOf is the class of the route RegisterAPI mounted as pattern.
@@ -652,30 +654,42 @@ var delegateClasses = map[string]delegateRow{
 	// for the person's own page; an agent's listings leave those tiles out
 	// (delegateHides). A component calls the LLM connector as itself,
 	// through its own llm binding, never as a person.
-	"GET /agent-levels":               dNo(noAgentRules),
-	"PUT /agent-levels":               dNever(neverAgentRules),
-	"GET /agent/prefs":                dNo(noAgentRules),
-	"PUT /agent/prefs":                dNever(neverAgentRules),
-	"GET /agents/policy":              dNo(noAgentRules),
-	"PUT /agents/policy":              dNever(neverAdmin),
-	"PUT /orgs/{org}/agents":          dNever(neverAdmin),
-	"PUT /orgs/{org}/agents/pin":      dNever(neverAdmin),
-	"GET /agents/connection":          dNo(noAgentRules),
-	"GET /sealed":                     dNever(neverAdmin), // system components, the agent's own among them: an admin's to look at, in their own session
-	"GET /llm":                        dNo(noLLM),
-	"GET /llm/config":                 dNo(noLLM),
-	"PUT /llm/config":                 dNever(neverAdmin),
-	"GET /llm/preferred":              dNo(noLLM),
-	"GET /llm/quotas":                 dNo(noLLM),
-	"PUT /llm/quotas":                 dNever(neverAdmin),
-	"GET /llm/usage":                  dNo(noLLM),
-	"PUT /llm/upstreams/{name}":       dNever(neverAdmin),
-	"DELETE /llm/upstreams/{name}":    dNever(neverAdmin),
-	"POST /llm/upstreams/{name}/test": dNever(neverAdmin),
-	"POST /llm/setup/dismiss":         dNo(noLLM),
-	"GET /llm/v1/models":              dNo(noLLM),
-	"POST /llm/v1/chat/completions":   dNo(noLLM),
-	"POST /llm/v1/responses":          dNo(noLLM),
+	"GET /agent-levels":                        dNo(noAgentRules),
+	"PUT /agent-levels":                        dNever(neverAgentRules),
+	"GET /agent/prefs":                         dNo(noAgentRules),
+	"PUT /agent/prefs":                         dNever(neverAgentRules),
+	"GET /agent/signins":                       dNo(noSignins),
+	"POST /agent/signins":                      dNever(neverSignins),
+	"PUT /agent/signins/{id}":                  dNever(neverSignins),
+	"DELETE /agent/signins/{id}":               dNever(neverSignins),
+	"DELETE /agent/signins/notice":             dNever(neverSignins),
+	"GET /agent/signins/uses":                  dNo(noSignins),
+	"POST /agent/signins/guided":               dNever(neverSignins),
+	"POST /agent/signins/guided/{flow}":        dNever(neverSignins),
+	"DELETE /agent/signins/guided/{flow}":      dNever(neverSignins),
+	"GET /agent/signins/people":                dNo(noSignins),
+	"DELETE /agent/signins/people/{user}/{id}": dNever(neverSignins),
+	"PUT /agent/signins/policy":                dNever(neverSignins),
+	"GET /agents/policy":                       dNo(noAgentRules),
+	"PUT /agents/policy":                       dNever(neverAdmin),
+	"PUT /orgs/{org}/agents":                   dNever(neverAdmin),
+	"PUT /orgs/{org}/agents/pin":               dNever(neverAdmin),
+	"GET /agents/connection":                   dNo(noAgentRules),
+	"GET /sealed":                              dNever(neverAdmin), // system components, the agent's own among them: an admin's to look at, in their own session
+	"GET /llm":                                 dNo(noLLM),
+	"GET /llm/config":                          dNo(noLLM),
+	"PUT /llm/config":                          dNever(neverAdmin),
+	"GET /llm/preferred":                       dNo(noLLM),
+	"GET /llm/quotas":                          dNo(noLLM),
+	"PUT /llm/quotas":                          dNever(neverAdmin),
+	"GET /llm/usage":                           dNo(noLLM),
+	"PUT /llm/upstreams/{name}":                dNever(neverAdmin),
+	"DELETE /llm/upstreams/{name}":             dNever(neverAdmin),
+	"POST /llm/upstreams/{name}/test":          dNever(neverAdmin),
+	"POST /llm/setup/dismiss":                  dNo(noLLM),
+	"GET /llm/v1/models":                       dNo(noLLM),
+	"POST /llm/v1/chat/completions":            dNo(noLLM),
+	"POST /llm/v1/responses":                   dNo(noLLM),
 	// LLM keys (D226): a tile's backend asks for them with its own
 	// credential. A key is a credential that outlives the call that made
 	// it, so no agent mints, renews or ends one in a person's name.

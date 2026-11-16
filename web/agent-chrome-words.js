@@ -271,11 +271,18 @@ export function sessionRows(req) {
   const asks = s.asks === true;
   const who = s.providerName || s.provider || 'A coding agent';
   const model = s.model ? ` · model ${s.model}` : '';
-  const cred = s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';
+  // what it signs in with, as xbind read it when the request was filed (D230): a saved sign-in is named; none at all is said, with the harness to sign in to
+  const cred = s.signIn === 'saved' || s.signIn === 'needed' ? ''
+    : s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';
   let brief = '';
   try { const b = JSON.parse(req.body || '{}'); brief = String(b.prompt ?? b.brief ?? b.message ?? ''); } catch { brief = String(req.body || ''); }
   return {
     agent: `${who}${model}${cred}`,
+    // a saved sign-in is named on the approval, in xbind's words — its label is drawn by the chrome from the person's own list (id),
+    // and approving is what puts it into the session: say who then holds it
+    signin: s.signIn === 'saved' && typeof s.signInId === 'string' && s.signInId
+      ? { saved: true, id: s.signInId, name: who, text: `Uses your saved ${who} sign-in`, holds: `The tile's coding agent will hold that sign-in: it, and anything it runs in ${t}, can read it.` }
+      : s.signIn === 'needed' && typeof s.provider === 'string' ? { harness: s.provider, name: who, text: `Needs your ${who} sign-in: without it the tile agent starts signed out.` } : null,
     mode: asks ? { tag: 'asks before acting', tone: 'ok', text: 'It asks you before it edits a file or runs a command.', name: s.mode || '' }
       : { tag: 'acts without asking', tone: 'bad', text: `It edits files and runs commands in ${t} without asking you.`, name: s.mode || '' },
     network: !s.net || s.net === 'none' ? 'Its model only. No internet.' : `Network: ${s.net}`,
@@ -944,6 +951,7 @@ export const handoffLink = (tile) => `/?tile=${encodeURIComponent(tilePath(tile)
  *   xbin:open-session {session: "new", tile, draft}
  *                                     → {type: 'new-session', tile, draft}  (draft: plainDraft)
  *   xbin:agent-open {view}            → {type: 'open', view}  (needs | approvals | activity — never prefs)
+ *   xbin:agent-open-signin {harness}  → {type: 'signin', harness}  (a coding agent's id: the chrome draws the sign-in, D230)
  *
  * or null. Ids and a word — and a new session's draft, the person's own
  * words, kept as plain text for its composer: no other field of a message
@@ -960,10 +968,18 @@ export function pageMessage(data) {
     if (tile && session === 'new') return { type: 'new-session', tile, draft: plainDraft(data.draft) };
     return tile && session ? { type: 'session', tile, session } : null;
   }
+  // a coding agent's sign-in: the page names the harness, the chrome draws the card and talks to xbind (D230)
+  if (data.type === 'xbin:agent-open-signin') return typeof data.harness === 'string' && HARNESS.test(data.harness) ? { type: 'signin', harness: data.harness } : null;
   // only views that change nothing: Preferences — where the agent's reach widens — opens from the chrome's own menu alone
   if (data.type === 'xbin:agent-open') return PAGE_VIEWS.includes(data.view) ? { type: 'open', view: data.view } : null;
   return null;
 }
+
+// a coding agent's id, as the catalog spells them
+const HARNESS = /^[a-z][a-z0-9-]{0,31}$/;
+
+/** SIGNINS_MESSAGE: what the dock tells the page after the person's saved sign-ins changed — re-read what a start would run on. */
+export const SIGNINS_MESSAGE = Object.freeze({ type: 'xbin:agent-signins' });
 
 /** PAGE_VIEWS: the dock's views the agent's page may ask for (xbin:agent-open {view}) — the ones that change nothing. */
 export const PAGE_VIEWS = Object.freeze(['needs', 'approvals', 'activity']);

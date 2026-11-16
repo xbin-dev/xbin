@@ -27,6 +27,8 @@ export const agentCss = css`
   .status .dot.idle { background: var(--bx-ok, #A3CF5E); }
   .status .dot.error, .status .dot.exited { background: var(--bx-danger, #FF7A7A); }
   .status .err { color: var(--bx-danger, #FF7A7A); }
+  .status .signin-chip.warn { color: var(--bx-warn, #F2994A); }
+  .status bx-agent-signin.signins { margin-left: auto; }
   .hint { color: var(--bx-muted, #A3A6B6); }
   /* signed out (the kit's card): Sign in the primary action */
   .bxc-signin button { box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 11px; font-weight: 600; cursor: pointer; white-space: nowrap;

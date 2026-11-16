@@ -59,8 +59,12 @@ func TestAgentDetachedTurnIsFollowedAndHoldsMessages(t *testing.T) {
 	if d := edata(end.Event); d["turn"] != float64(1) || d["stopReason"] != "end_turn" || d["detached"] != nil {
 		t.Fatalf("the prompt's own end: %s", end.Data)
 	}
-	r.until(t, isStatus(agent.StatusRunning))
-	r.until(t, agentSays("stalling"))
+	// the session says running once the steer's answer is read; the agent's
+	// first words in its turn come on the pump, before that or after
+	for running, stalling := false, false; !running || !stalling; {
+		e := r.until(t, func(e SessionEvent) bool { return isStatus(agent.StatusRunning)(e) || agentSays("stalling")(e) })
+		running, stalling = running || e.Type == agent.EvStatus, stalling || e.Type != agent.EvStatus
+	}
 	if info, _ := m.Info(id); info.Status != agent.StatusRunning {
 		t.Fatalf("the directory row while the agent's own turn runs: %q", info.Status)
 	}

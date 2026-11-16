@@ -34,6 +34,7 @@ type Client struct {
 	elicits     elicits        // questions awaiting an answer (elicit.go)
 	agentInfo   *Info          // what initialize said the agent is
 	authNeeded  bool           // the agent reported it is not signed in (login required)
+	keyHanded   bool           // the host's API key was offered to the agent through authenticate (credential.go)
 	loadable    bool           // the agent advertised loadSession: its session id can be reopened later
 	steering    bool           // the agent advertised _session/steering (steer.go)
 	authMethods []AuthMethod   // how it signs in (auth.go)

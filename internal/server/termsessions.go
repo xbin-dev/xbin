@@ -20,8 +20,9 @@ import (
 func (s *Server) registerTermAPI() {
 	s.RegisterAPI("GET /term/sessions", s.apiTermSessions)
 	s.RegisterAPI("PATCH /term/sessions/{id}", s.apiTermRename)
-	s.registerAgentAPI()      // agent sessions (agentapi.go, D74)
-	s.registerAgentPrefsAPI() // a person's agent preferences (agentprefsapi.go, D229)
+	s.registerAgentAPI()        // agent sessions (agentapi.go, D74)
+	s.registerAgentPrefsAPI()   // a person's agent preferences (agentprefsapi.go, D229)
+	s.registerAgentSigninsAPI() // their saved coding-agent sign-ins (agentsignins.go, D230)
 }
 
 // termChange is a `term` event's data: which session changed, whose, and
@@ -98,7 +99,9 @@ func (s *Server) TermChanged(op, homeKey, id, cwd string) {
 func termEventFor(p auth.Principal, e events.Event) bool {
 	switch {
 	case p.Component == "": // a human principal
-		if p.IsAdmin() {
+		// (an admin follows everyone's — but for a session that carries its
+		// person's saved sign-in, which is theirs alone: D230, term/signin.go)
+		if pr, ok := e.Data.(interface{ Private() bool }); p.IsAdmin() && !(ok && pr.Private()) {
 			return true
 		}
 		if p.UserID == "" { // no one in particular (never the owner's home by default)

@@ -70,6 +70,10 @@ type PageState struct {
 	// LLMOffered, with LLM "connector": the connector is offered to the CLI
 	// as its default, not held (term's SessionInfo.LLMOffered).
 	LLMOffered bool `json:"llmOffered,omitempty"`
+	// Signin is what the session signs in with now (term's SessionInfo
+	// .Signin, D230: {source, id?, name?, why?}) on the tail page of a live
+	// session, once its sandbox settled it; nil otherwise.
+	Signin any `json:"signin,omitempty"`
 	// Queue is the messages held for the running turn's end now (the tail
 	// page of a live session; term's queue, D197): the items a `queue`
 	// event carries. A client takes it before the page's events, whose

@@ -387,6 +387,12 @@ public enum DelegationWords {
         public var brief: String
         public var danger: String
         public var comes: String
+        /// What the session would sign in with, when that is the person's
+        /// to know before allowing (D230): "Uses your saved … sign-in" with
+        /// `signInHolds` — who will hold it; approving is what puts it into
+        /// the session — or "Needs your … sign-in". "" otherwise.
+        public var signIn: String = ""
+        public var signInHolds: String = ""
     }
 
     public static func sessionRows(_ r: DelegateRequest) -> SessionRows {
@@ -397,7 +403,10 @@ public enum DelegationWords {
         let modelName = s["model"]?.stringValue ?? ""
         let model = modelName.isEmpty ? "" : " · model \(modelName)"
         let credentials = s["credentials"]?.stringValue ?? ""
-        let cred = credentials == "own" ? ", on your own sign-in"
+        let signIn = s["signIn"]?.stringValue ?? ""
+        let saved = signIn == "saved" && !(s["signInId"]?.stringValue ?? "").isEmpty
+        let cred = signIn == "saved" || signIn == "needed" ? ""
+            : credentials == "own" ? ", on your own sign-in"
             : credentials == "connector" || !modelName.isEmpty ? ", through the workspace's connector" : ""
         var brief = ""
         if let b = try? JSONValue(parsing: r.body.isEmpty ? "{}" : r.body), b.objectValue != nil {
@@ -417,7 +426,10 @@ public enum DelegationWords {
             others: s["api"]?.boolValue == false ? "It can call no other tile." : "It can call the tile APIs this tile is granted.",
             brief: brief,
             danger: asks ? "" : "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
-            comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.")
+            comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.",
+            signIn: saved ? "Uses your saved \(who) sign-in"
+                : signIn == "needed" && s["provider"]?.stringValue != nil ? "Needs your \(who) sign-in: without it the tile agent starts signed out." : "",
+            signInHolds: saved ? "The tile's coding agent will hold that sign-in: it, and anything it runs in \(t), can read it." : "")
     }
 
     private static func nonEmpty(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }

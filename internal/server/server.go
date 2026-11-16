@@ -29,6 +29,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/mcpclient"
 	"github.com/xbin-dev/xbin/internal/preview"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/signins"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/webfetch"
@@ -112,6 +113,13 @@ type Server struct {
 	// AgentPrefs is the people's agent preferences (D229, agentprefsapi.go);
 	// nil = none.
 	AgentPrefs *agentprefs.Store
+	// Signins is the coding-agent sign-ins xbind holds for each person, and
+	// SigninFlows the guided sign-ins under way (D230, agentsignins.go);
+	// nil = none. SigninsAvail answers whether this xbind keeps any (it
+	// needs sandboxes, a development workspace excepted); nil = it does.
+	Signins      *signins.Store
+	SigninFlows  *signins.Flows
+	SigninsAvail func() SigninsAvailability
 	// AgentLevel answers the level of a tile's API a person's workspace
 	// agent may use as it is in force (the broker's: the manifest's, never
 	// above what was last approved), and the raise its manifest asks for;

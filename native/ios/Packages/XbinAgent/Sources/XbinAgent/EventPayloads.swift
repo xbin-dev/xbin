@@ -617,6 +617,22 @@ public struct LoginNeeded: Sendable, Hashable {
     }
 }
 
+/// What the app says about signing a coding agent in (D230). xbind keeps a
+/// person's saved sign-ins and puts one into a session itself, so a saved
+/// sign-in works here with nothing to do — the session's own notice says
+/// "Using your saved sign-in …". The app has no guided sign-in of its own:
+/// its Sign in button runs the CLI's login in a terminal on the tile, and
+/// saving one for every tile is done on the web. The words say exactly that.
+public enum AgentSignInWords {
+    /// Under the signed-out banner's Sign in button.
+    public static let tileOnly = "Signs in on this tile, in a terminal. To save a sign-in that works on your other tiles too, set it up on the web."
+    /// A card whose coding agent would start signed out (the workspace
+    /// agent's brief or plan): the truth, and where to go.
+    public static func needed(_ agent: String) -> String {
+        agent.isEmpty ? "Needs your sign-in to the coding agent — set it up on the web." : "Needs your \(agent) sign-in — set it up on the web."
+    }
+}
+
 /// A status event: the session's status plus whichever of the session's
 /// facts rode it (each nil when absent — absent means "unchanged").
 public struct StatusUpdate: Sendable, Hashable {

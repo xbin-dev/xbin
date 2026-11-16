@@ -590,7 +590,15 @@ func pinStart(op delegation.ChangeOp, start json.RawMessage) delegation.ChangeOp
 // conversation that proposed it, authorised as a ticket authorises a
 // single start — the harness and mode its person was shown, and no other.
 // → the status, the refusal, and {session} for the line's Out.
-func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.ChangePreview) (int, string, json.RawMessage) {
+//
+// approved is the line's start as its person was shown it when it was
+// proposed (ChangeItem.Start), and the saved sign-in is read from THAT
+// (D230): the session gets the sign-in the approved line named — the open
+// uses exactly that one or refuses — and none where it named none. Never
+// the one a fresh preview resolves at Apply: the person's default may have
+// moved since, and a tile an earlier line creates is shown with no sign-in
+// at all (it didn't exist to be judged), so it starts with none.
+func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.ChangePreview, approved json.RawMessage) (int, string, json.RawMessage) {
 	if a.gone != "" || a.p.Agent == "" {
 		return http.StatusConflict, cmpOr(a.gone, "a tile agent is started for the conversation that asks for it"), nil
 	}
@@ -598,6 +606,10 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	if json.Unmarshal(pv.Start, &shown) != nil || shown.Provider == "" || shown.Mode == "" {
 		return http.StatusConflict, "the start names no coding agent and mode: ask your agent to propose it again", nil
 	}
+	var named struct {
+		SignInID string `json:"signInId"` // the saved sign-in the approved line named
+	}
+	_ = json.Unmarshal(approved, &named)
 	if ok, wait := s.delegateRT.allowAct(a.p.UserID); !ok {
 		return http.StatusTooManyRequests, fmt.Sprintf("your agent is acting too fast: try again in %d s", int(wait/time.Second)+1), nil
 	}
@@ -617,7 +629,8 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	if why := still(); why != "" {
 		return http.StatusForbidden, why, nil
 	}
-	if s.PlanStarter != nil {
+	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net, Signin: named.SignInID})
+	if s.PlanStarter != nil { // (tests: the open itself, authorised as above)
 		id, status, refusal := s.PlanStarter(ctx, a.p, pv.Call.Body)
 		if refusal != "" {
 			return status, refusal, nil
@@ -626,7 +639,6 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 		out, _ := json.Marshal(map[string]string{"session": id})
 		return http.StatusOK, "", out
 	}
-	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/xbin/term/sessions", bytes.NewReader(pv.Call.Body))
 	if err != nil {
 		return http.StatusBadRequest, err.Error(), nil

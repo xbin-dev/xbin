@@ -98,7 +98,10 @@ func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,
-// mode?, net?, api?, gpu?, vm?, name?, resume?, llm?} → SessionInfo (status starting).
+// mode?, net?, api?, gpu?, vm?, name?, resume?, llm?, signin?} → SessionInfo (status starting).
+// signin picks the saved sign-in (D230, agentsignins.go): one of the
+// caller's by id, "none" for none, absent for their default — put into the
+// session only where the shared-tile rule allows (the row's signin says).
 // llm picks who serves its model calls where the workspace has an LLM
 // connector — "connector" or "own"; absent, the person's saved default,
 // then the workspace's.
@@ -116,6 +119,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
 		LLM                                                      string // who serves its model calls: connector | own (agentllm.go)
+		Signin                                                   string // which saved sign-in: an id, "none", or absent — the person's default (agentsignins.go)
 		API                                                      *bool
 		VM                                                       bool
 		Options                                                  map[string]string
@@ -123,7 +127,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		Prompt string
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
-		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, api?, gpu?, vm?, name?, resume?, prompt?}")
+		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, api?, gpu?, vm?, name?, resume?, llm?, signin?, prompt?}")
 		return
 	}
 	if body.Model != "" { // shorthand for options.model
@@ -152,7 +156,11 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusForbidden, "a workspace agent starting without asking takes the mode, network and API access from its person's preferences: leave them out, or ask for the person's approval of this start")
 		return
 	}
-	open := term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
+	if start != nil && body.Signin != "" {
+		apiErr(w, http.StatusForbidden, "a workspace agent doesn't pick a saved sign-in: its person's default is used where it may be")
+		return
+	}
+	open := term.AgentOpen{Signin: body.Signin, Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
 		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options,
 		Deployment: r.URL.Query().Get("deployment"), LLM: body.LLM, Delegate: start}
 	open.Provider = term.DelegateProvider(open) // a delegate's start that names no harness: the one xbind resolved for it
@@ -319,6 +327,10 @@ func (s *Server) apiAgentHistoryEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, evs, err := s.Term.ReadHistory(h, r.PathValue("id"))
+	if errors.Is(err, term.ErrSigninHistory) { // it ran on the person's saved sign-in: theirs alone (D230)
+		apiErr(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err != nil || (may != nil && !may(s.sessionTile(meta.Cwd))) { // the level of the tile it ran on
 		apiErr(w, http.StatusNotFound, "no such past session")
 		return
@@ -340,6 +352,10 @@ func (s *Server) apiAgentHistoryDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, err := s.Term.HistoryMeta(h, r.PathValue("id"))
+	if errors.Is(err, term.ErrSigninHistory) {
+		apiErr(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err != nil || (may != nil && !may(s.sessionTile(meta.Cwd))) {
 		apiErr(w, http.StatusNotFound, "no such past session")
 		return
