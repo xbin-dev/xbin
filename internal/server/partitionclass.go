@@ -639,6 +639,7 @@ var partitionClasses = map[string]PartitionClass{
 	"PUT /delegate/workspace":                GlobalOnlyRefused,
 	"POST /delegate/page/dismiss":            PartitionNeutral,
 	"POST /delegate/web/fetch":               PartitionNeutral,
+	"POST /delegate/mcp/call":                PartitionNeutral,
 	"GET /delegate/audit":                    PartitionNeutral,
 	"POST /delegate/requests":                PartitionNeutral,
 	"GET /delegate/requests":                 PartitionNeutral,

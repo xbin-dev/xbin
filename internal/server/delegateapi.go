@@ -55,6 +55,7 @@ func (s *Server) registerDelegationAPI() {
 	s.registerDelegateSessionsAPI() // agent sessions (handles), the connection view, the map (delegatesessions.go)
 	s.registerDocsAPI()             // the docs, searchable on /api/ (docsapi.go)
 	s.registerDelegateWebAPI()      // the web (delegateweb.go)
+	s.registerDelegateMCPAPI()      // MCP tiles (delegatemcp.go)
 	s.RegisterAPI("GET /delegate/state", s.apiDelegateState)
 	s.RegisterAPI("PUT /delegate/state", s.apiDelegateStatePut)
 	s.RegisterAPI("GET /delegate/workspace", s.apiDelegateWorkspace)
@@ -536,8 +537,12 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	case v.deny != "":
 		WriteError(w, http.StatusBadRequest, "this call isn't delegated: "+v.deny, delegationDocs)
 		return
-	case !v.effect || !(v.tileAPI || v.row.ticket || v.pattern == webFetchPattern):
+	case !v.effect || !(v.tileAPI || v.row.ticket || v.pattern == webFetchPattern || v.pattern == mcpCallPattern):
 		WriteError(w, http.StatusBadRequest, "this call needs no approval: make it", delegationDocs)
+		return
+	case v.tileAPI && method == http.MethodPost && s.mcpEndpoint(v.tile, u.Path):
+		// an MCP server's tools are called through xbind, each approved as itself
+		WriteError(w, http.StatusBadRequest, "a call to an MCP server's endpoint isn't approved as a tile call: call the tool with POST /api/xbin/delegate/mcp/call {server, tool, arguments} and ask for that", delegationDocs)
 		return
 	}
 	if u.Query().Has("_method") {
@@ -585,6 +590,17 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Tile = ask["tile"].(string)
 		preview["tile"], preview["owner"], preview["session"] = req.Tile, s.policy().OwnerOf(req.Tile), ask
+	case v.pattern == mcpCallPattern: // one tool of an MCP tile (delegatemcp.go)
+		req.Kind = delegation.KindMCP
+		mp, tile, status, why := s.mcpRequestPreview(r.Context(), p, body)
+		if why != "" {
+			WriteError(w, status, why, delegationDocs)
+			return
+		}
+		req.Tile = tile
+		for k, v := range mp {
+			preview[k] = v
+		}
 	case v.pattern == webFetchPattern: // a URL the conversation may read (delegateweb.go)
 		req.Kind = delegation.KindWeb
 		wp, status, why := s.webRequestPreview(p, body)

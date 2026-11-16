@@ -110,10 +110,6 @@ type Server struct {
 	// OwnHost reports a hostname this workspace's tiles are published at
 	// (ingress): a workspace agent's fetch never names one. nil: none.
 	OwnHost func(host string) bool
-	// SearchUpstream reports whether a model ("<upstream>/<model>") runs on
-	// an LLM connector upstream an admin marked for native web search (the
-	// connector's); nil: none is.
-	SearchUpstream func(model string) bool
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.

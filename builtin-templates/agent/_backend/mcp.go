@@ -38,11 +38,18 @@ type MCPServer struct {
 	direct    *directServer
 	viaGlobal bool
 	external  bool // reached with directHTTP (a direct server's own address)
+	// delegate: a workspace agent's server — an MCP tile reached through
+	// xbind's delegate gate as the person (ws_xbin_net.go; D236), in the
+	// context of the conversation's agent session
+	delegate bool
 }
 
 // httpClient reaches a bound provider through the xbin gateway (so the binding
 // is the call grant + attribution flows), and an external server directly.
 func (s MCPServer) httpClient() *http.Client {
+	if s.delegate {
+		return xbin.AsPerson()
+	}
 	if s.gateway {
 		return xbin.Client()
 	}

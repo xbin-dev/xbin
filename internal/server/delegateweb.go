@@ -159,22 +159,20 @@ func mapNames(orgs []string) []string {
 	return out
 }
 
-// searchReach is the connector's native web search for the conversation:
-// only where the policy offers it and the web is on without asking — a
-// search's words go to the provider with no approval of their own.
+// searchReach is a web search for the conversation: off while the web is,
+// or asks (a search's words go out with no approval of their own), and off
+// otherwise until a provider's native search is built.
 func (s *Server) searchReach(p auth.Principal, h delegation.AgentSession) netReach {
 	web := s.webReach(p, h)
 	switch {
 	case web.State == reachOff:
 		return netReach{State: reachOff, Code: web.Code, Why: web.Why}
-	case !s.Delegation.NetPolicy().Web.Search:
-		return netReach{State: reachOff, Code: "search-off", Why: "Web search isn't offered in this workspace: the agent reads the pages whose addresses it knows"}
-	case s.SearchUpstream == nil || !s.SearchUpstream(h.Model):
-		return netReach{State: reachOff, Code: "search-model", Why: "The model this session is on has no web search of its own: the agent reads the pages whose addresses it knows"}
 	case web.State == reachAsks:
 		return netReach{State: reachOff, Code: "search-taint", Orgs: web.Orgs, Why: web.Why + "; a search can't be approved query by query, so this conversation reads only pages you approve"}
 	}
-	return netReach{State: reachOn}
+	// a provider's native search, held by the LLM connector, isn't built yet
+	// (D236): the policy refuses web.search, and nothing offers it
+	return netReach{State: reachOff, Code: "search-off", Why: "Web search isn't available yet: the agent reads the pages whose addresses it knows"}
 }
 
 // reachView is a session's reach as its answers carry it.

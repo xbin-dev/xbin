@@ -302,7 +302,12 @@ var delegateClasses = map[string]delegateRow{
 	// conversation, under the workspace's policy, the orgs' rules and the
 	// person's setting; a conversation holding any org's data needs a
 	// ticket for each URL — the handler asks, as the web's reach decides
-	"POST /delegate/web/fetch":         dAct(),
+	"POST /delegate/web/fetch": dAct(),
+	// MCP tiles (D236, delegatemcp.go): one tool's call, xbind the client,
+	// as the person; a ticket per call unless a standing approval of that
+	// tool, or the person's "read-only tools don't ask" for a tool the
+	// server marks read-only, covers it — the handler asks
+	"POST /delegate/mcp/call":          dAct(),
 	"POST /delegate/changesets":        dAct(),
 	"GET /delegate/changesets":         dRead(),
 	"GET /delegate/changesets/{id}":    dRead(),

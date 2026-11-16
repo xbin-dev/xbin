@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -103,6 +104,13 @@ type wsXbin interface {
 	WebFetch(ctx context.Context, sid, url, ticket string) (wsWebPage, error)
 	AskWeb(ctx context.Context, sid, url, summary string) (wsRequest, error)
 	MarkWeb(ctx context.Context, sid string) error
+	// MCP tiles: their tools, read on the tile's own endpoint as the person
+	// (initialize and tools/list are reads at xbind); a tool's call through
+	// xbind (with ticket: under its person's approval; dry: xbind's word on
+	// what it would need), and its approval filed.
+	MCPTools(ctx context.Context, sid, tile string) ([]wsMCPTool, error)
+	MCPCall(ctx context.Context, sid string, c wsMCPCall, ticket string, dry bool) (wsMCPResult, *wsDry, error)
+	AskMCP(ctx context.Context, sid string, c wsMCPCall, summary string) (wsRequest, error)
 }
 
 // wsX is xbind for this process: the delegate client, or a test's fake.
@@ -151,6 +159,32 @@ type wsReachOne struct {
 
 // on: the capability may be used now, freely or asking.
 func (r wsReachOne) on() bool { return r.State == "on" || r.State == "asks" }
+
+// wsMCPTool is one tool of an MCP tile, as its server lists it.
+type wsMCPTool struct {
+	Name        string         `json:"name"`
+	Title       string         `json:"title,omitempty"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"inputSchema,omitempty"`
+	ReadOnly    bool           `json:"readOnly,omitempty"` // the server marks it read-only (readOnlyHint): its word
+}
+
+// wsMCPCall is one tool's call, exactly as it is sent (and approved).
+type wsMCPCall struct {
+	Server    string         `json:"server"`
+	Tool      string         `json:"tool"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+// wsMCPResult is what a tool answered.
+type wsMCPResult struct {
+	IsError bool `json:"isError"`
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text,omitempty"`
+	} `json:"content"`
+	Structured json.RawMessage `json:"structured,omitempty"`
+}
 
 // wsWebPage is what xbind read of one page.
 type wsWebPage struct {
@@ -304,6 +338,7 @@ type wsTile struct {
 	Running bool     `json:"running,omitempty"` // a tile agent runs there now
 	Level   string   `json:"level,omitempty"`   // the person's level on it
 	Rev     string   `json:"rev,omitempty"`     // its code's revision, when xbind says
+	MCP     bool     `json:"mcp,omitempty"`     // it is an MCP server (its endpoint /api/<tile>/mcp)
 }
 
 // wsNoOrg is the org xbind names for the tiles in no org.

@@ -62,7 +62,7 @@ func TestNetPolicySetAndKept(t *testing.T) {
 	if got.Web.Mode != WebRead || got.MCP.Mode != MCPTiles || strings.Join(got.Web.Allow, ",") != "*.wiki.test,docs.example.com" {
 		t.Errorf("policy after the switch turned: %+v", got)
 	}
-	for _, p := range []NetPatch{{WebMode: strp(WebFull)}, {MCPMode: strp(MCPListed)}} {
+	for _, p := range []NetPatch{{WebMode: strp(WebFull)}, {MCPMode: strp(MCPListed)}, {WebSearch: boolp(true)}} {
 		if _, err := s.SetNet(p, "user:ana"); !errors.Is(err, ErrNotYet) {
 			t.Errorf("a reserved mode: %v", err)
 		}
@@ -100,8 +100,8 @@ func TestNetPolicyHostFile(t *testing.T) {
 	if ok, why := got.Web.HostAllows("a.intranet.example.com"); ok || !strings.Contains(why, "host's deny list") {
 		t.Errorf("the host's deny list: %v %q", ok, why)
 	}
-	// the admin narrows the web; asks MCP past the host's off and is held to it; search stays off
-	if _, err := s.SetNet(NetPatch{WebMode: strp(WebOff), MCPMode: strp(MCPTiles), WebSearch: boolp(true)}, "user:ana"); err != nil {
+	// the admin narrows the web; asks MCP past the host's off and is held to it
+	if _, err := s.SetNet(NetPatch{WebMode: strp(WebOff), MCPMode: strp(MCPTiles), WebSearch: boolp(false)}, "user:ana"); err != nil {
 		t.Fatal(err)
 	}
 	got = s.NetPolicy()

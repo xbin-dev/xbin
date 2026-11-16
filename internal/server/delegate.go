@@ -138,6 +138,7 @@ type delegateVerdict struct {
 const (
 	classTileRead  = "tile-read"
 	classTileWrite = "tile-write"
+	classMCPRead   = "mcp-read" // a read method on a tile's MCP endpoint (delegatemcp.go)
 )
 
 func isRead(method string) bool {
@@ -543,6 +544,19 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		refuse(http.StatusForbidden, "no-session", "this call needs an agent session: make one (POST /api/xbin/delegate/sessions {scope, model}) and send its id as "+HeaderAgentSession+" — it says what this conversation may see and which model it is on")
 		return
 	}
+	// a POST to a tile's declared MCP endpoint is judged by its JSON-RPC
+	// method (delegatemcp.go): initialize, ping and tools/list are reads,
+	// anything else is refused there — a tool is called through xbind
+	mcpRead := false
+	if v.tileAPI && r.Method == http.MethodPost && hasHandle && !s.tileHidden(p, v.tile) && s.inSessionScope(handle, v.tile) && s.mcpEndpoint(v.tile, r.URL.Path) {
+		read, code, msg := s.mcpGate(w, r, p, handle, v.tile)
+		if !read {
+			refuse(http.StatusForbidden, code, msg)
+			return
+		}
+		mcpRead, v.class, v.effect = true, classMCPRead, false
+		row.Class, row.Effect = v.class, false
+	}
 	dry := r.Header.Get(HeaderDryRun) != ""
 	preview := map[string]any{"dryRun": true, "class": v.class, "as": p.UserID, "agent": p.Agent, "sideEffect": v.effect}
 
@@ -624,6 +638,18 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 				preview["needsApproval"] = true
 			}
 		}
+		if v.pattern == mcpCallPattern && hasHandle { // what this tool's call would need now (delegatemcp.go)
+			body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, delegation.MaxBody))
+			if c, err := readMCPCall(body); err != nil {
+				preview["allowed"], preview["refusal"] = false, err.Error()
+			} else if _, under, _, _, _, msg := s.mcpJudge(r.Context(), p, handle, c); msg != "" {
+				preview["allowed"], preview["refusal"] = false, msg
+			} else if under != "" {
+				preview["under"] = under
+			} else {
+				preview["needsApproval"] = true
+			}
+		}
 		if v.pattern == "POST /term/sessions" { // what THIS start would need: the person's preference may start it unasked
 			body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, delegation.MaxBody))
 			ask := sessionAskOf(body)
@@ -693,7 +719,7 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 	}()
 	if v.tileAPI { // the tile is sent the headers on the list and no other (delegateForwards)
 		for h := range r.Header {
-			if !delegateForwards[h] {
+			if !delegateForwards[h] && !(mcpRead && mcpForwards[h]) {
 				r.Header.Del(h)
 			}
 		}

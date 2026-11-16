@@ -5871,7 +5871,7 @@ orgs, reason, offer: {newSession: {model}}}`.
 | `PATCH /ws/sessions/{id}` | `{name?, archived?, scope? ({orgs, tiles} or null: everything allowed), model?}` → `{session}`; `409` for Main's archive, a model change while it works, and `model_taint` (with `held: true` and the held fields when the session is held and the call needed its handle) |
 | `DELETE /ws/sessions/{id}` | not Main. Closes the handle and withdraws its pending requests; tile agents it started keep running, as their person's |
 | `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection: {counts, orgs: [{id, name, kind, state, reason?, tiles, connected}]}, summary, model, handle}`; with `whatIf` also `whatIf: {model, connects, disconnects, counts, summary, allowed, taintedOrgs}` and, when not allowed, `offer: {newSession: {model}}`. Totals and org-level reasons only: the page reads the tiles' names from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`) |
-| `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset\|web, ref, callId?, tile, title, method, path, brief, state, outcome, createdMs, decidedMs, expiresMs?, grant?, grantUntilMs?, by?, via?, resultStatus?, result?}], agents: [{id, session, tile, harness, mode, asks, brief?, request?, callId?, status, waits, waiting, last, turn, held, startedMs, updatedMs}], briefs: [{id, callId?, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}], refusals: [{id, callId, tool, kind, reason, tile, createdMs}], ask?}` — the fields are described under "In fields" below. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
+| `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset\|web\|mcp, ref, callId?, tile, title, method, path, brief, state, outcome, createdMs, decidedMs, expiresMs?, grant?, grantUntilMs?, by?, via?, resultStatus?, result?}], agents: [{id, session, tile, harness, mode, asks, brief?, request?, callId?, status, waits, waiting, last, turn, held, startedMs, updatedMs}], briefs: [{id, callId?, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}], refusals: [{id, callId, tool, kind, reason, tile, createdMs}], ask?}` — the fields are described under "In fields" below. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
 | `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?, harness?}`: the person's edit, and their pick of a coding agent among what the tile allows (409 otherwise; `""`: xbind's default again). A request already filed for the old brief is withdrawn and filed again |
 | `GET /ws/sessions/{id}/briefs/{bid}/start-defaults` | what the brief's start would run on, from xbind: `{defaults, picked, harness, harnessName, line}` ("Claude Code · asks before acting") |
 | `POST /ws/sessions/{id}/briefs/{bid}/start` | "Review and start…" → `{request, id}` (the request to review; filed now when the agent hadn't asked), or `{started, id, outcome}` where the person's preferences let tile agents start without xbind asking — there the click is the confirmation. Which one is xbind's dry run of the start at the click, not when the agent asked: a start that needs an approval now (the preference changed, or the call itself is refused `needs-approval`) is filed, and answered as `{request, id}` |
@@ -5890,9 +5890,28 @@ orgs, reason, offer: {newSession: {model}}}`.
 `admin_propose`, `admin_changes` (the change sets this conversation
 proposed, never another session's); `preview`; `plan`; `notebook_search`,
 `notebook_read`, `notebook_write`, `notebook_edit`, `notebook_archive`;
-`web_read` (offered while the session's reach has the web) —
+`web_read` (offered while the session's reach has the web); `mcp_tools`,
+`mcp_call` (while it has MCP) —
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
+
+**MCP tiles** (D236; `/docs/protocol/delegation.md` §MCP tiles). A tile
+xbind's map marks `mcp: true` serves MCP at `/api/<tile>/mcp`.
+`mcp_tools {tile?}` reads its tools there with the template's own MCP
+client (`MCPServer` with `delegate`: the SDK's delegate client, in the
+conversation's agent session) — `initialize` and `tools/list` are reads at
+xbind, asked of nobody — and answers them framed as the tile's data, each
+with whether its server marks it read-only. `mcp_call {tile, tool,
+arguments, why?, dry_run?}` has xbind call one tool (`POST
+/api/xbin/delegate/mcp/call {server, tool, arguments}`): it runs at once
+where a standing approval of that tool or the person's "read-only tools
+don't ask" covers it, else xbind answers `needs-approval` and the tool
+files the call (`kind: mcp`, the body the ticket binds; `why` required)
+and answers pending; approved, it runs once under the ticket — "always for
+this tool" leaves a standing approval of exactly that server and tool. The
+answer is framed as the tile's data. Refused with the MCP policy or the
+person's setting off (`mcp-off`, `mcp-person`), the refusal is said once
+and the tools leave the list.
 
 **The web** (D236; xbin's `/docs/protocol/delegation.md` §Web and MCP).
 `web_read {url, why?, offset?, dry_run?}` reads one page through xbind's

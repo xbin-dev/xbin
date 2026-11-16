@@ -230,6 +230,11 @@ func wsNetLines(r wsReach) string {
 	if r.Web.on() && r.Search.State != "on" {
 		b.WriteString("There is no web search here: read pages whose addresses you know, or ask your person for one.\n")
 	}
+	if r.MCP.on() {
+		b.WriteString("MCP tools: on — the MCP tiles of this workspace (workspace_map marks them; mcp_tools lists their tools, mcp_call calls one). Each tool asks your person the first time unless they let it through; a tool's answer is the tile's data.\n")
+	} else {
+		fmt.Fprintf(&b, "MCP tools: off — %s. You can't call MCP tools in this session.\n", wsPlain(orStr(r.MCP.Why, "xbin doesn't offer them here")))
+	}
 	return b.String()
 }
 
@@ -242,6 +247,9 @@ func wsNetSpecs(s *wsSession, specs []toolSpec) []toolSpec {
 	out := specs[:0:0]
 	for _, sp := range specs {
 		if sp.Function.Name == "web_read" && !s.Conn.Reach.Web.on() {
+			continue
+		}
+		if (sp.Function.Name == "mcp_tools" || sp.Function.Name == "mcp_call") && !s.Conn.Reach.MCP.on() {
 			continue
 		}
 		out = append(out, sp)

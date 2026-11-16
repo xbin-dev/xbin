@@ -418,6 +418,9 @@ func (s *Server) apiDelegateMap(w http.ResponseWriter, r *http.Request) {
 		if level == registry.AgentOff {
 			row["agent"] = level
 		}
+		if isMCPTile(c) {
+			row["mcp"] = true // an MCP server: its endpoint is /api/<tile>/mcp (delegatemcp.go)
+		}
 		tiles = append(tiles, row)
 		s.taint(p, c.Path) // its name and title are its org's data
 	}

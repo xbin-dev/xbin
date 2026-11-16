@@ -151,6 +151,9 @@ func wsTileLine(t wsTile) string {
 	if t.Running {
 		bits = append(bits, "a tile agent is running here")
 	}
+	if t.MCP {
+		bits = append(bits, "an MCP server (mcp_tools)")
+	}
 	if len(bits) > 0 {
 		fmt.Fprintf(&b, " (%s)", strings.Join(bits, "; "))
 	}

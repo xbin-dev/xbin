@@ -182,10 +182,13 @@ tile's answer (`[untrusted — from <host>: …]`), defuses markers inside it,
 and says once per conversation that a page's words are content, never
 instructions.
 
-### 4.5 Search
+### 4.5 Search — not built yet
 
-Only where an upstream of the LLM connector has a native web search and
-an admin switched it on: `webSearch: true` on the upstream (additive,
+`web.search: true` is refused (`400 "not available yet"`) and the reach's
+`search` is always `off`: the connector half (the upstream flag, the
+holder rule, the backend's hosted tool on the Responses wire and its
+answers) is a piece of its own. What it will be: only where an upstream of
+the LLM connector has a native web search and an admin switched it on: `webSearch: true` on the upstream (additive,
 admin-set; the host file may set it too) and `web.search` in the policy.
 The backend then offers the provider's hosted search tool on the session's
 model calls; the connector refuses a holder's call that carries one
@@ -223,19 +226,23 @@ list) and once to the person (a refusal card).
 ## 6. MCP tiles
 
 An MCP tile is one whose manifest provides an `http` interface of service
-`mcp`; its endpoint is `/api/<tile>/mcp`. xbind is the MCP client of the
-workspace agent: it calls the tile **as the person**, through the tile
-route a delegate's call takes (the person's level, the tile's `"agent"`
-level, the org rules, `X-XBin-Agent`). The template's MCP client stays the
-client of ordinary instances; in workspace mode the backend talks to
-xbind's two routes instead — xbind must read a call's tool and the tool's
-annotations to judge it, which a gate that forwarded the backend's JSON-RPC
-could only do by parsing it.
+`mcp`; its endpoint is `/api/<tile>/mcp`. Everything goes **as the
+person**, through the tile route a delegate's call takes (the person's
+level, the tile's `"agent"` level, the org rules, `X-XBin-Agent`), under
+the session's MCP reach. Two ways (revised after the journey plan's G4,
+`plans/wsagent/journey.md` §5 — it replaced a `GET /delegate/mcp/servers`
+listing this spec first had):
 
 | Route | Class | Answer |
 |---|---|---|
-| `GET /delegate/mcp/servers` | `read` | `{servers: [{server, name, orgs, level, tools: [{name, title?, description, readOnly, inputSchema}], error?}], why?}` — the MCP tiles this session may use now (policy, person, scope, org rules, the tile's level not `off`); listing taints with each tile's orgs |
-| `POST /delegate/mcp/call {server, tool, arguments}` | `act` | `{server, tool, isError, content: [{type, text?}], structured?}`; a ticket unless a standing approval of that tool covers it or the person's `mcpReadOnly` and the tool's `readOnlyHint` let it through; a tile at `"agent": "read"` takes read-only tools only. The answer taints with the tile's orgs |
+| `POST /api/<tile>/mcp` (the tile's own endpoint) | the tile's API, judged by its JSON-RPC body | exactly one request (no batch, ≤ 64 KiB, nothing but `jsonrpc`, `id`, `method`, `params`) of `initialize`, `ping` or `tools/list` is a **read** (`class: "mcp-read"`): no ticket, `Mcp-Session-Id` and `MCP-Protocol-Version` carried. Any other POST there is refused (`403 mcp-call`); a request for one as a tile call is `400`. The backend reads tools this way with the template's own MCP client |
+| `POST /delegate/mcp/call {server, tool, arguments}` | `act` | xbind is the client for a tool's call: `{server, tool, isError, content: [{type, text?}], structured?}`; a ticket unless a standing approval of that tool covers it or the person's `mcpReadOnly` and the tool's `readOnlyHint` let it through; a tile at `"agent": "read"` takes read-only tools only. The answer taints with the tile's orgs |
+
+Why the call isn't the raw endpoint under a tile-call ticket: a ticket or a
+standing approval of `POST /api/<tile>/mcp` would cover every tool of the
+server, and `tile_call` could step around the MCP policy; and the tool's
+`readOnlyHint` must be read by xbind, from the server's own `tools/list`.
+`GET /delegate/map` marks an MCP tile's row `mcp: true`.
 
 The request is `kind: "mcp"`, `preview: {class: "mcp", server, serverName,
 tool, title, description, readOnly, arguments}`. Its standing choice is
@@ -245,6 +252,8 @@ an approval of exactly that server and tool, any arguments.
 ## 7. Not built yet
 
 - `web.mode: "full"` (methods with a body, credentials) — refused `400`.
+- `web.search: true` (a provider's native search through the connector,
+  §4.5) — refused `400 "not available yet"`.
 - `mcp.mode: "listed"` (external servers an admin lists by URL, credentials
   held by xbind behind a proxy route with the web's address rules except for
   the listed host) — refused `400 "not available yet"`; documented as such.

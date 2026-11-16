@@ -83,8 +83,8 @@ forwards them):
 | Class | Routes |
 |---|---|
 | reads, at the person's level | `GET /whoami`, `/components`, `/components/<path>`, `/tile-status`, `/tile-report`, `/logs`, `/alerts`, `/screens`, `/templates`, `/agent/providers`, `/term/sessions`, `/term/sessions/<id>`, `…/events`, `…/log`, `…/diff`, `/agent/history`, `/agent/history/<id>/events`, `/code/tree`, `/code/file`, and its own `/delegate/state`, `/delegate/approvals`, `/delegate/requests/<id>`, `/delegate/changesets[/<id>]` |
-| a tile's API | `/api/<tile>/…` where the person can read the tile: `GET`/`HEAD` freely; any other method needs the person's approval |
-| acts | `POST /preview` (a picture of one tile, as the person: [preview.md](/docs/protocol/preview.md) — no approval; rate-limited), `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…`; the web: `POST /delegate/web/fetch` (§Web and MCP: the person's approval of the URL when the conversation holds data) |
+| a tile's API | `/api/<tile>/…` where the person can read the tile: `GET`/`HEAD` freely; any other method needs the person's approval — except on a tile's declared MCP endpoint, where `initialize`, `ping` and `tools/list` are reads and every other POST is refused (§MCP tiles) |
+| acts | `POST /preview` (a picture of one tile, as the person: [preview.md](/docs/protocol/preview.md) — no approval; rate-limited), `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…`; the web: `POST /delegate/web/fetch` (§Web and MCP: the person's approval of the URL when the conversation holds data); MCP tiles: `POST /delegate/mcp/call` (approval of each tool, §MCP tiles) |
 | admin reads, only for an admin who opted in | `GET /grants`, `/bindings`, `/orgs` (without SSO group rules), `/limits` — answered as the person |
 | refused | everything else: `403 {error, refusal: "not-delegated", class}`. In particular: answering a tile agent's permission request or question, a session's options and restart, terminals, deleting or disabling tiles, code writes and pull requests, the account, devices and sign-in tickets, frame tokens and path tickets, view-as, a person's consents, tile stores, the admin API, and every approval on this page |
 
@@ -396,10 +396,11 @@ untrusted input: the agent reads it as data, never as instructions.
 search, mcp}`, each `{state, why?, code?, orgs?}`: `state` is `on` (it
 may), `asks` (each use needs the person's approval — the conversation
 holds data of `orgs`) or `off` (`why` in a person's words, `code` the
-refusal a call meets). Search is `on` only where an upstream of the LLM
-connector has a native web search an admin switched on, the policy offers
-it (`web.search`) and the web is `on` without asking: a search's words
-can't be approved one by one.
+refusal a call meets). Search is **not built yet**: `reach.search` is
+`off`, and `web.search: true` is refused (`400 "not available yet"`). When
+it is, it will be a provider's own search through the LLM connector, only
+where the web is `on` without asking — a search's words can't be approved
+one by one; there is no third-party search service.
 
 **Refusals** (`403 {error, refusal, class: "web", docs}` unless said):
 `web-off` (the workspace policy, or the host's), `web-person` (the
@@ -412,6 +413,66 @@ with `Retry-After`: 12 fetches a burst, one more every 5 s, a person; on
 top of the act limit). Every fetch — refused ones up to the log's rate —
 is a row of the person's log (`class: "web"`, `path` the URL's scheme,
 host and path with `?…` for a query, `bytes`, `status`).
+
+### MCP tiles
+
+An **MCP tile** is one whose manifest provides an `http` interface of
+service `mcp` (`"provides": {"mcp": {"kind": "http", "service": "mcp"}}`);
+its endpoint is `/api/<tile>/mcp`. With the workspace policy's `mcp.mode`
+at `tiles` and the person's `mcp` on, the agent uses it as its person, by
+two ways — each judged by xbind, under the tile's own rules (the person's
+level on it, its `"agent"` level, its orgs' rules, the session's scope):
+
+```
+POST   /api/<tile>/mcp          the person's agent. One JSON-RPC request
+                                 (not a batch, at most 64 KiB, nothing but
+                                 jsonrpc, id, method, params) of exactly
+                                 initialize, ping or tools/list: a read,
+                                 asked of nobody — Mcp-Session-Id and
+                                 MCP-Protocol-Version are carried. Any
+                                 other POST there is 403 {refusal:
+                                 "mcp-call"}
+POST   /delegate/mcp/call       the person's agent. {server: "<tile>",
+                                 tool, arguments} → {server, tool, isError,
+                                 content: [{type, text?}], structured?}
+```
+
+- **A tool's call goes through xbind**, which is the MCP client: it opens
+  a session with the server as the person (`initialize`), lists its tools
+  (the tool must be there: `404 {refusal: "mcp-tool"}`), and calls it. A
+  call to the endpoint itself is refused (`mcp-call`), and so is a request
+  for one as a tile call (`400`): a ticket or standing approval of `POST
+  /api/<tile>/mcp` would cover every tool of the server, and the MCP
+  policy could be stepped around with an ordinary tile call.
+- **Each tool asks the first time.** The agent files `POST
+  /delegate/requests {method: "POST", path: "/api/xbin/delegate/mcp/call",
+  body}` and sends the same body with `X-XBin-Ticket` once it is approved.
+  The request is `kind: "mcp"`, its `preview` `{class: "mcp", server,
+  serverName, tool, title?, description, readOnly, arguments, standing:
+  {tool}}`. Approved with `grant: "always" | "hour"` it leaves a standing
+  approval of `scope: "tool"` — exactly that server and that tool, any
+  arguments (`method: "MCP"`, `path`: the tool's name); `scope: "call"` or
+  `"tile"` is refused for it. A standing approval of every write to the
+  tile (`scope: "tile"`) covers its tools too.
+- **Read-only tools.** A tool the server marks `readOnlyHint` runs without
+  asking when the person turned on `mcpReadOnly` ("MCP tools marked
+  read-only don't ask me") — the mark is the server's word, and the tile's
+  own access rules still hold. A tile at `"agent": "read"` takes read-only
+  tools only (`403 {refusal: "tile"}`), whatever is approved.
+- **What a tool answers is the tile's data**: the conversation is tainted
+  with the tile's orgs, as by any read of it. An org whose rule is `mcp:
+  "org"` keeps a conversation that holds its data to the MCP tiles under it
+  (`403 {refusal: "mcp-org"}` for any other, a read included).
+- Refusals beside those: `mcp-off` (the workspace policy), `mcp-person`
+  (the person's setting), `mcp-unreachable` (502), `needs-approval`,
+  `ticket`, `tile`, `hidden`. A dry run of a call says whether it would
+  need approval (`needsApproval`) or what covers it (`under`). Every call
+  is a row of the person's log (`class: "mcp"`, the endpoint's path, the
+  tile, the ticket or `under`); a read on the endpoint is `class:
+  "mcp-read"`.
+- `GET /delegate/map` marks an MCP tile's row `mcp: true`.
+- **Not yet**: `mcp.mode: "listed"` — servers an admin lists by URL, with
+  credentials xbind holds — is refused (`400 "not available yet"`).
 
 ### The host's file (`XBIN_WSAGENT_CONFIG`)
 
@@ -543,8 +604,9 @@ PUT    /delegate/workspace      admin. {enabled?, who?, web?: {mode?:
                                  "off" | "read", allow?, deny?, search?},
                                  mcp?: {mode?: "off" | "tiles"}}, at least
                                  one. web and mcp are off by default;
-                                 web.mode "full" and mcp.mode "listed" are
-                                 reserved: 400 "not available yet". allow
+                                 web.mode "full", web.search true and
+                                 mcp.mode "listed" are reserved: 400 "not
+                                 available yet". allow
                                  and deny are host patterns (example.com:
                                  it and the names under it; *.example.com:
                                  only the names under it), at most 200

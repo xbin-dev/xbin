@@ -120,6 +120,10 @@ func (w WebPolicy) Normalized() (WebPolicy, error) {
 	if err := checkWebMode(w.Mode); err != nil {
 		return WebPolicy{}, err
 	}
+	if w.Search != nil && *w.Search {
+		// a provider's native search, held by the LLM connector: not built
+		return WebPolicy{}, fmt.Errorf("web.search: %w — a workspace agent reads the pages whose addresses it knows", ErrNotYet)
+	}
 	var err error
 	if w.Allow, err = normPatterns("allow", w.Allow); err != nil {
 		return WebPolicy{}, err
