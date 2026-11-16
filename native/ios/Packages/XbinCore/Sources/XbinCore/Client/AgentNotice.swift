@@ -89,7 +89,7 @@ public struct AgentNoticeData: Sendable, Equatable {
             target = j["target"]?.stringValue ?? ""
             contentType = j["contentType"]?.stringValue ?? ""
             body = j["body"]?.stringValue ?? ""
-            bodySize = Int(j["bodySize"]?.intValue ?? 0)
+            bodySize = Int(clamping: j["bodySize"]?.intValue ?? 0)
             bodySha256 = j["bodySha256"]?.stringValue ?? ""
         }
     }
@@ -111,20 +111,23 @@ public struct AgentNoticeData: Sendable, Equatable {
     /// agent.clear: the collapse ids that no longer stand.
     public var clear: [String] = []
 
+    /// The most collapse ids one clear names (xbind sends a handful).
+    public static let maxClear = 64
+
     public init?(json: JSONValue?) {
         guard let j = json, j.objectValue != nil, j["v"]?.intValue == 1 else { return nil }
-        badge = j["badge"]?.intValue.map { Int(clamping: $0) }
+        badge = j["badge"]?.intValue.map(AgentBadge.clamp)
         if let r = j["request"], r.objectValue != nil {
             let req = Request(json: r)
             request = DelegateID.isRequest(req.id) ? req : nil
         }
         if let c = j["changeset"], c.objectValue != nil, let id = c["id"]?.stringValue, DelegateID.isRequest(id) {
-            changeset = ChangeSet(id: id, items: Int(c["items"]?.intValue ?? 0), warned: Int(c["warned"]?.intValue ?? 0),
+            changeset = ChangeSet(id: id, items: AgentBadge.clamp(c["items"]?.intValue ?? 0), warned: AgentBadge.clamp(c["warned"]?.intValue ?? 0),
                                   plan: c["plan"]?.boolValue ?? false, asks: c["asks"]?.boolValue ?? false)
         }
         if let id = j["conversation"]?["id"]?.stringValue, AgentRoute.isConversation(id) { conversation = id }
-        ask = j["ask"]?.stringValue
-        clear = (j["clear"]?.arrayValue ?? []).compactMap(\.stringValue).filter { $0.count <= 96 }
+        ask = j["ask"]?.stringValue.map { String($0.prefix(400)) }
+        clear = Array((j["clear"]?.arrayValue ?? []).prefix(Self.maxClear).compactMap(\.stringValue).filter { $0.count <= 96 })
     }
 }
 
@@ -572,6 +575,15 @@ public enum AgentNoticeSweep {
 }
 
 /// The app icon's badge (§9): what waits for the person, across workspaces.
+/// The icon's count (review finding 3): every count a push or the store
+/// gives is held to 0…9999, and the sum across workspaces saturates there.
 public enum AgentBadge {
-    public static func total(_ counts: [String: Int]) -> Int { counts.values.reduce(0) { $0 + max(0, $1) } }
+    public static let max = 9999
+
+    public static func clamp(_ n: Int64) -> Int { Int(Swift.min(Swift.max(n, 0), Int64(max))) }
+    public static func clamp(_ n: Int) -> Int { Swift.min(Swift.max(n, 0), max) }
+
+    public static func total(_ counts: [String: Int]) -> Int {
+        counts.values.reduce(0) { Swift.min($0 + clamp($1), max) }
+    }
 }

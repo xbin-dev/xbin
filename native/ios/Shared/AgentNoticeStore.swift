@@ -60,7 +60,7 @@ enum AgentNoticeStore {
     @discardableResult
     static func setCount(_ n: Int, for workspace: String, group: String?) -> Int {
         var c = counts(group: group)
-        c[workspace] = max(0, n)
+        c[workspace] = AgentBadge.clamp(n) // 0…9999 (review finding 3): a hostile count never reaches the sum
         if let d = try? JSONEncoder().encode(c) {
             Keychain.write(d, service: badgeService, account: badgeAccount, group: group, accessibility: .afterFirstUnlockThisDevice)
         }
