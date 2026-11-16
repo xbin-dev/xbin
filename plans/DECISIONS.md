@@ -5842,3 +5842,19 @@ here: cut from the old end, never reword.
     relay, the Time Sensitive Notifications capability and its entitlement,
     the review notes. Not verified without a device: real APNs, Face ID on
     an action, the Dynamic Island, dictation audio, Handoff between devices.
+  - **Review round (2026-11-17).** An independent review's findings, each
+    fixed with a test that failed before: the lock-screen rule in rendered
+    terms (four collapsed lines of 12 em at the largest default text size,
+    only countable characters — no line or paragraph separators, tabs, odd
+    or doubled spaces, right-to-left, wide, combining or emoji), xbind and
+    the app held together by shared vectors; the app's own lock leaves
+    Review/Open only and Allow once needs a passcode and protected data;
+    every pushed count clamped to 0…9999; a lost answer re-read before the
+    follow-up speaks; a tile's or a person's name never in a title, quoted
+    and bounded in the body; where the person decided is theirs, not the
+    agent's; tests that check what they claim, test01 on xbind's real
+    sealed push (a spooling relay, simctl push, the extension's own drawing
+    code — simctl push doesn't wake the extension). The shapes that landed
+    beside it on master (outside MCP servers, a start naming a sign-in,
+    waiting plan lines, dock permission prompts) are Review only, and so is
+    a tile call whose preview says more than a tile call's.

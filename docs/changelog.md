@@ -49,7 +49,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (a message, never a decision); Handoff of the conversation to
   `/xbin/agent`; the badge across workspaces. The agent's quick replies
   (the composer's chips, the plan card's Go ahead) now fill the message
-  box and never send by themselves — on the web too.
+  box and never send by themselves — on the web too. Under the app's
+  "Require Face ID to open", notifications offer only Review/Open; a
+  notification's title never holds a tile's name (it is quoted in the
+  text); the agent and its page read a request without `decidedFrom` and
+  `decidedDevice`. The relay gains a development `-spool-dir`.
 
 ## 2026-11-16
 
