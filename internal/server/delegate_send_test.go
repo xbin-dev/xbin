@@ -217,7 +217,14 @@ func TestDelegateSendsLive(t *testing.T) {
 		t.Fatalf("the start on a preference: %d %s", rec.Code, rec.Body.String())
 	}
 	info := decode[term.SessionInfo](t, rec)
-	t.Cleanup(func() { w.s.Term.Kill(info.ID) })
+	// Kill only signals: the session writes its history under the world's
+	// TempDir as it ends, so the cleanup waits for its teardown (the term
+	// tests' endFake, c2f381e8) before TempDir's RemoveAll runs.
+	t.Cleanup(func() {
+		if err := w.s.Term.StopTileSessions("apps/x"); err != nil {
+			t.Error(err)
+		}
+	})
 	if got := w.s.Term.AgentOriginMode(info.ID); got != "ask" || info.Mode != "ask" {
 		t.Fatalf("the session's mode %q, the mode it was started in %q", info.Mode, got)
 	}

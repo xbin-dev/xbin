@@ -1,0 +1,5 @@
+# actionlint's config (make actionlint, native/ios/scripts/ci-local-check.sh):
+# xcode-27 is a GitHub-hosted larger runner's label, xbin-mini the Mac
+# mini's; actionlint knows neither.
+self-hosted-runner:
+  labels: [xcode-27, xbin-mini]
