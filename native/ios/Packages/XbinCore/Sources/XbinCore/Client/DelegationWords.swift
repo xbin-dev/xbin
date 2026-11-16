@@ -200,7 +200,7 @@ public enum DelegationWords {
         case .session: return r.isResume ? "Continue the tile agent in \(t)" : "Start a tile agent in \(t)"
         case .template: return "Create a tile"
         case .call: return "Approve a change to \(t)"
-        case .web, .mcp: return netNeedTitle(r)
+        case .web, .mcp, .unknown: return netNeedTitle(r)
         }
     }
 
@@ -212,7 +212,7 @@ public enum DelegationWords {
                               : ApprovalHeading(before: "Start a tile agent in ", strong: t, after: "?")
         case .template: return ApprovalHeading(before: "Your agent wants to create a tile", strong: "", after: "")
         case .call: return ApprovalHeading(before: "Your agent wants to change something in ", strong: t, after: "")
-        case .web, .mcp: return netHeading(r)
+        case .web, .mcp, .unknown: return netHeading(r)
         }
     }
 
@@ -333,7 +333,7 @@ public enum DelegationWords {
         switch r.kind {
         case .session: return r.neverAsks ? "Start without asking" : "Start"
         case .template: return "Create the tile"
-        case .web, .mcp: return netAllowLabel(r, choice: choice)
+        case .web, .mcp, .unknown: return netAllowLabel(r, choice: choice)
         case .call:
             switch choice {
             case .once: return "Allow once"
@@ -496,7 +496,7 @@ public enum DelegationWords {
 
     public static func requestCard(_ r: DelegateRequest, now: Date = Date(), zone: TimeZone = .current) -> RequestCard {
         let what = needTitle(r)
-        switch r.state {
+        switch r.kind == .unknown ? .unknown : r.state { // a kind this app doesn't know is never one to decide
         case .pending:
             return RequestCard(head: "Waiting for your approval", what: what,
                                line: asked(created: r.created, expires: r.expires, now: now, zone: zone),

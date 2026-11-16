@@ -101,13 +101,19 @@ extension DelegationWords {
                 "xbin can't undo this. Whether \(m.server) can is up to \(m.server).", changed)
     }
 
+    /// A request of a kind this app doesn't know (a newer xbind's): said
+    /// so, never decided here (DelegateRequest.isPending is false).
+    public static let unknownKind = "A request this app doesn't know"
+
     static func netNeedTitle(_ r: DelegateRequest) -> String {
+        if r.kind == .unknown { return unknownKind }
         if r.kind == .web { return "Read a web page on \(nonEmpty(webOf(r).host, "the web"))" }
         let m = mcpOf(r)
         return "Run \(nonEmpty(m.tool, "a tool")) on \(m.server)"
     }
 
     static func netHeading(_ r: DelegateRequest) -> ApprovalHeading {
+        if r.kind == .unknown { return ApprovalHeading(before: unknownKind, strong: "", after: "") }
         if r.kind == .web { return ApprovalHeading(before: "Your agent wants to read a page on ", strong: nonEmpty(webOf(r).host, "the web"), after: "") }
         let m = mcpOf(r)
         return ApprovalHeading(before: "Your agent wants to run ", strong: nonEmpty(m.tool, "a tool"), after: " on \(m.server)")
@@ -124,7 +130,7 @@ extension DelegationWords {
     }
 
     static func netAllowLabel(_ r: DelegateRequest, choice: GrantChoice.ID) -> String {
-        r.kind == .web ? "Read this page" : choice == .tool ? "Allow always" : "Allow once"
+        r.kind == .unknown ? "" : r.kind == .web ? "Read this page" : choice == .tool ? "Allow always" : "Allow once"
     }
 
     /// The web's and MCP's rows of the log ("" class: nil, the general sentence).

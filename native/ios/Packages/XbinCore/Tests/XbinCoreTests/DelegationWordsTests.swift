@@ -551,6 +551,20 @@ import Testing
         #expect(c.isArmed(at: t0.addingTimeInterval(60.6)))
     }
 
+    /// A request of a kind this app doesn't know (a newer xbind's) is never
+    /// one to decide here — as a state it doesn't know isn't — and says so.
+    @Test func unknownKindsAreNotActionable() throws {
+        let r = try #require(DelegateRequest(json: ["id": "rq_new", "kind": "sandbox", "state": "pending", "method": "POST", "target": "/api/apps/x/y", "tile": "apps/x"]))
+        #expect(r.kind == .unknown && !r.isPending)
+        #expect(DelegationWords.needTitle(r) == DelegationWords.unknownKind && DelegationWords.heading(r).plain == DelegationWords.unknownKind)
+        #expect(DelegationWords.grantChoices(r).isEmpty && DelegationWords.allowLabel(r).isEmpty)
+        let card = DelegationWords.requestCard(r)
+        #expect(card.head == DelegationWords.unknownState.title && card.line == DelegationWords.unknownState.text && !card.waits)
+        // a request from before kinds: a call
+        let old = try #require(DelegateRequest(json: ["id": "rq_old", "state": "pending", "method": "POST", "target": "/api/apps/x/y"]))
+        #expect(old.kind == .call && old.isPending)
+    }
+
     @Test func whatWidens() {
         #expect(AgentWidening.widens(from: .once, to: .call) && AgentWidening.widens(from: .once, to: .tile) && AgentWidening.widens(from: .call, to: .tile))
         #expect(!AgentWidening.widens(from: .tile, to: .once) && !AgentWidening.widens(from: .call, to: .once) && !AgentWidening.widens(from: .tile, to: .call))

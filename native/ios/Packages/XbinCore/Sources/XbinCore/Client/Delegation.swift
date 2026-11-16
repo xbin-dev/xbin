@@ -116,8 +116,10 @@ public enum DelegateTime {
 /// creation), as xbind reads it — the only thing an approval sheet is
 /// drawn from.
 public struct DelegateRequest: Sendable, Equatable, Identifiable {
-    /// `web` and `mcp`: a web page and an MCP tool (D239).
-    public enum Kind: String, Sendable { case call, session, template, web, mcp }
+    /// `web` and `mcp`: a web page and an MCP tool (D239). `unknown`: a
+    /// kind this app doesn't know (a newer xbind's) — never decided here,
+    /// as a state it doesn't know isn't.
+    public enum Kind: String, Sendable { case call, session, template, web, mcp, unknown }
     /// `unknown`: a state this app doesn't know (a newer xbind's) — never
     /// read as one that can be decided.
     public enum State: String, Sendable { case pending, approved, denied, used, expired, withdrawn, unknown }
@@ -151,7 +153,7 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
     public init?(json: JSONValue?) {
         guard let json, let id = json["id"]?.stringValue, !id.isEmpty else { return nil }
         self.id = id
-        kind = Kind(rawValue: json["kind"]?.stringValue ?? "") ?? .call
+        kind = Kind(rawValue: json["kind"]?.stringValue ?? "call") ?? .unknown // (a request from before kinds was a call)
         method = json["method"]?.stringValue ?? ""
         target = json["target"]?.stringValue ?? ""
         tilePath = json["tile"]?.stringValue ?? ""
@@ -172,7 +174,7 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
         withdrawnBy = json["withdrawnBy"]?.stringValue ?? ""
     }
 
-    public var isPending: Bool { state == .pending }
+    public var isPending: Bool { state == .pending && kind != .unknown }
     /// `preview.session`: the harness and mode a tile agent will run in.
     public var session: JSONValue { preview["session"] ?? .object([:]) }
     /// A session start whose mode lets the tile agent act without asking.

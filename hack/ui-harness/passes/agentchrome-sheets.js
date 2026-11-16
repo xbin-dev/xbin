@@ -127,6 +127,21 @@ async function sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot,
     await decided('m2');
     check(JSON.stringify(sentTo(/m2\/approve$/).map((c) => c.body)) === '[{"grant":"always","scope":"tool"}]', `[${width}] …always for this tool ({grant: always, scope: tool})`);
     S.requests = S.requests.filter((r) => r.id !== 'w2' && r.id !== 'm2'); S.approvals = S.approvals.filter((a) => a.scope !== 'tool'); await refresh();
+
+    // the tile's own words — a server's name, a tool's name and title — are never drawn as they came either
+    S.requests.push({ id: 'm3', user: 'admin', agent: 'system/agent', kind: 'mcp', method: 'POST', target: '/api/xbin/delegate/mcp/call', tile: 'apps/dice', body: '{}', bodyShown: true, bodySize: 2,
+      summary: 'x', state: 'pending', created: iso(-90), expires: iso(86390000),
+      preview: { class: 'mcp', tile: 'apps/dice', server: 'apps/dice', serverName: 'Di\u202Ece', tool: 'wi\u200Bpe', title: 'Wipe \u2066the\u2069 table', readOnly: true, arguments: '{}', changed: ['description'] } });
+    await refresh();
+    await review(page, 'request', 'm3');
+    await page.waitForSelector(`${SHEET} [data-row="tool"]`);
+    const named = await page.$$eval(`${SHEET} .hid`, (els) => els.map((e) => e.textContent));
+    check(named.includes('⟨U+202E⟩') && named.includes('⟨U+200B⟩') && named.includes('⟨U+2066⟩') && !(await page.$eval(`${SHEET} h2`, (h) => /[\u202E\u200B]/.test(h.textContent)))
+      && /Changed since you last allowed it or first met it: its description/.test(await text(`${SHEET} [data-row="changed"]`)),
+      `[${width}] a tool's and its server's names: hidden characters as escapes, the heading included; what changed, said (${named.join(' ')})`);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    S.requests = S.requests.filter((r) => r.id !== 'm3'); await refresh();
 }
 
 module.exports = { sheetChecks };
