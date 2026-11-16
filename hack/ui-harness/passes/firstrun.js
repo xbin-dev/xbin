@@ -9,7 +9,8 @@
 //      isn't right says why in place: a weak password, a repeat that
 //      doesn't match — and nothing is made), "Not now" (gone, the shell as
 //      before, remembered in this browser only: another browser sees the
-//      sheet), then the whole sheet: signed in as the account, the vault
+//      sheet), the shell framed by another page (no sheet there), then the
+//      whole sheet: signed in as the account, the vault
 //      unsealed, the agent on for them alone, the dock open with the
 //      agent's composer focused; a second browser afterwards gets no sheet,
 //      and the swap route refuses everyone outside the bootstrap state
@@ -117,6 +118,20 @@ async function stateA(browser, check) {
     check(await page.evaluate((s) => document.querySelector(`${s} #bxfr-vault`).form.id !== document.querySelector(`${s} #bxfr-pw`).form.id, S), 'A: the vault\'s fields are not the sign-up form\'s');
     const wide = await shots(page, 'a-sheet');
     check(wide.length === 0, `A: the sheet never scrolls sideways — 1280, 390, 200 % (${wide.join(' ') || 'none'})`);
+
+    // the shell framed by another page of the same site (a tile origin can): no sheet there, nothing said
+    const fr = await newPage(browser);
+    ctxs.push(fr.ctx);
+    await open(fr.page, X);
+    await sheetUp(fr.page);
+    await fr.page.evaluate(() => { const f = document.createElement('iframe'); f.id = 'framed-shell'; f.src = '/c/root/'; f.style.cssText = 'position:fixed;inset:0;z-index:2000;width:100%;height:100%'; document.body.append(f); });
+    const inner = await (await fr.page.waitForSelector('#framed-shell')).contentFrame();
+    await inner.waitForFunction(() => { const t = document.querySelector('bx-shell')?.testApi?.(); return !!t && t.screens.length > 0; }, null, { timeout: 30000 });
+    await inner.waitForFunction(async () => (await (await fetch('/api/xbin/first-run')).json()).bootstrap === true, null, { timeout: 10000 });
+    let mounted = false;
+    for (let i = 0; i < 12 && !mounted; i++) { mounted = (await inner.locator('bx-first-run').count()) > 0; if (!mounted) await fr.page.waitForTimeout(250); }
+    check(!mounted && await inner.evaluate(() => document.querySelector('bx-shell').inert === false), 'A: the shell framed by another page: no sheet inside the frame, the shell as it is');
+    await fr.ctx.close();
 
     // ---- keyboard-first, and errors in place ----
     await page.keyboard.type(P.name);

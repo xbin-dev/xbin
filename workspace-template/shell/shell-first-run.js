@@ -9,7 +9,9 @@
  *                         the bootstrap state; unless this browser said "Not
  *                         now", the sheet goes over the shell, which is inert
  *                         and holds its setup card and alerts (shell._firstRun)
- *                         until the sheet is done or skipped
+ *                         until the sheet is done or skipped; never in a
+ *                         framed shell (it says nothing there: the person
+ *                         opens the workspace directly)
  *   afterFirstRun(shell)  the reload the sheet ends with, now as the new
  *                         account: when it turned the workspace agent on,
  *                         the dock opens and the agent's composer has the keys
@@ -21,8 +23,12 @@ import { openAgent } from './shell-agent.js';
 
 const words = () => import('/vendor/first-run-words.js').catch(() => null);
 
+// framed — the shell inside another page (a same-site tile origin can frame
+// it): the sheet asks for a password, so it is offered top-level only
+const framed = () => { try { return window.top !== window.self; } catch { return true; } };
+
 export async function firstRun(shell) {
-  if (shell._firstRun || !shell._who || shell._who.kind !== 'root') return;
+  if (shell._firstRun || !shell._who || shell._who.kind !== 'root' || framed()) return;
   const w = await words();
   if (!w) return;
   try { if (localStorage.getItem(w.SKIP_KEY)) return; } catch { /* no storage: ask */ }

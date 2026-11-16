@@ -25,6 +25,9 @@
  * the vault's fields belong to a form of their own and say they aren't a
  * sign-in.
  *
+ * Never inside a frame: in a framed document it removes itself and says
+ * nothing (the person opens the workspace directly).
+ *
  * Keyboard-first: focus starts in the name, Enter moves on (a field that
  * isn't right yet says why in place), Enter in the last field is the
  * primary button. Errors sit under their field (aria-describedby).
@@ -133,6 +136,9 @@ export class BxFirstRun extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    let framed = true;
+    try { framed = window.top !== window.self; } catch { /* a cross-origin top: framed */ }
+    if (framed) { this.remove(); return; } // a sheet that asks for a password is never drawn inside another page
     style();
     if (!this.plan) this.load();
   }
