@@ -321,6 +321,7 @@ const (
 	wsReqSession   = "session"   // a tile agent's start
 	wsReqTemplate  = "template"  // a tile made from a template
 	wsReqChangeSet = "changeset" // an admin batch
+	wsReqWeb       = "web"       // a web page, read under its person's approval of the URL (ws_tools_web.go)
 )
 
 // wsReq is one request and what came of it.

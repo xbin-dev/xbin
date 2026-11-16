@@ -375,10 +375,10 @@ the names under it, the hostnames its tiles are published at).
 tiles in no org (`workspace`) included — a fetch needs its person's
 approval of that exact URL: the agent files `POST /delegate/requests
 {method: "POST", path: "/api/xbin/delegate/web/fetch", body:
-"{\"url\": …}"}` — the URL in its canonical form (400 with the form to use
-otherwise) — and sends the same body with `X-XBin-Ticket` once it is
+"{\"url\": …}"}` and sends the same body with `X-XBin-Ticket` once it is
 approved. The request is `kind: "web"`, its `preview` `{class: "web",
-url, host, orgs, why}`; it is approved once (`hour` and `always` are
+url, host, orgs, why}` — `url` in the one spelling the fetch will name
+(the host in its ASCII form, lower case, no fragment); it is approved once (`hour` and `always` are
 refused: the URL is the data). That holds unless every org in `tainted`
 allows the web outright (its rule `web: "allow"`); an untainted
 conversation fetches freely within the policy. A request for a fetch that

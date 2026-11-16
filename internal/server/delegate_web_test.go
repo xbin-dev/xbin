@@ -210,6 +210,9 @@ func TestWebFetchTaintTicket(t *testing.T) {
 	if rec := w.fetch(page, header(HeaderDryRun, "1")); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"needsApproval":true`) {
 		t.Errorf("a tainted fetch's dry run: %d %s", rec.Code, rec.Body.String())
 	}
+	if rec := w.fetch(w.url("ws.example.com", "/"), header(HeaderDryRun, "1")); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"allowed":false`) {
+		t.Errorf("a dry run of a refused URL: %d %s", rec.Code, rec.Body.String())
+	}
 	before := w.hits.Load()
 	body := `{"url":"` + page + `"}`
 	req := w.ask(w.bob, "POST", "/api/xbin/delegate/web/fetch", body)
@@ -239,8 +242,12 @@ func TestWebFetchTaintTicket(t *testing.T) {
 	if req2.Preview["readWeb"] != true {
 		t.Errorf("readWeb not on the next request: %+v", req2.Preview)
 	}
+	// the person is shown the URL as it will be fetched
+	if r := w.ask(w.bob, "POST", "/api/xbin/delegate/web/fetch", `{"url":"`+w.url("SITE.Test", "/x#frag")+`"}`); r.Preview["url"] != w.url("site.test", "/x") {
+		t.Errorf("the preview's URL: %v", r.Preview["url"])
+	}
 	// a URL the person couldn't approve isn't put to them
-	for _, bad := range []string{`{"url":"http://10.0.0.1/"}`, `{"url":"http://[::1]/"}`, `{"url":"http://2130706433/"}`, `{"url":"` + w.url("ws.example.com", "/") + `"}`, `{"url":"` + w.url("SITE.test", "/x") + `"}`} {
+	for _, bad := range []string{`{"url":"http://10.0.0.1/"}`, `{"url":"http://[::1]/"}`, `{"url":"http://2130706433/"}`, `{"url":"` + w.url("ws.example.com", "/") + `"}`} {
 		in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/delegate/web/fetch", "body": bad})
 		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), w.bob); rec.Code == 200 {
 			t.Errorf("a request for %s was taken", bad)

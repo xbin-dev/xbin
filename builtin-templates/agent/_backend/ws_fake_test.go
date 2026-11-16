@@ -53,6 +53,8 @@ type fakeXbin struct {
 	noPreview  bool              // previews are off on this xbind
 	harnesses  []wsHarness       // what tiles allow, in xbind's order
 
+	net fakeNet // the web and MCP tiles (ws_fake_net_test.go)
+
 	said  map[string][]string // messages delivered to each tile agent
 	calls []string            // every call made, in order ("Request r-1", "Call POST /api/…")
 }
@@ -77,7 +79,8 @@ func newFakeXbin() *fakeXbin {
 		docs: map[string]string{}, code: map[string]map[string]string{}, logs: map[string]string{},
 		api: map[string]func([]byte) (int, string){}, said: map[string][]string{}, startAsk: true, pages: map[string]string{},
 		harnesses: []wsHarness{{ID: "claude", Name: "Claude Code"}, {ID: "codex", Name: "Codex"}},
-		state:     wsState{User: "alice", Workspace: true}}
+		state:     wsState{User: "alice", Workspace: true},
+		net:       fakeNet{webOff: "web-off", mcpOff: "mcp-off", pages: map[string]wsWebPage{}}} // as xbind: off until an admin and the person turn them on
 	f.orgs["sales"] = &fakeOrg{Name: "Sales"}
 	f.orgs["finance"] = &fakeOrg{Name: "Finance", PrivateOnly: true}
 	f.addTile(wsTile{Path: "apps/invoices", Title: "Invoices", Kind: "go", Orgs: []string{"sales"}, Status: "running", Agent: "full", Level: "write"})
@@ -230,6 +233,7 @@ func (f *fakeXbin) view(h *wsHandle) wsHandle {
 	out := *h
 	out.Connection = f.connection(h.Scope, h.Model)
 	out.Tainted = append([]string(nil), h.Tainted...)
+	out.Reach = f.reach(h)
 	return out
 }
 
@@ -482,6 +486,9 @@ func (f *fakeXbin) Call(_ context.Context, sid string, c wsCall) (wsAnswer, erro
 }
 
 func (f *fakeXbin) call(sid string, c wsCall) (wsAnswer, error) {
+	if c.Path == wsWebFetchPath && c.DryRun {
+		return f.webDry(sid, c)
+	}
 	read := c.Method == "GET" || c.Method == "HEAD"
 	tile := f.tileOfPath(c.Path)
 	var t *wsTile

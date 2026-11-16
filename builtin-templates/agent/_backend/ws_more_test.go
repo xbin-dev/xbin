@@ -261,8 +261,14 @@ func TestWsEmptyState(t *testing.T) {
 		Starters []wsStarter
 	}
 	fx.json(t, fx.call(t, wsAlice, "GET", fmt.Sprintf("/ws/empty?session=%d", s.Run), nil), 200, &out)
-	if out.Heading != "Ask for an outcome" || out.Can[0] != "Look across your 4 connected tiles" || !hasStr(out.Cant, "See the 1 tiles that aren't connected") || !hasStr(out.Cant, "Use the web") {
+	if out.Heading != "Ask for an outcome" || out.Can[0] != "Look across your 4 connected tiles" || !hasStr(out.Cant, "See the 1 tiles that aren't connected") ||
+		!hasStr(out.Cant, "Use the web — off for this workspace — an admin can turn it on") || !hasStr(out.Can, "Change a tile's code — by briefing that tile's own agent") {
 		t.Fatalf("the lists: %+v", out)
+	}
+	for _, c := range out.Cant { // nothing it can't do is a thing it can get done another way
+		if strings.Contains(c, "code") {
+			t.Errorf("can't: %q", c)
+		}
 	}
 	if len(out.Starters) != 4 || out.Starters[0] != (wsStarter{Kind: "Fix", Tile: "apps/calendar", Text: `Team calendar reports "last sync failed". Find out why.`}) {
 		t.Fatalf("the starters: %+v", out.Starters)

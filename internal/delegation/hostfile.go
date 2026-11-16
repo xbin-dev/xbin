@@ -30,6 +30,11 @@ type HostNet struct {
 	Web     *WebPolicy `json:"web,omitempty"`
 	MCP     *MCPPolicy `json:"mcp,omitempty"`
 	LockAll bool       `json:"lockAll,omitempty"`
+	// WorkspaceAgent is the host's switch and who-gets-one for workspace
+	// agents, read by its own code where it is built; this file's reader
+	// takes the key so that one host file can hold both (it judges only
+	// the web and MCP keys).
+	WorkspaceAgent json.RawMessage `json:"workspaceAgent,omitempty"`
 }
 
 // hostCheckGap is how often, at most, the file is looked at.

@@ -615,11 +615,12 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 			}
 		}
 		preview["allowed"] = true
-		if v.pattern == webFetchPattern && hasHandle { // what a fetch would need now: the conversation's reach (delegateweb.go)
-			switch reach := s.webReach(p, handle); reach.State {
-			case reachOff:
-				preview["allowed"], preview["refusal"] = false, reach.Why
-			case reachAsks:
+		if v.pattern == webFetchPattern && hasHandle { // what this fetch would need now: the reach, the URL (delegateweb.go)
+			body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<10))
+			switch why, asks := s.webDry(p, handle, body); {
+			case why != "":
+				preview["allowed"], preview["refusal"] = false, why
+			case asks:
 				preview["needsApproval"] = true
 			}
 		}

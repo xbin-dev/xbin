@@ -387,6 +387,25 @@ func (s *Server) apiDelegateWebFetch(w http.ResponseWriter, r *http.Request) {
 		"title": res.Title, "text": res.Text, "bytes": res.Bytes, "truncated": res.Truncated, "redirects": res.Redirects, "readWeb": true})
 }
 
+// webDry is a fetch's dry run: why it would be refused ("" when it would
+// run), and whether it would need its person's approval.
+func (s *Server) webDry(p auth.Principal, h delegation.AgentSession, body []byte) (why string, asks bool) {
+	reach := s.webReach(p, h)
+	if reach.State == reachOff {
+		return reach.Why, false
+	}
+	var in struct {
+		URL string `json:"url"`
+	}
+	if json.Unmarshal(body, &in) != nil || strings.TrimSpace(in.URL) == "" {
+		return `a fetch's body is {url: "https://…"}`, false
+	}
+	if _, err := s.webURL(in.URL, s.Delegation.NetPolicy().Web); err != nil {
+		return err.Error(), false
+	}
+	return "", reach.State == reachAsks
+}
+
 // webRequestPreview is what a person is shown of a fetch their agent asks
 // to make — or why it can't be asked: a fetch that needs no approval, one
 // the reach refuses whatever approves it, a URL that is refused anyway.
@@ -416,9 +435,8 @@ func (s *Server) webRequestPreview(p auth.Principal, body []byte) (map[string]an
 		errors.As(err, &rf)
 		return nil, rf.Status, rf.Msg
 	}
-	if u.String() != strings.TrimSpace(in.URL) {
-		// the person approves the address the fetch will name, in its one spelling
-		return nil, http.StatusBadRequest, "url: send it as " + u.String() + " (its canonical form: what the person approves is what is fetched)"
-	}
+	// the person is shown the address in the one spelling the fetch will
+	// name (CheckURL's: the host in its ASCII form, lower case, no
+	// fragment); the ticket binds the body that spells it
 	return map[string]any{"class": "web", "url": u.String(), "host": u.Hostname(), "orgs": reach.Orgs, "why": reach.Why, "reversible": false}, 0, ""
 }
