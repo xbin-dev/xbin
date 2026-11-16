@@ -95,8 +95,8 @@ A v1 payload (push.md §2) with `agent`:
 
 ```json
 {"v": 1, "ws": "<push id>", "kind": "agent.approval",
- "title": "Approval needed — Invoices",
- "body": "Your workspace agent wants to change something in Invoices. Open to see exactly what.",
+ "title": "Approval needed",
+ "body": "Your workspace agent wants to change something in the tile “Invoices”. Open to see exactly what.",
  "link": "xbin/agent#r=<request id>", "collapseId": "agent-approval:<request id>",
  "agent": {"v": 1, "badge": 3,
    "request": {"id": "<24 hex>", "kind": "call", "tile": "apps/invoices", "tileName": "Invoices",
@@ -126,7 +126,7 @@ All kinds sit under `agent` (an app registering `agent` gets them all).
 
 | kind | raised when | title — body (xbind's) | collapse | link |
 |---|---|---|---|---|
-| `agent.approval` | a request waits 3 s (grace: one decided at once raises nothing) | "Approval needed — Invoices" — by kind: "Your workspace agent wants to change something in Invoices." / "…wants to start a tile agent in Invoices." / "…wants to create a tile." / "…wants to read a web page." / "…wants to use a tool of Invoices." + " Open to see exactly what." | `agent-approval:<id>` | `xbin/agent#r=<id>` |
+| `agent.approval` | a request waits 3 s (grace: one decided at once raises nothing) | "Approval needed" — by kind: "Your workspace agent wants to change something in the tile “Invoices”." / "…wants to start a tile agent in the tile “Invoices”." / "…wants to create a tile." / "…wants to read a web page." / "…wants to use a tool of the tile “Invoices”." + " Open to see exactly what." The tile's name is its author's words (review finding 5): never in the title, quoted, one line, at most 32 characters; one that is empty, hides text or breaks a line gives way to the path's last part (`quotedTileName`, XbinCore `AgentNotice.quotedName`); a person's name in "“Ana Ruiz” asks for an admin's changes" the same | `agent-approval:<id>` | `xbin/agent#r=<id>` |
 | `agent.changeset` | a set is proposed (a plan, admin changes) or a person asks the admins (to each admin) | "Admin changes proposed" — "Your workspace agent proposes N admin changes. Nothing is applied until you approve." / "A plan to review" — "Your workspace agent proposes a plan of N steps. Nothing is applied until you approve." / "Ana Ruiz asks for an admin's changes" — "N changes wait for an admin." | `agent-changeset:<id>` | `xbin/agent#cs=<id>` |
 | `agent.ask` | the agent asks its person (`ask_user`; the holder's notify, §3.4) | "Question from your workspace agent" — "Open the agent to answer, or reply here." | `agent-conv:<conversation>` | `xbin/agent#c=<conversation>` |
 | `agent.done` | a request is finished: the conversation went idle with nothing of it open (§3.4) | "Workspace agent finished" — "The report is ready." | `agent-conv:<conversation>` (replaces a question of the same conversation) | `xbin/agent#c=<conversation>` |
@@ -256,8 +256,7 @@ The NSE composes the visible text itself from the payload's fields (ported
 words in XbinCore `AgentNotice.swift`; xbind's `title`/`body` are only an
 older app's):
 
-- title: "Approval needed — Invoices" (`tileName`, else the path's last part)
-  · subtitle: the workspace's name (as today);
+- title: "Approval needed" · subtitle: the workspace's name (as today);
 - body, eligible: the call as the sheet shows it, in full — line 1
   `POST /api/apps/invoices/links/rebuild`, then the body ("(no body)" when
   there is none);

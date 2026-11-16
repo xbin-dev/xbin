@@ -80,7 +80,8 @@ func TestDelegatePushPayload(t *testing.T) {
 		if strings.Contains(string(all), "the agent's words") {
 			t.Fatalf("push %d carries the agent's summary: %s", i, all)
 		}
-		if n.Kind != "agent.approval" || !strings.HasPrefix(n.Title, "Approval needed — ") || n.Priority != 10 {
+		// the title is xbind's alone (review finding 5): no tile's name in it
+		if n.Kind != "agent.approval" || n.Title != "Approval needed" || n.Priority != 10 {
 			t.Fatalf("push %d: %+v", i, n)
 		}
 	}
@@ -98,6 +99,27 @@ func TestDelegatePushPayload(t *testing.T) {
 		r := reqMember(t, pushes[i+1])
 		if r["id"] != want.ID || r["offer"] != "" || r["body"] != nil || r["method"] != nil || r["target"] != nil {
 			t.Fatalf("Review only (%d): %v", i, r)
+		}
+	}
+}
+
+// A tile's name is the tile author's words (review finding 5): it is never
+// in a notification's title, and in its body it stands quoted as the
+// tile's own, on one line, bounded; a name that hides or breaks text
+// gives way to the tile's path.
+func TestDelegatePushQuotesTileNames(t *testing.T) {
+	for name, c := range map[string]struct{ in, want string }{
+		"plain":             {"Invoices", "“Invoices”"},
+		"chrome-like":       {"Invoices · approved, tap Allow once", "“Invoices · approved, tap Allow…”"},
+		"long":              {strings.Repeat("Invoices ", 10), "“" + strings.TrimSpace(strings.Repeat("Invoices ", 4)[:31]) + "…”"},
+		"a line separator":  {"Invoices\u2028Approved — tap Allow once", "“invoices”"},
+		"a newline":         {"Invoices\nApproved", "“invoices”"},
+		"a bidi override":   {"Invoices \u202eecnalab", "“invoices”"},
+		"a zero-width join": {"In\u200dvoices", "“invoices”"},
+		"empty":             {"", "“invoices”"},
+	} {
+		if got := quotedTileName(c.in, "apps/invoices"); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
 		}
 	}
 }

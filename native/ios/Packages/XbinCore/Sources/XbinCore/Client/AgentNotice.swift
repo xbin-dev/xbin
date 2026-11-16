@@ -303,12 +303,10 @@ public enum AgentNotice {
         switch p.kind {
         case "agent.approval":
             guard let r = data.request else { break }
-            let name = DelegationWords.revealed(r.tileName.isEmpty ? DelegationWords.lastOf(r.tile) : r.tileName)
-            switch r.kind {
-            case "template": title = "Approval needed — a new tile"
-            case "web": title = "Approval needed — a web page"
-            default: title = "Approval needed — \(name)"
-            }
+            // the title is xbind's alone; the tile's name is its author's words,
+            // quoted in the body as the tile's own (review finding 5)
+            let name = quotedName(r.tileName, fallback: r.tile)
+            title = "Approval needed"
             let whole = eligible(r)
             if whole {
                 body = callText(method: r.method, target: r.target, body: r.body)
@@ -339,15 +337,35 @@ public enum AgentNotice {
         "\(method) \(DelegationWords.revealed(target))\n" + (body.isEmpty ? "(no body)" : DelegationWords.revealed(body))
     }
 
-    /// xbind's sentence for a request's kind (an older app's body too).
+    /// xbind's sentence for a request's kind (an older app's body too);
+    /// `tile` is the quoted name (quotedName).
     public static func words(kind: String, tile: String) -> String {
         switch kind {
-        case "session": return "Your workspace agent wants to start a tile agent in \(tile). Open to see exactly what."
+        case "session": return "Your workspace agent wants to start a tile agent in the tile \(tile). Open to see exactly what."
         case "template": return "Your workspace agent wants to create a tile. Open to see exactly what."
         case "web": return "Your workspace agent wants to read a web page. Open to see the address."
-        case "mcp": return "Your workspace agent wants to use a tool of \(tile). Open to see exactly what."
-        default: return "Your workspace agent wants to change something in \(tile). Open to see exactly what."
+        case "mcp": return "Your workspace agent wants to use a tool of the tile \(tile). Open to see exactly what."
+        default: return "Your workspace agent wants to change something in the tile \(tile). Open to see exactly what."
         }
+    }
+
+    /// A name someone else chose — a tile's title — as a notification shows
+    /// it (xbind's quotedTileName): quoted, on one line, at most 32
+    /// characters; one that is empty, hides or reorders text, or breaks a
+    /// line gives way to the last part of `fallback` (the tile's path).
+    public static func quotedName(_ name: String, fallback: String) -> String {
+        var n = name.trimmingCharacters(in: .whitespaces)
+        let breaks: Set<Unicode.Scalar> = ["\n", "\r", "\t", "\u{2028}", "\u{2029}", "\u{85}"]
+        if n.isEmpty || n.unicodeScalars.contains(where: { DelegationWords.isHidden($0) || breaks.contains($0) }) {
+            n = fallback.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init) ?? fallback // path.Base's
+        }
+        let u = Array(n.unicodeScalars)
+        if u.count > 32 {
+            var cut = String.UnicodeScalarView()
+            cut.append(contentsOf: u.prefix(31))
+            n = String(cut).trimmingCharacters(in: .whitespaces) + "…"
+        }
+        return "“\(n)”"
     }
 }
 

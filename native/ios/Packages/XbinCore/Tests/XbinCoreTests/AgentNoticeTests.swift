@@ -141,7 +141,7 @@ private func category(_ p: PushPayload, _ prefs: AgentNotifyPrefs = allowOn(), d
 
     @Test func contentDrawsTheCall() throws {
         let c = try #require(AgentNotice.content(approval(), appWorkspace: "app-ws", prefs: allowOn(), device: AgentNoticeDevice()))
-        #expect(c.title == "Approval needed — Notes")
+        #expect(c.title == "Approval needed", "the title is xbind's alone: no tile's name (review finding 5)")
         #expect(c.body == "POST /api/apps/notes/note\n" + #"{"text":"hi"}"#)
         #expect(c.threadID == "wspush/xbin/agent" && c.timeSensitive && c.badge == 2)
         #expect(c.userInfo["app"] == "app-ws" && c.userInfo["collapse"] == "agent-approval:\(rid)" && c.userInfo["link"] == "xbin/agent#r=\(rid)")
@@ -150,15 +150,15 @@ private func category(_ p: PushPayload, _ prefs: AgentNotifyPrefs = allowOn(), d
                                            contentType: "application/json", body: #"{"text":"hi"}"#, bodySha256: "c0ffee", whole: true))
         // not eligible: xbind's sentence, and nothing of the call kept as shown
         let r = try #require(AgentNotice.content(approval(body: String(repeating: "y", count: 300)), appWorkspace: "a", prefs: allowOn(), device: AgentNoticeDevice()))
-        #expect(r.body.hasPrefix("Your workspace agent wants to change something in Notes."))
+        #expect(r.body.hasPrefix("Your workspace agent wants to change something in the tile “Notes”."))
         #expect(r.userInfo["shown"].flatMap(AgentShownRequest.init(encoded:))?.whole == false)
         #expect(r.userInfo["shown"].flatMap(AgentShownRequest.init(encoded:))?.body == "")
-        // a tile name with a hidden character is drawn revealed
+        // a tile name with a hidden character gives way to its path
         var p = approval(offer: "")
         p.agent = json(#"{"v":1,"request":{"id":"\#(rid)","kind":"session","tile":"apps/x","tileName":"In‮voices","offer":""}}"#)
         let s = try #require(AgentNotice.content(p, appWorkspace: "a", prefs: allowOn(), device: AgentNoticeDevice()))
-        #expect(s.title == "Approval needed — In⟨U+202E⟩voices")
-        #expect(s.body.hasPrefix("Your workspace agent wants to start a tile agent in In⟨U+202E⟩voices."))
+        #expect(s.title == "Approval needed")
+        #expect(s.body.hasPrefix("Your workspace agent wants to start a tile agent in the tile “x”."), "a name that hides text gives way to the path")
     }
 
     @Test func askIsQuotedNeverTheTitle() throws {
@@ -478,5 +478,27 @@ private let shown = AgentShownRequest(id: rid, kind: "call", tile: "apps/notes",
         let n = AgentNoticeWords.unconfirmed("Northwind")
         #expect(!n.title.contains("nothing was decided") && !n.body.contains("nothing was decided"))
         #expect(n.title.contains("Northwind"))
+    }
+}
+
+
+/// Review finding 5: a tile's name is its author's words — never in the
+/// title, quoted in the body as the tile's own, on one line, bounded.
+@Suite struct AgentNoticeTileNameTests {
+    private func named(_ name: String) -> PushPayload {
+        var p = approval(offer: "")
+        p.agent = .object(["v": 1, "request": .object(["id": .string(rid), "kind": "call", "tile": "apps/invoices", "tileName": .string(name), "offer": ""])])
+        return p
+    }
+
+    @Test func aChromeLikeNameIsTheTilesOwn() throws {
+        let c = try #require(AgentNotice.content(named("Invoices · approved, tap Allow once"), appWorkspace: "a", prefs: allowOn(), device: AgentNoticeDevice()))
+        #expect(c.title == "Approval needed")
+        #expect(c.body == "Your workspace agent wants to change something in the tile “Invoices · approved, tap Allow…”. Open to see exactly what.")
+        let broken = try #require(AgentNotice.content(named("Invoices\u{2028}Approved — tap Allow once"), appWorkspace: "a", prefs: allowOn(), device: AgentNoticeDevice()))
+        #expect(broken.body.contains("“invoices”"), "a name that breaks a line gives way to the path")
+        let long = try #require(AgentNotice.content(named(String(repeating: "N", count: 200)), appWorkspace: "a", prefs: allowOn(), device: AgentNoticeDevice()))
+        #expect(long.body.contains("“" + String(repeating: "N", count: 31) + "…”"))
+        #expect(AgentNotice.quotedName("", fallback: "apps/x") == "“x”")
     }
 }

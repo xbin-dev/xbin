@@ -330,19 +330,22 @@ func (s *Server) tileDisplay(tile string) string {
 // app — the call itself only where the lock screen may offer Allow once
 // (delegation.LockScreenOffer), never the agent's summary.
 func (s *Server) requestPush(r delegation.Request) AgentPush {
+	// the title is xbind's alone; the tile's name is its author's words, so it
+	// stands in the body quoted as the tile's own (review finding 5)
 	name := s.tileDisplay(r.Tile)
-	title, body := "Approval needed — "+name, ""
+	quoted := quotedTileName(name, r.Tile)
+	title, body := "Approval needed", ""
 	switch r.Kind {
 	case delegation.KindSession:
-		body = "Your workspace agent wants to start a tile agent in " + name + "."
+		body = "Your workspace agent wants to start a tile agent in the tile " + quoted + "."
 	case delegation.KindTemplate:
-		title, body = "Approval needed — a new tile", "Your workspace agent wants to create a tile."
+		body = "Your workspace agent wants to create a tile."
 	case delegation.KindWeb:
-		title, body = "Approval needed — a web page", "Your workspace agent wants to read a web page. Open to see the address."
+		body = "Your workspace agent wants to read a web page. Open to see the address."
 	case delegation.KindMCP:
-		body = "Your workspace agent wants to use a tool of " + name + "."
+		body = "Your workspace agent wants to use a tool of the tile " + quoted + "."
 	default:
-		body = "Your workspace agent wants to change something in " + name + "."
+		body = "Your workspace agent wants to change something in the tile " + quoted + "."
 	}
 	if r.Kind != delegation.KindWeb {
 		body += " Open to see exactly what."
@@ -376,7 +379,7 @@ func (s *Server) setPush(cs delegation.ChangeSet) AgentPush {
 				who = u.Name
 			}
 		}
-		title = who + " asks for an admin's changes"
+		title = quotedTileName(who, cs.From) + " asks for an admin's changes"
 		body = fmt.Sprintf("%s wait for an admin. Nothing is applied until an admin approves.", plural(n, "change", "changes"))
 	case cs.Plan:
 		title = "A plan to review"
@@ -385,6 +388,21 @@ func (s *Server) setPush(cs delegation.ChangeSet) AgentPush {
 	set := map[string]any{"id": cs.ID, "items": n, "warned": warned, "plan": cs.Plan, "asks": cs.From != "", "expires": cs.Expires.Unix()}
 	return AgentPush{Kind: "agent.changeset", Title: title, Body: body, Link: "xbin/agent#cs=" + cs.ID,
 		Collapse: collapseSet + cs.ID, Agent: map[string]any{"changeset": set}, Priority: 10}
+}
+
+// quotedTileName is a name someone else chose — a tile's title, a person's
+// name — as a notification shows it: quoted, on one line, at most 32
+// characters; one that is empty, hides or reorders text, or breaks a line
+// gives way to fallback's last part (the tile's path, the person's id).
+func quotedTileName(name, fallback string) string {
+	n := strings.TrimSpace(name)
+	if n == "" || delegation.HidesText(n) || strings.ContainsAny(n, "\n\r\t\u2028\u2029\u0085") {
+		n = path.Base(fallback)
+	}
+	if r := []rune(n); len(r) > 32 {
+		n = strings.TrimSpace(string(r[:31])) + "…"
+	}
+	return "“" + n + "”"
 }
 
 func plural(n int, one, many string) string {
