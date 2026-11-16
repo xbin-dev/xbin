@@ -26,8 +26,16 @@ func TestAgentOutputCoalescedAndPaged(t *testing.T) {
 		t.Fatalf("open: %d %v", code, err)
 	}
 	id := info.ID
+	// idle, with the slash commands the fake advertises 50 ms after
+	// session/new: else that status can land after the turn below, behind
+	// the events the pages are checked against
+	idle, cmds := false, false
 	r.until(t, func(e SessionEvent) bool {
-		return e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
+		if e.Type == agent.EvStatus {
+			d := edata(e.Event)
+			idle, cmds = d["status"] == agent.StatusIdle, cmds || d["commands"] != nil
+		}
+		return idle && cmds
 	})
 	if _, err := m.AgentPrompt(ctx, id, "chatty 300"); err != nil {
 		t.Fatal(err)
