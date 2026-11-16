@@ -528,9 +528,10 @@ Mac tools (`ci-local-check.sh`).
   builds for a device (`generic/platform=iOS`, what the `duo` job does),
   not a simulator. `sudo DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
   xcodebuild -runFirstLaunch`, as the admin, installs its CoreSimulator.
-  The iOS 27.1 simulator runtime (24A94232) is installed (dev, via
-  `xcodebuild -downloadPlatform iOS -buildVersion 27.1`); it has no Duo
-  device type (iPhone 18 Pro / Pro Max are the newest). Xcode 27.0 lists
+  The iOS 27.1 simulator runtime (24A94232; after the 2026-10-31
+  reinstall 24A94401, downloaded again 2026-11-16) is installed (dev, via
+  `xcodebuild -downloadPlatform iOS`); its one device type, iPhone Duo,
+  arrives with that first launch (see "No simulator draws an iPhone Duo"). Xcode 27.0 lists
   that runtime but can't run a device on it ("Incompatible device"), so
   `pick-sim.sh` skips runtimes newer than the selected Xcode's simulator
   SDK.
@@ -964,8 +965,9 @@ native/ios/scripts/mac-remote.sh shell            # a shell in the mirror
 DerivedData stays on the Mac (`~/xbin-remote/derived`), so the second
 build is incremental. `XBIN_SIM`, `XBIN_XCODE`, `XBIN_SIGNING`,
 `XBIN_SWIFT_CONDITIONS`, `XBIN_SIM_GUI=1` (show the simulator on the Mac's
-screen), `XBIN_SIM_ENSURE` and `XBIN_E2E_ERASE` pass through. Look at the
-pulled PNGs.
+screen), `XBIN_SIM_ENSURE`, `XBIN_E2E_ERASE` and `XBIN_DUO=1` (an iPhone
+Duo: the 27.1 Xcode for that run, see "The iPhone Duo") pass through.
+Look at the pulled PNGs.
 
 ### The UI tests against a real xbind
 
@@ -1110,12 +1112,17 @@ through a pause, an admin batch proposed by the scripted model, applied
 and undone, a lost connection (Debug's offline demo cuts the chrome's
 requests after a trip to the background), an ask for Preferences that
 opens nothing, and a handed-over draft labelled as the page's suggestion.
-`test20Gallery`: `wsagent2-<light|dark>-NN-<state>.png`. The seeded
+`test20Gallery`: `wsagent2-<light|dark>-NN-<state>.png`.
+`test21DemoBarButtonEverywhere`: the bar's agent button with a count,
+paused and before setup, on Home and over a tile — there, tappable, the
+size of the bar's other items, inside the window (on a closed iPhone Duo, in the
+system's vertical bar: `XBIN_DUO=1`), `wsagent3-<light|dark>-NN-<state>-<where>.png`.
+The seeded
 conversations use hack/fakeopenai's phrases ("Set the note in <tile> to
 …"), so a shot shows a turn a person would read. Not covered: real Face
 ID, VoiceOver's own speech (the tests read labels, traits and order), and
-the Duo layout, which only compiles (`mac-remote.sh build --device` with
-the 27.1 Xcode and `XBIN_SDK_27_1`): no simulator draws it.
+an open iPhone Duo (Book, Open: no test can set the pose, see "The iPhone
+Duo" below) — a closed one runs every test with `XBIN_DUO=1`.
 `XbinAgentReviewTests` (D210) make apps/welcome a git repo (snapshot
 diffs need one), have the fake agent's `run:` write 31 files and 12 000
 lines, and review the turn on the Agent screen: the card folded, its first
@@ -1236,11 +1243,57 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   (default 3600 s) bounds a run that never says it. Give a run you start a
   ceiling of your own too (`timeout 40m mac-remote.sh e2e …`) and never
   wait on one without.
-- **No simulator draws an iPhone Duo** (checked 2026-11-16: Xcode 27.0's
-  device types end at iPhone 18 Pro / Pro Max, its only runtime is iOS
-  27.0; Xcode-beta's CoreSimulator was never installed): the Duo paths —
-  the vertical bar's items, `XbinTwoPanes`' halves — are compiled for a
-  device with the 27.1 SDK and have never been drawn.
+- **The simulators the UI tests run on** (the default is CI's; the rest
+  are opt-in, each a simulator of your own):
+
+  | device | how | Xcode | what it adds |
+  |---|---|---|---|
+  | iPhone 18 Pro, iOS 27.0 | default (`pick-sim.sh`; e2e: `XBIN_SIM_ENSURE=xbin-e2e[-<you>]`) | 27.0, selected | the sheet over the panels, the top bar |
+  | iPad Pro 11-inch (M5), iOS 27.0 | `XBIN_SIM_ENSURE=xbin-e2e-w2-ipad` (made by hand with `simctl create`) | 27.0 | the agent's trailing column, sheets as cards |
+  | **iPhone Duo, iOS 27.1** | `XBIN_DUO=1` (below) | 27.1 (`Xcode-beta.app`, `DEVELOPER_DIR` for the run only) | the system's vertical bar at the side, the Duo code (`XBIN_SDK_27_1`) |
+
+- **The iPhone Duo** (D200; drawn since 2026-11-16). Apple ships it with
+  Xcode 27.1 (Xcode 27.1 Release Notes → Simulator, "the iPhone Duo
+  Simulator runtime"): the device type `iPhone Duo`
+  (`com.apple.CoreSimulator.SimDeviceType.iPhone-Duo`, `iPhone19,4`,
+  `minRuntimeVersion` 27.1) comes in `Xcode-beta.app`'s
+  `XcodeSystemResources.pkg`, which the admin's `sudo
+  DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer xcodebuild
+  -runFirstLaunch` installs into `/Library/Developer/CoreSimulator/Profiles`
+  with CoreSimulator 1174.9.2 (done 2026-11-16; Xcode 27.0's runs went on
+  passing on it). The iOS 27.1 runtime (24A94401, 7.85 GB, `xcodebuild
+  -downloadPlatform iOS` under the beta, as dev) supports that one device
+  type. `XBIN_DUO=1 mac-remote.sh e2e|run|build …` picks the Xcode with the
+  iOS 27.1 SDK (`ci-pick-xcode.sh 27.1`), sets
+  `XBIN_SWIFT_CONDITIONS=XBIN_SDK_27_1`, makes and uses the simulator
+  `xbin-e2e-duo` (`pick-sim.sh` creates it from the 27.1 runtime's only
+  type; give `XBIN_SIM_ENSURE=xbin-e2e-duo-<you>` to keep off another's)
+  and keeps its DerivedData apart (`derived-duo/`); `XBIN_E2E_WARMUP=120`
+  gives its first boot time. The default path is untouched.
+  What it shows: a booted Duo is **closed** — the outer display, 466 × 678
+  pt, with the system's vertical bar at the trailing side (the time, the
+  signal, then the bar items that prefer it: the workspace switcher, the
+  agent's button, at the foot Home's search folded into a button —
+  `E2E.findTile` taps it). A screenshot of a closed Duo is the outer
+  display (1398 × 2034 px). **Book and Open can't be set from a test**:
+  DeviceHub's pose buttons are the only control (Xcode 27.1 has no simctl
+  or XCUIDevice call for it; the hinge reaches the runtime as a HID event),
+  and DeviceHub needs a GUI login of the simulator's user, which dev on
+  this box has not. So `XbinTwoPanes`' halves and the `split`'s
+  `ArrangementView` on an open Duo are still undrawn; drawing them needs a
+  person at DeviceHub in dev's own GUI session (Screen Sharing as dev).
+  `xcrun simctl io <udid> screenConfig --display=<outer> power off` does
+  not open it (the inner display stays black).
+  Found on a closed Duo (2026-11-16, shots of every workspace-agent
+  gallery): the agent's button stays in the vertical bar on Home, screens
+  and tiles, in every state (`test21DemoBarButtonEverywhere`); the vertical
+  bar is one glyph wide, so Back shows only its chevron there (its name
+  spilled out); the grant sheets' trusted bar stops at the vertical bar
+  (it hid the time). The agent's sheet stays large there — the grabber's
+  tap scrolls the conversation to its top and a drag does not lower it —
+  so the tile behind is out of reach while the agent is open (the wider
+  grant's sheet does take a medium detent); test10 skips the medium step
+  on a side bar.
 - **A link into the running app**: `XCUIApplication.open(url)` relaunches
   the app (a cold start with the link); `XCUIDevice.shared.system.open(url)`
   hands it to the running app as a notification's tap does

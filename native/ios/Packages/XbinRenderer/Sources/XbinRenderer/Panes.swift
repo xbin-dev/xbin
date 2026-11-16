@@ -12,7 +12,8 @@ import UIKit
 /// `minSecondary` and never so much that the primary drops under
 /// `minPrimary`. Where the system draws its vertical bar — an open Duo
 /// (D200; iOS 27.1, compiled with `XBIN_SDK_27_1`) — the panes are halves,
-/// one each side of the hinge. (No Duo simulator exists: built, not run.)
+/// one each side of the hinge. (The Duo simulator boots closed — a compact
+/// width, the agent a sheet — and no test can open it: built, not run.)
 public struct XbinTwoPanes<Primary: View, Secondary: View>: View {
     private let showsSecondary: Bool
     private let fraction: CGFloat

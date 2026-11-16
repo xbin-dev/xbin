@@ -257,9 +257,12 @@ struct PanelBar: ViewModifier {
     @Environment(SceneModel.self) private var scene
     @Environment(WorkspaceNav.self) private var nav
     @Environment(\.panelActive) private var panelActive
+    /// An iPhone Duo's vertical bar holds the items (D200).
+    @State private var verticalBar = false
 
     func body(content: Content) -> some View {
         content
+            .trackVerticalBar($verticalBar)
             // Base Two's concrete under the panel's own lists and forms,
             // inside its NavigationStack, where the page paints it (D185).
             .concreteBackground()
@@ -291,7 +294,10 @@ struct PanelBar: ViewModifier {
                         Button { nav.back() } label: {
                             HStack(spacing: 2) {
                                 Image(systemName: "chevron.backward").font(.body.weight(.semibold))
-                                Text(verbatim: backTitle).lineLimit(1)
+                                // the vertical bar is one glyph wide: its
+                                // name spilled out of the item (2026-11-16);
+                                // VoiceOver still says it
+                                if !verticalBar { Text(verbatim: backTitle).lineLimit(1) }
                             }
                         }
                         .accessibilityLabel(Text(verbatim: backTitle))
