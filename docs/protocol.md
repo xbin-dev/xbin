@@ -14,7 +14,7 @@ documented in exactly one of them:
 | Page | Covers |
 |---|---|
 | [protocol/core.md](/docs/protocol/core.md) | routes outside `/api/xbin/`: `/healthz`, `/login…`, `/logout`, `/c/…`, `/vendor/`, `/docs/`, `/xbin/…` pages, `/api/<tile>/…`, path tickets |
-| [protocol/users.md](/docs/protocol/users.md) | `/frame-token`, `/path-tickets`, `/whoami`, `/impersonate`, `/users`, `/account/password`, `/login`, `/invite/…`, `/sessions`, `/auth-settings`, `/auth-rotate-token` |
+| [protocol/users.md](/docs/protocol/users.md) | `/frame-token`, `/path-tickets`, `/whoami`, `/impersonate`, `/users`, `/account/password`, `/login`, `/invite/…`, `/sessions`, `/auth-settings`, `/auth-rotate-token`, `/first-run` |
 | [protocol/orgs.md](/docs/protocol/orgs.md) | `/orgs`, `/permission-sets`, `/net-sets`, `/owner`, `/access…`, `/users-directory`, `/policy`, `/agents/policy`, `/partitions/limits`, `/limits` |
 | [protocol/grants.md](/docs/protocol/grants.md) | `/auth-overview`, `/grants`, `/bindings`, `/iface-instances`, `/ingress…` |
 | [protocol/workspace.md](/docs/protocol/workspace.md) | `/prefs`, `/screens`, `/branding`, `/native-runtime`, `/workspace-settings`, `/workspace-policies`, `/chrome`, `/defaults` |
