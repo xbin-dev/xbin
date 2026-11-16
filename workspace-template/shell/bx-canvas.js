@@ -60,7 +60,7 @@ import { itemsOf } from './blocks.js';
 import { titleOf, iconOf } from '/vendor/tile-meta.js';
 import { resizeCorner, resizeCss } from '/vendor/win-resize.js'; // a float's corner (D217)
 import { hasIcon } from '/vendor/bx-icons.js';
-import { promptBadge, promptPop, promptsCss } from './shell-prompts.js';
+import { promptBadge, promptPop, promptLine, promptsCss } from './shell-prompts.js';
 import { nextZ, raiseTo, frontWindow, onWindowFront, activeWindow } from './zorder.js';
 import { canvasCss, prbCss, partCss, docCss } from './shell-css.js';
 import { docView, docFrame, docDragStart } from './shell-doc.js';
@@ -503,7 +503,7 @@ export class BxCanvas extends LitElement {
           ${!this.mobile && this.canMutate ? html`<button class="wc close" title="close" aria-label="close ${o.path}"
                   @click=${() => this._emit('bx-toggle-tile', o.path)}><bx-icon name="xmark"></bx-icon></button>` : nothing}
         </div>
-        ${this.mobile || kind === 'doc' ? promptPop(this, o, true) : nothing}
+        ${this.mobile || kind === 'doc' ? promptPop(this, o, true) : promptLine(this, o)}
         <div class="cbody">${frame}${this.mobile || kind === 'doc' ? nothing : promptPop(this, o)}${this._partOverlay(o.path, c, pv, shown)}</div>
       </div>`;
   }

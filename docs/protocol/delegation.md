@@ -234,9 +234,12 @@ POST   /delegate/sessions/<id>/taint
                                  one the session's model may not see
 GET    /delegate/start-defaults  the person's agent. ?tile= → {tile,
                                  harness, harnesses: [{id, name, mode,
-                                 asks, net, api, needsTicket}], why?}: what
-                                 a tile agent started there opens with.
-                                 403 without terminal access to the tile
+                                 asks, net, api, needsTicket, noSignIn}],
+                                 why?}: what a tile agent started there
+                                 opens with; noSignIn: it runs on the
+                                 workspace's LLM connector, no sign-in of
+                                 the person's needed. 403 without terminal
+                                 access to the tile
 GET    /delegate/map            a person, or their agent. {user, tiles:
                                  [{tile, title, kind: "app" | "page",
                                  orgs, state, agent, tileAgents}],
@@ -574,8 +577,12 @@ hours; decided and withdrawn ones are kept a day, 200 a person at most.
 
 **What a start leaves out, xbind fills.** A start may name only its tile
 (`{cwd, kind: "agent"}`): the harness is the person's default for agent-
-started sessions among those the tile's orgs allow, the mode and network
-their preference's (or the harness's asking mode), and the request's
+started sessions among those the tile's orgs allow — the one their
+preference lets start unasked; without one, the first allowed that can run
+as things are: on the person's own sign-in where a session saw one, or on
+the workspace's LLM connector (`noSignIn`), so a start doesn't open on a
+coding agent the connector can't serve and nobody is signed in to. The
+mode and network are their preference's (or the harness's asking mode), and the request's
 `preview.session` shows the **effective** `provider`, `mode`, `net` — what
 `GET /delegate/start-defaults?tile=` answers beforehand. A value the rules
 don't allow is refused with the rule's reason.

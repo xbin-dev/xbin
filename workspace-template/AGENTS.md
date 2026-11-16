@@ -117,6 +117,8 @@ new coding-sandbox as apps/coding-sandbox`), and the `sandbox-terminal` tile
 gives people browser terminals and SSH onto their sandboxes;
 the `scm-github` template (`bx template new scm-github`) offers the `scm`
 service — repos, credentials, pull requests, CI — docs/scm.md;
+tools for an agent instance are an MCP tile: `bx template new mcp-server as
+apps/dice`, then `bx bind apps/agent mcp+=apps/dice` — docs/mcp.md;
 for a chat platform, instantiate the `agent-messaging-bridge` template and
 have a coding agent add the platform);
 `bx tile import <name> [as <path>]` copies one in (or use the Tile Manager's
@@ -890,6 +892,10 @@ you can't self-bind, same rule as grants) — unbound means no capability.
 - **Providing a standard API?** Declare it so others can bind you:
   `"provides": { "openai": { "kind": "http", "service": "openai", "role": "writer" } }`
   (`role` = the exposed role a binding grants callers).
+- **A slot your tile can't work without?** Add `"required": true` (an
+  agent's model): the shell shows it first, and once every required slot is
+  bound it folds the others into one line above the tile instead of a
+  popover over it.
 - **Many inputs on one slot** (http only): add `"multi": true` to a request
   slot when you genuinely want a *set* of providers (a comm agent binding
   Slack + N email accounts on one `channels` slot). You must opt in — you

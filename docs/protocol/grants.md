@@ -102,6 +102,7 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                                   partitioned?}],
                                     pending: [{component, slot, kind, service,
                                               expose?, default?, approvable,
+                                              required?, optional?,
                                               options: [{id, label, blocked?}]}],
                                     exposes: [{component, slot, kind, paths?,
                                               proto?, port?, approvable,
@@ -121,6 +122,11 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                    it has no route).
                                    `pending` is the unbound slots + candidate
                                    providers — the bind-on-install prompt;
+                                   required: the manifest marks the slot
+                                   "required"; optional: it isn't, and every
+                                   slot the tile marks required is bound (a
+                                   tile marking none has no optional rows):
+                                   UIs fold those into one line;
                                    expose:true rows are unpublished exposed
                                    endpoints (bind = publish, docs/ingress.md).
                                    `approvable` (the map, and the flag on each
