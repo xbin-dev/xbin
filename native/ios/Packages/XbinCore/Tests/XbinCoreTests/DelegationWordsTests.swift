@@ -122,11 +122,14 @@ import Testing
                 #expect(r.word == s(want["result"], "word") && r.text == s(want["result"], "text"), "\(cs.id) \(it.n)")
             }
         }
-        // before/after: a string as it is, a JSON value compact, null absent
+        // before/after (the web's stateText): xbind's words when it says them, a string as it is, a value's
+        // fields plainly — never a dump — and null absent
         let first = try #require(AdminChangeSet(json: cases[0]["json"]))
         #expect(first.items[0].before == "no access")
         #expect(first.items[1].before == nil)
-        #expect(first.items[1].after == "{\"host\":\"export.example\"}")
+        #expect(first.items[1].after == "host: \"export.example\"")
+        let said = try #require(AdminChangeSet(json: try JSONValue(parsing: #"{"id":"x","items":[{"n":1,"kind":"binding.set","before":{"binding":[]},"beforeText":"not bound","after":{}}]}"#)))
+        #expect(said.items[0].before == "not bound" && said.items[0].after == "(nothing)")
     }
 
     @Test func approvalsAndAudit() throws {

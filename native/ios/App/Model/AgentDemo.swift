@@ -84,6 +84,17 @@ final class AgentDemo {
             state["canAdminChanges"] = true
             state["adminChanges"] = true
         }
+        if let plan = data["plans"]?[name]?.objectValue {
+            // a plan to review (D238): as an admin who never opted in, as a
+            // person who is no admin, or as an admin asked by someone else
+            var cs = plan
+            let now = Date()
+            cs["created"] = .string(DelegateTime.rfc3339(now.addingTimeInterval(-120)))
+            cs["expires"] = .string(DelegateTime.rfc3339(now.addingTimeInterval(7 * 86_400 - 120)))
+            changesets = [cs]
+            state["canAdminChanges"] = .bool(name != "plan-user")
+            state["adminChanges"] = false
+        }
         if name == "offline" {
             observer = NotificationCenter.default.addObserver(forName: Notification.Name("UIApplicationDidEnterBackgroundNotification"),
                                                               object: nil, queue: .main) { [weak self] _ in
@@ -160,10 +171,38 @@ final class AgentDemo {
         case "changesets":
             guard let i = changesets.firstIndex(where: { $0["id"]?.stringValue == id }) else { return err(404, ["error": "no such change set"]) }
             if req.method == "GET" { return ok(.object(changesets[i])) }
-            guard changesets[i]["state"] == "proposed" || verb == "undo" else { return err(409, ["error": "no longer proposed"]) }
+            guard changesets[i]["state"] == "proposed" || verb == "undo" || verb == "ask" else { return err(409, ["error": "no longer proposed"]) }
             switch verb {
             case "reject":
                 changesets[i]["state"] = "rejected"
+                return ok(.object(changesets[i]))
+            case "ask":
+                // the lines that need an admin go to the admins: marked "asked"
+                changesets[i]["items"] = .array((changesets[i]["items"]?.arrayValue ?? []).map { item in
+                    guard var it = item.objectValue, it["needsAdmin"] == true, it["result"] == nil else { return item }
+                    it["result"] = "asked"
+                    return .object(it)
+                })
+                return ok(.object(changesets[i]))
+            case "approve" where changesets[i]["plan"] == true:
+                // a plan: an admin's line needs the opt-in (and then the recent sign-in); personal lines need neither
+                let ticked = (body["items"]?.arrayValue ?? []).compactMap { $0.intValue.map(Int.init) }
+                let items = (changesets[i]["items"]?.arrayValue ?? []).compactMap(\.objectValue)
+                let admin = items.contains { ticked.contains(Int($0["n"]?.intValue ?? 0)) && $0["admin"] == true }
+                if admin, changesets[i]["from"] == nil, state["adminChanges"] != true {
+                    return err(403, ["error": "this plan has admin changes: turn on \"Let my agent propose admin changes\" first", "optIn": true])
+                }
+                if admin, body["password"]?.stringValue != Self.password {
+                    return err(403, ["error": body["password"] == nil ? "a recent sign-in is needed" : "wrong password", "stepUp": "password"])
+                }
+                changesets[i]["items"] = .array(items.map { item in
+                    var it = item
+                    if it["needsAdmin"] == true || it["result"] == "asked" { return .object(it) }
+                    it["result"] = ticked.contains(Int(it["n"]?.intValue ?? 0)) ? "applied" : "rejected"
+                    return .object(it)
+                })
+                changesets[i]["state"] = "applied"
+                changesets[i]["decided"] = .string(DelegateTime.rfc3339(Date()))
                 return ok(.object(changesets[i]))
             case "approve":
                 // xbind's recent-sign-in rule: this sign-in is older than ten minutes
@@ -196,7 +235,7 @@ final class AgentDemo {
     /// The state with its counts as they are now.
     private var stateNow: JSONValue {
         var s = state
-        if name == "grants" {
+        if name == "grants" || name.hasPrefix("plan") {
             s["pendingRequests"] = .int(Int64(requests.filter { $0["state"] == "pending" }.count))
             s["openChangeSets"] = .int(Int64(changesets.filter { $0["state"] == "proposed" }.count))
             s["standingApprovals"] = .int(Int64(approvals.count))

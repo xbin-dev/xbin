@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- iOS app: **a plan is reviewed in the app's change-set sheet**, by the
+  web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
+  generated vectors): lines that create a tile or start a tile agent, what
+  a line needs and what needs it, an admin's line behind the opt-in the
+  review offers, "needs an admin" with Ask an admin, and a request from
+  another person. A line of a kind the app doesn't know is shown and can't
+  be ticked. A change's before and after are xbind's words.
 - workspace agent's chrome (web): **a plan is reviewed once.** The
   change-set dialog draws a plan's lines — a tile's creation, a tile
   agent's start with its coding agent, mode and the brief "sent exactly
