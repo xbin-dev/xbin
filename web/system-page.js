@@ -105,6 +105,7 @@ export class BxSystemPage extends LitElement {
     this._access = {};
     this._defaults = {};
     this._agent = '';
+    this._hostWho = false;
     this._people = { users: [], orgs: [] };
   }
 
@@ -138,6 +139,7 @@ export class BxSystemPage extends LitElement {
       this._access = access;
       this._defaults = defaults;
       const ws = await req('/delegate/workspace');
+      this._hostWho = !!(ws.ok && ws.body.locks && ws.body.locks.who); // who gets an agent is the host's file's (D237): read-only here
       this._agent = ws.ok ? (ws.body.agent || '') : '';
       const [u, o] = await Promise.all([req('/users-directory'), req('/orgs')]);
       const list = (r, key) => (!r.ok ? [] : Array.isArray(r.body) ? r.body : Array.isArray(r.body[key]) ? r.body[key] : []);
@@ -170,6 +172,11 @@ export class BxSystemPage extends LitElement {
   }
 
   _renderAccess(c) {
+    if (c.path === this._agent && this._hostWho) {
+      const entries = this._access[c.path] || [];
+      return html`<h3>Who has access</h3><div class="everyone" data-host>Set by your host: who gets a workspace agent isn't changed here
+        <span class="small muted">— ${entries.length ? `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}` : 'the workspace defaults'}, as the host's file says (<a href="/docs/workspace-agent.md#set-by-your-host">how</a>).</span></div>`;
+    }
     const entries = this._access[c.path] || [];
     const everyone = (this._defaults[c.path] || []).length > 0;
     const has = new Set(entries.filter((e) => e.source === 'exact').map((e) => `${e.kind}:${e.id}`));

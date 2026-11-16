@@ -4,12 +4,15 @@
 // CALLS a roll_dice tool served by a new MCP tile, on today's shortest path
 // through the real UI — every interaction counted (journey.js).
 //
-// The path, as the owner token's session (the shortest: no account is made):
-// the vault's passphrase; an MCP tile from the mcp-server template (its
-// roll_dice is the template's example tool: no coding agent); an instance of
-// the agent template; its `mcp` slot bound to the new tile and its `llm` slot
-// (marked required) to the workspace's connector — after which the rest of
-// its slots fold into one line above it (G10); one question in its chat. It asserts the journey's end — the answer shows the
+// The path: the first-run sheet the login URL lands on (D237) — an account,
+// the vault's passphrase, its quiet button that leaves the workspace agent
+// off (skipping the sheet and finding the vault's banner costs the same:
+// five); an MCP tile from the mcp-server template (its roll_dice is the
+// template's example tool: no coding agent); an instance of the agent
+// template; its `mcp` slot bound to the new tile and its `llm` slot (marked
+// required) to the workspace's connector — after which the rest of its
+// slots fold into one line above it (G10); one question in its chat. It
+// asserts the journey's end — the answer shows the
 // roll, and the roll came from the tile's tool — and writes the step table
 // to out/journey-manual.md. Needs HARNESS_ISOLATE=1 and `make sealed`.
 'use strict';
@@ -17,6 +20,7 @@ const { checker, log } = require('../lib');
 const J0 = require('./journey');
 
 const AGENT = 'apps/agent';
+const PERSON = { id: 'ada', name: 'Ada Admin', password: require('crypto').randomBytes(12).toString('base64url') }; // (made per run, never logged)
 
 async function journeyManual(browser) {
   const { check, skip, done } = checker('journey-manual');
@@ -31,7 +35,9 @@ async function journeyManual(browser) {
     const J = J0.journey('manual', () => page);
 
     await J0.firstLogin(J, page, X);
-    await J0.vaultSetup(J, page);
+    await J0.firstRunSheet(J, page, PERSON, { agent: false });
+    const me = await (await ctx.request.get(`${X.url}/api/xbin/whoami`)).json();
+    check(me.kind === 'user' && me.id === PERSON.id, `the sheet signed this browser in as the new account (${me.id})`);
     const llm = await (await ctx.request.get(`${X.url}/api/xbin/llm/config`)).json();
     check(llm.configured === true && llm.host && llm.host.active === true, 'the LLM connector is the host\'s: nothing to set up (no card, no banner, no key)');
 
