@@ -28,9 +28,14 @@ public enum XbinVocabulary {
         "chart": 1, "code": 1, "empty": 1,
         // 8.3 controls
         "button": 2, "toggle": 1, "field": 1, "picker": 1, "menu": 2,
-        // 8.4 the chat family
-        "transcript": 2, "message": 1, "thinking": 1, "toolcard": 1, "approval": 1, "question": 1,
-        "plan": 1, "diff": 1, "activity": 1, "step": 1, "composer": 1,
+        // 8.4 the chat family (D233, the workspace agent in the app:
+        // transcript rev 3 — card, request and session as children, the
+        // empty slot; question rev 2 — rows, "Something else", pages; plan
+        // rev 2 — tags, numbers, a note; composer rev 2 — context chips,
+        // quick replies, a hint; and card, connection, request, session)
+        "transcript": 3, "message": 1, "thinking": 1, "toolcard": 1, "approval": 1, "question": 2,
+        "plan": 2, "diff": 1, "activity": 1, "step": 1, "composer": 2,
+        "card": 1, "connection": 1, "request": 1, "session": 1,
         // 8.5 escape hatches (canvas rev 2, D208: fill, zoom, link)
         "terminal": 1, "canvas": 2,
     ]

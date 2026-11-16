@@ -39,12 +39,27 @@ type SessionInfo struct {
 	Status     string  `json:"status,omitempty"`    // starting | idle | running | waiting_permission | error | exited
 	Pending    int     `json:"pending,omitempty"`   // unanswered permission requests
 	Questions  int     `json:"questions,omitempty"` // unanswered questions (elicitation.request)
+	// LLM is who serves an agent session's model calls where the workspace
+	// has an LLM connector (llmhook.go): "connector" or "own"; absent
+	// without one, and until the session's sandbox settled it.
+	LLM string `json:"llm,omitempty"`
+	// LLMOffered, with LLM "connector": the connector is the CLI's default
+	// but nothing holds it there — no rule gives the session the connector
+	// alone, and the harness keeps the person's and the project's own
+	// providers (opencode), whose config can leave it out. Absent when the
+	// rule holds the session to the connector or the harness's connector
+	// configuration replaces theirs (codex).
+	LLMOffered bool `json:"llmOffered,omitempty"`
 	// Partition is what the session acts in on a partitioned tile:
 	// "user:<id>" or "global" (partition.go); absent on every other tile.
 	Partition string `json:"partition,omitempty"`
 	// Purpose is set by xbind only: "signin" for a guided sign-in's shell,
 	// which no tab shows (purpose.go); absent on every other session.
-	Purpose  string `json:"purpose,omitempty"`
+	Purpose string `json:"purpose,omitempty"`
+	// Origin is set by xbind only: "agent" for a session the person's
+	// workspace agent opened for them (delegate.go); absent when they
+	// opened it themselves.
+	Origin   string `json:"origin,omitempty"`
 	personal bool   // a person's session on a partitioned tile (Personal)
 }
 
@@ -62,7 +77,7 @@ func (s *Session) info() SessionInfo {
 	}
 	si := SessionInfo{
 		ID: s.ID, Cwd: s.Cwd, Net: s.Net, Label: s.Label, Scopes: scopes,
-		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell, VM: s.vm, Purpose: s.purpose,
+		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell, VM: s.vm, Purpose: s.purpose, Origin: originOf(s.origin),
 		Created:    s.born.UTC().Format(time.RFC3339),
 		LastActive: s.hub.LastActive().UTC().Format(time.RFC3339),
 		Clients:    s.hub.Clients(), EnvHeld: s.envKey != "",
@@ -72,6 +87,7 @@ func (s *Session) info() SessionInfo {
 		st.mu.Lock()
 		si.Kind, si.Provider, si.Mode, si.Model, si.Status = KindAgent, st.provider.ID, st.mode, st.model, st.status
 		st.mu.Unlock()
+		si.LLM, si.LLMOffered = st.llmServes(), st.llmOffered()
 		si.Pending = st.perms.Count()
 		si.Questions = len(st.drv.PendingElicitations())
 	}

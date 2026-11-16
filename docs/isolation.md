@@ -36,6 +36,30 @@ Two things always work regardless of the network:
 - **Nothing else, by default.** A backend has **no IP egress** until the owner
   binds its `net` interface (see **Network egress** below).
 
+### Sealed components run here too
+
+A sealed component ([sealed.md](/docs/sealed.md)) — a part of xbin that
+runs like a tile, with the release's own code — gets this same sandbox,
+with the same mounts, limits, gateway and default-deny network:
+
+| Mount | Access | What it is |
+|-------|--------|------------|
+| its code | read-only | xbind's own copy of the release's files (`.xbin/sealed/<name>/<digest>`), compared with the release's and written again before every start; never a directory of the workspace, and never what its pages are served from (those are the release's bytes, from memory) |
+| its backend | read-only | the release's prebuilt binary (`bin/sealed/<name>-<digest>` beside xbind), at `/run/backend` |
+| its resource dirs | read-write | its own scope's; a person's partition of it has that person's |
+
+Nothing compiles on the host for it: a production xbind without the
+release's build of a sealed backend holds the component (and says so)
+instead of building it. Only a development xbind (`--dev` or `--no-auth`)
+compiles one, through the same confined build a tile's backend gets, with
+no workspace module in reach.
+
+A sealed component that keeps each person's data apart needs sandboxes as
+any partitioned tile does: without `--isolate` it is unavailable, except
+that a development xbind runs it as one global instance
+([sealed.md](/docs/sealed.md) → Partitions need sandboxes). There is no
+terminal plane for one: no terminal, no dev layer, no coding agent.
+
 ## Confined tool runs (xbind's own work on your tile)
 
 Some work on your tile is done by xbind itself rather than by your code:
@@ -90,6 +114,68 @@ its destination and needs --isolate`) and never falls back to the work
 tree. In every sandbox, a bind that lands inside another bind's tree gets
 its mount point without following symlinks: a symlink or a file in the way
 fails the start and names the path.
+
+## Previews: a browser xbind runs for you (D234)
+
+A [preview](/docs/protocol/preview.md) renders tile code — which xbind
+treats as untrusted, like everything a tile ships — in a headless Chromium
+from the base rootfs. That browser is a confined tool run like the ones
+above, and tighter:
+
+- **A throwaway sandbox per render** over the base rootfs: its own user,
+  mount, pid and ipc namespaces, no capabilities, the backend syscall
+  block-list, a private `/tmp` and `/dev/shm` that hold the browser's
+  profile and die with it. No browser, profile or cache is ever reused —
+  not between people, not between two renders of one person.
+- **No network.** The network namespace is empty: one loopback interface,
+  nothing else. The only thing bound in from the host is a directory, read
+  only, holding the driver script and **one unix socket** that xbind serves
+  for that render alone. The driver listens on the sandbox's loopback and
+  pipes connections to the socket; Chromium resolves the workspace's own
+  names (and its tile origins') to that listener and no other name at all.
+  An `https://` workspace is opened as `https://`: xbind ends TLS on the
+  socket under a key made for the render, which the browser trusts by its
+  pin. A plain-`http://` workspace on a real name is opened with its origin
+  marked trustworthy, so in a preview its pages see `isSecureContext` true
+  though your own browser says false.
+- **Nothing comes back but one line.** The driver prints its answer —
+  picture, text, console — on stdout; xbind opens no file the sandbox wrote.
+  The picture is decoded and re-encoded by xbind before anyone gets it, and
+  every credential-shaped string is cut from the text.
+- **Bounded.** One render per person and two per workspace at a time, a
+  hard timeout that kills the sandbox's init (and so everything in it), and
+  a cgroup leaf with a memory and a pids cap the sandbox is started in
+  ([config.md](/docs/config.md): `XBIN_PREVIEW_*`). The cap needs xbind's
+  cgroup delegated; where it is not, previews are unavailable unless the
+  admin sets `XBIN_PREVIEWS=uncapped`. Either way the sandbox's scratch —
+  `/tmp`, `/dev/shm`, its root layer: tmpfs, so memory — is sized to the
+  cap, not left at the kernel's "half of RAM" each. The picture is decoded
+  by xbind, outside that cap, so xbind checks its size from the PNG header
+  first: about 8 megapixels at most.
+- **No isolation, no preview.** Without `--isolate` there is no sandbox to
+  put the browser in, and xbind never runs it on the host: the route
+  answers 503. So does a rootfs without Chromium.
+
+**What stands between a hostile page and your data.** Chromium's own
+renderer sandbox is **off** in there (`sandbox: "none"` in every answer):
+it refuses to start as uid 0, which a confined tool is inside its user
+namespace, and an unprivileged process there cannot map itself to another
+uid. So a page that exploits the browser owns the whole sandbox — and finds
+no network, no capability, a read-only socket to xbind that answers only
+reads **of the tile or screen being rendered**, and nothing else. What it
+could still do: read what that render shows and pass it to a tile backend
+it controls in a GET; if that backend has egress, the data can leave. A
+single-tile render admits one tile, so that is the tile leaking its own
+view; a screen render mixes tiles, and a tile on it that owns the browser
+reads its neighbours on that screen — and, of the person's own reads, only
+the fixed list the shell draws with (a member's view, for an admin too).
+Two things keep the window small: the rootfs **pins** its Playwright
+(`docker/rootfs.Dockerfile`, `PLAYWRIGHT_VERSION`; `make pins` fails if the
+pin goes; the pin takes effect with the next rootfs build — a rootfs built
+before it keeps the Chromium it was built with) so the browser's build is
+known and bumped on purpose — `GET /api/xbin/preview` tells an
+admin which Chromium is running — and a workspace that doesn't want the
+feature turns it off (`XBIN_PREVIEWS=off`).
 
 ## Pinned backends and tile deployments
 
@@ -372,7 +458,7 @@ base that isn't installed any more fails to open (reset it), or moves with
 the setting on; it no longer keeps xbind from booting. This is the terminal dev layer only: the component
 env layer below is rebuilt for a new base by itself, and a tile sandbox's
 state is its manager's to reset or rebase (`base.outdated`;
-[protocol.md](/docs/protocol.md) §Reset and rebase).
+[protocol/sandboxes.md](/docs/protocol/sandboxes.md) §Reset and rebase).
 
 Keep two "layers" straight — they are deliberately separate:
 
@@ -436,7 +522,16 @@ it lists only the scopes the server will honour for you on that tile):
 - **host** — shares the host network (LAN + host-local services visible). An
   admin escape hatch — or an org's, when its network sets say `host`.
 - **none** — an isolated namespace with **no egress at all** (airgapped —
-  xbind itself is unreachable).
+  xbind itself is unreachable). One exception, where the workspace has an
+  LLM connector and the session holds an LLM key for it (D226,
+  [llm.md](/docs/llm.md) §The network path): the session's relay then
+  exists for one thing only — port 4180 of its gateway, forwarded to
+  xbind's **LLM-only listener** (the three model routes for an LLM key,
+  outside xbind's own handler). No other address answers, xbind's own
+  listener is not forwarded, and every DNS query is refused. A person
+  whose terminals hold no tile-API token (`termApi`) gets no LLM key, so
+  no door; switch `terminals` or `agents` off (`bx llm sessions`) to keep
+  the connector out of sessions altogether.
 
 Note the contrast: a **terminal** on a personal tile defaults to public-
 internet egress (you usually want to `git clone`, `go get`, `npm i`) — or
@@ -691,7 +786,7 @@ A **manager tile** — one that serves coding sandboxes to other tiles
 ([sandbox-manager.md](sandbox-manager.md)) — can have xbind run them:
 its backend holds **`cap:sandboxes`** (only a workspace admin approves it)
 and defines and drives them through `/api/xbin/sandboxes/…`
-([protocol.md](protocol.md) §Tile sandboxes). They need `--isolate`.
+([protocol/sandboxes.md](/docs/protocol/sandboxes.md)). They need `--isolate`.
 
 - **Two modes, the manager's choice per sandbox.** `namespace` is the
   terminals' restricted sandbox: `apt` works, nested containers don't.
@@ -703,7 +798,16 @@ and defines and drives them through `/api/xbin/sandboxes/…`
   with the tail of its console in `stateDetail`.
 - **No xbin identity inside.** A tile sandbox gets no token, no gateway
   socket and no route to xbind; `XBIN_*` variables are refused in its
-  definition. Its network is `none` unless the manager gives it one of its
+  definition (and in a command's `env`, but for the LLM connector's
+  address and key, `XBIN_LLM_URL` and `XBIN_LLM_KEY`). One door opens when
+  its manager asks at create (`net.llm`,
+  D226): a port of the sandbox's own gateway, forwarded to xbind's
+  **LLM-only listener** — a unix socket in xbind's run directory that
+  serves the LLM connector's three model routes to the holder of an LLM
+  key and nothing else, outside xbind's own handler, so no other route
+  and no other credential exists there ([llm.md](/docs/llm.md)). The
+  relay's deny of the host and of the gateway's network stands for
+  everything else. Its network is `none` unless the manager gives it one of its
   **sandbox-net** interface slots, which an approver binds — the manager's
   own backend needn't hold that network.
 - **Mounts** are the manager's own `filesystem` resources, declared in its

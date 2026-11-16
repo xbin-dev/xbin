@@ -100,7 +100,7 @@ extension ShapeStyle where Self == Color {
     public static var red: Color { .red }
     public static var black: Color { .black }
 }
-extension AccessibilityTraits { public static let isSelected = AccessibilityTraits(rawValue: 8) }
+// (AccessibilityTraits.isSelected is the base's: swiftui-stubcheck/Stubs/SwiftUI/Controls.swift.)
 extension EnvironmentValues {}
 extension OpenURLAction { @MainActor public func callAsFunction(_ url: URL) {} }
 extension ControlSize {}

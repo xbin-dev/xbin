@@ -310,6 +310,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /vaults":                            PrimaryOnly,
 	"GET /resources":                         PrimaryOnly,
 	"GET /auth-overview":                     PrimaryOnly,
+	"GET /sealed":                            PrimaryOnly, // the admins' read of sealed components (D227)
 	"GET /backends":                          PrimaryOnly,
 	"GET /runtime":                           PrimaryOnly,
 	"GET /ingress":                           PrimaryOnly,
@@ -320,9 +321,11 @@ var routeClasses = map[string]RouteClass{
 	"PUT /vm/policy":                         PrimaryOnly,
 	"POST /auth-rotate-token":                PrimaryOnly,
 	"POST /impersonate":                      PrimaryOnly,
+	"POST /preview":                          PrimaryOnly, // a preview shows what people see: the primary (D234)
 	"POST /impersonate/stop":                 PrimaryOnly,
 	"PUT /native-runtime":                    PrimaryOnly,
 	"PUT /chrome":                            PrimaryOnly,
+	"PUT /agent-levels":                      PrimaryOnly,
 	"PUT /branding":                          PrimaryOnly,
 	"PUT /workspace-policies":                PrimaryOnly,
 	"POST /partitions/limits":                PrimaryOnly, // admins and tile managers judged in the handler; never tile code (06 §6)
@@ -330,6 +333,13 @@ var routeClasses = map[string]RouteClass{
 	"DELETE /limits":                         PrimaryOnly,
 	"POST /limits/dismiss":                   PrimaryOnly,
 	"PUT /orgs/{org}/limits":                 PrimaryOnly,
+	"GET /agents/policy":                     PrimaryOnly, // org constraints on agents (D229): people's and admins', never tile code
+	"PUT /agents/policy":                     PrimaryOnly,
+	"PUT /orgs/{org}/agents":                 PrimaryOnly,
+	"PUT /orgs/{org}/agents/pin":             PrimaryOnly,
+	"GET /agents/connection":                 PrimaryOnly,
+	"GET /agent/prefs":                       PrimaryOnly, // a person's agent preferences (D229)
+	"PUT /agent/prefs":                       PrimaryOnly,
 	"PUT /workspace-settings":                PrimaryOnly,
 	"GET /push/config":                       PrimaryOnly,
 	"PUT /push/config":                       PrimaryOnly,
@@ -337,13 +347,25 @@ var routeClasses = map[string]RouteClass{
 	"PUT /app-tunnel":                        PrimaryOnly,
 	"POST /app-tunnel/relay-tokens":          PrimaryOnly,
 	"POST /app-tunnel/test":                  PrimaryOnly,
+	"GET /llm/config":                        PrimaryOnly, // the LLM connector's settings, usage and quotas (D226)
+	"PUT /llm/config":                        PrimaryOnly,
+	"PUT /llm/upstreams/{name}":              PrimaryOnly,
+	"DELETE /llm/upstreams/{name}":           PrimaryOnly,
+	"POST /llm/upstreams/{name}/test":        PrimaryOnly,
+	"GET /llm/usage":                         PrimaryOnly,
+	"GET /llm/quotas":                        PrimaryOnly,
+	"PUT /llm/quotas":                        PrimaryOnly,
+	"POST /llm/setup/dismiss":                PrimaryOnly,
 	"DELETE /push/config":                    PrimaryOnly,
 	"GET /push/devices":                      PrimaryOnly,
 	"DELETE /push/devices/{user}":            PrimaryOnly,
 	"DELETE /push/devices/{user}/{deviceId}": PrimaryOnly,
 
 	// ---- reads of workspace facts ----
+	"GET /preview":              Neutral, // availability and limits (D234)
 	"GET /whoami":               Neutral, // gains deployment for a bound element principal (11-contract §7.7)
+	"GET /docs/search":          Neutral,
+	"GET /docs/page":            Neutral,
 	"GET /status":               Neutral,
 	"GET /components":           Neutral, // the primary summary only (11-contract §8)
 	"GET /components/{path...}": Neutral,
@@ -355,25 +377,34 @@ var routeClasses = map[string]RouteClass{
 	"GET /term-net":             Neutral,
 	"GET /native-runtime":       Neutral,
 	"GET /chrome":               Neutral,
+	"GET /agent-levels":         Neutral,
 	"GET /branding":             Neutral,
 	"GET /workspace-policies":   Neutral, // people and admins; the handler refuses tile code (PD-55)
 	"GET /workspace-settings":   Neutral,
 
 	// ---- a person's own sign-in, account, devices and sessions ----
-	"POST /login":                                          Neutral,
-	"GET /login/methods":                                   Neutral,
-	"POST /invite/check":                                   Neutral,
-	"POST /invite/redeem":                                  Neutral,
-	"POST /devices/enroll":                                 Neutral,
-	"POST /devices/enroll-code":                            Neutral,
-	"POST /web-ticket":                                     Neutral,
-	"POST /account/password":                               Neutral,
-	"GET /devices":                                         Neutral,
-	"DELETE /devices/{id}":                                 Neutral,
-	"GET /devices/pairing/{id}":                            Neutral,
-	"POST /devices/pairing/{id}/confirm":                   Neutral,
-	"POST /devices/{id}/tunnel":                            Neutral,
-	"GET /app-tunnel/client":                               Neutral,
+	"POST /login":                        Neutral,
+	"GET /login/methods":                 Neutral,
+	"POST /invite/check":                 Neutral,
+	"POST /invite/redeem":                Neutral,
+	"POST /devices/enroll":               Neutral,
+	"POST /devices/enroll-code":          Neutral,
+	"POST /web-ticket":                   Neutral,
+	"POST /account/password":             Neutral,
+	"GET /first-run":                     Neutral,
+	"POST /first-run/session":            Neutral,
+	"GET /devices":                       Neutral,
+	"DELETE /devices/{id}":               Neutral,
+	"GET /devices/pairing/{id}":          Neutral,
+	"POST /devices/pairing/{id}/confirm": Neutral,
+	"POST /devices/{id}/tunnel":          Neutral,
+	"GET /app-tunnel/client":             Neutral,
+	// the LLM connector's calls (D226): the tile's binding admits them, whichever deployment calls
+	"POST /llm/v1/chat/completions":                        Neutral,
+	"POST /llm/v1/responses":                               Neutral,
+	"GET /llm/v1/models":                                   Neutral,
+	"GET /llm/preferred":                                   Neutral,
+	"GET /llm":                                             Neutral,
 	"POST /devices/push":                                   Neutral,
 	"GET /devices/push":                                    Neutral,
 	"DELETE /devices/push/{deviceId}":                      Neutral,
@@ -429,6 +460,53 @@ var routeClasses = map[string]RouteClass{
 	"POST /partitions/mail":     PrimaryOnly,
 	"GET /partitions/mail":      PrimaryOnly,
 	"POST /partitions/mail/ack": PrimaryOnly,
+
+	// ---- a bound tile's LLM keys for the harnesses it runs (D226): the
+	// binding admits them, whichever deployment asks ----
+	"POST /llm/keys":            Neutral,
+	"DELETE /llm/keys/{id}":     Neutral,
+	"POST /llm/keys/{id}/renew": Neutral,
+	"DELETE /llm/keys":          Neutral,
+
+	// ---- delegation (D228, delegateapi.go): primary-only. Its callers are
+	// people, a sealed holder's page and the delegate gate; a sealed
+	// component has no deployments, and no tile credential bound to a
+	// non-primary deployment has any business with a person's approvals ----
+	"GET /delegate/state":                    PrimaryOnly,
+	"POST /delegate/sessions":                PrimaryOnly,
+	"GET /delegate/sessions/{id}":            PrimaryOnly,
+	"PATCH /delegate/sessions/{id}":          PrimaryOnly,
+	"DELETE /delegate/sessions/{id}":         PrimaryOnly,
+	"GET /delegate/sessions/{id}/connection": PrimaryOnly,
+	"GET /delegate/map":                      PrimaryOnly,
+	"POST /delegate/web/fetch":               PrimaryOnly,
+	"POST /delegate/mcp/call":                PrimaryOnly,
+	"GET /delegate/start-defaults":           PrimaryOnly,
+	"POST /delegate/sessions/{id}/allows":    PrimaryOnly,
+	"POST /delegate/sessions/{id}/taint":     PrimaryOnly,
+	"PUT /delegate/state":                    PrimaryOnly,
+	"GET /delegate/workspace":                PrimaryOnly,
+	"PUT /delegate/workspace":                PrimaryOnly,
+	"POST /delegate/page/dismiss":            PrimaryOnly,
+	"GET /delegate/audit":                    PrimaryOnly,
+	"POST /delegate/requests":                PrimaryOnly,
+	"GET /delegate/requests":                 PrimaryOnly,
+	"GET /delegate/requests/{id}":            PrimaryOnly,
+	"POST /delegate/requests/{id}/approve":   PrimaryOnly,
+	"POST /delegate/requests/{id}/deny":      PrimaryOnly,
+	"DELETE /delegate/requests/{id}":         PrimaryOnly,
+	"GET /delegate/approvals":                PrimaryOnly,
+	"POST /delegate/approvals":               PrimaryOnly,
+	"DELETE /delegate/approvals/{id}":        PrimaryOnly,
+	"POST /delegate/changesets":              PrimaryOnly,
+	"POST /delegate/plans":                   PrimaryOnly,
+	"POST /delegate/changesets/{id}/ask":     PrimaryOnly,
+	"GET /delegate/changesets":               PrimaryOnly,
+	"GET /delegate/changesets/{id}":          PrimaryOnly,
+	"DELETE /delegate/changesets/{id}":       PrimaryOnly,
+	"POST /delegate/changesets/{id}/approve": PrimaryOnly,
+	"POST /delegate/changesets/{id}/reject":  PrimaryOnly,
+	"POST /delegate/changesets/{id}/undo":    PrimaryOnly,
 }
 
 // classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.

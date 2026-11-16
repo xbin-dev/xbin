@@ -221,6 +221,9 @@ func (b *Broker) holdReasonIn(tile, dep, pkey string, who *nsPartition) string {
 			if k.NS != "" && b.ensureVolume(k, rt.Scope, res.Type) || k.NS == "" && b.fsReady(k) {
 				continue
 			}
+			if k.NS == "" && b.sealedPeopleOnly(rt.Scope) && b.ensureVolume(k, rt.Scope, res.Type) {
+				continue // a sealed tile's shared volume, mounted at its first use (inertSealedScope)
+			}
 			why := "its decrypted view isn't mounted (xbind's log says why)"
 			switch {
 			case b.resenc == nil || !b.resenc.Available():
@@ -337,6 +340,9 @@ func (b *Broker) forEachFileRes(fn func(scope, name, rtype string)) {
 	}
 	do("", b.Reg.Workspace().Resources)
 	for scope, sm := range b.Reg.Scopes() {
+		if b.inertSealedScope(scope) {
+			continue // a sealed tile no one has used yet: its first partition mounts what it reaches
+		}
 		res, _ := b.declaredFrom(scope, sm, util.MainDeployment)
 		do(scope, res)
 	}
@@ -423,6 +429,14 @@ func (b *Broker) declaredIn(scope, dep string) (map[string]registry.Resource, er
 // skipped, or why nothing is declared. The map is never to be written.
 func (b *Broker) declaredFrom(scope string, sm *registry.ScopeManifest, dep string) (map[string]registry.Resource, error) {
 	if sm == nil {
+		return nil, nil
+	}
+	if !b.Reg.HoldsScopeKey(scope) {
+		// A scope whose data key another scope holds (D118; a tile named
+		// xbin~<name> beside the sealed component xbin/<name>) declares
+		// nothing — in any deployment: the registry empties its primary's
+		// set, and a deployment's own scope.json, read below, must not
+		// bring the names back over the holder's data.
 		return nil, nil
 	}
 	dep = cmp.Or(dep, util.MainDeployment)

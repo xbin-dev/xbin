@@ -21,7 +21,9 @@ default model for that job. Callers resolve their default from `GET /preferred`
 so the choice lives in one place and swaps everywhere at once (the agent, for
 instance, fills any empty model tier from here).
 
-**Cost & metrics.** Set per-model prices (`$/1M` tokens, input/output) and the
+**Cost & metrics.** Set per-model prices (`$/1M` tokens, input/output — `{in,
+out}` by the upstream's exact model id, and optionally `cachedIn` for input
+the provider read from its prompt cache) and the
 tile tracks `$` per backend alongside token counts. `GET /metrics` renders the
 same counters in Prometheus text format — bind it into a prometheus-viewer tile
 via the `metrics` interface (service `prometheus`).

@@ -35,6 +35,9 @@ export const TREE_V = 1;
 const STATE_MAX = 64 << 10;
 // The horizontal size classes a screen comes in (xbin.native.width).
 const WIDTHS = ['compact', 'regular'];
+// The wire feature an app lists for the one tile it shows as the person's
+// workspace agent (tree.md §8) — like `widget`, not a vocabulary feature.
+const AGENT_FEATURE = 'agent';
 
 // Which props each primitive's events report (controlled state), from the vocabulary.
 const REPORTED = {};
@@ -90,6 +93,11 @@ export function createRuntime(opts = {}) {
   const sizeListeners = new Set();
   let width = caps.width ?? null; // null: the app doesn't say (an older app, a preview)
   const widthListeners = new Set();
+  // The app shows this tile as the person's workspace agent (the wire feature
+  // "agent", D233): xbin.native.agent(msg) asks the app's chrome, xbn.agent(msg)
+  // is what the chrome tells the tile.
+  const agentOn = caps.features.includes(AGENT_FEATURE);
+  const agentListeners = new Set();
   let building = null; // the target a flush is building: its diag/error messages name it
   let scheduled = false;
   const seen = new Set();
@@ -305,6 +313,21 @@ export function createRuntime(opts = {}) {
     return true;
   }
 
+  // xbn.agent(msg) — the app's chrome tells the workspace agent's view
+  // something ({type: 'xbin:agent-context', tile | screen}: what it was
+  // opened about). Only where the app listed the feature.
+  function agentMessage(msg) {
+    if (!agentOn || !msg || typeof msg !== 'object') return false;
+    const m = cloneJSON(msg);
+    for (const fn of [...agentListeners]) {
+      try {
+        const r = fn(m);
+        if (r && typeof r.then === 'function') r.then(null, (e) => fail('uncaught', e, 'agent listener'));
+      } catch (e) { fail('uncaught', e, 'agent listener'); }
+    }
+    return agentListeners.size > 0;
+  }
+
   const native = {
     caps,
     get state() { return state; },
@@ -313,10 +336,10 @@ export function createRuntime(opts = {}) {
     // the screen's horizontal size class: "compact" (a phone) | "regular"
     // (an iPad) — null when the app doesn't say
     get width() { return width; },
-    // on('widgetsize' | 'width', fn(value)) → an unsubscribe function
+    // on('widgetsize' | 'width' | 'agent', fn(value)) → an unsubscribe function
     on(type, fn) {
-      const set = type === 'widgetsize' ? sizeListeners : type === 'width' ? widthListeners : null;
-      if (!set) throw new Error(`xbin.native.on: unknown event ${JSON.stringify(type)} (widgetsize, width)`);
+      const set = type === 'widgetsize' ? sizeListeners : type === 'width' ? widthListeners : type === 'agent' ? agentListeners : null;
+      if (!set) throw new Error(`xbin.native.on: unknown event ${JSON.stringify(type)} (widgetsize, width, agent)`);
       if (typeof fn !== 'function') throw new Error('xbin.native.on: the listener must be a function');
       set.add(fn);
       return () => { set.delete(fn); };
@@ -340,6 +363,17 @@ export function createRuntime(opts = {}) {
       url = String(url ?? '');
       if (!/^https:\/\//i.test(url)) return Promise.reject(new Error('xbin.native.open: https URLs only'));
       return call('open', { url });
+    },
+    // agent(msg): the workspace agent's view asks the app's chrome to show
+    // something of its own — an approval or a change set by id, one of the
+    // person's sessions, a panel (the messages of docs/protocol/delegation.md
+    // §The chrome: {type: 'xbin:agent-open-request', id}, …). It can only
+    // ask: the app reads what it shows from xbind, and nothing here decides.
+    // Rejects where the app doesn't show this tile as an agent.
+    agent(msg) {
+      if (!agentOn) return Promise.reject(new Error('xbin.native.agent: this app does not show the tile as a workspace agent'));
+      if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return Promise.reject(new Error('xbin.native.agent: a message {type, …}'));
+      return call('agent', { msg: cloneJSON(msg) });
     },
     saveState(obj) {
       const c = cloneJSON(obj ?? null);
@@ -370,6 +404,7 @@ export function createRuntime(opts = {}) {
     widgetSize: setWidgetSize,
     width: setWidth,
     navigate,
+    agent: agentMessage,
   };
 
   return {

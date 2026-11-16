@@ -55,7 +55,7 @@ func (o *Plane) apiStatusList(w http.ResponseWriter, r *http.Request) {
 		if isDepKey(comp) { // a non-primary deployment's: never listed (D127h)
 			continue
 		}
-		if admin || p.CanReadTile(comp) {
+		if (admin || p.CanReadTile(comp)) && !(o.AgentHides != nil && o.AgentHides(p, comp)) {
 			out[comp] = rec
 		}
 	}
@@ -91,6 +91,13 @@ func (o *Plane) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 	}
 	if comp == "" {
 		server.WriteError(w, http.StatusBadRequest, "no target component — an element reports its own status; the owner may pass ?component=")
+		return
+	}
+	// A sealed component's status is its backend's to set: not an admin's,
+	// and not its page's (a viewer's token, D227). Decided here, on the
+	// value acted on; the route gate only says so earlier.
+	if util.SealedPath(comp) && !(p.Component == comp && p.Via == "instance") {
+		server.WriteError(w, http.StatusForbidden, util.SealedRefusal(comp, "only it reports its own status"), server.SealedDocs)
 		return
 	}
 	// An element reports only for itself; admin/owner may report for any.

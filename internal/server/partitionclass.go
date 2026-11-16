@@ -134,7 +134,7 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 	if class == PersonOnly {
 		// a person's own session, app or device credential only: never a
 		// tile's, view-as, or one that names no person (the root token)
-		if p.Component != "" || p.Impersonator != "" || p.UserID == "" {
+		if p.Component != "" || p.Impersonator != "" || p.UserID == "" || p.Agent != "" { // nor their workspace agent (delegate.go)
 			return r2, refusal(http.StatusForbidden, "this is a person's own act: sign in and do it yourself — a tile's credentials can't")
 		}
 		return r2, nil
@@ -446,6 +446,7 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /vaults":                            GlobalOnlyRefused,
 	"GET /resources":                         GlobalOnlyRefused,
 	"GET /auth-overview":                     GlobalOnlyRefused,
+	"GET /sealed":                            GlobalOnlyRefused, // admins' alone (D227)
 	"GET /backends":                          GlobalOnlyRefused,
 	"GET /runtime":                           GlobalOnlyRefused,
 	"GET /ingress":                           GlobalOnlyRefused,
@@ -456,6 +457,7 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /impersonate/stop":                 GlobalOnlyRefused,
 	"PUT /native-runtime":                    GlobalOnlyRefused,
 	"PUT /chrome":                            GlobalOnlyRefused,
+	"PUT /agent-levels":                      GlobalOnlyRefused,
 	"PUT /branding":                          GlobalOnlyRefused,
 	"PUT /workspace-policies":                PartitionNeutral,
 	"PUT /workspace-settings":                GlobalOnlyRefused,
@@ -468,6 +470,15 @@ var partitionClasses = map[string]PartitionClass{
 	"PUT /app-tunnel":                        GlobalOnlyRefused,
 	"POST /app-tunnel/relay-tokens":          GlobalOnlyRefused,
 	"POST /app-tunnel/test":                  GlobalOnlyRefused,
+	"GET /llm/config":                        GlobalOnlyRefused, // the LLM connector's settings, usage and quotas (D226)
+	"PUT /llm/config":                        GlobalOnlyRefused,
+	"PUT /llm/upstreams/{name}":              GlobalOnlyRefused,
+	"DELETE /llm/upstreams/{name}":           GlobalOnlyRefused,
+	"POST /llm/upstreams/{name}/test":        GlobalOnlyRefused,
+	"GET /llm/usage":                         GlobalOnlyRefused,
+	"GET /llm/quotas":                        GlobalOnlyRefused,
+	"PUT /llm/quotas":                        GlobalOnlyRefused,
+	"POST /llm/setup/dismiss":                GlobalOnlyRefused,
 	"DELETE /push/config":                    GlobalOnlyRefused,
 	"GET /push/devices":                      GlobalOnlyRefused,
 	"DELETE /push/devices/{user}":            GlobalOnlyRefused,
@@ -480,6 +491,28 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /limits/dismiss":   GlobalOnlyRefused,
 	"PUT /orgs/{org}/limits": GlobalOnlyRefused,
 	"GET /limits":            PartitionNeutral,
+
+	// ---- org constraints on agents (D229): admins', and a person's own
+	// connection view; a person's agent preferences are theirs alone to
+	// read and write — what their workspace agent may start is in them ----
+	"GET /agents/policy":         GlobalOnlyRefused,
+	"PUT /agents/policy":         GlobalOnlyRefused,
+	"PUT /orgs/{org}/agents":     GlobalOnlyRefused,
+	"PUT /orgs/{org}/agents/pin": GlobalOnlyRefused,
+	"GET /agents/connection":     PartitionNeutral, // ?session=: a holder page's one read, from its frame in its person's partition; the handler refuses every other tile credential
+	"GET /agent/prefs":           PersonOnly,
+	"PUT /agent/prefs":           PersonOnly,
+	// ---- the LLM connector's calls (D226): a person's partition calls as
+	// that person — the handler meters the call to them (internal/llm) ----
+	"POST /llm/v1/chat/completions": PartitionScoped,
+	"POST /llm/v1/responses":        PartitionScoped,
+	"GET /llm/v1/models":            PartitionScoped,
+	"GET /llm/preferred":            PartitionScoped,
+	"GET /llm":                      PartitionScoped,
+	"POST /llm/keys":                PartitionScoped, // a key for a harness the partition runs: its person's, by the stamp
+	"DELETE /llm/keys/{id}":         PartitionScoped,
+	"POST /llm/keys/{id}/renew":     PartitionScoped,
+	"DELETE /llm/keys":              PartitionScoped,
 
 	// ---- partitions' governance acts (02 §8): their handlers judge the
 	// person and refuse the target tile's own credentials. A mode decision
@@ -518,7 +551,14 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /partitions/mail/ack": PartitionScoped,
 
 	// ---- reads of workspace facts ----
-	"GET /whoami":               PartitionNeutral,
+	"GET /whoami":      PartitionNeutral,
+	"GET /docs/search": PartitionNeutral,
+	"GET /docs/page":   PartitionNeutral,
+	// previews (D234): rendered as the PERSON behind the call — themselves,
+	// or their terminal on its own tile — whose partition the render opens
+	// read-only; the route itself has no partition dimension
+	"POST /preview":             PartitionNeutral,
+	"GET /preview":              PartitionNeutral,
 	"GET /status":               PartitionNeutral,
 	"GET /components":           PartitionNeutral,
 	"GET /components/{path...}": PartitionNeutral,
@@ -529,6 +569,7 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /term-net":             PartitionNeutral,
 	"GET /native-runtime":       PartitionNeutral,
 	"GET /chrome":               PartitionNeutral,
+	"GET /agent-levels":         PartitionNeutral,
 	"GET /branding":             PartitionNeutral,
 	"GET /workspace-policies":   PartitionNeutral,
 	"GET /workspace-settings":   PartitionNeutral,
@@ -542,6 +583,8 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /devices/enroll-code":                            PartitionNeutral,
 	"POST /web-ticket":                                     PartitionNeutral,
 	"POST /account/password":                               PartitionNeutral,
+	"GET /first-run":                                       PartitionNeutral,
+	"POST /first-run/session":                              PartitionNeutral,
 	"GET /devices":                                         PartitionNeutral,
 	"DELETE /devices/{id}":                                 PartitionNeutral,
 	"GET /devices/pairing/{id}":                            PartitionNeutral,
@@ -575,4 +618,47 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /agent/history":                                   PartitionNeutral,
 	"GET /agent/history/{id}/events":                       PartitionNeutral,
 	"DELETE /agent/history/{id}":                           PartitionNeutral,
+	// ---- delegation (D228, delegateapi.go): a person's workspace agent.
+	// Every handler judges its caller in one place (delegateCaller): the
+	// person's own credential for whatever grants; their agent's own page
+	// — the sealed holder's frame, in their partition, under their login —
+	// to read and to pause; their agent to ask. Neutral here because the
+	// page must reach the reads, and --no-auth's owner (who names no
+	// person, so PersonOnly would refuse them) answers as the person in
+	// development. The workspace's switch is an admin's ----
+	"GET /delegate/state":                    PartitionNeutral,
+	"POST /delegate/sessions":                PartitionNeutral,
+	"GET /delegate/sessions/{id}":            PartitionNeutral,
+	"PATCH /delegate/sessions/{id}":          PartitionNeutral,
+	"DELETE /delegate/sessions/{id}":         PartitionNeutral,
+	"GET /delegate/sessions/{id}/connection": PartitionNeutral,
+	"GET /delegate/map":                      PartitionNeutral,
+	"GET /delegate/start-defaults":           PartitionNeutral,
+	"POST /delegate/sessions/{id}/allows":    PartitionNeutral,
+	"POST /delegate/sessions/{id}/taint":     PartitionNeutral,
+	"PUT /delegate/state":                    PartitionNeutral,
+	"GET /delegate/workspace":                GlobalOnlyRefused,
+	"PUT /delegate/workspace":                GlobalOnlyRefused,
+	"POST /delegate/page/dismiss":            PartitionNeutral,
+	"POST /delegate/web/fetch":               PartitionNeutral,
+	"POST /delegate/mcp/call":                PartitionNeutral,
+	"GET /delegate/audit":                    PartitionNeutral,
+	"POST /delegate/requests":                PartitionNeutral,
+	"GET /delegate/requests":                 PartitionNeutral,
+	"GET /delegate/requests/{id}":            PartitionNeutral,
+	"POST /delegate/requests/{id}/approve":   PartitionNeutral,
+	"POST /delegate/requests/{id}/deny":      PartitionNeutral,
+	"DELETE /delegate/requests/{id}":         PartitionNeutral,
+	"GET /delegate/approvals":                PartitionNeutral,
+	"POST /delegate/approvals":               PartitionNeutral,
+	"DELETE /delegate/approvals/{id}":        PartitionNeutral,
+	"POST /delegate/changesets":              PartitionNeutral,
+	"POST /delegate/plans":                   PartitionNeutral,
+	"POST /delegate/changesets/{id}/ask":     PartitionNeutral,
+	"GET /delegate/changesets":               PartitionNeutral,
+	"GET /delegate/changesets/{id}":          PartitionNeutral,
+	"DELETE /delegate/changesets/{id}":       PartitionNeutral,
+	"POST /delegate/changesets/{id}/approve": PartitionNeutral,
+	"POST /delegate/changesets/{id}/reject":  PartitionNeutral,
+	"POST /delegate/changesets/{id}/undo":    PartitionNeutral,
 }

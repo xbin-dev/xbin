@@ -75,7 +75,7 @@ func (k *scopeKeys) persist(root string) {
 
 // resolve decides the holder of every key in scopes and refuses the other
 // claimants (refuseScope). Call with the registry lock held.
-func (k *scopeKeys) resolve(root string, scopes map[string]*ScopeManifest) {
+func (k *scopeKeys) resolve(root string, scopes map[string]*ScopeManifest, sealed map[string]bool) {
 	if !k.loaded {
 		k.load(root)
 	}
@@ -95,6 +95,11 @@ func (k *scopeKeys) resolve(root string, scopes map[string]*ScopeManifest) {
 		holder := ""
 		switch c, claimed := k.claims[key]; {
 		case key == wsKey: // the workspace scope's: every claimant refused
+		case sealedHolder(ps, sealed) != "":
+			// a sealed component's scope always holds its key: no directory
+			// of the workspace (xbin~agent beside xbin/agent) takes it, before
+			// or after (sealed.go)
+			holder = sealedHolder(ps, sealed)
 		case claimed && (slices.Contains(ps, c) || exists(c)):
 			holder = c
 		case claimed:

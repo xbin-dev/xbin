@@ -155,6 +155,9 @@ func (b *Broker) prPublish(action, target string, n int, state string) {
 // store would otherwise leak arbitrary names into summaries).
 func (b *Broker) prTarget(w http.ResponseWriter, target string) (string, bool) {
 	target = strings.Trim(target, "/")
+	if sealedRefused(w, sealedNone(target, sealedNoPRs)) {
+		return "", false
+	}
 	if !util.ComponentPathOK(target) {
 		server.WriteError(w, http.StatusBadRequest, "bad component path")
 		return "", false

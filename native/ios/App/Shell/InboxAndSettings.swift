@@ -13,14 +13,42 @@ struct InboxView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
     @Environment(\.supportsMultipleWindows) private var multipleWindows
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         NavigationStack {
             List {
                 ForEach(app.workspaces) { w in
                     let waiting = w.needsYou
-                    if !waiting.isEmpty {
+                    let asked = w.agent.needs
+                    if !waiting.isEmpty || !asked.isEmpty {
                         Section {
+                            // What the person's workspace agent asked (D233):
+                            // approvals and proposed admin changes, oldest
+                            // first, above the sessions. Review… opens the
+                            // app's own sheet — never an Allow from a list.
+                            ForEach(asked) { n in
+                                Button {
+                                    scene.select(w.id)
+                                    scene.review(n.kind == .request ? .request(n.id) : .changeset(n.id), afterInbox: true)
+                                } label: {
+                                    // (at accessibility sizes Review… goes under the words: neither is squeezed)
+                                    let row = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+                                                                           : AnyLayout(HStackLayout(spacing: 8))
+                                    row {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(verbatim: n.title).foregroundStyle(XbinColor.text).multilineTextAlignment(.leading)
+                                            if !n.note.isEmpty {
+                                                Text(verbatim: n.note).font(.caption.monospacedDigit()).foregroundStyle(XbinColor.muted)
+                                                    .multilineTextAlignment(.leading)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        Text("Review…").font(.callout.weight(.semibold)).foregroundStyle(XbinColor.accentText)
+                                    }
+                                }
+                                .accessibilityIdentifier("inbox-\(n.kind.rawValue):\(n.id)")
+                            }
                             ForEach(waiting) { s in
                                 Button {
                                     scene.select(w.id)
@@ -29,7 +57,7 @@ struct InboxView: View {
                                 } label: {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(verbatim: s.title)
-                                        Text(verbatim: "\(TileInfo.humanize(s.cwd)) · \(s.waitingFor)")
+                                        Text(verbatim: "\(TileInfo.humanize(s.cwd)) · \(s.waitingFor)\(s.startedByAgent ? " · started by your agent" : "")")
                                             .font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
@@ -49,10 +77,10 @@ struct InboxView: View {
                 }
                 if app.needsYouCount == 0 {
                     ContentUnavailableView("Nothing needs you", systemImage: "checkmark.circle",
-                                           description: Text("Agent permissions and questions from every workspace show up here."))
+                                           description: Text("Agent permissions and questions, and what your workspace agent asks you to approve, show up here."))
                 }
             }
-            .refreshable { for w in app.workspaces { await w.refreshSessions() } }
+            .refreshable { for w in app.workspaces { await w.refreshSessions(); await w.agent.refresh() } }
             .concreteBackground()
             .navigationTitle("Needs you")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }

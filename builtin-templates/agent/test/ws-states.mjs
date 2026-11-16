@@ -1,0 +1,228 @@
+// ws-states.mjs — the states of the workspace agent's page (ws/page.js,
+// docs/workspace-agent.md §The agent's page) against the stubbed backend in
+// workspace mode (test/ws-stub.mjs), and its layout at the dock's narrowest.
+// What it pins:
+//
+//   - paused (from xbind's event, read again): a banner that says what still
+//     works, the composer off with "Resume to send a message" — and no
+//     Resume here: resuming is the person's click in xbin's chrome;
+//   - a stopping quota: when it resets, the composer off until then;
+//   - turned off by an admin;
+//   - xbin updating (the backend said bye, the connection is down), then
+//     back: what continued and what couldn't;
+//   - no connection: the banner after a while, the draft kept and not sent,
+//     Review… off ("Approvals need a connection"), Try now; back: gone;
+//   - "Can't do this" with What can it do?; slowing down, quietly;
+//   - held (xbin won't let a new handle on the session's model hold what the
+//     conversation holds): why, and the ways forward — back to the model it
+//     was on, or a new session;
+//   - at 360 px (the dock's narrowest) and at a phone's width nothing
+//     scrolls sideways: the conversation, the scope panel, the sessions, the
+//     notebook. WS_SHOTS=<dir> also draws the page there, dark and light,
+//     narrow and wide.
+//
+//   node test/ws-states.mjs        (needs playwright + a chromium build)
+import { launch, checker } from './backend.mjs';
+import { openWs, fresh, SESSIONS, FULL, EMPTY, CONVERSATION, CARDS, msg, call, now } from './ws-stub.mjs';
+
+const { ok, done } = checker();
+const browser = await launch();
+const calls = (page, method, re) => page.evaluate(([m, s]) => window.__calls.filter((c) => c.method === m && new RegExp(s).test(c.url)), [method, re.source]);
+const text = (page, sel) => page.$eval(sel, (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+const until = async (f, ms = 6000) => { for (const t0 = Date.now(); Date.now() - t0 < ms;) { if (await f()) return true; await new Promise((r) => setTimeout(r, 50)); } return false; };
+const composer = (page) => page.$eval('bx-chat-composer textarea', (t) => ({ ph: t.placeholder, off: t.disabled, v: t.value, send: t.closest('bx-chat-composer').querySelector('.bxc-send').disabled }));
+const grants = (page) => page.evaluate(() => [...document.querySelectorAll('button')].map((b) => b.innerText.trim()).filter((t) => /^(allow|approve|deny|grant|resume)/i.test(t)));
+const base = (extra = {}) => ({ sessions: fresh(SESSIONS), full: FULL, empty: EMPTY, views: { 1: fresh(CONVERSATION) }, cards: { 1: fresh(CARDS) }, ...extra });
+const STATE = { user: 'ana', mode: 'workspace', delegation: { workspace: true, paused: false }, models: { default: 'hosted/big', models: [] } };
+
+// ---- paused, from xbind's event -------------------------------------------------------------------
+{
+  const { ctx, page, errors } = await openWs(browser, base({ state: fresh(STATE) }));
+  ok('not paused: the composer takes a message', !(await composer(page)).off);
+  await page.evaluate(() => { Object.assign(window.__seed.state.delegation, { paused: true, pausedAt: '2030-01-02T09:31:00Z' }); window.__event({ type: 'delegate', data: { op: 'state', user: 'ana' } }); });
+  await until(async () => !!(await page.$('.wsp-banner[data-state="paused"]')));
+  const b = await text(page, '.wsp-banner[data-state="paused"]');
+  const pat = await page.evaluate(() => { const d = new Date('2030-01-02T09:31:00Z'); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; });
+  ok('paused (xbind\'s state event, read again): when, and what still works', b.includes(`Paused by you at ${pat}.`) && b.includes('can’t read or change anything') && b.includes('Tile agents that are already running keep going'), b);
+  const c = await composer(page);
+  ok('…the composer is off: "Resume to send a message"', c.off && c.ph === 'Resume to send a message', JSON.stringify(c));
+  ok('…and the page offers no Resume: that is xbin\'s chrome', (await grants(page)).length === 0, (await grants(page)).join());
+  ok('no page errors (paused)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- a stopping quota (state.quota); turned off -------------------------------------------------------
+{
+  const st = { ...fresh(STATE), quota: { stopped: true, quota: 'user.tokensPerDay', source: 'user', unit: 'tokens', window: 'day', limit: 2000000, used: 2000310,
+    resets: '2030-01-02T01:00:00Z', limitWords: 'your 2M tokens for today', raise: 'a workspace admin' } };
+  const { ctx, page } = await openWs(browser, base({ state: st }));
+  const b = await text(page, '.wsp-banner[data-state="quota"]');
+  const at = await page.evaluate(() => { const d = new Date('2030-01-02T01:00:00Z'); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; });
+  ok('quota: what ran out, when it resets, that reading still works, who can raise it', b.includes('Today’s limit is used up.') && b.includes('You\'ve used your 2M tokens for today.') && b.includes(`It resets at ${at}`)
+    && b.includes('You can still read everything here') && b.includes('A workspace admin can raise your limit.'), b);
+  const c = await composer(page);
+  ok('…the composer is off until then', c.off && c.ph === `Sending resumes at ${at}`, JSON.stringify(c));
+  await ctx.close();
+}
+{
+  const { ctx, page } = await openWs(browser, base({ state: { ...fresh(STATE), delegation: { workspace: false, paused: false } } }));
+  ok('turned off by an admin: the banner, the composer off', (await text(page, '.wsp-banner[data-state="off"]')).includes('Turned off for this workspace.') && (await composer(page)).off);
+  await ctx.close();
+}
+
+// ---- xbin updating, then back; no connection ----------------------------------------------------------
+{
+  const s = base();
+  s.cards[1].agents[1].status = 'stopped';
+  s.cards[1].agents[1].waits = false;
+  const { ctx, page, errors } = await openWs(browser, s);
+  ok('a tile agent an update cut off: "stopped for the update", and that it can continue', (await text(page, '.wsc-agent[data-agent="8"]')).includes('stopped for the update') && (await text(page, '.wsc-agent[data-agent="8"]')).includes('continue where it stopped'));
+  await page.evaluate(() => { window.__bye(); window.__drop(true); });
+  await until(async () => !!(await page.$('.wsp-banner[data-state="updating"]')));
+  ok('the backend said bye and is gone: "xbin is updating"', (await text(page, '.wsp-banner[data-state="updating"]')).includes('xbin is updating. Back in about a minute.'));
+  ok('…the composer says it reconnects', (await composer(page)).ph === 'Reconnecting…' && (await composer(page)).off);
+  await page.evaluate(() => { window.__seed.cards[1].agents[0].status = 'running'; window.__drop(false); });
+  await until(async () => !!(await page.$('.wsp-banner[data-state="updated"]')), 12000);
+  const b = await text(page, '.wsp-banner[data-state="updated"]');
+  ok('back: "xbin was updated at …", what continued and what couldn\'t', /xbin was updated at \d\d:\d\d\./.test(b) && b.includes('1 of 2 tile agents continued.') && b.includes('Invoices’ could not.'), b);
+  ok('…the updating banner is gone', !(await page.$('.wsp-banner[data-state="updating"]')));
+  await page.click('.wsp-banner[data-state="updated"] button');
+  ok('…and dismissed', !(await page.$('.wsp-banner[data-state="updated"]')));
+  // no connection (no bye): after a while, the banner; the draft stays and isn't sent
+  await page.fill('bx-chat-composer textarea', 'Also add the customer number as the first column');
+  await page.evaluate(() => window.__drop(true));
+  await until(async () => !!(await page.$('.wsp-banner[data-state="offline"]')), 8000);
+  const off = await text(page, '.wsp-banner[data-state="offline"]');
+  ok('no connection: "Can’t reach the workspace", since when, approvals can’t be given', off.includes('Can’t reach the workspace.') && /loaded at \d\d:\d\d/.test(off) && off.includes('Approvals can’t be given'), off);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  const c = await composer(page);
+  ok('…the draft is kept and not sent', c.v === 'Also add the customer number as the first column' && (await calls(page, 'POST', /\/message$/)).length === 0, JSON.stringify(c));
+  ok('…the composer says so', (await text(page, '.wsp-hint')).includes('kept here and is not sent until you’re connected'));
+  const rv = await page.$eval('.wsc-req[data-req="12"] button', (b) => ({ dis: b.disabled, t: b.title })).catch(() => null);
+  ok('…Review… is off: approvals need a connection', rv && rv.dis && rv.t === 'Approvals need a connection.', JSON.stringify(rv));
+  await page.evaluate(() => window.__drop(false));
+  await page.click('.wsp-banner[data-state="offline"] button');
+  ok('Try now: back, and the banner goes', await until(async () => !(await page.$('.wsp-banner[data-state="offline"]')), 8000));
+  ok('no page errors (connection)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- refusals of every kind (cards.refusals) -----------------------------------------------------------
+{
+  const v = fresh(CONVERSATION);
+  const kinds = ['cannot', 'hidden', 'not-connected', 'taint', 'slow', 'paused', 'off'];
+  kinds.forEach((k, i) => v.messages.push(msg(20 + 2 * i, 'assistant', '', { toolCalls: [call('f' + i, 'tile_call', { tile: 'people/leave' })] }),
+    msg(21 + 2 * i, 'tool', 'the model\'s sentence', { toolCallId: 'f' + i, name: 'tile_call' })));
+  const s = base({ views: { 1: v } });
+  s.cards[1].refusals = kinds.map((k, i) => ({ id: 10 + i, callId: 'f' + i, tool: 'tile_call', kind: k, tile: 'people/leave', reason: k === 'cannot' ? 'deleting a tile is its person\'s to do' : k === 'taint' ? 'Finance allows private models only' : '' }));
+  const { ctx, page, errors } = await openWs(browser, s);
+  const c = await text(page, '[data-refusal="cannot"]');
+  ok('cannot: "Can\'t do this", why, that it is the person\'s, What can it do?', c.includes('Can’t do this') && c.includes('deleting a tile is its person\'s to do') && c.includes('It’s yours to do yourself') && c.includes('What can it do?'), c);
+  ok('hidden: left out of the scope by the person, Open scope', (await text(page, '[data-refusal="hidden"]')).includes('You left people/leave out of this session’s scope') && (await text(page, '[data-refusal="hidden"]')).includes('Open scope'));
+  ok('not-connected: isn\'t connected in this session, Open scope', (await text(page, '[data-refusal="not-connected"]')).includes('people/leave isn’t connected in this session'));
+  ok('taint: the model can\'t hold that data, Change the model…', (await text(page, '[data-refusal="taint"]')).includes('This session’s model can’t hold that data') && (await text(page, '[data-refusal="taint"]')).includes('Change the model…'));
+  ok('slow, paused, off: quiet lines', (await text(page, '[data-refusal="slow"]')).includes('Slowing down — the agent is doing a lot at once.')
+    && (await text(page, '[data-refusal="paused"]')).includes('Paused — nothing was read or changed.') && (await text(page, '[data-refusal="off"]')).includes('turned off'));
+  ok('…the model\'s own sentence is never drawn as a card', !(await page.$$eval('.wsc', (cs) => cs.some((x) => x.textContent.includes('the model\'s sentence')))));
+  await page.click('[data-refusal="cannot"] button');
+  ok('What can it do? shows what it can and can\'t, again', await until(async () => (await text(page, '.wsp-whatcan')).includes('It can’t')));
+  ok('no page errors (refusals)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- the agent's switch is off: the backend answers without the model, the words stay ---------------------
+{
+  const OFF = 'You haven’t been given a workspace agent. An admin chooses who has one. Nothing was sent to the agent or its model. Your message is still in the message box: send it again once it runs.';
+  const { ctx, page, errors } = await openWs(browser, base({ state: fresh(STATE), offAnswer: { error: OFF, code: 'agent-off', refusal: 'no-agent', kept: true } }));
+  await page.fill('bx-chat-composer textarea', 'Which invoices are overdue?');
+  await page.keyboard.press('Enter');
+  await until(async () => (await calls(page, 'POST', /\/runs\/1\/message$/)).length === 1);
+  await until(async () => (await text(page, '.wsc-err')).includes('haven’t been given'));
+  const c = await composer(page);
+  ok('switch off (409 agent-off): the backend\'s words shown, the message kept in the box, unsent', (await text(page, '.wsc-err')) === OFF && c.v === 'Which invoices are overdue?', JSON.stringify(c));
+  ok('…and the state read again, for the banners', (await calls(page, 'GET', /\/ws\/state$/)).length >= 2);
+  ok('…and the transcript has the switch\'s line (the backend\'s step of kind off), as a warning',
+    await until(async () => (await page.$$eval('.bxc-notice.bxc-warn', (ns) => ns.map((n) => n.textContent.replace(/\s+/g, ' ').trim()))).includes(OFF)));
+  ok('no page errors (switch off)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- the empty state of an agent that can't act (an admin who wasn't given one, say): the switch, nothing else ----
+{
+  const line = 'You haven’t been given a workspace agent. An admin chooses who has one: Admin → People → access, or the workspace agent’s set-up in the dock.';
+  const { ctx, page, errors } = await openWs(browser, { sessions: fresh(SESSIONS).slice(0, 1).map((s) => ({ ...s, status: 'idle', requests: 0, agents: 0 })), full: FULL,
+    empty: { ...EMPTY, off: 'no-agent', line, can: [], starters: [] }, state: fresh(STATE) });
+  await until(async () => !!(await page.$('.wsp-empty [data-off]')));
+  ok('the empty state of an agent that can\'t act: the switch, and no list of what it could do', (await text(page, '.wsp-empty [data-off]')) === line && !(await page.$('.wsp-empty .wsp-cols')) && !(await page.$('.wsp-starter')));
+  ok('no page errors (empty, off)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- held: xbin won't let a new handle on its model hold what the conversation holds --------------------
+{
+  const sessions = fresh(SESSIONS);
+  sessions[0].held = { code: 'model_taint', model: 'hosted/big', orgs: ['Sales'], reason: 'Sales allows private models only', offer: { model: 'hosted/big-1', newSession: { model: 'hosted/big' } } };
+  const { ctx, page, errors } = await openWs(browser, base({ sessions }));
+  await until(async () => !!(await page.$('.wsp-banner[data-state="held"]')));
+  const b = await text(page, '.wsp-banner[data-state="held"]');
+  ok('held: the session can’t go on on its model, why, and that nothing runs in it', b.includes('This session can’t go on on big.') && b.includes('It holds data from Sales, and Sales allows private models only')
+    && b.includes('Nothing is read, changed or sent to a model in it until it moves'), b);
+  const acts = await page.$$eval('.wsp-banner[data-state="held"] button', (bs) => bs.map((x) => x.textContent.trim()));
+  ok('…the ways forward: the model it was on, or a new session', acts.join(' | ') === 'Move back to big-1 | New session on big', acts.join(' | '));
+  await page.click('.wsp-banner[data-state="held"] button[data-act="back"]');
+  await until(async () => (await calls(page, 'PATCH', /\/ws\/sessions\/1$/)).length === 1);
+  ok('…Move back asks the backend to move it (PATCH {model})', JSON.parse((await calls(page, 'PATCH', /\/ws\/sessions\/1$/))[0].body).model === 'hosted/big-1');
+  ok('…and moved, the banner goes', await until(async () => !(await page.$('.wsp-banner[data-state="held"]'))));
+  ok('no page errors (held)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ---- narrow: nothing scrolls sideways; screenshots -------------------------------------------------------
+const shots = process.env.WS_SHOTS || '';
+for (const [width, height] of [[360, 760], [390, 844], [1100, 900]]) {
+  for (const scheme of width === 390 ? ['dark'] : ['dark', 'light']) {
+    const { ctx, page, errors } = await openWs(browser, base({ state: { ...fresh(STATE), models: { default: 'hosted/big', models: [{ id: 'hosted/big', name: 'big' }, { id: 'local/llama', name: 'local-llama' }] } },
+      pages: [{ slug: 'p', title: 'How Ana likes things done', summary: 'Reports in bullet points · never email customers without asking', version: 1, updatedBy: 'ana', updatedMs: now, orgs: [] },
+        { slug: 'l', title: 'Ledger — month-end steps', summary: '', version: 1, orgs: ['Finance'], locked: true, lockedWhy: 'Not available in this session: Finance isn’t connected', updatedMs: now }] }), { width, height, scheme });
+    const wide = async (what) => {
+      const o = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, main: document.querySelector('.wsp-main')?.scrollWidth || 0, mainW: document.querySelector('.wsp-main')?.clientWidth || 0, vw: innerWidth }));
+      ok(`${width} px ${scheme}, ${what}: nothing scrolls sideways`, o.doc <= o.vw && o.main <= o.mainW + 1, JSON.stringify(o));
+    };
+    const shot = (name) => (shots ? page.screenshot({ path: `${shots}/${name}.${width}.${scheme}.png` }) : null);
+    await wide('the conversation');
+    await shot('conversation');
+    await page.evaluate(() => document.querySelector('.wsp-main').scrollTo(0, 0));
+    await shot('conversation-top');
+    await page.click('.wsp-chip');
+    await until(async () => !!(await page.$('.wsp-tree')));
+    await wide('the scope panel');
+    await shot('scope');
+    await page.keyboard.press('Escape');
+    await page.click('.wsp-sess');
+    await wide('the sessions');
+    await shot('sessions');
+    await page.keyboard.press('Escape');
+    await page.click('.wsp-menu-b');
+    await page.click('.wsp-menu button >> nth=0');
+    await until(async () => (await page.$$('.wsp-pg')).length === 2);
+    await wide('the notebook');
+    await shot('notebook');
+    ok(`${width} px ${scheme}: no page errors`, errors.length === 0, errors.join(' | '));
+    await ctx.close();
+  }
+}
+if (shots) {
+  // the empty state and two states, to look at
+  for (const scheme of ['dark', 'light']) {
+    for (const width of [360, 1100]) {
+      const { ctx, page } = await openWs(browser, { sessions: fresh(SESSIONS).slice(0, 1).map((s) => ({ ...s, status: 'idle', requests: 0, agents: 0 })), full: FULL, empty: EMPTY,
+        state: { ...fresh(STATE), delegation: { workspace: true, paused: true } } }, { width, height: 820, scheme });
+      await page.screenshot({ path: `${shots}/empty-paused.${width}.${scheme}.png` });
+      await ctx.close();
+    }
+  }
+}
+
+await browser.close();
+done('ws-states');

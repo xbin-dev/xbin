@@ -201,9 +201,14 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 			return
 		}
 	case len(h.prompt) > 0 && turn && s != nil:
-		// a turn being interrupted isn't steered: the message sent with the
-		// interrupt (and any other) is the next prompt, at its end (§3.5)
-		if p := h.nextPrompt(); !p.Body.Jump && len(h.interrupt) == 0 {
+		// sdk/acp's rule (QueueState.Message): the running turn takes it
+		// where the adapter steers; a turn being interrupted isn't steered —
+		// the message sent with the interrupt (and any other) is the next
+		// prompt, at its end (§3.5) — nor is the adapter's own turn (a
+		// steer would answer promptRequired: the client runs no prompt)
+		p := h.nextPrompt()
+		q := acp.QueueState{Status: acp.StatusRunning, Detached: s.isDetached(), Steering: s.steers()}
+		if q.Message(p.Body.Jump || len(h.interrupt) > 0) == acp.MessageSteer {
 			e.harnessSteer(ctx, run, p)
 		}
 		return
@@ -697,7 +702,7 @@ func harnessApply(w http.ResponseWriter, r *http.Request, cfg *Config, req *harn
 			probeHarnesses(ctx, c, b.Ref, []hcManager{{m: m, hello: h}})
 		}
 	}
-	if b.Egress == "none" {
+	if b.Egress == "none" && !connectorMight(ctx, prov) { // the workspace's LLM connector needs no egress (the start checks the sandbox has it)
 		writeHarnessErr(w, 409, fmt.Sprintf("%s must reach its provider — %s's egress is none", prov.Name, name))
 		return false
 	}

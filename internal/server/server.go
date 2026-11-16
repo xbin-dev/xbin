@@ -20,12 +20,16 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
+	"github.com/xbin-dev/xbin/internal/agentprefs"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/branding"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/preview"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/webfetch"
 	"github.com/xbin-dev/xbin/internal/wssettings"
 )
 
@@ -47,10 +51,81 @@ type Server struct {
 	Brand *branding.Store
 	// Settings is the workspace settings file (D175, wssettings.go); nil = none.
 	Settings *wssettings.Store
+	// Delegation is what xbind keeps for people's workspace agents — the
+	// switches, approvals, change sets and the audit log (delegate.go;
+	// internal/delegation); nil = the closed state: nothing is approved.
+	Delegation *delegation.Store
+	// AgentPolicy answers the orgs' agent rules and people's agent
+	// preferences for the delegate gate; nil refuses (delegation.NoPolicy).
+	AgentPolicy delegation.Policy
+	// DelegatePush tells a person, on their devices, that their agent waits
+	// for them (an approval request, a change set); nil = no push.
+	DelegatePush func(user, kind, title, body, link, collapse string)
+	// ChangeSets previews admin change-set operations (changeset.go: the
+	// broker's); nil = change sets can't be proposed.
+	ChangeSets ChangePreviewer
+	// PeopleChanged, if set, is what an access change made here ends with
+	// (the broker's usersEvent): who gets a workspace agent is access
+	// (agentwho.go).
+	PeopleChanged func()
+	// AgentHeld, if set, says why the agent can't run right now ("" when it
+	// can): kind "older" (its data was written by a newer xbin), "locked"
+	// (the vault is locked: people's partitions can't open) or
+	// "unavailable", with xbind's reason. GET /delegate/state answers it as
+	// held, for the chrome's state in place of the page (agentwho.go).
+	AgentHeld func() (kind, why string)
+	// AgentHolder, if set, names the sealed component whose page is people's
+	// workspace agent in this workspace ("" none): what GET /delegate/state
+	// answers as agent — the frame xbin's chrome puts below its header
+	// (agentpage.go, D232). Boot's assignment, from the sealed-component
+	// table; nil: this xbind ships no agent.
+	AgentHolder func() string
+	// HostAgent, if set, answers the host's rule for workspace agents (the
+	// deployment file's workspaceAgent key; agenthost.go, D237); nil: none.
+	HostAgent func() HostAgentRule
+	// HostAgentFile keeps what the host's rule wrote, to take back exactly
+	// that when the rule changes (agenthost.go); "" = in memory alone.
+	HostAgentFile string
+	hostRec       *hostAgentRecord // its contents, guarded by hostAgentMu
+	// DelegationDev: xbind runs with --dev or --no-auth. Approving admin
+	// change sets then needs no recent sign-in, and under --no-auth — where
+	// nobody signs in — the implicit owner answers for the person a
+	// delegation route names (delegateapi.go). Never set in production.
+	DelegationDev bool
+	delegateRT    delegateRuntime // the gate's rate limit and running calls
+	docsIx        docsIndex       // the docs search index, built at first use (docsapi.go)
+	// delegationGate is the off-switch check (SetDelegationGate, DelegationOff)
+	delegationGate func(holder, user string) error
+	// AgentPrefs is the people's agent preferences (D229, agentprefsapi.go);
+	// nil = none.
+	AgentPrefs *agentprefs.Store
+	// AgentLevel answers the level of a tile's API a person's workspace
+	// agent may use as it is in force (the broker's: the manifest's, never
+	// above what was last approved), and the raise its manifest asks for;
+	// nil: the manifest's own value.
+	AgentLevel func(c *registry.Component) (inForce, requested string)
+	// AgentWorld answers tiles' orgs, the orgs' model rules, the connection
+	// view and the screens for agent sessions (the broker); nil: no orgs.
+	AgentWorld AgentWorld
+	// HolderNotify tells a holder's backend, in its person's partition, that
+	// something it waits on changed (kind, id only); nil: nobody is told.
+	HolderNotify func(holder, user, kind, id string)
+	// WebFetch is the fetcher a workspace agent's web reads go through
+	// (delegateweb.go): nil is the real one; tests give a resolver and a
+	// local server's address. Its Check is always the server's.
+	WebFetch *webfetch.Fetcher
+	// OwnHost reports a hostname this workspace's tiles are published at
+	// (ingress): a workspace agent's fetch never names one. nil: none.
+	OwnHost func(host string) bool
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.
 	ComponentAPI http.Handler
+	// SealedGateOff switches the sealed route gate (sealedclass.go) off.
+	// Tests only: the gate is the early answer, never the boundary, and the
+	// boundary is tested without it. Nothing sets it from a flag, a file or
+	// the environment.
+	SealedGateOff bool
 	// BackendState answers a tile's primary backend's state for /components
 	// (D196: idle, building, starting, healthy, failed; "" when never run).
 	// nil (tests): no row carries one.
@@ -91,6 +166,10 @@ type Server struct {
 	TileAssets  string
 	TilesDomain string
 
+	// LLMKey resolves an LLM key to the marker principal its request runs
+	// as (llmkey.go); installed by the LLM connector, nil = no key is valid.
+	LLMKey func(token string) (auth.Principal, bool)
+
 	// OnDeviceSignedOut, if set, is called after an enrolled device's app
 	// session signed itself out (POST /logout with its bearer,
 	// devicelogin.go), so per-device state — its push registration — ends
@@ -107,6 +186,10 @@ type Server struct {
 	ssoProv       *oidc.Provider
 	ssoProvIssuer string
 	ssoStateKey   []byte
+
+	// Preview renders pages as a person sees them (preview.go); nil = off.
+	Preview     *preview.Service
+	previewBase string
 
 	apiMux        *http.ServeMux // /api/xbin/… extensions (broker, grants, vault)
 	apiPatterns   []string       // every RegisterAPI pattern, in order (the route inventory)
@@ -130,7 +213,8 @@ func (s *Server) RegisterAPI(pattern string, h http.HandlerFunc) {
 
 // APIRoutes returns every pattern mounted with RegisterAPI so far, in
 // registration order — the inventory the route-drift test
-// (internal/apicheck) reconciles against openapi.go and docs/protocol.md.
+// (internal/apicheck) reconciles against openapi.go and the protocol
+// reference (docs/protocol.md and its topic pages, docs/protocol/*.md).
 func (s *Server) APIRoutes() []string { return slices.Clone(s.apiPatterns) }
 
 // CoreRoutes returns the top-level mux patterns the last Handler() call
@@ -173,6 +257,9 @@ func (s *Server) Handler() http.Handler {
 	handle("GET "+PersonPagePath, s.authed(http.HandlerFunc(s.handlePersonPage)))   // the partitions page, top-level only (personpage.go)
 	handle("GET "+LimitsPagePath, s.authed(http.HandlerFunc(s.handleLimitsPage)))   // the tile limits page, likewise (limitspage.go)
 	handle("GET "+DevicesPagePath, s.authed(http.HandlerFunc(s.handleDevicesPage))) // the devices page (devicespage.go, D204)
+	handle("GET "+SystemPagePath, s.authed(http.HandlerFunc(s.handleSystemPage)))   // the system components page (systempage.go, D227)
+	handle("GET "+LLMPagePath, s.authed(http.HandlerFunc(s.handleLLMPage)))         // the LLM connector's page (llmpage.go, D226)
+	handle("GET "+AgentPagePath, s.authed(http.HandlerFunc(s.handleAgentPage)))     // the workspace agent's chrome (agentpage.go, D232)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 
@@ -183,6 +270,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET /ws/events", s.authed(http.HandlerFunc(s.handleEventsWS)))
 
 	s.registerCoreAPI()
+	s.registerPreviewAPI() // previews (preview.go, D234)
 	s.registerBrandingAPI()
 	return logRequests(s.tunnelGate(s.tileOrigins(nullOriginCORS(mux)))) // tunnelgate.go: the app tunnel (D204)
 }
@@ -209,10 +297,10 @@ func nullOriginCORS(next http.Handler) http.Handler {
 		}
 		w.Header().Set("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Origin", "null")
-		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
+		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id, "+SealedReloadHeader)
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+auth.FrameTokenHeader+", Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+auth.FrameTokenHeader+", Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID, "+SealedCodeHeader)
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -246,13 +334,27 @@ func (s *Server) authed(next http.Handler) http.Handler {
 				http.Redirect(w, r, loginURLFor(r), http.StatusFound) // a deep-link page carries ?next= (loginnext.go)
 				return
 			}
+			if onLLMPlane(r) { // OpenAI clients show an OpenAI-shaped error (llmkey.go)
+				writeLLMUnauthorized(w, "no valid credential: the LLM connector takes an xbin sign-in, a bound tile's credential or an LLM key")
+				return
+			}
 			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
 			return
 		}
 		// An admin viewing as a user reads everything the user reads and
 		// changes nothing (impersonate.go).
-		if p.ReadOnly() && !readOnlyAllowed(r) {
+		if p.ReadOnly() && !readOnlyAllowed(r, p) {
 			refuseReadOnly(w, r)
+			return
+		}
+		if s.sealedViewAs(r, p) { // a view-as session opens nothing of a sealed component (sealed.go)
+			refuseSealedViewAs(w, r)
+			return
+		}
+		// A sealed component's page holds a viewer's token: its own backend
+		// and nothing of xbind's or another tile's (sealed.go).
+		if SealedViewer(p) && !s.sealedViewerAllowed(r, p) {
+			refuseSealedViewer(w, r, p)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
@@ -291,6 +393,15 @@ func (s *Server) authedStatic(next http.Handler) http.Handler {
 				return
 			}
 			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
+			return
+		}
+		if s.sealedViewAs(r, p) { // nor does a view-as session load its page (sealed.go)
+			refuseSealedViewAs(w, r)
+			return
+		}
+		// a sealed component's viewer loads its own page's files (sealed.go)
+		if SealedViewer(p) && !s.sealedViewerAllowed(r, p) {
+			refuseSealedViewer(w, r, p)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
@@ -541,6 +652,23 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // to the component reverse proxy.
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/")
+	if !strings.HasPrefix(rest, util.SealedPrefix) && rest != "xbin" && util.SealedPath(rest) {
+		// /api//xbin/<name>/…, /api/./xbin/…: a sealed component's API has
+		// one address (util.SealedPath sees every spelling; the proxy
+		// would forgive this one)
+		WriteError(w, http.StatusBadRequest, sealedSpelling, SealedDocs)
+		return
+	}
+	if s.sealedOwned(rest) && s.ComponentAPI != nil {
+		// /api/xbin/<name>/… of a sealed component is its backend's, as
+		// /api/<tile>/… is a tile's (sealed.go); no route of xbind's own
+		// begins with a sealed name (SealedAPIClash, checked at boot).
+		if s.sealedStale(w, r, rest) {
+			return // a page of another release's code: told to reload (sealed.go)
+		}
+		s.ComponentAPI.ServeHTTP(w, r)
+		return
+	}
 	if rest == "xbin" || strings.HasPrefix(rest, "xbin/") {
 		r2 := r.Clone(r.Context())
 		if !xbinInner(r.URL, r2.URL) {
@@ -559,8 +687,17 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		if deny == nil {
 			r2, deny = s.partitionGate(r2) // a person's partition: default-deny too (partitionclass.go)
 		}
+		// what a sealed component has no such thing as (sealedclass.go):
+		// the same answer whoever asks, so it goes before the others'
+		if d := s.sealedGate(r2); d != nil {
+			deny = d
+		}
 		if deny != nil {
 			h = deny
+		}
+		if auth.PrincipalOf(r).Via == "instance" { // a backend's call, which its health check reads (auth/instancecalls.go)
+			_, pattern := s.apiMux.Handler(r2)
+			defer s.Auth.TrackInstanceCall(r, instanceRoute(r.Method, pattern))()
 		}
 		if auditable(r.Method, r2.URL.Path) {
 			aw := &auditWriter{ResponseWriter: w, status: http.StatusOK}
@@ -588,6 +725,19 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.ComponentAPI.ServeHTTP(w, r)
+}
+
+// instanceRoute names a backend's call to xbind's API by its route pattern
+// ("PUT /api/xbin/cron/jobs"), never by the path's data (a kv key, a vault
+// name): what a failed start's message says the backend was waiting on.
+func instanceRoute(method, pattern string) string {
+	if pattern == "" {
+		return method + " /api/xbin (no such route)"
+	}
+	if _, p, ok := strings.Cut(pattern, " "); ok {
+		return method + " /api/xbin" + p
+	}
+	return method + " /api/xbin" + pattern
 }
 
 // xbinInner sets in's Path and RawPath to what follows /api/xbin in u, both
@@ -663,7 +813,7 @@ func (s *Server) eventFilter(p auth.Principal) events.Filter {
 		if e.Type != "bus" {
 			return true
 		}
-		if p.IsAdmin() && e.Partition == "" { // a partition's bus: no blanket pass (G2)
+		if p.IsAdmin() && e.Partition == "" && !util.SealedTarget(e.Topic) { // a partition's bus: no blanket pass (G2); nor a sealed component's (its bus is its backend's alone, D227)
 			return true
 		}
 		return s.policy().BusAllows(p, e)
@@ -687,6 +837,12 @@ func (c *countingWriter) Write(b []byte) (int, error) {
 	respBytes.Add(int64(n))
 	return n, err
 }
+
+// Unwrap lets http.ResponseController reach the connection through the
+// counter: a handler that streams sets a deadline on each write (the LLM
+// connector's relay), so a client that stops reading doesn't pin it.
+func (c *countingWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
+
 func (c *countingWriter) Flush() {
 	if f, ok := c.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
@@ -713,7 +869,7 @@ func auditable(method, path string) bool {
 	// The element data plane (prefs/kv/blob/bus, partition mail) is
 	// high-frequency and not governance — exclude it so the audit stream
 	// stays signal.
-	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/", "/partitions/mail"} {
+	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/", "/partitions/mail", "/llm/v1/"} { // …and model calls (metered, not audited)
 		if strings.HasPrefix(path, dp) {
 			return false
 		}

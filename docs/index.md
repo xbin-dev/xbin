@@ -38,11 +38,21 @@ overview is the map that puts them in context.
 **Reference:**
 
 - [overview/](/docs/overview/00-index.md) — the top-down system tour (start at `00-index.md`)
-- [protocol.md](/docs/protocol.md) — every HTTP/WS endpoint, header, and event
+- [protocol.md](/docs/protocol.md) — every HTTP/WS endpoint, header, and event:
+  the conventions they share and the index of the topic pages under
+  `/docs/protocol/` (one per area: [core.md](/docs/protocol/core.md),
+  [agents.md](/docs/protocol/agents.md),
+  [events.md](/docs/protocol/events.md), …)
 - [isolation.md](/docs/isolation.md) — sandboxes, terminal scoping, the dev layer, egress
+- [sealed.md](/docs/sealed.md) — system (sealed) components: parts of xbin that run
+  like tiles with the release's own code; what an admin decides, holds, upgrades
 - [ingress.md](/docs/ingress.md) — publishing tiles: public HTTP(S) + TCP/UDP endpoints
 - [agent-inbox.md](/docs/agent-inbox.md) — the contract between chat adapters
   (Slack, …) and agents built from the agent template
+- [mcp.md](/docs/mcp.md) — give an agent a tool: the `mcp-server` template
+  (an MCP server tile), the agent template's `mcp` slot and the binding as
+  the grant, the JSON-RPC methods, adding a tool, checking it, and how an
+  assistant picks it up (personal and global binds)
 - [sandbox-manager.md](/docs/sandbox-manager.md) — the contract between
   sandbox managers (tiles that run coding sandboxes) and the tiles that use
   them, such as the agent template
@@ -63,10 +73,20 @@ overview is the map that puts them in context.
 - [app-tunnel.md](/docs/app-tunnel.md) — the xbin app over an iroh tunnel
   (D204): turning it on, pairing with the confirmation code, refusing the
   app outside it, device limits, running your own relay, the threat model
+- [llm.md](/docs/llm.md) — the built-in LLM connector (D226): upstreams
+  and keys, binding a tile's `llm` slot to `xbin:llm`, model names and
+  aliases, usage per person, quotas, and the host's lockable configuration
+  file; its routes are in [protocol/llm.md](/docs/protocol/llm.md)
+- [workspace-agent.md](/docs/workspace-agent.md) — the workspace agent
+  (D231): one agent per person that plans across tiles and asks before
+  anything changes — what it reaches, how its approvals work, what a tile
+  declares (`"agent"`, `Caller.Agent`), what the model's provider sees
 - [config.md](/docs/config.md) — every `xbind` flag and `XBIN_*` variable,
   generated from the daemon's configuration
 - [changelog.md](/docs/changelog.md) — builder-visible changes per xbind
-  upgrade; **BREAKING** entries link migration notes under `/docs/changes/`
+  upgrade; **BREAKING** entries link migration notes under `/docs/changes/`.
+  It holds the recent weeks; older months are under `/docs/changelog/`,
+  listed at its end
 - [frontend-kit.md](/docs/frontend-kit.md) — the `/vendor/` modules a tile
   may import (`bx-kit`, `bx-dialog`, `bx-code`, …), the theme's mechanics
   (opting in, tokens, icons), the URL rules, lit pitfalls

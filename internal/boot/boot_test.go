@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/internal/sealed"
 )
 
 func TestResolveVaultMode(t *testing.T) {
@@ -231,7 +233,8 @@ func quiet(t *testing.T) {
 
 func testConfig(ws string, ln net.Listener) *Config {
 	cfg := &Config{Workspace: ws, Listen: "127.0.0.1:0", NoAuth: true, InsecureVault: true,
-		Privileges: NoPrivileges{}, Stdout: io.Discard, Version: "test", LimitMem: "2G"}
+		Privileges: NoPrivileges{}, Stdout: io.Discard, Version: "test", LimitMem: "2G",
+		Sealed: []sealed.Spec{}} // a release's (empty) table, whatever tags the test binary was built with
 	if ln != nil {
 		cfg.Listener = ln
 		cfg.Listen = ln.Addr().String()
@@ -280,6 +283,7 @@ func bootOnce(t *testing.T, ws string) {
 		if err != nil {
 			t.Fatalf("boot returned %v", err)
 		}
+		noneLeftBehind(t, ws) // a stopped xbind leaves no backend running (leftbehind_test.go)
 	case <-time.After(30 * time.Second):
 		t.Fatal("boot did not stop after cancel")
 	}

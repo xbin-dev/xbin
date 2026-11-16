@@ -234,7 +234,7 @@ func (ag *Agent) pullMailAtStart() {
 // mailboxRoutes mounts the doorbell apart from the route table: xbind rings
 // it as xbin/mail with the writer role, which the table's admin gate refuses.
 func mailboxRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /mailbox", handleMailbox)
+	mux.Handle("POST /mailbox", agentRuled(nil, http.HandlerFunc(handleMailbox))) // xbind's doorbell: never a person's agent's (wsagent.go)
 }
 
 // handleMailbox is the doorbell: xbind's xbin/mail principal (or the tile

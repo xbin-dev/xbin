@@ -110,8 +110,9 @@ public struct ToolCall: Sendable, Hashable, Identifiable {
         self.toolCallId = toolCallId
     }
 
-    /// Merges one tool.call/tool.update: fields replace, outputDelta appends,
-    /// output replaces the accumulated output.
+    /// Merges one tool.call/tool.update: fields replace, output replaces the
+    /// accumulated output, then outputDelta appends (the web's rule, and
+    /// sdk/acp's ToolRecord).
     public mutating func fold(_ u: ToolCallUpdate) {
         if let v = u.title { title = v }
         if let v = u.kind { kind = v }
@@ -128,16 +129,19 @@ public struct ToolCall: Sendable, Hashable, Identifiable {
         if let v = u.parent { parent = v }
         if u.subagent { isSubagent = true }
         if u.planReview { planReview = true }
-        if let v = u.outputDelta { output += v }
+        // a whole output replaces what was gathered, then a delta appends (an update may carry both)
         if let v = u.output { output = v }
+        if let v = u.outputDelta { output += v }
         if let v = u.exitCode { exitCode = v }
     }
 
     public var isRunning: Bool { status.isRunning }
     public var isExecute: Bool { kind == .execute }
-    /// The card's title (D77): the harness's description, else a reading of the command.
+    /// The card's title (D77): the harness's description, else a reading of the
+    /// command, the title's first line, a reading of the arguments by kind.
     public var headline: String {
-        ToolReading.headline(label: label, rawInput: rawInput, kind: kind, status: status, content: content, title: title, name: name, id: toolCallId)
+        ToolReading.headline(label: label, rawInput: rawInput, kind: kind, status: status, content: content, title: title, name: name, id: toolCallId,
+                             locations: locations)
     }
 
     /// The shell command ("" when the call is not one).

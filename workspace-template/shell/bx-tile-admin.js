@@ -135,6 +135,11 @@ export class BxTileAdmin extends LitElement {
     // this panel on their org's tiles — /access works for them while the
     // workspace-admin-only aggregates 403 and render as "workspace-admin
     // only" rows instead of blanking the whole panel.
+    // Loads overlap (each action reloads; the next action may start before
+    // the last reload answered): only the newest one's answers land — an
+    // older one finishing last put the old binding back on screen after a
+    // re-bind (the netPickers harness pass).
+    const gen = this._loadGen = (this._loadGen ?? 0) + 1;
     try {
       const forbidden = () => ({ forbidden: true });
       const [ov, grants, binds, cron, backups, vault, access, orgs] = await Promise.all([
@@ -147,6 +152,7 @@ export class BxTileAdmin extends LitElement {
         api(`/access?tile=${encodeURIComponent(this.path)}`).catch((e) => ({ err: String(e.message ?? e) })),
         api('/orgs').catch(() => ({ orgs: [] })), // empty for non-admins — the net picker then shows the classic list
       ]);
+      if (gen !== this._loadGen) return; // a newer load is on its way
       // Picker for the access section (best-effort; owners/org admins may fetch).
       api('/users-directory').then((d) => { this._dir = d.users ?? []; }).catch(() => {});
       // the deployments state, only where the shell's store knows the tile has one
@@ -167,7 +173,7 @@ export class BxTileAdmin extends LitElement {
       this._access = access;
       // A load error is reported like an action's; a successful reload does
       // NOT clear an action's refusal — that message belongs to the person.
-    } catch (e) { this._err = String(e.message ?? e); this._errSec = ''; }
+    } catch (e) { if (gen === this._loadGen) { this._err = String(e.message ?? e); this._errSec = ''; } }
   }
 
   async _loadRuntime() {

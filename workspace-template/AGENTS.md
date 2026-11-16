@@ -10,12 +10,14 @@ by the daemon; fetch any of them with:
 ```sh
 curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/docs/index.md?raw=1"
 # also: getting-started.md elements.md auth.md resources.md sdk.md design.md frontend-kit.md native.md protocol.md bx.md tile-deployments.md changelog.md
+# protocol.md indexes one page per area: protocol/core.md, protocol/agents.md, protocol/events.md, … (same URL shape)
 ```
 
 **After an xbind upgrade** (or when a previously-working API starts failing),
 read [`/docs/changelog.md`](/docs/changelog.md): builder-visible changes land
 there, and **BREAKING** entries link a migration note under `/docs/changes/`
-that says exactly what to change in your tile.
+that says exactly what to change in your tile. It holds the recent weeks; its
+last section lists the pages of older months (`/docs/changelog/<YYYY-MM>.md`).
 
 ## The model in five lines
 
@@ -115,6 +117,8 @@ new coding-sandbox as apps/coding-sandbox`), and the `sandbox-terminal` tile
 gives people browser terminals and SSH onto their sandboxes;
 the `scm-github` template (`bx template new scm-github`) offers the `scm`
 service — repos, credentials, pull requests, CI — docs/scm.md;
+tools for an agent instance are an MCP tile: `bx template new mcp-server as
+apps/dice`, then `bx bind apps/agent mcp+=apps/dice` — docs/mcp.md;
 for a chat platform, instantiate the `agent-messaging-bridge` template and
 have a coding agent add the platform);
 `bx tile import <name> [as <path>]` copies one in (or use the Tile Manager's
@@ -629,8 +633,15 @@ node/python: no SDK needed — listen on `process.env.XBIN_SOCKET` /
 `os.environ["XBIN_SOCKET"]`, read `X-XBin-From`/`X-XBin-Role` (and
 `X-XBin-User`/`X-XBin-User-Level` — the signed-in human driving the call,
 D29; `X-XBin-Viewed-By` when an admin is viewing as that user, D64;
+`X-XBin-Preview: 1` when xbind itself is rendering that user's view
+read-only, D234 — a GET or a socket message must have **no side effect**
+then: no mark-as-read, no presence, no cursor (xbind also sends role
+`reader` and user level `read` on those calls), and nothing drawn
+differently because of it; `xbin.Caller(r).Preview` in Go, `/docs/sdk.md`;
 `X-XBin-Partition`/`X-XBin-Partition-Id` when a partitioned tile calls you
-for a person — see Auth) headers,
+for a person; `X-XBin-Agent` when the call is that user's workspace agent
+acting for them — `X-XBin-From` is then `user:<id>` at role `reader` or
+`writer`, so never read `user:` as "an admin" — see Auth) headers,
 call outbound via the `XBIN_GATEWAY` unix socket with
 `Authorization: Bearer $XBIN_TOKEN`. `bx new` scaffolds working skeletons.
 `cgi` was removed (it ran tile code outside the sandbox): a tile declaring it
@@ -653,6 +664,10 @@ Lifecycle facts you must design around:
   30 s drain — clients must reconnect.
 - 3 fast crashes ⇒ marked failed until you save a change (until the next
   deploy or restart, for a pinned tile deployment). `bx logs` first.
+- Start ⇒ `xbin.Serve` within **5 s**, or it is marked failed the same way
+  ("never started listening"). Calls to xbind before Serve (registering cron
+  jobs, reading kv/config) are fine and don't count; long work (db
+  migrations, another tile's API) goes after Serve. /docs/sdk.md#startup.
 - Limits: the backend gets the workspace's default memory (2 GiB unless
   the admin changed it) and its scope the default data quota (50 GiB).
   Over memory, it is OOM-killed (the log says so) and the workspace's
@@ -874,10 +889,17 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   binds it to whatever tile provides that service; you discover the endpoint at
   runtime — `xbin.iface('llm').url` in a frontend, `$XBIN_IFACE_LLM_URL` in a
   backend — and the binding is also your call grant. This makes providers
-  **swappable** (Ollama ↔ a cloud proxy) with no code change.
+  **swappable** (Ollama ↔ a cloud proxy) with no code change. An `openai`
+  slot can also be bound to xbind's own LLM connector (`xbin:llm`, a
+  workspace admin's bind; `/docs/llm.md`): same slot, same code, the URL is
+  then `…/api/xbin/llm` and calls are metered to the person using your tile.
 - **Providing a standard API?** Declare it so others can bind you:
   `"provides": { "openai": { "kind": "http", "service": "openai", "role": "writer" } }`
   (`role` = the exposed role a binding grants callers).
+- **A slot your tile can't work without?** Add `"required": true` (an
+  agent's model): the shell shows it first, and once every required slot is
+  bound it folds the others into one line above the tile instead of a
+  popover over it.
 - **Many inputs on one slot** (http only): add `"multi": true` to a request
   slot when you genuinely want a *set* of providers (a comm agent binding
   Slack + N email accounts on one `channels` slot). You must opt in — you

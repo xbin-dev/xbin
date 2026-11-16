@@ -433,6 +433,14 @@ func (a *deploymentsAPI) getDiff(w http.ResponseWriter, r *http.Request) {
 			o = deployments.OpDiffWorkTree
 		}
 		e = a.readGate(pr, t, o)
+		// The work-tree side is a read that writes: it captures a
+		// checkpoint (checkpoint.Diff). OpDiffWorkTree is a read to the
+		// authority table, so the view-as refusal there never sees it — a
+		// read-only session captures nothing, whoever it reads as.
+		if e == nil && (from.WorkTree || to.WorkTree) && pr.ReadOnly() {
+			e = &dpe{Status: http.StatusForbidden, Kind: deployments.KindAuthority,
+				Msg: "read-only: a diff of the work tree captures a checkpoint, which a read-only session doesn't do — diff two checkpoints or deployments instead"}
+		}
 	}
 	if e == nil && !t.active() { // nothing to diff, nothing captured, no store (D119c)
 		e = &dpe{Status: http.StatusConflict, Kind: deployments.KindState,
@@ -509,6 +517,9 @@ func (a *deploymentsAPI) getFetch(w http.ResponseWriter, r *http.Request) {
 // .git whose prefix is a registered tile: a tile path may hold
 // .git-suffixed segments, a git path never does.
 func (a *deploymentsAPI) splitRemote(rest string) (tileRef, string, *dpe) {
+	if util.SealedPath(strings.TrimLeft(rest, "/")) {
+		return tileRef{}, "", sealedTile(strings.TrimSuffix(strings.SplitN(strings.Trim(rest, "/"), ".git/", 2)[0], ".git")) // no checkpoints (D227)
+	}
 	segs := strings.Split(rest, "/")
 	for i := len(segs) - 1; i >= 0; i-- {
 		name, ok := strings.CutSuffix(segs[i], ".git")

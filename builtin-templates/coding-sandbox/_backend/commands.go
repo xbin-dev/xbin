@@ -10,6 +10,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,13 +40,20 @@ func (m *Manager) box(rec record) Box { return m.backend().Sandbox(rec.Runtime) 
 
 // usable is find + ready: {id} for a command or a file operation, started
 // and prepared. A caller who may only look (caller.lookOnly) reads a running
-// sandbox and never starts a stopped one.
+// sandbox and never starts a stopped one. Nor does a preview (D234, xbind
+// rendering a person's view — only GETs reach here from one): its read
+// starts nothing.
 func (m *Manager) usable(w http.ResponseWriter, r *http.Request) (record, caller, bool) {
 	rec, c, ok := m.find(w, r)
 	if !ok {
 		return rec, c, false
 	}
-	if err := m.ready(r.Context(), &rec, !c.lookOnly); err != nil {
+	preview := !c.lookOnly && xbin.Caller(r).Preview
+	if err := m.ready(r.Context(), &rec, !c.lookOnly && !preview); err != nil {
+		var se *xbin.SandboxError
+		if preview && errors.As(err, &se) && se.Status == http.StatusForbidden { // ready's words are a page reader's
+			err = errf(http.StatusForbidden, "not-allowed", "the sandbox is stopped, and a preview doesn't start it")
+		}
 		writeErr(w, err, &rec)
 		return rec, c, false
 	}

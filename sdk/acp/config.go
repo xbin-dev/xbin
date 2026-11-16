@@ -35,6 +35,22 @@ type Config struct {
 	// category mode — the mode is Mode's alone (an embedder that keeps some
 	// modes to some people); such an entry is skipped and logged.
 	SkipModeOptions bool
+	// Strict: the session is opened for someone who isn't there to watch
+	// it start (xbind: a person's workspace agent, whose start the person
+	// approved as "this harness, in this mode"). Then the start is what was
+	// asked for or it fails:
+	//   - Mode must be in force: a session/set_mode the agent refuses ends
+	//     the start (otherwise it is logged and the session runs in the
+	//     agent's own mode);
+	//   - Options sets only what can't change what the session does
+	//     unasked — an option the agent reports under category "model" or
+	//     "thought_level". One of any other category (mode, model_config,
+	//     an adapter's own, none) ends the start; one the agent doesn't
+	//     offer is skipped, as ever.
+	// The shipped harnesses' options by category: claude-agent-acp model;
+	// codex-acp model and reasoning effort (thought_level); opencode model
+	// and its agents (mode); gemini none.
+	Strict bool
 }
 
 // Process is a spawned agent as the client sees it: its stdio and a way to
@@ -86,8 +102,8 @@ type ClientOptions struct {
 	Drop func(ctx context.Context, conn *Conn, a Attachment) (path string, err error)
 	// AuthHint is the text of an error the agent answered "auth required"
 	// (-32000) to: msg is the agent's own message. It tells the person how
-	// to sign in. nil = msg plus "the agent isn't signed in — run: " and the
-	// provider's LoginCmd.
+	// to sign in. nil = msg, ": ", and the provider's SignInHint ("the agent
+	// isn't signed in — run: " and its LoginCmd).
 	AuthHint func(cfg Config, msg string) string
 	// OnExt sees a notification the client does not handle itself — an
 	// extension such as xbind's _xbin/log from its in-sandbox host — and

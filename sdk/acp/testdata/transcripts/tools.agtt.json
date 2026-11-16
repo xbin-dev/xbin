@@ -1,0 +1,1908 @@
+{
+ "about": "the run's view (GET /runs/{id}/view: run, messages, steps, links, drafts) after each checkpoint of tools.json, as the agent template's backend maps the log (its transcripts_test.go)",
+ "name": "tools",
+ "views": [
+  {
+   "seq": 33,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "cards",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"file_path\":\"/w/apps/x/hello.txt\",\"summary\":\"Read hello.txt\"}",
+         "name": "acp:read"
+        },
+        "id": "h1:card-read",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "files": [
+        "/w/apps/x/hello.txt"
+       ],
+       "kind": "read",
+       "locations": [
+        {
+         "line": 1,
+         "path": "/w/apps/x/hello.txt"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Read hello.txt"
+      },
+      "compacted": false,
+      "content": "```\nhello\n```",
+      "created": 6,
+      "id": 4,
+      "name": "acp:read",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:card-read"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 8,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"file_path\":\"/w/apps/x/hello.txt\",\"summary\":\"Edit hello.txt\"}",
+         "name": "acp:edit"
+        },
+        "id": "h1:card-edit",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "diffs": [
+        {
+         "add": 1,
+         "del": 1,
+         "patch": "--- a/w/apps/x/hello.txt\n+++ b/w/apps/x/hello.txt\n@@ -1 +1 @@\n-hello\n+hello, world\n",
+         "path": "/w/apps/x/hello.txt",
+         "status": "modified",
+         "truncated": false
+        }
+       ],
+       "files": [
+        "/w/apps/x/hello.txt"
+       ],
+       "kind": "edit",
+       "locations": [
+        {
+         "path": "/w/apps/x/hello.txt"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Edit hello.txt"
+      },
+      "compacted": false,
+      "content": "edited /w/apps/x/hello.txt (+1 −1)",
+      "created": 8,
+      "id": 6,
+      "name": "acp:edit",
+      "role": "tool",
+      "runId": 1,
+      "seq": 5,
+      "toolCallId": "h1:card-edit"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 10,
+      "id": 7,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 6,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"path\":\"/w/apps/x/old.txt\",\"summary\":\"Delete old.txt\"}",
+         "name": "acp:delete"
+        },
+        "id": "h1:card-delete",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "files": [
+        "/w/apps/x/old.txt"
+       ],
+       "kind": "delete",
+       "locations": [
+        {
+         "path": "/w/apps/x/old.txt"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Delete old.txt"
+      },
+      "compacted": false,
+      "content": "Delete old.txt",
+      "created": 10,
+      "id": 8,
+      "name": "acp:delete",
+      "role": "tool",
+      "runId": 1,
+      "seq": 7,
+      "toolCallId": "h1:card-delete"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 12,
+      "id": 9,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 8,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"from\":\"/w/apps/x/draft.md\",\"summary\":\"Move draft.md → notes.md\",\"to\":\"/w/apps/x/notes.md\"}",
+         "name": "acp:move"
+        },
+        "id": "h1:card-move",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "files": [
+        "/w/apps/x/notes.md"
+       ],
+       "kind": "move",
+       "locations": [
+        {
+         "path": "/w/apps/x/notes.md"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Move draft.md → notes.md"
+      },
+      "compacted": false,
+      "content": "Move draft.md → notes.md",
+      "created": 12,
+      "id": 10,
+      "name": "acp:move",
+      "role": "tool",
+      "runId": 1,
+      "seq": 9,
+      "toolCallId": "h1:card-move"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 14,
+      "id": 11,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 10,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"path\":\"/w/apps/x\",\"pattern\":\"TODO\",\"summary\":\"grep TODO\"}",
+         "name": "acp:search"
+        },
+        "id": "h1:card-search",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "search",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "grep TODO"
+      },
+      "compacted": false,
+      "content": "hello.txt:3: // TODO: greet the world",
+      "created": 14,
+      "id": 12,
+      "name": "acp:search",
+      "role": "tool",
+      "runId": 1,
+      "seq": 11,
+      "toolCallId": "h1:card-search"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 16,
+      "id": 13,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 12,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"command\":\"go test ./...\",\"summary\":\"go test ./...\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:card-exec",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "exitCode": 0,
+       "kind": "execute",
+       "output": "ok  \texample\t0.01s\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "go test ./..."
+      },
+      "compacted": false,
+      "content": "ok  \texample\t0.01s\n\n[exit 0]",
+      "created": 16,
+      "id": 14,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 13,
+      "toolCallId": "h1:card-exec"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 18,
+      "id": 15,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 14,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Fetch https://example.invalid/docs\",\"url\":\"https://example.invalid/docs\"}",
+         "name": "acp:fetch"
+        },
+        "id": "h1:card-fetch",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "fetch",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Fetch https://example.invalid/docs"
+      },
+      "compacted": false,
+      "content": "# Docs\n\nA page about greetings.",
+      "created": 18,
+      "id": 16,
+      "name": "acp:fetch",
+      "role": "tool",
+      "runId": 1,
+      "seq": 15,
+      "toolCallId": "h1:card-fetch"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 20,
+      "id": 17,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 16,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Think it over\",\"thought\":\"Which greeting fits?\"}",
+         "name": "acp:think"
+        },
+        "id": "h1:card-think",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "think",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Think it over"
+      },
+      "compacted": false,
+      "content": "Weighing two greetings.",
+      "created": 20,
+      "id": 18,
+      "name": "acp:think",
+      "role": "tool",
+      "runId": 1,
+      "seq": 17,
+      "toolCallId": "h1:card-think"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 22,
+      "id": 19,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 18,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Do something else\"}",
+         "name": "acp:other"
+        },
+        "id": "h1:card-other",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "other",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Do something else"
+      },
+      "compacted": false,
+      "content": "done",
+      "created": 22,
+      "id": 20,
+      "name": "acp:other",
+      "role": "tool",
+      "runId": 1,
+      "seq": 19,
+      "toolCallId": "h1:card-other"
+     },
+     {
+      "compacted": false,
+      "content": "cards done",
+      "created": 27,
+      "id": 21,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 20,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "chatty 4",
+      "created": 29,
+      "id": 22,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 21,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 31,
+      "id": 23,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 22,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"yes | head\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:chatty",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "output": "line 1\nline 2\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "in_progress",
+       "subagent": false,
+       "title": "yes | head"
+      },
+      "compacted": false,
+      "content": "(running…)",
+      "created": 31,
+      "id": 24,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 23,
+      "toolCallId": "h1:chatty"
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "tool",
+       "title": "yes | head"
+      },
+      "commands": [],
+      "counts": {
+       "add": 1,
+       "del": 1,
+       "files": 1,
+       "tools": 10
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "working",
+      "steering": false,
+      "title": "fake: cards",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "running",
+     "title": "tools"
+    },
+    "steps": []
+   }
+  },
+  {
+   "seq": 45,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "cards",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"file_path\":\"/w/apps/x/hello.txt\",\"summary\":\"Read hello.txt\"}",
+         "name": "acp:read"
+        },
+        "id": "h1:card-read",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "files": [
+        "/w/apps/x/hello.txt"
+       ],
+       "kind": "read",
+       "locations": [
+        {
+         "line": 1,
+         "path": "/w/apps/x/hello.txt"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Read hello.txt"
+      },
+      "compacted": false,
+      "content": "```\nhello\n```",
+      "created": 6,
+      "id": 4,
+      "name": "acp:read",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:card-read"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 8,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"file_path\":\"/w/apps/x/hello.txt\",\"summary\":\"Edit hello.txt\"}",
+         "name": "acp:edit"
+        },
+        "id": "h1:card-edit",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "diffs": [
+        {
+         "add": 1,
+         "del": 1,
+         "patch": "--- a/w/apps/x/hello.txt\n+++ b/w/apps/x/hello.txt\n@@ -1 +1 @@\n-hello\n+hello, world\n",
+         "path": "/w/apps/x/hello.txt",
+         "status": "modified",
+         "truncated": false
+        }
+       ],
+       "files": [
+        "/w/apps/x/hello.txt"
+       ],
+       "kind": "edit",
+       "locations": [
+        {
+         "path": "/w/apps/x/hello.txt"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Edit hello.txt"
+      },
+      "compacted": false,
+      "content": "edited /w/apps/x/hello.txt (+1 −1)",
+      "created": 8,
+      "id": 6,
+      "name": "acp:edit",
+      "role": "tool",
+      "runId": 1,
+      "seq": 5,
+      "toolCallId": "h1:card-edit"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 10,
+      "id": 7,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 6,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"path\":\"/w/apps/x/old.txt\",\"summary\":\"Delete old.txt\"}",
+         "name": "acp:delete"
+        },
+        "id": "h1:card-delete",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "files": [
+        "/w/apps/x/old.txt"
+       ],
+       "kind": "delete",
+       "locations": [
+        {
+         "path": "/w/apps/x/old.txt"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Delete old.txt"
+      },
+      "compacted": false,
+      "content": "Delete old.txt",
+      "created": 10,
+      "id": 8,
+      "name": "acp:delete",
+      "role": "tool",
+      "runId": 1,
+      "seq": 7,
+      "toolCallId": "h1:card-delete"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 12,
+      "id": 9,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 8,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"from\":\"/w/apps/x/draft.md\",\"summary\":\"Move draft.md → notes.md\",\"to\":\"/w/apps/x/notes.md\"}",
+         "name": "acp:move"
+        },
+        "id": "h1:card-move",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "files": [
+        "/w/apps/x/notes.md"
+       ],
+       "kind": "move",
+       "locations": [
+        {
+         "path": "/w/apps/x/notes.md"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Move draft.md → notes.md"
+      },
+      "compacted": false,
+      "content": "Move draft.md → notes.md",
+      "created": 12,
+      "id": 10,
+      "name": "acp:move",
+      "role": "tool",
+      "runId": 1,
+      "seq": 9,
+      "toolCallId": "h1:card-move"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 14,
+      "id": 11,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 10,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"path\":\"/w/apps/x\",\"pattern\":\"TODO\",\"summary\":\"grep TODO\"}",
+         "name": "acp:search"
+        },
+        "id": "h1:card-search",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "search",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "grep TODO"
+      },
+      "compacted": false,
+      "content": "hello.txt:3: // TODO: greet the world",
+      "created": 14,
+      "id": 12,
+      "name": "acp:search",
+      "role": "tool",
+      "runId": 1,
+      "seq": 11,
+      "toolCallId": "h1:card-search"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 16,
+      "id": 13,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 12,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"command\":\"go test ./...\",\"summary\":\"go test ./...\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:card-exec",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "exitCode": 0,
+       "kind": "execute",
+       "output": "ok  \texample\t0.01s\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "go test ./..."
+      },
+      "compacted": false,
+      "content": "ok  \texample\t0.01s\n\n[exit 0]",
+      "created": 16,
+      "id": 14,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 13,
+      "toolCallId": "h1:card-exec"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 18,
+      "id": 15,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 14,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Fetch https://example.invalid/docs\",\"url\":\"https://example.invalid/docs\"}",
+         "name": "acp:fetch"
+        },
+        "id": "h1:card-fetch",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "fetch",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Fetch https://example.invalid/docs"
+      },
+      "compacted": false,
+      "content": "# Docs\n\nA page about greetings.",
+      "created": 18,
+      "id": 16,
+      "name": "acp:fetch",
+      "role": "tool",
+      "runId": 1,
+      "seq": 15,
+      "toolCallId": "h1:card-fetch"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 20,
+      "id": 17,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 16,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Think it over\",\"thought\":\"Which greeting fits?\"}",
+         "name": "acp:think"
+        },
+        "id": "h1:card-think",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "think",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Think it over"
+      },
+      "compacted": false,
+      "content": "Weighing two greetings.",
+      "created": 20,
+      "id": 18,
+      "name": "acp:think",
+      "role": "tool",
+      "runId": 1,
+      "seq": 17,
+      "toolCallId": "h1:card-think"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 22,
+      "id": 19,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 18,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Do something else\"}",
+         "name": "acp:other"
+        },
+        "id": "h1:card-other",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "other",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Do something else"
+      },
+      "compacted": false,
+      "content": "done",
+      "created": 22,
+      "id": 20,
+      "name": "acp:other",
+      "role": "tool",
+      "runId": 1,
+      "seq": 19,
+      "toolCallId": "h1:card-other"
+     },
+     {
+      "compacted": false,
+      "content": "cards done",
+      "created": 27,
+      "id": 21,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 20,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "chatty 4",
+      "created": 29,
+      "id": 22,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 21,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 31,
+      "id": 23,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 22,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"yes | head\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:chatty",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "exitCode": 0,
+       "kind": "execute",
+       "output": "line 1\nline 2\nline 3\nline 4\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "yes | head"
+      },
+      "compacted": false,
+      "content": "line 1\nline 2\nline 3\nline 4\n\n[exit 0]",
+      "created": 31,
+      "id": 24,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 23,
+      "toolCallId": "h1:chatty"
+     },
+     {
+      "compacted": false,
+      "content": "chatty: 4 lines",
+      "created": 39,
+      "id": 25,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 24,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "subagent explore",
+      "created": 41,
+      "id": 26,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 25,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 43,
+      "id": 27,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 26,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"description\":\"Explore the repo\",\"prompt\":\"Find where **main** starts.\",\"subagent_type\":\"Explore\",\"summary\":\"Explore the repo\"}",
+         "name": "acp:think"
+        },
+        "id": "h1:task1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "think",
+       "label": "Explore the repo",
+       "planReview": false,
+       "status": "in_progress",
+       "subagent": true,
+       "title": "Explore the repo",
+       "tool": "Task"
+      },
+      "compacted": false,
+      "content": "(running…)",
+      "created": 43,
+      "id": 28,
+      "name": "acp:think",
+      "role": "tool",
+      "runId": 1,
+      "seq": 27,
+      "toolCallId": "h1:task1"
+     },
+     {
+      "acp": {
+       "parent": "h1:task1"
+      },
+      "compacted": false,
+      "content": "",
+      "created": 45,
+      "id": 29,
+      "name": "",
+      "reasoning": "Looking for the entry point.",
+      "reasoningMs": 0,
+      "role": "assistant",
+      "runId": 1,
+      "seq": 28,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Read main.go\"}",
+         "name": "acp:read"
+        },
+        "id": "h1:read1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "read",
+       "parent": "h1:task1",
+       "planReview": false,
+       "status": "in_progress",
+       "subagent": false,
+       "title": "Read main.go",
+       "tool": "Read"
+      },
+      "compacted": false,
+      "content": "(running…)",
+      "created": 45,
+      "id": 30,
+      "name": "acp:read",
+      "role": "tool",
+      "runId": 1,
+      "seq": 29,
+      "toolCallId": "h1:read1"
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "tool",
+       "title": "Read main.go"
+      },
+      "commands": [],
+      "counts": {
+       "add": 1,
+       "del": 1,
+       "files": 1,
+       "tools": 12
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "working",
+      "steering": false,
+      "title": "fake: cards",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "running",
+     "title": "tools"
+    },
+    "steps": []
+   }
+  },
+  {
+   "seq": 52,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "cards",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"file_path\":\"/w/apps/x/hello.txt\",\"summary\":\"Read hello.txt\"}",
+         "name": "acp:read"
+        },
+        "id": "h1:card-read",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "files": [
+        "/w/apps/x/hello.txt"
+       ],
+       "kind": "read",
+       "locations": [
+        {
+         "line": 1,
+         "path": "/w/apps/x/hello.txt"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Read hello.txt"
+      },
+      "compacted": false,
+      "content": "```\nhello\n```",
+      "created": 6,
+      "id": 4,
+      "name": "acp:read",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:card-read"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 8,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"file_path\":\"/w/apps/x/hello.txt\",\"summary\":\"Edit hello.txt\"}",
+         "name": "acp:edit"
+        },
+        "id": "h1:card-edit",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "diffs": [
+        {
+         "add": 1,
+         "del": 1,
+         "patch": "--- a/w/apps/x/hello.txt\n+++ b/w/apps/x/hello.txt\n@@ -1 +1 @@\n-hello\n+hello, world\n",
+         "path": "/w/apps/x/hello.txt",
+         "status": "modified",
+         "truncated": false
+        }
+       ],
+       "files": [
+        "/w/apps/x/hello.txt"
+       ],
+       "kind": "edit",
+       "locations": [
+        {
+         "path": "/w/apps/x/hello.txt"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Edit hello.txt"
+      },
+      "compacted": false,
+      "content": "edited /w/apps/x/hello.txt (+1 −1)",
+      "created": 8,
+      "id": 6,
+      "name": "acp:edit",
+      "role": "tool",
+      "runId": 1,
+      "seq": 5,
+      "toolCallId": "h1:card-edit"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 10,
+      "id": 7,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 6,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"path\":\"/w/apps/x/old.txt\",\"summary\":\"Delete old.txt\"}",
+         "name": "acp:delete"
+        },
+        "id": "h1:card-delete",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "files": [
+        "/w/apps/x/old.txt"
+       ],
+       "kind": "delete",
+       "locations": [
+        {
+         "path": "/w/apps/x/old.txt"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Delete old.txt"
+      },
+      "compacted": false,
+      "content": "Delete old.txt",
+      "created": 10,
+      "id": 8,
+      "name": "acp:delete",
+      "role": "tool",
+      "runId": 1,
+      "seq": 7,
+      "toolCallId": "h1:card-delete"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 12,
+      "id": 9,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 8,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"from\":\"/w/apps/x/draft.md\",\"summary\":\"Move draft.md → notes.md\",\"to\":\"/w/apps/x/notes.md\"}",
+         "name": "acp:move"
+        },
+        "id": "h1:card-move",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "files": [
+        "/w/apps/x/notes.md"
+       ],
+       "kind": "move",
+       "locations": [
+        {
+         "path": "/w/apps/x/notes.md"
+        }
+       ],
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Move draft.md → notes.md"
+      },
+      "compacted": false,
+      "content": "Move draft.md → notes.md",
+      "created": 12,
+      "id": 10,
+      "name": "acp:move",
+      "role": "tool",
+      "runId": 1,
+      "seq": 9,
+      "toolCallId": "h1:card-move"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 14,
+      "id": 11,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 10,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"path\":\"/w/apps/x\",\"pattern\":\"TODO\",\"summary\":\"grep TODO\"}",
+         "name": "acp:search"
+        },
+        "id": "h1:card-search",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "search",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "grep TODO"
+      },
+      "compacted": false,
+      "content": "hello.txt:3: // TODO: greet the world",
+      "created": 14,
+      "id": 12,
+      "name": "acp:search",
+      "role": "tool",
+      "runId": 1,
+      "seq": 11,
+      "toolCallId": "h1:card-search"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 16,
+      "id": 13,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 12,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"command\":\"go test ./...\",\"summary\":\"go test ./...\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:card-exec",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "exitCode": 0,
+       "kind": "execute",
+       "output": "ok  \texample\t0.01s\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "go test ./..."
+      },
+      "compacted": false,
+      "content": "ok  \texample\t0.01s\n\n[exit 0]",
+      "created": 16,
+      "id": 14,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 13,
+      "toolCallId": "h1:card-exec"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 18,
+      "id": 15,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 14,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Fetch https://example.invalid/docs\",\"url\":\"https://example.invalid/docs\"}",
+         "name": "acp:fetch"
+        },
+        "id": "h1:card-fetch",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "fetch",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Fetch https://example.invalid/docs"
+      },
+      "compacted": false,
+      "content": "# Docs\n\nA page about greetings.",
+      "created": 18,
+      "id": 16,
+      "name": "acp:fetch",
+      "role": "tool",
+      "runId": 1,
+      "seq": 15,
+      "toolCallId": "h1:card-fetch"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 20,
+      "id": 17,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 16,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Think it over\",\"thought\":\"Which greeting fits?\"}",
+         "name": "acp:think"
+        },
+        "id": "h1:card-think",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "think",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Think it over"
+      },
+      "compacted": false,
+      "content": "Weighing two greetings.",
+      "created": 20,
+      "id": 18,
+      "name": "acp:think",
+      "role": "tool",
+      "runId": 1,
+      "seq": 17,
+      "toolCallId": "h1:card-think"
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 22,
+      "id": 19,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 18,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Do something else\"}",
+         "name": "acp:other"
+        },
+        "id": "h1:card-other",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "other",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Do something else"
+      },
+      "compacted": false,
+      "content": "done",
+      "created": 22,
+      "id": 20,
+      "name": "acp:other",
+      "role": "tool",
+      "runId": 1,
+      "seq": 19,
+      "toolCallId": "h1:card-other"
+     },
+     {
+      "compacted": false,
+      "content": "cards done",
+      "created": 27,
+      "id": 21,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 20,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "chatty 4",
+      "created": 29,
+      "id": 22,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 21,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 31,
+      "id": 23,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 22,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"yes | head\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:chatty",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "exitCode": 0,
+       "kind": "execute",
+       "output": "line 1\nline 2\nline 3\nline 4\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "yes | head"
+      },
+      "compacted": false,
+      "content": "line 1\nline 2\nline 3\nline 4\n\n[exit 0]",
+      "created": 31,
+      "id": 24,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 23,
+      "toolCallId": "h1:chatty"
+     },
+     {
+      "compacted": false,
+      "content": "chatty: 4 lines",
+      "created": 39,
+      "id": 25,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 24,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "subagent explore",
+      "created": 41,
+      "id": 26,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 25,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 43,
+      "id": 27,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 26,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"description\":\"Explore the repo\",\"prompt\":\"Find where **main** starts.\",\"subagent_type\":\"Explore\",\"summary\":\"Explore the repo\"}",
+         "name": "acp:think"
+        },
+        "id": "h1:task1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "think",
+       "label": "Explore the repo",
+       "planReview": false,
+       "status": "completed",
+       "subagent": true,
+       "title": "Explore the repo",
+       "tool": "Task"
+      },
+      "compacted": false,
+      "content": "`main` is in **main.go**.",
+      "created": 43,
+      "id": 28,
+      "name": "acp:think",
+      "role": "tool",
+      "runId": 1,
+      "seq": 27,
+      "toolCallId": "h1:task1"
+     },
+     {
+      "acp": {
+       "parent": "h1:task1"
+      },
+      "compacted": false,
+      "content": "",
+      "created": 45,
+      "id": 29,
+      "name": "",
+      "reasoning": "Looking for the entry point.",
+      "reasoningMs": 0,
+      "role": "assistant",
+      "runId": 1,
+      "seq": 28,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"Read main.go\"}",
+         "name": "acp:read"
+        },
+        "id": "h1:read1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "read",
+       "parent": "h1:task1",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Read main.go",
+       "tool": "Read"
+      },
+      "compacted": false,
+      "content": "Read main.go",
+      "created": 45,
+      "id": 30,
+      "name": "acp:read",
+      "role": "tool",
+      "runId": 1,
+      "seq": 29,
+      "toolCallId": "h1:read1"
+     },
+     {
+      "acp": {
+       "parent": "h1:task1"
+      },
+      "compacted": false,
+      "content": "main starts in main.go",
+      "created": 48,
+      "id": 31,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 30,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "the subagent found it",
+      "created": 51,
+      "id": 32,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 31,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "idle"
+      },
+      "commands": [],
+      "counts": {
+       "add": 1,
+       "del": 1,
+       "files": 1,
+       "tools": 12
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "ready",
+      "steering": false,
+      "title": "fake: cards",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "idle",
+     "title": "tools"
+    },
+    "steps": []
+   }
+  }
+ ]
+}

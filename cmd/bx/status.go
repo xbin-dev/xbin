@@ -269,6 +269,10 @@ func printTileStatus(s *tileStatus) {
 		if b.Error != "" {
 			fmt.Printf("  error      %s\n", b.Error)
 		}
+		if strings.Contains(b.Error, "never started listening") { // the runner's text (internal/runner/health.go)
+			fmt.Println("  hint       its main() never reached xbin.Serve within the health deadline: move long startup work after Serve\n" +
+				"             (calls to xbind before Serve are fine) — /docs/sdk.md#startup; bx logs shows what it printed")
+		}
 		mem := ""
 		if b.Cgroup != nil {
 			mem = fmt.Sprintf("   mem %s", humanBytesBx(b.Cgroup.MemCurrent))

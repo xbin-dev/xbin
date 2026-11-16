@@ -7,7 +7,10 @@ package term
 // agent's next step), else it is HELD here and sent as the next prompt when
 // the turn ends; held messages go in together, in order, as one prompt (as
 // many as one prompt's attachment limits allow). Once something is held,
-// later messages are held behind it rather than steered past it.
+// later messages are held behind it rather than steered past it. Which of
+// the three a message gets, and when the held ones go, is decided by
+// sdk/acp's queue.go — the rules the agent template's engine follows too;
+// this file keeps the store and the `queue` events.
 //
 // The queue is the session's, not a client's: every client sees it (a
 // `queue` event in the log carries the held items after each change, and
@@ -26,6 +29,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/util"
+	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // EvQueue is the session's held messages after a change ({items, sent?,
@@ -84,9 +88,7 @@ type queueData struct {
 }
 
 // busyLocked: a turn runs (or waits for an answer, or is being cancelled).
-func (st *agentState) busyLocked() bool {
-	return st.status == agent.StatusRunning || st.status == agent.StatusWaiting || st.status == agent.StatusCancelling
-}
+func (st *agentState) busyLocked() bool { return sdkacp.Busy(st.status) }
 
 // ReserveQueue takes the session's one queueing slot before the request's
 // body is read (like ReservePrompt: a message's files are tens of MiB
@@ -102,11 +104,22 @@ func (m *Manager) ReserveQueue(id string) (release func(), err error) {
 	return func() { st.queueing.Store(false) }, nil
 }
 
-// AgentQueue takes a message for session id whatever it is doing: idle, it
-// starts a turn (QueuePrompted); busy, the running turn takes it where the
-// agent steers and nothing is held yet (QueueSteered), else it is held for
-// the turn's end (QueueHeld). interrupt holds it and cancels the running
-// turn, so it goes in once that turn has ended.
+// queueStateLocked is the session as sdk/acp's queue rules read it (st.mu
+// held): its status, the agent's own turn, what is held, a prompt on its
+// way. Steering is the caller's to say (the driver's).
+func (st *agentState) queueStateLocked() sdkacp.QueueState {
+	return sdkacp.QueueState{Status: st.status, Detached: st.det.Running(), Held: len(st.queue),
+		Sending: st.flushing || st.prompting.Load()}
+}
+
+// AgentQueue takes a message for session id whatever it is doing — the
+// decisions are sdk/acp's (QueueState.Message, SteerOutcome; the agent
+// template's engine makes the same ones): idle, it starts a turn
+// (QueuePrompted); busy, the running turn takes it where the agent steers
+// and nothing is held yet (QueueSteered), else it is held for the turn's
+// end (QueueHeld) — as it is while the agent runs a turn of its own
+// (agentdetached.go). interrupt holds it and cancels the running turn, so
+// it goes in once that turn has ended.
 func (m *Manager) AgentQueue(ctx context.Context, id string, p agent.Prompt, interrupt bool) (QueueResult, error) {
 	s, st, err := m.agentOf(id)
 	if err != nil {
@@ -120,12 +133,15 @@ func (m *Manager) AgentQueue(ctx context.Context, id string, p agent.Prompt, int
 		return QueueResult{}, ctx.Err()
 	}
 	st.mu.Lock()
-	startErr, busy, held := st.startErr, st.busyLocked(), len(st.queue) > 0
+	startErr, q := st.startErr, st.queueStateLocked()
 	st.mu.Unlock()
 	if startErr != nil {
 		return QueueResult{}, fmt.Errorf("the agent did not start: %w", startErr)
 	}
-	if !busy && !held { // nothing to wait for: a prompt
+	sr, steers := st.drv.(agent.Steerer)
+	q.Steering = steers // (an agent that doesn't steer says so when asked: ErrSteeringUnsupported)
+	do := q.Message(interrupt)
+	if do == sdkacp.MessagePrompt { // nothing to wait for: a prompt
 		turn, err := m.AgentPromptWith(ctx, id, p)
 		if err == nil {
 			return QueueResult{Outcome: QueuePrompted, Turn: turn}, nil
@@ -133,15 +149,20 @@ func (m *Manager) AgentQueue(ctx context.Context, id string, p agent.Prompt, int
 		if !errors.Is(err, agent.ErrBusy) {
 			return QueueResult{}, err
 		}
-		// a turn started meanwhile: take it as for a busy session
+		q.Status = agent.StatusRunning // a turn started meanwhile: take it as for a busy session
+		do = q.Message(interrupt)
 	}
-	if sr, ok := st.drv.(agent.Steerer); ok && !interrupt && !held {
+	if do == sdkacp.MessageSteer {
 		out, err := sr.Steer(ctx, p)
-		switch {
-		case err == nil && (out == agent.SteerInjected || out == agent.SteerStartedNewTurn):
+		next, detached := sdkacp.SteerOutcome(out, err)
+		switch next {
+		case sdkacp.MessageDelivered:
+			if detached { // the agent started a turn of its own with it: followed as a running one
+				s.beginDetached(m)
+			}
 			s.hub.Touch()
 			return QueueResult{Outcome: QueueSteered}, nil
-		case err == nil && out == agent.SteerPromptRequired: // the turn ended as we asked
+		case sdkacp.MessagePrompt: // the turn ended as we asked
 			turn, perr := m.AgentPromptWith(ctx, id, p)
 			if perr == nil {
 				return QueueResult{Outcome: QueuePrompted, Turn: turn}, nil
@@ -149,7 +170,7 @@ func (m *Manager) AgentQueue(ctx context.Context, id string, p agent.Prompt, int
 			if !errors.Is(perr, agent.ErrBusy) {
 				return QueueResult{}, perr
 			}
-		case err != nil && !errors.Is(err, agent.ErrSteeringUnsupported):
+		case sdkacp.MessageRefused:
 			return QueueResult{}, err // refused (its files, the session's end): not held either
 		}
 	}
@@ -159,10 +180,10 @@ func (m *Manager) AgentQueue(ctx context.Context, id string, p agent.Prompt, int
 	}
 	if interrupt {
 		st.mu.Lock()
-		running := st.busyLocked()
+		running := st.queueStateLocked().Busy()
 		st.mu.Unlock()
 		if running {
-			if err := st.drv.Cancel(); err != nil {
+			if err := m.cancelTurn(s); err != nil {
 				return QueueResult{Outcome: QueueHeld, ID: item.ID}, nil // held all the same: it goes in when the turn ends
 			}
 		}
@@ -288,18 +309,11 @@ func (m *Manager) KickQueue(id string) {
 func (m *Manager) kickQueue(s *Session) {
 	st := s.agent
 	st.mu.Lock()
-	go1 := len(st.queue) > 0 && !st.flushing && st.queueSendable()
+	go1 := st.queueStateLocked().Flush()
 	st.mu.Unlock()
 	if go1 {
 		go m.flushQueue(s)
 	}
-}
-
-// queueSendable: the session can take the queue as a prompt now — its turn
-// ended (idle, or the turn failed) and no prompt is being taken (st.mu
-// held).
-func (st *agentState) queueSendable() bool {
-	return (st.status == agent.StatusIdle || st.status == agent.StatusError) && !st.prompting.Load()
 }
 
 // flushQueue sends what is held as one prompt: the messages in order, their
@@ -311,7 +325,7 @@ func (st *agentState) queueSendable() bool {
 func (m *Manager) flushQueue(s *Session) {
 	st := s.agent
 	st.mu.Lock()
-	if st.flushing || len(st.queue) == 0 || !st.queueSendable() {
+	if !st.queueStateLocked().Flush() { // sdk/acp: the turn is over, no turn of the agent's own runs, no prompt is on its way
 		st.mu.Unlock()
 		return
 	}

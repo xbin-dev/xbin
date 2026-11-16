@@ -10,6 +10,1600 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-16
+
+- iOS app: **a plan is reviewed in the app's change-set sheet**, by the
+  web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
+  generated vectors): lines that create a tile or start a tile agent, what
+  a line needs and what needs it, an admin's line ("applied as you": it
+  starts unticked, and the admin's own tick is the consent for it), "needs
+  an admin" with Ask an admin, and a request from another person. After an
+  Apply in which nothing failed the sheet closes itself; a failure stays
+  until it is closed. A line of a kind the app doesn't know is shown and can't
+  be ticked. A change's before and after are xbind's words.
+- workspace agent's chrome (web): **a plan is reviewed once.** The
+  change-set dialog draws a plan's lines — a tile's creation, a tile
+  agent's start with its coding agent, mode and the brief "sent exactly
+  like this", bindings — with what each line needs and what needs it
+  (unticking a line unticks those). An admin's line is marked, starts
+  unticked and reads "An admin change — applied as you": ticking it and
+  pressing Apply (with a recent sign-in) is the consent for that line —
+  "Let my agent propose admin changes" is not asked for and stays what it
+  was, in Preferences. Anyone else sees "needs an admin" with **Ask an
+  admin**. After Apply the results show in place and, when every chosen
+  line was applied, the review closes itself (`bx-agent-done` with `self:
+  true`); a failure keeps it open with **Close**. An admin sees such a request in Needs you
+  as "<person> asks for N admin changes". A line of a kind the page
+  doesn't know is shown and can't be ticked. New module
+  `/vendor/agent-plan-words.js` ([frontend-kit.md](/docs/frontend-kit.md));
+  an admin change set proposed the old way looks as it did, except that
+  its effects are separated by " · ".
+- workspace agent (the agent template's workspace mode), SDK: **`plan_propose`
+  — one proposal for several steps.** The agent proposes "create these
+  tiles, bind these slots, start this tile agent" as one plan
+  (`xbin.ProposePlan`, additive, with `ChangeSet.Plan` and
+  `ChangeSetItem.Admin`, `NeedsAdmin`, `Needs`, `Out`) instead of a request
+  a step; its prompt says when, and that an applied plan is followed
+  through — the tile agent's report, then its own check — before it says
+  done. The tile agents a plan starts become the conversation's to follow.
+  While a plan waits, `tile_create` and `tile_agent_start` for one of its
+  steps file nothing. `tile_create`, `tile_agent_start` and `admin_propose`
+  work as before (the template's `API.md` §Workspace mode → Plans). A
+  decided plan's card in the conversation keeps each line's outcome (`GET
+  /ws/sessions/<id>/cards` → `requests[].plan`, `lines: [{n, kind, line,
+  result?, error?, needsAdmin?, blocked?}]`), stays marked when a line
+  failed, and opens xbin's results.
+- delegation: **plans — multi-step work is one change set.** `POST
+  /delegate/plans` (a person's agent, no opt-in to propose) takes the
+  admin kinds and two new ones, `tile.create {template, path, owner?}` and
+  `agent.start {tile, brief, harness?, mode?}`; a later line may name a
+  tile an earlier line creates (described from the template's manifest,
+  checked against the tile when applied; lines apply in order, a line with
+  the lines it `needs`). Each line is the person's own to do or an
+  `admin`'s: an approval of personal lines needs no recent sign-in, one
+  with an admin's line needs one and nothing else — the admin's tick and
+  Apply are the consent for that line, and of a line that takes an admin
+  the agent reads only xbind's sentence and its result unless the person
+  turned `adminChanges` on. For a person who is no admin such a line is
+  `needsAdmin` — xbind's sentence and nothing of the state behind it — and
+  `POST /delegate/changesets/<id>/ask` sends it to the admins as a change
+  set `from` that person. Additive: the two routes; on a change set `plan`,
+  `session`, `from`, `askOf`, `askId`, `decidedBy`, `byHand`; on an item
+  `admin`, `needsAdmin`, `needs`, `deferred`, `start`, `out`, `undoByHand`,
+  `of`, `pin` and the result `asked`. A `tile.create` line says what the
+  template gives the new tile — `ACCESS:` and `EXPOSES:` warnings where it
+  gains access by being created or declares endpoints for the outside —
+  and is stale when the template changed since; a start is pinned to its
+  network and API access too. `…/ask {retract: true}` takes a request
+  back. Audit rows gain `from` and `by` for a line an admin applied at
+  another person's request. A tile's `"agent"` level is about calls to
+  its API and reads of its data: a plan's line about a `read` tile is
+  proposed and says so; `off` refuses a line on either side. `POST
+  /delegate/changesets` and the sets it makes are as they were
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §Plans, §A
+  tile's agent level, §The audit log).
+- delegation: **an admin's workspace agent can create a tile, and a dry
+  run says what the real call does.** Under delegation a creation that
+  names no owner is the person's (`user:<id>`) for an admin too — it was
+  the workspace's, which a delegate call may never make, so the approved
+  `POST /templates/new` was refused after the sheet had said "Owner: you".
+  A dry run of an act now runs the handler's own check (additive:
+  `refusalCode`, and `create: {template, path, owner}` for a creation); a
+  request for a creation that would be refused is a 403 instead of a sheet,
+  and its `preview.create` says whose the tile would be. A dry run of a
+  session start is also refused where the open would be (no terminal
+  level, an unknown coding agent or mode). An admin's own creations are
+  workspace-owned by default as before
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §Dry run).
+- workspace agent: **a tile agent's turn that begins and ends between two
+  reads is reported** (the agent template's workspace mode noted a tile
+  agent's state, not its turn — a quick turn left the conversation
+  waiting). The review of a change set draws a binding's before and after
+  in words (`beforeText`, `afterText` on each item, written by xbind;
+  additive) — it showed `[object Object]`.
+- delegation, the workspace agent: **it can read the web and use MCP
+  tiles — off until turned on.** Three layers, each only narrowing: the
+  workspace's policy (`web: {mode: off|read, allow, deny}`, `mcp: {mode:
+  off|tiles}` on `PUT /delegate/workspace`, additive; the agent's card on
+  `/xbin/system`), preset and capped by the host's file
+  (`XBIN_LLM_CONFIG`'s `workspaceAgent` key: `web`, `mcp`); an org's agent rules (`web: ask|allow|never`,
+  `mcp: org`; `bx org agents --web --mcp`); and the person's own
+  Preferences (`web`, `mcp`, `mcpReadOnly` on `PUT /delegate/state`, armed
+  like Allow, web and app). New routes for the agent: `POST
+  /delegate/web/fetch` (one `GET` made by xbind to public addresses only,
+  checked as it connects; a conversation holding an org's data asks its
+  person for each URL — request kind `web`, once only) and `POST
+  /delegate/mcp/call` (request kind `mcp`, approved once or always for
+  that tool — a standing approval of `scope: "tool"`); the agent may also
+  send `initialize`, `ping` and `tools/list` to a tile's declared MCP
+  endpoint without asking. A session's handle carries `web` and `reach`;
+  requests carry `preview.readWeb` after a page was read; the log has
+  `class: "web" | "mcp" | "mcp-read"` rows. The agent template's
+  workspace mode gains the tools `web_read`, `mcp_tools` and `mcp_call`, and
+  its empty state lists what it can't do with who can turn it on. Not yet:
+  search, sending to the web, MCP servers listed by URL — each refused as
+  "not available yet" ([workspace-agent.md](/docs/workspace-agent.md) §The
+  web and MCP tools, [protocol/delegation.md](/docs/protocol/delegation.md)
+  §Web and MCP, [protocol/orgs.md](/docs/protocol/orgs.md)).
+- sign-in: **the first-run sheet** (D237). While a workspace has no
+  accounts, the owner token's first visit opens one sheet of xbin's
+  chrome over the shell — a name, a password, the vault's passphrase
+  twice (none when `XBIN_VAULT_PASSPHRASE` unseals it) and **Create my
+  account and turn on my workspace agent** — that makes an ordinary admin
+  account (`POST /users`), signs the browser in as it, sets up the vault
+  and turns workspace agents on for that person alone, then opens the
+  agent's dock. New routes: `GET /api/xbin/first-run {bootstrap}` and
+  `POST /api/xbin/first-run/session {id, password}`, the swap — the
+  token's browser session only, the workspace's only account (an admin,
+  never signed in, made in the last 15 minutes), its own password, same
+  origin, throttled with `/login` (docs/protocol/users.md §First run).
+  "Not now" keeps today's path, remembered per browser; a workspace with
+  any account never sees it. The shell's hook is new in the scaffold
+  (`shell/shell-first-run.js`); an older shell keeps the old path.
+- workspace agent: **the host's preset.** `"workspaceAgent"` in the
+  connector's host file (`XBIN_LLM_CONFIG`): `false` locks agents off,
+  `true` locks them on, `{"enabled": true, "who": "admins" | "everyone"}`
+  locks who too (`"admins"`, new: every admin account has its own agent).
+  What it wrote is taken back exactly when the key changes or goes, and
+  an entry a person or an admin made is never touched.
+  Read and locked like the connector's settings; `GET /delegate/state`
+  and `GET/PUT /delegate/workspace` carry `locks: {enabled?, who?}`, and a
+  PUT of a locked key is 409 (docs/workspace-agent.md §Set by your host).
+  The dock's setup steps and `/xbin/system` say "Set by your host",
+  read-only; `bx-agent-dock` gains `focusComposer()`.
+- agent template: **`GET /tools` — what a conversation would be offered
+  now.** Per class the caller may start in, every tool with its source (a
+  built-in, or which MCP server), and per MCP server where it comes from
+  (the `mcp` slot's binding — personal or global —, `config.mcp`, a server
+  connected by URL), whether it answers (`initialize` + `tools/list` asked
+  now, reused for 10 s) and its error. A read that stores nothing and
+  carries no header, token or address credential; open to anyone who can
+  use the instance and — the one route so — to their workspace agent at
+  its call's role, so it can tell a binding reached the backend without an
+  approval (the template's `API.md`, [mcp.md](/docs/mcp.md)). Merge the
+  template's update into an instance to get it.
+- interfaces, the shell, `<bx-bindings>`: **required slots; the rest fold
+  into one line.** A request slot may say `"required": true` — the
+  component can't work without it; the agent template's `llm` does. `GET
+  /bindings` marks pending rows `required`, and `optional` once every
+  required slot of the tile is bound (additive; a tile marking none has no
+  optional rows). The shell then shows such a tile's optional slots (and
+  its grant requests) as one line above the tile — "1 grant request · 3
+  optional interfaces · show" — instead of a popover over it, so a freshly
+  made assistant opens on its chat; `<bx-bindings>` (also in an older
+  shell's popover) marks a required row "required" and folds optional rows
+  into one line until clicked.
+  Nothing is bound or dismissed for the person
+  ([overview/11-interfaces.md](/docs/overview/11-interfaces.md)).
+- delegation: **an agent-started tile agent defaults to a coding agent
+  that can run.** `GET /delegate/start-defaults` (and a start that names
+  no harness) no longer default to the catalog's first when the person has
+  no saved choice and that one can't run as things are — the workspace's
+  LLM connector can't serve it and no session saw a sign-in of theirs (Claude
+  Code on a workspace whose host provides the model): the first allowed
+  one the connector serves is the default instead. A saved choice (a
+  harness the person lets start unasked) always wins; org rules as before.
+  Each harness gains `noSignIn` (additive; also the sdk's `StartHarness`):
+  it runs on the connector with no sign-in — the brief's card names those
+  "— no sign-in", and its line says it ([protocol/delegation.md](/docs/protocol/delegation.md)).
+- the workspace agent: **a brief template for a tool.** `tile_agent_brief`
+  takes `template: "mcp-tool"` with `tool: {name, arguments, result}`; the
+  fields it leaves out come from the template — done when `tools/list`
+  names the tool and a call returns that shape, check by those two calls
+  from the tile's own sandbox, leave alone the manifest's `provides` and
+  the wire — so a hand-off of MCP-tool work to a tile's coding agent says
+  how to tell it is done (the template's `API.md` §Workspace mode).
+- docs: **[mcp.md](/docs/mcp.md), "Give an agent a tool"**: the
+  `mcp-server` template, the `mcp` slot and the binding as the grant, the
+  JSON-RPC methods, adding and checking a tool, how an assistant picks it
+  up, personal and global binds; and two lines of the workspace agent's
+  map of xbin from it (tools come from MCP tiles bound to an instance's
+  `mcp` slot; an instance needs its `llm` slot bound, `xbin:llm` the
+  workspace's connector).
+- templates: **`mcp-server`, tools for an agent.** A new builtin template
+  (`bx template new mcp-server as apps/dice`, the Tile Manager's "New from
+  template"): a small Go backend on the sdk serving MCP over streamable
+  HTTP at `POST /mcp` — `initialize` (protocol version negotiation),
+  `ping`, `tools/list`, `tools/call`, JSON-RPC errors — with one example
+  tool, `roll_dice {sides?, count?}` (`readOnlyHint`), a page that lists
+  the tools and calls one, and an `AGENTS.md` for the tile's coding agent
+  (where tools go: one function and one line in `_backend/tools.go`; how to
+  check with `tools/list` and `tools/call` from its own terminal). Its
+  manifest provides `mcp` from the first second, so an agent instance's
+  `mcp` slot can be bound to a fresh copy before anyone has written a tool.
+  No third-party modules: it builds in its sandbox with no network
+  ([mcp.md](/docs/mcp.md)).
+- access: **`GET /access?tile=` says what reaches everyone.** A new
+  `defaults: [{level, source}]` lists the workspace defaults that reach the
+  tile (additive; none on an org-owned tile), and a system component no
+  longer lists a pattern entry, which gives nothing there. `/xbin/system`
+  shows "Everyone in this workspace" when the defaults give a component —
+  the workspace agent after `who: everyone` — where it said "Nobody but
+  workspace admins" ([protocol/orgs.md](/docs/protocol/orgs.md),
+  [sealed.md](/docs/sealed.md)).
+- delegation, the workspace agent's chrome (web and app): **nothing can
+  be allowed while the agent is stopped.** Approving a request (once,
+  hour, always), `POST /delegate/approvals` and applying a change set
+  answer `409 {error, refusal}` — `workspace-off`, `paused`, `held`,
+  `no-agent` — unless workspace agents are on, the person has an agent and
+  it is neither paused nor held; before, a ticket or an "always" given then
+  was live the moment the agent ran again. Deny and Reject always work.
+  Switching workspace agents off, taking a person's agent away, or
+  disabling them withdraws their pending requests and proposed change sets
+  (`withdrawnBy: "xbin"`, additive); a pause or a hold keeps them to decide
+  afterwards. The sheets say why in the place of Allow or Apply
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §The switches).
+  The chrome takes a request's or change set's id from the agent's page
+  (`xbin:agent-open-request`, `…-changeset`) and from the app's agent view
+  only in the shape xbind issues — 24 lowercase hex digits — and ignores
+  any other (§The chrome).
+  Characters that reorder or hide text (bidi controls, zero-width ones,
+  other control and format characters) in anything the agent wrote are
+  shown on the sheets as escapes, `⟨U+202E⟩`, under "contains hidden
+  characters — shown as ⟨U+…⟩" — `reveal()` in
+  `/vendor/agent-chrome-words.js`.
+  A body or a brief longer than 4000 characters (code points, the same in
+  the app) says "first 4000 of N characters" with Show all; "shown in full"
+  only when it is (`sends(req, all)`, `clipText()`).
+  A state the chrome doesn't know reads as not decidable (it read as
+  pending in the app) — `knownState()`, `UNKNOWN_STATE`.
+  A new session's draft cut at its 8000-character cap no longer keeps half
+  of an emoji (`plainDraft()`).
+- delegation: the workspace's switch (`PUT /delegate/workspace
+  {enabled}`) now also sends a `delegate` event with `op: "state"` to the
+  own sockets of every person who has an agent, and of the admin who turned
+  it ([protocol/delegation.md](/docs/protocol/delegation.md) §Events and
+  pushes). Before, only the agents' backends were told, so xbin's chrome
+  and the app showed the switch at their next read. Additive: clients
+  already refetch on that event.
+- The workspace agent's chrome, web and app: a tile agent's start is "asks
+  before acting" only where xbind's preview says `asks: true`
+  (`/vendor/agent-chrome-words.js` read anything but `false` as asking); a
+  preview without the word now leads with the danger wording and Deny. In
+  the app, what widens the agent's reach is armed like Allow, the agent's
+  view can't open Preferences, and a draft it hands a tile agent is
+  labelled as its suggestion — as on the web
+  ([workspace-agent.md](/docs/workspace-agent.md#in-the-xbin-app)).
+- **The workspace agent in the xbin app** (D233;
+  [workspace-agent.md](/docs/workspace-agent.md#in-the-xbin-app)): the iOS
+  app has a person's workspace agent as its own chrome — a button at the
+  end of every panel's bar (a vertical-bar item on an open iPhone Duo) and a
+  row on Home, the agent as a sheet (a trailing column on an iPad), native
+  approval sheets drawn from xbind's reading of a request (Allow armed
+  after 600 ms; Face ID for the wider grant and for admin changes), the
+  agent's requests in Needs you. Nothing changes for a workspace without
+  the agent or an app from before it.
+- native: the workspace agent's nodes (D233;
+  [native.md](/docs/native.md) §The workspace agent's nodes) — `card`,
+  `connection`, and `request` and `session`, which a tile places by id and
+  **the app draws** from xbind's own reading (anywhere but the person's
+  agent they are an inert line); `transcript` rev 3 (an `empty` slot with
+  suggestions), `question` rev 2 (choices as rows, "Something else",
+  pages), `plan` rev 2 (numbers, a tag a step, a note), `composer` rev 2
+  (context chips, quick replies, a hint); five icons (`square`,
+  `check-square`, `minus-square`, `plug`, `hand`); `xbin.native.agent(msg)`
+  and `xbin.native.on('agent', fn)` for the tile the app shows as the
+  person's agent. Additive: an older app gets the tile's web page unless
+  the tile branches with `xbin.native.supports()`.
+- agent template: a workspace agent has a native view in the xbin app
+  (`native/ws.js`, loaded by `native.js` in workspace mode) over the same
+  model as its page (`ws/store.js`); requests and tile agents are
+  `request`/`session` nodes the app draws by xbind's id, and the view asks
+  the app's chrome with `xbin.native.agent`. An instance's own native view
+  is unchanged (`native/main.js`, what `native.js` was).
+- **An unused workspace agent leaves no state and costs nothing at boot.**
+  xbind recorded the agent's partition mode and created and mounted its
+  three encrypted volumes at every boot of every workspace — even where
+  nobody has an agent — and the volumes' gocryptfs processes, started before
+  xbind set up its cgroup, kept it from enabling tile limits on a delegated
+  cgroup (so previews said "xbind's cgroup is not delegated"). Now both
+  wait for the first person's agent
+  ([workspace-agent.md](/docs/workspace-agent.md)).
+- **Workspace agent: its backend follows xbind's switches and refusals**
+  ([workspace-agent.md](/docs/workspace-agent.md), the agent template's
+  `API.md` §Workspace mode). While the agent is paused, turned off, held
+  or not given to its person, a message to it is answered without the
+  model: `POST /runs/{id}/message` answers `409 {code: "agent-off",
+  refusal, error, kept: true}`, the transcript gets a line (a step of kind
+  `off`) naming the switch, who can change it and where, nothing is queued,
+  and the page keeps the words in the message box to send again. xbind's
+  refusals of what the agent tells a tile agent — `taint`, `mode`,
+  `command`, and `no-agent` / `held` — reach the model once, with what to
+  do instead, and the person's card says the same (`cards.refusals[].kind`
+  `brief-taint`, `mode`, `command`, `no-agent`, `held`). "Asks before
+  acting" is said only where xbind names the mode as asking (a harness's
+  ask or plan mode); a tile agent in a mode nobody named isn't. `GET
+  /ws/empty` adds `off` and says the switch first where the agent can't
+  act — an admin who wasn't given an agent included.
+
+- **Workspace agent: fixes from a security review**
+  ([workspace-agent.md](/docs/workspace-agent.md),
+  [protocol/delegation.md](/docs/protocol/delegation.md#the-chrome)).
+  What a conversation has read is kept with the conversation: a session
+  whose record xbind renewed (a day unused) gives the new record
+  everything it holds before it reads or calls a model again, and stops,
+  saying so, where an org's rules no longer allow its model (`held` on
+  `GET /ws/sessions`; the agent template's `API.md` §Workspace mode). A
+  notebook page's org marks can't be cleared in place any more (the
+  `clearStamps` field of `PUT /ws/notebook/{slug}` is gone and ignored):
+  delete the page and have a clean session write it again. `research`'s
+  `save_as` writes over an existing page only where the session may read
+  it, and adds to its stamps instead of replacing them. `admin_changes`
+  lists the change sets its own conversation proposed, no other
+  session's. A tile agent's start follows xbind's dry run at the brief's
+  Start: no request where the person lets starts through, one filed
+  wherever xbind says it is needed. `notebook_search` counts the pages a
+  session can't read whatever the words searched for (the count of the
+  matching ones said what they held). The chrome: the agent's page may
+  open only views that change nothing (`xbin:agent-open {view}`: `needs`,
+  `approvals`, `activity` — no longer `prefs`), and every control that
+  widens what the agent may do is armed like Allow. A new session's draft
+  from the page (`xbin:open-session {session: "new", draft}`) is labelled
+  as text the agent's page suggests, never as the person's own words.
+
+- **Agent sessions: "offered" versus "on" the LLM connector**
+  ([llm.md](/docs/llm.md#agent-sessions),
+  [protocol/agents.md](/docs/protocol/agents.md)). A session's row and its
+  tail page's state add `llmOffered: true` beside `llm: "connector"` when
+  nothing holds the CLI to the connector: no rule gives it the connector
+  alone, and the harness keeps the person's and the project's own
+  providers (OpenCode), whose config can leave it out. Its first notice
+  carries `offered: true` and says the connector is offered as the default
+  model. The Agent tab's header says "on the workspace connector" only when
+  the rule holds the session there or the harness's settings replace the
+  person's (Codex), else "offered: workspace connector"; its launcher says
+  "on" only when the provider's row is `forced`. Before, both said "LLM by
+  xbin" whenever the connector was the default. Additive: a client that
+  ignores the new field reads what it did.
+- **docs: the changelog's older entries** moved, unchanged, to archive
+  pages: everything before 2026-10-01 is in `/docs/changelog/<YYYY-MM>.md`
+  (September in two, `2026-09a.md` and `2026-09b.md`), listed under
+  [Older entries](#older-entries) at the end of this page.
+  `/docs/changelog.md` still works and keeps the recent weeks, so its
+  `?raw=1` fetch returns only those; read an archive page for anything
+  older.
+
+## 2026-11-15
+
+- **Workspace agents: the final security review** (D228;
+  [protocol/delegation.md](/docs/protocol/delegation.md),
+  [auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)).
+  Nothing of this is in a release yet; each line changes what a delegate
+  call answers.
+  - **"Asks before acting" is the harness's ask or plan mode**, nothing
+    else (`sdk/acp` `Provider.Asks`, additive): a start in any other mode
+    needs a ticket whose card says what the mode does; `asks` and
+    `needsTicket` in request previews and `GET /delegate/start-defaults`
+    follow; the preference for agent-started sessions saves only such
+    modes (`400` otherwise).
+  - **Taint binds what the agent tells tile agents**: a start, `…/prompt`
+    or `…/queue` is `403 {refusal: "taint"}` unless the session's model
+    source satisfies the model rule of every org the conversation holds
+    data of. A message that begins with `/` is `403 {refusal:
+    "command"}`; one to a session its person switched to a mode that
+    doesn't ask is `403 {refusal: "mode"}`. SDK: `ErrTaintedBrief`,
+    `ErrHarnessCommand`, `ErrSessionMode`.
+  - **The off switches** also stop the agent's model turns (the LLM
+    connector asks them), void approved-but-unused tickets and take back
+    messages queued for tile agents; standing approvals survive a pause
+    only (the table in §The switches).
+  - **A dry run of a start tells the truth**: `needsApproval: false,
+    under: "preference"` when the person's preference starts it unasked;
+    `allowed: false` with the reason when nothing would.
+  - **The admin role is no agent**: `access` in `GET /delegate/state` is
+    false for an admin who wasn't given one, and a delegate call in their
+    name is `403 {refusal: "no-agent"}`; `who: "me"` gives them theirs.
+  - **A deleted account's delegation records go with it**
+    (`data/delegation/deleted/`, kept for the log's 13 months): an account
+    made later under the same id inherits no approval, ticket, session,
+    change set or log.
+  - **Only xbin's chrome frames the agent's page**, in every asset mode:
+    in `legacy` and `tokens` a framed load of `/c/xbin/wsagent/…` that
+    isn't same-origin is `403`, and the page carries `frame-ancestors
+    'self'`.
+  - A preview of a tile whose manifest says `"agent": "off"` is refused
+    to the agent, as a read of it is.
+- **Security — reading a tile's code could return any file the server can
+  read.** `GET /api/xbin/code/file` (the tile window's Files tab) and the
+  `apiDoc` of `GET /api/xbin/components/<tile>` (the tile's `API.md`)
+  followed symbolic links out of the tile. Anyone who can write a tile's
+  directory — a person with terminal access to that one tile, or a coding
+  agent working in it — could plant a link there (`API.md ->
+  ../../.xbin/token`) and then fetch its target: the owner token, the
+  frame-token secret, `data/users.json` (every account's password hash),
+  files in other people's homes, other tiles' source, and files of the
+  host outside the workspace. Under `--isolate` their own shell cannot
+  read those files; the server read them for them. Whoever may read the
+  tile's code got the same from a planted link, and `apiDoc` goes to every
+  signed-in caller. Affected: every workspace where someone other than
+  the owner has terminal access to a tile or runs a coding agent in one;
+  a tile imported from a repository you don't trust may carry such a link
+  too. Now both reads stay inside the tile: a link that leaves it
+  is `404` (`apiDoc`: empty), `?component=` takes no path through a link,
+  and a FIFO in a tile no longer hangs the request. A link that stays
+  inside the tile (`CLAUDE.md -> AGENTS.md`) still reads; `GET /code/tree`
+  never listed links. **Rotate the owner token after upgrading** if anyone
+  but you had such access (admin console → Users, or `POST
+  /api/xbin/auth-rotate-token`), and consider resetting passwords: the
+  hashes are Argon2id, but they could be copied. xbind keeps no record of
+  what was read this way.
+- **The workspace agent's page, its backend and xbin's chrome meet** (D235;
+  [workspace-agent.md](/docs/workspace-agent.md), [protocol/delegation.md
+  §The chrome](/docs/protocol/delegation.md#the-chrome)): the run view
+  answers a sent message's `context` (its "About …" chip);
+  `cards.requests[]` and `cards.briefs[]` carry `callId`, the tool call
+  that made them, for the item's life, and the page places its cards by it
+  instead of the tool's words; `xbin:open-session {session: "new", tile,
+  draft}` opens the tile's window on a new session's launcher with the
+  person's words waiting, unsent, in the composer of the coding agent they
+  pick (`<bx-frame>` `open({session: "new", draft})`, the dock's
+  `bx-agent-new-session`; a shell from before it gets a plain link). A
+  tile's ⋯ menu has **Ask my agent about this tile** (the scaffold's
+  `shell/shell-agent.js`), which opens the dock about that tile.
+  Preferences pick the mode a tile agent your agent starts gets among the
+  modes that ask before acting, naming the ones that don't.
+- **The workspace agent's page draws from fields** (D235): the context
+  chip is sent as the message's `context`; request cards, refusals
+  (`cards.refusals`), the agent's question kinds (a redirect, can't), the
+  quota banner and the pause time come from the backend's fields, never
+  its sentences. A redirect's "Hand this to <tile>'s own agent" posts
+  `xbin:open-session {session: "new", tile, draft}`.
+- **The workspace agent's page** (D235; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
+- **The workspace agent is in xbind: `xbin/wsagent`** (D231 on D227;
+  [workspace-agent.md](/docs/workspace-agent.md#setting-it-up),
+  [sealed.md](/docs/sealed.md)). The first system component: the agent
+  template's backend in workspace mode, one backend per person, its model
+  slot on the LLM connector alone. It is **inert until an admin** connects
+  a model, turns workspace agents on and chooses who gets one — and a
+  workspace that does nothing sees nothing new: no chip, no notice, no
+  backend, no row in `GET /components`.
+  - **Nobody has a system component until it is given to them.** Only an
+    access entry that names it gives read (a person's, an org's share, the
+    workspace defaults): `*` and other patterns give nothing there. Admins
+    read it as they manage it.
+  - `PUT /api/xbin/delegate/workspace` takes `who: "everyone" | "me" |
+    "chosen"` beside `enabled`, and answers `who: {everyone, entries,
+    chosen}`; xbin's chrome has the two buttons on its third setup step.
+    `GET /delegate/state` adds `access`, `held` / `heldWhy` (why the agent
+    can't run: `older`, `locked`, `unavailable`) and, for an admin, `who`;
+    `agent` is there only for a person who has one, and so is the notice
+    that names `/xbin/agent`.
+  - A system component's release may start it **below a tile's limits**
+    and its partition mode is fixed for good (a release that says
+    otherwise holds it: `partition-mode`). The agent: 512 MiB a backend,
+    stopped after three idle minutes, answering again in under a second.
+  - A tile agent's ended turn, question or failure reaches its person's
+    workspace agent **at once** (it could wait out a minute); bursts are
+    still folded into one wake.
+  - `GET /term/sessions?compact=1` rows of agent sessions add `pending`,
+    `questions`, `turn` and — in a person's own listing — `last`, the last
+    line the session wrote; a tile-agent card in the agent's page reads
+    them, takes the coding agent's name from `GET
+    /delegate/start-defaults`, and is placed by the request that started
+    it (`request`, `callId` in `GET /ws/sessions/{id}/cards`).
+  - Releases carry its prebuilt backend (`bin/sealed/wsagent-<digest>`,
+    about 45 MB, 16 MB in the bundle); `make build` needs the agent
+    template's Go modules. A development xbind compiles it on first use.
+
+- **Shell: a tile's admin panel no longer puts an old binding back.** Two
+  quick re-binds in the interfaces section (org, then back to internet)
+  could leave the picker showing the first choice while the second was
+  bound: the first change's reload answered last and overwrote the newer
+  one. Only the newest reload's answers land now. Workspaces get it with
+  the scaffold's shell update.
+- **A screen preview leaves the workspace agent out.** The shell's agent
+  chip reads `/delegate/state` and `/llm`; a preview render refuses both
+  and names them in `leftOut`, beside the admin-only status reads, and the
+  picture has no agent chip ([preview.md](/docs/protocol/preview.md)).
+- **A backend started on demand right after a save is not restarted for
+  that same save.** A request (or a bus push, a cron tick) that reached a
+  just-saved tile before xbind had finished handling the save started the
+  backend, and the save then rebuilt and replaced it a moment later — the
+  first generation's in-memory state and any request it was still serving
+  went with it. A save the running or building generation already read
+  now moves nothing; a later save rebuilds as before.
+- **The workspace agent's page** (D232; [workspace-agent.md](/docs/workspace-agent.md#the-agents-page),
+  the agent template's `API.md` §Workspace mode → The page). On the sealed
+  component's path the agent template's `boot.js` asks `GET /ws/state` and
+  loads its workspace page (`ws/`) in place of `agent.js`; an instance of
+  the template asks nothing more than before. The page talks to xbin's
+  chrome by `postMessage` with ids only — `xbin:agent-open-request {id}`,
+  `xbin:agent-open-changeset {id}`, `xbin:open-session {session, tile}` out,
+  `xbin:agent-context {tile | screen}` in — and draws no grant.
+- **Chat kit revision 5** ([frontend-kit.md](/docs/frontend-kit.md)): a
+  plan block's `title`, `meta`, `note`, `numbered` and an entry's `tag`
+  (`{text, icon, tone}`); an ask block's `submit` and `skip` words (`skip:
+  ''` draws no Skip); `<bx-chat-composer label>`, the text box's accessible
+  name.
+- **Workspace agents: a start carries its first prompt; xbind resolves a
+  start's defaults; taint from the agent's own store** (D228 C0;
+  [protocol/delegation.md](/docs/protocol/delegation.md)). A delegate's
+  `POST /term/sessions` takes `prompt` (bound by the ticket, shown on the
+  card, sent by xbind as the session's first prompt) and may name only its
+  tile — the card shows the effective harness, mode and network. New:
+  `GET /delegate/start-defaults?tile=`, `POST
+  /delegate/sessions/<id>/allows` and `…/taint`, `&ids=` on the compact
+  session read (`endedBy: exit | restart`). SDK: `StartDefaultsOf`,
+  `SessionAllows`, `TaintSession`.
+- **The workspace agent's chrome: the dock, approvals, admin change sets,
+  `/xbin/agent`** (D232; [workspace-agent.md](/docs/workspace-agent.md)
+  §Using it, [protocol/delegation.md](/docs/protocol/delegation.md) §The
+  chrome, [frontend-kit.md](/docs/frontend-kit.md) §Shell-only modules,
+  [compat.md](/docs/compat.md)). Everything a person decides about their
+  agent is drawn and sent by xbin's own chrome, in a document that holds
+  their session: a dock beside the canvas (`/vendor/bx-agent-dock.js`; a
+  **workspace agent** chip in the scaffold shell's top bar with what waits,
+  Ctrl+J / ⌘J) whose header — Needs you, Pause / Resume, Approvals, What my
+  agent did, Preferences — is xbin's, with the agent's own page in a
+  sandboxed frame below. An approval is a sheet drawn from xbind's reading
+  of the request, the agent's sentence quoted as the agent's; a change set
+  is a dialog with warnings unticked and blocked items shown.
+  **`/xbin/agent`** is the same dock as a page of xbind's own, for a shell
+  without the chip and for direct links (`?request=`, `?changes=`,
+  `?view=`). New wire, all additive: `GET /delegate/state` answers
+  `agent`, `pausedAt` and `workspaceAt`; alert kind `agent-page` (one a
+  person, naming `/xbin/agent`, for shells without the chip) and its
+  `POST /api/xbin/delegate/page/dismiss`. **For whoever builds an agent's
+  page:** ask the chrome with `postMessage` —
+  `xbin:agent-open-request {id}`, `xbin:agent-open-changeset {id}`,
+  `xbin:open-session {session, tile}` — and listen for
+  `xbin:agent-context {tile | screen}`; ids only, the chrome reads
+  everything else from xbind. **For a shell of your own:**
+  `shell/shell-agent.js` in the scaffold is the pattern. No agent ships
+  with this xbind yet: with workspace agents on, the dock shows approvals,
+  the log and preferences, and says the conversation arrives with an
+  update.
+- **`XBIN_CONFINE_TRACE`**: a file every confined tool run (git, go, … on
+  workspace data) appends a line to — its start and end, whether it ran in
+  a sandbox, the tool ([config.md](/docs/config.md)). A measurement aid: the
+  latency tests use it to tell an operation's sandbox runs from the rest.
+- **agent template: cancelling a project task that waits for its
+  workspace sticks.** `POST /runs/{id}/cancel` (or a cancel from its parent)
+  on a task the workspace gate held parked stopped it only until the gate's
+  next look: the start it was parked with stayed in its inbox, so the gate
+  parked it again and the turn ran once the workspace was ready. The cancel
+  now drops the input queued before it, as cancelling the task does; a
+  message sent afterwards starts it as usual (the template's `API.md`
+  §The workspace). An instance gets it with `git merge template/main`.
+- **coding-sandbox: an image's `sudo` gives `/dev/fuse` and `/dev/net/tun`
+  from the sandbox's first boot** (D182). The template wrote the guest's
+  device list (`/etc/xbin-vm-devices`) after a new sandbox had booted, and
+  the guest reads it only as it boots: a sandbox of a `sudo` image with no
+  setup script had both nodes 0600 until its first restart, where
+  the template's API.md (§Testing on xbind, 8) promises 0666 at the first boot.
+  The first start now sets the two modes itself as well. An instance gets
+  it with `git merge template/main`; a sandbox made before needs nothing
+  but a restart, as before.
+- **The workspace agent's backend: the agent template in workspace mode**
+  (D231; [workspace-agent.md](/docs/workspace-agent.md), the template's
+  `API.md` §Workspace mode). Started with `XBIN_AGENT_MODE=workspace` — by
+  xbind, for the sealed component `xbin/wsagent`; never by an instance of
+  the template — the agent template's backend is a person's workspace
+  agent: one fixed class with no sandbox, web, `xbin_call` or coding agent,
+  only the `workspace` profile's conversations (a long-lived **Main** and
+  further sessions, each with its own scope and model), a closed route
+  list (every other route of the template is 404), and tools that look
+  (`workspace_map`, `tile_status`, `tile_logs`, `docs_search`, `docs_read`,
+  `tile_api_doc`), act as the person through xbind's delegation
+  (`tile_call`, `tile_create`, `admin_propose`), hand building to tile
+  agents (`tile_agent_brief`, `tile_agent_start`, …) and ask a read-only
+  sub-agent about a tile's code (`research`). Every side effect is filed
+  for the person's approval — pending, never holding the conversation up — and xbind keeps and checks the
+  approval. **For tile authors:** the agent reads your tile's `API.md`
+  before it calls your API, calls arrive with `X-XBin-Agent`
+  (`xbin.Caller(r).Agent`), and `"agent"` in the manifest says what agents
+  may use. A normal instance of the template is unchanged: without the
+  variable none of this exists, and an unknown value refuses to serve. The
+  template's coordinator kit gained the profile hooks `System` and `Specs`.
+  What its page draws is answered in fields beside the model's sentences
+  (`API.md` §Workspace mode, "In fields"): a message's `context`, a
+  request's outcome, refusals and questions with a `kind`, the stopping
+  quota and the pause's time.
+- **Agent sessions: a workspace agent's conversation is a handle xbind
+  issues** (D228 part C0;
+  [protocol/delegation.md](/docs/protocol/delegation.md) §Agent sessions).
+  `POST /api/xbin/delegate/sessions {scope, model}` → a session; every
+  delegate call carries `X-XBin-Agent-Session` (403 `no-session`
+  without). The orgs' rules are asked with the **session's** model —
+  `X-XBin-Agent-Model` is ignored now — the scope confines the call
+  (`hidden`), the orgs whose tiles a call touched taint the session, and
+  the model changes only to one every tainted org allows (409
+  `model_taint`). The LLM connector serves a workspace agent's calls on
+  its session's model only ([llm.md](/docs/llm.md)). New reads:
+  `…/sessions/<id>/connection` (blocked tiles as counts), `GET
+  /delegate/map`, `GET /docs/search`, `GET /docs/page` (for every
+  signed-in caller), `GET /term/sessions?origin=agent&compact=1`, and
+  `GET /agents/connection?session=` for the agent's own page. xbind sends
+  the agent's backend notices (kinds and ids only) when a request, an
+  approval, a change set, the person's pause or a session it started
+  changes. SDK: `InAgentSession`, `OpenAgentSession`, `SetSessionModel`,
+  `SetSessionScope`, `ConnectionOf`, `MapOf`, `DocsSearch`, `DocsPage`,
+  `ReadHolderNotice`, `ErrNoSession`, `ErrHiddenByScope`, `ErrModelTaint`.
+  Nothing delegates until a holder ships; tiles need no change.
+- **Previews: xbind renders a tile or a screen as the person who asks**
+  (D234; [protocol/preview.md](/docs/protocol/preview.md),
+  [auth.md](/docs/auth.md) §Previews, [isolation.md](/docs/isolation.md)
+  §Previews). `POST /api/xbin/preview {tile | screen, viewport?}` opens the
+  page in a headless Chromium of xbind's own — a throwaway sandbox with no
+  network but one socket to xbind — as a one-shot **read-only** session of
+  the caller that nobody is handed, and answers with a PNG, a text
+  rendering (an accessibility tree per frame), console errors, failed
+  requests and a `notice` that the content is data, not instructions.
+  `GET /api/xbin/preview` says whether this xbind can render (it needs
+  `--isolate` and a rootfs with Chromium) and the limits in force:
+  `XBIN_PREVIEWS`, `XBIN_PREVIEW_PER_USER`, `XBIN_PREVIEW_TOTAL`,
+  `XBIN_PREVIEW_TIMEOUT`, `XBIN_PREVIEW_MEM` ([config.md](/docs/config.md)).
+  `bx preview <tile>` and `bx preview --screen <name>` save the picture.
+  **For tile builders:** every call a render makes to your backend carries
+  `X-XBin-Preview: 1` (`xbin.Caller(r).Preview`) — a GET or a socket
+  message of yours that has an effect (mark-as-read, presence) must skip
+  it then ([sdk.md](/docs/sdk.md)); xbind refuses the render's non-GET
+  requests itself, and on every call it lets through — GETs and WebSocket
+  upgrades — sends role `reader` and user level `read` (`UserCanWrite()` is
+  false in a preview). Don't draw differently for it: `/whoami` in a render
+  says `readOnly: true`, as in view-as, and nothing more. Without a
+  delegated cgroup (no enforceable memory cap) previews answer 503 unless
+  `XBIN_PREVIEWS=uncapped`.
+- **Builtin tiles and templates honour `X-XBin-Preview`** (D234): in a
+  preview their GETs and sockets change nothing. The agent template: a
+  project's status and overview reads start no repo fetches, the CI read
+  makes no watch and re-reads none, the team board and membership reads
+  apply no definition, a harness probe runs nothing in a sandbox, the
+  sandbox terminals answer 403, an SCM sign-in poll reads the state without
+  trading the code. scm-github: the device-flow poll and the App manifest
+  callback do nothing. coding-sandbox (and `examples/sandbox-go`): a file
+  read starts no stopped sandbox, and no terminal opens. sandbox-terminal
+  v12: the page is not a visit and re-checks nobody's access. A workspace's
+  instances get the template changes as template updates (`bx template
+  updates`).
+- **Client: `xbin.ready()`** (D234; [elements.md](/docs/elements.md)) — a
+  tile says "I have drawn"; with `<meta name="xbin-ready"
+  content="manual">` it is waited for. Additive: a tile that never calls it
+  behaves as before.
+- **Read-only sessions (view-as) no longer do three things a GET let them
+  do:** `GET /api/xbin/deployments/diff` with a work-tree side — the
+  default `to` — captured a checkpoint of the tile; it answers 403 now
+  (diff two checkpoints or deployments instead). `GET
+  /api/xbin/git/remote-info` dials out and is refused. And a partitioned
+  tile's frame calling another partitioned tile no longer starts the
+  person's first partition there or prompts them for consent (previews;
+  view-as was already refused).
+- **Shell: nothing is saved under `readOnly`** — the layout and settings
+  saves and the "couldn't save your dismissal" toast are skipped in a
+  view-as session and a preview (the server refused them before; now the
+  shell doesn't ask). Scaffolded shells get it with the next scaffold
+  update; a preview hides an older shell's toasts by itself.
+- **LLM connector for coding agents and terminals: a security pass**
+  (D226; [llm.md](/docs/llm.md) §Coding agents and terminals). None of it
+  changes a workspace with no connector configured.
+  - **`connector-only` fails closed.** Where the workspace's credential
+    mode or an org's model rule gives the connector alone, a session that
+    can't be put on it is refused (`403`) instead of opening without it, a
+    session whose agent host doesn't confirm it is ended with the reason,
+    OpenCode is configured with the connector as its only provider, and a
+    model that isn't the connector's can't be set — at `POST
+    /term/sessions` (`model`, `options`) or `POST …/options` (`403`).
+  - **`POST /api/xbin/llm/keys` is for a tile's backend only.** A frame,
+    terminal or agent-session credential is now `403` (before, a tile's
+    page could mint a key for its person). A key lives **24 h at most**
+    (was 30 days); `POST /api/xbin/llm/keys/<id>/renew` keeps a longer
+    run's alive (`xbin.RenewLLMKey`, `ErrLLMKeyGone`). A tile holds at most
+    64 live keys for one person and 512 in all (`429 xbin_llm_keys`,
+    `xbin.ErrLLMKeyLimit`). A key names its backend's deployment: it is
+    held to the tile's edge policy for that deployment on every call, and
+    `DELETE /llm/keys?label=` ends that deployment's keys only.
+    **If your tile's page asked for keys, move the call to its backend.**
+  - **A session with no network reaches the connector** — and nothing
+    else: `net: none` sessions and terminals get `XBIN_LLM_URL` =
+    `http://10.0.2.2:4180/v1`, one gateway port forwarded to xbind's
+    LLM-only listener (before: no key, "can't be reached"). **A session
+    on a non-primary tile deployment gets a key** that names the
+    deployment (before: none).
+  - Only models whose ids are plain model names are written into a CLI's
+    configuration (`acp.ValidConnectorModel`); an upstream's list can't
+    put `{env:…}` or `{file:…}` into OpenCode's.
+  - An agent can no longer forge the agent host's own frames (who serves
+    its model calls); LLM keys are masked in a dead terminal's logged tail
+    before the cut.
+  - `sdk/acp`: `ConnectorParams.Only`, `Connector.AllowsOption`,
+    `ValidConnectorModel` ([sdk.md](/docs/sdk.md)).
+  - **Agent template**: a coding agent runs on the connector only when the
+    workspace set a model for coding agents (else it says why and uses its
+    own sign-in); it starts in a sandbox with **no egress** when the
+    connector is reachable there (`GET /harnesses` images gain `llm`); its
+    key is renewed while the run lives and its end is retried until xbind
+    acknowledged it. Template instances pick it up with a template update.
+  - The Agent tab's launcher gains **"runs on"**: a person's saved choice
+    between their own sign-in and the workspace's connector for a harness
+    (`harnesses.<id>.credentials` in their agent preferences), shown only
+    where both can serve and no rule forces one.
+- **Agent template: a Settings tab that loads late no longer draws over
+  the tab opened after it.** Opening Settings starts Config, which reads
+  the models; a click on another tab meanwhile was drawn — and then
+  overwritten when Config's reads landed. Each opening of a tab now draws
+  into a box of its own (`#sbd > .tabbox`, `display: contents`); a tab
+  function still receives the element it draws into. The gear is hidden
+  until the page can open Settings. Likewise the Automations page: a
+  form opened while its list was still being read (New schedule, right
+  after opening the page) is no longer closed when the read lands.
+- **BREAKING for patched instances of the agent template: its chat is
+  drawn with the chat kit; a tool call's card says what it came to**
+  (D224; [frontend-kit.md](/docs/frontend-kit.md) §The chat kit;
+  migration:
+  [changes/2026-11-15-agent-chat-on-the-kit.md](/docs/changes/2026-11-15-agent-chat-on-the-kit.md)
+  — every old class inside a card with its new name; nothing breaks until
+  an instance merges the template). The kit (`/vendor/chat/…`, revision 4 in
+  `/vendor/chat/rev.js`) has a second host: the agent template hands its
+  blocks to the kit's views (`model/fold.js` `blockOf`, `chat-kit.js`), so
+  a coding agent's calls and the template's own tools are one card, in the
+  Agent tab and in the template alike.
+  - **The tool card** (`/vendor/chat/cards.js` `toolView`) is one line —
+    glyph, headline with the command under a description, what the call
+    came to (`exit 1`, `+3 −1`, `12 matches`), a still mark while it runs,
+    and its state only while that needs a look (needs approval, failed,
+    cancelled) — in place of a boxed status badge on every card. Open, it
+    adds the tool's name, an `exit N` line under a command's output, the
+    places a read or a search touched, a fetch's address as a link, and a
+    file a patch could not be drawn for by name. The Agent tab's cards
+    change with it.
+  - **The request card** (`/vendor/chat/asks.js`) is one card for a
+    coding agent's permission request, the agent template's own approval
+    of its tools and a capability's grant: it leads with who asks what
+    ("Claude Code asks to run a command"), shows the command or the calls,
+    the diff the call would make (the request's own, else the call's:
+    `ChatCtx.callOf`), an optional word with a rejection where the host
+    can send one (`ChatCtx.rejectWord`), and the options. A question leads
+    with "<agent> asks". A `perm` block may carry its own `lead`; its
+    `calls` are listed; `cards.js` exports `diffsView`.
+  - **Messages** (`/vendor/chat/views.js`): a person's own words sit on
+    their side of the chat without a "YOU" label (another person's, in a
+    shared conversation, on the other side under their name), the agent's
+    without an "AGENT" label and with a Copy that shows with the pointer
+    where the host copies (`ChatCtx.copyMessage`); a message's files are
+    chips with a picture or a glyph, the path and a size. A thought says
+    "Thought for 1m 5s". Markdown (`mdCssText`) gains heading sizes, list
+    and paragraph spacing, a scrolling table and the reading colours
+    (headings, list markers, inline code, the quote's rule). A `notice`
+    block may carry `icon`, `tone`, `md`, `fold` / `title` and `action`
+    (`ChatCtx.act`) — the agent template's journal lines are these. A
+    sub-conversation's card (`agentView`) reads like a call's, with what
+    it waits on a person for under it. `ChatCtx.agentLabel` is no longer
+    drawn.
+  - **For a tile that draws with the kit**: a `tool` block may carry its
+    own `icon`, `sub`, `outcome`, `args` and `result` (a tool of the
+    host's own); `ChatCtx.rowAttrs(block, depth)` puts the host's hook
+    classes and `data-*` attributes on a block's element; a block inside a
+    card sits in `<div class="bxc-in" data-k>` (`innerView`); `cards.js`
+    exports `argsView` and `clipView`; `tools.js` `stateChip` says
+    `waiting`. A fold is now drawn as `ChatCtx.isOpen` says and `setOpen`
+    hears a fold closing as well as opening — a host whose `isOpen`
+    returned `true` for a fold the reader had closed will see it stay
+    open; return what the reader last did.
+  - **An instance of the agent template** merges this by git. Its page
+    needs kit revision 4 (`boot.js` `NEEDS`: it says "This agent needs
+    xbind ≥ v0.3.80" on an older xbind). A tool call's row keeps its
+    hooks — `.tcard` (`.hcard` for a coding agent's), its state class,
+    `.on` while open, `data-k`, `data-fam`, `data-tool`, `data-status` —
+    on the kit's row; inside it the markup is the kit's (`.bxc-title` for
+    `.hl`, `.bxc-sub` for `.sub`, `.bxc-oc` for `.oc`, `.bxc-st` for
+    `.st`, `summary` for `.tch`, `.bxc-body` for `.tcb`; a coding agent's
+    `data-kind` is read from `data-tool`), so a stylesheet of your own
+    that reached inside a card needs those names. `harness-cards.js`
+    keeps the top bar's usage badge, counts and plan pin. What a run
+    waits on a person for keeps `.ask` (`.hask`, `.hplan`, `.hq` for a
+    coding agent's; `.approve`, `.grant` for the engine's own) and
+    `data-park` on its element; inside, the buttons are the kit's
+    (`button[data-option]` for `.hopts [data-opt]`, `.bxc-word` and
+    `.bxc-reject textarea` for `.hfb`, `.bxc-field[data-field]` for
+    `.hfield`). `harness-ask.js` still exports `permissionTpl` and
+    `questionTpl` (they draw the run's park; the card model argument is
+    ignored), and `chat-cards.js` still exports `approvalTpl` (drawn by
+    the kit). A
+    message, a thought, a notice, a journal line and a subagent's card
+    keep `.msg.user` / `.msg.assistant` (`.live`, `.other`), `.think`,
+    `.notice`, `.step.<kind>` and `.acard` with their state classes on the
+    kit's row; inside, `.bxc-text` is `.txt`, `.bxc-who` `.who`,
+    `.bxc-md` `.md`, `.bxc-att-file[data-path]` `.afile[data-afile]`,
+    `.bxc-acts .bxc-act` `.acts .act`, `summary` the `.th` / `.nh` /
+    `.ach` line, `.bxc-nbody` `.nb`, `.bxc-children` `.acb`. A card a
+    feature module draws itself (`ext.block`: a coding agent's
+    `.acard.hkid`, a document's `.step.doc`) is unchanged. The window of
+    rows is the kit's `ChatWindow` (`chat-window.js` keeps its class and
+    methods); its every-block fallback for an xbind without
+    `/vendor/scroll-window.js` is gone — the page needs a newer xbind
+    than that anyway. The composer is unchanged.
+
+- **SDK: `sdk/llm` reads a stream a data line at a time, and its types
+  write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
+  `llm.ReadData(r, fn)` hands each `data:` line's payload to `fn` by itself
+  — how Chat Completions and the Responses API write a stream, and it reads
+  a server that leaves out the blank line between events (`ReadSSE` still
+  reads events as the SSE format defines them). `llm.ChatChunkChoice`,
+  `llm.InputDetails` and `llm.OutputDetails` name what were unnamed struct
+  types inside `ChatChunk`, `ChatUsage` and `ResponsesUsage`, so a fake
+  upstream or a translating proxy can build its answers from them; code
+  that reads their fields is unchanged.
+- **llm-gw v11: usage, prices and upstream URLs through `sdk/llm`** (D226).
+  The gateway's backend reads token usage, prices a call and joins a
+  backend's base URL with the SDK's shared wire code in place of its own
+  copies. What it counts is unchanged — the usage block of either wire from
+  an answer's last 8 KiB, a price by the upstream's exact model id — except
+  that a cost may differ in its last binary digit; a stored price may now
+  carry `cachedIn` (USD per million input tokens read from a prompt cache).
+  Like every builtin tile it builds against the SDK of the xbind it ships
+  with: v11 needs this release's xbind ([compat.md](/docs/compat.md) "What
+  this does not promise"); an llm-gw you already run keeps building against
+  the newer SDK, which only grew.
+- **Agent template: its model wires read through `sdk/llm`** (D226). The
+  template's backend takes the wire types of Chat Completions and of the
+  Responses API, the stream reader and the model list's context sizes from
+  the SDK in place of its own copies. Nothing it sends or reads changes:
+  requests are encoded byte for byte as before, and answers — reasoning
+  under each provider's name, tool-call fragments, usage as the provider
+  counted it, errors in whatever shape a server sends them, streams with or
+  without blank lines — are read the same (58 recorded answers and six
+  requests are pinned in its tests). A template with this change needs
+  this release's xbind, as template code written against a later SDK always
+  does ([compat.md](/docs/compat.md) "What this does not promise"): update
+  xbind before you merge it into an instance. An instance you already have
+  keeps building against the newer SDK, which only grew.
+- **Frontend kit: the chat kit's views — `/vendor/chat/views.js`, `cards.js`,
+  `asks.js`, `composer.js`, `window.js`, `css.js`; `KIT` is 3** (D224;
+  [frontend-kit.md](/docs/frontend-kit.md) → The chat kit). What draws a
+  conversation with a coding agent in xbind's Agent tab is now a set of
+  modules a tile may import: lit template functions of `(block, ctx)` for a
+  transcript's rows, messages, tool cards (terminal output, diffs, a
+  subagent's nested calls), change sets, permission requests, plan
+  approvals and questions; `<bx-chat-composer>` (the message box: text,
+  files, slash commands, pickers, held messages, Send / Stop) and
+  `<bx-chat-form>` (a question's form); `ChatWindow` (a long transcript as
+  a window of rows); and one stylesheet as text, `chatCssText`, whose
+  classes all start with `bxc-`. A view reaches its host only through the
+  `ChatCtx` the host hands it. `/vendor/chat/blocks.js` gains the `host`
+  block kind (a card the host draws itself), `usageBadge`, `cached` and
+  `ChatCtx`'s `readonly`, `role`, `rev`, `state`, `copy`, `openDiff`,
+  `signin`, `host`, `sessionRules`; `/vendor/chat/tools.js` `DIFF_LINES`,
+  `lineCount`, `headLines`, `diffBody`; `/vendor/chat/ask.js` `stageFiles`,
+  `fmtSize`, `ATTACH_LIMITS`. The view modules import lit by URL, so they
+  load on a page with no import map. `/vendor/agent-cards.js` and
+  `/vendor/agent-css.js` keep their exports (the cards are the kit's; the
+  transcript's class names changed to `bxc-…` — they were never a contract).
+- **Agent tab: drawn with the chat kit, and what it gains.** The tab looks
+  as it did; these are new:
+  - **files in the message box** — a paperclip button, a paste or a drop
+    stages files as chips; they go with the message (`POST …/queue`
+    `attachments`, which the session API took all along: at most 10 files,
+    10 MiB each, 20 MiB together — a file past a limit is left out and
+    said);
+  - **an option that stops the agent asking is confirmed** — a permission
+    option xbind marks `explicit` (it raises the session's mode, D225) is
+    drawn as a caution and asks "Let the agent stop asking?" in the
+    window's dialog before it is sent; Cancel sends nothing;
+  - **a call that waits for your answer says so** — its card's badge reads
+    "needs approval" while a permission request about it is open;
+  - **how full the context is** — the status line says `ctx 26%` (with the
+    cost when the agent reports one; amber from 75 %, red from 90 %; the
+    tokens in its tooltip) where it said `52 000/200 000 tokens`;
+  - **harnesses that are not offered here** — the tab's own chooser lists
+    each harness the tile's rules keep out with the reason (`GET
+    /agent/providers?cwd=…&all=1` `unavailable`), as the `+` menu does;
+  - a question's form says "Answer … first." under itself for a required
+    answer that is missing (it was in the status line), and a tool call
+    without a title is read from its arguments ("Read a.go:10–49") where it
+    showed the tool's name or id;
+  - a session that is still starting is polled like a running turn: a tab
+    that missed the one live event saying it became idle no longer stays on
+    "starting".
+- **A tool call's output: a whole output, then a delta.** An update that
+  carries both the whole output so far and a further delta (`output` and
+  `outputDelta` in one `tool.update`) is read the same way everywhere now —
+  the whole output replaces what was gathered, then the delta is appended:
+  `sdk/acp`'s `ToolRecord`, the chat kit's (`mergeTool`), `/vendor/agent-tools.js`
+  `foldTool` (it took the whole output alone) and the iOS app's port. The
+  shared transcript `output` pins it; the scripted test agent's `recap`
+  prompt plays it (`sdk/acp/acptest`).
+
+## 2026-11-14
+
+- **Coding agents and terminals run on the workspace's LLM connector by
+  default** (D226; [llm.md](/docs/llm.md) §Coding agents and terminals).
+  Nothing changes for a workspace with no connector configured: no new
+  variable, no new behaviour.
+  - **Agent sessions**: OpenCode and Codex start pointed at the connector
+    with no sign-in — OpenCode with the provider "LLM by xbin" declared
+    beside the person's own, Codex through its gateway sign-in. A person's
+    own sign-in keeps working and, by default, wins (the agents policy's
+    `credentials: own-first`, D229); a workspace admin can make the
+    connector the rule (`bx org agents --credentials connector`) or take it
+    away from agent sessions (`bx llm sessions agents=off`). Claude Code and
+    Gemini CLI keep running on the person's own sign-in. `POST /api/xbin/term/sessions`
+    takes `llm: "connector" | "own"` (`bx agent run --llm`), a session row
+    gains `llm`, a `notice` event says when the connector serves, and `GET
+    /api/xbin/agent/providers` gains `llm` per row — `{use, connector,
+    note?, signedIn?}` ([protocol/agents.md](/docs/protocol/agents.md));
+    rows are unchanged without a connector.
+  - **Terminals** get `XBIN_LLM_URL` and `XBIN_LLM_KEY`; `OPENAI_BASE_URL`
+    and `OPENAI_API_KEY` only with `bx llm sessions openai-env=on`.
+  - **The credential is a per-session LLM key** (`xbl_…`), never the
+    terminal token: good for the connector's model routes only, metered to
+    the session's person and tile, revoked when the session ends.
+  - **Settings**: `sessions: {agents, terminals, openaiEnv}` in `PUT
+    /api/xbin/llm/config` and the host's `XBIN_LLM_CONFIG` (lockable), read
+    back by `GET /api/xbin/llm` and `/llm/config`; `bx llm sessions`.
+- **A tile bound to `xbin:llm` can ask for an LLM key** for a coding tool it
+  runs in a sandbox: `POST /api/xbin/llm/keys` → `{id, token, expires, …}`,
+  `DELETE /api/xbin/llm/keys/<id>` ([protocol/llm.md](/docs/protocol/llm.md)
+  §Keys for a tile's harnesses). The key is for the person the tile's
+  credential acts for, and no one else.
+- **A sandbox can reach the LLM connector, and nothing else of xbind**:
+  a tile sandbox created with `net.llm: true`
+  ([protocol/sandboxes.md](/docs/protocol/sandboxes.md)) gets the
+  connector's model routes at `http://10.0.2.2:4180/v1` — its SandboxInfo
+  says so in `net.llm` — for the holder of an LLM key, with any egress,
+  `none` included. A command's `env` there may now carry `XBIN_LLM_URL`
+  and `XBIN_LLM_KEY` (every other `XBIN_*` is still refused, and so are
+  these two in `defaults.env`). Go SDK: `xbin.SandboxNet.LLM`, `SandboxNetInfo.LLM`,
+  and **`xbin.LLMKeyFor` / `xbin.RevokeLLMKey`** for the key
+  ([sdk.md](/docs/sdk.md) §An LLM key for a coding tool).
+- **Sandbox-manager contract: the optional capability `llm`**
+  ([sandbox-manager.md](/docs/sandbox-manager.md) §The LLM connector in a
+  sandbox). A manager that offers it takes `llm: true` on `POST
+  /sbx/sandboxes` and the sandbox then carries `llm: {url}` — where a
+  process inside reaches the workspace's LLM connector. Nothing changes for
+  a manager that doesn't offer it: a consumer reads `hello.caps` first. The
+  builtin `coding-sandbox` manager offers it on an xbind that forwards the
+  connector (the runtime's `caps` carry `llm`), and the conformance suite
+  (`sdk/sandboxcontract`) gained the section `llm`. A manager that offers
+  it accepts `XBIN_LLM_URL` and `XBIN_LLM_KEY` in a command's `env`.
+  (`sandbox-terminal` v11 is its tests' copy of the fake manager following
+  this; nothing changes for people or managers.)
+- **Agent template: coding agents start on the workspace's LLM connector**
+  when they have no sign-in (D226; the template's API.md §Coding agents).
+  Bind the agent's `llm` slot to `xbin:llm` and use a sandbox manager that
+  offers `llm` (the builtin `coding-sandbox` on this xbind): new sandboxes
+  are created with the connector asked for, and OpenCode or Codex with no
+  saved sign-in and none in the sandbox runs on it, with a key xbind mints
+  for the person. Existing sandboxes, saved sign-ins and instances not
+  bound to `xbin:llm` behave as before. Template instances pick it up with
+  a template update. New SDK call `xbin.RevokeLLMKeysLabeled` and route
+  `DELETE /api/xbin/llm/keys?label=`.
+- **Go SDK, `sdk/acp`**: `Provider.Connector`, `Provider.ConnectorEnv`,
+  `acp.ConnectorServes`, `Provider.HasOwnLogin` and `acp.ExpandWord` — how
+  each coding CLI is pointed at an LLM connector from its environment, and
+  who serves a session ([sdk.md](/docs/sdk.md) §Driving a coding agent).
+  `acp.Fake` takes a connector too, and the scripted agent (`acptest`)
+  gains the `llm-call` script.
+- **Delegation: a person's workspace agent acts as them, under a cap
+  (D228).** The auth primitive the workspace agent will run on; nothing
+  uses it until an xbind ships that sealed component and an admin turns
+  workspace agents on, so an upgrade changes no tile's behaviour today.
+  What a tile builder should know now ([auth.md
+  §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)):
+  - **A new header, `X-XBin-Agent`.** A call made by a person's workspace
+    agent for them carries it (the sealed component's path) beside
+    `X-XBin-User`, with `X-XBin-From: user:<id>` and `X-XBin-Role:
+    reader | writer` — the person's level on your tile. Stripped inbound
+    like every `X-XBin-*`. SDK: `xbin.Caller(r).Agent` and `.ByAgent()`.
+  - **`X-XBin-From: user:<id>` no longer implies an admin.** Until now
+    only an admin could call a tile's API in person, so a backend saw
+    `user:<id>` only with role `admin`. An agent's call arrives as
+    `user:<id>` at `reader` or `writer`. If your backend treats the `user:`
+    prefix as "an admin", change it to read `X-XBin-Role` or
+    `X-XBin-User-Level` (`xbin.Role(…)`, `Caller(r).UserCanWrite()` already
+    do). The shipped tiles and templates judge by level.
+  - **A new manifest key, `"agent"`**: `"full"` (the default), `"read"`
+    (an agent may only `GET`/`HEAD` your API) or `"off"`
+    ([elements.md](/docs/elements.md)). `GET /api/xbin/components` rows
+    carry `agent` when it isn't full.
+  - **Every write an agent makes was approved by its person, and xbind
+    checks it**: a one-shot ticket bound to the exact method, path, body
+    and content type, or a standing approval the person gave and can
+    revoke — of that call (method and path), or of every write to your
+    tile when they chose that. Your tile needs no code for this.
+  - No tile can be granted or bound to a sealed component that acts for
+    people: `POST /grants` and `POST /bindings` answer 409 for such a
+    target.
+  - **Decide what an agent may do in your tile**
+    ([elements.md → A person's agent](/docs/elements.md)): xbind approves a
+    *call*, and only your tile knows what the call means. A route that
+    answers an approval, a permission request, a question or a sign-in must
+    refuse a caller with `ByAgent()`, or the manifest says `"read"` or
+    `"off"`. A backend written before this release treats an agent's call
+    as its person's.
+  - **The infrastructure that ships with xbind now says `"agent"`.**
+    `off`: egress-approver, llm-gw, s3-archiver, sandbox-terminal, traefik,
+    webhooks, the agent-messaging-bridge, coding-sandbox and scm-github
+    templates, and a new workspace's admin console, organisations console
+    and tile manager. `read`: prometheus-viewer and the agent template.
+    **Apps stay unspecified** — the chat tile, the starter template, the
+    examples: an app is what a workspace agent is for, and without the key
+    a person's agent may use it fully, each write under their approval. The
+    starter template gained an `AGENTS.md` that tells its builder when to
+    narrow that and how to keep a route human-only. Each changed builtin
+    tile is one version up (`bx builtin updates`); a template's instances
+    get it with `git merge template/main`.
+  - **The agent template refuses a person's agent everything but reads**
+    (and stopping a run, marking one read) in its backend too
+    (`_backend/wsagent.go`; API.md "A person's workspace agent"). **An
+    instance made before this release can't tell the agent from the
+    person**: unmodified, its routes all need the `admin` role, which an
+    agent's call never has, so it refuses the agent outright; if you opened
+    routes to `writer`, merge the template's update or add `"agent": "off"`
+    to the instance's `xbin.json`. Letting a person's agent message a
+    conversation in a template instance is a possible later addition, under
+    tickets; this release has none.
+- **API: `/api/xbin/delegate/…`** ([protocol/delegation.md](/docs/protocol/delegation.md)):
+  the workspace's switch and a person's pause, approval requests and
+  tickets (bound to the call's method, path, query, body and content
+  type), standing approvals — of one call (`scope: "call"`, the default) or,
+  as a separate explicit choice, of every write to a tile (`scope:
+  "tile"`) — admin change sets (an admin's agent proposes grants, bindings,
+  org shares and limit raises, none of them on an agent itself or of
+  workspace-level power; the person approves after a recent sign-in; xbind
+  applies them as the person), and the person's audit log of what their
+  agent did. A `delegate` event on `/ws/events`;
+  push kinds `agent.approval` and `agent.changeset`.
+- **A tile's `"agent"` level is raised only by a person**
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §A tile's agent
+  level). A manifest lowers the level at once; one that states more than
+  xbind has on record, or drops the key after stating less, changes nothing
+  until someone who manages the tile approves it (`GET` / `PUT
+  /api/xbin/agent-levels`; an `agent-level` alert; `agentRequested` on
+  `/components` rows). A tile that never stated a level is `full`, and its
+  first value is taken as is. A workspace's consoles are `off` whatever
+  their copy of the manifest says.
+- **A delegate's call to a tile carries a fixed list of request headers**
+  (Accept…, Content-Type, the conditionals, Range, Cache-Control,
+  User-Agent) and a tile's answer to it no `Location`: write a tile's API
+  so an agent needs neither a custom header nor a redirect.
+- **SDK: `xbin.AsPerson()` and the delegate helpers** (`RequestApproval`,
+  `RequestApprovalAs`, `ApprovalOf`, `StandingApprovals`, `WithTicket`,
+  `WithAgentModel`, `DryRun`, `ProposeChanges`,
+  `ChangeSetOf`, `DelegateRefusal` and its `Err…` values) — for xbind's own
+  workspace-agent component; from any other tile they answer 401
+  ([sdk.md](/docs/sdk.md)). `AsPerson()` follows no redirect. `sdk/acp`:
+  `Config.Strict` — a start whose mode the harness refuses, or that asks
+  for an option other than a model or a thinking level, fails (xbind sets
+  it for sessions a workspace agent opens).
+- **Agent sessions: `origin`.** A session row, and its history entry,
+  carries `origin: "agent"` when the person's workspace agent opened it
+  (`GET /term/sessions`, `GET /agent/history`). Absent otherwise.
+- **`GET /tile-status`** also answers a person's workspace agent for a tile
+  that person can read.
+
+- **The LLM connector has a page and an admin console tab** (D226;
+  [llm.md](/docs/llm.md)). `/xbin/llm` — xbind's own page, there whatever
+  scaffold a workspace runs — is where a workspace admin sets the connector
+  up: status, providers (add, edit, remove; a masked key that is never
+  shown again; **Test**), default models by role and aliases, who may call
+  directly, quotas (workspace total, default per person, per-person and
+  per-org overrides; stop or warn) and usage per person and per component
+  for today and the month, sortable. Everyone else reads **their own usage
+  and quota** there. The admin console's new **workspace → LLM** tab is the
+  same page; its users tab has *LLM quota…* per person and an org's page an
+  *LLM quota* panel (after `bx builtin update scaffold:tiles/admin`).
+  - **What a host's file sets is read-only**, marked **Set by your host**
+    with its controls disabled; a connector the host locks entirely says
+    so at the top.
+  - **A quota that is reached raises an admin alert** (`GET
+    /api/xbin/alerts`, kind `llm-quota`; a banner in an admin's shell, a
+    row in the admin console): the person, the limit and where
+    it comes from, whether their calls are refused or only warned about,
+    when it resets, and `/xbin/llm`. The person reads a plain sentence on
+    their own page; `GET /api/xbin/llm` now answers a person's `user` and
+    `quota` even when the people switch doesn't admit their direct calls.
+  - **One setup card for admins** while no provider exists: an alert of
+    kind `llm-setup` — answered to admins and to the shell an admin
+    drives, nobody else — that the admin console draws as a card, an
+    admin's shell as a banner, and older shells and consoles as text
+    naming `/xbin/llm`. Its `dismiss` route, `POST
+    /api/xbin/llm/setup/dismiss`, ends it for the workspace; so does
+    adding a provider. Nothing else changes for a
+    workspace that ignores the connector ([compat.md](/docs/compat.md)).
+- **Orgs constrain agents** (D229; [auth.md](/docs/auth.md) §Agent
+  constraints, [protocol/orgs.md](/docs/protocol/orgs.md) §Agent
+  constraints). An org can now say what agents may do on its tiles:
+  `workspaceAgent` on or off, the coding-agent `harnesses` an agent session
+  may run there (`any` or a list of ids), and the `models` that may see
+  their data (`any`, `private`, or a list of LLM connector ids) —
+  `PUT /api/xbin/orgs/<org>/agents`, `bx org agents <org>`; `GET /orgs`
+  carries `agents`. The workspace sets the outer bounds and the mode for
+  whose credentials serve a coding agent — `own-first`, `connector-first`
+  or `connector-only` (`GET`/`PUT /api/xbin/agents/policy`, `bx org
+  agents`): an org only narrows them. Workspace admins set both; an org's
+  admin sets their own org, in their own session. A tile falls under the
+  org that owns it and every org it is shared into, and the strictest
+  wins. **With nothing set, nothing changes.**
+  - **A workspace admin can pin an org's rules.**
+    `PUT /api/xbin/orgs/<org>/agents/pin` (`bx org agents <org> --pin …`;
+    `GET /orgs` carries `agentsPin`): the org's admins narrow below the
+    pin and never loosen it. A refusal says where its rule comes from —
+    "(pinned by a workspace admin)", and for a tile the org doesn't own
+    the share that put it under the org ("this tile is under Finance by
+    its share apps/*").
+  - **An org's models rule binds agent sessions on its tiles.** Where a
+    `models` rule other than `any` applies, an agent session runs on the
+    workspace's LLM connector only, with the models the rule allows; a
+    harness that can't run on the connector isn't offered there
+    (`GET /agent/providers?cwd=<tile>&all=1` keeps it in the list with
+    `unavailable`: why; the tile window's chooser shows it). Neither this
+    nor the harness list governs what a person runs in a plain terminal.
+  - **Agent sessions follow the tile's harness list.**
+    `GET /api/xbin/agent/providers?cwd=<tile>` lists only what may run
+    there, and `POST /api/xbin/term/sessions` answers 403 with the reason
+    ("Finance allows these coding agents only: claude, codex (not
+    gemini)") for anything else. A session already running keeps running;
+    it can't be restarted, or resumed once it ended, while its harness is
+    disallowed. Without `cwd` the list is the whole catalog, as before.
+  - **The connection view.** `GET /api/xbin/agents/connection
+    ?model=&orgs=&tiles=&whatIf=` (and `bx agent connection`) lists every
+    org and tile a person can see as `connected`, `hidden` (left out of
+    the scope), `blocked` (with the reason) or `no-access`, with totals
+    ("14 tiles · 3 orgs connected · 6 not connected"), what an agent
+    session on each tile runs on (`credentials`, `unavailable`), and what
+    a model change would connect and disconnect
+    ([protocol/agents.md](/docs/protocol/agents.md) §The connection view).
+  - **`origin` on a session.** A `GET /term/sessions` row and a
+    `GET /agent/history` entry carry `origin: "agent"` when the person's
+    workspace agent started the session; absent otherwise.
+  - New event type `agents` (`{org}`) when the rules change.
+- **Agent preferences live on the server** (D229;
+  [protocol/agents.md](/docs/protocol/agents.md) §Agent preferences).
+  `GET`/`PUT /api/xbin/agent/prefs` keep, per person: the harness a new
+  agent session starts with, per harness the mode, model, options and
+  whose credentials (`own` | `connector`), and what their workspace agent
+  may start a tile agent session with (`agentSessions`: `start` ask —
+  the default — or allow, a mode per harness, the network and tile-API
+  pickers). `PUT` is a JSON merge patch. Only the person's own session
+  reads or writes them: a tile's credentials, a terminal's or an agent
+  session's token, view-as and the root token get 403. A bypass
+  (`explicit`) mode can't be saved. **The tile window's launcher and Agent
+  tab now use them**: the last session kind and harness you started, and
+  the mode, model and settings you last picked for a harness, follow you
+  to every browser, and a new agent session starts with them. What the
+  launcher remembered in this browser (`localStorage`) is moved over on
+  first use and still answers where the server can't (the root token,
+  `--no-auth`). New shared module `/vendor/agent-prefs.js`.
+- **Open a session from outside its tile's window** (D229;
+  [elements.md](/docs/elements.md) §`<bx-frame>`, §Links to a place in
+  your tile). `<bx-frame>`'s `open({session})` shows one of the viewer's
+  sessions on the tile — a live one's tab, an ended one's transcript — and
+  resolves whether it found it. A tile's page asks with
+  **`xbin.openSession({tile, session})`** (frame message
+  `xbin:open-session`), and a link can carry it:
+  `/c/root/?tile=apps/notes&session=<id>`. A session's tab that your
+  workspace agent started is marked "your agent". The shell part is a few
+  lines in the scaffold's `shell/route.js` and `shell/shell-route.js`
+  (`bx builtin update`); an older shell treats the link as a link to the
+  tile, and `xbin.openSession` still works for a tile on the page.
+- **Admin console: agent rules.** The organisations tab gained an
+  **agents** panel on each org's page and one for the workspace's bounds
+  under the list (new scaffold file `tiles/admin/tabs/org-agents.js`;
+  `bx builtin update`). `bx org agents` and the API do the same for a
+  workspace whose console predates it.
+- **xbind has an LLM connector built in** (D226; [llm.md](/docs/llm.md),
+  routes in [protocol/llm.md](/docs/protocol/llm.md)). One
+  OpenAI-compatible endpoint, `/api/xbin/llm/v1` (`chat/completions`,
+  `responses`, `models`), in front of the providers a workspace admin
+  configures — `bx llm upstream add <name> <base-url>`, keys in xbind's
+  vault. It is off until an upstream exists: nothing changes for a
+  workspace that doesn't set it up, and the `llm-gw` tile works as before.
+  - **Tiles bind to it like to a provider tile**: an `openai` slot takes
+    the new builtin ref **`xbin:llm`** (`bx bind apps/chat llm=xbin:llm`; a
+    workspace admin's bind, offered in pickers once the connector is
+    configured). The slot resolves to `/api/xbin/llm`
+    (`XBIN_IFACE_<SLOT>_URL`, or a `{provider: "xbin:llm", …}` row of a
+    multi slot; `xbin.iface(slot).url`), and `GET <url>/preferred?use=`
+    answers as `llm-gw`'s does. Calls are metered to the person acting
+    and the tile.
+  - **Per-person metering and quotas**: `GET /api/xbin/llm/usage` (your
+    own rows; an admin's: everyone's), quotas per UTC day and month in
+    tokens and cost — a workspace default, per-user and per-org overrides,
+    a workspace total — that stop (`429` in OpenAI's error shape, naming
+    the quota and its reset) or warn (`X-XBin-LLM-Quota`). `bx llm usage`,
+    `bx llm quota`.
+  - **A host can configure and lock it**: `XBIN_LLM_CONFIG=<file>`
+    ([config.md](/docs/config.md)) sets upstreams (keys by file), default
+    models, aliases, switches and quotas; what it sets reads `locked: true,
+    reason: "set by your host"` in `GET /api/xbin/llm/config` and can't be
+    changed through the API (409).
+  - New `bx llm` ([bx.md](/docs/bx.md)); new SDK package
+    `github.com/xbin-dev/xbin/sdk/llm` (the Chat Completions and Responses
+    wire types, usage extraction from a body or a stream, a price table);
+    a new credential kind, the LLM key (`xbl_…`, good for the connector's
+    routes only — [auth.md](/docs/auth.md) §LLM keys; nothing hands them
+    out yet).
+  - What a caller can't do to it: a call abandoned mid-answer is still
+    metered (the provider's answer is read for 5 s more,
+    `XBIN_LLM_CANCEL_GRACE`, then charged as an estimate — usage rows carry
+    `estimated`); model names a caller makes up are counted together as
+    `<upstream>/(unknown)`; one caller has 16 calls in flight (`429
+    xbin_llm_busy`; the `concurrency` setting); an alias never takes over a
+    name the configuration has; a stored key never follows an upstream to
+    another address. A tile's non-primary deployments use the binding by
+    the tile's edge policy: read-clamped by default (models, no calls).
+  - Not yet: an admin console section, the connector in terminals and
+    agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
+
+- **BREAKING for a habit, not for tiles — fixed: a terminal could be
+  opened on xbind's own directories**
+  ([changes/2026-11-15-terminals-on-tiles.md](/docs/changes/2026-11-15-terminals-on-tiles.md):
+  what to do instead of a terminal at a non-tile folder). A
+  terminal or agent session's directory only had to be one the caller had
+  terminal level on, and an admin has that everywhere, so
+  `/ws/term?cwd=.xbin`, `cwd=data` and `cwd=homes` opened with that
+  directory writable: the shell could not read the owner token or the
+  secrets there, but could replace them, rewrite the users file and write
+  into other people's homes. **A terminal now opens only on a registered
+  tile or a directory inside one** (403 otherwise). A path that is not a
+  tile — a plain folder such as `apps`, a directory with no manifest and
+  no `index.html` — takes no terminal: open it on a tile.
+- **`GET /api/xbin/frame-token`** answers `404` for a path in xbind's own
+  namespace (`xbin/…`, `.xbin`, `data`, …) that is no registered
+  component, and `400` for a path written with a leading,
+  trailing or doubled slash. A cron job or bus subscription is registered
+  only for a component's path as xbind stores it (`400` otherwise), and a
+  restore takes the same.
+- **Top-level names starting with `xbin~` are reserved** when a tile is
+  created, cloned, imported or instantiated: they would share a system
+  component's data key. An existing directory of such a name keeps
+  running ([compat.md](/docs/compat.md) → Sealed components; the same
+  [migration note](/docs/changes/2026-11-15-terminals-on-tiles.md)).
+- **Fixed: a backend that was still starting when xbind shut down kept
+  running.** Shutdown stopped the backends that were up; one that was
+  being built, spawned or waited for at that moment was started (or
+  finished starting) afterwards and nobody stopped it. Under systemd the
+  unit's cgroup ended it; run by hand, or from a test, it stayed behind.
+  xbind now starts nothing once it is shutting down and stops every
+  backend it started, healthy yet or not.
+- **Fixed: a restore could register another tile's cron jobs.** Restoring
+  a tile registered every cron job its archive's manifest listed, whatever
+  component a job named; the bus subscriptions beside them were always
+  checked. A restore now registers only the jobs of the archive's own
+  component. In a workspace without sealed backups the manifest is the
+  archiver tile's word, so this let an archiver plant a job that calls
+  another tile's backend at a chosen path and role.
+- **Fixed: `GET /api/xbin/kv/res:/x/y` never answered.** A resource target
+  whose path starts with `/` made the scope lookup loop forever, holding a
+  CPU per request, for any authenticated caller. It now answers 404.
+- **`POST /api/xbin/restore` with `file`** refuses (409) an archive whose
+  manifest names another component than the one asked for.
+- **Sealed components (system components): the facility, with none shipped
+  yet** (D227). A release can now ship parts of xbin that run like tiles —
+  in the tile sandbox, with limits, logs, cron, bus and people's
+  partitions — whose code is always the running release's: no directory in
+  the workspace, nothing to edit, clone, deploy or merge, updated by
+  upgrading xbin. They live at `xbin/<name>` (a reserved name no tile can
+  take), and nothing in a workspace declares one. **This release adds none:
+  no workspace changes.** What is new for builders and admins, described in
+  [sealed.md](/docs/sealed.md) and
+  [protocol/sealed.md](/docs/protocol/sealed.md):
+  - `GET /api/xbin/sealed` (admins): each one, its code digest, state,
+    hold reason, partition mode, data format, slots and grants. The page
+    `/xbin/system` and `bx system` show it.
+  - Listings (`/components`, `/auth-overview`, `/grants`, `/backends`,
+    `/runtime`, `/access-matrix`, `/resources`, `/cron/jobs`,
+    `/bus/subscriptions`) answer as before and leave sealed components out
+    unless asked with `?sealed=1`; a row then carries `sealed: true`. A
+    client that shows one must not offer a terminal, source, deployments,
+    ownership or grants on it.
+  - An admin decides four things about one, with the routes a tile has:
+    who has read access (`read` or none — an entry naming it at `write` or
+    `terminal` is 400 on every route that writes entries; a pattern gives
+    read), enabled/disabled/hidden (`POST /lifecycle`), its limits, and the
+    bindings of the slots the release declares. A slot may have a default
+    binding to a built-in provider (`xbin:llm` once the LLM connector is
+    configured): it applies while no admin has bound or unbound the slot,
+    and is never written to `xbin.json`. Every other
+    route that names a tile answers a path under `xbin/` with a refusal
+    whose text starts "`<path>` is a system component, managed by xbin:"
+    (400; 403 for its resources, secrets and registrations, which only the
+    component itself touches). No tile can be granted a call into one or
+    bind a slot to one.
+  - The app's and `bx preview --native`'s confinement of what a tile's
+    native UI may name (`web/xb/tile-resource.js`, XbinCore) resolves a
+    sealed component's own `/c/xbin/<name>/…` and `/api/xbin/<name>/…`
+    once xbind listed it to that client, and still nothing else under
+    `xbin/`. Its link is a tile link (`c/xbin/<name>/…`).
+  - Its backend is the release's own build (`bin/sealed/<name>-<digest>`
+    in the bundle; `make build` and `xbind sealed-build` make it). A
+    production xbind never compiles one: without the build the component
+    is *held* and says why. Other holds: data at its key it didn't write,
+    data newer than the release reads (after a downgrade), a partitioned
+    one without `--isolate`.
+  - A sealed component's page left open across an xbind restart onto
+    another release reloads onto the new code at its first call: its
+    documents carry `<meta name="xbin-code">`, `xbin.fetch`/`xbin.ws`/
+    `xbin.url` name it on calls to the component's own API (`X-XBin-Code`,
+    `xbin-code=`), and a call naming other code is answered `409` with
+    `X-XBin-Reload` and a `reload` event. Tiles' documents and calls are
+    unchanged.
+  - A sealed component's **page holds a viewer's credential**: its frame
+    token (and its origin's cookie under `--tile-assets=origins`) reaches
+    the component's own backend, its own files, its renewal, `whoami` and
+    the events socket — nothing else (403). Only the backend's instance
+    credential uses the component's resources, secrets, registrations and
+    status; an admin and the root token don't. A tile's frame token is
+    unchanged.
+  - A sealed component's slot binds only to its default provider or one
+    the release names for it; another provider is refused (400). The
+    workspace `importMap` doesn't apply to its documents.
+  - Its backup is made and restored only as a sealed (encrypted,
+    authenticated) archive: nothing of it is archived in a workspace
+    without a vault barrier, a plain archive is refused at restore (409),
+    and nothing is restored while it is held for its data.
+  - `bin/sealed/sealed.json` lists each prebuilt backend's SHA-256, source
+    digest, SDK digest and go version; xbind runs only a file it lists,
+    checked at boot and before every start (`no-build` otherwise). Its
+    files on disk are checked before every start too, and its pages are
+    served from the release's bytes in memory.
+  - A JSON body that names a tile field twice is refused (400) on the
+    routes that refuse a sealed component.
+  - A row of the table may give its backend fixed environment (`Env`), a
+    path xbind delivers holder notifications to (`Notify`), and reads its
+    page may make beside a viewer's own (`FrameReads`: exact paths under
+    `/api/xbin/`, GET only). A component whose row holds delegation
+    (D228) keeps the delegation API for its page. A person's agent does
+    nothing in a system component: `PUT /agent-levels` and `POST
+    /delegate/approvals` refuse one, and so does every delegate call.
+    xbind's notices to a holder's backend go to its row's `Notify` path
+    and nowhere else; the fixture holder's page reads
+    `GET /agents/connection?session=` through its row's `FrameReads`.
+    Which component is the agent xbin's chrome frames (`agent` in
+    `GET /delegate/state`) is the one row the table marks.
+  - No preview shows a system component: `POST /preview {tile:
+    "xbin/<name>"}` answers 400, and a screen render leaves it out.
+  - A sealed path has one spelling, `xbin/<name>`: a leading, trailing or
+    doubled slash, `./` or `a/../` in it is refused (400) on every route.
+  - A sealed component's backup restores only under a backup key this
+    workspace created for it — not one from an imported key bundle. To
+    move one to another host, restore the workspace's own directory.
+  - A view-as session opens nothing of a sealed component, an admin's
+    event stream carries none of its bus events, a person's own bind of
+    its slot takes only the providers the release names, and a
+    partitioned one without `--isolate` runs as one shared instance only
+    under `--no-auth`.
+  - Backups of one are its data only; the manifest's `sealedData` is the
+    data format, and a restore into a release that reads only an older
+    format is refused.
+  - A directory or tile literally named `xbin~<name>` shares a data key
+    with a sealed component `xbin/<name>` and would lose its declared
+    resources once a release ships that component
+    ([compat.md](/docs/compat.md) → Sealed components).
+
+- **Agent sessions: one sign-in hint (D225).** When a coding agent
+  refuses a session or a prompt because it is signed out, the error and
+  the `status` event's `detail` end with one sentence everywhere,
+  `sdk/acp`'s new `Provider.SignInHint`. **Wording that changed** — a tile
+  agent session's (the Agent tab's status line, `bx agent`): "‹the
+  agent's message›: the agent isn't signed in — in a terminal on ‹tile›,
+  run: ‹command›", where it read "… — open a terminal on ‹tile› and run:
+  ‹command›  (your terminal $HOME is shared with agent sessions, so one
+  login serves every tile)"; and ‹command› is now the provider's terminal
+  sign-in line (`LoginCmd`: `codex login --device-auth`, `NO_BROWSER=true
+  gemini` — the forms that print a URL or code instead of opening a
+  browser) where it was the display line (`codex login`, `gemini (then
+  choose Login with Google)`). The `login` object of a status event
+  (`{needed, provider, command}`) and the agent template's texts are
+  unchanged. Also new in `sdk/acp`, additive: `IsAuthRequired`,
+  `SaysSignedOut`, `AuthState` (`/docs/sdk.md` "The session rules").
+- **Agent sessions: a turn the agent starts on its own is followed
+  (D225).** codex-acp answers a message steered just after its turn ended
+  by starting a turn of its own, which no prompt's answer ends. A tile
+  agent session used to read as idle through such a turn — the next
+  message was prompted into it, and held messages were sent while it ran.
+  Now `POST …/queue` still answers `steered`, a `status` event says
+  `running` (statuses the agent's client restates as idle meanwhile are
+  served as `running`, or `waiting_permission` while a request waits), a
+  message sent meanwhile is held, `POST …/prompt` answers 409 as for any
+  running turn, and the turn ends with xbind's own `turn.end`
+  `{stopReason, detached: true}` (no `turn` number) once the agent has
+  sent nothing for 5 s with no request waiting — or at `POST …/cancel`
+  (`stopReason: "cancelled"`; the requests it waited on are answered
+  cancelled) — followed by an idle `status`, after which held messages go
+  in. Additive: a client that doesn't know `detached` shows an ordinary
+  turn end. `/docs/protocol/agents.md` §Agent session events. In
+  **`sdk/acp`** the rules both hosts follow are new API — `QueueState`
+  (`Message`, `Flush`, `Busy`), `SteerOutcome`, the `Message*` constants,
+  `DetachedTurn` and `DetachedQuiet` (`/docs/sdk.md` "The session rules")
+  — and one behaviour of `Client` changed: a permission request or form
+  question the agent makes outside a prompt leaves the status `idle` again
+  once answered (it stayed `waiting_permission` until the next prompt).
+  `sdk/acp/acptest` gains the `detach…` script (with `--steer`) to play
+  such a turn. The agent template decides with the same functions; one
+  thing moves there: a message sent during the agent's own turn no longer
+  splits the text the agent is writing into two rows (it waits, as before).
+- **sdk/acp: status words — `Busy`, `TurnOver`, `StateOf`, `Summary`,
+  `Need` (D225).** New, additive (`/docs/sdk.md` "The session rules"):
+  the status classes, a session's state in one word (`starting`, `ready`,
+  `working`, `login`, `failed`, `stopped`), the summary an inbox compares,
+  and what a session waits on a person for as a heading and a sentence.
+  xbind's agent-session summaries and notifications and the agent
+  template's "Needs you" now take their words from it. **Wording that
+  changed** — xbind's push notifications for a tile agent session, only
+  when the request says nothing of itself: a permission request without a
+  title reads "The agent wants to run a command — approve or deny." (was
+  "A tool call is waiting for your answer."), a question without a message
+  "The agent is waiting for your answer." (was "The agent is asking you
+  something."). Titles ("Permission needed — ‹tile›", "Question —
+  ‹tile›"), every other body, the `term` status event and the agent
+  template's texts and `harness.state` words are unchanged.
+- **Agent sessions: a permission option that raises the mode says so —
+  `explicit: true` (D225).** A `permission.request`'s options (the event,
+  `GET /term/sessions/<id>`'s `permissions`, the tail page's
+  `state.permissions`) gain an optional `explicit`: answering with that
+  option switches the session to a mode beyond the agent's own asks — a
+  plan approval's "yes, and bypass permissions", or a "yes, and switch to
+  ‹mode›" the provider catalog can't place — unless the session was opened
+  in that mode. Additive: absent on every other option, ignored by clients
+  that don't know it (the app's decoder does), and xbind answers such an
+  option like any other — it is there so a client can ask twice.
+  `/docs/protocol/agents.md` §Agent session events. In **`sdk/acp`** the
+  rule is `Provider.OptionRaises`, with `Provider.ModeOpen`,
+  `Provider.ModeIDs`, `ModeOption`, `SessionState.Mode` and the new field
+  `PermissionOption.Explicit`, which a `Client` now sets on the requests it
+  files (`Config.Mode` is the mode the session began in). The agent
+  template judges its owner-only options with the same function (it was
+  its own `optionRaises`); what it refuses is unchanged.
+- **sdk/acp: the tool record (D225).** New, additive: `acp.ToolRecord`
+  (one tool call, its `tool.call` / `tool.update` events merged),
+  `acp.ToolRecords` (a session's fold: `Apply`, `Entries`, `Newest`,
+  `Observe`, `EndTurn`), `ToolEntry`, `ToolEvent` / `ParseToolEvent`,
+  `ToolPolicy`, `ToolDiff`, `ToolLocation`, `ChangeSet`, `FileChange`,
+  `ChangePatch`, `OutputChunk`, `StartsToolRecord`, `ToolDone`,
+  `NewToolRecord`, `NewToolRecords`, the `Tool*` status constants and
+  `EvFilesChanged` — `/docs/sdk.md` "The session rules". xbind's event
+  pager and the agent template's backend now use it, so they agree on one
+  reading of a call. What changes in the **agent template** (a new
+  instance, or one that merges the template; it needs the SDK of this
+  xbind, as any newer template does — `/docs/compat.md`): a call id the
+  coding agent uses again in a later turn is a new card even when the
+  earlier call never reported its end (it was merged into the earlier
+  card); a call's kept output and its result's tail are cut between
+  characters, never inside one; a tool kind ACP doesn't define is stored
+  as `other` (the tool row's name was `acp:<that kind>`); a permission
+  request for a call the agent has not announced yet makes the card with
+  the request's arguments and content (a plan approval shows its plan
+  then). The tool row's `acp` object is unchanged for every other call.
+  xbind's `GET …/events?before=` pages: a page is never cut between two
+  calls that share an id within one turn; nothing else moves.
+- **Frontend kit: `/vendor/chat/tools.js` and `/vendor/chat/ask.js` — one
+  model of a tool call and of what an agent asks; the chat kit's `KIT` is
+  2** (D224; [frontend-kit.md](/docs/frontend-kit.md)). Two new pure
+  modules a tile may import, made of what xbind's Agent tab and the agent
+  template each had: `tools.js` reads a call from its `ToolRecord` (the
+  merge of an agent's `tool.call` / `tool.update` events, headline, the
+  command under it, outcome and state chips, `stripAnsi`, the output's
+  tail, diffs as a patch or as the two texts, plan approval); `ask.js` a
+  permission request as its card (option order, who sees an option that
+  stops the agent asking, what "always" remembers), a question as a form or
+  a page to open, the slash menu, the composer's words while a turn runs.
+  `/vendor/agent-tools.js`, `/vendor/agent-slash.js` and
+  `/vendor/signin-scan.js`'s `cleanCode` are re-exports now: every name
+  they exported is there and says what it said, with the changes below.
+  An event log's tool block in the Agent tab's fold (`/vendor/agent-fold.js`)
+  also carries `rec`, the kit's record (its locations and files; a diff a
+  later content list left out; `changed`), and a question's block its
+  `mode` and `url`.
+- **Agent tab: what changes in it.** Command output: a terminal hyperlink
+  keeps its text (it was dropped, with everything up to the last link),
+  and colours written with colon sub-parameters (`ESC[38:2::…m`), a
+  character-set designation (`ESC ( B`) and the 8-bit CSI are stripped
+  (they showed as stray characters). A question's form: a single choice
+  written as `anyOf`, labels from `enumNames`, and schema `default`s (drawn
+  chosen; an untouched field answers its default) are read; a choice
+  without a title is called by its value; a required choice answered in
+  its "Other" box counts as answered. A question that is a page to open
+  (URL mode) is drawn as its link with Done / Skip. The iOS app's port
+  follows the output rule in its next build.
+- **Agent template: a coding agent's calls and requests are said by
+  xbind's chat kit, and the page needs chat kit revision 2 (xbind ≥
+  v0.3.80).** `model/harness-heads.js`, `model/harness-ask.js` and
+  `cleanCode` in `model/harness-signins.js` keep their exports and become
+  adapters from the template's rows to the kit. What reads differently:
+  - a call's headline. With the agent's own label (Claude Code's
+    description of a command) nothing changes. Without one, a shell command
+    is read ("Python script (12 lines) → main.go", "Edit a.txt (sed)",
+    else its first line) with the command under it, where it was the
+    command's first hundred characters; a title of several lines is its
+    first; a call with neither label nor title is read from its arguments
+    ("Read /w/a.go:10–49") where it said its kind ("read"), and an untitled
+    command is `make test`, not `$ make test`;
+  - a command given as `script`, and a string command's `args`, are read;
+  - a question's plain `enum` (no `enumNames`) is labelled by its values —
+    every choice was labelled "false";
+  - the slash menu also finds a command by its description, offers at most
+    8 (it was 12, by name only), and opens while the draft is `/` and a
+    name of letters, digits, `_`, `:`, `.` and `-`.
+  The template's native view imports these models, so on an xbind older
+  than v0.3.80 its `native.js` does not load: the app shows the tile's web
+  page ([native.md](/docs/native.md) → Fallback), which says "This agent
+  needs xbind ≥ v0.3.80". Instances you already have are not touched.
+- **Admin console and organisations tile: agent rules.** The admin
+  console's organisations tab gained **agents** panels on each org's page
+  (its own rules, and the pin) and one for the workspace's bounds under
+  the list; the organisations tile gained an **agents** card on each org
+  its viewer admins, so an org's admin has a UI for their own rules. Both
+  use xbind's `<bx-org-agents>` (`/vendor/org-agents.js`); the scaffold
+  part is a few lines in `tiles/admin/tabs/orgs.js` and a new file,
+  `tiles/organisations/agents.js` (`bx builtin update`). `bx org agents`
+  and the API do the same for a workspace whose scaffold predates it.
+- **docs: the protocol reference is split by topic.** `/docs/protocol.md`
+  had reached the size limit of a served doc, so its route tables and
+  WebSocket sections moved, unchanged, to one page per area under
+  `/docs/protocol/`: `core.md`, `users.md`, `orgs.md`, `grants.md`,
+  `workspace.md`, `tiles.md`, `code.md`, `runtime.md`, `agents.md`,
+  `terminals.md`, `events.md`, `resources.md`, `partitions.md`,
+  `backups.md`, `deployments.md`, `sandboxes.md`, `devices.md`.
+  `/docs/protocol.md` still works: it keeps authentication, the routing
+  rule, the tile ↔ shell, backend and filesystem contracts, a Topics table
+  naming the page for every route, and each moved section's heading with a
+  pointer to its new page. No route, header or wire format changed; an
+  error's `docs` field still says `/docs/protocol.md`.
+- **Tests: the `fake` agent provider is `acp.Fake`.** An xbind started with
+  `XBIN_AGENT_FAKE` (tests, the UI harness) lists the scripted agent in
+  `GET /agent/providers` with the modes `sdk/acp`'s `Fake` has — `ask`
+  ("Ask before acting"), `auto`, `yolo` — where it listed `ask` and `yolo`.
+  Nothing changes for an xbind without that variable.
+- **Frontend kit: one markdown renderer for untrusted text, and tiles may
+  import it** (D224; [frontend-kit.md](/docs/frontend-kit.md)).
+  `/vendor/bx-md.js` — the Agent tab's and the screen text blocks' renderer
+  — moves from the shell-only modules to the ones a tile may import: `md`,
+  `mdInto`, `mdCssText`, and new `closedFence`, `mdEpoch`, `onHighlighter`.
+  New `/vendor/chat/md.js` is the same renderer without the code highlighter
+  up front (it is imported on the first fence that needs it; code is plain
+  until then), and new `/vendor/chat/rev.js` exports `KIT`, the revision of
+  the chat kit this xbind serves, for a page that must check before it
+  imports the kit. The renderer has a marked instance of its own: xbind's
+  modules no longer change the `marked` a document imports from
+  `/vendor/marked.esm.js`. One change in what it draws, in the Agent tab
+  and in a screen's text: a code fence counts as closed (and is coloured)
+  only when its last line is a fence of the same character at least as long
+  as the opening one — a block still being written whose last line was a
+  shorter or different fence used to be coloured early.
+- **Agent template: its chat's markdown is xbind's renderer, and a newer
+  template needs xbind ≥ v0.3.80 for its page** (D224;
+  [compat.md](/docs/compat.md) §What this does not promise). `chat-md.js`
+  is now a re-export of `/vendor/chat/md.js`, and `index.html` starts
+  `boot.js`, which checks the chat kit's revision before it loads
+  `agent.js`: on an older xbind the page says "This agent needs xbind ≥
+  v0.3.80 — update xbind" instead of the app. Instances you already have
+  are not touched and keep working on this and later xbinds; this is about
+  merging a newer template into an instance on an older xbind — update
+  xbind first. (The native view: see the entry above.) What the template's chat
+  draws differently: code is coloured up to 32 KiB a block (it was 20,000
+  characters), a fence's language becomes a `language-…` class only when
+  it is a plain name, and an image's placeholder carries the class `md-img`
+  (it was `muted`; `index.html` colours it the same).
+- **`/vendor/chat/blocks.js` and `/vendor/chat/rev.js`: the chat kit's block
+  model.** New, pure modules a tile may import
+  ([frontend-kit.md](/docs/frontend-kit.md)): the shape of a chat
+  transcript's blocks (kinds, keys, versions), the one record of a tool
+  call, what a view may ask of its host, and a reducer's helpers;
+  `rev.js` exports `KIT` (1), the revision a tile probes before relying on
+  the kit. Nothing draws with them yet — the Agent tab and the agent
+  template are unchanged; the views follow.
+- **Backends: calls to xbind before `xbin.Serve` are safe, and a start that
+  stalls says why.** A backend's `main()` may register its cron jobs and bus
+  subscriptions, use its kv and vault and read its own row before it calls
+  `Serve`: xbind never held such a call until the backend was healthy (now
+  pinned by tests on every start — first, live-reload rebuild, crash
+  restart, deploy, xbind restart — with and without `--isolate`). What
+  could fail such a start is the 5 s health deadline, which counted the time
+  the backend spent waiting on xbind's answer: a pre-Serve call that xbind
+  was slow to answer failed the start with `timeout dialing backend socket`
+  and left the tile failed until its next save. Since this release, time with an
+  `/api/xbin/*` call in flight doesn't count (up to 60 s more), and a
+  backend that runs but never listened fails with *the backend is running
+  but never started listening … (it has not called Serve)*, naming the call
+  to xbind it is still waiting on or saying it printed nothing, in `bx
+  status` and after its start marker in `bx logs` — distinct from *exited
+  before it listened* and from a socket that never accepts. Affected: any
+  backend calling xbind before `Serve`, on every release (the 5 s check
+  dates from v0.1.0). No change to tiles is needed after upgrading; the
+  startup rules (what still counts, bounding startup calls) are in
+  [sdk.md](/docs/sdk.md#startup).
+
 ## 2026-11-09
 
 - **Agent template Projects: a new project is made in a wizard, and can
@@ -1517,5943 +3111,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   serves once the pause commits: the code running before keeps serving
   until the checkpoint swaps in.
 
-## 2026-09-30
+## Older entries
 
-- **The agent template: non-secure (hosted) conversations and "Add a copy of
-  my …"** (the template's API.md "Partitioned instances" → "Non-secure
-  conversations", [partitions.md](/docs/partitions.md) §The mode). In a
-  partitioned agent a shared conversation runs at its global instance, which
-  reaches no one's own partition. A participant may now let it use **their**
-  private resources — their sandboxes, their data in other partitioned
-  tiles, their vault: everything their partition reaches — which makes it
-  **non-secure**: it moves into the agent's shared `team` database (a new
-  id, still below 2^40) and their own partition runs it, driving only what
-  its own table lists. The members keep using it at the global instance,
-  which rings the host's partition when they write and streams the host's
-  run to everyone at once. The page warns everyone who opens it — every
-  time, with who can read it and whose resources it uses — and keeps the
-  composer locked until they start it; a ⚠ **not private** chip marks it.
-  Adding people pauses it until the host confirms them (on the page, or from
-  a push); the host's partition stops at its next step. Declining, taking
-  the resources back, 7 days without an answer or the host leaving it end
-  hosting, and any member may then continue it without them; un-sharing it
-  (only its owner left) ends hosting, and a person's chat then moves to its
-  owner's own partition like any un-shared one. Only the host approves a
-  parked tool call in it, and it has no schedule, automation-thread or skill
-  tools. It has no join links. Its members can copy it into their own space
-  (the transcript); its top bar has no Compact or Learn skill and it shows
-  no sandbox picker. The non-hosting alternative: **Add a copy of my
-  files…** puts copies of your own session files into a shared conversation;
-  the originals stay private. New routes, in a partitioned instance only:
-  `GET` / `POST /hosting`, `POST /hosting/{id}/confirm|decline`, `DELETE
-  /hosting/{id}`, `POST /copyin` (a person's partition); `POST /hosted`,
-  `POST /hosted/events`, `POST /hosted/{id}/continue`, `POST
-  /runs/{id}/copyin` (the global instance); partition-mail topics
-  `hosted/input` and `hosted/changed`. The `team` resource's schema moves to
-  2 and carries the agent's run schema (the global instance migrates it; a
-  person's partition waits for it). Unpartitioned instances change nothing
-  (the routes answer 404). Nothing to change.
-- **A partitioned agent: un-sharing moves a chat home, large chat files
-  are staged** (the agent template's API.md "Partitioned instances",
-  [partitions.md](/docs/partitions.md) §The mode,
-  [agent-inbox.md](/docs/agent-inbox.md) §A partitioned agent):
-  - **A shared chat that stops being shared moves to its owner's own
-    space.** At the global instance, a person's chat that an act leaves
-    shared with nobody — made private with nobody else in it, or its last
-    member removed or gone — moves to its owner's partition once nothing
-    in it is under way: its join links are revoked, changes to it answer
-    409 while it moves (reading, stopping it, deciding an approval and
-    answering what it asked go on), and then it is the owner's — a new id
-    from 2^40, its transcript, task ledger, files and notes, the schedules
-    that report into it (now private, the owner's own) and their pin.
-    What stays behind — its subagents' own transcripts, its sandboxes,
-    the capabilities granted to it — is said in the note it arrives with.
-    It is never listed in two homes; its owner's page follows it (a non-secure conversation un-shared goes back to the shared instance first, and on from there) (the
-    `run` event deleting it carries `movedTo`; `GET /moves/{id}` answers
-    where it went for 30 days, so an old `#c=` link or push opens the new
-    one). An automation's thread at the global instance (a channel's, a
-    schedule's, a trigger's) doesn't move, nor does a conversation that
-    isn't a person's (the owner token's, another tile's). A chat too large
-    to copy (48 MiB), or that its owner's space can't take, or whose owner
-    can no longer be mailed or doesn't open the agent within 8 days, stays
-    where it is, private.
-  - **A chat file too large for a handoff's mail (640 KiB)** waits in the
-    global instance's storage and the person's partition fetches it (as
-    them) before it takes the DM, then it is deleted there; a reply's file
-    too large for its mail is staged at the global instance the same way
-    (up to 10 files a chat, 32 files / 64 MiB a person not yet sent).
-    Adapters change nothing.
-  - In a person's partition **a channel's card counts, and its run list
-    shows, its conversations in both homes** (your DMs, and its group
-    threads at the global instance you may see); the Sandboxes list and
-    picker **while a shared conversation is open are the global
-    instance's** (a shared conversation's sandboxes are its).
-  New routes, at a partitioned agent's global instance only: `GET
-  /moves/{id}`, `GET /moves/{id}/export`, `POST /moves/{id}/done`, `POST
-  /moves/{id}/abandon`, `GET /handoffs/{id}/files/{fid}`, `POST
-  /handoffs/{id}/fetched`, `PUT /handoffs/{id}/reply-files`; the mail topic
-  `conv/move`. Unpartitioned agents — every existing instance that keeps its
-  mode — change nothing. Nothing to change.
-- **Partitioned tiles: the shell's settings menu links your partitions
-  page; times read the same everywhere; `yours` says where shared things
-  come from** ([partitions.md](/docs/partitions.md) §Partitioned tiles,
-  §Your partitions page, §Operating people's partitions).
-  - Once you see a partitioned tile, the shell's **settings** menu has
-    **your partitions** under *my account*: the partitioned marker's shape
-    and a link to `/xbin/partitions` in a new tab (the page opens only
-    top-level). It shows for a signed-in person only — not for the
-    workspace token, nor for an admin viewing the workspace as someone —
-    and comes and goes with the tiles you see.
-  - On a tile that also runs a global instance, the window chip `yours`
-    keeps its word — your window's calls reach your partition — and its
-    tooltip now adds that anything the tile shares with everyone who uses
-    it (a partitioned agent's shared conversations, for example) comes
-    from its global instance, not from your partition.
-  - The admin console's partitions view shows times in your browser's
-    zone with the zone named ("2026-09-30 17:46 GMT+2"), as the partitions
-    page does; it showed UTC without saying so. The logs panel's "shared
-    with you" entry names its end the same way (it showed a UTC date).
-  - The shell and the admin tile are scaffold: existing workspaces get the
-    menu entry, the tooltip and the console's times with `bx builtin
-    update scaffold:shell` and `bx builtin update scaffold:tiles/admin`;
-    the logs panel ships with xbind. Workspaces without a partitioned tile
-    look exactly as before. Nothing to change.
-- **Partitioned tiles: realtime between partitions, and partition mail from
-  any runtime** ([partitions.md](/docs/partitions.md) §Realtime between
-  partitions, [sdk.md](/docs/sdk.md)). The builder page names the three ways
-  live state crosses people's partitions, each for its job — tile-wide state
-  is a shared resource plus a shared bus (every reader's page follows it —
-  and a row's key there proves no author); member-scoped state has the
-  global instance as hub (pages follow its stream with `xbin.fetch(…,
-  {partition: 'global'})`, partitions post to it with `xbin.GlobalURL`; the
-  hub keeps the members, stamps who posted from the call, and ends the
-  stream of a follower who can no longer read the tile — xbind doesn't (the
-  builtin agent's hub doesn't yet: a platform follow-up)); a partition that
-  must be woken gets partition mail — with one worked example tile using all
-  three, whose Go backend is the SDK's `Example_realtime`. The Go SDK's mail
-  calls gain Context variants — `MailContext`, `MailWithContext`,
-  `InboxPageContext`, `InboxContext`, `AckContext` — which give up when
-  their context ends, with an error wrapping the context's; the plain calls
-  are unchanged. A send that gives up (or fails without xbind's answer) may
-  or may not have made its item: sending again makes another item with
-  another id, so a sender that retries puts its own key in `data` for the
-  addressee to dedupe by. sdk.md gains partition mail for node and python
-  backends (a helper for xbind's API through the gateway, sending, and
-  draining the inbox page by page), and the workspace `AGENTS.md` (new
-  workspaces) lists the partition calls in its SDK cheat sheet. The builtin
-  agent template's mailbox now bounds each read and ack by its pull's
-  two-minute deadline, so a hung xbind can't hold it. Nothing to change.
-- **The agent template: shared conversations in a partitioned agent** (the
-  template's API.md "Partitioned instances", [partitions.md](/docs/partitions.md)
-  §The mode). In a partitioned agent a shared conversation lives at the
-  agent's global instance — in its database, run by it, so it reaches no
-  one's own partition — and people's pages reach it through their own
-  global instance (`?xbin-partition=global`, attributed to them), where the
-  sharing rules apply to them exactly as in an unpartitioned agent:
-  sharing with the team or people, join links, each person's pins and read
-  state. A conversation's id says its home (a person's own from 2^40, the
-  shared space's below), so `#c=<id>` addresses, push links and the iOS
-  app's saved places keep working. Everyone in a shared conversation
-  follows its stream at the global instance, so all see a run as it
-  streams. The page's **Mine** lists your own conversations and the shared
-  ones you take part in, **Shared** the shared space's; the web's Share on
-  one of your own is **Share a copy…** (a copy goes to the shared space —
-  who can see it, its session files or not, the original kept or deleted),
-  a shared one's share dialog offers **Copy to my own space**, and **New
-  chat with options** asks who can see the new chat (only you, the team,
-  or people you name). A copy is the conversation the model reads — every
-  message and tool result, its task ledger — and names a message's writer
-  only when that is who made the copy: anyone else's message comes as
-  "copied · <id>", never as theirs. New routes, in a partitioned instance
-  only: `POST /runs/{id}/publish`, `POST /copy`, `GET /runs/{id}/export`,
-  `POST /import` (413 over 48 MiB); `POST /ask` takes `share` (in every
-  instance — unpartitioned it shares the new conversation at once); at the
-  global instance a person's `POST /ask` must carry it (409 otherwise) and
-  their `POST /runs` and `PUT /ask/upload` are refused; `POST /join` in a
-  person's partition is redeemed at the global instance. An unpartitioned
-  instance's page, and the global instance's own (the owner token), are
-  unchanged. Nothing to change.
-- **A partitioned agent's chat channels and event triggers reach people's
-  own partitions** (the agent template's API.md "Partitioned instances",
-  [partitions.md](/docs/partitions.md) §The mode). The messaging bridge and
-  the webhooks tile aren't partitioned, so they reach a partitioned agent's
-  global instance, which keeps the channels, the links of chat accounts to
-  people and a registry of triggers — and now hands what is one person's to
-  that person's partition by partition mail:
-  - **a DM from a chat account linked to you** is answered by your own
-    partition: the conversation is yours, private, in your list. The global
-    instance keeps a record of where it came from, holds the message only
-    until it is mailed (at most 7 days — one person's full inbox holds back
-    only their own), posts your partition's replies where its own record
-    says — only when xbind stamps the reply as yours and the chat account
-    is still linked to you — and forgets a reply's text once the bridge
-    acknowledged it (the channel's owner sees a reply wait or fail, never
-    what it says). Its files travel with it — inline up to 640 KiB a message, a larger one staged at the global instance until your partition fetched it. Until your partition has run once (open the agent once) your DMs wait for it like unread messages — up to 7 days; nothing answers the chat meanwhile;
-  - **your event triggers are yours**: made in your partition, they register
-    their name, source and topic prefix with the global instance (names are
-    unique tile-wide; managers see that one exists, whose and what it
-    listens to — never what it does or when it ran —, on their own page
-    too, and may switch it off or delete it). A trigger on pushes needs a
-    topic prefix, and one that overlaps anyone else's on the same tile is
-    refused, so nobody can quietly take everyone's webhooks; a private
-    trigger or schedule can't be made at the global instance from your
-    partition (409: make it in your own space). A matching push is recorded
-    at the global instance (the same event never runs twice) and handed to
-    your partition, which runs it; the push's source counts in your egress
-    ledger (`/xbin/partitions`);
-  - claiming and managing a channel from your own partition is forwarded to
-    the global instance (the 409s of the previous version are gone), and
-    your Automations page lists its channels;
-  - each partition mails the global instance its daily usage totals
-    (conversations started, model calls and tokens spent per day — never
-    content), and managers read them per person with `GET /usage`.
-  Unpartitioned agents — an instance on an xbind without `--isolate`, or
-  one whose managers kept its mode — change nothing (three new routes answer 404 there). Nothing to change.
-- **The partitions page: `/xbin/partitions`**
-  ([partitions.md](/docs/partitions.md) §Your partitions page,
-  [protocol.md](/docs/protocol.md)). xbind now serves one page, with the
-  xbind binary (no `bx builtin update` needed), for everything partitioned
-  tiles ask of a person, from their own sign-in: credentials someone else
-  made for their account while `credentialResetConfirm` is on (**Refuse** in
-  one click, or **Allow…**, which first asks, naming who made it and when;
-  the answer stays on the page — a warning in xbind's words when the
-  credential was no longer waiting); for tile managers, each paused tile's
-  partition mode switch — **Keep the current mode**, or **Switch…** after a
-  count of what it deletes, the list of what it keeps and the tile's path
-  typed; their partitions of each tile (running or not, what it holds, their
-  inbox's counts, stop, a log share of 1–14 days, restore from a backup,
-  reset after typing `<tile> user:<you>`) with its trust panel — who can
-  change the code that runs on their data, live reload, protection, reviewed
-  code only, the global binds every person's partition calls (their writers
-  and last code changes), and which tiles used their data there; consents
-  (with `partitionConsent` on: the tiles that asked, their consents, allow
-  one more); personal binds (add, remove); notices; and their egress ledger;
-  times in the browser's zone, named. The page is static — the same bytes
-  for everyone, no HTML transform — and opens only top-level (it refuses to
-  be framed). Signed out, a link to it signs in and lands back on it:
-  `/login` takes `?next=<path>` (a same-origin path, not a sign-in route),
-  which the password form and the single sign-on start carry to where the
-  sign-in lands. `GET /api/xbin/partitions`' `features` gain
-  `partitions-page/1`. **Links to it:** the `partition-switch` alert
-  (`/alerts`, the shell's banner) names the page beside `bx partition
-  switch|keep`; a call refused for want of consent now says `403 <id> hasn't
-  let <caller> use their <tile> data (they allow it at /xbin/partitions)`
-  (the text before the parenthesis is unchanged); a log-share refusal names
-  the page beside `bx partition share-log`; the consent push names the page;
-  the pushes `tile.partition-switch` (to managers) and
-  `tile.partition-deleted` now link `xbin/partitions` instead of `c/<tile>/`
-  (the xbin app opens the workspace until it knows the link). With `bx
-  builtin update`, the shell's greyed card of a paused tile gains a
-  **details…** link to the page. Nothing to change.
-- **The admin console's partitions view, and the logs panel's partition
-  switcher** ([partitions.md](/docs/partitions.md) §Operating people's
-  partitions, [protocol.md](/docs/protocol.md) `GET /partitions`,
-  `GET /sandboxes`, `POST /partitions/limits`, `/partitions/binds`,
-  [frontend-kit.md](/docs/frontend-kit.md)). Nothing changes for a
-  workspace without a partitioned tile.
-  - The admin tile gains **runtime → partitions**: every tile that keeps
-    each person's data apart or asks to — its mode, a request waiting for a
-    manager, its people, what runs and what it holds, trust warnings, caps
-    hit, untracked files on demand (checked once per click) — and, opened,
-    a tile's own view: **Keep the current mode** / **Switch…** (the dry
-    run's counts, then the tile's path typed), **reviewed code only**, the
-    limits, each person's metadata row (state, instance, data,
-    registrations, inbox counts, log share) with **stop**, **reset…** (the
-    typed `<tile> user:<id>`) and **restore…** (a backup of that person's
-    partition), the personal binds (the record removed from here), its
-    orphans and its mode history; below the list, the workspace's orphaned
-    partitions and their purge (exactly the ones listed and confirmed). The
-    console reads and acts as the admin driving it: opened by someone who
-    isn't an admin it shows each tile's state and request only. The
-    sandboxes view labels each person's partition instance, their sessions
-    (without names) and their terminal disks; the Backup tab's "back up"
-    says when a person's partition wasn't archived. Existing workspaces get
-    it with `bx builtin update scaffold:tiles/admin`; an older admin tile
-    keeps working without the tab.
-  - A partitioned tile's **logs panel** (the tile's window → logs) shows
-    your own partition's log and offers, in its corner, the global
-    instance's log (when the tile runs one and you may read it: terminal
-    access or an admin) and — for an admin or a manager of the tile — each
-    person's log while they share it (`<bx-logs partition="global|user:<id>">`,
-    shown only when xbind's `X-XBin-Partition` names the partition asked
-    for). An unpartitioned tile's panel, and any panel on an older xbind,
-    are as before.
-  - `GET /api/xbin/partitions` answers admins also the tile's mode
-    `history` (newest first, at most 50), `lastWipe` and `globalMail` (the
-    global instance's inbox counts, never an item), and a tile manager who
-    isn't an admin `logShares` (who shares their log with them now). The
-    admin tile's frame driven by an admin's login reads the overview (no
-    `tile`) as an admin too, as it reads one tile; driven by anyone else it
-    reads the tile-level fields, and `POST /partitions/limits` and
-    `GET`/`DELETE /partitions/binds` judge that frame by its driver's role.
-    `GET /api/xbin/sandboxes` rows carry `personal: true` for a person's
-    terminal or agent session on a partitioned tile.
-- **Partitioned tiles: the shell says whose partition a window shows, and
-  asks you before another partitioned tile uses your data**
-  ([partitions.md](/docs/partitions.md) §Partitioned tiles, §Calls between
-  partitioned tiles). Every window of a partitioned tile — its card, and a
-  pop-out window that frames it (`xbin.window`: a sub-path of the tile, or
-  `spec.src`) — now says after its title, in a quiet chip in the marker's
-  colour with a tooltip, whose partition it shows: `yours` (your own
-  partition), `shared` (a window showing one of the tile's other deployments
-  — the chip that was already there, now in the marker's colour) or `global`
-  (the tile's global instance, which the workspace token and `--no-auth`
-  reach); a window that reaches no partition says `no partition` (an admin
-  viewing the workspace as someone, or the workspace token on a tile without
-  a global instance). A pop-out of a partitioned tile carries the marker
-  too. With the workspace policy `partitionConsent` on, when a partitioned
-  tile's call into your data in another partitioned tile is refused for want
-  of your consent, the shell asks you in its strip above the tiles, beside
-  the pending grant requests: "apps/z asks to use your data in apps/x", why,
-  **Allow** (the next call goes through; `POST
-  /api/xbin/partitions/consents` as you) and **Don't allow** (nothing is
-  stored: the calls stay refused, that browser stops showing you the ask,
-  and xbind asks again at most once a day when the tile tries again). Allow
-  works only while nothing covers the question (a tile's pop-out window over
-  it disables it) and not in the moment it appears. The ask shows in every
-  shell you have open or open that day until you answer it, goes when you
-  answer it anywhere (the shell, `bx partition consent`, or another tab) and
-  when the policy is turned off or either tile is removed, moved or switched
-  to or from unpartitioned; nobody else's shell — an admin's, the workspace
-  token's, view-as — ever shows it. Taking a consent back (`bx partition
-  consent … --revoke`) no longer brings back the ask you answered: `GET
-  /api/xbin/partitions/consents`' `asked` leaves out an ask an allow
-  answered, and xbind asks again, at most once a day, when the tile tries
-  again. The shell is scaffold: existing workspaces get the chip and the
-  prompts with `bx builtin update scaffold:shell`; an older shell shows
-  neither (people answer with `bx partition consent`, as before). Tiles that
-  never ask for `partition`, and workspaces with the policy off, look
-  exactly as before. Nothing to change.
-- **llm-gw counts usage per person's partition** (llm-gw's API.md
-  "Partitioned callers", [partitions.md](/docs/partitions.md) §Providers).
-  A call from a partitioned tile — every agent instance made from the
-  template now is, by default — is counted per caller: the calling tile,
-  its deployment and the person's partition (`X-XBin-Partition-Id`; the
-  tile's global instance is its own row), with requests, tokens and cost —
-  metadata only, never a prompt, answer or model. The tile's page shows
-  under **usage by partition** what each viewer may see: a person their own
-  partitions' rows; a manager of llm-gw (write or terminal access — which
-  is how a workspace admin signed in reads to a tile) each calling tile's
-  people's partitions together and its global instance, never one
-  person's row; the owner token every row, without when a person last
-  used it or their calls in flight. `GET /stats` gains `callers`,
-  `callerTotals` and `canManage` (only once a partitioned tile has called,
-  or a limit is set); `GET /metrics` stays per backend. An optional
-  **fairness limit** (`PUT /config {partitionLimit}`, 0 = off, the default;
-  up to 64; write access) caps how many calls one person's partition may
-  have in flight: more wait their turn, in order, for at most 20 s, then
-  are answered `429` with `Retry-After` (the agent retries it); the global
-  instance and tiles that aren't partitioned are never held. A tile that
-  isn't partitioned is counted exactly as before, and until a partitioned
-  tile calls nothing on the page or in the responses changes. Update the
-  tile (`bx builtin update tile:llm-gw`, v8) to get it.
-- **Builtin tiles around a partitioned agent: the docs**
-  ([agent-inbox.md](/docs/agent-inbox.md) §A partitioned agent,
-  [partitions.md](/docs/partitions.md) §Providers). Adapters (the agent
-  messaging bridge) and the webhooks tile aren't partitioned and always
-  reach a partitioned agent's global instance, over the same contract: the
-  global instance keeps channels, their rules and the links; a linked
-  person's DM (its files inline up to 640 KiB a message, a larger one staged
-  at the global instance until the partition fetched it) and an event for a
-  person's private trigger are handed to that person's partition by
-  partition mail, and replies come back through the global instance, which
-  posts them where its own hand-off record says; a DM that arrives before
-  the person's partition ever ran waits in its inbox until they open the
-  agent; `runId`/`inboxId`/`sessionKey` in verdicts and outbox rows are
-  informational; a webhook's `202` means taken, not run; a private push
-  trigger needs a `match` (400) no one else's overlaps (409). The bridge
-  template's `AGENTS.md` and `API.md`, and the webhooks (v3) and
-  sandbox-terminal (v8) tiles' `API.md`, say the same to their builders and
-  people — including that binding them is an ordinary (global) bind, that a
-  personal bind applies to none of them (they aren't partitioned), and who
-  ends up in whose trust base. Nothing to change.
-- **Template instances take their template's manifest changes without a
-  conflict** ([03-components](/docs/overview/03-components.md)
-  §Templates, [bx.md](/docs/bx.md), [protocol.md](/docs/protocol.md)
-  `POST /templates/new`, `POST /clone`, `GET /templates/{repo}`). An
-  instance's `xbin.json` was re-marshalled when it was made (no comments,
-  keys sorted), so any change a newer xbind made to a template's manifest
-  conflicted in `git merge template/main` — every existing agent instance
-  on this version's. xbind now names a merge driver for the instance's
-  root `xbin.json` in each builtin template instance's own repository
-  (`merge.xbin-manifest` and `xbin.manifestDriver` in `.git/config`, a
-  line in `.git/info/attributes`; nothing tracked) — at start for existing
-  instances, when one is made or cloned. git runs it (`bx template
-  merge-manifest`) when both sides changed the manifest: git's line merge
-  first, kept when clean; where that conflicts and the other side is the
-  template (`git merge template/main`, a cherry-pick of a template commit
-  — not a branch of yours, a rebase or a stash), by keys — a value
-  upstream changed and you didn't is upstream's, one you changed is yours,
-  one both changed differently stays a conflict (git's markers, labelled
-  `ours`/`theirs`); `uses` entries are known by their `target`; upstream
-  changing `template` or `partition`, or comments your manifest carries,
-  is a conflict, never taken; a copy made at another path keeps its own
-  resource names. Without `bx` on `PATH` (terminals have it) the merge is
-  git's own. `git config xbin.manifestDriver false` and xbind leaves the
-  driver alone; so it does when you remove the attributes line, name a
-  driver command of your own, or give `xbin.json` a merge attribute of
-  your own. New instances keep the template's JSONC — its comments and key
-  order; only the `template` block goes, with the comment lines right
-  above it, and the instance's `partition` is the line after the opening
-  brace — so later changes merge line by line too (where the template
-  repo is one this xbind created). Nothing to change: `git fetch template
-  && git merge template/main` in an existing agent instance now merges
-  cleanly — and, under `--isolate`, asks it for the partitioned mode (the
-  BREAKING entry above).
-- **Partitioned tiles: partition mail — in development**
-  ([partitions.md](/docs/partitions.md) §Partition mail,
-  [protocol.md](/docs/protocol.md) `/partitions/mail` and §Partition mail
-  doorbell, [sdk.md](/docs/sdk.md), [bx.md](/docs/bx.md) `bx partition
-  mail`, [elements.md](/docs/elements.md) `partitionMail`). A partitioned
-  tile that declares `"global"` gets an xbind-kept inbox per addressee: its
-  global instance's backend mails one person (`POST
-  /api/xbin/partitions/mail {to: "user:<id>", topic, data, ttl?}` — a person
-  who can read the tile, else 404 `no such person here`) or itself, and a
-  person's partition (its backend, their frames, terminals and agent
-  sessions) mails `global` only. `from` (`global` or `user:<id>`) is stamped
-  by xbind. Each inbox is read and acknowledged only by its addressee — a
-  person's partition by its backend and that person's frames, terminals and
-  agent sessions; the global instance's by its backend and by the tile's
-  frames, terminals and agent sessions acting as global (the owner token's
-  frames, root terminals), which send nothing — admins, the root token,
-  view-as and other tiles get 403. Items are sealed with the vault, kept in
-  `data/partitions/<tile-key>/<dep>/mail.db`, never backed up; an item is at
-  most 1 MiB, an inbox at most 1000 items and 64 MiB, and in the global
-  instance's inbox each sender at most 100 items and 8 MiB (507 to the
-  sender); an item expires after its ttl (7 days by default, 30 at most),
-  and one that can't be opened is dropped as undeliverable instead of
-  holding up the rest. While the vault is sealed a send and a read that
-  returns items answer 503; acks still work. With `"partitionMail":
-  "/mailbox"` xbind rings that path on the addressee's instance
-  (`X-XBin-From: xbin/mail`, body `{partition, pending}`) at once, at the
-  addressee's start unless a ring reached that start, and then after 1 min,
-  5 min, 30 min, 2 h and every 6 h until the items are acknowledged; it
-  starts a person's stopped partition only when that partition has run
-  before (never a first instance) and within the mail start limit. Mail
-  survives a restart of xbind, makes a tile hold data, and goes with a
-  switch between user partitions and unpartitioned, a person's reset or
-  deletion; removing `"global"` deletes the global instance's inbox only.
-  The Go SDK gains `xbin.Mail`, `MailWith` (`MailOptions{TTL, Source}`: a
-  private trigger's source counts in the person's egress ledger as
-  `trigger`), `InboxPage` (`MailPage{Items, More}`), `Inbox`, `Ack`,
-  `MailItem` and `MailBell`; on an older xbind they return an error naming
-  `partition-mail/1`. `bx partition mail ls|ack` reads and acknowledges the
-  inbox of the partition a terminal runs in (the tile's root terminal: the
-  global instance's). Nothing changes for a tile that isn't partitioned.
-- **Operating people's partitions** ([partitions.md](/docs/partitions.md)
-  §Operating people's partitions, [protocol.md](/docs/protocol.md),
-  [bx.md](/docs/bx.md)). Nothing changes for a workspace without a
-  partitioned tile.
-  - `GET /api/xbin/partitions[?tile=]`: `features` (what this xbind serves:
-    `partitions/1`, `mode-switch/1`, `consents/1`, `personal-binds/1`,
-    `global-address/1`, `partition-ops/1`, `log-share/1`,
-    `credential-confirm/1`), and per audience — a person their own
-    partition's row (state, running, bytes, registrations, ledger totals,
-    log share) and the tile's trust panel (who can change its code, live
-    reload, protection, the last code change, reviewed code only); the
-    tile's writers and managers totals; admins every person's metadata row,
-    the personal binds and the orphans; tile code the tile-level fields only
-    (not the policies). Without a tile: the partitioned tiles (admins: with
-    `?untracked=1` each one's untracked files, caps hit in the last day), and
-    a person's held credentials and notices.
-  - `POST /api/xbin/partitions/stop|reset|purge`: stop a partition's
-    instance (the person's own; a manager's or admin's for anyone); delete
-    one partition — in every deployment it has data in — after a typed
-    confirmation, erasing the tile's own backup keys of it (the person's
-    own; an admin's for anyone, who is told); delete orphaned partitions now
-    (admins).
-  - `POST /api/xbin/partitions/reviewed {tile, on}` (admins): "reviewed code
-    only" — needs the primary and every bound non-partitioned provider
-    protected, keeps them protected while on (their unprotect and binding
-    an unprotected provider in answer 409).
-  - A person's partition's backend log is theirs: `GET /logs` answers each
-    person — their session, frames, terminals — their own partition's log
-    at any level, and admins or managers read it only while the person
-    shares it (`POST|DELETE /api/xbin/partitions/share-log`, ≤ 14 days; a
-    follow ends once the share does); the global instance's log with
-    `?xbin-partition=global` (`bx logs --global`, `--user <id>`). `GET
-    /tile-status` from a partition's credential answers that partition;
-    `GET /backends` nests people's running instances (metadata only).
-  - People's lifecycle: deleting a person stops their instances and
-    orphans their partitions (swept after 30 days, or purged), drops their
-    personal binds and consents, and moves a partition holder's home and
-    agent history to `data/orphans/`; disabling a person, or taking away
-    their read, stops their instances at once.
-  - Credential resets: a sign-in link, password or SSO email an admin
-    makes for someone who holds partitions is audited and the person told
-    (push and notice); with the workspace policy `credentialResetConfirm`
-    on it is held until they allow it (`POST
-    /api/xbin/partitions/credential-confirm`), refused, or 24 hours pass;
-    a held link's redemption answers 409 "waiting for <person> to confirm"
-    (it is stored held: an older xbind never redeems it); refusing a link
-    already used answers "already effective". A new SSO provider (`PATCH
-    /auth-settings`) is such a credential for every partition holder bound
-    by email; held, their SSO sign-ins wait (`sso_err=held`).
-  - `/alerts` kind `partition-trust` (live reload on while non-admins can
-    change a partitioned tile's code or a bound provider's); offloading a
-    partitioned tile answers 409; the `partitions` event gains ops `mode`
-    (the tile's readers) and `notice` (the person's own sockets).
-  - `bx partition ls|stop|reset|purge|limits|share-log|credential|reviewed`
-    (`purge` lists first, deletes with `--yes`), `bx logs --global|--user`,
-    `bx status` prints a partition terminal's partition, `bx doctor`'s
-    partition checks.
-- **Partitioned tiles: each person's partition is backed up on its own —
-  in development** ([partitions.md](/docs/partitions.md) §Backups,
-  [14-lifecycle.md](/docs/overview/14-lifecycle.md) §Sealed archives,
-  [protocol.md](/docs/protocol.md) `POST /backup`, `POST /restore`,
-  `/partitions/backups`, `/partitions/restore`, [bx.md](/docs/bx.md)). In a
-  workspace with a vault barrier a backup of a partitioned tile writes, after
-  its main archive, one archive per person's partition —
-  `.partitions.<tile-key>.<deployment>.<partition id>`, schema 3, kind
-  `partition`, sealed under that partition's own `part:` backup key — with
-  the partition's data, its vault file (values still sealed by the vault),
-  its registrations and its record; the tile's main, data and deployment
-  archives hold none of it. `POST /backup` then answers `partitions:
-  {archived, failed?, skipped?}` (a partition that can't be archived
-  doesn't fail the backup; the plaintext-vault mode archives none), and a
-  schedule's retention keeps each partition's newest versions, and deletes
-  every version of a partition that is gone once its key is erased (at an
-  archiver without `POST /archive/erase` too). `bx backup` prints the
-  partitions and exits 1 when one isn't backed up (a warning when none can
-  be). New: `GET /api/xbin/partitions/backups` and `POST
-  /api/xbin/partitions/restore` (`bx backups|restore <tile> --partition`):
-  the person, in their own session, restores their own partition — its
-  data, vault and registrations — after typing `<tile> user:<id>`, and
-  names no partition id but their own; an admin may anyone's, and the
-  person is told (push kind `tile.partition-restored`). Only a sealed
-  archive under that partition's own key, of the same tile and user id,
-  restores, and only while the tile is partitioned (409); an archive of an
-  earlier holder of the id (deleted and recreated since) only by an admin
-  naming the id again (`to`); never into another id. A restore judges it
-  all again under the tile's backup lock, so a switch, reset or erase that
-  ran while it waited wins. A person's partition's backup key is erased
-  with its data — a mode switch, the sweep 30 days after the person's
-  deletion or the tile's removal (now also for a partition that holds only
-  records), `bx backup erase --data` — and each erase and each partition
-  restore is recorded in the tile's mode history (`backup-erase`,
-  `partition-restore`; at most 100 of its 200 entries, so they never push a
-  manager's act out). `POST /restore` takes `confirm` (`bx restore
-  --confirm <date>`): a backup older than the tile's last partition mode
-  switch that deleted data restores only with that switch's date (409
-  naming the switch otherwise), into the global instance's namespace; the
-  switch is remembered for good, and while the tile's mode record can't be
-  read every restore of it asks, with the backup's own date. `POST
-  /deployments/restore` refuses such a backup (409) and names `POST
-  /restore`. A partition archive is never restored as a tile, and no
-  single file of one is ever served. Nothing changes for a tile without
-  people's partitions: its backup answer and archives are as before.
-- **The agent template: new instances keep each person's conversations
-  apart** (the template's API.md "Partitioned instances",
-  [partitions.md](/docs/partitions.md) §The mode,
-  [sandbox-manager.md](/docs/sandbox-manager.md) §Partitioned consumers).
-  The builtin agent template now asks for `"template": {"partition":
-  ["user", "global"]}`: a new instance (Tile Manager → New from template,
-  `bx template new agent`) runs one backend per person who uses it — their
-  own conversations, memory, skills, schedules and sandboxes, which nobody
-  else's frame, terminal or tile reaches, workspace admins included — and a
-  global instance for the tile-wide settings, chat channels, event triggers
-  and other tiles' calls. Untick **Keep each person's data apart** (or
-  `--no-partition`) for an unpartitioned instance; without `xbind --isolate`
-  it is unpartitioned anyway. **Existing instances run exactly as before
-  until they take the template's update**, which asks them for the same
-  mode (the BREAKING entry above); switching one deletes its conversations,
-  memory and schedules (its `partitionNote` says so). In a partitioned instance: a
-  person's conversation ids start at 2^40 (the global instance's, like an
-  unpartitioned instance's, at 1); the config, classes, halt switch and
-  shared skills are the global instance's, mirrored into a new `conf`
-  resource that everyone who can open the agent can read — so it carries the
-  config as viewers see it, and **a static MCP server with `headers` is not
-  used in people's conversations** (bind it as a tile or a personal bind
-  instead; the settings' MCP list says which); a manager reading or changing
-  the settings from their own partition is forwarded to the global instance;
-  a config or shared skill over 900 KiB is refused there; a halt stops every
-  partition's runs within a step, and a partition that can't read `conf` yet
-  waits (runs parked, work queued) rather than run without the managers'
-  settings; a conversation or schedule in a person's partition can't be
-  shared, and channels and triggers are set up at the global instance (409
-  in a partition); model calls have a tile-wide cap (`maxActiveRuns`,
-  default 4) across every partition — a subagent's call never takes the last
-  slot — as lock files beside the new shared `team` resource, and each
-  partition's own gate allows 2; a partition that stops with work asks to be
-  started again only for work that moves without its person; a sandbox
-  manager whose `hello.caps` lack `partitions` isn't used in people's
-  partitions (refusal `partitions`, 409, and one banner on the page naming
-  it and the update — update the sandbox managers before creating or
-  switching an agent), and a person's conversation works only in a sandbox
-  its manager says is homed in their partition; every sandbox the agent
-  makes is labelled `xbin.agent/home`; a person's own providers (personal
-  binds) are offered in their own conversations only; the page's live
-  streams close while it is hidden. New in every instance: `GET /health`,
-  `POST /mailbox` — the partition-mail doorbell (`partitionMail`): it and
-  every start read the instance's inbox from xbind (page by page), hand each
-  item to its topic's handler once, and acknowledge it; an item of a topic
-  the code doesn't handle is acknowledged unhandled 30 minutes after it was
-  sent; it answers `{handled, left, dropped}` (an unpartitioned instance
-  answers 404), `partition` in `GET /me` on a partitioned instance, and the
-  `conf` and `team` resources in scope.json (never opened unpartitioned —
-  though xbind provisions them, so an existing instance that merges the
-  template gains one more, unused, encrypted `team` volume and an empty
-  `conf` kv). Existing instances take the new files with a template merge
-  (`git merge template/main`); the template's `template` block never reaches
-  it (see the templates entry), and its `xbin.json` merges by keys (see the
-  template-instances entry): it gains the `conf` and `team` uses,
-  `partitionMail` and `partitionNote` — unused unpartitioned — and keeps its
-  mode.
-- **Partitioned tiles: wave 3 once its parts met**
-  ([protocol.md](/docs/protocol.md), [partitions.md](/docs/partitions.md)
-  §Operating people's partitions). `GET /api/xbin/partitions` lists
-  `partition-mail/1` in `features`, and its rows carry the inbox's counts —
-  `mail: {pending, bytes, expired, undeliverable?}` — on the person's own
-  row and, for admins, on every person's row; never content. A reset
-  deletes the partition's mail too, and `bx partition` prints `mail`'s
-  usage. The erase of a person's partition's backup key by `POST
-  /partitions/reset`, `POST /partitions/purge` and the records' sweep is
-  recorded in the tile's mode history (`backup-erase`). Nothing changes for
-  a workspace without a partitioned tile.
-- **A builtin template's `template` block never reaches a template merge**
-  ([partitions.md](/docs/partitions.md) §The mode,
-  [protocol.md](/docs/protocol.md) `GET /templates/{repo}`). The repository
-  xbind serves as each instance's `template` remote no longer changes the
-  template's `template` block (instances never carry it): one created by
-  this xbind has none, one an older xbind created keeps its own. A change
-  to the block — like the agent template's new default for new instances —
-  is no longer a conflict in `git merge template/main`; the snapshot's
-  commit message says what changed and what new instances now start with
-  (an empty snapshot when nothing else changed, so the Tile Manager's
-  Updates lists the instance once). Nothing to change.
-- **Partitioned tiles: each person's vault, cron jobs, bus subscriptions
-  and notifications** ([partitions.md](/docs/partitions.md) §Vault and
-  registrations, [resources.md](/docs/resources.md) §bus, §cron,
-  [protocol.md](/docs/protocol.md) `/vault`, `/vaults`, `/cron/jobs`,
-  `/bus/subscriptions`, `/notify`, `/iface-instances`, `/ingress-hosts`,
-  `/ingress-routes`). On a partitioned tile a person's partition — its
-  backend, and the person's terminals, agent sessions and frames on the
-  tile — now uses the vault, cron and bus-subscription routes, which the
-  API refused to it before: each reaches that partition's own store. Its
-  vault values are readable by that partition's backend only; admins reach
-  the global instance's vault, and `GET /vaults` counts how many people
-  keep one (`partitions`), never their key names. Its cron jobs (at most 16,
-  the 17th: 409; none more often than once a minute: 400) tick that
-  partition while its person exists, is enabled and can read the tile, and
-  resume by themselves; a tick whose start is deferred is retried with
-  jitter before the next one is due. Its bus subscriptions (at most 16, the
-  17th: 409) receive its own events on its scope's bus — which start it
-  only when its own tile published them — and a shared bus's, or one
-  another tile published for the person, only while it runs
-  (`dormantDrops` counts the rest); the global instance's events never
-  reach it. Subscribing to another partitioned tile's bus needs the person
-  to be able to read that tile and, with the `partitionConsent` policy on,
-  their consent (403; a subscription made before is `"dormant": true` and
-  gets nothing meanwhile). While the tile is paused (its mode pending or
-  invalid, or a switch deleting its data) its partitions' vaults and
-  registrations can't change (409). Its interface instances and ingress hosts are
-  stored for it and answered with `"dormant": true`, and never route; its
-  ingress routes are none. Its backend's `POST /notify` reaches only its
-  person (403 for anyone else). `?partition=` on a partitioned tile's
-  vault, cron or bus-subscription route is refused (400) for everyone. A
-  mode switch that deletes the tile's data deletes all of these too; they
-  are deleted 30 days after the tile is removed or the person's id is
-  given to someone new. Nothing changes for a tile without `"partition"`.
-  Nothing to change.
-- **Partitioned tiles: terminals and agent sessions belong to their
-  person** ([partitions.md](/docs/partitions.md) §Terminals and agent
-  sessions, [protocol.md](/docs/protocol.md) §/ws/term, `/term/sessions`,
-  `/agent/history`, `GET /sandboxes`,
-  [09-terminals.md](/docs/overview/09-terminals.md)). On a tile whose
-  recorded mode has user partitions, a terminal or agent session reaches
-  only its opener's partition: its terminal token already acts there, and
-  the session now gets `XBIN_PARTITION=user:<id>` (after `XBIN_COMPONENT`,
-  and after `XBIN_DEPLOYMENT` when set; `global` for a session targeting a
-  non-primary deployment), starts in `$HOME` instead of the tile directory
-  (shared code), and keeps its system changes in the person's own dev
-  layer (`.xbin/term-part/<tile-key>/<partition-id>/`, their VM disk inside
-  it — listed in `GET /sandboxes` disks as kind `person-terminal`, the
-  person unnamed; `/ws/term/env` resets and reports that one; the boot's
-  base-image GC keeps the base it was built on). A finished agent
-  session's transcript is kept with the person's partition and merged into
-  `GET /agent/history` — never read by a person recreated under the same
-  id, nor by an admin viewing as the person — and a past session continues
-  only where it ran (a partition's entry in the partition, an own one
-  outside it; 409 otherwise). A session without a person (the owner token)
-  acts in the global instance, or opens with the tile API off
-  (`api:false`) when the tile has none. The session frame gains
-  `partition` and `partitionNote` (a grey line the terminal prints; on an
-  xbind without `--isolate` it says the host shell can read every
-  partition), session rows `partition`. Admins can end another person's
-  session there but get 403 on reattaching to it, on every agent-session
-  route (events, log, diff, prompt, cancel, restart, permission, question
-  and option answers) and on renaming it; an admin viewing as a person
-  gets 403 on reading any session there; `?user=` listings, a view-as
-  listing, `GET /status` and the sandbox list leave a person's sessions'
-  names out. A person's terminal on the tile may now open and drive its
-  own agent sessions (`POST /term/sessions*` answered 403 to a partition's
-  credentials until now). A partition mode switch that deletes the tile's
-  data ends its sessions first (those opened on a sub-path of the tile
-  too) and deletes the person layers and partition agent history (the
-  tile's own layer and people's own history stay); a new session asked for
-  while the switch runs answers 409, and a tile whose recorded mode gains
-  or loses user partitions ends the sessions opened under the other mode.
-  None of it is backed up. Nothing changes for a workspace without a
-  partitioned tile — no env line, frame field, row field, path, disk row or
-  answer differs. Nothing to change.
-- **Partitioned tiles: a person's partition can call its own tile's global
-  instance** ([partitions.md](/docs/partitions.md) §The global instance and
-  people's partitions, [protocol.md](/docs/protocol.md) §Authentication,
-  §HTTP routes › Core, [auth.md](/docs/auth.md)). On a partitioned tile,
-  `?xbin-partition=global` — what the client's `xbin.fetch(url,
-  {partition: 'global'})` and the Go SDK's `xbin.GlobalURL(path)` add from a
-  user partition — now reaches the tile's global instance instead of the
-  caller's own partition, from the tile's frames, terminals, agent sessions
-  and user-partition backends. xbind consumes the parameter (the backend
-  never sees it, public ingress included) and the call arrives **as the
-  partition's person**, whatever the credential:
-  `X-XBin-User`, their live `X-XBin-User-Level`, `X-XBin-Role` `reader` for
-  read or `writer` for write and terminal — never the self-call's `admin`,
-  the partition's backend's calls included — `X-XBin-From` the tile, and
-  `X-XBin-Partition: user:<id>` with its `X-XBin-Partition-Id`. A view-as
-  frame reaches it as the viewed person, always as `reader` (with
-  `X-XBin-Viewed-By`; writes refused). An admin calling the tile directly
-  may use it too and keeps their own role; other people call a tile through
-  its frame, as before. Refused: another tile, cron/bus/mail deliveries
-  and path tickets (403), a value other than one `global` (400), and a
-  tile without a global instance (`404 <tile> has no global instance`).
-  Credentials already in `global` (the global instance, the owner token, a
-  non-primary deployment) reach it as before. On every tile that isn't
-  partitioned the parameter reaches the backend as any query parameter, as
-  it always has. Nothing to change.
-- **Partitioned tiles: calls between partitioned tiles — read access,
-  consent by policy, the egress ledger**
-  ([partitions.md](/docs/partitions.md) §Calls between partitioned tiles,
-  [protocol.md](/docs/protocol.md) `/partitions/consents`,
-  `/partitions/ledger`, `/partitions/edges`, `GET /grants`, `/alerts`, §Push
-  notifications, §/ws/events, [bx.md](/docs/bx.md) `bx partition
-  consent|ledger`). A partitioned tile holding a grant on another
-  partitioned tile reaches a person's partition there only while that person
-  can read it; with the workspace policy `partitionConsent` on (off by
-  default), only once they allowed it too — a refused call answers `403 <id>
-  hasn't let <from> use their <to> data` and asks them (a push, kind
-  `tile.partition-consent`, and a `partitions` event, op `consent-needed`,
-  to their own sockets only — never to the callee's code — at most once a
-  day per edge, and only for an edge an admin approved). The push links to
-  the partitions page (`/xbin/partitions`, the partitions-page entry), where
-  people allow an edge — or with `bx partition consent`; the xbin app opens
-  the workspace until it knows the link. A resource a tile declares shared
-  is no person's data: reaching it needs the grant and the person's read
-  access, never their consent. A person allows or takes back an edge with
-  their own sign-in — `POST` / `DELETE /api/xbin/partitions/consents {from,
-  to}` or `bx partition consent <from> <to> [--revoke]`, never tile code; a
-  revocation holds from the next call and stops the calling tile's backend
-  instance of them (a stream one of its pages or terminals opened before
-  lasts until it closes). Consents are kept while the policy is off and
-  apply again when it returns; a person deleted and recreated under the same
-  id has none; a tile deleted, moved or switching its partition mode takes
-  every consent naming it. A consent record xbind can't read is kept as it
-  is and shown on `/alerts` (kind `partition-consents`). In both settings
-  xbind counts, per person's partition and per day, the calls and data
-  reaches into another partitioned tile and the calls to tiles that aren't
-  partitioned (counts only, 90 days): `GET /api/xbin/partitions/ledger` and
-  `bx partition ledger` give a person their own, a tile's managers its
-  totals (personal tiles unnamed), admins everyone's totals. Admins get `GET
-  /api/xbin/partitions/edges` (the edges between partitioned tiles with the
-  people who used and allowed each), which the admin console's Policies tab
-  shows before turning consent on, and `bx doctor` lists for review.
-  Approving a partitioned tile's grant on another's people's data says whose
-  data its code will reach (`warning` on `GET /grants`' pending rows: the
-  grants panel, the admin console's binding → grants view, the organisations
-  tile's approvals, `bx grants`). Switching a tile's partition mode deletes
-  its people's ledgers and every consent naming it. Also fixed: `bx grants`
-  failed on any workspace with an approved grant (its `approvedAt`) and on
-  an org admin's view (`approvers`). Existing workspaces get the Policies
-  tab's preview and the warnings in the consoles with `bx builtin update
-  scaffold:tiles/admin` and `scaffold:tiles/organisations` (the API works
-  without them). Nothing changes for a workspace without partitioned tiles.
-  Nothing to change.
-- **Partitioned tiles: global and personal binds — in development**
-  ([partitions.md](/docs/partitions.md) §Bind types,
-  [protocol.md](/docs/protocol.md) `/partitions/binds`, `GET`/`POST
-  /bindings` and the backend env, [elements.md](/docs/elements.md)
-  interfaces, [bx.md](/docs/bx.md) `bx bind --personal`). A partitioned
-  tile's bindings are **global binds**: made as today, by whoever may bind
-  them today (a workspace admin, an org admin within their org, a
-  provider's org admin, a personal tile's owner within their allowance),
-  and seen by every person's partition and the global instance; the admin
-  console's wiring view labels them *global*, and `GET /bindings` rows
-  carry `partitioned: true`. New: a **personal bind** — the owner of a
-  personal tile wires it into their **own** partition of a partitioned tile
-  they can read, on a `"multi": true` http slot, with their own sign-in
-  (never from a tile's terminal, and never as an admin: an admin's bind is
-  always global): `bx bind --personal apps/agent mcp=users/alice/mcp`, or
-  `POST /api/xbin/partitions/binds {requester, slot, provider}`. Only that
-  person's partition instance lists it in `XBIN_IFACE_<SLOT>`, and only
-  their frames in `xbin.iface(slot)`, each row with `personal: true` after
-  the global rows; it lets a call through only from that partition, while
-  they still own the provider — anyone else gets the same 403 as if nothing
-  were bound. Adding or removing one restarts only that person's instance.
-  `GET` lists your own (admins: every living person's, with `live` and
-  `why`), `DELETE` removes one (its person or an admin); a personal bind
-  also goes when its provider changes owner, its person is deleted, the
-  tile switches between user partitions and unpartitioned, or a tile is
-  created at its requester's or provider's path. One refusal is new for
-  every workspace: binding an unpartitioned tile's http slot to a
-  partitioned tile without a global instance answers 409 (no call of it
-  could reach that tile), and bind pickers show that provider greyed out
-  (`blocked: true`); a ref the slot already holds is never judged again.
-  Nothing else changes for a tile that isn't partitioned.
-- **Partitioned tiles: the shell's marker, and Keep / Switch on a paused
-  tile** ([partitions.md](/docs/partitions.md) §The mode). The workspace
-  shell marks a tile whose recorded mode has user partitions with a small
-  teal disc, half filled — on its sidebar row, before ⋯, and in place of
-  the runtime dot on its window head — whose tooltip reads "Partitioned:
-  each person here has their own data" (and names the global instance when
-  the tile has one). It marks a state, it isn't a button, and a pending
-  switch doesn't change it; a theme may set its colour with the `--bx-part`
-  token. A window showing another deployment of the tile carries no
-  marker: its head says `shared`, since a deployment's one instance is
-  shared by the tile's writers. While a partition mode switch is pending,
-  the tile's window greys out under the request's words (its `/alerts`
-  message) and the tile's `partitionNote`, and names who decides (the
-  owner, or an admin of the owning org, or a workspace admin); a tile
-  manager decides right there: **Keep the current mode** (the tile runs
-  again, nothing is deleted), or **Switch and delete all data…** —
-  **Switch…** when only `"global"` comes or goes — which shows what the
-  switch deletes (the dry run's counts: namespaces, people's partitions,
-  vault keys, registrations, bytes, backup keys) and keeps, and asks for
-  the tile's path before it calls `POST /api/xbin/partitions/mode`. A
-  window showing another deployment isn't paused and isn't greyed out.
-  `/components` rows gain `partition.note` — the code's `partitionNote`,
-  while a switch is pending — for clients that show the request
-  ([protocol.md](/docs/protocol.md)). The shell is scaffold: existing
-  workspaces get this with `bx builtin update scaffold:shell`; an older
-  shell keeps showing the top banner and xbind's page in the frame. Tiles
-  that never ask for `partition` look exactly as before. Nothing to change.
-- **Partitioned tiles: wave 2 once its parts met** ([partitions.md](/docs/partitions.md),
-  [resources.md](/docs/resources.md), [protocol.md](/docs/protocol.md),
-  [bx.md](/docs/bx.md)). A subscription to another partitioned tile's
-  **shared** bus needs the person's read access, never their consent; one
-  into a per-person bus counts in the person's egress ledger (`edge`) when
-  made and per delivery, and `/ws/events` delivers a partitioned scope's
-  shared bus to another tile's credential acting in a person's partition
-  only while that person can read the scope. A partitioned tile's `PUT
-  /cron/jobs` or `PUT /bus/subscriptions` whose `path` carries
-  `?xbin-partition` answers 400. A person's terminal or agent session on a
-  partitioned tile records their partition, so the tile then holds data
-  and a later mode change is a request. `POST /api/xbin/grants` answers
-  `{ok, warning}` for a partitioned tile's grant on another partitioned
-  tile's people's data, and `POST /api/xbin/bindings` for a partitioned
-  tile's http slot bound to another partitioned tile; `bx grant` and `bx
-  bind` print the warning. Nothing changes for a workspace without a
-  partitioned tile.
-- **BREAKING (security): each Go tile builds with a `go.work` of its
-  own** ([changes/2026-09-30-go-build-workspace.md](/docs/changes/2026-09-30-go-build-workspace.md),
-  [elements.md](/docs/elements.md) §Cross-component code access,
-  [isolation.md](/docs/isolation.md)). Builds used the workspace's root
-  `go.work`, which uses every Go tile, and in workspace mode `go` builds one
-  module graph over all of them: any tile's `go.mod` could raise the version
-  of a dependency every other tile built with, break every Go build, or —
-  with a `replace`, or by declaring a module path another tile imports —
-  make another tile's backend compile code of its choosing. A build's
-  `go.work` is now made from the tile's own `go.mod` at each build: its
-  module, the xbin SDK, and only the other tiles' modules the tile's own
-  `go.mod`, manifest and code choose (a dotless `require` like `calendar`
-  or one at `v0.0.0`, a `replace` with a tile's directory, a dotless import
-  one module alone holds, tiles named in `deps`; a hand-managed root
-  `go.work` keeps its `go`, `toolchain`, `godebug` and `replace` lines).
-  A tile that built only thanks to another tile's `go.mod`, or that imports
-  another tile's dotted module with no `require` or `deps`, now fails with
-  `no required module provides package …`, and the build's output says
-  what to add (module paths and versions, never another tile); a dotted
-  tile module required at a published version now builds from the
-  published module unless `deps` names the tile. The root `go.work` is
-  still the one terminals, editors and gopls use, and is now written
-  atomically; its `go` line now follows its modules' (next entry). Also
-  fixes a new Go tile's first build failing with `go: no modules were found
-  in the current workspace` when it ran before the root `go.work` listed
-  the tile.
-- **BREAKING (security): the builtins' Go dependencies carry their own
-  security fixes; their `go.mod` files and the workspace `go.work` now say
-  `go 1.26.0`. Update them from the Tile Manager**
-  ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
-  Each tile now builds with its own `go.mod` (above), so a builtin no
-  longer picks up newer versions another tile's `go.mod` required. These
-  are the fixed versions, in the builtins themselves:
-  - **`sandbox-terminal` v6**: its SSH server runs on
-    `golang.org/x/crypto` v0.57.0 (was v0.48.0). That fixes ten advisories
-    its code reaches: GO-2026-5013, -5014, -5017, -5018, -5019, -5020,
-    -5023, -6303, -6354, -6355. They cover certificate, FIDO-key and
-    source-address restrictions that weren't enforced, and panics,
-    deadlocks and loops a client can cause. Tile Manager → Updates.
-  - **Agent template**: `golang.org/x/text` v0.42.0 (was v0.3.8, which has
-    an infinite loop on invalid input, GO-2026-5970, reached through the
-    JS engine), `golang.org/x/sys` v0.48.0, and `modernc.org/sqlite`
-    v1.60.1 (was v1.39.1). An instance takes them like any template
-    update: `git fetch template && git merge` in it. The Tile Manager and
-    `bx template updates` list the instances that are behind. A stock
-    instance's `go.mod` and `go.sum` merge cleanly. The coding-sandbox
-    template reaches no vulnerability and is unchanged.
-  - Those versions need Go 1.26, so both `go.mod` files now say
-    `go 1.26.0`. The host's Go builds them; the installer's is 1.26.3 or
-    newer. The base rootfs now ships Go 1.26.3 (was 1.24.0). The
-    workspace's generated `go.work` now says the highest `go` line of its
-    modules instead of always `go 1.24`. The go command refused `go 1.24`
-    for every command in every terminal as soon as any tile said
-    `go 1.24.0` or later, which is what `go mod init` writes. An open
-    restricted terminal's `go.work` now follows changes too
-    ([isolation.md](/docs/isolation.md)).
-  - **What breaks:** once a module says `go 1.26.0`, every `go` command in
-    a terminal on an older base (Go 1.24.0) first downloads go1.26.0
-    (`go: downloading go1.26.0`). A terminal whose network can't reach
-    `proxy.golang.org` fails with `toolchain not available`. Fix it with
-    **⬆ base update**, which wipes apt-installed packages, or by allowing
-    the proxy. A downgrade to v0.3.64 or older fails every Go tile's build
-    (`go.work file requires go >= 1.26.0, but go.work lists go 1.24`)
-    unless those `go.mod` files say `go 1.24` again first. The migration
-    note has the details.
-  - Every release now passes a vulnerability gate. No known vulnerability
-    that the code of xbind's programs, the sdk or a builtin reaches ships
-    unless the release says why.
-- **Admins are told which Go tiles now link older dependency versions,
-  and what to add to keep them** (D166, [changes/2026-09-30-go-build-workspace.md](/docs/changes/2026-09-30-go-build-workspace.md)
-  §How to migrate, [protocol.md](/docs/protocol.md) `GET
-  /go-build-versions`, [bx.md](/docs/bx.md) `bx doctor`). Under the shared
-  `go.work` a tile linked the highest version any tile's graph reached;
-  with its own `go.mod` it links its own, which builds fine and runs older
-  code. Once, in the background after the first start of this xbind on a
-  workspace an earlier one built Go tiles in, xbind lists what each Go
-  tile's entry links both ways (confined, like a build) and finds the
-  fewest `require` lines that keep what it had. An admin-only alert (kind
-  `go-build-versions`) names each tile: ``<tile> builds with older
-  dependency versions since <version> (each Go tile now builds with its own
-  go.mod's versions): add `require <module> <version>` to <tile>'s go.mod
-  to keep what it had``. It can be dismissed (the shell's and the admin
-  tile's banners gain a dismiss button for an alert that carries
-  `dismiss`), and a tile leaves it once its `go.mod` caught up (checked
-  after a build of it that changed its `go.mod`). `bx doctor` lists the
-  tiles with every module that changed; `POST /go-build-versions/check`
-  compares them again with what each linked then (a tile added after the
-  upgrade is never compared).
-- **Agent template: coding agents — Claude Code, Codex, Gemini CLI and
-  OpenCode answer a conversation, or work for the agent, in a coding
-  sandbox** (D147, `builtin-templates/agent/API.md` §Coding agents). A
-  conversation can be answered by a coding agent run over ACP in one of
-  its sandboxes instead of by the agent's own loop, on the web and in the
-  app. A conversation the agent's own loop answers works as before (its
-  sandbox terminals become tabs, below).
-  - **Starting one** ("Starting one"). "Who answers" in the home composer
-    and the new-chat dialog (the app: the top of the home page and the
-    new-chat sheet): the agent itself or a coding agent, with why one isn't
-    available. Picking one resolves the class, keeps the sandboxes it fits
-    (the one you last used with it first), offers a prefilled create form
-    when none does, and says when it isn't signed in there. Its mode is
-    your **Auto / Always approve** for that coding agent — a setting of
-    your own (the composer's `#hctl`; the app: the Mode menu, or ⋯ →
-    Coding agent settings). The conversation keeps its sandbox and working
-    directory (its ▣ shows them read-only, with no switch or Detach) and
-    carries the coding agent's monogram and a top-bar chip.
-  - **The transcript** (§The frontend). Each call is a card of its ACP
-    kind — a command with its output and exit code, an edit with a row per
-    file unfolding to its patch, read, search, fetch, the rest — and a
-    Claude Task's steps nest inside its card. The top bar (the app: the
-    subtitle, ⋯ → Progress) carries the context in use, the cost, what
-    changed and a 📋 plan pin; it leaves out Memory and Learn skill, offers
-    Compact only when the coding agent has `/compact`, and Retry when it
-    was cut off or couldn't start.
-  - **Asking and steering.** Its permission requests are the agent's
-    approvals — cards with its own options (reject first when it defaults
-    to no; one that raises it to a bypass mode ⚠, the owner's, confirmed),
-    a plan approval with "keep planning", a question as a form — in the
-    chat, Needs and push. A message during a turn steers a coding agent
-    that takes it (Claude Code, Codex) or waits for the turn's end;
-    ⌘/Ctrl+Enter (the app: Send now) interrupts; `/` offers its commands;
-    `#hctl` switches its mode and options live.
-  - **Terminals and sign-in** (§Coding sandboxes → In the UI). On the web
-    a sandbox's terminals are tabs of one dock (＋ another shell, ▾ hides
-    them running, a top-bar pill brings them back); the app opens
-    terminals too, through the agent's relay, one at a time. A coding
-    agent that isn't signed in parks on a sign-in card: a login terminal
-    then "Signed in? Retry", an API key sent once and kept nowhere, or a
-    device code — shown only to the person who asked for it — with a
-    warning that the credentials land in the sandbox's home, which everyone
-    who may use it shares (a confirm on a shared sandbox). A card whose
-    sandbox is gone, or whose manager is down, says so. The conversation
-    also has **>_ Terminal** at the coding agent's working directory.
-  - **The agent's coding agents** ("The agent's coding agents", "The
-    Coding agents board"). In a class with the new **Coding agents**
-    toolset (the built-in `coding` class has it) the agent starts coding
-    agents with a task, steers and cancels them. Each is drawn as its own
-    card where it was started — what it does, its counters, its plan and
-    last steps, its park answered in place, Stop, Message, Cancel (the
-    app: from its own chat) — and every one in the tree is on the
-    **Coding agents board** (a top-bar chip; at home, every one of yours
-    at work; the app: a screen). The
-    agent never answers their permission requests: people do. A person's
-    message to one is told to the agent as a notice. A conversation row
-    shows `?` while a run below it waits and `⧉ N` for its coding agents
-    at work; Needs says when one waits for a sign-in.
-  - **For managers.** ⚙ Classes has the Coding agents toolset and which of
-    them a class allows; ⚙ Coding agents (the app: Settings → Coding
-    agents) lists the catalog — what can be started, where, for which
-    classes, and why not — and checks a running sandbox now.
-- **Agent template: the coding-agent API** (`builtin-templates/agent/API.md`
-  §Coding agents, §Agent classes, §The frontend). Additive:
-  - **Catalog and settings.** `GET /harnesses[?probe=<ref>]`: each coding
-    agent a bound manager advertises (`hello.images[].harnesses`) and the
-    SDK catalog's four, with why one can't start (`no-image`,
-    `manager-error`, `no-class`, `no-egress`), its modes, its login
-    command, your setting and what was learned per sandbox (`?probe=` asks
-    a running sandbox you may use, never starting a stopped one). `GET
-    /prefs/harness-mode`, `PUT /prefs/harness-mode/{id} {mode:
-    "auto"|"approve"}` — a person's own. Classes gain the toolset
-    `harness` (it needs `sandbox` and an egress other than `none`) and
-    `harnesses` (`"all"` | ids; a save that leaves it out keeps the
-    class's); `GET`/`PUT /config` gain `harnessIdleMin` (15) and
-    `maxHarness` (3); a sandbox binding carries its image's `harnesses`.
-  - **Starting and driving one.** `POST /ask` and `POST /runs` take
-    `harness: {provider, mode?, options?}` with `sandbox: {ref, cwd?}`,
-    fixed for the conversation. Runs, run events, conversation rows and a
-    link's `child` carry `engine` (`""` | `"harness"`) and a coding agent's
-    summary `harness` (its state, modes, options, commands, usage, plan,
-    activity, counts, park, sign-in, sandbox), which the stream's
-    `harness` event updates. Each call is an assistant row (`acp:<kind>`)
-    and a tool row whose `acp` says what it did (per-file diffs as unified
-    patches, a command's output; a call id used again gets `#<n>`).
-    Messages are queued prompts (`queued`, inbox deletes and
-    `/interrupt`'s `returned` include them) — steered into the running
-    turn or sent after it; `interrupt: true` stops the turn first. A
-    permission parks `pendingState.kind "approval"` with the coding
-    agent's own `options`, answered by `POST /runs/{id}/approve` with
-    `option` (and `feedback` with a rejection); a question parks
-    `"question"` (`POST /runs/{id}/harness/answer`); a sign-in parks
-    `"login"` (Retry: `/resume`).
-  - **Its own routes.** `GET|PATCH /runs/{id}/harness` (its summary,
-    session and remembered rules; a mode or option switched at the running
-    coding agent — **502** in its words, **504** unanswered, **503**
-    during a handoff — and kept for its next start). `POST
-    …/harness/authenticate` (an API key or a device code, for a person who
-    may use the sandbox, `confirm: true` on a shared one): the key is never
-    stored; a device code's page and code are the requester's alone — the
-    **202**, their own `GET /runs/{id}/harness`, the same request again —
-    while everyone else sees `login.device: {by}`. `GET …/harness/log`
-    (its stderr's tail). The app's terminal relays `GET
-    /runs/{id}/harness/terminal` and `GET /sandboxes/{ref}/terminal` (the
-    manager's `tty` as you, after checking you may use the sandbox; a
-    terminal a relay started ends 5 s after its client goes, unless it
-    exited or a client attached to it again).
-  - **Rows, trees, needs, push.** Conversation rows gain `waiting` and
-    `kids: {harness, waiting}`; `/tree` nodes `engine` and a compact
-    `harness`; `/needs` the reason `login` and the waiting coding agent's
-    `harness`; push the kind `login`.
-  - **Bypass modes are the owner's, by default.** A mode is anyone's (who
-    may talk in the conversation) only when the SDK catalog knows it never
-    takes the coding agent past its own asks, or the coding agent opened
-    its first session in it by itself; every other — bypass and full
-    access, a mode a newer adapter adds, any mode of one the catalog
-    doesn't know — is `explicit` and the conversation owner's, a person's:
-    to switch to, to start in, or to allow as a permission's option
-    (Claude Code's plan approval "Yes, and bypass permissions" included).
-    A stored option the coding agent reports as its mode is dropped with a
-    note; a model never picks a mode.
-  - **Stopping and handing over.** `/interrupt` settles what waits
-    `(interrupted)`; `/cancel` and deleting the conversation stop the
-    coding agent — `/cancel` on one that rests idle stops it too and leaves
-    the status. An idle one is stopped after `harnessIdleMin`, one whose
-    sandbox is detached or may no longer be used at once. A save or
-    restart of the agent never stops one: the next process takes it over,
-    mid-turn too; a message that may not have reached it fails ("send it
-    again") and is never sent twice.
-  - **Refused on a coding agent's run:** memory and `/learn` (**409**),
-    `/compact` unless it has it (**409**), `PATCH /runs/{id}` `model`,
-    `sandbox` and `detach` (**400**); schedules and triggers refuse a
-    `harness`, and a coding agent's conversation as `targetRun` (**400**).
-  - **The agent's tools.** `subagent_spawn` gains `harness` and
-    `harness_mode` (`approve` | `plan`: it only narrows the owner's
-    setting): at most `maxHarness` at work per tree, none where the
-    sandbox's running commands would come within 4 of its limit; the
-    child's turn end answers the spawn with that turn's own text (`(no
-    answer)` when it wrote none). `subagent_message` to one is sent as is
-    (while it waits for a person, it waits too); an idle one stops when
-    its subtree is cancelled (its parent's turn ending, among others).
-  - **For an instance's own modules** (§The frontend). Seams, so a feature
-    lands as a module instead of edits to `agent.js`, `chat-cards.js` or
-    `native/chat.js`: `web-ext.js` (`ext.register({block, end, top, paint,
-    newChat, task})`) and `native/ext.js` (`block`, `end`, `toolbar`,
-    `subtitle`, `menu`, `main`, `composer`, `newChat`, `screen`, `task`).
-    `app.send(text, clear, {interrupt})` and `Session.send(text, files,
-    {interrupt})`, `Session.fetchView(id, {paged, limit})`,
-    `Session.failed` (`ui.readError(id)`, `ui.act.retryRead(id)`: a failed
-    read waits before it is tried again), `queueTpl(queued, remove,
-    words?)`; `index.html`'s composer groups its pickers (`.cpicks`,
-    `#hctl` after `#ssel`) apart from the message row (`.cinput`).
-  - **Tests.** `hack/harness-smoke.sh` (the client, its scripted agent and
-    this engine against `hack/fakesandbox`, in about a minute);
-    `HARNESS_SMOKE_LIVE=1` adds the live check through coding-sandbox:
-    `test/isolated` `TestHarnessLive` drives the real adapters only with
-    `XBIN_HARNESS_LIVE=1`, since they reach outside services (`make
-    integration` runs it with the scripted agent alone). The UI harness's
-    `agentHarness` pass (`hack/ui-harness`) drives it all in both views.
-- **Agent template: what to know about coding agents before relying on
-  them** (`builtin-templates/agent/API.md` §Coding agents). The sandbox's
-  other users can read what a coding agent does in a private conversation
-  (every consumer of a sandbox sees its commands), and its credentials live
-  in the sandbox's home — shared with them, and copied into its clones and
-  snapshots. An idle coding agent keeps running, and its sandbox awake,
-  for `harnessIdleMin`. A device-code sign-in lives in the process that
-  started it: after a redeploy mid-sign-in, the requester starts it again.
-  The database gains `runs.engine` and the `harness_*` tables; an older
-  build ignores them. **Rolling back** to an agent from before coding
-  agents (v0.3.64 or older): its loop never answers a coding agent's
-  conversation — a turn it would start there ends at once at its step cap
-  ("stopped after 500 steps in one turn"), before any model call — and the
-  coding agent runs on unwatched in its sandbox until the sandbox stops. A
-  message or answer queued for a coding agent at the rollback is work
-  that build never does: its resume job wakes the tile every minute until
-  the conversation is deleted (or the owner runs `DELETE FROM inbox WHERE
-  kind IN ('hprompt','hanswer') AND delivered_at=0` on the agent's
-  database). Its class editor still saves (the `harness` toolset is stored
-  apart from `toolsets`), but a save there rewrites every class without
-  its coding agents: tick them again after upgrading (Reset brings back
-  the built-in Coding class).
-- **SDK: drive a coding agent from a tile backend (`sdk/acp`), test a
-  client against a scripted agent (`sdk/acp/acptest`), and relay a
-  manager's terminals and program streams** ([sdk.md](sdk.md) §Driving a
-  coding agent, §Testing an ACP client, §A manager's terminals). Additive,
-  and still zero-dependency:
-  - **`github.com/xbin-dev/xbin/sdk/acp`** is the ACP client xbind's Agent
-    tab runs: a `Spawner` starts the adapter wherever you run it, and the
-    client turns what it does into typed events — deltas, tool calls,
-    plans, permission requests and questions held until answered, status
-    with the sign-in. `acp.Providers()` / `Lookup` is the catalog (Claude
-    Code, Codex, Gemini CLI, OpenCode): argv, modes, `LoginCmd`, `Bins`,
-    `AutoMode`, `ApproveMode`, `PlanMode`, `Safe(mode)` — default-deny:
-    true only for a mode it knows never goes past the agent's own asks
-    (`SafeModes` too) — and `OptionModes` (a permission option that
-    switches the mode without naming it); `acp.Fake(argv)` is the test
-    agent. `acp.NewWith(acp.ClientOptions{…})` sets the seams (`Caps`,
-    `Drop`, `AuthHint`, `OnExt`, `InlineBudget`, `IDPrefix`, `Attach`,
-    `AwaitLogin`); `Client.Steer` (`_session/steering`), `AuthMethods` /
-    `Authenticate`, URL questions (a device code), `SetOption` bounded by
-    its context, `Config.SkipModeOptions`. Handing a live session to
-    another process: `Event.Wire` (the output offset, the request id, the
-    replay flag — never serialized), `State()` → `SessionState` →
-    `ClientOptions.Attach`, `Process.Off`, `Permissions.Restore` / `Rules`
-    / `SetRules`, `Client.Abandon`; the codec (`NewConnWith`,
-    `Conn.Expect`, `NewDecoderAt`, `Decoder.Offset`, `acp.Gap` /
-    `ErrGap`). A client with the default options sends the same frames as
-    xbind always has.
-  - **`sdk/acp/acptest`** is the engine of xbind's test agent
-    `hack/fakeacp` (now `func main() { acptest.Main() }`): `Serve(r, w,
-    Options)` in-process, `Main`, `MainIfAdapter` / `Command` for a test
-    binary that serves as the agent, `Login` for its terminal sign-in.
-    Every existing script plays byte-identically; new are the flags
-    `--steer`, `--auto-mode`, `--require-login` (terminal, API-key and
-    device-code sign-in), `--persist`, `--device-ms=N` and the scripts
-    `perm-edit`, `todo`, `stall`, `cards`, `steer…`. `XBIN_AGENT_FAKE`
-    users see no change without the flags.
-  - **A manager's consumer** relays a page's or the app's terminal to a
-    manager's `tty` as its person with `xbin.RelayManagerTTY(w, r,
-    endpoint, sandboxID, xbin.ManagerTTYOptions{User, ExecID | Cmd, Cwd,
-    Rows, Cols, OnSession})`, which returns `ManagerTTYRelay{Session,
-    Exited}`; `xbin.DialManagerTTY` is a terminal the backend drives,
-    `xbin.DialManagerStdio` a program's streams (`stdio`), and
-    `xbin.ManagerTTYURL` / `ManagerStdioURL` build the typed routes only.
-  - **A manager on xbind's runtime**: `ExecRequest.Split`,
-    `OutputQuery.Stream`, `ExecInfo.Split` / `ErrTotal`, `xbin.ExecStdio`
-    (for `Forward`), `Sandbox.RelayStdio` / `DialStdio`, `xbin.StdioFrame`,
-    `xbin.StdioReplaced`.
-- **Sandbox managers: coding agents in hello, terminals for consumer
-  backends, and a program's streams on one socket (`stdio`)**
-  ([sandbox-manager.md](sandbox-manager.md) §hello, §Terminals, §stdio).
-  Protocol 1, by addition:
-  - **`hello.images[].harnesses: [{id, title?, argv?, login?}]`** — the
-    ACP coding agents an image has: `claude`, `codex`, `gemini` and
-    `opencode` are the ids consumers know; `argv` is the command that
-    speaks ACP on stdio, `login` a shell command that signs it in at a
-    terminal. The manager's word, not a probe; a missing list says
-    nothing.
-  - **Terminals for consumer backends.** A consumer's backend dials the
-    `tty` routes (and attaches to tty execs it started) with its instance
-    credential, naming its person in `Sbx-User` — asserted, as on every
-    backend call — to drive a terminal or relay it to its own page or app;
-    the consumer checks that person first, the manager keeps consumers apart (from a partitioned consumer's user partition the person is the partition's, verified: the manager checks them). Every manager serves this (a cloud one: `ssh -t`). A `tty`
-    command gets `TERM`, `COLORTERM` and `LANG` unless its env names them.
-  - **`stdio`** (optional; `hello.caps`, `sandbox.caps`). `POST …/execs
-    {split: true}` keeps a non-tty exec's stderr apart
-    (`…/output?stream=stderr`, the exec's `split` and `errTotal`); `GET
-    …/execs/{eid}/stdio?since=&errSince=` is a WebSocket — `hello`, stdout
-    as binary frames from `since` (a `gap` frame where the ring dropped
-    bytes), `stderr` frames, `exit` then a normal close; stdin back as
-    binary frames, `eof`, `ping` (its `pong` says every stdin frame before
-    it was taken). The socket attached last holds stdin (the one before is
-    closed with 4001), so attaching is a change, not a read. A manager
-    without it ignores `split` and refuses the route — `unsupported`, or
-    `not-found` from one that predates it — and consumers keep polling
-    `…/output` and `…/stdin`.
-  - **Conformance** (`sdk/sandboxcontract`): a `stdio` section (skipped
-    without the capability), `tty/backend` (the next entry), hello's
-    harness entries checked for shape (`Hello.Images[].Harnesses`), and
-    `caps/missing` wants a manager without `stdio` to ignore `split` and
-    refuse its route with `501 unsupported` or any `404` (a JSON
-    `not-found` or its router's plain one) — a manager that passed before
-    still passes. `hack/fakesandbox` serves all of it
-    and advertises the scripted agent as `fake` (`-fake-acp` /
-    `$FSB_HARNESS_FAKE` set its command and flags; its sign-in is `<that
-    command> login`).
-- **BREAKING (next release, rare) — a sandbox manager of your own: the
-  conformance suite checks the terminals a consumer's backend opens**
-  (D147, [migration](changes/2026-09-30-manager-terminals-for-backends.md)).
-  `tty/backend` opens terminals as a consumer's backend does, for an
-  asserted person who is neither the sandbox's owner nor a member, and on
-  a sandbox shared with that consumer — what the contract always left to
-  the consumer. A manager that refuses them is **warned in this release**
-  (the check skips: `WARNING (a failure from the next release): …`) and
-  **fails it from the next**; the new `Target.Strict` fails it now, and
-  the reference managers set it. `coding-sandbox` and `hack/fakesandbox`
-  pass. Nothing to change for consumers or pages.
-- **coding-sandbox: coding agents in its images, `stdio`, and readers
-  refused every socket** (`builtin-templates/coding-sandbox/API.md`
-  §Images, [sandbox-manager.md](sandbox-manager.md) §stdio). A manager
-  whose config was never saved advertises Claude Code (`claude-agent-acp`),
-  Codex (`codex-acp`), Gemini CLI (`gemini --acp`) and OpenCode (`opencode
-  acp`) on its `base` image, each with a sign-in that needs no browser in
-  the sandbox (Claude Code's `CLAUDE_CODE_REMOTE=1 claude /login`), and
-  `tools` that name what the base rootfs really has (no `chromium`
-  command — Playwright's browser stays; `npm`, `pnpm`, `yarn`, `curl`,
-  `jq`, `gh`, `gopls`, `dlv` and the agents' CLIs added). Operators set
-  `harnesses` per image (`PUT /ops/config`; the page's image editor keeps
-  them); a saved config keeps its images as they were — none listed until
-  an operator adds them, and consumers probe. It offers `stdio` where
-  xbind serves it (a backend added to a copy serves it by implementing the
-  optional `StdioBox`; one that doesn't still builds and isn't offered
-  it). A new sandbox's defaults gain `IS_SANDBOX=1` beside `IN_SANDBOX=1`
-  — the spelling coding agents check (Claude Code refuses its bypass mode
-  as root without it); a renamed one gains it. **Readers:** the tile's own
-  page refuses every WebSocket upgrade to a person with only read access,
-  before routing, as it refuses terminals — the stdio socket (attaching
-  takes an exec's stdin: a reader could type into a coding agent) and any
-  socket added later. That includes a port preview's WebSocket, which the
-  ports route already refused such a reader, with the rest of the route.
-- **xbind: tile sandboxes serve `stdio`, and a terminal in one gets a
-  terminal's environment** ([protocol.md](protocol.md) §Tile sandboxes).
-  `runtime.caps` gains `stdio`: `split` on `POST
-  /sandboxes/<name>/execs`, `stream=stderr` on its output, and `GET
-  /sandboxes/<name>/execs/<id>/stdio?since=&errSince=` (a WebSocket, the
-  manager's); an older xbind leaves it out (the route is a 404) and
-  ignores `split` and `stream`. A `tty` exec — and the `tty` route —
-  gets `TERM=xterm-256color`, `COLORTERM=truecolor` and `LANG=C.UTF-8`,
-  as xbind's own terminals do, unless `defaults.env` or the command's
-  `env` names them: full-screen programs and the coding agents' sign-in
-  screens expect them. **The Agent tab**: once a permission or question
-  is answered, its `running` status now goes before the adapter hears the
-  answer, so an adapter that ends its turn at once no longer leaves a
-  stale "running" after the turn (a race under load); its events are
-  otherwise unchanged.
+Entries before 2026-10-01 live in archive pages, unchanged, newest first:
 
-## 2026-09-29
-
-- **Partitioned tiles, step two: who acts in which partition**
-  ([partitions.md](/docs/partitions.md) §Who reaches which partition,
-  [protocol.md](/docs/protocol.md) §Authentication, §/ws/events, §Backend
-  contract). On a tile whose recorded mode has user partitions, xbind decides
-  the partition every credential acts in: a person — their session, and the
-  tile's frames, terminals, agent sessions and path tickets they open — their
-  own `user:<id>` while they exist, are enabled and can read the tile (an
-  admin too, never someone else's); the owner token `global`, or nothing
-  without a global instance (`403 sign in as a person: …`); view-as nothing
-  (`403 <tile> keeps <user>'s data private: view-as can't open it`); a
-  backend the partition it was started for; cron and bus deliveries their
-  registration's; another partitioned tile its person's partition when the
-  grant allows and the person can read the callee (with the
-  `partitionConsent` policy on, and consented); everything else the global
-  instance, or `403 <tile> is partitioned: …`. Callees learn it through
-  `X-XBin-Partition` (`user:<id>` | `global`) and `X-XBin-Partition-Id` (an
-  opaque id, user partitions only), set by xbind and stripped inbound like
-  every `X-XBin-*` header; a partitioned tile's documents carry
-  `<meta name="xbin-partition">` (`xbin.partition`; `global` in a
-  non-primary deployment's document); a user partition's instance token
-  answers 401 the moment its partition is no longer covered. A user
-  partition's credentials are default-deny on `/api/xbin/*` (a second class
-  table beside the deployments one; its instance token is refused `/prefs`,
-  which keep a person's own bucket), person-only routes take a person's own
-  credential only, and `/ws/events` delivers a partition's events
-  (`"partition":"user:<id>"`) only to that person and the partition's own
-  credentials — admins get no blanket pass for them, nor for a partitioned
-  tile's `term` and `session` events. Public ingress reaches a partitioned
-  tile's global instance only (503 without one). Partitioned tiles are
-  still in development: a person's partition runs only under
-  `xbind --isolate` (without it, a call reaching one answers 503 saying
-  so). Nothing changes for a workspace without a
-  partitioned tile — no header, meta, field, class or answer differs.
-  Nothing to change.
-- **Partitioned tiles: people's instances in the runner, and their limits
-  — in development** ([partitions.md](/docs/partitions.md) §How people's
-  partitions run, [protocol.md](/docs/protocol.md),
-  [elements.md](/docs/elements.md) backend env). xbind can now run one
-  backend per person of a partitioned tile beside its global instance:
-  started on the person's first use and never at boot, stopped 10 minutes
-  after its last use (an open event stream doesn't count), only on the
-  tile's primary and only with `--isolate`, each with its own socket, token,
-  log, cgroup and data, `XBIN_PARTITION=user:<id>`, and a non-primary
-  deployment's network (relayed egress under the tile's policy; no host
-  network, provider splice, ingress or stream-slot dials). The global
-  instance is today's process at today's keys with `XBIN_PARTITION=global`;
-  `alwaysOn` keeps it alone up, and a `["user"]` tile never runs it. A code
-  change — a save, a deploy or a restart of the primary — builds once and
-  restarts people's running instances onto that build; a person's start
-  that fails for them alone is tried again on their next request. People's
-  instances are capped per tile and workspace from host memory, or xbind's
-  own cgroup memory limit when that is lower (503 `too many people's
-  instances of <tile> are running; try again shortly` past the cap when
-  nothing idle can be stopped); the new admin route `POST
-  /api/xbin/partitions/limits {tile?, maxRunning?, partitionBytes?}` sets
-  the caps and a tile's per-person byte ceiling, and a tile manager may
-  lower their own tile's. `/api/xbin/sandboxes` rows of a person's instance
-  carry `partition`; a person's instance hitting its memory or pids limit
-  alerts admins only, naming the tile, never the person. People's
-  partitions start on first use under `xbind --isolate`; a tile without
-  `partition` is unchanged, byte for byte.
-- **Partitioned tiles: each person's data** ([resources.md](/docs/resources.md)
-  §Partitioned tiles, [partitions.md](/docs/partitions.md) §Shared resources,
-  [protocol.md](/docs/protocol.md) kv/blob/bus and `/runtime`). In a
-  partitioned tile's scope every resource that isn't `"shared"` is kept per
-  person: each person's partition has its own kv file and volumes under
-  `data/resources-enc/.partitions/`, reached at the same `XBIN_RES_*` paths
-  and `res:` ids, while the global instance and every shared resource keep
-  today's keys. An event on a partitioned scope's own bus carries
-  `partition` (the publisher's, `global` included) and reaches only that
-  partition's subscribers; a shared bus's reaches every reader. A
-  `"shared": "read"` resource is mounted read-only in people's partitions
-  and their kv, blob and bus writes answer 403 `res:<scope>/<name> is
-  read-only for people's partitions`. A person's partition of another
-  partitioned tile holding a grant reaches the same person's data only if
-  they can read the tile (and, with the `partitionConsent` policy on,
-  allowed it); other tiles reach the global instance's, or nothing when
-  the tile has none. Each partition has its own disk ceiling (507 for that
-  person only, the alert to admins only), and is deleted 30 days after its
-  tile is removed or its person's id is given to someone new. A paused
-  partitioned tile's data, or one whose mode record can't be read, answers
-  409. `/runtime`'s resource rows gain `partition` on people's partitions'
-  rows. Nothing changes for a tile without `"partition"`. Nothing to
-  change.
-- **Partitioned tiles: deciding a mode switch**
-  ([partitions.md](/docs/partitions.md) §The mode, [bx.md](/docs/bx.md),
-  [protocol.md](/docs/protocol.md), [tile-deployments.md](/docs/tile-deployments.md)).
-  A tile that holds data whose code asks for another `partition` pauses
-  until a tile manager decides, and now the decision can be made: `bx
-  partition keep <tile>` keeps the current mode (it runs again at once,
-  nothing is deleted), and `bx partition switch <tile>` shows what a switch
-  deletes and keeps, asks for the tile's path, deletes the tile's data —
-  every data namespace (the tile's own and every deployment's), vault file,
-  cron job, bus subscription, interface instance and ingress host — erases
-  its data's backup keys, and takes the mode the code asks for (adding
-  `"global"` to a partitioned tile deletes nothing; removing it deletes only
-  the global instance's data). Both call the new `POST
-  /api/xbin/partitions/mode {tile, act: "keep"|"switch", from, to,
-  confirm?, yes?, dryRun?}` — a tile manager (the tile's owner, an admin of
-  its owning org, a workspace admin) in their own session, never a tile's
-  credential. While a switch is pending, the tile's frame (and its
-  primary's deployment URL) shows xbind's own page (409) with the switch,
-  what it deletes ("all data in this tile will be deleted" between user
-  partitions and unpartitioned), the tile's `partitionNote` as text and who
-  decides; a script's fetch of the tile's HTML and a token's read still get
-  the file. `GET /api/xbin/alerts` carries kind `partition-switch` for
-  admins and the tile's readers, which the shell shows as its top banner,
-  and kind `partition-invalid` for a tile whose `partition` can't run; the
-  tile's managers get a push (`tile.partition-switch`, at most one per tile
-  every 15 minutes), and after a switch each person whose partition was
-  deleted gets one (`tile.partition-deleted`). A switch writes a
-  `partition-switch` entry in the deploy log of a tile with deployments, and
-  the dry run of a deploy, roll back or promote onto the primary of code
-  asking for another mode warns (`impact.partition`, shown by `bx deploy`).
-  A switch to user partitions needs `--isolate`. Tiles that never ask for
-  `partition` are unchanged. Nothing to change.
-- **Partitioned tiles: templates and builtin updates never switch a
-  partition mode** ([partitions.md](/docs/partitions.md) §The mode,
-  [protocol.md](/docs/protocol.md) `/templates`, `/templates/new`,
-  `/builtins/update`, [bx.md](/docs/bx.md), [elements.md](/docs/elements.md)
-  §Manifest). A template's `"template": {"partition": [...]}` is the mode
-  its **new** instances start in: instantiating writes it as the copy's own
-  top-level `partition`, and the fresh instance's mode is recorded at once,
-  naming who created it. Opt out per instance with the Tile Manager's new
-  **Keep each person's data apart** box on the template card, `bx template
-  new <source> --no-partition`, or `"partition": false` in `POST
-  /api/xbin/templates/new`; without `xbind --isolate` the default isn't
-  written (the box is off, "needs --isolate"). `GET /templates` items gain
-  `partition` and `partitionSkipped`, and the instantiation's answer
-  `partition` or `partitionSkipped` — all absent for templates that name no
-  mode. `bx builtin update` never adds, removes or changes a manifest's
-  `partition` (in any key case): **replace** writes the installed value
-  where the installed file has it (read from your side of conflict markers
-  an earlier merge left; for a file that doesn't parse, the mode xbind last
-  read from the tile; when even that is unknown the manifest is left alone
-  and the update stays offered), and **merge** and **PR proposals** undo
-  upstream's own change to the key, so your line merges untouched. `POST
-  /builtins/update` answers `notes` where upstream asks otherwise
-  (`partition kept as installed (…; upstream asks …): edit it deliberately
-  to request a switch`), `bx` prints them and the Tile Manager's Updates tab
-  shows them; a PR proposal whose only change would be the partition
-  answers `{files: [], notes}` and records the version. No shipped template
-  or builtin names a mode yet, so nothing changes today. Existing
-  workspaces get the template-card box and the notes line with `bx builtin
-  update scaffold:tiles/manager` (the API and `bx` work without it).
-  Nothing to change.
-- **Partitioned tiles: the global bus, idle volumes, leftovers of a removed
-  tile** ([protocol.md](/docs/protocol.md) §/ws/events,
-  [resources.md](/docs/resources.md), [auth.md](/docs/auth.md) §Creating
-  tiles). A `bus` event the global instance publishes on a partitioned
-  scope's own bus carries `"partition":"global"` and reaches only
-  subscribers acting in the global instance. A person's partition volumes
-  unmount after an hour unused while none of that person's instances runs.
-  A removed partitioned tile's mode record and its people's data are
-  leftovers of its path, so only its owner (or an admin) creates a tile
-  there again (`POST /create`). Nothing changes for a workspace without a
-  partitioned tile.
-- **Partitioned tiles, step one: the manifest's `partition` and the
-  recorded mode** ([elements.md](elements.md) §Manifest,
-  [resources.md](resources.md) §Partitioned tiles,
-  [protocol.md](protocol.md), [compat.md](compat.md)
-  rule 7). A tile's `xbin.json` may ask for `"partition": ["user"]` or
-  `["user", "global"]`, with `partitionMail` and `partitionNote`; a
-  template's `template` block may name the mode its instances start in;
-  `scope.json` resources take `"shared": true | "read"`. xbind records the
-  mode a tile runs in and follows the key by itself only while the tile
-  holds no data (no kv key, volume file, vault key, cron job, bus
-  subscription, interface instance or ingress host). On a tile that holds
-  data, adding, removing or changing it — an edit, a rollback, a promote —
-  pauses the tile: its API answers 409 with `partition: {state: "pending",
-  from, to}` and its backend doesn't run until a tile manager keeps the
-  current mode or switches. An invalid value (`[]`, `["global"]` alone, an
-  unknown word, a non-list), or a partitioned tile that is chrome, a VM,
-  holds `xbin`/`xbin:*`/`cap:sandboxes`/`cap:net-admin`/`cap:containers`,
-  uses its scope's resources without rooting the scope, shares a scope with
-  a tile asking differently, or shares a sqlite resource read-only, runs no
-  backend (409, manifest error). `/api/xbin/components` rows of such tiles
-  gain `partition` and `partitionError`; approving one of those grants for
-  a partitioned tile, and `POST /deployments/primary` on one, answer 409.
-  While paused, the tile's cron ticks are missed and its bus deliveries
-  dropped, as for a disabled tile. A tile with a recorded mode whose
-  `xbin.json` doesn't parse (or whose pinned checkpoint can't be read)
-  waits the same way until it can be read — a typo is never a switch
-  request. `partitionMail` is read beside `"global"` only. Tiles without
-  the key are unchanged, byte for byte. Nothing to change.
-- **BREAKING** (only for a tile that kept a top-level `"partition"` key of
-  its own): such a value now makes the tile's partition request invalid and
-  its backend stops; xbind logs it once per tile. Rename the key
-  ([changes/2026-09-29-partition-key.md](changes/2026-09-29-partition-key.md);
-  in docs/changelog.md the link is `changes/2026-09-29-partition-key.md`).
-- **Partitioned tiles: the SDK and client side, in development**
-  ([partitions.md](/docs/partitions.md), [sdk.md](/docs/sdk.md)). A new
-  page describes partitioned tiles — one backend instance per person who
-  uses a tile, plus an optional global instance — and marks what isn't
-  built yet. The Go SDK gains `xbin.Partition()` and `xbin.PartitionUser()`
-  (`$XBIN_PARTITION`), `xbin.RequirePartition()` (exit 3 unless xbind runs
-  the backend as a partition — `user:<id>` or `global`; `global` is one
-  instance for everyone who reaches it, so code that must never mix people
-  serves per-person data only where `PartitionUser() != ""`),
-  `xbin.GlobalURL(path)`, and `CallerInfo.Partition` /
-  `CallerInfo.PartitionID` (`X-XBin-Partition`, `X-XBin-Partition-Id`). The
-  in-frame client gains `xbin.partition` (only in a partitioned tile's
-  document) and `xbin.fetch(url, {partition: 'global'})`, which reaches the
-  tile's own `/api/<self>/…` only: another URL, or a value other than
-  `'global'`, rejects with a `TypeError` in every document, and a falsy
-  value means the viewer's own partition. On an xbind that doesn't
-  partition they read nothing and a valid option changes nothing. Nothing
-  to change.
-- **`xbin.fetch(request)` keeps the `Request`'s own headers.** Passing a
-  `Request` to `xbin.fetch` without `opts.headers` used to send only the
-  frame token: the client's own `headers` init replaced the `Request`'s
-  (`Content-Type` included). Its headers now go out, plus the frame token;
-  `opts.headers`, when given, still replaces them, as with `fetch`.
-- **Workspace policies for partitioned tiles** (PD-55,
-  [protocol.md](/docs/protocol.md) `/workspace-policies`, [bx.md](/docs/bx.md)
-  `bx policies`). Two workspace-wide switches, both **off** by default, that
-  an admin sets from the admin console's new **workspace → policies** tab
-  or `bx policies set partition-consent|credential-reset-confirm on|off`:
-  *ask each person before another partitioned tile uses their data*
-  (`partitionConsent`) and *credential resets wait for the person*
-  (`credentialResetConfirm`). They apply to partitioned tiles only, so today
-  they change nothing; they store their values for the partition fabric.
-  New: `GET /api/xbin/workspace-policies` (a person's session or device, a
-  terminal or agent session they drive, or an admin; other tile principals
-  get 403), `PUT` (admin; each present key replaces that switch; audited
-  with each switch's old→new), and a `policies` event on `/ws/events`. Kept
-  in `data/workspace-policies.json`, not `users.json`. A file xbind can't
-  read never turns a switch off: a switch it can't read keeps its last
-  value, or is on, and admins get a `policies` alert on `/alerts` until the
-  file is fixed by hand. Existing workspaces get the tab with
-  `bx builtin update scaffold:tiles/admin` (the API works without it).
-  Nothing to change.
-- **Sandbox managers key partitioned consumers per person**
-  ([sandbox-manager.md](/docs/sandbox-manager.md) §Partitioned consumers,
-  D140). A manager whose `hello.caps` carry the new `partitions` capability
-  (the manager's own — never in a sandbox's `caps`) takes a partitioned
-  consumer's calls as (`X-XBin-From`, `X-XBin-Partition-Id`): a sandbox made
-  in a person's user partition is homed there (`owner.partitionId`,
-  `owner.partition`) and invisible to the consumer's global instance, its
-  other partitions and every other consumer unless shared (`shares` gain an
-  optional `partitionId`; the person rules still apply to the partition's
-  person); the partition's person is verified (an `Sbx-User` or
-  `X-XBin-User` naming anyone else is `403 not-allowed`); a partition also
-  sees what its person may use at the consumer's non-personal identity,
-  never the converse. An absent partition and `global` are one consumer, so
-  every existing sandbox stays with its consumer's global instance.
-  `clientId`s are per partition; quotas per consumer count all its
-  partitions. Isolation stops at the sandbox: partitions that see one
-  sandbox share its execs, terminals and stdio sockets, and what its home
-  holds (a coding agent's sign-in). The builtin **coding-sandbox** template
-  does all of it, tells the runtime the partition as the label
-  `coding-sandbox/partition`, and shows its operators a user partition's
-  sandbox as `<consumer>/<partition id, 8> #<n>`, without labels and with
-  its snapshots named `snapshot #<n>`, unless it is shared with them. The
-  conformance suite (`sdk/sandboxcontract`) gains a `user-partitions`
-  section (run when hello offers `partitions`), `Target.Partition`, and
-  `Caller.InPartition`/`Global`; `hack/fakesandbox` follows (without
-  `partitions` in its `Caps` it behaves as a manager from before them). The
-  contract's "Partitions, sharing and people" section is now "Consumers,
-  sharing and people" (the same rules; the suite's `partitions` section
-  keeps its name). Nothing changes for an unpartitioned consumer; existing
-  copies of the template take it with a template update.
-- **BREAKING — backups are sealed** ([migration note](/docs/changes/2026-09-29-sealed-backups.md);
-  [14-lifecycle.md](/docs/overview/14-lifecycle.md) §Sealed archives). In a
-  workspace with a vault barrier every archive xbind writes is encrypted by
-  xbind — `XBINSEAL`, a cleartext header naming a backup key's opaque id,
-  AES-256-GCM in 64 KiB chunks over the same tar — under a random backup key
-  per subject (a tile's source, a namespace's data) that the vault's data
-  key wraps in `data/vault/.backup-keys/`. A scope root's main data moves to
-  a data archive of its own (`.data.<tile-key>`, schema 3), which the main
-  archive (schema 3) names; existing workspaces seal from their next
-  backup, and plaintext archives of any age still restore. Archivers see key
-  ids, sizes and times only: the PUT carries `X-XBin-Backup-Subkey`, and an
-  optional `POST /archive/erase {subkeys}` deletes versions sealed under
-  erased keys. **Disaster recovery needs the key bundle**: `bx backup keys
-  export > keys.xbk` (or the admin console's Backup tab) and, on the new
-  machine, `bx backup keys import keys.xbk` with the old vault passphrase;
-  admins see an `/alerts` entry (kind `backup-keys`) and `bx doctor` a line
-  until every key is in an export. `bx backup erase <tile> --data|--all`
-  crypto-erases a tile's backups in every archive (`POST
-  /api/xbin/backup/erase`); a restore of erased data says `this backup's
-  data was erased on <date> (<reason>)`, and a main archive whose data key
-  alone was erased restores its source and says so (`dataErased`). New
-  routes: `GET /api/xbin/backup-keys`, `POST /api/xbin/backup-keys/export`,
-  `POST /api/xbin/backup-keys/import`, `POST /api/xbin/backup/erase`
-  (admin; export, import and erase only as a person — an admin in their own
-  session or the admin tile's frame, never a tile's backend, terminal or
-  agent). Single-file restores are extracted by xbind. A sealed vault now
-  stops every backup, and so does a vault not set up yet (production
-  before its first `bx vault unseal`; `GET /backup-keys` mode
-  `vault-locked`) — only the plaintext-vault mode (`--insecure-vault`,
-  `--no-auth`) writes plain archives. A key bundle plus the passphrase in
-  force at export opens the workspace's data key: `POST /vault-rekey` marks
-  every earlier export stale (the alert asks for a fresh one), and the docs
-  say to destroy old bundles after an erase or a rekey. Retention deletes a
-  data archive when no kept main archive names it; a main archive whose
-  data archive is missing restores its source and says so (`dataMissing`,
-  also in `POST /lifecycle`'s enable answer, with `dataErased`). An
-  archiver's `PUT` must answer a version of `[A-Za-z0-9][A-Za-z0-9._:-]`
-  (≤ 128) and an error answer must mean nothing was kept. Archives made
-  from now on can't be restored by an older xbind (it refuses them,
-  writing nothing). `bx builtin update s3-archiver` (v3) adds erase garbage
-  collection, drops an archive whose marker it couldn't store, takes a
-  pruned version's marker with it, and answers 422 for a sealed archive's
-  single file.
-- **Agent template: reports show again, during the turn, and come back.**
-  `render_html` streams its step, so the preview pane opens while the turn
-  goes on (it had waited for a re-read since the stream replaced the poll).
-  It shows HTML up to 2 MiB: a report over the 64 KiB text cap — one
-  written in the sandbox, typically — is stored as a binary `text/html`
-  session file and still renders, and `GET /runs/{id}/file` answers such a
-  file's text. A render or view of a sandbox path is copied under a name of
-  its own (`site/index.html` when `index.html` is another file's), never as
-  a version of a different file. The chat's `🖼 rendered …` and `📡 showing …`
-  lines are buttons that show the file or the live page again, and a
-  finish line renders its result as markdown (`builtin-templates/agent/API.md`
-  §Session files + render, §Live previews).
-- **Agent template: live previews say why they are blank.** The live pane
-  has a status strip that checks the page's own URL as it loads and on
-  **Check** — HTTP status and type, or the refusal and what to do (nothing
-  listening, the sandbox stopped, an agent from before ports, an expired or
-  misplaced link, the tile-origin check); an error answer is said, never
-  shown blank. New participant routes `GET /runs/{id}/ports` (the
-  conversation's live previews, each probed now) and `GET
-  /runs/{id}/ports/{sbx}/{port}?path=` (one probe) back the ▣ popover's
-  **Ports** section and the app's live screen's Check; the live route's
-  refusals now carry `refusal` beside `error`.
-- **Agent template: the sandbox tools recover.** `preview_port`, the live
-  route and `sandbox_copy`'s tar check ask the manager again before
-  refusing on a missing capability (the cached hello could lag an update by
-  minutes), and the refusal names the manager, its version and its caps;
-  `sandbox_info` adds the manager's caps and `live preview: available / not
-  available — why`. xbind's "the sandbox's agent predates ports" reaches the
-  model with what to do (restart the sandbox). A sandbox deleted elsewhere
-  comes off the conversation the first time a tool finds it gone — the
-  first other attached one becomes active — instead of every call hitting
-  the same wall. A download's note names the sandbox it came from (the
-  replaced version's source in parentheses), and `sandbox_copy` says which
-  side failed (`reading "a":… failed` for a source stream cut short, not
-  the destination's "didn't answer").
-- **Agent template: the pinned task is the current request** — the latest
-  one the conversation was given (the header's `+N` still opens every
-  request); the model's own `# Your task` keeps the first. `finish` is
-  worded by depth: a top-level run's `result` is a short status line with
-  the answer in the reply before it; a subagent's is the full answer, and
-  so is a channel conversation's or a trigger's (its `result` is what is
-  posted).
-- **Admin: a tile sandbox's port requests.** `GET /api/xbin/sandboxes`
-  (admin) gives each `tileSandboxes` row `ports` — its latest 8 port
-  requests (D135), newest last: `{at, port, status?, refusal?, from}` —
-  and `agentPorts`: whether the running sandbox's in-box agent serves
-  ports (`serves`), or predates them (`predates`: restart it); both absent
-  until a port was asked for. The admin console's Runtime → Sandboxes
-  shows them under each sandbox's state (existing workspaces: `bx builtin
-  update scaffold:tiles/admin`; [protocol.md](protocol.md)).
-- **coding-sandbox: Ports rows.** The operators' Sandboxes tab and your own
-  sandboxes get a Ports row — whether the manager offers ports and why not,
-  and a probe of one port (status, type, refusal, latency; never the page)
-  — through `GET /ports/{id}` and `GET /ports/{id}/{port}?path=` for
-  operators and the people who may use the sandbox. A sandbox whose agent
-  predates ports is reported `restartNeeded` until it runs again
-  ([sandbox-manager.md](sandbox-manager.md) §Ports).
-
-- **The shell's sidebar is quieter.** A tile's row starts with an app icon
-  (a small window, drawn — not an emoji; highlighted while the tile is
-  open) instead of its runtime's coloured dot, and no longer names the
-  runtime (`node`, `go`, …) at its right edge; screens keep their grid icon,
-  now drawn the same way. The `⇈` a row carried while the tile's primary
-  was pinned is gone from the tree — the window's head and the tile menu
-  still show it ([tile-deployments.md](tile-deployments.md)). Existing
-  workspaces take it with `bx builtin update scaffold:shell`.
-- **Tile sandboxes: the rootfs toolchains on `PATH`, and Playwright's
-  browsers named** (D134, [protocol.md](protocol.md) §Tile sandboxes). A
-  command in a tile sandbox now gets `/usr/local/{go,node,bun}/bin` first on
-  its `PATH`, as terminals and backends do, and
-  `PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright` where the base rootfs
-  ships Playwright's browsers — `node`, `npx` and `npx playwright` just
-  work (the coding sandbox's `bash`, a manager's `run`). A command's own
-  `env` and `defaults.env` still win. The base rootfs gains `xxd`
-  (`make rootfs` to rebuild yours). Nothing to change.
-- **The agent template's sandbox jobs** (D134, the template's API.md §The
-  coding tools). `bash` passes the command to the sandbox's shell through
-  its environment (the exec's `cmd` is `eval "$AGENT_JOB_CMD"`), so a
-  `pkill -f <pattern>` in a job no longer kills the job itself; a command
-  using `pkill -f`/`killall` is refused with the job list unless
-  `force: true`. `bash_kill` answers with the job's last output and how it
-  ended, an interrupted `bash` keeps what it had read, and the ending
-  signal is kept (`killed by TERM`). New: `jobs` lists them; `yield` wakes
-  when a job the run started ends, and takes `until_job`. Jobs run with
-  `PYTHONUNBUFFERED=1`; a wait the tool's time limit cut short says so.
-  The tool descriptions state their scope and limits first — `render_html`
-  that it is a static snapshot, not a browser — and the `# Sandbox` prompt
-  names the image's tools. Instances pick this up with a template update;
-  the database change is additive.
-- **Agent template: a real browser in the sandbox, and one view of its
-  files** (D136, `builtin-templates/agent/API.md` §Coding sandboxes and
-  §Session files). `browser_check {target, wait_ms?, screenshots_ms?,
-  viewport?, script?}` loads a page — a sandbox file, a session file or a
-  URL the sandbox reaches, such as `http://localhost:8080/` — in a headless
-  Chromium inside the conversation's sandbox (Playwright; the xbin image has
-  both) and reports raw facts: the final URL and title, console messages,
-  page errors, failed requests (those the sandbox's egress blocked named as
-  such), an accessibility snapshot, screenshots saved as session files and
-  shown to the model, and a script's JSON return value. The session files
-  now record each version's sha256, where it came from and the version it
-  replaced, and keep earlier versions: `sandbox_download` **overwrites the
-  session file in place** (no more `report-2.html` piles; an unchanged file
-  writes nothing; `keep_both: true` keeps the old suffix behaviour), and the
-  new `file_info` and `file_diff` read either place. `file_read`,
-  `file_view`, `render_html` and `browser_check` take `session:<file>` or a
-  sandbox path (`/work/x`, `./x`); a bare name is a session file as before,
-  and a miss names the other place. Existing conversations and files keep
-  working (older rows show no hash or source); template instances pick this
-  up with a template update. Nothing to change.
-- **Agent template: the task survives compaction** (D133,
-  `builtin-templates/agent/API.md` §The task and compaction). Every request
-  a conversation is given — a person's message, a schedule's or trigger's
-  firing, a channel message, a subagent's task and its parent's messages —
-  is recorded verbatim in a read-only task ledger (`GET
-  /runs/{id}/asks`) and pinned in the agent's prompt under `# Your task`,
-  with a short reminder at the end of every call (never stored, so the
-  provider's prompt cache keeps hitting). Compaction first hides old tool
-  outputs behind stubs the agent can restore (`message_get`), and
-  summarises only if that was not enough; summaries are kept and
-  searchable. The compaction budget now comes from the model's context
-  window when its provider lists it (60%, at least 32 000 tokens); an
-  explicit `tokenBudget` still wins, and `0` or the old default `12000`
-  mean "from the model". `recall` ranks by relevance, can search oldest
-  first or for any word, and skips its own results; `memory_delete` joins
-  the notes. The run header pins the task (web: under the top bar; the xbin
-  app: **Task** in the run menu). Instances pick it up with a template
-  update; their databases migrate in place (each run's first request is
-  pinned). Nothing to change.
-
-- **Live port previews** (D135). A server running in an agent's coding
-  sandbox can be shown, live, in the agent tile's preview pane:
-  - **The sandbox-manager contract** gains an optional capability,
-    **`ports`**: `ANY /sbx/sandboxes/{id}/ports/{port}/{path…}` proxies to
-    a server on the sandbox's own loopback (WebSocket upgrades too), scoped
-    like `exec`, `502 not-listening` when nothing accepts, no credentials
-    either way (docs/sandbox-manager.md §Ports). Protocol 1 grows by
-    addition; `hello.caps` says whether a manager has it. The conformance
-    suite checks it; the reference manager serves it.
-  - **xbind's tile-sandbox runtime** serves it for namespace and VM
-    sandboxes — `ANY /api/xbin/sandboxes/{name}/ports/{port}/{path…}`, and
-    `runtime.caps` gains `ports` (docs/protocol.md §Tile sandboxes). It is
-    inbound only: nothing in a sandbox reaches xbind through it. The Go SDK
-    passes it on with **`xbin.PortRoute(port, path, rawQuery)`** and
-    `Forward` (docs/sdk.md). The builtin **coding-sandbox** forwards it
-    while xbind offers it, and new managers' default image lists
-    `playwright` and `chromium` among its tools.
-  - **Path tickets**: a tile's page mints `POST /api/xbin/path-tickets
-    {path}` and `/api/~<ticket>/<p>` reaches that prefix of its own
-    backend's API as the page — nothing else — for a document it frames in
-    an opaque-origin sandbox (docs/auth.md §Path tickets).
-  - **The agent template**: the tool **`preview_port {port, path?}`**, a
-    `live` step, and the pane showing the page in a frame sandboxed
-    `allow-scripts allow-forms` (never same-origin) with this tile's CSP,
-    for the run's participants only (API.md §Live previews); the app says
-    what is live and opens it on the web. An older xbind or manager lacks the capability, and the tool
-    says so.
-
-## 2026-09-28
-
-- **xbin app: a tile's sessions screen** (D132). A tile's long press (and
-  its ⋯) has one **New session…**, which opens the tile's sessions screen:
-  the web terminal window's counterpart, native. A launcher with a box for
-  Bash and each coding agent, the VM switch (the same per-tile choice as
-  the web's) and the tile's recent agent sessions with Resume; tabs for
-  the tile's shells and agents together, which stay live while hidden
-  (tap or swipe to switch; a tab's long press renames, ends or closes it);
-  and, from its tools menu, **Live reload & deployments**: live reload's
-  state with Pause, Reload now, Resume and Attach, the deployments with
-  their `Dev API` and `● live reload` tags, a deployment's page and deploy
-  log with Roll back, its assigned branch (set, clear) and the offers to
-  follow a branch switch — each confirmed from a dry run, in the web's
-  words. Adding, promoting, reassigning and protecting stay on the web.
-  **Code** browses the tile's files, history and diffs (read only),
-  **Logs** streams its backend's log (per deployment from the
-  Deployments tool), and **PRs** lists the change proposals to the tile —
-  review the series and the thread, comment, mark merged or reject with a
-  note; the tools button counts the open ones. Works with older xbinds (no deployments:
-  the tool says so; no `branches/1`: no branch controls). Also: the app's
-  screen cards grow with larger text sizes instead of clipping a widget
-  ([native.md](native.md) §Widgets). Nothing to change.
-- **The terminal window's panels: full width, or beside the terminal at a
-  width you drag** (D129, [elements.md](elements.md) `<bx-frame>`). The
-  Deployments panel opens full width — a window without sessions no longer
-  shows the launcher beside it. `⇋`, now the last layout button and a
-  toggle, puts the terminal beside whichever panel shows (code, logs,
-  proposals, deployments; from `>_` it is code, the old split); the divider
-  drags, moves with ←/→ once focused, resets on a double-click, and its
-  width is kept per window. In the Deployments panel the row tag "target of
-  this terminal" is now **`Dev API`** — the same meaning: the deployment
-  the active tab's API calls and `bx` commands reach — on one line with a
-  tooltip, and it follows tab switches; a `● live reload` tag marks where
-  saves go ([tile-deployments.md](tile-deployments.md) §The Deployments
-  panel). A narrow panel shows its list and the selected row one at a time.
-  `open(layout)` is unchanged (`'split'` is code beside the terminal), and a
-  saved window restores as before. Nothing to change.
-- **Tile deployments: branch-assigned deployments** (D131, feature
-  `branches/1`; [tile-deployments.md](tile-deployments.md) §Assigned
-  branches). A deployment beyond `main` and the primary can require a branch
-  of the tile's repository — `bx deployment add dev --branch feature` (or
-  `--new-branch feature`, which creates and checks it out), `bx deployment
-  branch dev feature|--clear`, `POST /api/xbin/deployments/branch`. While
-  it has one, the work tree feeds it only on that branch: attach, resume,
-  reload now, a deploy of the work tree and an add from it answer 409
-  naming both branches unless `confirm: "other-branch"` (`--other-branch`)
-  takes the work tree's this time, and a save on another branch while live
-  reload follows it deploys nothing and pauses live reload, keeping the code
-  it runs — a `deployments` event op `branch` says so and names the
-  deployment assigned the work tree's branch. The state gains
-  `workTree.branch` and each deployment's `branch`/`branchOverride`,
-  checkpoints an `Xbin-Work-Tree-Branch` trailer, deploy entries `branch`.
-  Additive: nothing changes for a deployment without a branch, and clients
-  send the new body fields only to an xbind whose `features` list
-  `branches/1`. `bx agent ls|history --tile`, `bx owner`, `bx access`,
-  `bx backups` and `bx backup-schedule --rm` now escape a tile path holding
-  `+` in their queries (it read as a space). **The terminal window** (an
-  existing workspace needs nothing: `web/` ships with the binary): the Add
-  deployment form's Branch control (none / current / a new branch), the
-  overview's Branch row with Set branch… and Clear branch, `⎇ <branch>` in
-  the side list and the deploy log, the chip `📌 Live reload paused · ⎇
-  <branch>` after a switch, whose menu and the panel's header offer to
-  follow it (resume or attach live reload on the deployment assigned that
-  branch, "Keep dev on <branch> this time", "Add a deployment for
-  <branch>…"), a grey line in the tile's terminals, and a refusal because
-  the work tree is on another branch asking to use it this time. A deploy
-  entry's `branch` is now its own capture's (`Xbin-Branch` in the deploy
-  log).
-- **Agent sessions: the log pages** (D130; [protocol.md](protocol.md)
-  §Agent session events → Pages). `GET /api/xbin/term/sessions/<id>/events`
-  and `GET /api/xbin/agent/history/<id>/events` take `?limit=<n>` (the tail
-  page) and `?before=<seq>&limit=<n>` (the page before a seq): `{events,
-  hasOlder, nextBefore, truncated, next, last, state}`, cut where a fold may
-  start, with the status digest a fold starts from. Without them nothing
-  changed. A command's streamed output (`tool.update` `outputDelta`) is now
-  coalesced into runs like the agent's text — fold it as before (append). A
-  resumed session's replay no longer rides `/ws/events` one `session` event
-  per entry: one `{seq:0, type:"replayed", data:{first, last}}` event says
-  it is over — re-read the tail (a page or `?since=`); a client that
-  ignores it catches up on the next skipped seq. Listing past sessions
-  reads only each file's head.
-- **Agent tab: long conversations stay quick** (D130;
-  [overview/09-terminals.md](overview/09-terminals.md)). It opens on the tail
-  page, loads older pages as you scroll up, lets go of what is far away in
-  either direction (the live tail too, while you read far up — a **↓ N new —
-  jump to latest** pill brings it back), refolds only the page a late event
-  belongs to, renders a streaming message a paragraph at a time, and renders
-  nothing while its tab is hidden. New for tiles:
-  [`/vendor/scroll-window.js`](frontend-kit.md) — the tab's no-jump window
-  over a long list (anchor the first visible row across renders, grow and
-  trim the rendered rows around the view), framework-free.
-- **agent template: long conversations stay quick, on the web and in the
-  app** (D130). The chat opens on the conversation's newest page (50
-  messages) and reads older ones as you scroll up; the web renders a window
-  of it that never moves what you are reading and lets go of what is far
-  away in either direction (a **↓ N new — jump to latest** pill while you
-  read far up), parses each message's markdown once, and writes a streamed
-  answer a paragraph at a time, so a selection in it survives; the native
-  view draws the tail and grows it as you scroll up. A reset of the live
-  stream keeps your place. For an instance's own views: `createApp({page,
-  deltas})` now serves both of the template's views, and `Session` gains
-  `keep()`, `loadNewer()`, `latest()`, `refresh()`, `follow()`
-  (API.md §The frontend). New instances get it; an instance takes it with a
-  template update. On an xbind without `/vendor/scroll-window.js` the web
-  chat renders every block, as before.
-- **The app's Agent screen: long conversations stay quick too** (D130). It
-  opens on the tail page (an older xbind still sends the whole log), loads
-  older pages as you scroll up, lets go of far pages, and never moves what
-  you are reading; a **↓ N new — jump to latest** pill counts what arrived
-  while you read further up. A streaming reply re-parses only its last
-  paragraph. For native tiles, the iOS `transcript` holds its first visible
-  row while children are added or removed above or below it. It sticks to
-  the bottom only while the reader is there. It sends `more` when the
-  reader is at rest within a screen and a half of the top, and again every
-  half second while they stay there. `scrolled {atBottom}` is sent on every
-  change, as before. Nothing to change.
-- **The app's screens are compact: a widget's card is 132 pt tall** (was
-  170; [native.md](native.md) §Widgets). On a 390 pt phone a `small` card
-  is about 177 × 132 pt and a `wide` one 366 × 132, the widget's own box
-  about 157 × 112 inside a 10 pt inset; the size classes, the vocabulary
-  and the clipping are unchanged, so a widget of a few lines needs nothing
-  — check a taller one with `bx preview --native <tile> --widget [--size
-  wide]`, which draws the new box. The app's Home also changes
-  (nothing to do for tiles): the workspace's branding icon and title on
-  top, All tiles in the web sidebar's tree (your folders, then mine / each
-  org / workspace with their shared folders), single-line rows, and a
-  tile's running terminals and agents on its row and card and in its long
-  press (D128).
-- **VM tile sandboxes and VM-only coding sandboxes by default.** A VM
-  policy saved before tile sandboxes existed (no `tiles` field — the
-  installer's policies until v0.3.60) now reads `tiles` as following
-  `backends`, the installer's rule for a fresh policy: where VM backends are
-  on, a manager tile's sandboxes may run in VMs too (admin console →
-  runtime → sandboxes; an explicit `"tiles": false` stays off;
-  [isolation.md](isolation.md)). A **new** coding-sandbox manager's mode is
-  `vm` — VM sandboxes only, and on a host without VMs a clear `503` with the
-  reason until an operator picks another mode in its Settings; a manager
-  made before keeps `auto` (the builtin's API.md). Nothing to change.
-- **Shell: a tile's window shows the deployment you pick**
-  ([tile-deployments.md](tile-deployments.md) §The Deployments panel, *In the
-  shell*). A window's head carries `⇈` while the tile has a deployment you
-  may show besides the primary, its primary is pinned, or its last deploy
-  failed (`⇈!`); its menu picks what the window shows — the primary, or
-  `dev` (`/c/<tile>+dev/`, with a `+dev` tag in the head) — and opens the
-  shown deployment's full page and the Deployments panel. The window's
-  terminal, code and logs stay the tile's. On a personal screen the pick is
-  kept in the layout: the tile's entry gains an additive `"deployment"`,
-  which older shells and the app ignore (they show the primary). The
-  `📌 pinned` chip no longer draws over the page. `<bx-frame>` gains
-  `deployment="<name>"` ([elements.md](elements.md)). In an existing
-  workspace: `bx builtin update scaffold:shell` (the chip's removal and the
-  attribute come with the binary).
-- **Fix: a clone lets go of its snapshot when its copy is done.** A tile
-  sandbox cloned from a snapshot was listed `stopped` (or started) a moment
-  before the snapshot stopped refusing a delete (409 "is being cloned",
-  with `retryAfterMs`); with `start` the window lasted the start. The
-  hold now ends in the same step that lists the clone. Nothing to change.
-- **Tile deployments and pausing live reload** (D119, D127,
-  [tile-deployments.md](tile-deployments.md)). Tiles that never opt in change
-  in no way: saves still reload live and there is still no deploy step. For a
-  tile you opt in (the terminal window's live-reload chip and Deployments
-  panel, or `bx live-reload` / `bx deploy` / `bx deployment` /
-  `bx promote` / `bx rollback`): pause live reload and reload now; a deploy log with roll
-  back; named deployments with their own data and vault at
-  `/c/<tile>+<name>/`; deploy, promote (with the diff you reviewed) and
-  reassign the primary; protect the primary; per-edge `read`/`block` for a
-  deployment's calls to other tiles. Pinned and non-primary backends need
-  `xbind --isolate`. New for builders: `XBIN_DEPLOYMENT` (non-primary
-  backends and sessions only), `X-XBin-Deployment` on calls from non-primary
-  deployments, `xbin.Deployment()` and `CallerInfo.Deployment` in the SDK,
-  the `deployments` event type and `/api/xbin/deployments` (feature
-  detection: its `features`, or a 404/405 from an older xbind), and the new
-  `bx` commands. Existing event types describe only a tile's primary. A
-  non-primary deployment's cron jobs and bus subscriptions deliver to that
-  deployment, never the primary (another scope's bus through the edge
-  policy, like a read binding), unless a tile manager switches its
-  `deliveries` off; its interface instances and ingress hosts stay dormant,
-  and its notifications are never pushed. The switch is `--tile-deployments` /
-  `XBIN_TILE_DEPLOYMENTS` (on by default).
-  **`+` in tile names** is refused from now on: the BREAKING entry below.
-  **Existing workspaces:** the terminal window's chip and panel come with
-  xbind; the shell's `⇈ Deployments…` tile-menu line, badges and tile-admin
-  section come with `bx builtin update scaffold:shell`. Until you take the
-  admin tile's update (`bx builtin update scaffold:tiles/admin`), its
-  sandboxes tab labels `main`'s generation "draining" while another
-  deployment runs.
-  **Downgrade note:** an older xbind serves every tile's work tree with
-  `main`'s data. Before downgrading, reassign primaries to `main` and check
-  out each pinned primary's checkpoint in its work tree (`git fetch
-  xbin-deploy`, then `git checkout --no-track -b pre-downgrade deploy/main`).
-  After upgrading again, a pinned tile returns to its checkpoint; if you
-  skipped the checkout, deploy the work tree at once (`bx deploy <tile> --to
-  main`). Restarting xbind without `--isolate` holds pinned backends and
-  keeps non-primary ones down: first move live reload back onto those tiles'
-  primaries (unprotecting them) and remove backend tiles' non-primary
-  deployments ([tile-deployments.md](tile-deployments.md) §A tile's life,
-  backups and downgrades).
-- **BREAKING — `+` is refused in new tile names**
-  (D127, [migration](changes/2026-09-28-plus-in-tile-names.md)).
-  `<tile>+<name>` is a tile deployment's URL, so creating a tile whose path
-  holds `+` in any segment is refused (403), for every creator, admins
-  included, on every creation path: `bx new`, create, clone, template
-  instantiate, builtin and git import. New names only: an existing tile
-  named with `+` keeps resolving and working (an exact match wins), can't
-  get deployments, and `bx doctor` flags it. Alongside, a query string never carries a
-  `tile+name` ref (a `+` there reads as a space): the deployments reads
-  take `?tile=<tile>&deployment=<name>` (`GET /api/xbin/deployments` gains
-  `deployment=`, echoed as `selected`), and they, `/frame-token`, `/logs`
-  and `/tile-status` answer 400 for a tile parameter that names a deployment
-  as `tile+name`. Paths (`/c/<tile>+<name>/`) and JSON bodies keep the ref
-  ([protocol.md](protocol.md) §Tile deployments).
-- **Protection is managed in the admin tile and with the root `bx`
-  commands** ([tile-deployments.md](tile-deployments.md) §Managing
-  protection, [auth.md](auth.md) §Tile deployments). The admin console
-  gains runtime → **deployments**: every tile with a deployment record —
-  its primary, 🛡 protection, live reload, its deployments, the last deploy
-  — with Protect / Unprotect the primary, Reassign the primary… (the
-  Deployments panel's own loud confirmation), deliveries and alwaysOn per
-  non-primary deployment, and ⇈ to the tile's Deployments panel for
-  everything else. The admin tile is scaffold: an existing workspace gets
-  the tab with `bx builtin update scaffold:tiles/admin`. Its acts run as the
-  person who opened it: xbind lets a frame of a tile holding `xbin` admin,
-  minted under that person's own login, stand in for them on exactly those
-  acts, and judges the person as a tile manager — the tile's grant alone
-  manages nothing, a view-as session is refused, and the admin tile's
-  terminal and agent tokens (and any frame token they mint) are refused like
-  any tile's.
-  `bx deployment protect|primary|set …` on the host with the owner token
-  passes, as the owner's credential; from a tile terminal it never does.
-  New tile → shell message `xbin:open-deployments {tile}`
-  ([protocol.md](protocol.md) §Tile ↔ shell messaging). Nothing to change.
-- **coding-sandbox: the layout's user is a real account.** A sandbox's
-  commands ran as uid 1000 with `USER=dev` and `HOME=/home/dev`, but the
-  image names uid 1000 `ubuntu` (home `/home/ubuntu`): `id -un`, `whoami`
-  and the prompt said `ubuntu`, and a tool taking the home from the account
-  database (OpenSSH's `~/.ssh`) used `/home/ubuntu`. A sandbox's first
-  start now makes the layout's user the image's account of its uid, as
-  `usermod -l` would — the entry renamed with the layout's home and shell
-  (else one added), its group and memberships following; the template's
-  API.md, "What it adds to the contract". A sandbox started before keeps
-  its image's account. Nothing to change.
-- **Docs: a sandbox's `internet` and a host behind a NAT**
-  ([isolation.md](isolation.md) §Network egress, "Networks for a manager's
-  sandboxes"). A tile sandbox never reaches an address the host delivers
-  locally; a cloud VM's public IP, which a NAT outside the host maps onto
-  its private one, isn't such an address — `internet` reaches what the
-  host serves publicly there, as any internet client does. Unchanged
-  behaviour, now said. Don't rely on the host's public address to keep a
-  service from its sandboxes; bind it to loopback or a private address.
-- **A tile held for its encrypted state says so.** A call to the backend
-  of a tile xbind holds because a resource it uses can't be decrypted — the
-  vault sealed, gocryptfs missing, or the resource's mount refused (on
-  Ubuntu, AppArmor's `fusermount3` profile outside the installer's
-  workspace) — answered `502` "component … is not enabled", though the
-  tile was enabled. It now names the resource and the cause
-  ([resources.md](resources.md) §Encryption at rest). Nothing to change.
-- **Sandbox-manager contract: a stop may apply a pending `egress`**
-  ([sandbox-manager.md](sandbox-manager.md) §The sandbox). A `PATCH` of a
-  running sandbox's `egress` stays `egressNext` until the next start; a
-  manager may now also apply it at the stop (`egress` becomes it, as a
-  `PATCH` of a stopped sandbox does), since a substrate need keep no
-  running egress past a stop — xbind's runtime doesn't. The next start
-  takes it either way. Nothing to change: a consumer enforcing a firewall
-  already checks the less restrictive of `egress` and `egressNext`.
-- **Binding a tile's `http` slot no longer restarts the provider**
-  ([overview/11-interfaces.md](overview/11-interfaces.md), "Rebinding
-  restarts"). Binding, rebinding or unbinding a consumer's `http` slot used
-  to restart the provider it named (and the consumer's `net` provider),
-  cutting every other consumer's calls in flight — a sandbox manager's
-  relayed terminals and output long polls broke whenever a new consumer was
-  bound to it. Nothing of a provider's spawn depends on who binds its
-  `http` service (the binding's grant is checked per call), so only the
-  consumer restarts now; a `net` or `lan-ingress` binding still restarts
-  its providers. Nothing to change.
-- **Fix: Go tiles build under `--isolate` when the workspace needs new
-  checksums** ([isolation.md](isolation.md) §Confined tool runs).
-  A confined build sees the workspace read-only, so the checksums `go`
-  adds to the workspace's `go.work.sum` — for a module a tile's `go.mod`
-  names without a `go.sum` entry (a client library just added), or for
-  one the workspace's modules select together (the agent template beside
-  the `sandbox-terminal` tile) — failed every Go build of that workspace
-  with "go: updating go.sum: … read-only file system". Each tile's build
-  now writes a `go.work.sum` of its own under `.xbin/cache/tile/`, seeded
-  from the workspace's, beside a copy of the generated `go.work`; a
-  hand-managed `go.work` (without xbind's first line) is used as it is.
-  Nothing to change.
-- **A file created directly in `/` no longer hangs a terminal or a
-  backend.** Where the sandbox's root is served by fuse-overlayfs (the
-  default wherever xbind ships it), creating a regular file directly in
-  `/` hung the command, as with `echo hi > /x` in a terminal or a backend
-  writing `/x`. From then on, anything else that touched the sandbox's
-  files hung too. fuse-overlayfs now runs with a root of its own instead
-  of the one it serves. Nothing to change. In a terminal, a file created
-  (or moved) directly into `/` during a session reads back as "Permission
-  denied" until the next session: the read guard only lets a session read
-  what already existed outside the workspace when it started
-  ([isolation](isolation.md)). Keep such files under `$HOME`, the tile's
-  dir or `/tmp`.
-- **Restores keep file permissions, and terminal layers are removed whole.**
-  A restore (re-enabling an offloaded tile, `bx restore`) gives each file
-  the permission bits it was archived with, so an executable — a script in
-  the tile's source, a tool an `apt install` put in its terminal layer —
-  stays executable; restored files used to lose their execute bits. A
-  setuid, setgid or sticky bit is never restored. Resetting a terminal
-  (⟲), offloading a tile `offloaded-full` and a restore replacing the
-  terminal layer remove the old layer in a confined run with the file
-  capabilities, so where the host delegates a sub-uid range the files an
-  `apt install` left owned by other users go too; they used to stay on
-  disk. `offloaded-full` ends the tile's terminal sessions first: if one
-  won't end, the offload fails after the archive with nothing removed, and
-  a reset whose session won't end fails with the layer untouched (it used
-  to remove the layer anyway). Nothing to change.
-- **New builtin template `coding-sandbox`: the builtin sandbox manager**
-  (D122, [sandbox-manager.md](sandbox-manager.md) §The builtin manager; the
-  template's `API.md` and `AGENTS.md`). An instance serves the
-  sandbox-manager contract, protocol 1, to the tiles bound to it
-  (`bx bind apps/agent sandboxes+=apps/coding-sandbox`) and runs their
-  sandboxes on xbind's own tile-sandbox runtime once a workspace admin
-  approves its `cap:sandboxes`: a VM where the workspace runs VMs for
-  tiles, else a namespace, or only the mode its operators choose
-  (`auto | vm | namespace`), never another; each sandbox's `isolation`
-  says which. It offers what the runtime serves and says in `hello.notes`
-  what it lacks.
-  Each consumer sees its own sandboxes and those shared with it, and people
-  are checked as the contract says. Images are the runtime's base plus a
-  setup script, built once and cloned; sizes, per-consumer and per-person
-  quotas, the idle stop and mounts of the tile's own filesystem resources
-  are the operators' to set, and hello's limits say the effective quotas. A
-  rebuild that fails keeps the previous good build (its template sandbox
-  goes only once a new build is ready), and while that build is current new
-  sandboxes clone it. No error a consumer sees names a runtime sandbox: not
-  its own, not a clone's source (said as its id), not an image's template
-  (`image:<id>`). Its sandboxes reach what its `internet` and `open`
-  `sandbox-net` classes are bound to, and `none` until then. Its page gives
-  operators (the owner and people with write access) every consumer's
-  sandboxes — metadata, lifecycle, snapshots, never contents —, usage,
-  images and settings, and their own sandboxes with a file browser and a
-  terminal; the app draws the same natively. Operators never change who may
-  use a sandbox (`visibility`, `members`, `shares`: only its home consumer
-  does, so `PATCH /ops/…` refuses them). A change made from the page needs
-  the person's write access to the tile: people with read access get a
-  read-only view of the sandboxes they may use, and every change they send
-  is `403 not-allowed`. Other consumers' calls are trusted as the contract
-  says. Another substrate (a cloud's API and ssh) is one Go file in a copy,
-  checked with the conformance suite, `sdk/sandboxcontract`, which the
-  template passes. On xbind's runtime, images with a setup script, the
-  contract's snapshots and clones are offered now that the runtime serves
-  them; a copy the runtime answers before it is done (a snapshot pending,
-  a clone creating, a restore busy) is waited out, so the contract answers
-  each one done. The runtime copies only a stopped sandbox, so a clone of
-  a running one without a `snapshot` is made of a snapshot the manager
-  takes for it and deletes once the clone is made.
-- **A sandbox's `/etc/resolv.conf` is written in place, never through a
-  symlink.** When a terminal or backend with egress starts, xbind writes the
-  relay's resolver into the sandbox's `/etc/resolv.conf`; a host-network
-  terminal gets copies of the host's `resolv.conf` and `hosts`. A symlink
-  left there (a terminal's persistent layer keeps one) used to be followed —
-  an absolute one outside the sandbox — and is now replaced by a regular file
-  with the same content the sandbox always got. Nothing to change.
-- **Security: a terminal's or backend's mount points never follow a symlink
-  its layer holds** ([isolation.md](isolation.md) §The dev layer; WP-2b of
-  D120). xbind mounts things at fixed paths in every sandbox — `/proc`,
-  `/tmp`, `/dev`, the SDK under `/opt/xbin`, the workspace, `$HOME`, a
-  backend's `/run/backend` and run dir — and made each path by name before
-  the sandbox's root was in place, so a symlink a terminal's persistent layer
-  or a tile's `setup` script had left there (`/opt → /home/…`) was followed
-  on the host: xbind made empty directories and files there as itself (it
-  never overwrote one), and a planted `/proc` could hang the start. Each path
-  is now found from the sandbox's root without following a symlink. One that
-  such a layer holds fails the start, naming the path and how to clear it (a
-  terminal's reset; a backend's `setup`), and nothing is made where it
-  points. The base rootfs's own links (`/lib → usr/lib`, `/var/run → /run`)
-  are still followed, now inside the sandbox (a mount point under `/var/run`
-  used to resolve to the host's `/run`), and a mask over the workspace's
-  `.xbin`, `data` or `homes` follows the workspace's own symlinks inside the
-  sandbox. Nothing to change unless a terminal's layer replaced `/opt`,
-  `/tmp` or another mount point with a symlink: reset that terminal. Also:
-  `/api/xbin` routes a path as it was sent, so an encoded `/` (`%2F`) stays
-  part of its segment's value instead of reaching another route, and a
-  segment that decodes to `.` or `..` is 400 `invalid`
-  ([protocol.md](protocol.md) §xbind API).
-- **Fix: terminals start again in a workspace whose `homes/` is a symlink,
-  and over a layer's apt-installed `nvidia-smi`** ([isolation.md](isolation.md)
-  §The dev layer). The mount-point change above refused two setups that
-  worked before: a workspace whose `homes/` is the operator's symlink into
-  the workspace (`homes → .homes`) failed tile terminals' start at
-  `…/homes`, and a GPU terminal (`?gpu=`) whose layer had `nvidia-smi`
-  installed with apt (`/usr/bin/nvidia-smi` is a Debian alternatives link)
-  failed at that path. A symlink directly in the workspace root, which only
-  xbind and the operator write, is now followed inside the sandbox, so
-  `$HOME` is the user's home on the host again; one in a tile's directory
-  is still refused. A `homes/` link to another disk, which failed a tile
-  terminal's start before too (the `homes/` mask followed it on the host
-  and hid the home), now works in a namespace terminal; a VM terminal
-  still fails to start over it. A symlink a terminal's layer or a
-  backend's `setup` left at a file mount point (`nvidia-smi`, a GPU
-  library, `/run/backend`) is covered by the mount instead: the sandbox
-  sees the host's file there, and the layer keeps its link. Nothing to
-  change.
-- **`cap:sandboxes`: the grant a sandbox manager needs for xbind's tile
-  sandboxes** (D120, [auth.md](auth.md)). A tile that serves
-  [sandbox-manager.md](sandbox-manager.md) on xbind's own sandboxes declares
-  `uses: [{target: "cap:sandboxes", role: "writer"}]`; it lands pending, and
-  only a workspace admin approves it. No org or personal allowance delegates
-  it, not even `cap:*`, and an allowance or permission set that names it is
-  refused. A policy `xbin-caps` deny strips it. Approving restarts nothing;
-  revoking it, or a policy change that strips it, stops the tile's sandboxes
-  and keeps their state. It gates the backend alone: the tile's frames,
-  terminals and signed-in users never gain anything from it.
-
-- **The VM policy gains `tiles`, `tilesBudgetMiB` and `tilesEmulated`,
-  and `PUT /api/xbin/vm/policy` merges** (D120,
-  [isolation.md](isolation.md) §VM sandboxes). `tiles` lets a manager tile's
-  sandboxes run in VMs. It is off unless an admin turns it on; the
-  installer's fresh policy turns it on where KVM is usable, and an existing
-  policy file is never touched. Their VMs count against the workspace's VM
-  budget and also against `tilesBudgetMiB` (0 = half the budget, at most
-  the budget), so they can't starve VM terminals. Where VMs run emulated
-  they also need `tilesEmulated`. `PUT /vm/policy` now merges its body onto
-  the stored policy: a field left out keeps its value instead of resetting
-  to off or the default, and a body with every field works as before. It
-  answers `stored` too. `GET /vm` and `GET /sandboxes` show admins
-  `usedTiles`, and the admin console's runtime → sandboxes tab edits the
-  three fields and shows the sub-budget.
-- **Base images stay while tile sandboxes pin them; VM disks list both
-  trees** (D120). The boot's base-image GC now keeps every base that a
-  terminal layer, a tile sandbox, one of its snapshots or a tile-sandbox
-  definition is pinned to, and the VM images built from those bases stay
-  too: a VM terminal on an older base boots without rebuilding its image. If
-  a pin can't be read, nothing is released that boot. `GET
-  /api/xbin/sandboxes` lists the tile sandboxes' VM disks next to the
-  terminal ones: each disk row gains `kind` (`terminal` | `tile`) and, for a
-  tile sandbox, `sandbox` (its name) and `sandboxUid` (its identity: a
-  sandbox deleted and re-created under the same name gets a new one).
-  Additive; nothing to change.
-  ([protocol.md](protocol.md), [09-terminals](/docs/overview/09-terminals.md)
-  §Base images.)
-- **Security: backups and restores never follow a planted symlink**
-  ([overview/14-lifecycle.md](overview/14-lifecycle.md), WP-9 of D120). A
-  restore (including re-enabling an offloaded tile, which its owner can do)
-  wrote through symlinks a sandbox had planted in the tile's source, its
-  terminal layer or a resource mount — as xbind, anywhere on the host. It
-  now writes every file through a root that nothing leads out of, replaces a
-  symlink met on the way instead of following it, refuses a tile directory
-  reached through one, and refuses an archive that isn't the component's
-  own. A backup no longer reads a file or directory swapped for a symlink
-  mid-walk. The terminal layer is now rebuilt apart and swapped in whole
-  after the tile's terminal sessions are closed (it used to be merged into
-  the live layer); a VM terminal's disk stays. Archives are unchanged, byte
-  for byte.
-- **Network classes for a sandbox manager's sandboxes: the `sandbox-net`
-  interface kind** ([isolation.md §Network egress](isolation.md), D120). A tile
-  declares `"interfaces": {"<class>": {"kind": "sandbox-net"}}`, one request-side
-  slot per class of network its sandboxes may use, and an approver binds each
-  like a `net` slot, under the same rights and ceilings (D20, D26, D54, D65,
-  D88), to `none`, `internet`, `internet:<spec>`, `lan:<cidr>`, `org`,
-  `personal` or `set:<name>`. `host`, provider tiles, sets that say `host` and
-  `#instance` are refused. An unbound class is `none`: there is no org or
-  personal default. A class's `internet` is strict: it also excludes CGNAT
-  (`100.64.0.0/10`, Tailscale's), benchmarking (`198.18.0.0/15`), reserved
-  (`240.0.0.0/4`) and NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`) addresses, in
-  its rules, its DNS answers and its reported reach (a tile backend's
-  `net:internet` is unchanged). Binding a class restarts nothing, and the
-  tile's own `net` slot is unaffected. `GET /bindings` adds
-  `sandboxNetOptions` (the option list per component) and lists inert
-  classes in `inert`. The admin console's binding tab, the tile popover and
-  `bx doctor` show the classes, and the shell's bind prompt starts a pending
-  class on `none`, so clicking through it grants no network (a set that says
-  `host` is greyed: "a sandbox class can't reach the host"). Also: a tile
-  that declares two `net` slots now resolves the name-sorted first every
-  time, instead of whichever map order gave.
-- **Terminals: a slow connection no longer reads as "shell ended"**
-  ([protocol.md](protocol.md) §`/ws/term`). A socket that fell too far
-  behind a terminal's output got `{"op":"exit"}` before it was closed, so
-  the pane closed as if the shell had ended while it ran on. Now it is closed
-  without one, and the terminal reattaches and replays the scrollback. The
-  exit frame comes only when the process ends and may carry `code` (or
-  `code: null` with `signal`); the session frame comes first on every
-  socket, also on a session that already ended, and may carry `sandbox`.
-  The same wire serves tile sandboxes' terminals, so a client of your own
-  should ignore fields it doesn't know.
-- **Tile sandboxes: the route surface** (D120,
-  [protocol.md](protocol.md) §Tile sandboxes). A manager tile's backend
-  holding `cap:sandboxes` can define sandboxes xbind runs for it under
-  `/api/xbin/sandboxes/…`: `GET /sandboxes/runtime` (the modes, egress
-  classes and limits it may use, including each sandbox's cap on
-  concurrent connections, `limits.flows`), and create, list, get, `PATCH`
-  and delete definitions (`clientId`-idempotent, sizes clamped to the new
-  sandboxes policy, mounts of its own `filesystem` resources that it
-  declares in `uses` (a grant alone mounts nothing), `none` egress or a
-  sandbox-net slot, no `XBIN_*` variables). Each sandbox has a `uid`, its
-  identity: a name deleted and created again gets another, so a manager
-  can tell the two apart. Start, stop, reset and rebase run sandboxes,
-  commands run in them, and files, tar and copy reach them (the next
-  bullets), and so do snapshots, restores and clones; `runtime.caps` lists
-  what is served. Errors use the
-  sandbox-manager contract's `{error, refusal}` shape. A path with a `.`
-  or `..` segment or an encoded `/`, `.` or `\`, or a name, exec id
-  (`[0-9a-f]{6}-<n>`) or snapshot id (`s-<n>`) that fails its grammar, is
-  400 `invalid` before anything is looked up. Admins get `GET`/`PUT
-  /sandboxes/policy` (with `total`, the cap on every tile sandbox
-  together, and `error` when the policy file can't be read), stop and
-  delete with `?tile=`, and a `tileSandboxes` list in `GET /sandboxes`.
-  Nothing changes for a workspace without a manager tile.
-- **Tile sandboxes run: start, stop and delete** (D120,
-  [protocol.md](protocol.md) §Tile sandboxes, [isolation.md](isolation.md)
-  §Tile sandboxes). A manager tile's `POST /sandboxes/<name>/start` now
-  runs a namespace-mode sandbox — the terminals' restricted lockdown, its
-  own hostname, a persistent upper pinned to the base image it first ran
-  on, its mounts, and its egress class through a relay with no route to
-  the host or to xbind (under `none` connections are reset and DNS answers
-  REFUSED at once), capped at `runtime.limits.flows` connections — and
-  answers it `running`. Where xbind's cgroup is delegated each running
-  sandbox gets its own cgroup (its memory + 128 MiB with no swap, its
-  pids, its vCPUs), so a command over the memory cap is killed and the
-  sandbox runs on. `POST …/stop` syncs and stops it, keeping its state;
-  `DELETE` stops it and puts its state aside for a confined removal.
-  However a sandbox ends — a stop, its agent exiting, its root filesystem
-  dying, the OOM killer, a narrowed `sandbox-net` class, xbind shutting
-  down — it is `stopped` with why in `stateDetail`; a failed start says
-  what failed, and a sandbox whose state or base image is gone is `error`
-  (409 `state` on start). The admin's `GET /sandboxes` lists running tile
-  sandboxes as `kind: "tile"` rows with `name`, `for` and `forUser`, and
-  `health.tileSandboxes` reports the relays' shared connection budget and
-  why the sandboxes run without cgroup limits, if they do. Nothing changes
-  for a workspace without a manager tile.
-- **Tile sandboxes: quotas, the idle stop, reset and rebase** (D120,
-  [protocol.md](protocol.md) §Tile sandboxes). A start is booked against
-  the sandboxes policy — the tile's `perTile.running`, `perTile.memMiB`,
-  `perTile.vcpus` and `perTile.diskGiB` (its sandboxes' bytes on disk,
-  which never count against its resource-write quota), and the workspace's
-  `total.memMiB` — and one over a cap is 429 `limit` naming it: ten starts
-  at once under `running: 4` run exactly four. While the workspace disk is
-  low no tile sandbox starts (503). A running sandbox that sees no
-  activity for its `idleStopMin` is stopped, state kept; a non-tty exec, a
-  `run`, a file operation or an attached terminal holds it up however long
-  it runs, and reading its `SandboxInfo` isn't activity. `POST …/reset`
-  and `…/rebase` work: each restarts a sandbox that was running and keeps
-  its snapshots; reset starts it from an empty upper on the current base
-  image (it repairs `error`), rebase keeps its state and pins it to the
-  current base image (`base.outdated` says when it isn't). Every lifecycle
-  call, and a create with `start: true`, takes `?wait=<seconds>`: absent it
-  waits up to `waitMaxSec`, `0` answers without waiting, and the answer is
-  the sandbox as it stands. Turning the policy's `enabled` off stops every
-  running tile sandbox. A policy file that can't be read now keeps tile
-  sandboxes off until an admin saves the policy again — it used to fall
-  back to the defaults, which are on — and `GET /sandboxes/policy`
-  (`error`) and the admin's `health.tileSandboxes` (`policyError`, and
-  `total`, the memory booked of the policy's total) say so. An exec id
-  from before an xbind restart answers 410 `lost`. Nothing changes for a
-  workspace without a manager tile.
-- **Tile sandboxes follow the workspace** (D120, [protocol.md](protocol.md)
-  §Tile sandboxes, "The workspace around them";
-  [overview/14-lifecycle.md](overview/14-lifecycle.md)). A running tile
-  sandbox is now stopped — synced, state kept, why in `stateDetail` — when
-  its manager tile is disabled, hidden, offloaded or removed; when the tile
-  loses `cap:sandboxes` (at once on a revoke, at the next rescan after a
-  hand edit of `xbin.json`); when it no longer holds a mount, or holds a
-  read-write one only as a reader; when the vault is sealed (before the
-  decrypted views go; its start answers 503 until the vault is unsealed);
-  and when disk runs short. A sandbox still starting when one of these
-  happens never comes up (its start answers 503, or 400 for a mount it no
-  longer holds). `diskBytes` is measured
-  at each stop and every
-  2 minutes while a sandbox runs; a tile past `perTile.diskGiB` has its
-  largest running sandbox stopped, and while the workspace disk is low the
-  running namespace sandboxes of the tiles above the fair share are
-  stopped, largest first. Sandbox bytes count for the workspace's disk
-  pressure, never against a scope's write quota. A manager tile's backup
-  carries its sandbox definitions, never their state; a restore merges them
-  back by `uid`, stopped, and answers what it left out in
-  `sandboxesSkipped`. Offloading a manager whose sandboxes hold state is
-  refused (409, nothing archived); a removed manager's sandboxes stay as
-  leftovers of its path, which a non-admin can't create a tile over. The
-  admin console's runtime → sandboxes tab lists every tile sandbox
-  definition under its manager — stopped ones and a removed tile's too —
-  with stop and delete, the sandboxes policy editor and the runtime's
-  health; `health.tileSandboxes` gains `lowDisk`, `trash` (state waiting
-  for its removal) and `total.pids`, and `tileSandboxes` rows gain `uid` and
-  `stateDetail`. A backup of a tile without sandboxes is byte for byte what
-  it was, and nothing changes for a workspace without a manager tile.
-- **Tile sandboxes run in VMs** (D120, [protocol.md](protocol.md) §Tile
-  sandboxes, [isolation.md](isolation.md) §VM sandboxes). A sandbox
-  created with `mode: "vm"` now starts: a microVM with its own kernel,
-  booted from the same base image, its state on its own sparse disk
-  (`diskGiB`; a `PATCH` that grows it applies at the next start), its
-  mounts served into the guest and its network through the same relay as
-  a namespace sandbox's. VM mode is offered while the VM policy's `tiles`
-  is on and, where VMs run emulated (`accel: "emulate"`), `tilesEmulated`
-  too; otherwise `runtime.unavailable` says why and a start answers 503
-  with the reason. Each VM counts against the workspace's VM count and
-  budget and against `tilesBudgetMiB` (429 `limit` past either). Where
-  cgroups are delegated it gets its memory plus the VMM's (192 MiB, 512
-  emulated), 512 processes and one CPU more than its `vcpus`. A stop
-  flushes the guest's disks before the VM goes. A VM whose VMM dies ends
-  `stopped` with "the VM exited: " and the last lines of its console in
-  `stateDetail`. `PUT /vm/policy` turning `tiles` off stops the running VM
-  sandboxes, and turning `tilesEmulated` off stops the emulated ones; their
-  state is kept. Commands, files, tar and copy work in a VM sandbox as in a
-  namespace one, a mount whose `path` names a file mounts that file, and
-  `diskBytes` is the VM's disks' allocated blocks. A mount `at` under
-  `/.xbin-vm` (a VM's plumbing) is `invalid` in either mode. Nothing
-  changes for a workspace without a manager tile.
-- **Tile sandboxes run commands: `run`, execs, their output, stdin,
-  signals and terminals** (D120, [protocol.md](protocol.md) §Tile
-  sandboxes). A manager tile's `POST /sandboxes/<name>/run` and `…/execs`
-  now run commands in its sandbox, starting a stopped one with `autoStart`
-  (a starting one is waited for, a stopping one waited out and started
-  again, within `waitMaxSec`), with the sandbox-manager contract's bodies
-  and answers, so the manager
-  forwards them unchanged: `run` answers `{exitCode, signal, timedOut, ms,
-  stdout, stderr}` (head and tail past `maxOutput`; TERM then KILL at
-  `timeoutMs`; a hang-up kills the group); an exec's output is one stream
-  read by byte offset with a long-poll (`…/output?since=&waitMs=`), and
-  `stdin` (with `?eof=1`), `signal` (`group` defaults to true), `resize`
-  and `DELETE` work. `…/execs/<id>/tty` and `…/tty` are WebSockets on the
-  `/ws/term` wire (the session frame first, with the manager's
-  `sessionId`/`sandboxId`; the ring replayed; echo acks; the exit with its
-  code or signal), for the manager's instance token only. A command gets
-  `IN_SANDBOX=1`, `SANDBOX_ID`, `SANDBOX_NAME` and `HOME` from xbind, then
-  `defaults.env` and its own `env`, and no supplementary groups (none of
-  xbind's user's — except in a namespace mapping a single uid, `users:
-  root`, which can't drop them); a `cwd` that doesn't exist is 400. A
-  stop, however it comes, ends the running execs `killed` (`signal:
-  "KILL"`) and keeps their output; only an exec id from before an xbind
-  restart is 410 `lost`. A sandbox runs at most 16 commands at once
-  (`runtime.limits.execsRunning`); a command the sandbox can't start
-  because it ran out of processes or memory is 429 `limit`. A terminal
-  claimed for a user with `noTerminal` (D88) is refused, and killed once
-  the flag takes effect (switched on, or an admin who had it set
-  demoted); a terminal is attached for at most 64 users.
-  `runtime.caps` now lists `exec` and `tty`. Nothing changes for a
-  workspace without a manager tile.
-- **Tile sandboxes: files, tar and copy** (D120,
-  [protocol.md](protocol.md) §Tile sandboxes). A manager tile's
-  `/sandboxes/<name>/files/…`, `tar` and `POST /sandboxes/copy` routes,
-  which answered 501 until now, work, and `runtime.caps` lists `files`
-  and `tar`. The sandbox's own agent resolves every path inside the
-  sandbox, so a symlink never leads to the host, and a read-only mount
-  refuses writes. You get stat, list, ranged reads whose `ETag` is the
-  stat's `etag` (quoted), atomic writes with `mode`, `mkdirs`, `ifMatch`
-  (412 with the current `etag`) and `ifNoneMatch=*`, mkdir, remove and
-  move, and tar streams both ways that keep symlinks and extract nothing
-  outside the target. A tar of `/` leaves out `/proc`, `/sys` and `/dev`.
-  Copies of a file or a tree between two of the manager's sandboxes stream
-  from agent to agent. Paths are absolute, clean and UTF-8, and
-  `limits.fileMax` and `limits.tarMax` answer 413. A call starts a stopped
-  sandbox that has `autoStart`, and the sandbox isn't idle while the call
-  runs. A stream that fails after its status went out is cut, never ended
-  as if it were whole. Nothing changes for a workspace without a manager
-  tile.
-- **Tile sandboxes: snapshots, restores and clones** (D120,
-  [protocol.md](protocol.md) §Tile sandboxes, "Snapshots and clones").
-  `POST /sandboxes/<name>/snapshots` stops the sandbox (its execs end
-  `killed`), copies its state — an upper exactly, whiteouts, opaque
-  directories, owners and `user.*` xattrs included, in a confined run; a
-  VM's disk sparse, shared with the original where the filesystem can —
-  and starts it again if it ran. A snapshot keeps the base image its
-  state was built on installed, whatever the sandbox does next, and ids
-  (`s-<n>`) are never handed out twice. `…/snapshots/<sid>/restore` puts
-  that state back, base included (`base.version` follows it; a rebase
-  moves it on again), and starts the sandbox again if it ran; it repairs
-  `error`. A clone is `POST /sandboxes` with `from: {sandbox, snapshot?}`
-  in the source's mode: of a snapshot whatever the source does, or of a
-  stopped source's state (a running one is 409 `state`: stop it, or clone
-  a snapshot). Another mode, another overlay flavour or a base image no
-  longer installed is 400 `invalid`; a copy that would take the tile past
-  `perTile.diskGiB` (copies still running counted) is 429 `limit`, and a
-  clone counts against
-  `perTile.max` at once. Copies are made whole or not at all, off the
-  request: `?wait=<seconds>` (absent: `waitMaxSec`) bounds the wait, and
-  one still copying answers as it stands — a snapshot 202 with `pending:
-  true`, a restore the sandbox with `stateDetail` "busy: restoring snapshot
-  s-2", a clone 201 `creating`. Meanwhile the sandbox is busy: its
-  lifecycle calls, another snapshot or restore, `DELETE` and a command or
-  file call without `autoStart` answer 409 `state` with `retryAfterMs`,
-  and one with `autoStart` waits the copy out; a `creating` clone answers
-  409 to everything but `GET`, the list and `DELETE`. A clone whose copy
-  fails, or which an xbind restart cut short, is `error` until deleted.
-  `runtime.caps` lists `snapshots` and `clone`, and `snapshots` in
-  `SandboxInfo` counts them. The Go SDK's `Snapshot` gains `Pending`.
-  Nothing changes for a workspace without a manager tile.
-- **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
-  `xbin.SandboxAPI()` has a call for each of a manager tile's
-  `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs
-  (`Output`, `Follow`, `Stdin`, `Signal`, `Resize`, `Kill`), files and tar
-  (streamed), `Copy` and snapshots. Refusals are `*xbin.SandboxError`, and
-  `errors.Is` works with `ErrSandboxNotFound`, `ErrSandboxLost` and
-  `ErrSandboxState`. `Forward`, `RelayTTY` and `RelayNewTTY` pass a
-  manager's own request through: both bodies stream, a terminal WebSocket
-  is tunnelled byte for byte, and the consumer's credentials and `X-XBin-*`
-  headers are dropped. So most contract routes take one line. `Forward`
-  takes a typed route — `xbin.ExecOutput(eid)`, `ExecRoute`, `ExecStdin`,
-  `ExecSignal`, `ExecResize`, `ExecTTY`, `FilesRoute(xbin.FilesContent)`,
-  `TarRoute()` — never a free-form path. Every call and route that takes an
-  exec or snapshot id checks it against the runtime's grammar
-  (`xbin.IsExecID`, `xbin.IsSnapshotID`) and refuses a bad one with `400
-  invalid` before anything is sent, so a consumer's id can never reach
-  another route or sandbox. `Runtime`'s limits carry `Flows` (each
-  sandbox's cap on concurrent network flows). Additive.
-- **New example: `examples/sandbox-go`, the smallest sandbox manager** (in
-  the xbin repository, with its `API.md`; [sdk.md](sdk.md) §Tile
-  sandboxes). A Go backend on
-  `xbin.SandboxAPI()` with `cap:sandboxes` and an `internet` `sandbox-net`
-  slot: create, lifecycle, `run`, execs with their output, stdin and
-  signals through `Forward`, files and tar, relayed terminals and
-  snapshots, each sandbox its creator's alone (a label, checked on every
-  route). It is the tile-sandbox runtime's end-to-end fixture
-  (`test/isolated`, in `make integration`), and a starting point: import
-  it, approve its grant, `bx bind <tile> internet=internet`.
-- **The `sandbox-terminal` builtin tile: terminals onto coding sandboxes,
-  for people — in the browser and over SSH** (`bx tile import
-  sandbox-terminal`; [sandbox-manager.md](sandbox-manager.md) §People's
-  terminals, and the tile's `API.md`). It is a consumer of the
-  sandbox-manager contract that creates no sandboxes. Bind it to one or more
-  managers (`bx bind apps/sandbox-terminal sandboxes=apps/<manager>`); a
-  sandbox shows up once it is shared with it (a share naming
-  `apps/sandbox-terminal`, for `"*"` or a list of people), and a person may
-  open it when they own it, are a member, or it is team.
-  - **Its page** lists the sandboxes you may use, grouped by manager, and
-    opens terminals onto them as tabs: the page dials the manager's `tty`
-    route itself (`<bx-terminal src>`, its frame token), so the manager
-    checks the verified person. Closing a tab leaves the shell running;
-    after a reload (or from another browser) the sandbox lists its running
-    terminals — the manager's tty execs labelled `terminal` — to attach
-    (the screen replays) or end (`DELETE` the exec). Its SSH panel: your
-    keys (add, remove, fingerprints), each sandbox's `ssh` command once SSH
-    is published, the host key; the tile's managers set the address people
-    type and see and revoke everyone's keys. Empty states say how a sandbox
-    gets there.
-  - **The native view** (the xbin app) lists the sandboxes, ends running
-    terminals and manages keys, but opens no terminal — the app's
-    `terminal` primitive dials only the tile's own routes — so it says so
-    and offers **Open in the browser** (the link is copied when the tile
-    holds no `cap:open-links`).
-  - **The agent template shares one**: its Sandboxes dialog (and the
-    app's Sandboxes screen) has **Share with a terminal tile…** on a
-    sandbox you own whose home is the agent — the tile's path
-    (`apps/sandbox-terminal` by default), for you, or for everyone who may
-    use it when it is a team sandbox (`PATCH /sandboxes/{ref} {shares}`);
-    the shares it has are listed there, each with Stop sharing.
-  - **SSH.** An admin publishes the port (`bx expose apps/sandbox-terminal
-    ssh=runtime --listen :2222`). People register their public keys with
-    the tile (`POST /keys` from its page; the tile's managers list and
-    revoke anyone's, and a revoke ends the key's live connections). Then
-    `ssh <sandbox>@host -p 2222`: the user name is the sandbox's name in
-    lower case (`<name>~<n>` when several share it, or its id), and an
-    unknown or ambiguous one lists the choices.
-  - **How a session runs.** With a terminal it is the manager's `tty`
-    route, with resize and the exit status. Without one (`ssh host cmd`) it
-    is an exec with stdin, where stdout and stderr arrive together. A
-    stopped sandbox starts; a client that leaves ends its command (`HUP`,
-    then a kill).
-  - **Not in v1:** port or agent forwarding, X11, sftp.
-  - Failed keys are rate-limited. The host key is kept in the tile's vault,
-    and `GET /me` shows its fingerprint.
-  - `bx tile import devbox`'s 410 now points at this tile.
-- **A tile's backend can ask what a person may do on it now: `GET
-  /api/xbin/access/<user>`, `xbin.AccessOf`** ([protocol.md](protocol.md),
-  [sdk.md](sdk.md) §Is a person still one of this tile's users?). For a
-  credential the tile keeps past a call — an SSH key or token a person
-  registered on its page — which would otherwise outlive their removal. It
-  answers `{user, level: none|read|write|terminal, active}` about the
-  calling tile only: the level `X-XBin-User-Level` would carry now, `none`
-  for a disabled or unknown account (`active: false`), never a 404. Only the
-  backend asks (its instance token); frame and terminal tokens get 403.
-  Additive.
-  - **The `sandbox-terminal` tile uses it**: every SSH login, every
-    session, every key registration, and every 30 s of a live connection
-    checks that the key's person still has access to the tile (cached
-    30 s; no answer from xbind is no login). Someone removed, disabled or
-    taken off the tile gets `access revoked`, a connection they have open
-    is cut, and their keys are kept, marked `inactive`, until access is
-    back.
-  - Its SSH login grace is 10 s; at 32 handshakes in flight a new
-    connection drops a random older one instead of being refused; failed
-    keys are tarpitted per source address and user name, so a flood
-    against one name doesn't slow anyone else. Several sandboxes sharing a
-    name log in as `<name>~1`, `<name>~2` (was `<name>.1`, which a sandbox
-    named `web.1` also was).
-  - The agent template's **Share with a terminal tile…** and **Stop
-    sharing** send the sandbox's `version`; a change someone made since is
-    read again and kept rather than overwritten.
-
-## 2026-09-27
-
-- **BREAKING (security) — runtime `"cgi"` is removed** (D117). xbind ran a
-  cgi tile's `backend/handler` itself, per request, on the host as the
-  daemon's user — even under `--isolate` — so anyone who could write the
-  tile (its terminals, a coding agent in its sandbox) ran code as xbind. A
-  tile still declaring `"runtime": "cgi"` keeps serving its files, but its
-  backend never runs: the removal is its manifest error (`bx ls`, `bx
-  doctor`, `manifestError` in `/api/xbin/components`), and `/api/<tile>/…`
-  answers **410** with the same text. `bx new --runtime cgi` and `POST
-  /api/xbin/create {"runtime": "cgi"}` are refused. Port the handler to a
-  go/node/python backend — a short Go wrapper around `xbin.Serve` keeps
-  the script as it is, inside the sandbox. Migration:
-  [changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md).
-- **BREAKING (rare) — security: resource names are checked** (D118,
-  [migration](changes/2026-09-27-scope-json-checks.md)). A resource name in
-  scope.json (or the workspace xbin.json) must be letters, digits, `.`, `_`
-  and `-`, start with a letter or digit, and be at most 64 characters.
-  Before this change a name like `../../x` steered where xbind created,
-  initialized and mounted the encrypted volume, and `a/b` could share another
-  scope's kv bucket in backups. An invalid name is now a manifest error on
-  the scope's tiles and is never provisioned. A backup naming one is not
-  restored.
-
-- **BREAKING (rare) — security: one scope per resource data key** (D118,
-  [migration](changes/2026-09-27-scope-json-checks.md)). A scope's resource
-  data lives under its path with `/` written as `~`. Before this change,
-  `apps/x` and a directory named `apps~x`, or a scope at a top-level
-  `workspace/` and the workspace-level resources, shared encrypted volumes.
-  Now the scope that held the key first keeps it, and the other is still a
-  scope but gets none of its resources. Its tiles show a `manifestError`
-  naming the holder. Creating a tile at a colliding path is refused. No data
-  moves, and workspaces without such pairs see no change.
-
-- **Security: a restore never writes workspace-level resource data.** A
-  tile's restore now fails, naming the reason, when the archive files
-  resource data under the workspace scope. xbind never writes such an
-  archive (a tile's backup holds only the scope that tile roots), so no
-  backup it made is affected. Before this change a crafted archive could
-  write the workspace-level encrypted volumes and kv buckets, which D118's
-  scope checks exist to protect.
-
-- **BREAKING — security: `chrome: true` needs a workspace admin's
-  approval** (D118, [migration](changes/2026-09-27-chrome-needs-approval.md)).
-  A tile's own xbin.json is writable from its terminals and coding agents,
-  and chrome runs unsandboxed as whoever opens the tile, so the flag alone
-  no longer unsandboxes anything. Besides `root`, `shell` and the shipped
-  `tiles/organisations`, a tile is chrome only once an admin approves it:
-  `bx chrome approve <tile>` / `revoke`, `bx chrome` to list, or
-  `GET`/`PUT /api/xbin/chrome` (admin). Until then it is served sandboxed.
-  `/components` reports it as `chrome: false, chromeRequested: true`, and
-  `bx doctor` lists it. Approvals live in `data/users.json`, and a non-admin
-  can't create a tile at an approved path.
-
-- **Go backends in a VM start again, and a VM backend that never listens
-  leaves a dump** ([isolation.md](isolation.md) §VM sandboxes). A backend
-  whose program is served into the VM — a Go backend (`"vm": true` with
-  `"runtime": "go"`) above all — could hang before it ever ran, until the
-  60 s health timeout: always on a 1-vCPU VM (`"vcpus": 1`, or a policy of
-  1), rarely on more. The guest agent carried the VM's file traffic in the
-  same process that starts the backend; that traffic now has a process of
-  its own. node and python
-  backends and VM terminals weren't affected. When a VM backend does miss
-  its health check, its log (`bx logs <tile>`) now ends with a VM dump: file
-  requests the guest still waits on, every guest process's kernel stack,
-  the guest agent's goroutines, and the guest console.
-- **`<bx-terminal src>`: a terminal on any endpoint speaking the terminal
-  wire** ([elements.md](elements.md) §`<bx-terminal>`). A tile's page can
-  now embed `/vendor/bx-terminal.js` and point `src` at a sandbox
-  manager's `…/sbx/sandboxes/{id}/tty?cwd=` through its bound interface (or
-  its own pty route): a path on this host is dialled with the page's frame
-  token (`xbin.ws`), so the callee sees the verified person. Same features
-  as the shell's terminal — predictive echo where the server acks, resize,
-  themes. A drop reconnects with backoff (to the same exec on a manager's
-  route); an `exit` frame or a clean close prints how it ended and fires
-  `bx-exit` with `{code, signal}`; changing `src` starts over. The existing
-  `/ws/term` attributes are unchanged. In a sandboxed tile, where
-  `localStorage` throws, the terminal falls back to its default settings.
-- **The terminal wire, documented for reuse** ([protocol.md](protocol.md)
-  §The terminal wire). This is `/ws/term`'s framing, stated for any
-  endpoint:
-  - binary frames carry keystrokes and output;
-  - the first text frame is `session`, with an `id` to reattach to and an
-    optional `echoAck`;
-  - `pong` answers every `ping`;
-  - `exit` (with `code` or `signal`) comes before a clean close;
-  - the client sends `resize` first on every connect.
-
-  A sandbox manager's `tty`, the xbin app's `terminal` and
-  `<bx-terminal src>` all use it.
-- **Agent template: a terminal in a coding sandbox.** Where the sandbox's
-  manager offers `tty`, the ▣ popover has **Open terminal** (at the
-  conversation's working directory) and a Sandboxes row has **Terminal**.
-  It opens a pane with `<bx-terminal src>` on the manager's route, dialled
-  by the page itself, so the manager applies its own per-person rules to
-  you.
-  - It is offered only for a sandbox you may use yourself that runs or can
-    start; for an archived one it says to thaw it first.
-  - **⤢** makes the pane larger. When the shell exits, the pane offers
-    **New shell**.
-  - **✕** ends the shell (`DELETE …/execs/{id}` at the manager).
-  - Web only: the app's `terminal` dials only a tile's own routes. This is
-    a listed parity difference (D96).
-- **SDK: WebSocket on the standard library (`sdk/ws`,
-  [sdk.md](sdk.md)).** A client and server — `ws.Dial` and `ws.Upgrade` —
-  with text and binary messages, fragments reassembled, pings answered,
-  the close handshake, a message size limit (32 MiB by default), read and
-  write deadlines and writes safe from any goroutine; checked against
-  gorilla/websocket both ways. `ws.Dial` sends its handshake through an
-  `http.Client`, so `xbin.Client()` reaches another tile through the
-  gateway with the instance's credential. The SDK stays dependency-free.
-- **The sandbox-manager conformance suite is an SDK package
-  (`sdk/sandboxcontract`, [sandbox-manager.md](sandbox-manager.md)
-  §Building a manager).** `sandboxcontract.Run(t, Target{URL: …})` checks
-  any manager, section by section, now including terminals; `Target` says
-  how to call it as a consumer or a person, which capabilities hello must
-  offer, fields for its sandboxes, a fresh manager with small limits, and
-  the checks it is known to fail (reported as skipped). The reference
-  manager (`hack/fakesandbox`) runs it, and now has terminals: `tty` execs
-  on host pseudo-terminals, `…/resize`, and both terminal routes.
-- **Sandbox-manager terminals, spelled out** ([sandbox-manager.md](sandbox-manager.md)
-  §Terminals). A `ping` is always answered with a `pong`; the `exit` frame
-  comes once the output is out (`code` null and `signal` set when a signal
-  ended the command), then a close; a resize reaches the terminal before
-  the keystrokes after it; the session's `id` is a `tty` exec that
-  outlives its client and can be attached again; a request that isn't a
-  WebSocket is `invalid`, and refusals come before the upgrade, as JSON.
-- **xbin app: screens you swipe between** (D125, [native.md](native.md)).
-  After sign-in the app opens on **Home**, your screens by Mine / each org /
-  Workspace inside their folders; a screen shows its tiles as cards in two
-  columns; a tile opens on the right. Swipe from the left edge to go back
-  (let go early to just peek), from the right edge to go forward again.
-  **Edit** on a screen reorders, resizes (small/wide) and hides cards for
-  this phone — kept per user in the `mobile-screens` pref, never in the web
-  layout — adds tiles, and **creates** one: name it, and it opens asking
-  what it should be (a prompt for an agent, or a terminal). The top bar
-  starts with the workspace switcher (⇄); the switcher's list reads "Used
-  recently". Dragging down into the terminal's keyboard hides it. "Open in
-  Safari" is gone: web tiles open in the app, and chrome tiles (the admin
-  console) open in an in-app web view, signed in.
-- **Native tiles: a widget for the app's screens** (D125,
-  [native.md](native.md) §Widgets, `native/spec/tree.md` §13). `import {
-  widget } from '/vendor/xb-native.js'` renders a second, small tree — the
-  tile's card, `small` or `wide` (`native.widgetSize`, `native.on
-  ('widgetsize', …)`), with stack, text, icon, badge, chart, progress,
-  button and row; taps on its buttons reach the tile, taps elsewhere open
-  it. Only an app that asks gets widget trees. A tile that sends none
-  within 3 s of its first render gets the standard card. `bx native tree
-  --widget`, `bx preview --native --widget` and `bx lint --native` cover
-  it; the counter example has one.
-- **Prefs: no lost writes, and clients hear each other** (D125,
-  [protocol.md](protocol.md)). Writes to one user's prefs bucket are
-  serialized (two keys written at once could lose one), and every write
-  publishes a `prefs` event `{component, key, writer}` to that user's own
-  clients (`X-Prefs-Writer` names the writer). The shell follows a layout
-  another client wrote — the app's new screen, say — without a reload
-  (existing workspaces: `bx builtin update scaffold:shell`).
-
-- **Thin themed scrollbars, and the one you're about to scroll is tinted**
-  (D123). On a mouse or trackpad every scrollbar in the shell, its pop-ups and
-  terminals, and any document that links `/vendor/theme.css` is a 6px bar with
-  a 3px thumb that fattens under the pointer. The scroller the next wheel or
-  key would move — the innermost one under the mouse, the outer one once the
-  inner has reached its end, the focused element's — gets an amber thumb, one
-  per screen, across the shell and tile documents. Touch devices keep their
-  native bars. For your own shadow roots: `import { scrollCss } from
-  '/vendor/scroll-css.js'` into `static styles` (or `scrollCssText` from
-  `/vendor/bx-scroll.js`); `<meta name="xbin-scroll-focus" content="off">`
-  keeps the tracker out of a document that links the theme
-  ([frontend-kit.md](frontend-kit.md)). A framed document's tracker tells its
-  embedder `xbin:scroll-focus` when the pointer arrives
-  ([protocol.md](protocol.md) §Tile ↔ shell messaging).
-
-- **Long agent conversations stay quick** (D124). The Agent tab no longer
-  re-renders the whole transcript on every update: it folds the event log as
-  it arrives, paints at most once a frame, keeps the recent part on the page
-  and loads earlier entries as you scroll up, without moving what you are
-  reading (an "earlier entries" row loads the rest at once). A long replay —
-  a reload, a resumed or past session — opens at the bottom right away.
-  Folded tool cards, file diffs and thoughts render when opened.
-
-- **xbin app: plain http works to any address** — a tailnet IP, a LAN
-  address, an unqualified name. The app's Info.plist also allowed "local
-  networking", and iOS then ignores its allow-any rule, so a phone got
-  "this address needs https" for anything but localhost-like names. The
-  sign-in page now says when an http address isn't encrypted on the way
-  (not https, not loopback, not a Tailscale address).
-
-- **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),
-  D115). Tiles that run coding sandboxes for other tiles provide the http
-  service `sandbox-manager` (protocol 1); tiles that use them — the agent
-  template next — multi-bind it. It covers sandboxes and their lifecycle,
-  running commands (a blocking `run`, background execs read by byte offset
-  with a long-poll), terminals on the `/ws/term` wire, files and tar, and
-  optional snapshots, clones and archives. Each consumer tile sees its own
-  sandboxes and those shared with it; a page's calls carry the verified
-  person, a backend names the person it acts for in `Sbx-User`. Managers can
-  be built on xbind's own sandboxes or on a cloud's API and ssh.
-
-- **The sandbox-manager conformance suite** (`hack/fakesandbox`, D115). The
-  reference manager's tests check protocol 1 over HTTP alone, section by
-  section — hello, sandboxes and `clientId`s, partitions and shares, verified
-  and asserted people, `version` on PATCH, the lifecycle (a stopped sandbox
-  starting on use, an archived one refusing with `state`), `run` (output
-  shaping, timeouts: TERM, then KILL for the whole group), background execs
-  (offsets, the ring, stdin, signals), files and etags, tar, snapshots and
-  clones, and `unsupported` for a missing capability — so a manager can be
-  checked against it. The reference manager now answers every error in
-  JSON, refuses a PATCH whole or not at all, and ends a timed-out command's
-  group even when a member outlived its leader.
-- **The `devbox` builtin tile is retired** (D115; migration note
-  [changes/2026-09-27-devbox-retired.md](/docs/changes/2026-09-27-devbox-retired.md)).
-  It never really worked. `bx tile import devbox` (`POST /builtins/import`)
-  now answers 410 with what replaces it: coding sandboxes come from sandbox
-  managers — the `coding-sandbox` template, with the `sandbox-terminal` tile
-  for people's terminals and SSH, both on their way. A workspace that
-  imported devbox keeps its copy as it is; xbind just stops offering it
-  updates. `cap:containers` is unchanged.
-- **Agent template: agent classes** (D116, the template's API.md §Agent
-  classes). A conversation's 🔒/🌐 lane becomes a class: a named set of
-  toolsets (`files`, `repl`, `web`, `internal`, `sandbox`, `subagents`,
-  `schedule`, `threads`, `skills`), with the MCP servers, sandbox managers
-  and sandbox egress it may use, and optionally a model and a system
-  addendum. Built in: `internal` (the old private lane), `web` (the old web
-  lane) and `coding` (sandbox + web). The tile's managers edit them (`GET`/
-  `PUT /classes`); a class that holds internal reach together with egress
-  takes `confirmMixed` to save and its conversations say so. `class` is
-  accepted wherever `toolset` was (`POST /ask`, `POST /runs`, schedules,
-  triggers; channel policies gain `privateClass`/`webClass`); `toolset:
-  "private"|"web"` keeps working and names the built-ins, and
-  `config.toolset` still says the lane. A conversation's class is fixed; the
-  view carries it as `class` (with `mixed`). `PUT /classes` refuses (400,
-  naming the channel) an edit that would take a class a channel runs
-  strangers in — its policy's `webClass`, or the built-in `web` for a
-  channel that names none — out of the web lane, or delete it. The owner's
-  grants became a registry: the pending ask carries
-  `pendingState.grantAsk` and each live grant `{ask, chip}`.
-
-- **Agent template: classes in the UI** (D116). The composer's 🔒/🌐 toggle
-  is a class picker — icon and name, each class's description in its menu,
-  only the classes you may use — at home, where a new chat starts; your
-  last pick is remembered (`/api/xbin/prefs/class`; with none yet, the lane
-  you picked before). The open conversation's top bar shows its class, and
-  a class that can move internal data out says so. Managers edit the
-  classes under ⚙ → **Classes** (toolsets, MCP servers, sandbox managers
-  and egress, model, system addendum, who may use it, the default for new
-  chats); a built-in resets to its default, and saving a mixed class asks
-  first. "New chat with options" picks a class. The native view has the
-  same (a Class picker in the home toolbar, the subtitle, Settings →
-  Classes). `GET /classes` marks each class `stored` and lists the
-  built-ins first. On the Automations page, schedules, watchers and
-  triggers pick a class instead of the tool mode (they send `class`, and
-  its lane as `toolset`) and their cards and details say it; the trigger
-  form also refuses public data for a class that can move internal data
-  out. A channel's rules pick everyone else's class (web-lane classes
-  only) and, with the private lane, trusted people's (`webClass`,
-  `privateClass`), and a save sends the whole policy back — fields the
-  form doesn't show (such as `groups.scope`) are no longer dropped.
-- **Agent template: sandbox managers, and a sandbox per conversation**
-  (D115; the template's API.md §Coding sandboxes). A new `sandboxes`
-  interface slot (`http`, service `sandbox-manager`, multi) binds the agent
-  to one or more sandbox managers; `GET /sandboxes` lists the sandboxes the
-  caller may see across them (references `<provider>[#inst]|<id>`, with
-  `mine`, `canUse`, `canManage`, `canEdit`, `boundTo`) and what each manager
-  offers, or why it can't be used; `POST /sandboxes` creates one (for a
-  conversation: a team conversation's is a team one, and it is bound
-  there), and `PATCH`/`DELETE /sandboxes/{ref}` and
-  `POST /sandboxes/{ref}/{start|stop|archive|thaw}` manage them. A
-  conversation's `config.sandbox` (the active one) and `config.attached`
-  (up to 8) are set by `PATCH /runs/{id} {sandbox, detach}` or `POST /ask
-  {sandbox}` — participant access, the right to use the sandbox, and a class
-  with the `sandbox` toolset — read every turn and inherited by subagents.
-  The agent names the person it acts for in `Sbx-User` and enforces the
-  owner / members / team rules itself. A bound conversation gets the coding
-  tools (§The coding tools): `bash` (at its timeout the command goes on as a
-  numbered job; interrupting the turn TERMs, then KILLs, its process group;
-  after a backend restart the call's result names the job), `bash_output`
-  and `bash_kill`; `read`, `write`, `edit` (etag-guarded), `ls`, `glob`
-  and `grep` for its files; `sandbox_upload`/`sandbox_download` (session
-  files ↔ sandbox), `sandbox_copy` (between attached sandboxes) and
-  `sandbox_info`; and `subagent_spawn {sandbox, cwd}` puts a subagent on
-  another attached sandbox. Its system prompt gains a `# Sandbox` section;
-  in Approve mode the tools that change a sandbox park only when it has
-  egress. The agent can make its own: `sandbox_create {name, manager?,
-  image?, size?, egress?, cwd?}` asks the conversation's owner — a new
-  `sandboxes` grant, once or for an hour, whose `pendingState.grantAsk`
-  names what will be made — then creates the sandbox for them and binds it
-  (active when none is), and the tools work in it from the next step; at
-  most 4 per conversation, never from a subagent, a chat channel's
-  conversation or an unowned one. `run` events (and the view's `run`) carry
-  the active binding as `sandbox: {ref, name, cwd, egress, manager} | null`
-  with the `attached` count. Deleting a conversation kills the jobs it left
-  running (archiving doesn't). A sandbox whose egress changed since it was
-  bound updates the binding, and in Approve mode a call it would now park
-  is refused once and parks when called again.
-- **Agent template: fixes from the phase-1 review — the sandbox job engine
-  and the coding tools** (the template's API.md §The coding tools). A
-  provider that repeats or omits tool call ids no longer makes `bash` hand
-  back an earlier turn's job instead of running the new command: generated
-  call ids are unique within the run, and a call's earlier job answers it
-  only for the same request still running. Detaching a sandbox — or
-  deleting it — KILLs the conversation's jobs in it (in the background) and
-  records them, a `bash` whose start was still in flight included: when its
-  start answers, the command is KILLed at once and the call says so — and
-  the turn in flight works there no more (its later tool calls are
-  refused, where they used its copy of the bindings); a job whose sandbox
-  the conversation can no longer use is
-  lost and no longer counts toward the 8, so leftover rows can't block
-  `bash` for good, and `bash_output`/`bash_kill` on it say what is known. A
-  start the manager doesn't answer keeps its job (named in the result, found
-  by its clientId) instead of being forgotten and run twice. `sandbox_create`
-  asks the owner for exactly what it will make — resolved against the
-  manager first, the name quoted — and makes that or refuses; its `cwd` is
-  made even when the manager answers before the sandbox runs. `read` and
-  `edit` follow a symlink to its file (`write` still replaces the path).
-- **Agent template: coding sandboxes in the UI** (D115; the template's
-  API.md §Coding sandboxes → "In the UI"). Where the conversation's class
-  (or the new chat's) has the `sandbox` toolset, the composer has a sandbox
-  picker beside the model — This conversation · Yours · Shared · Team, the
-  ones you may not use or the class does not allow disabled with the reason,
-  ＋ New and Manage… — and a pick binds it from the next turn (at home the
-  new chat starts in it). The top bar's ▣ badge shows the sandbox and its
-  working directory, or why the binding no longer resolves (gone, its
-  manager unbound or down, its class no longer allows it); it sets the
-  directory, switches among the attached sandboxes and detaches. The
-  Sandboxes dialog starts, stops, archives, thaws, shares with the team and
-  deletes them as your rights allow, and creates one (manager, image, size,
-  the network the class allows, private or team) — in a conversation, bound
-  there. The coding tools' cards (a ▣ family) show the command under the
-  model's summary and what it came to: bash's `exit 1 · 14s · job 3` or
-  `still running · job 3`, match and file counts, sizes. The model is
-  `model/sandboxes.js` and `app.sbx` (`model/sandbox-store.js`); both views
-  draw it — in the xbin app a Sandbox picker in the toolbar beside the
-  model's, the ▣ in the conversation's subtitle with ⋯ → Sandbox for the
-  directory, the attached ones and Detach, and pushed Sandboxes screens.
-- **Fixes from the phase-1 review: sandbox access and the firewall** (D115,
-  D116). The contract's sandbox gains `egressNext` (additive): `egress` is
-  what a sandbox has now, and an egress `PATCH`ed on a running one waits in
-  `egressNext` for its next start (on a stopped one it applies at once);
-  a firewall checks the less restrictive of the two, a missing or unknown
-  egress counting as `open` — the reference manager and its conformance
-  suite follow. The agent checks egress that way when binding and on every
-  tool call (a lowered egress is no longer trusted before the restart, nor
-  a sandbox whose manager doesn't say). A detach — or a rebind by someone
-  else — reaches subagents' copies of the binding at once. A sandbox
-  another consumer shared with the agent is usable only by the people its
-  share names. Binding a sandbox to a conversation with internal reach
-  labels it `xbin.agent/internal`, and a class that reaches outside without
-  internal reach may then neither bind it nor keep working in it. The label
-  spreads within a conversation: one that has had a labeled sandbox
-  (`config.heldInternal`) labels every sandbox it has attached and every one
-  it binds or works in after, and `sandbox_copy` from a labeled sandbox
-  labels its target first — a class with neither internal reach nor egress
-  can no longer carry internal data into a clean sandbox for a web-lane
-  conversation. `PATCH /sandboxes/{ref}` with `labels` sends the sandbox's
-  `version` (re-reading once on a 412), so it never overwrites a label set
-  meanwhile. Re-picking
-  an attached sandbox keeps its working directory, and `sandbox_create`'s
-  grant card says when the sandbox will be the team's — the allow is of
-  exactly that: a team conversation's create is made once allowed (the
-  note had made every one refuse as changed since the owner allowed it),
-  and one asked while private but made after the conversation was shared
-  with the team is refused.
-
-- **Agent template: fixes from the phase-1 review — approvals and class
-  rules** (the template's API.md). An approval answers its own ask: every
-  park has an id (`pendingState.park`), `POST /runs/{id}/approve` takes an
-  optional `park` (409 when that ask is gone; without it, the one pending
-  now), and a verdict queued for one ask is dropped rather than spent on the
-  next — a participant's second click can no longer allow the owner-only
-  sandboxes or threads grant. A click on an ask that is gone says so beside
-  the card (the web threw it as an unhandled error). `PUT /classes` refuses
-  (400, naming them) to make mixed a class a public-data trigger runs in, or
-  to delete a class a trigger or a channel's `privateClass`/`webClass`
-  names; a public event into a class that is mixed now is refused (`reason:
-  "class-mixed"`). A trigger's `{enabled}` switch is never refused over its
-  class, edits re-check the class rules only when the class, data class or
-  delivery change, and its lane stays the one it was saved in — while a
-  legacy `{toolset}` that switches lanes always applies, naming that lane's
-  built-in (it was ignored when the class already was that built-in); a
-  channel's rules save while a class they name is gone. A conversation or
-  schedule from before the lanes stays in the private lane whatever the
-  built-in `internal` is edited into.
-- **Agent template: sandbox UI — fixes from the phase-1 review** (D115; the
-  template's API.md §Coding sandboxes → "In the UI"). Picking an attached
-  sandbox again (the picker, "Use here") keeps the working directory it had
-  in the conversation, and the badge popover's directory field follows a
-  switch. A new-chat pick whose sandbox is gone says so in the picker once
-  the list is read; an ask refused for it keeps the typed message, drops the
-  pick and says why (it no longer fails every new chat). Start / Stop / Thaw
-  are offered through the conversation (`?conversation=`) for a sandbox it
-  holds that you may neither use nor manage; a viewer is no longer offered
-  New sandbox for the conversation. Binding a private sandbox into a
-  conversation other people are in asks first (a sheet in the xbin app). The
-  Sandboxes list keeps its order while open, and lays a row out as its name
-  and badges with the actions one right-aligned group beside them (under
-  them on a phone) — they no longer wrap in under the name. A sandbox bound
-  since the list was read (one the agent just made) has the list read again
-  instead of showing ⚠ gone in the badge. After a class edit the open
-  conversation's class badge, mixed warning and sandbox reasons follow at
-  once.
-
-- **Admin console: runtime → sandboxes, and the sandbox in the component
-  list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
-  every sandbox xbind runs — backend generations, terminals, agent sessions
-  — grouped by tile, with how each is isolated (⧉ VM, 🔒 namespace sandbox,
-  host), the VMM (KVM or emulated), reserved size, CPU/memory/pids, uptime,
-  pid and cgroup; above it the host's health (isolation tier, guards, uid
-  range, whether VMs can run and which pieces are missing), the VM budget in
-  use per tile, and the **VM policy editor** (`PUT /api/xbin/vm/policy` had
-  no UI, though the docs said the console could set it); below it the VM
-  disks on the host and what the sandbox layer refused or failed at, with
-  counts. The components tab has a **sandbox** column (an idle tile shows
-  how it will run, a `"vm"` ask included), a backend's detail opens with its
-  sandbox (for a VM: size, VMM, and that the pid/namespaces shown are its
-  jail's), and the resources host card and the tile popover say it too.
-
-- **Sandboxes you can see: VM or namespace per backend, terminal kinds, a
-  faster failed VM boot** (D112, [isolation.md](isolation.md) §VM
-  sandboxes). `GET /api/xbin/runtime` backends say how each is isolated —
-  `sandbox: vm | namespace | host` (a running generation's, else how it
-  would start) — and a VM generation its size (`vm: {memMiB, vcpus,
-  emulated}`); for a VM, `pid`/`namespaces`/`rssKb` are its host-side jail's
-  and `cgroup` covers the guest. `/tile-status` carries the same.
-  `/auth-overview` components carry the manifest's `vm` ask, `/status`
-  terminals their `kind` and `vm`. A backend that exits before it listens
-  (a VM that dies at boot) now fails at once instead of after the 60 s
-  (emulated: 180 s) health timeout. The cgroup memory/pids alerts
-  (`GET /alerts` kinds `oom`/`pids`) now actually fire — they were never
-  installed — and cover VM and restricted-user terminals too.
-  `GET /api/xbin/sandboxes` (admin) lists every sandbox xbind runs — each
-  backend generation, terminal and agent session with its tile, user, mode,
-  VMM, reserved size, cgroup, VM disk and live stats — plus the VM disks on
-  the host, the host's isolation and VM health (what is missing, the policy
-  as set, the budget in use per tile) and the newest things the sandbox
-  layer refused or failed at.
-
-- **xbin app: web tiles start right under the toolbar** ([native.md](native.md)
-  §Fallback). An empty title area left a ~60 pt white band between the
-  app's toolbar and a tile's page; the page now starts under the toolbar,
-  and its background color runs up behind the bar.
-
-- **Agent sessions: a `?follow=1` event stream answers at once**
-  ([protocol.md](protocol.md) `GET /term/sessions/<id>/events`). xbind sent
-  the stream's response head only with its first event, so a client that
-  followed an idle session from its last seq — a reconnect — waited for the
-  head until the agent next logged something, or its own request timeout
-  (the iOS app's: 60 s, holding a connection). The head now goes out first.
-  Clients that must also work with older xbinds can follow from one event
-  before their cursor (they already have that event; skip it by `seq`).
-
-- **xbin app: web tiles laid out for the phone** ([native.md](native.md)
-  §Fallback). A tile page without a `<meta name="viewport">` — nearly every
-  tile, since a frame ignores one — was laid out 980 px wide and shrunk to
-  the screen, its text unreadable. The app now lays it out at the device's
-  width, or, when its content is wider, at the content's width (up to
-  1280 px) fitted to the screen, with pinch zoom: it appends a viewport
-  meta to the page from its own script. A page with its own viewport is
-  left as it is — set one to choose.
-
-- **xbin app: a welcome with four ways in, sign-in that asks the
-  workspace, invites, and no token login** (D114, [auth.md](auth.md)
-  §Device login). A fresh app opens on **Log in · Join with an invite ·
-  Run your own xbin · What is xbin?**. Log in scans the shell's QR code
-  (or takes its link pasted) or takes the workspace's address, asks
-  `GET /api/xbin/login/methods`, and shows the password form and/or the
-  SSO button the workspace has; "Where do I find the QR code?" walks
-  through the shell with screenshots. An invite link (`/login?invite=…`)
-  can be scanned or pasted to set the password in the app. Failures say
-  which kind they are — can't connect, certificate, not an xbin
-  workspace, code refused, account, throttled, server error — and a bad
-  address no longer spends a code. The app has no token sign-in any more,
-  and "Sign in again" replaces the workspace instead of adding a second
-  one. Older xbins still work: the app falls back to the password and
-  SSO forms.
-
-- **The xbin app: sign-in discovery and invite links, as JSON; the shell:
-  a settings chip with "add a device" first, and an address for phones.**
-  `GET /api/xbin/login/methods` (public, not throttled) answers what the
-  login page offers — `{api:1, title, auth, password:{enabled, adminOnly},
-  sso:{enabled, label}, invites}` — so the app shows the password form
-  and/or the SSO button, and nothing the page doesn't already show. `POST
-  /api/xbin/invite/check {invite}` names the account an invite link is for
-  without spending it; `POST /api/xbin/invite/redeem {invite, password}`
-  sets the password and answers the token response of `POST
-  /api/xbin/login` (a short password is a 400 that leaves the invite; the
-  login throttle applies). The form at `/login?invite=` is unchanged. In
-  the shell, the top bar's 🔧 is now a **settings** chip like *docs* and
-  *sign out*, and its menu starts with **add a device**, which opens the
-  device panel straight on the QR code (*my account → devices…* stays).
-  The panel's **address your phone uses** puts another address in the
-  link and the QR code — for a browser that reaches xbin through a tunnel
-  or proxy the phone can't use — remembered per browser; the device still
-  signs the origin its enrollment answer names
-  ([auth.md](auth.md) §Device login, [protocol.md](protocol.md)).
-
-- **Agent template: the agent can see its automations and — with your OK —
-  your other conversations.** Four new tools: `schedules_list` and
-  `schedule_inspect` (a schedule's settings, goal and the runs it fired),
-  `threads_list` (filters: origin, status, words in the title or anything
-  said, archived; paged) and `thread_inspect` (a thread's messages by seq,
-  paged back). Without asking anyone, a conversation's agent sees its own
-  schedules and the threads they ran. Reading everything the conversation's
-  owner has — their own conversations and the ones shared with them, not the
-  team pool — asks the owner first, on an approval card: **Allow once ·
-  Allow here for 1 hour · Deny** (`POST /runs/{id}/approve {approve,
-  grant:"once"|"hour"}` — owner only; others may deny). A grant in force
-  shows in the top bar with a revoke (`DELETE /runs/{id}/grants/threads`;
-  the run carries `grants`). Never from a web-toolset run, a chat channel,
-  or a conversation no person owns. Feature `threads` switches the tools
-  off. Existing instances pick it up by merging the template.
-
-- **Agent template: its models come from a bindable interface, and the chat
-  picks them.** The template's LLM is now the `llm` interface slot (http,
-  service `openai`, multi — like the chat tile's): bind it to llm-gw or to any
-  OpenAI-compatible provider tile, several at once; the binding is the grant
-  (the manifest no longer names `apps/llm-gw` in `uses`). The composer has a
-  model picker — the bound providers' models, grouped by provider: in a
-  conversation it switches that conversation's model from its next turn
-  (`PATCH /runs/{id} {model}`), at home it sets the next new chat's
-  (`POST /ask {model}`); your last pick is your default, and a picked model
-  shows in the top bar. `GET /models` lists every provider's models with a
-  `ref` to store and each provider's state, and is open to everyone who uses
-  the tile. Existing instances (copies) keep working unbound: the agent then
-  reaches `apps/llm-gw` by name on its old grant; after merging the template,
-  bind the `llm` slot (`bx bind <agent> llm+=apps/llm-gw` or the Interfaces
-  panel).
-
-- **Agent template: sharing you can see.** The conversation list's views
-  are a switch above it — **Mine · Shared · Archived** — and **Shared** is
-  sharing both ways: what you shared (with the team or with people) and
-  what others shared with you, in two sections (`GET /conversations`
-  `scope=shared`; `scope=team` stays). A shared row says how in chips (the
-  team, to read or write; how many people; from whom), and the top bar says
-  who can see the open conversation — private, the team, N people, or whose
-  it is — opening the share dialog. Before, your own shared conversation
-  never showed under "Shared with team" and nothing changed where you
-  looked. Existing agent instances pick it up by merging the template
-  (they are copies).
-
-## 2026-09-26
-
-- **Terminal window: pick the VM sandbox before a session starts, and the
-  agent tab looks like a terminal.** Where VMs can run, the start-a-session
-  launcher has a **⧉ VM sandbox** switch; the tile's new sessions — shells
-  and agents, from the launcher, the `+` menu, ↺ last or a Resume — start in
-  a VM while it's on. The choice is per user and per tile (pref
-  `termvm:<tile>`), and the title bar's ⧉ VM toggle updates it when a
-  switch goes through. Agents started from the launcher now honour it (the
-  create call sends `vm`); before, only a restart could put one in a VM.
-  The Agent tab now sits on the terminal background instead of a tile's, so
-  a floating agent window stands apart from the tiles under it
-  ([09-terminals](/docs/overview/09-terminals.md) §VM terminals).
-
-- **Installer: VM sandboxes on by default, and encrypted resources mount on
-  Ubuntu's AppArmor** (D110, [operations](/docs/overview/15-operations.md),
-  [isolation.md](isolation.md) §VM sandboxes, [resources.md](resources.md)
-  §Encryption at rest). `deploy/install.sh`, on fresh installs and upgrades,
-  writes `<workspace>/.xbin/vm/policy.json` when the workspace has none:
-  VM terminals on (still per terminal, via the ⧉ VM toggle), VM backends on
-  where KVM is usable — where VMs would run emulated, terminals only. An
-  existing policy, "off" included, is never changed, and a bare xbind still
-  starts with VMs off. On hosts whose AppArmor confines `fusermount3`
-  (Ubuntu 26.04), every gocryptfs mount under `/opt/xbin/workspace` failed
-  `mount failed: Permission denied`, so tiles using `filesystem`/`sqlite`/
-  `blob` resources were held for good; the system installer now keeps a
-  marked rule for the workspace in `/etc/apparmor.d/local/fusermount3` and
-  reloads the profile, user installs outside `$HOME` get the root commands,
-  and xbind's mount error names the fix.
-- **xbin app: live reload, windows as tabs, Needs-you that keeps up**
-  (D99, [native.md](native.md), [protocol.md](protocol.md)). While the app
-  shows a workspace it follows `/ws/events` with its own device session
-  (a bearer — never handed to a tile): saving a tile reloads its open
-  native view or web page in every window that shows it (the most specific
-  open tile, as in the shell); agent screens follow their session live and
-  catch up after a gap; the Needs-you inbox updates in place and now counts
-  a session waiting only on a question. On iPad, Stage Manager and Mac
-  each window has its own workspace and place: open a tile, terminal or
-  agent session in a new window, or drag a tile out; a tile's
-  `xbin.window` opens in the window the tile is in, never another. A
-  native tile's `xbin.native.meta({icon, badge})` shows in the navigator
-  and switcher; Handoff offers the current tile or session; haptics on
-  send, approve, a finished turn and a session that starts waiting.
-- **xbin app: open the workspace in Safari, signed in** (D100,
-  [auth.md](auth.md) §Device login, [protocol.md](protocol.md)). The app's
-  device-key session mints a one-shot link: `POST /api/xbin/web-ticket
-  {next?}` → `{url, expires, expiresIn: 60}`, `url` =
-  `<origin>/login?ticket=…&next=<path>`, `next` a path on this workspace.
-  Opening it never signs a browser in by itself: a browser signed in as you
-  lands on `next`, one signed in as someone else is refused, and a
-  signed-out one shows **"Continue as <name>"** and signs in only when that
-  button is pressed (`POST /login/web-ticket`, a same-origin form post from
-  that browser only) — anyone can make such a link for their own account
-  and send it to you, so check the name. The session it opens ends with
-  the device and the app's sign-out — `POST /logout` with a device-key
-  bearer now signs the device out: every session opened with its key ends,
-  earlier ones the app replaced without a logout included — and keeps the
-  device login's time and SSO window (D93). Only a device-key session mints (403 otherwise); 10 per
-  minute per device; every mint and sign-in is audit-logged.
-- **xbin app: add another device** — Settings → Devices shows a QR code the
-  new device scans. A device login (a fresh Face ID signature) counts as
-  the recent sign-in that minting an enrollment code needs, for 10 minutes;
-  after that a device session needs the password like any other
-  ([auth.md](auth.md) §Device login).
-- **Native views can be switched off without an app update** (D101,
-  [elements.md](elements.md) §Native app UI, [native.md](native.md)). Admins
-  turn the app's native tile UIs off for the workspace in the admin
-  console's *workspace → xbin app* tab, or with `PUT
-  /api/xbin/native-runtime {"enabled": false}` (`GET` for anyone signed in →
-  `{enabled, runtime, version}`). While off, `whoami` says `native:
-  {runtime: 0, disabled: true}` and apps open every tile as its web page;
-  `/c/<tile>/?native=1` answers `410` with the reason; `&preview=1` — and so
-  `bx native tree`, `bx preview --native` and `bx lint --native` — keeps
-  working; open apps learn of it from the new `{"type":"native"}` event on
-  `/ws/events`. The app also honours a user switch (Settings → Native views)
-  and a remote file for a build with a known problem
-  (`https://xbin.dev/app/ios.json`, re-read every 6 hours and at once after
-  a crash; it fails open).
-- **xbin app: a native tile's escape hatches work** (D103,
-  [native.md](native.md) §Escape hatches). `terminal` connects as the tile
-  to its own backend's pty WebSocket (the frame token as `?frame=` through
-  xbind's proxy, the `/ws/term` framing): `{"op":"exit"}` or a clean close
-  (1000, or no code) ends it, any other close reconnects with backoff that
-  starts over only after a socket stayed open 5 s. `canvas src` loads one
-  of the tile's pages in an island like its web page (frame token,
-  sandbox, `xbin.dialog`, alert/confirm/prompt, downloads); `canvas html`
-  renders with JavaScript off under a CSP that loads nothing, on a
-  transparent page in the light/dark default colours — and `bx preview
-  --native` now draws it the same way (it was an opaque white box in dark
-  mode there, and loaded images the app refuses).
-- **xbin app: composer attachments** ([native.md](native.md) `composer`).
-  With `upload {method, path}` the app offers Photos, the camera and Files,
-  uploads each file itself with the tile's frame token and shows progress.
-  `path` must be the tile's own `/api/<self>/…` (other targets are refused
-  and nothing is sent) and may carry a query; `{name}` is percent-encoded;
-  `method` is PUT (the default), POST or PATCH. Every picked file ends in
-  `@uploaded {name, response}`: one over 64 MiB is neither read nor sent
-  and gets `{error, status: 413}`. JPEG, PNG and GIF photos arrive as they
-  are; HEIC photos and camera shots as JPEG; videos as the movie file.
-  `bx preview --native` refuses what the app refuses: images and upload
-  targets outside the tile's own `/c/<self>/` and `/api/<self>/` (another
-  tile's, a nested tile's, xbind's API), and other upload methods.
-- **xbin app: files in agent prompts** — the Agent tab attaches photos and
-  files to the next prompt (`POST …/prompt {text, attachments}`); photos
-  are made model-ready first (HEIC to JPEG, long edge 2576 px, ≤ 3.75 MiB
-  inline); xbind's limits are checked before sending, and the transcript
-  shows a message's files.
-- **Native renderer: drawers, folded actions, thumbnails, input methods**
-  (D104, [native.md](native.md)). `sheet edge="leading"` slides in from the
-  leading edge over the screen, bar included (the backdrop or the escape
-  gesture fires `@dismiss`); a row's `actions` also sit behind a trailing ⋯,
-  and a message's fold into a ⋯ under its bubble; `message` files with an
-  image `src` show as thumbnails (tap: Quick Look, as `image preview` now
-  does); `field` and `composer` never report text still being composed with
-  an input method — the commit arrives as one `@input`, and a value the
-  tile sets meanwhile is applied when the composition ends. Long
-  identifiers wrap at characters instead of being hyphenated; bar-tab
-  content clears the floating tab bar; a lighter chat header. The web
-  preview does the same. New fixtures: `drawer`, `folded-actions`,
-  `message-files`, `ime-field`.
-- **xbin app: the terminal** (D105) — scrollback search (⌘F or More → Find;
-  older/newer matches, case, whole words, regex, "3 of 14"), a precise
-  selection mode (More → Select Text: by character, word or line, handles,
-  the loupe, nudges, copy), keyboard settings (the accessory row's extra
-  key — a key, F1–F12, a character, a snippet, or none — and ⌥ as Meta;
-  also in the app's Settings), and the iPhone Duo's tabletop layout behind
-  the `XBIN_SDK_27_1` build flag.
-- **push: Live Activities for agent turns** (D102,
-  [protocol.md](protocol.md), relay README). The app shows a running agent
-  turn on the lock screen and in the Dynamic Island (running / waiting for
-  you, elapsed time, pending requests — generic text only), started and
-  updated by the app while it runs and kept current by xbind through the
-  relay otherwise; xbind starts one by push for a turn still running after
-  30 s. `POST /api/xbin/devices/push {…, startHandle}` registers the app's
-  push-to-start handle; `POST /api/xbin/devices/push/activities {deviceId,
-  session | ref, handle, since?}` → `{activity: {session, created,
-  ended?}}` and `DELETE /api/xbin/devices/push/<deviceId>/activities/<session>`
-  register and unregister a card; a card the user dismissed (that DELETE)
-  gets no push-to-start on that device for the rest of the turn. A
-  registration that goes ends its cards at once, and an update over the
-  per-card limit goes out once the limit allows. xbind sends only phase,
-  since and pending (`apns-push-type: liveactivity`), never a title or
-  text.
-- **relay: Live Activity handles, and optional proof of work** (D102).
-  `POST /v1/handles {pushType: "liveactivity", parent, start?}` and `POST
-  /v1/push {type: "liveactivity", activity}`: one push-to-start handle and up
-  to 16 card handles per device handle; an accepted end deletes its handle.
-  `-registration-pow <bits>` and `GET /v1/workspaces/challenge` put a
-  hashcash proof on anonymous workspace registration, which xbind solves; a
-  replayed proof never uses up the global limit and a refusal spends
-  nothing. A relay that requires it refuses xbinds from before this change.
-- **Devices panel** — each device shows its push registration (what it is
-  notified about, when it was last sent one, whether the relay wants a new
-  handle, its Live Activities) with a **remove** that stops notifications
-  and ends its Live Activities without signing the device out — until the
-  app is next opened, when it registers again; registrations no enrolled
-  device owns are listed apart.
-- **agent template: Needs you reaches your phone** (D106, the template's
-  API.md "Needs you on your phone"). When the agent or a subagent asks a
-  question or wants an approval, or an automation's run fails, the backend
-  pushes it (`xbin.NotifyUserWith`) to the people who'd see it under Needs
-  you — the owner and participant members for a question or approval, the
-  owner for a failure; link `#c=<run>`, kind `question` | `approval` |
-  `failed`. Best-effort: a 3 s grace, once per question or approval and
-  once per failing run per 6 h, at most 10 per person refilled 1 per 6
-  min, never for view-as.
-- **agent template: attachments on a new ask from home** in the native app:
-  `PUT /ask/upload?draft=<key>&name=` uploads into a run held for the draft
-  (listed nowhere until sent), `POST /ask {text, draft, files}` sends it;
-  unsent drafts go a day later. The web's `hold: true` flow is unchanged.
-  Also: tool-call arguments stream as `tool.delta` on `/stream?deltas=1`;
-  `fold()` caches per block (`FoldCache` — identical output, unchanged
-  blocks keep their identity); settings, memory, files and skills calls
-  live in `model/actions.js` (the web is pixel-identical). Running
-  instances are copies and are unaffected; when upstreaming an instance's
-  patches (D72), retarget hunks on `agent.js`'s settings tabs to the
-  `actions.*` calls.
-- **`bx lint --native`** reads the preview runtime document
-  (`?native=1&preview=1`), so it keeps working while native UIs are off.
-- **terminal window: the title bar degrades whenever it doesn't fit** (D107,
-  [elements.md](elements.md)) — not only below 640 px: on a GPU host the GPU
-  picker and the VM toggle overflowed the default 680 px window, squeezing
-  the tab under `+` and pushing the ✕ out. The bar is measured: the path
-  and network label shorten first, then the layout switcher and the
-  pickers move behind `⋯`; tabs keep a legible width and the strip scrolls.
-  A window restored open (a reload, a second browser) now loads its GPU
-  picker, VM toggle, base update, recent sessions and PR badge; pickers keep
-  their value when re-created; the Agent tab's one-click sign-in keeps its
-  command when a session listing lands first.
-- **native CI and the Mac mini** (D108, D109) — ios.yml runs where the
-  `XBIN_IOS_RUNNER` repository variable says (GitHub's `xcode-27`, or the
-  Mac mini), with cached builds; ci.yml gains a Linux `native` job (Swift
-  6.4: `make swift-test`, `make swift-stubcheck`, `make native-check`,
-  `ci-local-check.sh`); `mac-setup.sh` / `mac-remote.sh` set up and drive
-  the Mac (UI tests against a real xbind over an ssh tunnel), and the Mac's
-  release signing is scaffolded for a separate user. Nothing here changes a
-  workspace.
-
-- **security: tile backends no longer receive xbind's credentials.** A
-  request proxied to `/api/<tile>/…` arrived with the caller's session
-  cookie (a link followed to the tile's API, a chrome page's call) or
-  `Authorization: Bearer` token (bx, a terminal, the app) — a backend, which
-  the tile's writers control, could replay it as the caller, an admin
-  included. Both are now stripped (the tile-origin cookie too), as ingress
-  already did; the tile's own cookies and non-bearer `Authorization` pass.
-  A backend reads who called from `X-XBin-User` / `X-XBin-From`
-  ([protocol.md](protocol.md) §identity headers). Pre-existing.
-- **Native app UI for tiles** (D91, [native.md](native.md),
-  [elements.md](elements.md) §Native app UI). The xbin app (iOS first, in
-  development) opens every tile as its web page; a tile may also ship a
-  **`native.js`** that describes its UI in a small vocabulary (screens,
-  sections, rows, fields, buttons, charts, markdown, the chat family, …),
-  which the app draws with platform controls. Additive: browsers keep
-  showing `index.html` and nothing loads `native.js` outside the app.
-  - **`/vendor/xb-native.js`**: a lit-shaped `html` / `render` / `repeat` /
-    `nothing` over the vocabulary (`/vendor/xb/vocab.js`), plus `native` —
-    in the app the same object as `xbin.native` (`caps`, `supports()`,
-    `meta()`, `copy()`, `share()`, `open()`, `state`, `saveState()`), which
-    exists only in the runtime document. Its URL, exports, the vocabulary
-    and the tree format are additive-only from now on ([compat.md](compat.md)
-    rule 10, "The native app contract").
-  - **Opting in:** a `native.js` next to `xbin.json`, or `"native":
-    "./path.js"`; `"native": false` opts out. Never a manifest error. Note
-    that an existing `native.js` now makes the app open that tile natively —
-    set `"native": false` if the file is something else.
-  - **The runtime document** `GET /c/<tile>/?native=1` (`&preview=1` for a
-    browser preview) is generated by xbind: the page's `<head>` injection
-    (also under `inject: false`), then `/vendor/xb-native.js` boots the
-    entry. Auth, sandbox and headers as `index.html`; a 404 says why when a
-    tile has none. `?native=1` on a file URL is an ordinary request.
-  - **Discovery:** `GET /api/xbin/components` adds `native: {entry}`,
-    `GET /api/xbin/whoami` adds `native: {runtime: 1}`.
-  - Saving a declared native entry reloads the tile without restarting its
-    backend (an undeclared `native.js` under a `node` backend, or a `go`
-    backend built from the tile root, still restarts).
-  - App requests (`X-XBin-Client: app/<version>`) get
-    `<meta name="xbin-ws-origin">`, which `xbin-client.js` uses for
-    `xbin.ws` and events; browsers never get it.
-  - **The reference renderer** `/vendor/xb/render.js` (`<xb-view>`),
-    `/vendor/xb/preview-host.js` and `/vendor/xb/fixture.html` draw a native
-    UI the way the app does, for previews and tests only — tiles never
-    import them. Try `/c/<tile>/?native=1&preview=1` in a browser.
-  - **Native views ship** for chat (v3), devbox (v4), egress-approver (v3),
-    prometheus-viewer (v2), s3-archiver (v2), webhooks (v2) and the
-    `counter-go` and `calendar` examples. Chat's engine moved into a
-    DOM-free `chat-core.js`, prometheus-viewer's into `prom.js`,
-    egress-approver's formatters into `fmt.js`; the pages import them and
-    look and behave exactly as before.
-  - The workspace `AGENTS.md` gains a **Native app UI** section (a runnable
-    list/detail example, the rules, the check loop).
-- **bx: `bx native tree`, `bx lint --native`, `bx preview --native`** (D98,
-  [bx.md](bx.md) §Native UIs) — an agent sees the native UI it writes: the
-  tile's runtime document in headless Chromium against its live backend
-  (node + Playwright's Chromium, shipped in the terminal rootfs). `tree`
-  prints the tree JSON; `preview` writes a PNG from the reference renderer
-  (`--dark`, `--size`, `--large-text`, `--full`, `--out`); `lint` checks
-  the entry, manifest, module syntax, imports and raw colours, then reports
-  the runtime's errors and diagnostics, the app revision each primitive
-  needs, first-tree time and tree size — with no tile, the whole workspace
-  and its native coverage. `--data` replays a fixture instead of the
-  backend; `--steps` taps and types. bx lends its credential only to the
-  tile's own document and files — several tiles in one run each get their
-  own browser and proxy; the tile's code keeps its frame token.
-- **auth: device login for the xbin app** (D93, [auth.md](auth.md) §Device
-  login, [protocol.md](protocol.md)). Additive until a user adds a device.
-  - Users add a phone from 🔧 → *my account* → **devices…** → *add a
-    device* (a QR code of a one-time, 5-minute `xbin://enroll?u=&c=` link)
-    and list and remove devices there; admins see and revoke any user's in
-    the Users tab. Adding a device is a **step-up**: a sign-in from the last
-    10 minutes, or the password again.
-  - Routes: `POST /api/xbin/devices/enroll-code`, `POST
-    /api/xbin/devices/enroll`, `POST /login/device/challenge`, `POST
-    /login/device`, `POST /api/xbin/login` (the app's password sign-in),
-    `GET /login/sso?app=1&challenge=…` + `POST /login/ticket` (the app's
-    PKCE-bound SSO), `GET|DELETE /api/xbin/devices`, `GET
-    /api/xbin/users/<id>/devices`. `POST /logout` with an app bearer
-    answers 204.
-  - A device login opens the same human session a browser login gets, as
-    `Authorization: Bearer`. `/sessions` rows gain `via` (session | device
-    | app) and `device`; `/users` rows gain `deviceCount` and `lastSSO`.
-  - **The IdP stays in charge:** for an account whose only way in is SSO —
-    a non-admin in SSO-only mode, or any account without a password once
-    SSO is configured — a device signs in only while their last SSO sign-in
-    is within the session max TTL; past it the app gets `403
-    {reauth:"sso"}` and runs SSO again.
-  - **Sign out everywhere** also ends app sessions and cancels pending
-    enrollment codes; enrolled devices stay unless removed with it
-    (`?devices=1`, `bx user signout --devices`, the console asks; the answer
-    adds `devicesLeft`/`devicesRemoved`). `POST /account/password` takes
-    `removeDevices: true`.
-  - `/vendor/qrcode.mjs` (qrcode-generator 2.0.4, MIT) is a stable vendor
-    URL.
-- **auth: frame tokens are bound to the login that opened the tile, and
-  minted only for a person or the tile itself** (D93, D95; migration note
-  [changes/2026-09-26-frame-tokens.md](/docs/changes/2026-09-26-frame-tokens.md)).
-  - A tile's token stops at once when its login ends — logout, expiry,
-    device removal, sign-out-everywhere, the user disabled, or (bootstrap
-    token pages) rotating the owner token — instead of renewing forever. A
-    tile in use keeps its login alive (the 12 h idle window slides; the
-    30-day cap stands). An xbind restart still signs everyone out, but open
-    tiles keep working until their login would have expired
-    (`.xbin/frame-gens.json` remembers which logins were live, never their
-    credentials). Tokens have five `|` fields; they stay opaque. Pages open
-    across the upgrade keep working. A renewal answering 401 makes
-    `xbin-client.js` log a hint.
-  - The `<head>` injection mints the token only for a human or the tile
-    itself (its frame or terminal token, an `xbin.window` sub-path, or a
-    navigation within its own tree of nested pages). Another tile that
-    fetches `/c/<tile>/` or `?native=1` through its user's access gets
-    `content=""` — before, any tile could lift e.g. the admin tile's token
-    out of the HTML (security fix). Another tile's page opened or framed
-    with `xbin.url()` gets none either (use `xbin.window({src})` or a plain
-    URL; the migration note). A tile's backend gets none from its own
-    page or `GET /api/xbin/frame-token` (403): its instance token names no
-    person, so the token read as the owner's frame, with owner reach on
-    every tile (security fix; pre-existing).
-- **push: notifications to the xbin app** (D94, [protocol.md](protocol.md)
-  §Push notifications, [sdk.md](sdk.md)). Off until an admin opts in.
-  - `POST /api/xbin/devices/push` registers an app install's relay handle
-    and X25519 key; `GET` lists yours, `DELETE /api/xbin/devices/push/<id>`
-    removes one; `GET`/`PUT /api/xbin/push/prefs` mute tiles; `POST
-    /api/xbin/push/test` tests. Every notification is sealed end to end to
-    the device (X25519 + HKDF-SHA256 + AES-256-GCM, native/spec/push.md with
-    vectors); the relay never sees content.
-  - Agent sessions push a permission request or question still unanswered
-    after 3 s, and every finished turn the user didn't cancel.
-  - Admins: `PUT /api/xbin/push/config {relay?, key?, rotate?}` or
-    `XBIN_PUSH_RELAY` + `XBIN_PUSH_RELAY_KEY`; `DELETE` turns push off and
-    keeps the key and registrations; `rotate:true` re-registers with the
-    relay (old handles show `needsNewHandle` until the app renews them).
-    `GET /api/xbin/push/devices` and `DELETE
-    /api/xbin/push/devices/<user>[/<deviceId>]` list and revoke
-    registrations.
-  - Registrations go with the person and the device: sign-out-everywhere,
-    disabling or deleting a user drops theirs; removing a device, its app
-    session signing out, and rotating the owner token drop that device's.
-    A device session registers only under its own device id (403); a
-    registration any other login makes (before enrolling, a browser) ends
-    with that login and can't take over an enrolled device's id (409).
-  - **Tiles: `POST /api/xbin/notify` and `xbin.NotifyUser`** — a backend
-    notifies a person who can read the tile; a frontend only the person
-    using it. `link` stays inside the tile. 120/hour per tile (429 +
-    Retry-After; a frontend's per tile and person); 240/hour per person
-    from all tiles together, counted per device (dropped over it, never
-    refused); agent pushes have their own budget; at most 10 registrations
-    per person, 30 registrations an hour. Muteable per tile per person.
-  - xbind checks the relay key at start and daily (the relay deletes keys
-    nobody uses): `GET /api/xbin/push/config` adds `keyChecked` and
-    `keyError`, whose hint follows where the key comes from (`PUT
-    {rotate:true}`, or a new `XBIN_PUSH_RELAY_KEY`).
-  - `relay/` is the push relay (`xbin-relay`, its own stdlib-only module):
-    handles to APNs tokens, sealed envelopes over HTTP/2, machine-readable
-    error codes, per-prefix limits, caps, retention (keys unused for 180
-    days go) and a journal; every limit is a flag, and
-    `-registration-tokens` closes registration to the operator. Nothing is
-    deployed yet (the repository's relay/README.md).
-- **Strict tile asset gating: `--tile-assets=legacy|tokens|origins`,
-  `--tiles-domain`** (D95, [auth.md](auth.md) §Tile asset gating).
-  `tokens` credentials relative URLs with a path-scoped asset token under an
-  injected `<base>` (the token dies with the login that loaded the page);
-  `origins` runs each tile on its own origin `t-<id>.<tiles-domain>`,
-  entered through a one-time `?xbin_ticket=` bound to the browser session
-  and to an exchange state the tile origin keeps in this browser
-  (`?xbin_begin`/`?xbin_state` legs; no login CSRF from a sibling tile),
-  its `__Host-xbin_tile` cookie — and the frame tokens minted on the tile
-  origin — ending with that session. Detection: `GET
-  /api/xbin/tile-assets`, `bx doctor`, `bx fix assets <tile> [--write]` and
-  xbin-client console diagnostics; `/components` reports each tile's
-  `origin`. `legacy` stays the default this release.
-  - **origins mode protects the workspace from tile origins:** the
-    workspace ignores its session cookie on requests a tile origin starts
-    (every same-site request but a top-level navigation); tile pages may be
-    framed only by the workspace and themselves, chrome pages only by the
-    workspace; a link to a tile from another site opens through a short
-    same-origin page; the session cookie becomes `__Host-xbin_session`
-    (switching to `origins` signs every browser out once); on a tile origin
-    backends never see the tile cookie and can't set cookies. Serve the
-    workspace and the tiles domain over HTTPS.
-- **BREAKING (next release): tile assets need relative URLs** — the next
-  release deletes the credential-less subresource rule and makes a strict
-  mode the default. Under `tokens`, absolute `/c/` URLs in HTML attributes,
-  CSS and a document's own import map, and `inject: false` documents, stop
-  loading. Run `bx doctor`, then `bx fix assets <tile> --write`. Migration
-  note: [changes/2026-09-26-tile-asset-gating.md](/docs/changes/2026-09-26-tile-asset-gating.md).
-- **security: tile files in every mode, `legacy` included** (D95; same
-  migration note). The `/c/` plane serves the very file it checked: a tile
-  symlink resolving outside the workspace or into `.xbin/`, `data/` or
-  `homes/` answers 404 (before, a symlink swapped in mid-request could read
-  the workspace secret), and a FIFO or device answers 404 without hanging.
-  A sandboxed tile's non-document files (anything but `.html`/`.htm`, any
-  case) carry `Content-Security-Policy: sandbox`: subresources are
-  unchanged, but an SVG, `.xhtml` or sniffed-HTML file opened directly or
-  framed no longer runs script as the workspace origin. `x.HTML` is now a
-  document. Symlinks between tiles keep working under `legacy`.
-- **agent sessions: prompts with files, full diffs, and status for inboxes**
-  (D97, [protocol.md](protocol.md)).
-  - `POST /api/xbin/term/sessions/<id>/prompt` takes `{text,
-    attachments:[{name, mime?, data}]}` (base64; ≤10 files, 10 MiB each, 20
-    MiB together; 413 past a limit). Files land in the agent's sandbox and
-    are handed over by path; images up to 3.75 MiB (4 MiB per prompt) also
-    go inline, larger ones stay files; text up to 128 KiB goes inline. The
-    user's `message.delta` lists `attachments:[{name, mime, size,
-    inline?}]`, never bytes. 409 while a turn runs or another prompt is
-    being taken.
-  - `GET /api/xbin/term/sessions/<id>/diff?toolCallId=|turn=[&path=]`
-    serves the complete git patch behind a `files.changed` event
-    (`text/x-diff`, ≤16 MiB, `X-Truncated`).
-  - `GET /api/xbin/term/sessions/<id>` lists unanswered questions
-    (`elicitations`); directory rows count them (`questions`).
-    `status.title` is documented.
-  - `/ws/events` sends `term` op `status` `{id, user, status, pending,
-    questions, turn}` whenever an agent session's summary changes. Clients
-    that re-list on every `term` event keep working.
-  - The sign-in (`login`) now rides every status while the agent is signed
-    out, as documented — before, the next commands or usage update dropped
-    the web's one-click sign-in banner.
-- **events: a tile never follows anyone's agent sessions; an agent never
-  drives itself** (D97, security fix; migration note
-  [changes/2026-09-26-agent-events-humans-only.md](/docs/changes/2026-09-26-agent-events-humans-only.md)).
-  `term` and `session` events reach the session's owner (their browser and
-  app sessions, and a shell's terminal token on the session's own tile) and
-  admins — never a tile's frame token or a backend's instance token, which
-  before received the driving user's, respectively the owner's,
-  transcripts. Prompt, permissions, elicitations, options, restart and
-  diff answer 403 to an agent sandbox's token on any agent session — its
-  own or a sibling's — and `POST /term/sessions` refuses it, so agents
-  can't approve each other's requests either.
-- **agent template: one model, thin views, and a native view** (D96,
-  builtin-templates/agent/API.md). Running instances are copies and are
-  unaffected.
-  - The tile's state and behaviour live in `model/` (plain modules, no DOM):
-    `createApp()` wires the session, conversation list, stream, automations,
-    backend calls and rules; the web UI is unchanged and drives it too.
-    `chat-fold.js`, `tool-heads.js`, `conv-groups.js`, `stream.js` and
-    `conv-list.js` are one-line re-exports of their `model/` successors;
-    the home words are `HOME` in `model/home.js`. When upstreaming an
-    instance's patches (D72), retarget hunks for a moved module to
-    `model/<name>`.
-  - `model/features.js` lists every UI feature; each view declares what it
-    implements, and a test fails on a gap unless it is an intended
-    difference with a reason.
-  - `native.js` + `native/` draw the tile in the xbin app: home with Needs
-    you, a conversations drawer, the full-screen chat (streamed, paged,
-    thumbnails, approvals, questions, subagents), the composer with
-    uploads, and every tool, settings and automation screen.
-  - Backend, all opt-in: `GET /stream?deltas=1` (`text.delta` /
-    `thinking.delta` `{delta, at}`), paged `GET /runs/{id}/view?limit=&before=`
-    (`hasOlder`, `nextBefore`, `compacted`, `linkCount`), and `GET
-    /runs/{id}/thumb?path=&w=` (PNG/JPEG/GIF thumbnails, ETag). Without
-    the options nothing changes.
-  - The vocabulary gains `sheet edge="leading"` (a drawer); a renderer that
-    doesn't know it shows an ordinary sheet. The reference renderer folds a
-    row's and a message's actions into a ⋯ popover.
-- **xbin-client: dialogs and windows in the xbin app** — a top-level page
-  with WebKit's `xbin` message handler (only the app registers one) now
-  sends `xbin.dialog` and `xbin.window` to the app, as it does to
-  `<bx-frame>`. Browsers are unchanged ([protocol.md](protocol.md) "Tile ↔
-  shell messaging").
-- **native/: the xbin app's sources** — the iOS app (in development) and
-  its Foundation-only Swift packages (`XbinCore`, `XbinTerm`, `XbinAgent`,
-  `XbinRenderer`) live in `native/`, tested on Linux (`make swift-test`)
-  and on GitHub's macOS runners for feature branches. `make check` now
-  includes `native-check`: every `native/fixtures/<name>` rendered and
-  compared with its expected tree, with the whole vocabulary exercised.
-  Nothing here changes a workspace.
-- **Fixed:** a terminal's one-shot `run` command (the Agent tab's one-click
-  sign-in) is typed into the shell — it was sent as a control frame and
-  dropped. Without isolation, `?vm=1` on `/ws/term` (and a VM agent
-  session) is refused with 400 and the reason, as documented — it used to
-  open a host shell that reported `vm: true`.
-
-- **VM sandboxes run without KVM, emulated** (D90,
-  [isolation.md](isolation.md) §VM sandboxes). On a host whose `/dev/kvm` is
-  missing or unusable — most small cloud VMs — VM terminals, agent sessions
-  and backends now run the same guest under QEMU's software emulation
-  instead of reporting "unavailable". Same files, network policy, VM disk
-  and isolation; much slower (roughly 5–20×, about 2 s to boot).
-  - `GET /api/xbin/vm` and `GET /ws/term/env`'s `vm` block add `emulated`
-    and `note` (why); the ⧉ VM toggle's tooltip says so.
-  - The release bundle adds `qemu-system-x86_64`, `qemu-bios-microvm.bin`,
-    `qemu-pvh.bin` and `vhost-device-vsock` (x86_64); the installer installs
-    them when present. `XBIN_QEMU`, `XBIN_VHOST_VSOCK` point elsewhere;
-    `XBIN_VM_ACCEL=kvm` never emulates.
-  - Additive: nothing changes on a KVM host, and VMs stay off until an admin
-    enables them.
-- **`XBIN_SANDBOX_DEBUG` now covers VM sandboxes:** the shim echoes the guest
-  console and its boot timings.
-
-- **auth: per-account controls and an allowance for personal tiles** (D88,
-  docs/auth.md §Personal tiles). Additive — nothing changes until an admin
-  sets something.
-  - **Two switches per account** (users → *personal…*, `bx user set
-    --no-personal-tiles --no-terminal`, `PATCH /users/<id>`):
-    `noPersonalTiles` is org-only for one user; `noTerminal` caps them at
-    write on every tile — no shells, agent sessions or backend logs (open
-    sessions end). The new-account seed can carry both, so fresh SSO users
-    can start restricted.
-  - **Sets on users** (`sets`, `netSets`), plus the workspace **personal
-    defaults** (organisations → *personal tiles*, `PUT /defaults
-    {personalDefaults}`, live, unioned). For the tiles a user owns:
-    permission sets are the owner's allowance and ceiling rows; network sets
-    are the **personal network** — the default egress of an unbound `net`
-    slot (the new `personal` ref) and a terminal scope there.
-  - **Owners approve on their own personal tiles** within that allowance —
-    grants, bindings, wiring to their own tiles; revoke/unbind/`none`
-    always. `GET /bindings` and `/grants` mark them approvable; pickers grey
-    out what's outside the allowance.
-  - **Terminals on a personal tile** get `personal` as the default scope, the
-    owner's sets as narrowing scopes, and plain `internet` stays (with
-    `termNet`, or when the sets hold it). `GET /term-net` adds `personal`.
-  - **API:** `GET /whoami` adds `personalTiles` (effective for the caller)
-    and `personal`; `GET /users` adds the fields and each user's resolved
-    plane; `/net-sets` and `/permission-sets` add `heldBy`, and a held set
-    can't be deleted.
-  - **Tighter:** receiving a tile into `user:<self>` by transfer is now
-    refused under org-only (it used to slip past).
-
-- **VM sandboxes (D89): terminals, agent sessions and backends can run in
-  a Firecracker microVM.** The workload is root in its own kernel (docker,
-  kernel knobs, apt as usual), still inside the namespace sandbox, which
-  acts as the jail. Details: [isolation.md](isolation.md) §VM sandboxes.
-  - **Off by default.** An admin turns VM terminals and/or VM backends on
-    and sizes them: `PUT /api/xbin/vm/policy` (memory, vCPUs, max VMs, a
-    memory budget, the VM disk size). `GET /api/xbin/vm` says whether this
-    host can run them and why not (KVM, the kvm group, the shipped
-    pieces).
-  - **Terminals:** the **⧉ VM** toggle in the terminal title bar
-    (`?vm=1` on `/ws/term`, `vm` on agent sessions) restarts the session in
-    a VM. The same files are at the same paths (served from outside the VM),
-    and the same
-    network scope applies. Root filesystem changes (`apt install`) are
-    kept on a per-tile VM disk, separate from the namespace layer; Reset
-    wipes both.
-  - **Backends:** `"vm": true` or `{"memory": "1G", "vcpus": 2}` in
-    `xbin.json` ([elements.md](elements.md)). The gateway, the proxy, logs
-    and grants are unchanged. The backend fails with the reason, never
-    falls back, when VMs can't run. `setup`, host networking, provider
-    links and GPUs can't combine with `vm` yet. An older xbind ignores the
-    key and runs the tile in namespaces.
-  - **Needs:** Linux with KVM (`/dev/kvm` usable by the xbind user; cloud
-    VMs need nested virtualization), `--isolate`, and the release bundle's
-    `firecracker`, `vmlinux`, `xbin-vmagent` and `mkfs.erofs` next to
-    xbind (`XBIN_FIRECRACKER`, `XBIN_VM_KERNEL`, `XBIN_VM_AGENT`,
-    `XBIN_MKFS_EROFS`). The installer adds the xbin user to `kvm`.
-- **Fix: isolated node backends started again.** The runner exec'd
-  `/usr/bin/node`, which the rootfs doesn't have (Node lives under
-  `/usr/local/node`).
-- **Security: sandboxed backends no longer inherit xbind's environment.**
-  - Until now every backend got the daemon's whole environment. That
-    included `XBIN_VAULT_PASSPHRASE` (from `/etc/xbin/xbin.env`) and any
-    API keys set for xbind.
-  - A sandboxed backend now gets the rootfs `PATH` plus only the locale,
-    `TZ` and proxy variables of the daemon, then its own `XBIN_*` variables
-    ([elements.md](elements.md) §Env).
-  - Without `--isolate`, backends keep the host environment minus xbind's
-    own `XBIN_*` settings.
-  - If a backend relied on some other daemon variable, move that setting
-    into the vault or a resource.
-  - If `XBIN_VAULT_PASSPHRASE` is set in your service environment, change
-    it with `bx vault rekey` ([auth.md](auth.md) §vault) and update the env
-    file. Rotate any other secret that sat in xbind's environment.
-- **New builtin tile `webhooks` (v1): public webhook URLs for agents.**
-  - Each hook (`/hook/<id>`, published with `bx expose`, only `/hook/*`
-    public) is checked by a token or a GitHub-style HMAC signature.
-  - Each delivery is pushed to the agents the tile is bound to as a
-    *public* event that runs their matching triggers.
-  - The event id and topic come from a header or a JSON key; presets for
-    GitHub and GitLab.
-  - The sender gets 202 when an agent took it, 404 when no trigger did,
-    and 503 when an agent is halted.
-  - Secrets live in the vault and are shown once.
-- **Agent template: event triggers.** A trigger starts work when an event
-  appears on a bus the agent may read (xbind pushes it: bus push
-  subscriptions) or when a bound tile pushes one (`POST /adapter/event`,
-  [agent-inbox.md](agent-inbox.md)).
-  - Each event goes to a run of its own, one ongoing thread, or a
-    conversation.
-  - It is recorded: once per event id, an hourly cap, dropped while the
-    agent is halted.
-  - Data classes keep the lane firewall: triggers that reach outside (the
-    web lane, announcing to a chat channel) take public data only.
-  - Triggers have a section on the Automations page: the grant a bus
-    trigger still needs, recent events, test fire, and "create a trigger"
-    for a push nothing took. `/triggers…` routes (API.md §Triggers).
-- **New builtin template `agent-messaging-bridge`: connect an agent to any
-  chat platform.** A copy speaks the agent-inbox contract
-  ([agent-inbox.md](agent-inbox.md)) and does everything platform-independent:
-  - storing events before they are acknowledged, and delivering them in
-    order;
-  - attachments both ways;
-  - replies formatted, split, retried and never posted twice;
-  - the typing hint;
-  - a page to link chat accounts to xbin accounts;
-  - `alwaysOn` restarts.
-
-  The platform itself is one Go interface. A coding agent in the copy's
-  terminal adds it, guided by the template's `AGENTS.md` (which covers
-  sessions, multi-account and multi-channel use, DMs, files, identity,
-  formatting and testing). Until then the built-in console on the page plays
-  the platform, so the whole flow can be tried first.
-- **Agent template: chat channels.** An agent now `provides` an `inbox`
-  (service `agent-inbox`, role `channel`). A chat adapter tile bound to it
-  reports messages and pulls replies over the contract in
-  [agent-inbox.md](agent-inbox.md).
-  - The agent keeps sessions per DM or thread (OpenClaw-style keys, with
-    `/new`, `/status`, `/stop` and the other commands), pairs unknown DM
-    senders by code, keeps groups to an allowlist and mentions, and runs
-    channel conversations in the web lane without scheduling tools.
-  - A reply is written in the transaction that ends the turn and acked by
-    the adapter once posted.
-  - Channels are claimed and managed in a Channels section at the top of
-    the Automations page: the claim with its rules, pairing codes to
-    approve, people and trust, sessions, undelivered replies to retry
-    (`/channels/{id}/…`, API.md §Channels). The sidebar badge also counts
-    what waits on you there (`attention` in the summary).
-  - New run config field `deny` (tools a run never gets, inherited by
-    subagents).
-  - **Files:** attachments go in through `POST /adapter/files` and become
-    session files on the message; the model sends files back with
-    `attach_to_reply` (run config field `channel`), and adapters download
-    them from `GET /adapter/files/{row}/{i}`.
-  - **Linking chat accounts to xbin accounts:** a person pastes the bot's
-    code (or `/link`) on the adapter's page, signed in; `POST /adapter/link`
-    takes them from xbind's attribution.
-    - Their DMs become their own conversations.
-    - Their group messages carry their id.
-    - New policies: `dm.policy: linked`, `groups.linkedOnly`, `trustLinked`.
-  - The outbox stream also sends `channel` events when the owner claims,
-    switches off or removes one of the adapter's channels, so its page can
-    show that.
-
-  Additive.
-- **Bus push subscriptions: backends can react to bus events.**
-  `PUT /api/xbin/bus/subscriptions {name, resource, prefix?, path, role?}`
-  (SDK `xbin.Subscribe`) makes xbind POST each matching event to your own
-  endpoint as `X-XBin-From: xbin/bus`, starting an idle backend like a cron
-  tick. Needs `reader` on the bus (checked at every delivery). At-most-once:
-  a bounded queue per subscription, no retries, a 100/s loop guard.
-  Subscriptions persist and ride along in backups. A new tile created at a
-  removed tile's path no longer inherits that path's cron jobs or
-  subscriptions. Additive ([resources.md](resources.md) §bus,
-  [protocol.md](protocol.md)).
-- **Manifest: `"alwaysOn": true` keeps a backend running.** Started at boot
-  and whenever it becomes runnable (enabled, vault unsealed, the flag added),
-  never idle-reaped, restarted after an exit (1 s backoff doubling to 5 min;
-  the crash-loop breaker still stops it). For tiles that hold an outbound
-  connection — a chat adapter's socket — and so never get the request that
-  would start them. Disable the tile to stop it. Additive
-  ([elements.md](elements.md), [03-components.md](overview/03-components.md)).
-- **Agent template: runs record who they belong to and where they came
-  from** — `owner`, `visibility`/`teamRole`, `origin` (chat, api, schedule,
-  watcher), `sessionKey`, `activityMs` — groundwork for per-user
-  conversations and an Automations page (D83, landing in the next changes).
-  Existing runs are classified in place and stay visible to everyone;
-  `POST /ask` also takes `title` and `system`. Additive.
-- **Agent template: skills have an owner and a lane.** A skill the agent
-  learns belongs to its conversation's owner and tool mode; runs see the
-  shared skills plus their owner's, in their own mode, and can't overwrite a
-  shared or someone else's skill. Existing skills stay shared everywhere.
-  Saving skills through the API is the managers'.
-- **Agent template: an Automations page.** A sidebar entry (with what is
-  new) opens the tile's automations — schedules and watchers, grouped by
-  kind, with their runs (read on open), settings, Run now, on/off, "Start
-  afresh" for threads, and forms for new ones. It replaces the Schedules
-  settings tab. A run fired by an automation opens with a way back to it.
-  `#auto`/`#auto=<kind>:<id>` links.
-- **Agent template: automations and schedule modes.** Schedules and watchers
-  belong to their creator and are listed by `GET /automations` (with runs,
-  unread counts, last status; `?summary=1`; `…/runs`, `…/read`, `…/reset`).
-  A schedule's `mode` says where a firing goes: a new run each time
-  (`isolated`, the default here), one ongoing thread (`persistent`), or into
-  a conversation (`conversation` + `targetRun`) — which is now what the
-  agent's own `schedule` tool does by default ("remind me…" answers in the
-  same chat; `deliver: "new"|"thread"` for the others). Automation runs are
-  no longer in the conversation list.
-- **Agent template: conversations name themselves.** After the first
-  answer, the memory-tier model titles a chat in a few words — in the
-  background, only with a model slot to spare, never over a name you gave
-  it. Feature key `titles`.
-- **Agent template: sharing a conversation.** The owner shares it with
-  the whole team (to read, or to read and write), with named people (by
-  user id), or with an invite link (`#join=<token>` on the tile's address;
-  expiring, revocable; only the token's hash is stored). New:
-  `GET/POST /runs/{id}/members`, `DELETE /runs/{id}/members/{user}` (also
-  leave), `POST /runs/{id}/links`, `DELETE /runs/{id}/links/{lid}`,
-  `POST /join`. The chat labels others' messages, and the model gets
-  `[user]` prefixes in shared chats. The top bar's tool-mode badge now
-  reads "internal" (not "private", which now means who can see a chat).
-- **Agent template: a conversation sidebar.** The left list is your
-  conversations, like a chat app: Pinned, then Today / Yesterday / Previous 7
-  days / Previous 30 days / Older by last activity, unread in bold, search,
-  and a row menu to rename, pin, share with the team, archive or delete.
-  Quick asks are ordinary conversations now (the home view's quick-ask
-  cards became **Needs you**: questions, approvals and failed automations
-  waiting for you). **+ Task** became **New chat** (goes home) and **⋯**
-  ("New chat with options": title, instructions, tool mode). `#c=<id>`
-  links to a conversation.
-- **Agent template: a conversation list API** — `GET /conversations`
-  (newest activity first, cursor paging, your pins first, archived on
-  request, search over titles and content), `PATCH /runs/{id}` (rename,
-  pin, archive, share with the team), `POST /runs/{id}/read`, `GET /needs`
-  (what waits for you). Additive.
-- **Agent template: conversations are per user — BREAKING**
-  ([migration note](changes/2026-09-26-agent-conversations-per-user.md),
-  D83). A new chat belongs to whoever started it and is private until
-  shared with the team or with named people. Other people's private runs
-  answer 404 and are absent from `GET /runs` and the stream — admins
-  included. The tile-wide settings, shared skills and the halt need write
-  access to the tile, and only a manager's message lifts a halt (others get
-  423). Schedules belong to their creator: managers can switch off or delete
-  anyone's, but can't read a private one. Runs from before stay visible to
-  everyone. New: `GET /me`; `access`/`mine` on stream run rows;
-  `access`/`acl` on `/view`. In shared conversations each person's message
-  reaches the model prefixed with their id.
-- **Backends can tell when an admin is viewing as a user.** Under view-as
-  (D64) proxied calls carry `X-XBin-Viewed-By: <admin>` next to
-  `X-XBin-User` (SDK `xbin.Caller(r).ViewedBy`), so a tile with per-user
-  private data — the agent template's conversations — can refuse it to
-  someone looking through the user's eyes. Additive
-  ([protocol.md](protocol.md), [auth.md](auth.md)).
-- **SDK: `xbin.SetSecret(name, value)` / `xbin.DeleteSecret(name)`** write a
-  component's own vault from its backend (additive). A tile's frontend can't
-  reach the vault API (D30), so a settings page hands a token to its backend,
-  which stores it — gate that route on `xbin.Caller(r).UserCanWrite()`
-  ([sdk.md](sdk.md)).
-- **llm-gw tile v5: saving an API token from its settings page works.** The
-  page used to write the vault itself and got 403 (frames can't reach the
-  vault API); it now sends the token to the tile's backend
-  (`PUT /config/backend {…, token}`, `PUT /config/backend/{name}/token`),
-  which needs write access to the tile. Tokens already set (from a terminal
-  or the admin vault tab) keep working.
-
-## 2026-09-25
-
-- **BREAKING (auth) — tile creation follows ownership, not path patterns**
-  (D82). A signed-in user may now create a tile they own at any free path,
-  with no admin-granted `canCreate` pattern. The same path rule also applies
-  to creating as an org:
-  - **Refused paths:**
-    - reserved names: `tiles/…`, `root`, `shell`, or a `:` in any segment;
-    - paths inside a scope the new owner doesn't own;
-    - paths still carrying leftovers of a removed tile: grant rows,
-      bindings, a vault, or other people's access entries.
-
-    The 403 lists why. Admins are unaffected.
-  - **`canCreate` is deprecated and ignored.** `users.json`, the API and
-    `bx user|defaults --create` still accept it, and `bx` prints a note. The
-    admin console no longer shows or edits it.
-  - **Restricting personal tiles:** use `tileCreation: org-only`.
-  - **Errors you can see:** the shell's *New tile* dialog shows a refusal in
-    a red alert box, and the manager tile boxes its error. `xbin.dialog(spec)`
-    takes a new optional `error` field, rendered the same way.
-
-  Migration:
-  [changes/2026-09-25-ownership-based-creation.md](/docs/changes/2026-09-25-ownership-based-creation.md).
-
-- **Agent template: a new run engine, subagents inside the chat, thinking and
-  tool summaries** (D81). New chats no longer sit 30 s+ behind subagents, a
-  message sent mid-turn is no longer lost, and subagents always report back.
-  - **Engine.** Each run with work has one in-process actor, fed by a durable
-    inbox and woken by events. The heartbeat cron, the per-run leases and the
-    UI polling are gone.
-    - A save hands over at once: the old process lets go of an exclusive lock
-      on exit, and the new one re-issues any cut-off model call within
-      milliseconds.
-    - `maxActiveRuns` now bounds concurrent **model calls**. A top-level chat
-      always gets one first, however many subagents are working.
-    - `maxTurnSteps` (default 96) bounds one turn; `maxIters` only sizes its
-      default.
-  - **Steering.** A message sent while the agent works shows as a queued chip
-    you can take back. It is delivered at the agent's next step, after that
-    step's tool results. **Stop** hands queued text back to the composer.
-    `done`, `error` and `canceled` chats resume on the next message.
-  - **Subagents.** They render inside the parent's chat, live, with their own
-    thinking and tool calls, and an approval can be given there. They never
-    appear in the sidebar; `GET /runs?roots=1` lists top-level runs only.
-    - A foreground subagent that runs past its timeout (`subagentTimeout`,
-      default 900 s) moves to the background, and its answer arrives later.
-    - Background answers arrive batched in one notice.
-    - A message from you ends a wait for subagents.
-    - A parent waits only on the calls it just made.
-    - New tools: `subagent_spawn`, `_wait`, `_status`, `_result`, `_message`
-      and `_cancel`. `after:[ids]` and the workflow tree are kept. The old
-      names (`spawn_subagent`, `workflow_*`) still run as aliases.
-  - **Thinking** streams from OpenAI-compatible reasoning deltas and from the
-    **Responses API**. `wire: "auto"` sends `gpt-5*` and o-series models to
-    `/v1/responses`, falling back to Chat Completions when the upstream lacks
-    it. `reasoningEffort` is passed through.
-  - **Tool summaries.** Every tool gets a required `summary` argument, which
-    heads the call's card and is stripped before the tool runs.
-  - **Chat UI.** Markdown, collapsible tool cards, an activity line, and a
-    multi-line composer (Shift+Enter for a newline).
-  - **API (additive):**
-    - `GET /runs/{id}/view`, the SSE `GET /stream?run=&since=` and
-      `GET /runs/{id}/stream`.
-    - `DELETE /runs/{id}/inbox/{iid}` takes back a queued message.
-    - `POST /runs/{id}/message` accepts `clientId` and returns
-      `{inboxId, queued}`.
-    - `POST /runs/{id}/interrupt` returns `{returned}`.
-    - A new run status, `awaiting`.
-  - **Instances:** existing databases migrate in place, idempotently. An
-    instance that edited `_backend/loop.go` or `workflow*.go` gets merge
-    conflicts when it pulls this: those files are gone (`actor*.go`,
-    `links.go`, `subagent_tools.go`).
-  - **First upgrade:** runs that were mid-answer in the old binary can pause
-    once, for up to 30 s, until their old lease runs out.
-  - **llm-gw tile v4** counts token usage on `/v1/responses` too.
-- **Shell: the interface-binding panel no longer goes blank** when a tile
-  asks for an interface nothing in the workspace provides — an agent or
-  chat tile's `mcp` slot with no MCP server installed. It hid every other
-  unbound slot too. `GET /bindings` now sends `options: []` for such a slot
-  (it sent `null`), and the panel tolerates both.
-- **Docs: the sqlite connection-string examples were wrong.**
-  `modernc.org/sqlite` silently ignores `?_journal_mode=WAL` and
-  `_busy_timeout=5000`; it reads `?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)`
-  ([resources.md](resources.md)). Fixed there, in the workspace `AGENTS.md`
-  and in the welcome tile. A tile that copied the old form runs without WAL
-  and with no busy timeout — switch its DSN.
-- **Shell: a tile opened from a right-click menu lands where you clicked.**
-  **Open tile** and **Create a new tile** on the canvas menu, and **Open on
-  this screen** (or a panel square) on a closed tile's menu, put the tile's
-  top-left cell under the pointer. It is pulled in just enough to fit the
-  visible pane, like a menu at the screen edge. If that would overlap a
-  card, it takes the nearest free spot; nothing is pushed. A sidebar row's
-  menu opens the tile at the canvas's left edge, level with the row. A plain
-  click in the sidebar still fills the first free spot. Also fixed: typing
-  in the **Open tile ▸** find box filtered the canvas menu it hangs off as
-  well, hiding the "Open tile" row itself. Each find box now filters only
-  its own list.
-- **Ingress: one exposed endpoint, many routes.** A tile's `exposes` slot now
-  takes any number of bindings — several hostnames (a webhost served through
-  the Traefik tile for `shop.example.com` and `www.example.net`, each with its
-  own certificate; routes may mix `runtime` and terminators), several zones,
-  or several host ports relayed to the one declared stream port. Each
-  hostname, zone and host port still belongs to exactly one endpoint in the
-  workspace. `bx expose … --add` adds a route (without it the routes are
-  replaced, as before); `bx unexpose <tile> <slot> --host …` removes one;
-  `bx ingress` lists them all. The admin tile's **ingress → services /
-  expose** lists every route with its own remove button and an add row; the
-  Organisations tile adds hostnames/ports to its org's published endpoints
-  and removes routes one at a time; the shell's binding list shows routes
-  (it printed "[object Object]" for them before). API (additive):
-  `POST /bindings {add:true}`, `DELETE /bindings` with
-  `provider`/`host`/`zone`/`listen` removes just that route, `GET /ingress`
-  rows gain `routes`, `GET /bindings` gains `exposes`. An org admin's rights
-  are judged on the route added or removed, so it can manage its own
-  terminator's hostnames beside a workspace admin's route. Adding a route no
-  longer restarts the terminator tile. **Traefik tile v4**: text only — it
-  already served a router per hostname.
-- **A tile created from the UI (or `POST /create`) gets its git repo at
-  once.** It used to get one only at the next daemon start — until then the
-  Code panel showed no history and an agent's "changed files" had nothing to
-  diff against.
-
-## 2026-09-24
-
-- **Terminal window: one title bar for Bash and Agent tabs; the base update
-  from the session chooser.** An Agent tab now has the Bash tab's whole bar —
-  the layout switcher (code browser, code + agent side by side, backend logs,
-  change proposals), the network scope / tile-API / GPU pickers and the
-  layer's base update / reset. Changing a picker restarts the agent in a new
-  sandbox and **resumes its conversation** where the agent can reopen its own
-  session (Claude Code, OpenCode); otherwise it starts fresh and the old one
-  stays under Recent sessions. When a tile's terminal layer was built on an
-  older base image, the "Start a session in …" chooser says so and offers
-  **⬆ base update** (the title bar shows it with no session open — before,
-  only an open Bash tab did). API: `POST /term/sessions` takes `api` and
-  `gpu` like a shell's socket; new `POST /term/sessions/<id>/restart`
-  `{net?, api?, gpu?}` → `{session, resumed}` (creator only) and `GET
-  /ws/term/env?cwd=<tile>` → `{exists, baseOutdated}` (docs/protocol.md).
-  Also fixed: an agent session killed while it was still starting (or whose
-  sandbox failed to spawn) never ended — it stayed listed with its layer
-  held.
-
-- **BREAKING (security) — nothing runs as xbind on your tile anymore.** Tools
-  xbind runs on workspace data — git for the Code panel, repo init, fork,
-  import, template instances and builtin updates, the Agent tab's changed
-  files, and `go build` of Go backends — read tile content as configuration
-  (a repo's `.git/config` can name a command for git to run), and a tile is
-  written from inside sandboxes; run on the host, they handed whoever last
-  wrote a tile code execution as the daemon. They now run in throwaway
-  sandboxes (`--isolate` workspaces; docs/isolation.md → "Confined tool
-  runs"). Go builds keep the host's Go toolchain and the workspace's
-  `go.work`, but get per-tile caches, reach only public addresses for new
-  modules (new `XBIN_BUILD_NET=host` for a LAN proxy), stop stamping VCS
-  info, and no longer see `replace` targets outside the workspace and SDK.
-  Imports no longer use the daemon's global git credential helpers (ssh keys
-  in its `~/.ssh` still work). A terminal whose sandbox fails to start is now
-  an error instead of a shell on the host. The Code panel's diffs are git's
-  own (a tile's `diff.external`/textconv is ignored). Migration:
-  [changes/2026-09-24-confined-tools.md](/docs/changes/2026-09-24-confined-tools.md).
-
-- **Agent tab: the agent can ask you questions.** Claude Code's
-  AskUserQuestion was disabled in agent sessions (the adapter drops it for a
-  client that cannot show a form); the daemon now advertises form
-  elicitation, and a question renders as a form — single and multiple
-  choice with each option's explanation, an *Other* box per question,
-  *Submit* / *Skip*. New events `elicitation.request` /
-  `elicitation.resolved` and the route `POST
-  /api/xbin/term/sessions/<id>/elicitations/<eid>` (docs/protocol.md);
-  `bx agent` prints the question and points to the Agent tab.
-- **Agent tab: slash commands.** Typing `/` in the message box lists the
-  commands the agent advertises (`/review`, `/compact`, `/init`, …) with
-  their descriptions; arrows pick, Tab or Enter completes, and the input hint
-  shows until you type it. The list rides `status` events as `commands`
-  (docs/protocol.md); a command is sent as ordinary prompt text.
-- **Agent tab: subagents nest.** A Claude Code subagent (Task) is one card
-  with its own thinking, tool calls and text beneath it — they used to be
-  hidden (text) or mixed into the main thread (calls). The daemon now asks
-  the adapter for the subagent transcript; events carry `parent` (the
-  subagent's call id) — see `tool.call` / `message.delta` in
-  docs/protocol.md.
-- **Agent tab: real diffs for shell writes.** When an agent's shell command
-  changes files (`sed -i`, a python heredoc, a generator), its card now lists
-  the files with the actual patch, and every turn ends with *This turn
-  changed N files* — taken from snapshots of the tile, not from the agent's
-  description. Your repo, index and history are never touched (the snapshots
-  are private to the session). New event `files.changed` (docs/protocol.md
-  §Agent session events); `bx agent` prints one line per change set.
-- **Agent tab: you see the agent think.** Claude Code sessions now ask for
-  summarized thinking (recent models otherwise send it empty), so the
-  reasoning streams in: an open *Thinking…* block while it arrives, folded to
-  *Thought for Ns* once the agent moves on. While a turn runs, a line under
-  the transcript says what it is doing (*Running the unit tests…* /
-  *Working…*).
-- **Agent tab: plan approvals are a plan card, never a session rule.**
-  Claude's "Ready to code?" (and Codex's "Implement this plan?") used to show
-  as a generic permission with the plan as raw JSON — and answering one with
-  any "Yes, and use … mode" choice recorded an *allow for the session* rule,
-  so the **next plan was approved without asking**, with the first such
-  choice ("clear context and use auto mode"). Now a `switch_mode` request is
-  never scoped (`rule.scoped:false`) and never auto-answered; the card shows
-  the plan as markdown and every choice in the agent's words, and *keep
-  planning* takes feedback that goes in as your next message. `bx agent`
-  prints the plan and takes an option id: `bx agent permit <id> <pid> auto`.
-- **Agent tab: readable tool calls.** A card is titled by what the harness
-  says the call does (Claude's description of a shell command), else by a
-  reading of the command (`python3 - <<'EOF' … open('main.go')` → *Python
-  script (12 lines) → main.go*); the command is collapsed beneath it with a
-  copy button, its output streams in (Codex's no longer shows as a bare
-  `[terminal …]`), a failure shows `exit N`, text results render as markdown
-  and raw JSON input sits behind a toggle. On the wire, `tool.call` /
-  `tool.update` gain `name`, `label`, `parent`, `subagent`, `planReview`,
-  `output` / `outputDelta` / `exitCode` (lifted from the adapters' `_meta`),
-  message and thought deltas gain `parent`, and `switch_mode` joins the tool
-  kinds — all additive (docs/protocol.md §Agent session events).
-
-## 2026-09-23
-
-- **Base image: agent harnesses updated** — claude-code 2.1.280, codex
-  0.156.1, claude-agent-acp 0.81.1, codex-acp 1.13.1, opencode 1.18.32
-  (gemini-cli 0.60.0 was already current), node 22.23.3. opencode on amd64
-  is now the `-baseline` build, so a prebuilt bundle's opencode no longer
-  dies with "Illegal instruction" on CPUs without AVX2. Terminals and agent
-  sessions pick them up on the next install/upgrade.
-- **Workspace branding: a title and an icon, set from the admin tile.** The
-  admin console's new **workspace → branding** tab sets a workspace title and
-  icon. The title replaces the word "workspace" in the shell header and the
-  browser tab (`<title> · xbin`); the icon (SVG/PNG/JPEG/WebP/ICO, ≤ 256 KiB)
-  replaces xbin's mark as the favicon and the header logo — and both show on
-  the sign-in and invite pages too. Everything is optional and reversible
-  (clear a field to get xbin's own back); open shells update live. Stored in
-  `data/branding.json` (never in the workspace's git). New: `GET/PUT
-  /api/xbin/branding`, a `branding` event on `/ws/events`.
-
-## 2026-09-22
-
-- **Agent sessions: history and resume.** A coding-agent session's
-  transcript now outlives it: once it took a prompt and ended — or the
-  daemon stopped — the event log is kept on disk (per user and tile, the
-  newest 20 per tile; `data/agent-history/`). The terminal window's empty
-  state and `+` menu list them under **Recent sessions**: open one to read the
-  transcript, or **Resume** to continue it — the agent reopens its own
-  session (ACP `session/load`) and replays the earlier turns before going
-  live; the continuation supersedes the entry. An agent that cannot reopen
-  sessions shows the transcript read-only and offers a fresh start. New:
-  `GET /api/xbin/agent/history[?cwd=]`, `GET /agent/history/{id}/events`,
-  `DELETE /agent/history/{id}`, `resume` on `POST /term/sessions`;
-  `bx agent history` / `bx agent resume <id> ["<prompt>"]`. Also: the Mode
-  picker no longer renders twice for an agent that advertises its mode both
-  as a session mode and a config option.
-
-## 2026-09-21
-
-- **Terminal window: one `+` menu to start a session, a first-open
-  chooser, a model picker before the first prompt, and one-click agent
-  sign-in.** The two `+` / `+ Agent` buttons are now a single `+` that opens
-  a menu — last choice, Bash, and one entry per coding-agent provider; an
-  empty window shows the same choices as cards instead of dropping you at a
-  bash prompt. Bash tabs are named "Bash". Picking a coding agent creates
-  its session eagerly, so its **model / mode / effort pickers load before
-  you type the first prompt** — pick the model, then send. When an agent
-  reports it is signed out (or a turn hits auth-required), the tab shows a
-  **"Sign in to <Provider>"** button that opens a shell terminal running the
-  provider's login command in the agent's home; the printed sign-in URL is
-  now **clickable** (terminals and log views linkify URLs), so there is no
-  more selecting a wrapped URL out of the transcript. The `status` event
-  gained an optional `login:{needed,provider,command}` (see
-  `/docs/protocol.md`). Also fixes a bug where left-clicking a terminal
-  window grew it by ~1 px each time.
-- **Terminal window: the title bar degrades instead of clipping, and a
-  dead tab no longer takes its transcript with it.** Below ~640 px (and on
-  the phone sheet) the layout switcher and the net/API/GPU pickers move
-  into a tools row behind a `⋯` button and the tab strip scrolls, so the
-  tabs and the window's ✕ are always reachable (the previous release could
-  push the ✕ off a phone screen). The pickers now **ask before restarting**
-  a live session (they end its shell and scrollback); a declined change
-  snaps back. Rename and reset use the themed dialog, not the browser's
-  `prompt`/`confirm`; "base update" and "reset" are distinct actions and
-  every terminal on the tile restarts on the clean layer. The active tab is
-  tracked by identity: a tab ending elsewhere no longer moves your
-  selection onto a different session. An **agent tab whose session ended**
-  (a crash, a login error) stays, greyed, with its transcript and the
-  reason, until you dismiss it. The window remembers its layout, split
-  and a native resize; agent tabs default to the provider's name and take
-  the agent's own title for the session when you have not named them.
-- **Agent sessions: pick the model (and any setting the agent offers).**
-  The agent's config options — model, reasoning effort, mode, whatever the
-  adapter advertises — ride the session's idle `status` event as `options`
-  and are settable with the new `POST /api/xbin/term/sessions/<id>/options
-  {id, value}` (applied to the next turn); create accepts `model`/`options`.
-  The Agent tab shows a picker per setting once the session is up (Start
-  with an empty message to choose before the first prompt), `bx agent run
-  --model`/`--option id=v` sets them at start and `bx agent set <id> …`
-  mid-session. Also: an agent session now authenticates from the per-user
-  `$HOME` only (the per-tile vault key is gone — sign the CLI in from a
-  shell terminal and every agent session uses it), a session that never
-  answers `initialize` becomes a `status error` after 90 s instead of
-  hanging at `starting`, `Stop` shows a `cancelling` status, a
-  `permission.request` says whether "allow for the session" can be scoped
-  (and never records a wildcard rule), and the `+ Agent` button is text.
-- **Agent sessions: a coding agent in the tile's sandbox, driven over the
-  API (D74).** `POST /api/xbin/term/sessions {cwd, kind:"agent", provider,
-  mode?}` opens a terminal session whose sandbox runs Claude Code, Codex,
-  Gemini CLI or OpenCode through the Agent Client Protocol instead of a
-  shell; `…/prompt`, `…/cancel`, `…/permissions/<pid>` drive it; `…/events
-  ?since=` replays its typed event log (messages, thoughts, plans, tool
-  calls, permission requests, turn ends) and `?follow=1` or the new
-  `session` event on `/ws/events` follows it live. Any attached client may
-  answer a permission request — the first wins; *allow for the session* is
-  a rule on the session, not a grant. The agent authenticates from its
-  `$HOME` — the same per-user home a shell terminal gets — so a `claude
-  /login` (or `codex login`, …) done once in a terminal signs it in on every
-  tile; there are no per-tile API keys. New:
-  `bx agent run|send|permit|attach|ls|stop`, `GET /api/xbin/agent/
-  providers`, `GET/DELETE /term/sessions/<id>`, `kind`/`provider`/`mode`/
-  `status`/`pending` on session rows, `GET /ws/term?session=<agent id>` →
-  409. The base rootfs pins `@agentclientprotocol/claude-agent-acp`,
-  `@agentclientprotocol/codex-acp` and `@google/gemini-cli` (a base update
-  — persistent terminal layers offer the usual upgrade). Docs:
-  overview/09-terminals.md §Agent sessions, bx.md, protocol.md.
-- **Terminals follow the user, not the browser (D73).** Which terminal
-  sessions are yours on a tile is now the server's knowledge — the
-  **session directory**: `GET /api/xbin/term/sessions[?cwd=]` lists the
-  caller's live sessions (id, tile, effective scope and pickable scopes, the
-  gpu/api pickers, tab name, created/lastActive, attached client count),
-  `PATCH /term/sessions/<id> {name}` names a tab, and a new `term` event on
-  `/ws/events` reaches the owner's browsers (and admins) when a session
-  opens, ends or is renamed. `<bx-frame>` builds its tab bar from that
-  answer and keeps no session ids in the browser any more; the window's
-  own state (open, active tab, geometry) is a per-user pref. So a second
-  browser signed in as the same user shows the same tabs, names included,
-  and attaches to the same shells; signing in as another user on the same
-  browser shows only that user's — before, the previous user's tab list
-  bled through (and an admin silently attached to their shells). The
-  legacy browser record is adopted once, then removed. Reattaching now
-  re-checks the tile's terminal level: a creator whose level was withdrawn
-  is refused until the session ends. Kit: `dragWindow(ev, el, {bounds,
-  onMove, onUp})`, the title-bar drag of a fixed window. No `bx builtin
-  update` needed. Docs: [protocol.md](/docs/protocol.md) §`/api/xbin` and
-  §`/ws/events`, overview/09-terminals.md.
-
-## 2026-09-19
-
-- **Frontend kit: `esc()` escapes quotes.** `/vendor/bx-kit.js`'s `esc` now
-  escapes `"` and `'` as well as `&<>`, so a value dropped into an attribute
-  (`title="${esc(x)}"`) can no longer close it. This was a live XSS in the
-  agent template's tool-call titles (the arguments are JSON, always full of
-  quotes); every kit consumer gets the fix. Escaped quotes render identically
-  in text, so nothing visible changes. [frontend-kit.md](/docs/frontend-kit.md).
-- **Agent template: twelve upstreamed fixes and features (D72).** The
-  `agent` template takes the generic work done in an instance: the tile
-  never scrolls the document and keeps the composer on screen; tool calls and
-  results fold to a line and STAY open across the poll's re-renders; a recall
-  result no longer kills the run; **quick asks** (`POST /ask`, `kind:"quick"`)
-  and a **home view** with answer cards and a task sidebar; **web tools**
-  (`web_search`/`web_fetch`, needing the `net` interface bound) behind a
-  **toolset firewall** — a run is in the private lane (internal reach) or
-  the web lane (egress), never both, inherited by subagents and schedules;
-  lifecycle fixes (a transcript kept valid across restarts and approvals,
-  delete cascades, capped subagent results, timeouts on every gateway call,
-  MCP discovery off the drive's critical path); **session files** with a
-  sandboxed `render_html` pane and a Files tab; a per-run **JavaScript REPL**
-  (goja, no host surface); a **workflow layer** (run graph, background
-  agents, one dispatcher with a concurrency ceiling, durable cancellation,
-  the brake, a tree view); and **attachments + vision** (files into the run's
-  session files, images seen by the model). Feature keys `files`, `repl`,
-  `workflow`. The template's `xbin.json` gains a `net` interface and a
-  `res:…/files` blob resource; `API.md` documents every route. Existing
-  instances are forks (D50): `bx template updates` lists them as behind, and
-  the builder merges what they want. Known gap: the skills store is offered
-  in both lanes (D72).
-
-## 2026-09-15
-
-- **Terminal: predictive local echo (D70).** On a slow link what you type
-  now appears at once: the terminal predicts a keystroke's effect (the
-  character at the cursor, the rest of the line shifted, backspace, Enter,
-  the arrow keys) and draws it as an overlay, then confirms or withdraws
-  each prediction when xbind acks the input — mosh's prediction engine
-  (`--predict=experimental` flavour), in `/vendor/term-predict.js`. The 🔧
-  menu gains **Predictive echo**: *auto* (default — on once the measured
-  round trip exceeds 100 ms, off again below 60), *on*, *off*, saved per
-  browser, plus the live RTT; predictions are underlined while the link is
-  slow, and a ⚡ badge sits by the 🔧 while they are shown. Full-screen
-  programs work too: when a program hides the terminal cursor and draws its
-  own (Ink apps such as Claude Code, most TUIs), the terminal learns where
-  typed text lands from the first echo and predicts there (D71); inside
-  tmux, vim and other alternate-screen programs the overlay is drawn the
-  same way. Wire (additive,
-  [protocol.md](/docs/protocol.md) §/ws/term): the `session` frame carries
-  `echoAck:true`; the server sends `{"op":"ack","n":N}` 50 ms after the Nth
-  input frame reached the PTY and answers `{"op":"ping"}` with a `pong`.
-  Older browsers ignore the new frames; a newer browser against an older
-  xbind keeps the feature off. No `bx builtin update` needed — the terminal
-  is served by xbind.
-
-## 2026-09-14
-
-- **Shell: dragging a tile onto its neighbour swaps them (D69).** When the
-  dragged card covers more than half of a neighbour along the direction it
-  is pushing, and the spot just past the drag on the far side (the space
-  the drag vacated) is free and inside the canvas, the neighbour steps there
-  instead of being pushed along — the push ghost shows it. Two equal cards
-  side by side swap by dragging one squarely onto the other; drag past the
-  neighbour and it slides back to where it was. A partly covered neighbour,
-  a blocked far side, a resize, and cards further down a push chain behave
-  as before. Scaffold `shell/` change (`bx builtin update scaffold:shell`).
-- **Shell: a per-browser grid scale (D68).** 🔧 settings gains a **Grid
-  scale** slider (0.5×–1.5×, shown with the resulting grid size in px). It
-  changes how large the tile layout renders *in this browser* and nothing
-  else: the layout stays in the same 48-unit grid for everyone, drags and
-  resizes still snap to that grid, and floating windows and terminal
-  pop-ups keep their size. Saved in the browser's `localStorage`, so a
-  shared screen laid out on a 32-inch display can run at 0.7× on a laptop
-  without touching it. Zoom the browser (ctrl/cmd +/−, ctrl-wheel, pinch)
-  and the shell mentions the slider once. Scaffold `shell/` change (`bx
-  builtin update scaffold:shell`); no API change. Docs:
-  [getting-started.md](/docs/getting-started.md), overview/04-frontend.md.
-- **Shell: terminal windows stay with their tile, the shared-screen strip
-  is pinned, and dragging pushes cards aside (D66).** A tile's terminal /
-  code / logs pop-up now keeps its position relative to the tile — it
-  follows the card when the canvas scrolls or the card is dragged — and it
-  never leaves the canvas: its top-left stays within the tiles' extent, and
-  the scroll area grows to contain it, so a terminal is always reachable by
-  scrolling (a pop-up used to be anchored once in viewport coordinates and
-  could be left behind, or off the scrollable area). Drag its title bar to
-  place it relative to the tile. The 🔒 *shared org screen* / ✎ *editing*
-  bar is a thin strip under the screen tabs instead of a card inside the
-  scrolling canvas (it used to slide away on horizontal scroll and sit
-  under dragged cards). Dragging or resizing a grid card onto another no
-  longer overlaps them: the card in the way is pushed out in the direction
-  it was hit, cascading through its neighbours, and a dashed ghost previews
-  where each lands while you drag; back off and nothing moves. Frames
-  embedded outside the shell keep today's viewport behaviour. `bx-kit.js`
-  gains `anchorBox`/`anchorOffsets`/`followBox`; `<bx-frame>` gains
-  `popBounds`, `popBox()` and the `bx-pop` event; the scaffold's
-  `shell/grid-layout.js` (lit-free, node-tested) holds the grid math. A
-  workspace keeps its scaffolded shell until `bx builtin update
-  scaffold:shell`; the `bx-frame`/kit half ships with the binary, so an old
-  shell's pop-ups already follow their tiles (without the canvas fence). A
-  legacy `{col, height}` layout migrates again (a missing import threw).
-  Docs: [getting-started.md](/docs/getting-started.md),
-  [elements.md → bx-frame](/docs/elements.md), overview/04-frontend.md,
-  [frontend-kit.md](/docs/frontend-kit.md).
-
-## 2026-09-11
-
-- **Named network sets on terminals, and as a tile binding (D65).** A
-  terminal's scope menu now lists each network set by name — 🔗 *net set:
-  devs-net* — beside 🏢 *org network*: on an org-owned tile every set
-  attached to the org, for whoever may open a terminal there (each one a
-  narrowing of the org union); a workspace admin sees every workspace set
-  on every tile, personal and workspace tiles included. Defaults do not
-  move (`org` there, `internet`/`none` elsewhere); an unknown or unpickable
-  set clamps to the default with a note. A workspace admin may also bind
-  any tile's `net` slot to one set — `set:<name>` in the binding tab, the
-  tile popover, `bx bind <tile> net=set:<name>` — inside the owning org's
-  sets on org tiles; org admins keep `org` (a 403 says so). Provider-only
-  sets are neither a scope nor bindable. Editing a set restarts every tile
-  bound to it; deleting a bound set is refused (the network-sets tab shows
-  who holds it). Opening a terminal under a set an admin could not *bind*
-  the tile to is deliberate: a terminal is a human act outside the tile
-  ceiling. Protocol: terminal `?net=set:<name>` and `scopes[]` rows,
-  `/term-net`; `POST /bindings {provider:"set:<name>"}` (ws-admin; 403 for
-  org admins); `GET /bindings` `netOptions` (every net slot's option list,
-  bound or not) with `set:` rows blocked per caller; `GET /net-sets`
-  `boundBy`; `DELETE /net-sets` 409 while bound. Non-breaking: old scaffold
-  pickers ignore `netOptions` and show '·' for the new icon; an older xbind
-  resolves a `set:` binding to no egress (fail closed), like `org`. Docs:
-  [auth.md → Network sets](/docs/auth.md), overview/09-terminals.md,
-  isolation.md, overview/12-egress.md, overview/11-interfaces.md,
-  protocol.md, bx.md.
-
-## 2026-09-10
-
-- **View the workspace as a user.** Admin console → users → a user's
-  `more ▾` menu → **view as user…** opens a new tab signed in as that
-  user — the same shell and tiles they get, with a banner naming who
-  you are viewing and an **exit** button. The view is read-only (every
-  write, terminals included, is refused with a "read-only" message),
-  the link is bound to your own browser session for two minutes, every
-  tab is the user until you exit, and `/whoami`, the sessions tab and
-  the audit log all name the viewing admin. API: `POST
-  /api/xbin/impersonate {user}` → `{url}`, `POST
-  /api/xbin/impersonate/stop`; `GET /login?impersonate=` redeems.
-  [auth.md → Viewing the workspace as a user](/docs/auth.md), D64.
-- **The organisations tab is a list you drill into.** Admin console →
-  organisations now opens on a table of orgs (members, admins, sets,
-  network, owned tiles, policy) with a **manage →** per row; an org's
-  page (`#orgs/<id>`, bookmarkable, with a back link) lays its members,
-  IdP-group rules, delegation, network, owned tiles, policy ceiling and
-  deletion out as titled panels instead of one flat run. The
-  workspace-wide knobs (defaults, new accounts, tile creation, workspace
-  policy) sit in their own panels under the list. Same API, same
-  fields; only the scaffold's `tiles/admin/tabs/orgs.js` changed (`bx
-  builtin update scaffold:tiles/admin`).
-
-## 2026-09-09
-
-- **The admin console is one element per tab.** The scaffold's
-  `tiles/admin` gained `tabs/*.js` (runtime — components, code drill-in,
-  live stats, resources — access map, network sets, permission sets,
-  vault, cron, backup, binding, ingress, organisations, users, sign-in,
-  sessions), `admin-css.js` and `shared.js`; `admin.js` stays the entry
-  and is now a 300-line router, importing the siblings relatively.
-  Nothing changes on screen, except that a minted invite link or a
-  rotated owner token now lives on its tab: switch tabs and the copy box
-  is gone (mint or rotate again if you need it).
-  A workspace scaffolded before this keeps its single-file console and
-  works unchanged against the new xbind; `bx builtin update
-  scaffold:tiles/admin` delivers the split as new files beside the old
-  entry ([compat.md](/docs/compat.md) rule 4). Contributors:
-  [maintenance.md](/docs/maintenance.md) → "The admin console's tabs".
-- **The shell's tile surface and sidebar are their own elements; the
-  shell's helpers are modules.** The scaffold's `shell/` gained
-  `bx-canvas.js` (the snappable grid, the cards and the floating windows
-  with every drag, resize, pin and menu gesture on them), `bx-side.js`
-  (the sidebar: sections, folders, filter, footers), `menus.js` (the canvas menu,
-  the tile menu and the "Open tile" list as pure functions),
-  `rev-draft.js` (the revisioned-draft flow org screens, shared folders
-  and share-to-org all use: publish naming the base revision, a stale
-  save becomes the "someone saved first" dialog), `zorder.js` (the one z
-  counter floating and spawned windows share) and `shell-kit.js` (the
-  grid module, runtime colours, long-press, the ⇄ badge); `bx-shell.js`
-  imports them relatively and behaves as before. What each menu line
-  shows and does, and how a save's answer is classified, are unit-tested
-  by `make check` (`node --test`, no browser). An older workspace keeps
-  its single-file shell.
-- **Every `xbind` flag and `XBIN_*` variable is on one page.**
-  [config.md](/docs/config.md) is generated from the daemon's
-  configuration struct, so it is complete by construction: the flag, its
-  environment variable, the default, which package reads it and what it
-  does — including the settings that were only ever documented in the
-  source (`XBIN_LIMIT_MEM`, `XBIN_LIMIT_DISK`, `XBIN_BIN`,
-  `XBIN_GOCRYPTFS`, `XBIN_FUSE_OVERLAYFS`, `XBIN_SANDBOX_DEBUG`). Flags,
-  variables and precedence are unchanged; a boot failure's message now
-  names the stage it failed in (`vault: …`, `isolation: …`).
-- **A reload no longer flashes the first org screen.** While the layout
-  loaded, the shell briefly made the first shared org screen active and
-  mounted its tiles (spawning their backends, restoring their terminals)
-  before switching to the screen you were on; it now waits for the
-  layout.
-- **`/vendor/bx-grant-row.js`: one rendering of `from → target`.**
-  `grantArrow(g)` draws a grant or request's caller-target pair with the
-  tooltip that explains it (the policy block reason, else what the
-  capability target means); the shell's grants panel, the admin console's
-  binding tab and the organisations tile all use it, so active grants
-  gained the tooltip their pending rows already had. Tiles may import it
-  ([frontend-kit.md](/docs/frontend-kit.md)).
-- **SDK: `xbin.WriteJSON` and `xbin.WriteError`.** The response helpers
-  every builtin backend and the agent template carried a copy of are in
-  the SDK (zero-dependency as ever): `WriteJSON(w, status, v)` sets the
-  content type, status and body; `WriteError(w, status, msg)` writes the
-  `{"error": msg}` shape xbin's own API uses, so a tile's refusals read
-  the same way in `bx` and in the in-frame client. Additive; existing
-  backends keep working unchanged.
-- **`bx` warns on a flag it does not know, everywhere.** `bx restore`,
-  `bx backup-schedule`, `bx builtin update` and `bx org add` used to ignore
-  an unknown flag — a typo'd `--versoin` became the component name, or
-  nothing at all. They now print `warning: unknown flag … ignored` on
-  stderr and carry on for this release; the next one makes them errors,
-  as every other command already is ([bx.md](/docs/bx.md) "Unknown
-  flags"). Scripts that pass a real flag are unaffected.
-- **`bx org add|set` no longer crash on a flag without its value.**
-  `bx org set devs --name` (and `--sets`, `--net`, `--allow`, `org add
-  --name`) printed a Go index panic; they now say `--name needs a value`.
-- **SDK: a tile granted a bus alias role now passes the matching guard.**
-  `xbin.RoleSatisfies` (and so `xbin.Role` / `RoleFunc`) folds
-  `subscriber` onto `reader` and `publisher` onto `writer`, exactly as
-  xbind does when it evaluates the call — a tile granted `subscriber` on a
-  bus and guarding with `Role("reader")` got a 403 from its own SDK before.
-  Permissive only: nothing that passed stops passing. Tiles pick it up on
-  their next rebuild.
-- **devbox and traefik declare their roles.** Both backends always guarded
-  with `reader` / `writer` but their manifests exposed no roles, so no
-  other tile could be granted them; `expose.roles` now lists both
-  (tile.json v2 — `bx builtin updates` offers it). A test now refuses a
-  shipped tile whose backend guards on a role its manifest does not
-  declare, and `make tile-check` builds every builtin backend against its
-  own `go.mod.tile` the way a workspace does.
-- **`/vendor/bx-kit.js` — the frontend helper kit, and a page saying what
-  tiles may import.** `api`/`xbinApi`/`selfApi` (fetch through the in-frame
-  client, JSON out, the server's `error` thrown), `jbody`, `esc`,
-  `deepActive`, `pathHas`, `clampBox` — the helpers the shell, the admin and
-  organisations tiles, llm-gw and the agent template each carried a copy
-  of. [frontend-kit.md](/docs/frontend-kit.md) lists every `/vendor/` module
-  a tile may import, the shell-only ones, the absolute-URL rule, and the lit
-  pitfalls met in this codebase. `bx-code.js` additionally exports `hl` and
-  `langFor`. The literal fallbacks core elements carry for the theme tokens
-  now equal `theme.css` (they had drifted to an old light palette), so a
-  core element embedded in a document that never linked the theme renders
-  in the workspace's colours; the theme is still never injected into a
-  tile's document.
-- **`/api/xbin/openapi.json` now describes the whole built-in API.** 27
-  endpoints that existed but were missing from the OpenAPI document are
-  in (permission sets, ownership transfer, access requests, code PRs,
-  ingress, template updates and repos, tile status, alerts, invites,
-  password change, token rotation), and three rows for the removed
-  org-teams endpoints are gone. `docs/protocol.md` gained the `GET /gpus`
-  row and route rows for the `/ws/term` and `/ws/events` WebSockets. A
-  test now reconciles the mounted routes, the OpenAPI document and
-  protocol.md on every build, so the three cannot drift again.
-- **Design-record citations now point at pages you can open.** Every
-  citation of a design record by its repository path in the served docs,
-  the scaffolded `AGENTS.md`, the builtin tiles and the templates was a dead
-  path from inside a workspace (the design records are not shipped); they
-  now cite the docs page or the decision ID. Two new pages: [compat.md](/docs/compat.md) — what a
-  workspace can rely on across xbind upgrades — and
-  [maintenance.md](/docs/maintenance.md) for xbin contributors. `bx tile
-  import` and *new from template* now skip a stray `backend/backend` build
-  artefact instead of copying it into the new component (xbind builds
-  backends into `.xbin/build/`; a `cgi` handler binary is unaffected).
-- **Copy from a tile's context menu; paste stays native.** Right-clicking
-  selected text inside a tile opened the tile menu with no way to copy: the
-  native menu was suppressed and a sandboxed frame has no
-  `navigator.clipboard`. The injected client now sends the selection (up to
-  64 KiB) along with the relayed right-click and the tile menu leads with
-  **Copy** (the snippet as its hint); the shell writes the clipboard —
-  `navigator.clipboard` on https / localhost, `execCommand('copy')` elsewhere
-  — and toasts *copied*. Inputs, textareas, editable text and links keep the
-  native menu (Paste lives there), as does any right-click on selected text
-  in the shell's chrome — now also inside nested panels such as grants and
-  bindings, where a shadow-retargeting gap let the shell menu open over
-  their inputs. On touch a live selection defers to the platform's selection
-  toolbar. Terminal, code, logs and proposals pop-ups are unchanged.
-
-## 2026-09-08
-
-- **Links in new tabs from a tile: the `cap:open-links` grant (ND11).**
-  The tile sandbox dropped every `<a target="_blank">` and `window.open`
-  silently — including the shipped tiles' own "docs ↗" links and the agent
-  template's markdown links. A tile now declares
-  `uses: [{target: "cap:open-links", role: "writer"}]`; once a workspace
-  admin (or an org admin whose allowance covers it) approves, that tile's
-  iframe sandbox **and** its CSP header gain `allow-popups
-  allow-popups-to-escape-sandbox`, so links and `window.open` work natively,
-  framed and full-page; the frame reloads on approval, no backend restart.
-  It is a grant, not a default like downloads, because the opened window is
-  a full-origin, cookie-bearing page at a URL the tile chose — add
-  `rel="noopener"` on your links; the workspace's own pages sever the
-  opener; in a credentialless frame `window.open()` returns `null` (the tab
-  still opens). Without the grant the console now says which grant a
-  blocked link needs. The shipped `tiles/admin`, `tiles/apidocs` and
-  `apps/welcome` declare it and a new workspace pre-approves it; the agent
-  template declares it (pending on instantiation). **Existing workspaces:**
-  see [changes/2026-09-08-open-links-cap.md](changes/2026-09-08-open-links-cap.md)
-  — update the shipped tiles and approve three pending rows. Also: the
-  approval prompts describe reserved capabilities in words (`cap:*` rows
-  used to show a bare target), `/components` reports `sandbox` (the extra
-  tokens a tile's grants unlock), and a git import / auth overview no longer
-  warns "no such component" for `cap:*` / `xbin:*` uses.
-
-## 2026-09-07
-
-- **Admin console: a proper permission-set creator (D57).** The permission
-  sets tab used to take the allowance grammar as free text. It now builds a
-  set from typed rows — *Use a tile* (path or pattern + role cap), *Bind an
-  interface* (service, optional provider tile + instance), *Use a resource*,
-  *Hold a capability*, *Use a GPU*, *Publish a hostname / under a zone / on
-  a host port*, *Network reach* (pointing at network sets), and a raw entry
-  for anything else — each row shows the entry in words and the exact
-  string, a bad field is flagged with the reason and blocks create/save,
-  and one save writes the set **and attaches it to the chosen
-  organisations**. Existing sets reopen with their entries parsed back into
-  rows; stored entries are listed in words on the card; an org's *extra
-  allow* entries use the same rows. The grammar lives in one shared browser
-  module (`web/bx-allow.js`: parse, format, validate, describe) that
-  mirrors the server's parser, so the UI, the org card and the organisations
-  tile cannot drift.
-
-- **Floating windows always stay reachable.** A tile's terminal / code /
-  logs pop-up remembers its position per tile in the browser; restored on a
-  smaller browser window, another monitor or a different zoom it could land
-  entirely off-screen — the terminal ran, the session streamed, nothing was
-  visible ("no terminal opens, no errors"). Every floating window (tile
-  pop-ups, `xbin.window()` windows, the ⚙ popover, float tiles) is now
-  clamped to the viewport when it opens or restores, is pulled back in when
-  the browser window shrinks (windows larger than the viewport shrink to
-  fit), and the canvas right-click menu gains **Bring windows on-screen**
-  for anything still parked out of reach (it also fixes up a float tile's
-  saved geometry). A caller-supplied `x`/`y` on `xbin.window()` is clamped
-  the same way.
-
-- **A tile reload no longer steals focus or hoists the tile.** When a tile's
-  document focused an input on load (autofocus, a script), the shell read
-  the resulting window blur as a click into that tile and brought its float
-  to the front — over the terminal you were typing in, right after your
-  edit reloaded the tile. A frame now reports itself as reloading until the
-  new document has loaded, the shell leaves the z-order alone meanwhile, and
-  focus pulled into the reloaded frame goes back to where it was (unless the
-  pointer is over that tile, i.e. you really clicked it).
-
-## 2026-09-06
-
-- **Net pickers no longer show a refused bind as a success.** Picking
-  `host` (or any ref outside the owning org's network sets, or anything at
-  all on a tile you may not wire) in the ⚙ tile popover left the select on
-  the refused value and the refresh wiped the error — it looked granted
-  while the server had said no (the D54 gate itself held: host on an org
-  tile is 400 for everyone, a personal tile is wired by workspace admins
-  only). Now `GET /bindings` marks options the sets refuse `blocked` and
-  says which tiles the caller may wire (`approvable`, on the map and on
-  each pending row); every picker (tile popover, admin console binding tab,
-  organisations tile, the root bind prompt) greys refused options out, a
-  refused `custom…` ref snaps the select back and shows the reason inside
-  the section, a tile you can't wire shows its wiring read-only, the root
-  prompt and the ⚑ badge list only slots you may bind. The ⚙ popover also
-  sizes to its content instead of opening at 70 % of the window. (v0.3.39
-  shipped the popover's snap-back reading a stale snapshot, so a
-  *successful* re-bind jumped back to the previous value until a second
-  pick — fixed right after.)
-
-- **Installer: missing distro tools are installed on every system run.**
-  The package step (`uidmap`, `fuse3`, git/curl/tar) was only planned for a
-  fresh build-from-source install; a prebuilt install, and any upgrade,
-  skipped it even after preflight had said "will install uidmap" — so
-  `newuidmap`/`newgidmap` could stay missing and uid-range mapping degraded.
-  The step now runs whenever a required tool is absent, prebuilt or source,
-  fresh or upgrade.
-
-- **Menus polish.** A right-click (or touch long-press) anywhere inside a
-  tile now opens its menu — the injected client relays the event out of the
-  iframe, unless the tile handled it itself or the target is an input, link
-  or editable text. The tile menu is a little wider and the four squares'
-  labels line up. The ⚙ tile admin is a popover rather than a window: still
-  wide and resizable, but click outside or Escape closes it, nothing to
-  drag, no ✕ (a sheet on phones keeps one). Fixed: opening a tile's logs
-  before its terminal had ever loaded could throw ("Terminal is not a
-  constructor") — the two xterm loaders now wait for the shared script tag.
-
-- **Context menus that carry a tile's actions; the tile admin is a window
-  (D56).** Right-click the empty canvas for **open tile** — the five most
-  recently opened tiles that aren't on this screen plus a find box over
-  every readable tile — **create a new tile** as a specific owner (mine ·
-  each org you hold Create in · workspace; `tileCreation: org-only` hides
-  the personal entry), and **new screen** ("new sidebar folder" left the
-  menu; the sidebar's ＋ folder stays). Right-click a card head or a
-  sidebar row, or press the new **⋯** on either, for the **tile menu**: four
-  squares — terminal · logs · source · change proposals (with the open
-  count) — then open/close on this screen, pin/unpin, open full page, and
-  for admins the lifecycle actions plus Access… / Runtime… / Vault… / Roles
-  & grants… / Interfaces… / Backup… / Cron…, each opening the tile's admin
-  at that section. The ⚙ button now opens a real **admin window**:
-  draggable, resizable, one per tile, Escape closes, a full-screen sheet on
-  phones — replacing the 340px popover whose binding pickers overflowed.
-  Long provider and interface names ellipsize with the full text on hover
-  instead of forcing a scroll, and `bx-multiselect` lists are now
-  viewport-fixed so no container clips them. Menus and the admin window
-  are bottom sheets on narrow screens, opened from ⋯ or a long-press on a
-  card head, a sidebar row or the empty canvas. New core element
-  `/vendor/bx-menu.js` (shell chrome, not a tile API); `bx-frame` gains
-  `open(layout)`. Docs: overview/04-frontend.md, getting-started.md,
-  elements.md.
-
-## 2026-09-05
-
-- **Org screens edit like dashboards; the sidebar is one tree per owner
-  (D55).** Org screens no longer auto-save every drag: the shell shows a
-  shared screen read-only (even to editors), **edit layout** opens a
-  personal draft, and **Save and update for everyone** publishes it — or
-  **Discard**. Saves carry a **revision**; someone else saving first gets
-  you a conflict dialog (*reload theirs* / *overwrite with mine* / keep
-  editing) instead of a silent clobber; the screen bar shows who saved
-  last and when; drafts survive a reload, and a draft whose screen is
-  deleted is copied to your own screens. Members can hide an org tab (it
-  stays in the org's sidebar section to reopen), order org tabs among
-  their own, and **copy to my screens**; org admins rename from the tab
-  and can **replace** an existing org screen with a personal one. The
-  sidebar drops the APPS/TILES directory headers: every owner section
-  (mine · each org · workspace) is one tree — **shared folders** curated
-  by the org's admins (or ws-admins for workspace-owned tiles) with the
-  same draft/save flow, plus every remaining readable tile flat at the
-  root, and the org's screens. Personal top-level folders work as before.
-  Protocol: `GET /screens` gains `rev/updatedBy/updatedAt` per org screen
-  and a `folders` map; `PUT /screens/org` takes `rev`/`force` (stale →
-  409 with the current screen), returns `{id, rev, …}`, and accepts a
-  tiles-less meta-only body; new `PUT /screens/folders`. Non-breaking: a
-  tiles write without `rev` is still accepted as a legacy overwrite, so a
-  workspace whose `shell/` predates this keeps working — take the
-  `scaffold:shell` builtin update for the new UX. Docs: auth.md §Shared
-  screens and folders, overview/04-frontend.md, protocol.md.
-
-- **Organisation network sets — per-org egress policy (D54).** A startup's
-  orgs rarely want the same network: `devs` the office LAN + internet,
-  `infra` all of `10/8` + the host network, `sales` the internet only. A
-  **network set** is a named rule list (`internet`, `internet:<host|*.glob|
-  ip|cidr>[:port]`, `lan:<ip|cidr>[:port]`, `host`, `provider:<tile-glob>`
-  — the `net:` allowance forms without the prefix) a workspace admin attaches
-  to orgs by reference. For an org's **own tiles** the union of its sets is
-  the **ceiling** on `net` bindings (an uncovered ref is refused at write
-  naming the set; one that turns uncovered later — a narrowed set, a
-  transfer — goes **inert** with the reason surfaced everywhere the binding
-  shows), the org admins' **allowance** (bind anything inside without
-  asking), the **default binding** — the new builtin `org`, the live union,
-  so an org tile that declares `net` simply has its org's reach — and the
-  egress of **terminals** opened on those tiles (new scope `org`; members
-  need no `termNet`, which now governs personal/workspace tiles only). A set
-  may grant `host` (every org-bound tile and terminal shares the host netns
-  — loud warning). New builtin `none` pins any tile offline. Same-org
-  provider tiles need no rule. Set/attachment edits restart the affected org
-  tiles. Surfaces: admin console **network sets** tab (typed-row editor with
-  inline hints + reach preview) and the org card's **network** block; the
-  binding tab, tile popover and organisations tile offer `org`/`none`/
-  `custom…` and label refused options "not covered"; the terminal scope menu
-  is rendered from the session frame (`scopes`, `netNote`) and shows 🏢 *org
-  network (…)*; `bx netset ls|set|rm`, `bx org set --net`, `bx org ls`
-  `net:`/`reach:`, `bx bind … net=org|none`, `bx iface` `default:org`/inert,
-  `bx status` `net org → …`, `bx doctor` checks. Protocol: `GET/PUT/DELETE
-  /net-sets`, `PATCH /orgs {netSets}`, `orgs[].netSets/resolvedNet/netHost`,
-  `/bindings` `pending[].default` + `inert`, `/runtime` + `/tile-status`
-  `netRef/net/netSource/netNote`, `GET /term-net`, terminal `?net=` absent =
-  default. Non-breaking: old bindings and personal/workspace tiles behave as
-  before; an older xbind resolves `org`/`none` to no egress (fail closed) and
-  drops `netSets` on its next persist. Hostname globs are allowed in set
-  rules only (per-tile bindings unchanged, D35). Docs: auth.md §Network
-  sets, overview/12-egress.md, isolation.md, protocol.md, bx.md.
-
-- **SSO-driven org management for multi-org teams (D53).** Everything a
-  small company with exec / sales / infra / compliance orgs needs to run
-  xbin on its identity provider without hand-editing memberships:
-  - **IdP groups → members.** Each org card gains rules mapping a provider
-    group to a membership shape (`sales@corp.com → developer`;
-    `PUT /orgs/<org>/sso-groups`, `bx org sso-groups`). At every SSO sign-in
-    the user's groups are reconciled: rule-wanted memberships are created or
-    re-set with provenance (⟳ *synced*), and a synced membership whose group
-    **or rule** is gone is **removed** — offboarding by group. Manual rows
-    are never touched (manual wins); *detach* turns a synced row manual. If
-    the provider fails to return groups, nothing is removed and the failure
-    shows in the console. Providers: generic OIDC `groups` claim (name
-    configurable, UserInfo fallback), GitHub teams/orgs (`read:org`),
-    Google Workspace via the Cloud Identity API (group emails). Extra scopes
-    are requested only while rules exist.
-  - **Workspace admins by group** (`adminGroups`), guarded: a hand-promoted
-    admin is never demoted by the IdP, the last enabled admin never loses the
-    role, every change is audited. The console warns about self-joinable
-    groups.
-  - **Admin console.** A **sign-in** sub-tab (token login, SSO with group
-    sync, *test connection*, *groups seen* — what the IdP actually sends —
-    and **SSO-only sign-in**). The users table scales: filter by id/name/
-    email/org, chips (admins · disabled · invited · never signed in · stale
-    30d+ · no org · one per org) that AND-combine, a **last sign-in** column,
-    org memberships as first-class pills (★ org admin, ⟳ synced), an
-    **orgs…** row editor (join/leave/preset/detach, one request per click),
-    a *more ▾* menu for the rare actions (incl. **sign out everywhere**),
-    and **disable all shown** for offboarding. Add-user defaults to SSO when
-    it is active, fills the id from the email, and can join an org at
-    creation. Org cards show member counts, an *add member … as* preset,
-    synced pills with *detach*, and the IdP-group rules with a datalist of
-    groups seen. Sessions tab: filter + per-user sign out. The manager
-    tile's owner picker now applies to clone / template / import / git too.
-  - **API.** `PUT`/`DELETE /orgs/<org>/members/<user>` (single membership;
-    org admins too), `PUT /orgs/<org>/sso-groups`, `DELETE
-    /users/<id>/sessions`, `POST /auth-settings/sso/test`; `POST /users`
-    takes `orgs`; `GET /users` carries `lastLogin`/`lastLoginVia`/`roleVia`/
-    `ssoGroups`; `/auth-settings` carries `passwordLoginDisabled` and
-    `sso.groupSync`; members/whoami carry `via`. `bx org member` edits one
-    row per call (`--detach`), `bx user add --org`, `bx user signout`,
-    `bx user ls` shows last sign-in. Downgrade note: an older xbind drops the
-    new fields on its next save (rules would need re-entry).
-- **FIX: SSO email bindings were lost on daemon restart.** `users.json`
-  loading dropped the `email` field (v0.3.31–v0.3.32), so every binding set
-  with `--email` / the users table vanished on the next xbind restart — and
-  the next save persisted the loss, after which a returning SSO user was
-  JIT-provisioned as `<id>-2`. Fixed with a reload regression test. **If
-  your daemon restarted since binding emails, re-set them** (`bx user set
-  <id> --email …`); a stray `<id>-2` account can be deleted.
-
-## 2026-09-04
-
-- **Provisioning: SSO pre-provisioning, new-account defaults (incl. default
-  org membership), and an org-only tile-creation policy (D52).** Three
-  gaps in running a workspace on SSO, closed together:
-  - **Pre-provision SSO-only accounts** — no password, no invite link: the
-    add-user form's *sign-in: SSO* mode, `bx user add <id> --sso --email
-    a@corp.com`, or `POST /users {sso:true, email}`. The bound email's IdP
-    sign-in is the credential. The users table also gained an **email**
-    button to set/clear a row's binding.
-  - **New-account defaults** — admin console → orgs → *new accounts* (`bx
-    defaults`, `GET/PUT /defaults {newUsers}`): tiles, create patterns,
-    term-api/term-net, and **org memberships** (org + level + Create) that
-    every new account starts with — admin-added, invited, *and* SSO
-    auto-provisioned. Seeded once at creation as a union with the request;
-    rows stay individually editable; never grants admin (JIT accounts are
-    always role `user`). This is "everyone from the SSO domain lands in org
-    X as a developer".
-  - **Tile-creation policy** — `tileCreation: org-only` (same card / `bx
-    defaults set --tile-creation org-only`) stops non-admins from owning
-    tiles personally: all five creation paths refuse a `user:` owner and
-    resolve an unspecified owner to the user's single Create org (several →
-    name one; none → refused). Admins unaffected. `GET /whoami` reports
-    `tileCreation`; the manager tile's owner picker drops "me" under it.
-  - `POST /clone`, `/builtins/import`, `/templates/new`, `/git/import` now
-    accept `owner` like `/create` (previously always creator-owned).
-- **Base image: agent CLIs updated and PINNED — claude-code 2.1.260, codex
-  0.153.2, opencode 1.18.27.** The claude-code/codex installs were unpinned
-  "latest", which in practice froze at whatever was current when the docker
-  layer was first built — the cache served claude-code 2.1.207 across a
-  month of releases. All three now pin via Dockerfile ARGs, so updating the
-  base image is: bump the ARG → release (the base version is a hash of the
-  recipe, so a bump automatically rolls `xbin-base-version` — upgraded
-  installs swap the base and open terminals offer "⬆ base update"). The
-  rebuild also refreshed the @latest Go tools (gopls, dlv, golangci-lint)
-  baked into the image.
-
-## 2026-08-25
-
-- **SSO sign-in: "Sign in with Google / Keycloak / Okta / Entra / authentik
-  / GitHub".** Generic OIDC (authorization code + PKCE, ID token verified
-  against the issuer's JWKS) with provider presets, plus a GitHub OAuth2
-  path (verified primary email; GitHub has no OIDC). Configure it in the
-  admin console's sign-in security panel or `PATCH /auth-settings {sso:…}`.
-  No self-signup, ever: a verified IdP email signs in as the user row whose
-  new **`email` field** matches (`bx user set <id> --email a@corp.com`), or
-  — when you list **allowed domains** — JIT-provisions a default-access
-  `user` account (Google additionally requires the Workspace `hd` claim, so
-  consumer accounts can't slip through). Requires the new **`--external-url`**
-  / `XBIN_EXTERNAL_URL` (the stable public console URL the
-  `/login/sso/callback` redirect URI is registered under; also improves the
-  printed boot-login and invite links). The client secret is write-only and
-  lives with the user store (the vault is sealed at boot — a login secret
-  there would be circular); SSO discovery/token calls are the daemon's only
-  outbound HTTP (`HTTPS_PROXY` honored). Apple is deliberately unsupported
-  (no static client secret; private-relay emails defeat domain rules).
-  Password login continues to work alongside. New deps: `golang.org/x/oauth2`,
-  `coreos/go-oidc/v3`. Details: docs/auth.md §SSO, D51.
-
-## 2026-08-24
-
-- **Tiles can trigger file downloads again: `allow-downloads` +
-  `xbin.download` / `xbin.url`.** The ND8 frame sandbox silently blocked
-  every tile-initiated download (blob + `<a download>` clicks AND
-  `Content-Disposition: attachment` navigations) — it even broke the admin
-  tile's backup restore-one-file flow. The sandbox (iframe attribute + CSP
-  header) now carries `allow-downloads` for all tiles (ND10): downloads
-  cross no workspace/session/tile boundary, and the browser's download UI
-  is the consent surface; popups/top-navigation stay blocked. New client
-  helpers: `xbin.download(filename, data, type?)` hands a
-  Blob/ArrayBuffer/string to the browser as a named download, and
-  `xbin.url(path)` returns a frame-token-carrying URL string for tag-driven
-  requests that can't set headers — the way to stream large downloads
-  straight from your backend (`<a href="${xbin.url(...)}" download>` + an
-  attachment response). Build such URLs at click time (the token is
-  short-lived), and trigger downloads from a user gesture. See
-  docs/elements.md §Isolation and docs/sdk.md.
-
-## 2026-08-14
-
-- **security: credential-less tile-subresource reads now require a
-  recently-authenticated source IP.** The `/c/<tile>/` exception for
-  sandboxed-frame asset loads (JS/CSS/images — browsers can't attach
-  credentials to tag loads) was authorized by Fetch-Metadata headers alone,
-  which any non-browser client can forge. xbind now additionally requires a
-  successful authentication from the request's source IP within the last
-  hour, so drive-by internet scanners with no login get 401 even with
-  perfectly forged headers. **No tile/builder action needed** — a tile's
-  subresource loads always follow its authenticated document load from the
-  same IP, so browsers are unaffected. Note for **operators behind a reverse
-  proxy**: set the new `--trusted-proxies` / `XBIN_TRUSTED_PROXIES` (proxy
-  IPs/CIDRs) or all clients share the proxy's IP for this gate (and for the
-  login throttle, and session IP attribution).
-- **security: `X-Forwarded-For` is no longer trusted from arbitrary
-  clients.** It is honored only when the immediate peer matches
-  `--trusted-proxies`, and the chain is read from the **rightmost untrusted
-  hop** (the address the proxy appended and vouched for) — a client behind
-  the proxy prepending its own XFF entries gains nothing. Previously any
-  client could spoof it to bypass the per-IP login throttle (or lock a
-  victim IP out). Default behavior with no flag: the peer IP is always
-  authoritative.
-- **new endpoint: `GET /api/xbin/sessions`** (admin / `xbin:users`) — live
-  browser sessions with login/last-seen client IPs and activity times; the
-  caller's own row is marked `current`. Session ids are credentials and are
-  never returned; stateless bootstrap-token logins don't appear.
-- **admin tile: new "sessions" tab** under user management — the session/IP
-  table above, so IP attribution (and the warm-IP gate's view of the world)
-  is operator-visible.
-
-## 2026-08-12
-
-- **Installer: prebuilt bundles by default, fail-fast network preflight,
-  pinned-input currency checks.** A real-world install died ten minutes in:
-  the fuse-overlayfs build container couldn't fetch the Alpine package index
-  (host networking fine, container networking broken — the classic fresh
-  podman trap). Three structural fixes: **(1)** when the pinned release
-  publishes a bundle for the host arch, `install.sh` now uses it
-  automatically — no podman, no Go, no build containers on the target at
-  all (`--build-from-source` opts out; untagged refs, repo checkouts, and
-  unbundled arches still build). **(2)** Source builds preflight their
-  remote inputs before anything mutates — Alpine index + Go tarball
-  reachability from the host, and, once an engine exists, an in-container
-  egress probe with a host-vs-container diagnosis — and the build steps
-  retry once on transient registry/CDN errors. **(3)** New
-  `hack/check-pins.sh` (run by `deploy/publish-release.sh`, fatal) guards
-  pin drift, EOL currency via the endoflife.date API, and artifact
-  reachability — it immediately caught that the `alpine:3.20` build pin
-  had been **4 months past EOL**; the pin is now 3.22. The behavior change
-  rides the next tag (the xbin.dev bootstrap always delegates to the
-  tagged installer).
-
-## 2026-08-11
-
-- **Template updates actually merge now.** Instances of builtin templates
-  always had a `template` git remote and a documented
-  `git fetch template && git merge template/main` upgrade path — but their
-  repos started from an unrelated `git init` root, so that merge refused
-  with "unrelated histories". New instances are now **seeded from the
-  template's repo** (D50): main = the template snapshot plus one commit of
-  instantiate rewrites, so upstream template fixes merge cleanly with the
-  snapshot as the common ancestor (you still pick what to adopt — an
-  instance is a fork). `bx template updates` and the Tile Manager's
-  Template tab list instances that are behind; instances created before
-  this release are flagged `legacy` — their first merge needs
-  `--allow-unrelated-histories`, after which they're normal.
-
-- **Agent template: markdown responses, folded tool output, capped tool
-  results.** Assistant messages (and the streaming draft) render as
-  sanitized markdown (raw HTML from the model is shown escaped, links are
-  scheme-checked and open in a new tab). Long tool outputs in the timeline
-  collapse behind a "show full output" expander instead of walls of text,
-  and the backend now middle-elides tool results over 16 KiB before they
-  enter the transcript — an unbounded file read no longer rides every
-  subsequent LLM call until compaction. Existing agent instances pick all
-  of this up via the template-updates path above.
-
-## 2026-08-10
-
-- **Builtin updates can arrive as PRs: `bx builtin update <id> --pr` /
-  "Propose as PR".** The old conflict path wrote `<<<<<<<` markers straight
-  into a live tile's files (and recorded the new base before you resolved).
-  Mode `pr` instead files the update as a change proposal against the tile —
-  kind "builtin update", carrying the version bump, changelog, and per-file
-  status — which the tile's own terminal/agent reviews and merges with
-  `git am --3way` (clone-first recipe in the PR body keeps markers out of
-  live files entirely). Update tracking refreshes **when the PR closes
-  merged**, not before; rejecting keeps the update offered; a newer xbind
-  auto-withdraws stale open proposals. The Tile Manager's Updates tab makes
-  "Propose as PR" the primary action for customized/conflicted builtins;
-  adopted units (no recorded base) — which `--merge` refuses — get a working
-  ours→upstream proposal too. `--merge` remains as the legacy path.
-  Design: D49 (building on the D48 PR channel).
-
-- **Cross-tile change proposals ("code PRs"): `bx code pr`.** A terminal can
-  write only its own tile; changes for a *sibling* tile now travel as
-  proposals instead of workarounds: clone the target's repo out of the
-  read-only mount, commit, `git format-patch`, then
-  `bx code pr <target> --title … -m … *.patch`. The target's own
-  terminal/agent lists its inbox (`bx code prs`), reviews the diff, applies
-  with `git am --3way`, and closes `--merged`/`--rejected` (with a note the
-  author's agent reads); `--withdrawn` is the author's. Opening needs no
-  grant — read visibility *is* the suggest capability (D48) — and xbind
-  never applies a patch itself, so the target plane stays in control.
-  Surfaces: `/api/xbin/code/prs*` + `/code/pr*`
-  ([protocol.md](/docs/protocol.md)), a **⇄ PRs tab** in the terminal
-  window (diff view, review thread, merge/reject), **⇄ badges** in the
-  shell sidebar and card headers for tiles with open proposals, and a `pr`
-  event on `/ws/events` (read-filtered). Agent workflow + rules (review
-  before apply, close the loop): workspace `AGENTS.md` §Suggesting changes.
-  Design: D48.
-
-## 2026-08-08
-
-- **Prebuilt install bundles: `install.sh --prebuilt-rootfs`.** Skip the
-  multi-minute, multi-GB build (podman/docker + Go + apt + Chromium): download
-  a prebuilt bundle for the host arch — native binaries + base rootfs + SDK,
-  one `.tar.zst` per arch — verify its sha256, unpack, done. No podman, no Go,
-  no build. With no value it fetches this release's manifest from its GitHub
-  Release; `SPEC` may be a `release-manifest.json` URL/path, a bundle tarball,
-  or a local unpacked bundle dir (also `XBIN_PREBUILT=<spec>`). Maintainers
-  build + publish with `deploy/publish-release.sh`. The base rootfs Dockerfile
-  is now architecture-parameterized, so **amd64 and arm64** bundles are both
-  possible (arm64 previously never built — the toolchains were x64-hardcoded).
-  See [operations.md](/docs/overview/15-operations.md).
-
-## 2026-08-07
-
-- **Rootfs: agent CLIs install on CPUs without AVX2 (bun SIGILL fix).**
-  v0.3.22 installed the JS agent CLIs via bun, but bun's stock x64 build
-  requires AVX2 (Haswell+) and crashed with "Illegal instruction" on cloud
-  VMs without it — shipping (loudly, via the inventory step) an image
-  missing claude-code, codex, pnpm and yarn. The rootfs now selects bun's
-  build by the host's CPU (baseline/x86-64-v2 unless avx2 is present; the
-  rootfs runs on the host it's built on), verifies bun actually executes,
-  and falls back to npm per-tool when it can't — so the agent CLIs land on
-  any hardware. opencode (release binary) was unaffected. Rebuild the
-  rootfs to pick this up.
-
-- **Rootfs: agent CLIs install reliably; bun ships in the base.** The base
-  image installed claude-code, opencode and codex in ONE npm transaction —
-  opencode's broken npm postinstall rolled all three back, and the
-  best-effort guard shipped a green image with no agent CLIs. Now: each
-  tool installs in its own step (failures are independent), claude-code
-  and codex install via **bun** (now in the base at `/usr/local/bun`, on
-  terminal/backend PATH — installs are ~10× faster and it's a runtime
-  builders use anyway), and opencode ships as its pinned official release
-  binary, sidestepping its npm postinstall entirely. A final inventory
-  step prints any missing tool loudly in the build log and stamps
-  `/etc/xbin-rootfs-tools` into the image. Also: node bumped to 22.23.2 —
-  current pnpm requires ≥22.13, so the old pin shipped a silently broken
-  pnpm. Rebuild the rootfs (`make rootfs`, or the installer's upgrade
-  path) to pick all of this up.
-
-## 2026-08-04
-
-- **Fixed: code grants also cover component discovery.** Yesterday's fix
-  opened `/c/` reads for `code`-granted elements, but `GET
-  /api/xbin/components` still filtered by tile read access — a tile with
-  the bare `code` grant (read all source) listed only itself plus chrome,
-  so tooling like a code-stats tile saw 3 of 30+ components. The listing
-  now includes everything the element's code grant covers.
-
-- **Fixed: `code`/`code:<component>` grants read source via `/c/` again.**
-  The org-improvements read clamp (2026-08-02) made element principals
-  self-only on the static plane, which also cut off elements holding a
-  source-read grant — tooling backends (linters, search, stats) could no
-  longer fetch sibling files. Grant-holding elements now pass the `/c/`
-  read gate (broker-installed hook; grants stay in the grant table); the
-  D4 injection still mints frame tokens only for principals with tile
-  read access, so grant-based reads never receive the other tile's
-  credential. Also fixed: the admin workspace-totals charts rendered
-  invisible (SVG-namespace bug in the multi-line sparkline).
-
-- **`code`/`code:<comp>` grants now open the `/c/` static plane for element
-  principals.** The 2026-08-02 element read clamp had made backend instance
-  tokens self-only on `/c/`, so a code-granted tooling tile could no longer
-  fetch sibling source over plain HTTP (only via `/api/xbin/code/*`). With an
-  approved `code:<comp>` (or blanket `code`) grant, `/c/<comp>/<file>` reads
-  now work for the granted element too; HTML served this way never carries
-  the target tile's frame token.
-
-- **Resource sizes no longer re-walk trees on every poll.** `GET /runtime`
-  measured walk-heavy resources inline — a full recursive walk of every
-  filesystem/blob tree (for an encrypted container store, hundreds of
-  thousands of cipher files) and a full kv bucket iteration, per 2s admin
-  poll. Sizes are now TTL-cached (30s) and refreshed by a single background
-  measurer; `/runtime` never blocks on a walk. A just-declared resource
-  briefly shows "measuring…". sqlite (one stat), cron and bus counts stay
-  live.
-
-- **Admin resources tab: workspace totals + per-type resource tabs.** The
-  live-stats view now opens with four workspace-total charts (CPU, memory,
-  I/O, IOPS summed across tiles, ~3 min of history) with a "by org" toggle
-  that splits each chart into one line per owner. The brokered-resources
-  table below became one tab per resource type (filesystem, sqlite, kv,
-  blob, bus, cron) with type-appropriate columns — bus resources show live
-  **events/min** (from a new cumulative publish counter on `GET /runtime`
-  resources; in-memory, resets with the daemon). Also fixed: `filesystem`
-  resources reported no size in the table.
-
-- **Tile frontend isolation: tiles now run in sandboxed opaque origins —
-  BREAKING.** Every non-chrome tile document is served with a CSP `sandbox`
-  header and framed by `bx-frame` with the `sandbox` attribute (plus
-  `credentialless` in Chromium): a tile's JS can no longer read the shell's
-  or a sibling tile's DOM, `localStorage`/IndexedDB/cookies are gone inside
-  tile frames, and the ambient session cookie is worthless on requests out of
-  a tile — xbind drops it via a Fetch-Metadata gate, so a raw `fetch` without
-  the frame token no longer authenticates as the signed-in human. The frame
-  token is now a tile's *only* credential and works standalone (cookie-less
-  renewal included). Tiles that legitimately act as the human must become
-  trusted chrome (`"chrome": true` in xbin.json, host-set only — as
-  tiles/organisations now is). Migration:
-  [/docs/changes/2026-08-04-tile-frontend-isolation.md](/docs/changes/2026-08-04-tile-frontend-isolation.md)
-
-## 2026-08-03
-
-- **Container stores: writeback now opt-in; round-trip diet shipped
-  instead.** The writeback cache (and the 60s kernel cache timeouts) moved
-  behind `XBIN_GOCRYPTFS_WRITEBACK=1` after a production build hit an
-  unexplained `close()`→EIO that correlated with it (never reproduced
-  elsewhere, including a full subuid-topology rerun of the same build —
-  both ways). The default path got faster differently, by deleting FUSE
-  round trips: every `close()` no longer sends a FLUSH (`FOPEN_NOFLUSH` —
-  ours was a semantic no-op), the kernel no longer asks for
-  `security.capability` before every write (`FUSE_HANDLE_KILLPRIV`, with
-  the implied suid/sgid/fscap clearing on write+truncate now done — and
-  tested — daemon-side), `fsync` uses the open handle instead of a path
-  re-walk plus open/close, and the async request backlog is 64 deep
-  (was 12). Census on a real dpkg upgrade through fuse-overlayfs: FLUSH
-  ops −100%, GETATTR −40%, ~13% fewer round trips overall; the win grows
-  with per-op latency (loaded servers), and append-style workloads now
-  beat the pre-writeback baseline. Rebuild gocryptfs (`make gocryptfs`).
-
-- **`XBIN_GOCRYPTFS_NOWRITEBACK=1`** (set in xbind's environment) reverts
-  single-tenant mounts to pre-writeback kernel caching — an A/B and
-  mitigation switch for suspected writeback interactions; mounts pick it
-  up on the next remount (restart).
-
-- **Container stores: FUSE writeback cache.** Single-tenant (container-store)
-  mounts now opt into the kernel's writeback cache, via an xbin patch on
-  go-fuse (`hack/gofuse-patches/` — upstream carries the capability flag but
-  never wired an opt-in). Small writes batch in the page cache and reach the
-  encryption daemon as few large requests (measured: 4096 sixteen-byte
-  writes on one fd arrive as a single 64KiB WRITE), and **shared writable
-  mmap now works** on these mounts — notably fixing tools that mmap their
-  state, e.g. SQLite in WAL mode. Chunked-write workloads measure ~25%
-  faster; image-commit speed is unchanged (its cost is per-file FUSE round
-  trips, not data writes). Sound because a single-tenant mount's backing
-  tree has exactly one writer — the mount itself. Attr/entry/negative-dentry
-  kernel caching is also stretched to 60s on these mounts (same argument),
-  and no-op chmod/chowns (tar extraction re-applying what create already
-  set) skip the encrypted identity-xattr rewrite. Rebuild gocryptfs
-  (`make gocryptfs`) to pick it up.
-
-- **Fixed: container-store image builds could die with `Permission denied`
-  mid-install.** The per-inode identity/capability caching added earlier
-  today had no invalidation when a file was deleted. On backing
-  filesystems that recycle inode numbers (ext4, xfs — btrfs never does),
-  a freshly created file could be served the *deleted previous
-  occupant's* cached identity: an `update-alternatives` symlink (`which`)
-  reported as a regular non-executable file, or a phantom
-  `security.capability` on a just-unpacked binary — both make `execve`
-  fail with `EACCES`, killing `dpkg` maintainer scripts (exit 126)
-  partway through large `apt-get install`s. The gocryptfs patch now
-  drops cache entries when an inode loses its last link (unlink, rmdir,
-  replacing rename), never applies a cached identity to a symlink, and
-  reads through the cache for unlinked-but-open files. No store
-  migration; rebuild gocryptfs (`make build` / `hack/build-gocryptfs.sh`)
-  so mounts pick up the fix.
-
-- **Live per-tile stats in the admin console.** The resources tab now leads
-  with a live table of every running tile: CPU %, memory, I/O MB/s and
-  IOPS (read+write, syscall-level — resource/FUSE I/O included), pids —
-  each with an inline sparkline, click a row for full-size charts (~3 min
-  of history at 2s cadence). Columns sort on click, a prefix filter
-  narrows by tile name, and "group by org" buckets rows under their
-  owner with per-org totals. Backed by a new demand-driven sampler in
-  xbind (cgroup-v2-exact under the installed service's `Delegate=yes`;
-  /proc-tree sampling in dev) surfaced as `stats` on `GET /runtime`
-  ([protocol.md](/docs/protocol.md)).
-
-- **Container-store speed: identity caching + overlay storage.** Two fixes
-  for slow small-file work (npm, image builds) on single-tenant stores:
-  the gocryptfs patch now caches the virtualized identities *and* the
-  `security.capability` answer the kernel re-requests before every write
-  in memory, per inode (sound because the daemon is the sole writer of a
-  single-tenant cipher tree) — stat/chmod-heavy work is back at stock
-  gocryptfs speed. And the devbox tile now prefers the `overlay` storage
-  driver via fuse-overlayfs when the sandbox has `/dev/fuse` (a build
-  step writes only its diff; `vfs` copied the entire rootfs chain per
-  layer — quadratic, and brutally slow through an encrypted store). `vfs`
-  remains the fallback and `DEVBOX_STORAGE_DRIVER` still overrides;
-  switching drivers keeps the old driver's images on disk — re-pull.
-
-- **Container stores work on encrypted resources.** A `filesystem` resource
-  of a `cap:containers` scope now mounts in gocryptfs *single-tenant mode*
-  (an xbin patchset on the pinned gocryptfs, `hack/gocryptfs-patches/`):
-  ownership/mode/whiteouts/file-caps are virtualized into encrypted xattrs
-  and in-mount permission checks are skipped, so podman's layer store —
-  0555 dirs, sub-uid chowns, `security.capability` — round-trips on the
-  encrypted mount. No new manifest surface and no on-disk format change;
-  the mode follows the `cap:containers` grant automatically. Container
-  tiles also get a cgroup2 view at `/sys/fs/cgroup` (libpod requires one)
-  plus `/dev/net/tun` and `/dev/fuse` device nodes (pasta/slirp4netns
-  networking, fuse-overlayfs storage) — and can drop their self-mount
-  workarounds. Host requirement:
-  `user_allow_other` in `/etc/fuse.conf` (system installs enable it;
-  `bx doctor` checks). See [resources.md](/docs/resources.md).
-
-- **The installer knows when xbin is already there.** A no-flag non-root
-  run on a box with a system-wide install now leads with that fact
-  (version, running state, listen address) and makes upgrading the
-  default — plain Enter at the chooser sudo-upgrades; user mode is
-  offered as a separate second instance. Side-by-side installs stop
-  colliding on the port: a fresh user instance auto-moves to the next
-  free port when 8642 is taken (stated in the plan and the summary),
-  upgrades preserve the existing unit's port, and an explicitly
-  requested busy `XBIN_LISTEN` fails the plan up front.
-
-- **Ubuntu 26.04 LTS everywhere**: the base rootfs image (terminal +
-  backend sandboxes; existing terminal env layers stay pinned to their
-  old base, which upgrades preserve as `rootfs-<version>`) and the macOS
-  Lima VM image both move from 24.04 to the current LTS. Bonus for
-  container-host tiles: 26.04's podman ships netavark, so bridged
-  container networking works out of the box.
-
-## 2026-08-02
-
-- **SECURITY — restricted terminals now mount an allow-list view (D40).**
-  A production check showed a non-admin tile terminal could enumerate
-  unreadable siblings' NAMES (each deny-mask is a visible tmpfs) and read
-  the workspace root `xbin.json` — the entire grants/bindings topology,
-  public hostnames included. Restricted terminals now get a staged view:
-  only readable tiles are mounted (unreadable ones are absent, names and
-  all), `xbin.json` is redacted to rows referencing only readable
-  components, `go.work` is filtered to readable modules (so builds don't
-  chase absent dirs), and `.xbin`/`data`/other homes simply don't exist
-  inside — no masks, no resenc names in the mount table. Admin terminals
-  keep the full read-only view. If your agent tooling relied on reading
-  another (unreadable) tile's source from a non-admin terminal, that was
-  the leak: ask for `read` on it.
-
-- **Upgrades backfill essential tiles, and terminator owners control their
-  domains (D41).** Workspaces created before `tiles/organisations` existed
-  now get it installed at boot (the shell's ⚑ button targets it) — once:
-  the backfill is ledgered in `data/backfills.json`, so deleting the tile
-  afterwards sticks. `bx builtin updates` lists missing essential tiles
-  and `bx builtin update tiles/organisations` installs one (bare names
-  resolve). Workspaces already using defaultTiles get a read entry for the
-  new tile; others are left for the admin to decide. And ingress consent
-  now follows terminator ownership: an org admin can publish org tiles
-  through the org's own terminator — and approve outside tiles publishing
-  through it — without any allowance; host ports and the builtin listener
-  still need one.
-
-- **The installer grew a user-only mode and a plan-before-approve flow.**
-  `curl … | bash -s -- --user` installs xbin entirely under your own
-  account: `~/.local/opt/xbin`, a systemd *user* unit with lingering, no
-  root anywhere — anything that would need root (missing distro packages,
-  a missing subuid range, an AppArmor userns restriction) is caught in
-  preflight and reported with the exact one-line root command, before
-  anything is touched. Both modes now print a numbered plan of exactly
-  what this run will do (steps already in place listed as skipped) and
-  ask once; `--check-only` stops after preflight + plan. The website
-  shows both commands.
-
-- **Hidden tiles (D42).** Tiles can now be hidden: a lifecycle state that
-  is exactly `disabled` (backend stopped, refuses to spawn) plus removal
-  from sidebars and listings. The workspace sidebar, the admin console's
-  components table and access map, and the organisations tile's org-tiles
-  list all filter hidden tiles behind a "show hidden (N)" toggle, render
-  them dimmed with a badge when shown, and offer hide/unhide wherever
-  lifecycle controls live (the ⚙ panel too). Same D24 gate as the rest of
-  lifecycle: the tile's owner, its org's admins, or a ws-admin. `bx hide` /
-  `bx unhide`; /components rows now carry the lifecycle `state`. Hiding an
-  offloaded tile is refused (restore first); placed tiles stay on screens,
-  rendering their disabled state.
-
-- **macOS installs, for real.** `curl -fsSL https://xbin.dev/install.sh |
-  sh` on a Mac now sets up a lightweight Linux VM via Lima (Apple's vz
-  runtime; qemu fallback pre-macOS 13) sized by you at install time
-  (defaults 32 GiB thin disk / 4 GiB RAM / 4 CPUs), runs the regular Linux
-  installer in system mode inside it pinned to the same release, forwards
-  the UI to the Mac's loopback :8642, and prints the one-time login URL —
-  with the same numbered plan-before-approve contract as the Linux
-  installer. Requires Homebrew for Lima (never installs Homebrew itself);
-  re-running upgrades xbin inside the existing VM; `limactl delete xbin`
-  uninstalls. The Linux installer's macOS refusal now points at the
-  one-liner instead of a bare "get a VM".
-
-- **The installer chooses with you, not for you.** Run without sudo and
-  without a mode flag and it explains system vs user mode (system creates
-  a dedicated `xbin` user for better separation), prints BOTH numbered
-  plans — the system plan from read-only probes, re-verified after
-  escalation — and asks: [s]udo into the system install from right there,
-  [u]ser-only, or quit. `--system` without root now shows the full
-  read-only plan and offers to sudo instead of dying; `--yes` never
-  guesses a mode.
-
-- **Publishing from the bind dialogs actually works now, and org admins
-  got a wiring surface.** The root page's bind panel (and the
-  organisations tile's pending-binds card) rendered exposed endpoints
-  with just a provider picker — no way to enter the hostname/zone/port,
-  so "publish" always died with a silent 400. Expose rows now carry the
-  route editor (host or zone for http, listen for stream), the button
-  stays disabled until the route is filled, and every server refusal
-  renders inline. The organisations tile gained a **wiring & ingress**
-  card: pending slots for org tiles with the full editor, active
-  bindings with their routes and one-click unbind — publishing through
-  your org's own terminator needs no allowance (D41); host ports and
-  the builtin listener still do.
-
-- **BREAKING — transfers grew a preview, side effects, and a tighter
-  receive rule (D39).** ([migration note](changes/2026-08-02-transfer-create-bound.md))
-  Every transfer surface (organisations tile, new admin-console owner
-  editor, `bx owner --transfer`) now shows an impact report before the
-  confirm: your own post-transfer access level, bindings/grants that die
-  under the new owner's ceilings, and approval-plane changes. The
-  transfer then unbinds fully-dead binding slots and restarts affected
-  backends, so a tile moved into a net-denying org loses egress NOW, not
-  at some future restart. Receiving a tile INTO an org now requires that
-  org's **Create** knob (previously any member could) — transferring in
-  is creating, capability-wise. The shell's right-click "Create a new
-  tile" dialog gained the owner picker (me / your create-orgs /
-  workspace for admins).
-
-- **Org screens, a first-screen editor, sidebar that knows whose tile is
-  whose, and self-service passwords (D37/D38).** The sidebar now groups
-  tiles into *mine / each org / workspace* with an org filter (tree view
-  preserved inside groups). Ws-admins can save any screen as the
-  **workspace default** every new user starts from — no more hand-editing
-  root/index.html — and org admins can share screens to their org: **org
-  screens** appear as tabs for every member, with an edit knob choosing
-  who may rearrange (admins / write-level / all members; everyone else
-  views read-only). Users change their own password from the new
-  my-account section (POST /account/password), and org admins can reset a
-  non-admin member's password by re-minting their invite link — the
-  forgotten-kid-password case no longer needs the workspace admin. Admin
-  console polish: successes render green (not in the error slot), the
-  rotated owner token and invite links land in copy-fields instead of
-  prompt() dialogs, and secrets/resets use inline forms. The organisations
-  tile gained org-admin deep visibility: ceiling rows (read-only),
-  member presets, per-member override badges ("clamps org level" /
-  "excluded"), and org-screen management.
-
-- **Re-review fix batch (incl. one security fix).** A second five-story
-  review of the shipped model confirmed every prior finding fixed and
-  surfaced a short list, all addressed:
-  - *SECURITY:* per-tile read RBAC now binds **element principals** on the
-    `/c/` static plane — previously any tile's frame token could read every
-    other tile's source/manifest regardless of the driving user's access
-    (pre-existing, not from the recent waves). Elements read their own tile
-    always; beyond it the attributed user's access decides; unattributed
-    backend tokens are self-only.
-  - Provider-org admins can now actually **withdraw** a consumer's binding
-    to their tile (DELETE carried no refs, so the documented D33 withdraw
-    lever never matched; the stored binding decides now).
-  - Allowance hostname globs cover the apex: `net:internet:*.stripe.com`
-    also matches `stripe.com` (the TLS-wildcard footgun pushed admins back
-    to unfiltered internet).
-  - Request dismissals stick: a manager's dismissal starts a 24h re-file
-    cooldown, and users excluded by an exact `none` entry get told so
-    instead of re-filing forever. Withdrawing your own request stays free.
-  - Pending-request hints now include the self-serve detour
-    (`transfer:org:<id>`) when moving a personal tile into your org would
-    put it under the org's allowance.
-  - `bx doctor`: recognizes D35 `net:internet:<spec>` allowances (was a
-    false positive), treats suspended org admins as absent, and flags exact
-    entries that clamp below a member's org level (stale approvals). The
-    access map renders exact `none` exclusions instead of flattening them
-    into "never granted"; disabled users no longer show "invited".
-
-- **Disable, suspend, ask-for-access, and hostname-granular egress
-  (D34-D36).** The second wave of review follow-ups, all additive:
-  - *Account disable (D34):* `bx user set <id> --disable` (admin tile
-    toggle) pauses an account — login, sessions, live terminals and invite
-    links all refuse — while keeping every grant, membership and owned tile
-    for `--enable`. Lockout-guarded. Org admins get the org-scoped little
-    sibling: a member's **suspended** knob pauses one membership (confers
-    nothing, stays listed).
-  - *Ask for access (D36):* navigating to a tile you can't read now shows a
-    request-access page (owner named, one click) instead of a bare 403;
-    `bx access <tile> request [level]` does the same from a shell. The
-    tile's owner / org admins see the queue in the organisations tile (and
-    `bx access <tile>`), approve into an exact entry or dismiss; requesters
-    can withdraw. The ⚑ badge counts these too.
-  - *Filtered internet egress (D35):* `bx bind apps/x
-    net=internet:api.stripe.com:443` restricts a tile's egress to named
-    hosts/CIDRs/ports — hostnames enforced by DNS pinning in the egress
-    relay (rebinding into the LAN pins nothing). Allowances grant it with
-    globs and CIDR containment: `net:internet:*.stripe.com` or a
-    `net:lan:10.0.0.0/8` entry that lets org admins carve out any narrower
-    subnet. Complex filtering stays in net-provider tiles.
-  - Invite links now also return an absolute `inviteLink`, the invite page
-    warns when you're already signed in (so you don't burn someone else's
-    single-use link), and the login/invite cards no longer clip on small
-    phones. A fresh workspace's shell shows a one-time "secure this
-    workspace" checklist until the first admin account exists.
-
-- **BREAKING — the ownership model grew teeth: org-governed access, exact
-  overrides, provider-side approvals, backend-only secrets, user
-  attribution.** ([migration note](changes/2026-08-02-ownership-fixes.md))
-  The fixes from the five-story UX review, in one wave:
-  - *Access resolution (D31):* an org-owned tile is governed by the org —
-    personal pattern grants and workspace defaults no longer leak into org
-    tiles; an **exact per-user entry is authoritative** (override down, or
-    `none` to exclude one member from one tile).
-  - *Create-as-org actually works:* a member with the org's Create knob can
-    create org-owned tiles with no personal canCreate pattern (the D25
-    promise, previously dead code) — manager tile, organisations tile, `bx
-    new --owner org:<id>`, raw POST /create.
-  - *Provider-side consent + nobody is blind (D33):* admins of the org that
-    owns a tile now SEE its consumers and may approve/withdraw grants and
-    bindings targeting their property; requesters see their own pending
-    requests with who-can-approve hints; the shell ⚑ badge counts real
-    pending approvals and updates live (new-pending events); grant rows
-    record who approved (`approvedBy`).
-  - *Allowance granularity (D32):* `tile:<pat>@<role>` / `res:<glob>@<role>`
-    cap the delegable role; `iface:<svc>@<tile>#<instance>` pins a provider
-    and instance (share the dev instance, not prod); entries validate per
-    class at write time instead of storing dead strings.
-  - *Vault (D30, BREAKING):* secret VALUES are readable by the tile's
-    backend only — admins and tile terminals list/set/rotate but never
-    read; tile frontends can't reach the vault API at all.
-  - *User attribution (D29):* backends receive `X-XBin-User` +
-    `X-XBin-User-Level` for the driving human; SDK `Caller(r)` carries
-    `User`/`UserLevel` + `UserCanWrite()` so tiles can gate in-app.
-  - Also: lifecycle is now the owner's (org admins can stop their runaway
-    tile), org admins can read their org's policy rows, deleting a user
-    reports the tiles that fell to workspace-owned, `bx doctor` learned
-    ownership checks, and `bx new --team` (dead teams-era flag) became
-    `--owner`.
-
-- **Invite links: onboard users without sharing passwords (D22).** Create a
-  user with no password (admin tile, `bx user add --invite`, or plain
-  `POST /users`) and you get a **single-use, 72h invite link** to send them —
-  they set their own password on a themed page and are signed in.
-  `bx user invite <id>` / the users-tab **invite** button re-mint (and
-  invalidate) links for existing users — credential delivery and
-  reset-by-link in one. Tokens are hashed at rest and redemption is
-  login-throttled. **No self-signup**: accounts still only come from admins.
-  The login page's stale "one-time token URL" note was fixed too.
-
-- **The ownership UX: organisations tile, admin-console rework, owner
-  pickers.** A new pre-installed **`tiles/organisations`** tile is the
-  delegated surface: members see their orgs, owned tiles and sharing; org
-  admins manage members, org-tile ACLs/transfers, and one-click-approve the
-  pending grants/bindings their allowance covers (with the resolved allowance
-  shown). The admin console's user-management group is now *users ·
-  organisations · permission sets · access map* — member role editors with
-  Admin/Developer/Viewer presets, a permission-set editor, an allowance/owned-
-  tiles view per org, a workspace **defaults** editor, and owner-based
-  provenance in the access map. The Tile Manager's create form gained an
-  **Owner** picker (me / orgs where you may create); `/components` now carries
-  each tile's owner; the shell's ⚑ button opens the organisations tile (the
-  old org popover is gone) and first-screen seeding is filtered to tiles the
-  user can read. New `bx owner`, `bx permset`, and reworked `bx org
-  member/sets/allow` commands; a fresh workspace seeds `defaultTiles`
-  (welcome/apidocs/organisations → read).
-
-- **BREAKING: ownership replaces teams & positional org paths.** Components
-  now have an **owner** (a user or an org, transferable) recorded outside the
-  workspace; org membership is a flat `{level, create, admin}` role applied
-  org-wide to org-owned tiles; sharing a tile is an ownership right (exact
-  `user:`/`org:` ACL entries); workspace admins can delegate grant/binding
-  approval to org admins via **allowances** and reusable **permission sets**
-  (`cap:containers`, `net:*`, `gpu:*`, ingress publication — everything except
-  the `xbin` capability family); `defaultTiles` gives every user baseline
-  visibility. Teams, `basePermission` and the `o/<org>/` path convention are
-  removed — no released workspace used them, so there is no data migration.
-  See [changes/2026-08-02-ownership.md](changes/2026-08-02-ownership.md),
-  docs/protocol.md, and docs/auth.md §Ownership (D24–D28).
-
-## 2026-08-01
-
-- **`bx` works from the host without fiddling with tokens.** Run on the host
-  (not inside a terminal), `bx` now auto-reads the workspace **owner token** from
-  `.xbin/token` — locating the workspace via `XBIN_WORKSPACE`, a walk-up from the
-  cwd, or the default `/opt/xbin/workspace` — so `sudo -u xbin bx ls` just works.
-  A non-privileged user still can't read the 0600 token (unchanged). When no
-  token is found, the 401 now explains how to fix it instead of only "sign in at
-  /login". (`bx term`/`bx login` were never commands — bx prints usage for
-  unknown ones.)
-
-- **Sidebar & tabs: filter, nested folders, reorderable + parkable tabs.** The
-  component tree gains a **filter box** (matches tile and tab names, auto-expands
-  folders). **Folders nest** — drop a folder onto another to nest it, onto empty
-  space to un-nest. **Screen tabs drag to reorder**, and can be **dropped into a
-  folder** to park them in the tree: the tree entry is the *live* screen (not a
-  snapshot), so closing its tab keeps the layout and clicking it restores the
-  screen exactly. Parked screens leave the tab bar until reopened.
-
-- **Mobile workspace mode.** The shell now adapts below 820px: the sidebar
-  becomes an off-canvas drawer (tap ☰), tiles stack full-width instead of the
-  mouse-driven snap-grid (drag/resize off on touch), and terminals and floating
-  windows open as full-screen sheets. Desktop is unchanged. Tile authors: your
-  tile becomes a full-width card on phones (its own height, content scrolls
-  inside) — make sure it's usable narrow (see workspace `AGENTS.md`).
-
-## 2026-07-30
-
-- **Tiles can report status & notifications to the workspace.** A new
-  self-scoped channel lets a component surface its condition: `xbin.status(level,
-  message)` / `xbin.clearStatus()` (frontend) and `xbin.Status` / `xbin.ClearStatus`
-  / `xbin.Notify` (Go SDK), levels `ok|info|warn|error`. The shell renders it as a
-  breathing dot on the tile's sidebar entry (and its folder), a tint on the
-  screen tab holding an affected tile, and a mark in the browser-tab title;
-  `xbin.notify` raises a one-shot toast. Status is **persistent and
-  self-clearing** (set `ok` to clear) and **resets when the backend restarts**.
-  New `GET/POST /api/xbin/tile-report` + a `status` event on `/ws/events`
-  ([protocol.md](protocol.md), [elements.md](elements.md)). Guidelines — when to
-  use each level and the always-clear-it rule — are in the workspace `AGENTS.md`.
-
-- **Code browser: line numbers, change counts, an Analysis tab, and live
-  refresh.** The terminal's code panel (`bx-code`) now shows **line numbers** in
-  the file view, a **change-count summary** (`+add −del · N files`) on the
-  working-tree/commit diff and per-commit in the Changes list, and a new
-  **Analysis** tab charting commit activity over time (commits/week for the last
-  year, top authors, totals) — including the **upstream** tracking branch when a
-  component was git-imported. The file/changes views also **refresh
-  automatically** when a tile's files change on disk (agent or terminal edits),
-  instead of showing stale content. `GET /git/log` now returns `add`/`del`/
-  `files` per commit and there's a new `GET /git/activity` endpoint
-  ([protocol.md](protocol.md)).
-
-## 2026-07-14
-
-- **New capability: `cap:containers` — run containers inside a tile**
-  ([container-host tiles](/docs/changes/2026-07-14-container-tiles.md)). A **container-host tile**
-  (rootless Podman/Docker spawning sub-containers — the substrate for "dev
-  sandbox" tiles) declares `uses: [{target:"cap:containers", role:"writer"}]`.
-  It's an **admin-only** reserved grant (lands pending on import) that keeps the
-  tile's user-namespace capabilities and swaps the backend seccomp block-list
-  for a **minimal floor** (only host-damaging syscalls — module/kexec/reboot/
-  swap/clock), so the mount family / `pivot_root` / `setns` a container runtime
-  needs are available. Still fully rootless and namespaced — no host reach, no
-  other-tile reach; the policy `xbin-caps` deny strips it. The tile supplies the
-  runtime itself (Podman + subuid seeding + storage + networking, in its
-  `setup`/manifest). Worked example: the new **devbox** builtin tile. See
-  [changes/2026-07-14-container-tiles.md](changes/2026-07-14-container-tiles.md).
-
-## 2026-07-12
-
-- **Fix: disk quotas now count encrypted resources.** On an encrypted
-  workspace (the production default) a `filesystem`/`sqlite`/`blob` resource's
-  bytes are ciphertext under `data/resources-enc/…`, but the per-scope quota
-  measurement (and the admin "resources" size view) only scanned the plaintext
-  `data/resources/…` tree — which is an empty mountpoint once encrypted. So
-  those resources counted **~0** toward a scope's quota and the low-disk
-  block/alert never fired for the file plane. Both now measure the ciphertext
-  footprint (summed with the plaintext tree for unencrypted / mid-migration
-  scopes). `kv` was always counted correctly.
-- **Security: `owner` is now a reserved component path.** A top-level
-  component literally named `owner` would have made the proxy inject
-  `X-XBin-From: owner`, so a callee's SDK (`Caller().Owner`) would treat it as
-  the human owner — an impersonation across the identity spine. It joins
-  `ingress`/`runtime` as a reserved top-level name (creating one is refused;
-  an existing such dir stops being scanned as a component). The element proxy
-  also now strips **every** inbound `X-XBin-*` header before injecting the
-  verified identity (previously it enumerated three), so a caller can't feed a
-  backend a spoofed `X-XBin-Ingress-Host` on the authenticated `/api` path.
-  Low real-world likelihood (naming a top-level `owner` needs admin/top-level
-  create rights), but a latent contract break — now closed.
-- **Admin console: two-level navigation + filtering, built for large
-  deployments.** The flat tab row is now grouped — **runtime**
-  (components · resources · backup · cron), **user management** (users ·
-  organisations · teams · access map), **vault**, **binding** (roles ·
-  grants · interface providers · binding), **ingress** (endpoints ·
-  services / expose). Every list view gained a live text filter (and
-  scope/org category chips on the component + team lists) so it scales to
-  thousands of tiles. The component list now merges manifest data with live
-  backend state and expands to show **who can reach each tile** (its access
-  relations) alongside the backend's runtime detail. Ingress **publishing is
-  now a first-class surface** (ingress → services / expose) with the
-  live routing table under ingress → endpoints. Old hash deep-links
-  (`#overview`, `#runtime`, `#interfaces`) redirect to their new homes.
-- **New: a top-down system overview** at [/docs/overview/](/docs/overview/00-index.md)
-  (start at `00-index.md`). 17 short chapters walking the whole architecture —
-  the core model, workspace anatomy, components & the backend lifecycle, the
-  frontend & shell, identity & authorization, users/orgs/teams, the backend
-  sandbox and the terminal plane, resources & the vault, interfaces & bindings,
-  egress & net-provider tiles, ingress, tile lifecycle, deployment/operations,
-  and extending xbin — explaining how the subsystems compose and why. The
-  existing reference docs stay the field-level truth; the overview is the map
-  that puts them in context. Served at `/docs/overview/` and on disk in every
-  terminal (`$XBIN_DOCS/overview/`).
-- **Fix: terminal read guard blocked the SDK, and workspace-root files like
-  `AGENTS.md`.** Two bugs in the Landlock read guard, both surfacing as
-  `Permission denied` on world-readable files in tile terminals (while `ls`
-  worked, since only file *reads* are restricted):
-  1. On the standard nested layout (`/opt/xbin/workspace`) the guard skipped
-     the workspace's whole top-level path component, so nothing else under
-     `/opt` was readable — `cat /opt/xbin/sdk/xbin.go` failed and backend
-     `go build` couldn't read the SDK. The guard now grants siblings level by
-     level down to the workspace root, and terminals' explicit read-only
-     mounts (the SDK bind) are always allowed.
-  2. Files granted directly at the workspace root (`AGENTS.md`, `go.work`,
-     the `CLAUDE.md` symlink) were read-blocked because the grant carried
-     `LANDLOCK_ACCESS_FS_REFER`, which the kernel rejects on a non-directory —
-     the rule was silently dropped. A file is now granted read-only without
-     `REFER` (directories keep it, so `apt`'s cross-directory renames still
-     work). Workspaces at a top-level path (`/workspace`) were unaffected by
-     (1); (2) affected every layout. The deny set (`.xbin/`, `data/`, other
-     users' `homes/`) is unchanged. Restart xbind and reopen the terminal —
-     the guard is per-process and inherited, so live sessions keep the old one.
-- **Ingress — publishing tiles** ([docs/ingress.md](/docs/ingress.md)): tiles
-  can now be reached from OUTSIDE the workspace, deliberately and
-  owner-gated. A new manifest section `exposes` declares endpoints —
-  `{kind:"http", paths:[…]}` (a hostname-routed site/API with a **public
-  path allowlist**, default-deny) or `{kind:"stream", proto, port}` (the
-  backend just `net.Listen`s; xbind relays a host port in, TCP or UDP).
-  Declaring is inert: the **owner binds** each slot to an ingress source
-  (`bx expose <tile> <slot>=<source> --host/--zone/--listen`, or admin →
-  interfaces → ingress), exactly like interface bindings — the binding
-  carries the route. Public traffic reaches the one bound tile as the new
-  anonymous **`ingress` principal** (`X-XBin-From: ingress`, SDK
-  `Caller(r).Ingress()`, public host in `X-XBin-Ingress-Host`), confined to
-  the declared paths, with no reach into `/api/xbin/*` or sibling tiles.
-  Sources: **`runtime`** — xbind's own second listener (`xbind
-  --ingress-listen`, BYO TLS via `--ingress-cert/-key`) + host-port stream
-  relays — or an **ingress terminator tile**: the new **Public HTTPS
-  (Traefik)** builtin does automatic Let's Encrypt TLS in a sandboxed tile
-  (certs in its own resource, never in the daemon). Also: delegated
-  wildcard **zones** with tile self-registration bounded to the zone (`PUT
-  /api/xbin/ingress-hosts`), direct tile→tile TCP via `{kind:"stream"}`
-  interfaces (`bx bind app db=apps/postgres#pg` → `XBIN_IFACE_DB_ADDR`),
-  `{kind:"lan-ingress"}` links for VPN/router-tile inbound, split-horizon
-  hairpin (a tile using its own public URL routes straight back), a new
-  policy-ceiling deny kind **`ingress`**, `bx ingress` + an admin ingress
-  panel, and `GET /api/xbin/ingress[-routes]`. Host ports <1024 need
-  `AmbientCapabilities=CAP_NET_BIND_SERVICE` on the xbind unit. Additive —
-  nothing is published until you bind it.
-- **BREAKING (net-provider tiles): `cap:net-admin` grant required.** A
-  regression on 2026-07-10 (making every tile backend fully unprivileged)
-  broke **net-provider tiles** — routers/firewalls that splice other tiles'
-  egress (the `egress-approver` builtin, `examples/netrouter`): building their
-  dataplane needs network-admin capabilities the sandbox now drops, so they
-  failed at startup with `operation not permitted` (ip_forward / ip route /
-  AF_PACKET). A provider now declares `uses {target:"cap:net-admin",
-  role:"writer"}` — an **admin-only** reserved grant that makes the sandbox
-  keep CAP_NET_ADMIN / CAP_NET_RAW / CAP_NET_BIND_SERVICE **inside the tile's
-  own network namespace** (nothing reaches the host; every other cap still
-  dropped, seccomp block-list unchanged). The shipped provider tiles declare
-  it; approve it once in the grants panel (it lands pending). A workspace/org
-  policy `net` deny strips it. See
-  [changes/2026-07-12-net-provider-cap.md](changes/2026-07-12-net-provider-cap.md).
-- Terminal window: a **read-only "logs" tab** (the ▤ button next to `>_`
-  `{ }` `⇋`) streams the tile backend's captured stdout/stderr live —
-  rendered in an xterm view for ANSI colors + scrollback, no input. It's
-  gated exactly like the tile's terminal (admin, the tile itself, or a
-  **terminal-level** user — read/write users don't get it, since backend
-  output can carry secrets), so it only appears where a shell would. Backed
-  by `GET /api/xbin/logs?component=<p>[&tail=<bytes>][&follow=1]` (text/plain
-  tail + chunked follow; the HTTP twin of `bx logs -f`) — see protocol.md.
-
-## 2026-07-11
-
-- **Organizations & teams** (docs/auth.md → "Organizations & teams"): GitHub-
-  style grouping on top of users. Orgs own the `o/<org>` path namespace
-  (tiles at `apps/o/<org>/…`); teams grant tile access to members by union
-  (effective level = max of own entries, team entries inside the org, org
-  base permission); tiles can be created *in a team* (`POST /create
-  {team:"<org>/<team>"}`, `bx new --team`, the manager tile's picker — the
-  team is auto-granted its `newTiles` level); per-tile access is viewable/
-  editable at `GET/PUT /api/xbin/access` (`bx access`, or the shell's
-  per-tile ⚙ → access, which now also opens for org admins). **Org policy
-  ceilings** (`/api/xbin/policy`, `/orgs/<org>/policy`, `bx org policy`, or
-  the admin tile's row editor): pattern-keyed rows `{tiles,
-  deny[net|gpu|xbin-caps], mayCall[]}` capping what the covered tiles may
-  be granted — enforced at approval *and* at every evaluation, so
-  hand-edited grants/bindings under a ceiling are inert (`mayCall` governs
-  external reach only: a tile's own scope is always exempt, and capability
-  targets are classified — bare `code` sits under the `xbin-caps` deny
-  class, `code:<comp>` is governed like calling that component — so a path
-  allow-list never silently strips `code:reader` source access; unapprovable
-  pending requests are annotated `blocked`). Delegated **org admins**
-  manage their org's teams/members/access from the shell's "orgs & teams"
-  popover and per-tile ⚙ (workspace-security knobs — policy, term flags,
-  org create/delete — stay workspace-admin); the sidebar groups org tiles
-  under `o/<org>`. New API: `/api/xbin/orgs*`, `/access`, `/policy`;
-  `whoami` gains `orgs` and, on element principals, the attributed driving
-  `user` — scoped by tile trust (identity only; +own-org slice for org
-  tiles; full list for `xbin`-capable tiles) — all in protocol.md. New CLI:
-  `bx org|team|access`. **Tile-creation authority** is now uniform across
-  create/clone/git-import/tile-import/template-instantiate: a user's
-  `canCreate` patterns work everywhere (previously admin/capability-only
-  for the copy/import routes), copy-shaped routes need read on the source,
-  creating inside an org needs membership, and an element's
-  workspace-management grant no longer extends the *driving* user's own
-  create rights (the confused-deputy clamp). **BREAKING (edge case):** the
-  path segments `o` and `u` are now reserved in NEW tile paths — see
-  [changes/2026-07-11-orgs-and-teams.md](changes/2026-07-11-orgs-and-teams.md),
-  which also covers updating the workspace chrome (`bx builtin update`) to
-  get the new shell/admin/manager UI on existing workspaces.
-- Admin UI: **permissions are fully click-through** — people are picked from
-  chip dropdowns (small workspaces: everything enumerable), tile grants from
-  row editors with a datalist of real paths/patterns (inert org patterns get
-  a live ⚠), replacing every free-text spec/prompt in the users, orgs, shell
-  org popover and ⚙ access surfaces. New **access map** tab in the admin
-  tile: a visual org/teams/people structure (policy ceilings marked ⛔) and
-  the resolved users × tiles **effective-access matrix** — click any cell
-  for the full derivation (which entry/team/base/adminship contributes and
-  which wins). Backed by `GET /api/xbin/access-matrix` (resolved server-side
-  with provenance) and `GET /api/xbin/users-directory` (identity-only people
-  list, reachable by org admins for their pickers) — both in protocol.md.
-- terminal: **fixed multi-tab terminals rendering stacked in the first tab after
-  a reload**, and **added per-tab close buttons**. On restore, every saved
-  terminal reattached at once and each forced itself visible (`bx-terminal`'s
-  `connectedCallback` set an inline `display:block` that overrode the host's
-  `display:none` for inactive tabs), so they piled up in a vertical split until
-  each tab was clicked. The element no longer sets that inline display (the
-  `:host` rule is the standalone default). Tabs now carry an ✕ to close one
-  (the whole window still has its own close), and typing `exit` closes just
-  that tab — closing the last one closes the window. (web/bx-terminal.js,
-  web/bx-frame.js.)
-- terminal: **`apt install` of packages that create system users fixed** (was
-  failing with `chown … Invalid argument` mid-configure on systemd/dbus/etc.,
-  while simple packages installed fine). Two parts:
-  - **Bug:** `/etc/subgid` is keyed by the *user*, but xbind looked it up by
-    *gid* — so for any account whose uid ≠ gid (a `useradd --system` user like
-    `xbin` at uid 999 / gid 988), a correctly-delegated sub-gid range was never
-    found and the sandbox silently fell back to **single-uid mode**, where only
-    container-root is mapped and dpkg's chown-to-system-user fails with EINVAL.
-    Fixed to match both sub-id files by the user (name/uid).
-  - **Diagnosis:** xbind now logs the uid-mapping mode at startup and warns
-    loudly on the single-uid fallback (naming what's missing); `bx doctor`
-    flags it from inside a terminal (`/proc/self/uid_map`). If the warning
-    persists after upgrading, the host genuinely lacks the delegation — add the
-    user to `/etc/subuid` + `/etc/subgid` and install `uidmap`
-    (`deploy/install.sh` does both), then restart.
-- terminal: **mouse/selection no longer drifts when the workspace font size is
-  changed.** The workspace scales via CSS `zoom`, but xterm measures its cell
-  size on a canvas (which ignores an ancestor's zoom) while reading pointer
-  coords that honor it — so clicks, right-click, and text selection landed off
-  by the zoom factor, worse the further from the terminal's top-left. The
-  terminal now detects the ambient zoom (walking its ancestors' computed
-  `zoom`, across shadow-DOM boundaries), counters it so xterm renders at
-  net-zoom-1 (exact coordinate math), and re-applies the scale through xterm's
-  own font size — same visual size, correct mouse. Ships with xbind; works even
-  on a workspace whose shell predates this change. (web/bx-terminal.js.)
-- terminal: **fixed terminals failing to start** (`exit 127` at spawn) on any
-  workspace with encrypted resources. The read-only workspace bind had been
-  made *non-recursive* to hide other tiles' resource (resenc) mounts from
-  `mount`; but in a rootless user namespace those inherited mounts are locked,
-  and the kernel rejects a non-recursive bind of a subtree with locked
-  children (`EINVAL`) — the exact mirror of not being able to unmount them.
-  Reverted to a recursive bind. Resource *contents* stay masked; their mount
-  names may reappear in `mount` (benign — a terminal can already `ls` every
-  tile; docs/isolation.md). Ships with xbind.
-- terminal/sandbox: a terminal that dies during sandbox init now surfaces the
-  reason instead of a blank pane — the failing pane replays the init's error,
-  the daemon logs a sanitized tail of it (`journalctl -u xbin`), and
-  `XBIN_SANDBOX_DEBUG=1` adds a per-step init trace. (Diagnostics; no
-  behavior change.)
-- users: **BREAKING — per-tile access tiers.** A user's `tiles` is now a
-  `{path: level}` map with levels `read < write < terminal`, plus `canCreate`
-  (path patterns the user may scaffold tiles under; creating auto-grants them
-  terminal on it) and `termApi`/`termNet` (whether a non-admin's terminals
-  get the live tile-API token / internet egress — both default off, `net=host`
-  stays admin-only). `users.json` and legacy API bodies migrate automatically
-  (array entries → `write`, `terminal: true` → `terminal`); API *responses*
-  return the new shape, so update your workspace's admin tile. `bx user` flags
-  changed accordingly (`--tiles a=terminal,b`, `--create`, `--term-api`,
-  `--term-net`). Admin/owner behavior is unchanged. Migration note:
-  [changes/2026-07-11-tile-access-tiers.md](/docs/changes/2026-07-11-tile-access-tiers.md);
-  model: [auth.md](/docs/auth.md).
-- terminal: **non-admin terminals are locked down by default**
-  (isolation.md): source of tiles below the user's `read` level is masked out
-  of the mount; no tile-API token without the `termApi` grant; no egress
-  without `termNet` (query params are clamped, the session still opens); and,
-  under cgroup delegation, each restricted session gets the same
-  memory/pids/CPU caps as a tile backend. Admin terminals unchanged.
-- xbind: terminal session logs now include spawn failures (ERROR + cwd) and
-  exit status + uptime on session end, so a shell that dies at start is
-  diagnosable from the server log.
-- terminal: **`apt` fully fixed** (`apt update` + `apt install`) — the real
-  cause of the `rename … Invalid cross-device link` was **not** fuse-overlayfs
-  but the terminal's Landlock read guard: on an ABI-2+ kernel, enforcing any
-  Landlock ruleset denies *reparenting* (cross-directory rename/link) with
-  EXDEV unless the ruleset handles `LANDLOCK_ACCESS_FS_REFER`. The read guard
-  handled only file-reads, so apt's `partial/ → parent` rename failed on every
-  filesystem. The guard now handles + grants REFER on the same paths it already
-  allows reading, so cross-directory renames work while secret reads stay
-  denied. Ships with xbind — **no `make rootfs` needed** (the earlier apt
-  working-dir relocation was treating the wrong cause and is reverted in the
-  next base image, which also adds `strace`). (docs/isolation.md.)
-- terminal: **restricted tier for non-admin users** (isolation.md). A shell
-  opened by a non-admin user drops `CAP_SYS_ADMIN`/`CAP_SYS_RESOURCE` (+ other
-  privileged caps) but keeps the file caps `apt` needs, and its user namespace
-  is pinned so no nested user/mount namespace can be created — so it can't
-  regain privilege via `unshare -Ur` or mount over its masks. Admin/owner
-  terminals are unchanged (full caps for dev work). Ships with xbind; dormant
-  until non-admin users exist. (D18.)
-
-## 2026-07-10
-
-- terminal: **resource mounts no longer leak in `mount`.** A tile terminal
-  binds the workspace read-only+recursive, which cloned in every tile's
-  gocryptfs resource (resenc) mount; their contents were already masked, but
-  `mount`/mountinfo still listed other tiles by resource name. The terminal
-  now detaches those submounts before masking `.xbin`/`data`. Safe by
-  construction (both dirs are fully masked; the sandbox root is
-  MS_REC|MS_PRIVATE, so the host's live mounts are untouched). No rebuild —
-  ships with xbind.
-- terminal: **`apt install` fixed** (`rename … Invalid cross-device link`)
-  via apt config only — `Dir::Cache::Archives` moves the download cache to
-  `/var/cache/xbin-apt`, a path absent from the base image, so at runtime it
-  lives entirely in the writable overlay upper and apt's partial/ → archives/
-  rename never crosses layers. No overlay-mount option (an earlier
-  `redirect_dir=on` attempt on the shared overlay broke component backends'
-  state and was reverted). Needs a `make rootfs` rebuild.
-- terminal: fixed **doubled keystroke echo after a base-image upgrade / sandbox
-  reset**. Resetting kills the session server-side then reconnects; the killed
-  socket's onclose could still schedule a reconnect that reattached to the new
-  session, leaving two sockets writing to one terminal (every byte, incl. the
-  echo of what you typed, twice). A connection epoch now ensures only the
-  latest socket drives the terminal or reconnects — also closing the same
-  latent race on network/GPU/API-scope switches.
-- base rootfs: added the tools agents reach for — full `vim`, OpenAI `codex`
-  CLI, `chromium`+Playwright (system browser path), `gh`, `fd`/`bat`/`shellcheck`,
-  Go `gopls`/`dlv`/`golangci-lint`, and `pnpm`/`yarn` — so a fresh
-  terminal doesn't re-install them. (docker/rootfs.Dockerfile; `make rootfs`.)
-- terminal: **`bx status`** now shows the current tile's runtime metrics
-  (backend state/cpu/mem/pids/fds/conns/egress, disk usage vs quota, alerts)
-  via the new read-only `GET /api/xbin/tile-status?component=` — readable with
-  the tile-scoped terminal token (self), or any tile for admins. `--all` keeps
-  the admin global view.
-- terminal pop-up: a **code browser / git-review panel** (`bx-code`) beside
-  the terminal. A collapsible file tree + syntax-highlighted viewer (vendored
-  highlight.js, no build step) and a **Changes** tab showing the working-tree
-  diff and per-commit diffs for review. Title-bar layout switch: terminal /
-  code / resizable split. Read-only (editing stays the terminal's job);
-  backed by the existing grant-gated /api/xbin/code/* + /git/* endpoints.
-- **resource limits (blast-radius containment for shared/mixed-team
-  workspaces).** Per-tile cgroup caps are now *enforced*, not just measured:
-  memory.max 2 GiB (+ memory.high), pids.max max(512, ncpu×8), cpu.weight
-  fair-share (burst when idle). Per-scope **disk quota** 50 GiB with `507` on
-  kv/blob writes over it, plus low-disk (<10% free) write-blocking of the
-  biggest users. Backends now run **capability-dropped + seccomp block-list**
-  (mount/module/kexec/reboot/ptrace/bpf/keyrings/…). Terminals capped at 32
-  per user. **Alerts** (`GET /api/xbin/alerts`) surface at-limit / low-disk /
-  blocking events as a banner in the workspace shell and the admin console.
-  Tunable via `XBIN_LIMIT_MEM` / `XBIN_LIMIT_DISK`. Details: docs/isolation.md
-  §resource limits.
-- terminals: **workspace secrets are masked from tile terminals** (Gap 0).
-  The isolated terminal's read-only workspace mount now covers `.xbin/`
-  (owner token + frame secret), `data/` (vault, encrypted resource state,
-  password hashes), and other users' `homes/` with an empty overlay — so a
-  shell (or an agent in it) can read every tile's *source* for API work but
-  can no longer `cat .xbin/token` to re-grant owner, which had undercut the
-  tile-scoped terminal token. Applies to every terminal, including your own
-  tiles. Own tile dir + `$HOME` stay read-write. New per-terminal **tile-API
-  toggle** (titlebar, default on): off mints no token — the shell sees code
-  but every API call is unauthorized. Isolation property of `--isolate`;
-  see docs/isolation.md for the honest bound.
-- terminals: **seccomp mount guard** makes those masks umount-proof. A tile
-  terminal shell keeps `CAP_SYS_ADMIN` (apt / nested namespaces / profiling
-  still work) but a seccomp filter — installed before the shell, inherited
-  across execve/unshare — denies `umount2`, `move_mount`, `open_tree`, and
-  `mount(MS_MOVE)`, the four ways to remove or relocate a mask. So a shell
-  that is root in its user namespace still can't peel a mask off to read the
-  owner token. Collateral: `fusermount` and nested container/browser
-  sandboxes that detach their old root get `EPERM` (run them on the host).
-- terminals: **Landlock read guard** — a second layer that denies reading
-  the secret *files* (`.xbin`/`data`/other `homes/`) at the VFS level, so even
-  if a mask were peeled the owner token / vault / password hashes / other
-  agents' credentials still can't be opened. seccomp can't filter by path
-  (it can't deref the `open` arg); Landlock can. Restricts only READ_FILE, so
-  exec/readdir/writes are untouched (collateral nil); best-effort where
-  Landlock is unavailable. The admin **runtime** tab now shows each guard's
-  kernel support (*terminal guard: mount ✓ · read ✓ (ABI n)*).
-
-## 2026-07-09
-
-- auth: **server-side session expiry** — browser logins now die after 12 h
-  idle (sliding) or 30 days absolute, whichever first, so a stolen session
-  cookie can't authenticate indefinitely (previously: valid until logout or
-  restart). Tunable via `XBIN_SESSION_IDLE_TTL` / `XBIN_SESSION_MAX_TTL`.
-- auth: **audit log** — every mutating core-API call (`POST/PUT/PATCH/DELETE`
-  on `/api/xbin/…`, minus the `prefs`/`kv`/`blob`/`bus` data plane) logs an `audit` line
-  with actor + path + status; a who-changed-what trail for governance actions
-  (users, grants, lifecycle, vault, token rotation).
-- users: **password floor** — accounts created/updated through the API need
-  an 8-character minimum (enforced at the API so the dev admin/tests, which
-  write the store directly, are unaffected); the admin UI surfaces create/
-  reset errors instead of silently clearing the form.
-- users: **user ids are now validated at creation and immutable** (D15) —
-  `[a-z0-9][a-z0-9._-]{0,31}`, `owner` reserved. An id is the permanent key
-  for `homes/<user>`, the prefs bucket, and `user:<id>` attribution, so it
-  can't be renamed or contain path/attribution separators; the constraint is
-  set before GA because it can't be tightened once ids exist on disk.
-  Existing users (loaded from disk) are unaffected — only new creates are
-  gated.
-- auth: **owner-token rotation** — `POST /api/xbin/auth-rotate-token` (admin;
-  a button under the admin console's Users → sign-in security) rewrites
-  `.xbin/token` and swaps it live: the old token stops authenticating
-  immediately, bearer and cookie alike. **Rotate once after upgrading to
-  terminal-scoped tokens** — before 2026-07-09 every terminal carried the
-  owner token, so old agent transcripts/shell histories under `homes/` may
-  hold it. (Terminal tokens themselves already revoke automatically: each
-  dies with its session; deleting a user kills theirs instantly.)
-- shell: tiles' **title bars gain a `>_` terminal button** (replacing the
-  tiny 7×7 corner square on shell cards; standalone frames keep the corner
-  button), and a **workspace settings** menu (🔧 in the top bar) with a
-  per-user **global font size** (persisted via prefs, applied as a clean
-  zoom). The terminal settings icon is now a wrench (🔧) instead of a gear.
-- **connection-leak fix, both sides of the proxy.** xbind built a fresh HTTP
-  transport per proxied request, stranding one keep-alive connection per RPC
-  — on the backend that parked a goroutine + ~15 KB forever (the SDK server
-  had no idle timeout), and xbind leaked the matching client conn. The proxy
-  now pools one transport per backend socket (reused across requests, idle
-  conns reaped at 90s, evicted when a generation's socket goes away), and
-  `xbin.Serve` sets `IdleTimeout: 120s` + `ReadHeaderTimeout: 30s` (hijacked
-  WebSocket conns exempt; no blanket read/write timeouts — SSE/streams still
-  run indefinitely). xbind's own TCP + gateway listeners got the same
-  timeouts. Backends pick up the SDK fix on their next rebuild — every spawn
-  rebuilds, so an xbind upgrade + restart covers the fleet.
-- terminals: **tile-scoped tokens — the owner token no longer enters any
-  terminal.** A terminal's `XBIN_TOKEN` is now a per-session token resolving to
-  the TILE the terminal is opened on (its element principal: admin of itself +
-  its approved grants/bindings — the frame-token model, for shells), never the
-  human's privilege. Agents in tile terminals can no longer read other tiles'
-  admin config, call `/api/xbin` admin endpoints, or **self-approve grants**
-  (now enforced, not just documented). Session-open gates: terminals only on
-  tiles the user may use; **the root terminal is disabled** (workspace-wide
-  work: the browser UI, or the host shell — the owner token lives only in
-  `.xbin/token`). Kill/reattach of another user's session: admins only.
-  Deleting a user kills their live shells' API access. **Breaking** for
-  workflows that ran admin `bx` from inside tile terminals — migration:
-  `docs/changes/2026-07-09-terminal-scoped-tokens.md`.
-- terminals: **$HOME is now per user** — `homes/<user>` instead of one shared
-  `home/`, so each human's agent-CLI config (`~/.claude`, credentials), shell
-  history, and dotfiles stay their own (the root token uses `homes/owner`;
-  seeded lazily on first terminal; a non-admin can't attach to another user's
-  session). A legacy shared `home/` **migrates automatically at startup** to
-  the workspace's sole user/admin (else `homes/owner`) — xbind refuses to
-  start only when both forms hold real data, so nothing is merged by guesswork.
-  Migration note: `docs/changes/2026-07-09-per-user-homes.md`.
-- terminals: **base-image versioning + safe upgrades.** A terminal's
-  persistent sandbox layer (apt installs / system changes) is now stamped with
-  the base image it was built on and **pinned** to it — xbind never stacks that
-  overlay on a different base (which corrupts apt/dpkg state). When a newer
-  base is installed the terminal tile shows a **base-update** banner; clicking
-  it (or the reset ⟲) rebuilds on the current base — installed packages are
-  wiped, your workspace files and `$HOME` are kept. The `/ws/term` `session`
-  message carries `baseOutdated`. Base images are stamped by `build-rootfs.sh`;
-  `install.sh` preserves the old base as `rootfs-<version>` on upgrade (legacy
-  unstamped bases become `rootfs-v0`); xbind aborts startup if a pinned base is
-  missing and GCs preserved bases once no terminal pins them. Design:
-  `docs/isolation.md` §The dev layer.
-
-## 2026-07-08
-
-- terminal: a **settings menu** (the ⚙ that appears top-right on hover),
-  starting with a **theme picker** — Default (dark-steel), Dracula, Nord,
-  Solarized Dark/Light, Monokai, Gruvbox Dark, One Dark, Tango Dark, GitHub
-  Light — plus a font-size stepper. Applied live, shared across open terminals
-  (same document + other tabs), and persisted in the browser.
-
-- lifecycle: **offloading a component now fully quiesces it.** Previously an
-  offloaded tile kept firing cron, still surfaced pending access/binding
-  requests, and stayed visible in the shell + the admin principals list.
-  Now: the cron scheduler skips jobs for non-enabled components; `Pending()`
-  and pending-bindings omit offloaded components; the shell hides them (out of
-  the sidebar/folders, and any open card is closed on the reload); the admin
-  console lists offloaded tiles in a separate section, not the main table.
-  `GET /api/xbin/components` now carries each component’s lifecycle `state`.
-
-- interfaces: **fixed a binding-role flap**. A provider with several http
-  provides (e.g. llm-gw: `openai`=writer + `metrics`=reader) resolved a
-  binding’s granted role from an *arbitrary* provide — provides live in a map
-  with no stable order — so a caller bound to `openai` (writer) intermittently
-  got `reader`, failing ~15–30% of calls with "role writer required". The
-  role/endpoint/validation now select the provide **by the requester slot’s
-  service**, deterministically. (Introduced when llm-gw gained its second
-  provide; single-provide tiles were never affected.)
-- llm-gw: the stats table groups digits with **commas** (`123,142`) instead of
-  a thin space, which was hard to read against the column gaps.
-
-- vault: **secret values are now readable only by the element they belong to** —
-  not even the owner or an `xbin:admin` tile. Admins can still list keys and
-  set/rotate/delete any vault (the admin console + per-tile mini-admin drop the
-  "reveal" button and show masked values), but `GET …/vault/<comp>/<key>` is
-  self-only, so a compromised admin tile can't exfiltrate secrets. **Breaking**
-  for any admin/owner flow that read another element's secret value via the API
-  (`bx vault get <other-component>` now 403s); the owning element's own
-  `xbin.Secret()` is unaffected. Migration:
-  `docs/changes/2026-07-08-vault-read-lockdown.md`; see `docs/auth.md` §Vault.
-- shell: the sidebar bottom shows the **running xbind build commit** (`⬡ xbind
-  <commit>`). The commit is baked in at build time (`make build` ldflags →
-  `git describe`, falling back to the VCS revision Go stamps into the binary)
-  and surfaced on `GET /status` as `version`.
-
-## 2026-07-07
-
-- Templates: a **template-instance update path**. Each builtin template is
-  served read-only as a git repo (`GET /api/xbin/templates/<name>.git/…`, admin)
-  and added to every instance as a `template` remote, so a builder pulls
-  upstream fixes with `git fetch template && git merge template/main` (or
-  cherry-pick) — in control of what they adopt, no auto-merge clobber. The
-  builtin-tile updater still never touches template instances. Phase 7 of the
-  agent-v2 program. Terminals now resolve the SDK's `http://xbin/…` gateway host
-  for raw `git`/`curl` too (rewritten to `XBIN_URL` + owner bearer, scoped to
-  xbind), so the `template` remote fetches. Existing instances (pre-Phase-7) add
-  the remote once by hand — see `docs/overview/03-components.md` §Templates.
-- New builtin tile **prometheus-viewer**: binds one or more components that
-  expose Prometheus metrics (service `prometheus`, multi:true — e.g. llm-gw)
-  and renders their `/metrics` as a live dashboard (per-source counters/gauges,
-  current value + per-second rate + inline sparklines). Phase 6 of the agent-v2
-  program.
-- llm-gw: **preferred models** — one workspace default per use-type (`agent`,
-  `chat`, `pipeline`, `vlm`, `coding`, `summarizing`), set on the tile and read
-  by callers via `GET /preferred`, so a model choice lives in one place. Plus
-  per-model **cost** tracking, a Prometheus `GET /metrics` endpoint (bindable via
-  the new `metrics`/`prometheus` provide interface), and transient-error
-  **retry/backoff** on the proxy (429/5xx, pre-first-byte, honors `Retry-After`).
-  First slice of the agent-v2 program.
-- agent template (v2, backend): model **tiers** (`general`/`code`/`memory`/
-  `vlm`) — each empty tier resolved from llm-gw's preferred model for the mapped
-  use-type, so a workspace sets models once and agents inherit; compaction and
-  memory work run on the `memory` tier. Plus LLM-call **retry/backoff**
-  (transport + 429/5xx, so a gateway reload no longer fails a run), the
-  **provider-reported prompt tokens** as the compaction trigger (not a char/4
-  estimate), a per-tool `toolTimeout` config field, and a **date-only**
-  system-prompt prefix so prompt caching keeps hitting. Tools in one turn now
-  run **in parallel** (bounded, each under `toolTimeout`); several
-  `spawn_subagent` calls in a turn run as **parallel subagents**. Control tools
-  (finish/ask_user/yield) stay sequential and stop the turn. MCP servers are now
-  **bound** via an `mcp` interface (multi:true, service `mcp`, like the chat
-  tile) rather than a static config list — the owner binds MCP providers in the
-  Interfaces tab and their tools reach the model through the binding. New
-  **`recall`** tool: FTS5 full-text search over the run's whole history
-  (including turns compacted out of context), so detail folded into a summary
-  is still retrievable. The wake heartbeat is now **on-demand** — registered
-  only while runs are sleeping or mid-drive and removed when idle, so an agent
-  with nothing pending stops polling (cron is no longer always-on).
-- agent template (v2, scheduling): **cron-agents** — a session or the agent
-  itself schedules recurring runs (`schedule`/`unschedule` tools, `/schedules`
-  CRUD), each registering its own cron job. **Watcher mode**: a watcher schedule
-  re-drives one persistent run with a "check now" nudge and, via a
-  `state_changed` tool, keeps only the rounds that reported a change — no-change
-  rounds are rolled back, so a long-running watch stays compact. A **Features**
-  menu (`GET /features`, toggled in the config's `features` map) gates optional
-  capabilities: recall, skills, streaming, vision, parallelTools, watcher.
-- agent template (v2): **streaming** — with the streaming feature on, LLM calls
-  stream tokens into a live per-run draft (`GET /runs/{id}` → `draft`) so the
-  tile shows progress as it generates; retries only before the first token.
-  **Multimodal tiers** — a message carrying image content routes to the `vlm`
-  tier when the task model isn't vision-capable (name heuristic; override by
-  setting the vlm model). `wireMsg` content is now text or an OpenAI
-  content-parts array.
-- agent template (v2): **skills** — a self-improving skill library (Hermes-
-  inspired). The agent authors reusable procedures with `skill_manage`, lists
-  them (`skills_list`), and loads one on demand (`skill_view`); the compact
-  name+description list is injected into context. **`POST /runs/{id}/learn`**
-  distills a run into a skill. `/skills` CRUD + storage in the agent's sqlite.
-  Gated by the `skills` feature. (Background auto-curator deferred.)
-- agent template (v2, tile): the control tile is rebuilt ~2× taller with a
-  settings overlay — **Config** (model tiers + budget/iters/timeout), a
-  **Features** menu (toggle recall/skills/streaming/vision/parallelTools/
-  watcher), **Memory** CRUD, **Schedules** (create/enable/run-now cron-agents),
-  **Skills** (view/edit), and **MCP** bind status — plus a **live streaming**
-  draft in the timeline and a "learn skill from this run" action.
-
-- auth: the `code` capability now also has a **blanket form** — `uses {target:
-  "code", role:"reader"}` grants read-only source access to **every** component
-  (for scanners/linters/stats), alongside `code:<component>` for one. Honored
-  on `/api/xbin/code/*` and `/git/{log,diff}`.
-- docs: corrected the workspace `AGENTS.md` §Sandbox — `deps/` symlinks are
-  editing-plane only; their targets are NOT mounted in the backend sandbox
-  (matches docs/isolation.md). Read a sibling's source via a `code:` grant, or
-  call it over HTTP.
-
-## 2026-07-06
-
-- frontend: tiles can spawn workspace-level UI via the shell — `xbin.dialog(spec)`
-  (a data-driven modal that escapes the iframe; resolves `{button, values}`) and
-  `xbin.window(spec)` (a floating window framing one of the tile's own sub-paths,
-  a real tile frame that uses `xbin.fetch` normally). New core element
-  `<bx-dialog>`. Docs: elements.md §Dialogs & windows, sdk.md, protocol.md.
-
-- interfaces/auth: new `code:<component>` capability — grant a component
-  read-only access to *another* component's source (files + git log/diff via
-  `/api/xbin/code/*`, `/git/{log,diff}`), owner-approved like any cross-scope
-  grant. A component always reads its own source; admin reads any.
-
-- **BREAKING** — interfaces: instance path prefixes registered via
-  `PUT /api/xbin/iface-instances` are **provider-relative** and
-  workspace-absolute (`/api/<self>/…`) registrations are now rejected with
-  a 400. Providers that registered absolute paths must re-register.
-  → [migration note](/docs/changes/2026-07-06-instance-paths.md)
-- interfaces: multi-input slots (`{kind:"http", multi:true}` — a slot binds a
-  SET of providers) and provider instances (`provides {instances:true}` +
-  runtime registration, bound as `provider#id`). Injection shapes documented
-  in [elements.md](/docs/elements.md); multiselect binding UI everywhere.
-- interfaces (admin UI): http bind options are filtered by the slot's
-  `service` contract (an `s3basic` slot no longer offers an `openai`
-  provider).
-- chat tile: binds multiple `llm` providers (model picker aggregates all) and
-  any number of `mcp` servers — Model Context Protocol tools are offered to
-  the model and executed in an agent loop. MCP providers serve
-  Streamable-HTTP JSON-RPC at `/mcp` under themselves (`service: "mcp"`).
-- llm-gw tile: multiplexes multiple named upstream backends; model ids become
-  `<backend>/<model>` once more than one is configured; per-backend usage
-  (reqs, tokens in/out, in-flight) shown on the tile.
-- shell: per-tile ⚙ mini-admin on card title bars (admins), sidebar folders /
-  collapse / resize, and a system-status footer (cpu, mem, disk, services,
-  vault state, req/s). `GET /api/xbin/status` grew `host` and `traffic`
-  gauges.
-- workspace: `POST /api/xbin/clone {from,to}` forks a component (git history
-  kept, old-path references rewritten); Tile Manager grew a clone tab.
-  Prefer it over `cp -r`.
-- terminals: `IN_SANDBOX=1` / `IS_SANDBOX=1` set in sandboxed terminals;
-  terminal panes use a distinct `--bx-term-bg` theme token.
-- vault: admin-tile barrier UI (seal state, first-time passphrase, unseal,
-  rekey), `POST /api/xbin/vault-rekey`, `bx vault rekey`, and a red
-  vault-sealed banner on the admin overview.
-- auth: `PATCH /api/xbin/auth-settings` can disable owner-token *browser*
-  login once an admin user exists (`bx` Bearer token unaffected).
-- terminals: Ctrl+W now reaches the shell as word-erase instead of closing the
-  browser tab (best-effort — some browsers reserve it); overlapping floating
-  windows get a higher-contrast edge.
-- terminals: exiting the shell now closes that terminal (its tab, or the
-  window if it was the last one) instead of leaving a dead "[session ended]"
-  pane; terminal tabs can be renamed (double-click).
-
-## 2026-07-05
-
-- **BREAKING** — the project renamed **buxon → xbin**: module
-  `github.com/xbin-dev/xbin`, daemon `xbind`, env `XBIN_*`, API `/api/xbin/*`,
-  headers `X-XBin-*`, manifest `xbin.json`, runtime dir `.xbin/`, JS global
-  `xbin`. Workspaces are migrated on upgrade; external tiles need the same
-  rename (see the bx-term-tile migration for the pattern).
-- resources: encryption at rest is **always on** — filesystem/sqlite/blob are
-  per-resource gocryptfs mounts, kv is envelope-encrypted; sealed vault ⇒
-  resource unavailable + component held, never silent plaintext
-  ([resources.md](/docs/resources.md)).
-- terminals: sessions are persistent server-side (reattach with exact
-  scrollback); component terminals are scoped read-only outside the
-  component's own dir + `$HOME`.
-- shell: tiles can be unpinned into floating windows (persisted per user).
-- imports: a component whose `uses` reference nonexistent resources is
-  rejected at import time instead of silently landing broken.
+- [changelog/2026-09b.md](/docs/changelog/2026-09b.md) — September 2026, 28th to 30th (2026-09-28 to 2026-09-30)
+- [changelog/2026-09a.md](/docs/changelog/2026-09a.md) — September 2026, 4th to 27th (2026-09-04 to 2026-09-27)
+- [changelog/2026-08.md](/docs/changelog/2026-08.md) — August 2026 (2026-08-01 to 2026-08-25)
+- [changelog/2026-07.md](/docs/changelog/2026-07.md) — July 2026 (2026-07-05 to 2026-07-30)

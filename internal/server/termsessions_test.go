@@ -14,6 +14,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // The directory routes over the impersonation test server (alice/dave
@@ -107,7 +108,7 @@ func TestTermEventFilter(t *testing.T) {
 	}
 	// an agent session's status change: the same event kind, op "status",
 	// the summary inline — and the same owner filter
-	s.TermStatus("apps/x", term.StatusChange{User: "alice", ID: "s1", Status: "waiting_permission", Pending: 1, Turn: 2})
+	s.TermStatus("apps/x", term.StatusChange{User: "alice", ID: "s1", Summary: acp.Summary{Status: "waiting_permission", Pending: 1, Turn: 2}})
 	got = <-ch
 	b, _ = json.Marshal(got.Data)
 	if got.Type != "term" || got.Component != "apps/x" || string(b) != `{"op":"status","user":"alice","id":"s1","status":"waiting_permission","pending":1,"questions":0,"turn":2}` {
@@ -129,7 +130,7 @@ func TestTermEventFilterElements(t *testing.T) {
 	evs := func(comp, user string) []events.Event {
 		return []events.Event{
 			{Type: "term", Component: comp, Data: termChange{Op: "open", ID: "s1", User: user}},
-			{Type: "term", Component: comp, Data: termStatus{Op: "status", StatusChange: term.StatusChange{User: user, ID: "s1", Status: "running"}}},
+			{Type: "term", Component: comp, Data: termStatus{Op: "status", StatusChange: term.StatusChange{User: user, ID: "s1", Summary: acp.Summary{Status: "running"}}}},
 			{Type: "session", Topic: "session.s1", Component: comp, Data: term.SessionEvent{User: user, ID: "s1"}},
 		}
 	}

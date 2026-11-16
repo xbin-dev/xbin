@@ -110,8 +110,9 @@ func zsDeploymentState(t *testing.T, ws string, compKeys map[string]bool) []stri
 }
 
 // zsRunDirState reports what in the runtime socket directory (outside the
-// workspace, .xbin/run links to it) is not today's: the gateway socket and
-// one directory per component, named by CompKey, holding g<gen>.sock.
+// workspace, .xbin/run links to it) is not today's: the gateway socket, the
+// LLM-only listener's (llmsessions.go) and one directory per component,
+// named by CompKey, holding g<gen>.sock.
 func zsRunDirState(t *testing.T, runDir string, compKeys map[string]bool) []string {
 	t.Helper()
 	sock := regexp.MustCompile(`^g[0-9]+\.sock$`)
@@ -119,7 +120,7 @@ func zsRunDirState(t *testing.T, runDir string, compKeys map[string]bool) []stri
 	for _, rel := range zsFiles(t, runDir) {
 		dir, name, nested := strings.Cut(strings.TrimSuffix(rel, "/"), "/")
 		switch {
-		case rel == "gateway.sock":
+		case rel == "gateway.sock", rel == "llm.sock":
 		case !compKeys[dir]:
 			bad = append(bad, "run/"+rel)
 		case nested && (strings.Contains(name, "/") || !sock.MatchString(name)):
@@ -350,6 +351,7 @@ func dsServe(t *testing.T, ws string, fn func(url string)) {
 		cancel()
 		select {
 		case <-done:
+			noneLeftBehind(t, ws) // a stopped xbind leaves no backend running (leftbehind_test.go)
 		case <-time.After(30 * time.Second):
 			t.Error("the daemon did not stop")
 		}

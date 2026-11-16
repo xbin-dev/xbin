@@ -1,0 +1,1 @@
+{"id":"resp_1","output":[{"encrypted_content":"enc","id":"rs_1","summary":[{"text":"Considering the greeting…","type":"summary_text"}],"type":"reasoning"},{"content":[{"text":"Hello from the fake model.","type":"output_text"}],"role":"assistant","type":"message"}],"status":"completed","usage":{"input_tokens":100,"output_tokens":20,"output_tokens_details":{"reasoning_tokens":7}}}

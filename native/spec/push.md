@@ -109,6 +109,8 @@ matches `agent.turn`; `test` is always delivered):
 | `agent.turn` | a turn ends (`turn.end`), except when the user cancelled it | `agent/<session>` |
 | `tile`, `tile.<kind>` | a tile called `POST /api/xbin/notify` | `c/<tile>/…` |
 | `tile.partition-switch`, `tile.partition-deleted` | xbind: a tile's partition mode switch is requested (its managers), or deleted the person's partition | `xbin/partitions` — the partitions page, where managers decide and the person's notice is |
+| `agent.approval` | xbind: the person's workspace agent asks them to approve one side effect (collapse `agent-approval:<request id>`; the text is xbind's, never the agent's) | the agent's component path, e.g. `xbin/wsagent` |
+| `agent.changeset` | xbind: the person's workspace agent proposed admin changes that wait for their approval (collapse `agent-changeset:<id>`) | the agent's component path |
 | `tile.partition-consent` | xbind: a partitioned tile's call into the person's data in another was refused for want of their consent (the workspace policy partitionConsent on; one a day per edge, collapse `partition-consent:<from>→<to>`) | `xbin/partitions` |
 | `tile.partition-reset` | xbind: someone else (a tile manager or an admin) reset the person's partition of a tile | `xbin/partitions` |
 | `account.credential` | xbind: someone else made a sign-in link, password, single sign-on email or provider change for the person's account, a partition holder (held for them to allow or refuse while the workspace policy credentialResetConfirm is on; collapse `credential:<id>`) | `xbin/partitions` |
@@ -133,6 +135,10 @@ the app never loads the plain page (a password form) and never frames it.
 Only xbind links its own pages: a tile's notification link is always under
 its `c/<tile>/` and an agent's `agent/<id>`, so a tile that names a
 `partition-…` kind still shows as that tile's (its actions, Mute included).
+A system (sealed) component (`xbin/<name>`, docs/sealed.md) is a component
+here too: its link is `c/xbin/<name>/…`, never `xbin/<name>`, which stays
+the form of xbind's pages — so an app that predates system components reads
+every link as it did.
 
 The kinds' categories and groups (§4):
 

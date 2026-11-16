@@ -26,15 +26,18 @@ const FakeEnv = "XBIN_AGENT_FAKE"
 
 // Providers lists the providers this daemon offers — sdk/acp's catalog —
 // fake included when FakeEnv is set (its command may carry arguments,
-// space-separated). The fake signs in the way Claude Code does (claude's
-// Signin), so the UI harness drives the guided sign-in against a scripted
-// `claude` on the PATH.
+// space-separated): sdk/acp's Fake, the one definition of the scripted
+// agent as a provider, with two things of xbind's own. It signs in the way
+// Claude Code does (claude's Signin), so the UI harness drives the guided
+// sign-in against a scripted `claude` on the PATH; and its login line says
+// that the fake, as xbind runs it (no --require-login), needs none.
 func Providers() []Provider {
 	out := acp.Providers()
 	if cmd := os.Getenv(FakeEnv); cmd != "" {
 		c, _ := acp.Lookup("claude")
-		out = append(out, Provider{ID: "fake", Name: "Fake agent (tests)", Driver: "acp", Argv: strings.Fields(cmd), Login: "the fake needs no login",
-			Modes: []Mode{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo", Explicit: true}}, DefaultMode: "ask", Signin: c.Signin})
+		fake := acp.Fake(strings.Fields(cmd))
+		fake.Login, fake.Signin = "the fake needs no login", c.Signin
+		out = append(out, fake)
 	}
 	return out
 }
@@ -49,13 +52,8 @@ func Lookup(id string) (Provider, bool) {
 	return Provider{}, false
 }
 
-// LoginHint is what to tell the operator when the agent has no credentials:
-// sign the CLI in from a shell terminal on this tile — that $HOME is shared
-// with agent sessions (D6), so one login serves the agent everywhere.
-func LoginHint(p Provider, tile string) string {
-	how := p.Login
-	if how == "" {
-		how = "sign it in"
-	}
-	return "the agent isn't signed in — open a terminal on " + tile + " and run: " + how + "  (your terminal $HOME is shared with agent sessions, so one login serves every tile)"
-}
+// LoginHint is what to tell the operator when the agent has no credentials
+// — sdk/acp's one sign-in sentence (Provider.SignInHint), naming where to
+// run the command: a shell terminal on this tile. That $HOME is shared with
+// agent sessions (D6), so one login serves the agent everywhere.
+func LoginHint(p Provider, tile string) string { return p.SignInHint("a terminal on " + tile) }

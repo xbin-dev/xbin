@@ -64,10 +64,14 @@ final class XbinE2ETests: XCTestCase {
         e.launch()
         e.ensureWorkspace()
         e.openTile("apps/counter")
-        let plus = e.app.buttons.matching(NSPredicate(format: "label == %@", "+1")).firstMatch
-        XCTAssertTrue(plus.waitForExistence(timeout: 60), "the native counter's +1 button")
+        // The +1 in front: where the account has a screen with the counter
+        // on it (XbinScreensTests and XbinWorkspaceAgentTests seed one), the
+        // screen's panel sits under the tile's with the counter's card — and
+        // a +1 of its own, which XCUITest's snapshot still lists (first).
+        let plus = e.firstHittable(e.app.buttons.matching(NSPredicate(format: "label == %@", "+1")), timeout: 60)
+        XCTAssertNotNil(plus, "the native counter's +1 button")
         e.shot("03-native-counter")
-        plus.tap()
+        plus?.tap()
         await e.eventually("the counter's backend at \(before + 1)", timeout: 30) {
             try await e.server.counter() == before + 1
         }

@@ -18,9 +18,17 @@
  * the cut (GET …/events?before=&limit=): seed() applies the page's state
  * header first, then push() its events.
  *
+ * What the chat kit draws (/vendor/chat/views.js) is its block model
+ * (/vendor/chat/blocks.js): blockOf(b) says one of this fold's blocks in it
+ * — the same key, the same version, a tool call's record the fold's own —
+ * and transcriptOf(fold) the whole fold. The fold's own shape stays for who
+ * reads it (the test API, the iOS port's parity corpus).
+ *
  * Pure (no DOM, no lit): node-tested in hack/agent-fold.test.mjs.
  */
 import { newTool, foldTool } from './agent-tools.js';
+import { block, toolState, up } from './chat/blocks.js';
+import { changeSet, isPlanApproval, planText, planPath, inputCommand } from './chat/tools.js';
 
 // bump b's version and its enclosing subagent cards' (their bodies render it)
 const bump = (b) => { for (let x = b; x; x = x.up) x.v++; };
@@ -56,6 +64,7 @@ export class Fold {
     if (!state) return this;
     if (state.status) foldStatus(this.st, { type: 'status', data: state.status });
     if (state.usage) this.st.usage = state.usage;
+    if (state.llm) [this.st.llm, this.st.llmOffered] = [state.llm, !!state.llmOffered]; // "connector" | "own", and whether the connector is only offered (D226)
     if (state.turn) this.turn = state.turn + 0.5;
     return this;
   }
@@ -117,7 +126,7 @@ export class Fold {
         const f = { changes: d.changes || [], patch: d.patch || null };
         if (d.toolCallId) {
           const t = this.tools.get(this.turn + '/' + d.toolCallId) || this.byId.get(d.toolCallId);
-          if (t) { t.files = f; bump(t); }
+          if (t) { t.files = f; if (t.rec) t.rec.changed = changeSet(d); bump(t); }
           break;
         }
         const blk = this._new({ kind: 'changes', turn: d.turn, ...f });
@@ -134,12 +143,17 @@ export class Fold {
       case 'permission.request': {
         this.cur = null;
         const p = this._new({ kind: 'perm', pid: d.pid, tool: d.toolCall || {}, options: d.options || [], rule: d.rule || null, meta: d.meta || null, by: null, optionId: null });
+        // the call it is about waits on it: its card says so (and the request names the call's label)
+        const t = p.tool.id ? this.byId.get(p.tool.id) : null;
+        if (t) { p.label = t.label || ''; t.perm = d.pid; bump(t); }
         this.perms.set(d.pid, p); this.blocks.push(p);
         break;
       }
       case 'elicitation.request': {
         this.cur = null;
-        const q = this._new({ kind: 'ask', eid: d.eid, toolCallId: d.toolCallId || '', message: d.message || '', schema: d.schema || null, action: null, by: null, content: null });
+        // a form from its schema, or — mode url — a page to open (/vendor/chat/ask.js question())
+        const q = this._new({ kind: 'ask', eid: d.eid, toolCallId: d.toolCallId || '', message: d.message || '', mode: d.mode === 'url' ? 'url' : 'form', url: d.url || '',
+          schema: d.schema || null, action: null, by: null, content: null });
         this.asks.set(d.eid, q); this.blocks.push(q);
         break;
       }
@@ -150,7 +164,11 @@ export class Fold {
       }
       case 'permission.resolved': {
         const p = this.perms.get(d.pid);
-        if (p) { p.by = d.by; p.optionId = d.optionId; bump(p); }
+        if (p) {
+          p.by = d.by; p.optionId = d.optionId; bump(p);
+          const t = p.tool.id ? this.byId.get(p.tool.id) : null;
+          if (t && t.perm === d.pid) { t.perm = ''; bump(t); }
+        }
         break;
       }
       case 'turn.end':
@@ -168,6 +186,7 @@ export class Fold {
         foldStatus(this.st, e);
         break;
       case 'notice': // a line xbin says, not the agent (D175: the start moved the layer to a new base)
+        foldStatus(this.st, e);
         this.blocks.push(this._new({ kind: 'notice', text: d.text || '' }));
         break;
     }
@@ -175,18 +194,43 @@ export class Fold {
   }
 }
 
+// llmHint(p): what a session of provider p would run on, in a few words —
+// from the row's `llm` (GET /agent/providers, D226: only while the
+// workspace's LLM connector is offered to agent sessions); '' otherwise.
+// "on the workspace connector" only where the rule gives it the connector
+// alone (forced): otherwise nothing has started to confirm it, and a
+// harness's own or project config can leave the connector out (docs/llm.md
+// §Agent sessions), so the connector is "offered".
+export const llmHint = (p) => {
+  const l = p?.llm;
+  if (l?.use === 'connector') return l.forced ? 'on the workspace connector' : 'offered: workspace connector';
+  return ({ 'own-first': 'your sign-in, else offered: workspace connector', own: 'your sign-in', signin: 'needs a sign-in', unavailable: "can't run here" })[l?.use] || '';
+};
+
+// llmLabel(st): a session's header word on who serves its model calls, from
+// its digest's llm and llmOffered (the page state, the connector's notice;
+// D226) — "on the workspace connector" when xbind holds the CLI to it (the
+// rule gives it the connector alone, or the harness's connector settings
+// replace the person's own: codex), "offered: workspace connector" when the
+// connector is only the CLI's default, which its own or the project's config
+// can leave out (opencode without the rule); null when it doesn't serve.
+export const llmLabel = (st) => (st?.llm !== 'connector' ? null : st.llmOffered
+  ? { text: 'offered: workspace connector', title: "this workspace's LLM connector is offered to the agent as its default model, metered to you — its own or the project's configuration can still pick another provider" }
+  : { text: 'on the workspace connector', title: "model calls go through this workspace's LLM connector, metered to you" });
+
 // the status digest: status/detail/currentMode/options/modes/commands each
 // from the last status that carried it, last = the last status's data (its
 // login), usage = the last turn.end's
 export const newStatus = () => ({ status: '', detail: '', currentMode: '', options: null, modes: null, commands: null, last: null, usage: null, queue: [] });
 
-// foldStatus(st, e): apply one event to a status digest (status, turn.end
-// and queue — the messages held for the turn's end, D197 — move it;
-// anything else is ignored)
+// foldStatus(st, e): apply one event to a status digest (status, turn.end,
+// queue — the messages held for the turn's end, D197 — and a notice naming
+// who serves the session's model calls move it; anything else is ignored)
 export function foldStatus(st, e) {
   const d = e.data || {};
   if (e.type === 'turn.end') { if (d.usage) st.usage = d.usage; return st; }
   if (e.type === 'queue') { st.queue = Array.isArray(d.items) ? d.items : []; return st; }
+  if (e.type === 'notice') { if (d.llm) [st.llm, st.llmOffered] = [d.llm, !!d.offered]; return st; } // who serves the session's model calls, and whether only offered (D226)
   if (e.type !== 'status') return st;
   if (d.status) st.status = d.status;
   if (d.detail) st.detail = d.detail;
@@ -198,16 +242,85 @@ export function foldStatus(st, e) {
   return st;
 }
 
-// cached(b, slot, fn): fn()'s value, memoized on block b for its current
-// version — markdown, diffs and highlighting run once per change, and survive
-// the block leaving and re-entering the rendered window. A record without a
-// version (a permission card's synthetic view) just computes.
-export function cached(b, slot, fn) {
-  if (!b || typeof b.v !== 'number') return fn();
-  const memo = b.$memo || (b.$memo = Object.create(null));
-  const m = memo[slot];
-  if (m && m.v === b.v) return m.val;
-  const val = fn();
-  memo[slot] = { v: b.v, val };
-  return val;
+// ---- the fold as the chat kit's blocks ---------------------------------------------------
+
+// one of the fold's blocks in the kit's block model, field by field
+function toBlock(b) {
+  const k = b.key;
+  switch (b.kind) {
+    case 'msg':
+      return b.role === 'user'
+        ? block('user', k, { text: b.text, files: (b.files || []).map((f) => ({ name: f.name, mime: f.mime || '', size: f.size ?? null })), steered: !!b.steered })
+        : block('assistant', k, { text: b.text, mid: b.mid });
+    case 'thought':
+      return block('thought', k, { text: b.text, live: !b.done, ms: Math.max(0, (b.t1 || 0) - (b.t0 || 0)), at: b.t0 || 0 });
+    case 'tool': {
+      // (a call made by an older agent-tools.js has no record: one made of what it holds)
+      const rec = b.rec || { id: b.id, kind: b.tk || 'other', title: b.title || '', label: b.label || '', name: b.name || '', status: b.status || 'pending', rawInput: b.rawInput ?? null, output: b.output || '', exitCode: b.exitCode ?? null, diffs: [], locations: [], files: [], text: '' };
+      const out = block('tool', k, { rec, state: toolState(rec, b.perm ? 'approval' : ''), children: null, at: b.t0 || 0 });
+      if (b.children) out.children = b.children.map((c) => { const kid = blockOf(c); up(kid, out); kid.parent = rec.id; return kid; });
+      return out;
+    }
+    case 'changes':
+      return block('changes', k, { turn: b.turn, set: changeSet({ changes: b.changes, patch: b.patch }) });
+    case 'plan':
+      return block('plan', k, { entries: (b.entries || []).map((e) => ({ content: e.content, status: e.status, priority: e.priority || '' })) });
+    case 'perm': {
+      const tc = b.tool || {}, meta = b.meta || {};
+      return block('perm', k, {
+        pid: b.pid, callId: tc.id || '',
+        tool: { title: tc.title || '', kind: tc.kind || '', name: tc.name || '', label: b.label || '', command: inputCommand(tc.rawInput), rawInput: tc.rawInput ?? null, content: tc.content ?? null },
+        options: (b.options || []).map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind, explicit: !!o.explicit })),
+        // xbind's "always" is its own session rule: null when the request can't be scoped to one
+        rule: b.rule && b.rule.scoped !== false && (b.rule.kind || b.rule.title) ? { kind: b.rule.kind || '', title: b.rule.title || '' } : null,
+        title: meta.title || '', description: meta.description || '', defaultToNo: !!meta.defaultToNo,
+        plan: isPlanApproval(tc) ? { text: planText(tc), path: planPath(tc) } : null,
+        by: b.by ?? null, optionId: b.optionId ?? null,
+      });
+    }
+    case 'ask':
+      return block('ask', k, { eid: b.eid, callId: b.toolCallId || '', message: b.message, mode: b.mode || 'form', schema: b.schema, url: b.url || '', action: b.action ?? null, by: b.by ?? null, content: b.content ?? null });
+    case 'turn':
+      return block('turn', k, { turn: b.turn, stopReason: b.stopReason || '', usage: b.usage || null, error: b.error || '' });
+    case 'notice':
+      return block('notice', k, { text: b.text });
+    case 'gap':
+      return block('gap', k, {});
+  }
+  return block(b.kind, k, {});
 }
+
+/**
+ * blockOf(b): one of a Fold's blocks as the chat kit's block (the mapping
+ * table of docs/frontend-kit.md → the chat kit): k is its key as text, v
+ * its version, a tool call's `rec` the fold's own record, its children
+ * mapped the same way. The result is kept on b until b's version moves, so
+ * a row that did not change is the same object; its $memo is b's (what a
+ * view memoized outlives the mapping).
+ */
+export function blockOf(b) {
+  const had = b.$block;
+  if (had && had.v === b.v) return had;
+  const out = toBlock(b);
+  out.v = b.v;
+  Object.defineProperty(out, '$memo', { value: b.$memo || (b.$memo = Object.create(null)), writable: true, configurable: true, enumerable: false });
+  Object.defineProperty(b, '$block', { value: out, writable: true, configurable: true, enumerable: false });
+  return out;
+}
+
+/**
+ * transcriptOf(fold) → the kit's Transcript of a Fold: its blocks; in `tail`
+ * the sign-in the last status asks for (the tab draws it under the
+ * transcript); the newest plan; the last turn's usage.
+ */
+export function transcriptOf(fold) {
+  const blocks = fold.blocks.map(blockOf);
+  const tail = [];
+  const login = fold.st.last && fold.st.last.login;
+  if (login && login.needed) tail.push(block('signin', 'signin', { provider: login.provider || '', command: login.command || '', methods: [], device: null }));
+  return { blocks, tail, plan: blocks.findLast((x) => x.kind === 'plan') || null, usage: fold.st.usage || null };
+}
+
+// cached(b, slot, fn): fn()'s value, memoized on block b for its current
+// version (the chat kit's, /vendor/chat/blocks.js).
+export { cached } from './chat/blocks.js';

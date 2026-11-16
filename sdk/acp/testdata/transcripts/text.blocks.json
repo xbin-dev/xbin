@@ -1,0 +1,127 @@
+{
+ "name": "text",
+ "about": "the transcript of text.json in the chat kit's block model (/vendor/chat/blocks.js) after each of its checkpoints — blocks; tail: what waits on a person beside them; plan: the key of the newest plan block; usage. A block's k is the seq of the event that opened it (the Agent tab's key); versions (v) and clock times (at) are left out, and a field at its zero value too.",
+ "checkpoints": [
+  {
+   "seq": 8,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "think about it"
+    },
+    {
+     "k": "6",
+     "kind": "thought",
+     "text": "**step 0** — weighing it. **step 1** — weighing it. **step 2** — weighing it. ",
+     "live": true,
+     "ms": 200
+    }
+   ]
+  },
+  {
+   "seq": 20,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "think about it"
+    },
+    {
+     "k": "6",
+     "kind": "thought",
+     "text": "**step 0** — weighing it. **step 1** — weighing it. **step 2** — weighing it. **step 3** — weighing it. **step 4** — weighing it. **step 5** — weighing it. ",
+     "ms": 600
+    },
+    {
+     "k": "12",
+     "kind": "assistant",
+     "text": "thought it through",
+     "mid": "m"
+    },
+    {
+     "k": "15",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "17",
+     "kind": "user",
+     "text": "paras 3"
+    },
+    {
+     "k": "19",
+     "kind": "assistant",
+     "text": "Paragraph 1 of the answer, streamed.\n\nParagraph 2 of the answer, streamed.\n\n",
+     "mid": "paras"
+    }
+   ],
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  },
+  {
+   "seq": 24,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "think about it"
+    },
+    {
+     "k": "6",
+     "kind": "thought",
+     "text": "**step 0** — weighing it. **step 1** — weighing it. **step 2** — weighing it. **step 3** — weighing it. **step 4** — weighing it. **step 5** — weighing it. ",
+     "ms": 600
+    },
+    {
+     "k": "12",
+     "kind": "assistant",
+     "text": "thought it through",
+     "mid": "m"
+    },
+    {
+     "k": "15",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "17",
+     "kind": "user",
+     "text": "paras 3"
+    },
+    {
+     "k": "19",
+     "kind": "assistant",
+     "text": "Paragraph 1 of the answer, streamed.\n\nParagraph 2 of the answer, streamed.\n\nParagraph 3 of the answer, streamed.\n\n",
+     "mid": "paras"
+    },
+    {
+     "k": "23",
+     "kind": "turn",
+     "turn": 2,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   ],
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  }
+ ]
+}

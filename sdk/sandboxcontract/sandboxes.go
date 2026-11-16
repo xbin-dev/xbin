@@ -30,7 +30,7 @@ var helloChecks = []check{
 			}
 		}
 		for _, c := range h.Caps {
-			if !slices.Contains([]string{"exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports", "partitions"}, c) {
+			if !slices.Contains([]string{"exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports", "partitions", "llm"}, c) {
 				t.Errorf("caps: unknown %q", c)
 			}
 		}

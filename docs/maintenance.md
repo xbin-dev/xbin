@@ -16,6 +16,7 @@ hack/dev-setup.sh       # once per machine (and after an upgrade): what the chec
 make check              # the guards (make guards: fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files website-guard), then test
 make integration-deps   # once, and after a pull: the helpers (prebuilt), Firecracker, xbind/bx/xbin-vmagent, .rootfs if missing
 make integration        # when the runner / sandbox / broker path changed
+make agent-ui-check     # when the agent template's page, or what it loads from web/, changed (Playwright)
 make hooks              # once per clone: the sub-second subset runs pre-commit
 ```
 
@@ -58,7 +59,7 @@ target, so a red line names the guard that failed.
 | gofmt over `GOFMT_DIRS` | `fmt-check` | formatting drift (CI's gofmt must match go.mod's minor — the pins check enforces that) |
 | `go vet ./...` | `vet` | the usual |
 | `node --check` over every shipped script and inline module block — a `.js` written as an ES module is checked as one (node's detection on a plain `.js` is lenient); named imports resolved against the exports of the relative / `/vendor/` module they name | `js-check` | a syntax error in a tile's inline `<script type="module">` or an unbalanced template expression in a module, or an import of a renamed or mislocated export — none is parsed by anything else before a user's browser (the trees include `website/`, so the landing page's inline module and its `js/` are covered) |
-| `node --test hack/*.test.mjs` — unit tests for pure frontend modules, and for the installer's host-editing helpers (`hack/install-sh.test.mjs`: functions cut out of `deploy/install.sh` by name, run by bash against temp files), and for the prebuilt-helpers scripts and the large-files guard (`hack/helpers.test.mjs`: throwaway repos with fake build scripts, `python3 -m http.server` as the public bucket, `rclone serve s3` as the signed side when installed) | `js-test` | the helper keys, the manifest's syntax, a sha256 mismatch refused with nothing installed, the source-build fallback and its CI warning, publish's refusals and its upload round trip; the installer's AppArmor block in `/etc/apparmor.d/local/fusermount3` (replaced in place, never duplicated, other lines kept, a hand-broken file left alone) and the VM policy it writes (xbind's field names, never over an existing file); the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`), grid math (`shell/grid-layout.js` — the push a drag performs) the terminal's prediction engine (`web/term-predict.js` — what a keystroke predicts, what an ack confirms), the frame's view of the session directory (`web/term-sessions.js` — how a listing becomes the tab bar, how the legacy browser record is adopted), the terminal window's live reload view (`web/deploy-state.js` — which chip, menu items and API select entries a state and a viewer's permissions yield, and every string they show), the Deployments panel's view (`web/deploy-panel.js`), branch-assigned deployments' offers, forms and lines (`web/deploy-branch.js`: `hack/deploy-branch.test.mjs`), session targets and deployment frames (`hack/deploy-target.test.mjs`), how the binary-served components treat a tile deployment (`web/frame-info.js`, `web/term-sessions.js`, `web/xbin-client.js`: `hack/deploy-aware.test.mjs`), and old clients as fixtures (`hack/events-socket.test.mjs`: the web shell's reload targeting exactly as it ships, replayed against a deploy's event tape, so no frame of an old event type names a non-primary deployment): every branch a menu can show, how a stale save is classified, where a pushed tile lands, which predictions survive, which tabs a listing yields — without a browser |
+| `node --test hack/*.test.mjs` — unit tests for pure frontend modules, and for the installer's host-editing helpers (`hack/install-sh.test.mjs`: functions cut out of `deploy/install.sh` by name, run by bash against temp files), and for the prebuilt-helpers scripts and the large-files guard (`hack/helpers.test.mjs`: throwaway repos with fake build scripts, `python3 -m http.server` as the public bucket, `rclone serve s3` as the signed side when installed) | `js-test` | the helper keys, the manifest's syntax, a sha256 mismatch refused with nothing installed, the source-build fallback and its CI warning, publish's refusals and its upload round trip; the installer's AppArmor block in `/etc/apparmor.d/local/fusermount3` (replaced in place, never duplicated, other lines kept, a hand-broken file left alone) and the VM policy it writes (xbind's field names, never over an existing file); the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`), grid math (`shell/grid-layout.js` — the push a drag performs) the terminal's prediction engine (`web/term-predict.js` — what a keystroke predicts, what an ack confirms), the frame's view of the session directory (`web/term-sessions.js` — how a listing becomes the tab bar, how the legacy browser record is adopted), the terminal window's live reload view (`web/deploy-state.js` — which chip, menu items and API select entries a state and a viewer's permissions yield, and every string they show), the Deployments panel's view (`web/deploy-panel.js`), branch-assigned deployments' offers, forms and lines (`web/deploy-branch.js`: `hack/deploy-branch.test.mjs`), session targets and deployment frames (`hack/deploy-target.test.mjs`), a person's agent preferences as the launcher uses them (`web/agent-prefs.js`: `hack/agent-prefs.test.mjs` — the server's answer wins, this browser's older record is moved once and stays the fallback, a bypass mode is never remembered), how the binary-served components treat a tile deployment (`web/frame-info.js`, `web/term-sessions.js`, `web/xbin-client.js`: `hack/deploy-aware.test.mjs`), and old clients as fixtures (`hack/events-socket.test.mjs`: the web shell's reload targeting exactly as it ships, replayed against a deploy's event tape, so no frame of an old event type names a non-primary deployment): every branch a menu can show, how a stale save is classified, where a pushed tile lands, which predictions survive, which tabs a listing yields — without a browser |
 | the native client's contract: xb-native's own tests, the fixture runner's, and every `native/fixtures/<name>` rendered in node and compared with its `expected.json`, plus the vocabulary coverage gate | `native-check` | the tree a tile's `native.js` renders — what the app's renderer and the reference renderer draw — drifting unreviewed, and a vocabulary item no fixture exercises (native/fixtures/README.md) |
 | shellcheck at warning level over `deploy/`, `hack/`, `.githooks/`, the site's `website/install.sh` bootstrap and the iOS CI scripts in `native/ios/scripts/` | `shellcheck` | the installer and release scripts (1,600 lines of bash; only the installer's host-editing helpers have unit tests, above); the iOS CI scripts, which only a macOS runner executes |
 | vendor checksums, Go-version agreement, alpine pins, the helpers manifest (well-formed; each group's current key published — a warning, never a failure) | `pins-offline` | pins drifting apart between the files that state one; build inputs changed without a published helper set (see "Prebuilt helpers") |
@@ -79,7 +80,10 @@ machine's cargo), and CI runs it as a job of its own; `make website-check` runs 
 guard and then every page of xbin.dev in Chromium (`hack/website-check.mjs`,
 Playwright from `PLAYWRIGHT_DIR`; six widths in light, dark and reduced motion:
 console errors, requests that leave the local server, horizontal overflow, layout
-shift, focus rings, missing images; `website/README.md` → "Checks").
+shift, focus rings, missing images; `website/README.md` → "Checks"); `make
+agent-ui-check` runs the agent template's browser scripts (Playwright from
+`PLAYWRIGHT_DIR` too; "Builtin tiles and templates" below), and CI runs it as
+a job of its own.
 
 ### Integration shards
 
@@ -132,6 +136,16 @@ suites whatever failed before; a balanced shard takes about a minute and a
 half of tests on a 4-vCPU runner — add a shard (the plan's `shards` and
 ci.yml's matrix, together) when the timing file says they grew past that.
 
+**Ports.** A test that picks a port for a program to bind later — an
+xbind's `--listen`, a fake upstream, a relay — takes it from
+`test/portlease` (`Addr(t)`, `Port(t)`; `Reserve()` where there is no
+`t`), never by listening on `:0` and closing: between that close and the
+program's bind the kernel hands the port to the next asker, and shards
+running side by side gave one port to two daemons. A lease is an flock'ed
+file per port in a directory every harness of the user shares, held until
+the test ends; `xbindtest`'s daemons hold one for as long as they live. A
+listener the test itself keeps open needs none.
+
 ## Exec guard (nothing runs as xbind on tile data)
 
 `internal/confine` `TestNoDirectExec` fails `make test` when daemon code
@@ -159,8 +173,9 @@ checkpoint or a quarantine, a host-side `os.Open`/`OpenFile`/`ReadFile`/
 `ReadDir`/`Stat`/`Chmod`/`Chown` or `filepath.Walk`/`WalkDir`/`EvalSymlinks`
 would follow wherever the tree's writer points it (and an open blocks on a
 FIFO). In the packages and files that open those trees
-(`internal/checkpoint`, `internal/deployments`, and the deployment files of
-the registry, server, broker and runner — its `nofollowScope`) every such
+(`internal/checkpoint`, `internal/deployments`, the deployment files of
+the registry, server, broker and runner, and the broker's code API,
+`code.go` — its `nofollowScope`) every such
 call carries `// walk-ok: <why>` on its line or the two above (an
 xbind-owned file under `data/deployments`, say); `fsutil.OpenBeneath`/
 `OpenIn`, `os.Lstat` and `os.RemoveAll` need none. Its behavioural half
@@ -193,9 +208,15 @@ listed deliberately. The caps were 800 (Go) and 900 (JS) until D219.
   in `docs/`, `plans/`, `internal/`, `web/`, `workspace-template/`, `cmd/`,
   `sdk/` or the builtin trees has no definition — a bullet or heading opening
   with the bold id — in any `plans/*.md` (core `D`/`ND` numbers live in
-  `plans/DECISIONS.md`; the per-domain series in their design record). A
+  `plans/DECISIONS.md` and the archives it indexes, `plans/decisions/
+  D<first>-D<last>.md`; the per-domain series in their design record). A
   trailing letter (`D17a`) names a labelled sub-point of the base entry and
   resolves to it;
+- a core `D` number has more than one entry across the decision log and its
+  archives, an archive is missing from the log's index, or holds a number
+  outside the range its name says. The log keeps the recent entries; when it
+  passes about 450 KB its oldest whole entries move, byte for byte, into a
+  new archive (it is not embedded, but `large-files` caps it at 1 MiB);
 - a relative or `/docs/`-absolute markdown link in `docs/` or `plans/` points
   at a file that does not exist;
 - a `plans/*.md` has no `> Status: live | implemented | superseded |
@@ -300,7 +321,13 @@ decision, and `assets_test.go` refuses:
   file not named after its directory (a tool a tile ships under `bin/`) is
   never matched.
 - **files over 512 KB** outside `web/vendor/` — the vendored frontend deps
-  are the only big files by design.
+  are the only big files by design. A doc that grows without end is split
+  before it gets there: the protocol reference is one page per topic
+  (`docs/protocol/<topic>.md`, Route inventory below), and the changelog
+  keeps its recent weeks in `docs/changelog.md` with older months moved,
+  unchanged, to `docs/changelog/<YYYY-MM>.md` and listed under its "Older
+  entries" — cut whole months from the old end, leave the top to the
+  entries being added.
 - **nested repos and dependency trees** (`.git`, `node_modules`, `.claude`,
   `deps`): `all:` embeds dotfiles too.
 - **pointers into `plans/`**. The design records are *not* embedded, so a
@@ -558,11 +585,223 @@ stay byte for byte what it was.
   excluded); a changed hash with an unchanged version is a red line. After
   the bump, `UPDATE_TILE_VERSIONS=1 go test ./internal/builtins -run
   TestTileVersions` moves the baseline.
+- `make agent-ui-check` (`hack/agent-ui-check.mjs`; CI's `agent-ui` job)
+  runs the agent template's browser scripts —
+  `builtin-templates/agent/test/*.mjs`: the template's real page in Chromium
+  against the stubbed backend of `test/backend.mjs`, with `/vendor/` served
+  from this checkout's `web/` — every one, 8 at a time (at most the cores),
+  each in its own node and browser: about 40 scripts in 20 s. Run it when
+  the template's page changed, or anything of `web/` it loads (the kit, the
+  chat kit, `bx-terminal`, the native reference renderer): nothing else
+  drives those together. A script passes only when it exits 0, prints no
+  `SKIP` line and ends with `all … checks passed`; a script still running
+  after `AGENT_UI_TIMEOUT` (180 s) is stopped and fails. The scripts
+  `import('playwright')` as they do inside a workspace, where the rootfs has
+  it; `hack/playwright-dir.mjs` (a module hook the runner preloads) answers
+  that import from `PLAYWRIGHT_DIR`, and without Playwright, or its
+  Chromium, the target stops with what to install instead of skipping —
+  run by hand the scripts skipped quietly, which is how four of them went
+  stale unseen. `make agent-ui-check AGENT_UI="attach ci"` runs those;
+  `AGENT_UI_JOBS=1` one at a time. It is not in `make check`: that stays
+  browser-free. Rules for a script, each one a failure this target has
+  already had:
+  - It is every `.mjs` in `test/` that `NOT_SCRIPTS`
+    (`hack/agent-ui-check.mjs`) doesn't name: a new helper gets a line
+    there with what it is, or the target fails on it (no verdict line);
+    `hack/agent-ui-check.test.mjs` (`make js-test`) holds the list against
+    the directory and the runner against a fake template.
+  - Its last line is `all <what> checks passed` (`checker().done`), and it
+    exits non-zero otherwise.
+  - Wait for a condition, never read once or sleep. The page's load isn't
+    the app's — `boot.js` imports `agent.js` after asking which xbind this
+    is (D224) — so wait for something the app drew, or a request it made,
+    before the first click; and what follows an element leaving the page
+    (a terminal's socket closing) comes a task later.
+  - Serve what the page imports by following its imports
+    (`fake-tty.mjs` `serveTerminal`), not from a list of today's modules;
+    read a limit from the page's own module, not a copy of its number.
 - The pure cores have tests that run under `make tile-check`: traefik's
   static/dynamic config renderers are pinned verbatim, the egress approver's
   packet decoding likewise.
   Response bodies go through `xbin.WriteJSON` / `xbin.WriteError` from the
   SDK — a backend defining its own `writeJSON` is a copy to delete.
+
+## Sealed components (`internal/sealed`, D227)
+
+A sealed component ([sealed.md](/docs/sealed.md)) is a row of the table
+`sealed.Table()` returns: its code is embedded in xbind and is the running
+release's, always. The table has one row, the workspace agent's
+(`xbin/wsagent`, `internal/sealed/table.go`): the agent template's own
+tree, `builtin-templates/agent`, started in workspace mode.
+`TestTheReleasesTable` pins what the row says — a row that appears, or one
+of its fields that changes, appears or changes in every workspace.
+
+**Adding a row.** Name (the path is `xbin/<name>`), an embedded source tree
+(`xbin.BuiltinTemplatesFS()` sub-tree, or one of its own under an embedded
+directory), `Authored` (the path the source calls itself by), the partition
+mode, the slots an admin may bind, the providers each slot may be bound to
+(`Providers`, beside its `Defaults` entry — a model slot's provider reads
+people's conversations, so a row that lets a workspace tile in says so in
+review), the grants and capabilities (`Delegate`: the row holds delegation,
+D228 — boot feeds `auth.SetDelegateHolders` from it; `Agent`: the one
+row that is people's workspace agent, whose page xbin's chrome frames —
+boot's `Server.AgentHolder`, D232), `Env` (fixed
+environment for the backend), `Notify` (the backend path holder
+notifications are delivered to — boot feeds `auth.SetDelegateNotify`
+from it), `FrameReads` (exact
+GET paths under `/api/xbin/` its page may read beside a viewer's list —
+never a write, a data route or another API; `Load` refuses those), and
+`Data`, the data format. The name
+is at most 18 characters (`util.SealedNameMax`): `xbin~<name>` must be
+shorter than the 24 characters `CompKey` keeps of a path, or the cut form
+of every longer tile path beginning with it has the same readable part
+and only 32 hash bits to grind. Top-level tile names starting `xbin~` are
+reserved at creation for the same reason. What a row may never do:
+
+- **take a name xbind uses.** `/api/xbin/<name>/…` is the component's API,
+  so the name can't be the first segment of an xbind route, nor an xbind
+  page (`/xbin/<name>`), nor `cron`, `bus` or `mail`. Boot refuses a table
+  that does; `internal/apicheck` `TestSealedNamesShadowNoRoute` walks the
+  route table. Adding a *route* whose first segment is a sealed name fails
+  the same way.
+- **change its partition mode** once released: a mode switch of a component
+  that holds data deletes the data.
+- **lower `Data`**, or raise it without a forward migration in the
+  backend. Raise it only when a release's migrations leave a store the
+  previous release's code can't read: a downgrade below it holds the
+  component (`newer-data`).
+
+**The build.** `make build` ends with `make sealed`, which runs `xbind
+sealed-build` with the host's go and builds every Go row's backend into
+`bin/sealed/<name>-<digest>` for the target `GOOS`/`GOARCH` (static,
+stripped, `-trimpath`, the SDK replaced by the checkout's). The digest is
+the rendered source's, computed by the code that looks the file up at boot:
+a build of other source has another name and is never run. The directory is
+made to hold exactly the table's builds and `sealed.json`, the manifest of
+what each was built from (source digest, SDK tree digest, go version) and
+its SHA-256. xbind runs only a file the manifest lists for its source with
+that hash: checked at boot (a definite mismatch holds the component) and
+where a backend is spawned (`sealed.Set.Verify`, the runner's
+`SealedVerify` hook in `startFor`) — never per request, and a failed check
+there fails that start alone, to be tried again by the next one.
+The manifest sits beside the binaries: it catches a build of other source
+or another SDK, a damaged or replaced file and a half-finished install, not
+someone who can write the install prefix (who can replace xbind). The SDK
+is a module of its own that xbind neither embeds nor ships a digest of, so
+the SDK and go version are recorded in the manifest and compared at release
+time (`--check --sdk`), not folded into the file name.
+
+**What the build needs.** The workspace agent's backend is the agent
+template's: its own module (`go.mod.tile`, `go.sum`) with dependencies
+(`modernc.org/sqlite` and what it pulls). `sealed-build` builds it with
+`-mod=readonly` against that `go.sum`, so the modules must be in the
+module cache or downloadable (`GOPROXY`): `make build`, `make sealed` and
+`deploy/publish-release.sh` need them, once per machine — the same
+modules `make tile-check` already fetches to test the template's backend,
+and the ones a workspace downloads to build an instance of it. `make
+check` builds no sealed backend and stays offline: the unit tests load the
+table and render its tree, and the tests that run the agent are the
+integration suites' (`test/isolated/wsagent_dev_test.go`: a development
+xbind compiles it from the checkout on first use;
+`test/isolated/wsagent_test.go`: an install-like xbind runs the release's
+build, end to end). The backend is
+about 45 MB per architecture (linux/amd64 44.8 MB, linux/arm64 41.9 MB;
+static, stripped) and adds about 16 MB to a release bundle (zstd: 16.4 MB
+and 15.1 MB); a warm build takes about ten seconds.
+
+- A **production** xbind (`--dev` and `--no-auth` both off) runs only that
+  file. Without it the component is held (`no-build`); nothing compiles on
+  the host.
+- A **development** xbind uses the file when `bin/sealed/` beside it has
+  it, and otherwise compiles the materialized source through the tile
+  build (against no workspace module and no line of the root `go.work`).
+  `make dev` (`go run`) has no `bin/sealed/` beside it and compiles.
+- `deploy/publish-release.sh` copies `bin/sealed/` into each
+  architecture's bundle and runs `xbind sealed-build --check` on it: a
+  missing or stray file, one that isn't the file the manifest lists, or a
+  build against another SDK tree than the checkout's fails the release.
+  `deploy/install.sh` replaces `$PREFIX/bin/sealed` whole.
+- `make vulncheck` scans a sealed backend as the builtin template or tile
+  its source is. A row whose source is neither needs a target of its own in
+  `hack/vulncheck`.
+
+**Where it is kept sealed.** Three layers, and the first is not the
+boundary:
+
+1. *The route gate* (`internal/server/sealedclass.go`) answers early, with
+   the reason, from a request's parameters. It reads the request beside
+   the handler, and two readers of one body can disagree, so nothing rests
+   on it.
+2. *The code that acts* refuses on the value it acts on:
+   `internal/broker/sealedguard.go` lists the places (resources and
+   secrets, registrations, grants, bindings, owner, partitions, creation,
+   source, restore), the deployments plane refuses in its judge and its
+   record writer, and `registry.MutateWorkspace` — the one writer of the
+   workspace file — takes no row about a sealed component the file may not
+   hold. **A new function that acts on a component named by a request
+   refuses a sealed one itself** (`sealedOwn` for what is the component's
+   own, `sealedNone` for what doesn't exist for one).
+3. *The credential*: a sealed component's frame token (and its origin's
+   cookie) is a viewer's, allowed its own backend and little else
+   (`server.sealedViewerAllowed`, called where a credential becomes a
+   request's principal). A new way for a credential to become a principal
+   calls it too, and `sealedViewAs` beside it.
+
+**One spelling of a path.** `util.SealedPath` (and `SealedTarget`) ask a
+path's canonical form (`util.CanonPath`), so every sealed test sees
+`/xbin/x`, `xbin//x` and `a/../xbin/x` as what the code after it would
+make of them. Never test a sealed path with `strings.HasPrefix(p,
+"xbin/")`. Three more places keep spellings apart: no credential yields a
+principal whose component isn't canonical (`auth.canonicalComponent`);
+what stores a component's name — a registration, a restore — takes it as
+xbind stores one (`broker.componentNamed`); and the API's edge refuses an
+odd spelling of a sealed path outright (`util.SealedSpelledOddly` in the
+route gate).
+
+**The guards.**
+
+- `internal/boot` `TestSealedBoundaryWithoutTheGate` runs every refused and
+  self row **with the route gate switched off**, as a request its handler
+  would act on for a tile (`boundaryReqs`), as the root token, an admin, a
+  reader, another tile's backend, the component's page and its backend. A
+  new refused or self row needs a request there, and the refusal must come
+  from layer 2. The same test drives the rows the handler decides (every
+  change an admin may make, and the ones nobody may) as each kind of
+  principal. `TestSealedNoTileRowsTakeNoSealedPath` sends the no-tile
+  rows a sealed path in every wildcard, query and body name, and
+  `TestSealedPathSpellings` sends every refused and self route each
+  spelling of the path, gate on and off. A route without a row refuses a
+  sealed path at runtime too (`TestSealedGateOnUnclassifiedRoutesAndSpellings`).
+- `internal/server/sealedclass.go` has a row for every `/api/xbin` route:
+  what a path under `xbin/` gets on it (`no-tile`, `refused`, `self`,
+  `handled`). `internal/apicheck` `TestSealedRouteClasses` fails for a
+  route without one; `internal/boot` `TestSealedRouteAnswers` drives every
+  refused and self row from the table through a production-mode daemon
+  (one request per parameter the row names) and needs a case for every
+  handled row. A new route that takes a tile path gets a row *and*, when
+  the handler decides, a case.
+- `internal/boot` `TestSealedUpgradeAndDowngrade` is the upgrade contract:
+  new code and build, the stamp raised at the first start, a downgrade held
+  with data and stamp untouched, a release without the component, forward
+  again.
+- A loop over `Registry.Components()` sees sealed components
+  (`c.Sealed`). That is what lets limits, cron, bus, partitions and
+  bindings work for them unasked; a loop that treats `c.Dir` as a work
+  tree — writes into it, runs git in it, binds it into a terminal — must
+  skip them. `c.Dir` of a sealed component is xbind's read-only tree under
+  `.xbin/sealed/`, verified and rewritten at every boot and before every
+  start of its backend. Nothing served to a browser is read from it
+  (`server/sealedfile.go` answers the release's bytes from memory).
+- `test/isolated` `TestSealedComponentsOnAProductionXbind` runs the real
+  binary (built with `-tags sealedfixture`, its backends by its own
+  `sealed-build`). It needs user namespaces, the base rootfs and gocryptfs,
+  and **skips silently without them** in a plain `go test`: run it with
+  `XBIN_E2E_REQUIRE=1`, which turns a missing prerequisite into a failure
+  (`xbindtest.Skip`), and outside a tool sandbox.
+- Run the sealed suites both ways: the default build (an empty table) and
+  `-tags sealedfixture` (`internal/sealed`, `cmd/xbind`).
+- User-facing strings say "system component", never "sealed" (the vault's
+  word); `internal/sealed`'s tests check the hold reasons.
 
 ## Frontend kit and the theme guard
 
@@ -571,9 +810,23 @@ stay byte for byte what it was.
 `clampBox`); `web/bx-code.js` owns the highlight helpers (`hl`, `langFor`,
 `diffHTML`), `web/bx-theme.js` a document's appearance (`setAppearance`,
 `onAppearance`, `appearanceMessage`, `applyAppearanceMessage`,
-`rememberTheme`) and `web/bx-icons.js` the drawn glyphs (`iconSvg`,
-`hasIcon`). `make js-check` refuses a second definition of any of them in
-the shipped trees — import from `/vendor/…` by absolute URL instead
+`rememberTheme`), `web/bx-icons.js` the drawn glyphs (`iconSvg`,
+`hasIcon`) and `web/chat/md.js` the markdown renderer for untrusted text
+(`mdInto`, `mdCssText`, `closedFence`, `onHighlighter`, `useHighlighter`;
+D224 — the agent template's copy became a re-export, and a new copy would be
+a second sanitizing policy), `web/chat/tools.js` the model of a tool call
+(`mergeTool`, `stripAnsi`, `outputTail`, `describeCommand`, `unifiedDiff`,
+`joinPatches`, `patchLines`, `diffFiles`, `diffTotals`, `contentPreview`,
+`diffsPreview`, `filesStat`, `rawText`) and `web/chat/ask.js` the model of
+what an agent asks (`formFields`, `formContent`, `missingRequired`,
+`nativeSchema`, `nativeContent`, `cleanCode`, `slashQuery`, `matchCommands`,
+`commandHint`, `optionConfirm`, `modeConfirm`, `composerWords`,
+`steerTracker`; D224 — the Agent tab and the agent template each had these
+and they had drifted: two escape rules, a form reader that labelled a plain
+enum's choices "false"). `make js-check` refuses a second definition of
+any of them in the shipped trees — a module that must keep an old name
+re-exports it (`export { stripAnsi } from '/vendor/chat/tools.js'`, which
+the check does not match); import from `/vendor/…` by absolute URL instead
 ([frontend-kit.md](/docs/frontend-kit.md) lists what tiles may import and
 why bare specifiers are banned).
 
@@ -646,6 +899,41 @@ sits in an element marked `data-bx-content` and isn't counted as an emoji.
 kind of document, the relay, the hint cookie, density, fonts in every
 asset mode.
 
+### The chat kit's fixtures
+
+`web/chat/blocks.js` is the block model the chat kit draws from
+([frontend-kit.md](/docs/frontend-kit.md)); two reducers make its blocks —
+the Agent tab's fold (`web/agent-fold.js`) and the agent template's
+(`model/fold.js`, over rows its backend made of the same events). Both are
+held to one set of fixtures, `sdk/acp/testdata/transcripts/`:
+
+| File | Made by | Held by |
+|---|---|---|
+| `<name>.json` — an event log, xbind's served shape, with checkpoints | `sdk/acp/acptest` `TestTranscripts`: the scripted agent through `acp.Client` (`xbind-shell.json`: the native capture's events) | the same test (`go test ./sdk/...`) fails when the client no longer emits it |
+| `<name>.agtt.json` — the agent template's run view at each checkpoint | the template backend's `TestChatTranscripts` (the log through `harness_map.go`) | the same test (`make tile-check`) |
+| `<name>.records.json`, `<name>.blocks.json` — the log's tool records and its blocks | `hack/chat-fixtures/expect.mjs` — the records are what `web/chat/tools.js` (`records()`, the kit's merge rules) makes of the log | `hack/chat-fixtures.test.mjs` (the Agent tab's fold) and `hack/chat-fixtures-agtt.test.mjs` (the template's, and that the kit says each call the same from either side's record), both in `make js-test` |
+
+A reducer that cannot produce a field yet has a **gap** in
+`hack/chat-fixtures/expect.mjs` (`GAPS`: an id, the reason, what makes the
+two sides comparable); the tests compare through the gaps and fail when a
+listed gap no longer shows — delete its line when you close one. A change
+that moves a fixture regenerates in this order, reviewing each diff (the
+header of `hack/chat-fixtures.test.mjs` has the commands): the logs
+(`ACP_TRANSCRIPTS_WRITE=1`), the template's views
+(`CHAT_TRANSCRIPTS_WRITE=1`), the expectations (`CHAT_FIXTURES_WRITE=1`).
+The files are plain JSON so the Swift port and `sdk/acp` can read them.
+
+The kit's views (`web/chat/views.js`, `cards.js`, `asks.js`,
+`composer.js`, `css.js`) have a contract a host's own CSS and code rely on,
+held by `hack/chat-views.test.mjs` (`make js-test`): a view writes only
+`bxc-` classes and each has its rule in `css.js`; the stylesheet styles
+nothing outside that prefix and takes every colour from a theme token; a
+view imports by `/vendor/` URL only and never reaches into a host element
+or calls xbind's API. What they draw is driven by the UI harness:
+`agentTab` (the Agent tab, then the same functions in the shell's document
+with a plain `ChatCtx`, and on a page with no import map), `agentReview`,
+`agentLong`, `agentPolicy`.
+
 ## The native reference (`docs/native.md`)
 
 The builder reference for a tile's `native.js` is partly generated: the
@@ -674,6 +962,12 @@ VM health and the VM policy, `limits` for every tile's resource limits
 (D203: a thin wrapper around `<bx-limits-table>` from
 `/vendor/limits-table.js`, which the `/xbin/limits` page and the shell's ⚙
 share; an org's ceilings are `<bx-org-limits>` on its `orgs` page),
+`llm` for the LLM connector (D226: a thin wrapper around `<bx-llm-admin>`
+from `/vendor/llm-admin.js`, which the `/xbin/llm` page shares — its words
+in `/vendor/llm-kit.js`, every call in `/vendor/llm-client.js`; a person's
+quota is `<bx-llm-quota standalone>` in `users`, an org's on its `orgs`
+page, both asking `hasLLM()` first; the setup card is `alertBar`'s drawing
+of the `llm-setup` alert, in `shared.js`),
 `deployments` for every tile's deployment
 record and a tile manager's protect / reassign / deliveries / alwaysOn — its
 words and confirmations imported from `/vendor/deploy-state.js` and
@@ -897,6 +1191,11 @@ terminal window; the harness xbind runs without `--isolate`, so on a node
 backend it asserts the isolation refusal and skips pausing it (`SKIP …
 needs HARNESS_ISOLATE`). `HARNESS_ISOLATE=1` — with `XBIN_TEST_ROOTFS`, user
 namespaces, and the agent's own tool sandbox off — runs that half.
+`agentPolicy` (D229) drives agent preferences, a session's origin mark,
+`open({session})` with its link and `xbin.openSession`, an org's harness
+list in the launcher, and the admin console's `<bx-org-agents>` editor on
+`apps/focusy` with the scripted `fake` provider; it sets org rules and the
+workspace's bounds and puts every one back.
 `deployments` drives the terminal window's Deployments panel on the static,
 org-owned `deployy` (so it needs no `--isolate`): a manager, a terminal-level
 user and a reader add `dev` with live reload attached, see the rows, the
@@ -915,6 +1214,73 @@ a tile limits alert (D203) and checks the old shell and admin console show
 its words, `/xbin/limits` in them. Under the overlay
 — the default run — it `SKIP`s, said so, so only a run with the switch covers
 it (give a `--shots` run against that instance the switch too).
+`systemPage` drives `/xbin/system` (D227) against the real API, and
+`oldScaffold` checks the last release's shell and admin console show no
+tile, card or sidebar row for a system component while `/xbin/system` lists
+them. A default xbind has one, the workspace agent (`xbin/wsagent`): held
+without sandboxes, so run them with `HARNESS_ISOLATE=1` to have it up, in
+any order: `systemPage` takes the component's access entries away before it
+checks that nobody but admins has it, and it, `wsAgentPage` and
+`agentChrome` put back what they changed (the switch, who has one, pause,
+the entries), however they end. `HARNESS_GO_TAGS=sealedfixture`
+builds the harness xbind with the fixture table instead (two fixture
+components, `internal/sealed/table_fixture.go`; `bin/xbind` is then a
+fixture build — rebuild it before using it for anything else).
+`agentChrome` drives xbin's chrome for the workspace agent twice: a faked
+matrix (the delegation routes answered by the pass: every request kind,
+the states, a hostile page in the dock's frame, the sign-in step) and,
+with sandboxes, a **real-holder** section with nothing intercepted —
+setup by the chrome's own buttons, the holder's frame, a request filed by
+the scripted model (`hack/fakeopenai`'s `ws:` lines), the tray by live
+events, the sheet from the page's message and from the tray, the ticket
+used, pause, an admin change set. `wsAgentPage` is the agent's own page in
+the dock on that real backend — empty state, sessions, the scope panel, a
+scripted turn's cards, the notebook — in dark and light, at 1280 and 430.
+Both need `HARNESS_ISOLATE=1`; a development xbind compiles the agent's
+backend on first use (about 15 s warm).
+`journeyManual` and `journeyAgent` measure the first-run journey — from the
+first login on a fresh install with a host-provided LLM to an agent
+instance that calls a tool of a new MCP tile — by hand and through the
+workspace agent, counting every interaction through one counter
+(`passes/journey.js`: a navigation, a click, a field, a key; waits timed,
+what no screen says and the agent's dead ends listed beside). Each boots an
+xbind of its own as an install runs one (no `--dev`, `--isolate`, the
+owner-token login, the vault unconfigured, `XBIN_LLM_CONFIG` naming
+`hack/fakeopenai`) on a workspace `xbind init` just made, on `$PORT+3`
+(`JOURNEY_PORT`; its model on the port after), and stops it — so they need
+`HARNESS_ISOLATE=1` and the release's build of the agent (`make sealed`:
+without `--dev` xbind never compiles one), and `SKIP` otherwise, said so.
+They use nothing of the seeded workspace, so `--shots journeyManual
+journeyAgent` runs them with no harness xbind up. The step tables land in
+`out/journey-<name>.md`, a screenshot a step in `out/journey-shots/`
+(`JOURNEY_SHOTS`). The scripted coding agent is planted in the tile it
+works in (`XBIN_AGENT_FAKE` names a path inside it, which the tile's
+sandbox sees) and copies `fixtures/journey-dice` into place where a real
+one would write the server. `journeyAgent` plays the one-plan path (D238)
+and asserts it: one prompt, no single request filed, xbin's review of the
+plan — the lines' words, which start ticked, what needs what, the opt-in
+offered on the review — applied in one go, the agent's own check of the
+hook-up (the assistant's `GET /tools`), no dead end; a regression that
+brings a dead end back, or a second approval, fails it. After the count it
+plays a second plan with a tile agent's start (the scripted coding agent,
+planted then) to drive the start line and its apply with no sign-in step;
+its screenshots of the review are `out/journey-shots/plan-*.png`. Both go
+through the first-run sheet (D237) the login URL now lands on. The review's
+other states — a mode that doesn't ask, a person who is no admin and Ask an
+admin, a request from another person, a kind the page doesn't know — are
+`agentChrome`'s, on its faked delegation (`passes/agentchrome-plan.js`,
+`out/agent-plan-*.png`, both widths; run it in both themes).
+`firstRun` asserts that sheet on xbinds of its own, booted the journeys' way
+(`boot(name, {llm, host, vault})`: no host file, more of the host's keys, the
+host unsealing) on the same port, one after the other: the installer's
+default (keyboard path, a weak password, a repeat that doesn't match, Not now
+and its per-browser memory, the whole sheet ending in the dock with the
+agent's composer focused, a second browser after, the swap refused), the
+host unsealing with no model, the host's `workspaceAgent` on for admins with
+the vault's setup answered 500 by the pass (what is left), and the host's
+`false`. Its screenshots — every state at 1280 and 390, dark and light, and
+at 200 % — go to `FIRSTRUN_SHOTS` (default `out/firstrun-shots`); its
+passwords and passphrases are made per run. Same needs as the journeys.
 `limitsCaps` drives the tile limits (D203) end to end against the real API
 in both themes: the harness xbind enforces only the data disk quota (no
 cgroup delegation, VM runtime or tile sandboxes), so its tiles root their
@@ -949,6 +1315,27 @@ list didn't predict. Without `bin/tunnelpair` or a sidecar the real halves
 `SKIP`, said so. `pairing` serves `web/devices.html` itself when xbind
 doesn't. `devices` gives the admin an own limit of 3 for its two classic
 devices (the workspace default is 1, D204) and clears it after.
+`llm` covers the LLM connector's UI (D226) end to end against the real API,
+with `hack/fakeopenai` as the one provider: `run.sh` starts the harness
+xbind with a deployment file (`XBIN_LLM_CONFIG=$HARNESS_DIR/llm-host.jsonc`,
+written empty — it sets and locks nothing — so no other pass is affected),
+and the pass writes a host's settings into it for its locks half (xbind
+reads a changed file again) and empties it after. The seed dismisses the
+setup card for the workspace, or it would sit on every admin page of every
+pass; `llm` re-arms it by removing `data/llm/setup.json` and dismisses it
+again — on a workspace whose connector was configured before (a `--shots`
+rerun) that half `SKIP`s, said so, as the card is then gone for good. It
+adds a provider through the form and checks the key is nowhere on the page
+afterwards (text, attributes, field values), runs Test, saves the default
+model, the people switch and three quotas, has dev1 call until an org's
+warning limit and then the default's stopping one are reached (limits are
+set relative to what was already counted today, so a rerun holds), reads
+the alerts, the usage tables and dev1's own page, and drives the admin
+console's tab and its users and organisations quota rows. Run it in both
+themes; it leaves the connector unconfigured. `oldScaffold` also checks
+that the last release's shell and admin console show the setup alert's
+words — `/xbin/llm` in them — with no tab and no card, and that the page
+works beside them.
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop
@@ -957,6 +1344,8 @@ hack/ui-harness/run.sh --shots windows    # one pass against the running instanc
 hack/ui-harness/run.sh --restart          # rebuild xbind, same workspace, every pass
 HARNESS_ISOLATE=1 hack/ui-harness/run.sh --keep livereload   # xbind with --isolate on $XBIN_TEST_ROOTFS
 HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold  # no --dev-overlay: the workspace's own scaffold (below)
+HARNESS_GO_TAGS=sealedfixture HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold systemPage  # with two fixture system components
+HARNESS_ISOLATE=1 HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep systemPage oldScaffold agentChrome wsAgentPage  # the workspace agent, for real (this order)
 HARNESS_THEME=light hack/ui-harness/run.sh --shots appearance themeCanary  # a light system (default dark)
 hack/ui-harness/app-help-shots.sh         # the iOS app's help screenshots (native/AGENTS.md)
 (cd hack/ui-harness && node shots.js --list)
@@ -1004,6 +1393,28 @@ Rules that keep it cheap to maintain:
   default would be light; `HARNESS_THEME=light` runs the same passes on a
   light system. A pass that needs a scheme of its own passes `colorScheme`
   (D184: documents that opt in follow it).
+- **The browser has a network namespace of its own**
+  (`hack/ui-harness/quietnet.js`). Chromium on Linux fails every request
+  that is waiting for a socket with `net::ERR_NETWORK_CHANGED` whenever a
+  link or an address changes anywhere on the machine — loopback requests
+  included, and a page here queues a hundred module requests six at a
+  time — so a sandbox starting next door (a veth, a tap) could cost a
+  pass a module or a navigation. It has no switch for that. `shots.js`
+  therefore starts it through `quietnet.sh` (`unshare -Urn`: netlink
+  reports a namespace's own interfaces only, and nothing changes in this
+  one), with xbind's port relayed across a unix socket so every URL,
+  origin and cookie is what it was; a pass whose page must reach another
+  loopback port adds it to the list in `shots.js`. Measured with 40
+  modules a page for 12 s while veth pairs came and went beside the
+  browser: 0 pages and 100-odd failed requests on the shared network, 75
+  pages and none in the namespace. Where a namespace can't be had (no
+  unprivileged user namespaces, no `ip`) the browser starts on the host
+  and the log says so; `HARNESS_HOST_NET=1` asks for that.
+  `hack/ui-harness-quietnet.test.mjs` holds the namespace and its relay.
+  The agent template's browser scripts need none of it: every request of
+  theirs is answered by a route in the test (`test/backend.mjs`), so none
+  ever waits for a socket — `make agent-ui-check` passes whole under the
+  same churn.
 - **Wait for a condition, never for time**: `waitFor(page, (t) => …)`
   polls the shell's test surface, `waitSel` a selector, `settle` two
   animation frames after a state change. A fixed `sleep` is only right
@@ -1035,12 +1446,22 @@ source) and reconciles three lists:
   WebSockets);
 - `internal/server/openapi.go` — the `/api/xbin` surface with the capability
   each operation needs (served at `/api/xbin/openapi.json`);
-- `docs/protocol.md` — every route row inside a code fence, i.e. a line
+- the protocol reference — `docs/protocol.md` (the entry: the shared
+  conventions and the index) and its topic pages `docs/protocol/<topic>.md`,
+  read as one list: every route row inside a code fence, i.e. a line
   starting at column 0 with `GET|POST|PUT|PATCH|DELETE|ANY` and a path
   (continuation lines are indented, so prose never matches).
 
-Rules: every mounted API route has an OpenAPI entry **and** a protocol.md
-row; every core route has a protocol.md row; every documented row is a
+A route's row goes in the topic page its area has (the entry's Topics table
+names each; a new area gets a new page and a row in that table) — never in
+`protocol.md` itself, which stays small on purpose: every embedded file is
+capped at 512 KB (Embedded assets, above), and the reference once sat 14
+bytes under it in one file. Split a topic page long before it gets there.
+A code fence left open fails the test: it would flip prose and rows for the
+rest of the page.
+
+Rules: every mounted API route has an OpenAPI entry **and** a protocol
+row; every core route has a protocol row; every documented row is a
 mounted route; every `RegisterAPI("…")` literal under `cmd/` and `internal/`
 is one the fixture mounts (a new registration site must be wired into the
 test, or it silently stops being covered). Wildcards reconcile as you would
@@ -1051,11 +1472,13 @@ are all "one segment"; `?query` suffixes are ignored — which is why an
 *optional* query goes in the row as `?frame=<token>`, never `[?frame=…]`
 (the bracket would turn the segment into a wildcard).
 
-Adding a route is therefore four edits in one commit — `RegisterAPI` (or
-`Handler`), an `openapi.go` row, a `protocol.md` row, and a row in
-`internal/server/deployclass.go` (its class for a non-primary tile
-deployment's credentials, §Tile deployments) — and `make test` says which one
-you forgot.
+Adding a route is therefore six edits in one commit — `RegisterAPI` (or
+`Handler`), an `openapi.go` row, a row in its `docs/protocol/<topic>.md`
+page, a row in `internal/server/deployclass.go` (its class for a
+non-primary tile deployment's credentials, docs/protocol/deployments.md),
+one in `partitionclass.go` (a person's partition's) and one in
+`sealedclass.go` (what a sealed component's path gets on it, Sealed
+components above) — and `make test` says which one you forgot.
 
 ## Pins (`hack/check-pins.sh`)
 
@@ -1217,7 +1640,7 @@ add it there. `make fmt` rewrites in place.
 
 ## Build output that must not be committed
 
-`bin/`, `dist/` (release bundles), the root `bx`, `website/dist/`, packed
+`bin/` (with `bin/sealed/`, the sealed components' backends), `dist/` (release bundles), the root `bx`, `website/dist/`, packed
 helper sets (`*.tar.zst`), the iroh sidecar's `sidecar/xbin-iroh/target/`
 and the gzip xbind embeds (`internal/apptunnel/sidecar/embedded/`), and
 `*/backend/backend` / `*/_backend/_backend` build leftovers are ignored; `make large-files` (in `check` and the

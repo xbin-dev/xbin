@@ -7,7 +7,10 @@
 // Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fold, FoldCache } from '../builtin-templates/agent/model/fold.js';
+import { installHooks } from './xbn/hooks.mjs';
+
+installHooks(); // /vendor/<name> as xbind serves it: the kit the template's models import (web/<name>)
+const { fold, FoldCache } = await import('../builtin-templates/agent/model/fold.js');
 
 // --- a transcript as the Session holds it ------------------------------------------
 

@@ -564,6 +564,25 @@ agent that cannot offers a fresh start instead). On a partitioned tile the
 transcript is kept with the person's partition instead (the same listing
 shows it), and goes when a partition mode switch deletes the tile's data.
 
+**Whose models.** By default the CLI signs in from the session's `$HOME`
+(a login done once in a terminal, or the Agent tab's guided sign-in). Where
+the workspace has an **LLM connector** ([/docs/llm.md](/docs/llm.md), D226)
+the CLI can run on it instead, with no sign-in: xbind renders the
+connector's variables for the harness (OpenCode's inline provider config,
+Codex's gateway sign-in) with an LLM key of the session's own, and the
+agent host — the only party that sees the session's `$HOME` — applies them
+unless the person's own sign-in serves the session (the session's choice,
+their saved default, then the workspace's `own-first` | `connector` |
+`off`). The key is in the agent's environment only, is good for the
+connector's model routes only, and is revoked when the session ends. A
+plain terminal gets `XBIN_LLM_URL` and `XBIN_LLM_KEY` the same way. A
+session with no network (`net: none`) reaches the connector — and nothing
+else — through one port of its sandbox's gateway, forwarded to xbind's
+LLM-only listener. Where a rule gives the connector alone (the workspace's
+`connector-only`, an org's model rule), everything fails closed: a session
+that can't be put on the connector doesn't open, one whose host doesn't
+confirm it is ended, and a model outside the connector's can't be set.
+
 A long conversation stays quick (D124, D130): the Agent tab reads only the
 tail of the log when it opens, folds what arrives, renders at most once a
 frame (not at all while the tab is hidden), and keeps only the part of the
@@ -723,6 +742,26 @@ read-only and offers a fresh start on the tile instead.
 
 Start one from a pane's **`+`** menu in the terminal window, or from a shell:
 `bx agent run --provider opencode "list the files here"` (docs/bx.md).
+
+**Which agents a tile offers is its orgs' to say (D229).** An org can list
+the harnesses an agent session may run on its tiles, and the workspace can
+bound the list for everyone (docs/auth.md §Agent constraints). The `+`
+menu and the chooser then offer only those (`GET
+/api/xbin/agent/providers?cwd=<tile>`), and opening any other is refused
+with the reason — "Finance allows these coding agents only: claude, codex
+(not gemini)". A rule decides what starts next: a session already running
+keeps running; it can't be restarted or resumed while its harness is
+disallowed, and its transcript stays readable. An org's **models** rule
+binds these sessions too: on its tiles they run on the workspace's LLM
+connector only, with the models the rule allows, and a harness that can't
+run on the connector isn't offered — the chooser says which and why. None
+of this governs what you type in a plain terminal. What you last picked — the
+harness, and per harness the mode, model and settings — is remembered on
+the server (`/api/xbin/agent/prefs`), so every browser you sign into
+starts a session the same way; a bypass mode is never remembered. A
+session your **workspace agent** started for you is yours like any other;
+the directory marks it (`origin: "agent"`) and its tab says "started by
+your agent".
 
 ## The logs dock
 

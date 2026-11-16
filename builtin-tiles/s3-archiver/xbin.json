@@ -6,6 +6,11 @@
   // offload. Endpoint/region/bucket/prefix are configured on this tile's page;
   // the access key + secret live in its vault (never in a resource).
   "runtime": "go",
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — where backups go, and the bucket's credentials.
+  "agent": "off",
+
   "uses": [
     { "target": "res:apps/s3-archiver/state", "role": "writer" }
   ],

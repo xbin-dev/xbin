@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/apptunnel"
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/deps"
@@ -31,7 +32,12 @@ import (
 // console listener, prints the login line, and serves until ctx is done.
 func (st *State) serve(ctx context.Context) error {
 	cfg, run, brk, px := st.Cfg, st.Run, st.Broker, st.Proxy
+	st.enablePreviews()
 	handler := st.Server.Handler()
+	if clash := st.Server.SealedAPIClash(); clash != "" {
+		return fmt.Errorf("%s", clash) // every route is registered by now (server/sealed.go)
+	}
+	st.Server.SetPreviewHandler(handler) // a render's requests enter where a browser's do
 
 	// Gateway socket: element backends call other elements / xbin APIs here
 	// with their instance tokens (plans/auth.md §3). Same handler, same auth.
@@ -43,6 +49,8 @@ func (st *State) serve(ctx context.Context) error {
 	}
 	gwSrv := &http.Server{
 		Handler: handler,
+		// a delegate credential is honoured here alone (auth/delegate.go)
+		ConnContext: func(ctx context.Context, _ net.Conn) context.Context { return auth.WithGateway(ctx) },
 		// Reap idle keep-alive conns from backends' pooled clients (the
 		// SDK's IdleConnTimeout is 90s — under this) without touching
 		// long-lived streams (WS is hijacked; SSE is never idle).
@@ -54,6 +62,13 @@ func (st *State) serve(ctx context.Context) error {
 			slog.Error("gateway serve", "err", err)
 		}
 	}()
+
+	// The LLM-only listener (D226): the connector's model routes for LLM
+	// keys, for tile sandboxes created with net.llm (llmsessions.go).
+	llmSrv, err := st.serveLLMOnly()
+	if err != nil {
+		return fmt.Errorf("llm listener: %w", err)
+	}
 
 	// The app tunnel (D204): its connections come from the iroh sidecar,
 	// each a paired device's after its Noise handshake, and are served by
@@ -172,6 +187,12 @@ func (st *State) serve(ctx context.Context) error {
 		_ = tunSrv.Close()
 		st.AppTunnel.Close() // the sidecar stops, before the broker
 	}
+	if llmSrv != nil {
+		_ = llmSrv.Close()
+	}
+	if st.LLM != nil {
+		st.LLM.Close() // the usage counters not yet saved; every LLM key ends
+	}
 	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor, the resources' decrypted views
 	// Open tiles keep their login binding across the restart (auth/framegens.go).
 	st.Auth.FlushGens()
@@ -230,7 +251,8 @@ func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *r
 		}
 		refreshViews()
 		reload, restart := changedComponents(reg, ev.Paths)
-		routeBatch(reload, restart, dp, hub, run.ChangedDeployment)
+		saved := ev.Last
+		routeBatch(reload, restart, dp, hub, func(c *registry.Component, dep string) { run.ChangedSaved(c, dep, saved) })
 		run.WakeAlwaysOn() // a new tile, or the flag added
 	}
 }
@@ -247,7 +269,10 @@ func changedComponents(reg *registry.Registry, paths []string) (reload map[strin
 	reload, restart = map[string]*registry.Component{}, map[string]bool{}
 	for _, p := range paths {
 		c, rest, ok := reg.Resolve(p)
-		if !ok {
+		if !ok || c.Sealed {
+			// a sealed component has no work tree: a file saved in a
+			// workspace directory that happens to sit at its path (xbin/…,
+			// never scanned) reloads and rebuilds nothing
 			continue
 		}
 		reload[c.Path] = c

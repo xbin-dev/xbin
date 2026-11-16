@@ -209,6 +209,11 @@ func (b *Broker) httpSlotEdge(c *registry.Component, slot string, req registry.I
 		if only != "" && prov != only || seen[prov] {
 			continue
 		}
+		if hb, ok := httpBuiltinFor(ref, req.Service); ok { // xbind's own service: an edge like a provider tile's (builtin_http.go)
+			seen[prov] = true
+			e.legs = append(e.legs, b.clampLeg(ref, hb.Role))
+			continue
+		}
 		p, ok := b.Reg.Component(prov)
 		if !ok {
 			continue
@@ -232,6 +237,12 @@ func (b *Broker) httpSlotEdge(c *registry.Component, slot string, req registry.I
 func (b *Broker) httpSlotsTo(from, target string) []edgeLeg {
 	c, ok := b.Reg.Component(from)
 	if !ok || target == "" {
+		return nil
+	}
+	if _, builtin := httpBuiltins[target]; builtin {
+		// xbind's own service: an edge (LLMEdge reads it), never a grant —
+		// its ref lives in the xbin: namespace, where a role would read as a
+		// governance capability
 		return nil
 	}
 	var out []edgeLeg
@@ -392,6 +403,16 @@ func (b *Broker) applyEdgePolicy(d Decision, caller, callerDep, target, role str
 		}
 	}
 	return d
+}
+
+// ReaderClamp is the read clamp for one role on target, as a preview's
+// calls need it (D234, proxy.previewReadOnly): min(role, reader), and false
+// when role implies no reader the clamp could narrow it to (clampLeg).
+func (b *Broker) ReaderClamp(target, role string) (string, bool) {
+	if b.clampLeg(target, role).why != "" {
+		return "", false
+	}
+	return clampedRole(role), true
 }
 
 // clampedRole is min(role, reader): the bus aliases stay aliases, so

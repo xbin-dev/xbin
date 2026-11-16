@@ -69,6 +69,11 @@ final class WorkspaceModel: Identifiable {
     /// agent screen sends it once attached (and keeps it as a draft if it
     /// can't).
     @ObservationIgnored private var pendingPrompts: [String: String] = [:]
+    @ObservationIgnored private var pendingDrafts: [String: String] = [:]
+    /// Tiles whose launcher the workspace agent's view opened (D233): their
+    /// screen starts nothing by itself — not even the one coding agent there
+    /// is — until the person taps Start or Send.
+    @ObservationIgnored private var agentViewOpens: Set<String> = []
     @ObservationIgnored private(set) lazy var schemeHandler = TileSchemeHandler(workspace: self)
     @ObservationIgnored private var observer: UUID?
     /// The app's `/ws/events` socket for this workspace (live reload, agent
@@ -77,6 +82,9 @@ final class WorkspaceModel: Identifiable {
     @ObservationIgnored private(set) lazy var events: WorkspaceEvents = makeEvents()
     @ObservationIgnored private var relist: Task<Void, Never>?
     @ObservationIgnored private var recatalog: Task<Void, Never>?
+    /// The person's workspace agent here (D233): its state, what waits, and
+    /// everything that grants.
+    @ObservationIgnored private(set) lazy var agent = WorkspaceAgentModel(workspace: self)
     /// When "reachable again" goes out (``reachableAgain(_:)``, D213).
     @ObservationIgnored private var reachable = ReachableGate()
 
@@ -212,6 +220,7 @@ final class WorkspaceModel: Identifiable {
             await refreshBranding()
             await refreshSessions()
             await probePartitionsPage()
+            await agent.refresh()
             await upgradeToTunnelIfDue()
             lastActivity = Date()
         } catch let e as SignInError {
@@ -321,6 +330,22 @@ final class WorkspaceModel: Identifiable {
         return path
     }
 
+    /// Words for the composer of a new agent session on `tile` (a draft
+    /// handed over from the workspace agent's conversation, D233): kept
+    /// until that tile's launcher takes them, never sent by this.
+    func setPendingDraft(_ text: String, tile: String) { pendingDrafts[tile] = text.isEmpty ? nil : text }
+    func takePendingDraft(_ tile: String) -> String? { pendingDrafts.removeValue(forKey: tile) }
+    /// …and from that launcher to the session the person started there
+    /// (its screen is a new one): by the session's id, still unsent.
+    func setPendingDraft(_ text: String, session: String) { pendingDrafts["session:" + session] = text.isEmpty ? nil : text }
+    func takePendingDraft(session: String) -> String? { pendingDrafts.removeValue(forKey: "session:" + session) }
+
+    /// The workspace agent's view opened a new session of `tile` (its
+    /// launcher): the screen that shows it creates nothing until the person
+    /// taps (AgentLaunch). Taken once, by that screen.
+    func markOpenedByAgentView(tile: String) { agentViewOpens.insert(tile) }
+    func takeOpenedByAgentView(_ tile: String) -> Bool { agentViewOpens.remove(tile) != nil }
+
     func setPendingPrompt(_ text: String, session: String) { pendingPrompts[session] = text }
     func takePendingPrompt(_ session: String) -> String? { pendingPrompts.removeValue(forKey: session) }
 
@@ -338,6 +363,11 @@ final class WorkspaceModel: Identifiable {
 
     /// Agent sessions waiting on this user (the Needs-you inbox).
     var needsYou: [TermDirectoryEntry] { sessions.filter(\.needsYou) }
+
+    /// Everything that waits for the person here: those sessions, and what
+    /// their workspace agent asked — approvals and proposed admin changes
+    /// (D233). The inbox lists them; the badges count them.
+    var needsYouCount: Int { needsYou.count + agent.needs.count }
 
     // MARK: Live events
 
@@ -370,6 +400,10 @@ final class WorkspaceModel: Identifiable {
                 // layout or the phone arrangement: Home and the screens follow.
                 guard LayoutPref.concernsHome(component: component, key: key, writer: writer, me: AppSettings.installID) else { return }
                 Task { await self?.reloadScreens(key: key) }
+            case .delegate(let d):
+                // The person's delegation changed (D233): the agent's chrome
+                // reads again what the event names.
+                self?.agent.handle(d)
             case .partitions(_, "mode"):
                 // A tile's partition mode or switch request changed (D181):
                 // its row's marker, and whether it is paused, did too.
@@ -384,6 +418,8 @@ final class WorkspaceModel: Identifiable {
         e.onResync = { [weak self] in
             self?.scheduleRelist()
             Task { await self?.refreshWhoami() }
+            // …and a request, a decision or a pause (D233)
+            Task { await self?.agent.refresh() }
             // …and a partition mode change (D181) — only where a row
             // carries `partition`: an older xbind's catalog isn't re-read.
             if self?.catalog.tiles.contains(where: { $0.partition != nil }) == true { self?.scheduleCatalog() }
@@ -411,6 +447,7 @@ final class WorkspaceModel: Identifiable {
     /// A `term` event: a status summary updates its row in place (the
     /// Needs-you inbox follows it live), anything else re-lists.
     func apply(_ t: TermEvent) {
+        agent.sessionsChanged() // a tile agent's card in the agent's conversation follows it
         guard t.op == .status,
               let updated = TermDirectory.apply(statusOf: t.id, status: t.status, pending: t.pending, questions: t.questions,
                                                 to: sessions) else {

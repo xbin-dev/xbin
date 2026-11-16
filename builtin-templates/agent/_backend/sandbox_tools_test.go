@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -286,9 +287,13 @@ func TestBashInterruptSignalsTheGroup(t *testing.T) {
 	shortGrace(t)
 	r, _, box := sbxRun(t, ag, "stubborn", "none")
 	f := fakeOf(ag)
-	f.on(forRun(r.ID, lastUser("go")), callTools(tc("b1", "bash", `{"command":"trap '' TERM; sleep 30; echo never"}`))).once()
+	f.on(forRun(r.ID, lastUser("go")), callTools(tc("b1", "bash", `{"command":"trap '' TERM; : > armed; sleep 30; echo never"}`))).once()
 	send(t, ag, r.ID, "go")
 	waitFor(t, "the command", func() bool { return m.count("GET", "/sbx/sandboxes/"+box.ID+"/execs/e1/output") > 0 })
+	// the shell ignores TERM only once it has run the trap: a TERM sent
+	// before that (a busy machine starts it late) ends it, rightly, with no
+	// KILL to follow
+	waitFor(t, "the trap", func() bool { _, err := os.Stat(filepath.Join(box.Workdir, "armed")); return err == nil })
 	if w := serve(handleInterrupt, "POST", "/runs/x/interrupt", r.ID, nil, ""); w.Code != 200 {
 		t.Fatalf("interrupt: %d %s", w.Code, w.Body)
 	}

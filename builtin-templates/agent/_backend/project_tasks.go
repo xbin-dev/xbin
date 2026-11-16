@@ -537,7 +537,7 @@ func (ag *Agent) cancelTask(p *Project, k *ProjectTask, by who, reason string) e
 			ag.cancelRuns(t, k.RunID, true, orStr(reason, "cancelled"))
 		}
 		t.dropQueued(p.ID, k.N)
-		t.dropUntaken(k.RunID)
+		t.dropUntaken(k.RunID, 0)
 		addProjectEvent(t, p.ID, k.N, pevTaskCancel, map[string]any{"text": "cancelled" + orStr(": "+reason, ""), "by": by.tag()}, false, "")
 		onTaskChange(t, p, k, "state")
 		return nil
@@ -584,7 +584,7 @@ func (ag *Agent) closeTask(ctx context.Context, p *Project, k *ProjectTask, by w
 			ag.cancelRuns(t, k.RunID, true, orStr(o.Reason, "the task was closed"))
 		}
 		t.dropQueued(p.ID, k.N)
-		t.dropUntaken(k.RunID)
+		t.dropUntaken(k.RunID, 0)
 		k.Phase = phaseClosed
 		if err := t.setTask(k.ID, map[string]any{"phase": phaseClosed}); err != nil {
 			return err

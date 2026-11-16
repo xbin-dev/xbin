@@ -107,13 +107,20 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
     /// (an icon name, plans/native.md §10.4), "" / nil when it gives none.
     public var manifestTitle: String
     public var manifestIcon: String?
+    /// `sealed`: a system component (D227, docs/sealed.md) — a part of xbin
+    /// that runs like a tile at `xbin/<name>`, with no terminal, coding
+    /// agent, source or deployments. xbind lists such a row only for a
+    /// client that asks (`GET /api/xbin/components?sealed=1`); it is never
+    /// in the app's tile lists (``isListed``), and resolves by its path —
+    /// a link to it, its own files and API (``TileResource``).
+    public var sealed: Bool
 
     public var id: String { path }
 
     public init(path: String, scope: String = "", runtime: String = "", hasIndex: Bool = true, state: String = "",
                 owner: String = "", chrome: Bool = false, sandbox: [String] = [], nativeEntry: String? = nil,
                 manifestError: String = "", template: Bool = false, partition: TilePartition? = nil,
-                manifestTitle: String = "", manifestIcon: String? = nil) {
+                manifestTitle: String = "", manifestIcon: String? = nil, sealed: Bool = false) {
         self.path = path
         self.scope = scope
         self.runtime = runtime
@@ -128,6 +135,7 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
         self.partition = partition
         self.manifestTitle = String(manifestTitle.prefix(80))
         self.manifestIcon = manifestIcon.flatMap { $0.isEmpty || $0.count > 40 ? nil : $0 }
+        self.sealed = sealed
     }
 
     public init?(json: JSONValue) {
@@ -143,7 +151,8 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
                   sandbox: (json["sandbox"]?.arrayValue ?? []).compactMap(\.stringValue), nativeEntry: entry,
                   manifestError: json["manifestError"]?.stringValue ?? "", template: json["template"]?.boolValue ?? false,
                   partition: json["partition"].flatMap(TilePartition.init(json:)),
-                  manifestTitle: json["title"]?.stringValue ?? "", manifestIcon: json["icon"]?.stringValue)
+                  manifestTitle: json["title"]?.stringValue ?? "", manifestIcon: json["icon"]?.stringValue,
+                  sealed: json["sealed"]?.boolValue ?? false)
     }
 
     /// What to call the tile: its manifest's title (D194), else the last
@@ -176,9 +185,10 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
     public var isHidden: Bool { state == "hidden" }
     /// What the app lists and opens: not the shell, not a blueprint, not
     /// hidden, archived or disabled, and with a page to open (the web
-    /// sidebar's rules, bx-side.js `_ownerSections`).
+    /// sidebar's rules, bx-side.js `_ownerSections`) — and never a system
+    /// component, which has its own entry point where the app gives it one.
     public var isListed: Bool {
-        !isShellInternal && hasIndex && !template && !isOffloaded && !isHidden && state != "disabled"
+        !isShellInternal && hasIndex && !template && !isOffloaded && !isHidden && state != "disabled" && !sealed
     }
 
     public func isPersonal(of user: String) -> Bool { !user.isEmpty && owner == "user:\(user)" }

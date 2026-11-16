@@ -230,6 +230,18 @@ func (b *Broker) personalBindCheck(id string, pb personalBind) (registry.Iface, 
 	if !ok {
 		return registry.Iface{}, pb.Requester + " is gone"
 	}
+	// A sealed component's slots take the providers its release names, on
+	// every bind path — a person's own bind included: a reader who bound
+	// its model slot, in their partition, to a tile of theirs would hand
+	// that tile what the component sends its provider. And it is never the
+	// provider of anyone's bind. (Judged live: a bind already in a person's
+	// file stops holding.)
+	if c.Sealed && !b.Reg.SealedBindingAllowed(pb.Requester, pb.Slot, pb.Provider) {
+		return registry.Iface{}, util.SealedRefusal(pb.Requester, fmt.Sprintf("its release names the providers its %s slot may be bound to, and %s is not one", pb.Slot, pb.Provider))
+	}
+	if util.SealedPath(pb.Provider) {
+		return registry.Iface{}, util.SealedRefusal(util.CanonPath(pb.Provider), "it is never the provider of a binding")
+	}
 	if _, part, err := b.tilePartitioning(pb.Requester); err != nil || !part {
 		return registry.Iface{}, pb.Requester + " doesn't keep each person's data apart"
 	}

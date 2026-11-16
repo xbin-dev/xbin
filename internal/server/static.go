@@ -70,7 +70,7 @@ func (s *Server) sandboxDocument(w http.ResponseWriter, r *http.Request, compPat
 func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	rel := strings.TrimPrefix(r.URL.Path, "/c/")
 	_, cleaned, err := util.SafeJoin(s.Reg.Root, rel)
-	if err != nil || !pathAllowed(cleaned) {
+	if err != nil || !pathAllowed(cleaned) && !s.sealedOwned(cleaned) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
@@ -112,6 +112,12 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	r = withoutServed(r)
 	owner := s.owningComponent(cleaned)
 	if s.tileReadRefused(w, r, auth.PrincipalOf(r), owner) {
+		return
+	}
+	// A person's agent's page is framed by xbind's own chrome alone, in
+	// every asset mode (tilenav.go).
+	r, refused := s.holderFrameGate(w, r, owner)
+	if refused {
 		return
 	}
 	// A pending partition mode switch: the tile's documents are xbind's own
@@ -322,7 +328,13 @@ func (s *Server) codeGranted(p auth.Principal, target string) bool {
 // Strict asset gating (--tile-assets=tokens|origins) has no such
 // exception: every /c/ request carries a credential.
 func (s *Server) tileSubresourceAuthed(r *http.Request) bool {
-	return !s.strictAssets() && tileSubresource(r) && s.Auth.RecentlyAuthed(s.ClientIP(r))
+	if s.strictAssets() || !tileSubresource(r) {
+		return false
+	}
+	// A preview render's socket (preview.go) has no client address to have
+	// signed in from: the socket is the render's person's alone, and its
+	// scope gate already held this path to a tile the render shows.
+	return previewOf(r) != nil || s.Auth.RecentlyAuthed(s.ClientIP(r))
 }
 
 var tileSubresourceDests = map[string]bool{
@@ -369,6 +381,12 @@ var shippedChrome = map[string]bool{"tiles/organisations": true}
 // whatever its code declares (05-model §6).
 func (s *Server) trustedChrome(compPath string, comp *registry.Component) bool {
 	if comp != nil && comp.Deployment != "" {
+		return false
+	}
+	if auth.HoldsDelegation(compPath) {
+		// a component that acts for people is never chrome, whatever is
+		// shipped or approved: its page must hold a frame token and no
+		// session (DelegationChromeConflict, chrome.go)
 		return false
 	}
 	if isChrome(compPath) {
@@ -547,9 +565,9 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 		"\n%s<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"xbin-component\" content=\"%s\">\n"+
 			"%s%s<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
-			"%s%s%s%s"+
+			"%s%s%s%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
-		assetHead, im, htmlEscape(compPath), s.appearanceMetas(r), depMeta, frameTok, partMeta, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
+		assetHead, im, htmlEscape(compPath), s.appearanceMetas(r), depMeta, frameTok, partMeta, ifaceMeta, sandboxMeta, appWSOriginMeta(r), sealedCodeMeta(comp))
 }
 
 // mayMintFrameToken: the injection mints compPath's frame token only for a

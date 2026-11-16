@@ -24,6 +24,7 @@ import (
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
+	"github.com/xbin-dev/xbin/sdk/llm"
 )
 
 const defaultBaseURL = "https://api.openai.com"
@@ -37,12 +38,6 @@ type backend struct {
 	BaseURL string `json:"baseURL"`
 }
 
-// price is a model's cost in USD per 1,000,000 tokens (input / output).
-type price struct {
-	In  float64 `json:"in"`
-	Out float64 `json:"out"`
-}
-
 type gwConfig struct {
 	// Legacy single-backend field (pre-multi); migrated to Backends["default"].
 	BaseURL  string             `json:"baseURL,omitempty"`
@@ -51,8 +46,10 @@ type gwConfig struct {
 	// Preferred maps a use-type (see useTypes) to a model id — the workspace's
 	// default model for that job, resolved by callers via GET /preferred.
 	Preferred map[string]string `json:"preferred"`
-	// Pricing maps an upstream model id to its cost, for the cost counters.
-	Pricing map[string]price `json:"pricing"`
+	// Pricing maps an upstream model id to its cost in USD per 1,000,000
+	// tokens ({in, out}, and cachedIn for input read from a prompt cache),
+	// for the cost counters.
+	Pricing llm.PriceTable `json:"pricing"`
 	// PartitionLimit caps the calls one person's partition of a calling
 	// tile may have in flight (0: off, the default; callers.go).
 	PartitionLimit int `json:"partitionLimit,omitempty"`
@@ -89,18 +86,20 @@ func loadConfig() gwConfig {
 		c.Preferred = map[string]string{}
 	}
 	if c.Pricing == nil {
-		c.Pricing = map[string]price{}
+		c.Pricing = llm.PriceTable{}
 	}
 	return c
 }
 
-// costOf returns the USD cost of a request from the configured per-model price.
-func costOf(c gwConfig, model string, tokIn, tokOut int64) float64 {
+// costOf returns the USD cost of a request from the configured per-model
+// price: the price of exactly this model id (no prefix or wildcard match),
+// 0 when it has none.
+func costOf(c gwConfig, model string, u llm.Usage) float64 {
 	p, ok := c.Pricing[model]
 	if !ok {
 		return 0
 	}
-	return float64(tokIn)/1e6*p.In + float64(tokOut)/1e6*p.Out
+	return p.Cost(u)
 }
 
 func saveConfig(c gwConfig) error {
@@ -156,17 +155,11 @@ func sleepBackoff(ctx context.Context, attempt int, retryAfter string) bool {
 	}
 }
 
-// upstreamURL joins a configured base URL with a /v1/... request path.
-// Base URLs are commonly given either bare ("https://api.openai.com") or
-// already including the version prefix ("https://openrouter.ai/api/v1", the
-// convention most OpenAI SDKs default to) — avoid doubling /v1 in the
-// latter case.
+// upstreamURL joins a configured base URL with a /v1/... request path and
+// its query. Base URLs are given bare or with the version prefix
+// (llm.JoinURL: the /v1 is never doubled).
 func upstreamURL(baseURL, path, rawQuery string) string {
-	base := strings.TrimRight(baseURL, "/")
-	if strings.HasSuffix(base, "/v1") && strings.HasPrefix(path, "/v1/") {
-		path = strings.TrimPrefix(path, "/v1")
-	}
-	target := base + path
+	target := llm.JoinURL(baseURL, path)
 	if rawQuery != "" {
 		target += "?" + rawQuery
 	}
@@ -664,9 +657,10 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	// Relay, keeping a bounded tail so token usage can be scraped afterwards —
-	// works for plain JSON responses and for SSE streams whose final chunk
-	// carries a usage object (stream_options.include_usage).
+	// Relay, keeping a bounded tail so token usage can be scraped afterwards
+	// (llm.UsageFromTail: either wire's usage block, the last one in the
+	// tail) — works for plain JSON responses and for SSE streams whose final
+	// chunk carries a usage object (stream_options.include_usage).
 	flusher, _ := w.(http.Flusher)
 	var tail []byte
 	buf := make([]byte, 4096)
@@ -689,8 +683,9 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	release() // the call ended: its partition's slot is free before any counting
-	tokIn, tokOut := usageOf(tail)
-	cost := costOf(c, reqModel, tokIn, tokOut)
-	bumpStats(beName, tokIn, tokOut, cost)
-	countCaller(caller, tokIn, tokOut, cost)
+	// no usage reported: zero
+	u, _ := llm.UsageFromTail(tail)
+	cost := costOf(c, reqModel, u)
+	bumpStats(beName, u.InputTokens, u.OutputTokens, cost)
+	countCaller(caller, u.InputTokens, u.OutputTokens, cost)
 }

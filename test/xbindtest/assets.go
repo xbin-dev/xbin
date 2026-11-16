@@ -86,12 +86,27 @@ var (
 	}
 )
 
+// Skip skips t for a prerequisite this machine lacks — or, under
+// XBIN_E2E_REQUIRE=1, fails it: a run that must not pass by running nothing.
+func Skip(t testing.TB, why string) {
+	t.Helper()
+	if os.Getenv("XBIN_E2E_REQUIRE") == "1" {
+		t.Fatalf("XBIN_E2E_REQUIRE=1 and this machine can't run the test: %s", why)
+	}
+	t.Skip(why)
+}
+
 // Require returns the assets, skipping the test without user namespaces or
 // a base rootfs; the binaries are built on first use.
+//
+// A skip is silent in a plain `go test` (only -v shows it), so a run that
+// was meant to exercise the real binary can pass having run nothing. Set
+// XBIN_E2E_REQUIRE=1 to make a missing prerequisite a failure instead: the
+// run then either ran the test or says what the machine lacks (Skip).
 func Require(t testing.TB) *Assets {
 	t.Helper()
 	if !sandbox.Available() {
-		t.Skip("unprivileged user namespaces unavailable")
+		Skip(t, "unprivileged user namespaces unavailable (inside a tool sandbox they are; hack/dev-setup.sh --check says what a machine lacks)")
 	}
 	repo, err := repoRoot()
 	if err != nil {
@@ -108,7 +123,7 @@ func Require(t testing.TB) *Assets {
 		}
 	}
 	if a.Rootfs == "" {
-		t.Skip("no base rootfs ($XBIN_ROOTFS, $XBIN_TEST_ROOTFS or the repo's .rootfs; make rootfs)")
+		Skip(t, "no base rootfs ($XBIN_ROOTFS, $XBIN_TEST_ROOTFS or the repo's .rootfs; make rootfs)")
 	}
 	a.FuseOverlayfs = findTool("XBIN_FUSE_OVERLAYFS", filepath.Join(repo, "bin", "fuse-overlayfs"), "fuse-overlayfs")
 	a.Gocryptfs = findTool("XBIN_GOCRYPTFS", filepath.Join(repo, "bin", "gocryptfs"), "gocryptfs")
@@ -122,6 +137,68 @@ func Require(t testing.TB) *Assets {
 	// trees) run confined, over the same rootfs
 	confine.Configure(a.Rootfs)
 	return a
+}
+
+// WithSealedFixture is a copy of the assets whose xbind is built with -tags
+// sealedfixture — its sealed table holds the fixture components
+// (internal/sealed/table_fixture.go) — in a bin directory of its own, with
+// the release's builds of their backends beside it (bin/sealed, made by
+// that xbind's own `sealed-build`, as `make build` does). The directory is
+// removed when the test ends.
+func (a *Assets) WithSealedFixture(t testing.TB) *Assets {
+	t.Helper()
+	return a.withSealed(t, "sealedfixture")
+}
+
+// WithSealedBuilds is a copy of the assets as a release ships them: this
+// tree's xbind — its sealed table the release's own, the workspace agent
+// (xbin/wsagent) in it — with the prebuilt backends of that table beside
+// it (bin/sealed, by its own `sealed-build`). The plain assets have no
+// bin/sealed: a production xbind started from them holds every sealed
+// component for want of its build, as a damaged install would.
+func (a *Assets) WithSealedBuilds(t testing.TB) *Assets {
+	t.Helper()
+	return a.withSealed(t, "")
+}
+
+func (a *Assets) withSealed(t testing.TB, tags string) *Assets {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "xbindtest-sealed-bin-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	run := func(wd string, argv ...string) {
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Dir = wd
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", strings.Join(argv, " "), err, b)
+		}
+	}
+	link := func(name string) {
+		if err := os.Link(filepath.Join(a.Bin, name), filepath.Join(dir, name)); err != nil {
+			raw, rerr := os.ReadFile(filepath.Join(a.Bin, name))
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			if err := os.WriteFile(filepath.Join(dir, name), raw, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if tags != "" {
+		run(a.Repo, "go", "build", "-tags", tags, "-o", filepath.Join(dir, "xbind"), "./cmd/xbind")
+	} else {
+		link("xbind")
+	}
+	for _, b := range []string{"bx", "xbin-vmagent"} {
+		link(b)
+	}
+	run(a.Repo, filepath.Join(dir, "xbind"), "sealed-build", "--out", filepath.Join(dir, "sealed"), "--sdk", filepath.Join(a.Repo, "sdk"))
+	b := *a
+	b.Bin = dir
+	return &b
 }
 
 // Example is the path of examples/<name> in the repo.

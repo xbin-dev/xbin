@@ -39,40 +39,60 @@ const (
 	hContentMax = 64 << 10
 )
 
+// hToolPolicy is what a call's row keeps of the call (sdk/acp's tool
+// record, toolrec.go): the newest hOutputMax of its output, hContentMax of
+// its text, an edit as a patch.
+var hToolPolicy = acp.ToolPolicy{OutputMax: hOutputMax, TextMax: hContentMax, Diff: harnessToolDiff}
+
 // hcall is a tool call of the session as the engine last wrote (or holds)
-// it: its assistant row and its tool row.
+// it: its assistant row and its tool row, and the call itself — sdk/acp's
+// tool record, which merges the events (rec).
 type hcall struct {
 	id      string // the stored id: "h<gen>:<acp id>"
 	asst    *Message
 	row     *Message
-	meta    harnessMeta
-	counted bool // its diffs are in the counts
+	rec     acp.ToolRecord
+	parent  string // the stored id of the subagent call it runs under
+	turn    int    // the turn it was made in (hsess.turns then); -1: read back from the transcript
+	counted bool   // its diffs are in the counts
 }
 
-// hToolEv is a tool.call / tool.update event's data (sdk/acp updates.go).
-type hToolEv struct {
-	ID          string          `json:"id"`
-	Title       *string         `json:"title"`
-	Kind        *string         `json:"kind"`
-	Status      string          `json:"status"`
-	Content     json.RawMessage `json:"content"`
-	Locations   json.RawMessage `json:"locations"`
-	RawInput    json.RawMessage `json:"rawInput"`
-	Name        string          `json:"name"`
-	Label       string          `json:"label"`
-	Parent      string          `json:"parent"`
-	Subagent    bool            `json:"subagent"`
-	PlanReview  bool            `json:"planReview"`
-	Output      *string         `json:"output"`
-	OutputDelta string          `json:"outputDelta"`
-	ExitCode    *int            `json:"exitCode"`
+// meta is the call as its tool row stores it (msgMeta.harness).
+func (c *hcall) meta() harnessMeta {
+	r := &c.rec
+	h := harnessMeta{Kind: r.Kind, Title: r.Title, Label: r.Label, Tool: r.Name, Status: r.Status, Parent: c.parent,
+		Subagent: r.Subagent, PlanReview: r.PlanReview, Locations: r.Locations, Files: r.Files, ExitCode: r.ExitCode,
+		Output: r.Output, OutputTruncated: r.OutputTruncated, RawInput: r.RawInput, Text: r.Text}
+	for _, d := range r.Diffs {
+		h.Diffs = append(h.Diffs, hDiff{Path: d.Path, Status: d.Status, Add: d.Add, Del: d.Del, Patch: d.Patch, Truncated: d.Truncated})
+	}
+	return h
+}
+
+// recOf is a stored call (a tool row's msgMeta.harness) as the record the
+// next event merges into; id: the adapter's own.
+func recOf(id string, h harnessMeta) acp.ToolRecord {
+	r := acp.ToolRecord{ID: id, Kind: orStr(h.Kind, "other"), Title: h.Title, Label: h.Label, Name: h.Tool, Status: h.Status,
+		Parent: acpCallID(h.Parent), Subagent: h.Subagent, PlanReview: h.PlanReview, Locations: h.Locations, Files: h.Files,
+		ExitCode: h.ExitCode, Output: h.Output, OutputTruncated: h.OutputTruncated, RawInput: h.RawInput, Text: h.Text}
+	for _, d := range h.Diffs {
+		r.Diffs = append(r.Diffs, acp.ToolDiff{Path: d.Path, Status: d.Status, Add: d.Add, Del: d.Del, Patch: d.Patch, Truncated: d.Truncated})
+	}
+	return r
+}
+
+// harnessToolDiff is an edit as the record keeps it here: a patch
+// (harness_diff.go), not the two texts.
+func harnessToolDiff(path string, old *string, newText string, deleted bool) acp.ToolDiff {
+	d := harnessDiff(path, old, newText, deleted)
+	return acp.ToolDiff{Path: d.Path, Status: d.Status, Add: d.Add, Del: d.Del, Patch: d.Patch, Truncated: d.Truncated}
 }
 
 // sid is the stored id of an adapter's call id (a respawn may reuse ids):
 // "h<gen>:<id>", and "h<gen>:<id>#<n>" for the n-th call of an adapter that
 // used the id again for a new call once the earlier one had ended (ACP says
 // an id is unique in a session; a scripted agent reuses its ids from turn
-// to turn — see onTool).
+// to turn — see onTool; sdk/acp StartsToolRecord is the rule).
 func (s *hsess) sid(id string) string {
 	if id == "" {
 		return ""
@@ -319,12 +339,12 @@ func (s *hsess) call(id string) *hcall {
 	if row == nil {
 		return nil
 	}
-	c = &hcall{id: sid, row: row, asst: asst, counted: true}
+	c = &hcall{id: sid, row: row, asst: asst, turn: -1, rec: *acp.NewToolRecord(id)}
 	var mm msgMeta
 	if json.Unmarshal(row.Meta, &mm) == nil && mm.Harness != nil {
-		c.meta = *mm.Harness
+		c.rec, c.parent = recOf(id, *mm.Harness), mm.Harness.Parent
 	}
-	c.counted = terminal(c.meta.Status)
+	c.counted = c.rec.Done()
 	s.mu.Lock()
 	s.calls[sid] = c
 	s.mu.Unlock()
@@ -371,25 +391,19 @@ func (s *hsess) heldContent(sid, content string) {
 	s.mu.Unlock()
 }
 
-func terminal(status string) bool {
-	return status == "completed" || status == "failed" || status == "cancelled"
-}
-
 // onTool is a tool.call or tool.update: the call's rows written, or
 // merged. Only a terminal output delta is not durable: it changes the held
 // row, published within hPublishEvery and stored with the next durable
 // event.
 func (s *hsess) onTool(ev acp.Event) {
-	var d hToolEv
-	if json.Unmarshal(ev.Data, &d) != nil || d.ID == "" {
+	d, ok := acp.ParseToolEvent(ev.Data)
+	if !ok {
 		return
 	}
-	var keys map[string]json.RawMessage
-	_ = json.Unmarshal(ev.Data, &keys)
 	c := s.call(d.ID)
-	if c != nil && ev.Type == acp.EvToolCall && terminal(c.meta.Status) {
-		// a new call under the id of one that ended: its own rows, not a
-		// rewrite of the earlier call's card
+	if c != nil && acp.StartsToolRecord(ev.Type, &c.rec, c.turn < 0 || c.turn == s.turnNo()) {
+		// a new call under the id of one that ended, or of an earlier
+		// turn's: its own rows, not a rewrite of the earlier call's card
 		s.reused(d.ID)
 		c = nil
 	}
@@ -398,16 +412,16 @@ func (s *hsess) onTool(ev acp.Event) {
 		return
 	}
 	s.mu.Lock()
-	was := c.meta.Status
-	titleWas, rawWas := c.meta.Title, string(c.meta.RawInput)
-	mergeTool(&c.meta, d, keys, s.sid)
+	was := c.rec.Status
+	titleWas, rawWas := c.rec.Title, string(c.rec.RawInput)
+	s.merge(c, d)
 	durable := false
-	for k := range keys {
+	for _, k := range d.Fields() {
 		if k != "id" && k != "outputDelta" && !(k == "status" && d.Status == was) {
 			durable = true
 		}
 	}
-	if terminal(c.meta.Status) {
+	if c.rec.Done() {
 		c.row.Content = s.rowText(c)
 	}
 	if !durable {
@@ -419,11 +433,11 @@ func (s *hsess) onTool(ev acp.Event) {
 		return
 	}
 	s.dirty[c.id] = true // stored by the commit below
-	argsChanged := c.meta.Title != titleWas || string(c.meta.RawInput) != rawWas
-	ended := terminal(c.meta.Status) && !terminal(was)
+	argsChanged := c.rec.Title != titleWas || string(c.rec.RawInput) != rawWas
+	ended := c.rec.Done() && !acp.ToolDone(was)
 	s.mu.Unlock()
 	var sub hsDraft
-	if ended && c.meta.Subagent {
+	if ended && c.rec.Subagent {
 		sub = s.takeDraft(c.id) // what the subagent said since its last call
 	}
 	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error {
@@ -442,7 +456,7 @@ func (s *hsess) onTool(ev acp.Event) {
 			s.countTx(hs, c)
 		}
 		if argsChanged && c.asst != nil {
-			c.asst.ToolCalls = callsJSON(c.id, c.meta)
+			c.asst.ToolCalls = callsJSON(c.id, c.meta())
 			if _, err := t.q.Exec(`UPDATE messages SET tool_calls=? WHERE id=?`, c.asst.ToolCalls, c.asst.ID); err != nil {
 				return err
 			}
@@ -459,25 +473,21 @@ func (s *hsess) onTool(ev acp.Event) {
 
 // newCall writes a call's two rows (flushing the text before it into the
 // assistant row): the call's start.
-func (s *hsess) newCall(ev acp.Event, d hToolEv) {
-	c := &hcall{id: s.sid(d.ID)}
-	var keys map[string]json.RawMessage
-	_ = json.Unmarshal(ev.Data, &keys)
-	mergeTool(&c.meta, d, keys, s.sid)
-	if c.meta.Status == "" {
-		c.meta.Status = "pending"
-	}
-	parent := c.meta.Parent
+func (s *hsess) newCall(ev acp.Event, d acp.ToolEvent) {
+	c := &hcall{id: s.sid(d.ID), turn: s.turnNo(), rec: *acp.NewToolRecord(d.ID)}
+	s.merge(c, d)
+	parent := c.parent
 	dr := s.takeDraft(parent)
-	c.asst = &Message{RunID: s.run, Role: "assistant", Content: dr.Text, ToolCalls: callsJSON(c.id, c.meta)}
+	meta := c.meta()
+	c.asst = &Message{RunID: s.run, Role: "assistant", Content: dr.Text, ToolCalls: callsJSON(c.id, meta)}
 	am := msgMeta{Reasoning: dr.Think}
 	if parent != "" {
 		am.Harness = &harnessMeta{Parent: parent}
 	}
 	c.asst.Meta, _ = json.Marshal(am)
-	c.row = &Message{RunID: s.run, Role: "tool", Name: "acp:" + orStr(c.meta.Kind, "other"), ToolCallID: c.id}
+	c.row = &Message{RunID: s.run, Role: "tool", Name: "acp:" + c.rec.Kind, ToolCallID: c.id}
 	c.row.Content = s.rowText(c)
-	c.row.Meta = rowMeta(c.meta)
+	c.row.Meta = rowMeta(meta)
 	err := s.commit(&ev, func(t *DB, hs *harnessSession) error {
 		if parent == "" {
 			if err := s.flushSubsTx(t); err != nil {
@@ -497,7 +507,7 @@ func (s *hsess) newCall(ev acp.Event, d hToolEv) {
 		n.Tools++
 		b, _ := json.Marshal(n)
 		hs.Counts = string(b)
-		if terminal(c.meta.Status) {
+		if c.rec.Done() {
 			s.countTx(hs, c)
 		}
 		if parent == "" {
@@ -526,7 +536,7 @@ func (s *hsess) countTx(hs *harnessSession, c *hcall) {
 	c.counted = true
 	var n hCounts
 	_ = json.Unmarshal([]byte(hs.Counts), &n)
-	for _, df := range c.meta.Diffs {
+	for _, df := range c.rec.Diffs {
 		n.Add += df.Add
 		n.Del += df.Del
 		n.addFile(df.Path)
@@ -541,13 +551,13 @@ func (s *hsess) toolActivity() {
 	s.mu.Lock()
 	var cur *hcall
 	for _, c := range s.calls {
-		if !terminal(c.meta.Status) && (cur == nil || c.row.ID > cur.row.ID) {
+		if !c.rec.Done() && (cur == nil || c.row.ID > cur.row.ID) {
 			cur = c
 		}
 	}
 	s.mu.Unlock()
 	if cur != nil {
-		s.activity("tool", orStr(cur.meta.Label, cur.meta.Title))
+		s.activity("tool", orStr(cur.rec.Label, cur.rec.Title))
 	} else {
 		s.activity("thinking", "")
 	}
@@ -566,7 +576,7 @@ func (s *hsess) publishDirty() {
 	for id := range s.dirty {
 		if c := s.calls[id]; c != nil {
 			m := *c.row
-			m.Meta = rowMeta(c.meta)
+			m.Meta = rowMeta(c.meta())
 			views = append(views, messageView(&m))
 		}
 	}
@@ -581,7 +591,7 @@ func (s *hsess) dirtyRowsLocked() []hRow {
 	var out []hRow
 	for id := range s.dirty {
 		if c := s.calls[id]; c != nil && c.row != nil && c.row.ID != 0 {
-			out = append(out, hRow{call: id, id: c.row.ID, content: c.row.Content, meta: rowMeta(c.meta)})
+			out = append(out, hRow{call: id, id: c.row.ID, content: c.row.Content, meta: rowMeta(c.meta())})
 		}
 	}
 	return out
@@ -634,112 +644,40 @@ func callsJSON(id string, h harnessMeta) string {
 	return string(b)
 }
 
-// mergeTool folds an event into the call (only the fields it carries).
-func mergeTool(h *harnessMeta, d hToolEv, keys map[string]json.RawMessage, sid func(string) string) {
-	if d.Title != nil {
-		h.Title = *d.Title
+// merge folds an event into the call — sdk/acp's rules (ToolRecord.Merge:
+// only the fields it carries; a content list without text or diffs keeps
+// those it had) — and notes the subagent call it runs under by its stored
+// id, as that id reads when first said.
+func (s *hsess) merge(c *hcall, d acp.ToolEvent) {
+	if d.Parent != "" && c.parent == "" {
+		c.parent = s.sid(d.Parent)
 	}
-	if d.Kind != nil {
-		h.Kind = *d.Kind
-	}
-	if d.Status != "" {
-		h.Status = d.Status
-	}
-	if d.Name != "" {
-		h.Tool = d.Name
-	}
-	if d.Label != "" {
-		h.Label = d.Label
-	}
-	if d.Parent != "" && h.Parent == "" {
-		h.Parent = sid(d.Parent)
-	}
-	if d.Subagent {
-		h.Subagent = true
-	}
-	if d.PlanReview {
-		h.PlanReview = true
-	}
-	if _, ok := keys["rawInput"]; ok {
-		h.RawInput = d.RawInput
-	}
-	if _, ok := keys["locations"]; ok {
-		var locs []hLocation
-		if json.Unmarshal(d.Locations, &locs) == nil {
-			h.Locations = locs
-		}
-	}
-	if _, ok := keys["content"]; ok {
-		var blocks []struct {
-			Type    string           `json:"type"`
-			Content acp.ContentBlock `json:"content"`
-			Path    string           `json:"path"`
-			OldText *string          `json:"oldText"`
-			NewText string           `json:"newText"`
-		}
-		if json.Unmarshal(d.Content, &blocks) == nil {
-			var text []string
-			var diffs []hDiff
-			for _, b := range blocks {
-				switch b.Type {
-				case "content":
-					if b.Content.Type == "text" && b.Content.Text != "" {
-						text = append(text, b.Content.Text)
-					}
-				case "diff":
-					diffs = append(diffs, harnessDiff(b.Path, b.OldText, b.NewText, h.Kind == "delete"))
-				}
-			}
-			if len(text) > 0 {
-				h.Text = clip(strings.Join(text, "\n\n"), hContentMax)
-			}
-			if len(diffs) > 0 {
-				h.Diffs = diffs
-			}
-		}
-	}
-	if d.Output != nil {
-		h.Output, h.OutputTruncated = "", 0
-		appendOutput(h, *d.Output)
-	}
-	if d.OutputDelta != "" {
-		appendOutput(h, d.OutputDelta)
-	}
-	if d.ExitCode != nil {
-		c := *d.ExitCode
-		h.ExitCode = &c
-	}
-	h.Files = nil
-	for _, l := range h.Locations {
-		if l.Path != "" && !hasStr(h.Files, l.Path) {
-			h.Files = append(h.Files, l.Path)
-		}
-	}
-	for _, df := range h.Diffs {
-		if df.Path != "" && !hasStr(h.Files, df.Path) {
-			h.Files = append(h.Files, df.Path)
-		}
-	}
+	c.rec.Merge(d, hToolPolicy)
 }
 
-// appendOutput keeps the last hOutputMax bytes of a call's terminal output.
-func appendOutput(h *harnessMeta, s string) {
-	h.Output += s
-	if over := len(h.Output) - hOutputMax; over > 0 {
-		h.Output = h.Output[over:]
-		h.OutputTruncated += int64(over)
-	}
+// turnNo counts the turns that ended here: a call knows the turn it was
+// made in (an id used again in a later turn is a new call).
+func (s *hsess) turnNo() int {
+	s.reuseMu.Lock()
+	defer s.reuseMu.Unlock()
+	return s.turns
+}
+
+func (s *hsess) turnOver() {
+	s.reuseMu.Lock()
+	s.turns++
+	s.reuseMu.Unlock()
 }
 
 // rowText is the tool row's content: a placeholder until the call ends,
 // then its result (§4.3.5).
 func (s *hsess) rowText(c *hcall) string {
-	h := c.meta
+	h := &c.rec
 	switch h.Status {
 	case "cancelled":
 		return "(cancelled)"
 	case "failed":
-		return "error: " + orStr(h.Text, orStr(tailOf(h.Output, hResultTail), "the call failed"))
+		return "error: " + orStr(h.Text, orStr(h.OutputTail(hResultTail), "the call failed"))
 	case "completed":
 	default:
 		return toolRunning
@@ -752,7 +690,7 @@ func (s *hsess) rowText(c *hcall) string {
 	case len(parts) > 0:
 		return strings.Join(parts, "\n")
 	case h.Output != "" || h.ExitCode != nil:
-		out := tailOf(h.Output, hResultTail)
+		out := h.OutputTail(hResultTail)
 		if h.ExitCode != nil {
 			out += fmt.Sprintf("\n[exit %d]", *h.ExitCode)
 		}
@@ -761,13 +699,6 @@ func (s *hsess) rowText(c *hcall) string {
 		return h.Text
 	}
 	return orStr(h.Title, "done")
-}
-
-func tailOf(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[len(s)-n:]
 }
 
 // --- status, title, the turn's end ------------------------------------------------
@@ -841,6 +772,7 @@ func (s *hsess) onTurnEnd(ev acp.Event) {
 			d.Error = why // the pipe gave up on it: said in people's words
 		}
 	}
+	s.turnOver() // what follows is the next turn's (an id used again there is a new call)
 	signedOut := d.StopReason == "error" && s.c != nil && s.signedOutNow(s.c.State())
 	if d.StopReason != "error" {
 		s.authRefused.Store(false) // a turn that worked: signed in

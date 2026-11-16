@@ -289,3 +289,16 @@ struct SSOButton: View {
     let flow: OnboardingFlow
     var body: some View { EmptyView() }
 }
+
+// Tiles/AgentTile.swift (D233): the workspace agent's native view in its container.
+@MainActor @Observable final class AgentRuntimeBox {
+    func close() {}
+}
+struct AgentTileView: View {
+    let workspace: WorkspaceModel
+    let tile: TileInfo
+    let box: AgentRuntimeBox
+    var compact: Bool
+    var opened: () -> Void
+    var body: some View { EmptyView() }
+}

@@ -41,6 +41,14 @@ func (m *Manager) contractHandler() http.Handler {
 			fail(w, http.StatusForbidden, "not-allowed", why)
 			return
 		}
+		// A preview (D234: xbind rendering a person's view) changes nothing,
+		// whichever tile's page its browser is drawing: no terminal, no
+		// stdio, no port socket — the consumer contract trusts consumers,
+		// and a preview is nobody's act.
+		if xbin.Caller(r).Preview && mutates(r) {
+			fail(w, http.StatusForbidden, "not-allowed", "a preview changes nothing: no terminal, no stdio, no port socket, no write")
+			return
+		}
 		if m.pageReader(r) { // this tile's own page, a person who may only look
 			if mutates(r) {
 				c := xbin.Caller(r)

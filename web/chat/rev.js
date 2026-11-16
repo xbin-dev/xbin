@@ -1,0 +1,52 @@
+/**
+ * chat/rev.js — the revision of the chat kit this xbind serves (D224): the
+ * modules under /vendor/chat/ and the shared ones they stand on.
+ *
+ * KIT goes up by one whenever the kit gains something a page can import — a
+ * module, an export, a behaviour a caller has to be written for. It never
+ * goes down and nothing is ever taken away (docs/compat.md rule 3), so "KIT
+ * is at least N" means "everything a page written for revision N imports is
+ * here".
+ *
+ * A page that ships apart from xbind (the agent template: its instances are
+ * copies in workspaces) imports this module first, guarded, and compares KIT
+ * with the revision it was written for before it loads anything else from
+ * the kit — on an xbind from before the kit this URL is a 404, and the page
+ * says which xbind it needs instead of failing on a missing export.
+ *
+ *   1  /vendor/chat/md.js; /vendor/bx-md.js gains closedFence, mdEpoch and
+ *      onHighlighter; /vendor/chat/blocks.js: the block model (kinds, the
+ *      tool record, keys and versions, nesting)
+ *   2  /vendor/chat/tools.js: a tool call from its record (the merge of an
+ *      agent's events, headline, outcome and state chips, output tail,
+ *      diffs, plan approval); /vendor/chat/ask.js: a permission request's
+ *      card, a question's form, the slash menu, the composer's words
+ *   3  the views: /vendor/chat/views.js (rows, messages, dispatch),
+ *      cards.js (tool, subagent, sub-conversation, changes, plan),
+ *      asks.js (permission, plan approval, question, sign-in; the element
+ *      <bx-chat-form>), composer.js (<bx-chat-composer>), window.js
+ *      (ChatWindow), css.js (chatCssText); blocks.js gains the `host` kind,
+ *      usageBadge, cached and ChatCtx's readonly, role, rev, state, copy,
+ *      openDiff, signin, host; tools.js DIFF_LINES, lineCount, headLines,
+ *      diffBody; ask.js stageFiles, fmtSize, ATTACH_LIMITS
+ *   4  a second host on the views (the agent template): a tool block's own
+ *      words (icon, sub, outcome, args) and a card's line that says what
+ *      the call came to; ChatCtx.rowAttrs (a host's hook classes and data
+ *      attributes on a block's element); views.js innerView (a nested
+ *      block in an element with its key); cards.js argsView, clipView;
+ *      a fold is drawn as the host holds it (ChatCtx.isOpen), closed too;
+ *      a request's card says who asks what (ask.js permission lead; a perm
+ *      block's own `lead`, its `calls` as a list), previews the diff of
+ *      the call it is about (ChatCtx.callOf; cards.js diffsView) and takes
+ *      a word with a rejection (ChatCtx.rejectWord); a person's own
+ *      messages on their side and unlabelled, the agent's with a Copy
+ *      (ChatCtx.copyMessage), file chips with a picture and a size; a
+ *      notice's icon, tone, md, fold and action (ChatCtx.act); a
+ *      sub-conversation's card in a call's words, its request under it;
+ *      mdCssText gains headings, lists and the reading colours
+ *   5  a plan in the host's words (cards.js planView: the block's title,
+ *      meta, note and numbered; an entry's tag), a question's buttons in
+ *      the host's words (an ask block's submit and skip; skip '' draws
+ *      none), the composer's accessible name (<bx-chat-composer label>)
+ */
+export const KIT = 5;

@@ -31,7 +31,14 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		// so pickers need not know why.
 		out["personalTiles"] = b.IsAdmin(p) || b.personalRefusal(p.UserID) == ""
 	}
-	if p.Impersonator != "" { // an admin's read-only view of this user (D64) — the shell shows a banner
+	switch {
+	case p.Preview():
+		// xbind's own render of this person's view (D234): read-only, and
+		// nothing more is said — no banner, and no "preview" mark a page's
+		// script could draw differently for. The shell needs readOnly (it
+		// saves nothing then); backends learn of the render by header.
+		out["readOnly"] = true
+	case p.Impersonator != "": // an admin's read-only view of this user (D64) — the shell shows a banner
 		out["impersonatedBy"] = p.Impersonator
 		out["readOnly"] = true
 	}
@@ -41,7 +48,7 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		out["id"] = p.User.ID
 		out["name"] = p.User.Name
 		out["role"] = p.User.Role
-		out["tiles"] = p.User.Tiles // path→level map (D16); direct entries only
+		out["tiles"] = p.User.ShownTiles() // path→level map (D16); direct entries only, as they take effect (a sealed path: read at most)
 		out["canCreate"] = p.User.CanCreate
 		out["termApi"] = p.CanTermAPI()
 		out["termNet"] = p.CanTermNet()
@@ -191,4 +198,11 @@ func nativeView(st *users.Store) map[string]any {
 		return map[string]any{"runtime": 0, "disabled": true}
 	}
 	return map[string]any{"runtime": server.NativeRuntimeVersion}
+}
+
+// VaultLocked reports a vault that has a barrier and is sealed: resources
+// that are encrypted under it — every person's partition — can't be opened
+// until an admin unlocks it.
+func (b *Broker) VaultLocked() bool {
+	return b.barrier != nil && b.barrier.Initialized() && b.barrier.Sealed()
 }

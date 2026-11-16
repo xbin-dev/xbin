@@ -179,6 +179,44 @@ func TestHarnessCatalogReasons(t *testing.T) {
 		why != "needs internet access — Fake sandboxes (test fixture) offers none (bind its internet class)" {
 		t.Fatalf("no egress: %s %s", r, why)
 	}
+	// …unless a sandbox there reaches the workspace's LLM connector, which
+	// needs no egress: the manager offers llm and this agent is bound to it
+	withLLM := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/sbx/hello" {
+				h.ServeHTTP(w, r)
+				return
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, r)
+			var hello map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &hello)
+			caps, _ := hello["caps"].([]any)
+			hello["egress"], hello["caps"] = []string{"none"}, append(caps, "llm")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(hello)
+		})
+	}
+	bindSbxWith(t, withLLM, "apps/fsb")
+	if r, _ := reason(asAlice, "fake"); r != "no-egress" {
+		t.Fatalf("a manager with llm, this agent not bound to the connector: %s", r)
+	}
+	t.Setenv("XBIN_IFACE_LLM", `[{"provider":"xbin:llm","url":"http://127.0.0.1:1","service":"openai"}]`)
+	if r, why := reason(asAlice, "fake"); r != "" {
+		t.Fatalf("no egress, but the connector is reachable: %s %s", r, why)
+	}
+	// a coding agent the connector can't serve still needs an egress there
+	var cls agentClass
+	if err := json.Unmarshal([]byte(`{"id":"c","name":"C","toolsets":["sandbox","harness"],"sandboxEgress":["none","internet"],"managers":"all","harnesses":"all"}`), &cls); err != nil {
+		t.Fatal(err)
+	}
+	sealed := []hcImage{{Provider: "apps/fsb", Manager: "M", Image: "base", Egress: []string{}, LLM: true}}
+	if r, _ := harnessUnavailable(&hcEntry{ID: "opencode", Images: sealed}, []agentClass{cls}, nil); r != "" {
+		t.Fatalf("opencode where only the connector is reachable: %s", r)
+	}
+	if r, _ := harnessUnavailable(&hcEntry{ID: "gemini", Images: sealed}, []agentClass{cls}, nil); r != "no-egress" {
+		t.Fatalf("a coding agent the connector can't serve, with no egress: %q", r)
+	}
 }
 
 // A manager whose hello predates images[].harnesses (none of its images

@@ -92,7 +92,20 @@ private struct ScreenBody: View {
                 ListNodeView(node: list, asScreenBody: true)
             } else if layout.isChat {
                 // A transcript scrolls itself; the composer docks below it.
-                VStack(spacing: 0) { ForEach(layout.body) { NodeView(node: $0) } }
+                // What sits around it draws edge to edge when it is a bar of
+                // its own (a notice, the connection line, the composer); a
+                // row of buttons or a lone one — a banner's offers (D233) —
+                // gets the screen's gutter instead of running to its edges.
+                VStack(spacing: 0) {
+                    ForEach(layout.body) { n in
+                        if n.type == "stack" || n.type == "button" {
+                            NodeView(node: n).padding(.horizontal, 12).padding(.vertical, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            NodeView(node: n)
+                        }
+                    }
+                }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(XbinColor.background)
                     .environment(\.xbinPlacement, .free)

@@ -13,8 +13,14 @@ import (
 // caller is an identity as xbind injects it on a proxied call.
 type caller struct {
 	from, user, level, viewedBy string
+	preview                     bool // xbind's preview of the person's own view (D234)
 }
 
+// The callers. An instance's copy of this file names its own tile where this
+// one says apps/agent, so a template change on a line next to those lines
+// conflicts in every renamed instance's `git merge template/main`
+// (TestPartitionsTemplateMerge): a new caller goes after asNobody, and takes
+// the tile from asAlice.
 var (
 	asSystem   = caller{from: "owner"}
 	asCron     = caller{from: "xbin/cron"}
@@ -26,6 +32,7 @@ var (
 	asViewAs   = caller{from: "apps/agent", user: "alice", level: "read", viewedBy: "mgr"}
 	asElement  = caller{from: "apps/other"}
 	asNobody   = caller{}
+	asPreview  = caller{from: asAlice.from, user: "alice", level: "read", preview: true}
 	allCallers = map[string]caller{"system": asSystem, "cron": asCron, "alice": asAlice, "bob": asBob, "carol": asCarol,
 		"dave": asDave, "mgr": asMgr, "view-as-alice": asViewAs, "element": asElement, "nobody": asNobody}
 )
@@ -54,6 +61,9 @@ func callAs(t *testing.T, mux *http.ServeMux, c caller, method, target string, b
 	}
 	if c.viewedBy != "" {
 		r.Header.Set("X-XBin-Viewed-By", c.viewedBy)
+	}
+	if c.preview {
+		r.Header.Set("X-XBin-Preview", "1")
 	}
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)

@@ -97,6 +97,7 @@ build_arch() {
   # the previous arch's bin/gocryptfs etc. — and bin/xbin-iroh, the app
   # tunnel's sidecar, which `make build` embeds in xbind (D204) from
   # internal/apptunnel/sidecar/embedded/xbin-iroh.linux-<arch>.gz.
+  [ -d "$repo/bin/sealed" ] && rm -rf "$repo/bin/sealed"   # the previous arch's sealed backends (same names)
   rm -f "$repo/bin/xbind" "$repo/bin/bx" "$repo/bin/gocryptfs" "$repo/bin/fuse-overlayfs" \
         "$repo/bin/xbin-vmagent" "$repo/bin/firecracker" "$repo/bin/vmlinux" "$repo/bin/mkfs.erofs" \
         "$repo/bin/qemu-system-x86_64" "$repo/bin/qemu-bios-microvm.bin" "$repo/bin/qemu-pvh.bin" \
@@ -127,6 +128,14 @@ build_arch() {
   for b in firecracker vmlinux mkfs.erofs qemu-system-x86_64 qemu-bios-microvm.bin qemu-pvh.bin vhost-device-vsock; do
     if [ -f "$repo/bin/$b" ]; then cp "$repo/bin/$b" "$stage/bin/$b"; else info "[$arch] no bin/$b — this bundle has no VM sandboxes"; fi
   done
+  # The sealed components' backends (D227): bin/sealed/<name>-<digest>, built
+  # by `make build` for this arch from the source xbind embeds. A production
+  # xbind never compiles one, so a bundle without one of them would ship a
+  # component that can't run: checked here against the table (host-run).
+  mkdir -p "$stage/bin/sealed"
+  if [ -d "$repo/bin/sealed" ]; then cp -a "$repo/bin/sealed/." "$stage/bin/sealed/"; fi
+  env -u GOOS -u GOARCH CGO_ENABLED=0 go run ./cmd/xbind sealed-build --check --os linux --arch "$arch" --out "$stage/bin/sealed" \
+    || die "[$arch] bin/sealed doesn't hold this source's sealed backends"
   mv "$bdir/rootfs" "$stage/rootfs"
   cp -a "$repo/sdk" "$stage/sdk"
 

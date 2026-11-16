@@ -1,0 +1,191 @@
+{
+  "about": "the workspace agent's conversation (D233): connection, a numbered plan with tags, cards (brief, refusal, redirect, can't, report, failure), request and session by id, questions as rows with Something else over pages, the composer's context, quick replies and hint; the tile's own scope sheet opened from the line and a chip, then dismissed",
+  "self": "xbin/wsagent",
+  "now": "2026-11-16T10:02:00Z",
+  "agent": true,
+  "calls": {"agent": true},
+  "routes": {
+    "GET /api/xbin/wsagent/ws/view": {
+      "json": {
+        "session": "Main",
+        "connection": {
+          "connected": "14 tiles · 3 orgs",
+          "not": "6 not connected",
+          "model": "big",
+          "label": "Scope: 14 tiles in 3 orgs connected, 6 not connected. Model big."
+        },
+        "hint": "Say what you want and how you’ll know it’s done. The agent works out the steps.",
+        "context": [
+          {"id": "apps/orders", "label": "About Orders", "icon": "box", "tone": "accent"},
+          {"id": "apps/ledger", "label": "About Ledger — not connected", "icon": "lock", "tone": "warn"},
+          {"id": "apps/archive", "label": "About Archive — no access", "icon": "eye-slash", "tone": "danger"}
+        ],
+        "replies": [{"id": "go", "label": "Go ahead"}, {"id": "change", "label": "Change the plan"}],
+        "next": [{"id": "diff", "label": "Show me what changed"}, {"id": "stop", "label": "Stop the tile agents"}],
+        "brief": {
+          "harness": "claude",
+          "fields": {
+            "goal": "The CSV export in Orders rounds totals per line since Monday. Round once, on the invoice total.",
+            "doneWhen": "Monday’s export matches the totals Invoices shows, to the cent.",
+            "leaveAlone": "The PDF export and the customer links.",
+            "checkBy": "Running the export tests and comparing three invoices by hand."
+          }
+        },
+        "scope": {
+          "counts": {"connected": 14, "blocked": 4},
+          "modelNote": "Finance allows private models only. big is not private.",
+          "models": [
+            {"id": "big", "name": "big", "where": "hosted · not private", "private": false},
+            {"id": "local-llama", "name": "local-llama", "where": "runs in your organisation", "private": true}
+          ],
+          "orgs": [
+            {
+              "id": "sales",
+              "name": "Sales",
+              "on": 2,
+              "tiles": [
+                {"path": "apps/orders", "name": "Orders", "state": "connected"},
+                {"path": "apps/invoices", "name": "Invoices", "state": "connected"},
+                {"path": "apps/crm", "name": "CRM", "state": "hidden by you"}
+              ]
+            },
+            {
+              "id": "finance",
+              "name": "Finance",
+              "on": 0,
+              "reason": "Finance allows private models only (pinned by a workspace admin).",
+              "tiles": [{"path": "apps/ledger", "name": "Ledger", "state": "blocked"}]
+            }
+          ]
+        },
+        "entries": [
+          {
+            "key": "m1",
+            "type": "user",
+            "about": "About Orders",
+            "time": "10:01",
+            "text": "The export in Orders is wrong since Monday. Fix it, and check that Invoices still adds up."
+          },
+          {
+            "key": "p1",
+            "type": "plan",
+            "note": "Saying go ahead starts step 1. It does not approve steps 3, 5: each asks when it is reached.",
+            "steps": [
+              {"text": "Look at Orders’ export and Monday’s change", "status": "completed", "tag": {"text": "done", "icon": "check", "tone": "ok"}},
+              {"text": "Have Orders’ own agent fix the rounding", "status": "in_progress", "tag": {"text": "working", "icon": "clock", "tone": "accent"}},
+              {"text": "Rebuild the customer links in Invoices", "status": "in_progress", "tag": {"text": "waiting for you", "icon": "hand", "tone": "warn"}},
+              {"text": "Compare Monday’s totals in both tiles", "status": "pending", "tag": {"text": "reads only", "tone": "muted"}},
+              {"text": "Post the correction to Ledger", "status": "pending", "tag": {"text": "blocked", "icon": "lock", "tone": "danger"}}
+            ]
+          },
+          {
+            "key": "b1",
+            "type": "brief",
+            "title": "Brief for Orders’ agent",
+            "state": "draft",
+            "request": "7f3a91c2e0b4d5a6c7b8e9f0",
+            "runsOn": "Claude Code · asks before acting",
+            "note": "This is what the tile agent is told first. What your agent sends it later isn’t approved message by message: the tile agent asks you before it acts.",
+            "labels": [
+              {"key": "goal", "label": "Goal"},
+              {"key": "doneWhen", "label": "Done when"},
+              {"key": "leaveAlone", "label": "Leave alone"},
+              {"key": "checkBy", "label": "Check by"}
+            ],
+            "harnesses": [{"value": "claude", "label": "Claude Code"}, {"value": "codex", "label": "Codex"}]
+          },
+          {"key": "r1", "type": "request", "id": "7f3a91c2e0b4d5a6c7b8e9f0", "kind": "session"},
+          {"key": "s1", "type": "session", "id": "ts_41b0", "tile": "apps/orders"},
+          {"key": "s2", "type": "session", "id": "ts_41b7", "tile": "apps/calendar"},
+          {"key": "r2", "type": "request", "id": "rq_80aa13d4", "kind": "call"},
+          {
+            "key": "c1",
+            "type": "refusal",
+            "title": "Ledger is blocked by a rule",
+            "org": "Finance",
+            "text": "Finance allows private models only. This session is on big, which is not private, so Ledger isn’t connected.",
+            "note": "This is a rule set by an admin, not something the agent can work around."
+          },
+          {"key": "r3", "type": "request", "id": "19e2c4a6b8d0e1f2a3b4c5d6", "kind": "changeset"},
+          {
+            "key": "c2",
+            "type": "redirect",
+            "title": "The workspace agent doesn’t open or edit code",
+            "text": "Two ways forward:",
+            "ways": [
+              {"id": "hand", "title": "Hand this to Orders’ own agent", "text": "It opens in Orders with your message as written."},
+              {"id": "outcome", "title": "Tell me the outcome instead", "text": "“Totals in the export should match Invoices.”"}
+            ]
+          },
+          {"key": "c3", "type": "cannot", "text": "Deleting a tile is yours to do yourself, from the tile’s ⋯ menu. It can show you where it is and what still uses it."},
+          {"key": "r4", "type": "request", "id": "rq_9c41e07b", "kind": "template"},
+          {
+            "key": "c4",
+            "type": "report",
+            "title": "The export is fixed",
+            "count": "2 of 3 steps",
+            "took": "Worked for 12 min · 6 steps",
+            "body": "**Monday’s totals match again.** Orders’ agent rounds once, on the invoice total.",
+            "lines": [
+              {"glyph": "✓", "tone": "ok", "text": "Checked: the export tests pass, and three invoices match by hand."},
+              {"glyph": "–", "text": "Not checked: the PDF export."}
+            ]
+          },
+          {
+            "key": "c5",
+            "type": "failed",
+            "title": "Team calendar’s agent couldn’t continue",
+            "text": "xbin was updated at 09:40 and it did not come back. Its transcript is kept. Start it again?"
+          },
+          {
+            "key": "q1",
+            "type": "question",
+            "title": "Where should the report go?",
+            "style": "form",
+            "schema": {
+              "type": "object",
+              "properties": {"where": {"type": "string", "title": "Report in", "enum": ["This conversation", "A notebook page"]}}
+            },
+            "settled": {"where": "This conversation"}
+          },
+          {
+            "key": "q2",
+            "type": "question",
+            "title": "Before the links are rebuilt",
+            "style": "rows",
+            "paged": true,
+            "submit": "Answer",
+            "skip": "Skip — let the agent look around first",
+            "other": {"which": "whichOther", "notify": "notifyOther"},
+            "schema": {
+              "type": "object",
+              "properties": {
+                "which": {
+                  "type": "string",
+                  "title": "Which invoices do you mean?",
+                  "enum": ["The three that are overdue but still marked sent", "Everything exported since Monday", "Only invoice 2026-1184"]
+                },
+                "whichOther": {"type": "string", "title": "Something else", "description": "Say which, in your own words"},
+                "notify": {
+                  "type": "string",
+                  "title": "Who should hear about the correction?",
+                  "oneOf": [{"const": "nobody", "title": "Nobody yet"}, {"const": "finance", "title": "Finance, in their channel"}]
+                },
+                "notifyOther": {"type": "string", "title": "Something else", "description": "A person or a team"}
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "interactions": [
+    {"select": "composer", "type": "reply", "payload": {"id": "go"}, "note": "Go ahead: the plan says so, the replies become the next steps"},
+    {"select": "composer", "type": "remove-context", "payload": {"id": "apps/archive"}, "note": "the ✕ of a chip"},
+    {"select": "composer", "type": "context", "payload": {"id": "apps/ledger"}, "note": "a chip that is not connected opens the scope sheet"},
+    {"select": "connection", "type": "model", "note": "the line's model segment: the sheet shows the models"},
+    {"select": "connection", "type": "tap", "note": "…and the line itself: what is connected, org by org"},
+    {"select": "sheet", "type": "dismiss", "note": "swiped away: the conversation again"},
+    {"select": "button[label=\"Review and start…\"]", "type": "tap", "note": "xbin.native.agent: the app's chrome shows the request (calls.agent: it did)"}
+  ]
+}

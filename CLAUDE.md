@@ -2,7 +2,9 @@
 
 Self-modifying browser workspace. Design: `ARCHITECTURE.md` + `plans/`
 (implementation plan, auth design, `plans/DECISIONS.md` for every decision
-with rationale — check there before re-litigating a choice). Builder-facing
+with rationale — the recent entries, plus an index of the archives in
+`plans/decisions/` that hold the older ones; check there before
+re-litigating a choice). Builder-facing
 docs: `docs/` (embedded into xbind, served at `/docs/`; keep them true —
 they are the contract `bx`, SDKs, and workspace builders rely on). Dev
 practices in full: `AGENTS.md`.
@@ -27,7 +29,9 @@ practices in full: `AGENTS.md`.
 - **One sanctioned HTML transform** (import-map/client injection in
   `internal/server/static.go`). Do not add rewriting.
 - The `sdk/` module must stay **zero-dependency** — components inherit it.
-- New xbind HTTP/WS surface ⇒ document it in `docs/protocol.md` in the same
+- New xbind HTTP/WS surface ⇒ document it in its topic page,
+  `docs/protocol/<topic>.md` (`docs/protocol.md` is the entry: shared
+  conventions + the index of those pages; keep it small), in the same
   change; builder-visible behavior ⇒ the relevant `docs/*.md` **and a
   `docs/changelog.md` entry**; breaking ⇒ also a migration note at
   `docs/changes/YYYY-MM-DD-<slug>.md` linked from the changelog (AGENTS.md

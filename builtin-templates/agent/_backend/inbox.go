@@ -42,8 +42,11 @@ type inboxBody struct {
 	Label    string `json:"label,omitempty"`
 	// Addr is where a reply to this message goes (source=channel: the
 	// adapter's channelAddr, JSON; D86).
-	Addr    string `json:"addr,omitempty"`
-	Approve bool   `json:"approve,omitempty"`
+	Addr string `json:"addr,omitempty"`
+	// Context is what the person attached to the message — the tile or the
+	// screen it is about (a workspace agent's session only; ws_context.go).
+	Context *msgAbout `json:"context,omitempty"`
+	Approve bool      `json:"approve,omitempty"`
 	// Park is the park a verdict answers (pendingState.Park): applied to
 	// that park only, and dropped once it is gone.
 	Park string `json:"park,omitempty"`
@@ -230,6 +233,10 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		// Interrupt stops a coding agent's running turn first (the message
 		// is its next prompt); ignored on a built-in run (D147 §4.2.10).
 		Interrupt bool `json:"interrupt"`
+		// Context is the tile or the screen the message is about, attached by
+		// the person's page: {tile} or {screen}. Taken in a workspace agent's
+		// session only (ws_context.go); ignored anywhere else.
+		Context *msgAbout `json:"context"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	body.Text = strings.TrimSpace(body.Text)
@@ -251,9 +258,13 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	if haltBlocks(w, r, id) {
 		return
 	}
+	if wsOffKeeps(w, r, run) { // a workspace agent whose switch is off: answered without the model, nothing queued (ws_off.go)
+		return
+	}
 	sender := callerOf(r).user
 	kind, in := inboxUser, inboxBody{Text: body.Text, Files: body.Files, Source: "human", Sender: sender}
-	if run.Engine == engineHarness { // a coding agent's prompt (harness_pass.go)
+	in.Context = wsAboutOf(r.Context(), run, body.Context) // nil outside a workspace agent's session
+	if run.Engine == engineHarness {                       // a coding agent's prompt (harness_pass.go)
 		kind, in.Jump = inboxHPrompt, body.Interrupt
 		if body.Interrupt {
 			agent.interruptHarness(run)

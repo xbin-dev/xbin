@@ -1,0 +1,65 @@
+{
+  "about": "an app released before D233 (`caps`) and the workspace agent's view written without supports(): each addition — the four new nodes, transcript rev 3, question, plan and composer rev 2 — is reported unsupported, so that app shows the web page",
+  "self": "xbin/wsagent",
+  "caps": {"v": 1, "renderer": "swiftui", "app": "1.4 (202611010049)", "prims": {"fragment": 1, "nav": 1, "screen": 2, "toolbar": 2, "section": 1, "stack": 1, "list": 2, "row": 1, "actions": 2, "disclosure": 1, "tabs": 1, "tab": 1, "sheet": 2, "split": 3, "spacer": 1, "divider": 1, "text": 1, "markdown": 1, "image": 1, "icon": 1, "badge": 1, "notice": 1, "progress": 1, "chart": 1, "code": 1, "empty": 1, "button": 2, "toggle": 1, "field": 1, "picker": 1, "menu": 2, "transcript": 2, "message": 1, "thinking": 1, "toolcard": 1, "approval": 1, "question": 1, "plan": 1, "diff": 1, "activity": 1, "step": 1, "composer": 1, "terminal": 1, "canvas": 2}, "features": ["chart.area", "markdown.tables", "widget"]},
+  "routes": {
+    "GET /api/xbin/wsagent/ws/view": {
+      "json": {
+        "connected": "14 tiles · 3 orgs",
+        "model": "big",
+        "request": "rq_80aa13d4",
+        "session": "ts_41b0",
+        "hint": "Say what you want and how you’ll know it’s done.",
+        "meta": "you said go ahead · 10:02",
+        "note": "Each step that changes something asks when it is reached.",
+        "plan": [
+          {"text": "Look at Orders’ export", "status": "completed"},
+          {"text": "Rebuild the customer links in Invoices", "status": "pending"}
+        ],
+        "tags": [{"text": "done", "icon": "check", "tone": "ok"}, {"text": "asks you", "icon": "shield", "tone": "warn"}],
+        "card": {
+          "title": "Ledger is blocked by a rule",
+          "text": "Finance allows private models only.",
+          "note": "This is a rule set by an admin."
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "which": {"type": "string", "title": "Which invoices?", "enum": ["The three that are overdue", "Everything since Monday"]},
+            "other": {"type": "string", "title": "Something else"}
+          }
+        },
+        "context": [{"id": "apps/orders", "label": "About Orders", "icon": "box", "tone": "accent"}],
+        "replies": [{"id": "go", "label": "Go ahead"}],
+        "empty": {"title": "Ask for an outcome", "text": "The workspace agent plans the work and asks you before anything changes."}
+      }
+    }
+  },
+  "expectUnsupported": [
+    "the app does not support <connection>",
+    "the app does not support <transcript> empty (rev 3)",
+    "the app does not support <transcript> @suggestion (rev 3)",
+    "the app does not support <plan> title (rev 2)",
+    "the app does not support <plan> numbered (rev 2)",
+    "the app does not support <plan> tags (rev 2)",
+    "the app does not support <plan> note (rev 2)",
+    "the app does not support <plan> meta (rev 2)",
+    "the app does not support <card>",
+    "the app does not support <request>",
+    "the app does not support <session>",
+    "the app does not support <question> style (rev 2)",
+    "the app does not support <question> other (rev 2)",
+    "the app does not support <question> paged (rev 2)",
+    "the app does not support <question> submitLabel (rev 2)",
+    "the app does not support <question> skipLabel (rev 2)",
+    "the app does not support <card> inside <transcript> (rev 3)",
+    "the app does not support <request> inside <transcript> (rev 3)",
+    "the app does not support <session> inside <transcript> (rev 3)",
+    "the app does not support <composer> context (rev 2)",
+    "the app does not support <composer> replies (rev 2)",
+    "the app does not support <composer> hint (rev 2)",
+    "the app does not support <composer> @context (rev 2)",
+    "the app does not support <composer> @remove-context (rev 2)",
+    "the app does not support <composer> @reply (rev 2)"
+  ]
+}

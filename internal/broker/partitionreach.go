@@ -287,6 +287,11 @@ func (b *Broker) PartitionEnv(c *registry.Component, dep, part string) ([]string
 			remap[canon] = runner.ResBind{Src: canon, Omit: true}
 			continue
 		case (res.Shared == registry.SharedAll || res.Shared == registry.SharedRead) && dep == util.MainDeployment:
+			if b.sealedPeopleOnly(rt.Scope) { // its volume mounts at the first use (inertSealedScope): never bind it unmounted
+				if k, err := b.resKeys(rt, util.MainDeployment); err != nil || !b.ensureVolume(k, rt.Scope, res.Type) {
+					continue
+				}
+			}
 			remap[canon] = runner.ResBind{Src: canon, Shared: true, RO: res.Shared == registry.SharedRead}
 			continue
 		}

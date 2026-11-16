@@ -1,0 +1,90 @@
+{
+ "name": "plan",
+ "about": "the transcript of plan.json in the chat kit's block model (/vendor/chat/blocks.js) after each of its checkpoints — blocks; tail: what waits on a person beside them; plan: the key of the newest plan block; usage. A block's k is the seq of the event that opened it (the Agent tab's key); versions (v) and clock times (at) are left out, and a field at its zero value too.",
+ "checkpoints": [
+  {
+   "seq": 7,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "todo list"
+    },
+    {
+     "k": "6",
+     "kind": "plan",
+     "entries": [
+      {
+       "content": "Read the code",
+       "status": "in_progress",
+       "priority": "high"
+      },
+      {
+       "content": "Change main.go",
+       "status": "pending",
+       "priority": "medium"
+      },
+      {
+       "content": "Run the tests",
+       "status": "pending",
+       "priority": "low"
+      }
+     ]
+    }
+   ],
+   "plan": "6"
+  },
+  {
+   "seq": 13,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "todo list"
+    },
+    {
+     "k": "6",
+     "kind": "plan",
+     "entries": [
+      {
+       "content": "Read the code",
+       "status": "completed",
+       "priority": "high"
+      },
+      {
+       "content": "Change main.go",
+       "status": "completed",
+       "priority": "medium"
+      },
+      {
+       "content": "Run the tests",
+       "status": "completed",
+       "priority": "low"
+      }
+     ]
+    },
+    {
+     "k": "9",
+     "kind": "assistant",
+     "text": "todo done",
+     "mid": "m"
+    },
+    {
+     "k": "12",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   ],
+   "plan": "6",
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  }
+ ]
+}

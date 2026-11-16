@@ -4,9 +4,12 @@
 // partitioned instance's page is hidden (model/stream.js).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { partitionState, sharing, pausesHidden, notices, appNotices, oldManagers, staticMcp, mcpNote, MCP_GLOBAL_ONLY } from '../builtin-templates/agent/model/partition.js';
-import { rowMenu, topBar } from '../builtin-templates/agent/model/rules.js';
-import { Live } from '../builtin-templates/agent/model/stream.js';
+import { installHooks } from './xbn/hooks.mjs';
+
+installHooks(); // /vendor/<name> as xbind serves it: the kit the template's models import (web/<name>)
+const { partitionState, sharing, pausesHidden, notices, appNotices, oldManagers, staticMcp, mcpNote, MCP_GLOBAL_ONLY } = await import('../builtin-templates/agent/model/partition.js');
+const { rowMenu, topBar } = await import('../builtin-templates/agent/model/rules.js');
+const { Live } = await import('../builtin-templates/agent/model/stream.js');
 
 const withPartition = (p, fn) => {
   const before = globalThis.xbin;

@@ -60,7 +60,7 @@ func (e *Engine) autoTitle(runID int64) {
 	ctx, cancel := context.WithTimeout(e.base, 60*time.Second)
 	defer cancel()
 	ctx = e.ag.personalCtx(ctx, run) // iface_personal.go
-	reply, err := e.llm.Chat(ctx, LLMRequest{
+	reply, err := e.chat(ctx, LLMRequest{
 		Run: runID, Purpose: "title", Model: modelFor(ctx, cfg, "memory"), Wire: cfg.Wire,
 		Msgs: []wireMsg{{Role: "system", Content: titlePrompt},
 			{Role: "user", Content: "First message:\n" + clip(first, 1200) + "\n\nFirst answer:\n" + clip(answer, 1200)}},

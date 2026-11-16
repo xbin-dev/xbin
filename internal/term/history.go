@@ -49,7 +49,7 @@ type HistoryScope struct {
 
 // HistoryOf is p's history scope.
 func HistoryOf(p auth.Principal) HistoryScope {
-	return HistoryScope{Home: HomeKey(p), ViewAs: p.ReadOnly()}
+	return HistoryScope{Home: HomeKey(p), ViewAs: p.ViewAs()} // a preview reads the person's own history (D234)
 }
 
 // OwnHistory is home's scope as the person themselves.
@@ -71,6 +71,10 @@ type HistoryMeta struct {
 	ACPSessionID string `json:"acpSessionId,omitempty"` // the agent's own id for it
 	Loadable     bool   `json:"loadable"`               // the agent can reopen it (resume)
 	Deployment   string `json:"deployment,omitempty"`   // the session's named target (D127p); absent: it followed the primary
+	// Origin is "agent" for a session the person's workspace agent opened
+	// (delegate.go); Agent names that component (kept in the file only).
+	Origin string `json:"origin,omitempty"`
+	Agent  string `json:"agent,omitempty"`
 }
 
 type historyFile struct {
@@ -129,7 +133,7 @@ func (m *Manager) saveHistory(s *Session) {
 		ID: s.ID, Cwd: s.Cwd, Provider: prov, Mode: mode, Name: name,
 		Created: born.UTC().Format(time.RFC3339), Ended: time.Now().UTC().Format(time.RFC3339),
 		Turns: turns, Preview: firstPrompt(evs), ACPSessionID: acpID, Loadable: loadable && acpID != "",
-		Deployment: s.target.Deployment,
+		Deployment: s.target.Deployment, Origin: originOf(s.origin), Agent: s.origin,
 	}, Events: evs}
 	dir := m.sessionHistoryDir(s)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

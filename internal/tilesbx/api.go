@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // AdminFunc says whether a principal is a workspace admin.
@@ -32,7 +33,8 @@ const (
 // holding cap:sandboxes, checked on every call. A frame of the same tile, a
 // terminal, cron or a signed-in person never is one.
 func (m *Manager) Manages(p auth.Principal) bool {
-	return p.Component != "" && p.Via == "instance" && m.deps.Caps != nil && m.deps.Caps.SandboxesFor(p.Component)
+	return p.Component != "" && p.Via == "instance" && m.deps.Caps != nil && m.deps.Caps.SandboxesFor(p.Component) &&
+		!util.SealedPath(p.Component) // a sealed component runs no tile sandboxes (D227)
 }
 
 func (m *Manager) isAdmin(p auth.Principal) bool { return m.deps.Admin != nil && m.deps.Admin(p) }
@@ -130,6 +132,10 @@ func (m *Manager) managerOrAdmin(w http.ResponseWriter, r *http.Request) (Key, b
 	}
 	q := r.URL.Query()
 	tile := strings.Trim(q.Get("tile"), "/")
+	if util.SealedPath(tile) { // decided here, on the value used (D227)
+		writeErr(w, refuse(RefInvalid, "%s", util.SealedRefusal(tile, "it runs no tile sandboxes")))
+		return Key{}, false
+	}
 	if !validTilePath(tile) {
 		writeErr(w, refuse(RefInvalid, "?tile= names the tile whose sandbox this is"))
 		return Key{}, false

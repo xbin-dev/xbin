@@ -21,6 +21,7 @@ import (
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
+	"github.com/xbin-dev/xbin/sdk/llm"
 )
 
 // llmProvider is one place models are served from.
@@ -124,36 +125,32 @@ type catalogModel struct {
 	// ContextWindow is the model's input limit in tokens when its provider
 	// says (0: unknown). It sizes the compaction budget (D133).
 	ContextWindow int `json:"contextWindow,omitempty"`
+	// Private is the provider's mark that the model keeps prompts inside the
+	// organisation (nil: its list doesn't say).
+	Private *bool `json:"private,omitempty"`
 }
 
-// contextKeys are where OpenAI-compatible model lists put a context size:
-// Anthropic (max_input_tokens), OpenRouter and Together (context_length,
-// top_provider.context_length), Groq (context_window), vLLM (max_model_len),
-// LM Studio (max_context_length), Gemini (inputTokenLimit) — and our own
-// field, when GET /models output is read back. llm-gw passes the upstream's
-// model objects through untouched.
-var contextKeys = []string{"contextWindow", "max_input_tokens", "context_length", "context_window",
-	"max_model_len", "max_context_length", "inputTokenLimit"}
-
-// UnmarshalJSON reads a model object field by field: the list is the
-// provider's, and a field of an unexpected type must cost only that field,
-// never the whole list.
+// UnmarshalJSON reads a model object as llm.Model does — member by member:
+// the list is the provider's, and a member of an unexpected type costs only
+// that member, never the whole list. The context size is read wherever a
+// provider puts it (llm.Model.ContextWindow) — and from our own member,
+// when GET /models output is read back. llm-gw passes the upstream's model
+// objects through untouched.
 func (m *catalogModel) UnmarshalJSON(b []byte) error {
-	var raw map[string]any
-	if err := json.Unmarshal(b, &raw); err != nil {
+	var w llm.Model
+	if err := json.Unmarshal(b, &w); err != nil {
 		return err
 	}
-	m.ID, m.Provider, m.Ref = str(raw["id"]), str(raw["provider"]), str(raw["ref"])
-	m.OwnedBy, m.AliasOf = str(raw["owned_by"]), str(raw["alias_of"])
-	m.ContextWindow = 0
-	for _, k := range contextKeys {
-		if n := toInt(raw[k]); n > 0 {
-			m.ContextWindow = n
-			return nil
+	m.ID, m.OwnedBy, m.AliasOf, m.ContextWindow = w.ID, w.OwnedBy, w.AliasOf, w.ContextWindow()
+	m.Provider, m.Ref = "", ""
+	_ = json.Unmarshal(w.Extra["provider"], &m.Provider)
+	_ = json.Unmarshal(w.Extra["ref"], &m.Ref)
+	m.Private = nil
+	if raw, ok := w.Extra["private"]; ok {
+		var b bool
+		if json.Unmarshal(raw, &b) == nil {
+			m.Private = &b
 		}
-	}
-	if tp, ok := raw["top_provider"].(map[string]any); ok {
-		m.ContextWindow = max(toInt(tp["context_length"]), 0)
 	}
 	return nil
 }
@@ -266,7 +263,7 @@ func fullCatalog(ctx context.Context) *catalog {
 func listModels(ctx context.Context, p llmProvider) ([]catalogModel, error) {
 	ctx, cancel := context.WithTimeout(ctx, modelLookupTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL+"/v1/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL+llm.PathModels, nil)
 	if err != nil {
 		return nil, err
 	}

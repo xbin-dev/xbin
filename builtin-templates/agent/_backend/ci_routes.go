@@ -144,17 +144,24 @@ func ciViewOf(ctx context.Context, d *DB, root int64, c who, lv level) CIView {
 
 // handleCI: GET /runs/{id}/ci?fresh= — the conversation's CI. A task with
 // no watch yet gets its own first; fresh=1 re-reads what a read would tell
-// more about, once per watch however many ask.
+// more about, once per watch however many ask. A preview's read (D234) is
+// the CI as stored: it makes no watch (nor its subscription) and re-reads
+// none.
 func handleCI(w http.ResponseWriter, r *http.Request) {
 	d, root := ciRoot(w, r)
 	if d == nil {
 		return
 	}
-	ciTaskLazy(d, root)
+	preview := previewCall(r)
+	if !preview {
+		ciTaskLazy(d, root)
+	}
 	ciSettle(d) // a summary a rolled-back transaction left in memory
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	ciFreshen(ctx, d, root, r.URL.Query().Get("fresh") == "1")
+	if !preview {
+		ciFreshen(ctx, d, root, r.URL.Query().Get("fresh") == "1")
+	}
 	xbin.WriteJSON(w, http.StatusOK, ciViewOf(r.Context(), d, root, callerOf(r), levelOf(r)))
 }
 

@@ -9,6 +9,8 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -18,7 +20,8 @@ import (
 func (s *Server) registerTermAPI() {
 	s.RegisterAPI("GET /term/sessions", s.apiTermSessions)
 	s.RegisterAPI("PATCH /term/sessions/{id}", s.apiTermRename)
-	s.registerAgentAPI() // agent sessions (agentapi.go, D74)
+	s.registerAgentAPI()      // agent sessions (agentapi.go, D74)
+	s.registerAgentPrefsAPI() // a person's agent preferences (agentprefsapi.go, D229)
 }
 
 // termChange is a `term` event's data: which session changed, whose, and
@@ -120,7 +123,54 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 		may = nil
 	}
 	rows := s.Term.ListFor(homeKey, r.URL.Query().Get("cwd"), may)
-	if homeKey != term.HomeKey(p) || p.ReadOnly() {
+	if p.Agent != "" { // a person's agent: not the tiles whose org keeps it out (delegate.go)
+		rows = slices.DeleteFunc(rows, func(si term.SessionInfo) bool { return s.delegateHides(p, si.Cwd) })
+	}
+	q := r.URL.Query()
+	if q.Get("origin") == term.OriginAgent {
+		// the sessions a workspace agent started for this person — for the
+		// agent itself, the ones IT started (another holder's are not its)
+		rows = slices.DeleteFunc(rows, func(si term.SessionInfo) bool {
+			return si.Origin != term.OriginAgent || p.Agent != "" && s.Term.AgentOrigin(si.ID) != p.Agent
+		})
+	}
+	if q.Get("compact") != "" { // what a status poll needs, and no more
+		// an agent session's glance — the prompts it took, what waits for an
+		// answer, the last line it wrote — is transcript: the caller's own
+		// sessions only, never an admin's listing of someone else's
+		own := homeKey == term.HomeKey(p) && !p.ViewAs()
+		out := make([]map[string]any, 0, len(rows))
+		for _, si := range rows {
+			row := map[string]any{"id": si.ID, "cwd": si.Cwd, "kind": si.Kind, "provider": si.Provider, "mode": si.Mode, "status": si.Status, "origin": si.Origin}
+			if si.Kind == term.KindAgent {
+				row["pending"], row["questions"] = si.Pending, si.Questions
+				if turn, last, ok := s.Term.AgentGlance(si.ID); ok {
+					row["turn"] = turn
+					if own {
+						row["last"] = last
+					}
+				}
+			}
+			out = append(out, row)
+		}
+		// ?ids=a,b: sessions the caller knew of that aren't live any more,
+		// with how they ended — "exit" when xbind recorded the end (its
+		// history entry), "restart" when it has no record of one: the
+		// session was running when xbind stopped
+		for _, id := range strings.Split(q.Get("ids"), ",") {
+			if id = strings.TrimSpace(id); id == "" || len(id) > 64 || len(out) > 500 || slices.ContainsFunc(rows, func(si term.SessionInfo) bool { return si.ID == id }) {
+				continue
+			}
+			row := map[string]any{"id": id, "status": "ended", "endedBy": "restart"}
+			if at, recorded := s.Term.AgentEnded(personOf(p), id); recorded {
+				row["endedBy"], row["ended"] = "exit", at
+			}
+			out = append(out, row)
+		}
+		WriteJSON(w, http.StatusOK, out)
+		return
+	}
+	if homeKey != term.HomeKey(p) || p.ViewAs() {
 		for i := range rows {
 			if rows[i].Personal() {
 				rows[i].Name = ""

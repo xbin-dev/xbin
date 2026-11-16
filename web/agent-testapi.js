@@ -5,6 +5,11 @@
  */
 import { headline, isPlanApproval, rawText, formFields } from '/vendor/agent-tools.js';
 import { takeBack, stop } from '/vendor/agent-queue.js';
+import { blockOf } from '/vendor/agent-fold.js';
+import { usageBadge } from '/vendor/chat/blocks.js';
+
+// the message box (chat/composer.js <bx-chat-composer>, in the element's shadow root)
+const composerOf = (a) => a.renderRoot?.querySelector('bx-chat-composer') || null;
 
 export function agentTestApi(a) {
   return {
@@ -14,6 +19,7 @@ export function agentTestApi(a) {
     get blocks() {
       return a._blocks().map((b) => ({ kind: b.kind, role: b.role, text: b.text, status: b.status, pid: b.pid, by: b.by, optionId: b.optionId, stopReason: b.stopReason,
         ...(b.kind === 'tool' ? { id: b.id, name: b.name, tk: b.tk, headline: headline(b), output: b.output, exitCode: b.exitCode, files: b.files ? b.files.changes.map((c) => c.path) : null,
+          state: blockOf(b).state, // the card's state (the chat kit's: `approval` while a request about the call waits)
           children: b.children ? b.children.map((c) => ({ kind: c.kind, text: c.text, id: c.id, done: c.done })) : null } : {}),
         ...(b.kind === 'changes' ? { turn: b.turn, files: b.changes.map((c) => c.path) } : {}),
         ...(b.kind === 'msg' && b.files ? { files: b.files } : {}),
@@ -24,22 +30,22 @@ export function agentTestApi(a) {
     },
     get pending() {
       return a._blocks().filter((b) => b.kind === 'perm' && !b.by).map((b) => ({ pid: b.pid, cmd: rawText(b.tool?.rawInput), options: (b.options || []).map((o) => o.optionId),
-        scoped: b.rule ? b.rule.scoped : true, plan: isPlanApproval(b.tool) }));
+        scoped: b.rule ? b.rule.scoped : true, plan: isPlanApproval(b.tool), explicit: (b.options || []).filter((o) => o.explicit).map((o) => o.optionId) }));
     },
     get followUp() { return a._followUp ? a._followUp.text : null; },
     // the rendered window (D124): total blocks, the first rendered index, rows in the DOM, the scroller
     // (D130: total counts the LOADED blocks; events the loaded events)
     get window() {
-      const sc = a._sc(), tx = a._tx;
-      return { total: a._blocks().length, from: a._start, to: a._end, rendered: sc ? sc.querySelectorAll(':scope > .blk').length : 0, atBottom: a._sw.atBottom,
+      const sc = a._sc(), tx = a._tx, win = a._win;
+      return { total: a._blocks().length, from: win.start, to: win.end, rendered: sc ? sc.querySelectorAll(':scope > .bxc-row').length : 0, atBottom: win.atBottom,
         scrollTop: sc ? sc.scrollTop : 0, scrollHeight: sc ? sc.scrollHeight : 0, clientHeight: sc ? sc.clientHeight : 0,
         segments: tx.segs.length, events: tx.segs.reduce((n, g) => n + g.events.length, 0), hasOlder: tx.hasOlder, hasNewer: tx.hasNewer,
-        detached: tx.detached, fresh: tx.fresh, paged: tx.paged, all: a._all, lastSeq: tx.lastSeq, firstKey: a._fromKey,
+        detached: tx.detached, fresh: tx.fresh, paged: tx.paged, all: win.all, lastSeq: tx.lastSeq, firstKey: win.fromKey,
         seqs: tx.segs.length ? [tx.segs[0].first, tx.segs[tx.segs.length - 1].events.at(-1)?.seq ?? 0] : null };
     },
     get fetches() { return a._fetches.slice(); }, // the queries of the events route, in order
     get diffLoads() { return a._diffs.loads.slice(); }, // the full-diff route's URLs a file's row asked (D210)
-    get pill() { return a.renderRoot?.querySelector('.pill')?.textContent.trim() || null; },
+    get pill() { return a.renderRoot?.querySelector('.bxc-pill')?.textContent.trim() || null; },
     jumpLatest() { return a._jumpLatest(); },
     // a late event (D130): take event `seq` out of its loaded page, as if it
     // had not arrived, and deliver it as a catch-up would — only its page
@@ -56,13 +62,13 @@ export function agentTestApi(a) {
     },
     get hidden() { return !!a._stale; }, // a hidden tab that skipped a render
     scrollTo(y) { const sc = a._sc(); if (sc) sc.scrollTop = y; },
-    firstVisible() { const f = a._sw.firstVisible(); return f ? Number(f.el.dataset.k) : null; },
-    topOf(key) { const sc = a._sc(); const el = sc && sc.querySelector(`:scope > .blk[data-k="${key}"]`); return el ? el.getBoundingClientRect().top - sc.getBoundingClientRect().top : null; },
+    firstVisible() { const f = a._win.sw.firstVisible(); return f ? Number(f.el.dataset.k) : null; },
+    topOf(key) { const sc = a._sc(); const el = sc && sc.querySelector(`:scope > .bxc-row[data-k="${key}"]`); return el ? el.getBoundingClientRect().top - sc.getBoundingClientRect().top : null; },
     loadAll() { return a._loadAll(); },
     get commands() { return a._commands().map((c) => c.name); },
     get questions() { return a._blocks().filter((b) => b.kind === 'ask' && !b.action).map((b) => ({ eid: b.eid, message: b.message, fields: formFields(b.schema).map((f) => ({ key: f.key, kind: f.kind, other: f.other, options: f.options.map((o) => o.value) })) })); },
     answer(eid, action, content) { a._answer(eid, action, content); },
-    get slashMenu() { return a._slashItems().map((c) => c.name); },
+    get slashMenu() { return (composerOf(a)?.slashItems() || []).map((c) => c.name); },
     get draft() { return a._draft; },
     setProvider(id) { a._provider = id; const p = (a._providers || []).find((x) => x.id === id); a._mode = p?.defaultMode || ''; },
     get options() { return a._options().map((o) => ({ id: o.id, current: o.currentValue, values: (o.options || []).map((v) => v.value) })); },
@@ -74,23 +80,37 @@ export function agentTestApi(a) {
     // the guided sign-in strip (agent-signin.js, D178), when it shows; the note after it worked
     get signin() { return a.renderRoot?.querySelector('bx-agent-signin')?.testApi() || null; },
     get signedNote() { return a._signedNote || ''; },
+    get error() { return a._error || ''; }, // what the tab says went wrong (a refused start's reason)
     setOption(id, value) { a._setOption(id, value); },
     start() { return a._create(); },
     send(text) { a._draft = text; return a._submit(); },
     permit(pid, decision, optionId) { a._permit(pid, decision, optionId); },
-    rejectPlan(pid, optionId, feedback) { if (feedback) a._planFeedback[pid] = feedback; a._rejectPlan(pid, optionId); },
+    rejectPlan(pid, optionId, feedback) { a._rejectPlan(pid, optionId, feedback); },
     cancel() { a._cancel(); },
     // messages while a turn runs (D197): the held ones, Ctrl+Enter, a chip's ×, Stop
     get queued() { return (a._tx.st.queue || []).map((q) => ({ id: q.id, text: q.text })); },
     sendInterrupt(text) { a._draft = text; return a._submit(true); },
     takeBack(id) { return takeBack(a, id); },
     stop() { return stop(a); },
-    get buttons() { return [...(a.renderRoot?.querySelectorAll('.compose button') || [])].map((b) => b.textContent.trim()); },
+    get buttons() { return [...(a.renderRoot?.querySelectorAll('.bxc-compose button:not(.bxc-attach)') || [])].map((b) => b.textContent.trim()); },
     // the composer's box (#31): its height against its content's, and whether it scrolls
     get composer() {
-      const ta = a.renderRoot?.querySelector('.compose textarea');
+      const ta = a.renderRoot?.querySelector('.bxc-compose textarea');
       return ta ? { height: Math.round(ta.getBoundingClientRect().height), scrollHeight: ta.scrollHeight, clientHeight: ta.clientHeight, scrolls: ta.scrollHeight > ta.clientHeight + 1, hostHeight: Math.round(a.getBoundingClientRect().height) } : null;
     },
     setDraft(text) { a._draft = text; },
+    // ---- what the chat kit's views added (D224) ----
+    // the usage badge under the transcript: its words, its share of the context, its tint
+    get usage() { const u = usageBadge(a._tx.st.usage); return u ? { text: a.renderRoot?.querySelector('.bxc-usage')?.textContent.trim() || '', pct: u.pct, tone: u.tone, title: u.title } : null; },
+    // the harnesses the tile's rules keep out of the chooser, each with why (D229), as the chooser lists them
+    get notOffered() { return [...(a.renderRoot?.querySelectorAll('.bxc-unavailable li') || [])].map((li) => ({ id: li.dataset.unavailable, text: li.textContent.replace(/\s+/g, ' ').trim() })); },
+    // files staged in the message box for the next message, and how to stage some (name, text, mime)
+    get staged() { return composerOf(a)?.files || []; },
+    attach(files) { composerOf(a)?.addFiles(files.map((f) => new File([f.text ?? ''], f.name, { type: f.mime || 'text/plain' }))); },
+    get attachNote() { return a.renderRoot?.querySelector('.bxc-staged .bxc-err')?.textContent.trim() || ''; },
+    sendBox() { return composerOf(a)?.send(); }, // Send, as the button does it (the box's text and its staged files)
+    // choose an option of an open permission request as its button does (an explicit one asks first)
+    choose(pid, optionId) { a.renderRoot?.querySelector(`.bxc-perm[data-pid="${pid}"] button[data-option="${optionId}"]`)?.click(); },
+    optionButtons(pid) { return [...(a.renderRoot?.querySelectorAll(`.bxc-perm[data-pid="${pid}"] button[data-option]`) || [])].map((b) => ({ id: b.dataset.option, kind: b.dataset.kind, explicit: b.classList.contains('bxc-explicit'), text: b.textContent.trim() })); },
   };
 }

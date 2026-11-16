@@ -295,6 +295,9 @@ func (a *Auth) TilePrincipal(g AssetGrant) (Principal, bool) {
 	uid := g.UserID
 	p := Principal{Component: g.Tile, UserID: uid, Via: "frame", Impersonator: g.Impersonator, Gen: g.FrameGen,
 		Deployment: g.Deployment}
+	if !canonicalComponent(p) {
+		return Principal{}, false
+	}
 	if uid != "" {
 		if _, found := a.userSnapshot(uid); !found {
 			return Principal{}, false

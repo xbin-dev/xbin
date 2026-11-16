@@ -54,8 +54,13 @@ const FILES = {
 // document (about:blank) hands its window on to the page that replaces it.
 function firstFrame() {
   const doc = document;
-  requestAnimationFrame(() => {
-    if (doc !== document || !doc.documentElement) return; // replaced since
+  doc.bxInit = true; // the script ran in this document (first() reloads one it skipped)
+  requestAnimationFrame(function look() {
+    if (doc !== document) return; // replaced since
+    // a frame can come before the parser made <html> (a slow answer): then
+    // nothing of the page is drawn yet, and the first frame is a later one
+    // (this once returned for good, and the record never came)
+    if (!doc.documentElement) { requestAnimationFrame(look); return; }
     const cs = getComputedStyle(doc.documentElement);
     doc.bxFirst = {
       scheme: cs.getPropertyValue('--bx-scheme').trim() || 'none',
@@ -71,12 +76,24 @@ const now = (f) => f.evaluate(() => {
 // first(frameOf, label): the record of the frame's current document. A
 // function, not a frame: the shell may replace a card's iframe while it
 // settles (a re-render), so the frame is found again on every try.
+//
+// Playwright now and then doesn't run the context's init script in a
+// frame's document (seen on the chrome tile's frame: the document loaded,
+// 15 s old, its animation frames firing, and the script never ran in it):
+// such a document can't tell its first frame, so it is loaded again, once.
 async function first(frameOf, label) {
   const deadline = Date.now() + 15000;
+  let reloaded = false;
   for (;;) {
     const f = await frameOf().catch(() => null);
-    const v = f && await f.evaluate(() => (location.href !== 'about:blank' && document.bxFirst) || null).catch(() => null);
+    const [v, skipped] = (f && await f.evaluate(() => [(location.href !== 'about:blank' && document.bxFirst) || null,
+      location.href !== 'about:blank' && document.readyState === 'complete' && !document.bxInit]).catch(() => null)) || [null, false];
     if (v) return v;
+    if (skipped && !reloaded) {
+      reloaded = true;
+      log(`${label}: the init script didn't run in its document — loading it again`);
+      await f.evaluate(() => location.reload()).catch(() => {});
+    }
     if (Date.now() > deadline) {
       const box = f && await f.frameElement().then((h) => h.boundingBox()).catch(() => null);
       throw new Error(`no first-frame record in ${label} (${f?.url()}; frame box ${JSON.stringify(box)})`);
@@ -200,27 +217,54 @@ async function appearance(browser) {
       for (const tile of [PROBE, OLD]) await openTile(L.page, tile);
       const probe = await until(() => shown(L.page, PROBE), 'the probe on screen'), old = await until(() => shown(L.page, OLD), 'the old probe on screen');
       await until(async () => (await now(probe)).scheme === 'dark', 'the probe is dark on a dark system');
-      // the parent's message (what <bx-frame> posts on every load and change)
-      const post = (tile, data) => L.page.locator(`.card[data-path="${tile}"] bx-frame iframe`).first()
+      // the parent's message (what <bx-frame> posts on every load and change),
+      // to the very frame judged: the first card of a tile in the DOM can be a
+      // copy the layout keeps on another screen tab, never drawn
+      const post = async (frame, data) => (await frame.frameElement())
         .evaluate((iframe, d) => iframe.contentWindow.postMessage(d, '*'), data);
-      await post(PROBE, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
-      const v = await until(async () => { const x = await now(probe); return x.scheme === 'light' && x.row === '32px' && x; }, 'the probe follows its parent');
+      // the probe's document still loading drops a message its client isn't
+      // listening for yet, and xbind's own relay posts the system's Night on
+      // its load: the parent's Day is posted again until it is in force
+      const v = await until(async () => {
+        await post(probe, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
+        await sleep(150);
+        const x = await now(probe);
+        return x.scheme === 'light' && x.row === '32px' && x;
+      }, 'the probe follows its parent');
       check(v.scheme === 'light' && v.row === '32px', `live: the frame applies xbin:appearance from its parent at once (${JSON.stringify(v)})`);
-      await post(OLD, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
+      await post(old, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
       await sleep(300); // a negative: nothing may change
       check((await now(old)).scheme === 'dark', 'live: a frame that didn\'t opt in hears it and stays Night');
       // anything but the parent posting to the probe — the frame itself, a
-      // sibling (another tile's frame): ignored
-      await probe.evaluate(() => window.postMessage({ type: 'xbin:appearance', theme: 'dark', density: 'compact' }, '*'));
-      const siblings = await old.evaluate(() => {
-        let n = 0;
-        for (let i = 0; i < parent.frames.length; i++) if (parent.frames[i] !== window) { parent.frames[i].postMessage({ type: 'xbin:appearance', theme: 'dark', density: 'compact' }, '*'); n++; }
-        return n;
+      // sibling (another tile's frame): ignored. xbind's own relay posts too,
+      // on the frame's load: a late load (a busy run) set it back to the
+      // system's Night inside the look. Parent messages are counted, and a
+      // look that one fell into is taken again, the parent's Day put back.
+      // (counted in the document: a new one, a reload, counts afresh)
+      const fromParent = () => probe.evaluate(() => {
+        if (window.bxFromParent === undefined) {
+          window.bxFromParent = 0;
+          addEventListener('message', (e) => { if (e.source === parent && e.data?.type === 'xbin:appearance') window.bxFromParent++; });
+        }
+        return `${performance.timeOrigin}:${window.bxFromParent}`;
       });
-      await sleep(300); // a negative: nothing may change
+      let siblings = 0;
+      for (let tries = 0; ; tries++) {
+        const n0 = await fromParent();
+        await probe.evaluate(() => window.postMessage({ type: 'xbin:appearance', theme: 'dark', density: 'compact' }, '*'));
+        siblings = await old.evaluate(() => {
+          let n = 0;
+          for (let i = 0; i < parent.frames.length; i++) if (parent.frames[i] !== window) { parent.frames[i].postMessage({ type: 'xbin:appearance', theme: 'dark', density: 'compact' }, '*'); n++; }
+          return n;
+        });
+        await sleep(300); // a negative: nothing may change
+        if (await fromParent() === n0 || tries === 3) break;
+        await post(probe, { type: 'xbin:appearance', theme: 'light', density: 'comfortable' });
+        await until(async () => (await now(probe)).scheme === 'light', 'the probe back to Day');
+      }
       check((await now(probe)).scheme === 'light', `live: an xbin:appearance from the frame itself is ignored${siblings ? `, and from ${siblings} sibling frame(s)` : ' (no sibling could post: frames in shadow roots aren\'t in window.frames)'}`);
       await L.page.screenshot({ path: `${OUT}/appearance-live.png` });
-      await post(PROBE, { type: 'xbin:appearance', theme: 'system', density: 'compact' });
+      await post(probe, { type: 'xbin:appearance', theme: 'system', density: 'compact' });
       await until(async () => (await now(probe)).scheme === 'dark', 'the probe back to the system');
 
       if (shellFollows) {

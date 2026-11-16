@@ -385,21 +385,37 @@ func (b *Broker) attributedAccess(userID string) *users.Access {
 // container (apps/o/sales) above existing org tiles — and paths whose scope
 // data key another scope has (registry.ScopeKeyClash).
 func (b *Broker) guardNewComponentTree(path string) error {
+	if err := sealedNone(path, sealedNoCreate); err != nil {
+		return err // every creation path passes here: create, clone, import, template, builtin (sealedguard.go)
+	}
+	if top, _, _ := strings.Cut(path, "/"); strings.HasPrefix(top, "xbin~") {
+		// "/" and "~" map to one data key: a tile here would share the key
+		// (and the readable part of the log, build and archive names) of a
+		// sealed component xbin/<name>, shipped now or by a later release
+		return fmt.Errorf("%s: top-level names starting with xbin~ are reserved (they would share a system component's data key) — pick another path", path)
+	}
 	if owner, _, ok := b.Reg.Resolve(path); ok && owner != nil {
 		if owner.Path == path {
-			return fmt.Errorf("%s already exists", path)
+			return &treeConflict{fmt.Sprintf("%s already exists", path), owner.Path}
 		}
-		return fmt.Errorf("%s is inside existing component %s", path, owner.Path)
+		return &treeConflict{fmt.Sprintf("%s is inside existing component %s", path, owner.Path), owner.Path}
 	}
 	for _, c := range b.Reg.Components() {
 		if strings.HasPrefix(c.Path, path+"/") {
-			return fmt.Errorf("%s would contain existing component %s", path, c.Path)
+			return &treeConflict{fmt.Sprintf("%s would contain existing component %s", path, c.Path), c.Path}
 		}
 	}
 	// Resource data is keyed by util.ScopeKey ("/" → "~"): a tile here could
 	// become a scope sharing another's encrypted volumes (D118).
 	if other := b.Reg.ScopeKeyClash(path); other != "" {
-		return fmt.Errorf("%s would share its resource data key with %s (\"/\" and \"~\" in a path map to the same key) — pick another path", path, other)
+		return &treeConflict{fmt.Sprintf("%s would share its resource data key with %s (\"/\" and \"~\" in a path map to the same key) — pick another path", path, other), other}
 	}
 	return nil
 }
+
+// treeConflict is guardNewComponentTree's refusal that names another
+// component (other): what a caller who may not see that component is told
+// instead is the caller's to decide (templateNewCheck, for a person's agent).
+type treeConflict struct{ msg, other string }
+
+func (e *treeConflict) Error() string { return e.msg }

@@ -76,12 +76,27 @@ func TestKeys(t *testing.T) {
 // reviewedPrincipalFields are the auth.Principal fields reviewed for the
 // sandbox key: keyOf builds it from Component and Deployment (a non-main
 // deployment's is refused until its own set exists), refuses a person's
-// partition (Partition: sandboxes are the global instance's, PD-28), and
-// none of the others names a set of sandboxes. A field added to
+// partition (Partition: sandboxes are the global instance's, PD-28) and a
+// person's workspace agent (Agent: a delegate is a person's principal and
+// drives none; AgentModel is only what it says its model is), and none of
+// the others names a set of sandboxes. A field added to
 // auth.Principal fails this test until someone decides what it means for
 // the key (plans/tile-sandbox-runtime.md §1.4, §14).
 var reviewedPrincipalFields = []string{
-	"Access", "Component", "Deployment", "DeviceID", "Gen", "Impersonator", "Owner", "Partition", "Role", "User", "UserID", "Via",
+	"Access", "Agent", "AgentModel", "AgentSession", "Component", "Deployment", "DeviceID", "Gen", "Impersonator", "Owner", "Partition", "Role", "User", "UserID", "Via",
+}
+
+// A person's workspace agent names no sandboxes, whatever else its
+// principal carries.
+func TestKeyOfRefusesDelegate(t *testing.T) {
+	for _, p := range []auth.Principal{{UserID: "alice", Via: "delegate", Agent: "xbin/agent"}, {Component: "apps/mgr", Agent: "xbin/agent"}} {
+		if k, err := keyOf(p); err == nil {
+			t.Errorf("keyOf(%+v) = %+v", p, k)
+		}
+	}
+	if k, err := keyOf(auth.Principal{Component: "apps/mgr", Via: "instance"}); err != nil || k.Tile != "apps/mgr" {
+		t.Errorf("a manager's own key: %+v %v", k, err)
+	}
 }
 
 func TestPrincipalFieldsReviewed(t *testing.T) {

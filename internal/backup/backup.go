@@ -151,6 +151,11 @@ type Manifest struct {
 	// Partition, in a partition archive (Kind "partition"), names whose
 	// partition of Component it holds. Absent otherwise.
 	Partition *PartitionRef `json:"partition,omitempty"`
+	// SealedData, in an archive of a sealed component (D227), is the data
+	// format its data was in: a restore into a release whose code reads only
+	// an older format is refused. Such an archive holds data alone — the
+	// code is the release's. Absent for a tile.
+	SealedData int `json:"sealedData,omitempty"`
 }
 
 // PartitionRef is whose partition a partition archive holds: the partition
@@ -420,7 +425,14 @@ type Reader struct {
 	tr  *tar.Reader
 	hdr *tar.Header // the entry Next returned last
 	M   Manifest
+	// Seal is the header of the sealed archive this was opened from (Open);
+	// zero for a plaintext one. A sealed archive opened and read to its end
+	// was written by a holder of its backup key: nothing else authenticates.
+	Seal SealHeader
 }
+
+// Sealed reports whether the archive was a sealed one.
+func (r *Reader) Sealed() bool { return r.Seal.Subkey != "" }
 
 func NewReader(r io.Reader) (*Reader, error) {
 	tr := tar.NewReader(r)

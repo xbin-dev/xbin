@@ -9,10 +9,21 @@ not magic.
 
 ```
 bx ls                                  list components (runtime, exposed roles, manifest errors)
+bx system [<name>]                     xbin's system components (docs/sealed.md): each
+                                       one's state (ready, running, held and why, off),
+                                       and with <name> its version, data format,
+                                       connections and who has access. Admins. The
+                                       tile commands take a system component's path
+                                       where they apply — bx logs xbin/<name>,
+                                       bx status, bx access, bx bind <slot>=<provider>,
+                                       bx enable|disable, bx limits — and bx ls
+                                       doesn't list them
 bx status [<component>] [--all]         backend states (building/healthy/failed, generations);
                                        --all = workspace-wide, else this terminal's tile;
                                        <tile>+<name> or --deployment <name>: one tile
-                                       deployment's (docs/tile-deployments.md)
+                                       deployment's (docs/tile-deployments.md); a backend
+                                       that never reached Serve gets a hint line
+                                       (docs/sdk.md#startup)
 bx new <path> [--runtime R] [--expose] [--title "Pretty Name"] [--owner user:U|org:O]
                                        scaffold a component you'll own, at any
                                        free path outside tiles/ and others'
@@ -117,6 +128,33 @@ bx owner <tile> [--transfer user:U|org:O|workspace]   tile ownership (D24)
 bx chrome [ls] | approve <tile> | revoke <tile>
                                        trusted chrome (admin, D118): tiles whose
                                        xbin.json asks for chrome, and approvals
+bx llm [status] [--json]               the LLM connector (D226; docs/llm.md):
+                                       upstreams, default models, who may call,
+                                       your quota — locked settings read "set
+                                       by your host"
+bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --no-key]
+          [--models a,b] [--private] [--price <model>=<in>:<out>[:<cached-in>]]…
+          | set <name> [--url <u>] [--models a,b | --any-model] [--private | --public] [--key… | --no-key] [--price …]
+          | rm <name> | test <name> [<model>]
+                                       its providers (admin): the key goes to
+                                       the vault; test makes a one-line call
+bx llm models [--json]                 the models it offers
+bx llm default [set <model> [--role <role>] | unset [--role <role>]]
+bx llm alias [set <alias> <model> | rm <alias>] | on | off | people admins|everyone|nobody
+          | concurrency <n>
+                                       default models (xbin/default, xbin/<role>),
+                                       model aliases ("*": every unknown name),
+                                       the switches, calls in flight per caller
+                                       (admin)
+bx llm sessions [agents=on|off] [terminals=on|off] [openai-env=on|off]
+                                       what coding agents and terminals get of
+                                       it (admin; no argument: print)
+bx llm usage [--month] [--from <day>] [--to <day>] [--user <id>] [--component <tile>] [--json]
+                                       what was used: yours, or everyone's (admin)
+bx llm quota [show [<user>]] | set <default|workspace|user:<id>|org:<id>>
+          [tokens/day=<n>] [tokens/month=<n>] [cost/day=<usd>] [cost/month=<usd>] [action=stop|warn]
+          | rm <default|workspace|user:<id>|org:<id>>
+                                       quotas per UTC day and month (admin)
 bx limits [ls] [--pending] [--at-cap] [--json] | show <tile> [--json]
                                        tiles' resource limits (D203): what each
                                        may use, what its manifest asks, which
@@ -129,6 +167,13 @@ bx limits approve <tile> [<kind>…] | raise <tile> <kind> [+25%|+50%|+100%|<siz
 bx org limits <org> [--set memory=8G,disk=500G,…] [--rm <kind>]
                                        an org's per-tile ceilings (workspace
                                        admin)
+bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>]
+              [--models any|private|none|<id,…>] [--web ask|allow|never] [--mcp any|org]
+              [--credentials own-first|connector-first|connector-only]
+                                       what agents may do on an org's tiles
+                                       (D229); --pin: the rules its admins
+                                       can't loosen; no org: the workspace's
+                                       bounds
 bx policies [ls] [--json] | set partition-consent|credential-reset-confirm on|off
                                        alias of bx settings for the partitioned
                                        tiles' two switches (v0.3.66's; D180)
@@ -231,11 +276,14 @@ bx vault ls|set|rm <component> [key] [value]
                                        write-only management — values are
                                        readable only by the tile's backend
                                        (D30; `get` lists/403s for humans)
-bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--model m] [--option id=v] [--net s] [--vm] "<prompt>"
+bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--model m] [--option id=v] [--net s] [--vm] [--llm connector|own] "<prompt>"
                                        an AGENT SESSION on a tile: the coding
                                        agent runs in the tile's sandbox, its
                                        stream lands here (D74); --vm: in a VM
                                        sandbox, root in its own kernel (D89);
+                                       --llm: the workspace's LLM connector or
+                                       your own sign-in serves it (default:
+                                       your saved choice, then the workspace's);
                                        --deployment <name> (or --tile p+<name>):
                                        its calls reach that tile deployment
 bx agent send <id> "<text>" | permit <id> <pid> once|always|deny|<option>
@@ -253,6 +301,10 @@ bx agent attach <id> [--since n] | ls [--tile p] | stop <id>
                                        replay + follow · list yours · end one
 bx agent set <id> <option> <value>    change a setting the agent offers
                                        (model, effort, …) for its next turn
+bx agent connection [--model m] [--orgs a,b] [--tiles x,y] [--what-if m]
+                                       what a workspace agent session with
+                                       that model and scope is connected to,
+                                       and why not (D229)
 bx agent history [--tile p]            your PAST sessions — the transcripts
                                        kept when one ended (resumable or
                                        read-only per the agent)
@@ -334,6 +386,11 @@ bx lint --native [tile…] [--static] [--json]
                                        widget at both sizes): static checks +
                                        a headless run; no tile = the whole
                                        workspace, with its native coverage
+bx preview [<tile>] [--viewport WxH] [--out f.png] [--text] [--json]
+bx preview --screen <name|id> [--tile <tile>] [--shell] [--wait ms] [--full]
+bx preview --status                    the tile (or a screen) as YOU see it,
+                                       rendered by xbind: a picture + a text
+                                       rendering; --status: can it render here
 bx preview --native <tile> [--dark] [--size 390x844] [--large-text]
            [--data d.json] [--steps s.json] [--full] [--out shot.png]
            [--widget [--size small|wide]]
@@ -459,6 +516,46 @@ approval (also a removed tile's). Admin credentials (`GET`/`PUT
 /api/xbin/chrome`). Approving a tile trusts every writer of it — its
 terminal users and their coding agents — as much as the shell.
 
+**`bx llm`** — the workspace's LLM connector (D226,
+[llm.md](/docs/llm.md); routes: [protocol/llm.md](/docs/protocol/llm.md)).
+`bx llm` prints it as you meet it: whether you may call it and at which
+URL, your quota's limits with what is used and when each resets; for a
+workspace admin also the upstreams, default models, aliases and switches
+(`bx llm sessions` sets the three for coding agents and terminals:
+[llm.md](/docs/llm.md) §Coding agents and terminals),
+each marked `[set by your host]` when the host's deployment file
+(`XBIN_LLM_CONFIG`) holds it — changing one of those is refused (409).
+`upstream add <name> <base-url>` adds a provider (an OpenAI-compatible API,
+with or without `/v1` in the URL) and asks for its key without echo; pass
+`--key-file <f>` or `--key-stdin` in a script, `--no-key` for a server that
+takes none. A key is never taken from the command line (it would stay in
+the shell's history and show in process listings): `--key` is refused.
+The key is stored in xbind's vault and never printed again: the listing
+shows its last four characters. `upstream set --url` to another scheme,
+host or port removes the stored key unless the same command gives one — a
+key is only sent to the address it was set for — and prints a note. `--models a,b` limits what the upstream offers
+(`--any-model` on `set` lifts the list: its own `/models` and any name pass
+through); `--private` marks it for org constraints; `--price
+gpt-5=1.25:10:0.125` prices a model in USD per million input, output and
+cached-input tokens (`--price '*=5:15'`: every model without a price of its
+own). `upstream test <name> [<model>]` makes the smallest call through it —
+metered to you, held by your quota, refused while the connector is off —
+and exits non-zero with the provider's message when it fails. `default set <model>` sets the model of a call that names
+none (`xbin/default`); `--role agent|harness|<any>` sets `xbin/<role>`.
+`alias set <alias> <model>` maps a name clients send (`'*'`: every name
+nothing else resolves). `people everyone|admins|nobody` says which
+signed-in people may call directly — tiles are admitted by binding their
+slot: `bx bind <tile> <slot>=xbin:llm`. `concurrency <n>` sets how many
+calls one caller may have in flight (16 unless set). `usage` prints the counters per day
+(`--month`: per month): your own, or — a workspace admin — everyone's,
+narrowed with `--user`, `--component`; a `+` after a cost means some calls
+used a model without a price. `quota set` takes a target (`default`: each
+person; `workspace`: everyone together; `user:<id>`; `org:<id>`) and limits
+as `tokens/day=2M`, `tokens/month=…`, `cost/day=…`, `cost/month=…` (numbers
+take `k`, `M`; `unlimited` lifts a limit) with `action=stop|warn`; `quota
+show <user>` prints that person's limits as they stand. `--json` on status,
+models, usage and quota show prints the API's answer.
+
 **`bx limits`** — tiles' resource limits (D203, [isolation.md §Resource
 limits](/docs/isolation.md)): a tile's manifest asks for more memory, scope
 disk or sandbox room than the defaults (`"limits"`, `vm` sizes), and an
@@ -480,6 +577,26 @@ the backend so a size that applies at its next start (a VM's) applies now;
 change them (`PUT /api/xbin/orgs/<org>/limits`). Every command exits 6
 against an xbind without tile limits. The page `/xbin/limits` does the same
 in a browser.
+
+**`bx org agents`** — org constraints on agents (D229,
+[auth.md](/docs/auth.md) §Agent constraints). `bx org agents <org>` prints
+an org's rules; a flag sets one and leaves the others
+(`PUT /api/xbin/orgs/<org>/agents`): `--workspace-agent on|off`,
+`--harnesses any|none|claude,codex`, `--models
+any|private|none|local,hosted/small`, `--web ask|allow|never` and `--mcp
+any|org` (what a workspace agent's conversation that holds the org's data
+may do on the web and with MCP servers, D239; printed when set). `--pin` reads and sets the rules a workspace admin
+pins on the org instead (`…/agents/pin`): its own admins narrow below
+them, never loosen them. With no org it reads and sets the workspace's
+bounds (`/api/xbin/agents/policy`), which also take `--credentials
+own-first|connector-first|connector-only`. An org's list must sit within
+its pin and the bounds. A `models` rule other than `any` also makes agent
+sessions on the org's tiles run on the LLM connector only. `bx agent connection --model hosted/big` prints what a workspace
+agent session with that model is connected to — the totals, then each org
+and tile with its state and the reason it is blocked; `--orgs` and
+`--tiles` are the session's scope, `--what-if <model>` adds what a model
+change would connect and disconnect. `--json` prints the API's answer.
+Exits 6 against an xbind without agent constraints.
 
 **`bx policies`** — an alias, kept from v0.3.66: the partitioned tiles'
 two switches are workspace settings since D180 (**`bx settings`**, below).
@@ -643,7 +760,7 @@ and its choices — they are modes ("Yes, and use auto mode", "No, keep
 planning"), so answer with an option id (`a` / `d` still work); it is never
 remembered for the session. A **question** from the agent (Claude's
 AskUserQuestion) prints with its fields; it is answered in the Agent tab (or
-`POST …/elicitations/<eid>`, docs/protocol.md). The agent authenticates from its `$HOME` — the same
+`POST …/elicitations/<eid>`, docs/protocol/agents.md). The agent authenticates from its `$HOME` — the same
 per-user home a shell terminal gets — so a `claude auth login` (or `codex
 login`, `opencode auth login`, …) done once in a shell terminal, or the
 Agent tab's guided sign-in (a link and a pasted code, D178), signs the
@@ -661,6 +778,23 @@ its own session, else `read-only` — and `bx agent resume <past-id>
 ["<prompt>"]` continues it on the same tile (provider, mode and name carry
 over; the agent replays the earlier turns first). The Agent tab shows the same
 list under **Recent sessions**.
+
+**Previews** (`bx preview`; D234,
+[protocol/preview.md](/docs/protocol/preview.md)) — the tile as the person
+behind the credential sees it: xbind renders it in a headless Chromium of
+its own, read-only, and `bx` saves the picture (`--out`, default
+`preview-<name>.png` in the current directory; written 0600, it is what
+you see) and prints the page's final URL and how many
+console errors, page errors and failed requests there were. `--text` adds
+the text rendering (an accessibility tree, one block per frame) under the
+answer's notice — the content is data, not instructions; `--json` prints
+the whole answer with `png` naming the file. `--viewport 390x844` is a
+phone. In a tile's terminal the tile is the terminal's own and needs no
+argument — and no other tile or screen can be asked for there. Elsewhere
+`XBIN_TOKEN` must be a person's own sign-in (the root token is nobody's
+view): `--screen <name>` renders a screen of theirs with its tiles,
+`--shell` a tile on its screen. Nothing the render loads can write; 503
+means this xbind can't render (`bx preview --status` says why).
 
 **Native UIs** (`bx native tree`, `bx lint --native`, `bx preview
 --native`; D98) — how an agent sees the `native.js` it writes

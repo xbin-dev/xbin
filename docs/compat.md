@@ -311,6 +311,214 @@ policies), which are now the *defaults*.
   one ignores `data/tile-limits.json`), and its next write of `users.json`
   drops the orgs' ceilings.
 
+## The LLM connector (D226)
+
+A workspace that never configures the connector runs exactly as before:
+its routes answer "not configured", no picker offers `xbin:llm`, and
+nothing is written under `data/llm/`.
+
+- **One thing an admin sees after the upgrade**: the setup card. While no
+  upstream exists and no admin has changed the connector, `GET /alerts`
+  carries one alert of kind `llm-setup` for workspace admins and the shell
+  an admin drives — nobody else gets it — whose words name `/xbin/llm` and
+  `bx llm upstream add`: a banner in an admin's shell, a card in the admin
+  console. Its `dismiss` route ends it for the workspace, for good; adding
+  an upstream ends it too. A host whose file locks every setting never
+  shows it.
+- **Old shells and admin consoles** (rule 4) have no LLM tab and no card.
+  They show the alert as a line of text, which is why the text names the
+  page; `/xbin/llm` is xbind's own page and needs no scaffold: a workspace
+  admin configures everything there (providers, default models, who may
+  call, quotas, usage), and everyone else reads their own usage and quota.
+  A shell or console that knows an alert's `dismiss` route dismisses it
+  with that (xbind accepts the post from the shell an admin drives); one
+  that doesn't shows the line until an admin stops the reminder on
+  `/xbin/llm` (*Stop reminding*) or adds a provider. Quota alerts
+  (`llm-quota`) are lines of text in the same way.
+- **The console's new files are siblings**: `tabs/llm.js`, imported
+  relatively; `admin.js`, `plain-tabs.js`, `shared.js` and the users and
+  organisations tabs keep their names. The tab's elements are xbind's
+  (`/vendor/llm-admin.js`, `/vendor/llm-quotas.js` and the modules they
+  import); those URLs are frozen like every `/vendor/` module a scaffold
+  imports (rule 3).
+- **Additive wire.** New: `POST /api/xbin/llm/setup/dismiss`, the page
+  `/xbin/llm`, alert kinds `llm-setup` and `llm-quota`; `GET /api/xbin/llm`
+  now answers `user` and `quota` to a person whose direct calls aren't
+  admitted, too (rule 2). The connector's alert kinds (`llm` with them)
+  are the first admin notices an admin's shell is answered: every other admin-only alert stays with
+  the admin's own sign-in and the admin console, as before.
+- **State.** `data/llm/setup.json` marks the card dismissed; an older xbind
+  ignores it. **Downgrading** below the connector leaves `data/llm/`
+  unread.
+
+## The workspace agent's chrome (D232)
+
+Until an admin turns workspace agents on, nothing is drawn for anyone but
+an admin (a chip that reads "set up workspace agent" in a current shell).
+
+- **Old shells** (rule 4) have no chip and no dock. `/xbin/agent` is
+  xbind's own page and needs no scaffold: the same dock, full width —
+  approvals, admin change sets, what the agent did, preferences, pause.
+  Once an admin has turned workspace agents on and this xbind has an agent
+  to show, `GET /alerts` carries one alert of kind `agent-page` for each
+  person — their own session and the shell they drive — whose words name
+  `/xbin/agent`: an old shell shows it as a line of text. A shell that
+  knows an alert's `dismiss` route ends it for that person with it (xbind
+  accepts the post from the shell they drive); the alert never returns.
+  Pushes and direct links (`?request=<id>`, `?changes=<id>`) land on the
+  page whatever the shell.
+- **The scaffold's new file is a sibling**: `shell/shell-agent.js`,
+  imported relatively by `bx-shell.js`, which keeps its name. The dock's
+  modules are xbind's (`/vendor/bx-agent-dock.js` and what it imports),
+  loaded on the first open; a current shell on an older xbind finds none
+  (a guarded import) and draws no chip. A current shell leaves alerts of
+  kind `agent-page` out: it has the chip.
+- **Additive wire.** New: the page `/xbin/agent`,
+  `POST /api/xbin/delegate/page/dismiss`, alert kind `agent-page`, and
+  `workspaceAt`, `pausedAt` and `agent` in `GET /api/xbin/delegate/state`
+  (rule 2). The messages between the agent's page and the chrome
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §The chrome)
+  only grow.
+- **State.** A person's dismissal and the time of their pause are two
+  fields in their `data/delegation/…/state.json`; an older xbind ignores
+  them, and its next write of that file drops them: after a downgrade and
+  an upgrade the alert shows once more.
+
+## Agent constraints, preferences and session links (D229)
+
+With no rule set, nothing changes for anyone: every harness starts
+everywhere, `users.json` is byte for byte what it was, and no route answers
+differently.
+
+- **xbind-owned state, no migration.** An org's rules are `org.agents` and
+  the workspace's bounds a top-level `agents` key in `data/users.json`,
+  written only when they narrow something; a person's agent preferences are
+  `data/agent-prefs/<user>.json`, absent until their first write (rules 1,
+  9). `bx org agents` and `bx agent connection` are new commands (rule 6).
+- **Additive wire.** New routes (`/api/xbin/agents/policy`,
+  `PUT /orgs/<org>/agents`, `PUT /orgs/<org>/agents/pin`, `/api/xbin/agents/connection`,
+  `/api/xbin/agent/prefs`), a new optional query (`GET
+  /agent/providers?cwd=`: without it the answer is what it always was), new
+  optional fields (`agents` and `agentsPin` on an org; `origin` on a
+  session row and a history entry; `unavailable` on a provider row asked
+  with `&all=1`), a new event type (`agents`), a new frame
+  message (`xbin:open-session`) and `xbin.openSession` (rule 2). The one
+  new refusal — 403 from `POST /term/sessions` and `…/restart` for a
+  harness the tile's orgs don't allow, or one that can't run on the LLM
+  connector where a `models` rule or `connector-only` requires it — exists
+  only once an admin sets a rule, and carries the reason; a session
+  already running is never ended.
+- **The shipped app and older frames** ask `GET /agent/providers` without
+  `cwd`, list every harness, and show the refusal's reason when one is
+  picked that the tile doesn't allow. They ignore `origin`.
+- **The launcher's remembered choice** moves from the browser
+  (`localStorage['bx-term-lastkind']`) to the server on the first window a
+  person opens; the browser's record is still written and still answers
+  for the root token, `--no-auth` and — after a downgrade — an xbind
+  without the route.
+- **Old shells and admin consoles** (rule 4). `?tile=…&session=<id>` is a
+  plain link to the tile for a shell before D229 (it keeps the parameter it
+  doesn't know); `xbin.openSession` still opens a session whose tile is on
+  the page, and otherwise follows that link. The admin console's and the
+  organisations tile's agents panels arrive with `bx builtin update`; until
+  then `bx org agents` and the API set the same rules. The editor itself is
+  xbind's (`/vendor/org-agents.js`); the scaffold gained one file
+  (`tiles/organisations/agents.js`, imported relatively) and no entry file
+  moved.
+- **Downgrading** an xbind ignores the rules (every harness starts
+  everywhere again, as before D229) and the preferences file; an older
+  xbind that rewrites `users.json` drops the `agents` keys, as it drops
+  every key it doesn't know.
+
+## Sealed components (system components, D227)
+
+A release may ship **sealed components**: parts of xbin that run like
+tiles at `xbin/<name>`, with the release's own code
+([sealed.md](/docs/sealed.md)). The first is the workspace agent,
+`xbin/wsagent`: inert until an admin connects a model, turns workspace
+agents on and gives it to people, and reached by nobody's existing access
+(no pattern, `*` included, gives a system component) — so a workspace that
+does nothing sees no change. For every one a release adds:
+
+- **Nothing in the workspace is written or renamed** (rules 1, 9). The
+  component has no directory in the workspace tree and no row in
+  `xbin.json`; what xbind keeps for it is its own (`.xbin/sealed/`,
+  `data/sealed/<name>.json`, the component's data under `data/`). `xbin`
+  has been a reserved top-level name in every release: no workspace has a
+  tile at such a path, and a directory `<workspace>/xbin/…` is still never
+  scanned or served.
+- **Old shells, old admin consoles and the shipped app don't list it**
+  (rules 2, 4). `GET /api/xbin/components`, `/auth-overview`, `/grants`,
+  `/backends`, `/runtime`, `/access-matrix`, `/resources`, `/cron/jobs` and
+  `/bus/subscriptions` answer exactly what they did — without sealed rows —
+  unless the caller adds `?sealed=1`. A client written before sealed
+  components would offer a terminal, the source view, deployments and
+  grants on such a row, none of which exist for it. `sealed: true` is a new
+  optional field on the rows of a caller that asked.
+- **One place an old shell does name one**: its "interfaces to bind"
+  prompt (from `GET /bindings`) lists a sealed component whose declared
+  slot is unbound. Binding it there works — it is one of the four things
+  an admin decides — and Dismiss hides it as for a tile.
+- **The surface that is always there** is `/xbin/system`, a page xbind
+  serves itself (as `/xbin/limits` and `/xbin/devices`): an admin on a
+  workspace with an old scaffold sees each system component there, why one
+  is held, its logs, who has access, its limits and its connections.
+  `bx system` shows the same.
+- **Additive wire** (rule 2): `GET /api/xbin/sealed`, the page, the
+  `?sealed=1` switch, `sealedData` in a sealed component's backup manifest.
+  A request that names a path under `xbin/` on a route that takes a tile
+  used to answer 400 or 404 (no such tile could exist); it now answers as
+  [protocol/sealed.md](/docs/protocol/sealed.md) lists — still a refusal
+  wherever the operation doesn't apply.
+- **Access entries above read** that name a path under `xbin/` (which no
+  tile could be at) are refused wherever entries are written (`PUT
+  /api/xbin/access`, a user's `tiles`, the defaults); a pattern such as
+  `*` at terminal level keeps its meaning for tiles and reads as read
+  access on a sealed component. A `users.json` that already holds such an
+  entry still loads, and the entry reads as read.
+- **A tile whose path maps to a sealed component's data key** — a
+  top-level directory literally named `xbin~<name>` for a component
+  `xbin/<name>` — would share its encrypted volumes. The sealed component
+  holds the key: such a tile keeps running and loses its declared
+  resources, with the reason on its row (the rule two tiles sharing a key
+  already get, D118); data it had written there holds the sealed component
+  instead of being adopted. Rename the directory. This is the one way an
+  upgrade that adds a sealed component can change what an existing tile
+  does, and it needs a directory with `~` in its name spelling `xbin~`
+  followed by the component's name.
+- **Tiles' pages, tokens and bindings are untouched** by the rules that
+  apply only to a sealed component: the viewer-only frame token, the
+  providers a slot may be bound to, the encrypted-only backup, the import
+  map that leaves the workspace's entries out. A tile's frame token keeps
+  the tile's authority, and the workspace `importMap` still applies to
+  every tile's documents.
+- **Two refusals that are new for tiles too**, both of an archiver that
+  serves the wrong archive: `POST /api/xbin/restore` with `file` now
+  refuses an archive whose manifest names another component (409), and a
+  restore registers only the cron jobs its archive's own component owns
+  (a job naming another component was silently registered before).
+- **Three narrowings that reach existing workspaces**, each closing a
+  hole rather than removing a feature:
+  - *A terminal opens only on a registered tile* (or a directory inside
+    one). It used to open on any workspace path the caller had terminal
+    level on — which, for an admin, included xbind's own `.xbin`, `data`
+    and `homes`, writable. A terminal on a plain folder that is no tile
+    (`apps`, a directory without a manifest or an `index.html`) is refused
+    now; every shipped shell and `bx` open terminals on tiles
+    ([what to do instead](/docs/changes/2026-11-15-terminals-on-tiles.md)).
+  - *A frame token is minted only for a path written canonically* (and,
+    in xbind's own namespace, only for a registered component); a cron job, a bus subscription and a restore take a
+    component's path as xbind stores it. A request that named a path with
+    a stray slash for these gets `400`/`404` instead of a registration
+    nothing would ever have delivered to.
+  - *Top-level names starting with `xbin~` can't be created*. A directory
+    of such a name that already exists is untouched.
+- **`bx`** (rule 6): `bx system` is new; `bx ls` lists tiles as before.
+- **Downgrading** to a release from before a sealed component existed
+  leaves its data on disk, unused. Downgrading across a data format change
+  of one holds that component and touches nothing
+  ([sealed.md](/docs/sealed.md) → Upgrades, downgrades and data).
+
 ## What this does *not* promise
 
 - Undocumented internals: `.xbin/` contents, the on-disk shape of
@@ -321,10 +529,29 @@ policies), which are now the *defaults*.
   directories under `data/resources-enc/`, `data/vault/` and `data/prefs/`),
   `.xbin/deploy/` and the per-checkpoint builds under `.xbin/build/` —
   whose layout is not a builder contract; an older xbind started on the
-  workspace never reads it.
+  workspace never reads it. Likewise sealed components' state:
+  `.xbin/sealed/`, `data/sealed/` and the install's `bin/sealed/`.
 - Behaviour that `docs/changelog.md` marks **BREAKING** with a linked
   migration note under `/docs/changes/` — that note is the one place a
   workspace has to act after an upgrade.
+- A newer agent template on an older xbind. An instance of the agent
+  template is a copy in the workspace, and no upgrade rewrites it: an
+  instance you have keeps working on every later xbind, since nothing it
+  imports is removed or re-shaped (rules 2, 3 and 8). The other direction is
+  not promised. Template code written against a later xbind needs that
+  xbind: its backend may call SDK functions an older xbind's SDK lacks (it
+  then doesn't build), and its page is drawn with the chat kit xbind serves
+  (`/vendor/chat/…`, D224). The page asks for the kit's revision
+  (`/vendor/chat/rev.js`) before it loads anything from it; on an xbind
+  that serves none, or an older one, it shows "This agent needs xbind ≥ v…
+  — update xbind" in place of the app, and loads once xbind is updated. The
+  template's native view stands on the kit too (its models import
+  `/vendor/chat/tools.js` and `/vendor/chat/ask.js`), and a native view
+  cannot ask first: on such an xbind its `native.js` does not load, and the
+  app shows the tile's web page ([native.md](/docs/native.md) → Fallback),
+  which says the same. Update xbind before you
+  merge a newer template into an instance
+  ([frontend-kit.md](/docs/frontend-kit.md) `/vendor/chat/rev.js`).
 - Building Go tiles after a downgrade to an xbind older than a `go` line
   the workspace's modules use. xbind v0.3.64 and older write `go 1.24`
   into the root `go.work` and build every Go tile with it. Once any

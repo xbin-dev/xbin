@@ -258,8 +258,16 @@ func (s *Server) serveTileOriginAuthed(w http.ResponseWriter, r *http.Request, i
 		s.tileOriginDenied(w, r, code)
 		return
 	}
-	if pr.ReadOnly() && !readOnlyAllowed(r) { // a view-as session, as authed() enforces on the workspace
+	if pr.ReadOnly() && !readOnlyAllowed(r, pr) { // a view-as session, as authed() enforces on the workspace
 		refuseReadOnly(w, r)
+		return
+	}
+	if s.sealedViewAs(r, pr) {
+		refuseSealedViewAs(w, r)
+		return
+	}
+	if SealedViewer(pr) && !s.sealedViewerAllowed(r, pr) { // a sealed component's own origin: the same viewer (sealed.go)
+		refuseSealedViewer(w, r, pr)
 		return
 	}
 	if doc && hasQueryKey(r.URL.RawQuery, "frame") { // the cookie suffices: keep tokens out of location

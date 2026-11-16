@@ -1,0 +1,959 @@
+/**
+ * agent-chrome-words.js — what xbin's own chrome for the workspace agent
+ * says, and the rules it decides by (/vendor/agent-chrome-words.js, D232).
+ * Pure: no DOM, no lit, no imports — the elements draw what these return
+ * (bx-agent-dock.js, bx-agent-approve.js, bx-agent-changes.js,
+ * bx-agent-panels.js), and node tests hold them.
+ *
+ * Everything here is said from xbind's own answers
+ * (docs/protocol/delegation.md): a request's `preview`, a change set's
+ * `line` / `before` / `after` / `warnings` / `blocked`, the audit rows. The
+ * agent's own text (`summary`, `why`, a set's `title`) is never mixed into
+ * a sentence: the elements quote it, labelled as unchecked.
+ *
+ * The choices the design left to its recommendations (the open questions
+ * of the UX plan) are the constants of CHOICES below — one place.
+ */
+
+/** The design's recommendations, where the owner has not decided otherwise. */
+export const CHOICES = Object.freeze({
+  dockWidth: 400, dockMin: 360, dockMax: 720, // the dock: default, and how far it resizes (px)
+  narrow: 640,                                // under this the dock is the whole page
+  armMs: 600,                                 // Allow is not armed before this long after the sheet is shown
+  duration: Object.freeze({ call: 'always', tile: 'hour', tool: 'always' }), // a standing choice's default duration (Q5)
+  warnedStartUnticked: true,                  // a change with a warning starts unticked (Q7)
+  typeWhilePaused: false,                     // the page is not shown while paused (Q10)
+  shortcut: Object.freeze({ key: 'j', ctrlOrMeta: true }), // Ctrl+J / ⌘J, when the shell has it free (Q11)
+  adminsNamed: 2,                             // "an admin can fix this: A or B" (Q15)
+});
+
+// ---- small words -------------------------------------------------------------------------
+
+/** toMs(v): a time as the API gives it (RFC 3339, unix seconds or ms) → ms since the epoch (0: none). */
+export function toMs(v) {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return v > 1e12 ? v : v * 1000;
+  const n = Date.parse(v);
+  return Number.isFinite(n) && n > 0 ? n : 0; // (xbind writes a time that was never set as year 1: "0001-01-01T00:00:00Z")
+}
+
+const pad = (n) => String(n).padStart(2, '0');
+/** clock(ms): "10:14" in local time. */
+export const clock = (ms) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+
+/** left(ms): how long from now, in the deck's words: "23 h 58 min", "7 days", "4 min", "less than a minute". */
+export function left(ms) {
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'less than a minute';
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+  return `${Math.floor(h / 24)} days`;
+}
+
+/** asked(req, now): "asked 10:14 · expires in 23 h 58 min" (what of it is known). */
+export function asked(x, now = Date.now()) {
+  const c = toMs(x && x.created), e = toMs(x && x.expires);
+  return [c ? `asked ${clock(c)}` : '', e ? (e > now ? `expires in ${left(e - now)}` : 'expired') : ''].filter(Boolean).join(' · ');
+}
+
+/** bytes(n): "48 bytes", "14 KiB", "3.2 MiB". */
+export function bytes(n) {
+  n = Number(n) || 0;
+  if (n < 1024) return `${n} byte${n === 1 ? '' : 's'}`;
+  if (n < 1024 * 1024) return `${+(n / 1024).toFixed(n < 10240 ? 1 : 0)} KiB`;
+  return `${+(n / 1048576).toFixed(1)} MiB`;
+}
+
+const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+
+// a tile as a preview names it: a path, or {name, path, org}
+function tileOf(req) {
+  const p = (req && req.preview) || {};
+  const t = p.tile ?? (p.session && p.session.tile) ?? req.tile ?? '';
+  if (t && typeof t === 'object') return { name: t.name || t.title || lastOf(t.path) || '', path: t.path || '', org: t.org || '' };
+  return { name: lastOf(t), path: String(t || ''), org: '' };
+}
+const lastOf = (path) => { const s = String(path || '').split('/').filter(Boolean).pop() || ''; return s ? s[0].toUpperCase() + s.slice(1) : ''; };
+
+/** tile(req): {name, path, org} of the tile a request is about. */
+export const tile = tileOf;
+
+// (xbind's levels are read | write | terminal — terminal holds write)
+const LEVEL = { owner: 'you own it', admin: 'you manage it', terminal: 'you can write here', write: 'you can write here', full: 'you can write here', read: 'you can only read here' };
+/** levelWords(level): the person's own level on the tile, in words. */
+export const levelWords = (level) => LEVEL[level] || (level ? `your level: ${level}` : '');
+
+// ---- a request ---------------------------------------------------------------------------
+
+/** needTitle(req): a request as a row of Needs you. */
+export function needTitle(req) {
+  if (req.kind === 'web') return `Read a web page on ${webOf(req).host || 'the web'}`;
+  if (req.kind === 'mcp') return `Run ${mcpOf(req).tool || 'a tool'} on ${mcpOf(req).server}`;
+  const t = tileOf(req).name || 'a tile';
+  if (req.kind === 'session') return req.preview && req.preview.session && req.preview.session.resume ? `Continue the tile agent in ${t}` : `Start a tile agent in ${t}`;
+  if (req.kind === 'template') return 'Create a tile';
+  return `Approve a change to ${t}`;
+}
+
+/** heading(req): the sheet's heading — {before, strong, after}: the tile's name is the strong part. */
+export function heading(req) {
+  if (req.kind === 'web') return { before: 'Your agent wants to read a page on ', strong: webOf(req).host || 'the web', after: '' };
+  if (req.kind === 'mcp') return { before: 'Your agent wants to run ', strong: mcpOf(req).tool || 'a tool', after: ` on ${mcpOf(req).server}` };
+  const t = tileOf(req).name || 'a tile';
+  if (req.kind === 'session') {
+    return req.preview && req.preview.session && req.preview.session.resume
+      ? { before: 'Continue the tile agent in ', strong: t, after: '?' } : { before: 'Start a tile agent in ', strong: t, after: '?' };
+  }
+  if (req.kind === 'template') return { before: 'Your agent wants to create a tile', strong: '', after: '' };
+  return { before: 'Your agent wants to change something in ', strong: t, after: '' };
+}
+
+/** CLIP: the most of a body or a brief a sheet shows before Show all, in characters (code points) — the app's too. */
+export const CLIP = 4000;
+
+/** clipText(text, all): {text, clipped, shown, total} — all of it, or its first CLIP characters (all: the person asked for all). */
+export function clipText(text, all = false) {
+  const cps = [...String(text ?? '')];
+  if (all || cps.length <= CLIP) return { text: cps.join(''), clipped: false, shown: cps.length, total: cps.length };
+  return { text: cps.slice(0, CLIP).join(''), clipped: true, shown: CLIP, total: cps.length };
+}
+
+/** clipNote(c): "first 4000 of 9321 characters" for clipped text ('' for text shown whole). */
+export const clipNote = (c) => (c.clipped ? `first ${c.shown} of ${c.total} characters` : '');
+
+/**
+ * sends(req, all): what the call carries — {text, note, binary, clipped}:
+ * the body as text — its first CLIP characters unless all — with "48 bytes
+ * · shown in full" only when it is ("14 KiB · first 4000 of 9321
+ * characters" when not), or, for bytes nobody can read, no text and "not
+ * text — 3.2 MiB, sha256 …".
+ */
+export function sends(req, all = false) {
+  const size = Number(req.bodySize) || 0;
+  const pb = req.preview && req.preview.body;
+  if (req.bodyBinary || (pb && pb.binary)) {
+    const sha = (pb && pb.sha256) || req.bodySha256 || '';
+    return { text: '', binary: true, clipped: false, note: `not text — ${bytes((pb && pb.size) || size)}${sha ? `, sha256 ${sha}` : ''}` };
+  }
+  if (!size && !req.body) return { text: '', binary: false, clipped: false, note: 'nothing: the call has no body' };
+  // xbind's bodyShown is a boolean — true: `body` is the whole body, as text (delegation.Request); a count is a part of it
+  const shown = req.bodyShown === true ? size : Number(req.bodyShown) || 0;
+  const partial = shown > 0 && shown < size;
+  const c = clipText(req.body, all);
+  return { text: c.text, binary: false, clipped: c.clipped,
+    note: partial ? `showing the first ${bytes(shown)} of ${bytes(size)}` : `${bytes(size)} · ${c.clipped ? clipNote(c) : 'shown in full'}` };
+}
+
+// ---- the agent's text, as a sheet shows it -------------------------------------------------
+
+/**
+ * What a sheet never draws as it is, in anything the agent wrote (a call's
+ * body, a brief, a summary, a set's title, an item's reason): control
+ * characters but newline and tab, and every format character (Unicode Cf) —
+ * the bidi embeddings, overrides and isolates (U+202A–202E, U+2066–2069),
+ * the zero-width ones (U+200B–200F), the word joiner (U+2060), the byte
+ * order mark (U+FEFF) and the rest. Drawn as they are they reorder or hide
+ * what the person reads; a sheet shows each as a visible escape, ⟨U+202E⟩,
+ * never interpreted.
+ */
+const HIDDEN = /[\p{Cc}\p{Cf}]/u;
+const hidden = (c) => c !== '\n' && c !== '\t' && HIDDEN.test(c);
+/** HIDDEN_NOTE: the line above text that holds any. */
+export const HIDDEN_NOTE = 'contains hidden characters — shown as ⟨U+…⟩';
+/** hiddenCode(c): "U+202E" for one character. */
+export const hiddenCode = (c) => `U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+
+/**
+ * reveal(text): the text in parts — [{text} | {hidden: 'U+202E'}], runs of
+ * what is drawn as it is between the hidden characters, each of those a
+ * part of its own — and how many are hidden. Nothing else is changed.
+ */
+export function reveal(text) {
+  const parts = [];
+  let run = '', n = 0;
+  for (const c of String(text ?? '')) {
+    if (!hidden(c)) { run += c; continue; }
+    if (run) { parts.push({ text: run }); run = ''; }
+    parts.push({ hidden: hiddenCode(c) });
+    n++;
+  }
+  if (run) parts.push({ text: run });
+  return { parts, hidden: n };
+}
+
+/** revealed(text): the text with each hidden character written as its escape, ⟨U+202E⟩ — for what reads it aloud. */
+export const revealed = (text) => reveal(text).parts.map((p) => (p.hidden ? `⟨${p.hidden}⟩` : p.text)).join('');
+
+/** undoWords(req): what xbin can say about undoing it. */
+export const undoWords = (req) => `xbin can't undo this. Whether ${tileOf(req).name || 'the tile'} can is up to ${tileOf(req).name || 'the tile'}.`;
+
+/**
+ * grantChoices(req): the three ways to allow a tile call — once, always
+ * this exact action, always every change to the tile (wider) — each
+ * {id, scope, label, text, wider}. A session start and a tile create have
+ * one: they are asked every time.
+ */
+export function grantChoices(req) {
+  if (req.kind === 'mcp') {
+    const m = mcpOf(req);
+    return [
+      { id: 'once', scope: '', label: 'Once', text: 'This call only. The agent has 15 minutes to make it.', wider: false },
+      { id: 'tool', scope: 'tool', label: 'Always, this tool', text: m.standing || `${m.tool} on ${m.server}, as it is described now, with any arguments, without asking again.`, wider: false },
+    ];
+  }
+  if (req.kind !== 'call') return [];
+  const t = tileOf(req).name || 'this tile';
+  const st = (req.preview && req.preview.standing) || {};
+  return [
+    { id: 'once', scope: '', label: 'Once', text: 'This request only. The agent has 15 minutes to use it.', wider: false },
+    { id: 'call', scope: 'call', label: 'Always, this exact action', text: st.call || `${req.method} to this path on ${t}, whatever it sends, without asking again.`, wider: false },
+    { id: 'tile', scope: 'tile', label: `Always, every change to ${t}`, text: st.tile || `Any create, change or delete in ${t} that you could do yourself, without asking again.`, wider: true },
+  ];
+}
+
+/** DURATIONS: how long a standing approval lasts — the contract's `hour` and `always`. */
+export const DURATIONS = Object.freeze([{ id: 'hour', label: 'For one hour' }, { id: 'always', label: 'Until I take it back' }]);
+
+/** allowLabel(req, choice): the Allow button's words — they follow the choice. */
+export function allowLabel(req, choice = 'once') {
+  if (req.kind === 'session') return req.preview && req.preview.session && req.preview.session.asks === true ? 'Start' : 'Start without asking'; // only xbind's word that the mode asks
+  if (req.kind === 'template') return 'Create the tile';
+  if (req.kind === 'web') return 'Read this page';
+  if (req.kind === 'mcp') return choice === 'tool' ? 'Allow always' : 'Allow once';
+  return choice === 'once' ? 'Allow once' : choice === 'call' ? 'Allow always' : `Allow every change to ${tileOf(req).name || 'the tile'}`;
+}
+
+/** allowSpoken(req, choice): …and as a screen reader says them. */
+export function allowSpoken(req, choice = 'once') {
+  if (req.kind === 'mcp') return choice === 'tool' ? 'Allow always, this tool' : 'Allow once';
+  if (req.kind !== 'call') return allowLabel(req, choice);
+  return choice === 'once' ? 'Allow once' : choice === 'call' ? 'Allow always, this exact action' : `Allow every change to ${tileOf(req).name || 'the tile'}`;
+}
+
+/**
+ * approveBody(req, choice, duration): what POST …/approve sends —
+ * {grant, scope?, unseen?}. A body nobody could read is approved only by
+ * saying so (unseen).
+ */
+export function approveBody(req, choice = 'once', duration = '') {
+  const unseen = sends(req).binary ? { unseen: true } : {};
+  if (req.kind === 'mcp' && choice === 'tool') {
+    const d = duration === 'hour' || duration === 'always' ? duration : CHOICES.duration.tool;
+    return { grant: d, scope: 'tool', ...unseen };
+  }
+  if (req.kind !== 'call' || choice === 'once') return { grant: 'once', ...unseen };
+  const d = duration === 'hour' || duration === 'always' ? duration : CHOICES.duration[choice] || 'hour';
+  return { grant: d, scope: choice === 'tile' ? 'tile' : 'call', ...unseen };
+}
+
+/** widerWords(req): the second step of the wider grant. */
+export function widerWords(req) {
+  const t = tileOf(req).name || 'this tile';
+  return {
+    heading: `Allow every change to ${t}?`,
+    means: `From now on your agent can create, change and delete anything in ${t} that you can, without asking.`,
+    ends: 'It ends by itself after the time you pick. You can take it back sooner in Approvals.',
+    back: 'Go back', allow: 'Allow every change',
+  };
+}
+
+/**
+ * sessionRows(req): a tile agent start as the sheet's rows —
+ * {agent, mode: {tag, tone, text}, network, others, brief, danger}: the
+ * mode leads; one that never asks is the danger wording, and Deny becomes
+ * the primary button.
+ */
+export function sessionRows(req) {
+  const s = (req.preview && req.preview.session) || {};
+  const t = tileOf(req).name || 'the tile';
+  // only xbind's word that the mode asks (a harness's ask or plan mode) earns the green tag: any other mode, and one
+  // xbind doesn't vouch for, leads with the danger wording
+  const asks = s.asks === true;
+  const who = s.providerName || s.provider || 'A coding agent';
+  const model = s.model ? ` · model ${s.model}` : '';
+  const cred = s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';
+  let brief = '';
+  try { const b = JSON.parse(req.body || '{}'); brief = String(b.prompt ?? b.brief ?? b.message ?? ''); } catch { brief = String(req.body || ''); }
+  return {
+    agent: `${who}${model}${cred}`,
+    mode: asks ? { tag: 'asks before acting', tone: 'ok', text: 'It asks you before it edits a file or runs a command.', name: s.mode || '' }
+      : { tag: 'acts without asking', tone: 'bad', text: `It edits files and runs commands in ${t} without asking you.`, name: s.mode || '' },
+    network: !s.net || s.net === 'none' ? 'Its model only. No internet.' : `Network: ${s.net}`,
+    others: s.api === false ? 'It can call no other tile.' : 'It can call the tile APIs this tile is granted.',
+    brief,
+    danger: asks ? '' : 'Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.',
+    comes: `Its questions and permission requests come to you, in ${t} and in Needs you. Your workspace agent can't answer them.`,
+  };
+}
+
+/** settled(req): a decided request in a few words. */
+export function settled(req) {
+  const at = toMs(req.decided) ? ` · ${clock(toMs(req.decided))}` : '';
+  switch (req.state) {
+    case 'approved': return `Allowed${req.grant === 'once' || !req.grant ? ' once' : ''} by you${at}`;
+    case 'used': return `Allowed by you, and used${at}`;
+    case 'denied': return `Denied by you${at}`;
+    case 'expired': return 'Expired — not approved within 24 hours.';
+    case 'withdrawn': return req.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped' : 'Withdrawn by the agent';
+    case 'pending': return 'Waiting for your approval';
+  }
+  return UNKNOWN_STATE.page; // a newer xbind's state: never read as one that can be decided
+}
+
+const REQUEST_STATES = ['pending', 'approved', 'denied', 'used', 'expired', 'withdrawn'];
+const SET_STATES = ['proposed', 'applying', 'applied', 'partial', 'rejected', 'expired', 'withdrawn'];
+/**
+ * UNKNOWN_STATE: a request or change set in a state this chrome doesn't
+ * know (a newer xbind's) is never read as one that can be decided — no
+ * Allow, no Apply — and says so: on the web, reload (page); in the app,
+ * which can be older than the workspace, the web (app).
+ */
+export const UNKNOWN_STATE = Object.freeze({
+  pageTitle: "A state this page doesn't know", page: 'This page is older than the workspace — reload it to decide.',
+  title: "A state this app doesn't know", app: 'This app is older than the workspace — open it on the web.',
+});
+/** knownState(x, kind): x's state is one this chrome knows ('request' | 'changeset'). */
+export const knownState = (x, kind = 'request') => (kind === 'changeset' ? SET_STATES : REQUEST_STATES).includes(x && x.state);
+
+// ---- when nothing can be allowed ---------------------------------------------------------
+
+/**
+ * stopRefusal(state): why the person can't ALLOW anything for their agent
+ * now, read from GET /delegate/state — the refusal xbind answers Allow,
+ * Always and Apply with then (409 {refusal}): 'workspace-off', 'no-agent',
+ * 'paused', 'held'; '' when nothing stops it. Deny and Reject always work.
+ */
+export function stopRefusal(state) {
+  if (!state) return '';
+  if (!state.workspace) return 'workspace-off';
+  if (state.access === false) return 'no-agent';
+  if (state.paused) return 'paused';
+  if (state.held) return 'held';
+  return '';
+}
+
+const STOPPED = {
+  'workspace-off': 'Workspace agents are turned off for this workspace, so nothing can be allowed until an admin turns them on again.',
+  paused: 'Your agent is paused. Resume it first; then this can be allowed.',
+  held: 'Your agent is held on this xbin right now, so nothing can be allowed.',
+  'no-agent': 'You no longer have a workspace agent, so nothing can be allowed for it.',
+};
+/**
+ * stopWords(refusal, kind): what a sheet says in place of Allow (kind
+ * 'request') or Apply ('changeset') while its agent is stopped —
+ * {title, text, still}, or null for no refusal. Any refusal xbind names
+ * (a 409's) is said; one this page doesn't know, in general words.
+ */
+export function stopWords(refusal, kind = 'request') {
+  if (!refusal) return null;
+  const sets = kind === 'changeset';
+  return {
+    title: sets ? "Can't be applied now" : "Can't be allowed now",
+    text: STOPPED[refusal] || "Your agent can't act on this xbin right now, so nothing can be allowed.",
+    still: sets ? 'You can still reject it.' : 'You can still deny it.',
+  };
+}
+
+// ---- standing approvals ------------------------------------------------------------------
+
+/** standingRow(a, now): one standing approval — {tile, text, wider, since, until}. */
+export function standingRow(a, now = Date.now()) {
+  const until = toMs(a.until);
+  return {
+    tile: lastOf(a.tile) || a.tile || '',
+    path: a.tile || '',
+    wider: a.scope === 'tile',
+    text: a.scope === 'tile' ? 'Always · every change' : a.scope === 'tool' ? `Always · this tool: ${a.path || ''}` : `Always · this action: ${a.method || ''} ${a.path || ''}`.trim(),
+    since: toMs(a.created) ? `since ${new Date(toMs(a.created)).toLocaleDateString()} ${clock(toMs(a.created))}` : '',
+    until: until ? (until > now ? `ends in ${left(until - now)}` : 'ended') : 'until you take it back',
+  };
+}
+export const STANDING_NOTE = 'Starting a tile agent, creating a tile and reading a web page are asked every time. Taking an approval back stops a change that is running under it.';
+
+// ---- change sets -------------------------------------------------------------------------
+
+const KIND_TAG = { 'grant.add': 'grant', 'grant.revoke': 'grant', 'binding.set': 'binding', 'binding.remove': 'binding', 'org.share': 'org share', 'limits.set': 'limit',
+  'tile.create': 'new tile', 'agent.start': 'tile agent' };
+/** kindTag(kind): "grant" · "binding" · "org share" · "limit". */
+export const kindTag = (kind) => KIND_TAG[kind] || String(kind || '').split('.')[0];
+
+const WARN_ICON = { PUBLIC: 'globe', 'OPEN PORT': 'network', EGRESS: 'external' };
+/** warning(w): xbind's warning as {tag, icon, text} — "PUBLIC: anyone on the internet…" → the caps tag and its sentence. */
+export function warning(w) {
+  const s = String(w || '');
+  const m = /^([A-Z][A-Z ]{1,20}):\s*(.*)$/s.exec(s);
+  const tag = m ? m[1].trim() : 'WARNING';
+  return { tag, icon: WARN_ICON[tag] || 'warning', text: m ? m[2] : s };
+}
+
+/**
+ * stateText(item, 'before' | 'after'): a change's state in words — xbind's
+ * own (beforeText / afterText) when it says them; a value it gave as text;
+ * else the value's fields, plainly ("binding: [], host: \"a\""). null:
+ * nothing to show. Never an object's default string.
+ */
+export function stateText(item, which) {
+  const said = item ? item[`${which}Text`] : '';
+  if (typeof said === 'string' && said) return said;
+  const v = item ? item[which] : null;
+  if (v == null) return null;
+  if (typeof v === 'string') return v;
+  if (typeof v !== 'object' || Array.isArray(v)) return JSON.stringify(v);
+  const keys = Object.keys(v).sort();
+  return keys.length ? keys.map((k) => `${k}: ${JSON.stringify(v[k])}`).join(', ') : '(nothing)';
+}
+
+/**
+ * ownerWords(req): whose a tile an approved creation makes would be, from
+ * xbind's own check (preview.create.owner) — "you", "the org sales",
+ * "the workspace"; an xbind that doesn't say is not guessed at.
+ */
+export function ownerWords(req) {
+  const c = req && req.preview && req.preview.create;
+  if (!c || typeof c.owner !== 'string') return 'xbin decides when it is created';
+  if (c.owner === '') return 'the workspace';
+  if (c.owner === `user:${req.user}`) return 'you';
+  const [kind, id] = c.owner.split(':');
+  return kind === 'org' ? `the org ${id}` : kind === 'user' ? `${id} (another person)` : c.owner;
+}
+
+/** tickable(item): the person may tick it (xbind did not block it). */
+export const tickable = (item) => !item.blocked;
+
+/** initialTicks(cs): the items ticked when the review opens — never a blocked one, never (Q7) one with a warning. */
+export function initialTicks(cs) {
+  return ((cs && cs.items) || []).filter((it) => tickable(it) && !(CHOICES.warnedStartUnticked && it.warnings && it.warnings.length)).map((it) => it.n);
+}
+
+/** reviewWords(cs, ticked): the review's heading, sub line, footer and Apply button. */
+export function reviewWords(cs, ticked) {
+  const total = ((cs && cs.items) || []).length, n = ticked.length;
+  return {
+    heading: `Your agent proposes ${plural(total, 'admin change')}`,
+    intro: 'Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.',
+    footer: `${n} of ${total} ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.`,
+    apply: n ? `Apply ${plural(n, 'change')}…` : 'Apply none',
+    counts: [((cs && cs.items) || []).filter((it) => it.warnings && it.warnings.length).length, ((cs && cs.items) || []).filter((it) => it.blocked).length],
+  };
+}
+
+/** needChangeTitle(cs): a proposal as a row of Needs you — and what is special about it. */
+export function needChangeTitle(cs) {
+  const items = (cs && cs.items) || [];
+  const w = items.filter((it) => it.warnings && it.warnings.length).length, b = items.filter((it) => it.blocked).length;
+  const na = items.filter((it) => it.needsAdmin && !it.result).length;
+  // a plan (docs/protocol/delegation.md §Plans), or another person's request to an admin, says which it is
+  const title = cs && cs.from ? `${cs.from} asks for ${plural(items.length, 'admin change')}` : cs && cs.plan ? `A plan of ${plural(items.length, 'change')}` : `${plural(items.length, 'admin change')} proposed`;
+  return { title, note: [w ? `${w} ${w === 1 ? 'has' : 'have'} a warning` : '', b ? `${b} can't be applied` : '', na ? `${na} ${na === 1 ? 'needs' : 'need'} an admin` : ''].filter(Boolean).join(' · ') };
+}
+
+const RESULT = {
+  applied: { word: 'applied', icon: 'ok', tone: 'ok' }, failed: { word: 'failed', icon: 'error', tone: 'bad' }, skipped: { word: 'skipped', icon: 'minus', tone: '' },
+  stale: { word: 'out of date', icon: 'refresh', tone: 'warn', text: 'Someone changed this after the agent proposed it. What you ticked no longer matches, so xbin left it alone.' },
+  rejected: { word: 'left out by you', icon: 'minus', tone: '' }, blocked: { word: "couldn't be applied", icon: 'lock', tone: 'warn' },
+  asked: { word: 'sent to an admin', icon: 'clock', tone: '' },
+};
+/** resultOf(item): an item's result as {word, icon, tone, text} ("xbin said: …" for a failure). */
+export function resultOf(item) {
+  const r = RESULT[item.result] || (item.needsAdmin && !item.result ? { word: 'needs an admin', icon: 'lock', tone: '' } : { word: item.result || '', icon: '', tone: '' });
+  const text = item.result === 'failed' ? `xbin said: “${item.error || 'it failed'}”` : item.result === 'blocked' ? String(item.blocked || item.error || '') : r.text || '';
+  return { ...r, text };
+}
+
+const NUM = ['none', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+const num = (n) => NUM[n] || String(n);
+/** resultsWords(cs): the results' title, the banner of a partial outcome, and the Undo button ('' when nothing can be undone). */
+export function resultsWords(cs) {
+  const items = (cs && cs.items) || [];
+  const chosen = items.filter((it) => ['applied', 'failed', 'skipped', 'stale'].includes(it.result)); // what the person ticked (not what they left out, nor what xbind blocked)
+  const applied = items.filter((it) => it.result === 'applied');
+  const failed = chosen.filter((it) => it.result === 'failed').length, skipped = chosen.filter((it) => it.result === 'skipped').length;
+  const title = !applied.length ? 'Nothing was applied' : applied.length === chosen.length ? `All ${applied.length} change${applied.length === 1 ? '' : 's'} applied`
+    : `${applied.length} of ${chosen.length} changes applied`;
+  let banner = '';
+  if (failed) {
+    const cap = (s) => s[0].toUpperCase() + s.slice(1);
+    banner = `${cap(num(failed))} change${failed === 1 ? '' : 's'} failed${skipped ? `, so the ${skipped === 1 ? 'one' : num(skipped)} after ${failed === 1 ? 'it' : 'them'} ${skipped === 1 ? 'was' : 'were'} skipped` : ''}.`
+      + (applied.length ? ` The ${applied.length === 1 ? 'one that was' : `${num(applied.length)} that were`} applied ${applied.length === 1 ? 'stays' : 'stay'}.` : '');
+  }
+  const undoable = applied.filter((it) => it.inverse).length;
+  return { title, banner, undo: undoable ? `Undo the ${undoable} applied…` : '' };
+}
+
+/** endedWords(cs): how a set that was not applied ended ('' for one applied, in part or whole, or still waiting). */
+export function endedWords(cs) {
+  switch (cs && cs.state) {
+    case 'rejected': return 'Rejected by you. Nothing was applied.';
+    case 'expired': return 'Expired. Nothing was applied.';
+    case 'withdrawn': return cs.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped. Nothing was applied.' : 'Withdrawn by the agent. Nothing was applied.';
+  }
+  return knownState(cs, 'changeset') ? '' : UNKNOWN_STATE.page;
+}
+
+/** stepUp(kind): the recent-sign-in step, as the server asked for it. */
+export function stepUp(kind) {
+  return kind === 'signin'
+    ? { heading: 'Sign in again first.', text: 'Applying admin changes needs a sign-in from the last ten minutes.', action: 'Sign in again', password: false }
+    : { heading: "Confirm it's you", text: 'Applying admin changes needs your password, or a sign-in from the last ten minutes.', action: 'Continue', password: true,
+      sso: 'Use sign in again instead; your ticks are kept.' };
+}
+
+// ---- the web and MCP tools (D239) -------------------------------------------------------------
+
+/** webOf(req): a web request's page as xbind previews it — {url, host, why, orgs}. */
+export function webOf(req) {
+  const p = (req && req.preview) || {};
+  return { url: String(p.url || ''), host: String(p.host || webHost(p.url)), why: String(p.why || ''), orgs: Array.isArray(p.orgs) ? p.orgs : [] };
+}
+/** webHost(url): the host of a URL ('' when none). */
+export function webHost(url) { const m = /^[a-z]+:\/\/([^/?#:]+)/i.exec(String(url || '')); return m ? m[1] : ''; }
+
+/** mcpOf(req): an MCP request's tool as xbind previews it — {server, path, tool, title, description, readOnly, arguments, standing}. */
+export function mcpOf(req) {
+  const p = (req && req.preview) || {};
+  return { server: String(p.serverName || p.server || lastOf(req && req.tile) || 'an MCP server'), path: String(p.server || (req && req.tile) || ''), tool: String(p.tool || ''),
+    title: String(p.title || ''), description: String(p.description || ''), readOnly: p.readOnly === true, arguments: String(p.arguments || ''),
+    standing: (p.standing && p.standing.tool) || '', changed: Array.isArray(p.changed) ? p.changed.map(String) : [] };
+}
+
+const CHANGED = Object.freeze({ name: 'its name', title: 'its title', description: 'its description', inputSchema: 'its arguments',
+  outputSchema: 'its answer’s form', annotations: 'its marks (read-only and the like)' });
+
+/** READ_WEB: what a sheet says when the conversation that asks has read the web (preview.readWeb). */
+export const READ_WEB = 'This conversation has read the web: what your agent asks may come from a page it read.';
+/** webRows(req): a web request as the sheet's rows — {url, host, why, once}. */
+export function webRows(req) {
+  const w = webOf(req);
+  return { url: w.url, host: w.host, why: w.why || 'This conversation holds data of an organisation: the address itself can carry it out of the workspace.',
+    once: 'Reading a page is asked every time: the address is the data.' };
+}
+/** mcpRows(req): an MCP request as the sheet's rows. */
+export function mcpRows(req) {
+  const m = mcpOf(req);
+  return { ...m, marked: m.readOnly ? 'Its server marks it read-only — the server’s word, not xbin’s.' : 'Its server doesn’t mark it read-only: it may change things.',
+    undo: `xbin can't undo this. Whether ${m.server} can is up to ${m.server}.`,
+    changedLine: m.changed.length ? `Changed since you last allowed it or first met it: ${m.changed.map((k) => CHANGED[k] || k).join(', ')}.` : '' };
+}
+
+/**
+ * netPrefs(state): the two Preferences controls (and the read-only one
+ * under MCP) — [{id: 'web' | 'mcp' | 'mcpReadOnly', label, note, on,
+ * allowed, why}], from GET /delegate/state: the person's own settings and
+ * what the workspace policy lets them turn on (net). Turning one on widens:
+ * the chrome arms it like Allow. Off is never held.
+ */
+export function netPrefs(state) {
+  const st = state || {}, net = st.net || {};
+  const web = net.web || {}, mcp = net.mcp || {};
+  const webOk = !!web.policy && web.policy !== 'off', mcpOk = !!mcp.policy && mcp.policy !== 'off';
+  const only = Array.isArray(web.only) && web.only.length ? ` Only ${web.only.join(', ')}.` : '';
+  return [
+    { id: 'web', label: 'Let my agent read web pages', on: !!st.web && webOk, allowed: webOk, why: webOk ? '' : (web.why || 'Off for this workspace — an admin can change it.'),
+      note: `It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve.${only}` },
+    { id: 'mcp', label: 'Let my agent use MCP tools from this workspace’s tiles', on: !!st.mcp && mcpOk, allowed: mcpOk, why: mcpOk ? '' : (mcp.why || 'Off for this workspace — an admin can change it.'),
+      note: 'As you, on the tiles you can reach. Each tool asks you the first time.' },
+    { id: 'mcpReadOnly', label: 'MCP tools marked read-only don’t ask me', on: !!st.mcpReadOnly && mcpOk && !!st.mcp, allowed: mcpOk && !!st.mcp, sub: true,
+      why: !mcpOk ? '' : st.mcp ? '' : 'Turn on MCP tools first.', note: '“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask.' },
+  ];
+}
+
+// ---- needs you ---------------------------------------------------------------------------
+
+/**
+ * needs({requests, changesets, sessions}, now): the tray's rows, oldest
+ * first — {kind: 'request' | 'changeset' | 'session', id, title, note,
+ * action, at}: a pending request, a proposed change set, a tile agent
+ * session of the person's that waits for them.
+ */
+export function needs({ requests = [], changesets = [], sessions = [] } = {}, now = Date.now()) {
+  const rows = [];
+  for (const r of requests) if (r.state === 'pending') rows.push({ kind: 'request', id: r.id, title: needTitle(r), note: asked(r, now), action: 'Review…', at: toMs(r.created) });
+  for (const c of changesets) {
+    if (c.state !== 'proposed') continue;
+    const w = needChangeTitle(c), e = toMs(c.expires);
+    rows.push({ kind: 'changeset', id: c.id, title: w.title, note: [w.note, e > now ? `expires in ${left(e - now)}` : ''].filter(Boolean).join(' · '), action: 'Review…', at: toMs(c.created) });
+  }
+  for (const s of sessions) {
+    if (!(s.pending > 0 || s.questions > 0 || s.status === 'waiting_permission')) continue;
+    const t = lastOf(s.cwd || s.tile) || 'A tile';
+    rows.push({ kind: 'session', id: s.id, tile: s.cwd || s.tile || '', title: `${t} · ${s.providerName || s.provider || 'the tile agent'} ${s.questions > 0 ? 'asks a question' : 'asks permission'}`,
+      note: s.origin === 'agent' ? 'started by your agent' : '', action: 'Open', at: toMs(s.waitingSince || s.updated || s.created) });
+  }
+  return rows.sort((a, b) => a.at - b.at);
+}
+
+// ---- what my agent did -------------------------------------------------------------------
+
+/**
+ * did(row): one row of the audit log as a sentence — {text, strong, detail,
+ * icon, group: 'change' | 'refused' | 'read', at}. `strong` is the tile's
+ * name inside the sentence, said after `text`.
+ */
+// xbind's rows (delegation.Call): `effect` is a boolean — a side effect — and `under` is the standing approval a call ran under
+// ("approval:<id>"), "preference" (a tile agent started unasked) or, on a decision, the grant and its scope ("once", "hour call",
+// "always tile"). A word in `effect`, a scope in `under`, are read too.
+const GRANT = { once: 'once', hour: 'for one hour', always: 'until you take it back' };
+const grantWords = (u) => { const [g, sc] = String(u || '').split(' '); return GRANT[g] ? `${GRANT[g]}${sc === 'tile' ? ', every change' : sc === 'call' ? ', this action' : ''}` : ''; };
+const underWords = (row) => { const u = String(row.under || '');
+  return u === 'preference' ? 'without asking: your preference' : u.startsWith('approval:') ? 'under a standing approval of yours' : u ? `under “always, ${u === 'tile' ? 'every change' : 'this action'}”` : row.ticket ? 'you allowed it once' : ''; };
+// the agent's own asking and record-keeping at xbind — a request filed or withdrawn, a change set proposed, its session's
+// handle opened, kept and closed: nothing of the person's was changed ('' for a row that is none of these)
+function asking(row) {
+  const m = /^\/api\/xbin\/delegate\/(requests|changesets|sessions)(\/.*)?$/.exec(row.path || '');
+  if (!m || row.dryRun || !row.method || row.method === 'GET') return '';
+  const [, what, rest] = m;
+  if (what === 'sessions') return row.method === 'POST' && !rest ? 'Began a session' : row.method === 'DELETE' ? 'Ended a session' : "Updated its session's record";
+  if (row.method === 'POST' && !rest) return what === 'requests' ? 'Asked for your approval' : 'Proposed admin changes';
+  return row.method === 'DELETE' ? (what === 'requests' ? 'Withdrew a request' : 'Withdrew proposed admin changes') : '';
+}
+
+export function did(row) {
+  const t = lastOf(row.tile) || '';
+  const call = `${row.method || ''} ${row.path || ''}`.trim();
+  const at = toMs(row.ts);
+  const cls = String(row.class || '');
+  const effect = typeof row.effect === 'string' ? row.effect : '';
+  if (cls.startsWith('decision:')) {
+    const d = cls.slice(9);
+    return { text: d.startsWith('den') ? 'You denied a request' : d.startsWith('revoke') ? 'You took an approval back' : 'You allowed a request', strong: '', detail: [t, effect || grantWords(row.under)].filter(Boolean).join(' · '), icon: 'person', group: 'change', at };
+  }
+  if (cls === 'web') {
+    const host = webHost(row.path);
+    return row.refused ? { text: 'Was refused a web page on ', strong: host, detail: String(row.refused), icon: 'lock', group: 'refused', at }
+      : { text: 'Read a web page on ', strong: host, detail: [row.path, row.bytes ? bytes(row.bytes) : '', row.ticket ? 'you allowed it once' : ''].filter(Boolean).join(' · '), icon: 'globe', group: 'change', at };
+  }
+  if (cls === 'mcp' && !row.refused) return { text: 'Ran a tool of ', strong: t, detail: [row.under === 'preference' ? 'without asking: marked read-only, your preference' : underWords(row), row.status >= 400 ? 'failed' : ''].filter(Boolean).join(' · '), icon: 'plug', group: 'change', at };
+  if (cls === 'mcp-read' && !row.refused) return { text: 'Read the tools of ', strong: t, detail: '', icon: 'eye', group: 'read', at };
+  if (cls.startsWith('changeset:')) return { text: 'Applied an admin change as you', strong: '', detail: `${kindTag(cls.slice(10))}${row.status >= 400 ? ' · failed' : ''}`, icon: 'shield', group: 'change', at };
+  if (row.refused) return { text: 'Was refused: ', strong: t || call, detail: String(row.refused), icon: 'lock', group: 'refused', at };
+  const under = underWords(row);
+  if (cls === 'session' || /\/term\/sessions$/.test(row.path || '')) return { text: 'Started a tile agent in ', strong: t, detail: [effect, under].filter(Boolean).join(' · '), icon: 'agent', group: 'change', at };
+  const own = asking(row);
+  if (own) return { text: own, strong: '', detail: '', icon: /session/.test(own) ? 'agent' : 'shield', group: 'read', at };
+  const write = row.method && row.method !== 'GET' && !row.dryRun;
+  if (write) return { text: 'Changed ', strong: t || call, detail: [call, under].filter(Boolean).join(' · '), icon: 'pencil', group: 'change', at };
+  return { text: row.dryRun ? 'Checked what a change would do in ' : 'Read ', strong: t || call, detail: call + (row.n ? ` · ${row.n} more before this weren't listed` : ''), icon: 'eye', group: 'read', at };
+}
+
+/** DID_FILTERS: Changes (default) · Refused · Everything. */
+export const DID_FILTERS = Object.freeze([{ id: 'change', label: 'Changes' }, { id: 'refused', label: 'Refused' }, { id: 'all', label: 'Everything' }]);
+
+/** didByDay(rows, filter): the log's rows as sentences, newest first, grouped by day: [{day, rows}]. */
+export function didByDay(rows, filter = 'change') {
+  const out = [];
+  for (const r of rows || []) {
+    const d = did(r);
+    if (filter !== 'all' && d.group !== filter) continue;
+    const day = d.at ? new Date(d.at).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : 'Earlier';
+    if (!out.length || out[out.length - 1].day !== day) out.push({ day, rows: [] });
+    out[out.length - 1].rows.push(d);
+  }
+  return out;
+}
+export const DID_NOTE = "Kept by xbin for 13 months. Your agent and its page can't read or change this list. It never holds what was sent, only what was called.";
+
+// ---- the cards the app draws for the agent's `request` and `session` nodes -------------------------------
+
+/**
+ * requestCard(req, now): a request as the card the xbin app draws for a
+ * `request` node of the agent's view (D233) — {head, what, line, glyph,
+ * tone, waits, button}, from xbind's reading of it. (The agent's web page
+ * draws its cards from its backend's records; these are the words the
+ * app's port, DelegationWords.requestCard, is held to.)
+ */
+export function requestCard(req, now = Date.now()) {
+  const what = needTitle(req);
+  const card = (head, line, glyph, tone, waits = false, button = '') => ({ head, what, line, glyph, tone, waits, button });
+  switch (req.state) {
+    case 'pending': return card('Waiting for your approval', asked(req, now), 'shield', 'warn', true, 'Review…');
+    case 'approved': return card(settled(req), 'running now…', 'clock', '');
+    case 'used': return card(settled(req), req.kind === 'call' ? `${req.method} ${req.target}` : req.kind === 'web' ? webOf(req).url : '', 'check', 'ok');
+    case 'denied': case 'withdrawn': return card(settled(req), '', 'xmark', '');
+    case 'expired': return card(settled(req), '', 'clock', '');
+  }
+  return card(UNKNOWN_STATE.title, UNKNOWN_STATE.app, 'info', ''); // never one that can be decided
+}
+
+/** changeSetCard(cs, now): a proposal as the app's card for a `request` node of kind changeset. */
+export function changeSetCard(cs, now = Date.now()) {
+  const w = needChangeTitle(cs);
+  const card = (head, line, glyph, tone, waits = false, button = '') => ({ head, what: '', line, glyph, tone, waits, button });
+  switch (cs.state) {
+    case 'proposed': {
+      const e = toMs(cs.expires);
+      return card(w.title, [w.note, e ? (e > now ? `expires in ${left(e - now)}` : 'expired') : ''].filter(Boolean).join(' · '), 'shield', 'warn', true, 'Review…');
+    }
+    case 'applying': return card(w.title, 'applying now…', 'clock', '');
+    case 'applied': case 'partial':
+      return card(resultsWords(cs).title, '', cs.state === 'applied' ? 'check' : 'warning', cs.state === 'applied' ? 'ok' : 'warn', false, 'Results');
+    case 'rejected': return card('Rejected by you', '', 'xmark', '');
+    case 'expired': return card('Expired — not approved within 7 days.', '', 'clock', '');
+    case 'withdrawn': return card(cs.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped' : 'Withdrawn by the agent', '', 'xmark', '');
+  }
+  return card(UNKNOWN_STATE.title, UNKNOWN_STATE.app, 'info', '');
+}
+
+/**
+ * sessionCard(row, tileName, harnessName): a tile agent's session — a row
+ * of GET /term/sessions?origin=agent&compact=1 — as the app's card for a
+ * `session` node: {tile, harness, glyph, word, tone, line, note, button,
+ * waits}; Answer when it waits for the person (only they can).
+ */
+export function sessionCard(s, tileName = '', harnessName = '') {
+  const harness = harnessName || s.provider || 'Coding agent';
+  const waits = s.status !== 'ended' && ((s.pending || 0) > 0 || (s.questions || 0) > 0 || s.status === 'waiting_permission');
+  const c = { tile: tileName, harness, glyph: 'pause', word: 'stopped', tone: '', line: s.last || '', note: '', button: 'Open', waits: false };
+  if (waits) {
+    return { ...c, glyph: 'bell', word: 'waiting for you', tone: 'warn', waits: true, button: 'Answer', note: 'Only you can answer.',
+      line: (s.questions || 0) > 0 && !(s.pending > 0) ? 'It asks you a question.' : 'It asks your permission.' };
+  }
+  switch (s.status) {
+    case 'starting': return { ...c, glyph: 'clock', word: 'starting' };
+    case 'running': case 'cancelling': return { ...c, glyph: 'clock', word: 'working' };
+    case 'idle': return { ...c, glyph: 'check', word: 'finished', tone: 'ok' };
+    case 'error': return { ...c, glyph: 'error', word: 'failed', tone: 'danger' };
+    case 'ended': case 'exited':
+      return s.endedBy === 'restart'
+        ? { ...c, glyph: 'pause', word: 'stopped for the update', tone: 'warn', line: "It didn't finish. Its transcript is kept, and it can continue where it stopped." }
+        : { ...c, glyph: 'check', word: 'finished', tone: 'ok' };
+  }
+  return c;
+}
+
+/** homeStatus(dock, {tileAgents, working, count}): the app's Home row under the agent's name — "working · 2 tile agents · 2 need you", "idle", "paused". */
+export function homeStatus(dock, { tileAgents = 0, working = 0, count = 0 } = {}) {
+  switch (dock) {
+    case 'paused': return 'paused';
+    case 'setup': return 'not set up yet';
+    case 'off': return 'turned off for this workspace';
+    case 'unavailable': case 'held': case 'soon': return 'not available right now';
+    case 'offline': return "can't reach xbin";
+    case 'page': return [working > 0 ? 'working' : 'idle', tileAgents > 0 ? plural(tileAgents, 'tile agent') : '', count > 0 ? `${count} need${count === 1 ? 's' : ''} you` : ''].filter(Boolean).join(' · ');
+  }
+  return '';
+}
+
+// ---- the dock's own state ----------------------------------------------------------------
+
+/**
+ * dockState({state, llm, me, error}): what the dock shows in place of the
+ * agent's page, or 'page' —
+ *   hidden       nothing at all (a non-admin before setup, and anyone who
+ *                was not given an agent — state.access false: no chip either;
+ *                an admin too, once the setup is done: the admin role reads
+ *                the component's system page and is no agent of their own)
+ *   setup        an admin before setup: the three steps — until someone was
+ *                given an agent (state.who.chosen; who is an admin's alone)
+ *   unavailable  it was on, and no language model is connected now
+ *   off          an admin turned workspace agents off (it was set up once)
+ *   paused       the person paused their agent
+ *   held         the sealed component is held (state.held: 'locked' | 'older',
+ *                or 'unavailable' with xbind's reason in state.heldWhy)
+ *   offline      xbind can't be reached
+ *   soon         everything is on, and this xbin ships no agent yet (state.agent is empty)
+ *   page         the agent's page
+ */
+export function dockState({ state = null, llm = null, me = null, error = '' } = {}) {
+  if (error || !state) return error ? 'offline' : 'hidden';
+  const wsAdmin = !!(me && (me.admin || me.owner)) || !!state.who;
+  const admin = wsAdmin || !!state.canAdminChanges;
+  if (state.access === false && !wsAdmin) return 'hidden'; // nobody without an agent sees anything of it
+  const model = !llm || llm.configured !== false;
+  if (!state.workspace) return state.workspaceAt ? 'off' : admin ? 'setup' : 'hidden';
+  if (state.who && !state.who.chosen) return 'setup'; // an admin: on, and nobody was given one yet (the third step)
+  if (state.access === false) return 'hidden'; // an admin who gave others one and not themselves: administering it isn't having one
+  if (!model) return 'unavailable';
+  if (state.paused) return 'paused';
+  if (state.held) return 'held';
+  return state.agent ? 'page' : 'soon';
+}
+
+/** chip({state, llm, me, count}): the top-bar chip — {shown, label, spoken, count, paused}. */
+export function chip(x) {
+  const st = dockState(x);
+  if (st === 'hidden') return { shown: false, label: '', spoken: '', count: 0, paused: false };
+  const count = Number(x.count) || 0;
+  if (st === 'setup') return { shown: true, label: 'set up workspace agent', spoken: 'Set up the workspace agent', count: 0, paused: false };
+  const paused = st === 'paused';
+  return { shown: true, label: 'workspace agent', spoken: paused ? 'Workspace agent, paused' : count ? `Workspace agent, ${count} need${count === 1 ? 's' : ''} you` : 'Workspace agent', count, paused };
+}
+
+/** needCount(state): what waits for the person because of the agent, from GET /delegate/state. */
+export const needCount = (state) => (state ? (Number(state.pendingRequests) || 0) + (Number(state.openChangeSets) || 0) : 0);
+
+/** admins(names): "Mira Okafor or Jonas Lind" (the first two, "and 3 more"); 'an admin' when none are known. */
+export function admins(names) {
+  const n = (names || []).filter(Boolean);
+  if (!n.length) return 'an admin';
+  const shown = n.slice(0, CHOICES.adminsNamed).join(' or ');
+  return n.length > CHOICES.adminsNamed ? `${shown} and ${n.length - CHOICES.adminsNamed} more` : shown;
+}
+
+/**
+ * STATES: §10's words for what the dock shows in place of the page —
+ * {title, text, more?}; `{admins}` and `{at}` are filled by stateWords.
+ */
+const STATES = {
+  unavailable: { title: 'Not available right now.', text: 'The workspace agent needs a language model, and this workspace has none connected at the moment. Your earlier conversations and the notebook are kept.', more: 'An admin can fix this: {admins}.' },
+  off: { title: 'Turned off for this workspace.', text: 'An admin turned workspace agents off{at}. Nothing an agent started is running on your behalf. Your conversations and notebook are kept for when it is turned on again.' },
+  offHost: { title: 'Turned off by your host.', text: 'Whoever runs this xbin has turned workspace agents off for this workspace, and it isn\'t switched here. Nothing an agent started is running on your behalf. Your conversations and notebook are kept.' },
+  paused: { title: 'Paused by you{at}.', text: "Your agent can't read or change anything in the workspace until you resume. Tile agents that are already running keep going; their questions still come to you." },
+  locked: { title: 'Locked after a restart.', text: "Your agent's conversations and notebook are encrypted, and the workspace was restarted. They stay locked until an admin unlocks the workspace. Nothing is lost.", more: 'An admin can fix this: {admins}.' },
+  older: { title: 'Waiting for a newer xbin.', text: "This workspace is running an older xbin than the one that last saved your agent's data. To keep that data safe the agent stays off until xbin is updated again. Nothing has been changed or removed." },
+  offline: { title: "Can't reach xbin.", text: 'Showing what was loaded before. Approvals need a connection.' },
+  heldOther: { title: 'Not available on this xbin.', text: "The workspace agent can't run here right now{why}. Your conversations and notebook are kept.", more: 'An admin can fix this: {admins}.' },
+  soon: { title: 'Workspace agents are on.', text: "Approvals, what your agent did and your preferences work here already. The agent's own conversation is not part of this xbin yet: it arrives with an update." },
+};
+/** stateWords(kind, {admins, at, held, host}): a state's {title, text, more} (host: the host's file set the switch — state.locks.enabled). */
+export function stateWords(kind, x = {}) {
+  const w = STATES[kind === 'held' ? (x.held === 'older' ? 'older' : x.held === 'unavailable' ? 'heldOther' : 'locked') : kind === 'off' && x.host ? 'offHost' : kind];
+  if (!w) return null;
+  // (no route names the admins to a non-admin yet: without names the sentence ends at "this")
+  const known = (x.admins || []).some(Boolean);
+  const why = typeof x.why === 'string' && x.why ? `: ${x.why.replace(/\.$/, '')}` : '';
+  const fill = (s) => s.replace(': {admins}', known ? `: ${admins(x.admins)}` : '').replace('{at}', x.at ? ` at ${clock(toMs(x.at))}` : '').replace('{why}', why);
+  return { title: fill(w.title), text: fill(w.text), more: w.more ? fill(w.more) : '' };
+}
+
+/**
+ * setupSteps({llm, state}): the three steps an admin sees before setup — each
+ * {title, text, done, enabled, action}; the third has `choices` in place of
+ * an action: [{who, label, primary}] for PUT /delegate/workspace {who}.
+ */
+export function setupSteps({ llm = null, state = null } = {}) {
+  const model = !!(llm && llm.configured), hosted = !!(llm && llm.host), on = !!(state && state.workspace);
+  const who = (state && state.who) || null, chosen = !!(who && who.chosen), n = who ? Number(who.entries) || 0 : 0;
+  const locks = (state && state.locks) || {}, HOST = 'Set by your host'; // what the host's file sets is read-only here (D237)
+  return [
+    { id: 'model', title: 'Connect a language model', done: model, enabled: true, tag: hosted ? HOST : '',
+      text: model ? (hosted ? "Your host provides the models and sets the limits; those can't be changed here." : 'Connected.') : 'None is connected. Use a provider key, or a model your organisation runs itself.', action: model ? '' : 'Connect…' },
+    { id: 'on', title: 'Turn workspace agents on', done: on, enabled: model, tag: locks.enabled ? HOST : '',
+      text: locks.enabled ? `${on ? 'On' : 'Off'}, as your host set it: it isn't switched here.` : on ? 'On. You can turn it off again at any time; every agent stops at once.' : 'Off. You can turn it off again at any time; every agent stops at once.',
+      action: on || locks.enabled ? '' : 'Turn on' },
+    { id: 'who', title: 'Choose who gets one', done: chosen, enabled: on, action: '', tag: locks.who ? HOST : '',
+      text: chosen ? (who.everyone ? 'Everyone in this workspace.' : `${n} ${n === 1 ? 'person or org' : 'people and orgs'} so far.`) + (locks.who ? ' Your host chose this.' : ' Change it under Admin → People: access to “Workspace agent”.')
+        : 'Nobody has one yet. Give everyone one, or start with yourself and add people and orgs later (Admin → People). Orgs can add their own rules.',
+      choices: on && !chosen && !locks.who ? [{ who: 'everyone', label: 'Everyone', primary: true }, { who: 'me', label: 'Just me for now', primary: false }] : [] },
+  ];
+}
+export const SETUP_INTRO = { title: 'Set up the workspace agent', text: 'One agent per person that plans work across tiles and asks before anything changes. It is off until you finish these three steps. Nobody else sees it yet.' };
+
+// ---- Preferences: the mode a tile agent your agent starts gets -------------------------------
+
+/**
+ * sessionModes(providers, modes): the Preferences picker for the modes of
+ * tile agents the agent starts (agentSessions.modes of GET /agent/prefs),
+ * one row per coding agent of GET /agent/providers that lists modes —
+ * {id, name, value, options: [{id, name}], never: [name]}. options are the
+ * modes that ask before acting (the catalog's non-explicit ones: the only
+ * ones xbind saves there); never names the ones that don't, which xbind
+ * refuses — shown with why, never offered. value '' is the coding agent's
+ * own asking mode (also for a stored mode that isn't offered).
+ */
+export function sessionModes(providers, modes) {
+  const saved = modes && typeof modes === 'object' ? modes : {};
+  return (Array.isArray(providers) ? providers : []).filter((p) => p && p.id && Array.isArray(p.modes) && p.modes.length).map((p) => {
+    const ms = p.modes.filter((m) => m && m.id);
+    const options = ms.filter((m) => !m.explicit).map((m) => ({ id: m.id, name: m.name || m.id }));
+    const cur = typeof saved[p.id] === 'string' ? saved[p.id] : '';
+    return { id: p.id, name: p.name || p.id, value: options.some((o) => o.id === cur) ? cur : '', options, never: ms.filter((m) => m.explicit).map((m) => m.name || m.id) };
+  });
+}
+
+/** neverAsks(names): why those modes aren't offered for tile agents the agent starts. */
+export const neverAsks = (names) => `Not offered: ${names.join(', ')} — ${names.length === 1 ? 'it acts' : 'they act'} without asking you first, and xbin doesn't let a tile agent your agent starts run that way.`;
+
+// ---- what the page may ask of the dock -----------------------------------------------------
+
+// a request's or change set's id, as xbind mints them (24 lowercase hex digits): nothing else — never a dot segment or a
+// path — is read from the page, and it goes into a URL the dock sends with the person's session
+const ID = /^[0-9a-f]{24}$/;
+const SESSION = /^[A-Za-z0-9_-]{1,64}$/;
+const tilePath = (v) => {
+  const t = typeof v === 'string' ? v.replace(/^\/+|\/+$/g, '') : '';
+  return t && t.length <= 512 && !t.split('/').some((x) => !x || x === '.' || x === '..') ? t : '';
+};
+/** DRAFT_MAX: the most of a person's words a new session's draft carries, in characters. */
+export const DRAFT_MAX = 8000;
+// control characters but newline and tab, and the invisible ones that reorder or hide text
+const UNSEEN = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+/**
+ * DRAFT_FROM: how a new session's draft from the agent's page is labelled
+ * wherever the chrome shows it. The page renders what a model wrote and
+ * its message is untrusted: the text is what the page SUGGESTS, for the
+ * person to read and edit — never presented as their own words — and it
+ * waits, unsent, until they press Send.
+ */
+export const DRAFT_FROM = Object.freeze({
+  label: 'Suggested by your agent’s page — not your words',
+  text: 'Read it and change it as you like. It waits in the new session’s message box: nothing is sent until you press Send.',
+  paste: 'paste the text your agent’s page suggests, once you have read it',
+  copy: 'Copy the suggested text',
+});
+
+/**
+ * plainDraft(v): words for a new session's composer, as plain text — never
+ * markup, never a command: line ends made \n, control and invisible
+ * characters dropped, trimmed, at most DRAFT_MAX characters; '' for
+ * anything that isn't a string.
+ */
+export function plainDraft(v) {
+  if (typeof v !== 'string') return '';
+  const t = v.replace(/\r\n?/g, '\n').replace(UNSEEN, '').trim();
+  // at most DRAFT_MAX UTF-16 units, never half a surrogate pair (a lone half is no character)
+  const end = t.length > DRAFT_MAX && /[\uD800-\uDBFF]/.test(t[DRAFT_MAX - 1]) ? DRAFT_MAX - 1 : DRAFT_MAX;
+  return t.slice(0, end);
+}
+
+/** handoffLink(tile): the plain link to a tile, for a shell that can't open a new session of its agent itself. */
+export const handoffLink = (tile) => `/?tile=${encodeURIComponent(tilePath(tile)).replace(/%2F/gi, '/')}`;
+
+/**
+ * pageMessage(data): a message from the agent's page, read strictly — the
+ * whole of what the page may ask of the chrome:
+ *
+ *   xbin:agent-open-request {id}      → {type: 'review', kind: 'request', id}
+ *   xbin:agent-open-changeset {id}    → {type: 'review', kind: 'changeset', id}
+ *   xbin:open-session {session, tile} → {type: 'session', tile, session}
+ *   xbin:open-session {session: "new", tile, draft}
+ *                                     → {type: 'new-session', tile, draft}  (draft: plainDraft)
+ *   xbin:agent-open {view}            → {type: 'open', view}  (needs | approvals | activity — never prefs)
+ *
+ * or null. Ids and a word — and a new session's draft, the person's own
+ * words, kept as plain text for its composer: no other field of a message
+ * is ever read (the dock fetches the request from xbind itself), and none
+ * of them decides anything — a draft is never sent by being handed over.
+ */
+export function pageMessage(data) {
+  if (!data || typeof data !== 'object') return null;
+  const id = typeof data.id === 'string' && ID.test(data.id) ? data.id : '';
+  if (data.type === 'xbin:agent-open-request') return id ? { type: 'review', kind: 'request', id } : null;
+  if (data.type === 'xbin:agent-open-changeset') return id ? { type: 'review', kind: 'changeset', id } : null;
+  if (data.type === 'xbin:open-session') {
+    const tile = tilePath(data.tile), session = typeof data.session === 'string' && SESSION.test(data.session) ? data.session : '';
+    if (tile && session === 'new') return { type: 'new-session', tile, draft: plainDraft(data.draft) };
+    return tile && session ? { type: 'session', tile, session } : null;
+  }
+  // only views that change nothing: Preferences — where the agent's reach widens — opens from the chrome's own menu alone
+  if (data.type === 'xbin:agent-open') return PAGE_VIEWS.includes(data.view) ? { type: 'open', view: data.view } : null;
+  return null;
+}
+
+/** PAGE_VIEWS: the dock's views the agent's page may ask for (xbin:agent-open {view}) — the ones that change nothing. */
+export const PAGE_VIEWS = Object.freeze(['needs', 'approvals', 'activity']);
+
+/** contextMessage(context): what the dock tells the page it was opened about — xbin:agent-context {tile} or {screen} — or null. */
+export function contextMessage(context) {
+  if (!context || typeof context !== 'object') return null;
+  const tile = tilePath(context.tile);
+  if (tile) return { type: 'xbin:agent-context', tile };
+  return typeof context.screen === 'string' && context.screen && context.screen.length <= 200 ? { type: 'xbin:agent-context', screen: context.screen } : null;
+}
+
+/** clampDock(w, viewport): the dock's width — within its bounds, the whole page when the viewport is narrow. */
+export function clampDock(w, viewport) {
+  if (viewport && viewport < CHOICES.narrow) return viewport;
+  const n = Math.round(Number(w) || CHOICES.dockWidth);
+  return Math.max(CHOICES.dockMin, Math.min(CHOICES.dockMax, viewport ? Math.min(n, viewport - 240) : n));
+}

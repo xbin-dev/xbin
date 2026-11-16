@@ -169,3 +169,9 @@ extension UIColor {
     public func getRed(_ red: UnsafeMutablePointer<CGFloat>?, green: UnsafeMutablePointer<CGFloat>?,
                        blue: UnsafeMutablePointer<CGFloat>?, alpha: UnsafeMutablePointer<CGFloat>?) -> Bool { false }
 }
+
+// The software keyboard is about to show (the workspace agent's sheet rises
+// for its composer, D233).
+extension UIResponder {
+    public static let keyboardWillShowNotification = Notification.Name("UIKeyboardWillShowNotification")
+}

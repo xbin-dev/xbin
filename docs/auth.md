@@ -20,9 +20,11 @@ xbin has two planes with different rules:
 | Element backend | per-generation instance token over the gateway socket (`XBIN_GATEWAY` + `XBIN_TOKEN` env — the SDK's `xbin.Client()` handles it) | `apps/email` |
 | Element frontend | **frame token alone** (`xbin.fetch`/`xbin.ws` attach it; tile frames are sandboxed — no cookie reaches them) | `apps/email` |
 | Terminal shell | per-session terminal token (`$XBIN_TOKEN` in the shell) | `apps/email` — the tile the terminal is opened on, **not** the human driving it |
+| A person's workspace agent | **delegation**: the instance token of that person's partition of a sealed xbind component, sent as `Authorization: XBin-Delegate …` on the gateway socket (§Delegation) | `user:<id>`, with `X-XBin-Agent` |
 | Scheduler | internal | `xbin/cron` |
 | Bus push delivery | internal | `xbin/bus` (docs/resources.md §bus) |
 | Public visitor | none — anonymous traffic through a **published endpoint** (docs/ingress.md) | `ingress` |
+| An LLM key's holder | `Authorization: Bearer xbl_…`, on the LLM connector's routes only (§The LLM connector) | — (it calls no tile) |
 
 Callees never verify any of this themselves: xbind strips inbound
 `X-XBin-*` headers and injects the verified `X-XBin-From` and
@@ -300,6 +302,90 @@ release removes the credential-less rule** (the default becomes strict; an
 absolute `/c/` URL in markup or CSS, and `inject: false`, stop working under
 tokens mode) — see [compat.md](/docs/compat.md). The native app never used
 the credential-less path (it attaches the frame token to every request).
+
+## The LLM connector
+
+xbind's built-in LLM connector ([llm.md](/docs/llm.md), D226) serves
+OpenAI-compatible routes under `/api/xbin/llm/v1/`. Who may call them, and
+who a call is metered to, comes from the credential xbind verified — never
+from a header or the request body:
+
+- **A person** (session, app or device bearer, the owner token) is admitted
+  by the workspace's people switch: `admins` (the default), `everyone`,
+  `nobody`. Their calls are metered to them.
+- **An element principal** — a tile's backend, frame, terminal or agent
+  session — is default-deny, as everywhere: it is admitted only when one
+  of the tile's `openai` slots is **bound to `xbin:llm`**, the connector's
+  binding ref. The binding is the authorization and is asked on every
+  call; only a workspace admin makes it (an org admin or a personal tile's
+  owner can't: the calls spend the workspace's quota). No grant, role or
+  `xbin:` capability stands in for it, and a tile driven by an admin gets
+  nothing extra. The call is metered to the tile and to the person acting:
+  a partition's person, the person driving the frame or session, nobody
+  for a backend that isn't a person's partition. The binding is the tile's
+  primary's: a credential bound to a non-primary deployment uses it by the
+  tile's edge policy (§Tile deployments, the edge policy) — read-clamped
+  by default: the model list and status, no calls.
+- **The settings** (`/api/xbin/llm/config`, `/upstreams`, `/quotas`) are a
+  workspace admin's — their own sign-in, the owner token, or the admin
+  console (`xbin:admin`); usage is read by the person it is about or an
+  admin, never by a tile's credentials. Changes are in the audit log;
+  model calls are metered, not audited.
+
+### LLM keys
+
+An **LLM key** (`xbl_…`) is a narrow credential for those routes and
+nothing else, made so a coding CLI in a terminal, an agent session or a
+sandbox can reach the workspace's models without holding the tile's API
+token: such tools keep their environment on disk, and some send whatever
+key they hold to their vendor. A key names the person its calls are metered
+to and the tile it was made for, expires, and can be revoked; xbind keeps
+only its hash, in memory (keys don't outlive xbind, like the sessions they
+are for).
+
+- It rides `Authorization: Bearer`, where OpenAI clients put theirs.
+- On `/api/xbin/llm/v1/…` a live key admits the call; a dead one is `401`
+  in OpenAI's error shape.
+- Anywhere else a request presenting one is `401`, whatever other
+  credential it carries. A key can't read the connector's settings or
+  usage, mint anything, or reach a tile.
+- A key stands only as long as what it was minted under, asked on every
+  call: its person exists, is enabled and can still open the tile it was
+  made for; a key minted under a tile's binding to the connector also
+  needs the tile still bound. Signing a person out everywhere, disabling or
+  deleting them, and removing such a binding end the keys as well.
+- The worst a leaked key does is spend its person's LLM quota until it
+  expires or is revoked.
+
+Who gets one ([llm.md](/docs/llm.md) §Coding agents and terminals):
+
+- **A terminal or an agent session**, from xbind, when the workspace's
+  connector is offered to it: minted as the session opens, for the person
+  who opened it and its tile, revoked when the session ends (a restarted or
+  resumed session has a new one). It is never the session's terminal
+  token, and an agent session's is in the agent's own environment only. A
+  session that targets a deployment other than the tile's primary gets a
+  key that names it; the key is the person's, not held to the edge policy
+  the deployment's own backend is.
+- **The backend of a tile bound to `xbin:llm`**, for a coding tool it runs
+  in a sandbox: `POST /api/xbin/llm/keys` with its own credential (an
+  instance or partition token; the SDK's `xbin.LLMKeyFor`). The key is for
+  the person that credential acts for — a partition's person, nobody for a
+  backend that serves everyone — exactly who the backend's own calls are
+  metered to; naming anyone else is `403`. It lives a day at most (its
+  backend renews a longer run's), names the backend's deployment and is
+  held to the tile's edge policy for it on every call. A person's sign-in,
+  an LLM key, an unbound tile — and the tile's **frame, terminals and agent
+  sessions** — mint none: a token a browser or a shell holds must not
+  become a key that outlives it. A tile holds at most 64 live keys for one
+  person and 512 in all.
+
+A sandbox made by a sandbox manager has no route to xbind. One created
+with the connector asked for (`net.llm`,
+[sandbox-manager.md](/docs/sandbox-manager.md)) reaches **the LLM-only
+listener** at its gateway: the three model routes for an LLM key, and
+nothing else of xbind — no other route exists there and no other
+credential is read.
 
 ## Roles and grants
 
@@ -600,7 +686,7 @@ A tile can run several deployments of its code
 the bare URLs, grants, bindings and ingress reach, and
 others (`dev`, …) its developers open at `/c/<tile>+<name>/`. Nothing below
 changes a tile that has only its primary. The wire is
-[protocol.md](/docs/protocol.md) §Tile deployments.
+[protocol/deployments.md](/docs/protocol/deployments.md).
 
 **Every tile credential acts in one deployment.** A backend's
 instance token acts in the deployment its generation runs, a frame token (or
@@ -666,7 +752,13 @@ tile's policy for it, set by a tile manager:
 
 **What the read clamp costs.** llm-gw guards its completions with `writer`,
 so an LLM-using tile's non-primary deployments can list models but can't run
-a turn. The agent template reaches its sandbox managers through the custom
+a turn. An interface slot bound to xbind's own LLM connector (`xbin:llm`,
+§The LLM connector) is an edge like one bound to a provider tile, standing
+for `writer`: under `read` the connector serves a non-primary deployment
+its model list and status and refuses its calls (403 `xbin_llm_edge`,
+naming the deployment, the edge and the policy), under `block` it refuses
+everything, and a tile manager chooses between the two in the Deployments
+panel. The agent template reaches its sandbox managers through the custom
 role `consumer`, which implies no `reader`, so its non-primary deployments
 can't use them at all. Test such work from the primary, or from a tile of
 its own.
@@ -762,7 +854,9 @@ A tile credential acting in a tile deployment other than `main` adds
 `deployment=<name>`.
 High-frequency data-plane writes (`prefs`, `kv`, `blob`, `bus`) are excluded as noise. This is
 a log stream, not a queryable store; ship xbind's stderr somewhere durable if
-you need retention.
+you need retention. A person's workspace agent's acts and refusals appear
+there too, with `agent=<component>` beside `who=user:<id>` — and, unlike the
+rest, are also kept per person (§Delegation, *The log*).
 
 ## Viewing the workspace as a user
 
@@ -795,7 +889,208 @@ a banner across the top of the shell naming who you are viewing and an
   it never grants more than reading as them.
 
 API: `POST /api/xbin/impersonate {user}` → `{url}`; `POST
-/api/xbin/impersonate/stop` ends it ([protocol.md](/docs/protocol.md)).
+/api/xbin/impersonate/stop` ends it ([protocol/users.md](/docs/protocol/users.md)).
+
+## Previews: xbind looking as you
+
+A person can ask xbind for a picture of a tile or a screen **as they see
+it** (D234; [protocol/preview.md](/docs/protocol/preview.md), `bx
+preview`). xbind opens the page in a headless browser of its own, through a
+session kind of its own:
+
+- **Yours, reduced to read.** A preview session authenticates as you — your
+  tiles, your screens, your levels — and the server refuses every write
+  while it does, exactly as it does for view-as: the same gate, and the
+  frame tokens, tile-origin cookies, asset tokens and path tickets minted
+  under it carry the same mark. Unlike view-as, **nobody else is looking**:
+  `/whoami` says `readOnly: true` and no `impersonatedBy`, backends see
+  `X-XBin-Preview: 1`, role `reader` and user level `read` on every call
+  and no `X-XBin-Viewed-By`, and the tiles
+  that keep each person's data apart open **your own** partition (an
+  admin's view-as opens none). A partition you never opened is not made by
+  a preview.
+- **Nobody holds it.** The session is created for one render and dropped
+  when it ends; its id never leaves xbind. The browser runs in a sandbox
+  with no network but one socket, and xbind sets the session on that
+  socket's requests itself — and only where a browser's cookie jar would
+  send it: never to a tile origin, never on a request a sandboxed tile frame
+  starts. The socket refuses everything but `GET`/`HEAD`/`OPTIONS`,
+  terminals and the sign-in routes whatever a request carries, so a page
+  that holds some other credential gains nothing by sending it there.
+- **Scoped to what it shows.** The socket honours only credentials minted
+  under the render's own session. A tile's render admits that tile's files
+  and its frame's calls; a screen's, the tiles on that screen and a fixed
+  list of the shell's own reads — for an admin, without the workspace-wide
+  ones ([protocol/preview.md](/docs/protocol/preview.md) has the list).
+- **Who may ask.** You, for yourself: a browser session or the app's
+  bearer. A tile's terminal, for its own tile — its token is scoped to the
+  tile, and a picture of another would be a read of it. Not the root token
+  (it is nobody's view), not a tile or its frame, not a view-as session:
+  an admin who wants to see what someone sees uses view-as, above.
+- **Not a sign-in.** It is not in the sessions list, not saved across a
+  restart, can't mint a view-as link, and audit lines made under it carry
+  `impersonator=~preview` — a reserved word no account can take as its id.
+
+## Delegation: a person's workspace agent
+
+A **workspace agent** is one agent per person that works across the
+workspace for them. It runs as a *sealed system component* — code that
+ships inside xbind and is never a workspace's to edit — partitioned per
+person, and it reaches xbind and tiles **as its person** through one
+narrow primitive, *delegation* (D228). Everything else on this page still
+holds: inbound `X-XBin-*` is stripped, element principals are default-deny,
+the owner is admin. API: [protocol/delegation.md](/docs/protocol/delegation.md).
+
+**Who can delegate.** Only a component in xbind's own sealed-component
+table that is marked for it. No `xbin.json`, grant, binding, policy row or
+approval gives a tile delegation, and no request names it. An xbind that
+ships no such component has no delegation at all.
+
+**The credential.** The instance token of the person's partition, under its
+own scheme (`Authorization: XBin-Delegate <token>`), honoured only on the
+gateway socket and only on `/api/…`. As `Bearer` the same token is the
+component; under the scheme it is the person whose partition it is —
+nothing the caller sends says who. It stops working when the person is
+disabled, deleted or loses read on the component, like every credential of
+a person's partition ([partitions.md](/docs/partitions.md)).
+
+**What it is.** The person's principal — their tile levels, their
+sessions, their partitions — with three differences:
+
+- it is **never an admin**, whoever the person is. An admin's agent holds
+  the admin's level on every tile and nothing of the admin API;
+- it reaches only **the delegation cap**: a closed list of routes, kept in
+  one table that names every route xbind serves (a new route is refused
+  until someone decides it). Reads the person's UI makes; tile APIs where
+  the person can read the tile; tile agent sessions; code reads; creating
+  a tile from a template. **Never**: answering a tile agent's permission
+  request or question, changing a session's mode or settings, terminals,
+  deleting or disabling tiles, code writes and pull requests, passwords,
+  devices, enrolment and sign-in tickets, frame tokens, path tickets,
+  view-as, the person's consents, a tile's stores, and the admin API;
+- every **side effect needs the person's approval, and xbind keeps the
+  approval**. A non-GET call to a tile's API, starting a tile agent and
+  creating a tile pass only with a one-shot *ticket* — a request the
+  person approved in their own session, bound to exactly that method,
+  path, query, body and content type — or, for a tile's API, under a
+  *standing approval* the person gave and can list and revoke: of **that
+  call** (the method and path — "this call, always") unless they chose the
+  separate, wider "every write to this tile". An approval goes with the
+  tile, and with the person's access to it. Only the person's own
+  top-level session, app or device grants:
+  the agent's own page shows the request and renders what the agent wrote,
+  so it may read and may pause the agent, and can approve nothing. So a credential taken from the agent's sandbox can read what the
+  person reads, and change nothing.
+
+**Tile agents it starts.** A session the agent opens is the person's own
+(their directory, their `$HOME`, their terminal level on the tile is
+required) and is marked `origin: "agent"`. Its mode, network and API
+access are what the person approved for that start, or — when they allowed
+starts without asking — their agent preferences; never the agent's choice.
+It targets the tile's default deployment; the approval card shows the
+harness and mode the session will really run in (a resumed session's
+included), and the agent resumes only sessions it started. The agent
+prompts, cancels and ends only sessions it started; whatever any session
+asks, the person answers. An admin's agent opens sessions in the sandbox tier of an ordinary
+user. What it sends such a session is bounded three ways
+([protocol/delegation.md §Agent sessions](/docs/protocol/delegation.md#agent-sessions)):
+never text that begins with `/` (a harness command is the person's to
+give); nothing once the person has switched the session to a mode that
+doesn't ask before it acts, unless that is the mode they approved it in;
+and nothing — a start's first prompt included — to a session whose model
+source doesn't satisfy the model rule of every org whose data the
+conversation holds.
+
+**What a tile sees.** `X-XBin-From: user:<id>`, `X-XBin-User` and
+`X-XBin-User-Level` as for the person, `X-XBin-Role` their level on the
+tile — `reader`, or `writer` for write and terminal, never `admin` — and
+**`X-XBin-Agent: <the component>`**, which says the call is the person's
+agent's and not their own hand (SDK: `xbin.Caller(r).Agent`, `.ByAgent()`).
+On a partitioned tile it reaches the person's own partition, and with the
+workspace's `partitionConsent` on it needs their consent for
+*agent → tile* like any tile's code (they are asked).
+
+> **`From: user:<id>` no longer implies an admin.** Until workspace agents,
+> only an admin could call a tile's API in person, so a backend saw
+> `user:<id>` only with role `admin`. A person's agent now arrives as
+> `user:<id>` at role `reader` or `writer`. Judge a caller by
+> `X-XBin-Role` or `X-XBin-User-Level`, never by the `user:` prefix.
+
+**The agent's page is never the person.** A component that holds
+delegation is never trusted chrome: its page is sandboxed and holds a frame
+token, not the person's session — so it can show a request and pause the
+agent, and approve nothing. xbind refuses to approve such a component as
+chrome and refuses to start if one is.
+
+A tile says how much of its API agents may use with **`"agent"`** in its
+manifest: `"full"` (the default: everything the person's level allows —
+writes still need the person's approval), `"read"` (`GET` and `HEAD`
+only) or `"off"`. The manifest can **lower** the level at once; it can't
+raise it: a manifest that states more than the level xbind has on record —
+or drops the key after stating less — waits for someone who manages the
+tile (its owner, the owning org's admins, a workspace admin) to approve it
+in their own session (`PUT /api/xbin/agent-levels`; they get an alert). The
+manifest is the tile's own file, and a tile agent can write it. xbind's
+approval is of a *call*; what the call means is
+the tile's to know. A tile whose API answers its own approvals, questions
+or sign-ins, or hands out secrets, must refuse those routes to a caller
+with `X-XBin-Agent` itself, or say `"read"` or `"off"`:
+[elements.md → A person's agent](/docs/elements.md). The infrastructure
+that ships with xbind says one: `off` for the gateways, sandboxes, ingress
+and consoles, `read` for the metrics viewer and the agent template. Apps —
+the chat tile, the starter template, what you build — say nothing, and are
+an agent's to use under its person's tickets.
+
+> **Tiles written before workspace agents can't tell the agent from the
+> person.** A backend that doesn't look at `X-XBin-Agent` treats an agent's
+> call as its person's at role `reader` or `writer`. That includes
+> **instances of the agent template made before this release**: their
+> routes all ask for the `admin` role, which an agent's call never carries,
+> so an unmodified one refuses the agent outright — but one whose routes
+> were opened to `writer` would let a person's agent answer a coding
+> agent's permission requests as the person. Merge the template's update
+> (`git merge template/main`: it brings `"agent": "read"` and the backend's
+> own rule), or add `"agent": "off"` to the instance's `xbin.json`.
+
+**Who else decides.** In order, on every call: the workspace's switch (off
+until an admin turns it on); that the person was GIVEN an agent — an
+access entry that names the component reaches them; the admin role reads
+the component and is no agent acting as the admin; the person's pause,
+which stops their agent at once, calls in flight included; the tile's manifest; the workspace
+policy ceiling — a `mayCall` row on the component's path narrows every
+agent; and the rules of the **org that owns the tile** (agents on or off
+there, which models, which harnesses), asked with the model the agent says
+it is on. Delegation also refuses to run on an xbind without sandboxes
+(`--isolate` off, outside `--dev` / `--no-auth`): there a sibling tile
+could read the credential.
+
+**Nothing calls the agent.** No tile's grant or binding may target a
+sealed component that holds delegation (`409`), and a call to one from
+another tile is refused whatever `xbin.json` says. Bus events and partition
+mail delivered to it are other tiles' data: untrusted input.
+
+**Admin changes.** An admin may let their agent *propose* admin changes
+(off by default; set in their own session). The agent then reads grants,
+bindings, orgs and limits as the person sees them, and submits **change
+sets**: batches of operations from a closed list (grants, bindings, org
+shares, limits), each closed to wiring tiles: nothing on a workspace agent
+itself, no grant of `xbin`, `cap:*`, `gpu:*` or all `code`, no host
+network, no backup destination, no share of a tile that holds such power.
+xbind writes each operation's line and its before/after itself, and says
+in its own words what a binding opens to the internet, the host's ports or
+the network. Only the person whose agent proposed a set approves it — all, some
+or none, in their own session, after a recent sign-in (the step-up device
+enrolment uses) — and xbind applies the approved operations in order as
+that person, through the ordinary handlers. Passwords, devices, SSO, the
+vault, policy rows, ownership and view-as are not operations: they can't be
+in a change set.
+
+**The log.** Every side effect, approval and applied change — and tile
+reads, refusals and reads of code, logs or admin state, up to a rate, with
+a count of what was left out — is a row of the person's own log
+(`GET /api/xbin/delegate/audit`: method and path, never a query or a body;
+13 months). The person reads theirs; an admin anyone's; the agent and its
+page never.
 
 ## Multi-user (users, roles, tile access)
 
@@ -1257,7 +1552,8 @@ Routes: `GET /api/xbin/login/methods`, `POST /api/xbin/invite/check`,
 `GET /login/sso?app=1`, `POST /login/ticket`, `POST /api/xbin/web-ticket`,
 `GET /login?ticket=`, `POST /login/web-ticket`, `GET|DELETE /api/xbin/devices`,
 `GET /api/xbin/users/<id>/devices`, `GET|PUT /api/xbin/devices/limits`
-([protocol.md](/docs/protocol.md)). The
+([protocol/core.md](/docs/protocol/core.md),
+[protocol/devices.md](/docs/protocol/devices.md)). The
 exact signed message and a test vector for client implementers:
 `native/spec/device-login.md` in the source tree.
 
@@ -1470,6 +1766,87 @@ decide, and the admin console decides only under an admin driver. Every
 decision is recorded with its approver in `data/tile-limits.json` and the
 audit log.
 
+**Agent constraints (D229).** An org says what agents may do on its tiles:
+
+| Rule | Values | Governs |
+|---|---|---|
+| `workspaceAgent` | `on` (default) · `off` | whether people's workspace agents may work on the org's tiles at all |
+| `harnesses` | `any` (default) · a list of harness ids (`claude`, `codex`, …) | which coding agents an agent session on its tiles may run — for the person who opens one themselves and for a workspace agent alike |
+| `models` | `any` (default) · `private` · a list of LLM connector ids (an upstream, or `upstream/model`) | which models may see its tiles' data: a workspace agent's current model must satisfy it |
+| `web` | `ask` (default) · `allow` · `never` | what a workspace agent's conversation that holds the org's data may do on the web (D239): read only URLs its person approves one by one, read freely within the workspace's policy, or not read the web at all for the rest of that conversation |
+| `mcp` | `any` (default) · `org` | which MCP servers such a conversation may use: any the workspace's policy allows, or only the MCP tiles under the org |
+
+The workspace has the same rules as **outer bounds**, plus the
+mode for whose credentials serve a coding agent's model calls: `own-first`
+(the default: the person's own sign-in when they have one, else the LLM
+connector), `connector-first` (the connector, unless the person chose
+their own sign-in for that harness or session) or `connector-only` (own
+sign-ins are not used).
+
+- **Filtering follows the tile's org, on every call.** A tile falls under
+  the org that owns it and every org it is shared into, and under the
+  workspace's bounds. Every one of them must allow the call, so a tile
+  shared into several orgs gets the strictest, and a tile in no org
+  (personal, or workspace-owned) follows the bounds alone. The refusal
+  names the org and the rule: "Finance allows private models only".
+- **Who sets what.** Workspace admins (and the `xbin:users` capability):
+  the bounds (`PUT /agents/policy`), any org's rules
+  (`PUT /orgs/<org>/agents`) and any org's **pin**
+  (`PUT /orgs/<org>/agents/pin`). An admin of an org: their own org's
+  rules — in their own session only (the organisations tile, or the API).
+  A tile driven by them, a terminal's token and an agent session's token
+  are refused, so a coding agent can't widen the rules it runs under;
+  viewing as someone sets nothing. Members read the rules where they apply
+  (the connection view, the refusal's reason).
+- **A pin is the workspace admin's hold on one org.** It has the shape of
+  the org's own rules and is asked beside them on every call, so the org's
+  admins can narrow below it and never loosen it; a write of the org's own
+  rules past the pin is refused. A refusal by a pinned rule says
+  "(pinned by a workspace admin)".
+- **An org only narrows.** A list entry the bounds or the pin don't cover
+  is refused when it is written, for a workspace admin too. Bounds
+  tightened later need no rewrite of the orgs: each call is asked against
+  all of them.
+- **A share brings a tile under the org's rules** — an exact share or a
+  pattern: `*` shared into an org puts every tile under its rules, and the
+  strictest wins. The refusal names the share ("this tile is under Finance
+  by its share apps/*").
+- **The model rule binds agent sessions.** Where a `models` rule other
+  than `any` applies to a tile, an agent session there runs on the LLM
+  connector only, whatever the workspace's mode or the person's choice —
+  a harness on someone's own subscription would send the tile's code to a
+  model xbind can't verify — and the connector serves it only the models
+  the rule allows. A harness that can't run on the connector isn't offered
+  on that tile, and says why.
+- **A rule decides what starts next.** A session already running is never
+  ended; it can't be restarted or, once ended, resumed while its harness is
+  disallowed (the refusal says why, and the transcript stays readable).
+  `GET /agent/providers?cwd=<tile>` lists what may start there.
+- **The web and MCP rules follow the data, not the tile.** They are asked
+  for every org whose data a workspace agent's conversation holds (its
+  session's taint), whatever tile it calls next: a conversation that read
+  Finance's tiles takes Finance's `web` rule to every page it would read.
+  The strictest of the bounds, the pin and the org's own wins (`never`,
+  then `ask`, then `allow`); the tiles in no org follow the bounds.
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §Web and MCP.)
+- **`private` is the connector's word.** Whether a model's upstream is
+  private is the LLM connector's configuration; no caller can claim it.
+- **What it is not.** The harness list and the model rule govern the agent
+  sessions xbind starts — not what a person types in a plain terminal.
+  Someone with a terminal on the tile can still run any CLI they install
+  there, signed in as themselves: a terminal's reach is governed by access
+  levels and network sets, as before.
+
+Each person also keeps **agent preferences** (`GET`/`PUT /agent/prefs`):
+what their sessions start with, and whether their workspace agent may start
+a tile agent session without asking (default: it asks) and with which mode,
+network and tile-API access. Only the person's own session reads or writes
+them — never a tile, a terminal, an agent session, the root token or
+view-as — and the workspace agent is handed them by xbind and can't change
+them. `bx org agents`, the admin console's organisations tab and
+[protocol/orgs.md](/docs/protocol/orgs.md) §Agent constraints have the
+detail.
+
 **Permission sets (D28).** Named, reusable `{allow, policy, termApi,
 termNet}` bundles attached to orgs *by reference* (`sets: […]`, multiple per
 org): effective allowance = union(sets)∪extras; set ceiling rows join the
@@ -1640,6 +2017,37 @@ behave exactly as before.
 
 - First boot generates a token (`.xbin/token`); xbind prints
   `…/login?token=…` — opening it sets an HttpOnly SameSite=Lax cookie.
+- **First run** (D237). While the workspace has no accounts at all, the
+  shell opens on the token's browser session with **one sheet** of xbin's
+  own chrome: your name, a password, the vault's passphrase twice (none
+  when the host unseals it with `XBIN_VAULT_PASSPHRASE`; once, to unlock
+  it, when it is set up and sealed) and **Create my account and turn on
+  my workspace agent**. It makes an ordinary admin account through
+  `POST /api/xbin/users` (its password rules, its audit line), signs this
+  browser in as it in one step (`POST /api/xbin/first-run/session`:
+  the token's browser session only, the bootstrap account only — the
+  workspace's only account, an enabled admin that never signed in, made in
+  the last 15 minutes — its own password, same origin, throttled with
+  `/login`, audited; docs/protocol/users.md §First run), sets up the vault
+  as that account and, where a model is connected, gives that person a
+  workspace agent — `who: "me"`, never everyone: it turns workspace agents
+  on when they were never switched (`{enabled: true, who: "me"}`), or,
+  when they are on already (an admin's switch, or the host's file leaving
+  who to admins) and nobody has been given one, gives the person theirs
+  (`{who: "me"}`); where the host's file gives admins or everyone one there
+  is nothing to send, and where an admin has set them up already, or the
+  host's file turns them off, they are left as they are. The shell then
+  reloads as the account, with the agent's dock open when the person has
+  one. A quiet button makes the account without the agent; with no model
+  the sheet says the agent needs one (`/xbin/llm`). A step after the
+  account that fails is said as what is left — the person is signed in by
+  then. **Not now** is remembered in that browser only, and everything is
+  then as before. A workspace with any account (an invited one included)
+  never sees the sheet, nor does `--dev` (its seeded admin) or
+  `--no-auth`; a shell from before it has no hook and keeps the old path.
+  The token stays the bootstrap credential: its browser sign-in until you
+  turn token sign-in off, the token itself (bx's bearer) until you rotate
+  it (both below).
 - CLI/scripts use `Authorization: Bearer`. **Inside a terminal**, `$XBIN_TOKEN`
   is a per-session token scoped to that tile (the tile's element principal —
   self-admin + its approved grants, never the owner; docs/overview/09-terminals.md);

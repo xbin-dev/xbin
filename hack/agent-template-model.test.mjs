@@ -7,14 +7,13 @@
 // Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
+import { installHooks } from './xbn/hooks.mjs';
 import { readFileSync, readdirSync } from 'node:fs';
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
 const MODEL = new URL('model/', TPL);
 // The model imports the frontend kit by its served URL; here it is the file.
-const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
-registerHooks({ resolve: (spec, ctx, next) => (spec === '/vendor/bx-kit.js' ? { url: KIT, shortCircuit: true } : next(spec, ctx)) });
+installHooks(); // /vendor/<name> as xbind serves it: the kit the template's modules import (web/<name>)
 
 // --- a scripted backend ---------------------------------------------------------
 
@@ -233,6 +232,14 @@ test('the app: start, a conversation, the stream, send, stop, home, addresses', 
   assert.equal(app.autos.runs.length, 1);
   assert.equal(routed.at(-1), 'auto=schedule:3');
   assert.ok(seen.includes('page'));
+  // the Automations page is drawn before its list is read: a form opened meanwhile is still there when the read lands
+  const opening = app.openAutomations();
+  assert.equal(app.page, 'automations');
+  assert.equal(app.autos.open, null, 'the list, at once');
+  app.autos.newSchedule(false);
+  await opening;
+  assert.ok(app.autos.form && app.autos.form.name === '', 'the form a person opened while the list was read stays open');
+  app.autos.closeForm();
   await app.follow('#join=TOKEN_1');
   await until(() => app.session.current()?.run.id === 2);
   assert.equal(JSON.parse(called('POST', '/join').pop().body).token, 'TOKEN_1');

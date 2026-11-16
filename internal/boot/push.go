@@ -73,6 +73,7 @@ func (st *State) setupPush(srv *server.Server) error {
 	// agent sessions do not outlive xbind: Live Activities still showing
 	// one of the last run's turns end now
 	ps.EndActivities()
+	srv.DelegatePush = ps.Notice // a person's agent waits for them: an approval request, a change set (D228)
 	if st.Broker != nil {
 		// partition mode acts: a switch request to the tile's managers, a
 		// wipe notice to each person whose partition went (F13a)

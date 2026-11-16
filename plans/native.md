@@ -492,6 +492,19 @@ Files); the app **uploads the bytes itself** to the tile-relative `upload.path`
 stays in JS, no multi-MiB base64 crosses the bridge, and no device API is
 exposed.
 
+**The workspace agent's additions (D233, 2026-11-16).** `card`, `connection`,
+`transcript` rev 3 (`empty`, `suggestion`), `question` rev 2 (`style: rows`,
+`other`, `paged`, the button words), `plan` rev 2 (`title`, `numbered`,
+`tags`, `note`, `meta`), `composer` rev 2 (`context`, `replies`, `hint`) —
+and two nodes that break §2's "the tile describes, the app draws" on
+purpose: `request {id, kind}` and `session {id, tile}` are placed by a tile
+and **drawn by the app from xbind's own reading of the id**, because what
+they show is a grant's subject and a tile's tree must not be able to
+describe one. The table of record is docs/native.md and
+native/spec/vocab.json; the bridge gained one call (`agent`) and one
+app-to-runtime function (`xbn.agent`), both behind the wire feature `agent`
+that only the person's agent's runtime gets (native/spec/tree.md §5, §8).
+
 ### 8.5 Escape hatches
 
 | Primitive | Props | What |

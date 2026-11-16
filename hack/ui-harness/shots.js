@@ -13,6 +13,7 @@ const {
   openTile, foldPrompts, closeTile, tileFrame, gotoTab, shot, dumpSelects, checker, pw, showPickers, themed,
 } = require('./lib');
 // Passes past this file's size budget live in passes/*.js (one module per feature).
+const quietnet = require('./quietnet');
 const { users } = require('./passes/users');
 const { termSets } = require('./passes/termsets');
 const { gridScale } = require('./passes/gridscale'), { predict } = require('./passes/predict'), { termSessions } = require('./passes/termsessions'), { vmToggle } = require('./passes/vmtoggle');
@@ -23,6 +24,7 @@ const { menuOpen } = require('./passes/menuopen');
 const { branding } = require('./passes/branding');
 const { agentTemplate } = require('./passes/agenttemplate');
 const { agentConvs } = require('./passes/agentconvs');
+const { agentChrome } = require('./passes/agentchrome');
 const { channels } = require('./passes/channels');
 const { newTile } = require('./passes/newtile');
 const { personalPlane } = require('./passes/personalplane');
@@ -734,14 +736,18 @@ async function netPickers(browser) {
     // back to the old one until a second pick), and the server must agree
     const boundNow = async () => [].concat((await (await ctx.request.get(`${URL}/api/xbin/bindings`)).json()).bindings?.['apps/pinned']?.net ?? [])[0];
     const waitBound = async (v) => { for (let i = 0; i < 40 && (await boundNow()) !== v; i++) await sleep(100); };
+    // this bind's reload answers after the switch back's: it must not put "org" back (it once did)
+    const held = await require('./late').holdReads(page, '**/api/xbin/bindings');
     await sel.selectOption('org');
     await waitBound('org');
     await settle(page);
     let v = await sel.inputValue();
     check(v === 'org', `admin: select shows the new value right after a successful bind (now "${v}")`);
     check((await boundNow()) === 'org', 'admin: server bound org');
+    held.release(); // what the switch back reads answers at once
     await sel.selectOption(before);
     await waitBound(before);
+    await held.arrived(); // the late answers reached the page (the reloads go on from there)
     await settle(page);
     v = await sel.inputValue();
     check(v === before, `admin: switching back shows "${before}" (now "${v}")`);
@@ -827,7 +833,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, agentSignin, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminSettings, templateCard, partitionSwitch, personalBinds, personPage,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, agentChrome, agentSignin, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminSettings, templateCard, partitionSwitch, personalBinds, personPage,
 };
 PASSES.adminPolicies = adminSettings; // its name before D180 (the policies tab is the settings tab's section)
 PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge
@@ -852,7 +858,10 @@ require('./passes-more').register(PASSES); // D184 onwards: demoStills, appearan
   const names = picked.length ? picked : Object.keys(PASSES);
   for (const n of names) if (!PASSES[n]) throw new Error(`unknown pass ${n} (node shots.js --list)`);
   // every context reports the system theme HARNESS_THEME names (dark by default; lib.js)
-  const browser = themed(await pw.chromium.launch(process.env.TILE_ASSETS === 'origins' ? { args: ['--host-resolver-rules=MAP *.localhost 127.0.0.1'] } : {}));
+  // in a network namespace of its own, with xbind's port relayed: a network
+  // change on this machine can't fail a page's requests (quietnet.js)
+  const browser = themed(await quietnet.launch(pw, process.env.TILE_ASSETS === 'origins' ? { args: ['--host-resolver-rules=MAP *.localhost 127.0.0.1'] } : {},
+    [+new globalThis.URL(URL).port || 80, +process.env.JOURNEY_PORT || +(process.env.PORT || 8697) + 3], log)); // (and the journey passes' own xbind: passes/journey.js)
   const t0 = Date.now();
   try {
     for (const n of names) {

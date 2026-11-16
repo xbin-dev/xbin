@@ -227,8 +227,13 @@ func TestReadOnlyAllowed(t *testing.T) {
 		{"POST", "/api/apps/x/save", false},
 	} {
 		r := httptest.NewRequest(c.method, c.path, nil)
-		if got := readOnlyAllowed(r); got != c.want {
+		if got := readOnlyAllowed(r, auth.Principal{UserID: "bob", Impersonator: "alice"}); got != c.want {
 			t.Errorf("readOnlyAllowed(%s %s) = %v, want %v", c.method, c.path, got, c.want)
+		}
+		// a preview has no way out: only its reads pass (D234)
+		isRead := c.method == "GET" || c.method == "HEAD" || c.method == "OPTIONS"
+		if got := readOnlyAllowed(r, auth.Principal{UserID: "bob", Impersonator: auth.PreviewViewer}); got != isRead {
+			t.Errorf("readOnlyAllowed(%s %s) for a preview = %v, want %v", c.method, c.path, got, isRead)
 		}
 	}
 }

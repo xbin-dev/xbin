@@ -1,0 +1,74 @@
+{"v":1,"root":{"k":"r","t":"fragment","c":[
+  {"k":"r.0","t":"screen","p":{"title":"Workspace agent","subtitle":"Main","style":"scroll"},"c":[
+    {"k":"r.0.0","t":"connection","p":{"connected":"14 tiles · 3 orgs","not":"6 not connected","model":"big","label":"Scope: 14 tiles in 3 orgs connected, 6 not connected. Model big."},"e":["tap","model"]},
+    {"k":"r.0.1","t":"transcript","p":{"follow":true},"c":[
+      {"k":"r.0.1.0:m1","t":"message","p":{"role":"user","sender":"About Orders","time":"10:01","text":"The export in Orders is wrong since Monday. Fix it, and check that Invoices still adds up."}},
+      {"k":"r.0.1.0:p1","t":"plan","p":{"title":"Plan","numbered":true,"meta":"you said go ahead · 10:02","entries":[{"text":"Look at Orders’ export and Monday’s change","status":"completed"},{"text":"Have Orders’ own agent fix the rounding","status":"in_progress"},{"text":"Rebuild the customer links in Invoices","status":"in_progress"},{"text":"Compare Monday’s totals in both tiles","status":"pending"},{"text":"Post the correction to Ledger","status":"pending"}],"tags":[{"text":"done","icon":"check","tone":"ok"},{"text":"working","icon":"clock","tone":"accent"},{"text":"waiting for you","icon":"hand","tone":"warn"},{"text":"reads only","tone":"muted"},{"text":"blocked","icon":"lock","tone":"danger"}]}},
+      {"k":"r.0.1.0:b1","t":"card","p":{"title":"Brief for Orders’ agent","subtitle":"Claude Code · asks before acting","icon":"doc","tone":"accent","badge":"asked","note":"This is what the tile agent is told first. What your agent sends it later isn’t approved message by message: the tile agent asks you before it acts."},"c":[
+        {"k":"r.0.1.0:b1.0:goal","t":"field","p":{"label":"Goal","kind":"multiline","value":"The CSV export in Orders rounds totals per line since Monday. Round once, on the invoice total."},"e":["change"]},
+        {"k":"r.0.1.0:b1.0:doneWhen","t":"field","p":{"label":"Done when","kind":"multiline","value":"Monday’s export matches the totals Invoices shows, to the cent."},"e":["change"]},
+        {"k":"r.0.1.0:b1.0:leaveAlone","t":"field","p":{"label":"Leave alone","kind":"multiline","value":"The PDF export and the customer links."},"e":["change"]},
+        {"k":"r.0.1.0:b1.0:checkBy","t":"field","p":{"label":"Check by","kind":"multiline","value":"Running the export tests and comparing three invoices by hand."},"e":["change"]},
+        {"k":"r.0.1.0:b1.1","t":"picker","p":{"label":"Coding agent","value":"claude","options":[{"value":"claude","label":"Claude Code"},{"value":"codex","label":"Codex"}]},"e":["change"]},
+        {"k":"r.0.1.0:b1.2","t":"toggle","p":{"label":"Tell me when it finishes","value":true},"e":["change"]},
+        {"k":"r.0.1.0:b1.3","t":"button","p":{"role":"primary","label":"Review and start…"},"e":["tap"]}
+      ]},
+      {"k":"r.0.1.0:r1","t":"request","p":{"id":"7f3a91c2e0b4d5a6c7b8e9f0","kind":"session"}},
+      {"k":"r.0.1.0:s1","t":"session","p":{"id":"ts_41b0","tile":"apps/orders"}},
+      {"k":"r.0.1.0:s2","t":"session","p":{"id":"ts_41b7","tile":"apps/calendar"}},
+      {"k":"r.0.1.0:r2","t":"request","p":{"id":"rq_80aa13d4","kind":"call"}},
+      {"k":"r.0.1.0:c1","t":"card","p":{"title":"Ledger is blocked by a rule","icon":"lock","tone":"warn","badge":"Finance"},"c":[
+        {"k":"r.0.1.0:c1.0","t":"text","p":{"text":"Finance allows private models only. This session is on big, which is not private, so Ledger isn’t connected."}},
+        {"k":"r.0.1.0:c1.1","t":"notice","p":{"tone":"info","text":"This is a rule set by an admin, not something the agent can work around."}},
+        {"k":"r.0.1.0:c1.2","t":"button","p":{"label":"Change the model…"},"e":["tap"]},
+        {"k":"r.0.1.0:c1.3","t":"button","p":{"label":"Open scope"},"e":["tap"]}
+      ]},
+      {"k":"r.0.1.0:r3","t":"request","p":{"id":"19e2c4a6b8d0e1f2a3b4c5d6","kind":"changeset"}},
+      {"k":"r.0.1.0:c2","t":"card","p":{"title":"The workspace agent doesn’t open or edit code","tone":"muted"},"c":[
+        {"k":"r.0.1.0:c2.0","t":"text","p":{"text":"Two ways forward:"}},
+        {"k":"r.0.1.0:c2.1:hand","t":"row","p":{"title":"Hand this to Orders’ own agent","subtitle":"It opens in Orders with your message as written.","nav":true},"e":["tap"]},
+        {"k":"r.0.1.0:c2.1:outcome","t":"row","p":{"title":"Tell me the outcome instead","subtitle":"“Totals in the export should match Invoices.”","nav":true},"e":["tap"]}
+      ]},
+      {"k":"r.0.1.0:c3","t":"card","p":{"title":"Can’t do this","icon":"info","tone":"info"},"c":[
+        {"k":"r.0.1.0:c3.0","t":"text","p":{"text":"Deleting a tile is yours to do yourself, from the tile’s ⋯ menu. It can show you where it is and what still uses it."}},
+        {"k":"r.0.1.0:c3.1","t":"button","p":{"role":"plain","label":"What can it do?"},"e":["tap"]}
+      ]},
+      {"k":"r.0.1.0:r4","t":"request","p":{"id":"rq_9c41e07b","kind":"template"}},
+      {"k":"r.0.1.0:c4","t":"card","p":{"title":"The export is fixed","icon":"check","tone":"ok","badge":"2 of 3 steps"},"c":[
+        {"k":"r.0.1.0:c4.0","t":"markdown","p":{"tokens":[
+            {"t":"paragraph","c":[{"t":"strong","c":[{"t":"text","text":"Monday’s totals match again."}]},{"t":"text","text":" Orders’ agent rounds once, on the invoice total."}]}
+          ]}},
+        {"k":"r.0.1.0:c4.1:0","t":"step","p":{"glyph":"✓","tone":"ok","text":"Checked: the export tests pass, and three invoices match by hand."}},
+        {"k":"r.0.1.0:c4.1:1","t":"step","p":{"glyph":"–","text":"Not checked: the PDF export."}},
+        {"k":"r.0.1.0:c4.2","t":"badge","p":{"tone":"muted","text":"Worked for 12 min · 6 steps"}}
+      ]},
+      {"k":"r.0.1.0:c5","t":"card","p":{"title":"Team calendar’s agent couldn’t continue","icon":"error","tone":"danger"},"c":[
+        {"k":"r.0.1.0:c5.0","t":"text","p":{"text":"xbin was updated at 09:40 and it did not come back. Its transcript is kept. Start it again?"}},
+        {"k":"r.0.1.0:c5.1","t":"button","p":{"label":"Yes, start it again"},"e":["tap"]},
+        {"k":"r.0.1.0:c5.2","t":"button","p":{"role":"plain","label":"No, leave it"},"e":["tap"]}
+      ]},
+      {"k":"r.0.1.0:q1","t":"question","p":{"title":"Where should the report go?","schema":{"type":"object","properties":{"where":{"type":"string","title":"Report in","enum":["This conversation","A notebook page"]}}},"style":"form","paged":false,"settled":{"where":"This conversation"}},"e":["submit","skip"]},
+      {"k":"r.0.1.0:q2","t":"question","p":{"title":"Before the links are rebuilt","schema":{"type":"object","properties":{"which":{"type":"string","title":"Which invoices do you mean?","enum":["The three that are overdue but still marked sent","Everything exported since Monday","Only invoice 2026-1184"]},"whichOther":{"type":"string","title":"Something else","description":"Say which, in your own words"},"notify":{"type":"string","title":"Who should hear about the correction?","oneOf":[{"const":"nobody","title":"Nobody yet"},{"const":"finance","title":"Finance, in their channel"}]},"notifyOther":{"type":"string","title":"Something else","description":"A person or a team"}}},"style":"rows","other":{"which":"whichOther","notify":"notifyOther"},"paged":true,"submitLabel":"Answer","skipLabel":"Skip — let the agent look around first"},"e":["submit","skip"]}
+    ]},
+    {"k":"r.0.2","t":"composer","p":{"value":"","placeholder":"Reply, or ask for something else…","hint":"Say what you want and how you’ll know it’s done. The agent works out the steps.","context":[{"id":"apps/orders","label":"About Orders","icon":"box","tone":"accent"},{"id":"apps/ledger","label":"About Ledger — not connected","icon":"lock","tone":"warn"}],"replies":[{"id":"diff","label":"Show me what changed"},{"id":"stop","label":"Stop the tile agents"}]},"e":["input","send","context","remove-context","reply"]}
+  ]},
+  {"k":"r.1","t":"sheet","p":{"open":false,"title":"Connected to","detents":["medium","large"]},"e":["dismiss"],"c":[
+    {"k":"r.1.0.0","t":"section","c":[
+      {"k":"r.1.0.0.0","t":"row","p":{"title":"Connected","icon":"plug","detail":"14"}},
+      {"k":"r.1.0.0.1","t":"row","p":{"title":"Blocked","icon":"lock","tone":"warn","detail":"4"}}
+    ]},
+    {"k":"r.1.0.1:sales","t":"section","p":{"title":"Sales","badge":"2 of 3","collapsible":true,"collapsed":false},"e":["toggle"],"c":[
+      {"k":"r.1.0.1:sales.0","t":"row","p":{"title":"All of Sales","icon":"minus-square","disabled":false},"e":["tap"]},
+      {"k":"r.1.0.1:sales.1:apps/orders","t":"row","p":{"title":"Orders","detail":"connected","icon":"check-square","disabled":false},"e":["tap"]},
+      {"k":"r.1.0.1:sales.1:apps/invoices","t":"row","p":{"title":"Invoices","detail":"connected","icon":"check-square","disabled":false},"e":["tap"]},
+      {"k":"r.1.0.1:sales.1:apps/crm","t":"row","p":{"title":"CRM","detail":"hidden by you","icon":"square","disabled":false},"e":["tap"]}
+    ]},
+    {"k":"r.1.0.1:finance","t":"section","p":{"title":"Finance","badge":"0 of 1","footer":"Finance allows private models only (pinned by a workspace admin).","collapsible":true,"collapsed":true},"e":["toggle"],"c":[
+      {"k":"r.1.0.1:finance.0","t":"row","p":{"title":"All of Finance","icon":"square","disabled":true},"e":["tap"]},
+      {"k":"r.1.0.1:finance.1:apps/ledger","t":"row","p":{"title":"Ledger","detail":"blocked","icon":"square","disabled":true},"e":["tap"]}
+    ]},
+    {"k":"r.1.0.2","t":"section","p":{"footer":"Scope is where this session looks. It is not a permission — blocked stays blocked whatever you tick."},"c":[
+      {"k":"r.1.0.2.0","t":"button","p":{"role":"primary","label":"Apply"},"e":["tap"]}
+    ]}
+  ]}
+]}}

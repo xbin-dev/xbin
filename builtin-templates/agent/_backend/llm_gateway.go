@@ -18,6 +18,7 @@ import (
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
+	"github.com/xbin-dev/xbin/sdk/llm"
 )
 
 // Per-call bounds. Vars so tests can shorten them. The idle bound is a
@@ -100,6 +101,19 @@ type wireCodec interface {
 	parseBody(raw []byte) (LLMReply, error)
 	unsupported(code int, body string) bool
 }
+
+// llmHeaderHooks add headers to a model call by the run that makes it
+// (LLMRequest.Run); registered at init, none in a normal instance's calls.
+var llmHeaderHooks []func(req LLMRequest, h http.Header)
+
+// llmRefuseHooks may refuse a model call before it is made, whatever the
+// LLM behind the engine (Engine.chat): a workspace conversation that can't
+// go on on its model. Registered at init; none in a normal instance.
+var llmRefuseHooks []func(req LLMRequest) error
+
+// llmStatusHooks hear how a model call was answered: its status, and the
+// body of a refusal (nil for a 200). Registered at init.
+var llmStatusHooks []func(req LLMRequest, status int, body []byte)
 
 func (g *gatewayLLM) Chat(ctx context.Context, req LLMRequest, onEvent func(LLMEvent)) (LLMReply, error) {
 	// the provider a reference names; requests (and replies, and the
@@ -206,6 +220,9 @@ func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w
 	if req.Stream {
 		hreq.Header.Set("Accept", "text/event-stream")
 	}
+	for _, f := range llmHeaderHooks { // what a kind of conversation adds to its model calls (a workspace agent: its handle)
+		f(req, hreq.Header)
+	}
 	resp, err := g.client.Do(hreq)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -216,11 +233,17 @@ func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		for _, f := range llmStatusHooks {
+			f(req, resp.StatusCode, raw)
+		}
 		msg := strings.TrimSpace(string(raw))
 		if w.unsupported(resp.StatusCode, msg) {
 			return LLMReply{}, false, fmt.Errorf("%w (llm-gw %s: %s)", errWireUnsupported, resp.Status, msg)
 		}
 		return LLMReply{}, retryableLLM(resp.StatusCode), fmt.Errorf("llm-gw %s: %s", resp.Status, msg)
+	}
+	for _, f := range llmStatusHooks {
+		f(req, resp.StatusCode, nil)
 	}
 	if !req.Stream {
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
@@ -278,67 +301,17 @@ type streamError struct{ msg string }
 
 func (e *streamError) Error() string { return e.msg }
 
+// errSSELine is a stream line past the reader's cap (8 MiB: a huge
+// tool-call argument arrives as one data line on some providers).
+var errSSELine = errors.New("sse line too long")
+
 // sseData calls fn with each `data:` payload of an SSE stream until [DONE] or
-// EOF. Scanner errors are returned.
+// EOF — a line at a time (llm.ReadData), so a server that leaves out the
+// blank line between events is read too. Read errors are returned.
 func sseData(r io.Reader, fn func(data []byte) error) error {
-	br := newLineReader(r)
-	for {
-		line, err := br.next()
-		if len(line) > 0 {
-			l := bytes.TrimSpace(line)
-			if d, ok := bytes.CutPrefix(l, []byte("data:")); ok {
-				d = bytes.TrimSpace(d)
-				if string(d) == "[DONE]" {
-					return nil
-				}
-				if len(d) > 0 {
-					if ferr := fn(d); ferr != nil {
-						return ferr
-					}
-				}
-			}
-		}
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
+	err := llm.ReadData(r, fn)
+	if err == llm.ErrSSELineTooLong {
+		return errSSELine
 	}
-}
-
-// lineReader splits on '\n' with an 8 MiB line cap (a huge tool-call argument
-// arrives as one data line on some providers).
-type lineReader struct {
-	r   io.Reader
-	buf []byte
-	eof bool
-}
-
-func newLineReader(r io.Reader) *lineReader { return &lineReader{r: r} }
-
-func (l *lineReader) next() ([]byte, error) {
-	for {
-		if i := bytes.IndexByte(l.buf, '\n'); i >= 0 {
-			line := l.buf[:i]
-			l.buf = l.buf[i+1:]
-			return line, nil
-		}
-		if l.eof {
-			line := l.buf
-			l.buf = nil
-			return line, io.EOF
-		}
-		if len(l.buf) > 8<<20 {
-			return nil, errors.New("sse line too long")
-		}
-		chunk := make([]byte, 32<<10)
-		n, err := l.r.Read(chunk)
-		l.buf = append(l.buf, chunk[:n]...)
-		if err == io.EOF {
-			l.eof = true
-		} else if err != nil {
-			return nil, err
-		}
-	}
+	return err
 }

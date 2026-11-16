@@ -191,6 +191,17 @@ func (r *Runner) DefaultPartitionCaps() (perTile, workspace int) {
 	return partitionCapsFrom(m)
 }
 
+// partitionIdle is how long tile's user partitions sit unused before they
+// are stopped: the tile's own (PartitionIdleFor), else the default.
+func (r *Runner) partitionIdle(tile string) time.Duration {
+	if f := r.PartitionIdleFor; f != nil {
+		if d := f(tile); d > 0 {
+			return d
+		}
+	}
+	return partitionIdleReap
+}
+
 // partitionCaps are tile's effective caps: the overrides, else the defaults.
 func (r *Runner) partitionCaps(tile string) (perTile, workspace int) {
 	perTile, workspace = r.DefaultPartitionCaps()
@@ -345,15 +356,16 @@ func (r *Runner) partitionLoad(tile, self string, now time.Time, class StartClas
 func (r *Runner) reapPartitions() {
 	now := r.now()
 	for _, s := range r.partStates("") {
+		idle := r.partitionIdle(s.comp)
 		s.mu.Lock()
 		inst := s.cur
 		if inst == nil && !s.building && s.active == 0 && s.pt.passive == 0 && s.pt.spawning == nil &&
-			now.Sub(s.lastReq) > partitionIdleReap && (s.lastErr == nil || s.dirty || !sticky(s.lastErr)) {
+			now.Sub(s.lastReq) > idle && (s.lastErr == nil || s.dirty || !sticky(s.lastErr)) {
 			s.mu.Unlock()
 			r.stopPart(s, false)
 			continue
 		}
-		if inst == nil || s.building || s.active > 0 || now.Sub(s.lastReq) <= partitionIdleReap {
+		if inst == nil || s.building || s.active > 0 || now.Sub(s.lastReq) <= idle {
 			s.mu.Unlock()
 			continue
 		}

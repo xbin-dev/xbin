@@ -41,6 +41,14 @@
     // confined checkpoint builds and the broker's confined runs. Skip
     // without .rootfs/userns
     { "name": "confine", "pkg": "./internal/confine/", "overhead": 3 },
+    // previews (D234, docs/protocol/preview.md): Chromium in a confined
+    // sandbox with an empty netns (internal/preview), and the route end to
+    // end on isolated xbinds with auth — the three asset modes, an https
+    // workspace and a plain-http one on a real name, a tile with a backend
+    // and a partitioned one, the limits. The memory cap's test is in the
+    // delegated limits suite. Skip without .rootfs/userns or Chromium
+    { "name": "preview", "pkg": "./internal/preview/", "overhead": 3 },
+    { "name": "preview-e2e", "pkg": "./test/preview/", "overhead": 25 },
     { "name": "runner", "pkg": "./internal/runner/", "overhead": 4 },
     { "name": "sandbox", "pkg": "./internal/sandbox/", "overhead": 3 },
     { "name": "agentcore", "pkg": "./internal/sandbox/agentcore/", "overhead": 3 },
@@ -104,6 +112,16 @@
     // .rootfs/userns or bin/xbin-iroh, the relay test without iroh-relay
     // (XBIN_IROH_RELAY_TEST, bin/iroh-relay or PATH)
     { "name": "apptunnel", "pkg": "./test/apptunnel/", "overhead": 8 },
+
+    // the LLM connector end to end (D226, test/llm over test/xbindtest): an
+    // `xbind --isolate` built from this tree, auth on, booted from a
+    // deployment file (XBIN_LLM_CONFIG), with hack/fakeopenai as the
+    // upstream: the host's locks, `bx llm`, a stream relayed as it arrives
+    // and metered, a hang-up reaching the upstream, a quota's 429 naming its
+    // reset, a tile admitted by its xbin:llm binding and metered to its
+    // person, no key in any answer, log or file, counters across a restart.
+    // Skips without .rootfs/userns
+    { "name": "llm", "pkg": "./test/llm/", "overhead": 8 },
 
     // VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then
     // again under QEMU's emulation (skips without its assets). CI's vm job

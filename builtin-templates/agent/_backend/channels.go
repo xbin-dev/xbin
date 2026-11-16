@@ -204,14 +204,14 @@ func adapterRoutes(mux *http.ServeMux) {
 		"GET /adapter/links":                 handleAdapterLinks,
 		"DELETE /adapter/links/{cid}/{peer}": handleAdapterUnlink,
 	} {
-		mux.Handle(pattern, adapterGuard(h))
+		mux.Handle(pattern, agentRuled(nil, adapterGuard(h)))
 	}
 	for _, more := range adapterRouteTables { // each feature's own /adapter/* routes, registered from its init() (projects_seams.go)
 		for pattern, h := range more() {
-			mux.Handle(pattern, adapterGuard(h))
+			mux.Handle(pattern, agentRuled(nil, adapterGuard(h)))
 		}
 	}
-	mux.Handle("POST /trigger/bus/{id}", busGuard(handleBusTrigger))
+	mux.Handle("POST /trigger/bus/{id}", agentRuled(nil, busGuard(handleBusTrigger)))
 }
 
 func adapterGuard(h http.HandlerFunc) http.HandlerFunc {

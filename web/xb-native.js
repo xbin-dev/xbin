@@ -22,7 +22,7 @@
  * xbin.native.widgetSize ("small" | "wide"; xbin.native.on('widgetsize', fn)
  * hears it change) — and does nothing in an app that shows no widgets.
  * `xbin.native` (caps, supports, meta, copy, share, open, state, saveState,
- * widgetSize, on) is the small app API; it is also exported here as
+ * widgetSize, width, on, agent) is the small app API; it is also exported here as
  * `native`. The vocabulary is /vendor/xb/vocab.js; the wire contract the app
  * implements is native/spec/tree.md in the xbin repository.
  *
@@ -30,7 +30,7 @@
  * JSON strings); otherwise a preview host that called attach(post) or set
  * globalThis.xbnHost = {post}; otherwise messages queue until attach().
  * The app talks back through globalThis.xbn = {event, visibility, resolve,
- * frame, remount, widgetSize, navigate}. createRuntime({post}) makes an independent runtime (node, tests);
+ * frame, remount, widgetSize, navigate, width, agent}. createRuntime({post}) makes an independent runtime (node, tests);
  * with {global: true} it becomes the one render() and globalThis.xbn use.
  *
  * FROZEN once shipped: the exports, the vocabulary and the wire format change
@@ -114,6 +114,7 @@ export const native = {
   get widgetSize() { return current$().native.widgetSize; },
   get width() { return current$().native.width; },
   on: (type, fn) => current$().native.on(type, fn),
+  agent: (msg) => current$().native.agent(msg),
 };
 
 // globalThis.xbn — how the app calls in (callAsyncJavaScript):
@@ -125,6 +126,7 @@ export const native = {
 //   xbn.widgetSize('small'|'wide')   the app shows the widget at another size class
 //   xbn.navigate('#c=42')            a deep link: location.hash becomes it and hashchange fires
 //   xbn.width('compact'|'regular')   the screen changed width class (xbin.native.width)
+//   xbn.agent({type, …})             the app's chrome tells the workspace agent's view something (D233)
 G.xbn = {
   event: (k, type, payload, n, target) => current$().xbn.event(k, type, payload, n, target),
   visibility: (s) => current$().xbn.visibility(s),
@@ -134,6 +136,7 @@ G.xbn = {
   widgetSize: (size) => current$().xbn.widgetSize(size),
   navigate: (hash) => current$().xbn.navigate(hash),
   width: (w) => current$().xbn.width(w),
+  agent: (msg) => current$().xbn.agent(msg),
 };
 
 let listening = false;

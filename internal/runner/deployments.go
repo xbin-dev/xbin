@@ -213,6 +213,17 @@ func (r *Runner) startFor(c *registry.Component, dep, bin string, gen int) (*ins
 		r.sbxFail(c, sbx.Start, err)
 		return nil, err
 	}
+	if c.Sealed && r.SealedVerify != nil { // what runs is the release's, checked at every start (sealed.go)
+		if err := r.SealedVerify(c); err != nil {
+			return nil, fmt.Errorf("%w: %v", errRetryStart, err)
+		}
+	}
+	// the one door every spawn passes: none begins once xbind is shutting
+	// down, and each is in the live set from here until its process ends,
+	// installed or not (live.go)
+	if !r.live.beginSpawn() {
+		return nil, errStopping
+	}
 	var inst *instance
 	var err error
 	if e := r.engine; e != nil && e.start != nil {
@@ -223,7 +234,15 @@ func (r *Runner) startFor(c *registry.Component, dep, bin string, gen int) (*ins
 	if inst != nil {
 		inst.dep = dep
 	}
-	return inst, err
+	if err != nil || inst == nil {
+		r.live.endSpawn(nil)
+		return inst, err
+	}
+	r.live.endSpawn(inst)
+	if inst.waitCh != nil {
+		go func() { <-inst.waitCh; r.live.forget(inst) }()
+	}
+	return inst, nil
 }
 
 // genSpawn is what one generation of a deployment spawns with.
@@ -284,7 +303,7 @@ func (r *Runner) spawnSetup(c *registry.Component, dep string, gen int) (genSpaw
 	sp.sock = filepath.Join(sp.dir, fmt.Sprintf("g%d.sock", gen))
 	_ = os.Remove(sp.sock)
 	sp.token = util.RandomToken(24)
-	sp.env = append(backendEnv(r.Isolate && sandboxable(c.Manifest.Runtime)),
+	sp.env = append(append(backendEnv(r.Isolate && sandboxable(c.Manifest.Runtime)), c.SealedEnv...), // a sealed row's fixed environment, before xbind's own
 		"XBIN_SOCKET="+sp.sock,
 		"XBIN_COMPONENT="+c.Path,
 	)

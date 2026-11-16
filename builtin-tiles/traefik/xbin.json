@@ -11,6 +11,10 @@
   // tile — never in the xbind daemon.
   "runtime": "go",
 
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — the public door's routes and certificates.
+  "agent": "off",
+
   // What another tile may be granted here (the backend guards with these
   // exact roles; the tile's own page holds admin and needs no grant).
   "expose": {

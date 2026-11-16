@@ -108,7 +108,7 @@ struct SwitcherOverlay: View {
             Text(verbatim: "\(w.userLabel) · \(w.origin.authority)").font(.caption).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 4)
-            let waiting = w.needsYou.count
+            let waiting = w.needsYouCount
             if waiting > 0 {
                 Text(verbatim: "\(waiting)").font(.caption.bold().monospacedDigit()).padding(.horizontal, 7).padding(.vertical, 2)
                     .background(XbinColor.accent, in: .xbinPlate).foregroundStyle(XbinColor.onAccent)

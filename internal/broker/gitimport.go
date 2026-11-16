@@ -76,6 +76,10 @@ func (b *Broker) apiGitRemoteInfo(w http.ResponseWriter, r *http.Request) {
 	if !b.requireWriter(w, r) {
 		return
 	}
+	if auth.PrincipalOf(r).ReadOnly() { // a GET that dials out: not from a view-as session or a preview (D234)
+		server.WriteError(w, http.StatusForbidden, "read-only: looking up a remote dials out, which a read-only session doesn't do", "/docs/auth.md")
+		return
+	}
 	url := strings.TrimSpace(r.URL.Query().Get("url"))
 	if !validGitURL(url) {
 		server.WriteError(w, http.StatusBadRequest, "provide a git URL (https://…, git@…:…, ssh://…)")
@@ -125,7 +129,11 @@ func dedupSortTags(tags []string) []string {
 // apiGitImport (POST /git/import {url, path?, ref?}) clones a remote component in.
 func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 	var body struct{ URL, Path, Ref, Owner string } // owner as /create (D24/D52)
-	if err := server.DecodeJSON(r, &body); err != nil || !validGitURL(strings.TrimSpace(body.URL)) {
+	err := server.DecodeJSON(r, &body)
+	if err == nil && sealedRefused(w, sealedNone(body.Path, sealedNoCreate)) {
+		return
+	}
+	if err != nil || !validGitURL(strings.TrimSpace(body.URL)) {
 		server.WriteError(w, http.StatusBadRequest, "need {url, path?, ref?, owner?} with a valid git URL")
 		return
 	}

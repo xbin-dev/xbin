@@ -50,6 +50,7 @@ func init() {
 type fakeBackend struct {
 	Root    string            // sandboxes live in <Root>/<name>/, snapshots in <Root>/.snaps/
 	Caps    []string          // what it offers (nil: everything it can)
+	LLM     string            // the LLM connector's address in a sandbox created with net.llm ("": it forwards none, and offers no llm)
 	Grace   time.Duration     // TERM → KILL on a timeout (0 = 5 s)
 	Ring    int               // an exec's output ring (0 = 1 MiB)
 	FileMax int64             // limits.fileMax (0 = 64 MiB)
@@ -137,10 +138,14 @@ func (f *fakeBackend) caps() []string {
 	if f.Caps != nil {
 		return f.Caps
 	}
+	caps := []string{"exec", "files", "tar", "stdio", "snapshots", "clone"}
 	if fkHasPTY() {
-		return []string{"exec", "files", "tar", "tty", "stdio", "snapshots", "clone"}
+		caps = []string{"exec", "files", "tar", "tty", "stdio", "snapshots", "clone"}
 	}
-	return []string{"exec", "files", "tar", "stdio", "snapshots", "clone"}
+	if f.LLM != "" {
+		caps = append(caps, "llm")
+	}
+	return caps
 }
 
 func (f *fakeBackend) hasCap(c string) bool {
@@ -378,6 +383,9 @@ func (f *fakeBackend) Create(ctx context.Context, spec xbin.SandboxSpec) (*xbin.
 		Net: xbin.SandboxNetInfo{Egress: egress}, Labels: spec.Labels, For: spec.For, ForUser: spec.ForUser,
 		IdleStopMin: spec.IdleStopMin, AutoStart: spec.AutoStart == nil || *spec.AutoStart, Base: xbin.SandboxBase{Version: "fake-1"},
 		Users: orStr(f.Users, "any"), Created: now, LastActive: now, Version: 1, ClientID: spec.ClientID}
+	if spec.Net != nil && spec.Net.LLM {
+		in.Net.LLM = f.LLM // as xbind's runtime: the address, where it forwards one
+	}
 	if in.MemMiB == 0 {
 		in.MemMiB, in.VCPUs, in.DiskGiB = 2048, 2, 20
 	}

@@ -3,13 +3,14 @@ package main
 import (
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // TestMain lets a test start this command: with LLMREPLAY_RUN_MAIN=1 the
@@ -31,12 +32,7 @@ func TestDetach(t *testing.T) {
 	writeCassette(t, cas, Exchange{Lane: "claude", Method: "POST", Path: "/v1/messages",
 		ReqBody: json.RawMessage(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}]}`),
 		Status:  200, Headers: map[string][]string{"Content-Type": {"application/json"}}, Body: `{"type":"message","content":[]}`})
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := portlease.Addr(t)
 	logPath := filepath.Join(t.TempDir(), "replay.log")
 	t.Setenv("LLMREPLAY_RUN_MAIN", "1")
 	args := []string{"-listen", addr, "-log", logPath, "-cassette", cas, "-detach"}

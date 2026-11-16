@@ -172,5 +172,5 @@ or `disabled` — direct addresses only, for tests); see
 `POST /api/xbin/devices/enroll-code {"tunnel":true}`,
 `GET /api/xbin/devices/pairing/<id>`, `POST /api/xbin/devices/pairing/<id>/confirm`,
 `POST /api/xbin/devices/<id>/tunnel`, `GET|PUT /api/xbin/devices/limits`, the
-page `/xbin/devices` ([protocol.md](/docs/protocol.md)); the wire contract
+page `/xbin/devices` ([protocol/devices.md](/docs/protocol/devices.md), [protocol/core.md](/docs/protocol/core.md)); the wire contract
 the app implements is `native/spec/tunnel.md` in the source tree.

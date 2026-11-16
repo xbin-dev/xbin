@@ -217,6 +217,9 @@ func (b *Broker) apiOwnerPreview(w http.ResponseWriter, r *http.Request) {
 	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
 	to := r.URL.Query().Get("to")
 	p := auth.PrincipalOf(r)
+	if sealedRefused(w, sealedNone(tile, sealedNoOwner)) {
+		return
+	}
 	if tile == "" || !p.CanReadTile(tile) {
 		server.WriteError(w, http.StatusForbidden, "no access to this tile")
 		return

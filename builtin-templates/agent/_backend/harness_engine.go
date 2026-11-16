@@ -76,11 +76,11 @@ type hsess struct {
 
 	reuseMu sync.Mutex
 	reuse   map[string]int // an adapter's call id used again for a new call → its count (sid)
+	turns   int            // turns ended here (turnNo): a call knows the turn it was made in
 
 	inflight  *heldPrompt       // the prompt of the turn in flight (a sign-in holds it)
-	detached  bool              // the adapter runs a turn of its own (harness_steer.go)
-	quiet     *time.Timer       // ends a detached turn once the adapter goes quiet
-	quietDue  bool              // … it went quiet: the pass ends it
+	det       acp.DetachedTurn  // the adapter's own turn, followed (harness_steer.go; the rule is sdk/acp's)
+	quiet     *time.Timer       // looks at its deadline: the pass ends a turn gone quiet
 	idleT     *time.Timer       // the idle reclaim (harness_life.go)
 	reclaim   bool              // the idle reclaim is due: the pass stops the adapter
 	graceT    *time.Timer       // stops an adapter that doesn't end its turn after session/cancel
@@ -476,8 +476,10 @@ func (e *Engine) harnessUse(ctx context.Context, run *Run, cfg Config) (*sbxUse,
 	if !ok {
 		return nil, prov, &harnessFail{fmt.Sprintf("%s's image doesn't have %s", name, harnessName(h.Provider))}
 	}
-	if u.Box.effectiveEgress() == "none" {
-		return nil, prov, &harnessFail{fmt.Sprintf("%s must reach its provider — %s's egress is none", prov.Name, name)}
+	if u.Box.effectiveEgress() == "none" { // …unless the workspace's LLM connector is reachable there (harness_connector.go)
+		if err := noEgressFail(ctx, u.Box, prov, name); err != nil {
+			return nil, prov, &harnessFail{err.Error()}
+		}
 	}
 	return u, prov, nil
 }
@@ -554,10 +556,29 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	}
 	// a saved sign-in of the person's, through the gate (harness_creds.go):
 	// its secret in the adapter's environment only — never stored
-	cred, credNote := e.db.credPick(run, cfg, h.Ref, u.Box)
+	// (a sandbox with no egress reaches nothing but the workspace's LLM
+	// connector: no sign-in of the person's could be used there)
+	onlyConnector := u.Box.effectiveEgress() == "none"
+	var cred *hSignin
+	credNote := ""
+	if !onlyConnector {
+		cred, credNote = e.db.credPick(run, cfg, h.Ref, u.Box)
+	}
 	env, secret, err := credEnv(prov.Env, cred)
 	if err != nil {
 		return nil, &harnessFail{err.Error()}
+	}
+	if cred == nil { // no saved sign-in: the workspace's LLM connector, where it serves (harness_connector.go)
+		key, note, err := e.connectorEnv(ctx, run, u, prov, env, onlyConnector)
+		if err != nil {
+			return nil, &harnessFail{err.Error()}
+		}
+		if key != "" {
+			secret = key
+		}
+		if note != "" {
+			credNote = note
+		}
 	}
 	env = withProjectEnv(env, run, u.Box.Home) // a project task's ports, branch and credentials' env (project_gate.go)
 	credID := ""
@@ -651,7 +672,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		Argv: prov.Argv, Perms: s.perms, Log: s.log, Spawn: func(context.Context, acp.Config) (*acp.Process, error) { return s.process(), nil }}
 	err = s.c.Start(ctx, acfg)
 	handed := false
-	if sid, _ := s.c.Session(); err != nil && isAuthErr(err) && sid == "" && s.c.State().AuthNeeded && cred != nil && s.credAuthenticate(ctx, cred) {
+	if sid, _ := s.c.Session(); err != nil && acp.IsAuthRequired(err) && sid == "" && s.c.State().AuthNeeded && cred != nil && s.credAuthenticate(ctx, cred) {
 		err, handed = nil, true // a saved API key the adapter takes only through authenticate (codex, gemini): its session is open now
 	}
 	if handed && prov.AuthFile != "" {
@@ -676,7 +697,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		if ctx.Err() != nil || s.isHalted() {
 			return nil, errHandoff
 		}
-		if resume != "" && !errors.Is(err, context.DeadlineExceeded) && !isAuthErr(err) {
+		if resume != "" && !errors.Is(err, context.DeadlineExceeded) && !acp.IsAuthRequired(err) {
 			// the earlier session can't be reopened (the adapter lost it):
 			// a fresh one, with a note — the conversation's rows stay
 			s.stop()
@@ -692,7 +713,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 			hs, _ := e.db.harnessSession(run.ID)
 			return e.spawnHarness(ctx, run, cfg, hs)
 		}
-		if sid, _ := s.c.Session(); isAuthErr(err) && sid == "" && s.c.State().AuthNeeded {
+		if sid, _ := s.c.Session(); acp.IsAuthRequired(err) && sid == "" && s.c.State().AuthNeeded {
 			// it refused a session signed out (codex): it stays up for a
 			// sign-in through it (harness_login.go)
 			if cerr := s.commit(nil, func(t *DB, hs *harnessSession) error {
@@ -772,11 +793,6 @@ func (s *hsess) dropModeOptionsTx(t *DB, run *Run, st acp.SessionState) error {
 	return nil
 }
 
-func isAuthErr(err error) bool {
-	var re *acp.Error
-	return errors.As(err, &re) && re.Code == acp.CodeAuthRequired
-}
-
 // sandboxShared: others may use the sandbox — anything but private (team
 // visibility, a visibility this agent doesn't know), members or shares —
 // the privacy note (§4.3.2 sandbox.shared).
@@ -807,6 +823,7 @@ func (e *Engine) dropExec(ctx context.Context, run *Run, cfg Config, hs *harness
 	if hs == nil || hs.ExecID == "" {
 		return
 	}
+	connectorEnded(run.ID) // an adapter this process never held: its LLM connector key goes with it (harness_connector.go)
 	ref, by := hs.Ref, ""
 	if cfg.Harness != nil {
 		ref, by = orStr(ref, cfg.Harness.Ref), cfg.Harness.By
@@ -1131,6 +1148,7 @@ func (s *hsess) consume() {
 func (s *hsess) stop() {
 	s.halt()
 	s.e.forget(s)
+	connectorEnded(s.run) // its LLM connector key, if it ran on one (harness_connector.go)
 	if s.c != nil {
 		_ = s.c.Close()
 	} else if s.pipe != nil {
@@ -1147,6 +1165,7 @@ func (s *hsess) ended() {
 	if s.isHalted() || errors.Is(perr, errPipeDetached) || errors.Is(perr, errPipeReplaced) {
 		return // let go: another process (or a stop) owns what follows
 	}
+	connectorEnded(s.run) // the adapter is gone: so is its LLM connector key
 	s.mu.Lock()
 	endWhy, endLost := s.endWhy, s.endLost
 	s.mu.Unlock()

@@ -3,7 +3,7 @@
 //
 //	xbind init <dir>              scaffold a workspace
 //	xbind [flags]                 serve a workspace
-//	xbind version
+//	xbind version | sealed-build [flags]   (sealedbuild.go: make build runs it)
 //
 // Everything after the command line is internal/boot: Run(ctx, cfg) boots
 // the workspace and serves it until the context ends; this file owns the
@@ -48,6 +48,9 @@ func main() {
 			return
 		case "version":
 			fmt.Println("xbind", boot.BuildVersion(version))
+			return
+		case "sealed-build": // the release's sealed backends (sealedbuild.go)
+			sealedBuildMain(os.Args[2:])
 			return
 		}
 	}

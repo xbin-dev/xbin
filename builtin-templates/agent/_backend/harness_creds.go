@@ -501,8 +501,7 @@ func (s *hsess) refuseCredTx(t *DB, hs *harnessSession, why string) {
 // onTurnEnd) and says how to sign in.
 func (s *hsess) authHint(cfg acp.Config, msg string) string {
 	s.authRefused.Store(true)
-	how := orStr(cfg.Provider.LoginCmd, orStr(cfg.Provider.Login, "the CLI's own login"))
-	return msg + ": the agent isn't signed in — run: " + how
+	return msg + ": " + cfg.Provider.SignInHint("") // sdk/acp's one sign-in sentence
 }
 
 // signedOutNow: st says the adapter is signed out — and, while a saved
@@ -510,7 +509,7 @@ func (s *hsess) authHint(cfg acp.Config, msg string) string {
 // update alone doesn't count: claude-agent-acp 0.81 reports an env token's
 // sign-in as "none").
 func (s *hsess) signedOutNow(st acp.SessionState) bool {
-	return st.AuthNeeded && (s.credID() == "" || s.authRefused.Load())
+	return acp.AuthState{Needed: st.AuthNeeded, Injected: s.credID() != "", Refused: s.authRefused.Load()}.SignedOut()
 }
 
 // credAuthenticate signs an adapter that refused its session signed out in

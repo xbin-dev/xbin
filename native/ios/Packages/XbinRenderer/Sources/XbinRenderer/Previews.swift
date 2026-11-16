@@ -57,6 +57,7 @@ public struct XbinFixturePreview: View {
 #Preview("media") { XbinFixturePreview("media") }
 #Preview("message-files") { XbinFixturePreview("message-files") }
 #Preview("old-app") { XbinFixturePreview("old-app") }
+#Preview("old-app-agent") { XbinFixturePreview("old-app-agent") }
 #Preview("notices-empty-progress") { XbinFixturePreview("notices-empty-progress") }
 #Preview("search-toolbars") { XbinFixturePreview("search-toolbars") }
 #Preview("sections-rows") { XbinFixturePreview("sections-rows") }
@@ -82,6 +83,8 @@ public struct XbinFixturePreview: View {
 #Preview("tile-webhooks") { XbinFixturePreview("tile-webhooks") }
 #Preview("widget-counter") { XbinFixturePreview("widget-counter") }
 #Preview("widget-wide") { XbinFixturePreview("widget-wide") }
+#Preview("workspace-agent") { XbinFixturePreview("workspace-agent") }
+#Preview("workspace-agent-empty") { XbinFixturePreview("workspace-agent-empty") }
 
 #Preview("chat components") {
     ScrollView {
@@ -101,6 +104,46 @@ public struct XbinFixturePreview: View {
             ActivityView(activity: ChatActivity(text: "Comparing configs…", live: true))
         }
         .padding()
+    }
+}
+
+// The workspace agent's components (D233), as the app's own screens may
+// build them from plain models.
+#Preview("workspace agent components") {
+    VStack(spacing: 0) {
+        ConnectionView(connection: ConnectionModel(connected: "14 tiles · 3 orgs", not: "6 not connected", model: "big"),
+                       onTap: {}, onModel: {})
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                PlanView(plan: ChatPlan(entries: [.init(text: "Look at Orders’ export", status: .completed),
+                                                  .init(text: "Rebuild the customer links in Invoices", status: .pending)],
+                                        title: "Plan", numbered: true,
+                                        tags: [.init(text: "done", icon: "check", tone: .ok), .init(text: "asks you", icon: "shield", tone: .warn)],
+                                        note: "Saying go ahead starts step 1. It does not approve step 2: it asks when it is reached."))
+                CardView(card: CardModel(title: "Ledger is blocked by a rule", icon: "lock", tone: .warn, badge: "Finance",
+                                         note: "This is a rule set by an admin, not something the agent can work around."),
+                         buttonCount: 2) {
+                    Text(verbatim: "Finance allows private models only.").font(.subheadline)
+                } buttons: {
+                    Button("Change the model…") {}.xbinSecondary()
+                    Button("Open scope") {}.xbinSecondary()
+                }
+                TrustedPlaceholder(title: XbinTrustedNode.request(id: "rq_1", kind: "call").placeholderTitle, session: false)
+                TrustedPlaceholder(title: XbinTrustedNode.session(id: "ts_1", tile: "apps/orders").placeholderTitle, session: true)
+                TranscriptEmptyView(empty: TranscriptEmpty(
+                    title: "Ask for an outcome", text: "The workspace agent plans the work and asks you before anything changes.",
+                    lists: [.init(id: 0, title: "It can", items: ["Look across your 14 connected tiles", "Remember what you tell it"])],
+                    suggestionsTitle: "Try one — from your tiles",
+                    suggestions: [.init(id: "fix", kind: "Fix", text: "Team calendar’s last sync failed. Find out why.")])) { _ in }
+            }
+            .padding()
+        }
+        ComposerView(composer: ChatComposer(placeholder: "Ask for an outcome…",
+                                            context: [ChatContextChip(id: "apps/orders", label: "About Orders", icon: "box")],
+                                            replies: [ChatReply(id: "go", label: "Go ahead"), ChatReply(id: "change", label: "Change the plan")],
+                                            hint: "Say what you want and how you’ll know it’s done."),
+                     text: .constant(""), onSend: { _ in },
+                     extras: ComposerExtras(onContext: { _ in }, onRemoveContext: { _ in }, onReply: { _ in }))
     }
 }
 #endif

@@ -228,6 +228,9 @@ func (b *Broker) apiPartitionMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tile := strings.Trim(body.Tile, "/")
+	if sealedRefused(w, sealedNone(tile, sealedNoMode)) {
+		return // the table's mode, never a decision (sealedguard.go)
+	}
 	if tile == "" || body.Act != modeActKeep && body.Act != modeActSwitch {
 		server.WriteError(w, http.StatusBadRequest, "need {tile, act: keep|switch, from, to}", "/docs/protocol.md")
 		return

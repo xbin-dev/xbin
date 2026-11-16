@@ -12,9 +12,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/sealed"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -27,6 +29,7 @@ type zsDaemon struct {
 	url   string
 	owner string
 	ws    string
+	stop  func() // stops the daemon and checks it left no backend running (also the test's cleanup)
 }
 
 // zsNodeServer is a node backend that answers every request with what it
@@ -86,7 +89,8 @@ func zsBootWith(t *testing.T, ws string, tune func(*Config)) *zsDaemon {
 		t.Fatal(err)
 	}
 	cfg := &Config{Workspace: ws, Listener: ln, Listen: ln.Addr().String(), InsecureVault: true,
-		Privileges: NoPrivileges{}, Stdout: io.Discard, Version: "test", LimitMem: "2G"}
+		Privileges: NoPrivileges{}, Stdout: io.Discard, Version: "test", LimitMem: "2G",
+		Sealed: []sealed.Spec{}} // a release's table, whatever the test binary's tags
 	if tune != nil {
 		tune(cfg)
 	}
@@ -110,17 +114,22 @@ func zsBootWith(t *testing.T, ws string, tune func(*Config)) *zsDaemon {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- st.serve(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(30 * time.Second):
-			t.Error("the daemon did not stop")
-		}
-	})
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			select {
+			case <-done:
+				noneLeftBehind(t, d.ws) // a stopped xbind leaves no backend running (leftbehind_test.go)
+			case <-time.After(30 * time.Second):
+				t.Error("the daemon did not stop")
+			}
+		})
+	}
+	t.Cleanup(stop)
 	select {
 	case addr := <-ready:
-		return &zsDaemon{st: st, url: "http://" + addr, owner: st.Auth.OwnerTokenValue(), ws: d.ws}
+		return &zsDaemon{st: st, url: "http://" + addr, owner: st.Auth.OwnerTokenValue(), ws: d.ws, stop: stop}
 	case err := <-done:
 		t.Fatalf("serve ended: %v", err)
 	case <-time.After(30 * time.Second):
@@ -374,8 +383,10 @@ func TestZeroStateListings(t *testing.T) {
 	// /components: today's key set on every row; the fixture's rows exact.
 	comps := get("/api/xbin/components", owner)
 	allowed := map[string]bool{}
-	// title, icon (D194) and backend (D196) are additive keys every tile may carry
-	for _, k := range strings.Split("path,scope,runtime,hasIndex,template,state,roles,uses,deps,manifestError,owner,chrome,chromeRequested,sandbox,native,origin,title,icon,backend", ",") {
+	// title, icon (D194) and backend (D196) are additive keys every tile may
+	// carry; agent (D228) a tile whose manifest narrows what a person's
+	// workspace agent may do — a new workspace's consoles say "off"
+	for _, k := range strings.Split("path,scope,runtime,hasIndex,template,state,roles,uses,deps,manifestError,owner,chrome,chromeRequested,sandbox,native,origin,title,icon,backend,agent", ",") {
 		allowed[k] = true
 	}
 	for _, k := range strings.Split(zsKeys(t, comps), ",") {

@@ -60,6 +60,11 @@ func (b *Broker) restore(comp string, r io.Reader, put deploymentRestorer) (back
 // erased), whose data members are written as an inline archive's are.
 func (b *Broker) restoreFrom(comp string, br, data *backup.Reader, put deploymentRestorer) (backup.Manifest, error) {
 	m := br.M
+	if !b.componentNamed(comp) {
+		// one spelling per component, and for a sealed one a registered
+		// component: "/xbin/x" is neither (sealedguard.go)
+		return m, fmt.Errorf("%q is not a component's path: nothing is restored there", comp)
+	}
 	switch {
 	case m.PartitionArchive(): // never a tile: a person's partition's alone (backup_partition_restore.go)
 		return m, fmt.Errorf("the archive holds a person's partition of %s, not a tile: restore it into that person's partition (POST /partitions/restore)", m.Component)
@@ -69,6 +74,14 @@ func (b *Broker) restoreFrom(comp string, br, data *backup.Reader, put deploymen
 		return m, fmt.Errorf("the archive holds the data of %s, not a tile: restore its main archive, or restore it into main (POST /deployments/restore)", m.Component)
 	case data != nil && (!data.M.DataArchive() || data.M.Component != comp || data.M.Scope != comp || !data.M.ScopeRoot):
 		return m, fmt.Errorf("the data archive isn't %s's data", comp)
+	}
+	if util.SealedPath(comp) {
+		// a sealed component (D227): only an archive xbind sealed, into a
+		// component that isn't held, and never a deployment section
+		if err := b.sealedRestoreGate(comp, br, data); err != nil {
+			return m, err
+		}
+		put = nil
 	}
 	// deployment state is refused first when it isn't comp's (nothing on
 	// disk yet: it only checks)
@@ -141,9 +154,13 @@ func (b *Broker) restoreFrom(comp string, br, data *backup.Reader, put deploymen
 		return m, err
 	}
 	// Restore this component's cron jobs.
+	// (a job of another component is never restored from this backup: the
+	// archive's manifest is an archiver's word in a workspace without sealed
+	// backups, and a job calls its component's backend at a chosen path and
+	// role — as the subscriptions below, which always had this check)
 	for _, raw := range m.CronJobs {
 		var j cronJob
-		if json.Unmarshal(raw, &j) == nil && b.cron != nil {
+		if json.Unmarshal(raw, &j) == nil && j.Component == m.Component && b.componentNamed(j.Component) && b.cron != nil {
 			if b.cron.add(j) == nil {
 				b.cron.persist()
 			}
@@ -195,6 +212,8 @@ func (d *restoreDst) member(name, scope string, withData bool, br *backup.Reader
 		if tree, err = d.resource(scope, res); err != nil {
 			return err
 		}
+	case util.SealedPath(d.comp) && (strings.HasPrefix(name, backup.SourcePrefix) || strings.HasPrefix(name, backup.TermPrefix)):
+		return nil // a sealed component has neither: nothing of an archive becomes a directory under xbin/ (D227)
 	case strings.HasPrefix(name, backup.SourcePrefix):
 		if rel = cleanRel(strings.TrimPrefix(name, backup.SourcePrefix)); rel == "" {
 			return nil

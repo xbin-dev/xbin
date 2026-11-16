@@ -37,6 +37,9 @@
  *   xbin.notify(level,msg) — one-shot user notification (toast)
  *   xbin.copy({text,html}) — copy to the person's clipboard, text and HTML
  *                             (the embedder writes it; → Promise<boolean>)
+ *   xbin.openSession({tile, session}) — show one of the person's terminal or
+ *                             agent sessions in its tile's window
+ *                             (→ Promise<boolean>: whether it was shown)
  *   xbin.meta({title, icon, badge}) — what the shell shows for this tile
  *                             while this page is open (D194): a title in
  *                             place of its name (beside its path), an icon
@@ -147,17 +150,39 @@ function bfetch(url, opts = {}) {
   // fetch itself (init.headers would otherwise drop them).
   const headers = new Headers(init.headers || (isReq ? url.headers : {}));
   if (frameToken) headers.set('X-XBin-Frame-Token', frameToken);
+  const target = isReq ? url.url : String(url);
+  const mine = code && ownApi(target); // a system component's page says which code it is
+  if (mine) headers.set('X-XBin-Code', code);
+  const sent = (p) => (mine ? p.then(staleCode) : p);
   if (want) {
-    const target = isReq ? url.url : String(url);
     if (want !== 'global') return Promise.reject(new TypeError(`xbin.fetch: partition must be 'global', not ${JSON.stringify(want)}`));
     if (!ownApi(target)) return Promise.reject(new TypeError(`xbin.fetch: partition 'global' reaches this tile's own /api/${self}/… only, not ${target}`));
     if (inUserPartition) {
-      if (isReq) return globalRequest(url).then((req) => fetch(req, { ...init, headers }));
+      if (isReq) return sent(globalRequest(url).then((req) => fetch(req, { ...init, headers })));
       url = toGlobal(target);
     }
   }
-  return fetch(url, { ...init, headers });
+  return sent(fetch(url, { ...init, headers }));
 }
+// --- a system component's code (docs/sealed.md) ---
+// A system component's page and backend are one xbin release's. Its documents
+// carry <meta name="xbin-code">, the calls to its own API name that code
+// (X-XBin-Code here, xbin-code= on ws/url), and after xbind restarts onto
+// another release the first such call answers 409 with X-XBin-Reload: the
+// page is the old release's and must go. The embedder reloads its frames on
+// the reload event xbind sends with that answer; a page opened by itself
+// reloads here. Other tiles' documents carry no such meta: nothing changes.
+const code = meta('xbin-code');
+let stale = false;
+function staleCode(r) {
+  if (r.status === 409 && r.headers.get('X-XBin-Reload') && !stale) {
+    stale = true;
+    console.warn(`[xbin] ${self}: updated with xbin — reloading onto the new version (docs/sealed.md).`);
+    if (window.parent === window) location.reload();
+  }
+  return r;
+}
+const withCode = (path) => (code && ownApi(path) ? `${path}${path.includes('?') ? '&' : '?'}xbin-code=${encodeURIComponent(code)}` : path);
 // Whether u, resolved against this document, is this tile's own API: on this
 // document's host (or the workspace origin xbind names on a tile origin), at
 // /api/<self> or below. location.origin is "null" in a sandboxed frame, so
@@ -201,6 +226,7 @@ const wsOrigin = /^wss?:\/\/[^/?#]+$/.test(wsOriginMeta) ? wsOriginMeta
   : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
 
 function bws(path) {
+  path = withCode(path);
   const sep = path.includes('?') ? '&' : '?';
   return new WebSocket(`${wsOrigin}${path}${sep}frame=${encodeURIComponent(frameToken)}`);
 }
@@ -214,6 +240,7 @@ function bws(path) {
 // with Content-Disposition: attachment. xbind consumes ?frame= itself and
 // never forwards it to the backend.
 function burl(path) {
+  path = withCode(path);
   const sep = path.includes('?') ? '&' : '?';
   return `${location.protocol}//${location.host}${path}${sep}frame=${encodeURIComponent(frameToken)}`;
 }
@@ -384,6 +411,26 @@ function copy({ text = '', html = '' } = {}) {
   });
 }
 
+// xbin.openSession({tile, session}) → Promise<boolean> (D229): ask the
+// workspace to show one of the person's sessions — an agent session this
+// tile started for them, say — in its tile's terminal window: the tab of a
+// live one, the transcript of one that ended. `tile` defaults to this
+// tile. Resolves true when the workspace showed it (or followed the link to
+// its tile), false when it couldn't — the session isn't the viewer's or is
+// gone, the page isn't in a workspace shell (the app, a bare tab), or
+// nothing answered within 3 s. Call it from a click: where the workspace
+// has to follow a link to get there, it only does so on one. The window
+// lists the viewer's own sessions, so asking grants nothing.
+function openSession({ tile = self, session = '' } = {}) {
+  if (!embedded || appBridge) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const id = nextId();
+    const t = setTimeout(() => { pending.delete(id); resolve(false); }, 3000);
+    pending.set(id, (ok) => { clearTimeout(t); resolve(!!ok); });
+    window.parent.postMessage({ type: 'xbin:open-session', id, tile: String(tile), session: String(session) }, PARENT);
+  });
+}
+
 // xbin.dialog(spec) → Promise<{button, values}>. Shell-rendered trusted modal
 // (title/message/fields/buttons — plain data, no markup). Resolves with the
 // clicked button's value (null on dismiss) and the field values. Falls back to
@@ -439,6 +486,21 @@ function setMeta(m) {
   }
   if (embedded) window.parent.postMessage({ type: 'xbin:meta', meta: { ...metaNow } }, PARENT);
   else if ('title' in m && metaNow.title) document.title = metaNow.title;
+}
+
+// xbin.ready(): "I have drawn" (D234). A page that fetches before it has
+// anything to show can say when it does; whatever waits for the tile — today
+// xbind's preview browser (docs/protocol/preview.md), which otherwise settles
+// by a quiet network — then stops waiting at once. A tile that will call it
+// declares so with <meta name="xbin-ready" content="manual">, and is waited
+// for (bounded) even when the network is quiet. Calling it twice, or never,
+// harms nothing. The mark is the document's own (data-xbin-ready on <html>:
+// "pending" → "1"); the embedder is told too (xbin:ready).
+if (document.querySelector('meta[name="xbin-ready"]')?.content === 'manual') document.documentElement.dataset.xbinReady = 'pending';
+function ready() {
+  if (document.documentElement.dataset.xbinReady === '1') return;
+  document.documentElement.dataset.xbinReady = '1';
+  if (embedded) window.parent.postMessage({ type: 'xbin:ready', component: self }, PARENT);
 }
 
 // A right-click (or a touch long-press) on the tile's body opens the SHELL's
@@ -620,4 +682,4 @@ if (document.querySelector('link[rel~="stylesheet"][href*="/vendor/theme.css"]')
 // /vendor/xb-native.js adds the methods (docs/frontend-kit.md).
 const nativeApi = (window.xbin && typeof window.xbin.native === 'object' && window.xbin.native) || (meta('xbin-native') ? {} : null);
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, copy, status, clearStatus, notify, meta: setMeta, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, copy, openSession, status, clearStatus, notify, meta: setMeta, ready, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });

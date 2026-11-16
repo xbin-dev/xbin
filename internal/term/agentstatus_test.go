@@ -134,3 +134,64 @@ func TestAgentStatusChanges(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+// A glance (the compact session read's turn and last line): the prompts an
+// agent session took so far and the last line it wrote since its last
+// prompt — kept as the log is written, never read back out of it.
+func TestAgentGlance(t *testing.T) {
+	r := newAgentRig(t)
+	m := r.m
+	info, code, err := m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", "", nil)
+	if err != nil || code != 200 {
+		t.Fatalf("open: %d %v", code, err)
+	}
+	id := info.ID
+	last := r.statusUntil(t, nil, func(s StatusChange) bool { return s.Status == agent.StatusIdle })
+	if turn, line, ok := m.AgentGlance(id); !ok || turn != 0 || line != "" {
+		t.Fatalf("before any prompt: turn %d, last %q, ok %v", turn, line, ok)
+	}
+	ctx := context.Background()
+	for i, say := range []string{"hi", "first\n\nsecond"} {
+		if _, err := m.AgentPrompt(ctx, id, say); err != nil {
+			t.Fatal(err)
+		}
+		prev := last[len(last)-1]
+		last = r.statusUntil(t, &prev, func(s StatusChange) bool { return s.Status == agent.StatusIdle && int(s.Turn) == i+1 })
+		want := "echo: hi"
+		if i == 1 {
+			want = "second" // the last line that isn't blank; the first turn's text is not this turn's
+		}
+		if turn, line, ok := m.AgentGlance(id); !ok || int(turn) != i+1 || line != want {
+			t.Fatalf("after turn %d: turn %d, last %q, ok %v; want %q", i+1, turn, line, ok, want)
+		}
+	}
+	if _, _, ok := m.AgentGlance("no-such-session"); ok {
+		t.Fatal("a glance at a session that isn't there")
+	}
+
+	// the line itself: the last one that isn't blank, its end when it is long, never half a rune
+	for _, c := range []struct{ in, want string }{
+		{"", ""}, {"\n \n", ""}, {"one\ntwo\n\n", "two"}, {"  padded  ", "padded"},
+		{strings.Repeat("a", lastLineMax+50) + "é", "…" + strings.Repeat("a", lastLineMax-2) + "é"},
+		{"ok\xff\xfe", "ok"},
+	} {
+		if got := lastLine([]byte(c.in)); got != c.want {
+			t.Errorf("lastLine(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	// a failure says why, in place of what the agent wrote
+	st := &agentState{}
+	st.noteSaid(agent.Event{Type: agent.EvMessageDelta, Data: json.RawMessage(`{"role":"agent","text":"working on it"}`)})
+	st.noteSaid(agent.Event{Type: agent.EvMessageDelta, Data: json.RawMessage(`{"role":"agent","text":"a subagent's","parent":"t1"}`)})
+	if got := lastLine(st.said); got != "working on it" {
+		t.Fatalf("with a subagent's text: %q", got)
+	}
+	st.noteSaid(agent.Event{Type: agent.EvStatus, Data: json.RawMessage(`{"status":"error","detail":"the agent exited: signal: killed"}`)})
+	if got := lastLine(st.said); got != "the agent exited: signal: killed" {
+		t.Fatalf("after a failure: %q", got)
+	}
+	st.noteSaid(agent.Event{Type: agent.EvMessageDelta, Data: json.RawMessage(`{"role":"agent","text":"` + strings.Repeat("x", 3*saidKeep) + `"}`)})
+	if len(st.said) > 2*saidKeep {
+		t.Fatalf("the kept tail is %d bytes", len(st.said))
+	}
+}

@@ -374,6 +374,12 @@ func (b *Broker) edgeTile(target string) string {
 // use) on to, or a granted use of one of to's per-partition resources.
 // Asked through resolveTarget, the single evaluation point.
 func (b *Broker) edgeGranted(from, to string) bool {
+	if auth.HoldsDelegation(from) && from != to {
+		// a person's workspace agent reaches their partition of every tile
+		// they can read, with no grant (delegation.go): the edge is an
+		// approved one, so the person is asked for it like any other
+		return true
+	}
 	dep := b.primaryOf(from)
 	if b.resolveTarget(from, dep, to).Deny == nil {
 		return true
@@ -436,6 +442,13 @@ func (b *Broker) partitionGrantWarning(from, target string) string {
 	if x == "" || x == from {
 		return ""
 	}
+	return b.partitionEdgeWarning(from, x)
+}
+
+// partitionEdgeWarning is partitionGrantWarning's sentence for from and x,
+// two tiles that both keep each person's data apart (a plan says it of a
+// tile that is still to be made: plan.go).
+func (b *Broker) partitionEdgeWarning(from, x string) string {
 	who := "every person who can read " + x
 	if b.Policies().PartitionConsent {
 		who = "every person who allows it"
@@ -527,6 +540,11 @@ func (b *Broker) apiConsentsAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	from, to, ok := consentBody(r)
+	// no tile reaches a person's partition of a sealed component, with or
+	// without their consent, and a sealed component asks for none
+	if sealedRefused(w, cmp.Or(sealedNone(to, sealedNoReach), sealedNone(from, sealedNoReach))) {
+		return
+	}
 	switch {
 	case !ok:
 		server.WriteError(w, http.StatusBadRequest, "need {from, to}: two different tile paths", consentsDocs)
@@ -587,6 +605,9 @@ func (b *Broker) apiConsentsRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	from, to, ok := consentBody(r)
+	if sealedRefused(w, cmp.Or(sealedNone(to, sealedNoReach), sealedNone(from, sealedNoReach))) {
+		return
+	}
 	if !ok {
 		server.WriteError(w, http.StatusBadRequest, "need {from, to}: two different tile paths", consentsDocs)
 		return

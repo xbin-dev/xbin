@@ -52,6 +52,17 @@ final class NativeTileRuntime: NSObject {
     /// A deep link that arrived before the tile's first tree (D189): sent
     /// with `xbn.navigate` once the runtime is up.
     @ObservationIgnored private var pendingNavigate: String?
+    /// This runtime is the person's workspace agent's (D233): its caps list
+    /// the `agent` feature, so its view may ask the app's chrome to show
+    /// something by id (``AgentBridge``) and hears what it was opened about.
+    let isAgent: Bool
+    /// The agent's container while it shows this runtime (AgentTileView):
+    /// what answers the view's asks and draws its `request` and `session`
+    /// nodes. Without one — the runtime isn't on screen as the agent — an
+    /// ask shows nothing and those nodes stay inert placeholders.
+    @ObservationIgnored var agentHost: AgentHost?
+    /// What the chrome told the view before its first tree.
+    @ObservationIgnored private var pendingAgentMessage: JSONValue?
 
     /// How long after the tile's first mount a runtime that sent no widget
     /// counts as one without (its cards then stay standard for a day).
@@ -72,6 +83,10 @@ final class NativeTileRuntime: NSObject {
         // The screen's width class until a screen shows the tile and says
         // (setWidth): a phone's is compact, an iPad's regular at full width.
         caps.width = UIDevice.current.userInterfaceIdiom == .phone ? .compact : .regular
+        // Only the component xbind names as this person's agent — never a
+        // tile that says so about itself.
+        isAgent = workspace.agent.isHolder(tile.path)
+        if isAgent { caps = caps.withAgent() }
         self.caps = caps
         Self.install(RuntimeScript.startScripts(caps: caps, state: saved), in: config.userContentController)
         config.preferences.inactiveSchedulingPolicy = .none
@@ -183,6 +198,13 @@ final class NativeTileRuntime: NSObject {
         if lifecycle.phase == .live { call(.navigate(fragment)) } else { pendingNavigate = fragment }
     }
 
+    /// The chrome tells the agent's view something (`xbn.agent`: what it
+    /// was opened about); before the first tree it waits for the runtime.
+    func tellAgent(_ msg: JSONValue) {
+        guard isAgent, !stopped else { return }
+        if lifecycle.phase == .live { call(.agent(msg)) } else { pendingAgentMessage = msg }
+    }
+
     func setVisible(_ on: Bool) {
         #if DEBUG
         NSLog("xbin-nav runtime %@ visible %@ (was %@)", tile.path, String(on), String(describing: visible))
@@ -221,6 +243,10 @@ final class NativeTileRuntime: NSObject {
             if let f = pendingNavigate {
                 pendingNavigate = nil
                 call(.navigate(f))
+            }
+            if let m = pendingAgentMessage {
+                pendingAgentMessage = nil
+                call(.agent(m))
             }
         case .meta:
             title = store.meta.title
@@ -279,7 +305,42 @@ final class NativeTileRuntime: NSObject {
         return XbinServices(copy: copy, imageData: imageData)
     }
 
+    /// `xbin.native.agent(msg)`: the view asks the chrome to show something
+    /// by id. Only the person's agent may ask (any other tile is refused),
+    /// only ids and a word are read (AgentBridge), and what is then shown
+    /// comes from xbind — nothing here decides or approves anything.
+    private func performAgent(_ c: BridgeCall) {
+        switch decideAgent(c.agentMessage ?? .null) {
+        case .refuse(let why):
+            call(.resolve(id: c.id, value: .null, error: why))
+        case let action:
+            let shown = agentHost?.ask(action) ?? false
+            call(.resolve(id: c.id, value: .bool(shown)))
+        }
+    }
+
+    /// What a message of the view asks for — by the one rule (AgentBridge),
+    /// against the component xbind names as this person's agent.
+    private func decideAgent(_ msg: JSONValue) -> AgentBridge.Action {
+        let holder = workspace.agent.holderPath
+        return AgentBridge.decide(msg, tile: tile.path, holder: holder.isEmpty ? nil : holder)
+    }
+
+    #if DEBUG
+    /// A Debug build's UI tests: `msg` as if this runtime's view had sent it
+    /// with `xbin.native.agent` — through the same decision and the same
+    /// host (`-XbinAgentDebugAsk`, AgentTileView). Whether anything was shown.
+    @discardableResult
+    func debugAgentAsk(_ msg: JSONValue) -> Bool {
+        switch decideAgent(msg) {
+        case .refuse: return false
+        case let action: return agentHost?.ask(action) ?? false
+        }
+    }
+    #endif
+
     private func perform(_ c: BridgeCall) {
+        if c.what == BridgeCall.agentWhat { performAgent(c); return }
         switch NativeCallAction.decide(c, canOpenLinks: tile.canOpenLinks) {
         case .copy(let text):
             UIPasteboard.general.string = text
@@ -352,7 +413,11 @@ final class NativeTileRuntime: NSObject {
             return r.body
         }
         let copy: @MainActor (String) -> Void = { UIPasteboard.general.string = $0 }
-        return hatches.services(copy: copy, openLink: openLink, imageData: imageData)
+        var s = hatches.services(copy: copy, openLink: openLink, imageData: imageData)
+        // `request` and `session` nodes are the app's to draw, from xbind's
+        // reading of the id — and only in the agent's own container.
+        if isAgent, let host = agentHost { s.trustedNode = host.node }
+        return s
     }
 
     /// A link the tile may open (cap:open-links): http(s) and mailto only.

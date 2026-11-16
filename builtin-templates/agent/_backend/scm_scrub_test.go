@@ -545,6 +545,13 @@ func TestSigninStateStartsNothing(t *testing.T) {
 		t.Fatal("the started sign-in isn't kept for the gate")
 	}
 	poll := "/projects/scm/signin/" + st.Signin.PollID
+	// a preview of her page (D234) reads the state: the provider isn't polled
+	if w = callAs(t, mux, asPreview, "GET", poll, nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"pending"`) {
+		t.Fatalf("a preview's poll: %d %s", w.Code, w.Body)
+	}
+	if n := len(fx.scm.Requests("GET /signin/" + st.Signin.PollID)); n != 0 {
+		t.Fatalf("a preview polled the provider %d time(s)", n)
+	}
 	if w = callAs(t, mux, asAlice, "GET", poll, nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"pending"`) {
 		t.Fatalf("poll: %d %s", w.Code, w.Body)
 	}

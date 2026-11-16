@@ -11,7 +11,7 @@
  * would show, `beside` whether a panel (the side list or the logs dock)
  * shows beside the sessions — and `ide` drives the panes, tabs and tools.
  */
-import { launcherItems, openHistory, resumeHistory } from '/vendor/frame-launcher.js';
+import { launcherItems, openHistory, resumeHistory, notOffered } from '/vendor/frame-launcher.js';
 import { deployTestApi, hasLayout } from '/vendor/frame-deploy.js';
 import { legacyOf } from '/vendor/frame-ide.js';
 import { ideLayout, ideTestApi } from '/vendor/frame-ide-view.js';
@@ -44,7 +44,7 @@ export function testApi(f) {
     setPop(box) { f._setPopBox(box); f.requestUpdate(); f._popChanged(); },
     popElement: () => f.renderRoot.querySelector('.pop'),
     focusTerminal() { elOf(f, 'bx-terminal', f._sessions[f._active])?.shadowRoot?.querySelector('textarea')?.focus(); },
-    get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, deployment: s.deployment || '', gpu: s.gpu, vm: !!s.vm, run: s.run || null })); },
+    get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, deployment: s.deployment || '', gpu: s.gpu, vm: !!s.vm, run: s.run || null, origin: s.origin || '' })); },
     get history() { return f._history || []; }, openHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) openHistory(f, r); }, resumeHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) resumeHistory(f, r); },
     get activeTab() { return f._active; }, // the session in view (the status bar's)
     setActiveTab(i) { f._setActive(i | 0); },
@@ -55,6 +55,8 @@ export function testApi(f) {
     newTerm() { f._newTerm(); },
     newAgent() { f._newAgent(); },
     startKind(kind, provider, opts) { f._startKind(kind, provider, opts || {}); }, // launcher path (a provider eager-creates)
+    get handoff() { return f._handoff ? { draft: f._handoff.draft } : null; }, // a new session's launcher asked for: open({session: "new", draft})
+    get notOffered() { return notOffered(f.src).map((p) => ({ id: p.id, why: p.unavailable })); }, // the harnesses the tile's rules keep out, and why (D229)
     launcherItems() { return launcherItems(f).map((it) => it.label || it.kind || (it.kind === 'sep' ? '—' : '')); },
     closeTab(i) { f._closeTerm(i | 0); },
     get dialog() { return f._dialog?.spec ?? null; },

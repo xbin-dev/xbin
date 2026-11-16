@@ -138,7 +138,7 @@ func handleListMemberships(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
 	for _, m := range ms {
-		if m.State != projActive {
+		if m.State != projActive || previewCall(r) { // a preview's read applies no definition (D234): the rows as stored
 			continue
 		}
 		wg.Add(1)
@@ -422,7 +422,7 @@ func handleMembershipPending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ag := projAg()
-	if m.State == projActive {
+	if m.State == projActive && !previewCall(r) { // (a preview's read applies no definition, D234)
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		if _, err := ag.teamSync(ctx, m.ID, false); err != nil && err != errTeamGone {
 			logf("project %d: re-reading its team project: %v", m.ID, err)

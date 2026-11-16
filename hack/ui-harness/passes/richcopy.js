@@ -109,9 +109,19 @@ async function richCopy(browser) {
   await shot(page, `richcopy-agent-${THEME}`, { fullPage: false });
   await clearClip(page);
   const msg = ag.locator('#timeline .msg.assistant:not(.live)', { hasText: 'second step' }).last();
-  await msg.hover();
-  await msg.locator('.acts .act').click();
-  await ag.waitForFunction(() => document.querySelector('#timeline .msg.assistant .acts .act.done'), null, { timeout: 5000 }).catch(() => {});
+  // the kit shows Copy while the pointer is on its message, or while it has
+  // the focus (css.js): pointed at, then focused and pressed — a click moves
+  // the frame into view first, the pointer is then off the message and Copy
+  // gone again
+  const copyBtn = msg.locator('.bxc-acts .bxc-act');
+  for (let i = 0; i < 40 && !(await copyBtn.isVisible()); i++) {
+    await page.mouse.move(0, 0);
+    await msg.locator('.bxc-msg').hover();
+    await sleep(100);
+  }
+  await copyBtn.focus();
+  await page.keyboard.press('Enter');
+  await ag.waitForFunction(() => document.querySelector('#timeline .msg.assistant .bxc-acts .bxc-act.done'), null, { timeout: 5000 }).catch(() => {});
   c = await clipboard(page);
   check(c.text.startsWith('The plan:') && c.text.includes('1. **first** step'), `Copy: the markdown as text (${JSON.stringify(c.text.slice(0, 60))})`);
   check(/<ol>/.test(c.html) && /<table>/.test(c.html) && /<pre><code>func main/.test(c.html), `…and its rendering as HTML (${c.html.slice(0, 200)})`);

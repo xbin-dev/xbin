@@ -8,6 +8,12 @@
   //              /metrics endpoint and renders the parsed series live.
   //
   // Binding is also the call grant, so no separate `uses` is needed.
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): read — a pure frontend: there is nothing here for an agent
+  // to change.
+  "agent": "read",
+
   "interfaces": {
     "sources": { "kind": "http", "service": "prometheus", "multi": true }
   }

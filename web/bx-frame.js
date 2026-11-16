@@ -73,7 +73,7 @@ import '/vendor/bx-deploy.js';
 import { deepActive, clampBox, dragWindow, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid, visibleRows } from '/vendor/term-sessions.js';
 import { titlebar, titlebarCss } from '/vendor/frame-titlebar.js';
-import { agentProviders, rememberKind, launcherItems, launcherCss, loadEnvStatus, loadTileState, restartAgent, wantVM } from '/vendor/frame-launcher.js';
+import { agentProviders, reloadProviders, rememberKind, launcherItems, launcherCss, loadEnvStatus, loadTileState, restartAgent, wantVM, openSession, openNew, askOpenSession } from '/vendor/frame-launcher.js';
 import { emptyIde } from '/vendor/frame-ide.js';
 import { ideBody, ideCss, ideSync, ideRestore, idePref, ideHasTabs, ideLayout, openLayout, revealTabs } from '/vendor/frame-ide-view.js';
 import { statusCss } from '/vendor/frame-status.js';
@@ -156,6 +156,7 @@ export class BxFrame extends LitElement {
     _history: { state: true }, // the tile's past agent sessions (frame-launcher.js: recent sessions, resume)
     _envOld: { state: true }, // the tile's terminal layer is on an older base (frame-launcher.js loadTileState)
     _menu: { state: true },    // an open <bx-menu>: {items, anchor, sheet}
+    _handoff: { state: true }, // a new session's launcher asked for, with the person's words: {draft} (frame-launcher.js openNew)
     // popBounds: () → a viewport rect the pop-up's top-left stays inside, or
     // null (the viewport clamps instead). The shell's canvas sets it (D66).
     popBounds: { attribute: false },
@@ -203,7 +204,7 @@ export class BxFrame extends LitElement {
     document.addEventListener('visibilitychange', this._onVisible);
     // the person's appearance changed (or the system's): the framed document follows
     this._offAppearance = onAppearance(() => this._postAppearance(), this.ownerDocument.defaultView || window);
-    this._restoreTerm();
+    this._restoring = this._restoreTerm();
     this._prepareFrame();
     deployMount(this); // the live reload state, when the tile's primary is pinned (frame-deploy.js)
   }
@@ -293,7 +294,7 @@ export class BxFrame extends LitElement {
   // open from the pref (which never went through _toggleTerm).
   _loadWindowState() {
     if (this._gpus.length === 0) gpuInventory().then((g) => { this._gpus = g; });
-    if (!this._providers) agentProviders().then((p) => { this._providers = p; });
+    if (!this._providers) agentProviders(this.src).then((p) => { this._providers = p; });
     loadTileState(this);
     this._loadPRCount();
   }
@@ -414,6 +415,7 @@ export class BxFrame extends LitElement {
   _event(e) {
     if (e.type === 'deployments') return onDeployEvent(this, e); // every one: a frame of <tile>+<name> hears its tile's (frame-deploy.js)
     if (e.type === 'workspace-settings') return loadEnvStatus(this); // base auto-update on/off: what the chooser says (D175)
+    if (e.type === 'agents') return reloadProviders(this); // the harnesses this tile's orgs allow changed (D229)
     if (!e.component) return;
     if (onBuildEvent(this, e)) return; // build-start, backend-starting, build-ok/error (D196, frame-build.js)
     const mine = e.component === this.src || e.component.startsWith(this.src + '/');
@@ -633,6 +635,8 @@ export class BxFrame extends LitElement {
       this.dispatchEvent(new CustomEvent('bx-open-deployments', {
         bubbles: true, composed: true, detail: { from: this.src, tile },
       }));
+    } else if (d.type === 'xbin:open-session') { // xbin.openSession: one of the viewer's sessions, in its tile's window (D229, frame-launcher.js)
+      askOpenSession(this, d, (ok) => this._iframe?.contentWindow?.postMessage({ type: 'xbin:reply', id: d.id, result: !!ok }, this._frame?.origin || '*'));
     }
   }
 
@@ -668,12 +672,19 @@ export class BxFrame extends LitElement {
   // tile menu asks for: 'term' (the session in view) | 'code' or 'split'
   // (the Files list) | 'logs' (the dock) | 'prs' (the proposals, the newest
   // open one in a tab) | 'deployments' (its tab) — omit to keep the window
-  // as it is (frame-ide-view.js openLayout).
+  // as it is (frame-ide-view.js openLayout). open({session, layout?}) shows
+  // one of the viewer's sessions on this tile — its tab, or its transcript
+  // once it has ended — and resolves whether it was found (D229).
+  // open({session: "new", draft?}) shows a new session's launcher with the
+  // person's words to go in its composer, unsent (openNew; resolves true).
   open(layout) {
+    const want = layout && typeof layout === 'object' ? layout : { layout };
     if (!this._termOpen) this._toggleTerm();
     else this.fitToViewport(); // already open: make sure it can be seen
-    if (layout) openLayout(this, layout);
+    if (want.layout) openLayout(this, want.layout);
     this.updateComplete.then(() => this._front());
+    if (want.session === 'new') return openNew(this, want.draft);
+    if (want.session) return openSession(this, want.session).then((ok) => { if (ok) openLayout(this, 'term'); return ok; });
   }
 
   // fitToViewport pulls an open pop-up back to a reachable spot (a resize, the
@@ -748,14 +759,14 @@ export class BxFrame extends LitElement {
     rememberKind(provider ? { kind, provider } : { kind });
     const tab = { key: uid(), ref: uid(), id: null, kind, name: '', vm: opts.vm ?? wantVM(this) };
     if (kind === 'shell') { tab.net = null; tab.gpu = 'none'; if (opts.run) tab.run = opts.run; }
-    else tab.provider = provider;
+    else { tab.provider = provider; if (opts.draft) tab.draft = opts.draft; } // draft: the composer's first words, unsent (openNew)
     this._sessions = [...this._sessions, tab]; // a tab in the focused pane (ideSync)
     this._setActive(this._sessions.length - 1);
   }
 
   // open the + menu anchored under the button
   _openLauncher(e) {
-    if (!this._providers) agentProviders().then((p) => { this._providers = p; });
+    if (!this._providers) agentProviders(this.src).then((p) => { this._providers = p; });
     this._menu = { items: launcherItems(this), anchor: e.currentTarget.getBoundingClientRect(), sheet: SHEET.matches };
   }
 
@@ -829,7 +840,7 @@ export class BxFrame extends LitElement {
     // The one-shot `run` (a sign-in) is spent: bx-terminal typed it before
     // it said so, and a new element for this tab (the window reopened)
     // must not type it into the live shell again.
-    const { run, ...cur } = s[i];
+    const { run, draft, ...cur } = s[i]; // (a draft, too: its <bx-agent> holds it now)
     // The server reports the EFFECTIVE scope plus the scopes this user may
     // pick on this tile — the select renders exactly that list (D54).
     s[i] = { ...cur, id: d.id, kind: d.kind || cur.kind || 'shell', name: cur.name || d.name || '',

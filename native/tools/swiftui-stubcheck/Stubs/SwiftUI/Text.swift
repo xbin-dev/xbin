@@ -22,6 +22,13 @@ public struct Text: Equatable, Sendable {
     public struct LineStyle: Sendable, Hashable { public static let single = LineStyle() }
 }
 
+// SwiftUI's attributes of an AttributedString run (AttributeScopes.SwiftUIAttributes), as the views set them
+extension AttributedString {
+    public var font: Font? { get { nil } set {} }
+    public var foregroundColor: Color? { get { nil } set {} }
+    public var backgroundColor: Color? { get { nil } set {} }
+}
+
 public struct Font: Sendable, Hashable {
     public static let largeTitle = Font(), title = Font(), title2 = Font(), title3 = Font(), headline = Font(), body = Font(),
         callout = Font(), subheadline = Font(), footnote = Font(), caption = Font(), caption2 = Font()

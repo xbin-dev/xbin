@@ -1,0 +1,339 @@
+# Protocol: sealed components
+
+Part of the [protocol reference](/docs/protocol.md), which holds the
+conventions every route shares (authentication, tokens, headers) and the
+index of these topic pages. This page:
+the routes of sealed components — what people see called **system
+components** — and what every other route answers when it is asked about
+one. What they are and how an admin manages them:
+[sealed.md](/docs/sealed.md).
+
+"Sealed" here means the component's code is fixed by the xbin release. It
+is unrelated to the vault's sealed state ([auth.md](/docs/auth.md)).
+
+Rows are paths below `/api/xbin/`; the words before the first full stop
+of a row say who may call it.
+
+## Addresses
+
+A sealed component lives at the path `xbin/<name>`. Nothing in a workspace
+can hold or create a component there: `xbin` is a reserved top-level name.
+
+```
+GET    /c/xbin/<name>/[file]       its frontend, from the release's own files
+                                   (the document injection of every tile page
+                                   applies). Read access on xbin/<name>, as
+                                   for a tile; a workspace directory at
+                                   <workspace>/xbin/… is never served.
+ANY    /api/xbin/<name>/<p>        its backend, as /api/<tile>/<p> is a
+                                   tile's. No route of xbind's own begins
+                                   with a sealed component's name: xbind
+                                   refuses to start otherwise.
+```
+
+**One release on both sides.** A sealed component's page and backend are
+one release's, and a page can outlive the xbind that served it. So:
+
+- every document of a sealed component carries
+  `<meta name="xbin-code" content="<id>">`: the id of its code (the first
+  24 hex digits of the digest `GET /sealed` reports). No other document
+  has it;
+- the injected client names it on each call to the component's own API:
+  the `X-XBin-Code` request header on `xbin.fetch`, the `xbin-code` query
+  parameter on what `xbin.ws` and `xbin.url` build. xbind consumes the
+  parameter; the backend never sees it;
+- a call from the component's own page (its frame token) that names
+  another id than the running release's is answered `409` with the header
+  `X-XBin-Reload: <the current id>` (and the usual JSON error) without
+  reaching the backend, and a `reload` event for the component goes to
+  that person's own `/ws/events` sockets, at most once a second. A frame
+  reloads on that event as it does when a tile is saved; a page that is
+  nobody's frame reloads itself on the answer;
+- a call that names no id, or comes from anything but the component's own
+  page (a script, `bx`, an admin's request, another tile), is not checked:
+  the id it names is ignored.
+
+**Its page's credential is a viewer's.** The frame token of a sealed
+component (and, with `--tile-assets=origins`, the cookie of its own
+origin) authenticates a principal that may send exactly:
+
+```
+ANY    /api/xbin/<name>/…          its own backend (which sees the viewer)
+GET    /c/xbin/<name>/…            its own page's files
+GET    /api/xbin/frame-token       its own renewal (?component=xbin/<name>)
+GET    /api/xbin/whoami
+       /ws/events                  reload and status events; a bus
+                                   subscription there is refused
+```
+
+Two additions come from a component's row in the release's table, never
+from a workspace: reads the row names for its page (exact paths under
+`/api/xbin/`, `GET`/`HEAD` only — the workspace agent's page reads
+`/api/xbin/agents/connection`), and, for a component that holds delegation
+(D228), the delegation API `/api/xbin/delegate/…`, whose routes take the
+page only as its signed-in person's own.
+
+A view-as session (an admin looking as someone) is refused all of it:
+`403` on the component's page, its backend and a token of it.
+
+Everything else answers `403` with "`xbin/<name>` is a system component,
+managed by xbin: its page reaches its own backend only; what it holds is
+its backend's to use" — every other `/api/xbin` route, another tile's API,
+another tile's files, a terminal. The rule is on the credential, not on a
+request's parameters. A tile's frame token is unchanged: it carries the
+tile's authority, as before. Only the instance credential xbind gives a
+sealed component's backend acts as the component.
+
+People reach its backend the way they reach a tile's: from its own page,
+with the frame token a reader of it gets. **Nothing else calls into it.** It
+exposes no roles, provides no interface and publishes no endpoint, so no
+grant, binding or ingress route names it as a target, and a tile's backend,
+frame or terminal calling `/api/xbin/<name>/…` is answered 403.
+
+**One spelling.** A sealed component's path is written `xbin/<name>`,
+everywhere: in a URL's path, a query parameter, a JSON field, a map key.
+Another spelling that means the same place — a leading, trailing or
+doubled slash, `./`, `a/../` — is refused with `400` ("write a system
+component's path as xbin/<name> …") on every route; `/api//xbin/<name>/…`
+is not an address of its backend. A path that differs in case,
+percent-escapes or look-alike characters is another path and names no
+component. `GET /frame-token` answers `404` for a path under `xbin/` (or
+another of xbind's own names) that is no registered component, and a cron job or bus subscription is registered
+only for a component's path as xbind stores it.
+
+## The admins' read
+
+```
+GET    /sealed                     admin. {release, components: [Row]} — the
+                                   sealed components of this xbind. Row:
+                                   {path, name, title, runtime, digest,
+                                   build?, state, hold?, backend?, partition,
+                                   partitioned, dataFormat, stamp?, slots,
+                                   grants, delegate?}
+                                   digest: the short digest of the code this
+                                   release runs for it; it changes exactly
+                                   when an upgrade changes the code.
+                                   build: release (the install's prebuilt
+                                   backend) | development (a development
+                                   xbind compiles it) | none (held).
+                                   state: enabled | disabled | hidden.
+                                   hold: {code, reason} while it can't run —
+                                     no-build         the install has no
+                                                      build of its backend
+                                     foreign-data     data it didn't write
+                                                      sits at its data key
+                                     newer-data       its data is in a
+                                                      format newer than this
+                                                      release reads
+                                     stamp            its data stamp can't
+                                                      be read or written
+                                     needs-sandboxes  it keeps people's
+                                                      data apart and xbind
+                                                      runs without --isolate
+                                   A held component's API answers 502 with
+                                   the reason; nothing of it starts.
+                                   backend: idle | building | starting |
+                                   healthy | failed.
+                                   partition: its partition mode ([] = one
+                                   instance); partitioned: whether people's
+                                   partitions run in this xbind.
+                                   dataFormat: the data format this release
+                                   reads and writes; stamp {data, release,
+                                   digest, at}: what its data was last
+                                   written as, and by which release.
+                                   slots: [{slot, kind, service?, multi?,
+                                   bound: [ref], default?, byDefault?}] —
+                                   the interface slots an admin may bind.
+                                   default: the builtin provider the release
+                                   binds the slot to while no admin has
+                                   bound it and the provider is available
+                                   (xbin:llm: the connector is configured);
+                                   byDefault: that is what binds it now. grants: [{target, role}]
+                                   — what the release grants it. delegate:
+                                   it may act for the person whose partition
+                                   it is.
+```
+
+`/xbin/system` ([core.md](/docs/protocol/core.md)) is the page that shows
+this, and `bx system` the command.
+
+## Listings: `?sealed=1`
+
+A shell, an admin console or an app written before sealed components would
+offer a terminal, the source and deployments on such a row. So the listings
+below leave sealed components out unless the caller asks with `?sealed=1`,
+and mark a row `sealed: true` where the row has the field:
+
+```
+GET    /components?sealed=1        + rows {path: "xbin/<name>", sealed: true,
+                                   …} the caller may read
+GET    /auth-overview?sealed=1     + their rows, and the release's grants to
+                                   them (approvedBy "xbin")
+GET    /grants?sealed=1            + the release's grants to them
+GET    /backends?sealed=1          + their backends
+GET    /runtime?sealed=1           + their backends, stats and resources
+GET    /access-matrix?sealed=1     + their column
+GET    /resources?sealed=1         + their resources
+GET    /cron/jobs?sealed=1         + their jobs (a component always lists
+GET    /bus/subscriptions?sealed=1   its own)
+```
+
+`GET /components/xbin/<name>` answers one row without the switch. `GET
+/vaults` never lists a sealed component's secrets, and `GET /tile-assets`
+reports one only when it is named.
+
+## What an admin may change
+
+Four things, each with the route a tile has:
+
+```
+PUT    /access                     {tile: "xbin/<name>", kind, id, level} —
+                                   level read, none or "" (remove). write and
+                                   terminal don't exist on a sealed
+                                   component: 400, here and on every route
+                                   that writes entries — POST /users and
+                                   PATCH /users/<id> (tiles), PUT /defaults
+                                   (defaultTiles, newUsers.tiles). Only an
+                                   entry that names it gives read: a
+                                   pattern ("*", "xbin/*") is kept and
+                                   gives nothing there.
+POST   /access-requests            a person asks for read (400 for more);
+POST   /access-requests/approve    an admin approves at read.
+POST   /lifecycle                  {component, state} — enabled, disabled or
+                                   hidden. offloaded, offloaded-full: 400.
+POST   /limits                     as for a tile (docs/isolation.md).
+DELETE /limits
+POST   /partitions/limits
+POST   /bindings                   {component: "xbin/<name>", slot, provider}
+DELETE /bindings                   — a slot the release declares for it
+                                   (GET /sealed slots), to the slot's
+                                   default provider or one the release
+                                   names for it. Any other slot (pseudo-
+                                   slots such as @archive included) or
+                                   provider: 400 with the reason.
+                                   A slot with a default: a binding replaces
+                                   the default; an unbind is kept (the slot's
+                                   entry in xbin.json is then []), so the
+                                   default doesn't return until the default
+                                   provider is bound by name. GET /bindings
+                                   shows a default binding like any other;
+                                   it is never written to xbin.json.
+```
+
+Backups are data only (the code is the release's):
+
+```
+POST   /backup                     {component: "xbin/<name>"} — its scope's
+                                   data, through the workspace's archiver
+                                   (the "*" @archive binding). The manifest
+                                   has no source and no terminal layer, and
+                                   carries sealedData: the data format the
+                                   data was in.
+POST   /backup                     … only as a sealed (encrypted) archive:
+                                   in a workspace without a vault barrier
+                                   nothing of it is archived (an error says
+                                   so).
+POST   /restore                    its data back, from an archive xbind
+                                   sealed: encrypted under a backup key this
+                                   workspace created for that archive (never
+                                   one from an imported key bundle) and
+                                   authenticated end to end, its manifest
+                                   naming this component. 409 for a plain archive, for
+                                   one carrying a deployment record, and
+                                   while the component is held for its data.
+                                   502 when the archive's sealedData is
+                                   above what this release reads: install
+                                   the release that wrote it, or a later
+                                   one. An older format is restored; the
+                                   backend migrates it forward at its next
+                                   start. With file (one file read out of
+                                   the archive): 400 — its data is the
+                                   component's alone to read.
+POST   /partitions/restore         the same check, for a person's partition.
+POST   /backup-schedule            as for a tile.
+```
+
+People's partitions of a partitioned sealed component are listed, stopped,
+reset, purged, backed up and restored as a partitioned tile's
+([partitions.md](/docs/protocol/partitions.md)).
+
+## What is refused
+
+Every route that names a tile gets one of these answers for a path under
+`xbin/` (and for `res:xbin/…`), whoever asks — admins and the root token
+included. The body is `{"error": "<path> is a system component, managed by
+xbin: <why>", "docs": "/docs/sealed.md"}`.
+
+**400 — the operation doesn't exist for a sealed component:**
+
+| Routes | Why |
+|---|---|
+| `GET /code/tree`, `/code/file`, `/git/log`, `/git/diff`, `/git/activity` | it has no source to read: its code is the xbin release's |
+| `GET|POST /code/prs`, `GET /code/pr`, `/code/pr/series`, `POST /code/pr/comment`, `/code/pr/state` | it takes no change proposals |
+| every `/deployments…` route (`tile`), `GET /checkpoints/…` | it has no deployments and no checkpoints: it always runs the release's code |
+| `POST /clone` (`from`, `to`), `/create`, `/builtins/import`, `/git/import`, `/templates/new` (`path`, `source`) | it can't be cloned, and nothing is created under `xbin/` |
+| `POST /builtins/update` | it is updated with xbin itself |
+| `PUT /chrome` | what it is trusted with is fixed by the release |
+| `POST|DELETE /grants` (`from` or `target`, its resources included) | its grants are fixed by the release, and nothing is granted a call into it or its resources |
+| `POST|DELETE /bindings` (`provider`, `providers`) | it is never the provider of a binding |
+| `POST /owner`, `GET /owner/preview` | it has no owner: workspace admins manage it |
+| `PUT /iface-instances`, `/ingress-hosts` | it provides no interface and publishes no endpoint |
+| `POST /partitions/mode`, `/partitions/reviewed` | its partition mode and its code are the release's |
+| `POST|DELETE /partitions/consents` (`to`) | no tile reaches people's partitions of it |
+| `POST /term/sessions` (`cwd`), `GET /term-net` | it has no terminal and no agent sessions |
+| `POST /sandboxes`, `DELETE /sandboxes/{name}`, `POST /sandboxes/{name}/stop` (`tile`) | it runs no tile sandboxes |
+| `POST /go-build-versions/dismiss` | it is built by the release |
+| `POST /preview` (`tile`) | it is not previewed: its page is each person's own to open, and no render shows it (a screen it sits on is drawn without it) |
+
+`/ws/term?cwd=xbin/<name>` answers 403 with the same text.
+
+**403 — only the component's backend passes** (its instance credential;
+not an admin, not the root token, not its own page):
+
+| Routes | Why |
+|---|---|
+| `GET|PUT|DELETE /kv/res:xbin/…`, `/blob/res:xbin/…` | only it reads and writes its own resources |
+| `GET|PUT|DELETE /vault/xbin/…` | only it reads and writes its own secrets |
+| `POST /bus/publish` (`resource`) | only it publishes on its own bus |
+| `PUT /bus/subscriptions`, `/cron/jobs`, `DELETE /bus/subscriptions/{name}`, `/cron/jobs/{name}` | only it registers its own deliveries |
+| `POST /tile-report` (`component`) | only it reports its own status |
+
+**Where the refusal comes from.** Each of these is refused by the code
+that would do the work, on the value it acts on. Earlier, a table of every
+route answers the same text from the request's parameters, so a mistaken
+caller gets the reason at once; that early answer also refuses a JSON body
+that gives one of the names it reads twice (`400`, "the request body names
+`<field>` twice").
+
+`GET /logs?component=xbin/<name>` is the component's own and the admins'
+(403 for anyone else, readers included).
+
+A workspace `xbin.json` that names a sealed component in a grant (as
+`from` or `target`, `res:` and `code:` targets included), binds a slot the
+release doesn't declare for it or to a provider the release doesn't name,
+names it as a provider, or gives it interface instances or ingress hosts,
+is read as if those entries weren't there. The file is never rewritten for
+it, and xbind never writes such an entry. The workspace's `importMap`
+doesn't apply to a sealed component's documents: they get xbind's own map
+and the component's.
+
+## The release's builds
+
+`bin/sealed/` beside xbind holds one backend per Go component,
+`<name>-<24 hex digits of its source digest>`, and `sealed.json`:
+
+```
+{"schema": 1, "builds": {"<file name>": {
+   "component": "xbin/<name>", "source": "<its source digest>",
+   "sha256": "<of the file>", "size": <bytes>,
+   "sdk": "<digest of the SDK tree it was built against>",
+   "go": "<go version>", "os": "linux", "arch": "amd64"}}}
+```
+
+xbind runs a backend only when the file is listed for this source and has
+that SHA-256, checked at boot and before every start; otherwise the
+component is held (`no-build`, the reason says which). `xbind sealed-build`
+writes the directory; `--check --out <dir> --sdk <dir> [--os --arch]`
+verifies it — every file as listed, built against that SDK, for that
+target and by the go version of the toolchain at hand (the release
+pipeline's gate).

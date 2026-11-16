@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 // The public-path allowlist is THE security boundary for anonymous traffic
@@ -231,12 +233,9 @@ func TestStreamsListenErrorSurfaces(t *testing.T) {
 	}
 }
 
+// freePort is a loopback port that is the test's until it ends (a lease
+// among the harnesses: test/portlease).
 func freePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
+	return portlease.Port(t)
 }

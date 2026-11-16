@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/sealed"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -167,7 +168,7 @@ func TestTileDeploymentsSwitch(t *testing.T) {
 	}{{"", false}, {"on", false}, {"off", true}} {
 		ws := zsWorkspace(t)
 		cfg := &Config{Workspace: ws, Listen: "127.0.0.1:0", InsecureVault: true, TileDeploys: c.value,
-			Privileges: NoPrivileges{}, Version: "test", LimitMem: "2G"}
+			Privileges: NoPrivileges{}, Version: "test", LimitMem: "2G", Sealed: []sealed.Spec{}}
 		d, err := cfg.Validate()
 		if err != nil {
 			t.Fatal(err)

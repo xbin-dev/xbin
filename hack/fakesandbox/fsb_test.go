@@ -24,7 +24,12 @@ import (
 // for (a Target's Fresh, too).
 func fakeTarget(t *testing.T, k sandboxcontract.Knobs) sandboxcontract.Target {
 	t.Helper()
-	_, tg := newFake(t, func(m *fsbManager) { m.Ring, m.FileMax, m.Caps = k.OutputRing, k.FileMax, k.Caps })
+	_, tg := newFake(t, func(m *fsbManager) {
+		m.Ring, m.FileMax, m.Caps = k.OutputRing, k.FileMax, k.Caps
+		if k.Caps == nil { // every capability: llm too (a sandbox created with llm: true is told this address)
+			m.LLM = "http://10.0.2.2:4180/v1"
+		}
+	})
 	return tg
 }
 
@@ -43,9 +48,21 @@ func newFake(t *testing.T, tweak ...func(*fsbManager)) (*fsbManager, sandboxcont
 func TestContract(t *testing.T) {
 	tg := fakeTarget(t, sandboxcontract.Knobs{})
 	tg.Strict = true // the reference manager passes what the suite only warns about
-	tg.Caps = []string{"exec", "files", "tar", "stdio", "snapshots", "clone", "archive", "partitions"}
+	tg.Caps = []string{"exec", "files", "tar", "stdio", "snapshots", "clone", "archive", "partitions", "llm"}
 	if fsbHasPTY() {
 		tg.Caps = append(tg.Caps, "tty")
+	}
+	sandboxcontract.Run(t, tg)
+}
+
+// TestContractNoLLM is the suite's llm section against a reference manager
+// from before the capability: it offers none, refuses the member, and its
+// sandboxes claim no connector.
+func TestContractNoLLM(t *testing.T) {
+	_, tg := newFake(t)
+	tg.Fresh, tg.Skip = nil, map[string]string{}
+	for _, s := range []string{"hello", "sandboxes", "partitions", "user-partitions", "people", "lifecycle", "run", "execs", "tty", "stdio", "files", "tar", "snapshots", "ports", "caps"} {
+		tg.Skip[s] = "TestContract runs it"
 	}
 	sandboxcontract.Run(t, tg)
 }

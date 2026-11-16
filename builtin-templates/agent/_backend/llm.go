@@ -282,6 +282,12 @@ func parseConfig(raw string) Config {
 }
 
 // --- OpenAI-compatible wire types ---------------------------------------
+//
+// The engine's own: a message, a tool call, a tool and a usage block as the
+// transcript stores them and every tool builds them, written to the chat
+// wire as they are. What an answer looks like on either wire — a chunk, a
+// body, an event, a provider's usage block — is sdk/llm's (llm_chat.go,
+// llm_responses.go).
 
 type wireMsg struct {
 	Role string `json:"role"`
@@ -611,6 +617,10 @@ type msgMeta struct {
 	Origin   string `json:"origin,omitempty"`
 	OriginID int64  `json:"originId,omitempty"`
 	Label    string `json:"label,omitempty"`
+	// Context, on a person's message in a workspace agent's session: the
+	// tile or screen they attached to it (ws_context.go). The model reads it
+	// as a labelled line before their words; the page draws it as a chip.
+	Context *msgAbout `json:"context,omitempty"`
 	// Harness, on a coding agent's rows: the call (a tool row) or the
 	// subagent call its text belongs to (an assistant row) — harness_view.go.
 	Harness *harnessMeta `json:"harness,omitempty"`

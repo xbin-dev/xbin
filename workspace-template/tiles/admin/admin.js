@@ -36,7 +36,7 @@ import './tabs/users.js';
 import './tabs/signin.js';
 import './tabs/sessions.js';
 import './tabs/runtime.js';
-import { PLAIN_TABS } from './plain-tabs.js'; // sandboxes, deployments, branding, nativeapp, settings, partitions, limits
+import { PLAIN_TABS } from './plain-tabs.js'; // sandboxes, deployments, branding, nativeapp, settings, partitions, limits, llm
 import { targetOptions, serviceOptions, WithDrafts, alertBar } from './shared.js';
 
 export class BxAdmin extends WithDrafts(LitElement) {
@@ -102,7 +102,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
       { id: 'endpoints', label: 'endpoints' },
       { id: 'expose', label: 'services / expose' },
     ] },
-    { id: 'workspace', label: 'workspace', tabs: [{ id: 'branding', label: 'branding' }, { id: 'nativeapp', label: 'xbin app' }, { id: 'settings', label: 'settings' }] },
+    { id: 'workspace', label: 'workspace', tabs: [{ id: 'branding', label: 'branding' }, { id: 'nativeapp', label: 'xbin app' }, { id: 'llm', label: 'LLM' }, { id: 'settings', label: 'settings' }] },
   ];
   static tabsFlat() { return BxAdmin.GROUPS.flatMap((g) => g.tabs); }
   // [tab, sub] the page's fragment names: #tab, or #tab/sub for a tab's

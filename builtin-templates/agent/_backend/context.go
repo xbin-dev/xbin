@@ -31,13 +31,14 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 		return nil, err
 	}
 	var sys strings.Builder
-	sys.WriteString(cfg.System)
-	sys.WriteString(taskBlock(asks)) // D133: verbatim, before anything the model wrote
+	sys.WriteString(ag.coordSystemFor(run, cfg)) // cfg.System, or a coordinator profile's as this build words it (coord_prompt.go)
+	sys.WriteString(taskBlock(asks))             // D133: verbatim, before anything the model wrote
 	// Date only (not a full timestamp) keeps the system prefix stable within a
 	// day, so prompt caching keeps hitting.
 	fmt.Fprintf(&sys, "\n\nToday's date (UTC): %s.", time.Now().UTC().Format("2006-01-02"))
 	sys.WriteString(sandboxPrompt(cfg))            // the bound sandbox; "" when none (sandbox_tools.go)
 	sys.WriteString(ag.projectPromptFor(run, cfg)) // a project's task or coordinator: # Project (project_gate.go)
+	sys.WriteString(ag.coordPromptFor(run, cfg))   // any other profile's coordinator: its block (coord_prompt.go)
 	sys.WriteString(notesBlock(mem))               // sorted: the same bytes every call
 	if cfg.feature("skills") {
 		if skills := ag.db.visibleSkills(ag.scopeOf(run, cfg)); len(skills) > 0 {
@@ -86,6 +87,11 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 		}
 		if m.Role == "user" {
 			content = contentValue(m.Content)
+			if s, ok := content.(string); ok {
+				if line := wsAboutLine(m); line != "" { // what the person attached to it (ws_context.go)
+					content = line + "\n" + s
+				}
+			}
 			if s, ok := content.(string); ok && shared {
 				if who := senderOf(m); who != "" {
 					content = "[" + who + "] " + s

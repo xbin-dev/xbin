@@ -10,7 +10,7 @@ const (
 	EvPlan               = "plan"                 // {entries:[{content, priority, status}]}
 	EvToolCall           = "tool.call"            // {id, title, kind, status, content, locations, rawInput, name?, label?, …}
 	EvToolUpdate         = "tool.update"          // {id, …partial}
-	EvPermissionRequest  = "permission.request"   // {pid, toolCall, options, rule, meta?}
+	EvPermissionRequest  = "permission.request"   // {pid, toolCall, options:[{optionId, name, kind, explicit?}], rule, meta?}
 	EvPermissionResolved = "permission.resolved"  // {pid, optionId, by}
 	EvElicitRequest      = "elicitation.request"  // {eid, toolCallId?, message, schema, mode?, url?, elicitationId?}
 	EvElicitResolved     = "elicitation.resolved" // {eid, action, by, content?} — action "complete" (by "agent"): a url one's elicitation/complete; "cancel" by "agent": withdrawn ($/cancel_request)

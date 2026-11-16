@@ -65,6 +65,7 @@ type instance struct {
 	egress       []string         // granted net:* rules (for visibility)
 	started      time.Time        // for uptime
 	waitCh       chan struct{}    // closed when the process exits
+	out          logRef           // its log, for a failed health check's message (health.go)
 	// Per deployment (deploy.go); zero values mean today's generation: the
 	// work tree bound at c.Dir, the tile's one bin, its flat CompKey leaf.
 	dep      string // its deployment's name
@@ -92,10 +93,14 @@ type state struct {
 	buildDone chan struct{} // closed when in-flight build settles
 	lastErr   error         // sticky build/crash error until next change
 	dirty     bool          // changed since last successful build
-	lastReq   time.Time
-	active    int // in-flight proxied connections (incl. SSE/WS streams; a partition's passive ones apart)
-	crashes   []time.Time
-	pt        *partInfo // a person's partition's (partitions.go); nil for every other state
+	// readAt is when the latest work-tree build began (ensureState): the
+	// files saved before it are in what it built, so a save batch older
+	// than it moves nothing (ChangedSaved). Zero after a deploy's build.
+	readAt  time.Time
+	lastReq time.Time
+	active  int // in-flight proxied connections (incl. SSE/WS streams; a partition's passive ones apart)
+	crashes []time.Time
+	pt      *partInfo // a person's partition's (partitions.go); nil for every other state
 }
 
 type Runner struct {
@@ -121,6 +126,8 @@ type Runner struct {
 	// SpawnUser, when non-nil, returns uid/gid to run a component's backend
 	// as (auth tier 2, per-scope uids). nil = same-user (tier 1).
 	SpawnUser func(c *registry.Component) *syscall.Credential
+
+	SealedHooks // a sealed component's backend: the release's build, or a development compile (sealed.go, D227)
 
 	// Isolate + Rootfs enable per-component sandboxing (auth tier 3): each
 	// backend runs in its own user/mount/pid/net namespaces over an overlay of
@@ -192,6 +199,7 @@ type Runner struct {
 
 	mu     sync.Mutex
 	states map[string]*state
+	live   liveSet  // live.go: every generation started and not ended; the end of starting at shutdown
 	engine *engine  // engine.go: nil = today's build, start, health, stop and clock
 	ao     alwaysOn // alwayson.go
 	netmux *netMux
@@ -243,17 +251,15 @@ func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *stat
 		// We take the build.
 		s.building = true
 		s.dirty = false
+		s.readAt = time.Now() // the wall clock the watcher's batches carry (watch.Event.Last)
 		s.buildDone = make(chan struct{})
 		s.mu.Unlock()
 
 		err := r.runCurrent(c, s)
 
-		s.mu.Lock()
-		s.building = false
-		s.phase = ""
-		s.lastErr = err
-		close(s.buildDone)
-		s.mu.Unlock()
+		if s.built(err) {
+			return nil, err // a start to try again: this request's answer, never a loop here (sealed.go)
+		}
 		// Loop: re-check (another change may have arrived mid-build).
 	}
 }
@@ -278,33 +284,6 @@ func (r *Runner) track(s *state) func() {
 			s.lastReq = r.now()
 			s.mu.Unlock()
 		})
-	}
-}
-
-// Changed marks a component dirty and kicks a background rebuild so build
-// errors surface on save, not on next request.
-func (r *Runner) Changed(c *registry.Component) {
-	if !c.HasBackend() {
-		return
-	}
-	r.nextBuild(c.Path) // a partitioned tile's shared build is a new one, before the primary's (partadmit.go)
-	s := r.state(c.Path)
-	s.mu.Lock()
-	s.dirty = true
-	s.crashes = nil
-	hadProcess := s.cur != nil || s.building || s.lastErr != nil
-	s.mu.Unlock()
-	// Don't respawn a disabled/offloaded component on a file change (Ensure would
-	// refuse anyway; this just skips the pointless goroutine + build).
-	restart := hadProcess && (r.ShouldRun == nil || r.ShouldRun(c.Path))
-	done := r.changedPartitions(c, restart) // people's partitions follow, onto the same build (partstop.go)
-	if restart {
-		go func() {
-			defer done()
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancel()
-			_, _ = r.Ensure(ctx, c)
-		}()
 	}
 }
 
@@ -376,9 +355,9 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 			r.dumpVM(inst) // vm.go: what the guest was doing, into the log
 			r.sbxFail(v, sbx.Health, fmt.Errorf("the VM backend never listened: %w — what the VM was doing is in %s", err, deploymentLog(v.Path, r.viewDeployment(v))))
 		}
+		err = r.unhealthy(v, inst, err) // health.go: what it was doing, before the stop ends its calls
 		r.stopGen(inst, 2*time.Second)
 		g.release()
-		err = fmt.Errorf("backend did not become healthy: %w", err)
 		r.emitState(s, "build-error", err.Error())
 		return err
 	}
@@ -500,6 +479,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 	}
 	fmt.Fprintf(logf, "--- gen %d start %s ---\n", gen, time.Now().Format(time.RFC3339))
 	logVerdict(logf, netWhy)
+	out := logRef{sp.log, logSize(sp.log)} // health.go: what the backend printed since
 	cmd.Stdout, cmd.Stderr = logf, logf
 
 	if err := cmd.Start(); err != nil {
@@ -521,7 +501,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		fmt.Fprintf(logf, "userns setup: %v\n", err)
 	}
 
-	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{}), leaf: leaf}
+	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{}), leaf: leaf, out: out}
 
 	// Network setup: the init handed back its TUN fd(s) — egress first, then one
 	// per provider client-link, then this component's own lan-ingress legs. The

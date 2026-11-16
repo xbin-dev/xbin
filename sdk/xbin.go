@@ -92,7 +92,7 @@ func Deployment() string { return os.Getenv("XBIN_DEPLOYMENT") }
 
 // CallerInfo is the verified identity xbind attached to an inbound request.
 type CallerInfo struct {
-	From  string // "owner", a component path, "xbin/cron" or "xbin/bus"
+	From  string // "owner", "user:<id>", a component path, "xbin/cron" or "xbin/bus"
 	Role  string // role the caller was granted on this component
 	Owner bool
 	// User is the signed-in HUMAN driving the call, when there is one —
@@ -109,6 +109,14 @@ type CallerInfo struct {
 	// the admin's id ("owner" for the root token). The call reads as User;
 	// don't show it data that is private to User.
 	ViewedBy string
+	// Preview is set when the call is made while xbind renders User's own
+	// view in its preview browser (X-XBin-Preview: 1, docs/sdk.md): nobody
+	// is clicking, and the session is read-only. xbind refuses the render's
+	// writes by method and opens its sockets at reader; what it can't see
+	// is a GET or a socket message with an effect — marking something
+	// read, recording presence, advancing a cursor. Skip those when Preview
+	// (or ViewedBy) is set.
+	Preview bool
 	// Deployment is the calling tile's deployment when the call comes from one
 	// of its non-primary deployments (X-XBin-Deployment); "" otherwise. From
 	// stays the bare tile path.
@@ -131,7 +139,22 @@ type CallerInfo struct {
 	// and a person deleted and recreated under the same id never inherits the
 	// old person's records.
 	PartitionID string
+	// Agent is X-XBin-Agent: set when the call is made by User's workspace
+	// agent — a sealed system component of xbind acting for them — and
+	// names that component; "" when the person, or a tile, made the call
+	// themselves. From is then "user:<id>" and Role their level on this
+	// tile ("reader" or "writer"), never "admin": From "user:<id>" does not
+	// mean an admin (it did before workspace agents — judge by Role, or by
+	// UserLevel). The agent holds the person's level and no more, and every
+	// write it makes was approved by the person; a tile that wants to keep
+	// some actions for the person's own hand checks ByAgent, or says
+	// "agent": "read" | "off" in its manifest.
+	Agent string
 }
+
+// ByAgent reports whether the call was made by the user's workspace agent
+// acting for them, rather than by the person's own hand (CallerInfo.Agent).
+func (c CallerInfo) ByAgent() bool { return c.Agent != "" }
 
 // Caller returns the verified caller of an inbound request. Trustworthy
 // because xbind strips inbound X-XBin-* headers before injecting these.
@@ -140,15 +163,23 @@ func Caller(r *http.Request) CallerInfo {
 	return CallerInfo{
 		From: from, Role: r.Header.Get("X-XBin-Role"), Owner: from == "owner",
 		User: r.Header.Get("X-XBin-User"), UserLevel: r.Header.Get("X-XBin-User-Level"),
-		ViewedBy: r.Header.Get("X-XBin-Viewed-By"), Deployment: r.Header.Get("X-XBin-Deployment"),
-		Partition: r.Header.Get("X-XBin-Partition"), PartitionID: r.Header.Get("X-XBin-Partition-Id"),
+		ViewedBy: r.Header.Get("X-XBin-Viewed-By"), Preview: r.Header.Get("X-XBin-Preview") == "1",
+		Deployment: r.Header.Get("X-XBin-Deployment"),
+		Partition:  r.Header.Get("X-XBin-Partition"), PartitionID: r.Header.Get("X-XBin-Partition-Id"),
+		Agent: r.Header.Get("X-XBin-Agent"),
 	}
 }
 
 // UserCanWrite reports whether the driving user holds write (or terminal) on
 // this tile — the in-app gate for mutating actions. True for automation and
 // owner-token calls (no attributed user = the workspace plane itself).
+// Never in a preview (Preview): there xbind sends Role "reader" and
+// UserLevel "read" whatever the person holds, so every gate on an identity
+// header refuses a change.
 func (c CallerInfo) UserCanWrite() bool {
+	if c.Preview {
+		return false // xbind rendering User's view: nobody is writing (xbind also says User-Level "read" then)
+	}
 	if c.User == "" {
 		return true
 	}

@@ -231,8 +231,8 @@ export const shownMethods = (c) => (c && c.guided
   : (c && c.methods) || []);
 
 // cleanCode: a pasted code as the CLI reads it — one line, nothing but what
-// a code is made of.
-export const cleanCode = (s) => String(s || '').replace(/[\s\x00-\x1f\x7f]/g, '');
+// a code is made of (xbind's chat kit's, /vendor/chat/ask.js, D224).
+export { cleanCode } from '/vendor/chat/ask.js';
 
 // isHttps: a page the views may open.
 export const isHttps = (u) => /^https:\/\/[^\s]+$/i.test(String(u || ''));

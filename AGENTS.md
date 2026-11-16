@@ -5,7 +5,9 @@ repo (daemon, CLI, SDK, core elements, builtin tiles, docs). For building
 tiles *inside* a workspace, the reference is `workspace-template/AGENTS.md` —
 the file every workspace ships to its own agents. Design docs live in
 `ARCHITECTURE.md` and `plans/` (with `plans/DECISIONS.md` recording every
-decision + rationale — **check it before re-litigating a choice**).
+decision + rationale — the recent entries there, the older ones in the
+archives it indexes, `plans/decisions/D<first>-D<last>.md`; **check it
+before re-litigating a choice**).
 
 ## Layout
 
@@ -51,6 +53,12 @@ make check          # the definition of done: the guards (fmt-check vet
                     # `make guards`) and test — CI runs the same split over
                     # parallel jobs, with integration's shards
 make hooks          # once per clone: fmt-check + js-check run pre-commit
+make agent-ui-check # the agent template's browser scripts (builtin-templates/
+                    # agent/test/*.mjs: its real page in Chromium, a stubbed
+                    # backend), all ~40 at once in 20 s; needs Playwright
+                    # (PLAYWRIGHT_DIR, hack/dev-setup.sh). Not in `check`;
+                    # CI runs it. Run it when the template's page or what it
+                    # loads from web/ changed
 make sidecar-check  # the app tunnel's iroh sidecar (Rust, sidecar/xbin-iroh,
                     # D204): cargo fmt, clippy, test in its pinned builder
                     # image (docker); `make build` embeds the binary in xbind
@@ -101,6 +109,13 @@ make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing
   `go.mod.tile` in a scratch copy, the way a workspace builds it (CI runs
   it; `hack/tile-check.sh traefik` for one). Never copy `go.mod.tile` to
   `go.mod` in place.
+- The agent template's page has browser scripts of its own,
+  `builtin-templates/agent/test/*.mjs`: `make agent-ui-check` runs them all
+  (`AGENT_UI="attach ci"` for some) and fails on a script that fails, skips,
+  ends without `all … checks passed` or runs past its timeout. Don't run
+  them with a bare `node test/x.mjs` in this checkout: without Playwright
+  beside them they print SKIP and exit 0. Writing one:
+  `docs/maintenance.md` → "Builtin tiles and templates".
 - Verify before pushing: `make check` (every guard, under a minute) — and
   `make integration` when you touched the runner/sandbox/broker path. The
   guards and what each protects: `docs/maintenance.md`.
@@ -149,9 +164,9 @@ the same commit as the change**, per this table:
 
 | You changed | Update |
 |---|---|
-| HTTP/WS surface (any `/api/xbin/*`, `/ws/*`) | `docs/protocol.md` **and** `internal/server/openapi.go` — `make test` fails on drift (`internal/apicheck`; rules in `docs/maintenance.md`) |
+| HTTP/WS surface (any `/api/xbin/*`, `/ws/*`) | its topic page `docs/protocol/<topic>.md` (`docs/protocol.md` is the entry: the shared conventions and the index of the topic pages — a new area gets a new page and a row in its Topics table) **and** `internal/server/openapi.go` — `make test` fails on drift (`internal/apicheck`; rules in `docs/maintenance.md`) |
 | builder-visible behavior | the relevant `docs/*.md`, `workspace-template/AGENTS.md`, and the welcome tile notes (`workspace-template/apps/welcome/notes.js`) if it teaches that area |
-| a design decision | `plans/<area>.md` + an entry in `plans/DECISIONS.md` |
+| a design decision | `plans/<area>.md` + an entry at the end of `plans/DECISIONS.md` (never in an archive under `plans/decisions/`; when the log passes about 450 KB, move its oldest whole entries into a new archive, as its index says) |
 | a guard, budget or check | `docs/maintenance.md` (what it protects, how to satisfy it) |
 | the upgrade contract | `docs/compat.md` — and a changelog line when a rule gains a warned transition |
 | `bx` | `docs/bx.md` + the usage strings in `cmd/bx` |
@@ -176,14 +191,20 @@ refactors don't.
 
 - Newest first, grouped by date under `## YYYY-MM-DD`, one `- area: what
   changed` line each — written for a tile builder, not for us.
+- Entries go at the **top of `docs/changelog.md`**, which holds the recent
+  weeks only. Older months live, unchanged, in `docs/changelog/<YYYY-MM>.md`
+  (listed under "Older entries" at its end): every embedded file is capped
+  at 512 KB, so when the changelog passes about 200 KB, move its oldest
+  whole months there — cut from the old end, never reword
+  (`docs/maintenance.md` → "Embedded assets").
 - A change is **BREAKING** when existing tiles/providers must change code or
   config, or a wire/persisted format changes incompatibly. Mark the entry
   `**BREAKING**`, and add a migration note at
   `docs/changes/YYYY-MM-DD-<slug>.md` with exactly these sections:
   **What changed · Who's affected · How to migrate · Why**. Link it from the
   entry.
-- These files are embedded and served at `/docs/changelog.md` and
-  `/docs/changes/…` — workspace agents are told (in the workspace
+- These files are embedded and served at `/docs/changelog.md`,
+  `/docs/changelog/…` and `/docs/changes/…` — workspace agents are told (in the workspace
   `AGENTS.md`) to check the changelog after an xbind upgrade, so this is the
   channel by which every workspace learns what moved. Keep it true.
 

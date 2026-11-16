@@ -29,6 +29,14 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 		if !f.todo(cancel) {
 			return
 		}
+	case strings.HasPrefix(text, "detach") && t.detach:
+		f.say("waiting for a steer")
+		select { // a steer ends this turn and starts the agent's own (moves.go)
+		case <-t.gone:
+		case <-cancel:
+		case <-f.done:
+		}
+		return
 	case strings.HasPrefix(text, "stall"):
 		f.say("stalling")
 		select { // nothing more until session/cancel
@@ -79,6 +87,18 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "chatty", "status": "completed",
 			"_meta": map[string]any{"terminal_exit": map[string]any{"terminal_id": "chatty", "exit_code": 0}}})
 		f.say(fmt.Sprintf("chatty: %d lines", n))
+	case strings.HasPrefix(text, "recap"):
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "recap", "title": "make build", "kind": "execute", "status": "in_progress"})
+		for _, line := range []string{"compiling\n", "linking\n"} {
+			f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "recap",
+				"_meta": map[string]any{"terminal_output_delta": map[string]any{"terminal_id": "recap", "data": line}}})
+		}
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "recap", "_meta": map[string]any{
+			"terminal_output":       map[string]any{"terminal_id": "recap", "data": "$ make build\ncompiling\nlinking\n"},
+			"terminal_output_delta": map[string]any{"terminal_id": "recap", "data": "done\n"}}})
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "recap", "status": "completed",
+			"_meta": map[string]any{"terminal_exit": map[string]any{"terminal_id": "recap", "exit_code": 0}}})
+		f.say("recap done")
 	case strings.HasPrefix(text, "long"):
 		n := 100
 		fmt.Sscanf(strings.TrimPrefix(text, "long"), "%d", &n)
@@ -208,6 +228,8 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "t1", "status": "completed",
 			"content": []map[string]any{{"type": "content", "content": acp.ContentBlock{Type: "text", Text: "a.txt b.txt"}}}})
 		f.say("listed")
+	case strings.HasPrefix(text, "llm-call"):
+		f.say(f.llmCall(strings.TrimPrefix(text, "llm-call"))) // one call to the injected LLM connector (llm.go)
 	case strings.HasPrefix(text, "printenv "):
 		// as Claude Code's own Bash tool: a child of the agent's process,
 		// its environment inherited (a hook prints on stderr)

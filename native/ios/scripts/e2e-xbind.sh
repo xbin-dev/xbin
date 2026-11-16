@@ -49,6 +49,25 @@
 #                       instance does (its config is its own). 0 (default):
 #                       unpartitioned, the e2e account's conversations the
 #                       instance's own
+#   XBIN_E2E_WSAGENT    1: the workspace agent (xbin/wsagent, D233;
+#                       XbinWorkspaceAgentTests — they skip without it). Needs
+#                       --isolate (and a --rootfs) in XBIN_E2E_XBIND_ARGS and
+#                       gocryptfs: a person's agent is their own partition.
+#                       start connects hack/fakeopenai as the LLM connector's
+#                       one upstream (model fake/fake-chat; a message line
+#                       "ws: <steps>" scripts its tool calls, hack/fakeopenai/
+#                       ws.go), turns workspace agents on for everyone, adds
+#                       apps/note (testdata/e2e-wsagent-tiles: a note with a Go
+#                       backend an agent may write, the scripted coding agent's
+#                       binary beside it — under --isolate a tile's sandbox
+#                       sees only its own directory) and waits for the e2e
+#                       account's agent: a --dev xbind compiles its backend
+#                       from the checkout the first time it is opened (minutes
+#                       on a cold Go cache). The env file gains
+#                       XBIN_E2E_WSAGENT=1. 0 (default): none of it
+#   XBIN_E2E_BIN        where start builds xbind, bx, fakeacp and fakeopenai
+#                       (default <repo>/bin; a directory elsewhere keeps a
+#                       full disk's checkout small)
 #   XBIN_E2E_UNSHARE    1: xbind runs in a user and mount namespace of its own
 #                       (unshare -Urm) — where fusermount3's setuid can't
 #                       work (a sandbox with no_new_privs), FUSE still mounts
@@ -80,6 +99,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 dir=${XBIN_E2E_DIR:-${TMPDIR:-/tmp}/xbin-e2e}
+bin=${XBIN_E2E_BIN:-$repo/bin}
+wsagent=${XBIN_E2E_WSAGENT:-0}
 ws=$dir/ws
 url="http://127.0.0.1:$port"
 
@@ -128,6 +149,37 @@ api() {
   fi
 }
 
+# as_e2e <method> <path> [body] — the API as the e2e account's own session
+# ($session): what the app's chrome sends. Prints the body; fails on non-2xx.
+as_e2e() {
+  local m=$1 p=$2
+  if [ $# -gt 2 ]; then
+    curl -fsS -X "$m" -H "Authorization: Bearer $session" -H 'Content-Type: application/json' -d "$3" "$url$p"
+  else
+    curl -fsS -X "$m" -H "Authorization: Bearer $session" "$url$p"
+  fi
+}
+
+# as_page <method> <path> [body] — the workspace agent's own routes with its
+# page's credential ($frame: the e2e account's frame token of xbin/wsagent —
+# all a native tile's runtime ever holds). Prints the body; fails on non-2xx.
+as_page() {
+  local m=$1 p=$2
+  if [ $# -gt 2 ]; then
+    curl -fsS -X "$m" -H "X-XBin-Frame-Token: $frame" -H 'Content-Type: application/json' -d "$3" "$url$p"
+  else
+    curl -fsS -X "$m" -H "X-XBin-Frame-Token: $frame" "$url$p"
+  fi
+}
+
+e2e_login() { # the e2e account's session token, from the env file's password
+  local u pw
+  u=$(sed -n 's/^XBIN_E2E_USER=//p' "$dir/env")
+  pw=$(sed -n 's/^XBIN_E2E_PASSWORD=//p' "$dir/env")
+  curl -fsS -X POST -H 'Content-Type: application/json' -d "{\"username\":\"$u\",\"password\":\"$pw\"}" "$url/api/xbin/login" |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
+}
+
 wait_for() { # wait_for <seconds> <what> <command…>
   local secs=$1 what=$2 i=0
   shift 2
@@ -174,9 +226,11 @@ start)
   mkdir -p "$dir"
   dir=$(cd "$dir" && pwd) # absolute: the start below runs from the repo
   ws=$dir/ws
-  say "building bin/xbind, bin/bx, bin/fakeacp, bin/fakeopenai"
-  (cd "$repo" && go build -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx &&
-    go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai)
+  mkdir -p "$bin"
+  bin=$(cd "$bin" && pwd)
+  say "building xbind, bx, fakeacp, fakeopenai into $bin"
+  (cd "$repo" && go build -o "$bin/xbind" ./cmd/xbind && CGO_ENABLED=0 go build -o "$bin/bx" ./cmd/bx &&
+    CGO_ENABLED=0 go build -o "$bin/fakeacp" ./hack/fakeacp && go build -o "$bin/fakeopenai" ./hack/fakeopenai)
   # apps/agent needs gocryptfs (its db, files and team are encrypted
   # resources; xbind finds it as internal/resenc Resolve does).
   agent=${XBIN_E2E_AGENT:-1} gcf=""
@@ -184,6 +238,7 @@ start)
   [ "${XBIN_E2E_AGENT_PARTITION:-0}" = 1 ] && agent_new='{"source":"agent","path":"apps/agent"}'
   if [ "$agent" = 1 ]; then
     if [ -n "${XBIN_GOCRYPTFS:-}" ]; then gcf=$XBIN_GOCRYPTFS
+    elif [ -x "$bin/gocryptfs" ]; then gcf=$bin/gocryptfs
     elif [ -x "$repo/bin/gocryptfs" ]; then gcf=$repo/bin/gocryptfs
     else gcf=$(command -v gocryptfs || true); fi
     if [ -z "$gcf" ] || [ ! -x "$gcf" ]; then
@@ -191,14 +246,38 @@ start)
       agent=0
     fi
   fi
+  # The workspace agent (D233): a person's agent is their own partition —
+  # encrypted volumes, a sandbox — so it needs gocryptfs and --isolate.
+  if [ "$wsagent" = 1 ]; then
+    if [ -z "$gcf" ]; then
+      if [ -n "${XBIN_GOCRYPTFS:-}" ]; then gcf=$XBIN_GOCRYPTFS
+      elif [ -x "$repo/bin/gocryptfs" ]; then gcf=$repo/bin/gocryptfs
+      else gcf=$(command -v gocryptfs || true); fi
+    fi
+    [ -n "$gcf" ] && [ -x "$gcf" ] || { say "XBIN_E2E_WSAGENT=1 needs gocryptfs (XBIN_GOCRYPTFS, $repo/bin/gocryptfs, PATH)"; exit 1; }
+    case " ${XBIN_E2E_XBIND_ARGS:-} " in
+    *" --isolate "*) ;;
+    *) say "XBIN_E2E_WSAGENT=1 needs --isolate (and --rootfs …) in XBIN_E2E_XBIND_ARGS: a workspace agent runs in a sandbox"; exit 1 ;;
+    esac
+  fi
   rm -rf "$ws"
-  "$repo/bin/xbind" init "$ws" >/dev/null
+  "$bin/xbind" init "$ws" >/dev/null
   cp -r "$repo/examples/counter-go" "$ws/apps/counter"
   [ -f "$ws/apps/counter/native.js" ] || { say "examples/counter-go has no native.js"; exit 1; }
   # The UI tests' own pages (XbinE2ETests.test06): apps/wide, desktop-first
   # and wider than a phone, and apps/phone, with a mobile viewport; and
   # apps/parted, a partitioned tile (XbinPartitionsTests, D181).
   for t in "$repo"/native/ios/scripts/testdata/e2e-tiles/*/; do cp -r "$t" "$ws/apps/$(basename "$t")"; done
+  fakeacp=$bin/fakeacp
+  if [ "$wsagent" = 1 ]; then
+    # apps/note: a note an agent may write (XbinWorkspaceAgentTests), with the
+    # scripted coding agent's binary in its own directory — the one place
+    # that tile's sandbox has at the same path as xbind does.
+    for t in "$repo"/native/ios/scripts/testdata/e2e-wsagent-tiles/*/; do cp -r "$t" "$ws/apps/$(basename "$t")"; done
+    mkdir -p "$ws/apps/note/.bin"
+    cp "$bin/fakeacp" "$ws/apps/note/.bin/fakeacp"
+    fakeacp=$ws/apps/note/.bin/fakeacp
+  fi
   # XBIN_AGENT_FAKE registers the scripted "fake" agent provider (D74),
   # XBIN_BIN is where the daemon finds the bx it binds in as the agent
   # host, XBIN_SDK_PATH builds the counter's Go backend against this sdk/.
@@ -210,11 +289,11 @@ start)
   # the pid file would name that shell).
   cd "$repo"
   fake_addr=127.0.0.1:$((port + 1))
-  if [ "$agent" = 1 ]; then
-    nohup "$repo/bin/fakeopenai" -addr "$fake_addr" >"$dir/fakeopenai.log" 2>&1 </dev/null &
+  if [ "$agent" = 1 ] || [ "$wsagent" = 1 ]; then
+    nohup "$bin/fakeopenai" -addr "$fake_addr" >"$dir/fakeopenai.log" 2>&1 </dev/null &
     echo $! >"$dir/fakeopenai.pid"
   fi
-  envs=(XBIN_AGENT_FAKE="$repo/bin/fakeacp" XBIN_BIN="$repo/bin" XBIN_SDK_PATH="$repo/sdk")
+  envs=(XBIN_AGENT_FAKE="$fakeacp" XBIN_BIN="$bin" XBIN_SDK_PATH="$repo/sdk")
   # The app tunnel (D204, XBIN_E2E_TUNNEL=1): the sidecar xbind runs
   # (XBIN_IROH) and an `iroh-relay --dev` on P+2 with a shared token
   # (XBIN_IROH_RELAY_BIN) — plain http on loopback, which mac-remote.sh
@@ -235,7 +314,7 @@ start)
   [ -n "$gcf" ] && envs+=(XBIN_GOCRYPTFS="$gcf")
   ns=()
   [ "${XBIN_E2E_UNSHARE:-0}" = 1 ] && ns=(unshare -Urm) # it execs xbind: $! stays xbind's pid
-  env "${envs[@]}" nohup ${ns[@]+"${ns[@]}"} "$repo/bin/xbind" --dev --dev-overlay "$repo/workspace-template" --workspace "$ws" \
+  env "${envs[@]}" nohup ${ns[@]+"${ns[@]}"} "$bin/xbind" --dev --dev-overlay "$repo/workspace-template" --workspace "$ws" \
     --listen "127.0.0.1:$port" --external-url "$url" ${extra[@]+"${extra[@]}"} \
     >"$dir/xbind.log" 2>&1 </dev/null &
   echo $! >"$dir/xbind.pid"
@@ -313,8 +392,31 @@ print(json.dumps(c))' >"$dir/agent-config.json"
     echo "XBIN_E2E_USER=e2e"
     echo "XBIN_E2E_PASSWORD=$password"
     [ -n "$relay_token" ] && echo "XBIN_E2E_RELAY_PORT=$relay_port"
+    [ "$wsagent" = 1 ] && echo "XBIN_E2E_WSAGENT=1"
   } >"$dir/env"
   chmod 600 "$dir/env"
+  # The workspace agent (D233), as an admin sets it up (docs/workspace-agent.md
+  # §Setting it up): a language model — fakeopenai as the connector's one
+  # upstream —, the workspace's switch, everyone gets one. Then the e2e
+  # account's own agent is opened once, so its backend is built and its Main
+  # session made before a test waits for either.
+  if [ "$wsagent" = 1 ]; then
+    api PUT /api/xbin/llm/upstreams/fake "{\"baseURL\":\"http://$fake_addr/v1\",\"key\":\"sk-fake-E2E-0000\"}" >/dev/null &&
+      api PUT /api/xbin/llm/config '{"defaults":{"model":"fake/fake-chat"}}' >/dev/null &&
+      api PUT /api/xbin/delegate/workspace '{"enabled":true,"who":"everyone"}' >/dev/null ||
+      { say "could not set up the workspace agent — stopping"; stop; exit 1; }
+    wait_for 240 "apps/note's backend" api GET /api/apps/note/seen
+    session=$(e2e_login) || { say "could not sign in as e2e — stopping"; stop; exit 1; }
+    frame=$(as_e2e GET '/api/xbin/frame-token?component=xbin/wsagent' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])') ||
+      { say "no frame token of xbin/wsagent for the e2e account — stopping"; stop; exit 1; }
+    say "waiting for the e2e account's workspace agent (a --dev xbind compiles it on first use)"
+    ws_mode() { as_page GET /api/xbin/wsagent/ws/state | grep -Eq '"mode": ?"workspace"'; }
+    wait_for "${XBIN_E2E_WSAGENT_WAIT:-900}" "the e2e account's workspace agent" ws_mode ||
+      { say "the workspace agent did not start — stopping"; stop; exit 1; }
+    as_page POST /api/xbin/wsagent/ws/sessions '{"main":true}' >/dev/null ||
+      { say "the workspace agent's Main session could not be made — stopping"; stop; exit 1; }
+    say "the workspace agent is up for e2e (xbin/wsagent, model fake/fake-chat)"
+  fi
   say "up: $url (workspace $ws, log $dir/xbind.log); env in $dir/env"
   ;;
 stop)
@@ -398,6 +500,54 @@ smoke)
   has_fake() { api GET /api/xbin/agent/providers | grep -Eq '"id": ?"fake"'; }
   what="the fake agent is a provider"
   check has_fake
+  # The workspace agent (XBIN_E2E_WSAGENT=1, D233): what the app's chrome
+  # and the agent's native view need of the server — and that the view's
+  # credential, the only one a native tile's runtime ever holds, can't grant.
+  if grep -q '^XBIN_E2E_WSAGENT=1' "$dir/env"; then
+    session=$(e2e_login) && frame=$(as_e2e GET '/api/xbin/frame-token?component=xbin/wsagent' |
+      python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])') || { echo "FAIL the e2e account's session and its frame token of xbin/wsagent"; exit 1; }
+    has_agent() {
+      as_e2e GET /api/xbin/delegate/state | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("workspace") and d.get("access") and d.get("agent")=="xbin/wsagent" and not d.get("held") else 1)'
+    }
+    what="the e2e account has a workspace agent (GET /delegate/state: on, access, agent xbin/wsagent)"
+    check has_agent
+    native_view() { # the sealed row is listed only when asked for, with its native entry; its runtime document is the page's own
+      as_e2e GET '/api/xbin/components?sealed=1' | python3 -c 'import json,sys; r=[c for c in json.load(sys.stdin) if c["path"]=="xbin/wsagent"]; sys.exit(0 if r and r[0].get("sealed") and (r[0].get("native") or {}).get("entry") else 1)' &&
+        ! as_e2e GET /api/xbin/components | grep -q '"xbin/wsagent"' &&
+        curl -fsS -o /dev/null -H "X-XBin-Frame-Token: $frame" "$url/c/xbin/wsagent/?native=1"
+    }
+    what="xbin/wsagent: a sealed row with a native entry (only with ?sealed=1) and its runtime document (/c/xbin/wsagent/?native=1)"
+    check native_view
+    grant_is_the_persons() {
+      local run ref i code
+      run=$(as_page POST /api/xbin/wsagent/ws/sessions '{"name":"smoke"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["session"]["id"])') || return 1
+      as_page POST "/api/xbin/wsagent/runs/$run/message" '{"text":"ws: tile_call {\"tile\":\"apps/note\",\"method\":\"PUT\",\"path\":\"/note\",\"body\":\"\\\"smoke\\\"\",\"why\":\"the smoke test\"}"}' >/dev/null || return 1
+      ref=""
+      for i in $(seq 1 60); do
+        ref=$(as_page GET "/api/xbin/wsagent/ws/sessions/$run/cards" | python3 -c 'import json,sys; r=[q for q in json.load(sys.stdin)["requests"] if q["state"]=="pending"]; print(r[0]["ref"] if r else "")') || true
+        [ -n "$ref" ] && break
+        sleep 0.5
+      done
+      [ -n "$ref" ] || return 1
+      # the agent's own page (its frame token): refused, and the request still waits
+      code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "X-XBin-Frame-Token: $frame" -H 'Content-Type: application/json' \
+        -d '{"grant":"once"}' "$url/api/xbin/delegate/requests/$ref/approve")
+      [ "$code" = 403 ] || { echo "the page's credential approving: $code" >&2; return 1; }
+      as_e2e GET "/api/xbin/delegate/requests/$ref" | grep -Eq '"state": ?"pending"' || return 1
+      # the person's own session: approved, and the agent's backend makes the call
+      as_e2e POST "/api/xbin/delegate/requests/$ref/approve" '{"grant":"once"}' >/dev/null || return 1
+      for i in $(seq 1 60); do
+        api GET /api/apps/note/seen | grep -q 'note="smoke"' && break
+        sleep 0.5
+      done
+      api GET /api/apps/note/seen | grep -q 'note="smoke".*agent=xbin/wsagent' || return 1
+      as_page DELETE "/api/xbin/wsagent/ws/sessions/$run" >/dev/null 2>&1 || true
+    }
+    what="a scripted turn files a request; the agent page's credential can't approve it (403), the person's session does, and the note changes"
+    check grant_is_the_persons
+  else
+    echo "skip the workspace agent — not set up (XBIN_E2E_WSAGENT=1)"
+  fi
   sid=$(api POST /api/xbin/term/sessions '{"cwd":"apps/welcome","kind":"agent","provider":"fake"}' |
     python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
   # the session starts, then takes one prompt

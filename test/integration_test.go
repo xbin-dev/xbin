@@ -12,7 +12,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,6 +20,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/test/portlease"
 )
 
 var (
@@ -79,12 +80,10 @@ func TestMain(m *testing.M) {
 		panic("build xbind: " + string(out))
 	}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	addr, _, err := portlease.Reserve() // the shared daemon's, for the run
 	if err != nil {
 		panic(err)
 	}
-	addr := ln.Addr().String()
-	ln.Close()
 	baseURL = "http://" + addr
 
 	cmd := exec.Command(bin, "--workspace", ws, "--listen", addr, "--no-auth")
@@ -109,11 +108,44 @@ func TestMain(m *testing.M) {
 	}
 
 	code := m.Run()
-	killGroup()
+	// A stop first, then the group: xbind unmounts its encrypted volumes on
+	// the way out (resenc.Close), and their gocryptfs processes — sessions of
+	// their own, outside this group — would otherwise keep mounts under tmp
+	// for good (a test that unseals the vault mounts the volumes of every
+	// tile used by then: the workspace agent's after the delegation tests).
+	_ = cmd.Process.Signal(syscall.SIGTERM)
+	stopped := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(daemonGuard):
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	releaseMountsUnder(tmp) // what a killed xbind left mounted
 	// os.Exit skips the deferred RemoveAll above: clean up here, or every
 	// run leaves its xbin-itest-* tree (thousands of files) in /tmp.
 	removeTree(tmp)
 	os.Exit(code)
+}
+
+// releaseMountsUnder lazily unmounts every FUSE mount below dir (TestMain's
+// releaseFuseMounts, without a test to report to).
+func releaseMountsUnder(dir string) {
+	b, err := os.ReadFile("/proc/self/mounts")
+	if err != nil {
+		return
+	}
+	fm, err := exec.LookPath("fusermount3")
+	if err != nil {
+		if fm, err = exec.LookPath("fusermount"); err != nil {
+			return
+		}
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if f := strings.Fields(line); len(f) >= 3 && strings.HasPrefix(f[2], "fuse") && strings.HasPrefix(f[1], dir+"/") {
+			_ = exec.Command(fm, "-u", "-z", f[1]).Run()
+		}
+	}
 }
 
 // removeTree removes dir even where Go's module cache (a backend build's)
@@ -533,9 +565,7 @@ func frameToken(t *testing.T, comp string) (string, bool) {
 func TestMultiUser(t *testing.T) {
 	dir := t.TempDir()
 	muWS := filepath.Join(dir, "ws")
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := portlease.Addr(t)
 	base := "http://" + addr
 
 	// auth ON, real (non-dev) start; --insecure-vault so it boots without a

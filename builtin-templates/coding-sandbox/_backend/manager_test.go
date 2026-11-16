@@ -408,7 +408,10 @@ func tileServer(t *testing.T, tm *testManager) *httptest.Server {
 	return srv
 }
 
-type as struct{ from, role, user, level string }
+type as struct {
+	from, role, user, level string
+	preview                 bool // xbind's preview of the person's view (D234)
+}
 
 func call(t *testing.T, srv *httptest.Server, who as, method, path string, body any, want int, out any) {
 	t.Helper()
@@ -423,6 +426,9 @@ func call(t *testing.T, srv *httptest.Server, who as, method, path string, body 
 	if who.user != "" {
 		req.Header.Set("X-XBin-User", who.user)
 		req.Header.Set("X-XBin-User-Level", who.level)
+	}
+	if who.preview {
+		req.Header.Set("X-XBin-Preview", "1")
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -450,6 +456,9 @@ func upgrade(t *testing.T, srv *httptest.Server, who as, path string) (int, stri
 	if who.user != "" {
 		req.Header.Set("X-XBin-User", who.user)
 		req.Header.Set("X-XBin-User-Level", who.level)
+	}
+	if who.preview {
+		req.Header.Set("X-XBin-Preview", "1")
 	}
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
@@ -643,7 +652,30 @@ func TestPageReaders(t *testing.T) {
 	if in, err := tm.fb.Get(context.Background(), tm.m.recCopy(off.ID).Runtime); err != nil || in.State != "stopped" {
 		t.Fatalf("a reader's read started the sandbox: %+v %v", in, err)
 	}
-	call(t, srv, olga, "GET", "/sbx/sandboxes/"+off.ID+"/files/list?path="+off.Workdir, nil, 200, nil) // a writer's does
+	// nor for a preview of a writer's page (D234): nobody opened it
+	olgaPreview := olga
+	olgaPreview.preview = true
+	var refused struct{ Error string }
+	call(t, srv, olgaPreview, "GET", "/sbx/sandboxes/"+off.ID+"/files/list?path="+off.Workdir, nil, 403, &refused)
+	// (refused as a look-only caller's read is: in a preview UserCanWrite is false, whatever level the header carries)
+	if in, err := tm.fb.Get(context.Background(), tm.m.recCopy(off.ID).Runtime); err != nil || in.State != "stopped" || refused.Error == "" {
+		t.Fatalf("a preview's read started the sandbox: %+v %v (%q)", in, err, refused.Error)
+	}
+	call(t, srv, olga, "GET", "/sbx/sandboxes/"+off.ID+"/files/list?path="+off.Workdir, nil, 200, nil)        // a writer's does
+	call(t, srv, olgaPreview, "GET", "/sbx/sandboxes/"+off.ID+"/files/list?path="+off.Workdir, nil, 200, nil) // running: a preview reads it
+	// A preview changes nothing, whoever's page its browser draws (D234):
+	// no terminal, no stdio, no port socket, no write — from this tile's
+	// page at any level xbind may have sent, and from another consumer's
+	// (the terminal tile's page dials these sockets itself).
+	for _, who := range []as{olgaPreview, {from: "apps/sandbox-terminal", role: "consumer", user: "olga", level: "read", preview: true},
+		{from: "apps/agent", role: "consumer", user: "olga", level: "terminal", preview: true}} {
+		for _, p := range []string{sb + "/tty", sb + "/execs/" + x.ID + "/tty", sb + "/execs/" + x.ID + "/stdio", sb + "/ports/8080/"} {
+			if code, body := upgrade(t, srv, who, p); code != http.StatusForbidden || !strings.Contains(body, "a preview changes nothing") {
+				t.Fatalf("a preview's upgrade to %s as %+v: %d %s", p, who, code, body)
+			}
+		}
+		call(t, srv, who, "POST", sb+"/run", map[string]any{"cmd": "true"}, 403, nil)
+	}
 	// every other consumer is trusted as the contract says, whatever the
 	// person's level on this tile
 	agentReader := as{from: "apps/agent", role: "consumer", user: "rita", level: "read"}

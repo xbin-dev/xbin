@@ -263,14 +263,17 @@ struct ANSIParser {
     }
 }
 
-/// The web's stripAnsi, exactly: colour and cursor escapes out, the rest
-/// verbatim (use `ANSIText.parse(…).plain` for the terminal's view).
+/// The web's stripAnsi (the chat kit's, /vendor/chat/tools.js), exactly:
+/// CSI sequences (parameters 0x30–0x3F: colon sub-parameters too; the
+/// 8-bit CSI as well), OSC strings up to their BEL or ST (a hyperlink's
+/// text stays), character-set designations and two-byte escapes out, the
+/// rest verbatim (use `ANSIText.parse(…).plain` for the terminal's view).
 public func stripANSI(_ s: String) -> String {
     s.replacing(RX.ansi, with: "")
 }
 
 extension RX {
-    nonisolated(unsafe) static let ansi = make(#"\x{1B}\[[0-9;?]*[ -/]*[@-~]|\x{1B}\][^\x{07}]*(?:\x{07}|\x{1B}\\)|\x{1B}[@-Z\\-_]"#)
+    nonisolated(unsafe) static let ansi = make(#"\x{1B}\[[0-?]*[ -/]*[@-~]|\x{1B}\][^\x{07}\x{1B}]*(?:\x{07}|\x{1B}\\)|\x{1B}[()][0-9A-Za-z]|\x{1B}[@-_]|\x{9B}[0-?]*[ -/]*[@-~]"#)
 }
 
 /// A command's output as a card shows it: the whole text, and when it is

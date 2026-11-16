@@ -1,0 +1,582 @@
+{
+ "name": "questions",
+ "about": "Claude's AskUserQuestion as a form elicitation (a single choice and a multiple one, each with its Other box): answered; then skipped (decline)",
+ "source": "sdk/acp/acptest TestTranscripts: the scripted agent through acp.Client; seq and ts are the test's (ts = 2026-01-01T00:00:00Z + 100 ms per event)",
+ "flags": [],
+ "steps": [
+  "prompt: ask me",
+  "question e1: accept by user:alice",
+  "prompt: ask again",
+  "question e2: decline by user:bob"
+ ],
+ "checkpoints": [
+  8,
+  21,
+  28
+ ],
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1767225600100,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1767225600200,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1767225600300,
+   "type": "status",
+   "data": {
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1767225600400,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "ask me"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1767225600500,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1767225600600,
+   "type": "tool.call",
+   "data": {
+    "id": "ask1",
+    "kind": "other",
+    "name": "AskUserQuestion",
+    "status": "pending",
+    "title": "AskUserQuestion"
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1767225600700,
+   "type": "elicitation.request",
+   "data": {
+    "eid": "e1",
+    "toolCallId": "ask1",
+    "message": "Please answer the following questions.",
+    "schema": {
+     "properties": {
+      "question_0": {
+       "description": "Which database should the service use?",
+       "oneOf": [
+        {
+         "const": "Postgres",
+         "description": "Relational, the default",
+         "title": "Postgres"
+        },
+        {
+         "const": "SQLite",
+         "description": "One file, no server",
+         "title": "SQLite"
+        }
+       ],
+       "title": "Database",
+       "type": "string"
+      },
+      "question_0_custom": {
+       "_meta": {
+        "_askUserQuestionCustomAnswer": {
+         "isCustomAnswer": true,
+         "questionId": "question_0"
+        }
+       },
+       "description": "Type your own answer (optional).",
+       "title": "Other",
+       "type": "string"
+      },
+      "question_1": {
+       "description": "What else should it ship with?",
+       "items": {
+        "anyOf": [
+         {
+          "const": "Metrics",
+          "description": "",
+          "title": "Metrics"
+         },
+         {
+          "const": "Tracing",
+          "description": "",
+          "title": "Tracing"
+         },
+         {
+          "const": "Admin UI",
+          "description": "",
+          "title": "Admin UI"
+         }
+        ]
+       },
+       "title": "Extras",
+       "type": "array"
+      },
+      "question_1_custom": {
+       "_meta": {
+        "_askUserQuestionCustomAnswer": {
+         "isCustomAnswer": true,
+         "questionId": "question_1"
+        }
+       },
+       "description": "Type your own answer (optional).",
+       "title": "Other",
+       "type": "string"
+      }
+     },
+     "type": "object"
+    }
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1767225600800,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1767225600900,
+   "type": "elicitation.resolved",
+   "data": {
+    "action": "accept",
+    "by": "user:alice",
+    "content": {
+     "question_0": "SQLite",
+     "question_1": [
+      "Metrics"
+     ],
+     "question_1_custom": "Admin UI"
+    },
+    "eid": "e1"
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1767225601000,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1767225601100,
+   "type": "tool.update",
+   "data": {
+    "id": "ask1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1767225601200,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "answers: {\"question_0\":\"SQLite\",\"question_1\":[\"Metrics\"],\"question_1_custom\":\"Admin UI\"}"
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1767225601300,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 14,
+   "ts": 1767225601400,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "title": "fake: ask me"
+   }
+  },
+  {
+   "seq": 15,
+   "ts": 1767225601500,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 1,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 16,
+   "ts": 1767225601600,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 17,
+   "ts": 1767225601700,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "ask again"
+   }
+  },
+  {
+   "seq": 18,
+   "ts": 1767225601800,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 19,
+   "ts": 1767225601900,
+   "type": "tool.call",
+   "data": {
+    "id": "ask1",
+    "kind": "other",
+    "name": "AskUserQuestion",
+    "status": "pending",
+    "title": "AskUserQuestion"
+   }
+  },
+  {
+   "seq": 20,
+   "ts": 1767225602000,
+   "type": "elicitation.request",
+   "data": {
+    "eid": "e2",
+    "toolCallId": "ask1",
+    "message": "Please answer the following questions.",
+    "schema": {
+     "properties": {
+      "question_0": {
+       "description": "Which database should the service use?",
+       "oneOf": [
+        {
+         "const": "Postgres",
+         "description": "Relational, the default",
+         "title": "Postgres"
+        },
+        {
+         "const": "SQLite",
+         "description": "One file, no server",
+         "title": "SQLite"
+        }
+       ],
+       "title": "Database",
+       "type": "string"
+      },
+      "question_0_custom": {
+       "_meta": {
+        "_askUserQuestionCustomAnswer": {
+         "isCustomAnswer": true,
+         "questionId": "question_0"
+        }
+       },
+       "description": "Type your own answer (optional).",
+       "title": "Other",
+       "type": "string"
+      },
+      "question_1": {
+       "description": "What else should it ship with?",
+       "items": {
+        "anyOf": [
+         {
+          "const": "Metrics",
+          "description": "",
+          "title": "Metrics"
+         },
+         {
+          "const": "Tracing",
+          "description": "",
+          "title": "Tracing"
+         },
+         {
+          "const": "Admin UI",
+          "description": "",
+          "title": "Admin UI"
+         }
+        ]
+       },
+       "title": "Extras",
+       "type": "array"
+      },
+      "question_1_custom": {
+       "_meta": {
+        "_askUserQuestionCustomAnswer": {
+         "isCustomAnswer": true,
+         "questionId": "question_1"
+        }
+       },
+       "description": "Type your own answer (optional).",
+       "title": "Other",
+       "type": "string"
+      }
+     },
+     "type": "object"
+    }
+   }
+  },
+  {
+   "seq": 21,
+   "ts": 1767225602100,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 22,
+   "ts": 1767225602200,
+   "type": "elicitation.resolved",
+   "data": {
+    "action": "decline",
+    "by": "user:bob",
+    "eid": "e2"
+   }
+  },
+  {
+   "seq": 23,
+   "ts": 1767225602300,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 24,
+   "ts": 1767225602400,
+   "type": "tool.update",
+   "data": {
+    "id": "ask1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 25,
+   "ts": 1767225602500,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "skipped"
+   }
+  },
+  {
+   "seq": 26,
+   "ts": 1767225602600,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 27,
+   "ts": 1767225602700,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 2,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 28,
+   "ts": 1767225602800,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ]
+}

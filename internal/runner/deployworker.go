@@ -232,6 +232,7 @@ func takeTurn(ctx context.Context, s *state) error {
 		s.mu.Lock()
 		if !s.building {
 			s.building = true
+			s.readAt = time.Time{} // a deploy's code, not the work tree's (ChangedSaved)
 			s.buildDone = make(chan struct{})
 			s.mu.Unlock()
 			return nil
@@ -415,8 +416,9 @@ func (r *Runner) spawnFor(view *registry.Component, dep, bin string, gen int) (*
 		if !errors.Is(err, errExited) && r.wantsVM(view) {
 			r.sbxFail(view, sbx.Health, fmt.Errorf("the VM backend never listened: %w", err))
 		}
+		err = r.unhealthy(view, inst, err) // health.go: what it was doing, before the stop ends its calls
 		r.stopGen(inst, 2*time.Second)
-		return nil, fmt.Errorf("backend did not become healthy: %w", err)
+		return nil, err
 	}
 	return inst, nil
 }

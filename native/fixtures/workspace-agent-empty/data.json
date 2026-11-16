@@ -1,0 +1,54 @@
+{
+  "about": "a new workspace agent session, offline (D233): the transcript's empty slot (what it can and can't do here, starters from the person's tiles — one tapped fills the composer), a private, disabled connection line, context chips in the remaining tones, the draft kept",
+  "self": "xbin/wsagent",
+  "now": "2026-11-16T10:34:00Z",
+  "agent": true,
+  "routes": {
+    "GET /api/xbin/wsagent/ws/view": {
+      "json": {
+        "session": "Month end",
+        "connection": {
+          "connected": "18 tiles · 4 orgs",
+          "model": "local-llama",
+          "private": true,
+          "label": "Scope: 18 tiles in 4 orgs connected. Model local-llama, private."
+        },
+        "offline": {
+          "title": "Can’t reach Northwind.",
+          "text": "Showing what was loaded at 10:31. Trying again…",
+          "hint": "Kept here. Not sent until you’re connected."
+        },
+        "hint": "Say what you want and how you’ll know it’s done. The agent works out the steps.",
+        "context": [
+          {"id": "screen:sales-desk", "label": "About the Sales desk screen", "icon": "list", "tone": "muted"},
+          {"id": "apps/archive", "label": "About Archive — no access", "icon": "eye-slash", "tone": "danger"}
+        ],
+        "tiles": {"apps/invoices": {"name": "Invoices", "connected": true}},
+        "empty": {
+          "title": "Ask for an outcome",
+          "text": "The workspace agent plans the work, hands building to each tile’s own agent, and asks you before anything changes.",
+          "lists": [
+            {
+              "title": "It can",
+              "items": ["Look across your 18 connected tiles", "Change a tile’s code — by briefing that tile’s own agent", "Do things in a tile for you, once you approve"]
+            },
+            {
+              "title": "It can’t",
+              "items": ["Answer a tile agent’s questions for you — those come to you", "Act without your approval where a change is involved", "Use the web — off for this workspace — an admin can turn it on"]
+            }
+          ],
+          "suggestionsTitle": "Try one — from your tiles",
+          "suggestions": [
+            {"id": "ask", "kind": "Ask", "text": "Which invoices are overdue but still marked sent?"},
+            {"id": "fix", "kind": "Fix", "text": "Team calendar’s last sync failed. Find out why."},
+            {"id": "change", "kind": "Change", "text": "Add ___ to Invoices"}
+          ]
+        }
+      }
+    }
+  },
+  "interactions": [
+    {"agent": {"type": "xbin:agent-context", "tile": "apps/invoices"}, "note": "the app's chrome: the agent was opened from Invoices"},
+    {"select": "transcript", "type": "suggestion", "payload": {"id": "fix"}, "note": "a starter fills the composer; nothing is sent"}
+  ]
+}

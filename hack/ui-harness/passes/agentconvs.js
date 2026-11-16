@@ -89,7 +89,7 @@ async function agentConvs(browser) {
   check(joined, 'the link made dev1 a participant');
   await dev.page.fill('#msg', 'hello from dev1');
   await dev.page.press('#msg', 'Enter');
-  await until(admin.page, () => [...document.querySelectorAll('#timeline .msg.user.other .who')].some((e) => e.textContent === 'dev1'));
+  await until(admin.page, () => [...document.querySelectorAll('#timeline .msg.user.other .bxc-who')].some((e) => e.textContent === 'dev1'));
   check(true, 'admin sees dev1\'s message, labelled');
   let told = false;
   for (let i = 0; i < 100 && !told; i++) {

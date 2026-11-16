@@ -1,0 +1,116 @@
+{
+ "name": "signin",
+ "about": "the transcript of signin.json in the chat kit's block model (/vendor/chat/blocks.js) after each of its checkpoints — blocks; tail: what waits on a person beside them; plan: the key of the newest plan block; usage. A block's k is the seq of the event that opened it (the Agent tab's key); versions (v) and clock times (at) are left out, and a field at its zero value too.",
+ "checkpoints": [
+  {
+   "seq": 8,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "echo hi"
+    },
+    {
+     "k": "7",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "error",
+     "error": "Authentication required: sign in with fake-login, fake-api-key or fake-device: the agent isn't signed in — run: fakeacp login"
+    }
+   ],
+   "tail": [
+    {
+     "k": "signin",
+     "kind": "signin",
+     "provider": "Fake agent (tests)",
+     "command": "fakeacp login"
+    }
+   ]
+  },
+  {
+   "seq": 9,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "echo hi"
+    },
+    {
+     "k": "7",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "error",
+     "error": "Authentication required: sign in with fake-login, fake-api-key or fake-device: the agent isn't signed in — run: fakeacp login"
+    },
+    {
+     "k": "9",
+     "kind": "ask",
+     "eid": "e1",
+     "message": "Enter code FAKE-1234 at https://example.invalid/device",
+     "mode": "url",
+     "url": "https://example.invalid/device"
+    }
+   ],
+   "tail": [
+    {
+     "k": "signin",
+     "kind": "signin",
+     "provider": "Fake agent (tests)",
+     "command": "fakeacp login"
+    }
+   ]
+  },
+  {
+   "seq": 19,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "echo hi"
+    },
+    {
+     "k": "7",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "error",
+     "error": "Authentication required: sign in with fake-login, fake-api-key or fake-device: the agent isn't signed in — run: fakeacp login"
+    },
+    {
+     "k": "9",
+     "kind": "ask",
+     "eid": "e1",
+     "message": "Enter code FAKE-1234 at https://example.invalid/device",
+     "mode": "url",
+     "url": "https://example.invalid/device",
+     "action": "complete",
+     "by": "agent"
+    },
+    {
+     "k": "13",
+     "kind": "user",
+     "text": "echo hi"
+    },
+    {
+     "k": "15",
+     "kind": "assistant",
+     "text": "echo: echo hi",
+     "mid": "m"
+    },
+    {
+     "k": "18",
+     "kind": "turn",
+     "turn": 2,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   ],
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  }
+ ]
+}

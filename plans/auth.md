@@ -21,6 +21,7 @@ New sub-decisions raised here are marked `[ND#]` and tracked in `DECISIONS.md`.
 | **Terminal session** | per-session terminal token bound to the tile it's opened on | acts *as the tile* (self-admin + its approved grants) — never the owner; the root terminal is disabled (plans/terminal-tokens.md) |
 | **Element instance** (running backend, generation N) | per-generation instance credential minted by xbind | least privilege: nothing beyond its own API/files unless granted |
 | **Element frontend** (its iframe in the browser) | owner cookie **+ frame token binding the request to the element** | acts *as the element*, not as the owner (§6) |
+| **A person's workspace agent** (a delegate) | the instance token of that person's partition of a *sealed* xbind component, under the `XBin-Delegate` scheme, on the gateway socket | the person's own principal, capped (§10): never an admin, a closed list of routes, every side effect approved by the person and verified by xbind |
 | **xbind / broker / cron** | internal | trusted computing base |
 
 Two planes, different rules:
@@ -278,6 +279,21 @@ with sandboxed tile frames `[ND8]`:
   frame ancestors, chrome only itself, and the session cookie becomes
   `__Host-xbin_session`. The VM/host remains the real outer boundary.
 
+### Previews (D234)
+
+xbind renders a tile or a screen as a person in a browser of its own
+(docs/protocol/preview.md). The principal is that person's, read-only: a
+session whose impersonator is the reserved `~preview` — so `ReadOnly()`
+gates every write as for view-as, and frame tokens, tile cookies, asset
+tokens and path tickets minted under it carry the mark — while `ViewAs()`
+is false, so the gates that keep a person's data from an admin's eyes stay
+open to it. The session is set server-side on a per-render socket and never
+handed to the browser, the caller or the page; the socket itself refuses
+everything but reads and admits only what the render shows. Tiles see
+`X-XBin-Preview: 1`, never `X-XBin-Viewed-By`. A preview is asked for by
+the person themselves (or their terminal, for its own tile); the root
+token, tiles and view-as sessions get none.
+
 ## 7. Documentation standard (elements teach their own auth)
 
 Every exposing element ships a **standard, tooling-visible contract** so a builder in
@@ -330,7 +346,44 @@ is exclusively the terminal's (owner's) power. Self-modification stays a first-c
 sqlite at tier 2 uses a per-resource unix group (setgid data dir) or falls back to
 brokered access; brokered is the default recommendation.
 
-## 10. Non-goals (v1)
+## 10. Delegation: a sealed component acts as its person (D228)
+
+The one way a server-side component acts for a human. It does not weaken
+§1–§3: inbound `X-XBin-*` is still stripped, element principals stay
+default-deny, the owner is still admin, and a frame still acts as its
+element. Builder contract: `docs/auth.md` §Delegation; routes:
+`docs/protocol/delegation.md`; findings: `plans/wsagent/s2-delegation.md`.
+
+- **Holder**: a sealed system component (code that ships in xbind, not in
+  the workspace) marked for delegation in xbind's own table. Nothing in a
+  workspace declares, grants or approves it.
+- **Principal**: the person's (`Component` empty), `Via: "delegate"`,
+  `Agent: <holder>`. `IsAdmin()` is false for it whoever the person is.
+  It is resolved in one place (`auth.DelegateFromRequest`), asked in one
+  place (the server's delegate gate on `/api/`), on the gateway socket
+  only; every other plane treats the credential as none.
+- **Cap**: `internal/server/delegateclass.go` names every route — read,
+  act, admin-read, never, refused. A route without a row is refused, and a
+  test over the route inventory fails for one.
+- **Approvals belong to xbind**: a side effect passes with a one-shot
+  ticket the person approved in their own session (bound to method, path,
+  query, body, content type) or a standing approval — of one call (tile,
+  method, path) by default, of the whole tile's API only as a separate
+  explicit choice. The agent asks; the person answers, in their own
+  top-level session, app or device; the agent never does, and neither does
+  its page (it renders what the agent wrote: it reads and may pause).
+- **Tile calls** are attributed like an F5 call: `X-XBin-From: user:<id>`,
+  `X-XBin-User`, `-User-Level`, `X-XBin-Role` clamped to the level, plus
+  `X-XBin-Agent`. A tile's manifest narrows it (`"agent"`).
+- **No inbound edge**: no tile calls, holds a grant on or binds to a
+  holder.
+- **Admin acts** never go through delegation: change sets of a closed list
+  of kinds, previewed by the admin handlers' own checks, approved by the
+  proposing agent's person after a step-up, applied as that person.
+- **Org rules** are the agent-policy package's (`delegation.Policy`);
+  without one every tile is refused.
+
+## 11. Non-goals (v1)
 
 - Protecting the workspace from its owner or their terminals.
 - Multi-user / multi-tenant (the model leaves room: `owner` becomes a set of users

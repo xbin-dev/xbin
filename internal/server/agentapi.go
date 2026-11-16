@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -55,13 +56,49 @@ func (s *Server) SessionEvent(cwd string, ev term.SessionEvent) {
 	s.Hub.Publish(events.Event{Type: "session", Topic: "session." + ev.ID, Component: cwd, Data: ev})
 }
 
-// apiAgentProviders lists what this daemon can run.
+// apiAgentProviders lists what this daemon can run — with ?cwd=<tile>, what
+// an agent session may run on that tile: the harnesses its orgs and the
+// workspace allow, and that can run where the tile's sessions must (D229;
+// a harness left out is refused by POST /term/sessions with the reason).
+// With &all=1 the rest stay in the list, each carrying `unavailable`: the
+// reason — what a launcher shows instead of offering it. A tile the
+// caller can't read is answered as no tile: the whole catalog. Each row
+// carries `llm`, what a session of the caller's would run on, while the
+// workspace has an LLM connector for agent sessions (agentllm.go); exactly
+// the catalog's rows otherwise.
 func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
-	WriteJSON(w, http.StatusOK, agent.Providers())
+	provs := agent.Providers()
+	p := auth.PrincipalOf(r)
+	// (a tile's own credentials ask about their tile only: CanReadTile passes
+	// every element)
+	cwd := strings.Trim(r.URL.Query().Get("cwd"), "/")
+	if cwd == "" || s.Term == nil || !p.CanReadTile(cwd) || (p.Component != "" && p.Component != cwd) {
+		rows := make([]providerRow, len(provs))
+		for i, pr := range provs {
+			rows[i] = providerRow{Provider: pr}
+		}
+		WriteJSON(w, http.StatusOK, s.withAgentLLM(r, "", rows))
+		return
+	}
+	all := r.URL.Query().Get("all") == "1"
+	out := make([]providerRow, 0, len(provs))
+	for _, pr := range provs {
+		err := s.Term.HarnessAllowed(p, cwd, pr.ID)
+		switch {
+		case err == nil:
+			out = append(out, providerRow{Provider: pr})
+		case all:
+			out = append(out, providerRow{Provider: pr, Unavailable: err.Error()})
+		}
+	}
+	WriteJSON(w, http.StatusOK, s.withAgentLLM(r, cwd, out))
 }
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,
-// mode?, net?, api?, gpu?, vm?, name?, resume?} → SessionInfo (status starting).
+// mode?, net?, api?, gpu?, vm?, name?, resume?, llm?} → SessionInfo (status starting).
+// llm picks who serves its model calls where the workspace has an LLM
+// connector — "connector" or "own"; absent, the person's saved default,
+// then the workspace's.
 // ?deployment= is the session's target (D127p) — the body never gains a field:
 // a deployment of the tile, echoed in the SessionInfo; absent, the default.
 // net/api/gpu/vm are the sandbox pickers a shell's socket takes (api false = a
@@ -75,12 +112,15 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
+		LLM                                                      string // who serves its model calls: connector | own (agentllm.go)
 		API                                                      *bool
 		VM                                                       bool
 		Options                                                  map[string]string
+		// Prompt: a workspace agent's start only — what the session is told first
+		Prompt string
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
-		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, api?, gpu?, vm?, name?, resume?}")
+		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, api?, gpu?, vm?, name?, resume?, prompt?}")
 		return
 	}
 	if body.Model != "" { // shorthand for options.model
@@ -100,9 +140,31 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusForbidden, "an agent session cannot open agent sessions from its sandbox")
 		return
 	}
-	info, code, err := s.Term.OpenAgentWith(auth.PrincipalOf(r), term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
+	// a person's workspace agent: how the delegate gate authorised the start
+	// (delegate.go). Starting on the person's preference, the mode and the
+	// pickers are the preference's — sending them is asking for something
+	// else, which needs the person's approval.
+	start := delegateStartOf(r)
+	if start != nil && !start.Approved && (body.Mode != "" || body.Net != "" || body.API != nil) {
+		apiErr(w, http.StatusForbidden, "a workspace agent starting without asking takes the mode, network and API access from its person's preferences: leave them out, or ask for the person's approval of this start")
+		return
+	}
+	open := term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
 		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options,
-		Deployment: r.URL.Query().Get("deployment")})
+		Deployment: r.URL.Query().Get("deployment"), LLM: body.LLM, Delegate: start}
+	open.Provider = term.DelegateProvider(open) // a delegate's start that names no harness: the one xbind resolved for it
+	if body.Prompt != "" && start == nil {
+		apiErr(w, http.StatusBadRequest, "prompt is for a workspace agent's start: send a session its first message with POST /term/sessions/<id>/prompt")
+		return
+	}
+	if len(body.Prompt) > maxStartPrompt {
+		apiErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("a start's first prompt is at most %d KiB", maxStartPrompt>>10))
+		return
+	}
+	// the brief the person approved with the start (the ticket binds the
+	// whole body, this text included): xbind sends it itself, as the
+	// session's first prompt
+	info, _, code, err := s.Term.OpenAgentPrompted(r.Context(), auth.PrincipalOf(r), open, body.Prompt)
 	if err != nil {
 		agentOpenErr(w, code, err)
 		return
@@ -238,7 +300,11 @@ func (s *Server) apiAgentHistory(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	WriteJSON(w, http.StatusOK, s.Term.ListHistory(h, r.URL.Query().Get("cwd"), may))
+	rows := s.Term.ListHistory(h, r.URL.Query().Get("cwd"), may)
+	if p := auth.PrincipalOf(r); p.Agent != "" { // a person's agent: not the tiles whose org keeps it out
+		rows = slices.DeleteFunc(rows, func(m term.HistoryMeta) bool { return s.delegateHides(p, m.Cwd) })
+	}
+	WriteJSON(w, http.StatusOK, rows)
 }
 
 // apiAgentHistoryEvents is a past session's transcript, {meta, events} in
@@ -316,6 +382,9 @@ func (s *Server) apiAgentDelete(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, agentStatus(err), err.Error())
 		return
 	}
+	if !s.delegateDrives(w, r, id) { // a person's agent ends only the sessions it opened
+		return
+	}
 	if !s.Term.Kill(id) {
 		apiErr(w, http.StatusNotFound, "no such session")
 		return
@@ -333,7 +402,7 @@ const maxPromptBody = 32 << 20
 // limits.
 func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.driveOther(w, r)
-	if !ok {
+	if !ok || !s.delegateDrives(w, r, id) { // a person's agent drives only the sessions it opened
 		return
 	}
 	release, err := s.Term.ReservePrompt(id)
@@ -345,6 +414,10 @@ func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
 	p, code, err := decodePrompt(http.MaxBytesReader(w, r.Body, maxPromptBody))
 	if err != nil {
 		apiErr(w, code, err.Error())
+		return
+	}
+	if !s.delegateSends(w, r, id, p.Text) { // what a person's agent may tell a session, and which session
+		s.Term.KickQueue(id)
 		return
 	}
 	turn, err := s.Term.AgentPromptWith(r.Context(), id, p)
@@ -365,7 +438,7 @@ func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
 // attachment limits (one prompt's, or the held messages' together).
 func (s *Server) apiAgentQueue(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.driveOther(w, r)
-	if !ok {
+	if !ok || !s.delegateDrives(w, r, id) { // a person's agent drives only the sessions it opened
 		return
 	}
 	release, err := s.Term.ReserveQueue(id)
@@ -378,6 +451,9 @@ func (s *Server) apiAgentQueue(w http.ResponseWriter, r *http.Request) {
 	p, code, err := decodePromptWith(http.MaxBytesReader(w, r.Body, maxPromptBody), &interrupt)
 	if err != nil {
 		apiErr(w, code, err.Error())
+		return
+	}
+	if !s.delegateSends(w, r, id, p.Text) {
 		return
 	}
 	res, err := s.Term.AgentQueue(r.Context(), id, p, interrupt)
@@ -394,7 +470,7 @@ func (s *Server) apiAgentQueue(w http.ResponseWriter, r *http.Request) {
 // longer held (sent, or taken back elsewhere).
 func (s *Server) apiAgentUnqueue(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.driveOther(w, r)
-	if !ok {
+	if !ok || !s.delegateDrives(w, r, id) { // a person's agent drives only the sessions it opened
 		return
 	}
 	items, err := s.Term.AgentUnqueue(id, r.PathValue("qid"))
@@ -465,7 +541,7 @@ func decodePromptWith(body io.Reader, interrupt *bool) (agent.Prompt, int, error
 
 func (s *Server) apiAgentCancel(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.drive(w, r)
-	if !ok {
+	if !ok || !s.delegateDrives(w, r, id) { // a person's agent drives only the sessions it opened
 		return
 	}
 	if err := s.Term.AgentCancel(id); err != nil {
@@ -689,3 +765,6 @@ func diffQuery(q url.Values) (tool string, turn int64, err error) {
 	}
 	return tool, turn, nil
 }
+
+// maxStartPrompt bounds the first prompt a workspace agent's start carries.
+const maxStartPrompt = 64 << 10

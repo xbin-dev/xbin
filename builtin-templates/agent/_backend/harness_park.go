@@ -10,7 +10,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
@@ -36,14 +35,14 @@ func (s *hsess) onPermission(ev acp.Event) {
 	c := s.call(tc.ID)
 	if c == nil && tc.ID != "" { // asked before the adapter announced the call
 		title, kind := tc.Title, tc.Kind
-		s.newCall(acp.Event{Type: acp.EvToolCall}, hToolEv{ID: tc.ID, Title: &title, Kind: &kind, Status: "pending",
+		s.newCall(acp.Event{Type: acp.EvToolCall}, acp.ToolEvent{ID: tc.ID, Title: &title, Kind: &kind, Status: acp.ToolPending,
 			Name: tc.Name, RawInput: tc.RawInput, Content: tc.Content})
 		c = s.call(tc.ID)
 	}
 	park := &hPark{CallID: s.sid(tc.ID), PID: d.PID, RPCID: string(ev.Wire.RPCID)}
 	kind := tc.Kind
 	if kind == "" && c != nil {
-		kind = c.meta.Kind
+		kind = c.rec.Kind
 	}
 	for _, o := range d.Options {
 		park.Options = append(park.Options, hOption{OptionID: o.OptionID, Name: o.Name, Kind: o.Kind, Explicit: s.raises(o, kind)})
@@ -60,8 +59,8 @@ func (s *hsess) onPermission(ev acp.Event) {
 		tool.Command = cmd
 	}
 	if c != nil {
-		tool.Label = c.meta.Label
-		tool.Title = orStr(tool.Title, c.meta.Title)
+		tool.Label = c.rec.Label
+		tool.Title = orStr(tool.Title, c.rec.Title)
 	}
 	park.Tool = tool
 	if tc.Kind != acp.KindSwitchMode && (d.Rule.Kind != "" || d.Rule.Title != "") {
@@ -69,12 +68,12 @@ func (s *hsess) onPermission(ev acp.Event) {
 	}
 	park.DefaultToNo, _ = d.Meta["defaultToNo"].(bool)
 	park.Description, _ = d.Meta["description"].(string)
-	if tc.Kind == acp.KindSwitchMode || (c != nil && c.meta.PlanReview) {
+	if tc.Kind == acp.KindSwitchMode || (c != nil && c.rec.PlanReview) {
 		park.PlanApproval = true
 		if p, ok := raw["plan"].(string); ok {
 			park.Plan = p
 		} else if c != nil {
-			park.Plan = c.meta.Text
+			park.Plan = c.rec.Text
 		}
 		if park.Plan != "" {
 			tool.Content = nil // the call's content is the plan: said once, as `plan`
@@ -528,8 +527,13 @@ func (d *DB) placeholderRows(run int64) []int64 {
 }
 
 // raises: permission option o of a call of kind switches the session to a
-// mode harnessModeOpen doesn't open — the root owner's only (§4.2.9);
-// optionRaises says which.
+// mode this conversation doesn't open to everyone — the root owner's only
+// (§4.2.9). The rule is sdk/acp's (Provider.OptionRaises, the same one that
+// marks an option `explicit` for xbind's Agent tab): only an allow can
+// raise; its mode is its id when that names one of the agent's modes, else
+// the catalog's OptionModes; an allow_always of a mode switch that names no
+// mode the catalog knows raises too (default-deny). The start mode is the
+// one the adapter opened its first session in by itself.
 func (s *hsess) raises(o acp.PermissionOption, kind string) bool {
 	var st acp.SessionState
 	if s.c != nil {
@@ -537,29 +541,5 @@ func (s *hsess) raises(o acp.PermissionOption, kind string) bool {
 	}
 	var start string
 	_ = s.e.db.q.QueryRow(`SELECT start_mode FROM harness_sessions WHERE run_id=?`, s.run).Scan(&start)
-	return optionRaises(s.prov, st, start, o, kind)
-}
-
-// optionRaises: only an allow can raise. Its mode is the one it names — its
-// id when that is one of the agent's modes, else the catalog's OptionModes
-// (claude's plan approval: exit-plan-bypass is bypassPermissions) — and it
-// raises when harnessModeOpen doesn't open that mode. An allow_always of a
-// mode switch (switch_mode: a plan approval) that names no mode the catalog
-// knows raises too (default-deny: that is how an adapter offers "yes, and
-// switch to ‹mode›"); any other option that names no mode raises nothing
-// (an allow_once of a plan approval keeps the mode it had before planning).
-func optionRaises(prov acp.Provider, st acp.SessionState, start string, o acp.PermissionOption, kind string) bool {
-	if !strings.HasPrefix(o.Kind, "allow") {
-		return false
-	}
-	mode := ""
-	if harnessModeIDs(prov, st)[o.OptionID] {
-		mode = o.OptionID
-	} else if m := prov.OptionModes[o.OptionID]; m != "" {
-		mode = m
-	}
-	if mode == "" {
-		return kind == acp.KindSwitchMode && o.Kind == acp.AllowAlways
-	}
-	return !harnessModeOpen(prov, start, mode)
+	return s.prov.OptionRaises(o, kind, st, start)
 }

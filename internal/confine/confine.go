@@ -92,6 +92,18 @@ type Cmd struct {
 	// their owner locked. Only for fixed tools whose argv no tree content
 	// steers. Isolation off: no effect (a direct run is xbind).
 	FSCaps bool
+
+	// TmpfsBytes sizes the sandbox's writable tmpfs mounts (/tmp, /dev/shm,
+	// the root's layer; sandbox.Spec.TmpfsBytes): for a run of untrusted
+	// code. 0 = the default. Isolation off: no effect.
+	TmpfsBytes int64
+
+	// Cgroup, when set, is a cgroup directory (open O_DIRECTORY:
+	// cgroup.Manager.Prepare) the sandbox is started straight into —
+	// clone3's CLONE_INTO_CGROUP — so its limits bind everything the run
+	// forks from its first instruction (the preview browser's memory cap,
+	// D234). It stays the caller's to close. Isolation off: no effect.
+	Cgroup *os.File
 }
 
 // Result is what a run printed.
@@ -156,6 +168,9 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 	mu.RLock()
 	fs := rootfs
 	mu.RUnlock()
+	if path := os.Getenv("XBIN_CONFINE_TRACE"); path != "" {
+		defer traceRun(path, time.Now(), fs != "", c.Argv[0])
+	}
 	if fs == "" {
 		if err := c.directOK(); err != nil {
 			return Result{}, err
@@ -181,6 +196,7 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 			HostGID:      os.Getgid(),
 			Unprivileged: true, // no capabilities, the syscall block-list: nothing to un-mask with
 			FileCaps:     c.FSCaps,
+			TmpfsBytes:   c.TmpfsBytes,
 		}
 		switch c.Net {
 		case NetHost:
@@ -194,6 +210,9 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 			return Result{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 		}
 		defer h.Cleanup()
+		if c.Cgroup != nil {
+			startInCgroup(cmd, c.Cgroup)
+		}
 	}
 	cmd.Stdin = c.Stdin
 	cmd.Stdout, cmd.Stderr = out, errb
@@ -333,4 +352,24 @@ func (c *capped) Write(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
+}
+
+// traceRun appends one line for a run to XBIN_CONFINE_TRACE's file:
+// "<start> <end> <sandboxed> <tool>", the times in Unix nanoseconds,
+// sandboxed 1 for a run in a sandbox. The latency tests read it to tell how
+// much of an operation was spent in confined runs (test/latency_test.go,
+// confinedRuns). One write per line under O_APPEND, so concurrent runs
+// never interleave a line; a failure to write is ignored — the trace is a
+// measurement, never a reason for a run to fail.
+func traceRun(path string, start time.Time, sandboxed bool, tool string) {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		return
+	}
+	sb := 0
+	if sandboxed {
+		sb = 1
+	}
+	_, _ = fmt.Fprintf(f, "%d %d %d %s\n", start.UnixNano(), time.Now().UnixNano(), sb, filepath.Base(tool))
+	_ = f.Close()
 }

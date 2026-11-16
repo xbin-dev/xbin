@@ -103,6 +103,34 @@ func TestHarnesses(t *testing.T) {
 	}
 }
 
+// What a new manager says of the base image's coding agents, byte for byte:
+// its config (GET /ops/config, the settings page) and hello.images[]
+// .harnesses, which consumers start agents and sign-ins from. The entries
+// come from sdk/acp's catalog (baseHarnesses); a catalog change that moves
+// one of these bytes is a change to what every new manager advertises, and
+// is made here on purpose.
+func TestBaseHarnessesPinned(t *testing.T) {
+	t.Parallel()
+	const want = `[{"id":"claude","title":"Claude Code","argv":["claude-agent-acp"],"login":"claude auth login"},` +
+		`{"id":"codex","title":"Codex","argv":["codex-acp"],"login":"codex login --device-auth"},` +
+		`{"id":"gemini","title":"Gemini CLI","argv":["gemini","--acp"],"login":"NO_BROWSER=true gemini"},` +
+		`{"id":"opencode","title":"OpenCode","argv":["opencode","acp"],"login":"opencode auth login"}]`
+	if got, _ := json.Marshal(defaultConfig().Images[0].Harnesses); string(got) != want {
+		t.Errorf("the default config's harnesses changed\n got %s\nwant %s", got, want)
+	}
+	tm := newTestManager(t, "")
+	var h struct {
+		Images []struct {
+			ID        string          `json:"id"`
+			Harnesses json.RawMessage `json:"harnesses"`
+		} `json:"images"`
+	}
+	tm.tg.As(t, "apps/harness-pin").Call("GET", "/hello?protocol=1", nil, 200, &h)
+	if len(h.Images) != 1 || h.Images[0].ID != "base" || string(h.Images[0].Harnesses) != want {
+		t.Errorf("hello's harnesses changed\n got %+v\nwant %s", h.Images, want)
+	}
+}
+
 // A config saved before harnesses (or without them) is what it was: its
 // images list none — the first one doesn't pick up the default image's
 // (decoding into the default config's slice would) — and one saved with them

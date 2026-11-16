@@ -61,6 +61,10 @@ public enum AppEvent: Sendable, Equatable {
     /// its `/components` row's `partition` did too), `consent-needed`,
     /// `consent`, `state`, `notice` (the person's own).
     case partitions(component: String, op: String)
+    /// The person's delegation changed (`delegate`, D233): a request
+    /// appeared or was decided, a standing approval, a change set, the
+    /// state — refetch the list `op` names.
+    case delegate(DelegateEvent)
     /// Anything else (`bus`, `pr`, future types): ignored by the app.
     case other(type: String)
 
@@ -105,6 +109,9 @@ public enum AppEvent: Sendable, Equatable {
         case "partitions":
             guard let op = j["data"]?["op"]?.stringValue, !op.isEmpty else { return .other(type: type) }
             return .partitions(component: component, op: op)
+        case "delegate":
+            guard let op = j["data"]?["op"]?.stringValue, !op.isEmpty else { return .other(type: type) }
+            return .delegate(DelegateEvent(op: op, id: j["data"]?["id"]?.stringValue ?? ""))
         case "status":
             let d = j["data"]
             return .tileStatus(component: component, level: d?["level"]?.stringValue ?? "",

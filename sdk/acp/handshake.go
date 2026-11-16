@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -82,6 +81,9 @@ func (c *Client) openSession(ctx context.Context) error {
 	c.mu.Unlock()
 	if want := c.cfg.Mode; want != "" && (sess.Modes == nil || sess.Modes.CurrentModeID != want) && !modeOptionIs(sess.ConfigOptions, want) {
 		if err := c.conn.Call(MSessionSetMode, SetModeParams{SessionID: sess.SessionID, ModeID: want}, nil); err != nil {
+			if c.cfg.Strict { // not "in the agent's own mode instead"
+				return fmt.Errorf("the session can't be put in mode %s (%v): it isn't started in another", want, err)
+			}
 			c.logf("set_mode %s: %v", want, err)
 		} else {
 			c.mu.Lock()
@@ -106,6 +108,8 @@ func (c *Client) openSession(ctx context.Context) error {
 				c.logf("option %s: the agent does not offer it", id)
 			}
 			continue
+		} else if c.cfg.Strict && cur.Category != "model" && cur.Category != "thought_level" {
+			return fmt.Errorf("option %s (category %q) is not one this session may be started with: only a model and a thinking level are", id, cur.Category)
 		} else if cur.Category == "mode" && c.cfg.SkipModeOptions {
 			c.logf("option %s: it is the agent's mode — not set as an option", id)
 			continue
@@ -264,12 +268,6 @@ func deadlineHint(err error, what string) error {
 	return err
 }
 
-// isAuthError reports whether a status detail is a "sign in" message (an
-// agent that fails with its own wording rather than -32000).
-func isAuthError(detail string) bool {
-	return strings.Contains(detail, "Authentication required") || strings.Contains(detail, "isn't signed in")
-}
-
 // authError is the agent's auth-required error with the person's next step:
 // its text is the hint, and it unwraps to the agent's *Error.
 type authError struct {
@@ -285,7 +283,7 @@ func (e *authError) Unwrap() error { return e.err }
 // session signed out; any other error is returned as is.
 func (c *Client) authHint(err error) error {
 	var re *Error
-	if !errors.As(err, &re) || re.Code != CodeAuthRequired {
+	if !IsAuthRequired(err) || !errors.As(err, &re) {
 		return err
 	}
 	c.mu.Lock()
@@ -298,13 +296,6 @@ func (c *Client) authHint(err error) error {
 	return &authError{text: hint(c.cfg, re.Message), err: re}
 }
 
-func defaultAuthHint(cfg Config, msg string) string {
-	how := cfg.Provider.LoginCmd
-	if how == "" {
-		how = cfg.Provider.Login
-	}
-	if how == "" {
-		how = "the CLI's own login"
-	}
-	return msg + ": the agent isn't signed in — run: " + how
-}
+// defaultAuthHint is the agent's message and the one sign-in sentence
+// (authstate.go).
+func defaultAuthHint(cfg Config, msg string) string { return msg + ": " + cfg.Provider.SignInHint("") }

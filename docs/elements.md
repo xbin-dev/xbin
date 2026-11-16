@@ -137,6 +137,16 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   "partitionMail": "/mailbox",
   "partitionNote": "Switching deletes every conversation, memory and schedule.",
 
+  // How much of this tile's API a person's workspace agent may use when it
+  // acts for them (docs/auth.md §Delegation): "full" — the default, absent
+  // means it — everything that person's level allows, each write approved
+  // by them; "read" — GET and HEAD only; "off" — nothing. An unknown word
+  // reads as "off". Such calls carry X-XBin-Agent. Lowering it here takes
+  // effect at once; raising it (or removing the line after it said less)
+  // waits for someone who manages the tile to approve it. Decide it — see
+  // "A person's agent" under API contract below — and say why in a comment.
+  "agent": "full",
+
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), reserved capabilities
   // ("cap:open-links" — links in new tabs from the frontend; "cap:net-admin",
@@ -174,6 +184,11 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // [a-z0-9][a-z0-9_-]{0,31}; see
   // /docs/isolation.md §Network egress), and — provide-side — ingress (an
   // HTTP ingress terminator tile, docs/ingress.md).
+  //
+  // Required (request side): "required": true marks a slot the component
+  // can't do its work without (an agent's model); once every required slot
+  // is bound, the shell folds the others into one line above the tile
+  // instead of a popover over it. Grants nothing by itself.
   //
   // Multiplicity (http only): a REQUEST slot with "multi": true explicitly
   // accepts a SET of bindings — the backend gets XBIN_IFACE_<slot> as a JSON
@@ -397,6 +412,16 @@ nothing a link to `/c/<tile>/#<fragment>` couldn't: your page decides what
 its fragment means — treat it as input, never as a command to act on
 unasked.
 
+**A link to a session** (D229). `?tile=apps/notes&session=<id>` opens the
+tile's terminal window on one of the viewer's own sessions there — a
+terminal, or an agent session: its tab while it is live, its transcript
+once it has ended. The `session` part is a request, taken once on landing
+and dropped from the URL (the window's state is not part of a place). A
+session that isn't the viewer's on that tile says so in the strip above
+the canvas; a shell from before D229 ignores the parameter and lands on
+the tile. From your own page, ask for the same with
+`xbin.openSession({tile, session})` (below).
+
 The scaffold's admin console (`#users`, `#orgs/<id>`) and welcome notes
 (`#storage/kv`) do both. A page that keeps no fragment is linked to as a
 tile, opened where it starts.
@@ -503,6 +528,19 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   sends the page there (`xbin:navigate`) — before the frame has loaded,
   its first load carries it. The shell's links use both (§Links to a
   place in your tile).
+- **The terminal window, from outside** (D229): `open(layout)` opens the
+  frame's terminal window (`'term'`, `'code'`, `'logs'`, `'prs'`,
+  `'deployments'`; none keeps it as it is), and `open({session, layout?})`
+  shows one of the viewer's sessions on the tile in it — the tab of a live
+  session, the read-only transcript of one that ended — resolving `true`,
+  or `false` when the id is neither (not theirs, another tile's, gone). A
+  tile's page asks for it with `xbin.openSession` (below), which reaches
+  the frame as the cancelable event `bx-open-session` `{from, tile,
+  session}` for the embedder to take. `open({session: "new", draft?})`
+  opens a new session's launcher instead, with `draft` as plain text for
+  the composer of the session the person then picks — never sent by
+  itself; only xbin's chrome for the workspace agent asks for it (a tile
+  page's `session: "new"` is refused).
 - **Auto-height**: the framed document reports its size via xbin-client
   (with hysteresis, so no resize loops). Set `height` for a fixed frame.
   The mode follows the element live (D187): setting or removing `height`
@@ -668,7 +706,7 @@ count, no restore line; the shell's settings menu has **Show dismissed
 banners).
 The dismissals are the viewer's pref `dismissed` in the bucket the page's
 `xbin.fetch` reaches (the shell's, in the workspace root page;
-[protocol.md](/docs/protocol.md) `/prefs`):
+[protocol/workspace.md](/docs/protocol/workspace.md) `/prefs`):
 
 ```json
 {"grants":   {"<from>|<target>|<role>": "<dismissed at, ISO 8601>"},
@@ -695,7 +733,7 @@ font size. The palette is *Workspace (follows the theme)* unless the person
 picks one: its colours are the `--bx-term-*` tokens, so an open terminal
 turns light or dark with the workspace, live; the named palettes include
 *Concrete Night* and *Concrete Day* (a dark terminal in a light workspace is
-one pick) (D184). The font is the `--bx-mono` token, JetBrains Mono. It speaks the terminal wire ([protocol.md](protocol.md) §The terminal
+one pick) (D184). The font is the `--bx-mono` token, JetBrains Mono. It speaks the terminal wire ([protocol/terminals.md](/docs/protocol/terminals.md) §The terminal
 wire) to one of two places:
 
 - **xbind's `/ws/term`** — the `cwd`, `net`, `gpu`, `api`, `vm` and
@@ -841,6 +879,17 @@ inputs and editable text keep the native menu.)
   button's `value` (`null` when dismissed via Escape / backdrop / Cancel) and
   the field `values`. Good for confirm / prompt / a few inputs. Falls back to
   an in-frame `<bx-dialog>` when the tile isn't inside the shell.
+- **`xbin.ready()`** (D234) — "I have drawn". A page that fetches before
+  it has anything to show can say when it does, and whatever is waiting
+  for the tile stops waiting at once — today xbind's
+  [preview browser](/docs/protocol/preview.md), which otherwise takes the
+  picture when the network has gone quiet. A tile that will call it says
+  so up front, `<meta name="xbin-ready" content="manual">` in its `<head>`,
+  and is then waited for (about ten seconds at most) even while the network
+  is quiet — for a page that draws from a timer, a worker or a socket.
+  Calling it without the meta, twice, or never is harmless; the mark is
+  `data-xbin-ready` on `<html>` (`pending` → `1`), and the shell's frame is
+  told (`xbin:ready`).
 - **`xbin.meta({title, icon, badge})`** (D194) — what the shell shows for
   your tile while this page is open: a title in place of its name (e.g. the
   open document's, "Inbox (3)"), an icon from the workspace's set, a badge
@@ -876,6 +925,21 @@ inputs and editable text keep the native menu.)
   `text/html` and `text/plain` on `e.clipboardData` to shape it. A right-click
   with a selection already leads the shell's tile menu with Copy, and that
   Copy now writes the selection's HTML too.
+
+- **`xbin.openSession({tile, session}) → Promise<boolean>`** — show one of
+  the person's sessions (a terminal or an agent session, by its id from
+  `GET /api/xbin/term/sessions` or `/agent/history`) in its tile's terminal
+  window (D229): the tab of a live one, the transcript of one that ended.
+  `tile` defaults to your own. The shell finds the tile on the person's
+  screens or opens it, brings it to the front and opens its window on the
+  session; your page stays where it is. Resolves `true` when the workspace
+  took the request, `false` when it couldn't — the viewer doesn't list the
+  tile, the page isn't in a workspace shell (the app, a bare tab), or
+  nothing answered in 3 s. Call it from a click: a shell from before D229
+  is given a link to the tile instead, and the frame follows a link only on
+  the click that asked. The window lists the viewer's own sessions, so the
+  request reveals and grants nothing: a session that isn't theirs simply
+  isn't found.
 
 **Permissions & trust.** Spawning UI is a tile affordance, not a privileged
 capability — no grant is required — but four things bound it:
@@ -918,7 +982,7 @@ tab for `warn`/`error`, and the level's word in the browser-tab title.
 - **`xbin.notify(level, message)`** — a **one-shot** notification (toast) that
   fades; does not change the persistent status.
 - Backend equivalents: `xbin.Status` / `xbin.ClearStatus` / `xbin.Notify`
-  (SDK). Both planes POST `/api/xbin/tile-report` ([protocol.md](/docs/protocol.md)).
+  (SDK). Both planes POST `/api/xbin/tile-report` ([protocol/tiles.md](/docs/protocol/tiles.md)).
 
 Status is per-component and self-reported (the owner sees all; other users only
 tiles they can read), and it **resets when your backend restarts**. It speaks
@@ -1094,6 +1158,57 @@ integrates with you in minutes. Standard shape (scaffolded by
 5. **Use it**: a copy-paste `uses` snippet.
 
 Keep it truthful over pretty — it's a contract, not marketing.
+
+### A person's agent
+
+A person can have a **workspace agent**: software a model drives, which
+xbind lets call your tile's API *as that person*
+([auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent);
+what the agent is and does: [workspace-agent.md](/docs/workspace-agent.md)).
+Its calls look like the person's — `X-XBin-From: user:<id>`, `X-XBin-User`,
+their level — at role `reader` or `writer`, never `admin`, plus
+**`X-XBin-Agent`** (`xbin.Caller(r).ByAgent()`). xbind asks the person
+before every write the agent makes, but it approves a *call*: only your
+tile knows what a call means. Before your tile has a backend with people
+in it, decide:
+
+1. **Say it in the manifest.** `"agent": "off"`, `"read"` or `"full"`,
+   with the reason in a comment. Absent means `full`. `read` if agents
+   should see what the person sees and change nothing; `off` if the API
+   hands out secrets or is itself a control surface (firewall rules,
+   tokens, routes, terminals). An ordinary app can leave the key out: that
+   is what a workspace agent is for, and each write still asks the person.
+   The infrastructure that ships with xbind says `off` (`read` for the
+   metrics viewer and the agent template); the chat tile and the starter
+   template say nothing.
+2. **Refuse an agent the answers that are a person's.** With `full`, any
+   route that *answers* something a person was asked — an approval, a
+   permission request, a question, a consent, a sign-in — or that changes
+   what your tile's own agents and automations may do, must refuse a
+   caller with `ByAgent()`:
+
+   ```go
+   if xbin.Caller(r).ByAgent() {
+   	xbin.WriteError(w, http.StatusForbidden, "this is for the person themselves")
+   	return
+   }
+   ```
+
+   Otherwise a person's agent approves its own way through your tile: the
+   person's "always allow this call" on your `…/approve` route is one click.
+   Prefer a closed rule — refuse every write from an agent, and list the
+   routes it may use — over a list of routes to refuse (the agent
+   template's `_backend/wsagent.go` is the worked example).
+3. **Don't trust `user:` to mean an admin, or a WebSocket to be a read.**
+   Judge by `X-XBin-Role` / `X-XBin-User-Level`; treat an upgrade as a
+   write.
+4. **Record who acted.** When an agent's call changes something, store
+   `Caller(r).Agent` beside the user, so your history says "Ada's agent",
+   not "Ada".
+
+A backend written before workspace agents ignores the header and treats
+the agent as the person, at their level. If that is wrong for your tile,
+set `"agent": "read"` or `"off"` until its routes tell the two apart.
 
 ## Cross-component code access (editing plane)
 

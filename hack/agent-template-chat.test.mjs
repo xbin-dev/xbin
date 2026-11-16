@@ -3,8 +3,11 @@
 // becomes blocks, run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fold, activity, splitAttachments } from '../builtin-templates/agent/model/fold.js';
-import { headline, parseArgs, resultState, argsShown } from '../builtin-templates/agent/model/tool-heads.js';
+import { installHooks } from './xbn/hooks.mjs';
+
+installHooks(); // /vendor/<name> as xbind serves it: the kit the template's models import (web/<name>)
+const { fold, activity, splitAttachments } = await import('../builtin-templates/agent/model/fold.js');
+const { headline, parseArgs, resultState, argsShown } = await import('../builtin-templates/agent/model/tool-heads.js');
 
 const call = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
 const m = (id, role, content, extra = {}) => ({ id, seq: id, role, content, created: 100 + id, ...extra });

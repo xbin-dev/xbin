@@ -510,3 +510,39 @@ func TestPartitionHoldReasonNeverWaits(t *testing.T) {
 		t.Fatal("PartitionHoldReason waited for a settle")
 	}
 }
+
+// A sealed component (the workspace agent) is in every workspace: unused,
+// it settles in its own code's mode with nothing written; once a person's
+// partition has started (its ledger dir), its first record is that mode —
+// never a switch from "unpartitioned", whatever its people's data.
+func TestSealedModeAtFirstUse(t *testing.T) {
+	const tile = "apps/sv"
+	w := newPartWS(t, map[string]string{
+		tile + "/scope.json": `{"resources":{"db":{"type":"kv"}}}`,
+		tile + "/xbin.json":  `{"runtime":"go","partition":["user"],"uses":[{"target":"res:apps/sv/db","role":"writer"}]}`,
+	}, nil)
+	ask := registry.PartitionAsk{Tile: tile, Scope: tile, RootsScope: true, Requested: &userSpec, Sealed: true}
+	os.RemoveAll(filepath.Join(w.root, "data", "partitions")) // the rescan's record of the plain tile, gone: a fresh workspace
+	w.b.parts.mu.Lock()
+	delete(w.b.parts.recs, tile)
+	w.b.parts.mu.Unlock()
+
+	if m := w.b.settlePartition(ask); m.State != registry.PartitionPartitioned || m.Recorded != userSpec {
+		t.Fatalf("unused: %+v, want partitioned in its own mode", m)
+	}
+	if _, err := os.Stat(filepath.Join(w.root, "data", "partitions")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("an unused sealed tile left data/partitions (%v)", err)
+	}
+
+	// first use: a person's partition started (its ledger), and it holds data
+	w.kvPut(tile, "db")
+	if err := os.MkdirAll(w.b.ledgerTileDir(tile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if m := w.b.settlePartition(ask); m.State != registry.PartitionPartitioned || m.Recorded != userSpec || m.Request != nil {
+		t.Fatalf("after its first use: %+v, want partitioned, recorded user, no request", m)
+	}
+	if rec := w.record(tile); rec == nil || registry.SpecOf(rec.Mode) != userSpec || w.ops(tile) != "auto" {
+		t.Fatalf("the first record: %+v (%s), want user, auto", rec, w.ops(tile))
+	}
+}

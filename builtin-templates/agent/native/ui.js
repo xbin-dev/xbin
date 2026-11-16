@@ -2,7 +2,7 @@
 // rest, model/app.js): the composer's text per place, which sheets are open, the
 // navigation stack over the conversation list (conversations, pages and the
 // tools pushed over them: native/nav.js), and the last error — plus the small
-// helpers every native screen uses. No lit, no DOM: native.js draws with
+// helpers every native screen uses. No lit, no DOM: native/main.js draws with
 // /vendor/xb-native.js, and node tests run it against a stubbed backend.
 import { homeOf } from '../model/homes.js';
 import { dlPath, zipPath, zipName } from '../model/report-links.js';
@@ -21,7 +21,7 @@ export const ui = {
   rename: null,     // the rename sheet: {id, title}
   share: null,      // the share sheet: {run: {id, title}, data, link, err, user, role, linkRole, linkExp}
   sbxAsk: null,     // the Sandbox picker's confirmation sheet: {ref, name, text} (native/sandboxes.js)
-  cols: 'auto',     // the split's columns on a wide screen (native.js layout): both, or the detail alone
+  cols: 'auto',     // the split's columns on a wide screen (native/main.js layout): both, or the detail alone
   stack: [],        // the navigation stack over the conversation list: route entries {kind, …} (native/nav.js)
   win: null,        // the open conversation's window of blocks (native/chat.js): {run, fromKey, atBottom, start, n}
   err: '',          // the last failure, said at the top of the screen on top
@@ -40,7 +40,7 @@ export function setDraft(text, key = draftKey()) {
 // written in, wherever the person is by then (a new chat opens its conversation).
 export const clearer = (key = draftKey()) => () => setDraft('', key);
 
-// The model and the repaint, set once by native.js; the seams feature
+// The model and the repaint, set once by native/main.js; the seams feature
 // modules draw through (native/ext.js).
 export const ctx = { app: null, paint: () => {}, ext };
 

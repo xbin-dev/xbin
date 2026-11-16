@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -515,5 +516,62 @@ func TestRestoreSweepsOnlyStaleLeftovers(t *testing.T) {
 	b.sweepRestoreLeftovers(dir)
 	if _, err := os.Lstat(old); err != nil {
 		t.Fatalf("a sweep took the layer a swap had just moved aside: %v", err)
+	}
+}
+
+// A restored archive registers its own component's cron jobs and no other's:
+// a job calls its component's backend at a path and with a role the row
+// chooses, and the manifest is whatever the archiver served.
+func TestRestoreRegistersOnlyItsOwnCronJobs(t *testing.T) {
+	b := testBroker(t)
+	if b.cron == nil {
+		t.Skip("this broker runs no scheduler")
+	}
+	job := func(comp, name string) json.RawMessage {
+		raw, _ := json.Marshal(cronJob{Name: name, Schedule: "@every 1h", Component: comp, Path: "/tick", Role: "admin"})
+		return raw
+	}
+	m := backup.Manifest{Component: "apps/calendar", Scope: "apps/calendar", Includes: []string{"source"},
+		CronJobs: []json.RawMessage{job("apps/calendar", "mine"), job("apps/email", "planted")}}
+	if _, err := b.restore("apps/calendar", safetyArchive(t, m, archiveEntry{"source/x", "x"}), nil); err != nil {
+		t.Fatal(err)
+	}
+	b.cron.mu.Lock()
+	defer b.cron.mu.Unlock()
+	got := map[string]string{}
+	for _, j := range b.cron.jobs {
+		got[j.Name] = j.Component
+	}
+	if got["mine"] != "apps/calendar" {
+		t.Errorf("its own job was not restored: %v", got)
+	}
+	if c, ok := got["planted"]; ok {
+		t.Errorf("an archive of apps/calendar registered a job of %s", c)
+	}
+}
+
+// A file is read only out of the component's own archive: one whose
+// manifest names another component — an archiver serving tile B's archive
+// under tile A's key — is refused, as a whole restore of it always was.
+func TestFileRestoreReadsOnlyItsOwnArchive(t *testing.T) {
+	f := sealFx(t)
+	b := f.b
+	if _, err := b.doBackup(bkTile); err != nil {
+		t.Fatal(err)
+	}
+	if data, code, err := b.extractMember(bkTile, "latest", "source/index.html"); err != nil || code != 200 || !strings.Contains(string(data), sealMarker) {
+		t.Fatalf("a file of its own archive: %q %d %v", data, code, err)
+	}
+	other := safetyArchive(t, backup.Manifest{Component: "apps/other", Scope: "apps/other", Includes: []string{"source"}},
+		archiveEntry{"source/notes.txt", "another tile's file"})
+	f.arch.set(backupKey(bkTile), other.Bytes())
+	for _, name := range []string{"source/notes.txt", backup.ManifestName} {
+		data, code, err := b.extractMember(bkTile, "latest", name)
+		if err == nil || code != http.StatusConflict || len(data) != 0 {
+			t.Errorf("%s out of an archive of apps/other, served as %s's: %q %d %v, want 409", name, bkTile, data, code, err)
+		}
+	}
+	if _, _, err := b.restoreTile(bkTile, "latest"); err == nil {
+		t.Error("an archive of another component restored as the tile")
 	}
 }

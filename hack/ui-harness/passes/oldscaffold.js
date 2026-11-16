@@ -16,6 +16,14 @@
 //     raise `action` an old shell knows nothing of; served — the harness
 //     can't produce a hit) shows in the old shell's banner and the old
 //     admin console's alert bar by its words, which name /xbin/limits;
+//   - the LLM connector's setup alert (D226: no provider yet — the real
+//     one, re-armed; served with the same words when this workspace's
+//     connector was configured before) shows in the old shell's banner and
+//     the old admin console's alert bar by its words, which name
+//     /xbin/llm; the old console has no LLM tab and draws no card; and
+//     /xbin/llm, xbind's own page, works beside the old scaffold;
+//     /xbin/agent — the workspace agent's chrome (D232) — likewise, and the
+//     old shell shows no chip for it;
 //   - the old admin console opens and lists both tiles;
 //   - the theme (D184): with the admin's light theme on a light system the
 //     old root, shell and admin console, which never opted in, stay Night;
@@ -55,6 +63,21 @@ const LIMIT = {
   action: { action: 'raise-limit', tile: PART, kind: 'memMiB', unit: 'MiB', current: 2048, approvers: ['workspace-admin'],
     choices: [{ pct: 25, value: 2560, fits: true, approvable: true }, { pct: 50, value: 3072, fits: true, approvable: true, default: true },
       { pct: 100, value: 4096, fits: false, approvable: true, why: 'needs +2 GiB; 1 GiB free after the 10% reserve' }] },
+};
+
+// the LLM connector's setup alert as xbind words it (internal/llm
+// alerts.go), for a workspace where the real one can't be armed any more
+const LLM_SETUP = {
+  level: 'warn', kind: 'llm-setup', system: false, dismiss: '/llm/setup/dismiss',
+  message: 'No LLM is set up for this workspace: its agents, tiles and coding tools can share one provider setup, metered per person — a workspace admin adds a provider at /xbin/llm (the admin console\'s workspace → LLM, or `bx llm upstream add`). Dismiss this to leave it off',
+};
+
+// the notice that names the workspace agent's page as xbind words it
+// (internal/server agentpage.go): sent once an admin has turned workspace
+// agents on and this xbind has an agent to show — neither is so here
+const AGENT_PAGE = {
+  level: 'warn', kind: 'agent-page', system: false, dismiss: '/delegate/page/dismiss',
+  message: 'Your workspace agent is on: one agent of your own that plans work across tiles and asks before anything changes. Open it at /xbin/agent — the conversation, what waits for your approval, what it did, and its pause are all there. Dismiss this once you know the way',
 };
 
 async function until(fn, label, timeout = 15000) {
@@ -140,7 +163,7 @@ async function oldScaffold(browser) {
   const api = (method, p, data) => A.ctx.request.fetch(`${URL}/api/xbin${p}`, { method, data });
   const comp = async (tile) => ((await (await api('GET', `/components/${tile}`)).json().catch(() => ({}))).component || {});
   const errors = [];
-  let S;
+  let S, realAgent = null; // realAgent: xbind's own agent-page alert, when the admin has a workspace agent
   try {
     // ---- the tiles ----
     writeTile(PART, ['user', 'global']);
@@ -160,6 +183,11 @@ async function oldScaffold(browser) {
     await until(async () => (await api('GET', `/components/${THEMED}`)).status() === 200, `${THEMED} registered`);
     await A.ctx.request.fetch(`${URL}/api/xbin/prefs/theme`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, data: '"light"' });
 
+    // ---- the LLM connector's setup alert: the real one when it can be armed ----
+    fs.rmSync(path.join(WS, 'data', 'llm', 'setup.json'), { force: true });
+    const real = ((await (await api('GET', '/alerts')).json().catch(() => ({}))).alerts ?? []).find((x) => x.kind === 'llm-setup');
+    check(!real || real.message === LLM_SETUP.message, `the setup alert's words are the ones this pass serves when it can't arm it (${real?.message ?? 'not armed: the connector was configured before'})`);
+
     // ---- the old shell ----
     sc.swap();
     S = await login(browser, 'admin', 'admin', { colorScheme: 'light' });
@@ -167,7 +195,12 @@ async function oldScaffold(browser) {
     await S.page.route('**/api/xbin/alerts', async (route) => {
       const resp = await route.fetch();
       const j = await resp.json().catch(() => ({}));
-      await route.fulfill({ response: resp, json: { ...j, alerts: [...(j.alerts ?? []), LIMIT] } });
+      const llm = (j.alerts ?? []).some((x) => x.kind === 'llm-setup') ? [] : [LLM_SETUP];
+      // the workspace agent's notice: xbind's own once the admin has an agent (the agentChrome pass sets one up, under
+      // HARNESS_ISOLATE=1) — served with the same words where they have none
+      realAgent = (j.alerts ?? []).find((x) => x.kind === 'agent-page') || realAgent;
+      const agentPage = (j.alerts ?? []).some((x) => x.kind === 'agent-page') ? [] : [AGENT_PAGE];
+      await route.fulfill({ response: resp, json: { ...j, alerts: [...(j.alerts ?? []), LIMIT, ...llm, ...agentPage] } });
     });
     await openShell(S.page);
     const src = await S.page.evaluate(async () => (await (await fetch('/c/shell/bx-shell.js', { cache: 'no-store' })).text()).includes('bx-part-consent'));
@@ -184,6 +217,11 @@ async function oldScaffold(browser) {
     check(limit.includes(PART) && limit.includes('/xbin/limits') && limit.includes(`bx limits raise ${PART} memory`),
       `the old shell's banner shows a tile limits alert's words, /xbin/limits in them (${limit.slice(0, 240)})`);
     check(await S.page.locator('bx-shell .alerts .achoice, bx-shell .alerts .achoices').count() === 0, '…and nothing of its action (an old shell has no raise buttons)');
+    const setup = (await alerts.allInnerTexts()).find((x) => x.includes('No LLM is set up')) || '';
+    check(setup.includes('/xbin/llm') && setup.includes('bx llm upstream add'), `the old shell's banner shows the LLM setup alert's words, /xbin/llm in them (${setup.slice(0, 240)})`);
+    const agent = (await alerts.allInnerTexts()).find((x) => x.includes('Your workspace agent is on')) || '';
+    check(await S.page.locator('bx-shell button.chip.agent').count() === 0 && agent.includes('/xbin/agent') && (!realAgent || realAgent.message === AGENT_PAGE.message),
+      `${OLD}'s shell has no workspace agent chip: its banner shows the alert that names /xbin/agent — ${realAgent ? 'xbind\'s own: the admin has an agent' : 'served: nobody has an agent here'} (${agent.slice(0, 200)})`);
     await shot(S.page, 'old-scaffold-shell');
     const scheme = (f) => f.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bx-scheme').trim() || 'none');
     const rootScheme = await scheme(S.page.mainFrame());
@@ -208,6 +246,35 @@ async function oldScaffold(browser) {
     await settle(S.page);
     check(await S.page.locator('bx-shell .pm, bx-shell .pchip, bx-shell .pover').count() === 0,
       'the old shell ignores the new fields: no marker, no chip, no card overlay');
+    // system (sealed) components (D227): the listings an old shell reads
+    // leave them out, so it offers no tile with a terminal that isn't there
+    const sealedPaths = ((await (await api('GET', '/sealed')).json()).components ?? []).map((c) => c.path);
+    if (sealedPaths.length === 0) skip('this xbind has no sealed component (a default build): what an old scaffold shows of one needs HARNESS_GO_TAGS=sealedfixture');
+    // (its "interfaces to bind" prompt may name one whose declared slot is
+    // unbound: binding there is what an admin may do, and works)
+    if (sealedPaths.length > 0) {
+      const tiles = await S.page.evaluate(() => {
+        const out = [];
+        const walk = (root) => root.querySelectorAll('*').forEach((el) => {
+          const p = el.dataset?.path ?? el.getAttribute?.('src') ?? '';
+          if (typeof p === 'string' && p.startsWith('xbin/')) out.push(`${el.tagName.toLowerCase()}[${p}]`);
+          if (el.shadowRoot) walk(el.shadowRoot);
+        });
+        walk(document);
+        return out;
+      });
+      check(tiles.length === 0, `the old shell has no tile, card or sidebar row for a system component: it would offer a terminal and a source view that don't exist (${tiles.join(', ')})`);
+      const side = await S.page.locator('bx-shell').evaluate((sh) => {
+        const names = [];
+        const walk = (root) => root.querySelectorAll('*').forEach((el) => {
+          if (/side/i.test(el.tagName) || el.classList?.contains('side')) names.push(el.innerText || el.shadowRoot?.textContent || '');
+          if (el.shadowRoot) walk(el.shadowRoot);
+        });
+        walk(sh.shadowRoot ?? sh);
+        return names.join('\n');
+      });
+      check(side.length > 0 && !/Fixture (probe|people)|xbin\//.test(side), 'its sidebar lists none');
+    }
     await shotEl(S.page, `bx-canvas .card[data-path="${PEND}"]`, 'old-scaffold-pending');
     await shotEl(S.page, `bx-canvas .card[data-path="${PART}"]`, 'old-scaffold-partitioned');
 
@@ -219,16 +286,51 @@ async function oldScaffold(browser) {
     const adminScheme = await scheme(S.page.mainFrame());
     check(adminScheme === 'dark', `${OLD}'s admin console stays Night too (--bx-scheme ${adminScheme})`);
     for (const t of [PART, PEND]) {
+      // the components table fills after the tab's first paint (its rows come
+      // from /components): wait for the row, not a count of the first frame
+      await S.page.locator(`text=${t}`).first().waitFor({ timeout: 15000 }).catch(() => {});
       check(await S.page.locator(`text=${t}`).count() > 0, `the old admin console renders and lists ${t}`);
+    }
+    for (const p of sealedPaths) {
+      check(await S.page.locator(`text=${p}`).count() === 0, `nor does the old admin console (${p})`);
     }
     const bar = await S.page.locator('.al', { hasText: 'OOM-killed' }).allInnerTexts();
     check(bar.length === 1 && bar[0].includes('/xbin/limits'), `the old admin console's alert bar shows the limits alert's words (${(bar[0] ?? '').slice(0, 200)})`);
+    const lbar = await S.page.locator('.al', { hasText: 'No LLM is set up' }).allInnerTexts();
+    check(lbar.length === 1 && lbar[0].includes('/xbin/llm'), `the old admin console's alert bar shows the LLM setup alert's words (${(lbar[0] ?? '').slice(0, 200)})`);
+    check(await S.page.locator('text=/^\\s*LLM\\s*$/').count() === 0 && await S.page.locator('[data-llm-setup]').count() === 0, `${OLD}'s admin console has no LLM tab and draws no card`);
     await shot(S.page, 'old-scaffold-admin');
+    if (sealedPaths.length > 0) {
+      // …and the surface that is there whatever the scaffold's age
+      await S.page.goto(`${URL}/xbin/system`);
+      const listed = await until(async () => {
+        const cs = await S.page.evaluate(() => document.querySelector('bx-system-page')?.testApi().components() ?? []);
+        return cs.length === sealedPaths.length ? cs : null;
+      }, '/xbin/system lists them');
+      check(sealedPaths.every((p) => listed.some((c) => c.path === p)), `/xbin/system, xbind's own page, lists them beside the old scaffold (${JSON.stringify(listed)})`);
+      await shot(S.page, 'old-scaffold-system');
+    }
+    // xbind's own page needs no scaffold: it works beside the old one
+    await S.page.goto(`${URL}/xbin/llm`);
+    await S.page.waitForSelector('bx-llm-page main[data-mode=admin] bx-llm-admin [data-status]', { timeout: 15000 });
+    await settle(S.page);
+    check(await S.page.locator('bx-llm-admin bx-llm-upstreams [data-add]').count() === 1, '/xbin/llm works beside the old scaffold: the admin\'s page, with Add a provider');
+    await shot(S.page, 'old-scaffold-llm-page');
+    // …and so does the workspace agent's chrome (D232): the old shell has no chip for it, /xbin/agent is the way in
+    await S.page.goto(`${URL}/xbin/agent`);
+    await S.page.waitForSelector('bx-agent-dock[full] header', { timeout: 15000 });
+    // an admin's setup steps — or, where the admin has an agent (realAgent), the agent's own page in the dock's frame
+    await S.page.waitForSelector('bx-agent-dock bx-agent-setup .st, bx-agent-dock iframe', { state: 'attached', timeout: 15000 });
+    const dockShows = await S.page.locator('bx-agent-dock iframe').count() ? 'the agent\'s page' : (await S.page.locator('bx-agent-dock bx-agent-setup .st').innerText());
+    check((await S.page.locator('bx-agent-dock header h2').innerText()) === 'Workspace agent' && (realAgent ? dockShows === 'the agent\'s page' : /Set up the workspace agent/.test(dockShows)),
+      `/xbin/agent works beside the old scaffold: the dock as a page, ${realAgent ? 'the admin\'s agent in its frame' : 'an admin\'s setup steps'} (${dockShows.slice(0, 60)})`);
+    await shot(S.page, 'old-scaffold-agent-page');
     check(errors.length === 0, `no page error in the old shell or admin console (${errors.join(' | ')})`);
   } finally {
     sc.restore();
     if (S) await closeCtx(S.ctx, S.page).catch(() => {});
     writeTile(PEND, null); // the request withdrawn
+    await api('POST', '/llm/setup/dismiss').catch(() => {}); // the setup alert dismissed again, as the seed left it
     await A.ctx.request.fetch(`${URL}/api/xbin/prefs/theme`, { method: 'DELETE' }).catch(() => {});
     await until(async () => (await comp(PEND)).partition?.state !== 'pending', `${PEND}'s request withdrawn`).catch(() => {});
     await A.ctx.close();

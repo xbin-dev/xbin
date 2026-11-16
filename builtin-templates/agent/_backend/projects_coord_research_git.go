@@ -234,22 +234,3 @@ func codeReadGit(ctx context.Context, use *sbxUse, dir string, roots []string, r
 	}
 	return out, nil
 }
-
-// codeReadPattern says why a glob pattern may not be used ("" = it may):
-// one that is absolute, starts at a home or climbs out with .. would look
-// outside the directory it is given.
-func codeReadPattern(what, p string) string {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		return ""
-	}
-	if strings.HasPrefix(p, "/") || strings.HasPrefix(p, "~") {
-		return fmt.Sprintf("%s: an absolute or home pattern — give path for where to look, and a pattern relative to it", what)
-	}
-	for _, seg := range strings.Split(p, "/") {
-		if seg == ".." {
-			return fmt.Sprintf("%s: .. isn't taken in a pattern — give path for where to look", what)
-		}
-	}
-	return ""
-}

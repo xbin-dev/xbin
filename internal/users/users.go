@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/util"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -145,7 +146,10 @@ func (u *User) IsAdmin() bool { return u.Role == RoleAdmin }
 // for any other '*' position — a single-glob match (`apps/bot-*`), so a
 // mid-string pattern is never a silent no-op (D32).
 func matchTile(t, path string) bool {
-	if t == "*" || t == path {
+	if t == path || util.SealedPath(path) {
+		return t == path // a sealed component is reached by an entry that names it, never by a pattern (sealed.go)
+	}
+	if t == "*" {
 		return true
 	}
 	if strings.HasSuffix(t, "/*") {
@@ -163,6 +167,10 @@ func matchTile(t, path string) bool {
 // the level outright — including `none` as an explicit exclusion — while
 // pattern entries union upward as before.
 func (u *User) TileLevel(path string) string {
+	return capSealed(path, u.tileLevel(path))
+}
+
+func (u *User) tileLevel(path string) string {
 	if u.IsAdmin() {
 		return LevelTerminal
 	}
@@ -202,8 +210,8 @@ func (u *User) CanTerminal() bool {
 	if u.NoTerminal {
 		return false
 	}
-	for _, l := range u.Tiles {
-		if levelRank(l) >= levelRank(LevelTerminal) {
+	for path, l := range u.Tiles {
+		if terminalEntry(path, l) { // (never an entry on a sealed path, sealed.go)
 			return true
 		}
 	}
@@ -274,6 +282,9 @@ type Store struct {
 	chrome map[string]bool
 	// deviceLimit: app devices per person (devicelimit.go); 0 = the default.
 	deviceLimit int
+	// agents: the workspace's outer bounds on agents and its credential
+	// default (D229, orgagents.go).
+	agents WorkspaceAgents
 }
 
 // Open loads (or starts empty) the user store under dataDir.
@@ -315,6 +326,7 @@ func Open(dataDir string) (*Store, error) {
 		NativeRuntimeOff   bool                      `json:"nativeRuntimeDisabled"`
 		ChromeTiles        []string                  `json:"chromeTiles"`
 		DeviceLimit        int                       `json:"deviceLimit"`
+		Agents             *WorkspaceAgents          `json:"agents"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -343,6 +355,9 @@ func Open(dataDir string) (*Store, error) {
 	s.nativeRuntimeOff = doc.NativeRuntimeOff
 	s.chrome = chromeSet(doc.ChromeTiles)
 	s.deviceLimit = doc.DeviceLimit
+	if doc.Agents != nil {
+		s.agents = doc.Agents.normalized()
+	}
 	if s.owners == nil {
 		s.owners = map[string]string{}
 	}
@@ -517,6 +532,9 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 			return nil, fmt.Errorf("tiles[%q]: unknown level %q (want read|write|terminal, or none to exclude)", t, l)
 		}
 	}
+	if err := sealedLevels(u.Tiles); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing := s.byID[u.ID]
@@ -597,6 +615,9 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 func (s *Store) GrantTile(id, path, level string) error {
 	if levelRank(level) == 0 {
 		return fmt.Errorf("unknown level %q", level)
+	}
+	if err := sealedLevel(path, level); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -700,6 +721,9 @@ func (s *Store) persistLocked() error {
 	if s.deviceLimit > 0 {
 		doc["deviceLimit"] = s.deviceLimit
 	}
+	if !s.agents.isZero() {
+		doc["agents"] = s.agents
+	}
 	if len(s.orgs) > 0 {
 		orgs := make([]*Org, 0, len(s.orgs))
 		for _, o := range s.orgs {
@@ -760,6 +784,10 @@ var (
 		// dots-only/empty fallback in sanitizeHomeKey — a human "owner" would
 		// share the token principal's $HOME and agent config.
 		"owner": true,
+		// "~preview" is the viewer of xbind's own preview sessions (D234,
+		// internal/auth PreviewViewer). The charset already refuses it; it
+		// is listed so the reason is written down where ids are judged.
+		"~preview": true,
 	}
 )
 

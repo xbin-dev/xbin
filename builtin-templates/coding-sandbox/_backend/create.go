@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +36,9 @@ type createReq struct {
 	ClientID   string            `json:"clientId"`
 	Start      *bool             `json:"start"`
 	From       *fromReq          `json:"from"`
+	// LLM asks for the workspace's LLM connector inside the sandbox (the
+	// contract's llm capability): the sandbox's row then names its address.
+	LLM bool `json:"llm"`
 }
 
 // checkName trims and checks a sandbox's name.
@@ -178,7 +182,8 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 		Egress: orStr(q.Egress, "none"), Owner: owner{User: c.user, Via: c.from, PartitionID: c.partID, Partition: c.part, Asserted: !c.verified && c.user != ""},
 		Visibility: orStr(q.Visibility, "private"), Members: q.Members, Labels: q.Labels,
 		Workdir: lay.Workdir, Home: lay.Home, User: lay.User, UID: lay.UID, GID: lay.GID, Shell: lay.Shell, Sudo: sudo,
-		Created: now(), Version: 1, Overlay: "creating", Plan: plan, Mode: mode}
+		Created: now(), Version: 1, Overlay: "creating", Plan: plan, Mode: mode,
+		LLM: q.LLM && slices.Contains(o.caps, "llm")} // only where the substrate forwards the connector
 	if rec.Members == nil {
 		rec.Members = []string{}
 	}
@@ -420,7 +425,7 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 		}
 	}
 	spec := xbin.SandboxSpec{Name: rec.Runtime, Mode: mode, MemMiB: plan.Size.MemMiB, VCPUs: plan.Size.VCPUs, DiskGiB: plan.Size.DiskGiB,
-		Net: &xbin.SandboxNet{Egress: egressClass(rec.Egress)}, Defaults: defaultsOf(rec),
+		Net: &xbin.SandboxNet{Egress: egressClass(rec.Egress), LLM: rec.LLM}, Defaults: defaultsOf(rec),
 		Labels: runtimeLabels(rec), For: rec.Owner.Via, ForUser: rec.Owner.User,
 		IdleStopMin: plan.AutoStopMin, ClientID: rec.Runtime, Mounts: cfg.sandboxMounts()}
 	switch {

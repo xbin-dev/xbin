@@ -36,7 +36,7 @@
 import { html, css, nothing, repeat } from 'lit';
 import '/vendor/bx-icons.js';
 import { dragPointer, clampBox } from '/vendor/bx-kit.js';
-import { launcher, resumeHistory } from '/vendor/frame-launcher.js';
+import { launcher, handoff, resumeHistory } from '/vendor/frame-launcher.js';
 import { hasLayout } from '/vendor/frame-deploy.js';
 import { sessionTarget } from '/vendor/deploy-state.js';
 import { layoutToPref, uid } from '/vendor/term-sessions.js';
@@ -196,8 +196,9 @@ function tabInfo(f, ref) {
   if (M.isSession(ref)) {
     const t = f._sessions[sessionAt(f, ref)];
     const name = t ? sessionLabel(t) : '…';
-    return { label: name, icon: t?.kind === 'agent' ? 'agent' : 'terminal', ended: !!t?.ended,
-      title: `${name}${t?.ended ? ' (ended)' : ''} — double-click to rename · drag to another pane, or to a pane's edge to split` };
+    const byAgent = t?.origin === 'agent'; // the person's workspace agent opened it (D229)
+    return { label: name, icon: t?.kind === 'agent' ? 'agent' : 'terminal', ended: !!t?.ended, note: byAgent ? 'your agent' : undefined,
+      title: `${name}${t?.ended ? ' (ended)' : ''}${byAgent ? ' — started by your agent' : ''} — double-click to rename · drag to another pane, or to a pane's edge to split` };
   }
   if (ref.startsWith('f:')) return { label: base(ref.slice(2)), icon: 'file', title: ref.slice(2) };
   if (ref.startsWith('w:')) return { label: base(ref.slice(2)), icon: 'diff', note: 'changes', title: `${ref.slice(2)} — changes not yet committed` };
@@ -279,9 +280,9 @@ function stage(f, placed) {
     const style = at ? `${box(at, TAB_H)}; display:${t.kind === 'agent' ? 'flex' : 'block'}` : 'display:none';
     const focus = () => { const id = M.paneOf(f._ide, refOf(t)); if (id) activateTab(f, id, refOf(t)); };
     return t.kind === 'agent'
-      ? html`<bx-agent style=${style} data-key=${t.key} @pointerdown=${focus} @focusin=${focus}
+      ? html`<bx-agent style=${style} data-key=${t.key} .ask=${(spec) => f._ask(spec)} @pointerdown=${focus} @focusin=${focus}
           component=${f.src} session=${t.id ?? nothing} provider=${t.history || t.restarting ? nothing : (t.provider || nothing)} ?ended=${!!t.ended} ?restarting=${!!t.restarting} ?vm=${!!t.vm}
-          history=${t.history || nothing} resume=${t.resume || nothing}
+          history=${t.history || nothing} resume=${t.resume || nothing} .draft=${t.draft || ''}
           @bx-session=${(ev) => f._gotSession(t.key, ev)}
           @bx-resume=${(ev) => resumeHistory(f, ev.detail, t.key)} @bx-new-agent=${(ev) => f._startKind('agent', ev.detail.provider)}
           @bx-open-terminal=${(ev) => f._signIn(ev)}
@@ -471,6 +472,7 @@ export function ideBody(f) {
           ${repeat(ordered, (r) => r.id, (r) => paneTpl(f, r, panes.length))}
           ${stage(f, placed)}
           ${dividers.map((d) => divTpl(f, d))}
+          ${handoff(f)}
           ${f._ideDrag ? dropLayer(f, panes) : nothing}
         </div>
         ${dockTpl(f)}

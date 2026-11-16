@@ -83,3 +83,30 @@ func TestHostileRepoStaysInside(t *testing.T) {
 		t.Fatalf("log: %q %v", out, err)
 	}
 }
+
+// TmpfsBytes sizes what a run may write in memory: /tmp, /dev/shm and the
+// root's own layer are that big, not the kernel's default (half of RAM each).
+func TestTmpfsIsSized(t *testing.T) {
+	fs := testRootfs(t)
+	Configure(fs)
+	defer Configure("")
+	script := `for d in / /tmp /dev/shm /dev; do df -k "$d" | awk -v d="$d" 'NR==2{print d, $2}'; done; ` +
+		`for f in /tmp/fill /dev/shm/fill /dev/fill /fill; do dd if=/dev/zero of=$f bs=1M count=64 conv=fsync 2>/dev/null; echo "$f wrote=$?"; done`
+	sized, err := Run(context.Background(), Cmd{Argv: []string{"sh", "-c", script}, TmpfsBytes: 16 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(sized.Stdout)
+	for _, want := range []string{"/ 16384", "/tmp 16384", "/dev/shm 16384", "/dev 1024", "/tmp/fill wrote=1", "/dev/shm/fill wrote=1", "/dev/fill wrote=1", "/fill wrote=1"} {
+		if !strings.Contains(out, want+"\n") {
+			t.Errorf("a sized run: no %q — it wrote 64 MiB past a 16 MiB mount, or the mount is not sized:\n%s", want, out)
+		}
+	}
+	plain, err := Run(context.Background(), Cmd{Argv: []string{"sh", "-c", script}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := string(plain.Stdout); strings.Contains(out, "/tmp 16384") || !strings.Contains(out, "/tmp/fill wrote=0") {
+		t.Errorf("an unsized run's mounts changed:\n%s", out)
+	}
+}

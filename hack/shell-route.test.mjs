@@ -6,7 +6,7 @@
 // kept; what a link can't carry (control characters, `..`) is refused.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRoute, buildRoute, sameRoute, validTile, cleanAt } from '../workspace-template/shell/route.js';
+import { parseRoute, buildRoute, sameRoute, validTile, cleanAt, sessionId } from '../workspace-template/shell/route.js';
 
 const places = [
   { screen: '', tile: '', at: '' },
@@ -73,4 +73,23 @@ test('sameRoute: an absent at equals an empty one', () => {
   assert.ok(sameRoute({ screen: 's', tile: 't', at: '' }, { screen: 's', tile: 't' }));
   assert.ok(!sameRoute({ screen: 's', tile: 't', at: 'a' }, { screen: 's', tile: 't', at: 'b' }));
   assert.ok(!sameRoute({ screen: 's', tile: '' }, { screen: 'r', tile: '' }));
+});
+
+test('a session in a link (D229): only with a tile, only a session id, never part of the place', () => {
+  assert.deepEqual(parseRoute('?tile=apps/notes&session=Ab3_x-9'), { screen: '', tile: 'apps/notes', at: '', session: 'Ab3_x-9' });
+  assert.deepEqual(parseRoute('?screen=s&tile=apps/notes&at=a/b&session=abc'), { screen: 's', tile: 'apps/notes', at: 'a/b', session: 'abc' });
+  assert.ok(!('session' in parseRoute('?session=abc')), 'no tile: no session');
+  assert.ok(!('session' in parseRoute('?tile=apps/x')), 'absent: the route has the shape it always had');
+  for (const bad of ['a b', '../x', 'a/b', '', 'x'.repeat(65), 'a%00b', '<script>']) {
+    assert.ok(!('session' in parseRoute(`?tile=apps/x&session=${encodeURIComponent(bad)}`)), `refused: ${bad}`);
+    assert.equal(sessionId(bad), '');
+  }
+  // a link to hand out carries it; the shell's own URL (a route without one) never does
+  assert.equal(buildRoute({ tile: 'apps/notes', session: 'abc' }), '?tile=apps/notes&session=abc');
+  assert.equal(buildRoute({ tile: 'apps/notes', at: 'p', session: 'abc' }), '?tile=apps/notes&at=p&session=abc');
+  assert.equal(buildRoute({ session: 'abc' }), '', 'no tile: nothing to open it on');
+  assert.equal(buildRoute({ tile: 'apps/notes', session: 'a b' }), '?tile=apps/notes');
+  assert.equal(buildRoute({ screen: 's', tile: 'apps/notes', at: '' }, '?tile=apps/notes&session=abc&keep=1'), '?screen=s&tile=apps/notes&keep=1',
+    'rewriting the place drops a session the URL carried, and keeps what isn\'t ours');
+  assert.ok(sameRoute(parseRoute('?tile=apps/notes&session=abc'), { screen: '', tile: 'apps/notes', at: '' }), 'the same place, with or without it');
 });

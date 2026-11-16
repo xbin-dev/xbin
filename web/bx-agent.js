@@ -27,25 +27,41 @@
  * lit commits and corrected in updated(), before the frame paints. A
  * streaming message re-parses only its last paragraph (mdLive).
  *
+ * What it draws is the chat kit's (D224, docs/frontend-kit.md → the chat
+ * kit): the fold's blocks said in the kit's block model (agent-fold.js
+ * blockOf), its views for the rows (/vendor/chat/views.js: messages, tool
+ * cards, what the agent asks), <bx-chat-composer> for the message box, and
+ * ChatWindow for the window of rows. This element is the host: it owns the
+ * session, the pages of its log and the actions, and the views reach it
+ * only through the ChatCtx it hands them (chatCtx).
+ *
  * Events: 'bx-session' (detail {id, kind:'agent', provider, name, net,
  * scopes, label, gpu, api}) when it creates the
  * session, so the frame records the id; 'bx-exit' when the session ends.
  */
-import { LitElement, html, nothing } from 'lit';
-import { scrollCss } from '/vendor/scroll-css.js';
-import { repeat, guard } from 'lit';
+import { LitElement, html, nothing, unsafeCSS } from '/vendor/lit-all.min.js';
+import { scrollCssText } from '/vendor/bx-scroll.js';
 import '/vendor/bx-icons.js';
+import '/vendor/bx-md.js'; // the markdown highlighter up front: the kit's renderer colours code from its first paint here
+import { diffHTML, langFor } from '/vendor/bx-code.js';
 import { onEvent } from '/vendor/events-socket.js';
-import { headline, missingRequired } from '/vendor/agent-tools.js';
 import { Transcript, PAGE_LIMIT } from '/vendor/agent-pages.js';
-import { ScrollWindow } from '/vendor/scroll-window.js';
-import { toolCard, permCard, changesCard, askCard, cardsCss, mdLive } from '/vendor/agent-cards.js';
+import { blockOf, llmHint, llmLabel } from '/vendor/agent-fold.js';
+import { block } from '/vendor/chat/blocks.js';
+import { rowsView, activityView, usageView } from '/vendor/chat/views.js';
+import { signinView } from '/vendor/chat/asks.js';
+import { useDiffHighlighter } from '/vendor/chat/cards.js';
+import { chatCssText } from '/vendor/chat/css.js';
+import { ChatWindow } from '/vendor/chat/window.js';
+import '/vendor/chat/composer.js';
 import { agentCss } from '/vendor/agent-css.js';
 import { FileDiffs } from '/vendor/agent-diffs.js';
 import { agentTestApi } from '/vendor/agent-testapi.js';
-import { slashQuery, matchCommands, commandHint } from '/vendor/agent-slash.js';
-import { queueURL, stop, queueChips, fitComposer } from '/vendor/agent-queue.js';
+import { queueURL, stop, takeBack } from '/vendor/agent-queue.js';
+import { agentPrefs } from '/vendor/agent-prefs.js';
 import '/vendor/agent-signin.js';
+
+useDiffHighlighter(diffHTML, langFor); // the code panels' highlighter is here already: diffs are coloured at once
 
 export class BxAgent extends LitElement {
   static properties = {
@@ -55,9 +71,11 @@ export class BxAgent extends LitElement {
     mode: { type: String },
     history: { type: String }, // a PAST session id (GET /agent/history): its persisted transcript, read-only
     resume: { type: String }, // a past session id to reopen when creating (POST /term/sessions {resume})
+    ask: { attribute: false, hasChanged: () => false }, // (spec) → Promise: the window's themed dialog (bx-frame's), for a confirmation; absent, the browser's
     ended: { type: Boolean }, // the session is gone (the frame keeps the tab): no polling, the transcript stays
     restarting: { type: Boolean }, // the frame is restarting this tab's agent with other sandbox pickers (frame-launcher.js restartAgent)
     vm: { type: Boolean }, // set by the launcher: create the session in a VM sandbox (the tile's choice, frame-launcher.js wantVM)
+    draft: { attribute: false }, // set by the launcher (open({session: "new", draft})): the composer's first words — plain text, never sent by itself
     _historyMeta: { state: true },
     _providers: { state: true },
     _provider: { state: true },
@@ -68,27 +86,36 @@ export class BxAgent extends LitElement {
     _signinTerm: { state: true }, // the person chose a terminal over the guided sign-in
     _signedNote: { state: true }, // a guided sign-in just worked: what to do now
     _followUp: { state: true }, // {text, after}: plan feedback to send once the rejected turn settles
-    _slashSel: { state: true }, // the highlighted slash command
-    _slashOff: { state: true }, // Escape closed the menu (until the draft changes)
+    _notOffered: { state: true }, // the harnesses this tile's rules keep out, each with why (D229)
   };
 
-  // product-ui §8 (D184): agent-css.js says what the styles draw
-  static styles = [scrollCss, cardsCss, agentCss];
+  // product-ui §8 (D184): the chat kit's one stylesheet for what it draws
+  // (css.js), agent-css.js for this element's own chrome around it
+  static styles = [unsafeCSS(scrollCssText), unsafeCSS(chatCssText), agentCss];
 
   constructor() {
     super();
-    this._tx = new Transcript((q) => this._get(q)); // the pages of the log held (agent-pages.js)
-    this._sw = new ScrollWindow({ onScroll: () => this._scrolled(), onResize: () => this._fill() });
-    this._fromKey = null; // the window's first rendered block; null = the last PAGE
-    this._toKey = null; // its last; null = to the end
-    this._start = 0; // their indices, as of the last render
-    this._end = 0;
-    this._all = false; // "load all": everything loaded and rendered (find)
-    this._busy = null; // a page load in flight
+    const tx = this._tx = new Transcript((q) => this._get(q)); // the pages of the log held (agent-pages.js)
+    // the window of rows rendered (chat/window.js) over those pages
+    this._win = new ChatWindow({
+      source: {
+        get version() { return tx.version; }, get hasOlder() { return tx.hasOlder; }, get hasNewer() { return tx.hasNewer; },
+        get fresh() { return tx.fresh; }, get paged() { return tx.paged; },
+        loadOlder: (n) => tx.loadOlder(n), loadNewer: (n) => tx.loadNewer(n),
+        latest: () => (this.history ? tx.openTail() : this._open()),
+        keep: (lo, hi, dropTail) => tx.keep(lo, hi, dropTail),
+        follow: (at) => { tx.follow = at; if (at) tx.seenAll(); },
+      },
+      changed: () => this.requestUpdate(), keyOf: (b) => b.key, page: PAGE, trim: TRIM, unload: UNLOAD,
+      paused: () => !!this._stale, onUnload: (lo, hi) => this._unloaded(lo, hi),
+    });
     this._fetches = []; // the queries this element made (the harness counts them)
     this._opened = new Set(); // '<key>:<slot>' of lazy <details> bodies the user opened
-    // the files' diffs the reader opened (D210); a load lands on the block as now folded (a page may have refolded meanwhile)
-    this._diffs = new FileDiffs({ onLoad: (b) => this._touch(this._blocks().find((x) => x.key === b.key) || b) });
+    this._ui = new Map(); // block key → a counter that moves when something kept here for it changed (ChatCtx.rev)
+    this._bags = new Map(); // block key → what a widget of its card keeps (a form's values)
+    // the files' diffs the reader opened (D210); a load lands on the block's row
+    this._diffs = new FileDiffs({ onLoad: (o) => this._touch(o.block || { k: String(o.key) }) });
+    this._ctx = this._makeCtx();
     this._providers = null;
     this._provider = '';
     this._mode = '';
@@ -99,10 +126,8 @@ export class BxAgent extends LitElement {
     this._signedNote = '';
     this._signedSeq = null; // the log's end when a guided sign-in worked
     this._followUp = null;
-    this._slashSel = 0;
-    this._slashOff = false;
-    this._askVals = {}; // eid → the form's values while a question is open
-    this._planFeedback = {}; // pid → the feedback typed beside "keep planning"
+    this._notOffered = [];
+    this.ask = null;
     this._started = false; // guard: create the eager session at most once
     this._off = null;
     this._poll = null;
@@ -118,7 +143,7 @@ export class BxAgent extends LitElement {
     this._hostRO = new ResizeObserver(() => { if (this._stale && !this._hidden()) this.requestUpdate(); });
     this._hostRO.observe(this);
     if (this.history) { this._loadHistory(); return; }
-    this._loadProviders(); // for the sign-in (D178) and mode names, every path
+    this._providersP = this._loadProviders(); // for the sign-in (D178) and mode names, every path
     if (this.session) { this._open(); return; }
     this._maybeEager();
   }
@@ -128,7 +153,7 @@ export class BxAgent extends LitElement {
     this._off?.();
     document.removeEventListener('visibilitychange', this._onVisible);
     clearInterval(this._poll); this._poll = null;
-    this._sw.detach();
+    this._win.detach();
     this._hostRO?.disconnect(); this._hostRO = null;
   }
 
@@ -160,111 +185,77 @@ export class BxAgent extends LitElement {
     if (this._followUp) this._maybeFollowUp();
   }
 
-  willUpdate() {
-    // the window [start, end) of the loaded blocks, by key: following the
-    // bottom it reaches the end; a long rendered part is trimmed on the side
-    // far from the view (scroll-window.js; KEEP > FILL: no ping-pong)
-    const blocks = this._blocks(), n = blocks.length, sw = this._sw;
-    const at = (k) => (k == null ? -1 : blocks.findIndex((b) => b.key === k));
-    const pinned = sw.atBottom && !sw.keepView;
-    let end = pinned || this._toKey == null ? n : at(this._toKey) + 1;
-    if (end <= 0) end = n;
-    let start = at(this._fromKey);
-    if (start < 0 || start >= end) start = Math.max(0, end - PAGE);
-    if (this._all) { start = 0; end = n; } else if (end - start > TRIM) {
-      const ka = sw.trimAbove(), a = ka == null ? -1 : at(Number(ka));
-      if (a > start && a < end) start = a;
-      const kb = pinned ? null : sw.trimBelow(), b = kb == null ? -1 : at(Number(kb));
-      if (b >= start && b + 1 < end) end = b + 1;
-    }
-    this._start = start;
-    this._end = end;
-    this._fromKey = blocks[start]?.key ?? null;
-    this._toKey = end < n ? blocks[end - 1].key : null;
-    this._pillAt = sw.atBottom;
-    this._drawn = this._tx.version; // what _start/_end index
-    sw.before();
+  // the window [start, end) of the loaded blocks is placed right before the
+  // render and the reader's view corrected right after it (chat/window.js)
+  willUpdate(ch) {
+    // the launcher's draft goes into the composer once, as text the person edits and sends — or doesn't
+    if (ch.has('draft') && typeof this.draft === 'string' && this.draft && !this._draft && !this._drafted) { this._draft = this.draft.slice(0, 8000); this._drafted = true; }
+    this._win.place(this._blocks());
   }
 
   updated(ch) {
     this._react(ch);
-    if (ch.has('_draft')) fitComposer(this, this.renderRoot.querySelector('.compose textarea')); // a send, a pick, a take-back: its height follows
-    const sc = this._sc();
-    if (!sc) return;
-    this._sw.attach(sc);
-    const pinned = this._sw.atBottom && !this._sw.keepView;
-    this._sw.after();
-    // willUpdate measured the view before this render's blocks landed: a
-    // burst folded into one frame would stay rendered whole until the next
-    // event, so measure again with it in place
-    if (pinned && this._end - this._start > TRIM && this._sw.trimAbove() != null) this.requestUpdate();
-    this._fill();
+    this._win.after(this._sc());
   }
 
-  // the reader scrolled (a frame later; a touch scroll once settled)
-  _scrolled() {
-    const at = this._sw.atBottom;
-    this._tx.follow = at;
-    if (at) this._tx.seenAll();
-    if (at !== this._pillAt) this.requestUpdate(); // the pill
-    this._fill();
-  }
-
-  // grow the window where the reader is heading — rows already loaded, else
-  // a page (older above; below, one dropped earlier, or the tail back) —
-  // and let go of what is far away
-  _fill() {
-    if (this._all || this._stale || !this._sc() || this._tx.version !== this._drawn) return; // a render is due: it fills after
-    const sw = this._sw, tx = this._tx, blocks = this._blocks();
-    if (sw.wantsAbove()) {
-      if (this._start > 0) { this._fromKey = blocks[Math.max(0, this._start - PAGE)].key; this.requestUpdate(); } else if (tx.hasOlder) this._load(() => tx.loadOlder());
-    } else if (sw.wantsBelow()) {
-      const e = Math.min(blocks.length, this._end + PAGE);
-      if (this._end < blocks.length) { this._toKey = e < blocks.length ? blocks[e - 1].key : null; this.requestUpdate(); } else if (tx.hasNewer) this._load(() => tx.loadNewer());
-    }
-    this._unload();
-  }
-
-  // pages about UNLOAD views beyond the rendered rows go (the live tail too,
-  // while the reader is away from the bottom), and the memos of loaded
-  // blocks that far out; a live tail grown past a few pages is split so its
-  // top can go too
-  _unload() {
-    const tx = this._tx;
-    if (!tx.paged || this._all) return;
-    const m = Math.ceil(this._sw.rowsPerView() * UNLOAD);
-    if (tx.keep(this._start - m, this._end + m, !this._sw.atBottom)) this.requestUpdate();
-    const key = `${this._fromKey}:${this._toKey}:${tx.version}`;
+  // after pages far from the reader were let go: the memos (and the kit's
+  // blocks) of loaded blocks that far out go too; a live tail grown past a
+  // few pages is split so its top can go as well
+  _unloaded(lo, hi) {
+    const tx = this._tx, win = this._win;
+    const key = `${win.fromKey}:${win.toKey}:${tx.version}`;
     if (key !== this._memoKey) {
       this._memoKey = key;
-      const blocks = this._blocks(), a = this._start - m, z = this._end + m;
-      for (let i = 0; i < blocks.length; i++) if ((i < a || i >= z) && blocks[i].$memo) delete blocks[i].$memo;
+      const blocks = this._blocks();
+      for (let i = 0; i < blocks.length; i++) if ((i < lo || i >= hi) && blocks[i].$memo) { delete blocks[i].$memo; delete blocks[i].$block; }
     }
     // (tried again only after another page: a turn that cannot be cut yet — an
     // open plan spans it — must not ask on every frame)
     const tail = tx.segs[tx.segs.length - 1], n = tail ? tail.events.length : 0;
-    if (!this._busy && this._sw.atBottom && !tx.detached && n > Math.max(3 * PAGE_LIMIT, (this._splitTried || 0) + PAGE_LIMIT)) {
+    if (!win.busy && win.atBottom && !tx.detached && n > Math.max(3 * PAGE_LIMIT, (this._splitTried || 0) + PAGE_LIMIT)) {
       this._splitTried = n;
-      this._load(() => tx.splitTail().then((ok) => { if (ok) this._splitTried = 0; return ok; }));
+      win.load(() => tx.splitTail().then((ok) => { if (ok) this._splitTried = 0; return ok; }));
     }
-  }
-
-  // one page load at a time; its blocks render when it lands
-  _load(fn) {
-    if (this._busy) return;
-    this._busy = fn().then((changed) => { if (changed) this.requestUpdate(); }).catch(() => { }).finally(() => { this._busy = null; });
   }
 
   // ---- data ----
 
+  // The catalog for a session that exists (its names, modes and sign-in);
+  // for one about to start, what this tile's orgs allow (?cwd=, D229) — the
+  // chooser offers the person's own harness first when it is among them.
   async _loadProviders() {
     try {
-      const r = await fetch('/api/xbin/agent/providers');
+      const fresh = !this.session && !this.resume;
+      // &all=1: the harnesses this tile's rules keep out come along, each with why (`unavailable`) — the chooser says it
+      const r = await fetch('/api/xbin/agent/providers' + (fresh && this.component ? `?cwd=${encodeURIComponent(this.component)}&all=1` : ''));
       if (!r.ok) return;
-      const ps = await r.json();
+      const rows = await r.json();
+      const ps = rows.filter((p) => !p.unavailable);
+      this._notOffered = rows.filter((p) => p.unavailable);
       this._providers = ps;
-      if (ps.length && !this._provider && !this.session) { this._provider = ps[0].id; this._mode = ps[0].defaultMode || ''; }
+      if (!ps.length || this._provider || this.session) return;
+      await agentPrefs().load();
+      if (this._provider || this.session) return; // chosen meanwhile
+      const p = ps.find((x) => x.id === agentPrefs().harness) || ps[0];
+      this._provider = p.id; this._mode = p.defaultMode || '';
     } catch { /* offline; the composer still shows */ }
+  }
+
+  // the provider row of this tab's harness (a bare id while the catalog loads)
+  _provRow() {
+    const id = this._provider || this.provider || this._tx.meta?.provider || '';
+    return (this._providers || []).find((p) => p.id === id) || { id, modes: [] };
+  }
+
+  // What a new session starts with (D229): the mode picked in the chooser,
+  // else the person's saved mode, model and settings for this harness
+  // (agent-prefs.js; never a bypass mode), else the provider's default. A
+  // resumed session keeps its own.
+  async _startWith() {
+    if (this.resume) return { mode: this._mode };
+    await Promise.all([this._providersP, agentPrefs().load()]).catch(() => { });
+    const saved = agentPrefs().startWith(this._provRow());
+    return { ...saved, mode: this._modePicked ? this._mode : (this.mode || saved.mode || this._mode) };
   }
 
   // Launched from the + menu / chooser with a provider chosen: create the
@@ -313,9 +304,8 @@ export class BxAgent extends LitElement {
   async _openTail() {
     try {
       await this._tx.openTail();
-      this._fromKey = this._toKey = null;
-      this._all = false;
-      this._sw.toBottom();
+      this._win.reset();
+      this._win.toBottom();
       this.requestUpdate();
       this._maybePoll();
       this._refetch();
@@ -331,7 +321,7 @@ export class BxAgent extends LitElement {
     } catch (e) { if (e.status === 404) this._gone(); }
   }
 
-  _reset() { this._tx.reset(); this._fromKey = this._toKey = null; this._all = false; this._opened.clear(); }
+  _reset() { this._tx.reset(); this._win.reset(); this._opened.clear(); this._ui.clear(); this._bags.clear(); }
 
   // a live event for our session; a skipped seq means the hub dropped one,
   // so re-fetch from the last we have rather than trust the gap. A resume's
@@ -345,41 +335,19 @@ export class BxAgent extends LitElement {
     if (ev.seq === this._tx.lastSeq + 1) { if (this._tx.apply([ev])) this.requestUpdate(); this._maybePoll(); } else this._refetch(); // a gap: catch up from the log
   }
 
-  // "↓ N new — jump to latest": the tail (fetched again when it was let go),
-  // followed
-  async _jumpLatest() {
-    this._all = false;
-    if (this._tx.hasNewer) {
-      try { await (this.history ? this._tx.openTail() : this._open()); } catch { /* the pill stays */ }
-    }
-    this._fromKey = this._toKey = null;
-    this._sw.toBottom();
-    this._tx.follow = true;
-    this._tx.seenAll();
-    this.requestUpdate();
-  }
+  // "↓ N new — jump to latest", "load all" (find) and "load earlier": the window's (chat/window.js)
+  _jumpLatest() { return this._win.latest(); }
+  _loadAll() { return this._win.loadAll(); }
+  _older() { this._win.older(); }
 
-  // "load all" (find): every page, rendered — an explicit mode, left by the
-  // pill; nothing unloads meanwhile
-  async _loadAll() {
-    this._all = true;
-    this.requestUpdate();
-    const tx = this._tx;
-    try {
-      while (this._all && tx.hasOlder) await tx.loadOlder(2000);
-      while (this._all && tx.hasNewer) await tx.loadNewer(2000);
-    } catch { /* what loaded shows */ }
-    this.requestUpdate();
-  }
-
-  // "load earlier": a page of rows above the window, loaded first if need be
-  _older() {
-    const blocks = this._blocks();
-    if (this._start > 0) { this._fromKey = blocks[Math.max(0, this._start - PAGE)].key; this.requestUpdate(); } else if (this._tx.hasOlder) this._load(() => this._tx.loadOlder());
-  }
-
+  // Poll while the session's state can still move without this tab hearing
+  // of it: a turn that runs, and a session that is starting — its `idle`
+  // arrives as one live event, and the events hub drops a slow subscriber
+  // without a word, so a tab that missed it would say "starting" for ever
+  // (seen on a loaded machine: a resumed session never became idle here).
   _maybePoll() {
-    const busy = !this.ended && (this._status() === 'running' || this._status() === 'waiting_permission' || this._status() === 'cancelling');
+    const st = this._status();
+    const busy = !this.ended && !this.history && !!this.session && (st === 'running' || st === 'waiting_permission' || st === 'cancelling' || st === 'starting');
     if (busy && !this._poll) this._poll = setInterval(() => this._refetch(), 2000);
     else if (!busy && this._poll) { clearInterval(this._poll); this._poll = null; }
   }
@@ -397,23 +365,27 @@ export class BxAgent extends LitElement {
   // ---- actions ----
 
   // interrupt (Ctrl/⌘+Enter while a turn runs): stop it, then send (D197)
-  async _submit(interrupt = false) {
+  // files: what the composer staged ([{name, mime, data}], base64); sent(): tell it they went
+  async _submit(interrupt = false, files = [], sent = null) {
     const text = this._draft.trim();
     if (this._creating || this.restarting) return; // restarting: the frame brings the new session
     if (!this.session) {
       if (!(await this._create())) return;
-      if (!text) return; // started; the settings pickers show now, the first prompt can wait
+      if (!text && !files.length) return; // started; the settings pickers show now, the first prompt can wait
     }
-    if (!text) return;
-    if (await this._prompt(text, interrupt)) this._draft = ''; // else keep the draft to retry
+    if (!text && !files.length) return;
+    if (await this._prompt(text, interrupt, files)) { this._draft = ''; if (sent) sent(); } // else keep the draft (and the files) to retry
   }
 
   // every message goes through …/queue (D197): idle, it starts a turn; while
-  // one runs the agent takes it mid-turn, or xbind holds it for the turn's end
-  async _prompt(text, interrupt = false) {
+  // one runs the agent takes it mid-turn, or xbind holds it for the turn's
+  // end. Its files go with it as attachments (the session API writes them
+  // into the agent's sandbox; an image the model can see goes inline too).
+  async _prompt(text, interrupt = false, files = []) {
     try {
+      const attachments = files.map((f) => ({ name: f.name, ...(f.mime ? { mime: f.mime } : {}), data: f.data }));
       const r = await fetch(queueURL(this),
-        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, interrupt }) });
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, interrupt, ...(attachments.length ? { attachments } : {}) }) });
       if (!r.ok) { this._error = (await r.json().catch(() => ({}))).error || `prompt failed (${r.status})`; this._authErr = this._looksAuth(this._error); return false; }
       this._error = ''; this._authErr = false; this._signedNote = ''; this._refetch();
       return true;
@@ -423,9 +395,10 @@ export class BxAgent extends LitElement {
   async _create() {
     this._creating = true; this._error = '';
     try {
+      const start = await this._startWith();
       const r = await fetch('/api/xbin/term/sessions', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cwd: this.component, kind: 'agent', provider: this._provider, mode: this._mode, resume: this.resume || undefined, vm: this.vm || undefined }),
+        body: JSON.stringify({ cwd: this.component, kind: 'agent', provider: this._provider, mode: start.mode, model: start.model, options: start.options, resume: this.resume || undefined, vm: this.vm || undefined }),
       });
       const info = await r.json().catch(() => ({}));
       if (!r.ok) { this._error = info.error || `could not start (${r.status})`; this._authErr = this._looksAuth(this._error); return false; }
@@ -445,21 +418,25 @@ export class BxAgent extends LitElement {
     fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/cancel`, { method: 'POST' }).catch(() => { });
   }
 
+  // → Promise<boolean>: the answer went
   _permit(pid, decision, optionId) {
     const body = optionId ? { optionId } : { decision };
-    fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/permissions/${encodeURIComponent(pid)}`,
+    return fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/permissions/${encodeURIComponent(pid)}`,
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-      .then(async (r) => { if (r.ok) { this._error = ''; this._refetch(); } else this._error = (await r.json().catch(() => ({}))).error || `could not answer (${r.status})`; });
+      .then(async (r) => {
+        if (r.ok) { this._error = ''; this._refetch(); return true; }
+        this._error = (await r.json().catch(() => ({}))).error || `could not answer (${r.status})`;
+        return false;
+      }, (e) => { this._error = String(e.message || e); return false; });
   }
 
   // "keep planning" with feedback: reject the plan, then send the text as the
   // next prompt once the turn the reject ends has settled (Claude ends it as
   // cancelled; the prompt route refuses while a turn runs)
-  _rejectPlan(pid, optionId) {
-    const text = (this._planFeedback[pid] || '').trim();
-    delete this._planFeedback[pid];
+  _rejectPlan(pid, optionId, feedback = '') {
+    const text = String(feedback || '').trim();
     if (text) this._followUp = { text, after: this._tx.lastSeq };
-    this._permit(pid, null, optionId);
+    return this._permit(pid, null, optionId);
   }
 
   _maybeFollowUp() {
@@ -475,43 +452,35 @@ export class BxAgent extends LitElement {
   }
 
   // answer a question the agent asked: accept with the form's values,
-  // decline (skip)
-  _answer(eid, action, content, fields) {
-    if (action === 'accept' && fields) {
-      const miss = missingRequired(fields, content || {});
-      if (miss.length) { this._error = 'answer ' + miss.join(', '); return; }
-    }
-    fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/elicitations/${encodeURIComponent(eid)}`,
+  // decline (skip) → Promise<boolean>. (What a form requires is the form's
+  // to say: chat/asks.js <bx-chat-form>.)
+  _answer(eid, action, content) {
+    return fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/elicitations/${encodeURIComponent(eid)}`,
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action === 'accept' ? { action, content: content || {} } : { action }) })
-      .then(async (r) => { if (r.ok) { this._error = ''; delete this._askVals[eid]; this._refetch(); } else this._error = (await r.json().catch(() => ({}))).error || `could not answer (${r.status})`; });
+      .then(async (r) => {
+        if (r.ok) { this._error = ''; this._refetch(); return true; }
+        this._error = (await r.json().catch(() => ({}))).error || `could not answer (${r.status})`;
+        return false;
+      }, (e) => { this._error = String(e.message || e); return false; });
   }
 
   _setOption(id, value) {
     if (!this.session) return;
     fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/options`,
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, value }) })
-      .then(async (r) => { if (!r.ok) this._error = (await r.json().catch(() => ({}))).error || `could not set ${id}`; else { this._error = ''; this._refetch(); } });
+      .then(async (r) => {
+        if (!r.ok) { this._error = (await r.json().catch(() => ({}))).error || `could not set ${id}`; return; }
+        this._error = ''; this._refetch();
+        // the next session of this harness starts the same way (D229)
+        agentPrefs().rememberOption(this._provRow(), id === 'mode' ? { id } : this._options().find((o) => o.id === id) || { id }, String(value));
+      });
   }
 
-  // the agent's session settings (model, effort, …): the last status event's
-  // options list, as the agent reported it
   // the agent's slash commands: the last status that carried them
   _commands() { return this._tx.st.commands || []; }
 
-  // the slash menu's items for the current draft ([] = closed)
-  _slashItems() {
-    if (this._slashOff || this.ended) return [];
-    const q = slashQuery(this._draft);
-    return q == null ? [] : matchCommands(this._commands(), q);
-  }
-
-  _pickSlash(c) {
-    this._draft = '/' + c.name + ' ';
-    this._slashSel = 0;
-    const ta = this.renderRoot?.querySelector('.compose textarea');
-    if (ta) { ta.value = this._draft; ta.focus(); } // (its height: updated(), _draft changed)
-  }
-
+  // the agent's session settings (model, effort, …): the last status event's
+  // options list, as the agent reported it
   _options() { return this._tx.st.options || []; }
 
   // the agent's permission modes: from the last status that carried them, else
@@ -582,22 +551,70 @@ export class BxAgent extends LitElement {
       return html`<bx-agent-signin .spec=${spec} provider=${lg.provider} component=${this.component}
         @bx-signin-done=${() => this._signedIn(lg)} @bx-signin-terminal=${(ev) => this._signinTerminal(lg, ev)}></bx-agent-signin>`;
     }
-    return html`<div class="signin">
-      <span class="msg"><bx-icon name="warning"></bx-icon>Not signed in to ${lg.provider}.</span>
-      <button class="go" @click=${() => this._doSignIn(lg)} title="open a terminal that runs the sign-in command in this agent's home">Sign in to ${lg.provider}</button>
-      ${spec ? html`<button @click=${() => { this._signinTerm = false; }} title="sign in here: a link to open and a code to paste">Guided sign-in</button>` : nothing}
-    </div>`;
+    // the kit says the agent is signed out; how to sign in is this element's (ChatCtx.signin)
+    this._signinFill = () => html`<button class="bxc-primary" @click=${() => this._doSignIn(lg)} title="open a terminal that runs the sign-in command in this agent's home">Sign in to ${lg.provider}</button>
+      ${spec ? html`<button @click=${() => { this._signinTerm = false; }} title="sign in here: a link to open and a code to paste">Guided sign-in</button>` : nothing}`;
+    return signinView(block('signin', 'signin', { provider: lg.provider || '', command: lg.command || '' }), this._ctx);
   }
 
-  _key(ev) {
-    const items = this._slashItems();
-    if (items.length && !ev.isComposing) {
-      const n = items.length, sel = Math.min(this._slashSel, n - 1);
-      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); this._slashSel = (sel + (ev.key === 'ArrowDown' ? 1 : n - 1)) % n; return; }
-      if (ev.key === 'Tab' || (ev.key === 'Enter' && !ev.shiftKey)) { ev.preventDefault(); this._pickSlash(items[sel]); return; }
-      if (ev.key === 'Escape') { ev.preventDefault(); this._slashOff = true; return; }
+  // ---- what the views may ask of this element (ChatCtx, /vendor/chat/blocks.js) ----
+
+  /** chatCtx: the ChatCtx this element hands the chat kit's views. */
+  get chatCtx() { return this._ctx; }
+
+  _makeCtx() {
+    const a = this;
+    return {
+      get running() { return !a.ended && a._status() === 'running'; },
+      get ended() { return !!a.ended; },
+      get readonly() { return !!a.history; },
+      get agentName() { return a._provName(); },
+      role: 'owner', // whoever may open the tab may answer (the session API decides: creator or admin)
+      sessionRules: true, // "always" is xbind's own session rule: offered only when the request can be scoped to one
+      feedbackHint: 'Tell the agent what to change (optional — sent as your next message)',
+      isOpen: (b, slot, dflt) => !!dflt || a._opened.has(b.k + ':' + slot),
+      setOpen: (b, slot, open) => { if (open) a._openSlot(b, slot); }, // (a fold the reader closed keeps its body: opening it again is instant)
+      rev: (b) => a._ui.get(b.k) || 0,
+      state: (b) => a._bag(b),
+      // an option's answer; a plan kept with a word: the word goes in as the next message
+      permit: (b, ans) => (b.plan && ans.verdict === 'reject' ? a._rejectPlan(b.pid, ans.optionId, ans.feedback) : a._permit(b.pid, ans.decision || null, ans.optionId)),
+      answer: (b, ans) => a._answer(b.eid, ans.action, ans.content),
+      // an option that stops the agent asking is confirmed in the window's own dialog (bx-frame's), else the browser's
+      confirm: async (text) => (a.ask
+        ? (await a.ask({ title: 'Let the agent stop asking?', message: text, buttons: [{ label: 'Cancel', value: null }, { label: 'Allow it', value: 'ok', primary: true }] }))?.button === 'ok'
+        : window.confirm(text)),
+      fileDiff: (b, set, c) => a._fileDiff(b, set, c),
+      signin: () => (a._signinFill ? a._signinFill() : null),
+      repaint: () => a.requestUpdate(),
+    };
+  }
+
+  // what a card's widget keeps for a block (a form's values, a busy answer): by key, the newest few
+  _bag(b) {
+    let bag = this._bags.get(b.k);
+    if (!bag) {
+      if (this._bags.size > 64) this._bags.delete(this._bags.keys().next().value);
+      this._bags.set(b.k, (bag = {}));
     }
-    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); this._submit(ev.ctrlKey || ev.metaKey); } // isComposing: don't send on an IME confirm
+    return bag;
+  }
+
+  // open a lazy body (or a "Show all") of b's, keeping the reader's view
+  _openSlot(b, slot) {
+    this._opened.add(b.k + ':' + slot);
+    this._win.keepView(); // the reader opened it: keep their view, don't chase the bottom
+    this._touch(b);
+  }
+  // b's row (and the rows it is nested in) render again: what is kept here for it changed
+  _touch(b) {
+    for (let x = b; x; x = x.$up) this._ui.set(x.k, (this._ui.get(x.k) || 0) + 1);
+    this.requestUpdate();
+  }
+  // one file's diff of a change set (agent-diffs.js): the event's own patch, else the route while the session runs.
+  // b: the block the change set hangs on — a turn's `changes`, or the call that made it
+  _fileDiff(b, set, c) {
+    const sel = b.kind === 'changes' ? { turn: b.turn } : { toolCallId: b.rec.id };
+    return this._diffs.get({ session: this.session, live: !!this.session && !this.history && !this.ended }, { key: b.k, block: b }, set, c, sel);
   }
 
   // ---- view model ----
@@ -615,23 +632,24 @@ export class BxAgent extends LitElement {
     const status = this.ended ? 'exited' : this._status();
     const busy = !this.ended && (status === 'running' || status === 'waiting_permission' || status === 'cancelling');
     const lg = this._login();
-    const blocks = this._blocks(), tx = this._tx;
-    const from = this._start; // willUpdate placed the window
-    const win = from || this._end < blocks.length ? blocks.slice(from, this._end) : blocks;
-    const running = !this.ended && status === 'running';
+    const blocks = this._blocks(), tx = this._tx, win = this._win;
+    const from = win.start, end = win.end; // willUpdate placed the window
+    const rows = (from || end < blocks.length ? blocks.slice(from, end) : blocks).map(blockOf); // the kit's blocks of the rows in the window
+    const queue = this.ended || this.history ? [] : tx.st.queue || [];
+    const pill = win.pill();
     return html`
       <div class="scroll">
-        ${tx.truncated && !from ? html`<div class="gap">… earlier events dropped (log limit)</div>` : nothing}
-        ${from || tx.hasOlder ? html`<div class="gap earlier">… ${from ? `${from}${tx.hasOlder ? '+' : ''} ` : ''}earlier ${from === 1 && !tx.hasOlder ? 'entry' : 'entries'}
+        ${tx.truncated && !from ? html`<div class="bxc-gap">… earlier events dropped (log limit)</div>` : nothing}
+        ${from || tx.hasOlder ? html`<div class="bxc-gap bxc-earlier">… ${from ? `${from}${tx.hasOlder ? '+' : ''} ` : ''}earlier ${from === 1 && !tx.hasOlder ? 'entry' : 'entries'}
           <button @click=${() => this._older()}>load earlier</button><button @click=${() => this._loadAll()}>load all</button></div>` : nothing}
         ${this.restarting ? html`<div class="hint">Restarting the agent in a new sandbox — the conversation resumes where the agent can reopen it…</div>` : nothing}
         ${!this.session && !this.provider && !this.history && !this.restarting && !blocks.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
         ${!this.session && this.provider && !this.history && !lg ? html`<div class="hint">Starting ${this._provName()}…</div>` : nothing}
-        ${repeat(win, (b) => b.key, (b) => this._row(b, running))}
-        ${this._end >= blocks.length && !tx.hasNewer ? this._activity(status, blocks) : nothing}
+        ${rowsView(rows, this._ctx)}
+        ${end >= blocks.length && !tx.hasNewer ? activityView(rows, this._ctx) : nothing}
       </div>
       <div class="foot">
-        ${this._pill(blocks)}
+        ${pill ? html`<button class="bxc-pill" @click=${() => this._jumpLatest()}><bx-icon name="chevron-down"></bx-icon>${pill}</button>` : nothing}
         ${this.ended ? html`<div class="status ended"><span class="dot exited"></span>
           <span>${this.history ? 'a past session — read-only' : 'this session has ended — the transcript stays until you close the tab'}</span>
           ${this.history && this._historyMeta?.loadable ? html`<button @click=${this._doResume} title="reopen this conversation: the agent replays these turns, then continues">Resume</button>` : nothing}
@@ -641,74 +659,46 @@ export class BxAgent extends LitElement {
           <span class="dot ${status}"></span>
           <span>${this.history ? 'past session' : this.session ? (status === 'waiting_permission' ? 'waiting for you' : status.replace('_', ' ')) : 'not started'}</span>
           ${this._curMode() && !this._options().length ? html`<span>· ${this._curMode()}</span>` : nothing}
-          ${this._usage()}
+          ${tx.st.usage ? html`<span>· ${usageView(tx.st.usage)}</span>` : nothing}
+          ${this.session && llmLabel(tx.st) ? html`<span title=${llmLabel(tx.st).title}>· ${llmLabel(tx.st).text}</span>` : nothing}
           ${this._followUp ? html`<span title=${this._followUp.text}>· your feedback goes in when the turn ends</span>` : nothing}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
         </div>
         ${lg ? this._signin(lg) : this._signedNote ? html`<div class="status signed"><bx-icon name="ok"></bx-icon>${this._signedNote}</div>` : nothing}
-        ${!this.session ? (this.provider || this.restarting ? nothing : this._chooser()) : this._settings()}
-        ${this._slashMenu()}
-        ${queueChips(this)}
-        <div class="compose">
-          <textarea rows="1" ?disabled=${this.ended} placeholder=${this.ended ? 'the session has ended' : busy ? 'Add to the running turn (Enter) · Ctrl+Enter stops it, then sends' : 'Message the agent (Enter to send, Shift+Enter for a newline)'}
-            .value=${this._draft} @input=${(e) => { this._draft = e.target.value; this._slashOff = false; this._slashSel = 0; fitComposer(this, e.target); }}
-            @keydown=${this._key}></textarea>
-          ${busy ? html`<button class="cancel" @click=${() => stop(this)} title="interrupt the running turn — messages waiting for it come back here first">Stop</button>` : nothing}
-          <button @click=${() => this._submit()} ?disabled=${this._creating || this.ended || this.restarting}
-            title=${!this.session ? 'start the agent — with a message it sends it too; without one you can pick the model first' : busy ? 'add it to the running turn (Enter): the agent takes it at its next step, or it waits for the turn to end · Ctrl+Enter: stop the turn, then send it' : 'send (Enter)'}>${this.session ? 'Send' : 'Start'}</button>
-        </div>
+        <bx-chat-composer .draft=${this._draft} .fit=${this} .commands=${this._commands()} .queue=${queue}
+          .pickers=${this._pickers()} .unavailable=${this.session || this.provider || this.restarting ? [] : this._notOffered.map((p) => ({ id: p.id, name: p.name, reason: p.unavailable }))}
+          ?disabled=${this.ended} ?busy=${busy} ?sending=${this._creating || this.restarting} ?attach=${!this.ended && !this.history}
+          placeholder=${this.ended ? 'the session has ended' : busy ? 'Add to the running turn (Enter) · Ctrl+Enter stops it, then sends' : 'Message the agent (Enter to send, Shift+Enter for a newline)'}
+          sendLabel=${this.session ? 'Send' : 'Start'}
+          sendTitle=${!this.session ? 'start the agent — with a message it sends it too; without one you can pick the model first' : busy ? 'add it to the running turn (Enter): the agent takes it at its next step, or it waits for the turn to end · Ctrl+Enter: stop the turn, then send it' : 'send (Enter)'}
+          stopTitle="interrupt the running turn — messages waiting for it come back here first"
+          @bx-chat-draft=${(e) => { this._draft = e.detail.text; }}
+          @bx-chat-send=${(e) => this._submit(e.detail.interrupt, e.detail.files, e.detail.sent)}
+          @bx-chat-stop=${() => stop(this)}
+          @bx-chat-take-back=${(e) => takeBack(this, e.detail.id)}
+          @bx-chat-pick=${(e) => this._picked(e.detail.id, e.detail.value)}></bx-chat-composer>
       </div>`;
   }
 
-  // "↓ N new — jump to latest", while the reader is away from the bottom and
-  // something is below: new entries, or rows or pages not shown
-  _pill(blocks) {
-    const tx = this._tx;
-    if (this._sw.atBottom || this._all || !(tx.fresh || tx.hasNewer || this._end < blocks.length)) return nothing;
-    return html`<button class="pill" @click=${() => this._jumpLatest()}><bx-icon name="chevron-down"></bx-icon>${tx.fresh ? `${tx.fresh} new — ` : ''}jump to latest</button>`;
-  }
-
-  // what the running turn is doing right now, under the transcript: the
-  // in-flight tool, else "Working…" (an open thought already says it)
-  _activity(status, blocks) {
-    if (this.ended || status !== 'running') return nothing;
-    const last = blocks[blocks.length - 1];
-    if (last && last.kind === 'thought' && !last.done) return nothing;
-    let tool = null;
-    for (let i = blocks.length - 1; i >= 0 && !tool && blocks[i].kind !== 'turn'; i--) if (blocks[i].kind === 'tool' && blocks[i].status === 'in_progress') tool = blocks[i];
-    return html`<div class="activity"><span class="shimmer">${tool ? `Running ${headline(tool)}…` : 'Working…'}</span></div>`;
-  }
-
-  // the slash-command menu over the composer, or the input hint of the
-  // command just completed
-  _slashMenu() {
-    const items = this._slashItems();
-    if (items.length) {
-      const sel = Math.min(this._slashSel, items.length - 1);
-      return html`<div class="slash" role="listbox">${items.map((c, i) => html`<div class="sc ${i === sel ? 'on' : ''}" role="option" aria-selected=${i === sel}
-        @mousedown=${(e) => { e.preventDefault(); this._pickSlash(c); }}><b>/${c.name}</b><span class="d">${c.description || ''}</span>${c.hint ? html`<span class="h">${c.hint}</span>` : nothing}</div>`)}</div>`;
+  // The pickers over the message box (the composer draws them). Before a
+  // session: the provider and the mode it starts in. With one: a select per
+  // setting the agent advertised (model, effort, mode, …), live — changing
+  // one calls set_config_option for the next turn.
+  _pickers() {
+    if (!this.session) {
+      if (this.provider || this.restarting) return [];
+      const ps = this._providers || [];
+      const prov = ps.find((p) => p.id === this._provider);
+      return [
+        { id: 'provider', title: 'provider', value: this._provider, options: ps.length ? ps.map((p) => ({ value: p.id, name: p.name })) : [{ value: '', name: 'loading…' }] },
+        prov?.modes?.length ? { id: 'start-mode', title: 'mode', value: this._curMode(), options: prov.modes.map((m) => ({ value: m.id, name: `${m.name}${m.explicit ? ' (caution)' : ''}` })) } : null,
+        // what its model calls would run on (D226; GET /agent/providers' llm) —
+        // and, where both the person's own sign-in and the workspace's LLM
+        // connector can serve, their saved choice between them (agent-prefs.js)
+        this._credentials(prov),
+        llmHint(prov) ? { id: 'llm', note: `${llmHint(prov)}${prov.llm.reason ? ` — ${prov.llm.reason}` : ''}` } : null,
+      ];
     }
-    const h = commandHint(this._commands(), this._draft);
-    return h ? html`<div class="slash-hint">/${h.name} — ${h.hint}</div>` : nothing;
-  }
-
-  _chooser() {
-    const ps = this._providers || [];
-    const prov = ps.find((p) => p.id === this._provider);
-    return html`<div class="chooser">
-      <select title="provider" @change=${(e) => { this._provider = e.target.value; const p = ps.find((x) => x.id === e.target.value); this._mode = p?.defaultMode || ''; }}>
-        ${ps.length ? ps.map((p) => html`<option value=${p.id} ?selected=${p.id === this._provider}>${p.name}</option>`)
-          : html`<option>loading…</option>`}
-      </select>
-      ${prov?.modes?.length ? html`<select title="mode" @change=${(e) => { this._mode = e.target.value; }}>
-        ${prov.modes.map((m) => html`<option value=${m.id} ?selected=${m.id === this._curMode()}>${m.name}${m.explicit ? ' (caution)' : ''}</option>`)}
-      </select>` : nothing}
-    </div>`;
-  }
-
-  // _settings: one select per setting the agent advertised (model, effort,
-  // mode, …), live — changing one calls set_config_option for the next turn.
-  _settings() {
     const opts = this._options().filter((o) => o.type === 'select' && Array.isArray(o.options) && o.options.length);
     // the agent exposes its permission mode EITHER as availableModes
     // (session/set_mode) OR as a config option (category "mode") — show one
@@ -719,97 +709,36 @@ export class BxAgent extends LitElement {
       // eager-created and still starting: the config options (model, effort, …)
       // have not landed yet — say so rather than render an empty row
       const st = this._status();
-      return this.session && !this.ended && (st === 'starting' || st === 'running')
-        ? html`<div class="chooser settings"><span class="hint">starting the agent…</span></div>` : nothing;
+      return !this.ended && (st === 'starting' || st === 'running') ? [{ id: 'starting', note: 'starting the agent…' }] : [];
     }
-    const cur = this._curMode();
-    return html`<div class="chooser settings">
-      ${modes.length ? html`<label title="permission mode"><span class="lbl">mode</span>
-        <select @change=${(e) => this._setOption('mode', e.target.value)}>
-          ${modes.map((m) => html`<option value=${m.id} ?selected=${m.id === cur} title=${m.description || ''}>${m.name || m.id}${m.explicit ? ' (caution)' : ''}</option>`)}
-        </select></label>` : nothing}
-      ${opts.map((o) => html`<label title=${o.description || o.name}><span class="lbl">${o.name}</span>
-        <select @change=${(e) => this._setOption(o.id, e.target.value)}>
-          ${o.options.map((v) => html`<option value=${v.value} ?selected=${v.value === o.currentValue} title=${v.description || ''}>${v.name || v.value}</option>`)}
-        </select></label>`)}
-    </div>`;
+    return [
+      modes.length ? { id: 'mode', label: 'mode', title: 'permission mode', value: this._curMode(),
+        options: modes.map((m) => ({ value: m.id, name: `${m.name || m.id}${m.explicit ? ' (caution)' : ''}`, title: m.description || '' })) } : null,
+      ...opts.map((o) => ({ id: o.id, label: o.name, title: o.description || o.name, value: o.currentValue,
+        options: o.options.map((v) => ({ value: v.value, name: v.name || v.value, title: v.description || '' })) })),
+    ];
   }
 
-  _usage() {
-    const u = this._tx.st.usage;
-    if (!u) return nothing;
-    return html`<span>· ${fmtN(u.used)}/${fmtN(u.size)} tokens</span>`;
+  // the picker for a harness's saved credentials choice; null where there is
+  // nothing to choose (one of the two can't serve, a rule forces one, or
+  // the server keeps no preferences for this caller)
+  _credentials(prov) {
+    const c = prov && agentPrefs().credentialsChoice(prov);
+    return c ? { id: 'credentials', label: 'runs on', title: 'what a new session of this agent runs its model calls on — saved for you', ...c } : null;
   }
 
-  // one transcript row: the block, re-rendered only when it (b.v), its lazy
-  // bodies (b.ui) or what it reads beside itself changed; an open question or
-  // permission (live form state) always renders
-  _row(b, running) {
-    const live = (b.kind === 'perm' && !b.by) || (b.kind === 'ask' && !b.action);
-    return html`<div class="blk" data-k=${b.key}>${live ? this._block(b) : guard([b.v, b.ui, this.ended, (b.kind === 'thought' || !!b.children) && running], () => this._block(b))}</div>`;
-  }
-
-  // lazy <details> bodies: rendered once opened (or open by default)
-  _isOpen(b, slot) { return this._opened.has(b.key + ':' + slot); }
-  _toggled(e, b, slot, dflt) {
-    const k = b.key + ':' + slot;
-    if (!e.target.open || e.target.open === !!dflt || this._opened.has(k)) return; // closing, or lit applying the default
-    this._openSlot(b, slot);
-  }
-  // open a lazy body (or a "Show all") of b's, keeping the reader's view
-  _openSlot(b, slot) {
-    this._opened.add(b.key + ':' + slot);
-    this._sw.keepView = true; // the reader opened it: keep their view, don't chase the bottom
-    this._touch(b);
-  }
-  // b's row (and its parents') render again: its lazy bodies changed
-  _touch(b) {
-    for (let x = b; x; x = x.up) x.ui = (x.ui || 0) + 1;
-    this.requestUpdate();
-  }
-  // one file's diff of a change set (agent-diffs.js): the event's own patch, else the route while the session runs
-  _fileDiff(owner, f, c, sel) {
-    return this._diffs.get({ session: this.session, live: !!this.session && !this.history && !this.ended }, owner, f, c, sel);
-  }
-
-  _block(b) {
-    switch (b.kind) {
-      case 'msg':
-        return b.role === 'user'
-          ? html`<div class="row user"><div class="who">you</div><div class="bubble">${b.text}${b.files?.length ? html`<div class="files ${b.text ? 'below' : ''}">${b.files.map((f) =>
-              html`<span class="file" title=${`${f.mime || ''} · ${fmtN(f.size || 0)} bytes`}>${f.name}</span>`)}</div>` : nothing}${b.steered ? html`<span class="steer">taken in mid-turn</span>` : nothing}</div></div>`
-          : html`<div class="row agent"><div class="who">agent</div><div class="bubble" ${mdLive(b.text, b)}></div></div>`;
-      case 'thought': {
-        // open while it streams (the last block of a running turn), then
-        // folded to its duration — the Zed/Claude Code pattern
-        const live = !b.done && !this.ended && this._status() === 'running';
-        const secs = Math.max(1, Math.round(((b.t1 || 0) - (b.t0 || 0)) / 1000));
-        return html`<div class="row"><details class="thought" ?open=${live} @toggle=${(e) => this._toggled(e, b, 'body', live)}>
-          <summary><bx-icon class="cr" name="caret-right"></bx-icon><bx-icon class="cd" name="caret-down"></bx-icon>${live ? html`<span class="shimmer">Thinking…</span>` : `Thought for ${secs}s`}</summary>
-          ${live || this._isOpen(b, 'body') ? html`<div class="md" ${mdLive(b.text, b)}></div>` : nothing}</details></div>`;
-      }
-      case 'tool':
-        return toolCard(this, b);
-      case 'plan':
-        return html`<div class="plan"><div class="h">plan</div><ul>
-          ${(b.entries || []).map((en) => html`<li class="${en.status === 'completed' ? 'done' : ''}">${en.status === 'completed' ? html`<bx-icon name="check" label="done"></bx-icon>`
-            : en.status === 'in_progress' ? html`<bx-icon name="caret-right" label="in progress"></bx-icon>` : html`<span class="todo" role="img" aria-label="to do"></span>`}<span>${en.content}</span></li>`)}
-        </ul></div>`;
-      case 'perm':
-        return permCard(this, b);
-      case 'changes':
-        return changesCard(this, b);
-      case 'ask':
-        return askCard(this, b);
-      case 'turn':
-        return html`<div class="turn">turn ${b.turn ?? ''} · ${b.stopReason || 'done'}${b.error ? html` — <span class="err">${b.error}</span>` : nothing}</div>`;
-      case 'gap':
-        return html`<div class="gap">… earlier events dropped (log limit)</div>`;
-      case 'notice': // xbin's own line (a `notice` event), not the agent's
-        return html`<div class="notice">${b.text}</div>`;
-      default:
-        return nothing;
+  _picked(id, value) {
+    if (id === 'credentials') { // saved, then the listing says what a session runs on now
+      const prov = (this._providers || []).find((p) => p.id === this._provider);
+      agentPrefs().rememberCredentials(prov, value).then(() => { this._providersP = this._loadProviders(); this.requestUpdate(); });
+      this.requestUpdate();
+      return;
     }
+    if (id === 'provider') {
+      this._provider = value;
+      this._mode = (this._providers || []).find((x) => x.id === value)?.defaultMode || '';
+      this._modePicked = false;
+    } else if (id === 'start-mode') { this._mode = value; this._modePicked = true; } else this._setOption(id, value);
   }
 
   _sc() { return this.renderRoot?.querySelector('.scroll'); }
@@ -821,7 +750,5 @@ export class BxAgent extends LitElement {
 const PAGE = 30; // rows the window grows by: the initial tail, and each step up or down
 const TRIM = 120; // a window longer than this (and 6 views past the view) is trimmed on that side
 const UNLOAD = 3; // pages about this many views beyond the rendered rows are let go
-
-const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
 customElements.define('bx-agent', BxAgent);

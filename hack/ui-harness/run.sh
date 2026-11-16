@@ -43,6 +43,11 @@
 #                       built (hack/build-xbin-iroh.sh bin), else bin/fakeiroh
 #                       (built here); the apptunnel and pairing passes pair
 #                       real phones through it (bin/tunnelpair)
+#   HARNESS_GO_TAGS=sealedfixture ./run.sh …   build xbind with these go
+#                       build tags: sealedfixture gives it two fixture
+#                       system components (internal/sealed/table_fixture.go),
+#                       which the systemPage pass lists and the oldScaffold
+#                       pass checks an old shell never shows
 #   HARNESS_SEED=demo ./run.sh --keep [pass…]   seed the demo film set
 #                       (hack/demo/seed.sh: Larkspan, a fictional company's
 #                       workspace — hack/demo/README.md) instead of the test
@@ -104,6 +109,8 @@ if [[ -z "${HARNESS_IROH:-}" ]]; then
   [[ -x "$REPO/bin/xbin-iroh" ]] && HARNESS_IROH="$REPO/bin/xbin-iroh"
 fi
 export HARNESS_IROH
+# the LLM connector's deployment file the harness xbind runs with (start)
+export LLM_HOST_FILE="$HARNESS_DIR/llm-host.jsonc"
 mkdir -p "$OUT"
 mode="${1:-}"
 [[ $# -gt 0 ]] && shift
@@ -182,15 +189,19 @@ start() {
   # guided sign-in runs (D178; the agentTab pass). The demo set gets none
   # of the three (fake_env, above).
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" "${fake_args[@]}" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
+  # the LLM connector's deployment file (XBIN_LLM_CONFIG, D226): empty —
+  # it sets and locks nothing — until the llm pass writes a host's settings
+  # into it (xbind reads it again when it changes) and empties it again
+  [[ -f "$LLM_HOST_FILE" ]] || printf '{}\n' > "$LLM_HOST_FILE"
   (cd "$REPO" && env ${fake_env[@]+"${fake_env[@]}"} XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" \
-      XBIN_IROH="$HARNESS_IROH" XBIN_IROH_RELAY=disabled \
+      XBIN_IROH="$HARNESS_IROH" XBIN_IROH_RELAY=disabled XBIN_LLM_CONFIG="$LLM_HOST_FILE" \
       nohup bin/xbind --dev "${overlay_flags[@]}" --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" "${iso_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }
 build() {
-  (cd "$REPO" && go build -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai \
+  (cd "$REPO" && go build ${HARNESS_GO_TAGS:+-tags "$HARNESS_GO_TAGS"} -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai \
     && CGO_ENABLED=0 go build -o bin/fakeiroh ./hack/fakeiroh && go build -o bin/tunnelpair ./hack/tunnelpair)
   # VMs need the in-guest agent beside xbind (the demo set's coding
   # sandboxes are VMs; without it they stay empty)

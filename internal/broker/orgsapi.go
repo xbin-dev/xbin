@@ -10,6 +10,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Ownership / org management API (plans/ownership.md, D24–D28). Pure
@@ -87,6 +88,9 @@ func (b *Broker) usersEvent() {
 	b.Hub.Publish(events.Event{Type: "users"})
 	b.capSweep()
 	b.PartitionPeopleChanged() // a person disabled or who lost read: their partitions' instances stop now (partitionpeople.go)
+	if b.OnPeopleChanged != nil {
+		b.OnPeopleChanged() // …and what their workspace agents were doing and may do (the server's SweepDelegation)
+	}
 }
 
 // orgView is the management-facing org shape: the org plus its resolved
@@ -134,6 +138,9 @@ func (b *Broker) apiOrgsList(w http.ResponseWriter, r *http.Request) {
 	out := []orgView{}
 	for _, o := range st.Orgs() {
 		if b.canManageOrg(p, o.ID) {
+			if server.IsDelegateAdminRead(r) {
+				o.SSOGroups = nil // an agent's admin read: what change sets cover, never sign-in configuration
+			}
 			out = append(out, b.orgView(o))
 		}
 	}
@@ -486,6 +493,9 @@ func (b *Broker) apiOwnerTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Tile = strings.Trim(body.Tile, "/")
+	if sealedRefused(w, sealedNone(body.Tile, sealedNoOwner)) {
+		return // (sealedguard.go; the users store refuses it again, SetOwner)
+	}
 	if _, _, err := users.ParseOwner(body.To); err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
@@ -565,14 +575,42 @@ func (b *Broker) apiAccessGet(w http.ResponseWriter, r *http.Request) {
 		}
 		return entries[i].ID < entries[j].ID
 	})
+	// what reaches everyone in the workspace without an entry of their own:
+	// the workspace defaults (D27), which stop at an org-owned tile (D31) —
+	// for a system component, `who: everyone` of the workspace agent is one
+	owner := st.Owner(tile)
+	defaults := []defaultEntry{}
+	if !strings.HasPrefix(owner, users.OwnerKindOrg+":") {
+		for pat, l := range st.DefaultTiles() {
+			if l == "" || l == users.LevelNone || !matchesTile(pat, tile) {
+				continue
+			}
+			src := "exact"
+			if pat != tile {
+				src = "pattern:" + pat
+			}
+			defaults = append(defaults, defaultEntry{Level: l, Source: src})
+		}
+		sort.Slice(defaults, func(i, j int) bool { return defaults[i].Source < defaults[j].Source })
+	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{
-		"tile": tile, "owner": st.Owner(tile), "entries": entries,
+		"tile": tile, "owner": owner, "entries": entries, "defaults": defaults,
 	})
+}
+
+// defaultEntry is a workspace default (D27) that reaches the tile: everyone
+// in the workspace has it at Level, with no entry of their own.
+type defaultEntry struct {
+	Level  string `json:"level"`
+	Source string `json:"source"` // exact | pattern:<pat>
 }
 
 // matchesTile mirrors users.matchTile for the API's provenance display.
 func matchesTile(pat, path string) bool {
-	if pat == "*" || pat == path {
+	if pat == path || util.SealedPath(path) {
+		return pat == path // a system component is reached only by an entry that names it
+	}
+	if pat == "*" {
 		return true
 	}
 	if strings.HasSuffix(pat, "/*") {
@@ -580,6 +618,16 @@ func matchesTile(pat, path string) bool {
 		return path == prefix || strings.HasPrefix(path, prefix+"/")
 	}
 	return false
+}
+
+// accessCheck is what PUT /access decides about sharing tile with id by p
+// before it writes: who manages the tile's access.
+// The handler and a change set's preview (changeset.go) share it.
+func (b *Broker) accessCheck(p auth.Principal, tile, id string) *refused {
+	if !b.mayManageTile(p, tile) {
+		return &refused{http.StatusForbidden, "tile access is managed by its owner, the owning org's admins, or a workspace admin", "/docs/auth.md"}
+	}
+	return nil
 }
 
 // PUT /access {tile, kind: user|org, id, level|""} — writes/clears an EXACT
@@ -601,9 +649,8 @@ func (b *Broker) apiAccessPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Tile = strings.Trim(body.Tile, "/")
-	p := auth.PrincipalOf(r)
-	if !b.mayManageTile(p, body.Tile) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "tile access is managed by its owner, the owning org's admins, or a workspace admin", "docs": "/docs/auth.md"})
+	if why := b.accessCheck(auth.PrincipalOf(r), body.Tile, body.ID); why != nil {
+		why.write(w)
 		return
 	}
 	var err error
@@ -640,7 +687,9 @@ func (b *Broker) apiAccessMatrix(w http.ResponseWriter, r *http.Request) {
 	comps := b.Reg.Components()
 	paths := make([]string, 0, len(comps))
 	for _, c := range comps {
-		paths = append(paths, c.Path)
+		if listSealed(r, c.Path) {
+			paths = append(paths, c.Path)
+		}
 	}
 	sort.Strings(paths)
 	type cell struct {

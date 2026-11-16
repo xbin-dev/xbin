@@ -383,13 +383,19 @@ func capLevel(noTerminal bool, l string) string {
 // TileLevel is the effective level on one path: the D31 resolution
 // (tileLevel), capped at write for a NoTerminal account.
 func (a *Access) TileLevel(path string) string {
-	return capLevel(a.NoTerminal(), a.tileLevel(path))
+	return capSealed(path, capLevel(a.NoTerminal(), a.tileLevel(path)))
 }
 
 // Explain lists the contributions to the level on path (explain), each capped
 // like TileLevel so the first entry still IS the effective level.
 func (a *Access) Explain(path string) []Contribution {
 	out := a.explain(path)
+	for i := range out {
+		if l := capSealed(path, out[i].Level); l != out[i].Level {
+			out[i].Level = l
+			out[i].Source += " (system component)"
+		}
+	}
 	if a.NoTerminal() {
 		for i := range out {
 			if out[i].Level == LevelTerminal {

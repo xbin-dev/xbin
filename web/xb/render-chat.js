@@ -1,7 +1,8 @@
 /**
  * xb/render-chat.js — the chat family of the reference renderer: transcript,
  * message, thinking, toolcard, approval, question, plan, diff, activity,
- * step, composer. The app draws these with the same components as its own
+ * step, composer (the workspace agent's nodes, D233, are render-agent.js). The
+ * app draws these with the same components as its own
  * agent screen; here they follow a phone chat layout — assistant text full
  * width, user turns as bubbles, tool calls as foldable cards, the composer
  * docked at the bottom of its screen.
@@ -14,6 +15,7 @@ import { css, live } from '/vendor/lit-all.min.js';
 import { html, nothing, own, P, cls, tone, icon, spinner, str, composing } from '/vendor/xb/render-base.js';
 import { mdBlocks, tokensOf } from '/vendor/xb/render-markdown.js';
 import { folded, edges, scrollAttr, scrollBase } from '/vendor/xb/render-structure.js';
+import { transcriptEmpty } from '/vendor/xb/render-agent.js';
 
 const fmtTime = (t) => {
   if (typeof t === 'number' && Number.isFinite(t)) return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -33,10 +35,11 @@ function transcript(n, cx) {
   };
   const [edgeStart, edgeEnd] = edges(n, cx);
   scrollBase(n, cx);
-  return html`<xb-transcript data-k=${n.k} class=${cls('transcript', p.follow && 'follow', nested && 'nested', cx.place === 'group' && 'cell')} @scroll=${onScroll}
+  const kids = (n.c || []).length > 0; // none: the empty slot (rev 3), read from its top
+  return html`<xb-transcript data-k=${n.k} class=${cls('transcript', p.follow && kids && 'follow', nested && 'nested', cx.place === 'group' && 'cell')} @scroll=${onScroll}
     data-anchor=${scrollAttr(p.anchor)} data-scroll-to=${scrollAttr(p.scrollTo)}>
     ${p.older && cx.on(n, 'more') ? html`<xb-more class="older" @more=${() => cx.emit(n, 'more', {})}>${spinner()}</xb-more>` : nothing}
-    ${edgeStart}${cx.kids(n, 'chat')}${edgeEnd}
+    ${edgeStart}${kids ? cx.kids(n, 'chat') : transcriptEmpty(n, cx)}${edgeEnd}
   </xb-transcript>`;
 }
 
@@ -157,18 +160,41 @@ function qFields(schema) {
   });
 }
 
+// Rev 2 (D233): `style: rows` draws a property's choices as full-width rows;
+// `other` ({choice property: string property}) makes that string the free
+// text riding on the choices ("Something else": typing clears the choice,
+// choosing clears the text) instead of a field of its own; `paged` shows one
+// question a page ("1 of 2", Back and Next at the bottom, submit on the last).
 function question(n, cx) {
   const p = P(n);
-  const fields = qFields(p.schema);
+  const all = qFields(p.schema);
+  const other = p.other && typeof p.other === 'object' && !Array.isArray(p.other) ? p.other : {};
+  const riding = new Set(Object.values(other).map(str));
+  const fields = all.filter((f) => !riding.has(f.name));
+  const byName = new Map(all.map((f) => [f.name, f]));
+  const rows = p.style === 'rows';
   const u = cx.ui(n.k);
-  if (!u.v) { u.v = {}; for (const f of fields) if (f.s.default !== undefined) u.v[f.name] = f.s.default; }
+  if (!u.v) { u.v = {}; for (const f of all) if (f.s.default !== undefined) u.v[f.name] = f.s.default; }
   const set = (k, v) => { u.v[k] = v; u.err = ''; cx.update(); };
   const settled = p.settled != null && p.settled !== false;
+  // a settled question shows what was answered
+  const val = (name) => (settled && p.settled && typeof p.settled === 'object' && own(p.settled, name) ? p.settled[name] : u.v[name]);
+  const answered = (f) => {
+    const o = other[f.name] && byName.get(str(other[f.name]));
+    return !(val(f.name) === undefined || val(f.name) === '') || (!!o && str(val(o.name)).trim() !== '');
+  };
+  const pages = p.paged && fields.length > 1 ? fields.length : 1;
+  const page = Math.min(Math.max(0, u.page || 0), pages - 1);
+  const shown = pages > 1 ? [fields[page]] : fields;
+  const check = (list) => {
+    const miss = list.filter((f) => f.req && !answered(f));
+    if (miss.length) { u.err = `Required: ${miss.map((f) => f.s.title || f.name).join(', ')}`; cx.update(); }
+    return !miss.length;
+  };
   const submit = () => {
-    const miss = fields.filter((f) => f.req && (u.v[f.name] === undefined || u.v[f.name] === ''));
-    if (miss.length) { u.err = `Required: ${miss.map((f) => f.s.title || f.name).join(', ')}`; cx.update(); return; }
+    if (!check(fields)) return;
     const content = {};
-    for (const f of fields) {
+    for (const f of all) {
       let v = u.v[f.name];
       if (v === undefined || v === '') continue;
       if (f.type === 'number') v = Number(v);
@@ -176,45 +202,71 @@ function question(n, cx) {
     }
     cx.emit(n, 'submit', { content });
   };
+  const go = (d) => { if (d > 0 && !check(shown)) return; u.page = page + d; u.err = ''; cx.update(); };
   const field = (f) => {
     const label = html`<span class="q-label">${str(f.s.title || f.name)}${f.req ? html`<span class="q-req">*</span>` : nothing}</span>`;
-    const v = u.v[f.name];
+    const v = val(f.name);
     let input;
     if (f.type === 'boolean') {
       input = html`<button role="switch" aria-checked=${v ? 'true' : 'false'} class=${cls('switch', v && 'on')} ?disabled=${settled}
         @click=${() => set(f.name, !v)}><span class="knob"></span></button>`;
       return html`<div class="q-row q-bool">${label}${input}</div>`;
     }
+    const o = f.choices && other[f.name] ? byName.get(str(other[f.name])) : null;
+    const free = o ? html`<label class="q-other"><span class="q-label">${str(o.s.title || 'Something else')}</span>
+      <input class="q-input" type="text" ?disabled=${settled} placeholder=${str(o.s.description) || nothing} .value=${live(str(val(o.name)))}
+        @input=${(e) => { u.v[o.name] = e.target.value; if (e.target.value) delete u.v[f.name]; u.err = ''; cx.update(); }}></label>` : nothing;
+    if (f.choices && rows) {
+      const pick = (c) => { if (o) delete u.v[o.name]; set(f.name, c.v); };
+      return html`<div class="q-row q-rows" role="radiogroup" aria-label=${str(f.s.title || f.name)}>${f.s.title ? label : nothing}
+        ${f.choices.map((c) => html`<button class=${cls('q-choice', c.v === v && 'on')} role="radio" aria-checked=${c.v === v ? 'true' : 'false'}
+          ?disabled=${settled} @click=${() => pick(c)}><span class="q-box">${c.v === v ? icon('check') : nothing}</span><span class="q-cl">${c.l}</span></button>`)}
+        ${free}${f.s.description ? html`<span class="q-desc">${f.s.description}</span>` : nothing}</div>`;
+    }
     if (f.choices) {
       const i = f.choices.findIndex((c) => c.v === v);
-      input = html`<select class="q-input" ?disabled=${settled} @change=${(e) => set(f.name, f.choices[Number(e.target.value)]?.v)}>
+      input = html`<select class="q-input" ?disabled=${settled} @change=${(e) => { if (o) delete u.v[o.name]; set(f.name, f.choices[Number(e.target.value)]?.v); }}>
         ${i < 0 ? html`<option value="-1" selected hidden>Choose…</option>` : nothing}
         ${f.choices.map((c, j) => html`<option value=${j} ?selected=${j === i}>${c.l}</option>`)}</select>`;
     } else {
       const type = f.type === 'number' ? 'number' : { email: 'email', uri: 'url', date: 'date', 'date-time': 'datetime-local' }[f.s.format] || 'text';
       input = html`<input class="q-input" type=${type} ?disabled=${settled} .value=${str(v)} @input=${(e) => set(f.name, e.target.value)}>`;
     }
-    return html`<label class="q-row">${label}${input}${f.s.description ? html`<span class="q-desc">${f.s.description}</span>` : nothing}</label>`;
+    const desc = f.s.description ? html`<span class="q-desc">${f.s.description}</span>` : nothing;
+    return o ? html`<div class="q-row"><label class="q-row">${label}${input}</label>${free}${desc}</div>`
+      : html`<label class="q-row">${label}${input}${desc}</label>`;
   };
-  return html`<xb-question data-k=${n.k} class=${cls('card', 'quest', settled && 'settled')}>
-    <div class="ap-head">${icon(settled ? 'ui-circle-check' : 'question', settled ? 'ap-ic ok' : 'ap-ic')}<span class="ap-title">${str(p.title) || 'Question'}</span></div>
+  const last = page === pages - 1;
+  return html`<xb-question data-k=${n.k} class=${cls('card', 'quest', settled && 'settled', rows && 'rows')}>
+    <div class="ap-head">${icon(settled ? 'ui-circle-check' : 'question', settled ? 'ap-ic ok' : 'ap-ic')}<span class="ap-title">${str(p.title) || 'Question'}</span>
+      ${pages > 1 ? html`<span class="q-page">${page + 1} of ${pages}</span>` : nothing}</div>
     ${p.schema?.description ? html`<div class="ap-text">${p.schema.description}</div>` : nothing}
-    <div class="q-fields">${fields.map(field)}</div>
+    <div class="q-fields">${shown.map(field)}</div>
     ${u.err ? html`<div class="q-err">${u.err}</div>` : nothing}
-    ${settled ? html`<div class="ap-settled">Answered</div>` : html`<div class="ap-opts row">
-      ${cx.on(n, 'skip') ? html`<button class="btn b-opt r-default" @click=${() => cx.emit(n, 'skip', {})}>Skip</button>` : nothing}
-      <button class="btn b-opt r-primary" @click=${submit}>Submit</button></div>`}
+    ${settled ? html`<div class="ap-settled">Answered${pages > 1 ? html` · <button class="q-nav" ?disabled=${page === 0} @click=${() => go(-1)}>Back</button>
+        <button class="q-nav" ?disabled=${last} @click=${() => go(1)}>Next</button>` : nothing}</div>` : html`<div class="ap-opts row">
+      ${cx.on(n, 'skip') ? html`<button class="btn b-opt r-default q-skip" @click=${() => cx.emit(n, 'skip', {})}>${str(p.skipLabel) || 'Skip'}</button>` : nothing}
+      ${pages > 1 && page > 0 ? html`<button class="btn b-opt r-default" @click=${() => go(-1)}>Back</button>` : nothing}
+      ${last ? html`<button class="btn b-opt r-primary" @click=${submit}>${str(p.submitLabel) || (rows ? 'Answer' : 'Submit')}</button>`
+        : html`<button class="btn b-opt r-primary" @click=${() => go(1)}>Next</button>`}</div>`}
   </xb-question>`;
 }
 
 const PLAN_IC = { completed: ['ui-circle-check', 'ok'], in_progress: ['ui-circle-dot', 'accent'], pending: ['ui-circle', 'muted'] };
+// Rev 2 (D233): a title, numbered steps, a tag an entry (by position), a
+// quiet line beside the title (in place of the count) and a sentence under.
 function plan(n) {
-  const es = (Array.isArray(P(n).entries) ? P(n).entries : []).filter((e) => e && typeof e === 'object');
+  const p = P(n);
+  const es = (Array.isArray(p.entries) ? p.entries : []).filter((e) => e && typeof e === 'object');
+  const tags = Array.isArray(p.tags) ? p.tags : [];
   const done = es.filter((e) => e.status === 'completed').length;
-  return html`<xb-plan data-k=${n.k} class="card plan">
-    <div class="pl-head"><span>Plan</span><span class="pl-count">${done} of ${es.length} done</span></div>
-    ${es.map((e) => { const [ic, t] = PLAN_IC[e.status] || PLAN_IC.pending; return html`<div class=${cls('pl-row', `pl-${e.status || 'pending'}`)}>
-      <span class=${cls('pl-ic', tone(t))}>${icon(ic)}</span><span class="pl-text">${str(e.text)}</span></div>`; })}
+  const tag = (t) => (t && typeof t === 'object' && t.text ? html`<span class=${cls('pill', 'pl-tag', t.tone && t.tone !== 'muted' && `pill-${t.tone}`)}>${
+    t.icon ? icon(t.icon) : nothing}${str(t.text)}</span>` : nothing);
+  return html`<xb-plan data-k=${n.k} class=${cls('card', 'plan', p.numbered && 'numbered')}>
+    <div class="pl-head"><span>${str(p.title) || 'Plan'}</span><span class="pl-count">${p.meta ? p.meta : `${done} of ${es.length} done`}</span></div>
+    ${es.map((e, i) => { const [ic, t] = PLAN_IC[e.status] || PLAN_IC.pending; return html`<div class=${cls('pl-row', `pl-${e.status || 'pending'}`)}>
+      <span class=${cls('pl-ic', tone(t))}>${icon(ic)}</span>${p.numbered ? html`<span class="pl-n">${i + 1}.</span>` : nothing}<span class="pl-text">${str(e.text)}</span>${tag(tags[i])}</div>`; })}
+    ${p.note ? html`<div class="pl-note">${p.note}</div>` : nothing}
   </xb-plan>`;
 }
 
@@ -260,6 +312,9 @@ function composer(n, cx) {
     ? p.slash.filter((s) => s && str(s.name).startsWith(v.slice(1))).slice(0, 6) : [];
   const atts = (Array.isArray(p.attachments) ? p.attachments : []).filter((a) => a && typeof a === 'object');
   const chips = n.c || [];
+  // rev 2 (D233): what the next message is about, quick replies, a hint
+  const about = (Array.isArray(p.context) ? p.context : []).filter((c) => c && typeof c === 'object');
+  const replies = (Array.isArray(p.replies) ? p.replies : []).filter((r) => r && typeof r === 'object');
   const pick = (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
     if (f && typeof cx.v.onupload === 'function') cx.v.onupload(n, f);
@@ -268,7 +323,12 @@ function composer(n, cx) {
     ${slash.length ? html`<div class="cm-slash">${slash.map((s) => html`<button class="cm-cmd" @click=${() => cx.emit(n, 'input', { value: `/${s.name} ` })}>
       <span class="cm-name">/${s.name}${s.hint ? html` <span class="cm-hint">${s.hint}</span>` : nothing}</span>
       ${s.description ? html`<span class="cm-desc">${s.description}</span>` : nothing}</button>`)}</div>` : nothing}
+    ${replies.length ? html`<div class="cm-replies">${replies.map((r) => html`<button class="cm-reply" ?disabled=${dis || !cx.on(n, 'reply')}
+      @click=${() => cx.emit(n, 'reply', { id: str(r.id) })}>${str(r.label ?? r.id)}</button>`)}</div>` : nothing}
     ${chips.length ? html`<div class="cm-chips">${cx.kids(n, 'chips')}</div>` : nothing}
+    ${about.length ? html`<div class="cm-about">${about.map((c) => html`<span class=${cls('cm-ctx', tone(c.tone))}>
+      <button class="cm-cl" ?disabled=${!cx.on(n, 'context')} @click=${() => cx.emit(n, 'context', { id: str(c.id) })}>${c.icon ? icon(c.icon) : nothing}<span>${str(c.label)}</span></button>
+      ${cx.on(n, 'remove-context') ? html`<button class="cm-ax" aria-label=${`Remove ${str(c.label)}`} @click=${() => cx.emit(n, 'remove-context', { id: str(c.id) })}>${icon('xmark')}</button>` : nothing}</span>`)}</div>` : nothing}
     ${atts.length ? html`<div class="cm-atts">${atts.map((a) => html`<span class="cm-att">${icon(/^image\//.test(str(a.mime)) ? 'photo' : 'file')}
       <span class="cm-an">${str(a.name)}</span>${typeof a.progress === 'number' && a.progress < 1 ? html`<span class="cm-ap">${Math.round(a.progress * 100)}%</span>` : nothing}
       ${cx.on(n, 'remove') ? html`<button class="cm-ax" aria-label="Remove" @click=${() => cx.emit(n, 'remove', { id: str(a.id) })}>${icon('xmark')}</button>` : nothing}</span>`)}</div>` : nothing}
@@ -279,6 +339,7 @@ function composer(n, cx) {
       ${p.busy ? html`<button class="cm-send stop" aria-label="Stop" @click=${() => cx.emit(n, 'stop', {})}>${icon('ui-square')}</button>`
         : html`<button class="cm-send" aria-label="Send" ?disabled=${dis || !v.trim()} @click=${send}>${icon('ui-arrow-up')}</button>`}
     </div>
+    ${p.hint ? html`<div class="cm-hint-line">${p.hint}</div>` : nothing}
   </xb-composer>`;
 }
 
@@ -373,6 +434,22 @@ export const CHAT_CSS = css`
   .q-input { border: 0; outline: 0; border-radius: var(--xb-radius); padding: 10px 12px; background: var(--xb-surface2); font: var(--xb-font-body); color: var(--xb-text); width: 100%; }
   .q-desc { font: var(--xb-font-caption); color: var(--xb-muted); }
   .q-err { font: var(--xb-font-footnote); color: var(--xb-danger); }
+  .q-page { margin-left: auto; font: var(--xb-font-footnote); color: var(--xb-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .q-rows { gap: 6px; }
+  .q-rows > .q-label { font: var(--xb-font-subheadline); font-weight: 600; color: var(--xb-text); }
+  .q-choice { display: flex; align-items: flex-start; gap: 10px; width: 100%; min-height: 44px; padding: 10px 12px; text-align: left;
+    border-radius: var(--xb-radius); background: var(--xb-surface2); box-shadow: inset 0 0 0 0.5px var(--xb-separator); font: var(--xb-font-subheadline); }
+  .q-choice.on { box-shadow: inset 0 0 0 1.5px var(--xb-accent); }
+  .q-choice:disabled { opacity: 1; }
+  .q-box { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: var(--xb-radius); box-shadow: inset 0 0 0 1.5px var(--xb-border); display: flex; align-items: center; justify-content: center; }
+  .q-choice.on .q-box { background: var(--xb-accent); color: var(--xb-on-accent); box-shadow: none; }
+  .q-box .ic { width: 13px; height: 13px; stroke-width: 3; }
+  .q-cl { min-width: 0; overflow-wrap: anywhere; }
+  .q-other { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+  .q-nav { color: var(--xb-accent-text); padding: 0 4px; }
+  .q-nav:disabled { color: var(--xb-muted); opacity: 0.5; }
+  .quest .ap-opts.row { flex-wrap: wrap; }
+  .q-skip { margin-right: auto; background: none; padding: 0 4px; font: var(--xb-font-subheadline); color: var(--xb-muted); text-align: left; }
 
   .plan { padding: 12px 14px; }
   .pl-head { display: flex; justify-content: space-between; font: var(--xb-font-subheadline); font-weight: 600; margin-bottom: 6px; }
@@ -382,7 +459,11 @@ export const CHAT_CSS = css`
   .pl-ic .ic { width: 1.15em; height: 1.15em; }
   .pl-completed .pl-text { color: var(--xb-muted); }
   .pl-in_progress .pl-text { font-weight: 600; }
-  .pl-text { overflow-wrap: anywhere; min-width: 0; }
+  .pl-text { overflow-wrap: anywhere; min-width: 0; flex: 1; }
+  .pl-n { flex: none; color: var(--xb-muted); font-variant-numeric: tabular-nums; }
+  .pl-tag { display: inline-flex; align-items: center; gap: 4px; font: var(--xb-font-caption); font-weight: 600; padding: 1px 7px; margin-top: 1px; }
+  .pl-tag .ic { width: 12px; height: 12px; }
+  .pl-note { margin-top: 8px; padding-top: 8px; border-top: 0.5px solid var(--xb-separator); font: var(--xb-font-footnote); color: var(--xb-muted); }
 
   .diff { overflow: hidden; }
   .df-files { display: flex; flex-direction: column; }
@@ -439,6 +520,25 @@ export const CHAT_CSS = css`
   .cm-ap { color: var(--xb-muted); font-variant-numeric: tabular-nums; }
   .cm-ax { display: flex; color: var(--xb-muted); padding: 2px; }
   .cm-ax .ic { width: 14px; height: 14px; }
+  .cm-replies { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .cm-reply { flex: none; min-height: 36px; padding: 0 14px; border-radius: var(--xb-radius); background: var(--xb-surface); box-shadow: inset 0 0 0 1px var(--xb-border);
+    font: var(--xb-font-subheadline); font-weight: 600; white-space: nowrap; }
+  .cm-reply:disabled { opacity: 0.5; }
+  .cm-about { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cm-ctx { display: inline-flex; align-items: center; max-width: 100%; border-radius: var(--xb-radius); background: var(--xb-surface); box-shadow: inset 0 0 0 0.5px var(--xb-border); font: var(--xb-font-footnote); color: var(--xb-text); }
+  .cm-cl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 4px 5px 10px; text-align: left; }
+  .cm-cl:disabled { opacity: 1; }
+  .cm-cl .ic { width: 14px; height: 14px; color: var(--xb-muted); }
+  .cm-cl span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cm-ctx > .cm-ax { padding: 5px 8px 5px 2px; }
+  .cm-ctx.tone-accent .cm-cl .ic { color: var(--xb-accent-text); }
+  .cm-ctx.tone-ok .cm-cl .ic { color: var(--xb-ok); }
+  .cm-ctx.tone-warn { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--xb-warn) 55%, transparent); }
+  .cm-ctx.tone-warn .cm-cl .ic { color: var(--xb-warn); }
+  .cm-ctx.tone-danger { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--xb-danger) 55%, transparent); }
+  .cm-ctx.tone-danger .cm-cl .ic { color: var(--xb-danger); }
+  .cm-ctx.tone-muted { color: var(--xb-muted); }
+  .cm-hint-line { font: var(--xb-font-caption); color: var(--xb-muted); padding: 0 2px; }
   .cm-slash { display: flex; flex-direction: column; background: var(--xb-surface); border-radius: var(--xb-radius); box-shadow: var(--xb-shadow); overflow: hidden; }
   .cm-cmd { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 12px; text-align: left; }
   .cm-cmd + .cm-cmd { border-top: 0.5px solid var(--xb-separator); }

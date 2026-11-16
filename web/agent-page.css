@@ -1,0 +1,4 @@
+/* agent-page.css — /xbin/agent: the dock is the whole page (D232). */
+html, body { height: 100%; margin: 0; }
+body { background: var(--bx-bg, #0B0C12); display: flex; }
+bx-agent-dock { flex: 1; min-width: 0; }

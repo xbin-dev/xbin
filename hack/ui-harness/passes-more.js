@@ -30,7 +30,15 @@ function register(P) {
   P.dragShield = require('./passes/dragshield').dragShield; // D217 (#54): fast drags across tile pages — a window's corner and title bar, a float's and a sub-window's corner then their title bars held and dragged (the size stays), a Tiled divider; Escape and a lost focus mid-drag; no shield left — in its own Chromium with tile pages out of process
   P.projectsNeeds = require('./passes/projectsneeds').projectsNeeds; // #56: Waiting for you atop a project's page (a task's question, the coordinator's, a failure), Open, the list's badge split — light and dark, the project's routes stubbed
   P.projectWiki = require('./passes/projectwiki').projectWiki; // D222: a project's Wiki tab — the pages, a link, New page, two writers (the conflict's words, Reload), history's diff; light and dark (mocked project routes)
+  P.systemPage = require('./passes/systempage').systemPage; // D227: /xbin/system — the system (sealed) components, access, off and on, a non-admin; never in the shell (the lists need HARNESS_GO_TAGS=sealedfixture)
+  P.agentPolicy = require('./passes/agentpolicy').agentPolicy; // D229: agent preferences on the server, a session's origin, open({session}) and its link, an org's harness list in the launcher
   P.projectWizard = require('./passes/projectwizard').projectWizard; // D223: the new-project wizard — the step header, Next saying why, the repo combobox, Name from the repo, the starter, Review; light and dark (mocked project routes)
+  P.llm = require('./passes/llm').llm; // D226: the LLM connector — the setup card, /xbin/llm (a provider and its key, Test, models, quotas, usage, alerts), a non-admin's own page, the host's locks, the admin console's tab and quota rows; light and dark
+  P.wsAgentPage = require('./passes/wsagentpage').wsAgentPage; // D232: the workspace agent's own page in the dock, against the real xbin/wsagent — sessions, the empty state, scope, a scripted turn's cards, a request and its outcome, the notebook, paused; light and dark, 1280 and 430 (HARNESS_ISOLATE=1)
+  P.journeyManual = require('./passes/journeymanual').journeyManual; // the owner's UX benchmark, by hand: first login → vault → an MCP tile → an agent instance that calls its tool; every interaction counted (plans/wsagent/journey.md; its own xbind, HARNESS_ISOLATE=1, make sealed)
+  P.journeyAgent = require('./passes/journeyagent').journeyAgent; // …and through the workspace agent, as far as today's agent gets: its approvals, its dead ends and what the person still does by hand, counted the same way
+  P.firstRun = require('./passes/firstrun').firstRun; // D237: the first-run sheet — bootstrap with/without the host's vault and a model, the host's preset, skip, a second browser, a weak password, a repeat that doesn't match, a vault that fails, the swap refused (its own xbinds, HARNESS_ISOLATE=1, make sealed)
+  P.mcpTemplate = require('./passes/mcptemplate').mcpTemplate; // the mcp-server template's page (HARNESS_ISOLATE=1) and a tile whose required slot is bound folding the rest into one line (docs/mcp.md, overview/11-interfaces.md)
 }
 
 module.exports = { register };

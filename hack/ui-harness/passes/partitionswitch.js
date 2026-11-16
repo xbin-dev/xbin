@@ -116,7 +116,11 @@ async function partitionSwitch(browser) {
       `dev1's browser runs the shell from before partitioned tiles (${old.base}: ${[...served].sort().join(', ')})`);
     await usePersonalScreen(B.page);
     await openTile(B.page, TILE);
-    let f = await until(async () => { const x = await frameFacts(B.page); return x.switchPage && x; }, 'the switch page in the frame');
+    // in view: Chromium lays out no off-screen cross-origin frame, and its
+    // innerText is empty until it does (the passes before this one push the
+    // card below the window) — the page's words are read once it is drawn
+    await B.page.locator(`.card[data-path="${TILE}"]`).first().scrollIntoViewIfNeeded();
+    let f = await until(async () => { const x = await frameFacts(B.page); return x.switchPage && x.text.includes('partition mode switch') && x; }, 'the switch page in the frame');
     check(f.text.includes(`A partition mode switch is requested for ${TILE} (unpartitioned → user)`) &&
       f.text.includes('All data in this tile will be deleted for the switch to happen.'), 'the frame shows xbind\'s switch page');
     check(f.text.includes(`${TILE} says: ${NOTE}`) && !f.noteMarkup, 'the partitionNote shows as text, its markup escaped');

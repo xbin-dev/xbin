@@ -798,15 +798,21 @@ func TestHarnessPipeStdinRetry(t *testing.T) {
 func TestHarnessPipeKill(t *testing.T) {
 	tg, m := pipeSandbox(t, nil, false, nil)
 	s := fakeSpawn(7, 1)
-	s.Argv = []string{"sh", "-c", `trap "" TERM; while :; do sleep 0.05; done`}
+	s.Argv = []string{"sh", "-c", `trap "" TERM; echo armed; while :; do sleep 0.05; done`}
 	p, err := startHarnessPipe(context.Background(), tg, s)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p.killStep = 100 * time.Millisecond
+	// TERM is ignored only once the shell has run the trap (a busy machine
+	// starts it late): Kill after it says so
+	out := bufio.NewReader(p.Process().Stdout)
+	if line, err := out.ReadString('\n'); line != "armed\n" {
+		t.Fatalf("the trap: %q %v", line, err)
+	}
 	read := make(chan error, 1)
 	go func() {
-		_, err := io.ReadAll(p.Process().Stdout)
+		_, err := io.ReadAll(out)
 		read <- err
 	}()
 	p.Kill()

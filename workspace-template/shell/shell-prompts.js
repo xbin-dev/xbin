@@ -10,7 +10,11 @@
  * opens it too); a fold is kept in this browser, across reloads. It
  * never covers more than the top of the window, so the tile stays usable;
  * on a phone, and on a Document-mode card (only as tall as its page), it
- * sits in the card's flow above the tile.
+ * sits in the card's flow above the tile. A tile that works as it is —
+ * its required slots bound, only optional ones (and grant requests)
+ * waiting — gets one line in the card's flow above the tile instead, "3
+ * optional interfaces · show", that opens the popover; nothing is bound
+ * or dismissed for the person (prompts.js foldsToLine).
  * A tile that isn't on the screen shows nothing but its sidebar flag
  * (bx-side; prompts.js says which tile each decision belongs to).
  *
@@ -29,7 +33,7 @@ import '/vendor/bx-icons.js';
 import { grantKey, bindingKey, limitKey, isDismissed, pendingCount } from '/vendor/bx-dismiss.js';
 import { grantsStore, bindingsStore, limitsStore, dismissalStore } from '/vendor/bx-requests.js';
 import { consentContext, consentAsks, consentNotes, onConsents } from './bx-part-consent.js';
-import { promptsByTile, promptWords } from './prompts.js';
+import { promptsByTile, promptWords, foldsToLine, lineWords } from './prompts.js';
 
 const KEY = { grants: grantKey, bindings: bindingKey, limits: limitKey };
 
@@ -48,7 +52,7 @@ export function followPrompts(s) {
   };
   const offs = [grantsStore().subscribe(update), bindingsStore().subscribe(update), limitsStore().subscribe(update),
     dismissalStore().subscribe(update), onConsents(update),
-    dismissalStore().onError(() => s._pushToast('dismissed', { level: 'error',
+    dismissalStore().onError(() => s._who?.readOnly || s._pushToast('dismissed', { level: 'error', // (a read-only session saves nothing)
       message: 'Couldn’t save your dismissal, so it shows again — try again (it is kept on your devices once saved).' }))];
   s._promptsUpdate = update;
   loadAccessRequests(s);
@@ -98,8 +102,29 @@ export function promptBadge(c, o) {
 function togglePrompts(c, path, n, folded) {
   const m = shut(c);
   if (folded) m.delete(path); else { m.delete(path); m.set(path, n); } // newest last: the store keeps the latest 200
+  if (folded) opened(c).add(path); // the badge opens the whole popover, not its line
   keepShut(m);
   c.requestUpdate();
+}
+
+// the tiles whose one-line fold was opened into the popover (this page only)
+const opened = (c) => (c._pqOpened ??= new Set());
+
+// asLine(c, o): o's decisions show as the one line above the tile now.
+const asLine = (c, e, path) => foldsToLine(e) && !opened(c).has(path) && (shut(c).get(path) ?? -1) < e.n;
+
+// promptLine(c, o): the one line in the card's flow above a tile that works
+// as it is (foldsToLine) — its optional slots and grant requests, and
+// "show", which opens the popover. Nothing otherwise.
+export function promptLine(c, o) {
+  const e = c.prompts?.get(o.path);
+  if (!e?.n || !asLine(c, e, o.path)) return nothing;
+  return html`<div class="pqline" role="region" aria-label=${`decisions waiting for ${o.path}`} data-prompts-for=${o.path} data-line="1"
+      @pointerdown=${(ev) => ev.stopPropagation()}>
+    <bx-icon name="key"></bx-icon><span>${lineWords(e)}</span>
+    <button class="pqshow" title=${`${promptWords(e)} — the tile works without them`}
+      @click=${() => { opened(c).add(o.path); c.requestUpdate(); }}>show</button>
+  </div>`;
 }
 
 // promptPop(c, o, flow): the popover over the top of the window — open
@@ -110,13 +135,14 @@ function togglePrompts(c, path, n, folded) {
 export function promptPop(c, o, flow = false) {
   const e = c.prompts?.get(o.path);
   if (!e || !(e.n || e.notes) || (e.n && (shut(c).get(o.path) ?? -1) >= e.n)) return nothing;
+  if (e.n && asLine(c, e, o.path)) return flow ? promptLine(c, o) : nothing; // one line above the tile instead
   return html`<div class="pqpop ${flow ? 'flow' : ''}" role="region" aria-label=${`decisions waiting for ${o.path}`} data-prompts-for=${o.path}
       @pointerdown=${(ev) => ev.stopPropagation()}>
     <div class="pqh"><bx-icon name="key"></bx-icon><span>${e.n ? promptWords(e) : 'your answer'}</span>
       ${e.n ? html`<button class="pqx" title="fold — the key badge in the title bar shows it again" aria-label="fold"
         @click=${() => togglePrompts(c, o.path, e.n, false)}><bx-icon name="chevron-up"></bx-icon></button>` : nothing}</div>
     ${e.grants ? html`<bx-grants tile=${o.path}></bx-grants>` : nothing}
-    ${e.bindings ? html`<bx-bindings tile=${o.path}></bx-bindings>` : nothing}
+    ${e.bindings ? html`<bx-bindings tile=${o.path} show-optional></bx-bindings>` : nothing}
     ${e.consents || e.notes ? html`<bx-part-consent tile=${o.path} .components=${c.components} .who=${c.who}></bx-part-consent>` : nothing}
     ${e.limits ? html`<bx-limits tile=${o.path} view="prompt"></bx-limits>` : nothing}
   </div>`;
@@ -147,4 +173,16 @@ export const promptsCss = css`
   .pqpop .pqx:hover { color: var(--bx-text, #E9EAF0); background: var(--bx-hover, #2A2B34); }
   .pqpop > * + * { margin-top: 8px; }
   .pqpop.flow { position: static; flex: none; max-height: none; margin: 8px; box-shadow: none; }
+  .pqline {
+    flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px 4px 2px 12px;
+    background: var(--bx-panel, #1F2028); border-bottom: 1px solid var(--bx-border, #33353F);
+    color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif);
+  }
+  .pqline bx-icon { color: var(--bx-accent, #8C9BFF); }
+  .pqline span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pqline .pqshow {
+    flex: none; min-height: 24px; padding: 0 8px; cursor: pointer; background: none; border: 1px solid transparent;
+    border-radius: var(--bx-radius, 2px); color: var(--bx-accent, #8C9BFF); font: inherit;
+  }
+  .pqline .pqshow:hover { border-color: var(--bx-border-strong, #666A7E); color: var(--bx-text, #E9EAF0); }
 `;

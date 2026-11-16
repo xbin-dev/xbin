@@ -32,7 +32,11 @@ struct HomeView: View {
                     }
                 }
             } else {
-                Section { NeedsYouRow(workspace: workspace) }
+                Section {
+                    NeedsYouRow(workspace: workspace)
+                    // The person's workspace agent, where they have one (D233).
+                    AgentHomeRow(workspace: workspace)
+                }
                 ForEach(workspace.home.sections) { s in
                     Section {
                         ForEach(s.folders) { f in folder(f, depth: 0) }
@@ -181,7 +185,7 @@ private struct NeedsYouRow: View {
     @Environment(SceneModel.self) private var scene
 
     var body: some View {
-        let n = workspace.needsYou.count
+        let n = workspace.needsYouCount
         Button { scene.showInbox = true } label: {
             HStack(spacing: 8) {
                 Label("Needs you", systemImage: n > 0 ? "tray.full" : "tray")

@@ -43,18 +43,24 @@ public struct TermDirectoryEntry: Equatable, Sendable, Identifiable {
     /// Set by xbind only: "signin" for the web Agent tab's guided sign-in
     /// shell (``TermDirectory/signinPurpose``), "" for every other session.
     public var purpose: String
+    /// Who started it: "agent" for a tile agent the person's workspace agent
+    /// started for them (docs/protocol/delegation.md), "" for their own.
+    public var origin: String
 
     public init(id: String, cwd: String, net: String = "", label: String = "", scopes: [TermScope] = [], gpu: String = "none",
                 api: Bool = true, name: String = "", created: Date? = nil, lastActive: Date? = nil, clients: Int = 0,
                 envHeld: Bool = false, kind: Kind = .shell, vm: Bool = false, provider: String = "", mode: String = "",
                 model: String = "", status: String = "", pending: Int = 0, questions: Int = 0, deployment: String = "",
-                purpose: String = "") {
+                purpose: String = "", origin: String = "") {
         self.id = id; self.cwd = cwd; self.net = net; self.label = label; self.scopes = scopes; self.gpu = gpu
         self.api = api; self.name = name; self.created = created; self.lastActive = lastActive; self.clients = clients
         self.envHeld = envHeld; self.kind = kind; self.vm = vm; self.provider = provider; self.mode = mode
         self.model = model; self.status = status; self.pending = pending; self.questions = questions
-        self.deployment = deployment; self.purpose = purpose
+        self.deployment = deployment; self.purpose = purpose; self.origin = origin
     }
+
+    /// Started by the person's workspace agent.
+    public var startedByAgent: Bool { kind == .agent && origin == "agent" }
 
     /// What the sheet shows: the user's name, else "shell"/the provider,
     /// with the network label.
@@ -180,7 +186,7 @@ public enum TermDirectory {
 
         enum K: String, CodingKey {
             case id, cwd, net, label, scopes, gpu, api, name, created, lastActive, clients, envHeld, kind, vm
-            case provider, mode, model, status, pending, questions, deployment, purpose
+            case provider, mode, model, status, pending, questions, deployment, purpose, origin
         }
 
         init(from decoder: any Decoder) throws {
@@ -198,7 +204,7 @@ public enum TermDirectory {
                 clients: i(.clients), envHeld: b(.envHeld) ?? false,
                 kind: TermDirectoryEntry.Kind(rawValue: s(.kind)) ?? .shell, vm: b(.vm) ?? false,
                 provider: s(.provider), mode: s(.mode), model: s(.model), status: s(.status), pending: i(.pending),
-                questions: i(.questions), deployment: s(.deployment), purpose: s(.purpose))
+                questions: i(.questions), deployment: s(.deployment), purpose: s(.purpose), origin: s(.origin))
         }
     }
 
