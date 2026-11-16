@@ -26,6 +26,7 @@ type fakeNet struct {
 	ext       []wsMCPServer
 	extTools  map[string][]wsMCPTool
 	extRefuse map[string]string
+	extSaid   map[string]string // what the server itself wrote behind a refusal (xbind's said)
 }
 
 // reach is the web for handle h, as xbind's webReach says it.
@@ -218,7 +219,11 @@ func (f *fakeXbin) MCPCall(_ context.Context, sid string, c wsMCPCall, ticket st
 		tools = f.net.extTools
 		if code := f.net.extRefuse[c.Server]; code != "" {
 			f.note("MCPCall refused %s %s %s", code, c.Server, c.Tool)
-			return wsMCPResult{}, nil, &xbin.DelegateError{Status: 502, Refusal: code, Message: "the server refused xbin's credentials (401): an admin checks this server's secret on the workspace agent's card"}
+			msg := "the server refused xbin's credentials (401): an admin checks this server's secret on the workspace agent's card"
+			if code != "mcp-auth" {
+				msg = "the server answered an error (JSON-RPC -32000)"
+			}
+			return wsMCPResult{}, nil, &xbin.DelegateError{Status: 502, Refusal: code, Message: msg, Said: f.net.extSaid[c.Server]}
 		}
 	} else if _, err := f.tile(sid, c.Server, !dry); err != nil {
 		return wsMCPResult{}, nil, err

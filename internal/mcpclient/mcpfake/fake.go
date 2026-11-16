@@ -41,6 +41,9 @@ type Server struct {
 	NoSession    bool          // gives no session id
 	ForgetAfter  int           // after this many messages, 404 for the session (0 never)
 	Version      string        // the protocol version it answers ("" 2025-06-18)
+	ListError    string        // tools/list answered as a JSON-RPC error with this message
+	PageStatus   int           // every POST answered with this status and Page as its body
+	Page         string
 
 	mu    sync.Mutex
 	log   []Seen
@@ -86,6 +89,11 @@ func (f *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Credential: cred, Agent: r.Header.Get("User-Agent"), Body: string(b)})
 	n := len(f.log)
 	f.mu.Unlock()
+	if f.PageStatus != 0 {
+		w.WriteHeader(f.PageStatus)
+		_, _ = io.WriteString(w, f.Page)
+		return
+	}
 	if f.RedirectTo != "" {
 		w.Header().Set("Location", f.RedirectTo)
 		w.WriteHeader(http.StatusTemporaryRedirect)
@@ -133,6 +141,10 @@ func (f *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result = map[string]any{"protocolVersion": orStr(f.Version, "2025-06-18"), "capabilities": map[string]any{"tools": map[string]any{}},
 			"serverInfo": map[string]any{"name": orStr(f.Name, "fake"), "version": "1.0"}}
 	case "tools/list":
+		if f.ListError != "" {
+			f.answer(w, rq.ID, nil, map[string]any{"code": -32000, "message": f.ListError})
+			return
+		}
 		result = map[string]any{"tools": f.Tools}
 	case "tools/call":
 		f.mu.Lock()

@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- SDK: `DelegateError.Said` — what an outside MCP server itself wrote
+  behind xbind's refusal (`said`, D240), apart from xbind's `Message`: an
+  outsider's words, to show as data. A refusal of an outside server's list
+  or call (`mcp-error`, `mcp-redirect`, `mcp-protocol`…) never carries the
+  server's text in `error`; the admin's `POST /delegate/mcp/test` adds
+  `said` and `page` (its error page, scrubbed).
 - workspace agent: **outside MCP servers** (D240). `mcp.mode: "listed"` of
   `PUT /delegate/workspace` is built: the MCP tiles, and the servers an
   admin lists in `mcp.servers` — `{id, name, url, auth: none | bearer |

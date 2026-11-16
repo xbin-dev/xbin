@@ -583,7 +583,9 @@ POST   /delegate/mcp/call       (§MCP tiles) with server "ext:<id>": the
                                  answer adds name, host, outside: true
 POST   /delegate/mcp/test       admin. {id} → {ok, server: {id, name,
                                  host}, protocolVersion?, serverInfo?,
-                                 tools?, refusal?, error?}, always 200:
+                                 tools?, refusal?, error?, said?, page?},
+                                 always 200 (page: an excerpt of its error
+                                 page, scrubbed):
                                  initialize and tools/list as the admin,
                                  no session kept (the card's Test)
 ```
@@ -642,7 +644,21 @@ marks it `web: true` — "has read the web or an outside server" — so every
 later request says so (`preview.readWeb`). The session's reach counts the
 servers it may use (`reach.mcp.listed`).
 
-Refusals beside §MCP tiles': `mcp-server` (404: no such server for this
+**xbind's words, the server's apart.** A refusal's `error` is always
+xbind's own sentence: nothing a server wrote is in it, nor in the log's
+`refused`. What the server itself wrote that the agent may read — a
+JSON-RPC error's message, the method of a request it sent, where it
+redirects (scheme and host) — comes apart as `said`, scrubbed, for the agent
+to show as the server's words; an excerpt of its error page only ever
+reaches the admin's Test (`page`). A conversation is marked as having read
+the server as soon as anything came back from it, a refusal included. No
+answer outside the admin's own card and Test says a server's URL beyond its
+scheme and host — a path or a query can hold the credential — and every
+part of them twelve bytes or longer is scrubbed, with the secret, from
+whatever the server answers (as written, JSON-escaped, percent-encoded).
+
+Refusals beside §MCP tiles': `mcp-error` (502: the server answered a
+JSON-RPC error; its message in `said`), `mcp-server` (404: no such server for this
 person), `mcp-address` (403), `mcp-redirect`, `mcp-auth` (the server
 refused xbin's credentials), `mcp-protocol` (an answer too long, not
 MCP, or a request from the server), `mcp-unreachable` (502),

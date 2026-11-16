@@ -40,7 +40,6 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/mcpclient"
-	"github.com/xbin-dev/xbin/internal/webfetch"
 )
 
 const (
@@ -182,7 +181,7 @@ func (s *Server) mcpExtOpen(ctx context.Context, key string, t mcpclient.Server)
 			raw, _ := json.Marshal(def)
 			var tl mcpTool
 			if json.Unmarshal(raw, &tl) != nil {
-				return sess, nil, &webfetch.Refusal{Code: "mcp-protocol", Status: http.StatusBadGateway, Msg: "the server's tools/list can't be read"}
+				return sess, nil, &mcpclient.Error{Code: "mcp-protocol", Status: http.StatusBadGateway, Msg: "the server's tools/list can't be read", Heard: true}
 			}
 			tl.def = def
 			tools = append(tools, tl)
@@ -191,21 +190,50 @@ func (s *Server) mcpExtOpen(ctx context.Context, key string, t mcpclient.Server)
 	}
 }
 
-// mcpExtErr is a client error as a refusal: status, code, message.
-func mcpExtErr(err error) (int, string, string) {
-	var rf *webfetch.Refusal
-	var re *mcpclient.RPCError
+// mcpExtFail is a client error as a refusal: xbind's own sentence (msg,
+// never anything the server wrote), what the server itself wrote that the
+// agent may read as an outsider's words (said), and an excerpt of its error
+// page for an admin's Test alone (page).
+type mcpExtFail struct {
+	status          int
+	code, msg, said string
+	page            string
+}
+
+func mcpExtErr(err error) mcpExtFail {
+	var e *mcpclient.Error
 	switch {
-	case errors.As(err, &rf):
-		return rf.Status, rf.Code, rf.Msg
-	case errors.As(err, &re):
-		return http.StatusBadGateway, "mcp-unreachable", "the server answered an error: " + re.Message
+	case errors.As(err, &e):
+		return mcpExtFail{e.Status, e.Code, e.Msg, e.Said, e.Page}
 	case errors.Is(err, mcpclient.ErrSessionGone):
-		return http.StatusBadGateway, "mcp-unreachable", "the server ended the session twice"
-	case errors.Is(err, context.DeadlineExceeded):
-		return http.StatusGatewayTimeout, "mcp-timeout", "the server didn't answer in time"
+		return mcpExtFail{status: http.StatusBadGateway, code: "mcp-unreachable", msg: "the server ended the session twice"}
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return mcpExtFail{status: http.StatusGatewayTimeout, code: "mcp-timeout", msg: "the call ended before the server answered"}
 	}
-	return http.StatusBadGateway, "mcp-unreachable", "the server didn't answer: " + err.Error()
+	return mcpExtFail{status: http.StatusBadGateway, code: "mcp-unreachable", msg: "the server didn't answer"}
+}
+
+// mcpExtRefuse answers a refusal of an outside server's list or call: the
+// server's own words, when there are any, apart (said) — the agent frames
+// them as untrusted data, never as xbind's.
+func mcpExtRefuse(w http.ResponseWriter, row *delegation.Call, f mcpExtFail) {
+	if row != nil {
+		row.Refused = f.msg
+	}
+	out := map[string]any{"error": f.msg, "refusal": f.code, "class": "mcp", "docs": delegationDocs}
+	if f.said != "" {
+		out["said"] = f.said
+	}
+	WriteJSON(w, f.status, out)
+}
+
+// mcpExtHeard marks the conversation under h as having read an outside
+// server — its words, whatever they were, reached xbind (err nil: an
+// answer; an error after an answer too).
+func (s *Server) mcpExtHeard(p auth.Principal, h delegation.AgentSession, err error) {
+	if mcpclient.Heard(err) {
+		_ = s.Delegation.MarkWeb(p.UserID, p.Agent, h.ID)
+	}
 }
 
 // mcpExtVisible is the outside server named server ("ext:<id>") in force
@@ -266,6 +294,11 @@ type mcpExtJudged struct {
 	status int
 	code   string
 	msg    string
+	said   string // the server's own words, apart (mcpExtFail)
+}
+
+func (j mcpExtJudged) fail() mcpExtFail {
+	return mcpExtFail{status: j.status, code: j.code, msg: j.msg, said: j.said}
 }
 
 // mcpExtJudge is mcpJudge for an outside server: the reach, the server
@@ -296,8 +329,11 @@ func (s *Server) mcpExtJudge(ctx context.Context, p auth.Principal, h delegation
 	}
 	j.t = t
 	sess, tools, err := s.mcpExtOpen(ctx, mcpExtSessionKey(p.UserID, m, h.ID), t)
+	s.mcpExtHeard(p, h, err)
 	if err != nil {
-		return refuse(mcpExtErr(err))
+		f := mcpExtErr(err)
+		j.said = f.said
+		return refuse(f.status, f.code, f.msg)
 	}
 	j.sess = sess
 	i := slices.IndexFunc(tools, func(tl mcpTool) bool { return tl.Name == c.Tool })
@@ -355,7 +391,7 @@ func (s *Server) apiDelegateMCPExtCall(w http.ResponseWriter, r *http.Request, p
 	j := s.mcpExtJudge(ctx, p, h, c)
 	mcpExtRow(row, j.m, c.Server, c.Tool)
 	if j.msg != "" {
-		mcpRefuse(w, row, j.status, j.code, j.msg)
+		mcpExtRefuse(w, row, j.fail())
 		return
 	}
 	// the limit before the ticket: a call over it spends nothing the person gave
@@ -406,16 +442,16 @@ func (s *Server) apiDelegateMCPExtCall(w http.ResponseWriter, r *http.Request, p
 			res, err = s.mcpExtClient().Call(ctx, j.t, sess, c.Tool, c.Arguments)
 		}
 	}
-	_ = s.Delegation.MarkWeb(p.UserID, p.Agent, h.ID) // what an outside server says is the web's words in the conversation
-	var re *mcpclient.RPCError
+	s.mcpExtHeard(p, h, err) // what an outside server says is the web's words in the conversation
+	var re *mcpclient.Error
 	switch {
-	case errors.As(err, &re):
+	case errors.As(err, &re) && re.RPC:
+		// the tool's own failure: its words are the result, framed by the agent as the server's
 		WriteJSON(w, http.StatusOK, map[string]any{"server": c.Server, "name": j.m.Name, "host": j.m.Host(), "outside": true, "tool": c.Tool, "isError": true,
-			"content": []map[string]any{{"type": "text", "text": re.Message}}})
+			"content": []map[string]any{{"type": "text", "text": re.Said}}})
 		return
 	case err != nil:
-		status, code, msg := mcpExtErr(err)
-		mcpRefuse(w, row, status, code, msg)
+		mcpExtRefuse(w, row, mcpExtErr(err))
 		return
 	}
 	if row != nil {
@@ -568,12 +604,11 @@ func (s *Server) apiDelegateMCPTools(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*mcpclient.ListTimeout)
 	defer cancel()
 	_, tools, err := s.mcpExtOpen(ctx, mcpExtSessionKey(p.UserID, m, h.ID), t)
+	s.mcpExtHeard(p, h, err) // a server's words — its tools', or its error's — are an outsider's
 	if err != nil {
-		status, code, msg := mcpExtErr(err)
-		mcpRefuse(w, row, status, code, msg)
+		mcpExtRefuse(w, row, mcpExtErr(err))
 		return
 	}
-	_ = s.Delegation.MarkWeb(p.UserID, p.Agent, h.ID) // a server's words about its tools are an outsider's
 	views := make([]map[string]any, 0, len(tools))
 	for _, tl := range tools {
 		views = append(views, mcpToolView(tl))
@@ -651,8 +686,14 @@ func (s *Server) apiDelegateMCPTest(w http.ResponseWriter, r *http.Request) {
 		tools, err = c.Tools(ctx, t, sess)
 	}
 	if err != nil {
-		_, code, msg := mcpExtErr(err)
-		fail(code, msg)
+		f := mcpExtErr(err)
+		if f.said != "" {
+			out["said"] = f.said // the server's words, apart from xbind's
+		}
+		if f.page != "" {
+			out["page"] = f.page // its error page: the admin's to read, scrubbed
+		}
+		fail(f.code, f.msg)
 		return
 	}
 	views := make([]map[string]any, 0, len(tools))

@@ -64,7 +64,8 @@ type Server struct {
 	// Header and Value are the credential: "Authorization" and "Bearer
 	// <secret>", or the admin's header and the secret; "" none.
 	Header, Value string
-	// Secret is what is scrubbed out of whatever the server answers.
+	// Secret is the credential's secret; with the URL's token-like parts
+	// (Hidden) it is scrubbed out of whatever the server answers.
 	Secret string
 	// Private: the admin marked the server as on a private network.
 	Private bool
@@ -99,20 +100,45 @@ type Client struct {
 	ids atomic.Int64
 }
 
-// RPCError is a JSON-RPC error the server answered (scrubbed).
-type RPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+// Error is an exchange that failed. Code, Status and Msg are xbind's own
+// words: nothing a server wrote is ever in them. What the server itself
+// wrote is apart — Said, what the agent may read as an outsider's words
+// (a JSON-RPC error's message, the method of a request it sent, where it
+// redirects: scheme and host), and Page, an excerpt of its error page for
+// an admin's Test alone — both scrubbed of what the server must not echo
+// (Server.Hidden). Heard: an answer came back, so the server's bytes
+// reached xbind (whoever reads Said or Page has read the server).
+type Error struct {
+	Code   string
+	Status int
+	Msg    string
+	Said   string
+	Page   string
+	Heard  bool
+	// RPC: the server answered a JSON-RPC error (its code): for tools/call,
+	// the tool's own failure.
+	RPC    bool
+	RPCErr int
 }
 
-func (e *RPCError) Error() string { return e.Message }
+func (e *Error) Error() string { return e.Msg }
+
+// Heard reports whether err (nil: an answer) came after the server's bytes
+// reached xbind.
+func Heard(err error) bool {
+	var e *Error
+	return err == nil || errors.As(err, &e) && e.Heard || errors.Is(err, ErrSessionGone)
+}
 
 // ErrSessionGone: the server no longer knows the session (404): open a new one.
 var ErrSessionGone = errors.New("the server ended the session")
 
-func refuse(code string, status int, format string, args ...any) *webfetch.Refusal {
-	return &webfetch.Refusal{Code: code, Status: status, Msg: fmt.Sprintf(format, args...)}
+func refuse(code string, status int, format string, args ...any) *Error {
+	return &Error{Code: code, Status: status, Msg: fmt.Sprintf(format, args...)}
 }
+
+// heard is e marked as coming after an answer.
+func heard(e *Error) *Error { e.Heard = true; return e }
 
 func (c *Client) maxAnswer() int64 {
 	if c.MaxAnswer > 0 {
@@ -152,18 +178,50 @@ func (c *Client) transport(srv Server) *http.Transport {
 	return tr
 }
 
-// Scrub is s with every occurrence of secret replaced by [secret].
-func Scrub(s, secret string) string {
-	if secret == "" || len(secret) < 4 {
-		return s
+// minHidden: a part of the URL this long is treated as a secret (a path or
+// a query can hold the credential: https://…/s/<key>/mcp).
+const minHidden = 12
+
+// Hidden is what nothing the server answers may carry on: the secret, and
+// every part of the URL's path and query of minHidden bytes or more.
+func (srv Server) Hidden() []string {
+	var out []string
+	if len(srv.Secret) >= 4 {
+		out = append(out, srv.Secret)
 	}
-	return strings.ReplaceAll(s, secret, "[secret]")
+	if srv.URL != nil {
+		for _, seg := range strings.FieldsFunc(srv.URL.EscapedPath()+"?"+srv.URL.RawQuery, func(r rune) bool { return strings.ContainsRune("/?&=;", r) }) {
+			if len(seg) >= minHidden {
+				out = append(out, seg)
+				if u, err := url.PathUnescape(seg); err == nil && u != seg {
+					out = append(out, u)
+				}
+			}
+		}
+	}
+	return out
 }
 
-// scrubJSON is raw with the secret scrubbed out of every string in it —
-// decoded first, so an escaped spelling doesn't slip past.
-func scrubJSON(raw json.RawMessage, secret string) json.RawMessage {
-	if secret == "" || len(secret) < 4 {
+// Scrub is s with every occurrence of each hidden string replaced by
+// [secret] — as written, JSON-escaped (\/ too) and percent-encoded.
+func Scrub(s string, hidden ...string) string {
+	for _, h := range hidden {
+		if len(h) < 4 {
+			continue
+		}
+		j, _ := json.Marshal(h)
+		js := string(j[1 : len(j)-1])
+		for _, form := range []string{h, js, strings.ReplaceAll(js, "/", `\/`), url.QueryEscape(h), url.PathEscape(h)} {
+			s = strings.ReplaceAll(s, form, "[secret]")
+		}
+	}
+	return s
+}
+
+// scrubJSON is raw with the hidden strings scrubbed out of every string in
+// it — decoded first, so an escaped spelling doesn't slip past.
+func scrubJSON(raw json.RawMessage, hidden ...string) json.RawMessage {
+	if len(hidden) == 0 {
 		return raw
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -176,7 +234,7 @@ func scrubJSON(raw json.RawMessage, secret string) json.RawMessage {
 	walk = func(x any) any {
 		switch t := x.(type) {
 		case string:
-			return Scrub(t, secret)
+			return Scrub(t, hidden...)
 		case []any:
 			for i := range t {
 				t[i] = walk(t[i])
@@ -184,7 +242,7 @@ func scrubJSON(raw json.RawMessage, secret string) json.RawMessage {
 		case map[string]any:
 			out := make(map[string]any, len(t))
 			for k, e := range t {
-				out[Scrub(k, secret)] = walk(e)
+				out[Scrub(k, hidden...)] = walk(e)
 			}
 			return out
 		}
@@ -209,9 +267,9 @@ func clip(s string, n int) string {
 	return s[:cut] + "…"
 }
 
-// where is how a message names a URL: scheme, host and path — never a
-// query (a token may ride there).
-func where(u *url.URL) string { return u.Scheme + "://" + u.Host + u.EscapedPath() }
+// origin is how a message names a URL: its scheme and host — never its
+// path or query (either can hold the credential).
+func origin(u *url.URL) string { return u.Scheme + "://" + u.Host }
 
 // exchange sends one message — a request with an id, or a notification
 // without — and answers the response's result (nil for a notification).
@@ -236,7 +294,7 @@ func (c *Client) exchange(ctx context.Context, srv Server, sess *Session, method
 	for hop := 0; ; hop++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
 		if err != nil {
-			return nil, nil, refuse("mcp-unreachable", http.StatusBadGateway, "the server's address can't be used: %v", err)
+			return nil, nil, refuse("mcp-unreachable", http.StatusBadGateway, "the server's address can't be used")
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json, text/event-stream")
@@ -259,13 +317,15 @@ func (c *Client) exchange(ctx context.Context, srv Server, sess *Session, method
 			next, err := u.Parse(loc)
 			switch {
 			case err != nil:
-				return nil, nil, refuse("mcp-redirect", http.StatusBadGateway, "the server redirects to something that isn't a URL")
+				return nil, nil, heard(refuse("mcp-redirect", http.StatusBadGateway, "the server redirects to something that isn't a URL"))
 			case next.Scheme != u.Scheme || !strings.EqualFold(next.Host, u.Host):
-				return nil, nil, refuse("mcp-redirect", http.StatusBadGateway, "the server redirects to %s: xbin speaks only to the listed address (%s)", Scrub(next.Scheme+"://"+next.Host, srv.Secret), u.Host)
+				e := heard(refuse("mcp-redirect", http.StatusBadGateway, "the server redirects elsewhere: xbin speaks only to the listed address (%s)", origin(srv.URL)))
+				e.Said = "redirects to " + Scrub(origin(next), srv.Hidden()...)
+				return nil, nil, e
 			case resp.StatusCode != http.StatusTemporaryRedirect && resp.StatusCode != http.StatusPermanentRedirect:
-				return nil, nil, refuse("mcp-redirect", http.StatusBadGateway, "the server answers %d, moving %s to %s: list that address instead", resp.StatusCode, where(u), Scrub(where(next), srv.Secret))
+				return nil, nil, heard(refuse("mcp-redirect", http.StatusBadGateway, "the server answers %d, moving its endpoint: an admin lists the address it moved to", resp.StatusCode))
 			case hop >= maxRedirects:
-				return nil, nil, refuse("mcp-redirect", http.StatusBadGateway, "the server redirects more than %d times", maxRedirects)
+				return nil, nil, heard(refuse("mcp-redirect", http.StatusBadGateway, "the server redirects more than %d times", maxRedirects))
 			}
 			u = next
 			continue
@@ -273,7 +333,11 @@ func (c *Client) exchange(ctx context.Context, srv Server, sess *Session, method
 		defer resp.Body.Close()
 		res, err := c.read(srv, sess, resp, id, notify)
 		if err != nil && ctx.Err() != nil {
-			return nil, resp.Header, c.netErr(ctx, srv, ctx.Err())
+			err = c.netErr(ctx, srv, ctx.Err())
+		}
+		var e *Error
+		if errors.As(err, &e) {
+			e.Heard = true // an answer came back: the server's bytes reached xbind
 		}
 		return res, resp.Header, err
 	}
@@ -305,7 +369,15 @@ func (c *Client) netErr(ctx context.Context, srv Server, err error) error {
 	if errors.As(err, &ue) {
 		msg = ue.Err.Error()
 	}
-	return refuse("mcp-unreachable", http.StatusBadGateway, "%s: %s", srv.URL.Host, Scrub(msg, srv.Secret))
+	var cv *tls.CertificateVerificationError
+	var rec tls.RecordHeaderError
+	if errors.As(err, &cv) || errors.As(err, &rec) || strings.Contains(msg, "x509:") || strings.Contains(msg, "tls:") {
+		// a certificate's names are the server's words: the admin's Test shows them
+		e := refuse("mcp-unreachable", http.StatusBadGateway, "%s: its TLS certificate isn't one xbin trusts for that name", srv.URL.Host)
+		e.Page = clip(Scrub(msg, srv.Hidden()...), maxExcerpt)
+		return e
+	}
+	return refuse("mcp-unreachable", http.StatusBadGateway, "%s: can't connect (%s)", srv.URL.Host, clip(Scrub(msg, srv.Hidden()...), 160))
 }
 
 // read takes the answer to the message of id.
@@ -319,8 +391,10 @@ func (c *Client) read(srv Server, sess *Session, resp *http.Response, id int64, 
 	case resp.StatusCode == http.StatusAccepted && notify:
 		return nil, nil
 	case resp.StatusCode >= 300 || resp.StatusCode < 200:
-		ex, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<10))
-		return nil, refuse("mcp-unreachable", http.StatusBadGateway, "the server answered %d: %s", resp.StatusCode, clip(Scrub(strings.TrimSpace(string(ex)), srv.Secret), maxExcerpt))
+		// its error page: for the admin's Test alone, scrubbed whole before it is cut
+		e := refuse("mcp-unreachable", http.StatusBadGateway, "the server answered %d", resp.StatusCode)
+		e.Page = c.page(resp.Body, srv)
+		return nil, e
 	case notify:
 		return nil, nil // a notification taken with a 200: nothing to read
 	}
@@ -338,7 +412,24 @@ func (c *Client) read(srv Server, sess *Session, resp *http.Response, id int64, 
 	case "text/event-stream":
 		return c.stream(srv, resp.Body, id, max)
 	}
-	return nil, refuse("mcp-protocol", http.StatusBadGateway, "the server answered %s, which is neither JSON nor an event stream", clip(Scrub(mt, srv.Secret), 80))
+	return nil, refuse("mcp-protocol", http.StatusBadGateway, "the server answered with a content type that is neither JSON nor an event stream")
+}
+
+// pagePeek is how much of an error page is read before it is scrubbed
+// and cut: the excerpt's own bytes and room for a hidden string across the cut.
+const pagePeek = 2 << 10
+
+// page is an excerpt of an error page: read past the cut by the longest
+// hidden string, scrubbed, then cut.
+func (c *Client) page(body io.Reader, srv Server) string {
+	hidden := srv.Hidden()
+	extra := 0
+	for _, h := range hidden {
+		extra = max(extra, 3*len(h)) // its longest escaped form
+	}
+	raw, _ := io.ReadAll(io.LimitReader(body, int64(pagePeek+extra)))
+	text := Scrub(strings.TrimSpace(strings.ToValidUTF8(string(raw), "")), hidden...)
+	return clip(text, maxExcerpt)
 }
 
 // stream reads an event stream until the response with id: at most max
@@ -364,7 +455,9 @@ func (c *Client) stream(srv Server, body io.Reader, id int64, max int64) (json.R
 		hasID := len(probe.ID) > 0 && string(probe.ID) != "null"
 		switch {
 		case probe.Method != nil && hasID:
-			return nil, false, refuse("mcp-protocol", http.StatusBadGateway, "the server asked xbin %q mid-call: xbin's client calls tools and answers no server's requests (sampling, elicitation, roots), so the call was ended", clip(Scrub(*probe.Method, srv.Secret), 80))
+			e := refuse("mcp-protocol", http.StatusBadGateway, "the server asked xbin something mid-call: xbin's client calls tools and answers no server's requests (sampling, elicitation, roots), so the call was ended")
+			e.Said = "asked " + clip(Scrub(*probe.Method, srv.Hidden()...), 80)
+			return nil, false, e
 		case probe.Method != nil:
 			return nil, false, nil // a notification (progress, a log line): skipped
 		case string(probe.ID) != fmt.Sprint(id):
@@ -415,7 +508,10 @@ func answerOf(srv Server, raw []byte, id int64) (json.RawMessage, error) {
 		JSONRPC string          `json:"jsonrpc"`
 		ID      json.RawMessage `json:"id"`
 		Result  json.RawMessage `json:"result"`
-		Error   *RPCError       `json:"error"`
+		Error   *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &rr); err != nil || rr.JSONRPC != "2.0" {
 		return nil, refuse("mcp-protocol", http.StatusBadGateway, "the server's answer isn't a JSON-RPC 2.0 response")
@@ -424,12 +520,14 @@ func answerOf(srv Server, raw []byte, id int64) (json.RawMessage, error) {
 		return nil, refuse("mcp-protocol", http.StatusBadGateway, "the server answered another request than the one xbin sent")
 	}
 	if rr.Error != nil {
-		return nil, &RPCError{Code: rr.Error.Code, Message: clip(Scrub(rr.Error.Message, srv.Secret), 1000)}
+		e := refuse("mcp-error", http.StatusBadGateway, "the server answered an error (JSON-RPC %d)", rr.Error.Code)
+		e.Said, e.RPC, e.RPCErr = clip(Scrub(rr.Error.Message, srv.Hidden()...), 1000), true, rr.Error.Code
+		return nil, e
 	}
 	if len(rr.Result) == 0 {
 		return nil, refuse("mcp-protocol", http.StatusBadGateway, "the server's answer has no result")
 	}
-	return scrubJSON(rr.Result, srv.Secret), nil
+	return scrubJSON(rr.Result, srv.Hidden()...), nil
 }
 
 var versionForm = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
