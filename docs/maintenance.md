@@ -1238,6 +1238,28 @@ the dock on that real backend — empty state, sessions, the scope panel, a
 scripted turn's cards, the notebook — in dark and light, at 1280 and 430.
 Both need `HARNESS_ISOLATE=1`; a development xbind compiles the agent's
 backend on first use (about 15 s warm).
+`journeyManual` and `journeyAgent` measure the first-run journey — from the
+first login on a fresh install with a host-provided LLM to an agent
+instance that calls a tool of a new MCP tile — by hand and through the
+workspace agent, counting every interaction through one counter
+(`passes/journey.js`: a navigation, a click, a field, a key; waits timed,
+what no screen says and the agent's dead ends listed beside). Each boots an
+xbind of its own as an install runs one (no `--dev`, `--isolate`, the
+owner-token login, the vault unconfigured, `XBIN_LLM_CONFIG` naming
+`hack/fakeopenai`) on a workspace `xbind init` just made, on `$PORT+3`
+(`JOURNEY_PORT`; its model on the port after), and stops it — so they need
+`HARNESS_ISOLATE=1` and the release's build of the agent (`make sealed`:
+without `--dev` xbind never compiles one), and `SKIP` otherwise, said so.
+They use nothing of the seeded workspace, so `--shots journeyManual
+journeyAgent` runs them with no harness xbind up. The step tables land in
+`out/journey-<name>.md`, a screenshot a step in `out/journey-shots/`
+(`JOURNEY_SHOTS`). The scripted coding agent is planted in the tile it
+works in (`XBIN_AGENT_FAKE` names a path inside it, which the tile's
+sandbox sees) and copies `fixtures/journey-dice` into place where a real
+one would write the server. `journeyAgent` asserts today's dead ends as
+they are (an admin's `tile_create` refused, the admin opt-in, no check
+without another approval): closing one fails the pass until its script and
+its count are brought up to date — that is the point of it.
 `limitsCaps` drives the tile limits (D203) end to end against the real API
 in both themes: the harness xbind enforces only the data disk quota (no
 cgroup delegation, VM runtime or tile sandboxes), so its tiles root their
