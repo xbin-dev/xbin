@@ -45,6 +45,8 @@ type Host struct {
 
 	att attachments // a prompt's files, dropped in the sandbox (attach.go)
 
+	keyHome string // the agent's private key directory, removed at the end (signin.go)
+
 	mu       sync.Mutex
 	terms    map[string]*terminal
 	nextTerm int
@@ -63,6 +65,7 @@ func New(in io.Reader, out io.Writer, stderr io.Writer) *Host {
 // the host owns SIGCHLD from now on.
 func (h *Host) Run() int {
 	defer h.dropAttachments()
+	defer h.dropKeyHome() // a saved key's private directory (signin.go)
 	h.reaper = StartReaper()
 	term := make(chan os.Signal, 1)
 	signal.Notify(term, unix.SIGTERM, unix.SIGINT)
@@ -162,6 +165,9 @@ func (h *Host) daemonLoop() {
 // shows whether the person has a sign-in of their own (llm.go).
 func (h *Host) spawn(p acp.SpawnParams) error {
 	hello := acp.HelloParams{Version: Version}
+	p.Env, hello.Signin = h.applySignin(p.Env, p.Signin) // the person's saved sign-in (signin.go), before who serves is settled
+	p.Signin = nil
+	hello.HomeLogin = homeLogin(p.Env, p.LoginFiles)
 	p.Env, hello.LLM, hello.Logins = settleLLM(p.Env, p.LLM)
 	cmd := exec.Command(p.Argv[0], p.Argv[1:]...)
 	cmd.Env = p.Env

@@ -5562,6 +5562,116 @@ here: cut from the old end, never reword.
   - **Not yet**: OAuth sign-ins to an outside server, its resources and
     prompts, and the server's `GET` stream.
 
+- **D230 — Coding-agent sign-ins are held by xbind: one sign-in per
+  person serves their sessions on every tile, sealed under the vault, put
+  into a session only where nobody else can change what it runs
+  (2026-11-16; issue #51; `plans/workspace-agent.md` §5.7,
+  `plans/agent-dedupe.md` B4/F5; spec `plans/wsagent/signin-store.md`).**
+  internal/signins (store, flows, the confined runner), sdk/acp guided.go,
+  internal/term signin.go, internal/server agentsignins*.go,
+  web/agent-signin.js; docs/agent-signins.md, docs/protocol/signins.md.
+  The owner: "That's for agents like Claude Code? Would say do now, very
+  important to UX." Lifts D179's saved sign-ins out of the agent template
+  into xbind and extends D178's guided strip.
+  - **Before.** A subscription login lived in one place at a time: the
+    `$HOME` of a person's terminals (`claude auth login`, D178) or one
+    agent-template instance's partition vault (D179). A session the
+    workspace agent started on a fresh setup stopped at "sign in first".
+  - **A per-person store sealed like the connector's keys.**
+    `data/signins/<hex(user)>.json`: metadata in the clear (so the list,
+    the admin's counts and "the vault is sealed" work while sealed), the
+    secrets sealed whole under a barrier subkey of the person's own. No
+    read returns a secret or a part of one — not "last four" either; the
+    only way out is the store's `Use`, called by xbind's own session
+    start. Rejected: the workspace settings file (a secret is not a
+    setting), a tile's vault (a tile's code reads its own vault), one
+    workspace-wide file (one person's write would re-seal everyone's).
+  - **The guided flow runs in a throwaway confined sandbox.** xbind runs
+    `claude setup-token` itself through `internal/confine`: the base
+    image, no tile, no home, no layer, an empty `HOME`, internet egress, a
+    1000-column terminal. Nobody can enter it and nothing a tile wrote is
+    in it — stricter than D179, which had to mint in the person's own
+    sandbox. Never a copy of a CLI's credential file (D179: refresh tokens
+    are single-use). So only Claude Code has a guided flow: Codex, Gemini
+    and OpenCode have no mint, and take a pasted key. The plan's "and its
+    equivalents for the other harnesses" names something that doesn't
+    exist.
+  - **Into the adapter's environment, through the spawn frame.** The path
+    the LLM connector's key takes (D226): to the agent host, set on the
+    adapter alone — not the sandbox spec, not PID 1, not a terminal. A
+    setup-token is already the least-exposed form Claude Code has (model
+    requests only); nothing shorter-lived exists. Codex needs ACP
+    `authenticate` and then writes `auth.json`: the host gives that
+    session a private `CODEX_HOME` in the sandbox's own `/tmp` (links to
+    the person's `~/.codex` but for `auth.json`), so the file is never in
+    the shared home — rather than D179's "write it, then remove it".
+  - **The shared-tile rule (the hard part).** Each session is a sandbox
+    of its own, so a co-user can't read another's environment — but they
+    can change what it runs: the tile's shared environment layer holds
+    the binaries, the tile's directory the project's hooks. So a saved
+    sign-in goes in only when the session is the person's own (their
+    sign-in — never view-as, a component, the root token), sandboxes are
+    on, and nobody else can change the tile's code: no other non-admin
+    holds write level or more, by any source, on the registered tile the
+    session's directory lies in (`Broker.SigninOthers`). Partitioned tiles
+    are not exempt — a partition isolates data, and the tile's directory
+    is bound read-write into every partition's sessions (the first cut
+    exempted them and judged the directory as written; the review of
+    2026-11-16 found both). A session the workspace agent starts gets one
+    only when the person's approval named it in xbind's words and the
+    ticket bound its id: the agent steers that session, so its model can
+    get the credential — redaction (the joined stream, separators,
+    base64/hex, credential shapes) lowers accidents and is not a
+    boundary; the approval is. Otherwise it is left out, the session says
+    why and offers the connector or the tile's own login.
+    `term.signinPlanFor` decides; the UI repeats it. A session that
+    carries one is its person's alone — admins and view-as get no pass to
+    drive or read it, live or in history — a restart never widens what it
+    was started with, and it
+    is ended when someone else becomes able to change its tile, or the
+    switch goes off. Rejected:
+    injecting everywhere (the brief's worry is real: one hook in a shared
+    tile takes a year-long token); counting admins as "other people" (in
+    any workspace with two admins nothing would ever be injected, people
+    would fall back to the `$HOME` login — a full login with a refresh
+    token, readable by the same code — and an admin can change any tile
+    anyway: they are in the trust base, D179 N20); a private layer for
+    such sessions (the person would lose the tile's installed tools, and
+    the directory's hooks would still run).
+  - **An admin can't take the sign-ins by resetting the account.** A
+    credential someone else makes for a person (a password, a sign-in
+    link, an SSO email) removes that person's saved sign-ins. Without it
+    the store would be one password reset away from any admin. A deleted
+    account's file goes at once and the account stamp keeps a later
+    account under the same id from reading it; a disabled account's are
+    unusable.
+  - **A removed sign-in ends the sessions running on it.** They hold a
+    copy in their environment; ending them is the only way "removed"
+    means anything inside xbind. The credential stays valid at its vendor
+    until the person revokes it there, and Remove says so.
+  - **What xbind keeps is redacted.** The session's exact secret in any
+    frame from the agent host becomes `[saved sign-in]` before an event
+    is logged, published or written to history: an admin, the workspace
+    agent's model and a backup never see it. The harness's own model does
+    see what its tools print — stated, not solved.
+  - **Policy.** A workspace switch (default on), the host's
+    `"agentSignIns"` key beside `workspaceAgent` (set = locked), the
+    orgs' harness lists as before; admins see counts and metadata per
+    person without names, and revoke.
+  - **One element.** `<bx-agent-signin>` keeps its URL and its D178
+    properties and gains the server-driven card, the list and the chip;
+    `signin-scan.js` stays served and is no longer used by new code.
+  - **The consumer interface is designed, not built.** "A component never
+    receives the secret as data" can't hold for a component that controls
+    the sandbox its coding agent runs in: it can read that process. So
+    the interface is the person's consent per component, a single-use
+    grant, and redemption by the tile-sandbox runtime at a launch it
+    performs — the agent template's own store stays the fallback and
+    existing instances are untouched. Left for a change of its own.
+  - **Not chosen:** a proxy that holds subscription credentials (D179's
+    policy stands); validating a pasted key against its vendor (xbind
+    calls no provider); showing a hint of the secret; a per-tile opt-in
+    for shared tiles (possible later: the person's informed choice).
 - **D242 — A failed start retries by itself (2026-11-16; the postfix
   report: a tile sat `failed` for eight days after one slow start).** The
   owner: "a failed start retries by itself." Until now every start failure

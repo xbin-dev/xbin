@@ -539,6 +539,12 @@ type wsHarness struct {
 	Net         string `json:"net,omitempty"`
 	NeedsTicket bool   `json:"needsTicket"`
 	NoSignIn    bool   `json:"noSignIn,omitempty"` // it runs on the workspace's LLM connector: no sign-in needed (xbind's word)
+	// SignIn is what a session of it would sign in with (xbind's word,
+	// D230): saved (a saved sign-in of the person's, used only when they
+	// approve the start — xbind's approval names it; nothing here does) |
+	// connector | own | needed (the person signs in first); "" unknown, and
+	// from an xbind that doesn't say.
+	SignIn string `json:"signIn,omitempty"`
 }
 
 // wsStartDefaults is what a start in a tile resolves to, for the brief's

@@ -221,8 +221,10 @@ export const BRIEF_FIELDS = Object.freeze([['goal', 'Goal'], ['doneWhen', 'Done 
  * runsOn, harnesses, picked, note}. sd is the backend's start-defaults for
  * the brief (GET …/briefs/{bid}/start-defaults: what the start would run
  * on, from xbind — {line, harness, harnesses: [{id, name, asks, net,
- * needsTicket, noSignIn}], ticket}; a harness that runs with no sign-in is
- * named so in the picker). The one button is the backend's: "Review and
+ * needsTicket, noSignIn, signIn}], ticket, needsSignIn}; a
+ * harness that runs with no sign-in, on the person's saved sign-in or
+ * only after they sign in is named so in the picker, and `signin` is the
+ * harness to sign in to first — the card's button asks xbin's chrome). The one button is the backend's: "Review and
  * start…" (xbind's approval opens) or, where the person's preferences let
  * this start through without a ticket (`ticket: false`), "Start" — the
  * click is then the confirmation. The brief is what the tile agent is told
@@ -234,7 +236,9 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
   const words = { draft: '', asked: 'Waiting for your approval', started: 'Started', denied: 'Denied by you', replaced: 'Replaced by a newer brief' };
   // xbind says which run on the workspace's model with no sign-in (noSignIn): the picker says so
   const harnesses = (sd && sd.defaults && Array.isArray(sd.defaults.harnesses) ? sd.defaults.harnesses : [])
-    .map((h) => ({ id: h.id, name: `${h.name || harness(h.id)}${h.noSignIn ? ' — no sign-in' : ''}`, noSignIn: !!h.noSignIn }));
+    .map((h) => ({ id: h.id, name: `${h.name || harness(h.id)}${h.signIn === 'saved' ? ' — your saved sign-in' : h.signIn === 'needed' ? ' — needs your sign-in' : h.noSignIn ? ' — no sign-in' : ''}`, noSignIn: !!h.noSignIn, signIn: h.signIn || '' }));
+  const pickedId = (sd && sd.harness) || b.harness || '';
+  const needs = sd && sd.needsSignIn && (st === 'draft' || st === 'asked') ? (sd.defaults.harnesses || []).find((h) => h.id === pickedId) : null;
   const runsOn = sd ? sd.line || '' : [b.harness ? harness(b.harness) : ''].filter(Boolean).join('');
   const free = !!sd && sd.ticket === false && !!sd.harness;
   return {
@@ -242,7 +246,11 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
     fields: BRIEF_FIELDS.map(([k, label]) => ({ key: k, label, value: b[k] || '' })),
     editable: st === 'draft' || st === 'asked',
     button: st === 'draft' ? (free ? W.start : W.reviewStart) : st === 'asked' ? W.review : '',
-    runsOn, harnesses, picked: (sd && sd.harness) || b.harness || '', none: !!sd && !sd.harness,
+    runsOn, harnesses, picked: pickedId, none: !!sd && !sd.harness,
+    // xbind says a session of the picked coding agent would start signed out (D230): sign in first, in xbin's own card
+    signin: needs ? { harness: needs.id, name: needs.name || harness(needs.id), button: `Sign in to ${needs.name || harness(needs.id)}…`,
+      // where no chrome can draw the sign-in (the app's native view): the truth, and where to go
+      elsewhere: `Needs your ${needs.name || harness(needs.id)} sign-in — set it up on the web: open this workspace in a browser and sign in to ${needs.name || harness(needs.id)} there. A saved sign-in is then used here too.` } : null,
     // only xbind's word that the mode asks (a harness's ask or plan mode) says it asks — unknown is not "asks"
     note: `This is what the tile agent is told first. What your agent sends it later isn’t approved message by message${sd && sd.asks === true ? ': the tile agent asks you before it acts.' : sd && sd.asks === false ? ', and in this mode it acts without asking you.' : '. Whether it asks you before it acts shows once xbin says what it runs on.'}`,
     edited: !!b.edited,

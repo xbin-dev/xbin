@@ -96,6 +96,10 @@
 //	            Claude Code's Bash tool (a child of the agent) prints it: an
 //	            execute tool_call completed with the value as its text, the
 //	            line "hook: N=<value>" on stderr, then a chunk "printenv: <value>"
+//	spill N     (a prefix) the agent's variable N getting out by accident:
+//	            chunks of five characters of it, a chunk with one character
+//	            per line, an execute tool_call completed with its base64,
+//	            the line "hook: <hex>" on stderr, then a chunk "spilled"
 //	whoami…     (a prefix) a chunk "account: <token …last4 | home | none>":
 //	            the sign-in a turn uses (--require-login's rules below)
 //	env         a chunk "HOME=<home> key=<yes|no> settings=<~/.claude/settings.json

@@ -81,7 +81,7 @@ const act = {
   fill: (text) => fill(text),
   // a redirect's way forward: a new session of the tile's own agent, the person's own words as its draft
   handTo: (tile, draft) => dock.showSession('new', tile, globalThis.window, draft),
-  briefSave: store.briefSave, briefStart: store.briefStart, startDefaults: store.startDefaults,
+  briefSave: store.briefSave, briefStart: store.briefStart, startDefaults: store.startDefaults, signIn: store.signIn,
   openScope: (o) => store.openScope(o),
   whatCan: () => store.showWhatCan(),
   md: (s) => md(s),
@@ -309,7 +309,7 @@ export function mount(doc = document) {
   globalThis.addEventListener('resize', narrow);
   doc.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.pop) closePop(); });
   doc.addEventListener('pointerdown', (e) => { if (S.pop && !e.target.closest('.wsp-pop, .wsp-strip button')) closePop(); });
-  dock.listen(store.onContext);
+  dock.listen(store.onContext, globalThis.window, store.signinsChanged);
   // xbind's own events (a request decided, a change set, the switches), and the tick of running times (ws/store.js)
   store.wire();
   globalThis.wsAgentPage = { testApi };

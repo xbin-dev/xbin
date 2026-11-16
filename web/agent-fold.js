@@ -65,6 +65,7 @@ export class Fold {
     if (state.status) foldStatus(this.st, { type: 'status', data: state.status });
     if (state.usage) this.st.usage = state.usage;
     if (state.llm) [this.st.llm, this.st.llmOffered] = [state.llm, !!state.llmOffered]; // "connector" | "own", and whether the connector is only offered (D226)
+    if (state.signin) this.st.signin = state.signin; // what the session signs in with (D230)
     if (state.turn) this.turn = state.turn + 0.5;
     return this;
   }
@@ -230,7 +231,11 @@ export function foldStatus(st, e) {
   const d = e.data || {};
   if (e.type === 'turn.end') { if (d.usage) st.usage = d.usage; return st; }
   if (e.type === 'queue') { st.queue = Array.isArray(d.items) ? d.items : []; return st; }
-  if (e.type === 'notice') { if (d.llm) [st.llm, st.llmOffered] = [d.llm, !!d.offered]; return st; } // who serves the session's model calls, and whether only offered (D226)
+  if (e.type === 'notice') { // who serves the session's model calls, and whether only offered (D226); what it signs in with (D230)
+    if (d.llm) [st.llm, st.llmOffered] = [d.llm, !!d.offered];
+    if (d.signin) st.signin = d.signin;
+    return st;
+  }
   if (e.type !== 'status') return st;
   if (d.status) st.status = d.status;
   if (d.detail) st.detail = d.detail;

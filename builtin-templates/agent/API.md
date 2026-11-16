@@ -6154,9 +6154,18 @@ resolve from the person's preferences and the tile's org's rules; a brief
 carries a `harness` only when its person picked one of the allowed ones on
 its card (`PUT …/briefs/{bid} {harness}`; `GET …/briefs/{bid}/start-defaults`
 → `{defaults: {tile, harness, harnesses: [{id, name, mode, asks, net,
-needsTicket}], why?}, picked, harness, harnessName, mode, asks, net,
-ticket, line}` — the top-level fields are the picked harness's, else the
-default's; every name and `asks` in it is xbind's answer (`GET
+needsTicket, noSignIn, signIn?}], why?}, picked, harness,
+harnessName, mode, asks, net, ticket, line, needsSignIn?}` — the top-level
+fields are the picked harness's, else the default's; `signIn` is xbind's
+word on what a session of the harness would sign in with (`saved`: a
+saved sign-in of the person's, used only once they approve the start —
+xbind's approval names it, nothing here does; `connector`; `own`;
+`needed`),
+and `needsSignIn: true` puts "Needs your ‹coding agent› sign-in" and a
+button on the card — the button asks xbin's chrome (`xbin:agent-open-signin
+{harness}`), which draws the sign-in and says `xbin:agent-signins` when
+the person's sign-ins changed; nothing of a sign-in is ever in this page
+or its backend (D230); every name and `asks` in it is xbind's answer (`GET
 /delegate/start-defaults?tile=`), read anew for the card: the backend has
 no list of coding agents of its own in this mode). Where the person's
 preferences let starts through without a ticket — xbind's dry run says
@@ -6276,7 +6285,8 @@ native view asks of the app with `xbin.native.agent(msg)` — the same
 messages, built by `ws/dock.js`: `xbin:agent-open-request {id}` (a brief's
 "Review and start…", once the backend filed the start),
 `xbin:agent-open-changeset {id}`, `xbin:open-session {session: "new", tile,
-draft}` (a redirect's hand-off), and `xbin:agent-open {view}` — `needs`
+draft}` (a redirect's hand-off), `xbin:agent-open-signin {harness}` (a
+brief that needs the person's sign-in to a coding agent: D230), and `xbin:agent-open {view}` — `needs`
 | `approvals` | `activity`, the app's own panels that change nothing, from
 the view's ⋯ (the web dock has them in its header; the chrome refuses any
 other view: Preferences are the app's own, in its shield menu). The app tells the view what it was opened

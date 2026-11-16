@@ -60,6 +60,7 @@ import { agentTestApi } from '/vendor/agent-testapi.js';
 import { queueURL, stop, takeBack } from '/vendor/agent-queue.js';
 import { agentPrefs } from '/vendor/agent-prefs.js';
 import '/vendor/agent-signin.js';
+import { signinChip, savedHint } from '/vendor/agent-signins.js';
 
 useDiffHighlighter(diffHTML, langFor); // the code panels' highlighter is here already: diffs are coloured at once
 
@@ -528,12 +529,28 @@ export class BxAgent extends LitElement {
     return (p && p.signin && p.signin.command) ? p.signin : null;
   }
 
-  // the guided sign-in worked: the prompt goes, the person sends again
-  _signedIn(lg) {
+  // xbind keeps sign-ins for this tab's coding agent, and the person may save one (D230)
+  _savable() {
+    return !this.history && !!(this._providers || []).find((x) => x.id === (this.provider || this._provider))?.savable;
+  }
+
+  // the guided sign-in worked: the prompt goes, the person sends again. A
+  // sign-in saved with xbind (D230) reaches the agent at a start, so the
+  // session restarts to use it (the frame does: the conversation resumes)
+  // — unless it isn't used on this tile, which the strip keeps saying.
+  _signedIn(lg, ev) {
+    const saved = ev?.detail?.saved, here = ev?.detail?.here;
+    if (saved && here && !here.inject) return;
     this._signedSeq = this._tx.lastSeq;
     this._authErr = false;
     this._signinTerm = false;
     const asked = this._blocks().some((b) => b.kind === 'msg' && b.role === 'user');
+    if (saved) {
+      this._signedNote = `Saved as ${saved.name}. ${this.session && !this.ended ? 'Restarting the agent to use it…' : 'New sessions use it.'}`;
+      this._providersP = this._loadProviders();
+      if (this.session && !this.ended) this.dispatchEvent(new CustomEvent('bx-agent-restart', { detail: { quiet: true, what: 'to use your saved sign-in' }, bubbles: true }));
+      return;
+    }
     this._signedNote = `Signed in to ${lg.provider}.${asked ? ' Send your message again.' : ''}`;
   }
 
@@ -547,9 +564,10 @@ export class BxAgent extends LitElement {
 
   _signin(lg) {
     const spec = this._signinSpec();
-    if (spec && !this._signinTerm) {
-      return html`<bx-agent-signin .spec=${spec} provider=${lg.provider} component=${this.component}
-        @bx-signin-done=${() => this._signedIn(lg)} @bx-signin-terminal=${(ev) => this._signinTerminal(lg, ev)}></bx-agent-signin>`;
+    const prov = (this._providers || []).find((x) => x.id === (this.provider || this._provider));
+    if ((spec || prov?.savable) && !this._signinTerm) {
+      return html`<bx-agent-signin .spec=${spec} harness=${prov?.id || ''} provider=${lg.provider} component=${this.component}
+        @bx-signin-done=${(ev) => this._signedIn(lg, ev)} @bx-signin-terminal=${(ev) => this._signinTerminal(lg, ev)}></bx-agent-signin>`;
     }
     // the kit says the agent is signed out; how to sign in is this element's (ChatCtx.signin)
     this._signinFill = () => html`<button class="bxc-primary" @click=${() => this._doSignIn(lg)} title="open a terminal that runs the sign-in command in this agent's home">Sign in to ${lg.provider}</button>
@@ -661,8 +679,11 @@ export class BxAgent extends LitElement {
           ${this._curMode() && !this._options().length ? html`<span>· ${this._curMode()}</span>` : nothing}
           ${tx.st.usage ? html`<span>· ${usageView(tx.st.usage)}</span>` : nothing}
           ${this.session && llmLabel(tx.st) ? html`<span title=${llmLabel(tx.st).title}>· ${llmLabel(tx.st).text}</span>` : nothing}
+          ${this.session && signinChip(tx.st.signin, this._provName()) ? html`<span class="signin-chip ${signinChip(tx.st.signin).tone}" title=${signinChip(tx.st.signin, this._provName()).title}>· ${signinChip(tx.st.signin).text}</span>` : nothing}
           ${this._followUp ? html`<span title=${this._followUp.text}>· your feedback goes in when the turn ends</span>` : nothing}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
+          ${!lg && this._savable() ? html`<bx-agent-signin class="signins" view="button" harness=${this.provider || this._provider || ''} component=${this.component}
+            @bx-signins-changed=${() => { this._providersP = this._loadProviders(); }}></bx-agent-signin>` : nothing}
         </div>
         ${lg ? this._signin(lg) : this._signedNote ? html`<div class="status signed"><bx-icon name="ok"></bx-icon>${this._signedNote}</div>` : nothing}
         <bx-chat-composer .draft=${this._draft} .fit=${this} .commands=${this._commands()} .queue=${queue}
@@ -697,6 +718,7 @@ export class BxAgent extends LitElement {
         // connector can serve, their saved choice between them (agent-prefs.js)
         this._credentials(prov),
         llmHint(prov) ? { id: 'llm', note: `${llmHint(prov)}${prov.llm.reason ? ` — ${prov.llm.reason}` : ''}` } : null,
+        savedHint(prov) ? { id: 'signin', note: savedHint(prov) } : null, // their saved sign-in, and whether it is used here (D230)
       ];
     }
     const opts = this._options().filter((o) => o.type === 'select' && Array.isArray(o.options) && o.options.length);

@@ -237,12 +237,19 @@ POST   /delegate/sessions/<id>/taint
                                  one the session's model may not see
 GET    /delegate/start-defaults  the person's agent. ?tile= → {tile,
                                  harness, harnesses: [{id, name, mode,
-                                 asks, net, api, needsTicket, noSignIn}],
-                                 why?}: what a tile agent started there
-                                 opens with; noSignIn: it runs on the
-                                 workspace's LLM connector, no sign-in of
-                                 the person's needed. 403 without terminal
-                                 access to the tile
+                                 asks, net, api, needsTicket, noSignIn,
+                                 signIn?}], why?}: what a tile agent
+                                 started there opens with; noSignIn: it
+                                 runs on the workspace's LLM connector, no
+                                 sign-in of the person's needed; signIn:
+                                 "saved" (a saved sign-in of theirs would
+                                 go in if they approve the start — never
+                                 its name or id, and never for a start
+                                 that needs no approval), "connector",
+                                 "own" (the tile's own login, as a session
+                                 last saw it) or "needed" (none: the
+                                 person signs in first). 403 without
+                                 terminal access to the tile
 GET    /delegate/map            a person, or their agent. {user, tiles:
                                  [{tile, title, kind: "app" | "page",
                                  orgs, state, agent, tileAgents}],
@@ -1010,9 +1017,26 @@ hours; decided and withdrawn ones are kept a day, 200 a person at most.
 (`{cwd, kind: "agent"}`): the harness is the person's default for agent-
 started sessions among those the tile's orgs allow — the one their
 preference lets start unasked; without one, the first allowed that can run
-as things are: on the person's own sign-in where a session saw one, or on
-the workspace's LLM connector (`noSignIn`), so a start doesn't open on a
-coding agent the connector can't serve and nobody is signed in to. The
+as things are: on the person's saved sign-in (`signIn: "saved"`, D230 —
+where the shared-tile rule lets it into a session there and the person
+approves the start), on the tile's own login where a session saw one, or
+on the workspace's LLM connector (`noSignIn`), so a start doesn't open on
+a coding agent the connector can't serve and nobody is signed in to.
+
+**A saved sign-in goes into a session the agent starts only by the
+person's approval of that start.** The agent steers such a session and
+reads what it prints, so the start's preview says it in xbind's words —
+`preview.session` (and a plan line's `start`) carries `signIn: "saved"`
+and `signInId`, the sign-in's id; the sheet reads "Uses your saved Claude
+Code sign-in ‹label›" with the label from the person's own list, and "the
+tile's coding agent will hold that sign-in". The ticket binds the id with
+the harness and the mode: the session opens with exactly that sign-in, or
+is refused (403: it was removed, or someone else can change the tile
+now — ask again). A start the person's preference lets through unasked,
+and one whose approval named none, never gets one. A person's agent never
+names a saved sign-in (`signin` in a start's body is 403 for it), can't
+list them, and is told neither a label nor, outside its own requests, an
+id. The
 mode and network are their preference's (or the harness's asking mode), and the request's
 `preview.session` shows the **effective** `provider`, `mode`, `net` — what
 `GET /delegate/start-defaults?tile=` answers beforehand. A value the rules
@@ -1432,6 +1456,11 @@ xbin:open-session         {session: "new", a new session of the tile's own
 xbin:agent-open           {view}           needs | approvals | activity — a
                                            view that changes nothing; never
                                            Preferences
+xbin:agent-open-signin    {harness}        show the sign-in for one coding
+                                           agent (its id): the chrome draws
+                                           the card and talks to xbind; the
+                                           page never sees a link, a code
+                                           or a key (D230)
 ```
 
 A new session's `draft` is read as plain text — line ends made `\n`,
@@ -1479,7 +1508,10 @@ the window has their attention — and never Enter. Until then it carries
 `aria-disabled="true"`. Narrowing (back to asking, no internet, the
 opt-in off) is never held up.
 
-**What the chrome tells the page**: `{type: "xbin:agent-context", tile}`
+**What the chrome tells the page**: `{type: "xbin:agent-signins"}` after
+the person saved, changed or removed a coding-agent sign-in in the
+chrome's card — no data: the page reads `GET /delegate/start-defaults`
+again — and `{type: "xbin:agent-context", tile}`
 or `{…, screen}` when the dock was opened about a tile or a screen — once
 the frame has loaded, and when it changes. A shell opens it about a tile
 from the chip (the window in front) and from a tile's menu, **Ask my agent

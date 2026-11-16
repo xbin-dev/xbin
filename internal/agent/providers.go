@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
@@ -37,6 +38,13 @@ func Providers() []Provider {
 		c, _ := acp.Lookup("claude")
 		fake := acp.Fake(strings.Fields(cmd))
 		fake.Login, fake.Signin = "the fake needs no login", c.Signin
+		// a saved sign-in is made and kept for it as for Claude Code (D230):
+		// run with --require-login the fake reads the same variables
+		fake.Mint, fake.Keys = c.Mint, c.Keys
+		if slices.Contains(fake.Argv, "--codex-auth") { // …or as for Codex: a key through authenticate, kept in a file
+			x, _ := acp.Lookup("codex")
+			fake.Mint, fake.Keys, fake.KeyHome = nil, x.Keys, x.KeyHome
+		}
 		out = append(out, fake)
 	}
 	return out

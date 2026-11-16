@@ -37,6 +37,10 @@ type hostConfig struct {
 	// WorkspaceAgent is the one key that isn't the connector's: the host's
 	// rule for workspace agents (hostagent.go).
 	WorkspaceAgent HostAgent `json:"workspaceAgent"`
+	// AgentSignIns is its sibling (D230): whether people may save
+	// coding-agent sign-ins. Set, it is the host's: admins can't change it.
+	// Absent (null): the admins' switch.
+	AgentSignIns *bool `json:"agentSignIns,omitempty"`
 
 	keys   map[string]string // upstream → the key read from its keyFile
 	stamps map[string]fileStamp

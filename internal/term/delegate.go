@@ -66,6 +66,11 @@ type DelegateStart struct {
 	// anything else.
 	Approved       bool
 	Provider, Mode string
+	// Signin is the saved sign-in the person was shown the start would use
+	// ("uses your saved … sign-in", the request's preview) and approved: its
+	// id, "" when the approval named none. Only an approved start that
+	// names one gets one, and exactly that one (signin.go).
+	Signin string
 	// Net is the network the person was shown, used when the request names
 	// none (xbind resolved it from their preferences: the request's preview).
 	Net string

@@ -553,7 +553,10 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	if a.gone != "" || a.p.Agent == "" {
 		return http.StatusConflict, cmpOr(a.gone, "a tile agent is started for the conversation that asks for it"), nil
 	}
-	var shown struct{ Provider, Mode, Net string }
+	var shown struct {
+		Provider, Mode, Net string
+		SignInID            string `json:"signInId"` // the saved sign-in the line named (D230)
+	}
 	if json.Unmarshal(pv.Start, &shown) != nil || shown.Provider == "" || shown.Mode == "" {
 		return http.StatusConflict, "the start names no coding agent and mode: ask your agent to propose it again", nil
 	}
@@ -576,7 +579,7 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	if why := still(); why != "" {
 		return http.StatusForbidden, why, nil
 	}
-	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net})
+	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net, Signin: shown.SignInID})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/xbin/term/sessions", bytes.NewReader(pv.Call.Body))
 	if err != nil {
 		return http.StatusBadRequest, err.Error(), nil

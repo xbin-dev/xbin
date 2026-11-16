@@ -121,7 +121,9 @@ export HARNESS_SEED=${HARNESS_SEED:-}
 seed_sh="$H/seed.sh" fake_args=()
 # the test seed's fakes: the scripted ACP agent registered as the "fake"
 # provider (D74), fakesbx's scripted coding agent (D147 §7.3), and fakebin's
-# scripted `claude` leading xbind's PATH (D178) — never on the demo set,
+# scripted `claude` leading xbind's PATH (D178; beside it stand-ins for
+# codex, gemini and opencode that only fail: no pass can start a real
+# coding-agent CLI this machine happens to have) — never on the demo set,
 # where a terminal's "+" launcher or a pick of Claude Code is filmed
 fake_env=(PATH="$H/fakebin:$PATH" XBIN_AGENT_FAKE="$REPO/bin/fakeacp"
   FSB_HARNESS_FAKE="$REPO/bin/fakeacp --steer --auto-mode --require-login --persist")

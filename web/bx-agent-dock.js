@@ -44,7 +44,8 @@ import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore, call } from '/vendor/agent-chrome-store.js';
 import { infoFor, refreshFrameInfo, frameSource, SANDBOX } from '/vendor/frame-info.js';
-import { CHOICES, DRAFT_FROM, clampDock, contextMessage, dockState, handoffLink, needs, pageMessage } from '/vendor/agent-chrome-words.js';
+import { CHOICES, DRAFT_FROM, SIGNINS_MESSAGE, clampDock, contextMessage, dockState, handoffLink, needs, pageMessage } from '/vendor/agent-chrome-words.js';
+import '/vendor/agent-signin.js';
 import '/vendor/bx-agent-approve.js';
 import '/vendor/bx-agent-changes.js';
 import '/vendor/bx-agent-panels.js';
@@ -56,6 +57,7 @@ export class BxAgentDock extends LitElement {
     open: { type: Boolean, reflect: true }, full: { type: Boolean, reflect: true }, context: { attribute: false }, page: { attribute: false },
     _w: { state: true }, _view: { state: true }, _tray: { state: true }, _menu: { state: true }, _sheet: { state: true }, _frame: { state: true }, _narrow: { state: true }, _err: { state: true },
     _handoff: { state: true }, // {tile, draft}: a new session the shell couldn't open — the plain link instead
+    _signinFor: { state: true }, // a coding agent's id: the sign-in card the page asked for (D230)
   };
 
   static styles = [chromeCss, css`
@@ -86,7 +88,7 @@ export class BxAgentDock extends LitElement {
   constructor() {
     super();
     this.open = false; this.full = false; this.context = null; this.page = '';
-    this._w = CHOICES.dockWidth; this._view = 'chat'; this._tray = false; this._menu = false; this._sheet = null; this._frame = null; this._narrow = false; this._err = ''; this._handoff = null;
+    this._w = CHOICES.dockWidth; this._view = 'chat'; this._tray = false; this._menu = false; this._sheet = null; this._frame = null; this._narrow = false; this._err = ''; this._handoff = null; this._signinFor = '';
     this._framed = ''; this._dialog = null; this._said = '';
     this.store = agentStore();
     this._onMsg = (e) => this._message(e);
@@ -224,7 +226,13 @@ export class BxAgentDock extends LitElement {
     if (m.type === 'review') this.review(m.kind, m.id);
     else if (m.type === 'session') this.dispatchEvent(new CustomEvent('bx-agent-open-session', { detail: { tile: m.tile, session: m.session, page: true }, bubbles: true, composed: true }));
     else if (m.type === 'new-session') this._newSession(m.tile, m.draft);
+    else if (m.type === 'signin') this._signinFor = m.harness; // the card is the chrome's: the page only named the coding agent (D230)
     else this.show(m.view);
+  }
+
+  // the person's sign-ins changed here: the page reads what a start would run on again
+  _signinsChanged() {
+    this.renderRoot.querySelector('iframe')?.contentWindow?.postMessage(SIGNINS_MESSAGE, '*');
   }
 
   // a new session of a tile's own agent, the person's words in its composer:
@@ -312,6 +320,9 @@ export class BxAgentDock extends LitElement {
         ${this._tray ? html`<div class="tray" @keydown=${this._key}><bx-agent-needs></bx-agent-needs></div>` : nothing}
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
         ${this._handoffView()}
+        ${this._signinFor ? html`<div class="banner" data-signin role="group" aria-label="Sign in to a coding agent"><span>
+          <bx-agent-signin harness=${this._signinFor} @bx-signins-changed=${() => this._signinsChanged()}></bx-agent-signin>
+          <button class="quiet" data-signin-close @click=${() => { this._signinFor = ''; }}>Close</button></span></div>` : nothing}
         ${this._view === 'approvals' ? html`<bx-agent-approvals></bx-agent-approvals>` : this._view === 'activity' ? html`<bx-agent-activity></bx-agent-activity>`
           : this._view === 'prefs' ? html`<bx-agent-prefs></bx-agent-prefs>`
             : this._frame && (st === 'page' || (this.page && st !== 'paused' && st !== 'hidden')) ? html`<iframe src=${this._frame.url} title="Your workspace agent" sandbox=${this._frame.sandbox}

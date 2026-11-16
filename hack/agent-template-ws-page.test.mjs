@@ -34,7 +34,10 @@ test('dock: the messages out carry ids only, and only ids that are ids', () => {
   for (const bad of ['', 'a b', '<x>', 'x'.repeat(81), null, 7]) assert.equal(dock.openRequest(bad), null, String(bad));
   assert.equal(dock.openSession('ts 7', 'a/b'), null);
   assert.equal(dock.openSession('ts-7', 'a/../b'), null);
-  assert.deepEqual(Object.values(dock.MSG).sort(), ['xbin:agent-context', 'xbin:agent-open-changeset', 'xbin:agent-open-request', 'xbin:open-session']);
+  // a coding agent's sign-in (D230): its id out, and nothing of a sign-in ever in
+  assert.deepEqual(dock.openSignin('claude'), { type: 'xbin:agent-open-signin', harness: 'claude' });
+  for (const bad of ['', 'Claude Code', '../x', null]) assert.equal(dock.openSignin(bad), null, String(bad));
+  assert.deepEqual(Object.values(dock.MSG).sort(), ['xbin:agent-context', 'xbin:agent-open-changeset', 'xbin:agent-open-request', 'xbin:agent-open-signin', 'xbin:agent-signins', 'xbin:open-session']);
 });
 
 test('dock: a context message read strictly — a tile path or a screen, nothing else', () => {
@@ -176,6 +179,17 @@ test('the brief: the backend\'s button, what it runs on, the coding agents to pi
   // xbind's noSignIn: the picker names the coding agents that run on the workspace's model with no sign-in
   const sd2 = { ...sd, defaults: { harnesses: [{ id: 'claude', name: 'Claude Code' }, { id: 'codex', name: 'Codex', noSignIn: true }] } };
   assert.deepEqual(W.briefCard(b, undefined, sd2).harnesses.map((h) => h.name), ['Claude Code', 'Codex — no sign-in']);
+  // xbind's signIn (D230): a saved sign-in is named; one that is needed is said, with the harness to sign in to
+  const sd3 = { ...sd, needsSignIn: true, defaults: { harnesses: [{ id: 'claude', name: 'Claude Code', signIn: 'needed' }, { id: 'codex', name: 'Codex', noSignIn: true, signIn: 'connector' }] } };
+  const needs = W.briefCard(b, undefined, sd3);
+  assert.deepEqual(needs.harnesses.map((h) => h.name), ['Claude Code — needs your sign-in', 'Codex — no sign-in']);
+  assert.deepEqual([needs.signin.harness, needs.signin.name, needs.signin.button], ['claude', 'Claude Code', 'Sign in to Claude Code…']);
+  assert.match(needs.signin.elsewhere, /Needs your Claude Code sign-in — set it up on the web/, 'the app\'s native view has no sign-in card: it says where to go');
+  const sd4 = { ...sd, defaults: { harnesses: [{ id: 'claude', name: 'Claude Code', signIn: 'saved' }] } };
+  assert.deepEqual(W.briefCard(b, undefined, sd4).harnesses.map((h) => h.name), ['Claude Code — your saved sign-in']);
+  assert.equal(W.briefCard(b, undefined, sd4).signin, null);
+  assert.equal(w.signin, null, 'nothing said about a sign-in: no button');
+  assert.equal(W.briefCard({ ...b, state: 'started' }, undefined, sd3).signin, null, 'a started brief asks for nothing');
   assert.match(w.note, /told first/);
   // "asks before acting" only where xbind says the mode asks (ask or plan); not before it said
   assert.match(w.note, /the tile agent asks you before it acts/);

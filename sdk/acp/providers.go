@@ -58,6 +58,11 @@ type Provider struct {
 	// share a refresh token, and the one that refreshes first signs the
 	// other out.
 	LoginFiles []string `json:"-"`
+	// KeyHome is where the CLI writes a key handed to it through ACP
+	// authenticate (AuthFile, taken apart): a host that keeps the key
+	// itself points the variable at a directory private to the session
+	// (credential.go). nil for a CLI that keeps such a key in memory.
+	KeyHome *KeyHome `json:"-"`
 	// Bins are the executables the provider needs on PATH: the adapter
 	// first, then the CLI LoginCmd runs when that is another one.
 	Bins []string `json:"-"`
@@ -167,6 +172,7 @@ var catalog = []Provider{
 		// through authenticate, which writes it to auth.json (its file store)
 		Keys:        []Key{{Env: "CODEX_API_KEY", Label: "OpenAI API key", Kind: "api-key"}},
 		AuthFile:    `${CODEX_HOME:-$HOME/.codex}/auth.json`,
+		KeyHome:     &KeyHome{Env: "CODEX_HOME", Dir: `$HOME/.codex`, File: "auth.json"},
 		LoginFiles:  []string{`${CODEX_HOME:-$HOME/.codex}/auth.json`},
 		ApproveMode: "read-only", PlanMode: "read-only", Connector: codexConnector},
 	{ID: "gemini", Name: "Gemini CLI", Driver: "acp", Argv: []string{"gemini", "--acp"}, Login: "gemini (then choose Login with Google)",

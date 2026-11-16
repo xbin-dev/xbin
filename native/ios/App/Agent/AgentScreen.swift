@@ -436,11 +436,19 @@ struct AgentScreen: View {
     @ViewBuilder private func session(_ m: AgentScreenModel) -> some View {
         VStack(spacing: 0) {
             if let login = m.signInCommand {
-                HStack {
-                    Label("\(login.provider) needs you to sign in", systemImage: "person.badge.key")
-                        .font(.subheadline)
-                    Spacer()
-                    Button("Sign in") { signingIn = true }.xbinPrimary()
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Label("\(login.provider) needs you to sign in", systemImage: "person.badge.key")
+                            .font(.subheadline)
+                        Spacer()
+                        Button("Sign in") { signingIn = true }.xbinPrimary()
+                    }
+                    // the truth about what this button does (D230): the app has no
+                    // guided sign-in, so it signs in on this tile; a sign-in saved
+                    // on the web is used here without any of this
+                    Text(AgentSignInWords.tileOnly)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(10)
                 .background(XbinColor.warnBackground)

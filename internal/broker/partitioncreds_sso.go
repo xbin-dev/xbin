@@ -69,6 +69,7 @@ func (b *Broker) CredentialSSOChanged(r *http.Request, old, now *users.SSOConfig
 		if u.Email == "" || by == "" {
 			continue
 		}
+		b.credentialMade(u.ID, by) // the provider that vouches for their email changed
 		if _, holder := b.credentialPerson(u.ID); !holder {
 			continue
 		}

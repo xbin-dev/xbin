@@ -34,6 +34,7 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
+import '/vendor/agent-signin.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, asked, settled,
   stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote, ownerWords, webRows, mcpRows, READ_WEB,
@@ -72,6 +73,20 @@ export function uncovered(el) {
  * radio or a checkbox) and binds @click=${guard.click} @keydown=${guard.key};
  * the control carries aria-disabled until it is armed.
  */
+/**
+ * signinRow(r): a start's "Sign-in" row (sessionRows' signin, D230), drawn
+ * here — in the person's own document, never by the agent's page. A start
+ * that would use the person's saved sign-in names it (its label read from
+ * their own list by id) and says who will hold it: approving is what puts
+ * it into the session. One that would start signed out gets the chrome's
+ * sign-in card. Nothing where neither is the case.
+ */
+export const signinRow = (r) => (!r.signin ? nothing : r.signin.saved
+  ? html`<dt>Sign-in</dt><dd data-row="signin" data-signin-id=${r.signin.id}>${r.signin.text} <bx-agent-signin view="name" sid=${r.signin.id}></bx-agent-signin>.
+      <div class="small muted">${r.signin.holds}</div></dd>`
+  : html`<dt>Sign-in</dt><dd data-row="signin"><div class="small">${r.signin.text}</div>
+      <bx-agent-signin harness=${r.signin.harness} provider=${r.signin.name}></bx-agent-signin></dd>`);
+
 export class WidenGuard {
   constructor(host) { this.host = host; this.seen = new WeakMap(); host.addController(this); }
   hostUpdated() {
@@ -276,6 +291,7 @@ export class BxAgentApprove extends LitElement {
         <dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>
         ${this._tileRow(req)}
         <dt>Coding agent</dt><dd>${r.agent}</dd>
+        ${signinRow(r)}
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>Other tiles</dt><dd>${r.others}</dd>
         <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="body brief" tabindex="-1" data-row="brief">${r.brief ? html`${shown(brief.text)}${brief.clipped ? '…' : ''}` : '(nothing: it starts without a message)'}</pre>
