@@ -105,6 +105,16 @@ func delegateActorOf(p auth.Principal) (delegateActor, bool) {
 	return a, true
 }
 
+// shown is req as a's caller may read it: where and how the person decided
+// — from a notification, on which of their devices — is theirs, never the
+// agent's or its page's (review finding 7; D241).
+func (a delegateActor) shown(req delegation.Request) delegation.Request {
+	if !a.own {
+		req.DecidedFrom, req.DecidedDevice = "", ""
+	}
+	return req
+}
+
 // delegateCaller answers the actor of r when it is one of the kinds the
 // route takes; otherwise it writes the 403.
 func (s *Server) delegateCaller(w http.ResponseWriter, r *http.Request, own, frame, agent bool) (delegateActor, bool) {
@@ -732,6 +742,9 @@ func (s *Server) apiDelegateRequests(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "the requests can't be read", delegationDocs)
 		return
 	}
+	for i := range rows {
+		rows[i] = a.shown(rows[i])
+	}
 	WriteJSON(w, http.StatusOK, map[string]any{"requests": rows})
 }
 
@@ -748,7 +761,7 @@ func (s *Server) apiDelegateRequest(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, "no such request", delegationDocs)
 		return
 	}
-	WriteJSON(w, http.StatusOK, req)
+	WriteJSON(w, http.StatusOK, a.shown(req))
 }
 
 // apiDelegateRequestDecide — POST /delegate/requests/{id}/approve
@@ -882,7 +895,7 @@ func (s *Server) apiDelegateRequestWithdraw(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	s.delegateEvent(a.user, "request", req.ID)
-	WriteJSON(w, http.StatusOK, req)
+	WriteJSON(w, http.StatusOK, a.shown(req))
 }
 
 // ---- standing approvals ----

@@ -297,3 +297,23 @@ func TestDelegatePushChangeSet(t *testing.T) {
 		t.Fatalf("the log: %s", rec.Body.String())
 	}
 }
+
+// Where and how the person decided is theirs (review finding 7): the agent
+// and its page read a request without decidedFrom and decidedDevice; the
+// person's own session reads them.
+func TestDelegateDecidedWhereIsThePersons(t *testing.T) {
+	w, _ := pushWorld(t)
+	bob, person := delegateCred("d-bob"), w.cookie("bob")
+	a := w.ask(bob, "POST", "/api/apps/mail/send", `{"n":1}`)
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+a.ID+"/deny", `{"via":"notification"}`, person); rec.Code != 200 {
+		t.Fatalf("deny: %d %s", rec.Code, rec.Body.String())
+	}
+	mine := w.do(w.full, "GET", "/api/xbin/delegate/requests/"+a.ID, "", person)
+	if !strings.Contains(mine.Body.String(), `"decidedFrom":"notification"`) {
+		t.Fatalf("the person reads where they decided: %s", mine.Body.String())
+	}
+	agents := w.do(w.full, "GET", "/api/xbin/delegate/requests/"+a.ID, "", bob)
+	if agents.Code != 200 || strings.Contains(agents.Body.String(), "decidedFrom") || strings.Contains(agents.Body.String(), "decidedDevice") {
+		t.Fatalf("the agent reads where its person decided: %d %s", agents.Code, agents.Body.String())
+	}
+}

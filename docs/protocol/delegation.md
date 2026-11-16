@@ -846,7 +846,9 @@ recorded on the request);
 `decidedVia` is the credential that decided (`session` a browser, `device`,
 `app`); `decidedDevice` the enrolled device whose session it was;
 `decidedFrom` `notification` for a notification's action — what "already
-decided on the web / on Ana's iPhone / from a notification" is said from. For a tile
+decided on the web / on Ana's iPhone / from a notification" is said from.
+Both are the person's: only their own session reads them — the agent and
+its page get the request without them. For a tile
 call `preview.standing` is `{call, tile}`: xbind's sentence for what each
 standing scope would allow from then on — show the one the person is about
 to choose. For a session start `preview.session` is `{tile, provider,
