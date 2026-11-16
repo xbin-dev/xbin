@@ -360,6 +360,10 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	asks, _ := shown["asks"].(bool)
 	pv.Line = fmt.Sprintf("Start a tile agent in %s — %s, in its mode %q", in.Tile, name, mode)
 	pv.Start, _ = json.Marshal(shown)
+	// what the start resolves to is part of what was shown: the network and
+	// the API access too, which a tile's org rules decide once it exists
+	pin, _ := json.Marshal([]any{shown["provider"], mode, asks, shown["net"], shown["api"], shown["vm"], shown["gpu"], shown["model"]})
+	pv.Pin = delegation.BodyHash(pin)
 	if asks {
 		pv.Effects = []string{"It asks you before it edits a file or runs a command: its questions and permission requests come to you, never to your workspace agent."}
 	} else {
@@ -510,8 +514,8 @@ func lineStale(it delegation.ChangeItem, pv delegation.ChangePreview) bool {
 	if !it.Deferred {
 		return changeBasis(pv) != it.Basis
 	}
-	if pv.Line != it.Line {
-		return true
+	if pv.Line != it.Line || pv.Pin != it.Pin {
+		return true // another sentence — or, for a start, another coding agent, mode, network or API access than was shown
 	}
 	for _, w := range pv.Warnings {
 		if !slices.Contains(it.Warnings, w) {

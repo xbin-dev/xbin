@@ -845,7 +845,10 @@ and its items carry, beside a change set's:
   it (`session`): the start runs under it, is refused when its taint
   forbids briefing a session there or when it is over, and the tile agent
   is that conversation's to follow (`out: {session}`; a creation's `out`
-  is `{path}`).
+  is `{path}`). The line is pinned (`pin`) to all of what was shown — the
+  coding agent, the mode, the network, the API access: a start that would
+  resolve to another network by the time it is applied (a preference
+  changed; the org rules of a tile the plan itself made) is `stale`.
 - Every tile a line names — the tile it changes, a binding's providers,
   both ends of a grant, a start's tile, a template that is a tile — is
   held, when the line is described and again when it is applied, to what

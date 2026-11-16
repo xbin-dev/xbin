@@ -134,6 +134,7 @@ func TestDeferredLineStaleness(t *testing.T) {
 		{"a warning less", delegation.ChangePreview{Line: shown.Line}, false},
 		{"a warning it never showed", delegation.ChangePreview{Line: shown.Line, Warnings: []string{"SPEND: x", "PUBLIC: y"}}, true},
 		{"another sentence", delegation.ChangePreview{Line: "Bind apps/a's mcp to apps/c", Warnings: []string{"SPEND: x"}}, true},
+		{"described from something else (a start's network, a template)", delegation.ChangePreview{Line: shown.Line, Warnings: []string{"SPEND: x"}, Pin: "other"}, true},
 	} {
 		if got := lineStale(shown, c.pv); got != c.stale {
 			t.Errorf("%s: stale %v, want %v", c.name, got, c.stale)
@@ -202,5 +203,34 @@ func TestPlanLinesStayInsideTheConversation(t *testing.T) {
 	in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/term/sessions", "body": onX})
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), alice); rec.Code != 403 || !strings.Contains(rec.Body.String(), "hidden by you") {
 		t.Errorf("a request for a single start outside the scope: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A start is pinned to everything it was shown to resolve to — the network
+// and the API access too, not only the coding agent and mode its sentence
+// names (review finding 8): if the person's preference (or, for a tile the
+// plan makes, its org's rules) gives it another network by the time it is
+// applied, the line is stale and nothing starts.
+func TestPlanStartIsPinnedToWhatWasShown(t *testing.T) {
+	w := delegateWorld(t)
+	w.s.AgentWorld = fakeWorld{}
+	w.s.ChangeSets = planStub{}
+	alice := delegateCred("d-alice")
+	sid := w.s.Auth.NewSession("alice", "")
+	own := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: sid}) }
+	w.policy.set(func(d *dPolicy) { d.prefs["alice"] = delegation.StartPrefs{Net: "none"} })
+	rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"claude"}}]}`, alice)
+	var cs delegation.ChangeSet
+	_ = json.Unmarshal(rec.Body.Bytes(), &cs)
+	full, _ := w.store.ChangeSet("alice", cs.ID)
+	var start map[string]any
+	_ = json.Unmarshal(full.Items[0].Start, &start)
+	if rec.Code != 200 || start["net"] != "none" || full.Items[0].Pin == "" {
+		t.Fatalf("the start as shown: %d %v pin %q", rec.Code, start, full.Items[0].Pin)
+	}
+	w.policy.set(func(d *dPolicy) { d.prefs["alice"] = delegation.StartPrefs{Net: "internet"} }) // meanwhile: the whole internet
+	done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, own))
+	if done.Items[0].Result != delegation.ItemStale {
+		t.Fatalf("a start whose network changed since it was shown: %+v", done.Items[0])
 	}
 }
