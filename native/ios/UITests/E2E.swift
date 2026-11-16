@@ -565,7 +565,16 @@ final class E2E {
         goHome()
         let row = tileRow(path)
         let search = app.searchFields["Search tiles"]
-        if search.waitForExistence(timeout: 10) {
+        // An iPhone Duo's vertical bar folds the search into a button at its
+        // foot (2026-11-16): the field shows once it is tapped.
+        if !search.waitForExistence(timeout: 10) {
+            let button = app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", "Search", "Search")).firstMatch
+            if button.exists, button.isHittable {
+                button.tap()
+                _ = search.waitForExistence(timeout: 10)
+            }
+        }
+        if search.exists {
             // Right after a first sign-in iOS's Save Password sheet may still
             // be sliding away over Home: the field is there but a tap on it
             // lands nowhere ("hit point {-1, -1}") and the typing then has no

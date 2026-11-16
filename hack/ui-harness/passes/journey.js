@@ -51,11 +51,15 @@ function noJourney() {
 const mounts = (dir) => fs.readFileSync('/proc/self/mounts', 'utf8').split('\n').map((l) => l.split(' ')[1] || '').filter((m) => m.startsWith(dir + '/'));
 
 /**
- * boot(name): a fresh workspace under $HARNESS_DIR/journey-<name>, the
- * scripted model and a production-mode xbind on it. → {url, ws, token,
- * stop()}. The login URL is the one xbind prints (…/login?token=…).
+ * boot(name, {llm, host, vault}): a fresh workspace under
+ * $HARNESS_DIR/journey-<name>, the scripted model and a production-mode
+ * xbind on it. → {url, ws, token, stop()}. The login URL is the one xbind
+ * prints (…/login?token=…). The default is the journey's install; the
+ * first-run pass (firstrun.js) varies it: llm false — no host file, no
+ * model; host — more keys of the host's file (its workspaceAgent); vault —
+ * the host unseals with this passphrase (XBIN_VAULT_PASSPHRASE).
  */
-async function boot(name) {
+async function boot(name, o = {}) {
   const dir = path.join(path.resolve(process.env.HARNESS_DIR), `journey-${name}`);
   const ws = path.join(dir, 'ws');
   for (const m of mounts(ws)) spawnSync('fusermount3', ['-uz', m]); // an earlier run that was killed
@@ -67,13 +71,15 @@ async function boot(name) {
   fs.writeFileSync(path.join(dir, 'llm.key'), 'sk-fake-JOURNEY-0000\n');
   fs.writeFileSync(path.join(dir, 'llm.jsonc'), JSON.stringify({
     upstreams: { fake: { baseURL: `http://${FAKE}/v1`, keyFile: 'llm.key', models: ['fake-chat', 'gpt-5-fake'] } },
-    defaults: { model: 'fake/fake-chat' },
+    defaults: { model: 'fake/fake-chat' }, ...(o.host || {}),
   }, null, 1) + '\n');
   const out = (f) => fs.openSync(path.join(dir, f), 'w');
   const fake = spawn(path.join(REPO, 'bin/fakeopenai'), ['-addr', FAKE], { cwd: REPO, stdio: ['ignore', out('fakeopenai.log'), out('fakeopenai.err')] });
   const env = { ...process.env, XBIN_SDK_PATH: path.join(REPO, 'sdk'), XBIN_BIN: path.join(REPO, 'bin'), XBIN_LLM_CONFIG: path.join(dir, 'llm.jsonc'),
     XBIN_AGENT_FAKE: path.join(ws, DICE, '.bin', 'fakeacp') };
+  if (o.llm === false) delete env.XBIN_LLM_CONFIG;
   delete env.XBIN_VAULT_PASSPHRASE; // manual unseal, the installer's default: the vault boots unconfigured
+  if (o.vault) env.XBIN_VAULT_PASSPHRASE = o.vault; // …or the host unseals it
   const rootfs = process.env.ROOTFS || process.env.XBIN_TEST_ROOTFS || path.join(REPO, '.rootfs');
   const xbind = spawn(path.join(REPO, 'bin/xbind'), ['--isolate', '--rootfs', rootfs, '--workspace', ws, '--listen', `127.0.0.1:${PORT}`, '--external-url', URL],
     { cwd: REPO, env, stdio: ['ignore', out('xbind.log'), out('xbind.err')] });
@@ -202,14 +208,29 @@ async function firstLogin(J, page, X) {
   J.know('the login URL: it is in the installer\'s output and the server log (journalctl -u xbin | grep login), nowhere in a browser');
   await J.nav('open the one-time login URL', async () => { await page.goto(`${X.url}/login?token=${X.token}`); await shellUp(page); });
 }
-/** vaultSetup(J, page): the admin console's banner → a passphrase, twice → set. */
-async function vaultSetup(J, page) {
-  const admin = await tileFrame(page, 'tiles/admin');
-  await J.click('admin tile: the "VAULT UNCONFIGURED" banner', () => admin.locator('text=VAULT UNCONFIGURED').click());
-  await J.field('vault: a new passphrase', () => admin.locator('input[placeholder="new vault passphrase"]').fill('journey-vault-passphrase'));
-  await J.field('vault: the passphrase again', () => admin.locator('input[placeholder="repeat"]').fill('journey-vault-passphrase'));
-  await J.click('vault: "set passphrase & unseal"', () => admin.locator('button', { hasText: 'set passphrase & unseal' }).click());
-  await J.wait('the vault is unsealed', () => admin.waitForSelector('text=unsealed — encryption at rest active', { timeout: 20000 }));
+/**
+ * firstRunSheet(J, page, who, {agent}): the first-run sheet the login URL
+ * lands on (D237) — the name, a password, the vault's passphrase twice
+ * (it asks: the vault boots unconfigured here), and the primary button
+ * (agent: "Create my account and turn on my workspace agent") or the quiet
+ * one; the page reloads as the new account. → whether focus started in
+ * the name.
+ */
+async function firstRunSheet(J, page, who, { agent = true } = {}) {
+  const S = 'bx-first-run';
+  await page.waitForSelector(`${S} [data-state="form"] #bxfr-name`, { timeout: 30000 });
+  const focused = await page.evaluate(() => (document.activeElement && document.activeElement.id) === 'bxfr-name');
+  await J.field('first-run sheet: your name', () => page.fill(`${S} #bxfr-name`, who.name), { note: `the sign-in name follows from it (${who.id})` });
+  await J.field('first-run sheet: a password', () => page.fill(`${S} #bxfr-pw`, who.password));
+  const vault = require('crypto').randomBytes(12).toString('base64url'); // (made per run, never logged)
+  await J.field('first-run sheet: the vault\'s passphrase', () => page.fill(`${S} #bxfr-vault`, vault), { note: 'absent where the host unseals (XBIN_VAULT_PASSPHRASE)' });
+  await J.field('first-run sheet: the passphrase again', () => page.fill(`${S} #bxfr-repeat`, vault));
+  const button = agent ? 'first-run sheet: "Create my account and turn on my workspace agent"' : 'first-run sheet: "Create my account without it"';
+  await J.click(button, async () => {
+    await Promise.all([page.waitForNavigation({ timeout: 60000 }), page.click(`${S} ${agent ? '[data-primary]' : '[data-quiet]'}`)]);
+    await shellUp(page);
+  }, { note: 'makes the admin account, signs this browser in as it, sets up the vault' + (agent ? ', turns the workspace agent on for this person ("Just me")' : '') });
+  return focused;
 }
 /** makeTile(J, page, name): the Tile Manager's create tab (the one it opens on) → a static tile. */
 async function makeTile(J, page, name) {
@@ -258,4 +279,4 @@ async function servesDice(ctx, X) {
   return { ok: false, status };
 }
 
-module.exports = { REPO, URL, DICE, servesDice, BUILD, ASK, ROLLED, noJourney, boot, plant, journey, openPage, tileFrame, shellUp, firstLogin, vaultSetup, makeTile, makeFromTemplate, openFromSidebar, askAssistant };
+module.exports = { REPO, URL, DICE, servesDice, BUILD, ASK, ROLLED, noJourney, boot, plant, journey, openPage, tileFrame, shellUp, firstLogin, firstRunSheet, makeTile, makeFromTemplate, openFromSidebar, askAssistant };

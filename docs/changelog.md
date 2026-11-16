@@ -16,8 +16,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tiles — off until turned on.** Three layers, each only narrowing: the
   workspace's policy (`web: {mode: off|read, allow, deny}`, `mcp: {mode:
   off|tiles}` on `PUT /delegate/workspace`, additive; the agent's card on
-  `/xbin/system`), preset, capped or frozen by the host's
-  `XBIN_WSAGENT_CONFIG` file; an org's agent rules (`web: ask|allow|never`,
+  `/xbin/system`), preset and capped by the host's file
+  (`XBIN_LLM_CONFIG`'s `workspaceAgent` key: `web`, `mcp`); an org's agent rules (`web: ask|allow|never`,
   `mcp: org`; `bx org agents --web --mcp`); and the person's own
   Preferences (`web`, `mcp`, `mcpReadOnly` on `PUT /delegate/state`, armed
   like Allow, web and app). New routes for the agent: `POST
@@ -36,6 +36,32 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   "not available yet" ([workspace-agent.md](/docs/workspace-agent.md) §The
   web and MCP tools, [protocol/delegation.md](/docs/protocol/delegation.md)
   §Web and MCP, [protocol/orgs.md](/docs/protocol/orgs.md)).
+- sign-in: **the first-run sheet** (D237). While a workspace has no
+  accounts, the owner token's first visit opens one sheet of xbin's
+  chrome over the shell — a name, a password, the vault's passphrase
+  twice (none when `XBIN_VAULT_PASSPHRASE` unseals it) and **Create my
+  account and turn on my workspace agent** — that makes an ordinary admin
+  account (`POST /users`), signs the browser in as it, sets up the vault
+  and turns workspace agents on for that person alone, then opens the
+  agent's dock. New routes: `GET /api/xbin/first-run {bootstrap}` and
+  `POST /api/xbin/first-run/session {id, password}`, the swap — the
+  token's browser session only, the workspace's only account (an admin,
+  never signed in, made in the last 15 minutes), its own password, same
+  origin, throttled with `/login` (docs/protocol/users.md §First run).
+  "Not now" keeps today's path, remembered per browser; a workspace with
+  any account never sees it. The shell's hook is new in the scaffold
+  (`shell/shell-first-run.js`); an older shell keeps the old path.
+- workspace agent: **the host's preset.** `"workspaceAgent"` in the
+  connector's host file (`XBIN_LLM_CONFIG`): `false` locks agents off,
+  `true` locks them on, `{"enabled": true, "who": "admins" | "everyone"}`
+  locks who too (`"admins"`, new: every admin account has its own agent).
+  What it wrote is taken back exactly when the key changes or goes, and
+  an entry a person or an admin made is never touched.
+  Read and locked like the connector's settings; `GET /delegate/state`
+  and `GET/PUT /delegate/workspace` carry `locks: {enabled?, who?}`, and a
+  PUT of a locked key is 409 (docs/workspace-agent.md §Set by your host).
+  The dock's setup steps and `/xbin/system` say "Set by your host",
+  read-only; `bx-agent-dock` gains `focusComposer()`.
 - agent template: **`GET /tools` — what a conversation would be offered
   now.** Per class the caller may start in, every tool with its source (a
   built-in, or which MCP server), and per MCP server where it comes from

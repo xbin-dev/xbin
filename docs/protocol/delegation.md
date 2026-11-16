@@ -609,12 +609,14 @@ GET    /delegate/state          the person, their agent's page, or their
                                  chosen} — whether the workspace
                                  defaults name the agent, how many
                                  people and orgs have an entry of their
-                                 own, and whether anyone was given one.
-                                 web, mcp, mcpReadOnly: the person's own
-                                 settings (§Web and MCP); net: {web:
-                                 {policy, why?, only?}, mcp: {policy,
-                                 why?}, search} — what the workspace
-                                 policy lets them turn on, and why not
+                                 own, and whether anyone was given one;
+                                 locks?, what the host's file sets
+                                 (below). web, mcp, mcpReadOnly: the
+                                 person's own settings (§Web and MCP);
+                                 net: {web: {policy, why?, only?}, mcp:
+                                 {policy, why?}, search} — what the
+                                 workspace policy lets them turn on, and
+                                 why not
 PUT    /delegate/state          the person, or their agent's page —
                                  which may send {paused: true} and nothing
                                  else (403). {paused?, adminChanges?, web?,
@@ -633,20 +635,28 @@ PUT    /delegate/state          the person, or their agent's page —
                                  workspace or org admin turns adminChanges
                                  on (403)
 GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?,
-                                 web, mcp, policy, host, locks}: off until
-                                 an admin turns it on; who as in the state;
-                                 web {mode, allow, deny, search} and mcp
-                                 {mode} the admin's own settings, policy
-                                 what is in force under the host's file
-                                 ({web: {mode, allow, deny, hostAllow?,
-                                 hostDeny?, search, byHost?}, mcp: {mode,
-                                 byHost?}}), host {active, lockAll,
-                                 error?, web?, mcp?} and locks what of it
-                                 holds (§Web and MCP)
+                                 web, mcp, policy, locks?}: off until
+                                 an admin turns it on; who as in the
+                                 state; web {mode, allow, deny, search}
+                                 and mcp {mode} the admin's own
+                                 settings, policy what is in force under
+                                 the host's file ({web: {mode, allow,
+                                 deny, hostAllow?, hostDeny?, search,
+                                 byHost?}, mcp: {mode, byHost?}}).
+                                 locks: what the host's file sets — its
+                                 workspaceAgent key (docs/workspace-
+                                 agent.md §Set by your host, D237) —
+                                 {enabled?, who?, "web.mode"?,
+                                 "web.search"?, "mcp.mode"?: {locked:
+                                 true, reason: "set by your host",
+                                 ceiling?}}, absent when it sets nothing
+                                 (by is "host" when the file set the
+                                 switch; a ceiling: §Web and MCP)
 PUT    /delegate/workspace      admin. {enabled?, who?, web?: {mode?:
                                  "off" | "read", allow?, deny?, search?},
                                  mcp?: {mode?: "off" | "tiles"}}, at least
-                                 one. web and mcp are off by default;
+                                 one; what the host's file locks is 409.
+                                 web and mcp are off by default;
                                  web.mode "full", web.search true and
                                  mcp.mode "listed" are reserved: 400 "not
                                  available yet". allow
@@ -665,7 +675,10 @@ PUT    /delegate/workspace      admin. {enabled?, who?, web?: {mode?:
                                  stay). One person or org at a time is
                                  an ordinary access entry that names the
                                  component, at read. 409 where this
-                                 xbind ships no agent or has no accounts
+                                 xbind ships no agent or has no accounts,
+                                 and for a key the host's file locks
+                                 (enabled while it sets the switch, who
+                                 while it names who): nothing changes
 POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
                                  the alert that names /xbin/agent for
                                  them (§The chrome). {ok}

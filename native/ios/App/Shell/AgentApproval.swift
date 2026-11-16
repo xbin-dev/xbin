@@ -54,7 +54,12 @@ struct AgentTrustedBar: View {
                         .accessibilityLabel(Text(verbatim: "Request \(position)"))
                 }
                 if let close {
-                    Button(action: close) { Text("Not now").font(.caption.weight(.semibold)).frame(minHeight: big ? 44 : 28) }
+                    // a whole 44 pt target at every size (it was 28 below
+                    // the accessibility sizes); the bar's padding gives way
+                    Button(action: close) {
+                        Text("Not now").font(.caption.weight(.semibold))
+                            .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Not now")
                         .accessibilityHint("Leaves it waiting. Nothing is allowed or denied.")
@@ -62,10 +67,14 @@ struct AgentTrustedBar: View {
                 }
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
+        .padding(.horizontal, 14).padding(.vertical, close == nil || big ? 10 : 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(XbinColor.background)
-        .background(XbinColor.text)
+        // Up under the status bar, never sideways: on an iPhone Duo the
+        // system's vertical bar (its time, its signal) sits at the sheet's
+        // side, and this band drawn under it hid them (dark at the largest
+        // text, 2026-11-16). The decision bar keeps the same width.
+        .background(XbinColor.text, ignoresSafeAreaEdges: .top)
         // The bar is chrome, like a navigation bar: it grows with the text
         // up to a point, so at the largest sizes the request under it keeps
         // most of the sheet.

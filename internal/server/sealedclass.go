@@ -573,6 +573,8 @@ var sealedRules = map[string]SealedRule{
 	"PATCH /sandboxes/{name}":                              {Class: SealedNoTile},
 	"PATCH /term/sessions/{id}":                            {Class: SealedNoTile},
 	"POST /account/password":                               {Class: SealedNoTile},
+	"GET /first-run":                                       {Class: SealedNoTile},
+	"POST /first-run/session":                              {Class: SealedNoTile},
 	"POST /app-tunnel/relay-tokens":                        {Class: SealedNoTile},
 	"POST /app-tunnel/test":                                {Class: SealedNoTile},
 	"POST /auth-rotate-token":                              {Class: SealedNoTile},

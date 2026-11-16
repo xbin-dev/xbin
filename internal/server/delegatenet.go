@@ -85,8 +85,19 @@ func (s *Server) netWorkspaceView(out map[string]any) {
 	if host.MCP != nil {
 		hv["mcp"] = host.MCP
 	}
-	// the settings the host's file holds, by their PUT names (internal/delegation/hostfile.go)
-	out["host"], out["locks"] = hv, host.Locks()
+	// the settings the host's file holds, by their PUT names (internal/delegation/hostfile.go),
+	// beside the switch's and who's (agenthost.go): one locks map
+	out["host"] = hv
+	locks, _ := out["locks"].(map[string]any)
+	for k, l := range host.Locks() {
+		if locks == nil {
+			locks = map[string]any{}
+		}
+		locks[k] = l
+	}
+	if locks != nil {
+		out["locks"] = locks
+	}
 }
 
 func orNone(s []string) []string {

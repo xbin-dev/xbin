@@ -123,6 +123,9 @@ func (s *Server) setAgentWho(p auth.Principal, who string) (code int, msg string
 func (s *Server) delegateWorkspaceView(p auth.Principal) map[string]any {
 	ws := s.Delegation.Workspace()
 	out := map[string]any{"enabled": ws.Enabled, "by": ws.By, "at": ws.At}
+	if l := s.agentLocks(); l != nil {
+		out["locks"] = l // the host's file sets these (agenthost.go)
+	}
 	s.netWorkspaceView(out) // the web and MCP policy (delegatenet.go)
 	if h := s.agentHolder(); h != "" {
 		out["agent"] = h

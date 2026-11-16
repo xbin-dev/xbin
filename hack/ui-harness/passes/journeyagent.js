@@ -1,7 +1,8 @@
 // hack/ui-harness/passes/journeyagent.js — the owner's UX benchmark through
 // the workspace agent, as far as today's agent gets (plans/wsagent/
 // journey.md): the same start as journeymanual.js — a fresh install, the
-// host's LLM, the first login — then the minimum setup and ONE prompt, "Make
+// host's LLM, the first login — then the first-run sheet (the account, the
+// vault and the agent turned on, in one: D237) and ONE prompt, "Make
 // a tool that rolls dice and give it to a new assistant I can chat with."
 // Every interaction is counted the same way (journey.js); every place the
 // agent stops and the person has to do something by hand is a "dead-end"
@@ -33,7 +34,7 @@ const SHEET = `${DOCK} bx-agent-approve`;
 const DLG = 'bx-agent-changes';
 const TA = 'bx-chat-composer textarea';
 const ASSISTANT = 'apps/assistant';
-const PERSON = { id: 'ada', name: 'Ada Admin', password: 'journey-ada-password' };
+const PERSON = { id: 'ada', name: 'Ada Admin', password: require('crypto').randomBytes(12).toString('base64url') }; // (made per run, never logged)
 
 const BRIEF = { tile: J0.DICE, goal: 'Turn this tile into an MCP server with one tool, roll_dice (sides, count), served as streamable HTTP at /mcp, and declare it in xbin.json as provides.mcp (kind http, service mcp, role reader).',
   done_when: 'POST /mcp tools/list names roll_dice and tools/call roll_dice returns a roll.', check_by: 'Call tools/list and tools/call against the tile\'s own API.' };
@@ -69,35 +70,23 @@ async function journeyAgent(browser) {
     const call = async (method, p, data) => { const r = await ctx.request.fetch(`${X.url}/api/xbin${p}`, { method, ...(data !== undefined ? { data } : {}), failOnStatusCode: false }); return { status: r.status(), data: await r.json().catch(() => null) }; };
 
     await J0.firstLogin(J, page, X);
-    await J0.vaultSetup(J, page);
     const root = await call('GET', '/delegate/state');
-    check(root.status === 403 && (await page.locator('button.chip.agent').count()) === 0, `the owner token's session has no workspace agent and no chip: an agent is a person's (${root.status})`);
-
-    J.section('an account (the agent is a person\'s)');
-    J.know('the workspace agent needs an account: the first login is the owner token, which has none — no chip, no notice. The banner asks for an account for another reason (security)');
-    const admin = await J0.tileFrame(page, 'tiles/admin');
-    await J.click('admin tile: the "user management" tab', () => admin.locator('button', { hasText: /^user management$/ }).click());
-    const users = admin.locator('bx-admin-users');
-    await J.field('new user: the username', () => users.locator('input[name=id]').fill(PERSON.id));
-    await J.field('new user: the display name', () => users.locator('input[name=name]').fill(PERSON.name));
-    await J.field('new user: the role (admin)', () => users.locator('select[name=role]').selectOption('admin'));
-    await J.field('new user: a password', () => users.locator('input[name=password]').fill(PERSON.password));
-    await J.click('new user: "create"', () => users.locator('button.act.go', { hasText: 'create' }).click());
-    await page.waitForFunction(async (id) => { const r = await fetch('/api/xbin/users'); return r.ok && JSON.stringify(await r.json()).includes(`"${id}"`); }, PERSON.id, { timeout: 20000, polling: 300 });
-    await J.click('top bar: "sign out"', async () => { await page.locator('a.chip', { hasText: /^sign out$/ }).click(); await page.waitForSelector('input[name=username]', { timeout: 20000 }); });
-    await J.field('sign in: the username', () => page.fill('input[name=username]', PERSON.id));
-    await J.field('sign in: the password', () => page.fill('input[name=password]', PERSON.password));
-    await J.click('sign in: "Sign in"', async () => { await Promise.all([page.waitForNavigation(), page.click('button')]); await J0.shellUp(page); });
-
-    J.section('turning the agent on');
-    await page.waitForSelector('button.chip.agent', { timeout: 20000 });
-    await J.click('top bar: "set up workspace agent"', async () => { await page.locator('button.chip.agent').click(); await page.waitForSelector(`${DOCK} bx-agent-setup [data-step="on"] button`, { timeout: 20000 }); });
-    const steps = await page.$$eval(`${DOCK} bx-agent-setup [data-step]`, (els) => els.map((e) => `${e.dataset.step}${e.classList.contains('done') ? '+' : ''}`));
-    check(steps.join(' ') === 'model+ on who', `the host's LLM makes step 1 done; two steps are left to click (${steps.join(' ')})`);
-    await J.click('setup: "Turn on"', async () => { await page.click(`${DOCK} bx-agent-setup [data-step="on"] button`); await page.waitForSelector(`${DOCK} bx-agent-setup [data-who="me"]`, { timeout: 20000 }); });
-    await J.click('setup: "Just me for now"', () => page.click(`${DOCK} bx-agent-setup [data-who="me"]`));
+    check(root.status === 403, `the owner token's session has no workspace agent: an agent is a person's (${root.status})`);
+    // the first-run sheet (D237): the account, the vault and the agent in one
+    const started = await J0.firstRunSheet(J, page, PERSON);
+    check(started, 'the first-run sheet starts in the name field');
+    const me = await call('GET', '/whoami');
+    check(me.data && me.data.kind === 'user' && me.data.id === PERSON.id && me.data.role === 'admin', `the sheet signed this browser in as the new admin account (${me.data && me.data.id})`);
+    const sw = await call('GET', '/delegate/workspace');
+    check(sw.data && sw.data.enabled === true && sw.data.who && sw.data.who.everyone === false && sw.data.who.entries === 1, `…and turned workspace agents on for this person alone (${JSON.stringify(sw.data && sw.data.who)})`);
     const frame = async () => { const el = await page.waitForSelector(`${DOCK} iframe`, { state: 'attached', timeout: 60000 }); const f = await el.contentFrame(); await f.waitForSelector('.wsp-main[aria-busy="false"]', { timeout: 120000 }); return f; };
-    let f = await J.wait('the agent\'s page is up (its backend starts in its sandbox)', frame);
+    let f = await J.wait('the dock opens by itself; the agent\'s page is up (its backend starts in its sandbox)', async () => { await page.waitForSelector(`${DOCK}[open]`, { timeout: 30000 }); return frame(); });
+    let focus = '';
+    for (let i = 0; i < 40 && focus !== 'textarea'; i++) {
+      focus = await f.evaluate(() => { let a = document.activeElement; while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement; return document.hasFocus() && a ? a.localName : ''; });
+      if (focus !== 'textarea') await page.waitForTimeout(250);
+    }
+    check(focus === 'textarea', `the agent's composer has the keys: the prompt is typed straight in (${focus || 'nothing focused'})`);
     const main = () => f.locator('.wsp-main').innerText();
     const say = async (what, text) => { await J.field(`the agent: ${what}`, () => f.fill(TA, text)); await J.key('the agent: Enter', () => f.press(TA, 'Enter')); };
     // the scripted model's "Done: …" after the person's message `after`

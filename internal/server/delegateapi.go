@@ -235,6 +235,9 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 	if !ws.At.IsZero() {
 		out["workspaceAt"] = ws.At // the switch was set once: off now is "turned off", not "never set up"
 	}
+	if l := s.agentLocks(); l != nil {
+		out["locks"] = l // what the host's file sets (agenthost.go): the chrome shows it read-only
+	}
 	if st.Paused && !st.PausedAt.IsZero() {
 		out["pausedAt"] = st.PausedAt
 	}
@@ -372,6 +375,10 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 	}
 	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil && body.Who == nil && body.Web == nil && body.MCP == nil {
 		WriteError(w, http.StatusBadRequest, `need {enabled?: bool, who?: "everyone" | "me" | "chosen", web?: {mode?, allow?, deny?, search?}, mcp?: {mode?}} with at least one key`, delegationDocs)
+		return
+	}
+	defer s.hostAgentHold()()                        // the host's check and this write under one lock (agenthost.go)
+	if s.hostAgentWrite(w, body.Enabled, body.Who) { // the host's file sets it
 		return
 	}
 	if body.Web != nil || body.MCP != nil { // before the switch, so a refusal changes nothing

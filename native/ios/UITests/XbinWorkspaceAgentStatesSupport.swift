@@ -159,6 +159,38 @@ extension E2E {
         XCTAssertTrue(element.exists && element.isHittable, "\(element) can be scrolled into reach", file: file, line: line)
     }
 
+    /// `element` is a whole touch target — at least 44 × 44 pt (Apple's
+    /// minimum) — and wholly inside the window.
+    func wsAssertWholeTarget(_ element: XCUIElement, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
+        let f = element.frame, window = app.windows.firstMatch.frame
+        XCTAssertGreaterThanOrEqual(f.width, 43.5, "\(what): \(f.width) pt wide", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(f.height, 43.5, "\(what): \(f.height) pt high", file: file, line: line)
+        XCTAssertTrue(window.insetBy(dx: -0.5, dy: -0.5).contains(f), "\(what): \(f) inside the window \(window)", file: file, line: line)
+    }
+
+    /// `element`, an item of the panel's bar, is as large as the bar's other
+    /// items — the workspace switcher's — and wholly inside the window. The
+    /// system sizes bar items (36 pt in an iPhone Duo's vertical bar, its
+    /// glass a 48 pt circle) and gives them their touch area: what the app
+    /// can get wrong is an item drawn smaller, or pushed out of view.
+    func wsAssertBarItem(_ element: XCUIElement, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
+        let f = element.frame, window = app.windows.firstMatch.frame
+        let peer = app.buttons["Workspaces"]
+        XCTAssertTrue(peer.exists, "\(what): the bar's workspace switcher", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(f.height, peer.frame.height - 0.5, "\(what): \(f) against the switcher's \(peer.frame)", file: file, line: line)
+        // (a lone glyph — Back on the vertical bar — is narrower than high)
+        XCTAssertGreaterThanOrEqual(f.width, 20, "\(what): \(f)", file: file, line: line)
+        XCTAssertTrue(window.insetBy(dx: -0.5, dy: -0.5).contains(f), "\(what): \(f) inside the window \(window)", file: file, line: line)
+    }
+
+    /// Whether the panel's bar is the system's vertical bar (an iPhone Duo,
+    /// D200): its items stacked down the side, the agent's button under the
+    /// workspace switcher rather than beside it.
+    var wsVerticalBar: Bool {
+        let switcher = app.buttons["Workspaces"].frame
+        return switcher.height > 0 && wsButton.frame.minY >= switcher.maxY - 1
+    }
+
     /// The identifiers among `ids` in the order the accessibility tree has
     /// their elements.
     func wsTreeOrder(of ids: [String]) -> [String] {
