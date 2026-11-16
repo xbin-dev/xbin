@@ -75,12 +75,19 @@ What it sets is the host's, piece by piece, and it narrows:
 - `web.mode`, `mcp.mode`, `web.search` are a **preset and a ceiling**: the
   value in force is the admin's when they set one, never past the host's;
   without one of the admin's, the host's. The admin can narrow (turn it
-  off) and never widen. The admin's controls say "Set by your host".
+  off); a write past the ceiling is `409 {settings}` naming it. The
+  admin's controls say "Set by your host".
 - `web.allow` holds always: a URL must match the host's list (when it has
   one) and the admin's (when they have one). `web.deny`: the host's and the
-  admin's both hold.
-- `"lockAll": true`: every web and MCP setting is the host's; a write of
-  one is `409` naming it.
+  admin's both hold. The host's lists lock nothing.
+- `"lockAll": true`: every web and MCP setting is the host's; `locks`
+  names each, and a write of any is `409` naming it.
+
+The shape — `locks` naming held settings by their `PUT` names, `409
+{settings}` for a write the host refuses — is the host's other settings'
+(`internal/delegation/hostfile.go`: `Locks`, `Refuses`), so these keys can
+join the `workspaceAgent` object of the host's one file when the first-run
+work lands it.
 
 Rejected: a lock that also forbids narrowing (the LLM file's "locked"):
 turning a capability off is never a risk a host must prevent.
@@ -302,4 +309,8 @@ ticket (tainted asks, untainted doesn't, `allow` org skips it, `never` org
 refuses); policy narrowing (host ceiling, admin narrowing, person within);
 the host lock and reload; the off switches. Backend scripted evals: one
 refusal and the model stops; a tainted fetch asks; a page that says
-"ignore your instructions" is framed and not followed.
+"ignore your instructions" is framed and not followed. End to end
+(`test/isolated/wsagent_mcp_test.go`), the builtin `mcp-server` template is
+the MCP tile: the agent lists `roll_dice` with the free reads, calls it
+under a ticket its person gave once, and — with "read-only tools don't ask"
+— at once.
