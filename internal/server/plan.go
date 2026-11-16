@@ -863,7 +863,13 @@ func (s *Server) retractAsks(user, id, why string) int {
 	for _, adm := range s.admins() {
 		sets, _ := s.Delegation.ChangeSets(adm.UserID)
 		for _, o := range sets {
-			if o.From != user || o.AskOf != id || !o.Open() {
+			if o.From != user || o.AskOf != id {
+				continue
+			}
+			if !o.Open() { // decided by an admin: what of it still waits for xbind ends too
+				if o.Waiting() {
+					s.cancelWaits(adm.UserID, o.ID, user+" took the request back before it was applied")
+				}
 				continue
 			}
 			if _, err := s.Delegation.UpdateChangeSet(adm.UserID, o.ID, func(c *delegation.ChangeSet) error {
@@ -877,7 +883,8 @@ func (s *Server) retractAsks(user, id, why string) int {
 	n := 0
 	_, _ = s.Delegation.UpdateChangeSet(user, id, func(c *delegation.ChangeSet) error {
 		for i := range c.Items {
-			if c.Items[i].Result == delegation.ItemAsked {
+			// (a line an admin approved that waits there reads "waiting" here, with no Wait of its own: the admin's copy holds it)
+			if c.Items[i].Result == delegation.ItemAsked || c.Items[i].Result == delegation.ItemWaiting && c.Items[i].Wait == nil {
 				c.Items[i].Result, c.Items[i].Error = delegation.ItemRejected, why
 				n++
 			}
@@ -888,6 +895,41 @@ func (s *Server) retractAsks(user, id, why string) int {
 		s.delegateEvent(user, "changeset", id)
 	}
 	return n
+}
+
+// unsettled: a decided set still has a line waiting — for xbind to apply
+// it, or with the admins.
+func unsettled(cs delegation.ChangeSet) bool {
+	return cs.Waiting() || slices.ContainsFunc(cs.Items, func(it delegation.ChangeItem) bool { return it.Result == delegation.ItemAsked })
+}
+
+// takeBack ends everything of user's set id that is not settled: its own
+// lines that wait for xbind, what it asked the admins for — their open
+// copies, and the lines of copies an admin approved that still wait.
+func (s *Server) takeBack(user, id, why string) {
+	s.cancelWaits(user, id, why)
+	s.retractAsks(user, id, why)
+}
+
+// askWithdrawn is why an admin's copy of a request (cs, From someone) asks
+// for nothing any more ("": it still does): the asker's set is gone,
+// expired, rejected or withdrawn, or none of the copy's lines is still
+// asked there.
+func (s *Server) askWithdrawn(cs delegation.ChangeSet) string {
+	if cs.From == "" || cs.AskOf == "" {
+		return ""
+	}
+	asker, ok := s.Delegation.ChangeSet(cs.From, cs.AskOf)
+	const gone = "this request was taken back: the plan it came from is no longer waiting for an admin"
+	if !ok || asker.State == delegation.SetRejected || asker.State == delegation.SetWithdrawn || asker.State == delegation.SetExpired {
+		return gone
+	}
+	for _, it := range cs.Items {
+		if it.Of >= 1 && it.Of <= len(asker.Items) && asker.Items[it.Of-1].Result == delegation.ItemAsked {
+			return ""
+		}
+	}
+	return gone
 }
 
 // withdrawAsksFrom ends the requests user has waiting with the admins:

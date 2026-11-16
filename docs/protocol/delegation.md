@@ -1081,7 +1081,11 @@ and its items carry, beside a change set's:
   person's requests wait. The asker takes a request back with `…/ask
   {retract: true}` — or by rejecting or withdrawing the set while it is
   still proposed: the admins' copies end (`withdrawn`, `decidedBy` the
-  asker) and the asked lines read `rejected`.
+  asker) and the asked lines read `rejected`. A plan that was applied in
+  part and still has a line with the admins is taken back the same way —
+  `…/reject`, the agent's `DELETE` and `…/undo` on it end the admins'
+  copies too — and an admin's copy of a plan that ended any other way (it
+  expired, it is gone) is `409` when applied, and withdrawn.
 - **What the agent reads of its own proposal.** The person's own session
   reads every field. Their agent — its credential, its conversation, its
   page's frame — reads, of a line that is `admin`, `needsAdmin` or

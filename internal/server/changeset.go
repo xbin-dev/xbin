@@ -198,13 +198,15 @@ func (s *Server) apiChangeSet(w http.ResponseWriter, r *http.Request) {
 
 // endChangeSet moves an open set to state (withdrawn, rejected).
 func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state string) {
-	if cur, ok := s.Delegation.ChangeSet(a.user, id); ok && !cur.Open() && cur.Waiting() && (cur.From == "" || a.own) {
-		// decided, with a line that still waits: taking the plan back ends the wait — the person's own act, or their agent's (it only narrows)
+	if cur, ok := s.Delegation.ChangeSet(a.user, id); ok && !cur.Open() && unsettled(cur) && (cur.From == "" || a.own) {
+		// decided, with a line that still waits — for xbind, or with the
+		// admins: taking the plan back ends both, here and in every admin's
+		// copy. The person's own act, or their agent's (it only narrows)
 		why := "you cancelled it before it was applied"
 		if !a.own {
 			why = "your agent took the plan back before it was applied"
 		}
-		s.cancelWaits(a.user, id, why)
+		s.takeBack(a.user, id, why)
 		cur, _ = s.Delegation.ChangeSet(a.user, id)
 		WriteJSON(w, http.StatusOK, s.setFor(a, cur))
 		return
@@ -309,6 +311,20 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		whose = cs.From
 		if !a.p.IsAdmin() {
 			WriteError(w, http.StatusForbidden, "a request to the admins is applied by a workspace admin", delegationDocs)
+			return
+		}
+		// …and to the asker's own set as it stands now: a plan they took
+		// back, that expired or that is gone asks for nothing any more —
+		// whatever path ended it (the copies are withdrawn where xbind sees
+		// the end happen; this holds for the ones it did not)
+		if why := s.askWithdrawn(cs); why != "" {
+			now := time.Now().UTC().Truncate(time.Second)
+			_, _ = s.Delegation.UpdateChangeSet(a.user, id, func(c *delegation.ChangeSet) error {
+				c.State, c.Decided, c.DecidedBy = delegation.SetWithdrawn, now, cs.From
+				return nil
+			})
+			s.delegateEvent(a.user, "changeset", id)
+			WriteError(w, http.StatusConflict, why, delegationDocs)
 			return
 		}
 	}
@@ -603,8 +619,8 @@ func (s *Server) apiChangeSetUndo(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, "no such change set", delegationDocs)
 		return
 	}
-	if cs.Waiting() { // undoing a plan ends what of it still waits
-		s.cancelWaits(a.user, cs.ID, "you undid the plan before it was applied")
+	if unsettled(cs) && cs.From == "" { // undoing a plan ends what of it still waits — for xbind, or with the admins
+		s.takeBack(a.user, cs.ID, "you undid the plan before it was applied")
 		cs, _ = s.Delegation.ChangeSet(a.user, cs.ID)
 	}
 	var ops []delegation.ChangeOp
