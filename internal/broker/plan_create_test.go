@@ -65,3 +65,51 @@ func TestPlanSaysWhatANewTileGets(t *testing.T) {
 		t.Fatal("the stale creation made the tile")
 	}
 }
+
+// What a person's agent is refused for says nothing of tiles its person
+// can't see (review finding 9): a template they can't read is "no such
+// template", like one that isn't there; a place taken by a tile they can't
+// read is "taken", with no name — in a plan's line, in a single creation's
+// dry run and in the request for one. What they can see is named as before.
+func TestCreationRefusalsNameNothingHidden(t *testing.T) {
+	w := changeSetWorld(t)
+	planTemplates(t, w)
+	w.write(map[string]string{
+		"secret/tpl/xbin.json": `{"runtime":"go","template":{"title":"Hidden"}}`, "secret/tpl/backend/main.go": "package main\n",
+		"secret/t/xbin.json": `{"runtime":"go"}`, "secret/t/backend/main.go": "package main\n",
+	})
+	w.rescan()
+	cs := w.plan(t, "alice", `[
+		{"kind":"tile.create","args":{"template":"secret/tpl","path":"apps/a1"}},
+		{"kind":"tile.create","args":{"template":"secret/nope","path":"apps/a2"}},
+		{"kind":"tile.create","args":{"template":"tool","path":"secret/t"}},
+		{"kind":"tile.create","args":{"template":"tool","path":"secret/t/sub"}},
+		{"kind":"tile.create","args":{"template":"tool","path":"secret"}},
+		{"kind":"tile.create","args":{"template":"tool","path":"users/alice/mcp"}}]`)
+	b := func(i int) string { return cs.Items[i].Blocked }
+	if b(0) != "no such template: secret/tpl" || b(1) != "no such template: secret/nope" {
+		t.Errorf("a template alice can't read, and one that isn't there:\n%q\n%q", b(0), b(1))
+	}
+	for i, path := range map[int]string{2: "secret/t", 3: "secret/t/sub", 4: "secret"} {
+		if want := "can't create " + path + ": the place is taken — pick another path"; b(i) != want {
+			t.Errorf("a place taken by a tile alice can't read: %q, want %q", b(i), want)
+		}
+	}
+	if b(5) != "users/alice/mcp already exists" {
+		t.Errorf("a place taken by a tile she can read is named: %q", b(5))
+	}
+	// the single creation's dry run and its request say the same
+	for body, want := range map[string]string{
+		`{"source":"secret/tpl","path":"apps/a1"}`: "no such template: secret/tpl",
+		`{"source":"tool","path":"secret/t/sub"}`:  "can't create secret/t/sub: the place is taken — pick another path",
+		`{"source":"tool","path":"secret/unused"}`: "",
+	} {
+		_, dry := w.do("POST", "/templates/new", body, both(agentOf("alice"), dryRun))
+		if want == "" && strings.Contains(dry, "secret/t") || want != "" && !strings.Contains(dry, want) {
+			t.Errorf("the dry run of %s: %s", body, dry)
+		}
+		if strings.Contains(dry, "existing component") || strings.Contains(dry, "no read access") {
+			t.Errorf("the dry run of %s names what alice can't see: %s", body, dry)
+		}
+	}
+}

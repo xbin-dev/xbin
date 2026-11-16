@@ -104,6 +104,15 @@ type templateNewPlan struct {
 // dry run and request (CreatePreview) and a change set's tile.create line
 // share it, so what one says the other does.
 func (b *Broker) templateNewCheck(p auth.Principal, body templateNewBody) (templateNewPlan, *refused) {
+	return b.templateNewCheckFor(p, body, p.Agent != "")
+}
+
+// templateNewCheckFor is templateNewCheck; quiet says the refusal is read
+// by a person's agent (a delegate's call, a plan's line): what it says must
+// not tell of tiles the person can't see — a template they can't read is
+// no template, a place taken by something they can't read is "taken", with
+// no name, and the state a removed tile left at a path is not listed.
+func (b *Broker) templateNewCheckFor(p auth.Principal, body templateNewBody, quiet bool) (templateNewPlan, *refused) {
 	if body.Source == "" {
 		return templateNewPlan{}, &refused{http.StatusBadRequest, "need {source, path?, owner?, partition?}", "/docs/protocol.md"}
 	}
@@ -117,7 +126,7 @@ func (b *Broker) templateNewCheck(p auth.Principal, body templateNewBody) (templ
 	plan := templateNewPlan{builtin: b.templates != nil && templateExists(b.templates, body.Source)}
 	if !plan.builtin {
 		c, ok := b.Reg.Component(body.Source)
-		if !ok || !c.IsTemplate() {
+		if !ok || !c.IsTemplate() || quiet && !b.attributedCanRead(p, c.Path) {
 			return templateNewPlan{}, &refused{http.StatusNotFound, "no such template: " + body.Source, ""}
 		}
 		plan.src = c
@@ -138,13 +147,21 @@ func (b *Broker) templateNewCheck(p auth.Principal, body templateNewBody) (templ
 	}
 	plan.owner = owner
 	if ok, msg := b.canCreateAt(p, plan.target, owner); !ok {
+		if quiet && strings.Contains(msg, "still carries state from a removed tile") {
+			// (the list of that state — grants, bindings — is an admin's to read)
+			msg = "can't create " + plan.target + ": the path still carries state from a removed tile — pick another path, or ask a workspace admin to clear it first"
+		}
 		return templateNewPlan{}, &refused{http.StatusForbidden, msg, "/docs/auth.md"}
 	}
 	if plan.src != nil && !b.attributedCanRead(p, plan.src.Path) {
 		return templateNewPlan{}, &refused{http.StatusForbidden, "instantiating copies the template — your account has no read access to " + plan.src.Path, "/docs/auth.md"}
 	}
 	if err := b.guardNewComponentTree(plan.target); err != nil {
-		return templateNewPlan{}, &refused{http.StatusConflict, err.Error(), ""}
+		msg := err.Error()
+		if tc := (*treeConflict)(nil); quiet && errors.As(err, &tc) && !b.attributedCanRead(p, tc.other) {
+			msg = "can't create " + plan.target + ": the place is taken — pick another path"
+		}
+		return templateNewPlan{}, &refused{http.StatusConflict, msg, ""}
 	}
 	if plan.builtin {
 		t, _ := b.templates.Get(body.Source)

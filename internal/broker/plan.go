@@ -207,14 +207,15 @@ func (b *Broker) previewTileCreate(p auth.Principal, op delegation.ChangeOp, pla
 		}
 	}
 	// the person's own creation rule first; an admin's right only when that refuses
-	plan, why := b.templateNewCheck(clamped(p), body)
+	plan, why := b.templateNewCheckFor(clamped(p), body, true)
 	if org, isOrg := strings.CutPrefix(owner, users.OwnerKindOrg+":"); why == nil && isOrg && !b.createsIn(p.UserID, org) {
 		// an admin's access says yes to every org; creating in one they hold
 		// no Create in is an admin's act, not their own
 		why = &refused{http.StatusForbidden, "creating tiles owned by org \"" + org + "\" needs the org's Create permission (or org admin)", "/docs/auth.md"}
 	}
 	if why != nil {
-		if full, whyFull := b.templateNewCheck(p, body); whyFull == nil {
+		// (quiet both times: the line is read by the agent's conversation too)
+		if full, whyFull := b.templateNewCheckFor(p, body, true); whyFull == nil {
 			plan, why, pv.Admin = full, nil, true
 		} else {
 			why = whyFull

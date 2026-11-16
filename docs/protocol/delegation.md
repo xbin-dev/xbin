@@ -159,7 +159,10 @@ handler's sentence in `refusal` and a code in `refusalCode` — `command` |
 creation would send) answers `create: {template, path, owner,
 partition?}` — where the tile would be made and whose it would be: under
 delegation a creation that names no owner is the person's (`user:<id>`),
-for an admin too. The same check runs when a request for the call is
+for an admin too. What a creation is refused for says nothing of tiles the person
+can't see: a template they can't read is "no such template", a place taken
+by a tile they can't read is "taken" with no name, and the state a removed
+tile left at a path is not listed. The same check runs when a request for the call is
 filed (403 instead of a request the person could only approve in vain;
 the request's `preview.create` carries the same answer, and the sheet's
 *Owner* row is drawn from it) and again when the approved call is made.
