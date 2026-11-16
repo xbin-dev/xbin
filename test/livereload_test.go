@@ -46,6 +46,15 @@ func TestZeroStateLifecycleFiles(t *testing.T) {
 		}
 		return out
 	}
+	// The baseline is the shared daemon's once it has put every tile it
+	// knows on record. A tile an earlier test made just before (TestTileImport's
+	// apps/gw2, "agent": "off") is in the registry at once, but its level is
+	// recorded in data/agent-levels.json by the watch loop's next batch —
+	// which this test's own tile would otherwise be the one to trigger. The
+	// component listing records every listed tile's level as it answers.
+	if c, b := get(t, "/api/xbin/components"); c != 200 {
+		t.Fatalf("components: %d %s", c, firstN(b, 200))
+	}
 	before := stores()
 	names := make([]string, 0, len(before))
 	for k := range before {
