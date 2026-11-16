@@ -140,6 +140,25 @@ func (r *agentRig) whoami(t *testing.T, id string) string {
 	return text
 }
 
+// logWith is the session's text log once it holds want. The host's stderr
+// reaches the log on its own reader, in no order with the events its stdout
+// carries (AgentLog is a debugging aid and promises none), so a read right
+// after the event a line came with can come before the line.
+func logWith(t *testing.T, m *Manager, id, want string) string {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		log, _ := m.AgentLog(id)
+		if strings.Contains(log, want) {
+			return log
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the session's text log never held %q: %q", want, log)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 // The saved sign-in reaches the agent's process alone, the session says
 // what it runs on, and nothing xbind keeps of the session holds the secret.
 func TestSigninInjected(t *testing.T) {
@@ -171,7 +190,7 @@ func TestSigninInjected(t *testing.T) {
 	if !bytes.Contains(all, []byte("Using your saved sign-in Personal.")) || bytes.Count(all, []byte(signinMask)) < 2 {
 		t.Fatalf("the notice, and the masked copies:\n%s", all)
 	}
-	if log, _ := r.m.AgentLog(id); strings.Contains(log, "FAKEFAKE") || !strings.Contains(log, "hook: CLAUDE_CODE_OAUTH_TOKEN="+signinMask) {
+	if log := logWith(t, r.m, id, "hook: CLAUDE_CODE_OAUTH_TOKEN="+signinMask); strings.Contains(log, "FAKEFAKE") {
 		t.Fatalf("the session's text log: %q", log)
 	}
 	// the host — PID 1 of the session's sandbox — doesn't hold it, nor does
@@ -814,7 +833,7 @@ func TestSigninRedactionOnTheJoinedStream(t *testing.T) {
 	if got := all.String(); leaks(got, fakeSavedToken) || strings.Count(got, signinMask) < 3 {
 		t.Fatalf("the events (the tool's base64 too):\n%s", got)
 	}
-	if log, _ := r.m.AgentLog(info.ID); leaks(log, fakeSavedToken) || !strings.Contains(log, "hook: "+signinMask) {
+	if log := logWith(t, r.m, info.ID, "hook: "+signinMask); leaks(log, fakeSavedToken) {
 		t.Fatalf("the session's text log: %q", log)
 	}
 	r.endSession(t, info.ID)
