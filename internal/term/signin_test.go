@@ -15,6 +15,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/signins"
 	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 )
@@ -815,6 +816,47 @@ func TestSigninRedactionOnTheJoinedStream(t *testing.T) {
 	}
 	if log, _ := r.m.AgentLog(info.ID); leaks(log, fakeSavedToken) || !strings.Contains(log, "hook: "+signinMask) {
 		t.Fatalf("the session's text log: %q", log)
+	}
+	r.endSession(t, info.ID)
+}
+
+// A workspace agent's approved start opens with exactly the sign-in the
+// approval named, live (review finding 3a): with it the session runs on
+// it; when it is gone since, the start is refused — not opened on another,
+// nor without; a start whose approval named none runs without.
+func TestSigninDelegateStartIsBoundToTheApprovedSignin(t *testing.T) {
+	r, f, _ := signinRig(t, "--require-login")
+	f.put("alice", "fake", "Personal", "CLAUDE_CODE_OAUTH_TOKEN", signins.KindSetupToken, fakeSavedToken)
+	signIn(t, r.root, "alice")
+	alice := termAdmin("alice")
+	t.Cleanup(auth.TestSealDelegate("xbin/wsagent"))
+	r.m.AgentPolicy = delegation.OpenPolicy{}
+	agentP := auth.Principal{UserID: "alice", User: alice.User, Via: "delegate", Agent: "xbin/wsagent"}
+	open := func(signin string) (SessionInfo, int, error) {
+		info, code, err := r.m.OpenAgentWith(agentP, AgentOpen{Cwd: "apps/x", Provider: "fake", Mode: "ask",
+			Delegate: &DelegateStart{Approved: true, Provider: "fake", Mode: "ask", Signin: signin}})
+		if err == nil {
+			r.until(t, func(e SessionEvent) bool {
+				return e.ID == info.ID && e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
+			})
+			info, _ = r.m.Info(info.ID)
+		}
+		return info, code, err
+	}
+	info, code, err := open("si_Personal")
+	if err != nil || info.Signin == nil || info.Signin.Source != SigninSaved {
+		t.Fatalf("approved with the sign-in named: %d %v %+v", code, err, info.Signin)
+	}
+	if rows := f.used(); len(rows) != 1 || rows[0].Origin != "agent" {
+		t.Fatalf("the use log: %+v", rows)
+	}
+	r.endSession(t, info.ID)
+	if _, code, err := open("si_gone"); err == nil || code != 403 || !strings.Contains(err.Error(), "ask again") {
+		t.Fatalf("approved with a sign-in that is gone: %d %v", code, err)
+	}
+	info, code, err = open("")
+	if err != nil || info.Signin == nil || info.Signin.Source == SigninSaved || !strings.Contains(info.Signin.Why, "approve a start that names it") {
+		t.Fatalf("approved, none named: %d %v %+v", code, err, info.Signin)
 	}
 	r.endSession(t, info.ID)
 }
