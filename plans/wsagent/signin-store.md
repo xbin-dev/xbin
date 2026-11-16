@@ -199,27 +199,35 @@ What is true of a session's sandbox (checked in `internal/term`):
   partitioned.
 
 So a co-user of a shared tile cannot *read* another person's session, but
-can change what that session runs — a shimmed `claude` in the layer, a
-hook in `.claude/settings.json` — and so reach its environment. The rule,
-enforced in `term.Manager.signinFor` (one function; the UI only repeats its
-answer):
+can change what that session runs — a hook in `.claude/settings.json`, a
+Makefile target, a script the agent is asked to run — and so reach its
+environment. The rule, enforced in `internal/term/signin.go`
+(`signinPlanFor` / `signinWhy`; the UI only repeats its answer):
 
 A saved sign-in is injected only when **all** hold:
 
 1. **The session is the person's own**: opened by their own signed-in
-   session, app or device, or by their workspace agent through the
-   delegation gate (D228: a start they approved, or one their preference
-   lets start unasked). Never a view-as session, never a component's
+   session, app or device. Never a view-as session, never a component's
    credentials (a tile's backend, frame, cron, an agent session's own
-   token), never the root token, never another person.
+   token), never the root token, never another person. A session the
+   person's **workspace agent** starts (D228) gets one only when the
+   person approved that start and the approval named the sign-in — never
+   by default, never on a start their preference lets through unasked
+   (below).
 2. **Sandboxes are on** (or the workspace is a development one, §2).
-3. **Nobody else can change what the sandbox runs**: either the tile is
-   partitioned and the session runs in the person's own partition (their
-   own layer, started in their `$HOME`, admins have no pass), or **no
-   other person holds terminal access to the tile**. Workspace admins
-   are not counted as "other people" here: they can already change any
-   tile's code, grants and the workspace itself, and are in the trust
-   base (D179 N20) — the table in §9 says what that leaves.
+3. **Nobody else can change the tile's code**: no other person who is not
+   a workspace admin holds **write level or more** on the tile, by any
+   source — ownership, an entry of their own, a pattern, an org's share
+   (`Broker.SigninOthers`, the one real answer; table-tested). The tile is
+   the **registered tile the session's directory lies in** (the
+   registry's resolver), never the directory as written: a session in
+   `apps/crm/src` is judged on `apps/crm`, and a directory in no tile gets
+   nothing. **Partitioned tiles are not exempt**: a partition isolates
+   data, and the tile's directory is bound read-write into every
+   partition's sessions. Workspace admins are not counted: they can
+   already change any tile's code, grants and the workspace itself, and
+   are in the trust base (D179 N20) — the table in §9 says what that
+   leaves.
 4. **The connector is not the only server allowed** (§4).
 5. The store can be read (vault open), the workspace policy allows saved
    sign-ins (§7), the tile's orgs allow the harness (D229, already checked
@@ -227,27 +235,48 @@ A saved sign-in is injected only when **all** hold:
 
 Where 3 fails the session starts **without** the saved sign-in and says
 why — "Your saved sign-in Personal isn't used here: bob, carol and 1 more
-can also open terminals on apps/crm and could change what your agent runs
-there" — and offers what works: the LLM connector where it can
-serve, or the tile's own login. The same reason is in `GET
-/agent/providers?tile=` before the session starts and on the brief's card.
+can also change apps/crm and could change what your agent runs there" —
+and offers what works: the LLM connector where it can serve, or the
+tile's own login. The same reason is in `GET /agent/providers?tile=`
+before the session starts and on the brief's card.
+
+**The workspace agent.** It steers a session it started and reads what
+the session prints (`tile_agent_result`), so a sign-in in such a session
+is, in effect, within its model's reach. A start's preview therefore says
+it in xbind's words: `preview.session` / a plan line's `start` carry
+`signIn: "saved"` and `signInId`; xbin's chrome (never the agent's page)
+draws "Uses your saved Claude Code sign-in ‹label›. The tile's coding
+agent will hold that sign-in: it, and anything it runs in ‹tile›, can read
+it", the label read from the person's own list; the ticket binds the id
+with the harness and the mode (`DelegateStart.Signin`), and the open uses
+exactly that sign-in or is refused. The agent's model is told that a
+saved sign-in exists (`start-defaults` `signIn: "saved"`, only for a
+start that needs approval) — never its label.
 
 And a session that carries a saved sign-in is **its person's alone**:
 `MayDrive`, the reattach rule and the event, log and diff reads refuse
 everyone else, admins included (they may still end it) — as on a
 partitioned tile (PD-09). Without this an admin would prompt the session to
-print its environment.
+print its environment. The mark is sticky (`sessionSignin.held`): it
+outlives the sign-in being taken away mid-run, goes into the session's
+history entry (`HistoryMeta.Signin`: view-as reads neither transcript nor
+first prompt, 403), and a session that resumes such a transcript is one
+too.
 
-The rule is evaluated at the session's start. If someone gains terminal
-access to the tile while a session with a saved sign-in runs, the session
-is ended with a notice (the broker's `OnPeopleChanged`, which already has
-delegation judged again when access changes, calls `Term.SigninSweep`);
-the next start is judged afresh.
+The rule is evaluated at the session's start, and a **restart never
+widens it**: the session keeps the choice it was opened with (none stays
+none; a named sign-in stays that one or becomes none; an agent-started
+session keeps exactly what it carried). If someone becomes able to change
+the tile while a session with a saved sign-in runs — or saved sign-ins
+are switched off — the session is ended with a notice (the broker's
+`OnPeopleChanged` and the policy route call `Term.SigninSweep`; a host
+file that turns them off is noticed at the next judgement); the next
+start is judged afresh.
 
 **What the rule costs** (measured on the UI harness's seed, where most
 tiles belong to an org whose members hold terminal level): a saved sign-in
-is used on the tiles a person works on alone, on partitioned tiles and in
-a one-person workspace — and on none of a team's shared tiles, where the
+is used on the tiles a person alone can change (others may hold read
+level) and in a one-person workspace — and on none of a team's shared tiles, where the
 card leads with the tile's own sign-in instead. A per-tile "use it here
 anyway" is the obvious next lever; it is the person's informed choice and
 the owner's call, and is not built.
@@ -357,9 +386,10 @@ sandbox runtime, the template) and needs its own review; the store's
 | At rest | no | no: `data/` is mounted in no sandbox | no | no | — | sealed (plaintext mode: in the clear) | not read |
 | Read routes | metadata of their own only | refused | — | refused | — | — | — |
 | Admin routes | — | refused | — | refused | — | — | — |
-| Spawn frame → adapter | no: own sandbox; not injected on a tile others can open a terminal on | **yes** — residual 1 | **yes** — residual 2 | no: redacted before events | redacted in the session log | history is redacted | — |
+| Spawn frame → adapter | no: own sandbox; not injected on a tile anyone else (non-admin) can change | **yes** — residual 1 | **yes**: it can run a command that prints it — residual 2 | **only for a start the person approved with the sign-in named — then yes**, through the session it steers — residual 7 | masked in the session log | history is masked | — |
 | Codex's `auth.json` | no: private `CODEX_HOME` in the session's `/tmp` | yes, as above | yes, as above | no | — | not in `$HOME`, so not in a backup of homes | — |
-| Session events, history | the person only (admins barred) | — | — | redacted where the secret appears whole in one event; a tool that splits or encodes it is not caught — residual 7 | redacted, the same way | redacted, the same way | reads redacted history |
+| Session events, history | the person only (admins and view-as barred, live and in history) | — | — | masked on the joined stream (value with separators, base64, hex, %XX; credential shapes) — lowers accidental exposure, **not a guarantee** — residual 7 | masked, the same way | masked, the same way | reads masked history |
+| The harness's own transcripts in `$HOME` (`~/.claude/projects`, `~/.codex/sessions`) | no | **a session of the person's on another tile can read them** — residual 9 | yes | through a session it steers | — | **unmasked**, in a backup of homes | — |
 | Use log, audit | the person; admins see metadata | no | no | no | ids and names only | no secret | — |
 
 Residual risks, stated:
@@ -367,11 +397,12 @@ Residual risks, stated:
 1. **The tile's code and the person's own session.** Anything that runs in
    the session's sandbox — the agent's tools, the project's hooks and
    scripts — can read the adapter's environment. On a tile only the
-   person (and admins) can open a terminal on, that code is theirs or an
+   person (and admins) can change, that code is theirs or an
    admin's; a tile imported from elsewhere can carry a hook. This is the
    same exposure the `$HOME` login has always had, with a narrower
    credential (a setup-token makes model requests only).
-2. **The harness's own model** sees what its tools print. It is the
+2. **The harness's own model can read the credential**: it can run a
+   command that prints its environment and read the output. It is the
    vendor the credential belongs to, except when a harness is pointed at
    another provider (OpenCode with several keys).
 3. **Workspace admins** can change a tile's layer or code before a person
@@ -385,12 +416,34 @@ Residual risks, stated:
    follow-up (`plans/workspace-agent.md` §4).
 6. **A running session** keeps its copy until xbind ends it; a vendor-side
    revoke is the person's.
-7. **Redaction is exact-match.** xbind masks the secret where it appears
-   whole in one event or log line. A tool told to print it in pieces or
-   encoded gets it into the transcript — which only its person can read,
-   and which their workspace agent's `tile_agent_result` could then quote.
+7. **Redaction is not a guarantee, and the workspace agent can get the
+   credential of a session it was approved to start with one.** xbind
+   masks the value on the joined text of each stream — with anything
+   between its characters, as base64 (any offset), hex or `%XX` — and
+   the harnesses' credential shapes (`signinredact.go`). That catches
+   accidents: a tool that printed its environment, `env | base64`. A
+   session that is *asked* to hand the credential over can do it in a
+   form nothing recognises (reversed, in words, across interleaved
+   streams). So the boundary is the approval, not the mask: the sheet
+   says the tile's coding agent will hold the sign-in, and nothing
+   starts with one unasked.
 8. **A team's shared tiles get nothing** from the store (§5), so people
    there keep using the `$HOME` login — the broader credential.
+9. **One `$HOME` for all of a person's tiles, and the harnesses keep
+   their own transcripts in it**, unmasked — Claude Code's
+   `~/.claude/projects/*.jsonl`, Codex's `sessions/` and `log/` (linked
+   into the private `CODEX_HOME` on purpose). If a tool printed the
+   credential in a session on a tile the person alone can change, a
+   session of theirs on a shared tile — which got no sign-in, but runs
+   the co-users' hooks — can read it from those files. A per-session
+   private state directory would close this and was not built: session
+   resume (`session/load`, D75) reads exactly those files, and the
+   person's settings, MCP servers and memory live beside them, so every
+   sign-in session would start as a first run and never resume. The
+   person's mitigation: don't have the agent print its environment; if it
+   did, remove the sign-in, revoke it at the vendor and delete that
+   transcript. Narrowing `$HOME` per tile (`plans/workspace-agent.md` §4)
+   is the real fix.
 
 ## 10. Routes, fields, settings
 
@@ -409,7 +462,7 @@ the root token, or a delegate (`PersonOnly`; delegation class `never`).
 | `POST /agent/signins/guided/{flow}` | person | `{code}` → 201 `{signin}` · 409 · 502 · 504 |
 | `DELETE /agent/signins/guided/{flow}` | person | cancel |
 | `GET /agent/signins/uses` | person | the use log, newest first |
-| `PUT /agent/signins/policy` | workspace admin | `{enabled}`; 409 when the host holds it |
+| `PUT /agent/signins/policy` | workspace admin | `{enabled}` → `{policy, ended}` (off ends the sessions running on one); 409 when the host holds it |
 | `GET /agent/signins/people` | workspace admin | counts and metadata per person |
 | `DELETE /agent/signins/people/{user}/{id}` | workspace admin | revoke one |
 
@@ -423,10 +476,10 @@ Additive fields elsewhere:
 - A session's row (`GET /term/sessions`, `term` events) and its first
   notice: `signin: {source, id?, name?, why?}`.
 - `GET /delegate/start-defaults`: each harness gains `signIn`
-  (`saved` | `own` | `connector` | `needed`) and `savedSignIn` (its name);
+  (`saved` | `own` | `connector` | `needed`) — no name, no id;
   the default harness prefers one that runs as things are, a saved
   sign-in included. A start's preview (`preview.session`, a plan line's
-  `start`) carries the same two.
+  `start`) carries `signIn` and `signInId`, which the ticket binds.
 - The agent's page and the chrome: `xbin:agent-open-signin {harness}` (page
   → chrome), `xbin:agent-signins` (chrome → page).
 - No hub event was added: the element reads the list again after its own

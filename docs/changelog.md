@@ -38,11 +38,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   sandboxes: Claude Code's token or key, OpenCode's provider key, and for
   Codex and Gemini the key handed over through the adapter's own
   `authenticate` (Codex's `auth.json` then lands in a `CODEX_HOME` of the
-  session's own, never in your home). Not on a tile someone else can open
-  a terminal on (unless it is partitioned: your partition is yours), not
-  where the connector alone may serve, never into a session opened by
-  view-as, a tile's credentials or the root token; the session then says
-  why and runs on the tile's own login or the connector. A login in
+  session's own, never in your home). Not on a tile someone else who isn't an
+  admin can change (write level or more, by any source; judged on the
+  registered tile the session's directory lies in; partitioned tiles
+  included — a partition keeps data apart, not code), not where the
+  connector alone may serve, never into a session opened by view-as, a
+  tile's credentials or the root token; the session then says why and
+  runs on the tile's own login or the connector. A session your workspace
+  agent starts gets one only when you approve a start whose sheet names
+  it ("Uses your saved … sign-in — the tile's coding agent will hold
+  that sign-in"): `preview.session.signInId`, bound by the ticket. What
+  xbind keeps or sends of a session that holds one is masked
+  (`[saved sign-in]`; the value on the joined stream, with separators,
+  base64, hex, `%XX`; credential shapes) — that lowers accidental
+  exposure and **is not a guarantee**: the coding agent, its model and
+  what it runs can read the credential, and the coding agent's own
+  transcripts in your home are not masked. A login in
   `$HOME` keeps working as before and is what a session uses when no saved
   sign-in goes in. Additive: `POST /term/sessions` takes `signin` (an id,
   `"none"`); a session's row and one of its first `notice` events carry
@@ -54,9 +65,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   admins**: a session that carries its person's saved sign-in is that
   person's alone — an admin's read or prompt of it is 403 (ending it is
   allowed) and its `session` events reach its person's sockets only, as
-  on a partitioned tile. A sign-in removed, replaced or revoked ends the
-  sessions running on it; so does someone gaining terminal access to the
-  tile. An admin-made credential for an account (a password set, a
+  on a partitioned tile — in history too (`signin: true` on the entry; an
+  admin viewing as the person reads no such transcript, 403). A sign-in
+  removed, replaced or revoked ends the sessions running on it; so does
+  someone else becoming able to change the tile, and the switch going off
+  (`PUT /agent/signins/policy` → `{policy, ended}`). A restart keeps the
+  sign-in a session was started with and never adds one. An admin-made credential for an account (a password set, a
   sign-in link, an SSO email) removes that person's saved sign-ins.
   `sdk/acp`: `Config.Credential`, `Credential`, `KeyHome`,
   `Provider.KeyHome`, `APIKeyMeta`.

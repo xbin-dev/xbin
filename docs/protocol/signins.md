@@ -82,10 +82,11 @@ person ([agent-signins.md](/docs/agent-signins.md)).
   "flows": [ {"id": "sf_91ab…", "harness": "claude", "url": "https://claude.com/cai/oauth/authorize?…", "paste": true, "expiresAt": 1794840900000} ] }
 ```
 
-- With `?tile=` (a tile you may open a terminal on) each harness carries
-  `here: {inject, why?}`: whether a session of yours on that tile would
-  get a saved sign-in of it — the shared-tile rule's answer, whether or not
-  you saved one yet — and why not.
+- With `?tile=` (a tile you may open a terminal on, or a directory inside
+  one — the rule is judged on the registered tile it lies in) each harness
+  carries `here: {inject, why?}`: whether a session of yours on that tile
+  would get a saved sign-in of it — the shared-tile rule's answer, whether
+  or not you saved one yet — and why not.
 - `harnesses` are the coding agents that take a credential xbind can keep
   (today: Claude Code, Codex, Gemini CLI, OpenCode). `guided` is true where
   the CLI has a sign-in that prints a long-lived credential — Claude Code's
@@ -195,13 +196,30 @@ the session; never a secret.
   | `none` | nothing was found: the agent will say it is signed out |
 
   `why` (with `id` and `name`) says why a saved sign-in the person has is
-  not used: other people can open a terminal on the tile, the connector
-  alone may serve there or was chosen, the vault is sealed, the switch is
+  not used: someone else who isn't an admin can change the tile's code
+  (write level or more — on a partitioned tile too), the session was
+  started by the person's workspace agent without an approval that named
+  the sign-in, the connector alone may serve there or was chosen, the vault is sealed, the switch is
   off, it expired, or the CLI is signed in on its own in this home (Codex).
 - `GET /agent/providers[?cwd=]` adds `saved: {id, name, kind, expiresAt?,
   inject, why?}` to a harness the caller has a default sign-in for:
   `inject` — a session of theirs on that tile would get it — and `why`
   not. Its `llm.use` reads `own` where a saved sign-in would serve.
+- A session that holds a saved sign-in has it masked in everything xbind
+  keeps or sends of it — events, history, the session's log,
+  `GET /delegate/sessions/<id>/result` — as `[saved sign-in]`: the value
+  on the joined text of each stream (a message, thinking, a tool's output
+  deltas), with anything between its characters, and its base64, hex and
+  `%XX` forms; credential-shaped strings (`sk-…`, `AIza…`, `gsk_…`,
+  `xai-…`) read `[redacted]`. A piece of a stream whose end could be the
+  start of a match is delivered with the next piece. **This lowers
+  accidental exposure and is not a guarantee**: the coding agent, its
+  model and what it runs hold the credential
+  ([agent-signins.md](/docs/agent-signins.md) → "Who can read it").
+- `POST /term/sessions/{id}/restart` keeps the sign-in the session was
+  started with and never adds one; `GET /agent/history` entries carry
+  `signin: true` for a session that ran on one, and an admin viewing as
+  the person reads no such transcript (403).
 - `GET /delegate/start-defaults` adds `signIn` per harness, and a start's
   preview `signIn` and `signInId`: a session a person's workspace agent
   starts gets a saved sign-in only where the person approved a start whose

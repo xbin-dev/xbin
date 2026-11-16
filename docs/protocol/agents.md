@@ -335,7 +335,9 @@ POST   /term/sessions/<id>/restart
                                    agent can (session/load; resumed true,
                                    its history entry superseded), else
                                    fresh (the transcript stays in
-                                   /agent/history). 403 with the reason,
+                                   /agent/history). Its saved sign-in is
+                                   what it was started with, never more
+                                   (none stays none). 403 with the reason,
                                    and the session keeps running, when its
                                    harness is no longer allowed on the tile
                                    (D229): a restart would end it and could
@@ -463,10 +465,17 @@ GET    /agent/history             terminal-level. Your past agent sessions,
                                    partition, and listed, read and deleted
                                    here the same way — never by a person
                                    recreated under the same id, nor by an
-                                   admin viewing as the person (404)
+                                   admin viewing as the person (404). An
+                                   entry of a session that ran on its
+                                   person's saved sign-in carries
+                                   signin:true; an admin viewing as them
+                                   gets it without preview
 GET    /agent/history/<id>/events terminal-level (own). {meta, events} — the
                                    persisted transcript in the live /events
-                                   shape; 404 when not yours or gone.
+                                   shape; 404 when not yours or gone; 403
+                                   for an admin viewing as the person when
+                                   the session ran on their saved sign-in
+                                   (DELETE too).
                                    ?before=&limit= → {meta, …a page} as on a
                                    live session
 DELETE /agent/history/<id>        terminal-level (own) → 204 (forget it)

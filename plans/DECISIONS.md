@@ -5565,15 +5565,26 @@ here: cut from the old end, never reword.
     can change what it runs: the tile's shared environment layer holds
     the binaries, the tile's directory the project's hooks. So a saved
     sign-in goes in only when the session is the person's own (their
-    sign-in, or their workspace agent's authorised start — never view-as,
-    a component, the root token), sandboxes are on, and nobody else can
-    change what the sandbox runs: a partitioned tile in the person's own
-    partition, or a tile no other person has terminal access to.
-    Otherwise it is left out, the session says why and offers the
-    connector or the tile's own login. `term.Manager.signinFor` decides;
-    the UI repeats it. A session that carries one is its person's alone —
-    admins get no pass to drive or read it, as on a partitioned tile — and
-    is ended when someone gains terminal access to its tile. Rejected:
+    sign-in — never view-as, a component, the root token), sandboxes are
+    on, and nobody else can change the tile's code: no other non-admin
+    holds write level or more, by any source, on the registered tile the
+    session's directory lies in (`Broker.SigninOthers`). Partitioned tiles
+    are not exempt — a partition isolates data, and the tile's directory
+    is bound read-write into every partition's sessions (the first cut
+    exempted them and judged the directory as written; the review of
+    2026-11-16 found both). A session the workspace agent starts gets one
+    only when the person's approval named it in xbind's words and the
+    ticket bound its id: the agent steers that session, so its model can
+    get the credential — redaction (the joined stream, separators,
+    base64/hex, credential shapes) lowers accidents and is not a
+    boundary; the approval is. Otherwise it is left out, the session says
+    why and offers the connector or the tile's own login.
+    `term.signinPlanFor` decides; the UI repeats it. A session that
+    carries one is its person's alone — admins and view-as get no pass to
+    drive or read it, live or in history — a restart never widens what it
+    was started with, and it
+    is ended when someone else becomes able to change its tile, or the
+    switch goes off. Rejected:
     injecting everywhere (the brief's worry is real: one hook in a shared
     tile takes a year-long token); counting admins as "other people" (in
     any workspace with two admins nothing would ever be injected, people
