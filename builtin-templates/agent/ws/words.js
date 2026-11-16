@@ -248,7 +248,9 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
     button: st === 'draft' ? (free ? W.start : W.reviewStart) : st === 'asked' ? W.review : '',
     runsOn, harnesses, picked: pickedId, none: !!sd && !sd.harness,
     // xbind says a session of the picked coding agent would start signed out (D230): sign in first, in xbin's own card
-    signin: needs ? { harness: needs.id, name: needs.name || harness(needs.id), button: `Sign in to ${needs.name || harness(needs.id)}…` } : null,
+    signin: needs ? { harness: needs.id, name: needs.name || harness(needs.id), button: `Sign in to ${needs.name || harness(needs.id)}…`,
+      // where no chrome can draw the sign-in (the app's native view): the truth, and where to go
+      elsewhere: `Needs your ${needs.name || harness(needs.id)} sign-in — set it up on the web: open this workspace in a browser and sign in to ${needs.name || harness(needs.id)} there. A saved sign-in is then used here too.` } : null,
     // only xbind's word that the mode asks (a harness's ask or plan mode) says it asks — unknown is not "asks"
     note: `This is what the tile agent is told first. What your agent sends it later isn’t approved message by message${sd && sd.asks === true ? ': the tile agent asks you before it acts.' : sd && sd.asks === false ? ', and in this mode it acts without asking you.' : '. Whether it asks you before it acts shows once xbin says what it runs on.'}`,
     edited: !!b.edited,

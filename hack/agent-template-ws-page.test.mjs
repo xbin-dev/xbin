@@ -183,7 +183,8 @@ test('the brief: the backend\'s button, what it runs on, the coding agents to pi
   const sd3 = { ...sd, needsSignIn: true, defaults: { harnesses: [{ id: 'claude', name: 'Claude Code', signIn: 'needed' }, { id: 'codex', name: 'Codex', noSignIn: true, signIn: 'connector' }] } };
   const needs = W.briefCard(b, undefined, sd3);
   assert.deepEqual(needs.harnesses.map((h) => h.name), ['Claude Code — needs your sign-in', 'Codex — no sign-in']);
-  assert.deepEqual(needs.signin, { harness: 'claude', name: 'Claude Code', button: 'Sign in to Claude Code…' });
+  assert.deepEqual([needs.signin.harness, needs.signin.name, needs.signin.button], ['claude', 'Claude Code', 'Sign in to Claude Code…']);
+  assert.match(needs.signin.elsewhere, /Needs your Claude Code sign-in — set it up on the web/, 'the app\'s native view has no sign-in card: it says where to go');
   const sd4 = { ...sd, defaults: { harnesses: [{ id: 'claude', name: 'Claude Code', signIn: 'saved', savedSignIn: 'Personal' }] } };
   assert.deepEqual(W.briefCard(b, undefined, sd4).harnesses.map((h) => h.name), ['Claude Code — your saved sign-in']);
   assert.equal(W.briefCard(b, undefined, sd4).signin, null);

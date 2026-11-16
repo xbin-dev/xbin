@@ -10,6 +10,14 @@ import Testing
         #expect(ps.contains { $0.id == "fake" })
     }
 
+    /// D230: the app has no guided sign-in, and says so — its button signs
+    /// in on the tile, and a card that needs a sign-in points at the web.
+    @Test func signInWordsSayTheTruth() {
+        #expect(AgentSignInWords.tileOnly.contains("on this tile") && AgentSignInWords.tileOnly.contains("on the web"))
+        #expect(AgentSignInWords.needed("Claude Code") == "Needs your Claude Code sign-in — set it up on the web.")
+        #expect(AgentSignInWords.needed("") == "Needs your sign-in to the coding agent — set it up on the web.")
+    }
+
     @Test func sessionAndSnapshot() throws {
         let f = try fixture("permissions")
         let s = try #require(f["session"].flatMap(SessionInfo.init(json:)))

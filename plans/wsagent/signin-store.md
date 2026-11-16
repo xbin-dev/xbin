@@ -148,7 +148,9 @@ session's harness (or the one the start names: `signin: "<id>"`; `signin:
   `CODEX_HOME` — a directory in the sandbox's own `/tmp` (a tmpfs that
   dies with the sandbox), holding links to everything in the person's
   `~/.codex` except `auth.json` — so the key file is never in the shared
-  `$HOME`; the host removes the directory when the adapter exits. If the
+  `$HOME`; the host removes the directory when the adapter exits (without
+  isolation the daemon makes and removes it, as it does a session's
+  attachments). If the
   person's `~/.codex/auth.json` exists (Codex signed in on its own on this
   home), the saved key is **not** used and the session says so: Codex
   would otherwise start signed in by the file and the chip would name the
@@ -224,9 +226,9 @@ A saved sign-in is injected only when **all** hold:
    by the start), the sign-in isn't expired.
 
 Where 3 fails the session starts **without** the saved sign-in and says
-why — "bob and 2 others can also open terminals on apps/crm and could
-change what your agent runs there, so your saved Claude Code sign-in isn't
-used on this tile" — and offers what works: the LLM connector where it can
+why — "Your saved sign-in Personal isn't used here: bob, carol and 1 more
+can also open terminals on apps/crm and could change what your agent runs
+there" — and offers what works: the LLM connector where it can
 serve, or the tile's own login. The same reason is in `GET
 /agent/providers?tile=` before the session starts and on the brief's card.
 
@@ -238,9 +240,17 @@ print its environment.
 
 The rule is evaluated at the session's start. If someone gains terminal
 access to the tile while a session with a saved sign-in runs, the session
-is ended with a notice (the people sweep that already judges delegation
-again when access changes calls `Term.SigninAccessChanged`); the next
-start is judged afresh.
+is ended with a notice (the broker's `OnPeopleChanged`, which already has
+delegation judged again when access changes, calls `Term.SigninSweep`);
+the next start is judged afresh.
+
+**What the rule costs** (measured on the UI harness's seed, where most
+tiles belong to an org whose members hold terminal level): a saved sign-in
+is used on the tiles a person works on alone, on partitioned tiles and in
+a one-person workspace — and on none of a team's shared tiles, where the
+card leads with the tile's own sign-in instead. A per-tile "use it here
+anyway" is the obvious next lever; it is the person's informed choice and
+the owner's call, and is not built.
 
 ## 6. The consumer interface (designed; not built in this change)
 
@@ -349,7 +359,7 @@ sandbox runtime, the template) and needs its own review; the store's
 | Admin routes | — | refused | — | refused | — | — | — |
 | Spawn frame → adapter | no: own sandbox; not injected on a tile others can open a terminal on | **yes** — residual 1 | **yes** — residual 2 | no: redacted before events | redacted in the session log | history is redacted | — |
 | Codex's `auth.json` | no: private `CODEX_HOME` in the session's `/tmp` | yes, as above | yes, as above | no | — | not in `$HOME`, so not in a backup of homes | — |
-| Session events, history | the person only (admins barred) | — | — | redacted | redacted | redacted | reads redacted history |
+| Session events, history | the person only (admins barred) | — | — | redacted where the secret appears whole in one event; a tool that splits or encodes it is not caught — residual 7 | redacted, the same way | redacted, the same way | reads redacted history |
 | Use log, audit | the person; admins see metadata | no | no | no | ids and names only | no secret | — |
 
 Residual risks, stated:
@@ -375,6 +385,12 @@ Residual risks, stated:
    follow-up (`plans/workspace-agent.md` §4).
 6. **A running session** keeps its copy until xbind ends it; a vendor-side
    revoke is the person's.
+7. **Redaction is exact-match.** xbind masks the secret where it appears
+   whole in one event or log line. A tool told to print it in pieces or
+   encoded gets it into the transcript — which only its person can read,
+   and which their workspace agent's `tile_agent_result` could then quote.
+8. **A team's shared tiles get nothing** from the store (§5), so people
+   there keep using the `$HOME` login — the broader credential.
 
 ## 10. Routes, fields, settings
 
@@ -384,36 +400,44 @@ the root token, or a delegate (`PersonOnly`; delegation class `never`).
 
 | Route | Who | What |
 |---|---|---|
-| `GET /agent/signins` | person | `{available, why?, unisolated?, vault, policy: {enabled, locked?, reason?}, notice?, harnesses: [{id, name, guided, keys: [{env, label, kind}], max, signins: [meta]}], flows: [{id, harness, url, paste, expiresAt}]}` |
+| `GET /agent/signins[?tile=]` | person | `{available, why?, unisolated?, vault, policy: {enabled, locked?, reason?}, notice?, admin?, harnesses: [{id, name, guided, keys: [{env, label, kind}], login, max, signins: [meta], here?: {inject, why?}}], flows: [{id, harness, url, paste, expiresAt}]}` — `here`: the rule's answer for that tile, whether or not a sign-in is saved yet |
 | `POST /agent/signins` | person | paste: `{harness, secret, name?, default?}` → 201 `{signin}` |
 | `PUT /agent/signins/{id}` | person | `{name?, default?: true, secret?}` → `{signin}` |
 | `DELETE /agent/signins/{id}` | person | → `{ok, ended}` (sessions ended) |
+| `DELETE /agent/signins/notice` | person | the notice was read |
 | `POST /agent/signins/guided` | person | `{harness, name?, default?}` → 202 `{flow}` |
 | `POST /agent/signins/guided/{flow}` | person | `{code}` → 201 `{signin}` · 409 · 502 · 504 |
 | `DELETE /agent/signins/guided/{flow}` | person | cancel |
 | `GET /agent/signins/uses` | person | the use log, newest first |
-| `GET /agent/signins/policy` | any signed-in person | `{enabled, locked?, reason?}` |
 | `PUT /agent/signins/policy` | workspace admin | `{enabled}`; 409 when the host holds it |
 | `GET /agent/signins/people` | workspace admin | counts and metadata per person |
 | `DELETE /agent/signins/people/{user}/{id}` | workspace admin | revoke one |
 
 Additive fields elsewhere:
 
-- `GET /agent/providers[?tile=]`: each provider gains `saved: {has,
-  name?, id?, kind?, expiresAt?, inject, why?}` for the caller (`inject`:
-  a session of theirs on `tile` would get it; `why`: why not).
+- `GET /agent/providers[?cwd=]`: a provider the caller has a default
+  sign-in for gains `saved: {id, name, kind, expiresAt?, inject, why?}`
+  (`inject`: a session of theirs on that tile would get it; `why`: why
+  not), and every provider xbind keeps sign-ins for `savable: true`.
 - `POST /term/sessions`: `signin` (`"<id>"` | `"none"`).
 - A session's row (`GET /term/sessions`, `term` events) and its first
   notice: `signin: {source, id?, name?, why?}`.
 - `GET /delegate/start-defaults`: each harness gains `signIn`
   (`saved` | `own` | `connector` | `needed`) and `savedSignIn` (its name);
   the default harness prefers one that runs as things are, a saved
-  sign-in included.
-- Events: `signins` (to the person's own sockets) when their list
-  changes; `signins-policy` when the switch does.
+  sign-in included. A start's preview (`preview.session`, a plan line's
+  `start`) carries the same two.
+- The agent's page and the chrome: `xbin:agent-open-signin {harness}` (page
+  → chrome), `xbin:agent-signins` (chrome → page).
+- No hub event was added: the element reads the list again after its own
+  changes, and a session's row changing is the existing `term` event.
 - The host's file: `"agentSignIns": bool`.
 - `sdk/acp`: `guided.go` (`Guided`, `GuidedExec`, `CleanCode`,
-  `MintCommand`), `Config.Injected`, `Config.APIKey`.
+  `MaskCredentials`, `MintCommand`), `Config.Credential` (`Credential`:
+  the key an adapter wants through `authenticate`, and where its refusal
+  goes), `Provider.KeyHome`, `APIKeyMeta`.
+- `internal/confine`: `StartTTY` — Run's sandbox, interactive, on a
+  terminal.
 
 ## 11. The sign-in UI
 
@@ -454,7 +478,23 @@ sign-in is used transparently; a native guided flow is not in scope.
 7. policy, admin, lifecycle;
 8. docs and changelog.
 
+**State (2026-11-16).** Built: 1–5, 7, 8, and of 6 Codex's and Gemini's
+key through `authenticate` with Codex's private `CODEX_HOME` and
+OpenCode's provider key from the environment — all against the scripted
+agent, none against a real CLI. In the workspace agent: the brief's card,
+the approval sheet and a plan's start line say what the session signs in
+with and offer the chrome's card.
+
 Not built in this change, each said where it would be expected: the
-consumer interface (§6); a native guided flow on iOS; `bx` commands for
-the store; moving the agent template's `harness_guided.go` onto
-`sdk/acp/guided.go` (the driver is written so it can).
+consumer interface (§6) — an agent-template instance keeps its own store
+exactly as before; a native guided flow on iOS (the app says "set it up on
+the web" and uses a saved sign-in like any client); `bx` commands for the
+store; moving the agent template's `harness_guided.go` onto
+`sdk/acp/guided.go` (the driver is written so it can); a per-tile opt-in
+for shared tiles (§5).
+
+Not verified: a real `claude setup-token` (its success lines are as
+captured for D179, where the capture ends at the code prompt), real
+Codex, Gemini and OpenCode adapters with a saved key, a VM sandbox with a
+saved sign-in (the path is the namespace sandbox's: the spawn frame), the
+dock's sign-in overlay and the approval sheet's card in a browser.
