@@ -537,3 +537,78 @@ func TestSigninConnectorChosen(t *testing.T) {
 		t.Fatal("a session on the connector carries the sign-in")
 	}
 }
+
+// The rule is judged on the tile a session's directory lies in, never on
+// the directory as written (review finding 1): bob has access to apps/x —
+// which an exact lookup of "apps/x/src" would miss — and a session alice
+// opens in apps/x/src runs apps/x's hooks all the same. The sweep and the
+// launcher's answer resolve it too; a directory in no registered tile gets
+// nothing.
+func TestSigninRuleJudgesTheTileADirectoryLiesIn(t *testing.T) {
+	r, f, _ := signinRig(t, "--require-login")
+	f.put("alice", "fake", "Personal", "CLAUDE_CODE_OAUTH_TOKEN", signins.KindSetupToken, fakeSavedToken)
+	prov, _ := agent.Lookup("fake")
+	m := r.m
+	var asked []string
+	shared := true
+	m.TileAt = func(rel string) (string, bool) {
+		if rel == "apps/x" || strings.HasPrefix(rel, "apps/x/") {
+			return "apps/x", true
+		}
+		return "", false
+	}
+	m.SigninOthers = func(user, tile string) []string { // as the real one: by the tile's own path
+		asked = append(asked, tile)
+		if shared && tile == "apps/x" {
+			return []string{"bob"}
+		}
+		return nil
+	}
+	alice := termAdmin("alice")
+	for _, dir := range []string{"apps/x", "apps/x/src", "apps/x/src/deep/er"} {
+		pl := m.signinPlanFor(alice, openOpts{}, dir, prov, "", false, false)
+		if pl.saved == nil || !strings.Contains(pl.why, "bob can also") || !strings.Contains(pl.why, "apps/x ") {
+			t.Errorf("a session in %s: %+v", dir, pl)
+		}
+		if why := m.SigninRule(alice, dir, prov); !strings.Contains(why, "bob can also") {
+			t.Errorf("the launcher's answer for %s: %q", dir, why)
+		}
+	}
+	for _, a := range asked {
+		if a != "apps/x" {
+			t.Fatalf("the others were asked about %q, not the tile", a)
+		}
+	}
+	if pl := m.signinPlanFor(alice, openOpts{}, "apps/nowhere/src", prov, "", false, false); pl.why == "" {
+		t.Fatal("a directory in no registered tile got the sign-in")
+	}
+
+	// the sweep: a session opened in a subdirectory while alice was alone
+	// there is ended once bob can change the tile
+	if err := os.MkdirAll(filepath.Join(r.root, "apps", "x", "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shared = false
+	info, code, err := m.OpenAgentWith(alice, AgentOpen{Cwd: "apps/x/src", Provider: "fake"})
+	if err != nil || code != 200 {
+		t.Fatalf("open in a subdirectory: %d %v", code, err)
+	}
+	r.until(t, func(e SessionEvent) bool {
+		return e.ID == info.ID && e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
+	})
+	if row, _ := m.Info(info.ID); row.Signin == nil || row.Signin.Source != SigninSaved {
+		t.Fatalf("alone on the tile: %+v", row.Signin)
+	}
+	shared = true
+	if n := m.SigninSweep(); n != 1 {
+		t.Fatalf("bob can change apps/x now: the sweep ended %d session(s) in apps/x/src", n)
+	}
+	_, st, err := m.agentOf(info.ID)
+	if err == nil {
+		select {
+		case <-st.gone:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the session did not end")
+		}
+	}
+}

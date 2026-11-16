@@ -251,10 +251,27 @@ func (m *Manager) signinWhy(p auth.Principal, o openOpts, rel string, prov agent
 	case m.SigninOthers == nil:
 		return "xbind can't tell who else may open a terminal on " + rel
 	}
-	if others := m.SigninOthers(p.UserID, rel); len(others) > 0 {
-		return othersWords(others) + " can also open terminals on " + rel + " and could change what your agent runs there"
+	// the tile the directory lies in, never the directory as written: a
+	// person's access is to the tile, and its hooks run in every directory
+	// of it
+	tile, ok := m.signinTile(rel)
+	if !ok {
+		return rel + " is in no registered tile, so xbind can't tell who else can change what runs there"
+	}
+	if others := m.SigninOthers(p.UserID, tile); len(others) > 0 {
+		return othersWords(others) + " can also open terminals on " + tile + " and could change what your agent runs there"
 	}
 	return ""
+}
+
+// signinTile is the registered tile a session's directory is or lies in
+// (TileAt: the registry's Resolve) — what the rule is judged on. false: in
+// none. Without a registry (tests) the path is its own tile.
+func (m *Manager) signinTile(rel string) (string, bool) {
+	if m.TileAt == nil {
+		return rel, rel != ""
+	}
+	return m.TileAt(rel)
 }
 
 // othersWords names up to two people and counts the rest.
@@ -484,8 +501,14 @@ func (m *Manager) SigninSweep() int {
 		if !carries || s.part.personal() {
 			continue
 		}
-		if others := m.SigninOthers(user, s.Cwd); len(others) > 0 {
-			m.endForSignin(s, othersWords(others)+" can now open terminals on "+s.Cwd+", so this session — which ran on your saved sign-in — was ended. Start it again: it will say what it runs on.")
+		tile, ok := m.signinTile(s.Cwd)
+		if !ok { // its tile is gone from the registry: nothing vouches for it any more
+			m.endForSignin(s, s.Cwd+" is no longer a registered tile, so this session — which ran on your saved sign-in — was ended.")
+			n++
+			continue
+		}
+		if others := m.SigninOthers(user, tile); len(others) > 0 {
+			m.endForSignin(s, othersWords(others)+" can now open terminals on "+tile+", so this session — which ran on your saved sign-in — was ended. Start it again: it will say what it runs on.")
 			n++
 		}
 	}
