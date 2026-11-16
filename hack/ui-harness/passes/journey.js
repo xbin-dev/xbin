@@ -232,15 +232,6 @@ async function firstRunSheet(J, page, who, { agent = true } = {}) {
   }, { note: 'makes the admin account, signs this browser in as it, sets up the vault' + (agent ? ', turns the workspace agent on for this person ("Just me")' : '') });
   return focused;
 }
-/** vaultSetup(J, page): the admin console's banner → a passphrase, twice → set. */
-async function vaultSetup(J, page) {
-  const admin = await tileFrame(page, 'tiles/admin');
-  await J.click('admin tile: the "VAULT UNCONFIGURED" banner', () => admin.locator('text=VAULT UNCONFIGURED').click());
-  await J.field('vault: a new passphrase', () => admin.locator('input[placeholder="new vault passphrase"]').fill('journey-vault-passphrase'));
-  await J.field('vault: the passphrase again', () => admin.locator('input[placeholder="repeat"]').fill('journey-vault-passphrase'));
-  await J.click('vault: "set passphrase & unseal"', () => admin.locator('button', { hasText: 'set passphrase & unseal' }).click());
-  await J.wait('the vault is unsealed', () => admin.waitForSelector('text=unsealed — encryption at rest active', { timeout: 20000 }));
-}
 /** makeTile(J, page, name): the Tile Manager's create tab (the one it opens on) → a static tile. */
 async function makeTile(J, page, name) {
   const m = await tileFrame(page, 'tiles/manager');
@@ -288,4 +279,4 @@ async function servesDice(ctx, X) {
   return { ok: false, status };
 }
 
-module.exports = { REPO, URL, DICE, servesDice, BUILD, ASK, ROLLED, noJourney, boot, plant, journey, openPage, tileFrame, shellUp, firstLogin, firstRunSheet, vaultSetup, makeTile, makeFromTemplate, openFromSidebar, askAssistant };
+module.exports = { REPO, URL, DICE, servesDice, BUILD, ASK, ROLLED, noJourney, boot, plant, journey, openPage, tileFrame, shellUp, firstLogin, firstRunSheet, makeTile, makeFromTemplate, openFromSidebar, askAssistant };

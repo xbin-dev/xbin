@@ -537,7 +537,8 @@ and finding the banner costs the same five.
 interactions to an agent with its message box focused (name, password, the
 button), so §4's target becomes reachable once G1 + G2 land: 12, or 10.
 
-**What the sheet keeps** (`firstRun` asserts each): only the owner token's
+**What the sheet keeps** (`firstRun` and `internal/server/firstrun_test.go`
+assert each): only the owner token's
 browser session in a workspace with no accounts sees it (`GET /first-run`);
 an existing workspace, `--dev` and `--no-auth` never do; "Not now" is
 per-browser; the account is an ordinary admin from `POST /users`; the swap
