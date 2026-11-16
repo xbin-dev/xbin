@@ -559,10 +559,10 @@ public enum DelegationWords {
     }
 
     public static func standingRow(_ a: StandingApproval, now: Date = Date()) -> StandingRow {
-        let name = lastOf(a.tile)
+        let name = a.serverName.isEmpty ? lastOf(a.tile) : a.serverName, outside = a.serverName.isEmpty ? "" : " — outside this workspace (\(a.serverHost))"
         return StandingRow(
             tile: name.isEmpty ? a.tile : name,
-            text: a.scope == "tile" ? "Always · every change" : a.scope == "tool" ? "Always · this tool: \(a.path)"
+            text: a.scope == "tile" ? "Always · every change" : a.scope == "tool" ? "Always · this tool: \(a.path)\(outside)"
                 : "Always · this action: \(a.method) \(a.path)".trimmingCharacters(in: .whitespaces),
             wider: a.scope == "tile",
             until: a.until.map { $0 > now ? "ends in \(left($0.timeIntervalSince(now)))" : "ended" } ?? "until you take it back")

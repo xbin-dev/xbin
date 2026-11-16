@@ -25,6 +25,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/mcpclient"
 	"github.com/xbin-dev/xbin/internal/preview"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/signins"
@@ -94,6 +95,7 @@ type Server struct {
 	// delegation route names (delegateapi.go). Never set in production.
 	DelegationDev bool
 	delegateRT    delegateRuntime // the gate's rate limit and running calls
+	mcpExt        mcpExtRuntime   // xbind's sessions with outside MCP servers (mcpext.go)
 	docsIx        docsIndex       // the docs search index, built at first use (docsapi.go)
 	// delegationGate is the off-switch check (SetDelegationGate, DelegationOff)
 	delegationGate func(holder, user string) error
@@ -122,6 +124,10 @@ type Server struct {
 	// (delegateweb.go): nil is the real one; tests give a resolver and a
 	// local server's address. Its Check is always the server's.
 	WebFetch *webfetch.Fetcher
+	// MCPClient is the client outside MCP servers are spoken to with
+	// (mcpext.go, D240): nil is the real one; tests give a resolver and
+	// their server's CA.
+	MCPClient *mcpclient.Client
 	// OwnHost reports a hostname this workspace's tiles are published at
 	// (ingress): a workspace agent's fetch never names one. nil: none.
 	OwnHost func(host string) bool

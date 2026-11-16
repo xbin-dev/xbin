@@ -106,6 +106,9 @@ func loadHost(path string) (*hostConfig, error) {
 		}
 		h.keys[name] = key
 	}
+	if err := hostServerSecrets(h, path); err != nil {
+		return nil, fmt.Errorf("XBIN_LLM_CONFIG %s: %w", path, err)
+	}
 	return h, nil
 }
 

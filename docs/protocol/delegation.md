@@ -453,7 +453,7 @@ host and path with `?…` for a query, `bytes`, `status`).
 An **MCP tile** is one whose manifest provides an `http` interface of
 service `mcp` (`"provides": {"mcp": {"kind": "http", "service": "mcp"}}`);
 its endpoint is `/api/<tile>/mcp`. With the workspace policy's `mcp.mode`
-at `tiles` and the person's `mcp` on, the agent uses it as its person, by
+at `tiles` or `listed` and the person's `mcp` on, the agent uses it as its person, by
 two ways — each judged by xbind, under the tile's own rules (the person's
 level on it, its `"agent"` level, its orgs' rules, the session's scope):
 
@@ -537,8 +537,149 @@ what xbind judged.
   tile, the ticket or `under`); a read on the endpoint is `class:
   "mcp-read"`.
 - `GET /delegate/map` marks an MCP tile's row `mcp: true`.
-- **Not yet**: `mcp.mode: "listed"` — servers an admin lists by URL, with
-  credentials xbind holds — is refused (`400 "not available yet"`).
+
+### Outside MCP servers
+
+With `mcp.mode` at `listed` the agent also uses the MCP servers outside
+the workspace that an admin **lists by URL** (D240). xbind holds their
+credentials and is their client: the agent's sandbox keeps its network to
+its model, and nothing of a server's — its address beyond its host, its
+secret, its session — reaches the agent, its page or the model.
+
+**The list** is `mcp.servers` of `PUT /delegate/workspace`, the whole list
+at once (at most 50), each:
+
+| Field | |
+|---|---|
+| `id` | `[a-z0-9][a-z0-9-]{0,31}`, unique: the agent names the server `ext:<id>` (a `server` starting `ext:` is never a tile) |
+| `name` | what people and the model read (≤ 80 bytes, one line) |
+| `url` | the server's streamable-HTTP endpoint: `https`, no user name or password, a host that is a name or a canonical address, never one of the workspace's own hosts; `http` only with `plainHttp: true` — the secret and every argument then cross the network in the clear |
+| `auth` | `none` (the default), `bearer` (`Authorization: Bearer <secret>`) or `header` (the secret as the value of `header`, a header xbind doesn't set itself — not `Host`, `Content-*`, `Accept*`, `Mcp-*`, `Cookie`, `User-Agent`, `Connection` and their like) |
+| `secret` | **write-only**: absent keeps the stored one — unless the URL changed at all (path and query included: a shared host routes by path), when it must be given again; a stored secret is kept with the URL it was given for, and xbind never sends it with another — `""` removes it; one line, ≤ 4 KiB. A read says `hasSecret` |
+| `note` | the admin's words, shown to people and the agent (≤ 500 bytes) |
+| `orgs` | `[]`: everyone given an agent; else org ids — only their active members see the server (to anyone else it doesn't exist: not listed, `404` on a call), and for those orgs' `mcp` rule it counts as theirs |
+| `privateNetwork` | its addresses may be private, loopback or xbind's own host's — say so only for a server you run on your network; link-local (the cloud metadata address), multicast and unspecified stay refused |
+| `trustReadOnly` | its `readOnlyHint` counts for a person's "read-only tools don't ask me" (off: an outside server's tools always ask the first time — its mark is an outsider's claim) |
+
+Secrets are kept apart from the list, in `data/delegation/mcp-secrets.json`,
+sealed under the vault barrier as the LLM connector's upstream keys are: a
+write with a secret is `409 {refusal: "vault"}` while the vault is sealed
+or not set up (only the plaintext vault mode keeps it in the clear). A
+secret is never in an answer, a log line or the audit log, and whatever a
+server answers is scrubbed of it.
+
+```
+GET    /delegate/mcp/servers    the person's agent. {servers: [{server:
+                                 "ext:<id>", name, host, note?,
+                                 trustReadOnly, state, why?, code?,
+                                 orgs?}], code?, why?}: the outside
+                                 servers its person sees, with the
+                                 conversation's state for each — on (by
+                                 the ordinary approvals), asks (each call
+                                 asks: the conversation holds data of
+                                 orgs), off (an org's rule); [] while MCP
+                                 is off for the conversation
+POST   /delegate/mcp/tools      the person's agent. {server: "ext:<id>"}
+                                 → {server, name, host, outside: true,
+                                 tools: [{name, title?, description?,
+                                 readOnly, inputSchema?}]}: xbind's
+                                 initialize and tools/list. Free — it
+                                 sends nothing of the conversation —
+                                 counted against the MCP limit
+POST   /delegate/mcp/call       (§MCP tiles) with server "ext:<id>": the
+                                 answer adds name, host, outside: true
+POST   /delegate/mcp/test       admin. {id} → {ok, server: {id, name,
+                                 host}, protocolVersion?, serverInfo?,
+                                 tools?, refusal?, error?, said?, page?},
+                                 always 200 (page: an excerpt of its error
+                                 page, scrubbed):
+                                 initialize and tools/list as the admin,
+                                 no session kept (the card's Test)
+```
+
+**What xbind sends a server.** Every message is built by xbind from what
+it judged (a tool's arguments read strictly, as for a tile), `POST`ed to
+the listed URL alone with `Content-Type: application/json`, `Accept:
+application/json, text/event-stream`, the fixed `User-Agent`, the
+credential, and after `initialize` (and its `notifications/initialized`)
+`Mcp-Session-Id` and `MCP-Protocol-Version`. Never a cookie or a
+`Referer`, never through a proxy of the environment. The URL's host is the
+one name dialled, through the web's dialer: its addresses checked when the
+socket connects — public ones only, unless the server is marked
+`privateNetwork` — and TLS verified. A redirect is followed only to the
+same scheme, host and port (`307`/`308`, at most 3); any other is
+`mcp-redirect`. xbind never opens the server's `GET` stream.
+
+**What xbind reads.** At most 1 MiB of an answer, in 20 s (`initialize`,
+`tools/list`) or 60 s (`tools/call`): JSON — one response, never a batch
+— or an event stream, read event by event until the response to the
+request. Notifications are skipped; **a request from the server**
+(sampling, elicitation, roots, a ping: a message with a method and an id)
+ends the call (`mcp-protocol`) — xbind is a client for tools and answers
+no server. The session (`Mcp-Session-Id`) is xbind's, one per person,
+server and conversation, kept 30 minutes unused; it is never in an
+answer, and a server that forgets it (`404`) gets a new one once.
+
+**A call is judged** as a tile's tool is (each tool asks the first time;
+`grant: "always" | "hour"` leaves a standing approval of `scope: "tool"`
+pinned to the tool's definition; a changed definition asks again) — and
+as a URL is, because its arguments leave the workspace: while the
+conversation holds data of an org whose `mcp` rule is `any` (the default)
+and the server isn't listed with that org, **each call asks** — no
+standing approval covers it, the request says so (`preview.each: true`,
+`orgs`, `why`) and `hour`/`always` are refused (`400`). An org whose rule
+is `listed` trusts the list; `org` keeps such a conversation to the MCP
+servers under it (its tiles, and the outside servers listed with it);
+`never` keeps it from every MCP server (`403 mcp-org`, the tool leaves
+the conversation's list). A server's `readOnlyHint` lets a tool through
+the person's `mcpReadOnly` only where the admin set `trustReadOnly`.
+
+What is allowed is kept under the server's id and a hash of its URL: a
+server whose address changes — or another server given the same id — is
+one nobody allowed yet, and the sweep drops the approvals of a server no
+longer listed or no longer visible to its person.
+
+The request is `kind: "mcp"` with `preview {class: "mcp", server:
+"ext:<id>", serverName, host, outside: true, tool, title?, description,
+readOnly, readOnlyTrusted, arguments, pin, changed, note?, standing?:
+{tool}, each?, orgs?, why?}` — `host` written by xbind from the listed
+URL: show it as "Outside this workspace: <host>".
+
+**What a server answers** is untrusted input from outside the workspace:
+it taints the conversation with no org (it isn't the workspace's data) and
+marks it `web: true` — "has read the web or an outside server" — so every
+later request says so (`preview.readWeb`). The session's reach counts the
+servers it may use (`reach.mcp.listed`).
+
+**xbind's words, the server's apart.** A refusal's `error` is always
+xbind's own sentence: nothing a server wrote is in it, nor in the log's
+`refused`. What the server itself wrote that the agent may read — a
+JSON-RPC error's message, the method of a request it sent, where it
+redirects (scheme and host) — comes apart as `said`, scrubbed, for the agent
+to show as the server's words; an excerpt of its error page only ever
+reaches the admin's Test (`page`). A conversation is marked as having read
+the server as soon as anything came back from it, a refusal included. No
+answer outside the admin's own card and Test says a server's URL beyond its
+scheme and host — a path or a query can hold the credential — and every
+part of them twelve bytes or longer is scrubbed, with the secret, from
+whatever the server answers (as written, JSON-escaped, percent-encoded).
+
+Every exchange with an outside server — a list, a call, a call's dry run,
+a request's filing (both ask the server for the tool) — is counted against
+the MCP limit, before a ticket is spent; a dry run pins no definition. A
+call in flight ends with what allowed it, as every delegate call does (a
+pause cuts it at once).
+
+Refusals beside §MCP tiles': `mcp-error` (502: the server answered a
+JSON-RPC error; its message in `said`), `mcp-server` (404: no such server for this
+person), `mcp-address` (403), `mcp-redirect`, `mcp-auth` (the server
+refused xbin's credentials), `mcp-protocol` (an answer too long, not
+MCP, or a request from the server), `mcp-unreachable` (502),
+`mcp-timeout` (504), `mcp-sealed` (503: the vault is sealed, the secret
+can't be read). Every list and call is a row of the person's log —
+`class` `mcp-read` or `mcp`, `server`, `tool`, `path` the URL's scheme and
+host (never its path: a URL can hold a token), `bytes`, `status`; never an
+argument's value, never a secret.
 
 ### The host's file
 
@@ -568,6 +709,21 @@ that is invalid; a bad change is refused and the last good file stays):
 - `web.allow` and `web.deny` always hold, beside the admin's own lists;
   they lock nothing (`policy.web.hostAllow`, `hostDeny`). `host: {web?,
   mcp?}` in the view is what the file sets.
+- `mcp.servers` — the outside MCP servers — **locks outright** when the
+  file names it (`[]` too): the list in force is the host's, the admin's
+  is kept but unused, and a `PUT` of it is `409 {settings:
+  ["mcp.servers"]}`. A server's secret is named, never written: `secretFile`
+  (one line, relative to the file, read again when it changes — as an
+  upstream's `keyFile`) or `secretEnv` (an environment variable of xbind's,
+  read when the file loads); one that can't be read stops the boot.
+
+```jsonc
+"mcp": { "mode": "listed", "servers": [
+  { "id": "tracker", "name": "Issue tracker", "url": "https://mcp.tracker.example/mcp",
+    "auth": "bearer", "secretFile": "tracker.token" },
+  { "id": "wiki", "name": "Wiki", "url": "https://wiki.example/mcp", "auth": "header",
+    "header": "X-Api-Key", "secretEnv": "WIKI_MCP_KEY", "orgs": ["eng"] } ] }
+```
 
 ## Notices to the agent's backend
 
@@ -663,28 +819,33 @@ GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?,
                                  web, mcp, policy, locks?}: off until
                                  an admin turns it on; who as in the
                                  state; web {mode, allow, deny, search}
-                                 and mcp {mode} the admin's own
-                                 settings, policy what is in force under
-                                 the host's file ({web: {mode, allow,
-                                 deny, hostAllow?, hostDeny?, search,
-                                 byHost?}, mcp: {mode, byHost?}}).
+                                 and mcp {mode, servers} the admin's own
+                                 settings (each outside server without
+                                 its secret: hasSecret), policy what is in
+                                 force under the host's file ({web: {mode,
+                                 allow, deny, hostAllow?, hostDeny?,
+                                 search, byHost?}, mcp: {mode, byHost?,
+                                 servers, serversByHost?}}).
                                  locks: what the host's file sets — its
                                  workspaceAgent key (docs/workspace-
                                  agent.md §Set by your host, D237) —
                                  {enabled?, who?, "web.mode"?,
-                                 "web.search"?, "mcp.mode"?: {locked:
-                                 true, reason: "set by your host",
-                                 ceiling?}}, absent when it sets nothing
+                                 "web.search"?, "mcp.mode"?,
+                                 "mcp.servers"?: {locked: true, reason:
+                                 "set by your host", ceiling?}}, absent
+                                 when it sets nothing
                                  (by is "host" when the file set the
                                  switch; a ceiling: §Web and MCP)
 PUT    /delegate/workspace      admin. {enabled?, who?, web?: {mode?:
                                  "off" | "read", allow?, deny?, search?},
-                                 mcp?: {mode?: "off" | "tiles"}}, at least
+                                 mcp?: {mode?: "off" | "tiles" |
+                                 "listed", servers?: [...]}}, at least
                                  one; what the host's file locks is 409.
                                  web and mcp are off by default;
-                                 web.mode "full", web.search true and
-                                 mcp.mode "listed" are reserved: 400 "not
-                                 available yet". allow
+                                 web.mode "full" and web.search true are
+                                 reserved: 400 "not available yet";
+                                 servers, the outside MCP servers, is the
+                                 whole list (§Outside MCP servers). allow
                                  and deny are host patterns (example.com:
                                  it and the names under it; *.example.com:
                                  only the names under it), at most 200
@@ -721,7 +882,8 @@ POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
 | the person loses a tile | refused for that tile | cut | — | refused at use (the tile is judged again) | — | dropped for that tile | refused at use | — |
 | the workspace's web or MCP policy off (the admin's, or the host's file) | web fetches or MCP calls refused (`web-off`, `mcp-off`); the rest goes on | finishes (a fetch: at most 20 s) | — | refused at use (the policy is judged before the ticket) | — | `tool` approvals kept, refused at use | kept; allowing works, the ticket is refused at use | — |
 | the person turns the web or MCP tools off | refused (`web-person`, `mcp-person`) | finishes | — | refused at use | — | `tool` approvals kept, refused at use | kept; refused at use | — |
-| an org's rule `web: "never"` or `mcp: "org"` | refused for a conversation that holds its data (`web-org`, `mcp-org`), said once; a new session that hasn't read it can | finishes | — | refused at use | — | kept, refused at use there | refused at use there | — |
+| an org's rule `web: "never"` or `mcp: "org"` / `"never"` | refused for a conversation that holds its data (`web-org`, `mcp-org`), said once; a new session that hasn't read it can | finishes | — | refused at use | — | kept, refused at use there | refused at use there | — |
+| an outside MCP server leaves the list, its URL changes, or the person leaves its orgs (D240) | its lists and calls refused (`mcp-server`, as for no such server) | finishes (60 s at most) | — | refused at use | — | its `tool` approvals dropped at the next sweep (the list's every write sweeps) | refused at use | — |
 
 **While the agent is stopped nothing can be allowed.** Approving a request
 (once, hour or always), `POST /delegate/approvals` and applying a change set
@@ -910,7 +1072,9 @@ resumes only past sessions it started.
 GET    /delegate/approvals      the person, their agent's page, or their
                                  agent. {approvals: [{id, user, tile,
                                  scope, method?, path?, until?, created,
-                                 via?, request?}]}
+                                 via?, request?, server?}]} — server
+                                 {server, name, host} for an outside MCP
+                                 server's tool (tile ext:<id>@<hash>)
 POST   /delegate/approvals      the person. {tile, grant: "hour" |
                                  "always", scope: "call", method, path} or
                                  {tile, grant, scope: "tile"} → the

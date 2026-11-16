@@ -140,7 +140,7 @@ func New(o Options) (*Service, error) {
 		o.Log = slog.Default()
 	}
 	s := &Service{opt: o, log: o.Log, plane: o.Plane, keySource: o.Keys,
-		keys:  &keyStore{path: filepath.Join(o.Dir, "keys.json"), vault: o.Vault, allowPlain: o.AllowPlaintext},
+		keys:  newKeyStore(filepath.Join(o.Dir, "keys.json"), o.Vault, o.AllowPlaintext),
 		meter: newMeter(filepath.Join(o.Dir, "usage"), o.Log)}
 	if s.plane == nil {
 		p := NewProxy(o.Log)

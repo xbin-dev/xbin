@@ -434,3 +434,19 @@ func TestDescribe(t *testing.T) {
 		t.Errorf("Describe: %q", d)
 	}
 }
+
+// covers D240 — a server an admin marked as on a private network may be at
+// a private or loopback address, never at a link-local one (the metadata
+// endpoint), multicast, unspecified or broadcast
+func TestPrivateOK(t *testing.T) {
+	for _, a := range []string{"127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.1", "100.64.0.1", "::1", "fd00::1", "8.8.8.8", "::ffff:10.0.0.1"} {
+		if !PrivateOK(netip.MustParseAddr(a)) {
+			t.Errorf("%s refused", a)
+		}
+	}
+	for _, a := range []string{"169.254.169.254", "fe80::1", "224.0.0.1", "ff02::1", "0.0.0.0", "::", "255.255.255.255", "0.1.2.3", "::ffff:169.254.169.254", "fe80::1%eth0"} {
+		if PrivateOK(netip.MustParseAddr(a)) {
+			t.Errorf("%s taken", a)
+		}
+	}
+}

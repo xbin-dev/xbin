@@ -418,6 +418,16 @@ async function agentChrome(browser) {
     check(netRows.join(' ') === 'web:false mcp:true mcpReadOnly:true' && !webEarly && S.state.web === true && /Using MCP tools is off for this workspace — an admin can change it/.test(mcpWhy),
       `[${width}] Preferences: the web is the person's to turn on, armed like Allow; MCP, off by policy, says why (${netRows.join(' ')})`);
     await shot(page, `agent-chrome-prefs${tag}`, { fullPage: false });
+    // outside MCP servers (D240): the ones the person's agent may use are listed under the MCP toggle, by name and host
+    const netWas = S.state.net;
+    S.state.net = { ...netWas, mcp: { policy: 'listed', servers: [{ server: 'ext:tracker', name: 'Issue tracker', host: 'mcp.tracker.example' }, { server: 'ext:wiki', name: 'Wiki', host: 'wiki.example.org' }] } };
+    await refresh();
+    await page.waitForSelector(`${DOCK} bx-agent-prefs [data-mcp-servers]`);
+    const outsideList = await text(`${DOCK} bx-agent-prefs [data-net-tools]`);
+    check(/Issue tracker\s*mcp\.tracker\.example/.test(outsideList) && /Wiki\s*wiki\.example\.org/.test(outsideList) && /leaves the workspace/.test(outsideList),
+      `[${width}] Preferences: the outside servers the agent may use, by name and host, and that a call to one leaves the workspace (${outsideList.replace(/\s+/g, ' ').slice(-300)})`);
+    await shot(page, `agent-chrome-prefs-outside${tag}`, { fullPage: false });
+    S.state.net = netWas; await refresh();
 
     // ---- a hostile page in the dock's frame cannot grant ----
     S.requests = [callReq('0123456789abcdef0123abcd')]; S.sent.length = 0;

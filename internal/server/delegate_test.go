@@ -437,7 +437,7 @@ func TestDelegateNeverList(t *testing.T) {
 		"GET /vault/{rest...}", "PUT /kv/{rest...}", "POST /bus/publish", // a tile's stores
 		// answering itself
 		"POST /delegate/requests/{id}/approve", "POST /delegate/requests/{id}/deny", "POST /delegate/approvals", "DELETE /delegate/approvals/{id}",
-		"PUT /delegate/state", "PUT /delegate/workspace", "GET /delegate/audit",
+		"PUT /delegate/state", "PUT /delegate/workspace", "GET /delegate/audit", "POST /delegate/mcp/test",
 		"POST /delegate/changesets/{id}/approve", "POST /delegate/changesets/{id}/reject", "POST /delegate/changesets/{id}/undo",
 	} {
 		if DelegateClassOf(p) != DelegateNever {
@@ -464,7 +464,7 @@ func TestDelegateNeverList(t *testing.T) {
 	}{
 		{"acts that need the person's approval", tickets, "POST /templates/new\nPOST /term/sessions"},
 		{"acts that need none (driving its own sessions, asking)", acts, "DELETE /delegate/changesets/{id}\nDELETE /delegate/requests/{id}\nDELETE /delegate/sessions/{id}\nDELETE /term/sessions/{id}\n" +
-			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPATCH /delegate/sessions/{id}\nPOST /delegate/changesets\nPOST /delegate/mcp/call\nPOST /delegate/plans\nPOST /delegate/requests\nPOST /delegate/sessions\nPOST /delegate/sessions/{id}/allows\nPOST /delegate/sessions/{id}/taint\nPOST /delegate/web/fetch\nPOST /preview\n" +
+			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPATCH /delegate/sessions/{id}\nPOST /delegate/changesets\nPOST /delegate/mcp/call\nPOST /delegate/mcp/tools\nPOST /delegate/plans\nPOST /delegate/requests\nPOST /delegate/sessions\nPOST /delegate/sessions/{id}/allows\nPOST /delegate/sessions/{id}/taint\nPOST /delegate/web/fetch\nPOST /preview\n" +
 			"POST /term/sessions/{id}/cancel\nPOST /term/sessions/{id}/prompt\nPOST /term/sessions/{id}/queue"},
 		{"admin reads", admin, "GET /bindings\nGET /grants\nGET /limits\nGET /orgs"},
 	} {

@@ -169,7 +169,7 @@ bx org limits <org> [--set memory=8G,disk=500G,…] [--rm <kind>]
                                        an org's per-tile ceilings (workspace
                                        admin)
 bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>]
-              [--models any|private|none|<id,…>] [--web ask|allow|never] [--mcp any|org]
+              [--models any|private|none|<id,…>] [--web ask|allow|never] [--mcp any|listed|org|never]
               [--credentials own-first|connector-first|connector-only]
                                        what agents may do on an org's tiles
                                        (D229); --pin: the rules its admins
@@ -585,8 +585,8 @@ an org's rules; a flag sets one and leaves the others
 (`PUT /api/xbin/orgs/<org>/agents`): `--workspace-agent on|off`,
 `--harnesses any|none|claude,codex`, `--models
 any|private|none|local,hosted/small`, `--web ask|allow|never` and `--mcp
-any|org` (what a workspace agent's conversation that holds the org's data
-may do on the web and with MCP servers, D239; printed when set). `--pin` reads and sets the rules a workspace admin
+any|listed|org|never` (what a workspace agent's conversation that holds the org's data
+may do on the web and with MCP servers, D239, D240; printed when set). `--pin` reads and sets the rules a workspace admin
 pins on the org instead (`…/agents/pin`): its own admins narrow below
 them, never loosen them. With no org it reads and sets the workspace's
 bounds (`/api/xbin/agents/policy`), which also take `--credentials

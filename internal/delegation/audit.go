@@ -59,6 +59,10 @@ type Call struct {
 	Session string    `json:"session,omitempty"` // the agent session (handle) the call ran under
 	Under   string    `json:"under,omitempty"`   // …or the standing approval, or "preference" for a session started unasked
 	Bytes   int64     `json:"bytes,omitempty"`   // what a web fetch read (D239)
+	// Server and Tool: an MCP call's outside server ("ext:<id>") and tool —
+	// never its arguments (D240)
+	Server string `json:"server,omitempty"`
+	Tool   string `json:"tool,omitempty"`
 	// From and By are for a line an admin applied at another person's
 	// request (a plan's "Ask an admin"): in the admin's log From is the
 	// person who asked (Agent is THEIR agent, which proposed it); in the

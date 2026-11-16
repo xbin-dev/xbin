@@ -6,8 +6,10 @@ import XCTest
 /// The web and MCP tools of the workspace agent (D239) in the app's chrome:
 /// a web page to approve (its whole address, asked every time), an MCP
 /// tool (once, or always this tool — armed like any standing choice), and
-/// the person's two settings in Preferences, turned on only armed. Demo
-/// `net` (App/Model/AgentDemo.swift): the workspace's policy has both on.
+/// the person's two settings in Preferences, turned on only armed; an
+/// outside server's tool (D240), once only, and the outside servers listed
+/// in Preferences. Demo `net` (App/Model/AgentDemo.swift): the workspace's
+/// policy has both on, MCP with one outside server.
 /// Screenshots: `wsagent2-<light|dark>-net-<what>.png`. Split from
 /// XbinWorkspaceAgentStatesTests.swift for its size.
 extension XbinWorkspaceAgentStatesTests {
@@ -52,6 +54,17 @@ extension XbinWorkspaceAgentStatesTests {
             e.app.buttons.matching(identifier: "approval-later").firstMatch.tap()
             XCTAssertTrue(e.until(10) { !allow.exists })
 
+            // an outside server's tool (D240): "Outside this workspace" and its host, said first; asked every time while
+            // the conversation holds an organisation's data — no standing choice
+            e.wsInbox("inbox-request:rq_mcp_each")
+            e.expect(e.element("approval-outside"), 30, "the outside server, said plainly")
+            XCTAssertTrue(e.containing("Outside this workspace: mcp.tracker.example").exists, "its host, xbind's")
+            XCTAssertTrue(e.element("approval-each").exists, "why it is asked every time")
+            XCTAssertFalse(e.app.buttons.matching(identifier: "approval-choice-tool").firstMatch.exists, "once only: no “always, this tool”")
+            e.shot("wsagent2-\(mode)-net-outside")
+            e.app.buttons.matching(identifier: "approval-later").firstMatch.tap()
+            XCTAssertTrue(e.until(10) { !e.element("approval-heading").exists })
+
             // Preferences: the web and MCP tools are the person's to turn on — armed, as they widen
             e.wsOpen()
             e.wsChromeMenu("Preferences")
@@ -67,6 +80,7 @@ extension XbinWorkspaceAgentStatesTests {
             web.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
             XCTAssertTrue(e.until(10) { web.value as? String == "1" }, "armed, it is turned on")
             XCTAssertTrue(e.app.switches.matching(identifier: "prefs-net-mcp").firstMatch.exists, "MCP tools beside it")
+            XCTAssertTrue(e.element("prefs-mcp-servers").exists, "the outside servers it may use, listed under MCP")
             e.shot("wsagent2-\(mode)-net-prefs")
             e.app.buttons["Done"].tap()
             e.app.terminate()

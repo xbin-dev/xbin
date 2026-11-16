@@ -263,15 +263,25 @@ shape for both:
  "web": "ask",                        // "ask" | "allow" | "never": a workspace agent's conversation that holds
                                       //   this org's data reads only URLs its person approves, reads freely,
                                       //   or never reads the web (D239); omitted when unset
- "mcp": "any"}                        // "any" | "org": such a conversation uses any MCP server the workspace
-                                      //   allows, or only the MCP tiles under this org; omitted when unset
+ "mcp": "any"}                        // "any" | "listed" | "org" | "never": such a conversation uses any MCP
+                                      //   tile, and an outside server only with its person's approval of each
+                                      //   call (any); also the outside servers an admin listed, by their
+                                      //   ordinary approvals (listed: the org trusts the list); only the MCP
+                                      //   servers under this org — its MCP tiles and the outside servers listed
+                                      //   with it (org); or none at all (never) (D239, D240); omitted when unset
 ```
 
 `web` and `mcp` are asked for every org whose data a workspace agent's
 conversation holds — its session's taint — not for the tile a call names
 ([protocol/delegation.md](/docs/protocol/delegation.md) §Web and MCP).
-Strictest wins: `never` over `ask` over `allow`, `org` over `any`; an org
-can't loosen the bounds or its pin (`allow` under an `ask` is 400).
+Strictest wins: `never` over `ask` over `allow`; `never` over `org` over
+`any` over `listed`; an org can't loosen the bounds or its pin (`allow`
+under an `ask` is 400, `listed` under an `org` or an `any` too). An
+explicit `"any"` is kept (`null` is back to unset), so a bound or a pin
+can hold an org at it. With no `mcp` rule anywhere, an org whose `web` is
+`never` keeps its data from outside MCP servers too (D240): an outside
+server is the web; such an org trusts the listed servers only by saying
+`mcp: "listed"`.
 
 A call is filtered by the **tile's** orgs — the org that owns it and every
 org it is shared into, by an exact share or a pattern — and by the

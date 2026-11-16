@@ -314,13 +314,17 @@ export class BxAgentApprove extends LitElement {
       <p class="small muted">${w.once}</p>`;
   }
 
-  // one tool of an MCP tile (D239): the server, the tool, its mark, the arguments as sent; once or always for this tool
+  // one tool of an MCP tile (D239) or of an outside server (D240): the server — outside: its host, said plainly —, the tool, its mark, the
+  // arguments as sent; once or always for this tool (once only while each call asks)
   _mcp(req) {
     const m = mcpRows(req);
     const args = clipText(m.arguments, this._all);
     const choices = grantChoices(req);
-    return html`<dl class="rows">
-        <dt>Server</dt><dd><b>${shown(m.server)}</b> <span class="mono muted">${shown(m.path)}</span></dd>
+    return html`${m.outside ? html`<div class="banner warn" data-outside><bx-icon name="globe"></bx-icon><span><b>${shown(m.outsideLine)}</b>
+        <span class="small">What is sent goes out of the workspace, to the server an admin listed.</span></span></div>` : nothing}
+      ${m.eachLine ? html`<div class="banner warn" data-each><bx-icon name="warning"></bx-icon><span>${shown(m.eachLine)}</span></div>` : nothing}
+      <dl class="rows">
+        <dt>Server</dt><dd><b>${shown(m.server)}</b> <span class="mono muted">${shown(m.outside ? m.host : m.path)}</span></dd>
         <dt>Tool</dt><dd data-row="tool"><b class="mono">${shown(m.tool)}</b>${m.title ? html` <span class="muted">${shown(m.title)}</span>` : nothing}
           <div class="small ${m.readOnly ? 'muted' : ''}" data-row="marked">${m.marked}</div>
           ${m.changedLine ? html`<div class="small err" data-row="changed">${m.changedLine}</div>` : nothing}</dd>

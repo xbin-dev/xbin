@@ -13,7 +13,7 @@ import (
 
 // netForPerson is what the workspace policy lets a person turn on, for
 // their Preferences: each capability's policy and, when it is off, why.
-func (s *Server) netForPerson() map[string]any {
+func (s *Server) netForPerson(user string) map[string]any {
 	pol := s.Delegation.NetPolicy()
 	web := map[string]any{"policy": pol.Web.Mode}
 	if pol.Web.Mode == delegation.WebOff {
@@ -25,6 +25,9 @@ func (s *Server) netForPerson() map[string]any {
 	mcp := map[string]any{"policy": pol.MCP.Mode}
 	if pol.MCP.Mode == delegation.MCPOff {
 		mcp["why"] = policyOffWhy("Using MCP tools", pol.MCP.ByHost)
+	}
+	if pol.MCP.Mode == delegation.MCPListed { // the outside servers they may use (D240)
+		mcp["servers"] = s.mcpServersForPerson(user)
 	}
 	return map[string]any{"web": web, "mcp": mcp, "search": pol.Web.Search}
 }
@@ -72,7 +75,11 @@ func (s *Server) netWorkspaceView(out map[string]any) {
 	if ws.MCP != nil {
 		mcp = *ws.MCP
 	}
-	out["mcp"] = map[string]any{"mode": orStr(mcp.Mode, delegation.MCPOff)}
+	servers := []delegation.MCPServerView{}
+	if mcp.Servers != nil {
+		servers = delegation.Views(*mcp.Servers)
+	}
+	out["mcp"] = map[string]any{"mode": orStr(mcp.Mode, delegation.MCPOff), "servers": servers}
 	if ws.NetBy != "" {
 		out["netBy"], out["netAt"] = ws.NetBy, ws.NetAt
 	}
@@ -88,7 +95,7 @@ func (s *Server) netWorkspaceView(out map[string]any) {
 			hv["web"] = host.Web
 		}
 		if host.MCP != nil {
-			hv["mcp"] = host.MCP
+			hv["mcp"] = mcpHostView(host.MCP)
 		}
 		out["host"] = hv
 	}
