@@ -225,11 +225,14 @@ export class BxAgentDock extends LitElement {
     else if (m.type === 'session') {
       // a session that waits on a permission is answered here, in the tray (bx-agent-permits.js); a question, or one that waits on nothing, opens its tile
       const s = (this.store.sessions || []).find((x) => x.id === m.session);
-      if (s && !(s.questions > 0) && (s.pending > 0 || s.status === 'waiting_permission')) { this._tray = true; this._menu = false; this.store.readSessions(); } else this.dispatchEvent(new CustomEvent('bx-agent-open-session', { detail: { tile: m.tile, session: m.session, page: true }, bubbles: true, composed: true }));
+      if (s && !(s.questions > 0) && (s.pending > 0 || s.status === 'waiting_permission')) { this._tray = true; this._menu = false; this.store.readSessions(); this._rearmTray(); } else this.dispatchEvent(new CustomEvent('bx-agent-open-session', { detail: { tile: m.tile, session: m.session, page: true }, bubbles: true, composed: true }));
     }
     else if (m.type === 'new-session') this._newSession(m.tile, m.draft);
-    else this.show(m.view);
+    else { this.show(m.view); this._rearmTray(); }
   }
+
+  // the page brought the tray into view (or asked to): no permission card in it is armed at that moment
+  _rearmTray() { this.renderRoot.querySelector('bx-agent-needs')?.rearm?.(); this.updateComplete.then(() => this.renderRoot.querySelector('bx-agent-needs')?.rearm?.()); }
 
   // a new session of a tile's own agent, the person's words in its composer:
   // the shell's to open; one that doesn't take it gets the plain link here

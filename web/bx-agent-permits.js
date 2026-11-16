@@ -14,29 +14,73 @@
  * (xbind refuses its credential and its page), and nothing here comes from
  * the agent's page: the element reads the session from xbind itself.
  *
+ * Armed like every control of xbin's that allows something. The agent's
+ * page may open the tray when it likes, and the coding agent it briefed
+ * decides when a request appears — so a click on its way elsewhere must
+ * not land on "Allow": a choice is taken only from the person's own click
+ * (isTrusted), CHOICES.armMs after the card last changed (a new request, the
+ * tray opened, a page's message: rearm()), with the document focused and
+ * the button uncovered; Enter never chooses. Until then the buttons read
+ * aria-disabled and the host has no [armed].
+ *
+ * Who may answer is xbind's rule (the session's own person, or an admin:
+ * POST …/permissions/<pid> refuses anyone else, every option alike); the
+ * card is drawn only where xbind hands this document the request — for
+ * whoever may answer all of it.
+ *
  *   properties  session (xbind's session id), agentName
+ *   methods     rearm()
  *   events      bx-agent-permitted {session, pid}   (an answer went)
  */
 import { LitElement, html, css, nothing, unsafeCSS } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { permView } from '/vendor/chat/asks.js';
+import { uncovered } from '/vendor/bx-agent-approve.js';
+import { CHOICES } from '/vendor/agent-chrome-words.js';
 import { chatCssText } from '/vendor/chat/css.js';
 
 const POLL_MS = 1500; // the next request of the same turn follows an answer; nothing pushes it here
 
 export class BxAgentPermits extends LitElement {
-  static properties = { session: { type: String }, agentName: { type: String, attribute: 'agent-name' }, _perms: { state: true }, _err: { state: true } };
+  static properties = { session: { type: String }, agentName: { type: String, attribute: 'agent-name' }, armed: { type: Boolean, reflect: true }, _perms: { state: true }, _err: { state: true } };
   static styles = [unsafeCSS(chatCssText), css`:host { display: block; } .none { font: var(--bx-font-meta); color: var(--bx-muted, #A3A6B6); padding: 4px 0; }
+    :host(:not([armed])) .bxc-btns button { opacity: 0.55; }
     .err { font: var(--bx-font-meta); color: var(--bx-danger, #FF7A7A); } .bxc-perm { margin-top: 6px; }`];
 
   constructor() {
     super();
-    this.session = ''; this.agentName = ''; this._perms = null; this._err = ''; this._timer = 0; this._bags = new Map(); this._open = new Map();
+    this.session = ''; this.agentName = ''; this.armed = false; this._perms = null; this._err = ''; this._timer = 0; this._armTimer = 0; this._bags = new Map(); this._open = new Map();
   }
 
-  connectedCallback() { super.connectedCallback(); this._read(); this._timer = setInterval(() => this._read(), POLL_MS); }
-  disconnectedCallback() { super.disconnectedCallback(); clearInterval(this._timer); }
-  updated(ch) { if (ch.has('session')) this._read(); }
+  connectedCallback() { super.connectedCallback(); this.rearm(); this._read(); this._timer = setInterval(() => this._read(), POLL_MS); }
+  disconnectedCallback() { super.disconnectedCallback(); clearInterval(this._timer); clearTimeout(this._armTimer); }
+
+  createRenderRoot() {
+    const root = super.createRenderRoot();
+    // before the kit's own handlers: a choice that isn't the person's armed click goes nowhere
+    root.addEventListener('click', (e) => {
+      const btn = e.composedPath().find((n) => n instanceof HTMLElement && n.localName === 'button' && n.closest && n.closest('.bxc-btns'));
+      if (!btn) return;
+      if (e.isTrusted && this.armed && document.hasFocus() && uncovered(btn)) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+    }, true);
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      if (e.composedPath().some((n) => n instanceof HTMLElement && n.localName === 'button' && n.closest && n.closest('.bxc-btns'))) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+    return root;
+  }
+
+  /** rearm(): the card waits again — it shows something new, or something else just brought it into view. */
+  rearm() {
+    this.armed = false;
+    clearTimeout(this._armTimer);
+    this._armTimer = setTimeout(() => { this.armed = true; }, CHOICES.armMs);
+  }
+  updated(ch) {
+    if (ch.has('session')) this._read();
+    for (const b of this.renderRoot.querySelectorAll('.bxc-btns button')) b.setAttribute('aria-disabled', this.armed ? 'false' : 'true');
+  }
 
   async _read() {
     if (!this.session) return;
@@ -45,7 +89,7 @@ export class BxAgentPermits extends LitElement {
       if (!r.ok) { if (r.status === 404) this._perms = []; return; }
       const j = await r.json();
       const next = Array.isArray(j.permissions) ? j.permissions : [];
-      if (JSON.stringify(next.map((p) => p.pid)) !== JSON.stringify((this._perms || []).map((p) => p.pid))) this._perms = next;
+      if (JSON.stringify(next.map((p) => p.pid)) !== JSON.stringify((this._perms || []).map((p) => p.pid))) { this._perms = next; this.rearm(); } // another request: the buttons wait again
       else if (this._perms === null) this._perms = next;
     } catch { /* offline: the next poll */ }
   }
@@ -54,6 +98,7 @@ export class BxAgentPermits extends LitElement {
   get _ctx() {
     const self = this;
     return {
+      // (xbind handed this document the request: its person may answer all of it — the route refuses anyone else, whatever is drawn)
       agentName: this.agentName || 'the tile agent', role: 'owner', sessionRules: true,
       repaint: () => self.requestUpdate(),
       // the card's folds ("show all N lines"), kept here

@@ -158,6 +158,7 @@ async function journeyAgent(browser) {
     const b0 = ((await call('GET', '/bindings')).data || {}).bindings || {};
     check(!!b0[ASSISTANT] && String(b0[ASSISTANT].llm) === 'xbin:llm' && !b0[ASSISTANT].mcp, `the tiles are made and the model bound; the mcp slot is NOT bound yet: ${JSON.stringify(b0[ASSISTANT])}`);
 
+    const sessionsOf = async () => [].concat((await call('GET', '/term/sessions?origin=agent&compact=1')).data || []).filter((x) => x && x.cwd === J0.DICE);
     J.section('the tile agent\'s permissions');
     // the coding agent asks before its first command: answered where the person is — the dock's Needs you — never in the agent's page
     await J.wait('the tile agent asks for a permission', () => page.waitForFunction(async () => { const r = await fetch('/api/xbin/term/sessions?origin=agent&compact=1'); return [].concat(await r.json()).some((s) => s && (s.pending > 0 || s.status === 'waiting_permission')); }, null, { timeout: 120000, polling: 500 }));
@@ -170,10 +171,34 @@ async function journeyAgent(browser) {
     const waitingRow = (await page.locator(`${DOCK} bx-agent-needs li[data-kind="changeset"]`).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
     check(/Waiting: Bind apps\/assistant's mcp to apps\/dice/.test(waitingRow) && /xbin applies it once apps\/dice provides mcp · lapses in 23 h/.test(waitingRow), `Needs you also lists the line that waits (${waitingRow})`);
     await page.screenshot({ path: path.join(J0.SHOTS, 'plan-permission.png') }).catch(() => {});
+    // the card is armed like every control of xbin's that allows something (review finding 3): the agent's page can
+    // open the tray when it likes and the coding agent it briefed decides when a request appears, so a click that
+    // was on its way elsewhere must not land on "Allow". Not a script's click, not Enter, not before it is armed —
+    // and a page that opens the tray again finds the card unarmed again.
+    const pendingNow = async () => ([].concat((await call('GET', '/term/sessions?origin=agent&compact=1')).data || []).find((x) => x && x.cwd === J0.DICE) || {}).pending || 0;
+    const allowBtn = `${DOCK} bx-agent-permits .bxc-perm button[data-kind="allow_always"]`;
+    await page.locator(allowBtn).first().evaluate((b) => b.click());
+    await page.locator(`${DOCK} bx-agent-permits .bxc-perm button.bxc-primary`).first().evaluate((b) => b.click());
+    await page.waitForTimeout(600);
+    check((await pendingNow()) === 1, 'a script\'s click on "Allow once" or "Allow always" answers nothing');
+    await page.waitForSelector(`${DOCK} bx-agent-permits[armed]`, { timeout: 5000 }).catch(() => {});
+    await page.locator(allowBtn).first().focus();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(600);
+    check((await pendingNow()) === 1, 'Enter on a focused "Allow always" answers nothing');
+    // the agent's page asks the dock to open the session (what its card's Answer does): the tray is open already — the card is unarmed again
+    const sid = (await sessionsOf())[0].id;
+    await f.evaluate((id) => window.parent.postMessage({ type: 'xbin:open-session', tile: 'apps/dice', session: id }, '*'), sid);
+    const unarmed = await page.waitForSelector(`${DOCK} bx-agent-permits:not([armed])`, { timeout: 3000 }).then(() => true, () => false);
+    check(unarmed, 'a message from the agent\'s page finds no armed card: it waits again');
+    await page.click(allowBtn, { timeout: 2000, force: true }).catch(() => {}); // a real click, at once: not yet
+    await page.waitForTimeout(300);
+    check((await pendingNow()) === 1, 'a click before the card is armed answers nothing');
+    await page.waitForSelector(`${DOCK} bx-agent-permits[armed]`, { timeout: 5000 }).catch(() => {});
     // it asks before each command; every answer is the person's click, right here. "Allow always" is the fewest:
     // the scripted agent then stops asking for the rest of its turn (answered one by one it is four clicks)
     let answers = 0;
-    const sessionsNow = async () => [].concat((await call('GET', '/term/sessions?origin=agent&compact=1')).data || []).filter((x) => x && x.cwd === J0.DICE);
+    const sessionsNow = sessionsOf;
     for (let i = 0; i < 1200; i++) {
       const s = (await sessionsNow())[0];
       if (s && s.status === 'idle' && !(s.pending > 0)) break;
@@ -184,6 +209,7 @@ async function journeyAgent(browser) {
       const label = (await btn.innerText()).trim();
       const cmd = (await card.locator('.bxc-cmd').first().innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 60);
       const pid = await card.getAttribute('data-pid');
+      await page.waitForSelector(`${DOCK} bx-agent-permits[armed]`, { timeout: 5000 });
       await J.click(`Needs you: "${label}" (${cmd}…)`, async () => { await btn.click(); await page.locator(`${DOCK} bx-agent-permits .bxc-perm[data-pid="${pid}"]`).waitFor({ state: 'detached', timeout: 20000 }); });
       answers++;
     }

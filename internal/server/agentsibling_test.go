@@ -17,6 +17,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/term"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // agentBins: bx (the agent host) and the scripted ACP agent, built once for
@@ -169,5 +170,73 @@ func TestAgentTokenOpensAndDrivesNoAgent(t *testing.T) {
 	shell := s.Auth.MintTerminal("apps/x", "alice")
 	if code, body := bearer("POST", "/term/sessions/"+a+"/prompt", `{"text":"hi"}`, shell); code != http.StatusOK {
 		t.Fatalf("a shell's token prompting the agent: %d %s", code, body)
+	}
+}
+
+// Who may answer a tile agent's permission request is xbind's rule, not a
+// page's: the session's own person (or an admin) — every option of it,
+// "Allow always" included — and nobody else, whatever a client draws
+// (review finding 3: the dock's card answers through this route, and its
+// buttons are no part of the rule).
+func TestOnlyWhoMayDriveAnswersAPermission(t *testing.T) {
+	bx, fake := realAgentBins(t)
+	t.Setenv(agent.FakeEnv, fake)
+	h, s := impServer(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "apps", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := term.NewManager(root, nil)
+	m.BxPath = bx
+	m.Tokens = &recTokens{a: s.Auth}
+	s.Term, s.Hub = m, events.NewHub()
+	if _, err := s.Auth.Users.Upsert(users.User{ID: "mallory", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelTerminal}}, "pw-mallory-1"); err != nil {
+		t.Fatal(err)
+	}
+	alice, mallory := s.Auth.NewSession("alice", ""), s.Auth.NewSession("mallory", "")
+	call := func(method, path, body, sid string) (int, string) {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, withCookie(method, "/api/xbin"+path, body, sid))
+		return w.Code, strings.TrimSpace(w.Body.String())
+	}
+	c, b := call("POST", "/term/sessions", `{"cwd":"apps/x","kind":"agent","provider":"fake","mode":"ask"}`, alice)
+	var info struct{ ID string }
+	if c != 200 || json.Unmarshal([]byte(b), &info) != nil || info.ID == "" {
+		t.Fatalf("open: %d %s", c, b)
+	}
+	defer m.Kill(info.ID)
+	if c, b := call("POST", "/term/sessions/"+info.ID+"/prompt", `{"text":"perm"}`, alice); c != 200 {
+		t.Fatalf("prompt: %d %s", c, b)
+	}
+	pid := ""
+	for i := 0; i < 200 && pid == ""; i++ {
+		_, b := call("GET", "/term/sessions/"+info.ID, "", alice)
+		var d struct {
+			Permissions []struct {
+				PID     string `json:"pid"`
+				Options []struct{ OptionID, Kind string }
+			}
+		}
+		if json.Unmarshal([]byte(b), &d) == nil && len(d.Permissions) == 1 {
+			pid = d.Permissions[0].PID
+		} else {
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+	if pid == "" {
+		t.Fatal("the agent's permission request never came")
+	}
+	// another person, with terminal access to the same tile: no reading the request, no option of it
+	if c, b := call("GET", "/term/sessions/"+info.ID, "", mallory); c != http.StatusForbidden {
+		t.Fatalf("another person reads the session's pending request: %d %s", c, b)
+	}
+	for _, body := range []string{`{"optionId":"always"}`, `{"optionId":"once"}`, `{"decision":"allow_always"}`, `{"optionId":"no"}`} {
+		if c, b := call("POST", "/term/sessions/"+info.ID+"/permissions/"+pid, body, mallory); c != http.StatusForbidden {
+			t.Fatalf("another person answers %s: %d %s", body, c, b)
+		}
+	}
+	// its own person does — "Allow always" too
+	if c, b := call("POST", "/term/sessions/"+info.ID+"/permissions/"+pid, `{"optionId":"always"}`, alice); c != 200 {
+		t.Fatalf("alice answers her session's request: %d %s", c, b)
 	}
 }

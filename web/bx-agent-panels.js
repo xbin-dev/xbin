@@ -47,6 +47,8 @@ export class BxAgentNeeds extends StoreView {
     box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6)); max-height: 60vh; overflow: auto; } .hd { padding: 8px 12px 0; display: flex; gap: 8px; align-items: baseline; }`];
 
   connectedCallback() { super.connectedCallback(); this.store.readSessions(); }
+  /** rearm(): every permission card waits again (something brought the tray into view — a page's message may). */
+  rearm() { for (const p of this.renderRoot.querySelectorAll('bx-agent-permits')) p.rearm(); }
 
   render() {
     const rows = needs(this.store);
