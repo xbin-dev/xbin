@@ -4,8 +4,10 @@
 // CALLS a roll_dice tool served by a new MCP tile, on today's shortest path
 // through the real UI — every interaction counted (journey.js).
 //
-// The path, as the owner token's session (the shortest: no account is made):
-// the vault's passphrase; a new tile; its window's coding agent, told to
+// The path: the first-run sheet the login URL lands on (D236) — an account,
+// the vault's passphrase, its quiet button that leaves the workspace agent
+// off (skipping the sheet and finding the vault's banner costs the same:
+// five); a new tile; its window's coding agent, told to
 // build the MCP server; an instance of the agent template; its `llm` slot
 // bound to the workspace's connector and its `mcp` slot to the new tile; one
 // question in its chat. It asserts the journey's end — the answer shows the
@@ -16,6 +18,7 @@ const { checker, log } = require('../lib');
 const J0 = require('./journey');
 
 const AGENT = 'apps/agent';
+const PERSON = { id: 'ada', name: 'Ada Admin', password: require('crypto').randomBytes(12).toString('base64url') }; // (made per run, never logged)
 
 async function journeyManual(browser) {
   const { check, skip, done } = checker('journey-manual');
@@ -30,7 +33,9 @@ async function journeyManual(browser) {
     const J = J0.journey('manual', () => page);
 
     await J0.firstLogin(J, page, X);
-    await J0.vaultSetup(J, page);
+    await J0.firstRunSheet(J, page, PERSON, { agent: false });
+    const me = await (await ctx.request.get(`${X.url}/api/xbin/whoami`)).json();
+    check(me.kind === 'user' && me.id === PERSON.id, `the sheet signed this browser in as the new account (${me.id})`);
     const llm = await (await ctx.request.get(`${X.url}/api/xbin/llm/config`)).json();
     check(llm.configured === true && llm.host && llm.host.active === true, 'the LLM connector is the host\'s: nothing to set up (no card, no banner, no key)');
 

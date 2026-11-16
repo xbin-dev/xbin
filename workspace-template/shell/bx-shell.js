@@ -89,6 +89,7 @@ import { gridItems, itemsOf } from './blocks.js'; // headings and text on a scre
 import { mutateItems, addBlock, blockTestApi } from './shell-blocks.js';
 import { followRoute, routeUpdated, routeBar } from './shell-route.js'; // the place shown, in the page's URL (#7)
 import { followAgent, agentChip, agentDock, agentTileItems, shownAlert } from './shell-agent.js'; // the workspace agent: its chip, and xbind's dock beside the canvas (D232)
+import { firstRun, afterFirstRun } from './shell-first-run.js'; // the first-run sheet: xbind's, over the shell (D236)
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -249,6 +250,7 @@ export class BxShell extends LitElement {
     this._offFront = onWindowFront((key) => { this._front = key; });
     this._offRoute = followRoute(this); // ?screen=&tile=&at= — landed on once the layout is in
     this._offAgent = followAgent(this); // the workspace agent's chip (shell-agent.js)
+    afterFirstRun(this); // back from the first-run sheet: the dock, when it turned the agent on
     // Narrow-screen layout: switch to the mobile shell (off-canvas sidebar,
     // stacked tiles) under 820px. matchMedia so it flips live on rotate/resize.
     this._mq = window.matchMedia('(max-width: 820px)');
@@ -1437,6 +1439,7 @@ export class BxShell extends LitElement {
         } else {
           this._setupCard = false;
         }
+        firstRun(this); // the bootstrap state: the first-run sheet instead (shell-first-run.js)
       }
     } catch { /* xbind restarting */ }
     loadAccessRequests(this);
@@ -1700,8 +1703,8 @@ export class BxShell extends LitElement {
 
   render() {
     return html`
-      ${alertsTpl(this)}
-      ${this._setupCard ? html`<div class="alerts"><div class="alert warn" role="alert">
+      ${this._firstRun ? nothing : alertsTpl(this)}
+      ${this._setupCard && !this._firstRun ? html`<div class="alerts"><div class="alert warn" role="alert">
         <bx-icon class="ico" name="warning"></bx-icon><span class="lvl">Warning</span>
         <span class="msg"><b>Secure this workspace:</b> (1) create your admin account
           (admin tile → users), (2) then disable token sign-in (users →

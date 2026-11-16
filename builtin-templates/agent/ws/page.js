@@ -39,6 +39,10 @@ const icon = (name) => (name ? html`<bx-icon name=${name} aria-hidden="true"></b
 
 let root = null;
 let win = null;
+// the chrome said what the dock was opened about before the page could draw
+// its composer (the first open; the first-run sheet's hand-over): the
+// composer takes the keys once it is there, unless something else has them
+let contextEarly = false;
 const store = createStore({
   paint: () => paint(),
   post: (msg) => dock.post(msg),
@@ -53,7 +57,7 @@ const store = createStore({
       const at = blankAt(text);
       if (at) ta.setSelectionRange(at[0], at[1]); else ta.setSelectionRange(text.length, text.length);
     }),
-    context: () => requestAnimationFrame(() => composer()?.focus()),
+    context: () => requestAnimationFrame(() => { const c = composer(); if (c) c.focus(); if (!c || !c.contains(document.activeElement)) contextEarly = true; }),
     renaming: () => requestAnimationFrame(() => root.querySelector('.wsp-rename')?.select()),
     whatCan: () => requestAnimationFrame(() => root.querySelector('#wsp-empty-h')?.scrollIntoView({ block: 'nearest' })),
   },
@@ -310,7 +314,10 @@ export function mount(doc = document) {
   store.wire();
   globalThis.wsAgentPage = { testApi };
   paint();
-  store.boot().then(() => paint());
+  store.boot().then(() => {
+    paint();
+    if (contextEarly) requestAnimationFrame(() => { contextEarly = false; const a = doc.activeElement; if (!a || a === doc.body) composer()?.focus(); });
+  });
 }
 
 if (typeof document !== 'undefined') mount(document);

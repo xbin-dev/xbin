@@ -32,7 +32,7 @@
  *               context   {tile} | {screen}: what the person was looking at when they opened it — told to the page
  *                         (xbin:agent-context {tile | screen})
  *               page      the agent's page, when it is not the holder's from the state (a test's)
- *   methods     toggle(), show(view), review(kind, id)
+ *   methods     toggle(), show(view), review(kind, id), focusComposer()
  *   events      bx-agent-dock {open, width}   the shell makes room
  *               bx-agent-open-session {tile, session, page?}   a waiting tile agent: the shell opens it (page: the agent's page asked)
  *               bx-agent-new-session {tile, draft}   (cancelable) a new session of the tile's own agent, the draft in its
@@ -125,6 +125,26 @@ export class BxAgentDock extends LitElement {
 
   toggle() { this.open = !this.open; }
 
+  /**
+   * focusComposer(): open, and give the agent's page the keys once it is
+   * framed — the frame focused, and a cleared xbin:agent-context, which the
+   * page answers by focusing its composer (the first-run sheet's hand-over,
+   * D236). Nothing when no page is framed (setup, a state in its place).
+   */
+  focusComposer() {
+    this.open = true;
+    this._wantFocus = true;
+    this._giveFocus();
+  }
+
+  _giveFocus() {
+    const frame = this.renderRoot && this.renderRoot.querySelector('iframe');
+    if (!this._wantFocus || !frame || !this._frameLoaded || !frame.contentWindow) return;
+    this._wantFocus = false;
+    frame.focus();
+    frame.contentWindow.postMessage({ type: 'xbin:agent-context' }, '*');
+  }
+
   /** show(view): open on 'chat', 'approvals', 'activity', 'prefs' or 'needs' (the tray). */
   show(view = 'chat') {
     this.open = true; this._menu = false;
@@ -182,6 +202,7 @@ export class BxAgentDock extends LitElement {
     const src = this.page || (st === 'page' ? this.store.state.agent : '');
     if (src === this._framed) return;
     this._framed = src;
+    this._frameLoaded = false;
     if (!src) { this._frame = null; return; }
     if (this.page) { this._frame = { url: this.page, sandbox: SANDBOX, credentialless: false }; return; }
     let info = await infoFor(src);
@@ -294,7 +315,7 @@ export class BxAgentDock extends LitElement {
         ${this._view === 'approvals' ? html`<bx-agent-approvals></bx-agent-approvals>` : this._view === 'activity' ? html`<bx-agent-activity></bx-agent-activity>`
           : this._view === 'prefs' ? html`<bx-agent-prefs></bx-agent-prefs>`
             : this._frame && (st === 'page' || (this.page && st !== 'paused' && st !== 'hidden')) ? html`<iframe src=${this._frame.url} title="Your workspace agent" sandbox=${this._frame.sandbox}
-                credentialless=${this._frame.credentialless ? '' : nothing} @load=${() => this._tell()}></iframe>`
+                credentialless=${this._frame.credentialless ? '' : nothing} @load=${() => { this._frameLoaded = true; this._tell(); this._giveFocus(); }}></iframe>`
               : html`<bx-agent-setup></bx-agent-setup>`}
       </div>
       ${this._sheet ? html`<div class="over"><div class="scrim"></div>
