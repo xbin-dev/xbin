@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -277,10 +278,10 @@ func TestSigninParkHoldsThroughPrepare(t *testing.T) {
 	// the step's next look, now
 	_, _ = fx.ag.db.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE project_id=? AND kind=? AND state='waiting'`, p.ID, pjPrepare)
 	kickProjectWorker()
-	waitFor(t, "the prepare step's next look", func() bool {
+	waitForOr(t, "the prepare step's next look", func() bool {
 		j := prep()
 		return j.Updated > before && j.State == pjWaiting
-	})
+	}, func() string { return workerDump(fx.ag.eng, fx.ag.db, p.ID, before) })
 	mu.Lock()
 	defer mu.Unlock()
 	if len(moves) != 0 {
@@ -345,4 +346,47 @@ func TestCredsShortRefreshDoesNotStrand(t *testing.T) {
 	if ps := parsePending(r.Pending); ps.Kind == pendKindProject {
 		t.Fatalf("still parked: %s %s", r.Status, r.Pending)
 	}
+}
+
+// waitForOr is waitFor, saying dump() when the deadline passes: what a
+// wait that timed out was stuck behind, for a run nobody can repeat.
+func waitForOr(t *testing.T, what string, cond func() bool, dump func() string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s; %s", what, dump())
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// workerDump is the project worker's view of project pid: its jobs (state,
+// next look, last update against since), what it runs and locks, and the
+// stacks of the goroutines in its code.
+func workerDump(e *Engine, d *DB, pid, since int64) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "now %d, since %d, halted %v; jobs:", nowMs(), since, e.halted())
+	for _, j := range d.jobsWhere(`WHERE project_id=? ORDER BY id`, pid) {
+		fmt.Fprintf(&b, "\n  #%d %s task=%d %s next=%d updated=%d epoch=%d attempts=%d step=%q err=%q",
+			j.ID, j.Kind, j.Task, j.State, j.NextMs, j.Updated, j.Epoch, j.Attempts, j.Step, j.Error)
+	}
+	projWorkers.Lock()
+	w := projWorkers.m[e]
+	projWorkers.Unlock()
+	if w == nil {
+		b.WriteString("\nno worker registered for the engine")
+	} else {
+		w.mu.Lock()
+		fmt.Fprintf(&b, "\nworker: busy %v, locked %v, pending %v, kick queued %d", w.busy, w.locked, w.pending, len(w.kick))
+		w.mu.Unlock()
+	}
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		if strings.Contains(g, "project_worker.go") || strings.Contains(g, "project_jobs") || strings.Contains(g, "project_steps.go") {
+			b.WriteString("\n" + g)
+		}
+	}
+	return b.String()
 }
