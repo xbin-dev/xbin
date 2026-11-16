@@ -67,6 +67,15 @@ func settleHarnesses(e *Engine) {
 			}
 		}
 	}
+	// and the consumers of sessions no longer in the map (stopped, replaced
+	// by a restart): each drains until its adapter's output ends and reads
+	// the process's mode on the way — which a test's setMode puts back next
+	drained := make(chan struct{})
+	go func() { e.consumers.Wait(); close(drained) }()
+	select {
+	case <-drained:
+	case <-time.After(15 * time.Second):
+	}
 }
 
 // draftText is the run's draft text now.

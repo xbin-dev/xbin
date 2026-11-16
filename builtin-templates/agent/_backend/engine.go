@@ -96,6 +96,13 @@ type Engine struct {
 	projWG   sync.WaitGroup
 	loopMode agentMode
 
+	// consumers: every adapter's event consumer (hsess.consume), also one
+	// whose session was forgotten or replaced — it drains on until its
+	// adapter's output ends, reading the process's mode as it goes. Nothing
+	// here waits for them (an adapter outlives a handoff); a test that
+	// changes the process's mode afterwards does (settleHarnesses).
+	consumers sync.WaitGroup
+
 	// A host's engine over team (hosted_engine.go): its own epoch key, the
 	// conversations it may drive, its own wake-up at exit. Zero on every
 	// other engine, which then behaves exactly as before.
