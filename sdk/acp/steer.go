@@ -51,6 +51,9 @@ func (c *Client) Steer(ctx context.Context, p Prompt) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := c.promptLeft(ctx); err != nil { // after the prompt it steers, never before it
+		return "", err
+	}
 	id := c.conn.newID()
 	resp, err := c.conn.callID(ctx, id, MSessionSteering, SteerParams{SessionID: sid, Prompt: blocks,
 		Meta: map[string]any{"steering": map[string]any{"idleBehavior": SteerPromptRequired}}})

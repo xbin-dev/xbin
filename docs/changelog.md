@@ -12,6 +12,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- sdk/acp: **a steer or a cancel made right after `Prompt` returns reaches
+  the agent after the prompt** — `Client.Steer` and `Client.Cancel` wait
+  for the prompt's frame to leave. Before, either could be written first:
+  the agent answered the steer `promptRequired` (held for the turn's end)
+  and ignored the cancel. No API change.
 - templates, docs: **an MCP server tile is written, not stamped — and
   [mcp.md](/docs/mcp.md) is its interface** (D243). The builtin template
   for one, which landed earlier today (in no release), is gone from the
