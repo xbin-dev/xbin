@@ -275,7 +275,15 @@ func (b *Broker) previewGrant(p auth.Principal, op delegation.ChangeOp) (delegat
 	slices.Sort(held)
 	after := slices.Clone(held)
 	has := slices.Contains(held, g.Role)
-	pv := delegation.ChangePreview{Before: mustJSON(map[string]any{"roles": held}), Tiles: []string{g.From},
+	// the tiles the line is judged by: both ends — a grant on a tile (or on
+	// a resource of one's scope) reaches into it
+	tiles := []string{g.From}
+	if callee != "" {
+		tiles = append(tiles, callee)
+	} else if rt, _, ok := b.parseRes(g.Target); ok && rt.Scope != "" {
+		tiles = append(tiles, rt.Scope)
+	}
+	pv := delegation.ChangePreview{Before: mustJSON(map[string]any{"roles": held}), Tiles: tiles,
 		Call: delegation.AdminCall{Method: http.MethodPost, Path: "/grants", Body: mustJSON(a)}}
 	if revoke {
 		pv.Call.Method = http.MethodDelete
@@ -435,7 +443,7 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp, planne
 	if uses := plannedIn(planned, append(slices.Clone(body.Providers), body.Provider, body.Component)...); len(uses) > 0 {
 		return b.previewPlannedBinding(p, pv, body, remove, planned, uses) // a tile an earlier line creates (plan.go)
 	}
-	pv.Tiles = []string{body.Component}
+	pv.Tiles = b.bindingTiles(body)
 	cur := b.Reg.Workspace().Bindings[body.Component][body.Slot]
 	pv.Before, pv.BeforeText = mustJSON(map[string]any{"binding": refsOf(cur)}), bindingWords(cur)
 	plan, why := b.bindingCheck(p, body, remove)

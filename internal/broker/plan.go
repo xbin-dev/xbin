@@ -109,6 +109,21 @@ func plannedComponent(t delegation.PlannedTile) *registry.Component {
 	return c
 }
 
+// bindingTiles are the existing tiles a binding line names: the tile whose
+// slot it is, and every provider that is a tile. A line is judged by all
+// of them — a binding lets the consumer's code, and a tile agent started
+// in it, reach the provider.
+func (b *Broker) bindingTiles(body bindingBody) []string {
+	out := []string{body.Component}
+	for _, ref := range append(slices.Clone(body.Providers), body.Provider) {
+		prov, _ := splitRef(ref)
+		if _, ok := b.Reg.Component(prov); ok && prov != "" && !slices.Contains(out, prov) {
+			out = append(out, prov)
+		}
+	}
+	return out
+}
+
 // bindPersonal reports whether the binding change plan — which bindingCheck
 // let p make — is one the tile's owner makes with no admin right
 // (selfMayBind): never the LLM connector or a named set.
@@ -239,13 +254,17 @@ func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePre
 		return pv, errors.New("a route (host, zone, listen, add) is for an endpoint of a tile that exists" + later)
 	}
 	pv.Uses, pv.Deferred = uses, true
+	for _, t := range b.bindingTiles(body) { // the tiles that exist already: either end
+		if _, ok := b.Reg.Component(t); ok {
+			pv.Tiles = append(pv.Tiles, t)
+		}
+	}
 	comp, compPlanned := plannedTile(planned, body.Component)
 	var c *registry.Component
 	if compPlanned {
 		c = plannedComponent(comp)
 	} else if cc, ok := b.Reg.Component(body.Component); ok {
 		c = cc
-		pv.Tiles = []string{body.Component}
 	} else {
 		pv.Blocked = "no such component: " + body.Component
 		return pv, nil
