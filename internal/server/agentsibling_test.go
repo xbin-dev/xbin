@@ -189,6 +189,12 @@ func TestOnlyWhoMayDriveAnswersAPermission(t *testing.T) {
 	m := term.NewManager(root, nil)
 	m.BxPath = bx
 	m.Tokens = &recTokens{a: s.Auth}
+	closed := make(chan string, 8)
+	m.OnChange = func(op, _, id, _ string) {
+		if op == "close" {
+			closed <- id
+		}
+	}
 	s.Term, s.Hub = m, events.NewHub()
 	if _, err := s.Auth.Users.Upsert(users.User{ID: "mallory", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelTerminal}}, "pw-mallory-1"); err != nil {
 		t.Fatal(err)
@@ -204,7 +210,14 @@ func TestOnlyWhoMayDriveAnswersAPermission(t *testing.T) {
 	if c != 200 || json.Unmarshal([]byte(b), &info) != nil || info.ID == "" {
 		t.Fatalf("open: %d %s", c, b)
 	}
-	defer m.Kill(info.ID)
+	defer func() { // the session's teardown writes under root: the test ends when it has (the temp dir is removed after)
+		m.Kill(info.ID)
+		select {
+		case <-closed:
+		case <-time.After(8 * time.Second):
+			t.Error("the session did not close")
+		}
+	}()
 	if c, b := call("POST", "/term/sessions/"+info.ID+"/prompt", `{"text":"perm"}`, alice); c != 200 {
 		t.Fatalf("prompt: %d %s", c, b)
 	}
