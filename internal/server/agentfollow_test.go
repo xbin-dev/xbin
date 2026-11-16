@@ -58,7 +58,11 @@ func TestAgentFollowHeadAtOnce(t *testing.T) {
 	if resp.StatusCode != 200 || info.ID == "" {
 		t.Fatalf("open: %d", resp.StatusCode)
 	}
-	defer m.Kill(info.ID)
+	defer func() { // Kill only signals: the history lands under root as the session ends — wait for it
+		if err := m.StopTileSessions("apps/x"); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	// Wait until the session has settled: an idle status, nothing more coming.
 	var next uint64
