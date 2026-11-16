@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -48,6 +49,12 @@ type Fetcher struct {
 	// Public says an address may be dialled; nil: PublicAddr. Tests that
 	// fetch from a local server widen it for that server's address alone.
 	Public func(netip.Addr) bool
+	// Local is the host's own addresses — every address of its
+	// interfaces, which reach its own listeners whatever their kind; nil:
+	// the system's (InterfaceAddrs), looked up at dial time and kept for
+	// localTTL. An address of the host is never dialled, a public one
+	// included.
+	Local func() []netip.Addr
 	// DialIP connects to one checked address (ip:port); nil: a dialer
 	// whose Control refuses a socket whose peer isn't Public. Tests record
 	// what is dialled with it.
@@ -73,13 +80,65 @@ type Result struct {
 
 // Dials reports whether f would dial ip: a URL that names an address can
 // be judged before anything is asked of anyone.
-func (f *Fetcher) Dials(ip netip.Addr) bool { return f.public(ip) }
+func (f *Fetcher) Dials(ip netip.Addr) bool { return f.dialable(ip) }
+
+// dialable: a public address that isn't one of the host's own.
+func (f *Fetcher) dialable(ip netip.Addr) bool {
+	return f.public(ip) && !f.local(ip)
+}
 
 func (f *Fetcher) public(ip netip.Addr) bool {
 	if f.Public != nil {
 		return f.Public(ip)
 	}
 	return PublicAddr(ip)
+}
+
+func (f *Fetcher) local(ip netip.Addr) bool {
+	own := hostAddrs
+	if f.Local != nil {
+		own = f.Local
+	}
+	ip = ip.Unmap().WithZone("")
+	for _, a := range own() {
+		if a.Unmap().WithZone("") == ip {
+			return true
+		}
+	}
+	return false
+}
+
+// localTTL is how long the host's interface addresses are kept.
+const localTTL = 5 * time.Second
+
+var hostCache struct {
+	sync.Mutex
+	at    time.Time
+	addrs []netip.Addr
+}
+
+// hostAddrs is every address of the host's interfaces, at most localTTL
+// old. When they can't be read, the last ones read stay.
+func hostAddrs() []netip.Addr {
+	hostCache.Lock()
+	defer hostCache.Unlock()
+	if time.Since(hostCache.at) < localTTL && hostCache.addrs != nil {
+		return hostCache.addrs
+	}
+	as, err := net.InterfaceAddrs()
+	if err != nil {
+		return hostCache.addrs
+	}
+	out := make([]netip.Addr, 0, len(as))
+	for _, a := range as {
+		if n, ok := a.(*net.IPNet); ok {
+			if ip, ok := netip.AddrFromSlice(n.IP); ok {
+				out = append(out, ip.Unmap())
+			}
+		}
+	}
+	hostCache.at, hostCache.addrs = time.Now(), out
+	return out
 }
 
 func (f *Fetcher) resolver() Resolver {
@@ -111,6 +170,9 @@ func (f *Fetcher) dial(ctx context.Context, network, addr string) (net.Conn, err
 		}
 	}
 	for _, ip := range ips {
+		if f.local(ip) {
+			return nil, refuse("web-address", http.StatusForbidden, "%s is %s, an address of xbin's own host: a workspace agent reads the public web only", host, ip.Unmap())
+		}
 		if !f.public(ip) {
 			// one private answer is enough to refuse the name: a host that
 			// resolves into the network may be meant to
@@ -144,7 +206,7 @@ func (f *Fetcher) dial(ctx context.Context, network, addr string) (net.Conn, err
 // public — whatever chose that address.
 func (f *Fetcher) control(_, address string, _ syscall.RawConn) error {
 	ap, err := netip.ParseAddrPort(address)
-	if err != nil || !f.public(ap.Addr()) {
+	if err != nil || !f.dialable(ap.Addr()) {
 		return refuse("web-address", http.StatusForbidden, "%s isn't a public address: a workspace agent reads the public web only", address)
 	}
 	return nil

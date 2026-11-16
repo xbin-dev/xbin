@@ -352,7 +352,9 @@ The name is resolved and **every address it resolves to must be public**
 — not loopback, private (RFC 1918, ULA), link-local (the cloud metadata
 address among them), multicast, unspecified, CGNAT, documentation,
 benchmarking or reserved, nor an IPv6 form that maps or translates to one
-(`::ffff:…`, NAT64, 6to4, Teredo) — and the connection is made to the
+(`::ffff:…`, NAT64, 6to4, Teredo), nor any address of xbind's own host
+(its interfaces' addresses, public ones included, read when it dials) —
+and the connection is made to the
 address that was checked, the socket's own peer checked again as it
 connects: a DNS answer that changes in between reaches nothing. Names of
 this machine and of local networks (`localhost`, `*.local`, `*.home.arpa`,

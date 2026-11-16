@@ -60,6 +60,7 @@ func newWebRig(t *testing.T) *webRig {
 	w.s.WebFetch = &webfetch.Fetcher{
 		Resolver: webResolver{"site.test": "127.0.0.1", "other.test": "127.0.0.1", "ws.example.com": "127.0.0.1", "docs.site.test": "127.0.0.1"},
 		Public:   func(ip netip.Addr) bool { return ip == netip.MustParseAddr("127.0.0.1") },
+		Local:    func() []netip.Addr { return nil }, // (the test servers are on the host's own loopback)
 	}
 	w.s.ExternalURL = "https://ws.example.com"
 	h, err := w.store.NewAgentSession("bob", dHolder, nil, "local/test")

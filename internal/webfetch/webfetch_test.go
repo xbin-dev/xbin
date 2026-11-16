@@ -60,7 +60,41 @@ func local(names ...string) *Fetcher {
 	for _, n := range names {
 		m[n] = []string{"127.0.0.1"}
 	}
-	return &Fetcher{Resolver: newResolver(m), Public: func(ip netip.Addr) bool { return ip == netip.MustParseAddr("127.0.0.1") || PublicAddr(ip) }}
+	return &Fetcher{Resolver: newResolver(m), Public: func(ip netip.Addr) bool { return ip == netip.MustParseAddr("127.0.0.1") || PublicAddr(ip) },
+		Local: func() []netip.Addr { return nil }} // (the test servers are on the host's own loopback)
+}
+
+// covers D239 — an address of xbin's own host is never dialled, a public
+// one included (a cloud VM's public address reaches its own listeners): by
+// a name that resolves to it, by the address in the URL, at the connect
+func TestFetchRefusesTheHostsOwnAddresses(t *testing.T) {
+	own := netip.MustParseAddr("93.184.215.14")
+	var dialled []string
+	f := &Fetcher{Resolver: newResolver(map[string][]string{"self.example.com": {"93.184.215.14"}}),
+		Local: func() []netip.Addr { return []netip.Addr{netip.MustParseAddr("::1"), own} },
+		DialIP: func(_ context.Context, _, addr string) (net.Conn, error) {
+			dialled = append(dialled, addr)
+			return nil, errors.New("no network in this test")
+		}}
+	if f.Dials(own) || f.Dials(netip.MustParseAddr("::ffff:93.184.215.14")) {
+		t.Error("the host's own public address is dialable")
+	}
+	for _, raw := range []string{"https://self.example.com/", "http://93.184.215.14/"} {
+		if _, err := f.Fetch(context.Background(), raw); code(err) != "web-address" {
+			t.Errorf("%s: %v", raw, err)
+		}
+	}
+	if err := f.control("tcp4", "93.184.215.14:443", nil); code(err) != "web-address" {
+		t.Errorf("the connect to the host's own address: %v", err)
+	}
+	if len(dialled) != 0 {
+		t.Errorf("dialled: %v", dialled)
+	}
+	// the system's own: whatever Public says, the host's loopback is its own
+	sys := &Fetcher{Public: func(netip.Addr) bool { return true }}
+	if sys.Dials(netip.MustParseAddr("127.0.0.1")) {
+		t.Error("the host's loopback, by its interfaces, is dialable")
+	}
 }
 
 // at is u with its host replaced by name (the test server's port kept).
