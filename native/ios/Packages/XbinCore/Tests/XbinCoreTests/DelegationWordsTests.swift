@@ -71,6 +71,7 @@ import Testing
                     #expect(m.call.server == s(want, "server") && m.call.path == s(want, "path") && m.call.tool == s(want, "tool") && m.call.title == s(want, "title"), "\(id)")
                     #expect(m.call.description == s(want, "description") && m.call.readOnly == want["readOnly"]?.boolValue && m.call.arguments == s(want, "arguments"), "\(id)")
                     #expect(m.call.standing == s(want, "standing") && m.marked == s(want, "marked") && m.undo == s(want, "undo"), "\(id)")
+                    #expect(m.changedLine == s(want, "changedLine") && m.call.changed == (want["changed"]?.arrayValue ?? []).compactMap(\.stringValue), "\(id)")
                 }
             }
             let w = DelegationWords.widerWords(r)

@@ -468,8 +468,8 @@ what xbind judged.
   /delegate/requests {method: "POST", path: "/api/xbin/delegate/mcp/call",
   body}` and sends the same body with `X-XBin-Ticket` once it is approved.
   The request is `kind: "mcp"`, its `preview` `{class: "mcp", server,
-  serverName, tool, title?, description, readOnly, arguments, standing:
-  {tool}}`. Approved with `grant: "always" | "hour"` it leaves a standing
+  serverName, tool, title?, description, readOnly, arguments, pin, changed,
+  standing: {tool}}`. Approved with `grant: "always" | "hour"` it leaves a standing
   approval of `scope: "tool"` — exactly that server and that tool, any
   arguments (`method: "MCP"`, `path`: the tool's name); `scope: "call"` or
   `"tile"` is refused for it. A standing approval of every write to the
@@ -477,7 +477,17 @@ what xbind judged.
 - **Read-only tools.** A tool the server marks `readOnlyHint` runs without
   asking when the person turned on `mcpReadOnly` ("MCP tools marked
   read-only don't ask me") — the mark is the server's word, and the tile's
-  own access rules still hold. A tile at `"agent": "read"` takes read-only
+  own access rules still hold.
+- **A tool is its definition.** What a person allows is the tool as its
+  server describes it: a hash of its name, title, description, input and
+  output schemas and annotations (the request's `preview.pin`). A standing
+  approval of the tool holds that pin; `mcpReadOnly` holds the pin xbind
+  took the first time the person's agent met the tool (logged). A served
+  definition that differs is covered by neither — the call asks again, and
+  the request says what changed (`preview.changed`: `description`,
+  `inputSchema`, `annotations`, …); a ticket for the tool as it was is
+  refused (`ticket`). A call the person allowed pins the definition it ran
+  with, so a `readOnlyHint` that appears later asks once. A tile at `"agent": "read"` takes read-only
   tools only (`403 {refusal: "tile"}`), whatever is approved.
 - **What a tool answers is the tile's data**: the conversation is tainted
   with the tile's orgs, as by any read of it. An org whose rule is `mcp:

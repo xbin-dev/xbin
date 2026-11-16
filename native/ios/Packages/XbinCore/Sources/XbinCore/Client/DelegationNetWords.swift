@@ -30,6 +30,9 @@ public struct MCPToolCall: Sendable, Equatable {
     public var arguments: String
     /// What "always, this tool" covers, in xbind's words ("" none).
     public var standing: String
+    /// The parts of the tool that changed since its person allowed or
+    /// first met it (xbind's `changed`: description, inputSchema, …).
+    public var changed: [String]
 }
 
 /// One of the Preferences controls of the web and MCP tools.
@@ -75,8 +78,12 @@ extension DelegationWords {
         return MCPToolCall(server: first ?? "an MCP server", path: path.isEmpty ? r.tilePath : path, tool: p["tool"]?.stringValue ?? "",
                            title: p["title"]?.stringValue ?? "", description: p["description"]?.stringValue ?? "",
                            readOnly: p["readOnly"]?.boolValue == true, arguments: p["arguments"]?.stringValue ?? "",
-                           standing: p["standing"]?["tool"]?.stringValue ?? "")
+                           standing: p["standing"]?["tool"]?.stringValue ?? "",
+                           changed: (p["changed"]?.arrayValue ?? []).compactMap(\.stringValue))
     }
+
+    private static let changedPart = ["name": "its name", "title": "its title", "description": "its description", "inputSchema": "its arguments",
+                                      "outputSchema": "its answer’s form", "annotations": "its marks (read-only and the like)"]
 
     /// A web request as the sheet's rows.
     public static func webRows(_ r: DelegateRequest) -> (url: String, host: String, why: String, once: String) {
@@ -85,11 +92,13 @@ extension DelegationWords {
                 "Reading a page is asked every time: the address is the data.")
     }
 
-    /// An MCP request as the sheet's rows: the tool, its mark in words, and who can undo it.
-    public static func mcpRows(_ r: DelegateRequest) -> (call: MCPToolCall, marked: String, undo: String) {
+    /// An MCP request as the sheet's rows: the tool, its mark in words, who
+    /// can undo it, and what of it changed since it was allowed ("" nothing).
+    public static func mcpRows(_ r: DelegateRequest) -> (call: MCPToolCall, marked: String, undo: String, changedLine: String) {
         let m = mcpOf(r)
+        let changed = m.changed.isEmpty ? "" : "Changed since you last allowed it or first met it: \(m.changed.map { changedPart[$0] ?? $0 }.joined(separator: ", "))."
         return (m, m.readOnly ? "Its server marks it read-only — the server’s word, not xbin’s." : "Its server doesn’t mark it read-only: it may change things.",
-                "xbin can't undo this. Whether \(m.server) can is up to \(m.server).")
+                "xbin can't undo this. Whether \(m.server) can is up to \(m.server).", changed)
     }
 
     static func netNeedTitle(_ r: DelegateRequest) -> String {
@@ -110,7 +119,7 @@ extension DelegationWords {
         return [
             GrantChoice(id: .once, label: "Once", text: "This call only. The agent has 15 minutes to make it.", wider: false),
             GrantChoice(id: .tool, label: "Always, this tool",
-                        text: m.standing.isEmpty ? "\(m.tool) on \(m.server), with any arguments, without asking again." : m.standing, wider: false),
+                        text: m.standing.isEmpty ? "\(m.tool) on \(m.server), as it is described now, with any arguments, without asking again." : m.standing, wider: false),
         ]
     }
 
@@ -155,7 +164,7 @@ extension DelegationWords {
                     note: "As you, on the tiles you can reach. Each tool asks you the first time.",
                     on: person.mcp && mcpOk, allowed: mcpOk, why: mcpOk ? "" : nonEmpty(mcp.why, off), sub: false),
             NetPref(id: "mcpReadOnly", label: "MCP tools marked read-only don’t ask me",
-                    note: "The mark is the tool’s server’s word. Tools that aren’t marked still ask.",
+                    note: "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask.",
                     on: person.readOnly && mcpOk && person.mcp, allowed: mcpOk && person.mcp,
                     why: !mcpOk || person.mcp ? "" : "Turn on MCP tools first.", sub: true),
         ]

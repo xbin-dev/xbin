@@ -58,6 +58,10 @@ struct AgentNetRows: View {
                 Text(verbatim: m.call.tool).font(XbinFont.code.weight(.semibold))
                 if !m.call.title.isEmpty { Text(verbatim: m.call.title).font(.callout).foregroundStyle(XbinColor.muted) }
                 Text(verbatim: m.marked).font(.caption).foregroundStyle(m.call.readOnly ? XbinColor.muted : XbinColor.warn)
+                if !m.changedLine.isEmpty {
+                    Text(verbatim: m.changedLine).font(.caption.weight(.semibold)).foregroundStyle(XbinColor.danger)
+                        .accessibilityIdentifier("approval-tool-changed")
+                }
             }
             .accessibilityIdentifier("approval-tool")
             ApprovalRow(label: "Arguments") {

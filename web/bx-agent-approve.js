@@ -306,7 +306,8 @@ export class BxAgentApprove extends LitElement {
     return html`<dl class="rows">
         <dt>Server</dt><dd><b>${m.server}</b> <span class="mono muted">${m.path}</span></dd>
         <dt>Tool</dt><dd data-row="tool"><b class="mono">${shown(m.tool)}</b>${m.title ? html` <span class="muted">${shown(m.title)}</span>` : nothing}
-          <div class="small ${m.readOnly ? 'muted' : ''}" data-row="marked">${m.marked}</div></dd>
+          <div class="small ${m.readOnly ? 'muted' : ''}" data-row="marked">${m.marked}</div>
+          ${m.changedLine ? html`<div class="small err" data-row="changed">${m.changedLine}</div>` : nothing}</dd>
         ${m.description ? html`<dt>It says</dt><dd>${this._quote(m.description, 'The server’s own words — not checked by xbin')}</dd>` : nothing}
         <dt>Arguments</dt><dd data-row="arguments">${hiddenLine(m.arguments)}<pre class="body" tabindex="-1">${shown(args.text)}${args.clipped ? '…' : ''}</pre>
           <div class="small muted">${args.clipped ? html`${clipNote(args)} — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button> · ` : nothing}sent exactly like this</div></dd>

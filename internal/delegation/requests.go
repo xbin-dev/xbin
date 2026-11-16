@@ -169,6 +169,9 @@ type Approval struct {
 	Created time.Time `json:"created"`
 	Via     string    `json:"via,omitempty"`
 	Request string    `json:"request,omitempty"` // the request it was given on
+	// Pin: scope tool — the tool's definition the person allowed
+	// (toolpins.go); a served definition that differs isn't covered
+	Pin *ToolPin `json:"pin,omitempty"`
 }
 
 // covers reports whether a allows method on path of tile.
@@ -430,7 +433,7 @@ func (s *Store) DecideWith(user, id, grant, scope, via string, unseen bool) (Req
 		if grant != GrantOnce {
 			give := Approval{User: user, Tile: r.Tile, Scope: scope, Method: r.Method, Path: r.Path(), Via: via, Request: r.ID}
 			if scope == ScopeTool {
-				give.Method, give.Path = MCPMethod, tool
+				give.Method, give.Path, give.Pin = MCPMethod, tool, PinFromPreview(r.Preview["pin"])
 			}
 			a, err := s.addApproval(p, give, grant)
 			if err != nil {

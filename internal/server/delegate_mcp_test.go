@@ -26,8 +26,9 @@ type mcpRig struct {
 	*webRig
 	mu    sync.Mutex
 	seen  []mcpSeen
-	calls []string // tools/call names, in order
-	raw   []string // the bodies the server was sent
+	calls []string         // tools/call names, in order
+	raw   []string         // the bodies the server was sent
+	tools []map[string]any // what tools/list answers (set to change a tool)
 }
 
 type mcpSeen struct {
@@ -37,7 +38,9 @@ type mcpSeen struct {
 }
 
 func newMCPRig(t *testing.T) *mcpRig {
-	w := &mcpRig{webRig: newWebRig(t)}
+	w := &mcpRig{webRig: newWebRig(t), tools: []map[string]any{
+		{"name": "roll_dice", "description": "Roll dice.", "inputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true}},
+		{"name": "wipe", "description": "Wipe the table.", "inputSchema": map[string]any{"type": "object"}}}}
 	dir := filepath.Join(w.s.Reg.Root, "apps", "dice")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -81,9 +84,9 @@ func newMCPRig(t *testing.T) *mcpRig {
 			rw.Header().Set("Mcp-Session-Id", "sess-1")
 			result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "dice"}}
 		case "tools/list":
-			result = map[string]any{"tools": []map[string]any{
-				{"name": "roll_dice", "description": "Roll dice.", "inputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true}},
-				{"name": "wipe", "description": "Wipe the table.", "inputSchema": map[string]any{"type": "object"}}}}
+			w.mu.Lock()
+			result = map[string]any{"tools": w.tools}
+			w.mu.Unlock()
 		case "tools/call":
 			result = map[string]any{"content": []map[string]any{{"type": "text", "text": "rolled 4 (" + rq.Params.Name + ")"}}}
 		default:

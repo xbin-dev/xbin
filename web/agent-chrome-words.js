@@ -199,7 +199,7 @@ export function grantChoices(req) {
     const m = mcpOf(req);
     return [
       { id: 'once', scope: '', label: 'Once', text: 'This call only. The agent has 15 minutes to make it.', wider: false },
-      { id: 'tool', scope: 'tool', label: 'Always, this tool', text: m.standing || `${m.tool} on ${m.server}, with any arguments, without asking again.`, wider: false },
+      { id: 'tool', scope: 'tool', label: 'Always, this tool', text: m.standing || `${m.tool} on ${m.server}, as it is described now, with any arguments, without asking again.`, wider: false },
     ];
   }
   if (req.kind !== 'call') return [];
@@ -478,8 +478,11 @@ export function mcpOf(req) {
   const p = (req && req.preview) || {};
   return { server: String(p.serverName || p.server || lastOf(req && req.tile) || 'an MCP server'), path: String(p.server || (req && req.tile) || ''), tool: String(p.tool || ''),
     title: String(p.title || ''), description: String(p.description || ''), readOnly: p.readOnly === true, arguments: String(p.arguments || ''),
-    standing: (p.standing && p.standing.tool) || '' };
+    standing: (p.standing && p.standing.tool) || '', changed: Array.isArray(p.changed) ? p.changed.map(String) : [] };
 }
+
+const CHANGED = Object.freeze({ name: 'its name', title: 'its title', description: 'its description', inputSchema: 'its arguments',
+  outputSchema: 'its answer’s form', annotations: 'its marks (read-only and the like)' });
 
 /** READ_WEB: what a sheet says when the conversation that asks has read the web (preview.readWeb). */
 export const READ_WEB = 'This conversation has read the web: what your agent asks may come from a page it read.';
@@ -493,7 +496,8 @@ export function webRows(req) {
 export function mcpRows(req) {
   const m = mcpOf(req);
   return { ...m, marked: m.readOnly ? 'Its server marks it read-only — the server’s word, not xbin’s.' : 'Its server doesn’t mark it read-only: it may change things.',
-    undo: `xbin can't undo this. Whether ${m.server} can is up to ${m.server}.` };
+    undo: `xbin can't undo this. Whether ${m.server} can is up to ${m.server}.`,
+    changedLine: m.changed.length ? `Changed since you last allowed it or first met it: ${m.changed.map((k) => CHANGED[k] || k).join(', ')}.` : '' };
 }
 
 /**
@@ -514,7 +518,7 @@ export function netPrefs(state) {
     { id: 'mcp', label: 'Let my agent use MCP tools from this workspace’s tiles', on: !!st.mcp && mcpOk, allowed: mcpOk, why: mcpOk ? '' : (mcp.why || 'Off for this workspace — an admin can change it.'),
       note: 'As you, on the tiles you can reach. Each tool asks you the first time.' },
     { id: 'mcpReadOnly', label: 'MCP tools marked read-only don’t ask me', on: !!st.mcpReadOnly && mcpOk && !!st.mcp, allowed: mcpOk && !!st.mcp, sub: true,
-      why: !mcpOk ? '' : st.mcp ? '' : 'Turn on MCP tools first.', note: 'The mark is the tool’s server’s word. Tools that aren’t marked still ask.' },
+      why: !mcpOk ? '' : st.mcp ? '' : 'Turn on MCP tools first.', note: '“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask.' },
   ];
 }
 

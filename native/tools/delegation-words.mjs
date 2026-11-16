@@ -65,6 +65,8 @@ export const requests = [
   web({ id: 'rq_web_bare', body: '{"url":"HTTPS://Docs.Example.com:8443/a?b=1"}', bodySize: 44, preview: { class: 'web', url: 'HTTPS://Docs.Example.com:8443/a?b=1' } }),
   mcp(), mcp({ id: 'rq_mcp_ro', preview: { class: 'mcp', tile: 'apps/dice', server: 'apps/dice', tool: 'roll_dice', readOnly: true, arguments: '{}' } }),
   mcp({ id: 'rq_mcp_used', state: 'approved', grant: 'always', decided: t('10:16:00') }),
+  // a tool that changed since it was allowed or first met: what changed, said
+  mcp({ id: 'rq_mcp_changed', preview: { class: 'mcp', tile: 'apps/dice', server: 'apps/dice', serverName: 'Dice', tool: 'wipe', readOnly: true, arguments: '{}', changed: ['description', 'annotations', 'somethingNew'] } }),
 ];
 
 const item = (n, o = {}) => ({ n, kind: 'grant.add', args: {}, line: `Give Invoices read access to Orders (${n})`, before: 'no access', after: 'read', ...o });

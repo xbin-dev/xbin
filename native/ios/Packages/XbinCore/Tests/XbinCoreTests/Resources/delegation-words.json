@@ -3256,8 +3256,10 @@
     "readOnly": false,
     "arguments": "{\n  \"table\": \"main\"\n}",
     "standing": "wipe on Dice — this tool again, with any arguments, without asking",
+    "changed": [],
     "marked": "Its server doesn’t mark it read-only: it may change things.",
-    "undo": "xbin can't undo this. Whether Dice can is up to Dice."
+    "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "changedLine": ""
    },
    "wider": {
     "heading": "Allow every change to Dice?",
@@ -3341,7 +3343,7 @@
     {
      "id": "tool",
      "label": "Always, this tool",
-     "text": "roll_dice on apps/dice, with any arguments, without asking again.",
+     "text": "roll_dice on apps/dice, as it is described now, with any arguments, without asking again.",
      "wider": false
     }
    ],
@@ -3397,8 +3399,10 @@
     "readOnly": true,
     "arguments": "{}",
     "standing": "",
+    "changed": [],
     "marked": "Its server marks it read-only — the server’s word, not xbin’s.",
-    "undo": "xbin can't undo this. Whether apps/dice can is up to apps/dice."
+    "undo": "xbin can't undo this. Whether apps/dice can is up to apps/dice.",
+    "changedLine": ""
    },
    "wider": {
     "heading": "Allow every change to Dice?",
@@ -3546,8 +3550,10 @@
     "readOnly": false,
     "arguments": "{\n  \"table\": \"main\"\n}",
     "standing": "wipe on Dice — this tool again, with any arguments, without asking",
+    "changed": [],
     "marked": "Its server doesn’t mark it read-only: it may change things.",
-    "undo": "xbin can't undo this. Whether Dice can is up to Dice."
+    "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "changedLine": ""
    },
    "wider": {
     "heading": "Allow every change to Dice?",
@@ -3567,6 +3573,159 @@
     "tone": "",
     "waits": false,
     "button": ""
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_changed",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "apps/dice",
+    "contentType": "application/json",
+    "body": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "bodyShown": true,
+    "bodySize": 62,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "tile": "apps/dice",
+     "server": "apps/dice",
+     "serverName": "Dice",
+     "tool": "wipe",
+     "readOnly": true,
+     "arguments": "{}",
+     "changed": [
+      "description",
+      "annotations",
+      "somethingNew"
+     ]
+    }
+   },
+   "tile": {
+    "name": "Dice",
+    "path": "apps/dice",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run wipe on Dice",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "wipe",
+    "after": " on Dice"
+   },
+   "sends": {
+    "text": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "62 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "62 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "wipe on Dice, as it is described now, with any arguments, without asking again.",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Dice",
+    "path": "apps/dice",
+    "tool": "wipe",
+    "title": "",
+    "description": "",
+    "readOnly": true,
+    "arguments": "{}",
+    "standing": "",
+    "changed": [
+     "description",
+     "annotations",
+     "somethingNew"
+    ],
+    "marked": "Its server marks it read-only — the server’s word, not xbin’s.",
+    "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "changedLine": "Changed since you last allowed it or first met it: its description, its marks (read-only and the like), somethingNew."
+   },
+   "wider": {
+    "heading": "Allow every change to Dice?",
+    "means": "From now on your agent can create, change and delete anything in Dice that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run wipe on Dice",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
    }
   }
  ],
@@ -5984,6 +6143,12 @@
    },
    {
     "kind": "request",
+    "id": "rq_mcp_changed",
+    "title": "Run wipe on Dice",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
     "id": "rq_call",
     "title": "Approve a change to Invoices",
     "note": "asked 10:14 · expires in 23 h 58 min"
@@ -7085,7 +7250,7 @@
       "allowed": false,
       "sub": true,
       "why": "",
-      "note": "The mark is the tool’s server’s word. Tools that aren’t marked still ask."
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
      }
     ]
    },
@@ -7119,7 +7284,7 @@
       "allowed": false,
       "sub": true,
       "why": "",
-      "note": "The mark is the tool’s server’s word. Tools that aren’t marked still ask."
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
      }
     ]
    },
@@ -7160,7 +7325,7 @@
       "allowed": false,
       "sub": true,
       "why": "",
-      "note": "The mark is the tool’s server’s word. Tools that aren’t marked still ask."
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
      }
     ]
    },
@@ -7206,7 +7371,7 @@
       "allowed": true,
       "sub": true,
       "why": "",
-      "note": "The mark is the tool’s server’s word. Tools that aren’t marked still ask."
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
      }
     ]
    },
@@ -7248,7 +7413,7 @@
       "allowed": true,
       "sub": true,
       "why": "",
-      "note": "The mark is the tool’s server’s word. Tools that aren’t marked still ask."
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
      }
     ]
    },
@@ -7289,7 +7454,7 @@
       "allowed": false,
       "sub": true,
       "why": "Turn on MCP tools first.",
-      "note": "The mark is the tool’s server’s word. Tools that aren’t marked still ask."
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
      }
     ]
    }

@@ -32,6 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path"
 	"slices"
@@ -283,7 +284,23 @@ type mcpTool struct {
 		Title        string `json:"title,omitempty"`
 		ReadOnlyHint bool   `json:"readOnlyHint,omitempty"`
 	} `json:"annotations"`
+	def     map[string]any // the definition as listed: what a pin hashes
+	changed []string       // the parts that differ from what the person allowed or first saw (mcpJudge)
 }
+
+// changedWords says what of a tool changed, in a person's words.
+func changedWords(parts []string) string {
+	words := map[string]string{"name": "its name", "title": "its title", "description": "its description", "inputSchema": "its arguments",
+		"outputSchema": "its answer's form", "annotations": "its marks (read-only and the like)"}
+	var out []string
+	for _, p := range parts {
+		out = append(out, words[p])
+	}
+	return strings.Join(out, ", ")
+}
+
+// pin is the tool's definition, hashed (delegation.ToolPin).
+func (t mcpTool) pin() delegation.ToolPin { return delegation.PinOf(t.def, t.Annotations.ReadOnlyHint) }
 
 // mcpOpen initializes a session with tile's server as p and lists its
 // tools.
@@ -298,12 +315,21 @@ func (s *Server) mcpOpen(ctx context.Context, p auth.Principal, tile string) (se
 		return session, nil, err
 	}
 	var list struct {
-		Tools []mcpTool `json:"tools"`
+		Tools []json.RawMessage `json:"tools"`
 	}
 	if err := json.Unmarshal(res, &list); err != nil {
 		return session, nil, &mcpError{Message: tile + "'s tools/list can't be read"}
 	}
-	return session, list.Tools, nil
+	for _, raw := range list.Tools {
+		var t mcpTool
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		if json.Unmarshal(raw, &t) != nil || dec.Decode(&t.def) != nil {
+			return session, nil, &mcpError{Message: tile + "'s tools/list can't be read"}
+		}
+		tools = append(tools, t)
+	}
+	return session, tools, nil
 }
 
 // ---- POST /delegate/mcp/call ----
@@ -387,13 +413,38 @@ func (s *Server) mcpJudge(ctx context.Context, p auth.Principal, h delegation.Ag
 			return tool, "", session, http.StatusForbidden, "tile", err.Error() + ": only its tools marked read-only"
 		}
 	}
+	// what the person allowed was the tool as it was described then (its pin)
+	def := tool.pin()
 	if a, ok := s.Delegation.Covers(p.UserID, c.Server, delegation.MCPMethod, c.Tool); ok {
-		return tool, "approval:" + a.ID, session, 0, "", ""
+		if a.Scope != delegation.ScopeTool || a.Pin != nil && a.Pin.Hash == def.Hash {
+			return tool, "approval:" + a.ID, session, 0, "", ""
+		}
+		tool.changed = changedSince(a.Pin, def) // allowed as another tool: asked again
 	}
-	if readOnly && s.Delegation.State(p.UserID).MCPReadOnly {
+	seen, had := s.Delegation.ToolPinOf(p.UserID, c.Server, c.Tool)
+	if !had {
+		// the first time this person's agent meets the tool: as it is now
+		if err := s.Delegation.PinTool(p.UserID, c.Server, c.Tool, def); err == nil {
+			slog.Info("delegation: a tool's definition pinned at first sight", "user", p.UserID, "server", c.Server, "tool", c.Tool, "readOnly", readOnly, "pin", def.Hash)
+		}
+		seen = def
+	}
+	if seen.Hash != def.Hash && tool.changed == nil {
+		tool.changed = seen.Changed(def)
+	}
+	if readOnly && seen.Hash == def.Hash && s.Delegation.State(p.UserID).MCPReadOnly {
 		return tool, "preference", session, 0, "", ""
 	}
 	return tool, "", session, 0, "", ""
+}
+
+// changedSince are the parts of def that differ from the pin an approval
+// holds (all of them for an approval that holds none).
+func changedSince(pin *delegation.ToolPin, def delegation.ToolPin) []string {
+	if pin == nil {
+		return slices.Clone(delegation.ToolParts)
+	}
+	return pin.Changed(def)
 }
 
 func mcpRefuse(w http.ResponseWriter, row *delegation.Call, status int, refusal, msg string) {
@@ -444,8 +495,19 @@ func (s *Server) apiDelegateMCPCall(w http.ResponseWriter, r *http.Request) {
 	if under == "" {
 		ticket := strings.TrimSpace(r.Header.Get(HeaderTicket))
 		if ticket == "" {
-			mcpRefuse(w, row, http.StatusForbidden, "needs-approval", "calling "+c.Tool+" on "+c.Server+" needs "+p.UserID+"'s approval — ask: POST /api/xbin/delegate/requests {method: \"POST\", path: \"/api/xbin/delegate/mcp/call\", body}, then send the same body with its id as X-XBin-Ticket")
+			why := "calling " + c.Tool + " on " + c.Server + " needs " + p.UserID + "'s approval"
+			if len(tool.changed) > 0 {
+				why += " — the tool changed since " + p.UserID + " last allowed or first met it (" + changedWords(tool.changed) + "), so they are asked again"
+			}
+			mcpRefuse(w, row, http.StatusForbidden, "needs-approval", why+" — ask: POST /api/xbin/delegate/requests {method: \"POST\", path: \"/api/xbin/delegate/mcp/call\", body}, then send the same body with its id as X-XBin-Ticket")
 			return
+		}
+		// the ticket is for the tool as it was described when the person allowed it
+		if asked, ok := s.Delegation.Request(p.UserID, ticket); ok {
+			if pin := delegation.PinFromPreview(asked.Preview["pin"]); pin != nil && pin.Hash != tool.pin().Hash {
+				mcpRefuse(w, row, http.StatusForbidden, "ticket", c.Tool+" on "+c.Server+" changed since "+p.UserID+" allowed this call: ask again")
+				return
+			}
 		}
 		req, err := s.Delegation.Redeem(p.UserID, ticket, http.MethodPost, "/api/xbin"+requestTarget(r), c.Server, contentTypeOf(r.Header.Get("Content-Type")), body)
 		if err != nil {
@@ -456,6 +518,10 @@ func (s *Server) apiDelegateMCPCall(w http.ResponseWriter, r *http.Request) {
 			row.Ticket = req.ID
 		}
 		s.delegateEvent(p.UserID, "request", req.ID)
+		// the person allowed this definition of the tool: it is the one their "read-only tools don't ask" knows now
+		if pin := delegation.PinFromPreview(req.Preview["pin"]); pin != nil && pin.Hash == tool.pin().Hash {
+			_ = s.Delegation.PinTool(p.UserID, c.Server, c.Tool, tool.pin())
+		}
 	} else if row != nil {
 		row.Under = under
 	}
@@ -522,8 +588,8 @@ func (s *Server) mcpRequestPreview(ctx context.Context, p auth.Principal, body [
 	}
 	return map[string]any{"class": "mcp", "tile": c.Server, "server": c.Server, "serverName": name, "tool": tool.Name,
 		"title": orStr(tool.Title, tool.Annotations.Title), "description": clipText(tool.Description, 1000), "readOnly": tool.Annotations.ReadOnlyHint,
-		"arguments": string(argsText), "reversible": false,
-		"standing": map[string]string{delegation.ScopeTool: tool.Name + " on " + name + " — this tool again, with any arguments, without asking"}}, c.Server, 0, ""
+		"arguments": string(argsText), "reversible": false, "pin": tool.pin(), "changed": orNone(tool.changed),
+		"standing": map[string]string{delegation.ScopeTool: tool.Name + " on " + name + " — this tool again, as it is described now, with any arguments, without asking"}}, c.Server, 0, ""
 }
 
 func orArgs(a map[string]any) map[string]any {
