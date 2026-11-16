@@ -62,6 +62,7 @@ enum AppInfo {
 
 enum AppSettings {
     static var effectivePushRelay: String { "" }
+    static var appLock: Bool { false }
 }
 
 enum Keychain {

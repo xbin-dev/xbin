@@ -35,8 +35,8 @@ private func allowOn() -> AgentNotifyPrefs {
     return p
 }
 
-private func category(_ p: PushPayload, _ prefs: AgentNotifyPrefs = allowOn()) -> String {
-    AgentNotice.content(p, appWorkspace: "app-ws", prefs: prefs)?.category ?? "(none)"
+private func category(_ p: PushPayload, _ prefs: AgentNotifyPrefs = allowOn(), device: AgentNoticeDevice = AgentNoticeDevice()) -> String {
+    AgentNotice.content(p, appWorkspace: "app-ws", prefs: prefs, device: device)?.category ?? "(none)"
 }
 
 @Suite struct AgentNoticeTests {
@@ -105,7 +105,7 @@ private func category(_ p: PushPayload, _ prefs: AgentNotifyPrefs = allowOn()) -
         #expect(category(p) == AgentNotice.requestDeny)
         // an unknown version of the member: no data, no actions of ours
         p.agent = json(#"{"v":2,"request":{"id":"\#(rid)","kind":"call","offer":"once"}}"#)
-        #expect(AgentNotice.content(p, appWorkspace: "a", prefs: allowOn()) == nil)
+        #expect(AgentNotice.content(p, appWorkspace: "a", prefs: allowOn(), device: AgentNoticeDevice()) == nil)
     }
 
     /// Rule: xbind's `offer` alone is not enough — the app's own check of the
@@ -140,7 +140,7 @@ private func category(_ p: PushPayload, _ prefs: AgentNotifyPrefs = allowOn()) -
     }
 
     @Test func contentDrawsTheCall() throws {
-        let c = try #require(AgentNotice.content(approval(), appWorkspace: "app-ws", prefs: allowOn()))
+        let c = try #require(AgentNotice.content(approval(), appWorkspace: "app-ws", prefs: allowOn(), device: AgentNoticeDevice()))
         #expect(c.title == "Approval needed — Notes")
         #expect(c.body == "POST /api/apps/notes/note\n" + #"{"text":"hi"}"#)
         #expect(c.threadID == "wspush/xbin/agent" && c.timeSensitive && c.badge == 2)
@@ -149,14 +149,14 @@ private func category(_ p: PushPayload, _ prefs: AgentNotifyPrefs = allowOn()) -
         #expect(shown == AgentShownRequest(id: rid, kind: "call", tile: "apps/notes", method: "POST", target: "/api/apps/notes/note",
                                            contentType: "application/json", body: #"{"text":"hi"}"#, bodySha256: "c0ffee", whole: true))
         // not eligible: xbind's sentence, and nothing of the call kept as shown
-        let r = try #require(AgentNotice.content(approval(body: String(repeating: "y", count: 300)), appWorkspace: "a", prefs: allowOn()))
+        let r = try #require(AgentNotice.content(approval(body: String(repeating: "y", count: 300)), appWorkspace: "a", prefs: allowOn(), device: AgentNoticeDevice()))
         #expect(r.body.hasPrefix("Your workspace agent wants to change something in Notes."))
         #expect(r.userInfo["shown"].flatMap(AgentShownRequest.init(encoded:))?.whole == false)
         #expect(r.userInfo["shown"].flatMap(AgentShownRequest.init(encoded:))?.body == "")
         // a tile name with a hidden character is drawn revealed
         var p = approval(offer: "")
         p.agent = json(#"{"v":1,"request":{"id":"\#(rid)","kind":"session","tile":"apps/x","tileName":"In‮voices","offer":""}}"#)
-        let s = try #require(AgentNotice.content(p, appWorkspace: "a", prefs: allowOn()))
+        let s = try #require(AgentNotice.content(p, appWorkspace: "a", prefs: allowOn(), device: AgentNoticeDevice()))
         #expect(s.title == "Approval needed — In⟨U+202E⟩voices")
         #expect(s.body.hasPrefix("Your workspace agent wants to start a tile agent in In⟨U+202E⟩voices."))
     }
@@ -165,7 +165,7 @@ private func category(_ p: PushPayload, _ prefs: AgentNotifyPrefs = allowOn()) -
         let p = PushPayload(ws: "wspush", kind: "agent.ask", title: "Question from your workspace agent",
                             body: "Open the agent to answer, or reply here.", link: "xbin/agent#c=12", collapseID: "agent-conv:12",
                             agent: json(#"{"v":1,"conversation":{"id":"12"},"ask":"Pay the ‮REVO invoice?"}"#))
-        let c = try #require(AgentNotice.content(p, appWorkspace: "a", prefs: AgentNotifyPrefs()))
+        let c = try #require(AgentNotice.content(p, appWorkspace: "a", prefs: AgentNotifyPrefs(), device: AgentNoticeDevice()))
         #expect(c.title == "Question from your workspace agent")
         #expect(c.body == "Your agent asks: “Pay the ⟨U+202E⟩REVO invoice?”")
         #expect(c.userInfo["conversation"] == "12" && c.category == AgentNotice.conversation && !c.timeSensitive)
@@ -174,7 +174,7 @@ private func category(_ p: PushPayload, _ prefs: AgentNotifyPrefs = allowOn()) -
     @Test func otherKindsAreNotOurs() {
         for kind in ["agent.permission", "agent.question", "agent.turn", "agent.clear", "tile", "test"] {
             let p = PushPayload(ws: "w", kind: kind, title: "t", agent: json(#"{"v":1}"#))
-            #expect(AgentNotice.content(p, appWorkspace: "a", prefs: allowOn()) == nil, "\(kind)")
+            #expect(AgentNotice.content(p, appWorkspace: "a", prefs: allowOn(), device: AgentNoticeDevice()) == nil, "\(kind)")
         }
     }
 }
@@ -400,5 +400,63 @@ private let shown = AgentShownRequest(id: rid, kind: "call", tile: "apps/notes",
         if case .refuse = AgentBridge.decide(["type": "xbin:agent-notify", "title": "x"], tile: holder, holder: holder) {} else {
             Issue.record("a made-up notification message was taken")
         }
+    }
+}
+
+
+/// Review finding 2: the lock-screen actions never go around the app's own
+/// lock, and Allow once needs a device that can authenticate its person.
+@Suite struct AgentNoticeDeviceTests {
+    private let conv = "12"
+
+    private func ask() -> PushPayload {
+        PushPayload(ws: "wspush", kind: "agent.ask", title: "Question from your workspace agent", body: "Open the agent to answer, or reply here.",
+                    link: "xbin/agent#c=\(conv)", collapseID: "agent-conv:\(conv)",
+                    agent: .object(["v": 1, "conversation": .object(["id": .string(conv)]), "ask": "Today?"]))
+    }
+
+    private func changeset() -> PushPayload {
+        PushPayload(ws: "wspush", kind: "agent.changeset", title: "A plan to review", body: "…", link: "xbin/agent#cs=\(sid)",
+                    collapseID: "agent-changeset:\(sid)",
+                    agent: .object(["v": 1, "changeset": .object(["id": .string(sid), "items": 2, "warned": 0, "plan": true, "asks": false])]))
+    }
+
+    /// With "Require Face ID to open" on, every notification offers Review
+    /// (or Open) only: no Deny, Reject, Reply or Allow once.
+    @Test func appLockLeavesReviewOnly() {
+        let locked = AgentNoticeDevice(appLock: true, hasPasscode: true)
+        #expect(category(approval(), device: locked) == AgentNotice.requestReview)
+        #expect(category(approval(offer: ""), device: locked) == AgentNotice.requestReview)
+        #expect(category(changeset(), device: locked) == AgentNotice.changesetReview)
+        #expect(category(ask(), device: locked) == AgentNotice.conversationOpen)
+        #expect(category(ask()) == AgentNotice.conversation, "unlocked: Reply is there")
+        #expect(category(changeset()) == AgentNotice.changesetReject)
+    }
+
+    /// Without a passcode, iOS's device authentication asks nothing: Allow
+    /// once is never offered; Deny stays.
+    @Test func noPasscodeNoAllowOnce() {
+        let open = AgentNoticeDevice(appLock: false, hasPasscode: false)
+        #expect(category(approval(), device: open) == AgentNotice.requestDeny)
+        #expect(category(approval()) == AgentNotice.requestAllowDeny)
+    }
+
+    /// What the app honours when an action arrives — an old category may
+    /// still deliver one: under the app lock no decision and no reply; Allow
+    /// once only with a passcode and protected data available (a Watch or a
+    /// locked phone has none).
+    @Test func gateAtActionTime() {
+        let fine = AgentNoticeDevice(appLock: false, hasPasscode: true, protectedData: true)
+        for a in [AgentNoticeAction.allowOnce, .deny, .reject, .message("hi")] {
+            #expect(AgentNoticeGate.refusal(a, device: fine) == nil)
+            #expect(AgentNoticeGate.refusal(a, device: AgentNoticeDevice(appLock: true, hasPasscode: true, protectedData: true)) != nil, "\(a) under the app lock")
+        }
+        #expect(AgentNoticeGate.refusal(.open, device: AgentNoticeDevice(appLock: true, hasPasscode: true)) == nil, "opening the app is its own lock's business")
+        #expect(AgentNoticeGate.refusal(.allowOnce, device: AgentNoticeDevice(appLock: false, hasPasscode: false, protectedData: true)) != nil)
+        #expect(AgentNoticeGate.refusal(.allowOnce, device: AgentNoticeDevice(appLock: false, hasPasscode: true, protectedData: false)) != nil)
+        #expect(AgentNoticeGate.refusal(.deny, device: AgentNoticeDevice(appLock: false, hasPasscode: false, protectedData: false)) == nil, "Deny stays")
+        // a Retry is judged as what it retries
+        #expect(AgentNoticeGate.refusal(.retry, tried: .allowOnce, device: AgentNoticeDevice(appLock: false, hasPasscode: false)) != nil)
+        #expect(AgentNoticeGate.refusal(.retry, tried: .deny, device: AgentNoticeDevice(appLock: true, hasPasscode: true)) != nil)
     }
 }

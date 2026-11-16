@@ -26,7 +26,8 @@ final class NotificationService: UNNotificationServiceExtension {
         if let opened = Self.open(userInfo: request.content.userInfo) {
             let p = opened.payload
             let prefs = AgentNoticeStore.prefs(opened.appWorkspace, group: Self.keychainGroup)
-            if let c = AgentNotice.content(p, appWorkspace: opened.appWorkspace, prefs: prefs) {
+            let device = AgentNoticeStore.device(group: Self.keychainGroup)
+            if let c = AgentNotice.content(p, appWorkspace: opened.appWorkspace, prefs: prefs, device: device) {
                 content.title = c.title
                 content.body = c.body
                 content.threadIdentifier = c.threadID

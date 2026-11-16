@@ -46,6 +46,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // the workspace agent's actions and follow-ups work with or without push (D241)
         UNUserNotificationCenter.current().setNotificationCategories(PushManager.categories.union(AgentNotifications.categories))
         AgentNotifications.shared.registerBackgroundRefresh() // before launch ends (BGTaskScheduler's rule)
+        // the extension reads the app's lock from the shared settings (review finding 2)
+        AgentNoticeStore.setAppLock(AppSettings.appLock, group: AppInfo.sharedKeychainGroup)
         BaseTwoChrome.apply()
         #if DEBUG
         // The UI tests (-XbinUITesting): UIKit's animations off, so the app

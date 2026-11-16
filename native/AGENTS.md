@@ -1453,6 +1453,14 @@ section above hold for all of it):
   (`PushOpen`, the extension's opening rule in the app), the sweep on every
   foreground and refresh, the badge (`setBadgeCount`, the NSE's
   `content.badge`), `BGAppRefreshTask`.
+- **The app's lock and the device** (review finding 2): `.authenticationRequired`
+  asks nothing on an unlocked phone or one without a passcode. So under
+  "Require Face ID to open" (copied into the shared settings as
+  `AgentNoticeStore` `@device`, at every launch and change) notifications
+  offer Review…/Open only, Allow once is never offered without a passcode
+  (`LAContext.canEvaluatePolicy(.deviceOwnerAuthentication)`), and
+  `AgentNoticeGate` refuses at action time — the app's lock, no passcode, no
+  protected data (a Watch, a locked phone) — whatever an old category offered.
 - **A notification's response** (`AppDelegate.userNotificationCenter(_:didReceive:withCompletionHandler:)`)
   hands its completion back on the main thread (`MainThreadCompletion`):
   for an action that leaves the app in the background UIKit snapshots the

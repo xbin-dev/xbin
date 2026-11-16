@@ -96,6 +96,7 @@ extension UIApplication {
     nonisolated public static let didEnterBackgroundNotification = Notification.Name("UIApplicationDidEnterBackgroundNotification")
     public enum State: Int, Sendable { case active, inactive, background }
     public var applicationState: State { .active }
+    public var isProtectedDataAvailable: Bool { true }
     // Debug's notification demo (D241) finishes in the background
     public func beginBackgroundTask(withName taskName: String?,
                                     expirationHandler handler: (@MainActor @Sendable () -> Void)? = nil) -> UIBackgroundTaskIdentifier {

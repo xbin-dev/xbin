@@ -48,6 +48,7 @@ final class AgentNotifications {
             cat(AgentNotice.changesetReject, [reject, review]),
             cat(AgentNotice.changesetReview, [review]),
             cat(AgentNotice.conversation, [reply, open]),
+            cat(AgentNotice.conversationOpen, [open]),
             cat(AgentNotice.followupRetry, [retry, review]),
             cat(AgentNotice.followup, [review]),
         ]
@@ -71,6 +72,13 @@ final class AgentNotifications {
 
     // MARK: actions
 
+    /// The device now: the app's lock as the app has it, a passcode, protected data.
+    func deviceNow() -> AgentNoticeDevice {
+        var d = AgentNoticeStore.device(group: group, protectedData: UIApplication.shared.isProtectedDataAvailable)
+        d.appLock = AppSettings.appLock
+        return d
+    }
+
     /// A notification's action, or its tap (`action` the default one). True:
     /// an agent notification, handled here.
     func handle(info: [String: String], action: String, text: String?, identifier: String) async -> Bool {
@@ -78,6 +86,17 @@ final class AgentNotifications {
               kind != "agent.question", kind != "agent.turn", let app = info["app"],
               let w = AppModel.shared.workspace(app) else { return false }
         let a = AgentNoticeAction.of(actionID: action, text: text)
+        // the app's own lock and the device's authentication come first, whatever
+        // the notification's category offered (an old one keeps its actions)
+        let tried = info["tried"].map { AgentNoticeAction.of(actionID: $0, text: nil) }
+        if let why = AgentNoticeGate.refusal(a, tried: tried, device: deviceNow()) {
+            if case .message = a {
+                followUp(w, identifier: UUID().uuidString, info: info, note: AgentNoticeWords.notSent(why))
+            } else {
+                followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.review(why))
+            }
+            return true
+        }
         switch a {
         case .open:
             open(info: info, in: w)

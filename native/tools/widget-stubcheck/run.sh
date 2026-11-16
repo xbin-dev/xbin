@@ -18,7 +18,7 @@ out=${1:-${TMPDIR:-/tmp}/xbin-widget-stubcheck}
 mkdir -p "$out/Sources"
 rm -rf "$out/Sources"/*
 cp -R "$repo/native/tools/swiftui-stubcheck/Stubs/SwiftUI" "$repo/native/tools/swiftui-stubcheck/Stubs/UIKit" "$out/Sources/"
-cp -R "$here/Stubs/ActivityKit" "$here/Stubs/WidgetKit" "$here/Stubs/UserNotifications" "$here/Stubs/BackgroundTasks" "$out/Sources/"
+cp -R "$here/Stubs/ActivityKit" "$here/Stubs/WidgetKit" "$here/Stubs/UserNotifications" "$here/Stubs/BackgroundTasks" "$here/Stubs/LocalAuthentication" "$out/Sources/"
 
 # The widget extension, with a PushKeyring shim (Shared/Keychain.swift needs Security).
 mkdir -p "$out/Sources/WidgetCheck"
@@ -49,11 +49,12 @@ let package = Package(
         .target(name: "WidgetKit", dependencies: ["SwiftUI", "ActivityKit"]),
         .target(name: "UserNotifications", dependencies: ["UIKit"]),
         .target(name: "BackgroundTasks"),
+        .target(name: "LocalAuthentication"),
         .target(name: "WidgetCheck", dependencies: [
             "SwiftUI", "WidgetKit", "ActivityKit", .product(name: "XbinAgent", package: "XbinAgent"),
         ]),
         .target(name: "AppPushCheck", dependencies: [
-            "UIKit", "ActivityKit", "UserNotifications", "BackgroundTasks",
+            "UIKit", "ActivityKit", "UserNotifications", "BackgroundTasks", "LocalAuthentication",
             .product(name: "XbinCore", package: "XbinCore"), .product(name: "XbinAgent", package: "XbinAgent"),
         ]),
     ],

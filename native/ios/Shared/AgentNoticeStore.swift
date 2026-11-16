@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import XbinCore
 
 /// What the app and its Notification Service Extension share about the
@@ -22,6 +23,31 @@ enum AgentNoticeStore {
     static func setPrefs(_ p: AgentNotifyPrefs, _ workspace: String, group: String?) {
         guard let d = try? JSONEncoder().encode(p) else { return }
         Keychain.write(d, service: prefsService, account: workspace, group: group, accessibility: .afterFirstUnlockThisDevice)
+    }
+
+    /// The app's own lock ("Require Face ID to open"), copied here for the
+    /// extension (review finding 2): under it, a notification offers Review
+    /// only. The app writes it whenever it changes and at every launch.
+    static let deviceAccount = "@device"
+
+    static func appLock(group: String?) -> Bool {
+        guard let d = Keychain.read(service: prefsService, account: deviceAccount, group: group),
+              let v = try? JSONDecoder().decode([String: Bool].self, from: d) else { return false }
+        return v["appLock"] ?? false
+    }
+
+    static func setAppLock(_ on: Bool, group: String?) {
+        guard let d = try? JSONEncoder().encode(["appLock": on]) else { return }
+        Keychain.write(d, service: prefsService, account: deviceAccount, group: group, accessibility: .afterFirstUnlockThisDevice)
+    }
+
+    /// The device as a notification is drawn or acted on: the app's lock,
+    /// whether a passcode is set (without one, device authentication asks
+    /// nothing), and — the app's to say — whether protected data is there.
+    static func device(group: String?, protectedData: Bool = true) -> AgentNoticeDevice {
+        AgentNoticeDevice(appLock: appLock(group: group),
+                          hasPasscode: LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil),
+                          protectedData: protectedData)
     }
 
     static func counts(group: String?) -> [String: Int] {

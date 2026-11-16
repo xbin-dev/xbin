@@ -165,6 +165,41 @@ public struct AgentShownRequest: Sendable, Equatable, Codable {
     }
 }
 
+/// What the device itself says about the person holding it (review
+/// finding 2): the app's own lock ("Require Face ID to open"), whether the
+/// phone has a passcode (without one, iOS's device authentication asks
+/// nothing), and whether protected data is available (none on a locked
+/// phone, or for an action taken on a paired Watch). The extension knows
+/// the first two (the app copies its lock into the shared settings); the
+/// app knows all three when an action arrives.
+public struct AgentNoticeDevice: Sendable, Equatable {
+    public var appLock: Bool
+    public var hasPasscode: Bool
+    public var protectedData: Bool
+
+    public init(appLock: Bool = false, hasPasscode: Bool = true, protectedData: Bool = true) {
+        self.appLock = appLock
+        self.hasPasscode = hasPasscode
+        self.protectedData = protectedData
+    }
+}
+
+/// What the app honours when a notification's action arrives, whatever its
+/// category offered (an old notification keeps its category): under the
+/// app's lock nothing is decided and nothing replied — the person opens the
+/// app, behind its lock; Allow once only on a device with a passcode and
+/// protected data available. Nil: go on (the re-read comes next).
+public enum AgentNoticeGate {
+    public static func refusal(_ a: AgentNoticeAction, tried: AgentNoticeAction? = nil, device: AgentNoticeDevice) -> String? {
+        let what = a == .retry ? (tried ?? .open) : a
+        if what == .open { return nil }
+        if device.appLock { return "xbin is locked with Face ID: open it to decide or reply." }
+        if what == .allowOnce && !device.hasPasscode { return "Allow once needs a passcode on this device." }
+        if what == .allowOnce && !device.protectedData { return "Allow once needs this device unlocked." }
+        return nil
+    }
+}
+
 public enum AgentNotice {
     // The categories (the app registers each with its actions: §3.5).
     public static let requestAllowDeny = "xbin.agent.request.allow-deny"
@@ -174,6 +209,8 @@ public enum AgentNotice {
     public static let changesetReject = "xbin.agent.changeset.reject"
     public static let changesetReview = "xbin.agent.changeset.review"
     public static let conversation = "xbin.agent.conversation"
+    /// A question or a finished request under the app's lock: Open only.
+    public static let conversationOpen = "xbin.agent.conversation.open"
     public static let followupRetry = "xbin.agent.followup.retry"
     public static let followup = "xbin.agent.followup"
 
@@ -209,10 +246,19 @@ public enum AgentNotice {
 
     /// The category of an agent notification: §3.5's matrix, from the
     /// payload's kind and fields and this workspace's settings.
-    public static func category(kind: String, data: AgentNoticeData?, prefs: AgentNotifyPrefs) -> String {
+    public static func category(kind: String, data: AgentNoticeData?, prefs: AgentNotifyPrefs, device: AgentNoticeDevice) -> String {
+        if device.appLock {
+            // the app's own lock: nothing on a notification goes around it
+            switch kind {
+            case "agent.approval": return requestReview
+            case "agent.changeset": return changesetReview
+            case "agent.ask", "agent.done": return data?.conversation != nil ? conversationOpen : followup
+            default: return followup
+            }
+        }
         switch kind {
         case "agent.approval":
-            let allow = prefs.lockAllowOnce && (data?.request).map(eligible) == true
+            let allow = prefs.lockAllowOnce && device.hasPasscode && (data?.request).map(eligible) == true
             switch (allow, prefs.lockDeny) {
             case (true, true): return requestAllowDeny
             case (true, false): return requestAllow
@@ -246,7 +292,7 @@ public enum AgentNotice {
     /// The notification for an agent payload of workspace `appWorkspace`
     /// (nil: not an agent kind this app draws — the payload's own text
     /// stands, as on an older app).
-    public static func content(_ p: PushPayload, appWorkspace: String, prefs: AgentNotifyPrefs) -> Content? {
+    public static func content(_ p: PushPayload, appWorkspace: String, prefs: AgentNotifyPrefs, device: AgentNoticeDevice) -> Content? {
         guard p.kind.hasPrefix("agent."), p.kind != "agent.permission", p.kind != "agent.question", p.kind != "agent.turn",
               p.kind != "agent.clear", let data = AgentNoticeData(json: p.agent) else { return nil }
         var info: [String: String] = ["app": appWorkspace, "ws": p.ws, "kind": p.kind, "link": p.link, "collapse": p.collapseID]
@@ -280,7 +326,7 @@ public enum AgentNotice {
             break
         }
         if let c = data.conversation { info["conversation"] = c }
-        return Content(title: title, body: body, category: category(kind: p.kind, data: data, prefs: prefs), threadID: "\(p.ws)/xbin/agent",
+        return Content(title: title, body: body, category: category(kind: p.kind, data: data, prefs: prefs, device: device), threadID: "\(p.ws)/xbin/agent",
                        timeSensitive: p.kind == "agent.approval" || p.kind == "agent.changeset", userInfo: info, badge: data.badge)
     }
 
@@ -424,6 +470,11 @@ public enum AgentNoticeWords {
 
     public static func changed() -> Note {
         Note(title: "Nothing was decided", body: "This request isn't the one the notification showed. Open it to review.", retry: false)
+    }
+
+    /// A reply the app didn't send (its lock): nothing reached the agent.
+    public static func notSent(_ why: String) -> Note {
+        Note(title: "Nothing was sent", body: why + " Open it to answer.", retry: false)
     }
 
     public static func review(_ why: String) -> Note {

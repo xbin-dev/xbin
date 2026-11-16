@@ -136,7 +136,7 @@ struct AllowOnceExplainSheet: View {
 
 /// The settings' words (the app's own: there is no lock screen on the web).
 enum AgentNotifyWords {
-    static let lockFooter = "Every action asks for Face ID or your passcode first, and the app reads the request again before it sends anything: one that changed, was decided elsewhere or can't be reached decides nothing, and a notification says why. Allow once is offered only for a single change to a tile whose whole request fits the notification — anything wider opens the app."
+    static let lockFooter = "On a locked phone, every action asks for Face ID or your passcode first; on an unlocked one, whoever holds it can use them. With “Require Face ID to open” on (Settings → App), notifications offer only Review…, and Allow once needs a passcode on this phone. The app reads the request again before it sends anything: one that changed, was decided elsewhere or can't be reached decides nothing, and a notification says why. Allow once is offered only for a single change to a tile whose whole request shows on the notification — anything wider opens the app."
 
     static let explainWhat = "With this on, a notification for a single change your agent wants to make in a tile can offer Allow once — when the whole request, its call and everything it sends, fits on the notification, so you see all of it before you allow it."
 
@@ -147,5 +147,5 @@ enum AgentNotifyWords {
         "Never for a request too long to show, or with hidden characters",
     ]
 
-    static let explainHow = "Allow once asks for Face ID or your passcode, and the app checks the request with your workspace before it allows it. You can turn this off at any time; Deny stays."
+    static let explainHow = "On a locked phone, Allow once asks for Face ID or your passcode first; it is never offered on a phone without a passcode, nor while “Require Face ID to open” is on. The app checks the request with your workspace before it allows it. You can turn this off at any time; Deny stays."
 }

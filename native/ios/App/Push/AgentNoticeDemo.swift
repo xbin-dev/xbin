@@ -70,7 +70,7 @@ enum AgentNoticeDemo {
         pending = nil
         if let o = observer { NotificationCenter.default.removeObserver(o); observer = nil }
         let prefs = AgentNotifications.shared.prefs(w)
-        guard let c = AgentNotice.content(payload, appWorkspace: w.id, prefs: prefs) else {
+        guard let c = AgentNotice.content(payload, appWorkspace: w.id, prefs: prefs, device: AgentNotifications.shared.deviceNow()) else {
             release()
             return
         }

@@ -318,3 +318,8 @@ struct AgentTileView: View {
     var opened: () -> Void
     var body: some View { EmptyView() }
 }
+
+// Shared/AgentNoticeStore.swift (the extension's settings): AppSettings copies the app's lock there (D241).
+enum AgentNoticeStore {
+    static func setAppLock(_ on: Bool, group: String?) {}
+}
