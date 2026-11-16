@@ -321,8 +321,9 @@ func TestPlanOfAPersonAndAskAnAdmin(t *testing.T) {
 		t.Errorf("alice's log of her line being applied by bob: %+v", row)
 	}
 
-	// a request an admin turns down; and one withdrawn when the asker's agent stops for good
-	for _, end := range []string{"reject", "off"} {
+	// a request an admin turns down; one the asker takes back (by itself, and by ending the plan while it
+	// is still open); and one withdrawn when the asker's agent stops for good
+	for _, end := range []string{"reject", "retract", "end", "off"} {
 		cs = w.plan(t, "alice", `[{"kind":"grant.add","args":{"from":"apps/helper","target":"apps/x","role":"reader"}}]`)
 		if got := flags(cs); got != "AN[]" {
 			t.Fatalf("a grant, for a person: %s", got)
@@ -343,6 +344,26 @@ func TestPlanOfAPersonAndAskAnAdmin(t *testing.T) {
 			}
 			if got := w.set(t, "alice", cs.ID).Items[0]; got.Result != delegation.ItemRejected || !strings.Contains(got.Error, "bob") {
 				t.Fatalf("alice's line after the admin turned it down: %+v", got)
+			}
+		case "retract", "end":
+			if end == "retract" {
+				if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/ask", `{"retract":true}`, agentOf("alice")); code != 403 {
+					t.Fatalf("the agent took the request back: %d %s", code, body)
+				}
+				if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/ask", `{"retract":true}`, alice); code != 200 {
+					t.Fatalf("retract: %d %s", code, body)
+				}
+			} else if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/reject", "", alice); code != 200 {
+				t.Fatalf("alice ends her plan: %d %s", code, body)
+			}
+			if got := w.set(t, "bob", asked.ID); got.State != delegation.SetWithdrawn || got.DecidedBy != "alice" {
+				t.Fatalf("%s: the admin's copy still waits: %s (decided by %q)", end, got.State, got.DecidedBy)
+			}
+			if got := w.set(t, "alice", cs.ID).Items[0]; got.Result != delegation.ItemRejected {
+				t.Fatalf("%s: alice's asked line: %+v", end, got)
+			}
+			if code, _ := w.do("POST", "/delegate/changesets/"+asked.ID+"/approve", `{"items":[1]}`, bob); code != 409 {
+				t.Fatalf("%s: an admin applied a request that was taken back: %d", end, code)
 			}
 		case "off": // workspace agents are switched off: nothing her agent proposed stays to be applied
 			if code, body := w.do("PUT", "/delegate/workspace", `{"enabled":false}`, bob); code != 200 {

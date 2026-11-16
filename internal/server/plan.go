@@ -651,11 +651,14 @@ func (s *Server) apiChangeSetAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Items []int `json:"items"`
+		// Retract: take the request back — the admins' copies end, the
+		// asked lines read "left out". Narrowing: never refused.
+		Retract bool `json:"retract"`
 	}
 	if r.ContentLength != 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		if err := DecodeJSON(r, &body); err != nil {
-			WriteError(w, http.StatusBadRequest, "need {items?: [n, …]}", delegationDocs)
+			WriteError(w, http.StatusBadRequest, "need {items?: [n, …]} or {retract: true}", delegationDocs)
 			return
 		}
 	}
@@ -667,6 +670,17 @@ func (s *Server) apiChangeSetAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	case !cs.Plan || cs.From != "" || cs.State != delegation.SetProposed && cs.State != delegation.SetApplied && cs.State != delegation.SetPartial:
 		WriteError(w, http.StatusConflict, "nothing of this change set can be asked of an admin", delegationDocs)
+		return
+	}
+	if body.Retract {
+		if s.retractAsks(a.user, id, "you took the request back") == 0 {
+			WriteError(w, http.StatusConflict, "no line of this plan is with the admins", delegationDocs)
+			return
+		}
+		cs, _ = s.Delegation.ChangeSet(a.user, id)
+		s.delegateAudit(delegation.Call{User: a.user, Agent: cs.Agent, Method: http.MethodPost, Path: "/api/xbin/delegate/changesets/" + id + "/ask",
+			Class: "decision:retract", Effect: true, Status: http.StatusOK, Ticket: cs.ID})
+		WriteJSON(w, http.StatusOK, cs)
 		return
 	}
 	if refusal, msg := s.decideRefusal(a.user, cs.Agent); refusal != "" {
@@ -807,6 +821,42 @@ func (s *Server) askDecided(done delegation.ChangeSet) {
 	if err == nil {
 		s.delegateEvent(done.From, "changeset", done.AskOf)
 	}
+}
+
+// retractAsks ends what user asked the admins for from their set id — the
+// admins' open copies are withdrawn (decidedBy: the asker), the set's
+// asked lines read "left out" with why — and answers how many lines that
+// were. The asker's own act: taking the request back, or ending the set.
+func (s *Server) retractAsks(user, id, why string) int {
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, adm := range s.admins() {
+		sets, _ := s.Delegation.ChangeSets(adm.UserID)
+		for _, o := range sets {
+			if o.From != user || o.AskOf != id || !o.Open() {
+				continue
+			}
+			if _, err := s.Delegation.UpdateChangeSet(adm.UserID, o.ID, func(c *delegation.ChangeSet) error {
+				c.State, c.Decided, c.DecidedBy = delegation.SetWithdrawn, now, user
+				return nil
+			}); err == nil {
+				s.delegateEvent(adm.UserID, "changeset", o.ID)
+			}
+		}
+	}
+	n := 0
+	_, _ = s.Delegation.UpdateChangeSet(user, id, func(c *delegation.ChangeSet) error {
+		for i := range c.Items {
+			if c.Items[i].Result == delegation.ItemAsked {
+				c.Items[i].Result, c.Items[i].Error = delegation.ItemRejected, why
+				n++
+			}
+		}
+		return nil
+	})
+	if n > 0 {
+		s.delegateEvent(user, "changeset", id)
+	}
+	return n
 }
 
 // withdrawAsksFrom ends the requests user has waiting with the admins:

@@ -770,7 +770,8 @@ POST   /delegate/plans          the person's agent only, under its agent
 POST   /delegate/changesets/<id>/ask
                                  the person, in their own session.
                                  {items?: [n, …]} → their set, the lines
-                                 that need an admin marked "asked"
+                                 that need an admin marked "asked";
+                                 {retract: true} takes the request back
 ```
 
 A plan may hold the kinds above and two more:
@@ -815,7 +816,10 @@ and its items carry, beside a change set's:
   it; the first to decide ends the others' copies (`withdrawn`,
   `decidedBy`) and the results come back to the asker's lines. Only the
   admin's own session reads a set that is `from` someone. At most 3 of a
-  person's requests wait.
+  person's requests wait. The asker takes a request back with `…/ask
+  {retract: true}` — or by rejecting or withdrawing the set while it is
+  still proposed: the admins' copies end (`withdrawn`, `decidedBy` the
+  asker) and the asked lines read `rejected`.
 - **What the agent reads of its own proposal.** The person's own session
   reads every field. Their agent — its credential, its conversation, its
   page's frame — reads, of a line that is `admin`, `needsAdmin` or

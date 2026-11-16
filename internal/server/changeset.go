@@ -213,6 +213,10 @@ func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state 
 	})
 	if err == nil {
 		s.askDecided(cs)
+		if cs.From == "" && cs.Plan { // the asker ends their own set: what they asked the admins for goes with it
+			s.retractAsks(a.user, cs.ID, "the plan was ended before an admin decided")
+			cs, _ = s.Delegation.ChangeSet(a.user, cs.ID)
+		}
 	}
 	switch {
 	case errors.Is(err, delegation.ErrNoChangeSet):
