@@ -518,7 +518,7 @@ with the person's partition).
 | `request` | an approval request was approved, denied, withdrawn, used, or expired | the request |
 | `approval` | a standing approval was added or taken back | the approval |
 | `changeset` | a change set was decided, applied or withdrawn | the set |
-| `state` | the person paused or resumed their agent, or changed what it may propose; delegation was switched on or off for the workspace | — |
+| `state` | the person paused or resumed their agent, or changed what it may propose or reach (the web, MCP tools); delegation was switched on or off for the workspace, or its web and MCP policy changed | — |
 | `session` | a tile agent this holder started changed status (idle after a turn, waiting for the person, ended) | the session |
 | `resync` | events were dropped (more than 256 waited): re-read everything | — |
 
@@ -638,6 +638,9 @@ POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
 | the agent is held (a newer xbin's data, a locked vault) | refused (`held`) | cut at the next check | refused | void | taken back | **kept** (for when it clears) | kept: decided once it clears | refused (`held`) |
 | the person is no longer given an agent | refused (`no-agent`) | cut | refused | void | taken back | dropped | **withdrawn** by xbin | refused (`no-agent`) |
 | the person loses a tile | refused for that tile | cut | — | refused at use (the tile is judged again) | — | dropped for that tile | refused at use | — |
+| the workspace's web or MCP policy off (the admin's, or the host's file) | web fetches or MCP calls refused (`web-off`, `mcp-off`); the rest goes on | finishes (a fetch: at most 20 s) | — | refused at use (the policy is judged before the ticket) | — | `tool` approvals kept, refused at use | kept; allowing works, the ticket is refused at use | — |
+| the person turns the web or MCP tools off | refused (`web-person`, `mcp-person`) | finishes | — | refused at use | — | `tool` approvals kept, refused at use | kept; refused at use | — |
+| an org's rule `web: "never"` or `mcp: "org"` | refused for a conversation that holds its data (`web-org`, `mcp-org`), said once; a new session that hasn't read it can | finishes | — | refused at use | — | kept, refused at use there | refused at use there | — |
 
 **While the agent is stopped nothing can be allowed.** Approving a request
 (once, hour or always), `POST /delegate/approvals` and applying a change set
