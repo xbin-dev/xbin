@@ -92,6 +92,9 @@ type wsXbin interface {
 
 	// Admin change sets (an admin who opted in) and previews.
 	Propose(ctx context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error)
+	// ProposePlan proposes multi-step work as one change set (xbind's
+	// POST /delegate/plans): any person's agent, nothing applied.
+	ProposePlan(ctx context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error)
 	ChangeSet(ctx context.Context, sid, id string) (wsChangeSet, error)
 	ChangeSets(ctx context.Context, sid string) ([]wsChangeSet, error)
 	Preview(ctx context.Context, sid string, p wsPreviewAsk) (wsPreview, error)
@@ -424,6 +427,9 @@ type wsDry struct {
 	Under         string `json:"under,omitempty"`
 	Refusal       string `json:"refusal,omitempty"`
 	Error         string `json:"error,omitempty"`
+	// RefusalCode is xbind's code for a refusal its dry run found below the
+	// gate (the handler's own check): command | taint | start | create | …
+	RefusalCode string `json:"refusalCode,omitempty"`
 }
 
 // wsRequest is a request for the person's approval, as xbind keeps it.
@@ -576,6 +582,7 @@ type wsChangeSet struct {
 	ID    string               `json:"id"`
 	Title string               `json:"title"`
 	State string               `json:"state"`
+	Plan  bool                 `json:"plan,omitempty"`
 	Items []xbin.ChangeSetItem `json:"items"`
 }
 

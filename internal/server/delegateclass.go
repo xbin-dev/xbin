@@ -103,6 +103,9 @@ type delegateRow struct {
 	// tile names the tile the request is about ("" none, or unknown): rest
 	// is the path below /api/xbin/.
 	tile func(s *Server, p auth.Principal, r *http.Request, rest string) string
+	// judge is the handler's own narrowing of a DelegateAct, for a dry run
+	// (delegatedry.go).
+	judge dryJudge
 }
 
 func dRead() delegateRow                    { return delegateRow{class: DelegateRead} }
@@ -239,9 +242,9 @@ var delegateClasses = map[string]delegateRow{
 	// decided: a delegate previews AS ITS PERSON, and the one place that
 	// says who a preview renders as is previewPerson (preview.go) — the
 	// delegate's case goes there, with these rows, in the same change.
-	"POST /preview":             dAct(),  // as its person: one tile, in the session's scope and the orgs' rules; rate-limited as an act, no ticket (preview.go previewDelegate)
-	"GET /preview":              dRead(), // whether previews are available, and the limits
-	"GET /components":           dRead(), // the tiles the person can read
+	"POST /preview":             dAct().judged(dryPreview), // as its person: one tile, in the session's scope and the orgs' rules; rate-limited as an act, no ticket (preview.go previewDelegate)
+	"GET /preview":              dRead(),                   // whether previews are available, and the limits
+	"GET /components":           dRead(),                   // the tiles the person can read
 	"GET /components/{path...}": dRead().on(byComponentPath),
 	"GET /screens":              dRead(), // its tiles and folder items, filtered (the broker's delegatelist.go)
 	"GET /tile-status":          dRead().on(byComponent),
@@ -267,14 +270,14 @@ var delegateClasses = map[string]delegateRow{
 	// ---- acts: tile agent sessions and tile creation. A start and a
 	// create need the person's approval; driving is for sessions the
 	// delegate opened (delegateDrives) ----
-	"POST /term/sessions":                    dAct().ticketed(), // or the person's preference; the tile is the body's cwd
-	"POST /term/sessions/{id}/prompt":        dAct().on(bySession),
-	"POST /term/sessions/{id}/queue":         dAct().on(bySession),
-	"DELETE /term/sessions/{id}/queue":       dAct().on(bySession),
-	"DELETE /term/sessions/{id}/queue/{qid}": dAct().on(bySession),
-	"POST /term/sessions/{id}/cancel":        dAct().on(bySession),
-	"DELETE /term/sessions/{id}":             dAct().on(bySession), // only a session it opened
-	"POST /templates/new":                    dAct().ticketed(),    // where the person may create
+	"POST /term/sessions":                    dAct().ticketed().judged(dryStart), // or the person's preference; the tile is the body's cwd
+	"POST /term/sessions/{id}/prompt":        dAct().on(bySession).judged(drySend),
+	"POST /term/sessions/{id}/queue":         dAct().on(bySession).judged(drySend),
+	"DELETE /term/sessions/{id}/queue":       dAct().on(bySession).judged(dryDrive),
+	"DELETE /term/sessions/{id}/queue/{qid}": dAct().on(bySession).judged(dryDrive),
+	"POST /term/sessions/{id}/cancel":        dAct().on(bySession).judged(dryDrive),
+	"DELETE /term/sessions/{id}":             dAct().on(bySession).judged(dryDrive), // only a session it opened
+	"POST /templates/new":                    dAct().ticketed().judged(dryCreate),   // where the person may create
 
 	// ---- its own asking: approval requests and change-set proposals ----
 	"POST /delegate/requests":        dAct(),
@@ -302,13 +305,14 @@ var delegateClasses = map[string]delegateRow{
 	// conversation, under the workspace's policy, the orgs' rules and the
 	// person's setting; a conversation holding any org's data needs a
 	// ticket for each URL — the handler asks, as the web's reach decides
-	"POST /delegate/web/fetch": dAct(),
+	"POST /delegate/web/fetch": dAct().judged(dryWeb),
 	// MCP tiles (D239, delegatemcp.go): one tool's call, xbind the client,
 	// as the person; a ticket per call unless a standing approval of that
 	// tool, or the person's "read-only tools don't ask" for a tool the
 	// server marks read-only, covers it — the handler asks
-	"POST /delegate/mcp/call":          dAct(),
+	"POST /delegate/mcp/call":          dAct().judged(dryMCP),
 	"POST /delegate/changesets":        dAct(),
+	"POST /delegate/plans":             dAct(), // a plan: a change set that may create tiles and start tile agents (plan.go)
 	"GET /delegate/changesets":         dRead(),
 	"GET /delegate/changesets/{id}":    dRead(),
 	"DELETE /delegate/changesets/{id}": dAct(),
@@ -325,6 +329,7 @@ var delegateClasses = map[string]delegateRow{
 	"POST /delegate/page/dismiss":            dNever(neverApprove),
 	"GET /delegate/audit":                    dNever(neverApprove),
 	"POST /delegate/changesets/{id}/approve": dNever(neverApprove),
+	"POST /delegate/changesets/{id}/ask":     dNever(neverApprove), // asking an admin is the person's own act
 	"POST /delegate/changesets/{id}/reject":  dNever(neverApprove),
 	"POST /delegate/changesets/{id}/undo":    dNever(neverApprove),
 

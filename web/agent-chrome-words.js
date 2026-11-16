@@ -373,7 +373,8 @@ export const STANDING_NOTE = 'Starting a tile agent, creating a tile and reading
 
 // ---- change sets -------------------------------------------------------------------------
 
-const KIND_TAG = { 'grant.add': 'grant', 'grant.revoke': 'grant', 'binding.set': 'binding', 'binding.remove': 'binding', 'org.share': 'org share', 'limits.set': 'limit' };
+const KIND_TAG = { 'grant.add': 'grant', 'grant.revoke': 'grant', 'binding.set': 'binding', 'binding.remove': 'binding', 'org.share': 'org share', 'limits.set': 'limit',
+  'tile.create': 'new tile', 'agent.start': 'tile agent' };
 /** kindTag(kind): "grant" · "binding" · "org share" · "limit". */
 export const kindTag = (kind) => KIND_TAG[kind] || String(kind || '').split('.')[0];
 
@@ -384,6 +385,37 @@ export function warning(w) {
   const m = /^([A-Z][A-Z ]{1,20}):\s*(.*)$/s.exec(s);
   const tag = m ? m[1].trim() : 'WARNING';
   return { tag, icon: WARN_ICON[tag] || 'warning', text: m ? m[2] : s };
+}
+
+/**
+ * stateText(item, 'before' | 'after'): a change's state in words — xbind's
+ * own (beforeText / afterText) when it says them; a value it gave as text;
+ * else the value's fields, plainly ("binding: [], host: \"a\""). null:
+ * nothing to show. Never an object's default string.
+ */
+export function stateText(item, which) {
+  const said = item ? item[`${which}Text`] : '';
+  if (typeof said === 'string' && said) return said;
+  const v = item ? item[which] : null;
+  if (v == null) return null;
+  if (typeof v === 'string') return v;
+  if (typeof v !== 'object' || Array.isArray(v)) return JSON.stringify(v);
+  const keys = Object.keys(v).sort();
+  return keys.length ? keys.map((k) => `${k}: ${JSON.stringify(v[k])}`).join(', ') : '(nothing)';
+}
+
+/**
+ * ownerWords(req): whose a tile an approved creation makes would be, from
+ * xbind's own check (preview.create.owner) — "you", "the org sales",
+ * "the workspace"; an xbind that doesn't say is not guessed at.
+ */
+export function ownerWords(req) {
+  const c = req && req.preview && req.preview.create;
+  if (!c || typeof c.owner !== 'string') return 'xbin decides when it is created';
+  if (c.owner === '') return 'the workspace';
+  if (c.owner === `user:${req.user}`) return 'you';
+  const [kind, id] = c.owner.split(':');
+  return kind === 'org' ? `the org ${id}` : kind === 'user' ? `${id} (another person)` : c.owner;
 }
 
 /** tickable(item): the person may tick it (xbind did not block it). */
@@ -410,17 +442,21 @@ export function reviewWords(cs, ticked) {
 export function needChangeTitle(cs) {
   const items = (cs && cs.items) || [];
   const w = items.filter((it) => it.warnings && it.warnings.length).length, b = items.filter((it) => it.blocked).length;
-  return { title: `${plural(items.length, 'admin change')} proposed`, note: [w ? `${w} ${w === 1 ? 'has' : 'have'} a warning` : '', b ? `${b} can't be applied` : ''].filter(Boolean).join(' · ') };
+  const na = items.filter((it) => it.needsAdmin && !it.result).length;
+  // a plan (docs/protocol/delegation.md §Plans), or another person's request to an admin, says which it is
+  const title = cs && cs.from ? `${cs.from} asks for ${plural(items.length, 'admin change')}` : cs && cs.plan ? `A plan of ${plural(items.length, 'change')}` : `${plural(items.length, 'admin change')} proposed`;
+  return { title, note: [w ? `${w} ${w === 1 ? 'has' : 'have'} a warning` : '', b ? `${b} can't be applied` : '', na ? `${na} ${na === 1 ? 'needs' : 'need'} an admin` : ''].filter(Boolean).join(' · ') };
 }
 
 const RESULT = {
   applied: { word: 'applied', icon: 'ok', tone: 'ok' }, failed: { word: 'failed', icon: 'error', tone: 'bad' }, skipped: { word: 'skipped', icon: 'minus', tone: '' },
   stale: { word: 'out of date', icon: 'refresh', tone: 'warn', text: 'Someone changed this after the agent proposed it. What you ticked no longer matches, so xbin left it alone.' },
   rejected: { word: 'left out by you', icon: 'minus', tone: '' }, blocked: { word: "couldn't be applied", icon: 'lock', tone: 'warn' },
+  asked: { word: 'sent to an admin', icon: 'clock', tone: '' },
 };
 /** resultOf(item): an item's result as {word, icon, tone, text} ("xbin said: …" for a failure). */
 export function resultOf(item) {
-  const r = RESULT[item.result] || { word: item.result || '', icon: '', tone: '' };
+  const r = RESULT[item.result] || (item.needsAdmin && !item.result ? { word: 'needs an admin', icon: 'lock', tone: '' } : { word: item.result || '', icon: '', tone: '' });
   const text = item.result === 'failed' ? `xbin said: “${item.error || 'it failed'}”` : item.result === 'blocked' ? String(item.blocked || item.error || '') : r.text || '';
   return { ...r, text };
 }

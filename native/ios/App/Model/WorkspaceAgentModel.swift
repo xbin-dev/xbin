@@ -340,6 +340,14 @@ final class WorkspaceAgentModel {
         return out
     }
 
+    /// Sends the lines of a plan that need an admin to the workspace's
+    /// admins, as a request from the person — their own tap.
+    func ask(_ set: AdminChangeSet) async -> DelegateOutcome {
+        let out = await decide(DelegateRoute.ask(set.id))
+        await readChangesets()
+        return out
+    }
+
     /// Pause at once (the safe direction), or resume — the person's own tap.
     func setPaused(_ paused: Bool) async -> String? {
         let out = await decide(DelegateRoute.setPaused(paused))

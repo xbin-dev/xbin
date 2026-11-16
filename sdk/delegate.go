@@ -414,11 +414,15 @@ type ChangeSet struct {
 	Title string          `json:"title"`
 	State string          `json:"state"` // proposed | applying | applied | partial | rejected | expired | withdrawn
 	Items []ChangeSetItem `json:"items"`
+	// Plan: proposed with ProposePlan — its lines may create tiles and
+	// start tile agents, and are the person's own to apply or an admin's.
+	Plan bool `json:"plan,omitempty"`
 }
 
 // ChangeSetItem is one operation as xbind described it — Line, Effects,
 // Warnings and Blocked are xbind's words — and, once decided, its Result:
-// applied | failed | stale | skipped | rejected | blocked.
+// applied | failed | stale | skipped | rejected | blocked — and, for a
+// plan's line an admin was asked to apply, asked.
 type ChangeSetItem struct {
 	N        int      `json:"n"`
 	Kind     string   `json:"kind"`
@@ -428,6 +432,14 @@ type ChangeSetItem struct {
 	Blocked  string   `json:"blocked,omitempty"`
 	Result   string   `json:"result,omitempty"`
 	Error    string   `json:"error,omitempty"`
+	// A plan's line: Admin — applying it takes an admin's rights;
+	// NeedsAdmin — and its person is no admin (they can ask one); Needs —
+	// the earlier lines whose tiles it names; Out — what applying it made
+	// ({"path": …} for tile.create, {"session": …} for agent.start).
+	Admin      bool            `json:"admin,omitempty"`
+	NeedsAdmin bool            `json:"needsAdmin,omitempty"`
+	Needs      []int           `json:"needs,omitempty"`
+	Out        json.RawMessage `json:"out,omitempty"`
 }
 
 // ProposeChanges submits a batch of admin changes for the person to
@@ -438,6 +450,16 @@ type ChangeSetItem struct {
 func ProposeChanges(ctx context.Context, title string, changes []Change) (ChangeSet, error) {
 	var out ChangeSet
 	return out, delegateCall(ctx, http.MethodPost, "/api/xbin/delegate/changesets", map[string]any{"title": title, "items": changes}, &out)
+}
+
+// ProposePlan submits multi-step work as one change set for the person to
+// review: the kinds of ProposeChanges, and tile.create {template, path,
+// owner?} and agent.start {tile, brief, harness?, mode?}. A later line may
+// name a tile an earlier tile.create line makes. Nothing is applied; any
+// person's agent may propose one (docs/protocol/delegation.md §Plans).
+func ProposePlan(ctx context.Context, title string, lines []Change) (ChangeSet, error) {
+	var out ChangeSet
+	return out, delegateCall(ctx, http.MethodPost, "/api/xbin/delegate/plans", map[string]any{"title": title, "items": lines}, &out)
 }
 
 // ChangeSetOf reads one of this person's change sets.

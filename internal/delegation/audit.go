@@ -59,6 +59,12 @@ type Call struct {
 	Session string    `json:"session,omitempty"` // the agent session (handle) the call ran under
 	Under   string    `json:"under,omitempty"`   // …or the standing approval, or "preference" for a session started unasked
 	Bytes   int64     `json:"bytes,omitempty"`   // what a web fetch read (D239)
+	// From and By are for a line an admin applied at another person's
+	// request (a plan's "Ask an admin"): in the admin's log From is the
+	// person who asked (Agent is THEIR agent, which proposed it); in the
+	// asker's log By is the admin who applied it. Both empty otherwise.
+	From string `json:"from,omitempty"`
+	By   string `json:"by,omitempty"`
 	// N: rows the gate left out before this one — refusals, dry runs and
 	// reads beyond what it writes a minute (the gate's audit limit).
 	N int `json:"n,omitempty"`
@@ -137,6 +143,7 @@ func bound(s string, max int) string {
 func bounded(c Call) Call {
 	c.Agent, c.Tile, c.Class = bound(c.Agent, MaxField), bound(c.Tile, MaxField), bound(c.Class, 64)
 	c.Ticket, c.Under, c.Method, c.Session = bound(c.Ticket, 64), bound(c.Under, 96), bound(c.Method, 16), bound(c.Session, 64)
+	c.From, c.By = bound(c.From, MaxField), bound(c.By, MaxField)
 	c.Path, c.Refused = bound(c.Path, MaxPath), bound(c.Refused, MaxPath)
 	return c
 }

@@ -7468,6 +7468,4911 @@
    "tool": "always"
   }
  },
+ "plans": [
+  {
+   "json": {
+    "id": "pl_dice",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "plan": true,
+    "session": "h1",
+    "title": "A dice tool and an assistant",
+    "state": "proposed",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+      "before": {
+       "tile": null
+      },
+      "after": {
+       "owner": "user:ana",
+       "tile": "apps/dice"
+      },
+      "beforeText": "nothing at apps/dice",
+      "afterText": "a new tile, yours",
+      "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"
+     },
+     {
+      "n": 2,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+      "before": {},
+      "after": {
+       "tile": "apps/assistant"
+      }
+     },
+     {
+      "n": 3,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's llm to xbin:llm",
+      "admin": true,
+      "deferred": true,
+      "needs": [
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "xbin:llm"
+        }
+       ]
+      },
+      "beforeText": "not bound",
+      "afterText": "the workspace's LLM connector (xbin:llm)",
+      "warnings": [
+       "SPEND: its calls spend the workspace's LLM quota"
+      ]
+     },
+     {
+      "n": 4,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's mcp to apps/dice",
+      "deferred": true,
+      "needs": [
+       1,
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "apps/dice"
+        }
+       ]
+      },
+      "afterText": "apps/dice"
+     },
+     {
+      "n": 5,
+      "kind": "agent.start",
+      "args": {},
+      "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+      "deferred": true,
+      "needs": [
+       1
+      ],
+      "start": {
+       "tile": "apps/dice",
+       "provider": "codex",
+       "providerName": "Codex",
+       "mode": "default",
+       "asks": true,
+       "net": "none",
+       "api": true,
+       "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+      }
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 5 changes",
+    "note": "1 has a warning"
+   },
+   "askedWords": "",
+   "items": [
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "nothing at apps/dice",
+     "after": "a new tile, yours",
+     "neededBy": [
+      4,
+      5
+     ],
+     "start": null
+    },
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "(nothing)",
+     "after": "tile: \"apps/assistant\"",
+     "neededBy": [
+      3,
+      4
+     ],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "not bound",
+     "after": "the workspace's LLM connector (xbin:llm)",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "binding: []",
+     "after": "apps/dice",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "tile agent",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": {
+      "agent": "Codex",
+      "mode": {
+       "tag": "asks before acting",
+       "tone": "ok",
+       "text": "It asks you before it edits a file or runs a command.",
+       "name": "default"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "brief": "Goal: roll_dice.\nDone when: tools/list names it.",
+      "danger": "",
+      "comes": "Its questions and permission requests come to you, in Dice and in Needs you. Your workspace agent can't answer them."
+     }
+    }
+   ],
+   "ticks": [
+    1,
+    2,
+    4,
+    5
+   ],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Your agent proposes 5 changes",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "4 of 5 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply 4 changes…",
+    "reject": "Reject all",
+    "ask": null,
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 4 and 5 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [
+      2
+     ],
+     "on": [
+      1,
+      2,
+      4,
+      5
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 3 and 4 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [
+      1,
+      5
+     ],
+     "on": [
+      1,
+      2,
+      4,
+      5
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": false,
+     "notes": {
+      "tag": "admin",
+      "needs": "Needs line 2 — checked again once that exists",
+      "neededBy": "",
+      "why": "An admin change — applied as you."
+     },
+     "off": [
+      1,
+      2,
+      4,
+      5
+     ],
+     "on": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 and 2 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [
+      1,
+      2,
+      5
+     ],
+     "on": [
+      1,
+      2,
+      4,
+      5
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [
+      1,
+      2,
+      4
+     ],
+     "on": [
+      1,
+      2,
+      4,
+      5
+     ]
+    }
+   ],
+   "kept": [
+    [
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    [],
+    [
+     1,
+     2,
+     3
+    ],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_dice",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2,
+      4,
+      5
+     ],
+     "want": true
+    },
+    {
+     "json": {
+      "id": "pl_dice",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ],
+     "want": true
+    },
+    {
+     "json": {
+      "id": "pl_dice",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "partial",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "failed"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "skipped"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "skipped"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "skipped"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "skipped"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_dice",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "rejected"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "rejected"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "rejected"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "pl_user",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "plan": true,
+    "session": "h1",
+    "title": "A dice tool and an assistant",
+    "state": "proposed",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+      "before": {
+       "tile": null
+      },
+      "after": {
+       "owner": "user:ana",
+       "tile": "apps/dice"
+      },
+      "beforeText": "nothing at apps/dice",
+      "afterText": "a new tile, yours",
+      "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"
+     },
+     {
+      "n": 2,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+      "before": {},
+      "after": {
+       "tile": "apps/assistant"
+      }
+     },
+     {
+      "n": 3,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's llm to xbin:llm",
+      "admin": true,
+      "needsAdmin": true,
+      "needs": [
+       2
+      ]
+     },
+     {
+      "n": 4,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's mcp to apps/dice",
+      "deferred": true,
+      "needs": [
+       1,
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "apps/dice"
+        }
+       ]
+      },
+      "afterText": "apps/dice"
+     },
+     {
+      "n": 5,
+      "kind": "agent.start",
+      "args": {},
+      "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+      "deferred": true,
+      "needs": [
+       1
+      ],
+      "start": {
+       "tile": "apps/dice",
+       "provider": "codex",
+       "providerName": "Codex",
+       "mode": "default",
+       "asks": true,
+       "net": "none",
+       "api": true,
+       "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+      }
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 5 changes",
+    "note": "1 needs an admin"
+   },
+   "askedWords": "1 line needs an admin and was not applied.",
+   "items": [
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "nothing at apps/dice",
+     "after": "a new tile, yours",
+     "neededBy": [
+      4,
+      5
+     ],
+     "start": null
+    },
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "(nothing)",
+     "after": "tile: \"apps/assistant\"",
+     "neededBy": [
+      3,
+      4
+     ],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "needs an admin",
+      "icon": "lock",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "binding: []",
+     "after": "apps/dice",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "tile agent",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": {
+      "agent": "Codex",
+      "mode": {
+       "tag": "asks before acting",
+       "tone": "ok",
+       "text": "It asks you before it edits a file or runs a command.",
+       "name": "default"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "brief": "Goal: roll_dice.\nDone when: tools/list names it.",
+      "danger": "",
+      "comes": "Its questions and permission requests come to you, in Dice and in Needs you. Your workspace agent can't answer them."
+     }
+    }
+   ],
+   "ticks": [
+    1,
+    2,
+    4,
+    5
+   ],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Your agent proposes 5 changes",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "4 of 5 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply 4 changes…",
+    "reject": "Reject all",
+    "ask": {
+     "text": "1 line needs an admin.",
+     "button": "Ask an admin",
+     "can": false,
+     "why": "Apply line 2 first: what waits for an admin needs it."
+    },
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 4 and 5 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [
+      2
+     ],
+     "on": [
+      1,
+      2,
+      4,
+      5
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 3 and 4 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [
+      1,
+      5
+     ],
+     "on": [
+      1,
+      2,
+      4,
+      5
+     ]
+    },
+    {
+     "state": "needs-admin",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "needs an admin",
+      "needs": "Needs line 2",
+      "neededBy": "",
+      "why": "Not yours to apply: it takes an admin’s rights. xbin shows what it would change to an admin."
+     },
+     "off": [
+      1,
+      2,
+      4,
+      5
+     ],
+     "on": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 and 2 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [
+      1,
+      2,
+      5
+     ],
+     "on": [
+      1,
+      2,
+      4,
+      5
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [
+      1,
+      2,
+      4
+     ],
+     "on": [
+      1,
+      2,
+      4,
+      5
+     ]
+    }
+   ],
+   "kept": [
+    [
+     1,
+     2,
+     4,
+     5
+    ],
+    [],
+    [
+     1,
+     2
+    ],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_user",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ]
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2,
+      4,
+      5
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_user",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ]
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2,
+      4,
+      5
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_user",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "partial",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "failed"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "skipped"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ]
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "skipped"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "skipped"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2,
+      4,
+      5
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_user",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "rejected"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "rejected"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ]
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "rejected"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "pl_applied",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "plan": true,
+    "session": "h1",
+    "title": "A dice tool and an assistant",
+    "state": "applied",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+      "before": {
+       "tile": null
+      },
+      "after": {
+       "owner": "user:ana",
+       "tile": "apps/dice"
+      },
+      "beforeText": "nothing at apps/dice",
+      "afterText": "a new tile, yours",
+      "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+      "result": "applied"
+     },
+     {
+      "n": 2,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+      "before": {},
+      "after": {
+       "tile": "apps/assistant"
+      },
+      "result": "applied"
+     },
+     {
+      "n": 3,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's llm to xbin:llm",
+      "admin": true,
+      "needsAdmin": true,
+      "needs": [
+       2
+      ]
+     },
+     {
+      "n": 4,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's mcp to apps/dice",
+      "deferred": true,
+      "needs": [
+       1,
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "apps/dice"
+        }
+       ]
+      },
+      "afterText": "apps/dice",
+      "result": "applied"
+     },
+     {
+      "n": 5,
+      "kind": "agent.start",
+      "args": {},
+      "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+      "deferred": true,
+      "needs": [
+       1
+      ],
+      "start": {
+       "tile": "apps/dice",
+       "provider": "codex",
+       "providerName": "Codex",
+       "mode": "default",
+       "asks": true,
+       "net": "none",
+       "api": true,
+       "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+      },
+      "result": "applied"
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 5 changes",
+    "note": "1 needs an admin"
+   },
+   "askedWords": "1 line needs an admin and was not applied.",
+   "items": [
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "nothing at apps/dice",
+     "after": "a new tile, yours",
+     "neededBy": [
+      4,
+      5
+     ],
+     "start": null
+    },
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "(nothing)",
+     "after": "tile: \"apps/assistant\"",
+     "neededBy": [
+      3,
+      4
+     ],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "needs an admin",
+      "icon": "lock",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "binding: []",
+     "after": "apps/dice",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "tile agent",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": {
+      "agent": "Codex",
+      "mode": {
+       "tag": "asks before acting",
+       "tone": "ok",
+       "text": "It asks you before it edits a file or runs a command.",
+       "name": "default"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "brief": "Goal: roll_dice.\nDone when: tools/list names it.",
+      "danger": "",
+      "comes": "Its questions and permission requests come to you, in Dice and in Needs you. Your workspace agent can't answer them."
+     }
+    }
+   ],
+   "ticks": [],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Your agent proposes 5 changes",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "0 of 5 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply none",
+    "reject": "Reject all",
+    "ask": {
+     "text": "1 line needs an admin.",
+     "button": "Ask an admin",
+     "can": true,
+     "why": "The workspace’s admins get it as a request from you, in xbin’s words. They apply it with their own rights; you can apply the rest now."
+    },
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 4 and 5 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      1
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 3 and 4 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      2
+     ]
+    },
+    {
+     "state": "needs-admin",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "needs an admin",
+      "needs": "Needs line 2",
+      "neededBy": "",
+      "why": "Not yours to apply: it takes an admin’s rights. xbin shows what it would change to an admin."
+     },
+     "off": [],
+     "on": [
+      3
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 and 2 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      4
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      5
+     ]
+    }
+   ],
+   "kept": [
+    [],
+    [],
+    [],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_applied",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ]
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_applied",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ]
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_applied",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ]
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_applied",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ]
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "pl_asked",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "plan": true,
+    "session": "h1",
+    "title": "A dice tool and an assistant",
+    "state": "applied",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+      "before": {
+       "tile": null
+      },
+      "after": {
+       "owner": "user:ana",
+       "tile": "apps/dice"
+      },
+      "beforeText": "nothing at apps/dice",
+      "afterText": "a new tile, yours",
+      "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+      "result": "applied"
+     },
+     {
+      "n": 2,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+      "before": {},
+      "after": {
+       "tile": "apps/assistant"
+      },
+      "result": "applied"
+     },
+     {
+      "n": 3,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's llm to xbin:llm",
+      "admin": true,
+      "needsAdmin": true,
+      "needs": [
+       2
+      ],
+      "result": "asked"
+     },
+     {
+      "n": 4,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's mcp to apps/dice",
+      "deferred": true,
+      "needs": [
+       1,
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "apps/dice"
+        }
+       ]
+      },
+      "afterText": "apps/dice",
+      "result": "applied"
+     },
+     {
+      "n": 5,
+      "kind": "agent.start",
+      "args": {},
+      "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+      "deferred": true,
+      "needs": [
+       1
+      ],
+      "start": {
+       "tile": "apps/dice",
+       "provider": "codex",
+       "providerName": "Codex",
+       "mode": "default",
+       "asks": true,
+       "net": "none",
+       "api": true,
+       "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+      },
+      "result": "applied"
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 5 changes",
+    "note": ""
+   },
+   "askedWords": "1 line was sent to the workspace's admins. You are told here when one of them decides.",
+   "items": [
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "nothing at apps/dice",
+     "after": "a new tile, yours",
+     "neededBy": [
+      4,
+      5
+     ],
+     "start": null
+    },
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "(nothing)",
+     "after": "tile: \"apps/assistant\"",
+     "neededBy": [
+      3,
+      4
+     ],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "sent to an admin",
+      "icon": "clock",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": "binding: []",
+     "after": "apps/dice",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "tile agent",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": {
+      "agent": "Codex",
+      "mode": {
+       "tag": "asks before acting",
+       "tone": "ok",
+       "text": "It asks you before it edits a file or runs a command.",
+       "name": "default"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "brief": "Goal: roll_dice.\nDone when: tools/list names it.",
+      "danger": "",
+      "comes": "Its questions and permission requests come to you, in Dice and in Needs you. Your workspace agent can't answer them."
+     }
+    }
+   ],
+   "ticks": [],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Your agent proposes 5 changes",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "0 of 5 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply none",
+    "reject": "Reject all",
+    "ask": null,
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 4 and 5 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      1
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 3 and 4 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      2
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "needs an admin",
+      "needs": "Needs line 2",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      3
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 and 2 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      4
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      5
+     ]
+    }
+   ],
+   "kept": [
+    [],
+    [],
+    [],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_asked",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ],
+        "result": "asked"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_asked",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ],
+        "result": "asked"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_asked",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ],
+        "result": "asked"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_asked",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "needsAdmin": true,
+        "needs": [
+         2
+        ],
+        "result": "asked"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [
+         1
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "default",
+         "asks": true,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "pl_odd",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "plan": true,
+    "session": "h1",
+    "title": "A dice tool and an assistant",
+    "state": "proposed",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+      "before": {
+       "tile": null
+      },
+      "after": {
+       "owner": "user:ana",
+       "tile": "apps/dice"
+      },
+      "beforeText": "nothing at apps/dice",
+      "afterText": "a new tile, yours",
+      "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+      "warnings": [
+       "PUBLIC: x"
+      ]
+     },
+     {
+      "n": 2,
+      "kind": "tile.create",
+      "args": {},
+      "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+      "before": {},
+      "after": {
+       "tile": "apps/assistant"
+      },
+      "blocked": "a tile is there already"
+     },
+     {
+      "n": 3,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's llm to xbin:llm",
+      "admin": true,
+      "deferred": true,
+      "needs": [
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "xbin:llm"
+        }
+       ]
+      },
+      "beforeText": "not bound",
+      "afterText": "the workspace's LLM connector (xbin:llm)",
+      "warnings": [
+       "SPEND: its calls spend the workspace's LLM quota"
+      ]
+     },
+     {
+      "n": 4,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/assistant's mcp to apps/dice",
+      "deferred": true,
+      "needs": [
+       1,
+       2
+      ],
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "apps/dice"
+        }
+       ]
+      },
+      "afterText": "apps/dice"
+     },
+     {
+      "n": 5,
+      "kind": "agent.start",
+      "args": {},
+      "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+      "deferred": true,
+      "needs": [],
+      "start": {
+       "tile": "apps/dice",
+       "provider": "codex",
+       "providerName": "Codex",
+       "mode": "full-auto",
+       "asks": false,
+       "net": "none",
+       "api": true,
+       "prompt": "Goal: pay ‮evil‬ now"
+      },
+      "warnings": [
+       "ACTS WITHOUT ASKING: in the mode \"full-auto\" Codex edits files and runs commands in apps/dice without asking you."
+      ]
+     },
+     {
+      "n": 6,
+      "kind": "tile.delete",
+      "args": {},
+      "line": "Delete the tile apps/old"
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 6 changes",
+    "note": "3 have a warning · 1 can't be applied"
+   },
+   "askedWords": "",
+   "items": [
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "nothing at apps/dice",
+     "after": "a new tile, yours",
+     "neededBy": [
+      4
+     ],
+     "start": null
+    },
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "(nothing)",
+     "after": "tile: \"apps/assistant\"",
+     "neededBy": [
+      3,
+      4
+     ],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "not bound",
+     "after": "the workspace's LLM connector (xbin:llm)",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "binding: []",
+     "after": "apps/dice",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "tile agent",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": {
+      "agent": "Codex",
+      "mode": {
+       "tag": "acts without asking",
+       "tone": "bad",
+       "text": "It edits files and runs commands in Dice without asking you.",
+       "name": "full-auto"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "brief": "Goal: pay ‮evil‬ now",
+      "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+      "comes": "Its questions and permission requests come to you, in Dice and in Needs you. Your workspace agent can't answer them."
+     }
+    },
+    {
+     "tag": "tile",
+     "known": false,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": null
+    }
+   ],
+   "ticks": [],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Your agent proposes 6 changes",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "0 of 6 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply none",
+    "reject": "Reject all",
+    "ask": null,
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 4 — unticking this unticks it",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      1
+     ]
+    },
+    {
+     "state": "blocked",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 3 and 4 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      2
+     ]
+    },
+    {
+     "state": "ok",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "admin",
+      "needs": "Needs line 2 — checked again once that exists",
+      "neededBy": "",
+      "why": "An admin change — applied as you."
+     },
+     "off": [],
+     "on": [
+      3
+     ]
+    },
+    {
+     "state": "ok",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1 and 2 — checked again once that exists",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      4
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      5
+     ]
+    },
+    {
+     "state": "unknown",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "",
+      "why": "This page is older than this xbin and does not know this kind of change. Reload the page to review it."
+     },
+     "off": [],
+     "on": [
+      6
+     ]
+    }
+   ],
+   "kept": [
+    [
+     1,
+     5
+    ],
+    [
+     5
+    ],
+    [
+     1
+    ],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_odd",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "warnings": [
+         "PUBLIC: x"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "blocked": "a tile is there already",
+        "result": "rejected"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "rejected"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "full-auto",
+         "asks": false,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: pay ‮evil‬ now"
+        },
+        "warnings": [
+         "ACTS WITHOUT ASKING: in the mode \"full-auto\" Codex edits files and runs commands in apps/dice without asking you."
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 6,
+        "kind": "tile.delete",
+        "args": {},
+        "line": "Delete the tile apps/old",
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_odd",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "warnings": [
+         "PUBLIC: x"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "blocked": "a tile is there already",
+        "result": "rejected"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "applied"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "full-auto",
+         "asks": false,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: pay ‮evil‬ now"
+        },
+        "warnings": [
+         "ACTS WITHOUT ASKING: in the mode \"full-auto\" Codex edits files and runs commands in apps/dice without asking you."
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 6,
+        "kind": "tile.delete",
+        "args": {},
+        "line": "Delete the tile apps/old",
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      3,
+      4,
+      5
+     ],
+     "want": true
+    },
+    {
+     "json": {
+      "id": "pl_odd",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "partial",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "warnings": [
+         "PUBLIC: x"
+        ],
+        "result": "failed"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "blocked": "a tile is there already",
+        "result": "rejected"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "skipped"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "skipped"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "full-auto",
+         "asks": false,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: pay ‮evil‬ now"
+        },
+        "warnings": [
+         "ACTS WITHOUT ASKING: in the mode \"full-auto\" Codex edits files and runs commands in apps/dice without asking you."
+        ],
+        "result": "skipped"
+       },
+       {
+        "n": 6,
+        "kind": "tile.delete",
+        "args": {},
+        "line": "Delete the tile apps/old",
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      3,
+      4,
+      5
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_odd",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "A dice tool and an assistant",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/dice from the template MCP server (mcp-server) — yours",
+        "before": {
+         "tile": null
+        },
+        "after": {
+         "owner": "user:ana",
+         "tile": "apps/dice"
+        },
+        "beforeText": "nothing at apps/dice",
+        "afterText": "a new tile, yours",
+        "undoByHand": "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu",
+        "warnings": [
+         "PUBLIC: x"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 2,
+        "kind": "tile.create",
+        "args": {},
+        "line": "Create the tile apps/assistant from the template AI Agent (agent) — yours",
+        "before": {},
+        "after": {
+         "tile": "apps/assistant"
+        },
+        "blocked": "a tile is there already",
+        "result": "rejected"
+       },
+       {
+        "n": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's llm to xbin:llm",
+        "admin": true,
+        "deferred": true,
+        "needs": [
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "afterText": "the workspace's LLM connector (xbin:llm)",
+        "warnings": [
+         "SPEND: its calls spend the workspace's LLM quota"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 4,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/assistant's mcp to apps/dice",
+        "deferred": true,
+        "needs": [
+         1,
+         2
+        ],
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "afterText": "apps/dice",
+        "result": "rejected"
+       },
+       {
+        "n": 5,
+        "kind": "agent.start",
+        "args": {},
+        "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+        "deferred": true,
+        "needs": [],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "Codex",
+         "mode": "full-auto",
+         "asks": false,
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: pay ‮evil‬ now"
+        },
+        "warnings": [
+         "ACTS WITHOUT ASKING: in the mode \"full-auto\" Codex edits files and runs commands in apps/dice without asking you."
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 6,
+        "kind": "tile.delete",
+        "args": {},
+        "line": "Delete the tile apps/old",
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "pl_chain",
+    "plan": true,
+    "title": "t",
+    "state": "proposed",
+    "created": "2026-11-16T09:00:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "tile.create",
+      "line": "a"
+     },
+     {
+      "n": 2,
+      "kind": "binding.set",
+      "line": "b",
+      "needs": [
+       1
+      ]
+     },
+     {
+      "n": 3,
+      "kind": "agent.start",
+      "line": "c",
+      "needs": [
+       2
+      ],
+      "start": {
+       "tile": "apps/dice",
+       "provider": "codex",
+       "providerName": "",
+       "mode": "default",
+       "asks": "yes",
+       "net": "none",
+       "api": true,
+       "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+      }
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 3 changes",
+    "note": ""
+   },
+   "askedWords": "",
+   "items": [
+    {
+     "tag": "new tile",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [
+      2,
+      3
+     ],
+     "start": null
+    },
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [
+      3
+     ],
+     "start": null
+    },
+    {
+     "tag": "tile agent",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": {
+      "agent": "codex",
+      "mode": {
+       "tag": "acts without asking",
+       "tone": "bad",
+       "text": "It edits files and runs commands in Dice without asking you.",
+       "name": "default"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "brief": "Goal: roll_dice.\nDone when: tools/list names it.",
+      "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+      "comes": "Its questions and permission requests come to you, in Dice and in Needs you. Your workspace agent can't answer them."
+     }
+    }
+   ],
+   "ticks": [
+    1,
+    2,
+    3
+   ],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Your agent proposes 3 changes",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "3 of 3 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply 3 changes…",
+    "reject": "Reject all",
+    "ask": null,
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "Needed by line 2 and 3 — unticking this unticks them",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      1,
+      2,
+      3
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 1",
+      "neededBy": "Needed by line 3 — unticking this unticks it",
+      "why": ""
+     },
+     "off": [
+      1
+     ],
+     "on": [
+      1,
+      2,
+      3
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": false,
+     "notes": {
+      "tag": "",
+      "needs": "Needs line 2",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [
+      1,
+      2
+     ],
+     "on": [
+      1,
+      2,
+      3
+     ]
+    }
+   ],
+   "kept": [
+    [
+     1,
+     2,
+     3
+    ],
+    [],
+    [
+     1,
+     2,
+     3
+    ],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_chain",
+      "plan": true,
+      "title": "t",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "line": "a",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "binding.set",
+        "line": "b",
+        "needs": [
+         1
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "agent.start",
+        "line": "c",
+        "needs": [
+         2
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "",
+         "mode": "default",
+         "asks": "yes",
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2,
+      3
+     ],
+     "want": true
+    },
+    {
+     "json": {
+      "id": "pl_chain",
+      "plan": true,
+      "title": "t",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "line": "a",
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "binding.set",
+        "line": "b",
+        "needs": [
+         1
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "agent.start",
+        "line": "c",
+        "needs": [
+         2
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "",
+         "mode": "default",
+         "asks": "yes",
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2,
+      3
+     ],
+     "want": true
+    },
+    {
+     "json": {
+      "id": "pl_chain",
+      "plan": true,
+      "title": "t",
+      "state": "partial",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "line": "a",
+        "result": "failed"
+       },
+       {
+        "n": 2,
+        "kind": "binding.set",
+        "line": "b",
+        "needs": [
+         1
+        ],
+        "result": "skipped"
+       },
+       {
+        "n": 3,
+        "kind": "agent.start",
+        "line": "c",
+        "needs": [
+         2
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "",
+         "mode": "default",
+         "asks": "yes",
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "skipped"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2,
+      3
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_chain",
+      "plan": true,
+      "title": "t",
+      "state": "applied",
+      "created": "2026-11-16T09:00:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "tile.create",
+        "line": "a",
+        "result": "rejected"
+       },
+       {
+        "n": 2,
+        "kind": "binding.set",
+        "line": "b",
+        "needs": [
+         1
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 3,
+        "kind": "agent.start",
+        "line": "c",
+        "needs": [
+         2
+        ],
+        "start": {
+         "tile": "apps/dice",
+         "provider": "codex",
+         "providerName": "",
+         "mode": "default",
+         "asks": "yes",
+         "net": "none",
+         "api": true,
+         "prompt": "Goal: roll_dice.\nDone when: tools/list names it."
+        },
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "pl_from",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "plan": true,
+    "from": "bob",
+    "askOf": "x",
+    "askId": "a1",
+    "title": "A dice tool",
+    "state": "proposed",
+    "created": "2026-11-16T09:10:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "of": 3,
+      "kind": "binding.set",
+      "args": {},
+      "line": "Bind apps/helper's llm to xbin:llm",
+      "admin": true,
+      "before": {
+       "binding": []
+      },
+      "after": {
+       "binding": [
+        {
+         "provider": "xbin:llm"
+        }
+       ]
+      },
+      "beforeText": "not bound",
+      "warnings": [
+       "SPEND: it spends the quota"
+      ]
+     },
+     {
+      "n": 2,
+      "of": 4,
+      "kind": "grant.add",
+      "args": {},
+      "line": "Let apps/helper use apps/x as reader",
+      "admin": true,
+      "before": {
+       "roles": []
+      },
+      "after": {
+       "roles": [
+        "reader"
+       ]
+      }
+     }
+    ]
+   },
+   "need": {
+    "title": "bob asks for 2 admin changes",
+    "note": "1 has a warning"
+   },
+   "askedWords": "",
+   "items": [
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "not bound",
+     "after": "binding: [{\"provider\":\"xbin:llm\"}]",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "grant",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "roles: []",
+     "after": "roles: [\"reader\"]",
+     "neededBy": [],
+     "start": null
+    }
+   ],
+   "ticks": [
+    2
+   ],
+   "words": {
+    "bar": "xbin · request from bob",
+    "heading": "bob asks for 2 admin changes",
+    "intro": "bob's workspace agent proposed these, and bob asked the workspace's admins to apply them. Each line, its before and after and its warnings are written by xbin from the change itself, as you would apply it. Nothing has been applied.",
+    "footer": "1 of 2 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply 1 change…",
+    "reject": "Decline",
+    "ask": null,
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "admin",
+      "needs": "",
+      "neededBy": "",
+      "why": "An admin change — applied as you."
+     },
+     "off": [
+      2
+     ],
+     "on": [
+      1,
+      2
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "admin",
+      "needs": "",
+      "neededBy": "",
+      "why": "An admin change — applied as you."
+     },
+     "off": [],
+     "on": [
+      2
+     ]
+    }
+   ],
+   "kept": [
+    [
+     1,
+     2
+    ],
+    [],
+    [
+     1,
+     2
+    ],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_from",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "from": "bob",
+      "askOf": "x",
+      "askId": "a1",
+      "title": "A dice tool",
+      "state": "applied",
+      "created": "2026-11-16T09:10:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "of": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/helper's llm to xbin:llm",
+        "admin": true,
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "warnings": [
+         "SPEND: it spends the quota"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 2,
+        "of": 4,
+        "kind": "grant.add",
+        "args": {},
+        "line": "Let apps/helper use apps/x as reader",
+        "admin": true,
+        "before": {
+         "roles": []
+        },
+        "after": {
+         "roles": [
+          "reader"
+         ]
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [
+      2
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_from",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "from": "bob",
+      "askOf": "x",
+      "askId": "a1",
+      "title": "A dice tool",
+      "state": "applied",
+      "created": "2026-11-16T09:10:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "of": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/helper's llm to xbin:llm",
+        "admin": true,
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "warnings": [
+         "SPEND: it spends the quota"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "of": 4,
+        "kind": "grant.add",
+        "args": {},
+        "line": "Let apps/helper use apps/x as reader",
+        "admin": true,
+        "before": {
+         "roles": []
+        },
+        "after": {
+         "roles": [
+          "reader"
+         ]
+        },
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_from",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "from": "bob",
+      "askOf": "x",
+      "askId": "a1",
+      "title": "A dice tool",
+      "state": "partial",
+      "created": "2026-11-16T09:10:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "of": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/helper's llm to xbin:llm",
+        "admin": true,
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "warnings": [
+         "SPEND: it spends the quota"
+        ],
+        "result": "failed"
+       },
+       {
+        "n": 2,
+        "of": 4,
+        "kind": "grant.add",
+        "args": {},
+        "line": "Let apps/helper use apps/x as reader",
+        "admin": true,
+        "before": {
+         "roles": []
+        },
+        "after": {
+         "roles": [
+          "reader"
+         ]
+        },
+        "result": "skipped"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_from",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "from": "bob",
+      "askOf": "x",
+      "askId": "a1",
+      "title": "A dice tool",
+      "state": "applied",
+      "created": "2026-11-16T09:10:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "of": 3,
+        "kind": "binding.set",
+        "args": {},
+        "line": "Bind apps/helper's llm to xbin:llm",
+        "admin": true,
+        "before": {
+         "binding": []
+        },
+        "after": {
+         "binding": [
+          {
+           "provider": "xbin:llm"
+          }
+         ]
+        },
+        "beforeText": "not bound",
+        "warnings": [
+         "SPEND: it spends the quota"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 2,
+        "of": 4,
+        "kind": "grant.add",
+        "args": {},
+        "line": "Let apps/helper use apps/x as reader",
+        "admin": true,
+        "before": {
+         "roles": []
+        },
+        "after": {
+         "roles": [
+          "reader"
+         ]
+        },
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "pl_undo",
+    "plan": true,
+    "undoOf": "pl_dice",
+    "title": "Undo: A dice tool",
+    "state": "proposed",
+    "created": "2026-11-16T09:20:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "byHand": [
+     "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"
+    ],
+    "items": [
+     {
+      "n": 1,
+      "kind": "binding.remove",
+      "args": {},
+      "line": "Unbind apps/assistant's mcp",
+      "before": {
+       "binding": [
+        {
+         "provider": "apps/dice"
+        }
+       ]
+      },
+      "after": {
+       "binding": []
+      },
+      "beforeText": "apps/dice",
+      "afterText": "not bound"
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 1 change",
+    "note": ""
+   },
+   "askedWords": "",
+   "items": [
+    {
+     "tag": "binding",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "apps/dice",
+     "after": "not bound",
+     "neededBy": [],
+     "start": null
+    }
+   ],
+   "ticks": [
+    1
+   ],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Undo: 1 change",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "1 of 1 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply 1 change…",
+    "reject": "Reject all",
+    "ask": null,
+    "byHand": [
+     "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"
+    ]
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "",
+      "needs": "",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      1
+     ]
+    }
+   ],
+   "kept": [
+    [
+     1
+    ],
+    [],
+    [
+     1
+    ],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_undo",
+      "plan": true,
+      "undoOf": "pl_dice",
+      "title": "Undo: A dice tool",
+      "state": "applied",
+      "created": "2026-11-16T09:20:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "byHand": [
+       "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"
+      ],
+      "items": [
+       {
+        "n": 1,
+        "kind": "binding.remove",
+        "args": {},
+        "line": "Unbind apps/assistant's mcp",
+        "before": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "after": {
+         "binding": []
+        },
+        "beforeText": "apps/dice",
+        "afterText": "not bound",
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [
+      1
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_undo",
+      "plan": true,
+      "undoOf": "pl_dice",
+      "title": "Undo: A dice tool",
+      "state": "applied",
+      "created": "2026-11-16T09:20:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "byHand": [
+       "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"
+      ],
+      "items": [
+       {
+        "n": 1,
+        "kind": "binding.remove",
+        "args": {},
+        "line": "Unbind apps/assistant's mcp",
+        "before": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "after": {
+         "binding": []
+        },
+        "beforeText": "apps/dice",
+        "afterText": "not bound",
+        "result": "applied"
+       }
+      ]
+     },
+     "chosen": [
+      1
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_undo",
+      "plan": true,
+      "undoOf": "pl_dice",
+      "title": "Undo: A dice tool",
+      "state": "partial",
+      "created": "2026-11-16T09:20:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "byHand": [
+       "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"
+      ],
+      "items": [
+       {
+        "n": 1,
+        "kind": "binding.remove",
+        "args": {},
+        "line": "Unbind apps/assistant's mcp",
+        "before": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "after": {
+         "binding": []
+        },
+        "beforeText": "apps/dice",
+        "afterText": "not bound",
+        "result": "failed"
+       }
+      ]
+     },
+     "chosen": [
+      1
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_undo",
+      "plan": true,
+      "undoOf": "pl_dice",
+      "title": "Undo: A dice tool",
+      "state": "applied",
+      "created": "2026-11-16T09:20:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "byHand": [
+       "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"
+      ],
+      "items": [
+       {
+        "n": 1,
+        "kind": "binding.remove",
+        "args": {},
+        "line": "Unbind apps/assistant's mcp",
+        "before": {
+         "binding": [
+          {
+           "provider": "apps/dice"
+          }
+         ]
+        },
+        "after": {
+         "binding": []
+        },
+        "beforeText": "apps/dice",
+        "afterText": "not bound",
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  }
+ ],
  "bridge": [
   {
    "msg": {

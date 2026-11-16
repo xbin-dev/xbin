@@ -157,6 +157,9 @@ body.bx { margin: 0; overflow: hidden; background: var(--bx-panel); color: var(-
 .wsc-line { font: var(--bx-font-meta); color: var(--bx-muted); overflow: hidden; text-overflow: ellipsis; }
 .wsc-line b { color: var(--bx-text); font-weight: 600; }
 .wsc-last { white-space: nowrap; }
+.wsc-lines { margin: 2px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 2px; font: var(--bx-font-meta); }
+.wsc-lines .wsc-ltext { overflow-wrap: anywhere; }
+.bxc-host:has(.wsc-open-fail) { box-shadow: inset 2px 0 0 var(--bx-danger); }
 .wsc-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
 .bx .wsc-open { display: inline-flex; gap: 4px; align-items: center; }
 .wsc-err { color: var(--bx-danger); font: var(--bx-font-meta); }

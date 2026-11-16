@@ -59,15 +59,20 @@ function requestView(q, act) {
   const local = w.local && w.waits; // a start the brief's own button confirms (the person's preference)
   const head = local ? 'Ready to start' : w.head;
   const btn = local ? '' : w.button;
+  const opens = btn === W.review || btn === W.open; // xbin's own review (or, of a decided plan, its results)
   const off = act.offline && btn === W.review;
-  return html`<div class="wsc wsc-req ${w.waits ? 'wsc-waits' : ''}" data-req=${q.id} data-ref=${q.ref || ''} data-state=${q.state || ''} data-kind=${w.kind}>
+  return html`<div class="wsc wsc-req ${w.waits ? 'wsc-waits' : ''} ${w.todo ? 'wsc-open-fail' : ''}" data-req=${q.id} data-ref=${q.ref || ''} data-state=${q.state || ''} data-kind=${w.kind}>
     <div class="wsc-row"><span class="wsc-name">${icon(w.waits ? 'shield' : w.glyph)}<b>${head}</b></span>${w.line ? html`<span class="wsc-muted">${w.line}</span>` : nothing}</div>
     <div class="wsc-what"><span class="wsc-quote" title="the agent’s words">${w.what}</span>${w.tile && !w.what.includes(w.tile) ? html` — <b>${w.tile}</b>` : nothing}</div>
     ${w.call && w.waits ? html`<div class="wsc-call wsc-mono">${w.call}</div>` : nothing}
     ${w.result ? html`<div class="wsc-line">${w.result}</div>` : nothing}
+    ${w.lines && w.lines.length ? html`<ol class="wsc-lines" data-lines>${w.lines.map((l) => html`<li data-n=${l.n} data-result=${l.result}>
+      <span class="wsc-ltext">${l.text}</span> <span class="wsc-st ${l.tone ? 'wsc-' + l.tone : ''}">${icon(l.glyph)}${l.word}</span>
+      ${l.note ? html`<div class="wsc-err">${l.note}</div>` : nothing}</li>`)}</ol>` : nothing}
+    ${w.todo ? html`<div class="wsc-line wsc-wrap" data-todo>${w.todo}</div>` : nothing}
     ${local ? html`<div class="wsc-line">Start it from the brief.</div>` : nothing}
-    ${btn ? html`<div class="wsc-btns"><button class=${btn === W.review ? 'primary' : ''} ?disabled=${off} title=${off ? W.needsConnection : btn === W.review ? 'xbin shows what exactly would happen, and asks you' : ''}
-      @click=${() => (btn === W.review ? act.review(q) : act.send(`Please ask again: ${q.title || w.what}`))}>${btn}</button>
+    ${btn ? html`<div class="wsc-btns"><button class=${btn === W.review ? 'primary' : ''} ?disabled=${off} title=${off ? W.needsConnection : btn === W.review ? 'xbin shows what exactly would happen, and asks you' : btn === W.open ? 'xbin shows each line’s result' : ''}
+      @click=${() => (opens ? act.review(q) : act.send(`Please ask again: ${q.title || w.what}`))}>${btn}</button>
       ${off ? html`<span class="wsc-muted">${W.needsConnection}</span>` : nothing}</div>` : nothing}
   </div>`;
 }

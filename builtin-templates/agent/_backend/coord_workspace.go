@@ -48,7 +48,7 @@ func init() {
 			"workspace_map", "tile_status", "tile_logs", "docs_search", "docs_read", "tile_api_doc",
 			"tile_call",
 			"tile_agent_brief", "tile_agent_start", "tile_agent_message", "tile_agent_status", "tile_agent_result", "tile_agent_cancel", "tile_agents",
-			"research", "tile_create", "admin_propose", "admin_changes", "preview",
+			"research", "tile_create", "admin_propose", "admin_changes", "preview", "plan_propose",
 			"plan", "notebook_search", "notebook_read", "notebook_write", "notebook_edit", "notebook_archive",
 			"web_read",              // the web, through xbind (ws_tools_web.go; D239)
 			"mcp_tools", "mcp_call", // MCP tiles, through xbind (ws_tools_mcp.go)
@@ -68,6 +68,7 @@ func init() {
 	coordWorkspace.mustRegister(wsActTools()...)
 	coordWorkspace.mustRegister(wsAgentTools()...)
 	coordWorkspace.mustRegister(wsOtherTools()...)
+	coordWorkspace.mustRegister(wsPlanTools()...)
 	coordWorkspace.mustRegister(wsTalkTools()...)
 	coordWorkspace.mustRegister(wsNetTools()...)
 	coordWorkspace.mustRegister(wsMCPTools()...)
@@ -140,7 +141,7 @@ func wsDeliver(t *DB, run *Run) *coordUpdate {
 				_, _ = t.q.Exec(`UPDATE ws_requests SET owed=0, msg_id=? WHERE id=?`, msgID, r.ID)
 			}
 			for _, a := range agents {
-				_, _ = t.q.Exec(`UPDATE ws_agents SET owed=0, wake=0, told=?, refused='' WHERE id=?`, a.state(), a.ID)
+				_, _ = t.q.Exec(`UPDATE ws_agents SET owed=0, wake=0, told=?, told_turn=?, refused='' WHERE id=?`, a.state(), a.Turn, a.ID)
 			}
 		}}
 }

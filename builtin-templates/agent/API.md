@@ -65,7 +65,13 @@ A person's **workspace agent** (xbind's delegation, `/docs/auth.md`
   purpose, and hold if the role gate is ever opened:
   - the manifest's `"agent": "read"`: xbind refuses an agent's `POST`,
     `PUT`, `PATCH` and `DELETE` before they arrive (and holds that level:
-    a manifest edited to say more waits for someone who manages the tile);
+    a manifest edited to say more waits for someone who manages the tile).
+    That is about calls to this API and reads of its data. Managing an
+    instance — binding its `llm` or `mcp` slot, a grant, starting its own
+    coding agent — is its person's right, exercised on xbin's review of a
+    plan: the line says the tile is read-only for agents and that it
+    changes how it is wired, not its data (`"off"` would refuse that
+    too; /docs/protocol/delegation.md §A tile's agent level);
   - the backend's own list (`_backend/wsagent.go`, `agentMay`): an agent
     may use the routes on it and no other — reading a conversation as its
     person sees it (the list, a run, its view, stream, tree, tasks,
@@ -5918,13 +5924,38 @@ orgs, reason, offer: {newSession: {model}}}`.
 `tile_api_doc`; `tile_call`; `tile_agent_brief`, `tile_agent_start`,
 `tile_agent_message`, `tile_agent_status`, `tile_agent_result`,
 `tile_agent_cancel`, `tile_agents`; `research`; `tile_create`;
-`admin_propose`, `admin_changes` (the change sets this conversation
-proposed, never another session's); `preview`; `plan`; `notebook_search`,
+`plan_propose`; `admin_propose`, `admin_changes` (the change sets and
+plans this conversation proposed, never another session's); `preview`;
+`plan`; `notebook_search`,
 `notebook_read`, `notebook_write`, `notebook_edit`, `notebook_archive`;
 `web_read` (offered while the session's reach has the web); `mcp_tools`,
 `mcp_call` (while it has MCP) —
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
+
+**Plans** (`_backend/ws_tools_plan.go`; xbind's
+/docs/protocol/delegation.md §Plans): `plan_propose {title, changes:
+[{kind, args, why}]}` files multi-step work as ONE change set
+(`xbin.ProposePlan`) — `tile.create {template, name}` (a name becomes
+`apps/<slug>`; later lines may use the name or the path), `agent.start`
+with a brief's fields (`{tile, goal, done_when, …}` or `{tile, template:
+"mcp-tool", tool}`; the brief is composed here and is the line's own
+argument, shown by xbin "exactly as sent"), `binding.set`, and
+`admin_propose`'s kinds. The request's card is a change set's
+(`cards.requests[]`, kind `changeset`, titled "a plan of N change(s): …").
+When xbind says it was decided, each applied `agent.start` line's session
+(`out.session`) becomes a tile agent of this conversation (`cards.agents[]`,
+`request` the plan's), and the update says what was applied, what failed
+(the rest skipped), and what waits for an admin. While a plan waits, a
+single `tile_create` or `tile_agent_start` for one of its steps files
+nothing and says so. `GET /ws/needs` lists a plan as any change set. A
+plan's row in `cards.requests[]` carries `plan: true` and, once decided,
+`lines: [{n, kind, line, result?, error?, needsAdmin?, blocked?}]` —
+xbind's sentence and each line's outcome, which the card lists (xbin's
+review closes itself after an Apply in which nothing failed); a card with
+a failed, stale or skipped line stays marked, and **Open** shows xbin's
+results. Of a line that takes an admin's rights the agent is told only
+whether it was applied, unless its person lets it read admin state.
 
 **MCP tiles** (D239; `/docs/protocol/delegation.md` §MCP tiles). A tile
 xbind's map marks `mcp: true` serves MCP at `/api/<tile>/mcp`.
@@ -6044,7 +6075,7 @@ beside them are the model's, and neither is parsed out of the other.
   sentence the model was told.
 - **Where a card sits** (`cards.requests[].callId`, `cards.briefs[].callId`):
   the id of the tool call that made it — the `tile_call`, `tile_agent_start`,
-  `tile_create` or `admin_propose` that filed a request, the
+  `tile_create`, `plan_propose` or `admin_propose` that filed a request, the
   `tile_agent_brief` that wrote a brief — kept for the item's life: a
   request asked again after its brief was edited, and one decided, keep
   theirs. Absent where no tool call made it: a request the brief's Start

@@ -464,7 +464,7 @@ func TestDelegateNeverList(t *testing.T) {
 	}{
 		{"acts that need the person's approval", tickets, "POST /templates/new\nPOST /term/sessions"},
 		{"acts that need none (driving its own sessions, asking)", acts, "DELETE /delegate/changesets/{id}\nDELETE /delegate/requests/{id}\nDELETE /delegate/sessions/{id}\nDELETE /term/sessions/{id}\n" +
-			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPATCH /delegate/sessions/{id}\nPOST /delegate/changesets\nPOST /delegate/mcp/call\nPOST /delegate/requests\nPOST /delegate/sessions\nPOST /delegate/sessions/{id}/allows\nPOST /delegate/sessions/{id}/taint\nPOST /delegate/web/fetch\nPOST /preview\n" +
+			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPATCH /delegate/sessions/{id}\nPOST /delegate/changesets\nPOST /delegate/mcp/call\nPOST /delegate/plans\nPOST /delegate/requests\nPOST /delegate/sessions\nPOST /delegate/sessions/{id}/allows\nPOST /delegate/sessions/{id}/taint\nPOST /delegate/web/fetch\nPOST /preview\n" +
 			"POST /term/sessions/{id}/cancel\nPOST /term/sessions/{id}/prompt\nPOST /term/sessions/{id}/queue"},
 		{"admin reads", admin, "GET /bindings\nGET /grants\nGET /limits\nGET /orgs"},
 	} {
@@ -534,5 +534,38 @@ func TestDelegateCannotAnswerOrLeaveTheAPI(t *testing.T) {
 	// the delegate scheme beside a real session is judged as the delegate
 	if rec := w.do(w.inv, "POST", "/api/xbin/users", `{}`, alice, delegateCred("d-bob")); rec.Code != http.StatusForbidden || rec.Header().Get("X-Ran") != "" {
 		t.Errorf("an admin's cookie beside bob's delegate credential: %d ran %q", rec.Code, rec.Header().Get("X-Ran"))
+	}
+}
+
+// A dry run says what the real call would do: every act a delegate may make
+// either carries the handler's own narrowing as its judge, or is listed
+// with the reason the gate's verdict is its whole rule (delegatedry.go). An
+// act added without deciding which fails here — the class of bug where a
+// person approves a call the dry run allowed and the handler then refuses.
+func TestDelegateDryRunJudgesEveryAct(t *testing.T) {
+	for pattern, row := range delegateClasses {
+		if row.class != DelegateAct {
+			if row.judge != nil {
+				t.Errorf("%s is no act and has a dry-run judge", pattern)
+			}
+			continue
+		}
+		why, whole := delegateDryWhole[pattern]
+		switch {
+		case row.judge != nil && whole:
+			t.Errorf("%s has a dry-run judge and is listed as needing none", pattern)
+		case row.judge == nil && !whole:
+			t.Errorf("%s is an act with no dry-run judge: give it one (the handler's own check, run without the act), or list it in delegateDryWhole with why the gate's verdict is everything", pattern)
+		case whole && why == "":
+			t.Errorf("%s is listed in delegateDryWhole without a reason", pattern)
+		}
+		if row.ticket && row.judge == nil {
+			t.Errorf("%s needs the person's approval and has no judge: they would approve what was never checked", pattern)
+		}
+	}
+	for pattern := range delegateDryWhole {
+		if delegateClasses[pattern].class != DelegateAct {
+			t.Errorf("delegateDryWhole lists %s, which is no act", pattern)
+		}
 	}
 }

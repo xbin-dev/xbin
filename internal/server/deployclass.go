@@ -499,6 +499,8 @@ var routeClasses = map[string]RouteClass{
 	"POST /delegate/approvals":               PrimaryOnly,
 	"DELETE /delegate/approvals/{id}":        PrimaryOnly,
 	"POST /delegate/changesets":              PrimaryOnly,
+	"POST /delegate/plans":                   PrimaryOnly,
+	"POST /delegate/changesets/{id}/ask":     PrimaryOnly,
 	"GET /delegate/changesets":               PrimaryOnly,
 	"GET /delegate/changesets/{id}":          PrimaryOnly,
 	"DELETE /delegate/changesets/{id}":       PrimaryOnly,

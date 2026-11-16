@@ -620,6 +620,14 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		req.Kind = delegation.KindTemplate
+		// the handler's own check, before anything is put in front of the
+		// person: what would be created, where and whose (delegatedry.go)
+		create, why := s.createPreview(p, body)
+		if why != "" {
+			WriteError(w, http.StatusForbidden, why, delegationDocs)
+			return
+		}
+		preview["create"] = create
 	}
 	if h, ok := s.handleOf(p); ok && h.Web {
 		preview["readWeb"] = true // what it asks may come from a page it read

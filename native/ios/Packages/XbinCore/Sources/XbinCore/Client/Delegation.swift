@@ -238,6 +238,19 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
         public var hasInverse: Bool
         public var result: String
         public var error: String
+        // A plan's line (docs/protocol/delegation.md §Plans).
+        /// Applying it takes an admin's rights.
+        public var admin: Bool
+        /// …and its person is none: xbind's line only; they can ask an admin.
+        public var needsAdmin: Bool
+        /// The earlier lines whose tiles it names.
+        public var needs: [Int]
+        /// Described before the tiles it names existed.
+        public var deferred: Bool
+        /// What an agent.start line starts (a start request's preview.session).
+        public var start: JSONValue?
+        /// xbind's words for undoing it by hand, when it can't.
+        public var undoByHand: String
 
         public var id: Int { n }
 
@@ -247,14 +260,20 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
             kind = json["kind"]?.stringValue ?? ""
             why = json["why"]?.stringValue ?? ""
             line = json["line"]?.stringValue ?? ""
-            before = AdminChangeSet.shown(json["before"])
-            after = AdminChangeSet.shown(json["after"])
+            before = AdminChangeSet.shown(json["before"], said: json["beforeText"])
+            after = AdminChangeSet.shown(json["after"], said: json["afterText"])
             effects = (json["effects"]?.arrayValue ?? []).compactMap(\.stringValue)
             warnings = (json["warnings"]?.arrayValue ?? []).compactMap(\.stringValue)
             blocked = json["blocked"]?.stringValue ?? ""
             hasInverse = !(json["inverse"]?.isNull ?? true)
             result = json["result"]?.stringValue ?? ""
             error = json["error"]?.stringValue ?? ""
+            admin = json["admin"]?.boolValue ?? false
+            needsAdmin = json["needsAdmin"]?.boolValue ?? false
+            needs = (json["needs"]?.arrayValue ?? []).compactMap { $0.intValue.map { Int($0) } }
+            deferred = json["deferred"]?.boolValue ?? false
+            start = json["start"].flatMap { $0.objectValue != nil ? $0 : nil }
+            undoByHand = json["undoByHand"]?.stringValue ?? ""
         }
     }
 
@@ -272,6 +291,13 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
     public var items: [Item]
     /// "xbin" for a proposal xbind withdrew because the agent stopped for good.
     public var withdrawnBy: String
+    /// A plan: its lines may create tiles and start tile agents, and are the
+    /// person's own to apply or an admin's.
+    public var plan: Bool
+    /// The person who asks an admin to apply it ("": the person's own agent proposed it).
+    public var from: String
+    /// For an undo set: what xbind can't undo, in its words.
+    public var byHand: [String]
 
     public init?(json: JSONValue?) {
         guard let json, let id = json["id"]?.stringValue, !id.isEmpty else { return nil }
@@ -284,16 +310,24 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
         expires = DelegateTime.date(json["expires"])
         items = (json["items"]?.arrayValue ?? []).compactMap(Item.init(json:))
         withdrawnBy = json["withdrawnBy"]?.stringValue ?? ""
+        plan = json["plan"]?.boolValue ?? false
+        from = json["from"]?.stringValue ?? ""
+        byHand = (json["byHand"]?.arrayValue ?? []).compactMap(\.stringValue)
     }
 
     public var isProposed: Bool { state == .proposed }
 
-    /// A before/after value as the review shows it: a string as it is,
-    /// anything else as compact JSON; nil when absent.
-    static func shown(_ v: JSONValue?) -> String? {
+    /// A before/after value as the review shows it (the web's stateText):
+    /// xbind's own words when it says them; a string as it is; else the
+    /// value's fields, plainly — never a dump the person can't read; nil
+    /// when absent.
+    static func shown(_ v: JSONValue?, said: JSONValue? = nil) -> String? {
+        if let s = said?.stringValue, !s.isEmpty { return s }
         guard let v, !v.isNull else { return nil }
         if let s = v.stringValue { return s }
-        return v.jsonString
+        guard let o = v.objectValue else { return v.jsonString }
+        if o.isEmpty { return "(nothing)" }
+        return o.keys.sorted().map { "\($0): \(o[$0]?.jsonString ?? "null")" }.joined(separator: ", ")
     }
 
     public static func list(_ json: JSONValue?) -> [AdminChangeSet] {
@@ -416,6 +450,9 @@ public enum DelegateRoute {
     }
     public static func reject(_ id: String) -> APIRequest { .json("POST", "\(base)/changesets/\(seg(id))/reject", .object([:])) }
     public static func undo(_ id: String) -> APIRequest { .json("POST", "\(base)/changesets/\(seg(id))/undo", .object([:])) }
+    /// Sends the lines of a plan that need an admin to the workspace's
+    /// admins, as a request from the person (their own tap).
+    public static func ask(_ id: String) -> APIRequest { .json("POST", "\(base)/changesets/\(seg(id))/ask", .object([:])) }
 
     public static func setPaused(_ paused: Bool) -> APIRequest { .json("PUT", "\(base)/state", ["paused": .bool(paused)]) }
     public static func setAdminChanges(_ on: Bool) -> APIRequest { .json("PUT", "\(base)/state", ["adminChanges": .bool(on)]) }

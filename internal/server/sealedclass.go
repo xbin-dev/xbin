@@ -683,6 +683,8 @@ var sealedRules = map[string]SealedRule{
 	"DELETE /delegate/requests/{id}":         {Class: SealedNoTile},
 	"GET /delegate/changesets":               {Class: SealedNoTile},
 	"POST /delegate/changesets":              {Class: SealedNoTile},
+	"POST /delegate/plans":                   {Class: SealedNoTile},
+	"POST /delegate/changesets/{id}/ask":     {Class: SealedNoTile},
 	"GET /delegate/changesets/{id}":          {Class: SealedNoTile},
 	"DELETE /delegate/changesets/{id}":       {Class: SealedNoTile},
 	"POST /delegate/changesets/{id}/approve": {Class: SealedNoTile},

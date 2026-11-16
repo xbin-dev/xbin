@@ -5368,6 +5368,101 @@ here: cut from the old end, never reword.
     that has an account — `plans/wsagent/journey.md` §6e says what a
     native sheet would need).
 
+- **D238 — The plan: multi-step work is one change set, reviewed once
+  (2026-11-16; issue #51; `plans/wsagent/journey.md` G1, G2, G11, G12 and
+  G6's mode on the line; §9 there).** Through the agent the journey took
+  three prompts, two sheets and a review, with three dead ends: an admin's
+  `tile_create` was refused after approval, the admin opt-in sat two menus
+  away, and every step was a sheet of its own.
+  - **Two more kinds, on a route of their own.** `tile.create {template,
+    path, owner?}` and `agent.start {tile, brief, harness?, mode?}` join
+    the admin kinds in a change set proposed through `POST
+    /delegate/plans` (`plan: true`). `POST /delegate/changesets` and its
+    sets are untouched — its 403 without the opt-in, its step-up for every
+    approval, its closed list of six — so nothing changes for a workspace
+    until an agent proposes a plan. Rejected: a flag on the old route (one
+    body, two sets of rules); letting the old route take the new kinds.
+  - **Later lines name earlier lines' tiles.** xbind describes a line that
+    names a tile an earlier `tile.create` line makes from the template's
+    manifest (`deferred`, `needs`), and judges it by the handler's own
+    check when it is applied, after the tile exists: stale unless the
+    sentence is the same and no warning appears that was not shown. Only
+    what a new tile needs wired is planned ahead (http slots to tiles and
+    `xbin:llm`, a start); the rest waits for a plan after it exists.
+    Rejected: an overlay over the registry (every check that reads a
+    component would have to learn of tiles that are not there).
+  - **Personal or an admin's.** A line is personal when the person could
+    do it by hand with no admin: a creation their own rule allows (the
+    delegate-clamped check — and an org only where they hold Create), a
+    binding between tiles they own (D88; never `xbin:llm` or a named set),
+    a start. Grants, org shares and limits stay an admin's whoever asks.
+    Personal lines apply with no step-up, and only while they are still
+    personal (`TestPersonalLinesNeedNoAdmin`,
+    `TestPersonalLinesOnPlannedTilesNeedNoAdmin`,
+    `TestPersonalLineThatBecameAnAdmins`). An admin's line needs a recent
+    sign-in and the admin's own tick (it starts unticked, "applied as
+    you"): that is the consent for that line of that plan. The standing
+    opt-in (`adminChanges`) is not asked for on a plan's review — first it
+    was offered there, a click the owner's bar counts — and stays what
+    lets an agent READ admin state: of a line that takes an admin, or that
+    xbind can't apply, the agent, its conversation and its page read
+    xbind's sentence and the result, nothing of the state behind it,
+    unless the person opted in (`TestPlanShowsTheAgentNoAdminState`).
+  - **No Done.** After an Apply in which every chosen line was applied
+    the review closes itself and the conversation's card keeps each
+    line's outcome; a failure keeps the results open until the person
+    closes them.
+  - **A creation says what the template gives.** The line's effects are
+    read from the template's manifest — a use of something in the scope
+    the tile lands in is its own grant, so it is a warning (`ACCESS`), as
+    are endpoints for the outside (`EXPOSES`) — and the line is pinned to
+    that manifest (`pin`), as a start is to its network and API access: a
+    template edited, or a start resolving differently, by Apply is stale.
+  - **Needs an admin.** For a person who is no admin such a line carries
+    xbind's sentence and nothing of the state behind it (an agent could
+    otherwise read bindings it may not see by proposing them), can't be
+    chosen, and `…/ask` — the person's own act — copies it to every
+    workspace admin as a set `from` them, described as that admin would
+    apply it; the first to decide ends the other copies and the result
+    returns to the asker's line. Only the admin's own session reads such a
+    set: not their agent, not its page.
+  - **Bound to its conversation.** A set keeps the agent session that
+    proposed it; a start runs as that conversation (the tile agent is its
+    to follow), is refused when its taint forbids the target's model or
+    when it is over, and starts on the coding agent and mode that were
+    shown (pinned when the line named none).
+  - **What an agent may touch.** A tile's agent level governs an agent's
+    calls to the tile's API and its reads of the tile's data; managing a
+    tile (its bindings, a grant, creating it, starting its own coding
+    agent) is governed by the person's rights and their approval on xbin's
+    review. So a line about a "read" tile is proposed, and says "this
+    tile's author marked it read-only for agents: this changes how it is
+    wired, not its data" (the agent template's instances are "read"), and
+    "off" refuses a line on either side of it — as consumer or provider,
+    source or target. Every tile a line names is also held to the
+    proposing conversation's scope, to what its person can read (one
+    answer for a hidden tile and a missing one) and to its orgs' agent
+    rules, when described and when applied.
+  - **G1.** Under delegation an empty owner is the person's, for an admin
+    too. `POST /templates/new`'s checks are one function the handler, the
+    dry run and the request's preview share; every `DelegateAct` row has
+    the handler's narrowing as a dry-run judge or is listed with why it
+    needs none (`TestDelegateDryRunJudgesEveryAct`).
+  - **G11, G12.** xbind writes a change's before and after in words
+    (`beforeText`, `afterText`); the agent's backend notes the turn it
+    last told its conversation of (`told_turn`, forward only).
+  - **The agent.** `plan_propose` beside `admin_propose`; the prompt says
+    when (work that creates or binds is ONE plan), and that an applied
+    plan is followed through and checked before "done". A single request
+    for a step of an open plan files nothing.
+  - **Measured.** `journeyAgent`: 13 interactions to the agent's "done"
+    (36 before, 49 at first), one prompt, one review of five clicks.
+  - **Not built.** Answering a tile agent's permission requests from the
+    dock (G6's other half); changing the coding agent on a plan's start
+    line; asking org admins (only workspace admins are asked); telling the
+    asker's conversation by itself when an admin decides (`admin_changes`
+    reads it).
+
 - **D239 — The workspace agent on the web and with MCP servers:
   workspace policy, org rules, the person's settings; xbind fetches and
   speaks MCP (2026-11-16; issue #51; `plans/wsagent/web-mcp.md`).** The

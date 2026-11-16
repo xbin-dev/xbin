@@ -34,6 +34,7 @@ type fakeXbin struct {
 	agents    map[string]*wsAgent
 	reports   map[string]wsAgentReport
 	sets      map[string]*wsChangeSet
+	planArgs  map[string]map[string]any // "<set>/<n>": a plan's line as proposed
 	docs      map[string]string
 	code      map[string]map[string]string
 	logs      map[string]string
@@ -75,7 +76,7 @@ type fakeRequest struct {
 func newFakeXbin() *fakeXbin {
 	f := &fakeXbin{tiles: map[string]*wsTile{}, orgs: map[string]*fakeOrg{}, private: map[string]bool{"local-llama": true},
 		models: []string{"big", "local-llama"}, handles: map[string]*wsHandle{}, requests: map[string]*fakeRequest{},
-		standing: map[string]bool{}, agents: map[string]*wsAgent{}, reports: map[string]wsAgentReport{}, sets: map[string]*wsChangeSet{},
+		standing: map[string]bool{}, agents: map[string]*wsAgent{}, reports: map[string]wsAgentReport{}, sets: map[string]*wsChangeSet{}, planArgs: map[string]map[string]any{},
 		docs: map[string]string{}, code: map[string]map[string]string{}, logs: map[string]string{},
 		api: map[string]func([]byte) (int, string){}, said: map[string][]string{}, startAsk: true, pages: map[string]string{},
 		harnesses: []wsHarness{{ID: "claude", Name: "Claude Code"}, {ID: "codex", Name: "Codex"}},
@@ -828,7 +829,8 @@ func (f *fakeXbin) AgentReport(_ context.Context, sid, id string) (wsAgentReport
 }
 
 func (f *fakeXbin) Templates(context.Context, string) ([]wsTemplate, error) {
-	return []wsTemplate{{ID: "builtin:starter", Name: "Starter", Description: "An empty tile with a page and a backend"}}, nil
+	return []wsTemplate{{ID: "builtin:starter", Name: "Starter", Description: "An empty tile with a page and a backend"},
+		{ID: "mcp-server", Name: "MCP server", Description: "Tools for an agent"}, {ID: "agent", Name: "AI Agent", Description: "An assistant"}}, nil
 }
 
 func (f *fakeXbin) Propose(_ context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
@@ -848,6 +850,135 @@ func (f *fakeXbin) Propose(_ context.Context, sid, title string, items []xbin.Ch
 	f.sets[cs.ID] = cs
 	f.note("Propose %s", cs.ID)
 	return *cs, nil
+}
+
+// ProposePlan is xbind's POST /delegate/plans, as far as a conversation
+// sees it: every line described, a binding of xbin:llm an admin's (and
+// needsAdmin for a person who is none), a line that names a tile an
+// earlier line creates needing that line.
+func (f *fakeXbin) ProposePlan(_ context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, err := f.handle(sid); err != nil {
+		return wsChangeSet{}, err
+	}
+	cs := &wsChangeSet{ID: f.id("cs"), Title: title, State: "proposed", Plan: true}
+	made := map[string]int{}
+	for i, it := range items {
+		raw, _ := json.Marshal(it.Args)
+		var args map[string]any
+		_ = json.Unmarshal(raw, &args)
+		item := xbin.ChangeSetItem{N: i + 1, Kind: it.Kind, Line: "xbin's line for " + it.Kind}
+		for _, k := range []string{"component", "provider", "tile"} {
+			if n, ok := made[str(args[k])]; ok && !hasInt(item.Needs, n) {
+				item.Needs = append(item.Needs, n)
+			}
+		}
+		switch it.Kind {
+		case "tile.create":
+			item.Line = "Create the tile " + str(args["path"]) + " from the template " + str(args["template"]) + " — yours"
+			if f.tiles[str(args["path"])] != nil {
+				item.Blocked = "a tile is there already"
+			}
+			made[str(args["path"])] = item.N
+		case "agent.start":
+			item.Line = "Start a tile agent in " + str(args["tile"]) + " — Claude Code, in its mode \"default\""
+			if f.tiles[str(args["tile"])] == nil && made[str(args["tile"])] == 0 {
+				item.Blocked = "no such tile"
+			}
+		case "binding.set":
+			item.Line = "Bind " + str(args["component"]) + "'s " + str(args["slot"]) + " to " + str(args["provider"])
+			if str(args["provider"]) == "xbin:llm" {
+				item.Admin, item.Warnings = true, []string{"SPEND: its calls spend the workspace's LLM quota"}
+			}
+		default:
+			item.Admin = true
+		}
+		if item.Admin && !f.state.CanAdminChanges {
+			item.NeedsAdmin, item.Warnings = true, nil
+		}
+		f.planArgs[cs.ID+"/"+fmt.Sprint(item.N)] = args
+		cs.Items = append(cs.Items, item)
+	}
+	f.sets[cs.ID] = cs
+	f.note("ProposePlan %s", cs.ID)
+	return *cs, nil
+}
+
+func hasInt(list []int, n int) bool {
+	for _, v := range list {
+		if v == n {
+			return true
+		}
+	}
+	return false
+}
+
+// applyPlan is the person applying the ticked lines of plan id in xbin's
+// review (failAt: a line xbind refuses when it is applied; 0 none): tiles
+// are made, tile agents started, the rest skipped after a failure. A line
+// that needs an admin is never theirs to apply.
+func (f *fakeXbin) applyPlan(id string, ticks []int, failAt int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cs := f.sets[id]
+	failed, problems := false, 0
+	for i := range cs.Items {
+		it := &cs.Items[i]
+		args := f.planArgs[id+"/"+fmt.Sprint(it.N)]
+		switch {
+		case it.NeedsAdmin || it.Result == "asked":
+		case it.Blocked != "":
+			it.Result = "blocked"
+		case !hasInt(ticks, it.N):
+			it.Result = "rejected"
+		case failed:
+			it.Result = "skipped"
+			problems++
+		case it.N == failAt:
+			it.Result, it.Error, failed = "failed", "the tile's org turned agents away meanwhile", true
+			problems++
+		default:
+			it.Result = "applied"
+			switch it.Kind {
+			case "tile.create":
+				f.addTile(wsTile{Path: str(args["path"]), Title: str(args["path"]), Status: "running", Agent: "full", Level: "terminal"})
+				it.Out, _ = json.Marshal(map[string]string{"path": str(args["path"])})
+			case "agent.start":
+				a := &wsAgent{ID: f.id("s"), Tile: str(args["tile"]), Provider: "claude", Name: "Claude Code", Mode: "default", Asks: true, Status: "running", Origin: "agent", Mine: true, Turn: 1}
+				f.agents[a.ID] = a
+				f.said[a.ID] = append(f.said[a.ID], str(args["brief"]))
+				it.Out, _ = json.Marshal(map[string]string{"session": a.ID})
+			}
+		}
+	}
+	cs.State = "applied"
+	if problems > 0 {
+		cs.State = "partial"
+	}
+	f.note("ApplyPlan %s", id)
+}
+
+// askAdmin is the person pressing "Ask an admin" on plan id; adminApplies
+// an admin applying what was asked.
+func (f *fakeXbin) askAdmin(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.sets[id].Items {
+		if it := &f.sets[id].Items[i]; it.NeedsAdmin && it.Result == "" {
+			it.Result = "asked"
+		}
+	}
+}
+
+func (f *fakeXbin) adminApplies(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.sets[id].Items {
+		if it := &f.sets[id].Items[i]; it.Result == "asked" {
+			it.Result = "applied"
+		}
+	}
 }
 
 func (f *fakeXbin) ChangeSet(_ context.Context, sid, id string) (wsChangeSet, error) {

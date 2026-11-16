@@ -396,19 +396,26 @@ func (b *Broker) guardNewComponentTree(path string) error {
 	}
 	if owner, _, ok := b.Reg.Resolve(path); ok && owner != nil {
 		if owner.Path == path {
-			return fmt.Errorf("%s already exists", path)
+			return &treeConflict{fmt.Sprintf("%s already exists", path), owner.Path}
 		}
-		return fmt.Errorf("%s is inside existing component %s", path, owner.Path)
+		return &treeConflict{fmt.Sprintf("%s is inside existing component %s", path, owner.Path), owner.Path}
 	}
 	for _, c := range b.Reg.Components() {
 		if strings.HasPrefix(c.Path, path+"/") {
-			return fmt.Errorf("%s would contain existing component %s", path, c.Path)
+			return &treeConflict{fmt.Sprintf("%s would contain existing component %s", path, c.Path), c.Path}
 		}
 	}
 	// Resource data is keyed by util.ScopeKey ("/" → "~"): a tile here could
 	// become a scope sharing another's encrypted volumes (D118).
 	if other := b.Reg.ScopeKeyClash(path); other != "" {
-		return fmt.Errorf("%s would share its resource data key with %s (\"/\" and \"~\" in a path map to the same key) — pick another path", path, other)
+		return &treeConflict{fmt.Sprintf("%s would share its resource data key with %s (\"/\" and \"~\" in a path map to the same key) — pick another path", path, other), other}
 	}
 	return nil
 }
+
+// treeConflict is guardNewComponentTree's refusal that names another
+// component (other): what a caller who may not see that component is told
+// instead is the caller's to decide (templateNewCheck, for a person's agent).
+type treeConflict struct{ msg, other string }
+
+func (e *treeConflict) Error() string { return e.msg }

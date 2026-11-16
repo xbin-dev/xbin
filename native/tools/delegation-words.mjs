@@ -9,6 +9,7 @@
 // Times are said in UTC here and in the Swift test.
 process.env.TZ = 'UTC';
 const W = await import(new URL('../../web/agent-chrome-words.js', import.meta.url).href);
+const P = await import(new URL('../../web/agent-plan-words.js', import.meta.url).href); // a plan's review (DelegationPlanWords.swift)
 
 export const NOW = Date.parse('2026-11-16T10:16:00Z');
 const t = (s) => `2026-11-16T${s}Z`;
@@ -152,7 +153,55 @@ export const states = [
   { name: 'admin-held-without-one', state: S({ access: false, agent: '', held: 'locked', who: { everyone: false, entries: 1, chosen: true } }), llm: { configured: true }, admin: true },
 ];
 
-const out = { now: new Date(NOW).toISOString(), requests: [], changesets: [], approvals: [], audit: [], states: [], small: {} };
+// ---- plans (docs/protocol/delegation.md §Plans): sets as xbind answers them, each under three people's states ----
+const start = (o = {}) => ({ tile: 'apps/dice', provider: 'codex', providerName: 'Codex', mode: 'default', asks: true, net: 'none', api: true, prompt: 'Goal: roll_dice.\nDone when: tools/list names it.', ...o });
+const dice = (o = {}, edit = (items) => items) => ({ id: 'pl_dice', user: 'ana', agent: 'xbin/wsagent', plan: true, session: 'h1', title: 'A dice tool and an assistant', state: 'proposed', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z',
+  items: edit([
+    { n: 1, kind: 'tile.create', args: {}, line: 'Create the tile apps/dice from the template MCP server (mcp-server) — yours', before: { tile: null }, after: { owner: 'user:ana', tile: 'apps/dice' }, beforeText: 'nothing at apps/dice', afterText: 'a new tile, yours',
+      undoByHand: "xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu" },
+    { n: 2, kind: 'tile.create', args: {}, line: 'Create the tile apps/assistant from the template AI Agent (agent) — yours', before: {}, after: { tile: 'apps/assistant' } },
+    { n: 3, kind: 'binding.set', args: {}, line: "Bind apps/assistant's llm to xbin:llm", admin: true, deferred: true, needs: [2], before: { binding: [] }, after: { binding: [{ provider: 'xbin:llm' }] }, beforeText: 'not bound',
+      afterText: "the workspace's LLM connector (xbin:llm)", warnings: ["SPEND: its calls spend the workspace's LLM quota"] },
+    { n: 4, kind: 'binding.set', args: {}, line: "Bind apps/assistant's mcp to apps/dice", deferred: true, needs: [1, 2], before: { binding: [] }, after: { binding: [{ provider: 'apps/dice' }] }, afterText: 'apps/dice' },
+    { n: 5, kind: 'agent.start', args: {}, line: 'Start a tile agent in apps/dice — Codex, in its mode "default"', deferred: true, needs: [1], start: start() },
+  ]), ...o });
+export const plans = [
+  dice(),
+  // a person who is no admin: the admin's line carries xbind's sentence and nothing else
+  dice({ id: 'pl_user' }, (it) => { it[2] = { n: 3, kind: 'binding.set', args: {}, line: "Bind apps/assistant's llm to xbin:llm", admin: true, needsAdmin: true, needs: [2] }; return it; }),
+  // …after they applied the rest, and after they asked an admin
+  dice({ id: 'pl_applied', state: 'applied' }, (it) => { it[2] = { n: 3, kind: 'binding.set', args: {}, line: "Bind apps/assistant's llm to xbin:llm", admin: true, needsAdmin: true, needs: [2] }; return it.map((x) => (x.n === 3 ? x : { ...x, result: 'applied' })); }),
+  dice({ id: 'pl_asked', state: 'applied' }, (it) => { it[2] = { n: 3, kind: 'binding.set', args: {}, line: "Bind apps/assistant's llm to xbin:llm", admin: true, needsAdmin: true, needs: [2], result: 'asked' }; return it.map((x) => (x.n === 3 ? x : { ...x, result: 'applied' })); }),
+  // a warned creation, a blocked one, a kind this client doesn't know, a start in a mode xbind doesn't vouch for
+  dice({ id: 'pl_odd' }, (it) => { it[0] = { ...it[0], warnings: ['PUBLIC: x'] }; it[1] = { ...it[1], blocked: 'a tile is there already' }; it[4] = { ...it[4], needs: [], start: start({ asks: false, mode: 'full-auto', prompt: 'Goal: pay \u202Eevil\u202C now' }),
+    warnings: ['ACTS WITHOUT ASKING: in the mode "full-auto" Codex edits files and runs commands in apps/dice without asking you.'] }; return [...it, { n: 6, kind: 'tile.delete', args: {}, line: 'Delete the tile apps/old' }]; }),
+  // a chain: 3 needs 2 needs 1
+  { id: 'pl_chain', plan: true, title: 't', state: 'proposed', created: t('09:00:00'), expires: '2026-11-23T09:00:00Z', items: [{ n: 1, kind: 'tile.create', line: 'a' }, { n: 2, kind: 'binding.set', line: 'b', needs: [1] }, { n: 3, kind: 'agent.start', line: 'c', needs: [2], start: start({ providerName: '', asks: 'yes' }) }] },
+  // an admin's copy of another person's request, and an undo set that says what it can't undo
+  { id: 'pl_from', user: 'ana', agent: 'xbin/wsagent', plan: true, from: 'bob', askOf: 'x', askId: 'a1', title: 'A dice tool', state: 'proposed', created: t('09:10:00'), expires: '2026-11-23T09:00:00Z', items: [
+    { n: 1, of: 3, kind: 'binding.set', args: {}, line: "Bind apps/helper's llm to xbin:llm", admin: true, before: { binding: [] }, after: { binding: [{ provider: 'xbin:llm' }] }, beforeText: 'not bound', warnings: ['SPEND: it spends the quota'] },
+    { n: 2, of: 4, kind: 'grant.add', args: {}, line: 'Let apps/helper use apps/x as reader', admin: true, before: { roles: [] }, after: { roles: ['reader'] } }] },
+  { id: 'pl_undo', plan: true, undoOf: 'pl_dice', title: 'Undo: A dice tool', state: 'proposed', created: t('09:20:00'), expires: '2026-11-23T09:00:00Z', byHand: ["xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"],
+    items: [{ n: 1, kind: 'binding.remove', args: {}, line: "Unbind apps/assistant's mcp", before: { binding: [{ provider: 'apps/dice' }] }, after: { binding: [] }, beforeText: 'apps/dice', afterText: 'not bound' }] },
+];
+// a plan decided: what was chosen applied (or line failAt failed and the rest was skipped), the rest left out
+const decided = (c, chosen, failAt = 0) => ({ ...c, state: failAt ? 'partial' : 'applied', items: c.items.map((it) => (it.needsAdmin || it.result ? it
+  : { ...it, result: !chosen.includes(it.n) ? 'rejected' : failAt && it.n === failAt ? 'failed' : failAt && it.n > failAt ? 'skipped' : 'applied' })) });
+
+const out = { now: new Date(NOW).toISOString(), requests: [], changesets: [], approvals: [], audit: [], states: [], small: {}, plans: [] };
+for (const c of plans) {
+  const ticks = P.planTicks(c);
+  const every = c.items.filter((it) => P.canTick(c, c.items.map((x) => x.n), it)).map((it) => it.n);
+  out.plans.push({ json: c, need: W.needChangeTitle(c), askedWords: P.askedWords(c),
+    items: c.items.map((it) => ({ tag: W.kindTag(it.kind), known: P.knownKind(it.kind), result: W.resultOf(it), before: W.stateText(it, 'before'), after: W.stateText(it, 'after'), neededBy: P.neededBy(c, it.n),
+      start: it.kind === 'agent.start' ? P.startRows(it) : null })),
+    ticks, words: P.planWords(c, ticks), none: P.planWords(c, []).apply,
+    lines: c.items.map((it) => ({ state: P.lineState(it), can: P.canTick(c, ticks, it), alone: P.canTick(c, [], it), notes: P.lineNotes(c, it),
+      off: P.setTick(c, ticks, it.n, false), on: P.setTick(c, ticks, it.n, true) })),
+    kept: [c.items.map((it) => it.n), [3, 4, 5], [1, 2, 3], [6]].map((k) => P.keepTicks(c, k)),
+    // after Apply: does the review close itself? — what was ticked, every line that can be, and a failure
+    closes: [[ticks, 0], [every, 0], [every, every[0] || 0], [[], 0]].map(([chosen, failAt]) => { const json = decided(c, chosen, failAt); return { json, chosen, want: P.closesItself(json, chosen) }; }) });
+}
 for (const r of requests) {
   const tl = W.tile(r);
   out.requests.push({ json: r, tile: tl, level: W.levelWords(r.preview && r.preview.level), needTitle: W.needTitle(r), heading: W.heading(r), sends: W.sends(r), sendsAll: W.sends(r, true), undo: W.undoWords(r),
@@ -260,6 +309,8 @@ export const demo = {
   approvals,
   audit,
   states: Object.fromEntries(states.filter((x) => x.state).map((x) => [x.name, { state: x.state, llm: x.llm }])),
+  // -XbinAgentDemo plan | plan-user | plan-from: a plan as an admin, as a person who is none, and a request from another person
+  plans: { plan: byId(plans, 'pl_dice'), 'plan-user': byId(plans, 'pl_user'), 'plan-from': byId(plans, 'pl_from') },
 };
 const Q3 = '"'.repeat(3);
 export function demoSwift() {

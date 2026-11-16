@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -50,6 +51,7 @@ func (s *Server) registerChangeSetAPI() {
 	s.RegisterAPI("POST /delegate/changesets/{id}/approve", s.apiChangeSetApprove)
 	s.RegisterAPI("POST /delegate/changesets/{id}/reject", s.apiChangeSetReject)
 	s.RegisterAPI("POST /delegate/changesets/{id}/undo", s.apiChangeSetUndo)
+	s.registerPlanAPI() // POST /delegate/plans, …/ask (plan.go)
 }
 
 // personOf is the person a delegate acts for, as a principal of their own:
@@ -65,7 +67,11 @@ func personOf(p auth.Principal) auth.Principal {
 // that appeared since (the tile was published meanwhile, a network set
 // grew) is not something the person approved.
 func changeBasis(pv delegation.ChangePreview) string {
-	b, _ := json.Marshal([]any{pv.Before, pv.After, pv.Line, pv.Effects, pv.Warnings})
+	parts := []any{pv.Before, pv.After, pv.Line, pv.Effects, pv.Warnings}
+	if pv.Pin != "" { // what else the line was described from (a template's manifest, a start's resolved settings)
+		parts = append(parts, pv.Pin)
+	}
+	b, _ := json.Marshal(parts)
 	return delegation.BodyHash(b)
 }
 
@@ -78,7 +84,7 @@ func (s *Server) describeItems(person auth.Principal, ops []delegation.ChangeOp,
 		if err != nil {
 			return nil, fmt.Errorf("operation %d (%s): %w", i+1, op.Kind, err)
 		}
-		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, Effects: pv.Effects,
+		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, BeforeText: pv.BeforeText, AfterText: pv.AfterText, Effects: pv.Effects,
 			Warnings: pv.Warnings, Blocked: pv.Blocked, Inverse: pv.Inverse, Basis: changeBasis(pv)}
 		if i < len(whys) {
 			it.Why = whys[i]
@@ -152,7 +158,7 @@ func (s *Server) apiChangeSetNew(w http.ResponseWriter, r *http.Request) {
 	s.delegateEvent(a.user, "changeset", cs.ID)
 	s.delegatePush(a.user, a.p.Agent, "agent.changeset", "Your agent proposes admin changes",
 		fmt.Sprintf("%d change(s) wait for your approval. Nothing is applied until you approve it.", len(cs.Items)), "agent-changeset:"+cs.ID)
-	WriteJSON(w, http.StatusOK, cs)
+	WriteJSON(w, http.StatusOK, s.setFor(a, cs))
 }
 
 // apiChangeSets — GET /delegate/changesets: the person, their agent's page
@@ -167,6 +173,12 @@ func (s *Server) apiChangeSets(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "the change sets can't be read", delegationDocs)
 		return
 	}
+	if !a.own { // another person's request to an admin is the admin's to read — not their agent's, nor its page's
+		sets = slices.DeleteFunc(slices.Clone(sets), func(cs delegation.ChangeSet) bool { return cs.From != "" })
+		for i := range sets {
+			sets[i] = s.setFor(a, sets[i]) // …and of an admin's or a blocked line, xbind's sentence only (plan.go)
+		}
+	}
 	WriteJSON(w, http.StatusOK, map[string]any{"changesets": sets})
 }
 
@@ -177,22 +189,35 @@ func (s *Server) apiChangeSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cs, found := s.Delegation.ChangeSet(a.user, r.PathValue("id"))
-	if !found {
+	if !found || cs.From != "" && !a.own {
 		WriteError(w, http.StatusNotFound, "no such change set", delegationDocs)
 		return
 	}
-	WriteJSON(w, http.StatusOK, cs)
+	WriteJSON(w, http.StatusOK, s.setFor(a, cs))
 }
 
 // endChangeSet moves an open set to state (withdrawn, rejected).
 func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state string) {
 	cs, err := s.Delegation.UpdateChangeSet(a.user, id, func(cs *delegation.ChangeSet) error {
-		if !cs.Open() {
+		switch {
+		case cs.From != "" && !a.own:
+			return delegation.ErrNoChangeSet // another person's request: the admin's own to decide
+		case !cs.Open():
 			return delegation.ErrSetNotOpen
 		}
 		cs.State, cs.Decided = state, time.Now().UTC().Truncate(time.Second)
+		if cs.From != "" {
+			cs.State = delegation.SetRejected // an admin turning a request down, whichever button said it
+		}
 		return nil
 	})
+	if err == nil {
+		s.askDecided(cs)
+		if cs.From == "" && cs.Plan { // the asker ends their own set: what they asked the admins for goes with it
+			s.retractAsks(a.user, cs.ID, "the plan was ended before an admin decided")
+			cs, _ = s.Delegation.ChangeSet(a.user, cs.ID)
+		}
+	}
 	switch {
 	case errors.Is(err, delegation.ErrNoChangeSet):
 		WriteError(w, http.StatusNotFound, err.Error(), delegationDocs)
@@ -205,7 +230,7 @@ func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state 
 		return
 	}
 	s.delegateEvent(a.user, "changeset", cs.ID)
-	WriteJSON(w, http.StatusOK, cs)
+	WriteJSON(w, http.StatusOK, s.setFor(a, cs))
 }
 
 // apiChangeSetWithdraw — DELETE /delegate/changesets/{id}: the agent takes
@@ -266,8 +291,17 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// applying is refused while the agent is stopped, as allowing a request
-	// is (rejecting never is)
-	if refusal, msg := s.decideRefusal(a.user, cs.Agent); refusal != "" {
+	// is (rejecting never is). A request from another person is held to the
+	// state of THEIR agent, which proposed it.
+	whose := a.user
+	if cs.From != "" {
+		whose = cs.From
+		if !a.p.IsAdmin() {
+			WriteError(w, http.StatusForbidden, "a request to the admins is applied by a workspace admin", delegationDocs)
+			return
+		}
+	}
+	if refusal, msg := s.decideRefusal(whose, cs.Agent); refusal != "" {
 		refuseDecision(w, refusal, msg)
 		return
 	}
@@ -282,9 +316,28 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// a plan: what was chosen must be the person's to apply, with the lines
+	// it needs; only an admin's line takes the step-up (plan.go). An admin
+	// who ticks an admin's line and applies it, on a recent sign-in, has
+	// consented to that line of that plan: the standing opt-in
+	// (adminChanges) is what lets the agent READ admin state and propose
+	// admin-only change sets, and is not asked for here — without it the
+	// agent proposed the line blind and learns of it only whether it was
+	// applied (setFor). A request from another person is an admin's act
+	// too: the step-up.
+	stepUp := true
+	if cs.Plan {
+		admin, refusal := planChosen(cs, chosen)
+		if refusal != "" {
+			WriteError(w, http.StatusBadRequest, refusal, delegationDocs)
+			return
+		}
+		stepUp = admin || cs.From != ""
+	}
 	// the step-up — except under --dev / --no-auth, where an agent is being
 	// developed and (--no-auth) nobody signs in at all
 	switch {
+	case !stepUp:
 	case s.DelegationDev:
 	case a.p.User == nil || s.Auth.Users == nil:
 		WriteError(w, http.StatusForbidden, "admin changes are approved by a person with an account", delegationDocs)
@@ -306,7 +359,7 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusConflict, delegation.ErrSetNotOpen.Error(), delegationDocs)
 		return
 	}
-	if refusal, msg := s.decideRefusal(a.user, cs.Agent); refusal != "" {
+	if refusal, msg := s.decideRefusal(whose, cs.Agent); refusal != "" {
 		// stopped while the step-up ran: the set waits again, nothing applied
 		// (a stop for good withdraws it the moment it is open again)
 		_, _ = s.Delegation.UpdateChangeSet(a.user, id, func(c *delegation.ChangeSet) error {
@@ -314,7 +367,7 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 			return nil
 		})
 		if refusal == "workspace-off" || refusal == "no-agent" {
-			s.delegationStopped(a.user, false) // the stop's own withdrawal missed it while it was claimed
+			s.delegationStopped(whose, false) // the stop's own withdrawal missed it while it was claimed
 		}
 		refuseDecision(w, refusal, msg)
 		return
@@ -328,6 +381,7 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "the change set's results can't be written (what was applied stays applied: see the audit log)", delegationDocs)
 		return
 	}
+	s.askDecided(cs)
 	s.delegateEvent(a.user, "changeset", cs.ID)
 	WriteJSON(w, http.StatusOK, cs)
 }
@@ -337,14 +391,25 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 // operation that wasn't chosen is rejected.
 func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs *delegation.ChangeSet, chosen []int) {
 	failed, problems, applied := false, 0, 0
+	agent := planAgent{}
+	if cs.Plan {
+		agent = s.agentOf(*cs, approver)
+	}
 	for i := range cs.Items {
 		it := &cs.Items[i]
 		switch {
+		case it.Result == delegation.ItemAsked: // with the admins: their decision fills it in (askDecided)
+			continue
+		case it.Result == delegation.ItemApplied: // applied before (a plan's lines an admin was asked for arrive later)
+			applied++
+			continue
 		case it.Blocked != "":
 			it.Result = delegation.ItemBlocked
 			if slices.Contains(chosen, it.N) {
 				problems++
 			}
+			continue
+		case it.NeedsAdmin: // not theirs to apply: it waits to be asked of an admin
 			continue
 		case !slices.Contains(chosen, it.N):
 			it.Result = delegation.ItemRejected
@@ -354,24 +419,71 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 			problems++
 			continue
 		}
-		// what the person saw must still be what is there
-		pv, err := s.ChangeSets.PreviewChange(approver, it.ChangeOp)
+		// what the person saw must still be what is there — and, for a plan,
+		// what their agent may touch, and theirs to do without an admin if
+		// that is what it was. Each line is judged with the person's rights
+		// as they are NOW: an earlier line of this very set may have made the
+		// tile this one is about (their level on it didn't exist when the
+		// request came in), and an account disabled meanwhile applies nothing
+		if cs.Plan {
+			cur, ok := s.currentPerson(approver)
+			if !ok {
+				it.Result, it.Error = delegation.ItemFailed, "this account can no longer apply changes"
+				failed = true
+				problems++
+				continue
+			}
+			approver, agent = cur, s.agentOf(*cs, cur)
+		}
+		pv, err := s.previewLine(approver, agent, pinStart(it.ChangeOp, it.Start), nil)
+		why := ""
+		if err == nil && cs.Plan {
+			why = cmpOr(s.lineAgentRefusal(agent, pv.Tiles), s.createScopeRefusal(agent, pv.Creates))
+		}
 		switch {
 		case err != nil:
 			it.Result, it.Error = delegation.ItemFailed, err.Error()
+		case why != "": // before the line's own refusal: nothing is said of a tile the conversation may not see
+			it.Result, it.Error = delegation.ItemFailed, why
 		case pv.Blocked != "":
 			it.Result, it.Error = delegation.ItemFailed, pv.Blocked
-		case changeBasis(pv) != it.Basis:
+		case cs.Plan && cs.From == "" && !it.Admin && pv.Admin:
+			it.Result, it.Error = delegation.ItemFailed, "this now takes an admin's rights — it was yours to do when it was proposed: nothing was applied; ask your agent to propose it again"
+		case cs.Plan && lineStale(*it, pv), !cs.Plan && changeBasis(pv) != it.Basis:
 			it.Result, it.Error = delegation.ItemStale, "it changed since the change set was proposed: nothing was applied — ask your agent to propose it again"
 		default:
-			if status, msg := s.adminCall(ctx, approver, pv.Call); status >= 300 {
+			status, msg, out := 0, "", json.RawMessage(nil)
+			if it.Kind == delegation.KindAgentStart {
+				status, msg, out = s.planStart(ctx, agent, pv)
+			} else {
+				status, msg, out = s.adminCallOut(ctx, approver, pv.Call)
+				if it.Kind != delegation.KindTileCreate {
+					out = nil
+				} else {
+					var made struct {
+						Path string `json:"path"`
+					}
+					_ = json.Unmarshal(out, &made)
+					out, _ = json.Marshal(map[string]string{"path": made.Path})
+				}
+			}
+			if status >= 300 {
 				it.Result, it.Error = delegation.ItemFailed, msg
 			} else {
-				it.Result, it.Inverse = delegation.ItemApplied, pv.Inverse
+				it.Result, it.Inverse, it.Out = delegation.ItemApplied, pv.Inverse, out
 			}
 		}
-		s.delegateAudit(delegation.Call{User: cs.User, Agent: cs.Agent, Method: pv.Call.Method, Path: "/api/xbin" + pv.Call.Path,
-			Class: "changeset:" + it.Kind, Effect: true, Status: resultStatus(it.Result), Refused: it.Error, Ticket: cs.ID})
+		row := delegation.Call{User: cs.User, Agent: cs.Agent, Method: pv.Call.Method, Path: "/api/xbin" + pv.Call.Path,
+			Class: "changeset:" + it.Kind, Effect: true, Status: resultStatus(it.Result), Refused: it.Error, Ticket: cs.ID, Session: cs.Session}
+		if cs.From != "" {
+			// an admin applied what another person asked for: the admin's log
+			// says whose request (and whose agent proposed it), and the
+			// asker's log says who applied their line — under their own set
+			row.From, row.Session = cs.From, ""
+			s.delegateAudit(delegation.Call{User: cs.From, Agent: cs.Agent, Method: row.Method, Path: row.Path, Class: row.Class, Effect: true,
+				Status: row.Status, Refused: row.Refused, Ticket: cs.AskOf, Session: cs.Session, By: cs.User})
+		}
+		s.delegateAudit(row)
 		if it.Result != delegation.ItemApplied {
 			failed = true
 			problems++
@@ -402,26 +514,27 @@ func resultStatus(result string) int {
 // approving person's own principal, from their own request: never a
 // delegate's.
 func (s *Server) adminCall(ctx context.Context, p auth.Principal, c delegation.AdminCall) (int, string) {
+	status, msg, _ := s.adminCallOut(ctx, p, c)
+	return status, msg
+}
+
+// adminCallOut is adminCall with the call's answer (a tile.create line
+// keeps where the tile was made).
+func (s *Server) adminCallOut(ctx context.Context, p auth.Principal, c delegation.AdminCall) (int, string, json.RawMessage) {
 	if p.Agent != "" || p.Component != "" || p.Impersonator != "" || p.UserID == "" && !s.devOwner(p) {
-		return http.StatusForbidden, "admin changes are applied as the person who approved them"
+		return http.StatusForbidden, "admin changes are applied as the person who approved them", nil
 	}
 	req, err := http.NewRequestWithContext(auth.WithPrincipal(ctx, p), c.Method, "/api/xbin"+c.Path, bytes.NewReader(c.Body))
 	if err != nil {
-		return http.StatusBadRequest, err.Error()
+		return http.StatusBadRequest, err.Error(), nil
 	}
 	req.Header.Set("Content-Type", "application/json")
 	rec := &memWriter{header: http.Header{}, status: http.StatusOK}
 	s.handleAPI(rec, req)
 	if rec.status >= 300 {
-		var e struct {
-			Error string `json:"error"`
-		}
-		if json.Unmarshal(rec.body.Bytes(), &e) != nil || e.Error == "" {
-			e.Error = fmt.Sprintf("refused (%d)", rec.status)
-		}
-		return rec.status, e.Error
+		return rec.status, errorOf(rec), nil
 	}
-	return rec.status, ""
+	return rec.status, "", rec.body.Bytes()
 }
 
 // memWriter is a ResponseWriter that keeps a small answer in memory.
@@ -460,22 +573,37 @@ func (s *Server) apiChangeSetUndo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ops []delegation.ChangeOp
+	var byHand []string // what was applied that xbind can't undo: said, not done
 	for i := len(cs.Items) - 1; i >= 0; i-- {
-		if it := cs.Items[i]; it.Result == delegation.ItemApplied && it.Inverse != nil {
+		switch it := cs.Items[i]; {
+		case it.Result != delegation.ItemApplied:
+		case it.Inverse != nil:
 			ops = append(ops, *it.Inverse)
+		case it.UndoByHand != "":
+			byHand = append(byHand, it.UndoByHand)
 		}
 	}
 	if len(ops) == 0 {
-		WriteError(w, http.StatusConflict, "nothing of this change set can be undone by xbind: change it back by hand", delegationDocs)
+		msg := "nothing of this change set can be undone by xbind: change it back by hand"
+		if len(byHand) > 0 {
+			msg = "nothing of this plan can be undone by xbind — " + strings.Join(byHand, "; ")
+		}
+		WriteJSON(w, http.StatusConflict, map[string]any{"error": msg, "byHand": byHand, "docs": delegationDocs})
 		return
 	}
-	items, err := s.describeItems(a.p, ops, nil)
+	var items []delegation.ChangeItem
+	var err error
+	if cs.Plan { // a plan's lines may be personal: its undo is judged the same way
+		items, err = s.describePlan(a.p, planAgent{}, ops, nil)
+	} else {
+		items, err = s.describeItems(a.p, ops, nil)
+	}
 	if err != nil {
 		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
 		return
 	}
 	title := "Undo: " + cs.Title
-	undo, err := s.Delegation.NewChangeSet(delegation.ChangeSet{User: a.user, Title: title, UndoOf: cs.ID, Items: items})
+	undo, err := s.Delegation.NewChangeSet(delegation.ChangeSet{User: a.user, Title: title, UndoOf: cs.ID, Items: items, Plan: cs.Plan, ByHand: byHand})
 	if err != nil {
 		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
 		return

@@ -567,6 +567,8 @@ public enum DelegationWords {
         case "binding.set", "binding.remove": return "binding"
         case "org.share": return "org share"
         case "limits.set": return "limit"
+        case "tile.create": return "new tile"
+        case "agent.start": return "tile agent"
         default: return kind.split(separator: ".").first.map(String.init) ?? ""
         }
     }
@@ -608,8 +610,13 @@ public enum DelegationWords {
     public static func needChangeTitle(_ c: AdminChangeSet) -> (title: String, note: String) {
         let w = c.items.filter { !$0.warnings.isEmpty }.count
         let b = c.items.filter { !$0.blocked.isEmpty }.count
-        let note = [w > 0 ? "\(w) \(w == 1 ? "has" : "have") a warning" : "", b > 0 ? "\(b) can't be applied" : ""].filter { !$0.isEmpty }
-        return ("\(plural(c.items.count, "admin change")) proposed", note.joined(separator: " · "))
+        let na = c.items.filter { $0.needsAdmin && $0.result.isEmpty }.count
+        let note = [w > 0 ? "\(w) \(w == 1 ? "has" : "have") a warning" : "", b > 0 ? "\(b) can't be applied" : "",
+                    na > 0 ? "\(na) \(na == 1 ? "needs" : "need") an admin" : ""].filter { !$0.isEmpty }
+        // a plan, or another person's request to an admin, says which it is
+        let title = !c.from.isEmpty ? "\(c.from) asks for \(plural(c.items.count, "admin change"))"
+            : c.plan ? "A plan of \(plural(c.items.count, "change"))" : "\(plural(c.items.count, "admin change")) proposed"
+        return (title, note.joined(separator: " · "))
     }
 
     /// An item's result: a word, an icon, a tone, and a sentence where one
@@ -624,7 +631,8 @@ public enum DelegationWords {
                     "Someone changed this after the agent proposed it. What you ticked no longer matches, so xbin left it alone.")
         case "rejected": return ("left out by you", "minus", "", "")
         case "blocked": return ("couldn't be applied", "lock", "warn", item.blocked.isEmpty ? item.error : item.blocked)
-        default: return (item.result, "", "", "")
+        case "asked": return ("sent to an admin", "clock", "", "")
+        default: return item.needsAdmin && item.result.isEmpty ? ("needs an admin", "lock", "", "") : (item.result, "", "", "")
         }
     }
 

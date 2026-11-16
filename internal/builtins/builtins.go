@@ -167,6 +167,25 @@ func (s *TemplateSet) List() []TemplateEntry {
 	return out
 }
 
+// Manifest is builtin template name's xbin.json as shipped (JSONC): what an
+// instance of it starts with — its slots, what it provides.
+func (s *TemplateSet) Manifest(name string) ([]byte, bool) {
+	if _, ok := s.templates[name]; !ok {
+		return nil, false
+	}
+	b, err := fs.ReadFile(s.fsys, path.Join(name, "xbin.json"))
+	return b, err == nil
+}
+
+// Has reports whether builtin template name ships file (a path inside it).
+func (s *TemplateSet) Has(name, file string) bool {
+	if _, ok := s.templates[name]; !ok {
+		return false
+	}
+	_, err := fs.Stat(s.fsys, path.Join(name, file))
+	return err == nil
+}
+
 func (s *TemplateSet) Get(name string) (TemplateEntry, bool) {
 	t, ok := s.templates[name]
 	return t, ok

@@ -122,10 +122,25 @@ func (c *captured) refusal() string {
 // under --no-auth, where nobody signs in (the server decides when that
 // counts): a tile's, a delegate's or a view-as one previews nothing.
 func (b *Broker) PreviewChange(p auth.Principal, op delegation.ChangeOp) (delegation.ChangePreview, error) {
+	return b.preview(p, op, nil, false)
+}
+
+// PreviewPlanned is PreviewChange for a line of a plan (plan.go): planned
+// are the tiles earlier tile.create lines of the same set make, taken as
+// made — a line that names one is described from its template's manifest
+// (ChangePreview.Deferred) and checked against the tile once it exists.
+func (b *Broker) PreviewPlanned(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile) (delegation.ChangePreview, error) {
+	return b.preview(p, op, planned, true)
+}
+
+func (b *Broker) preview(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile, plan bool) (delegation.ChangePreview, error) {
 	if p.Component != "" || p.Agent != "" || p.Impersonator != "" || p.UserID == "" && !p.Owner {
 		return delegation.ChangePreview{}, errors.New("an admin change is described for the person who would apply it")
 	}
-	pv, err := b.previewChange(p, op)
+	pv, err := b.previewChange(p, op, planned)
+	if err == nil && plan && pv.Blocked == "" {
+		b.readOnlyNote(&pv)
+	}
 	if err == nil {
 		slices.Sort(pv.Warnings) // the basis of "what the person saw" (the server's changeBasis)
 	}
@@ -200,18 +215,35 @@ func (b *Broker) powerOf(tile string) []string {
 	return out
 }
 
-func (b *Broker) previewChange(p auth.Principal, op delegation.ChangeOp) (delegation.ChangePreview, error) {
+// previewChange describes op. Every kind but the three a person may do with
+// their own hands is an admin's (ChangePreview.Admin): a grant, an org's
+// share and a limit always; a binding unless its tile's owner could wire it
+// themselves (bindPersonal); a creation unless the person's own creation
+// rule lets it (plan.go).
+func (b *Broker) previewChange(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile) (pv delegation.ChangePreview, err error) {
 	switch op.Kind {
 	case ChangeGrantAdd, ChangeGrantRevoke:
-		return b.previewGrant(p, op)
+		pv, err = b.previewGrant(p, op)
+		pv.Admin = true
 	case ChangeBindingSet, ChangeBindingRemove:
-		return b.previewBinding(p, op)
+		pv, err = b.previewBinding(p, op, planned)
 	case ChangeOrgShare:
-		return b.previewOrgShare(p, op)
+		pv, err = b.previewOrgShare(p, op)
+		pv.Admin = true
 	case ChangeLimitsSet:
-		return b.previewLimit(p, op)
+		pv, err = b.previewLimit(p, op)
+		pv.Admin = true
+	case ChangeTileCreate:
+		pv, err = b.previewTileCreate(p, op, planned)
+	default:
+		return delegation.ChangePreview{}, fmt.Errorf("no such kind of change (one of %s)", strings.Join(ChangeKinds(), ", "))
 	}
-	return delegation.ChangePreview{}, fmt.Errorf("no such kind of change (one of %s)", strings.Join(ChangeKinds(), ", "))
+	if err == nil && pv.Forbidden {
+		// not theirs to change, so not theirs to read through a proposal:
+		// the line and the refusal, nothing of what is there now
+		pv = delegation.ChangePreview{Line: pv.Line, Call: pv.Call, Blocked: pv.Blocked, Forbidden: true, Admin: true, Tiles: pv.Tiles}
+	}
+	return pv, err
 }
 
 func (b *Broker) previewGrant(p auth.Principal, op delegation.ChangeOp) (delegation.ChangePreview, error) {
@@ -250,7 +282,15 @@ func (b *Broker) previewGrant(p auth.Principal, op delegation.ChangeOp) (delegat
 	slices.Sort(held)
 	after := slices.Clone(held)
 	has := slices.Contains(held, g.Role)
-	pv := delegation.ChangePreview{Before: mustJSON(map[string]any{"roles": held}),
+	// the tiles the line is judged by: both ends — a grant on a tile (or on
+	// a resource of one's scope) reaches into it
+	tiles := []string{g.From}
+	if callee != "" {
+		tiles = append(tiles, callee)
+	} else if rt, _, ok := b.parseRes(g.Target); ok && rt.Scope != "" {
+		tiles = append(tiles, rt.Scope)
+	}
+	pv := delegation.ChangePreview{Before: mustJSON(map[string]any{"roles": held}), Tiles: tiles,
 		Call: delegation.AdminCall{Method: http.MethodPost, Path: "/grants", Body: mustJSON(a)}}
 	if revoke {
 		pv.Call.Method = http.MethodDelete
@@ -276,13 +316,51 @@ func (b *Broker) previewGrant(p auth.Principal, op delegation.ChangeOp) (delegat
 		}
 	}
 	pv.After = mustJSON(map[string]any{"roles": after})
+	pv.BeforeText, pv.AfterText = rolesWords(held), rolesWords(after)
 	if strings.HasPrefix(g.Target, "res:") {
 		pv.Effects = append(pv.Effects, g.From+"'s backend may restart")
 	}
 	if why := b.grantCheck(p, g, revoke); why != nil {
-		pv.Blocked = why.msg
+		pv.Blocked, pv.Forbidden = why.msg, why.status == http.StatusForbidden
 	}
 	return pv, nil
+}
+
+// rolesWords, bindingWords and shareWords say a change's before and after
+// in words (ChangePreview.BeforeText): what a review draws, so that no
+// client has to make a sentence of the data.
+func rolesWords(roles []string) string {
+	if len(roles) == 0 {
+		return "no access"
+	}
+	return strings.Join(roles, ", ")
+}
+
+func bindingWords(bd registry.Binding) string {
+	if len(bd) == 0 {
+		return "not bound"
+	}
+	parts := make([]string, 0, len(bd))
+	for _, e := range bd {
+		w := e.Ref
+		if e.Ref == LLMRef {
+			w = "the workspace's LLM connector (" + LLMRef + ")"
+		}
+		for _, kv := range [][2]string{{"the public hostname", e.Host}, {"every hostname matching", e.Zone}, {"the host's port", e.Listen}} {
+			if kv[1] != "" {
+				w += ", at " + kv[0] + " " + kv[1]
+			}
+		}
+		parts = append(parts, w)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func shareWords(level string) string {
+	if level == "" {
+		return "not shared"
+	}
+	return "shared at " + level
 }
 
 func refsOf(bd registry.Binding) []map[string]string {
@@ -299,7 +377,7 @@ func refsOf(bd registry.Binding) []map[string]string {
 	return out
 }
 
-func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp) (delegation.ChangePreview, error) {
+func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile) (delegation.ChangePreview, error) {
 	var body bindingBody
 	if err := strictArgs(op.Args, &body); err != nil {
 		return delegation.ChangePreview{}, err
@@ -369,14 +447,20 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp) (deleg
 	if remove {
 		pv.Call.Method = http.MethodDelete
 	}
+	if uses := plannedIn(planned, append(slices.Clone(body.Providers), body.Provider, body.Component)...); len(uses) > 0 {
+		return b.previewPlannedBinding(p, pv, body, remove, planned, uses) // a tile an earlier line creates (plan.go)
+	}
+	pv.Tiles = b.bindingTiles(body)
 	cur := b.Reg.Workspace().Bindings[body.Component][body.Slot]
-	pv.Before = mustJSON(map[string]any{"binding": refsOf(cur)})
+	pv.Before, pv.BeforeText = mustJSON(map[string]any{"binding": refsOf(cur)}), bindingWords(cur)
 	plan, why := b.bindingCheck(p, body, remove)
+	pv.Admin = why != nil || !b.bindPersonal(p, body, plan)
 	if why != nil {
-		pv.Blocked, pv.After = why.msg, pv.Before
+		pv.Blocked, pv.After, pv.AfterText = why.msg, pv.Before, pv.BeforeText
+		pv.Forbidden = why.status == http.StatusForbidden
 		return pv, nil
 	}
-	pv.After = mustJSON(map[string]any{"binding": refsOf(plan.next)})
+	pv.After, pv.AfterText = mustJSON(map[string]any{"binding": refsOf(plan.next)}), bindingWords(plan.next)
 	if !plan.del {
 		b.bindingOpens(&pv, body.Component, body.Slot, plan.delta)
 	}
@@ -390,7 +474,7 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp) (deleg
 		for _, e := range plan.delta {
 			if e.Ref == LLMRef { // xbind's own LLM connector, not a tile
 				pv.Effects = append(pv.Effects, body.Component+"'s code, and everyone who can change it, can call the workspace's LLM connector")
-				pv.Warnings = append(pv.Warnings, "SPEND: "+body.Component+"'s calls to the LLM connector spend the workspace's LLM quota, on the models the connector serves — and send them whatever "+body.Component+" sends")
+				pv.Warnings = append(pv.Warnings, llmSpendWarning(body.Component))
 				continue
 			}
 			prov, _ := splitRef(e.Ref)
@@ -439,7 +523,7 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 	if power := b.powerOf(a.Tile); len(power) > 0 && a.Level != "" {
 		return delegation.ChangePreview{}, fmt.Errorf("%s holds %s: who may use a tile with that power is decided on its Access page, by an admin — never by a change set", a.Tile, strings.Join(power, ", "))
 	}
-	pv := delegation.ChangePreview{Call: delegation.AdminCall{Method: http.MethodPut, Path: "/access",
+	pv := delegation.ChangePreview{Tiles: []string{a.Tile}, Call: delegation.AdminCall{Method: http.MethodPut, Path: "/access",
 		Body: mustJSON(map[string]string{"tile": a.Tile, "kind": "org", "id": a.Org, "level": a.Level})}}
 	if a.Level == "" {
 		pv.Line = fmt.Sprintf("Stop sharing %s with the org %s", a.Tile, a.Org)
@@ -454,12 +538,13 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 		}
 	}
 	pv.Before, pv.After = mustJSON(map[string]string{"level": before}), mustJSON(map[string]string{"level": a.Level})
+	pv.BeforeText, pv.AfterText = shareWords(before), shareWords(a.Level)
 	// in the handler's order: who manages the tile's access, then what the
 	// store would refuse (SetOrgTile: the level, the org)
 	_, tileOK := b.Reg.Component(a.Tile)
 	switch why := b.accessCheck(p, a.Tile, a.Org); {
 	case why != nil:
-		pv.Blocked = why.msg
+		pv.Blocked, pv.Forbidden = why.msg, why.status == http.StatusForbidden
 	case a.Level != "" && a.Level != users.LevelRead && a.Level != users.LevelWrite && a.Level != users.LevelTerminal:
 		pv.Blocked = fmt.Sprintf("unknown level %q (want read|write|terminal, or empty to remove)", a.Level)
 	case b.Users == nil || org == nil:
@@ -503,7 +588,7 @@ func (b *Broker) previewLimit(p auth.Principal, op delegation.ChangeOp) (delegat
 	}
 	// a raise an approver decides: never force, never a restart now
 	body := limitsPostBody{Tile: a.Tile, Kind: a.Kind, Value: a.Value, Source: limits.SourceRaise}
-	pv := delegation.ChangePreview{Call: delegation.AdminCall{Method: http.MethodPost, Path: "/limits",
+	pv := delegation.ChangePreview{Tiles: []string{a.Tile}, Call: delegation.AdminCall{Method: http.MethodPost, Path: "/limits",
 		Body: mustJSON(map[string]any{"tile": a.Tile, "kind": a.Kind, "value": a.Value, "source": limits.SourceRaise})}}
 	k, known := limits.Parse(a.Kind)
 	if !known {
@@ -514,7 +599,7 @@ func (b *Broker) previewLimit(p auth.Principal, op delegation.ChangeOp) (delegat
 	w := &captured{header: http.Header{}, status: http.StatusOK}
 	v, t, ci, ok := b.limitsCheck(w, p, body)
 	if !ok {
-		pv.Blocked = w.refusal()
+		pv.Blocked, pv.Forbidden = w.refusal(), w.status == http.StatusForbidden
 		pv.Before, pv.After = mustJSON(map[string]any{}), mustJSON(map[string]any{"value": a.Value})
 		return pv, nil
 	}
@@ -527,6 +612,10 @@ func (b *Broker) previewLimit(p auth.Principal, op delegation.ChangeOp) (delegat
 	}
 	pv.Before = mustJSON(map[string]any{"value": cur, "default": t.kf.def})
 	pv.After = mustJSON(map[string]any{"value": a.Value})
+	pv.BeforeText, pv.AfterText = limits.Format(k, cur), limits.Format(k, a.Value)
+	if cur == t.kf.def {
+		pv.BeforeText += " (the default)"
+	}
 	pv.Effects = append(pv.Effects, fmt.Sprintf("%s may use up to %s of %s (now %s)", a.Tile, limits.Format(k, a.Value), k.Meta().Label, limits.Format(k, cur)))
 	if k != limits.DiskGiB {
 		pv.Effects = append(pv.Effects, "it applies when "+a.Tile+"'s backend next starts")

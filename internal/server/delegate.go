@@ -637,35 +637,10 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 			}
 		}
 		preview["allowed"] = true
-		if v.pattern == webFetchPattern && hasHandle { // what this fetch would need now: the reach, the URL (delegateweb.go)
-			body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<10))
-			switch why, asks := s.webDry(p, handle, body); {
-			case why != "":
-				preview["allowed"], preview["refusal"] = false, why
-			case asks:
-				preview["needsApproval"] = true
-			}
-		}
-		if v.pattern == mcpCallPattern && hasHandle { // what this tool's call would need now (delegatemcp.go)
+		if v.row.judge != nil { // the handler's own narrowing, run without the act (delegatedry.go)
 			body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, delegation.MaxBody))
-			if c, err := readMCPCall(body); err != nil {
-				preview["allowed"], preview["refusal"] = false, err.Error()
-			} else if _, under, _, _, _, msg := s.mcpJudge(r.Context(), p, handle, c); msg != "" {
-				preview["allowed"], preview["refusal"] = false, msg
-			} else if under != "" {
-				preview["under"] = under
-			} else {
-				preview["needsApproval"] = true
-			}
-		}
-		if v.pattern == "POST /term/sessions" { // what THIS start would need: the person's preference may start it unasked
-			body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, delegation.MaxBody))
-			ask := sessionAskOf(body)
-			row.Tile, preview["tile"] = ask.Cwd, ask.Cwd
-			if _, why := s.startRefusal(p, ask); why != "" {
-				preview["allowed"], preview["refusal"] = false, why
-			} else if s.startsUnasked(p, ask) {
-				preview["needsApproval"], preview["under"] = false, "preference"
+			if code, why := v.row.judge(s, p, r, body, &row, preview); why != "" {
+				preview["allowed"], preview["refusal"], preview["refusalCode"] = false, why, code
 			}
 		}
 		s.writeDryRun(w, &row, preview)
@@ -922,7 +897,8 @@ func (s *Server) delegateAudit(c delegation.Call) {
 	}
 	if c.Effect || c.Refused != "" {
 		slog.Info("audit", "who", "user:"+c.User, "agent", c.Agent, "method", c.Method, "path", c.Path,
-			"class", c.Class, "status", c.Status, "refused", c.Refused, "dryRun", c.DryRun, "ticket", c.Ticket, "under", c.Under, "leftOut", c.N)
+			"class", c.Class, "status", c.Status, "refused", c.Refused, "dryRun", c.DryRun, "ticket", c.Ticket, "under", c.Under, "leftOut", c.N,
+			"from", c.From, "by", c.By)
 	}
 }
 

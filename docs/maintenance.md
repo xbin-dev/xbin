@@ -1256,11 +1256,20 @@ journeyAgent` runs them with no harness xbind up. The step tables land in
 (`JOURNEY_SHOTS`). The scripted coding agent is planted in the tile it
 works in (`XBIN_AGENT_FAKE` names a path inside it, which the tile's
 sandbox sees) and copies `fixtures/journey-dice` into place where a real
-one would write the server. `journeyAgent` asserts today's dead ends as
-they are (an admin's `tile_create` refused, the admin opt-in, no check
-without another approval): closing one fails the pass until its script and
-its count are brought up to date — that is the point of it. Both go through
-the first-run sheet (D237) the login URL now lands on.
+one would write the server. `journeyAgent` plays the one-plan path (D238)
+and asserts it: one prompt, no single request filed, xbin's review of the
+plan — the lines' words, which start ticked, what needs what, the opt-in
+offered on the review — applied in one go, the agent's own check of the
+hook-up (the assistant's `GET /tools`), no dead end; a regression that
+brings a dead end back, or a second approval, fails it. After the count it
+plays a second plan with a tile agent's start (the scripted coding agent,
+planted then) to drive the start line and its apply with no sign-in step;
+its screenshots of the review are `out/journey-shots/plan-*.png`. Both go
+through the first-run sheet (D237) the login URL now lands on. The review's
+other states — a mode that doesn't ask, a person who is no admin and Ask an
+admin, a request from another person, a kind the page doesn't know — are
+`agentChrome`'s, on its faked delegation (`passes/agentchrome-plan.js`,
+`out/agent-plan-*.png`, both widths; run it in both themes).
 `firstRun` asserts that sheet on xbinds of its own, booted the journeys' way
 (`boot(name, {llm, host, vault})`: no host file, more of the host's keys, the
 host unsealing) on the same port, one after the other: the installer's

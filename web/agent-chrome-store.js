@@ -181,6 +181,13 @@ class AgentStore {
     return { ok: false, stopped: stopOf(r), error: say(r, "The changes couldn't be applied") };
   }
 
+  /** ask(id, items?) → {ok, set}: send the lines of a plan that need an admin to the workspace's admins, as a request from the person — their own click. */
+  async ask(id, items) {
+    const r = await call(`/delegate/changesets/${encodeURIComponent(id)}/ask`, { method: 'POST', body: items && items.length ? { items } : {} });
+    this.readChangesets();
+    return r.ok ? { ok: true, set: r.data } : { ok: false, stopped: stopOf(r), error: say(r, "The admins couldn't be asked") };
+  }
+
   async reject(id) {
     const r = await call(`/delegate/changesets/${encodeURIComponent(id)}/reject`, { method: 'POST', body: {} });
     this.readState(); this.readChangesets();

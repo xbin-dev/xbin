@@ -162,6 +162,12 @@ func (d *DB) addWsSchema() error {
 	} {
 		_, _ = d.q.Exec(q)
 	}
+	// the turn the conversation was last told of (wsSeen). Forward only,
+	// once: when the column is new, a tile agent from before it has been
+	// told of the turns it has had — or is owed its news already
+	if _, err := d.q.Exec(`ALTER TABLE ws_agents ADD COLUMN told_turn INTEGER NOT NULL DEFAULT 0`); err == nil {
+		_, _ = d.q.Exec(`UPDATE ws_agents SET told_turn = turn`)
+	}
 	// forward only, once per row: a session from before the column keeps the
 	// taint its stored handle carried
 	_, _ = d.q.Exec(`UPDATE ws_sessions SET tainted = json_extract(conn, '$.tainted')
@@ -357,6 +363,11 @@ type wsReq struct {
 	ResultStatus int    `json:"resultStatus,omitempty"`
 	Result       string `json:"result,omitempty"`
 	Expires      int64  `json:"expiresMs,omitempty"`
+	// A plan's row, for the page's card (handleWsCards fills them from the
+	// row's body): Plan says it is one, Lines each line's outcome once it
+	// is decided.
+	Plan  bool         `json:"plan,omitempty"`
+	Lines []wsPlanLine `json:"lines,omitempty"`
 }
 
 // open: nothing came of it yet.
@@ -424,11 +435,15 @@ type wsAgentRow struct {
 	Last    string `json:"last,omitempty"`
 	Turn    int    `json:"turn,omitempty"`
 	Told    string `json:"-"`
-	Refused string `json:"-"` // why xbind refused the messages held for it, until the conversation is told
-	Owed    bool   `json:"-"`
-	Wake    bool   `json:"-"`
-	Started int64  `json:"startedMs"`
-	Updated int64  `json:"updatedMs"`
+	// ToldTurn is the turn the conversation was last told of: a turn that
+	// begins and ends between two reads leaves the state as it was told, and
+	// only this says it happened (wsSeen)
+	ToldTurn int    `json:"-"`
+	Refused  string `json:"-"` // why xbind refused the messages held for it, until the conversation is told
+	Owed     bool   `json:"-"`
+	Wake     bool   `json:"-"`
+	Started  int64  `json:"startedMs"`
+	Updated  int64  `json:"updatedMs"`
 }
 
 // live: it may still change.
@@ -456,12 +471,12 @@ func (a *wsAgentRow) state() string {
 	return a.Status
 }
 
-const wsAgentCols = `id, run_id, session, tile, harness, mode, asks, brief_id, request_id, call_id, status, waiting, waits, last, turn, told, owed, wake, started_ms, updated_ms, refused`
+const wsAgentCols = `id, run_id, session, tile, harness, mode, asks, brief_id, request_id, call_id, status, waiting, waits, last, turn, told, owed, wake, started_ms, updated_ms, refused, told_turn`
 
 func scanWsAgent(scan func(...any) error) (*wsAgentRow, error) {
 	var a wsAgentRow
 	err := scan(&a.ID, &a.Run, &a.Session, &a.Tile, &a.Harness, &a.Mode, &a.Asks, &a.Brief, &a.Request, &a.CallID, &a.Status, &a.Waiting, &a.Waits, &a.Last, &a.Turn,
-		&a.Told, &a.Owed, &a.Wake, &a.Started, &a.Updated, &a.Refused)
+		&a.Told, &a.Owed, &a.Wake, &a.Started, &a.Updated, &a.Refused, &a.ToldTurn)
 	return &a, err
 }
 

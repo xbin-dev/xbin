@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -194,5 +195,95 @@ func TestCoordWakeAdmitBurst(t *testing.T) {
 	waitFor(t, "the oldest wake to leave the window", func() bool { return coordWakeAdmit(a, 2) })
 	if d := time.Since(first); d < 40*time.Millisecond {
 		t.Fatalf("a third wake %s after the first, inside the window", d)
+	}
+}
+
+// A tile agent's turn that begins and ends between two reads (D238's G12):
+// both reads say "idle", and only the turn's
+// number moved. It is news all the same — the conversation is told, once.
+// The same for a first turn that was over before the first read after the
+// start (a row that was "idle" from the moment it was made).
+func TestWsWakeTurnEndedBetweenTwoReads(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	coordWakeEvery.Store(int64(10 * time.Minute))
+	f := fakeOf(fx.ag)
+	f.on(forRun(s.Run, lastUser("ended its turn")), say("Read its report."))
+
+	row, id := fx.seedAgent(t, s, "apps/orders")
+	fx.x.setAgent(id, func(a *wsAgent) { a.Status, a.Last, a.Turn = "idle", "First report.", 1 })
+	fx.notify(t)
+	fx.rest(t, s)
+	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "ended its turn") {
+		t.Fatalf("the first turn's end: %q", up)
+	}
+
+	// a second turn — its person's message in the tile, or the agent's own —
+	// starts and ends before anything reads the session again
+	fx.x.setAgent(id, func(a *wsAgent) { a.Last, a.Turn = "Second report.", 2 })
+	fx.notify(t)
+	fx.rest(t, s)
+	up := fx.updates(t, s)
+	if len(up) != 2 || !strings.Contains(up[1], "ended its turn") {
+		t.Fatalf("a turn that ended between two reads was never told: %q", up)
+	}
+	// told once: reading it again says nothing new
+	fx.notify(t)
+	fx.rest(t, s)
+	if up := fx.updates(t, s); len(up) != 2 {
+		t.Fatalf("the same turn told twice: %q", up)
+	}
+	if cur, _ := fx.ag.db.wsAgentOf(s.Run, row.Session); cur.ToldTurn != 2 || cur.Owed {
+		t.Fatalf("the row after the telling: toldTurn %d owed %v", cur.ToldTurn, cur.Owed)
+	}
+
+	// a session that read "idle" when it was started, whose first turn was
+	// over before the first read
+	fx.x.mu.Lock()
+	b := &wsAgent{ID: fx.x.id("s"), Tile: "apps/orders", Provider: "claude", Name: "Claude Code", Mode: "default", Asks: true, Status: "idle", Origin: "agent", Mine: true}
+	fx.x.agents[b.ID] = b
+	fx.x.mu.Unlock()
+	fx.ag.wsAddAgent(s, &wsReq{Run: s.Run, Tile: "apps/orders"}, *b)
+	fx.x.setAgent(b.ID, func(a *wsAgent) { a.Last, a.Turn = "Done at once.", 1 })
+	fx.notify(t)
+	fx.rest(t, s)
+	if up := fx.updates(t, s); len(up) != 3 || !strings.Contains(up[2], "tile agent #2") || !strings.Contains(up[2], "ended its turn") {
+		t.Fatalf("a first turn that ended before the first read was never told: %q", up)
+	}
+}
+
+// told_turn is added to a database from before it, forward only: a tile
+// agent that was there has been told of the turns it had (so the upgrade
+// wakes nobody), and a later open leaves the column as it is.
+func TestWsToldTurnFromThePreviousSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.db")
+	d, err := openDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.q.Exec(`ALTER TABLE ws_agents DROP COLUMN told_turn`); err != nil { // as the previous schema had it
+		t.Fatal(err)
+	}
+	if _, err := d.q.Exec(`INSERT INTO ws_agents (run_id, session, status, turn, told) VALUES (1, 's1', 'idle', 3, 'idle'), (1, 's2', 'running', 1, 'working')`); err != nil {
+		t.Fatal(err)
+	}
+	_ = d.sql.Close()
+	if d, err = openDB(path); err != nil {
+		t.Fatal(err)
+	}
+	row, err := d.wsAgentOf(1, "s1")
+	if err != nil || row.ToldTurn != 3 || row.Told != "idle" || row.Owed {
+		t.Fatalf("the row after the upgrade: %+v %v", row, err)
+	}
+	if _, err := d.q.Exec(`UPDATE ws_agents SET turn = 5 WHERE session = 's1'`); err != nil { // a turn it hasn't been told of yet
+		t.Fatal(err)
+	}
+	_ = d.sql.Close()
+	if d, err = openDB(path); err != nil {
+		t.Fatal(err)
+	}
+	defer d.sql.Close()
+	if row, _ := d.wsAgentOf(1, "s1"); row.ToldTurn != 3 || row.Turn != 5 {
+		t.Fatalf("a second open rewrote the column: told %d of turn %d", row.ToldTurn, row.Turn)
 	}
 }

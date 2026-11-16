@@ -23,15 +23,22 @@ import (
 // and prompting it would be acting unasked. Everyone else passes. It
 // answers the refusal itself.
 func (s *Server) delegateDrives(w http.ResponseWriter, r *http.Request, id string) bool {
-	p := auth.PrincipalOf(r)
-	if p.Agent == "" || s.Term == nil {
-		return true
-	}
-	if _, live := s.Term.Info(id); live && s.Term.AgentOrigin(id) != p.Agent {
-		WriteError(w, http.StatusForbidden, "a workspace agent drives the sessions it started: this one is its person's own", "/docs/auth.md")
+	if why := s.drivesRefusal(auth.PrincipalOf(r), id); why != "" {
+		WriteError(w, http.StatusForbidden, why, "/docs/auth.md")
 		return false
 	}
 	return true
+}
+
+// drivesRefusal is delegateDrives' rule ("": p drives session id).
+func (s *Server) drivesRefusal(p auth.Principal, id string) string {
+	if p.Agent == "" || s.Term == nil {
+		return ""
+	}
+	if _, live := s.Term.Info(id); live && s.Term.AgentOrigin(id) != p.Agent {
+		return "a workspace agent drives the sessions it started: this one is its person's own"
+	}
+	return ""
 }
 
 // delegateSends judges the text a delegate sends a session it started (a
@@ -47,15 +54,24 @@ func (s *Server) delegateDrives(w http.ResponseWriter, r *http.Request, id strin
 //   - the session's model source satisfies every org the conversation
 //     holds data of (sendRefusal).
 func (s *Server) delegateSends(w http.ResponseWriter, r *http.Request, id, text string) bool {
-	p := auth.PrincipalOf(r)
-	if p.Agent == "" || s.Term == nil {
+	why, refusal := s.sendsRefusal(auth.PrincipalOf(r), id, text)
+	if why == "" {
 		return true
+	}
+	WriteJSON(w, http.StatusForbidden, map[string]string{"error": why, "refusal": refusal, "docs": delegationDocs})
+	return false
+}
+
+// sendsRefusal is delegateSends' rule ("": the text may go).
+func (s *Server) sendsRefusal(p auth.Principal, id, text string) (why, refusal string) {
+	if p.Agent == "" || s.Term == nil {
+		return "", ""
 	}
 	info, live := s.Term.Info(id)
 	if !live {
-		return true // the handler answers 404
+		return "", "" // the handler answers 404
 	}
-	why, refusal := harnessCommand(text), "command"
+	why, refusal = harnessCommand(text), "command"
 	if why == "" {
 		why, refusal = modeRefusal(info, s.Term.AgentOriginMode(id), p.UserID), "mode"
 	}
@@ -69,10 +85,9 @@ func (s *Server) delegateSends(w http.ResponseWriter, r *http.Request, id, text 
 		why, refusal = s.sendRefusal(p, t), "taint"
 	}
 	if why == "" {
-		return true
+		return "", ""
 	}
-	WriteJSON(w, http.StatusForbidden, map[string]string{"error": why, "refusal": refusal, "docs": delegationDocs})
-	return false
+	return why, refusal
 }
 
 // harnessCommand is why text may not go to a tile agent from a person's
@@ -152,6 +167,18 @@ func (s *Server) startRefusal(p auth.Principal, ask sessionAsk) (refusal, why st
 	if why := harnessCommand(ask.Prompt); why != "" {
 		return "command", why
 	}
+	// a start is on a tile: one hidden from the person, or outside what they
+	// let this conversation see, is no place for it to start a tile agent
+	// (the gate's rule for every other request that names a tile) — except
+	// a plan's start on a tile an earlier line of the plan makes (planned)
+	if h, ok := s.handleOf(p); ok && ask.Cwd != "" && !ask.planned {
+		switch {
+		case s.tileHidden(p, ask.Cwd): // not there, or not theirs to read: one answer
+			return "tile", noTileFor(p.UserID)
+		case !s.inSessionScope(h, ask.Cwd):
+			return "hidden", hiddenByScope(p.UserID)
+		}
+	}
 	if h, ok := s.handleOf(p); !ok || len(h.Tainted) == 0 {
 		return "", "" // nothing to hold it to: don't resolve a harness for it
 	}
@@ -189,6 +216,9 @@ type sessionAsk struct {
 	Resume                           string
 	Model                            string
 	Options                          map[string]string
+	// planned: the tile is one an earlier line of the same plan makes
+	// (previewStart): it isn't there yet, by design. Never read from a body.
+	planned bool
 }
 
 func sessionAskOf(body []byte) sessionAsk {

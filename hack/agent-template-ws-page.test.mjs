@@ -104,6 +104,23 @@ test('a request\'s card from its fields: waiting with Review… and its expiry; 
   }
 });
 
+test('a decided plan\'s card keeps each line\'s outcome, stays open on a failure and opens xbin\'s results', () => {
+  const plan = (lines, o = {}) => W.requestCard({ id: 3, kind: 'changeset', ref: 'cs-1', plan: true, state: 'applied', result: '4 of 4 changes applied', decidedMs: 10_000_000, lines, ...o }, 10_000_000);
+  const ok = plan([{ n: 1, kind: 'tile.create', line: 'Create the tile apps/dice', result: 'applied' }, { n: 2, kind: 'binding.set', line: 'Bind llm', result: 'rejected' },
+    { n: 3, kind: 'binding.set', line: 'Bind mcp', result: 'asked' }, { n: 4, kind: 'grant.add', line: 'Let a read b', needsAdmin: true }]);
+  assert.deepEqual(ok.lines.map((l) => [l.n, l.word, l.tone]), [[1, 'applied', 'ok'], [2, 'left out', ''], [3, 'sent to an admin', ''], [4, 'needs an admin', 'warn']]);
+  assert.deepEqual([ok.head, ok.button, ok.settled, ok.todo], ['4 of 4 changes applied', 'Open', true, undefined]);
+  const bad = plan([{ n: 1, kind: 'tile.create', line: 'Create the tile apps/dice', result: 'applied' }, { n: 2, kind: 'tile.create', line: 'Create apps/a', result: 'failed', error: 'a tile is there' },
+    { n: 3, kind: 'binding.set', line: 'Bind mcp', result: 'skipped', error: 'never shown' }, { n: 4, kind: 'agent.start', line: 'Start', result: 'stale', error: 'it changed' }], { state: 'partial', result: '1 of 4 changes applied' });
+  assert.deepEqual(bad.lines.map((l) => [l.word, l.tone, l.note, l.open]), [['applied', 'ok', '', false], ['failed', 'bad', 'a tile is there', true], ['skipped', 'warn', '', true], ['not applied — it changed after you saw it', 'bad', 'it changed', true]]);
+  assert.deepEqual([bad.settled, bad.tone, bad.button], [false, 'bad', 'Open']);
+  assert.match(bad.todo, /Open it to read why in xbin’s words/);
+  // a row that is no decided plan: as before
+  assert.deepEqual(W.planLines({ state: 'applied', kind: 'changeset' }), []);
+  assert.equal(plan(undefined).button, '');
+  assert.equal(W.requestCard({ id: 1, kind: 'changeset', ref: 'cs', plan: true, state: 'proposed', title: 'A plan' }, 0).button, 'Review…');
+});
+
 test('refusals from their fields: each kind its words and ways forward; the two phrases still read are the backend\'s', () => {
   const card = (kind, reason = '') => W.refusalCard({ callId: 'c', tool: 'tile_call', kind, reason, tile: 'finance/ledger' }, () => 'Ledger');
   assert.deepEqual([card('policy', 'Finance allows private models only').title, card('policy', 'Finance allows private models only').text, card('policy').ways], ['Ledger is blocked by a rule', 'Finance allows private models only.', ['model', 'scope']]);
