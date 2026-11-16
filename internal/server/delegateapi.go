@@ -540,7 +540,7 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	case !v.effect || !(v.tileAPI || v.row.ticket || v.pattern == webFetchPattern || v.pattern == mcpCallPattern):
 		WriteError(w, http.StatusBadRequest, "this call needs no approval: make it", delegationDocs)
 		return
-	case v.tileAPI && method == http.MethodPost && s.mcpEndpoint(v.tile, u.Path):
+	case v.tileAPI && s.mcpEndpointOf(u.Path) != "":
 		// an MCP server's tools are called through xbind, each approved as itself
 		WriteError(w, http.StatusBadRequest, "a call to an MCP server's endpoint isn't approved as a tile call: call the tool with POST /api/xbin/delegate/mcp/call {server, tool, arguments} and ask for that", delegationDocs)
 		return

@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"slices"
 	"sort"
 	"strings"
@@ -99,13 +100,23 @@ func isMCPTile(c *registry.Component) bool {
 // mcpTilesNone reports a workspace with no MCP tile at all.
 func (s *Server) mcpTilesNone() bool { return len(s.mcpTiles()) == 0 }
 
-// mcpEndpoint reports a request path that is tile's declared MCP endpoint.
-func (s *Server) mcpEndpoint(tile, path string) bool {
-	if tile == "" || s.Reg == nil || path != "/api/"+tile+"/mcp" {
-		return false
+// mcpEndpointOf is the MCP tile whose declared endpoint a request path
+// reaches ("" none), resolved as the component proxy resolves it
+// (registry.ResolveRef with the deployments: slashes trimmed, segments
+// joined, "." and ".." cleaned, a "+deployment" qualifier consumed) — so
+// "/api/apps/dice/mcp/", "…//mcp", "…/./mcp", "…/x/../mcp" and
+// "/api/apps/dice+dev/mcp" are the endpoint, as the tile's backend sees
+// them. The query is not part of urlPath.
+func (s *Server) mcpEndpointOf(urlPath string) string {
+	rest, ok := strings.CutPrefix(urlPath, "/api/")
+	if !ok || s.Reg == nil {
+		return ""
 	}
-	c, ok := s.Reg.Component(tile)
-	return ok && isMCPTile(c)
+	comp, _, _, endpoint, _ := s.Reg.ResolveRef(rest, s.deploymentLookup())
+	if comp == nil || !isMCPTile(comp) || path.Clean("/"+endpoint) != "/mcp" {
+		return ""
+	}
+	return comp.Path
 }
 
 // mcpOrgRefusal is why the conversation under h may not use tile's MCP

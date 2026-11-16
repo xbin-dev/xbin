@@ -179,3 +179,19 @@ func TestMarkWeb(t *testing.T) {
 		t.Errorf("another holder's handle: %v", err)
 	}
 }
+
+// covers D239 — a call's approval never covers a tool, a tool's never a call
+func TestApprovalScopesKeepToTheirKind(t *testing.T) {
+	call := Approval{Tile: "apps/dice", Scope: ScopeCall, Method: MCPMethod, Path: "wipe"}
+	tool := Approval{Tile: "apps/dice", Scope: ScopeTool, Method: MCPMethod, Path: "wipe"}
+	if call.covers("apps/dice", MCPMethod, "wipe") {
+		t.Error("a call's approval covers a tool")
+	}
+	if !tool.covers("apps/dice", MCPMethod, "wipe") || tool.covers("apps/dice", "POST", "wipe") {
+		t.Error("a tool's approval: its tool only")
+	}
+	http := Approval{Tile: "apps/dice", Scope: ScopeCall, Method: "POST", Path: "/api/apps/dice/x"}
+	if !http.covers("apps/dice", "POST", "/api/apps/dice/x") {
+		t.Error("a call's approval no longer covers its call")
+	}
+}

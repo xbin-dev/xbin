@@ -176,7 +176,15 @@ func (a Approval) covers(tile, method, path string) bool {
 	if a.Tile != tile {
 		return false
 	}
-	return a.Scope == ScopeTile || (a.Scope == ScopeCall || a.Scope == ScopeTool) && a.Method == method && a.Path == path
+	switch a.Scope {
+	case ScopeTile:
+		return true
+	case ScopeCall: // a method and a path — never an MCP tool's call
+		return method != MCPMethod && a.Method == method && a.Path == path
+	case ScopeTool: // a tool, by its name — never an HTTP call
+		return method == MCPMethod && a.Method == MCPMethod && a.Path == path
+	}
+	return false
 }
 
 type requestsDoc struct {

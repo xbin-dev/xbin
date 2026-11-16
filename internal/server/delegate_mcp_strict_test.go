@@ -1,8 +1,13 @@
 package server
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // covers D239 — a body xbind judges for an MCP server is read one way only:
@@ -55,5 +60,89 @@ func TestMCPBodiesAreReadOneWay(t *testing.T) {
 		if rec := w.do(w.full, "POST", "/api/xbin/delegate/mcp/call", bad, w.bob); rec.Code != 400 || refusalOf(rec) != "mcp-call" {
 			t.Errorf("a tool's call %q: %d %s", bad, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// covers D239 — the endpoint however the path spells it: a trailing slash,
+// doubled slashes, "." and "..", percent-encoding or a query reach the same
+// /mcp of the tile's backend (the proxy resolves them), so the gate and the
+// requests decide on the resolved endpoint — a tools/call is never a tile
+// write there, never filed as a call, and a call's standing approval made
+// before the tile declared MCP never covers it
+func TestMCPEndpointHoweverSpelled(t *testing.T) {
+	w := newMCPRig(t)
+	if _, err := w.s.Auth.Users.Upsert(users.User{ID: "bob", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelRead, "apps/mail": users.LevelRead, "apps/dice": users.LevelWrite}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	call := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wipe","arguments":{}}}`
+	spellings := []string{"/api/apps/dice/mcp/", "/api/apps/dice//mcp", "/api/apps/dice/./mcp", "/api/apps/dice/x/../mcp", "/api/apps/dice/%6Dcp", "/api/apps/dice/mcp/?a=1", "/api/apps/dice+dev/mcp"}
+	// with MCP off for the workspace, and then on: refused at the gate, before any approval
+	for _, on := range []bool{false, true} {
+		if on {
+			w.mcpOn(false)
+		}
+		for _, p := range spellings {
+			rec := w.do(w.full, "POST", p, call, w.bob)
+			if rec.Code == 307 && rec.Header().Get("Location") == "/api/apps/dice/mcp" {
+				continue // the mux sends an unclean path to the clean one: the endpoint, judged as itself
+			}
+			if rec.Code != 403 || refusalOf(rec) == "needs-approval" {
+				t.Errorf("mcp on=%v: POST %s: %d %s", on, p, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	if rec := w.do(w.full, "GET", "/api/apps/dice/mcp", "", w.bob); rec.Code != 403 || refusalOf(rec) != "mcp-call" {
+		t.Errorf("GET on the endpoint: %d %s", rec.Code, rec.Body.String())
+	}
+	// never filed as a tile call
+	for _, p := range append(spellings, "/api/apps/dice/mcp") {
+		in, _ := json.Marshal(map[string]string{"method": "POST", "path": p, "body": call})
+		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), w.bob); rec.Code != 400 && rec.Code != 403 {
+			t.Errorf("filing POST %s as a call: %d %s", p, rec.Code, rec.Body.String())
+		}
+	}
+	in, _ := json.Marshal(map[string]string{"method": "DELETE", "path": "/api/apps/dice/mcp/"})
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), w.bob); rec.Code != 400 {
+		t.Errorf("filing DELETE on the endpoint: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(w.calls) != 0 {
+		t.Fatalf("a tool ran: %v", w.calls)
+	}
+}
+
+// …and an "always" of a call made before the tile declared its MCP server
+// covers nothing there once it does
+func TestMCPEndpointOlderCallApproval(t *testing.T) {
+	w := newMCPRig(t)
+	if _, err := w.s.Auth.Users.Upsert(users.User{ID: "bob", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelRead, "apps/mail": users.LevelRead, "apps/dice": users.LevelWrite}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(w.s.Reg.Root, "apps", "dice", "xbin.json")
+	if err := os.WriteFile(manifest, []byte(`{"title":"Dice"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.s.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	call := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wipe","arguments":{}}}`
+	req := w.ask(w.bob, "POST", "/api/apps/dice/mcp/", call)
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"always","scope":"call"}`, w.cookie("bob")); rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	if err := os.WriteFile(manifest, []byte(`{"title":"Dice","provides":{"mcp":{"kind":"http","service":"mcp","role":"reader"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.s.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	w.mcpOn(false)
+	if rec := w.do(w.full, "POST", "/api/apps/dice/mcp/", call, w.bob); rec.Code != 403 || refusalOf(rec) != "mcp-call" {
+		t.Errorf("the endpoint under the older approval: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := w.call("wipe"); rec.Code != 403 || refusalOf(rec) != "needs-approval" {
+		t.Errorf("the tool under the older approval: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(w.calls) != 0 {
+		t.Fatalf("a tool ran: %v", w.calls)
 	}
 }

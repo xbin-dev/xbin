@@ -456,7 +456,12 @@ what xbind judged.
   call to the endpoint itself is refused (`mcp-call`), and so is a request
   for one as a tile call (`400`): a ticket or standing approval of `POST
   /api/<tile>/mcp` would cover every tool of the server, and the MCP
-  policy could be stepped around with an ordinary tile call.
+  policy could be stepped around with an ordinary tile call. The endpoint
+  is the one the tile's backend sees, however the path spells it — a
+  trailing slash, `//`, `.` or `..`, percent-encoding, a query, a
+  `+deployment` qualifier: anything but an agent's `POST` of a read there
+  is `403 mcp-call`, before any approval, and a call's standing approval
+  (`scope: "call"`) never covers a tool — nor a tool's a call.
 - **Each tool asks the first time.** The agent files `POST
   /delegate/requests {method: "POST", path: "/api/xbin/delegate/mcp/call",
   body}` and sends the same body with `X-XBin-Ticket` once it is approved.

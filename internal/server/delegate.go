@@ -544,18 +544,26 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		refuse(http.StatusForbidden, "no-session", "this call needs an agent session: make one (POST /api/xbin/delegate/sessions {scope, model}) and send its id as "+HeaderAgentSession+" — it says what this conversation may see and which model it is on")
 		return
 	}
-	// a POST to a tile's declared MCP endpoint is judged by its JSON-RPC
-	// method (delegatemcp.go): initialize, ping and tools/list are reads,
-	// anything else is refused there — a tool is called through xbind
+	// a tile's declared MCP endpoint, however the path spells it
+	// (mcpEndpointOf resolves it as the proxy does): a POST is judged by its
+	// JSON-RPC method (delegatemcp.go) — initialize, ping and tools/list are
+	// reads — and anything else is refused here, before any approval: a
+	// tool is called through xbind, never as a tile call
 	mcpRead := false
-	if v.tileAPI && r.Method == http.MethodPost && hasHandle && !s.tileHidden(p, v.tile) && s.inSessionScope(handle, v.tile) && s.mcpEndpoint(v.tile, r.URL.Path) {
-		read, code, msg := s.mcpGate(w, r, p, handle, v.tile)
-		if !read {
-			refuse(http.StatusForbidden, code, msg)
+	if ep := s.mcpEndpointOf(r.URL.Path); v.tileAPI && ep != "" {
+		switch {
+		case r.Method != http.MethodPost || ep != v.tile:
+			refuse(http.StatusForbidden, "mcp-call", "an MCP server's endpoint takes only an agent's POST of initialize, ping or tools/list; a tool is called with POST /api/xbin/delegate/mcp/call {server, tool, arguments}, which xbin shows your person")
 			return
-		}
-		mcpRead, v.class, v.effect = true, classMCPRead, false
-		row.Class, row.Effect = v.class, false
+		case hasHandle && !s.tileHidden(p, v.tile) && s.inSessionScope(handle, v.tile):
+			read, code, msg := s.mcpGate(w, r, p, handle, v.tile)
+			if !read {
+				refuse(http.StatusForbidden, code, msg)
+				return
+			}
+			mcpRead, v.class, v.effect = true, classMCPRead, false
+			row.Class, row.Effect = v.class, false
+		} // else: a tile it can't see or outside the session's scope — refused below, before any approval
 	}
 	dry := r.Header.Get(HeaderDryRun) != ""
 	preview := map[string]any{"dryRun": true, "class": v.class, "as": p.UserID, "agent": p.Agent, "sideEffect": v.effect}
