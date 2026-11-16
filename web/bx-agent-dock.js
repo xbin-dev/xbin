@@ -57,6 +57,7 @@ export class BxAgentDock extends LitElement {
     open: { type: Boolean, reflect: true }, full: { type: Boolean, reflect: true }, context: { attribute: false }, page: { attribute: false },
     _w: { state: true }, _view: { state: true }, _tray: { state: true }, _menu: { state: true }, _sheet: { state: true }, _frame: { state: true }, _narrow: { state: true }, _err: { state: true },
     _handoff: { state: true }, // {tile, draft}: a new session the shell couldn't open — the plain link instead
+    _signinFor: { state: true }, // a coding agent's id: the sign-in card the page asked for (D230)
   };
 
   static styles = [chromeCss, css`
@@ -87,7 +88,7 @@ export class BxAgentDock extends LitElement {
   constructor() {
     super();
     this.open = false; this.full = false; this.context = null; this.page = '';
-    this._w = CHOICES.dockWidth; this._view = 'chat'; this._tray = false; this._menu = false; this._sheet = null; this._frame = null; this._narrow = false; this._err = ''; this._handoff = null;
+    this._w = CHOICES.dockWidth; this._view = 'chat'; this._tray = false; this._menu = false; this._sheet = null; this._frame = null; this._narrow = false; this._err = ''; this._handoff = null; this._signinFor = '';
     this._framed = ''; this._dialog = null; this._said = '';
     this.store = agentStore();
     this._onMsg = (e) => this._message(e);
