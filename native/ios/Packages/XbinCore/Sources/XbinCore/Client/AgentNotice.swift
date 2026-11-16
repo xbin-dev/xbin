@@ -190,7 +190,9 @@ public enum AgentNotice {
     /// rule as xbind's (delegation.LockScreenOffer), on what the payload
     /// carries: a tile call, not a GET, the whole body there, at most 200
     /// bytes and 3 lines, a target of at most 120 bytes on one line, a plain
-    /// content type, nothing hidden. xbind's `offer` alone is not enough.
+    /// content type, nothing hidden, and all of it certainly shown in the
+    /// collapsed notification (LockScreenFit). xbind's `offer` alone is not
+    /// enough.
     public static func eligible(_ r: AgentNoticeData.Request) -> Bool {
         let m = r.method.uppercased()
         let ct = r.contentType.split(separator: ";").first.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? ""
@@ -200,6 +202,7 @@ public enum AgentNotice {
             && !r.target.isEmpty && r.target.utf8.count <= 120 && !r.target.contains("\n")
             && ["", "application/json", "text/plain"].contains(ct)
             && !hides(r.target) && !hides(r.body) && !hides(r.method)
+            && LockScreenFit.fits(method: r.method, target: r.target, body: r.body)
     }
 
     static func hides(_ s: String) -> Bool { s.unicodeScalars.contains(where: DelegationWords.isHidden) }

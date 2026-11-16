@@ -1241,10 +1241,15 @@ agent's, and the request's own fields sealed with it for the app; taken back
 whatever decided it. **The lock-screen rule**: a notification may offer
 Allow once only for a tile API call (not a session start, a create, a web
 page or an MCP tool) that isn't a GET, with a text body of at most 200 bytes
-and 3 lines (none, `application/json` or `text/plain`), a target of at most
-120 bytes, no character that hides or reorders text, from a conversation
-that read no web page, with no warning — what iOS shows whole above a
-notification's actions. The push says so (`offer: "once"`), the app checks
+(none, `application/json` or `text/plain`), a target of at most 120 bytes,
+from a conversation that read no web page, with no warning, and only where
+the call line and the body certainly show whole in the collapsed
+notification: four lines of 12 em at the largest default text size, each
+character counted at or above its width, and only printable Latin and a few
+typographic marks counted at all — a line or paragraph separator, a tab, a
+space but U+0020, two spaces together, a right-to-left, wide, combining or
+emoji character mean Review only (`delegation.LockScreenFits`; the app runs
+the same function). The push says so (`offer: "once"`), the app checks
 the same fields again, and `via: "notification"` holds the approval to it.
 A change set is never approved from a notification; it may be rejected
 (`POST …/changesets/<id>/reject {via: "notification"}`, logged so).

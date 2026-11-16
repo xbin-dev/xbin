@@ -118,7 +118,8 @@ private func category(_ p: PushPayload, _ prefs: AgentNotifyPrefs = allowOn()) -
         #expect(category(approval(body: "abc", bodySize: 99)) == AgentNotice.requestDeny, "not the whole body")
         #expect(category(approval(method: "GET")) == AgentNotice.requestDeny)
         #expect(category(approval(contentType: "application/x-www-form-urlencoded")) == AgentNotice.requestDeny)
-        #expect(category(approval(body: "a\nb\nc")) == AgentNotice.requestAllowDeny, "three lines fit")
+        #expect(category(approval(target: "/api/apps/n/x", body: "a\nb\nc")) == AgentNotice.requestAllowDeny, "a one-line call and three lines fit")
+        #expect(category(approval(body: "a\nb\nc")) == AgentNotice.requestDeny, "a two-line call and three lines don't")
         #expect(category(approval(body: "")) == AgentNotice.requestAllowDeny, "no body")
     }
 

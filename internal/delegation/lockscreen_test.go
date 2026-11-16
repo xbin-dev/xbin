@@ -45,7 +45,8 @@ func TestLockScreenOffer(t *testing.T) {
 	if ok, why := LockScreenOffer(empty); !ok {
 		t.Fatalf("no body: %s", why)
 	}
-	three := base
+	three := base // a one-line call and three short lines: the four a collapsed notification shows
+	three.Target = "/api/apps/n/x"
 	three.Body = "a\nb\nc"
 	three.BodySize = len(three.Body)
 	if ok, why := LockScreenOffer(three); !ok {

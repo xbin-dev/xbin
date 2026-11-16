@@ -165,17 +165,30 @@ the notification stays and its Allow answers "your agent is paused" (§4.4).
 - the method is not `GET`/`HEAD`; the request names its tile;
 - the body is text (`bodyShown`, not `bodyBinary`), its content type is none,
   `application/json` or `text/plain`;
-- `target` is at most **120 bytes**, the body at most **200 bytes** and at
-  most **3 lines**;
+- `target` is at most **120 bytes**, the body at most **200 bytes**;
 - neither holds a character that reorders or hides text (Unicode category
   Cf, controls but `\n`), and the target holds no line break;
+- **rendered** (review finding 1): the text the app draws — `<method>
+  <target>`, then the body or "(no body)" — certainly shows whole in the
+  collapsed notification: at most **4 lines** of **12 em** (281 pt of text at
+  23 pt: the largest default Dynamic Type on the narrowest iPhone), wrapped
+  greedily at spaces, a word wider than a line broken between characters,
+  each character's advance counted at or above SF Pro's (30/45/65/80/100
+  hundredths of an em by class). Only printable Latin (U+0021–007E, U+00A1–
+  024F but the soft hyphen) and – — ‘ ’ “ ” … € are counted at all: a line
+  or paragraph separator (U+2028/2029, NEL, VT, FF, CR), a tab, a space but
+  U+0020, two spaces together, a right-to-left letter, a wide, combining or
+  emoji character refuse the offer. `delegation.LockScreenFits` and XbinCore
+  `LockScreenFit` are the same function, held together by
+  `lockscreen-fit.json` (written by the Go test, read by the Swift one);
 - the request does not say the conversation read the web (`preview.readWeb`:
   what it asks may come from a page) and its preview carries no warning.
 
 Why so short: iOS shows a notification's action menu (swipe → Options, or a
 long press) over the notification as it is drawn — the collapsed form shows
-the title, the subtitle and about four lines of body. One line for the call
-and three for its body is what a person sees **in full** before the menu.
+the title, the subtitle and about four lines of body. What the rule offers
+is what a person sees **in full** before the menu, at any default text size
+on any iPhone; anything that does not certainly fit is Review only.
 The rule is one function (`delegation.LockScreenOffer`), and the decision
 route enforces it too (§4.4).
 
