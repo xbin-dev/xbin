@@ -260,6 +260,12 @@ func (s *Server) mcpExtOrgRule(h delegation.AgentSession, m delegation.MCPServer
 		if nr, ok := s.AgentWorld.(agentNetRules); ok {
 			rule, reason = nr.AgentMCPIn(org)
 		}
+		if rule == "" { // no MCP rule of its own: an org that keeps its data off the web keeps it from outside servers too
+			if web, wreason := s.orgWeb(org); web == agentpolicy.WebNever {
+				return nil, orStr(wreason, orgName(org)+" keeps its data off the web") + ", and this conversation holds its data: an outside server is the web — " +
+					m.Name + " isn't for this conversation (the org can trust the listed servers with mcp: listed)"
+			}
+		}
 		switch rule {
 		case agentpolicy.MCPNever:
 			return nil, orStr(reason, orgName(org)+" keeps its data from every MCP server") + ", and this conversation holds its data — a new session that hasn't read it can use " + m.Name

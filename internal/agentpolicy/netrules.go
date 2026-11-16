@@ -41,9 +41,10 @@ const (
 // own), ask, allow or never.
 type WebRule string
 
-// MCPRule is the MCP rule of a layer: "" (unset), listed, org or never;
-// "any" — the default — reads as unset (back to the default, as before
-// D240). So a layer's listed holds unless a layer sets org or never.
+// MCPRule is the MCP rule of a layer: "" (unset: no rule of its own),
+// any, listed, org or never. "any" said explicitly is kept (D240 review):
+// a bound or a pin of any holds an org at any, where unset would let its
+// own listed through; null is back to unset.
 type MCPRule string
 
 func (m MCPRule) rank() int {
@@ -94,9 +95,9 @@ func (m *MCPRule) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf(`mcp: "any", "listed", "org" or "never"`)
 	}
 	switch {
-	case v == nil || *v == "" || *v == MCPAny:
+	case v == nil || *v == "":
 		*m = ""
-	case *v == MCPListed || *v == MCPOrg || *v == MCPNever:
+	case *v == MCPAny || *v == MCPListed || *v == MCPOrg || *v == MCPNever:
 		*m = MCPRule(*v)
 	default:
 		return fmt.Errorf(`mcp: "any", "listed", "org" or "never", not %q`, *v)
@@ -140,8 +141,9 @@ func Web(layers []Layer) (rule, reason string) {
 }
 
 // MCP is the MCP rule that holds over layers — the strictest any of them
-// sets (never, then org, then any, then listed), any when none sets one —
-// with the reason a person reads when it narrows.
+// sets (never, then org, then any, then listed), "" when none sets one (the
+// default: any, unless the org keeps its data off the web — the caller's
+// to judge, D240 review) — with the reason a person reads when it narrows.
 func MCP(layers []Layer) (rule, reason string) {
 	best := MCPRule("")
 	var by Layer
@@ -151,7 +153,9 @@ func MCP(layers []Layer) (rule, reason string) {
 		}
 	}
 	switch best {
-	case "", MCPAny:
+	case "":
+		return "", ""
+	case MCPAny:
 		return MCPAny, ""
 	case MCPNever:
 		return MCPNever, by.who() + " keeps its data from every MCP server" + by.note()

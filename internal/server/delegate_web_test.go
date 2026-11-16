@@ -390,7 +390,7 @@ func (n netWorld) AgentMCPIn(org string) (string, string) {
 	if r, ok := n.mcp[org]; ok {
 		return r, org + " keeps its data from MCP servers outside it"
 	}
-	return agentpolicy.MCPAny, ""
+	return "", "" // no rule of its own (the broker's answer)
 }
 
 // covers D239 — the org rules: a conversation that holds the data of an

@@ -465,3 +465,27 @@ func TestMCPExtPathIsSecret(t *testing.T) {
 		t.Errorf("the list and the refusal: %s %s", seen[1], seen[3])
 	}
 }
+
+// covers D240 review — an org that keeps its data off the web keeps it
+// from outside servers too, unless it trusts the list explicitly
+func TestMCPExtWebNeverMeansNoOutside(t *testing.T) {
+	w := newExtRig(t, &mcpfake.Server{})
+	nw := &netWorld{web: map[string]string{"fin": agentpolicy.WebNever}, mcp: map[string]string{}}
+	w.s.AgentWorld = nw
+	if err := w.store.TaintAgentSession("bob", dHolder, w.handle, []string{"fin"}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := w.call("post"); rec.Code != 403 || refusalOf(rec) != "mcp-org" || !strings.Contains(rec.Body.String(), "off the web") {
+		t.Errorf("web never, no mcp rule: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := w.tools(); rec.Code != 403 || refusalOf(rec) != "mcp-org" {
+		t.Errorf("its tools: %d %s", rec.Code, rec.Body.String())
+	}
+	nw.mcp["fin"] = agentpolicy.MCPListed
+	if rec := w.call("post"); refusalOf(rec) != "needs-approval" {
+		t.Errorf("web never, mcp listed: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(w.fake.Log()) == 0 {
+		t.Error("an org that trusts the list didn't reach the server")
+	}
+}

@@ -12,6 +12,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- orgs: an explicit `mcp: "any"` is now kept (it read as unset): a bound or
+  a pin can hold an org at it; `null` is back to unset. With no `mcp` rule,
+  an org whose `web` is `never` keeps its data from outside MCP servers
+  (D240) unless it says `mcp: "listed"`.
 - SDK: `DelegateError.Said` — what an outside MCP server itself wrote
   behind xbind's refusal (`said`, D240), apart from xbind's `Message`: an
   outsider's words, to show as data. A refusal of an outside server's list

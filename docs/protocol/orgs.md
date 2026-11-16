@@ -276,9 +276,12 @@ conversation holds — its session's taint — not for the tile a call names
 ([protocol/delegation.md](/docs/protocol/delegation.md) §Web and MCP).
 Strictest wins: `never` over `ask` over `allow`; `never` over `org` over
 `any` over `listed`; an org can't loosen the bounds or its pin (`allow`
-under an `ask` is 400, `listed` under an `org` too). `any` is the default
-and reads as unset: under a `listed` of the bounds or a pin, an org keeps
-its data closer with `org` or `never`.
+under an `ask` is 400, `listed` under an `org` or an `any` too). An
+explicit `"any"` is kept (`null` is back to unset), so a bound or a pin
+can hold an org at it. With no `mcp` rule anywhere, an org whose `web` is
+`never` keeps its data from outside MCP servers too (D240): an outside
+server is the web; such an org trusts the listed servers only by saying
+`mcp: "listed"`.
 
 A call is filtered by the **tile's** orgs — the org that owns it and every
 org it is shared into, by an exact share or a pattern — and by the
