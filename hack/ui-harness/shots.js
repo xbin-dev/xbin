@@ -861,7 +861,7 @@ require('./passes-more').register(PASSES); // D184 onwards: demoStills, appearan
   // in a network namespace of its own, with xbind's port relayed: a network
   // change on this machine can't fail a page's requests (quietnet.js)
   const browser = themed(await quietnet.launch(pw, process.env.TILE_ASSETS === 'origins' ? { args: ['--host-resolver-rules=MAP *.localhost 127.0.0.1'] } : {},
-    [+new globalThis.URL(URL).port || 80], log));
+    [+new globalThis.URL(URL).port || 80, +process.env.JOURNEY_PORT || +(process.env.PORT || 8697) + 3], log)); // (and the journey passes' own xbind: passes/journey.js)
   const t0 = Date.now();
   try {
     for (const n of names) {

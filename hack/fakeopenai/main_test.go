@@ -122,3 +122,33 @@ func TestWsScript(t *testing.T) {
 		t.Fatalf("a script that doesn't parse: %+v", p)
 	}
 }
+
+// A "wait" step ends the turn until xbin's update arrives — with the words
+// the step names, when it names some — and the script goes on from there.
+func TestWsScriptWait(t *testing.T) {
+	user := func(s string) turn { return turn{Role: "user", Text: s} }
+	tool := func(name, s string) turn { return turn{Role: "tool", Tool: name, Text: s} }
+	update := func(s string) turn {
+		return user(wsUpdatesLead + " — xbin and tile agents reporting, not your person]\n" + s)
+	}
+	conv := []turn{user(`ws: tile_create {"template":"starter","name":"Dice"} ;; wait now exists ;; workspace_map`)}
+	if p := script(conv, ""); len(p.Calls) != 1 || p.Calls[0].Name != "tile_create" {
+		t.Fatalf("the first step: %+v", p)
+	}
+	conv = append(conv, turn{Role: "assistant"}, tool("tile_create", "Pending — request 1 (create the tile) waits for your person's decision in xbin."))
+	if p := script(conv, ""); p.Text != wsWaitWords || len(p.Calls) != 0 {
+		t.Fatalf("at the wait: %+v", p)
+	}
+	conv = append(conv, turn{Role: "assistant", Text: wsWaitWords}, update("Tile agent #1 ended its turn."))
+	if p := script(conv, ""); p.Text != wsWaitWords {
+		t.Fatalf("an update without the words ends no wait: %+v", p)
+	}
+	conv = append(conv, turn{Role: "assistant", Text: wsWaitWords}, update("approved by your person — the tile apps/dice now exists, made from starter."))
+	if p := script(conv, ""); len(p.Calls) != 1 || p.Calls[0].Name != "workspace_map" {
+		t.Fatalf("after the update: %+v", p)
+	}
+	conv = append(conv, turn{Role: "assistant"}, tool("workspace_map", "This session: 3 tiles"))
+	if p := script(conv, ""); p.Text != wsDone+wsPendingWords+" | This session: 3 tiles" {
+		t.Fatalf("the summary: %q", p.Text)
+	}
+}

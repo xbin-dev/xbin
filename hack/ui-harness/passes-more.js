@@ -35,6 +35,8 @@ function register(P) {
   P.projectWizard = require('./passes/projectwizard').projectWizard; // D223: the new-project wizard — the step header, Next saying why, the repo combobox, Name from the repo, the starter, Review; light and dark (mocked project routes)
   P.llm = require('./passes/llm').llm; // D226: the LLM connector — the setup card, /xbin/llm (a provider and its key, Test, models, quotas, usage, alerts), a non-admin's own page, the host's locks, the admin console's tab and quota rows; light and dark
   P.wsAgentPage = require('./passes/wsagentpage').wsAgentPage; // D232: the workspace agent's own page in the dock, against the real xbin/wsagent — sessions, the empty state, scope, a scripted turn's cards, a request and its outcome, the notebook, paused; light and dark, 1280 and 430 (HARNESS_ISOLATE=1)
+  P.journeyManual = require('./passes/journeymanual').journeyManual; // the owner's UX benchmark, by hand: first login → vault → an MCP tile → an agent instance that calls its tool; every interaction counted (plans/wsagent/journey.md; its own xbind, HARNESS_ISOLATE=1, make sealed)
+  P.journeyAgent = require('./passes/journeyagent').journeyAgent; // …and through the workspace agent, as far as today's agent gets: its approvals, its dead ends and what the person still does by hand, counted the same way
 }
 
 module.exports = { register };
