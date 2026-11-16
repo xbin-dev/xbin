@@ -254,7 +254,13 @@ open class XCUIDevice {
     public enum Button: Int, Sendable { case home = 1 }
     open func press(_ button: Button) {}
     open var system: XCUISystem { XCUISystem() }
+    // NSObject's perform (the simulator's lock button, D241's tests)
+    @discardableResult open func perform(_ aSelector: Selector) -> Any? { nil }
 }
+
+// Objective-C selectors as the tests name them (there is no runtime here).
+public struct Selector { public init(_ name: String) {} }
+public func NSSelectorFromString(_ name: String) -> Selector { Selector(name) }
 
 @MainActor
 open class XCUISystem {

@@ -223,7 +223,8 @@ final class AgentNotifications {
             if let v = info[k] { keep[k] = v }
         }
         c.userInfo = keep
-        c.interruptionLevel = passive ? .passive : .active
+        // what came of it is said in a banner; a sound only when nothing was decided
+        c.interruptionLevel = .active
         c.sound = passive ? nil : .default
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: c, trigger: nil))
     }

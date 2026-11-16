@@ -26,6 +26,8 @@ enum AgentNoticeDemo {
         guard let what = d.string(forKey: "XbinAgentNotice"), !what.isEmpty else { return }
         let delay = d.object(forKey: "XbinAgentNoticeDelay") as? Double ?? 4
         Task { @MainActor in
+            // the app asks once whether it may notify (with push, PushManager.start asks)
+            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             for _ in 0..<150 where AppModel.shared.workspaces.first?.agent.state == nil {
                 if let w = AppModel.shared.workspaces.first { await w.agent.refresh() }
                 try? await Task.sleep(nanoseconds: 200_000_000)

@@ -77,12 +77,10 @@ final class AgentLiveActivity {
         // the cards from before this launch: taken back, never started again
         for s in Self.snapshotsNow() where s.active { adoptOwn(s) }
         #if DEBUG
-        if let d = Self.demo {
+        if Self.demo != nil {
             // the UI tests' shots: the card in one state, for the first workspace, no xbind behind it
             for s in Self.snapshotsNow() { Task { await Self.end(s.id, s.state, dismissAt: Date()) } }
-            if let w = AppModel.shared.workspaces.first, let a = request(w, d) {
-                cards[w.id] = Card(activityID: a, shown: d, stretchSince: d.startDate)
-            }
+            startDemo()
             return
         }
         #endif
@@ -237,8 +235,19 @@ final class AgentLiveActivity {
         foreground = false
     }
 
+    #if DEBUG
+    /// Debug's demo card, once the app is in front (ActivityKit starts cards only then).
+    private func startDemo() {
+        guard let d = Self.demo, let w = AppModel.shared.workspaces.first, cards[w.id]?.activityID == nil else { return }
+        if let a = request(w, d) { cards[w.id] = Card(activityID: a, shown: d, stretchSince: d.startDate) }
+    }
+    #endif
+
     private func becameActive() {
         foreground = true
+        #if DEBUG
+        if Self.demo != nil { startDemo(); return }
+        #endif
         for (id, c) in cards {
             evaluate(id, leaving: false)
             if c.activityID != nil, c.token != nil, !c.registered { retryRegistration(id) }
