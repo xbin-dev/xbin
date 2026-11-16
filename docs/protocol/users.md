@@ -378,10 +378,13 @@ the vault and turns on their workspace agent in one sheet of xbin's
 chrome. It calls the ordinary routes — `POST /users {id, name, role:
 "admin", password}`, then the swap below, then as the new account `POST
 /vault-unseal {passphrase}` (when the vault isn't set up and the host
-doesn't unseal it; a sealed one is unlocked first, as the token) and `PUT
-/delegate/workspace {enabled: true, who: "me"}`
-(docs/protocol/delegation.md) — so each keeps its own rules, refusals and
-audit line.
+doesn't unseal it; a sealed one is unlocked first, as the token) and, with
+a model connected, `PUT /delegate/workspace {enabled: true, who: "me"}`
+when the switch was never set, or `{who: "me"}` when workspace agents are
+on and nobody has one (nothing where the host's file gives admins or
+everyone one, or an admin set them up already, or the host turns them
+off; docs/protocol/delegation.md) — so each keeps its own rules, refusals
+and audit line.
 
 ```
 GET    /first-run                 authenticated. {bootstrap}: true only to

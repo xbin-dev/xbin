@@ -2020,11 +2020,17 @@ behave exactly as before.
   workspace's only account, an enabled admin that never signed in, made in
   the last 15 minutes — its own password, same origin, throttled with
   `/login`, audited; docs/protocol/users.md §First run), sets up the vault
-  as that account and, where a model is connected and workspace agents
-  were never switched, turns them on for that person alone (`who: "me"`,
-  never everyone); the shell then reloads as the account with the agent's
-  dock open. A quiet button makes the account without the agent; with no
-  model the sheet says the agent needs one (`/xbin/llm`). A step after the
+  as that account and, where a model is connected, gives that person a
+  workspace agent — `who: "me"`, never everyone: it turns workspace agents
+  on when they were never switched (`{enabled: true, who: "me"}`), or,
+  when they are on already (an admin's switch, or the host's file leaving
+  who to admins) and nobody has been given one, gives the person theirs
+  (`{who: "me"}`); where the host's file gives admins or everyone one there
+  is nothing to send, and where an admin has set them up already, or the
+  host's file turns them off, they are left as they are. The shell then
+  reloads as the account, with the agent's dock open when the person has
+  one. A quiet button makes the account without the agent; with no model
+  the sheet says the agent needs one (`/xbin/llm`). A step after the
   account that fails is said as what is left — the person is signed in by
   then. **Not now** is remembered in that browser only, and everything is
   then as before. A workspace with any account (an invited one included)

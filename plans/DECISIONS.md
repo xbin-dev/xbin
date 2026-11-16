@@ -5268,9 +5268,13 @@ here: cut from the old end, never reword.
     step that fails is said as what is left, never a state that locks the
     person out — they are signed in by then).
   - **What the button does.** With a model (the host's or an admin's) and
-    the switch never set (`workspaceAt` absent), the primary button reads
+    the switch never set (`workspaceAt` absent) — or agents on already (an
+    admin's switch, or the host's file leaving who to admins) with nobody
+    given one, where it sends only `{who: "me"}` — the primary button reads
     "Create my account and turn on my workspace agent" and a quiet one
-    makes the account without it; without a model the sheet says the
+    makes the account without it; where the host's file gives admins or
+    everyone one it only makes the account, and where an admin set agents
+    up already or the host turns them off it leaves them; without a model the sheet says the
     agent needs one (`/xbin/llm`) and the button is "Create my account".
     "Everyone" is never chosen here. After it the shell reloads as the
     account and, when the agent was turned on, opens the dock and gives
