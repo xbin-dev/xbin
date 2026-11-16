@@ -34,6 +34,47 @@ xbin.WriteError(w, http.StatusForbidden, "…") // {"error": "…"} — the shap
                                               // xbin's own API uses
 ```
 
+### Startup
+
+`main()` may call xbind before `xbin.Serve`: register its cron jobs and bus
+subscriptions, read and write its kv and vault, read its own row or
+`whoami`. Nothing in xbind waits for your backend to be healthy before it
+answers, on any start — the first, a live-reload rebuild, a crash or
+idle-reap restart, a deploy, an xbind restart.
+
+What has a deadline is the start itself. After the process starts, xbind
+waits **5 s** for its socket to accept a connection (60 s for a `vm`
+backend, 180 s under emulation), then stops it and marks it failed until
+the next save or restart: `bx status` says *the backend is running but never
+started listening … (it has not called Serve)*, and the same line follows
+the start marker in `bx logs`. Time spent waiting on xbind's own answer (an
+`/api/xbin/*` call in flight) doesn't count, up to 60 s more. The rest does:
+
+- long work — opening or migrating a database, warming a cache, fetching
+  from the internet — belongs after `Serve`, or in a goroutine whose result
+  your handlers wait for (the agent template's `gateReady`);
+- a call to another tile's API waits for that tile to start, and a cold
+  build takes longer than your deadline: make it after `Serve`;
+- a call to your own API before `Serve` can never be answered.
+
+`xbin.Client()` has no overall timeout (streams run as long as both sides
+want), so bound each call you make at startup:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+req, _ := http.NewRequestWithContext(ctx, "PUT", "http://xbin/api/xbin/cron/jobs", body)
+if resp, err := xbin.Client().Do(req); err != nil {
+	log.Printf("cron: %v", err) // and carry on to Serve
+} else {
+	resp.Body.Close()
+}
+xbin.Serve(mux)
+```
+
+or keep a client of your own with a timeout, sharing the gateway transport:
+`c := &http.Client{Transport: xbin.Client().Transport, Timeout: 5 * time.Second}`.
+
 ### Callers and roles
 
 ```go

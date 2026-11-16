@@ -89,7 +89,7 @@ func TestWaitHealthyExited(t *testing.T) {
 	exited := make(chan struct{})
 	close(exited)
 	start := time.Now()
-	if err := waitHealthy(filepath.Join(dir, "none.sock"), exited, time.Minute); !errors.Is(err, errExited) || time.Since(start) > 5*time.Second {
+	if err := waitHealthy(filepath.Join(dir, "none.sock"), exited, time.Minute, nil); !errors.Is(err, errExited) || time.Since(start) > 5*time.Second {
 		t.Fatalf("err %v after %v", err, time.Since(start))
 	}
 	sock := filepath.Join(dir, "up.sock")
@@ -98,7 +98,7 @@ func TestWaitHealthyExited(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	if err := waitHealthy(sock, make(chan struct{}), time.Second); err != nil {
+	if err := waitHealthy(sock, make(chan struct{}), time.Second, nil); err != nil {
 		t.Fatal(err)
 	}
 }

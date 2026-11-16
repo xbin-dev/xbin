@@ -262,6 +262,8 @@ type Auth struct {
 	hostCookies bool
 	sessionRefs map[string]string    // session ref → session id (guarded by mu)
 	usedTickets map[string]time.Time // spent tile-origin ticket MAC → its expiry (guarded by mu)
+
+	calls instanceCalls // backends' calls to xbind's own API in flight (instancecalls.go)
 }
 
 // termID scopes a terminal-session token (plans/terminal-tokens.md): the tile

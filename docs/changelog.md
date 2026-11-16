@@ -10,6 +10,29 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-16
+
+- **Backends: calls to xbind before `xbin.Serve` are safe, and a start that
+  stalls says why.** A backend's `main()` may register its cron jobs and bus
+  subscriptions, use its kv and vault and read its own row before it calls
+  `Serve`: xbind never held such a call until the backend was healthy (now
+  pinned by tests on every start — first, live-reload rebuild, crash
+  restart, deploy, xbind restart — with and without `--isolate`). What
+  could fail such a start is the 5 s health deadline, which counted the time
+  the backend spent waiting on xbind's answer: a pre-Serve call that xbind
+  was slow to answer failed the start with `timeout dialing backend socket`
+  and left the tile failed until its next save. Since this release, time with an
+  `/api/xbin/*` call in flight doesn't count (up to 60 s more), and a
+  backend that runs but never listened fails with *the backend is running
+  but never started listening … (it has not called Serve)*, naming the call
+  to xbind it is still waiting on or saying it printed nothing, in `bx
+  status` and after its start marker in `bx logs` — distinct from *exited
+  before it listened* and from a socket that never accepts. Affected: any
+  backend calling xbind before `Serve`, on every release (the 5 s check
+  dates from v0.1.0). No change to tiles is needed after upgrading; the
+  startup rules (what still counts, bounding startup calls) are in
+  [sdk.md](/docs/sdk.md#startup).
+
 ## 2026-11-09
 
 - **Agent template Projects: a new project is made in a wizard, and can

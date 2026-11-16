@@ -562,6 +562,10 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		if deny != nil {
 			h = deny
 		}
+		if auth.PrincipalOf(r).Via == "instance" { // a backend's call, which its health check reads (auth/instancecalls.go)
+			_, pattern := s.apiMux.Handler(r2)
+			defer s.Auth.TrackInstanceCall(r, instanceRoute(r.Method, pattern))()
+		}
 		if auditable(r.Method, r2.URL.Path) {
 			aw := &auditWriter{ResponseWriter: w, status: http.StatusOK}
 			h.ServeHTTP(aw, r2)
@@ -588,6 +592,19 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.ComponentAPI.ServeHTTP(w, r)
+}
+
+// instanceRoute names a backend's call to xbind's API by its route pattern
+// ("PUT /api/xbin/cron/jobs"), never by the path's data (a kv key, a vault
+// name): what a failed start's message says the backend was waiting on.
+func instanceRoute(method, pattern string) string {
+	if pattern == "" {
+		return method + " /api/xbin (no such route)"
+	}
+	if _, p, ok := strings.Cut(pattern, " "); ok {
+		return method + " /api/xbin" + p
+	}
+	return method + " /api/xbin" + pattern
 }
 
 // xbinInner sets in's Path and RawPath to what follows /api/xbin in u, both
