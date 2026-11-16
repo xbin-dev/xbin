@@ -12,6 +12,37 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- agent template: **`GET /tools` — what a conversation would be offered
+  now.** Per class the caller may start in, every tool with its source (a
+  built-in, or which MCP server), and per MCP server where it comes from
+  (the `mcp` slot's binding — personal or global —, `config.mcp`, a server
+  connected by URL), whether it answers (`initialize` + `tools/list` asked
+  now, reused for 10 s) and its error. A read that stores nothing and
+  carries no header, token or address credential; open to anyone who can
+  use the instance and — the one route so — to their workspace agent at
+  its call's role, so it can tell a binding reached the backend without an
+  approval (the template's `API.md`, [mcp.md](/docs/mcp.md)). Merge the
+  template's update into an instance to get it.
+- docs: **[mcp.md](/docs/mcp.md), "Give an agent a tool"**: the
+  `mcp-server` template, the `mcp` slot and the binding as the grant, the
+  JSON-RPC methods, adding and checking a tool, how an assistant picks it
+  up, personal and global binds; and two lines of the workspace agent's
+  map of xbin from it (tools come from MCP tiles bound to an instance's
+  `mcp` slot; an instance needs its `llm` slot bound, `xbin:llm` the
+  workspace's connector).
+- templates: **`mcp-server`, tools for an agent.** A new builtin template
+  (`bx template new mcp-server as apps/dice`, the Tile Manager's "New from
+  template"): a small Go backend on the sdk serving MCP over streamable
+  HTTP at `POST /mcp` — `initialize` (protocol version negotiation),
+  `ping`, `tools/list`, `tools/call`, JSON-RPC errors — with one example
+  tool, `roll_dice {sides?, count?}` (`readOnlyHint`), a page that lists
+  the tools and calls one, and an `AGENTS.md` for the tile's coding agent
+  (where tools go: one function and one line in `_backend/tools.go`; how to
+  check with `tools/list` and `tools/call` from its own terminal). Its
+  manifest provides `mcp` from the first second, so an agent instance's
+  `mcp` slot can be bound to a fresh copy before anyone has written a tool.
+  No third-party modules: it builds in its sandbox with no network
+  ([mcp.md](/docs/mcp.md)).
 - access: **`GET /access?tile=` says what reaches everyone.** A new
   `defaults: [{level, source}]` lists the workspace defaults that reach the
   tile (additive; none on an org-owned tile), and a system component no
