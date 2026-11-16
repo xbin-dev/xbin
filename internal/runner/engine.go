@@ -19,7 +19,7 @@ import (
 type engine struct {
 	build   func(c *registry.Component) (bin string, err error)                 // r.build
 	start   func(c *registry.Component, bin string, gen int) (*instance, error) // r.start
-	healthy func(c *registry.Component, inst *instance) error                   // waitHealthy(inst.sock, inst.waitCh, r.healthFor(c))
+	healthy func(c *registry.Component, inst *instance) error                   // waitHealthy(inst.sock, inst.waitCh, r.healthFor(c), r.waitingOnXbind(inst))
 	stop    func(inst *instance, deadline time.Duration)                        // r.stop
 	now     func() time.Time                                                    // time.Now
 }
@@ -45,7 +45,7 @@ func (r *Runner) awaitHealthy(c *registry.Component, inst *instance) error {
 	if e := r.engine; e != nil && e.healthy != nil {
 		return e.healthy(c, inst)
 	}
-	return waitHealthy(inst.sock, inst.waitCh, r.healthFor(c))
+	return waitHealthy(inst.sock, inst.waitCh, r.healthFor(c), r.waitingOnXbind(inst))
 }
 
 // stopGen terminates a generation: SIGTERM, then SIGKILL after deadline. It

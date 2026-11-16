@@ -65,6 +65,7 @@ type instance struct {
 	egress       []string         // granted net:* rules (for visibility)
 	started      time.Time        // for uptime
 	waitCh       chan struct{}    // closed when the process exits
+	out          logRef           // its log, for a failed health check's message (health.go)
 	// Per deployment (deploy.go); zero values mean today's generation: the
 	// work tree bound at c.Dir, the tile's one bin, its flat CompKey leaf.
 	dep      string // its deployment's name
@@ -354,9 +355,9 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 			r.dumpVM(inst) // vm.go: what the guest was doing, into the log
 			r.sbxFail(v, sbx.Health, fmt.Errorf("the VM backend never listened: %w — what the VM was doing is in %s", err, deploymentLog(v.Path, r.viewDeployment(v))))
 		}
+		err = r.unhealthy(v, inst, err) // health.go: what it was doing, before the stop ends its calls
 		r.stopGen(inst, 2*time.Second)
 		g.release()
-		err = fmt.Errorf("backend did not become healthy: %w", err)
 		r.emitState(s, "build-error", err.Error())
 		return err
 	}
@@ -478,6 +479,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 	}
 	fmt.Fprintf(logf, "--- gen %d start %s ---\n", gen, time.Now().Format(time.RFC3339))
 	logVerdict(logf, netWhy)
+	out := logRef{sp.log, logSize(sp.log)} // health.go: what the backend printed since
 	cmd.Stdout, cmd.Stderr = logf, logf
 
 	if err := cmd.Start(); err != nil {
@@ -499,7 +501,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		fmt.Fprintf(logf, "userns setup: %v\n", err)
 	}
 
-	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{}), leaf: leaf}
+	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{}), leaf: leaf, out: out}
 
 	// Network setup: the init handed back its TUN fd(s) — egress first, then one
 	// per provider client-link, then this component's own lan-ingress legs. The

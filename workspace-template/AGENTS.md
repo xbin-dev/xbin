@@ -664,6 +664,10 @@ Lifecycle facts you must design around:
   30 s drain — clients must reconnect.
 - 3 fast crashes ⇒ marked failed until you save a change (until the next
   deploy or restart, for a pinned tile deployment). `bx logs` first.
+- Start ⇒ `xbin.Serve` within **5 s**, or it is marked failed the same way
+  ("never started listening"). Calls to xbind before Serve (registering cron
+  jobs, reading kv/config) are fine and don't count; long work (db
+  migrations, another tile's API) goes after Serve. /docs/sdk.md#startup.
 - Limits: the backend gets the workspace's default memory (2 GiB unless
   the admin changed it) and its scope the default data quota (50 GiB).
   Over memory, it is OOM-killed (the log says so) and the workspace's
