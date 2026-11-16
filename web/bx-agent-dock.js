@@ -222,7 +222,11 @@ export class BxAgentDock extends LitElement {
     const m = pageMessage(e.data);
     if (!m) return;
     if (m.type === 'review') this.review(m.kind, m.id);
-    else if (m.type === 'session') this.dispatchEvent(new CustomEvent('bx-agent-open-session', { detail: { tile: m.tile, session: m.session, page: true }, bubbles: true, composed: true }));
+    else if (m.type === 'session') {
+      // a session that waits on a permission is answered here, in the tray (bx-agent-permits.js); a question, or one that waits on nothing, opens its tile
+      const s = (this.store.sessions || []).find((x) => x.id === m.session);
+      if (s && !(s.questions > 0) && (s.pending > 0 || s.status === 'waiting_permission')) { this._tray = true; this._menu = false; this.store.readSessions(); } else this.dispatchEvent(new CustomEvent('bx-agent-open-session', { detail: { tile: m.tile, session: m.session, page: true }, bubbles: true, composed: true }));
+    }
     else if (m.type === 'new-session') this._newSession(m.tile, m.draft);
     else this.show(m.view);
   }

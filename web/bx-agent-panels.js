@@ -28,6 +28,7 @@ import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import { WidenGuard } from '/vendor/bx-agent-approve.js';
+import '/vendor/bx-agent-permits.js';
 import { needs, standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, neverAsks, netPrefs } from '/vendor/agent-chrome-words.js';
 
 // an element that draws the store: it subscribes while it is in the page
@@ -51,7 +52,8 @@ export class BxAgentNeeds extends StoreView {
     const rows = needs(this.store);
     return html`<div class="hd"><h3>Needs you</h3><span class="small muted">oldest first · approvals expire</span></div>
       ${rows.length ? html`<ul class="list" aria-label="Needs you">${rows.map((r) => html`<li data-kind=${r.kind} data-id=${r.id}>
-        <span class="tx"><b>${r.title}</b>${r.note ? html`<div class="small muted">${r.note}</div>` : nothing}</span>
+        <span class="tx"><b>${r.title}</b>${r.note ? html`<div class="small muted">${r.note}</div>` : nothing}
+          ${r.permits ? html`<bx-agent-permits data-permits .session=${r.id} .agentName=${r.agentName} @bx-agent-permitted=${() => this.store.readSessions()}></bx-agent-permits>` : nothing}</span>
         <button @click=${() => (r.kind === 'session' ? this.fire('bx-agent-open-session', { tile: r.tile, session: r.id }) : this.fire('bx-agent-review', { kind: r.kind, id: r.id }))}>${r.action}</button></li>`)}</ul>`
         : html`<div class="empty" data-empty>Nothing needs you</div>`}`;
   }

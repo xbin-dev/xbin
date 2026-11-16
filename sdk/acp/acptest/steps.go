@@ -1,6 +1,7 @@
 package acptest
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -47,12 +48,13 @@ func (f *fake) steps(mode string, cmds []string) bool {
 		if len(title) > 80 {
 			title = title[:80] + "…"
 		}
+		raw, _ := json.Marshal(map[string]string{"command": cmd})
 		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": id, "title": title, "kind": "execute", "status": "pending",
 			"rawInput": map[string]string{"command": cmd}})
 		if !always {
 			var res acp.RequestPermissionResult
 			err := f.conn.Call(acp.MRequestPermission, acp.RequestPermissionParams{SessionID: sid,
-				ToolCall: acp.ToolCallUpdate{ToolCallID: id, Title: strp(title), Kind: strp("execute")},
+				ToolCall: acp.ToolCallUpdate{ToolCallID: id, Title: strp(title), Kind: strp("execute"), RawInput: raw}, // the whole command: what the person allows
 				Options: []acp.PermissionOption{{OptionID: "once", Name: "Allow once", Kind: "allow_once"},
 					{OptionID: "always", Name: "Allow always", Kind: "allow_always"}, {OptionID: "no", Name: "Reject", Kind: "reject_once"}}}, &res)
 			if err != nil || res.Outcome.Outcome != "selected" {

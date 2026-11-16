@@ -595,7 +595,9 @@ export function needs({ requests = [], changesets = [], sessions = [] } = {}, no
     if (!(s.pending > 0 || s.questions > 0 || s.status === 'waiting_permission')) continue;
     const t = lastOf(s.cwd || s.tile) || 'A tile';
     rows.push({ kind: 'session', id: s.id, tile: s.cwd || s.tile || '', title: `${t} · ${s.providerName || s.provider || 'the tile agent'} ${s.questions > 0 ? 'asks a question' : 'asks permission'}`,
-      note: s.origin === 'agent' ? 'started by your agent' : '', action: 'Open', at: toMs(s.waitingSince || s.updated || s.created) });
+      note: s.origin === 'agent' ? 'started by your agent' : '', action: 'Open', at: toMs(s.waitingSince || s.updated || s.created),
+      // a permission request is answered right here (bx-agent-permits.js); a question still opens the tile's window
+      permits: !(s.questions > 0) && (s.pending > 0 || s.status === 'waiting_permission'), agentName: s.providerName || s.provider || '' });
   }
   return rows.sort((a, b) => a.at - b.at);
 }

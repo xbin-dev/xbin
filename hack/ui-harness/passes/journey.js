@@ -20,10 +20,15 @@
 // no screen says is listed beside the count ("know"); what a real coding
 // agent would add and the scripted one doesn't is counted by hand ("hand").
 //
-// Where a real coding agent would write the MCP server, the scripted ACP
-// agent (hack/fakeacp, planted in the tile: XBIN_AGENT_FAKE names a path
-// inside it, which the tile's sandbox sees) copies a prepared source into
-// place (fixtures/journey-dice). The rows say so.
+// The MCP server is BUILT (D243: there is no template to stamp one from),
+// by the tile's own coding agent — here the scripted ACP agent (hack/fakeacp;
+// XBIN_AGENT_FAKE names a path inside the dice tile's directory, which the
+// tile's sandbox sees, planted before the tile exists). Its script (BUILD,
+// acptest's "fakeacp-steps:") does what the brief tells a real one to do:
+// it reads /docs/mcp.md from inside its sandbox, writes backend/main.go out
+// of that page, go.mod and the manifest that provides mcp, and checks
+// tools/list — asking its person before each command, as a coding agent in
+// an asking mode does. Every answer the person gives is counted.
 'use strict';
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
@@ -34,7 +39,6 @@ const PORT = Number(process.env.JOURNEY_PORT || Number(process.env.PORT || 8697)
 const FAKE = process.env.JOURNEY_FAKE || `127.0.0.1:${PORT + 1}`;
 const URL = `http://127.0.0.1:${PORT}`;
 const SHOTS = process.env.JOURNEY_SHOTS || path.join(OUT, 'journey-shots');
-const FIXTURE = path.join(__dirname, '..', 'fixtures', 'journey-dice');
 const DICE = 'apps/dice';
 
 /** why the journey can't be driven here ('' when it can). */
@@ -75,6 +79,7 @@ async function boot(name, o = {}) {
   }, null, 1) + '\n');
   const out = (f) => fs.openSync(path.join(dir, f), 'w');
   const fake = spawn(path.join(REPO, 'bin/fakeopenai'), ['-addr', FAKE], { cwd: REPO, stdio: ['ignore', out('fakeopenai.log'), out('fakeopenai.err')] });
+  if (o.plant) plant(ws); // the scripted coding agent's binary, where the dice tile will be made (a real one comes from the rootfs)
   const env = { ...process.env, XBIN_SDK_PATH: path.join(REPO, 'sdk'), XBIN_BIN: path.join(REPO, 'bin'), XBIN_LLM_CONFIG: path.join(dir, 'llm.jsonc'),
     XBIN_AGENT_FAKE: path.join(ws, DICE, '.bin', 'fakeacp') };
   if (o.llm === false) delete env.XBIN_LLM_CONFIG;
@@ -104,16 +109,30 @@ async function boot(name, o = {}) {
   return { url: URL, dir, ws, token: fs.readFileSync(path.join(ws, '.xbin', 'token'), 'utf8').trim(), stop };
 }
 
-/** plant(ws): the scripted coding agent and the prepared MCP source, inside the dice tile (its sandbox sees its own directory). */
+/** plant(ws): the scripted coding agent's binary inside the dice tile's directory — which need not be a tile yet (its sandbox sees its own directory). */
 function plant(ws) {
   const tile = path.join(ws, DICE);
   fs.mkdirSync(path.join(tile, '.bin'), { recursive: true });
   fs.copyFileSync(path.join(REPO, 'bin/fakeacp'), path.join(tile, '.bin', 'fakeacp'));
   fs.chmodSync(path.join(tile, '.bin', 'fakeacp'), 0o755);
-  fs.cpSync(FIXTURE, path.join(tile, '.journey'), { recursive: true });
 }
-/** BUILD: what the scripted coding agent is told (its `run:` script) — the prepared source into place. */
-const BUILD = 'run: sleep 8; cp -r .journey/. . && echo built';
+/**
+ * STEPS: the scripted coding agent's work, a command a step (acptest's
+ * "fakeacp-steps:"): the server out of /docs/mcp.md's marked go block —
+ * read from inside the sandbox, as the brief says —, the module file, the
+ * manifest that provides mcp (last: the first build has everything), and
+ * the brief's own check. It asks before each (four requests).
+ */
+const STEPS = [
+  'mkdir -p backend && curl -fsS -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/docs/mcp.md?raw=1" | awk \'/^<!-- examples\\/mcp-server\\/backend\\/main.go/{f=1;next} f&&/^```go$/{g=1;next} g&&/^```$/{exit} g\' > backend/main.go && grep -c roll_dice backend/main.go',
+  'printf \'module dice\\n\\ngo 1.24\\n\\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\\n\' > go.mod && echo go.mod',
+  'printf \'%s\\n\' \'{"title":"Dice","runtime":"go","expose":{"roles":{"reader":"MCP at POST /mcp"}},"provides":{"mcp":{"kind":"http","service":"mcp","role":"reader"}}}\' > xbin.json && echo xbin.json',
+  'for i in $(seq 1 150); do curl -s -H "Authorization: Bearer $XBIN_TOKEN" -H \'Content-Type: application/json\' -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\' "$XBIN_URL/api/$XBIN_COMPONENT/mcp" | grep -q roll_dice && echo "tools/list names roll_dice" && exit 0; sleep 2; done; echo "no answer from /mcp"; exit 1',
+];
+/** BUILD: the scripted coding agent's script, for a brief or a prompt to carry on a line of its own. */
+const BUILD = `fakeacp-steps: ${STEPS.join(' ||| ')}`;
+/** SAY_BUILD: what a person types to the tile's coding agent by hand (the scripted one plays BUILD). */
+const SAY_BUILD = `Make this tile an MCP server with one tool, roll_dice (sides, count): /docs/mcp.md has the interface and a server to start from.\n${BUILD}`;
 
 // The agent template names a bound MCP server's tool mcp:<provider>:<tool>
 // and sends it to the model as wireToolName does (its context.go): what a
@@ -279,4 +298,4 @@ async function servesDice(ctx, X) {
   return { ok: false, status };
 }
 
-module.exports = { REPO, URL, DICE, SHOTS, servesDice, BUILD, ASK, ROLLED, noJourney, boot, plant, journey, openPage, tileFrame, shellUp, firstLogin, firstRunSheet, makeTile, makeFromTemplate, openFromSidebar, askAssistant };
+module.exports = { REPO, URL, DICE, SHOTS, servesDice, BUILD, SAY_BUILD, STEPS, ASK, ROLLED, noJourney, boot, plant, journey, openPage, tileFrame, shellUp, firstLogin, firstRunSheet, makeTile, makeFromTemplate, openFromSidebar, askAssistant };
