@@ -23,7 +23,8 @@ bx status [<component>] [--all]         backend states (building/healthy/failed,
                                        <tile>+<name> or --deployment <name>: one tile
                                        deployment's (docs/tile-deployments.md); a backend
                                        that never reached Serve gets a hint line
-                                       (docs/sdk.md#startup)
+                                       (docs/sdk.md#startup); a failed start xbind will
+                                       try again reads "failed · retrying in 48s (2 of 3)"
 bx new <path> [--runtime R] [--expose] [--title "Pretty Name"] [--owner user:U|org:O]
                                        scaffold a component you'll own, at any
                                        free path outside tiles/ and others'

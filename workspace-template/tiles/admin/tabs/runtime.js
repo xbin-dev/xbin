@@ -22,7 +22,9 @@ import { fmtBytes, fmtDur, setLifecycle, WithFilter, WithRouter } from '../share
 
 // A backend state's icon before its word (a status badge, R2 of D184).
 const STATE_ICON = { healthy: 'ok', failed: 'error', building: 'wait' };
-const stateBadge = (st) => html`<span class="state ${st}">${STATE_ICON[st] ? html`<bx-icon name=${STATE_ICON[st]}></bx-icon>` : nothing}${st}</span>`;
+// rt: a failed start's pending retry (D242; an older xbind sends none)
+const retryText = (rt) => (rt ? ` · retrying in ${fmtDur(rt.inSec)} (${rt.attempt} of ${rt.of})` : '');
+const stateBadge = (st, rt) => html`<span class="state ${st}">${STATE_ICON[st] ? html`<bx-icon name=${STATE_ICON[st]}></bx-icon>` : nothing}${st}${st === 'failed' ? retryText(rt) : ''}</span>`;
 // How a backend is isolated, in words with its glyph: a VM, the rootless
 // namespace sandbox, or the host (no sandbox — a warning).
 const SBX = { vm: ['vm', 'VM'], namespace: ['lock', 'ns'], host: ['warning', 'host'] };
@@ -408,7 +410,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
 
   _compRow(k, b) {
     const open = this._rtOpen.has(k.path);
-    const state = b ? stateBadge(b.state)
+    const state = b ? stateBadge(b.state, b.retry)
       : html`<span class="muted">${(k.runtime && k.runtime !== 'static') ? 'idle' : 'static'}</span>`;
     return html`
       <tr>

@@ -110,6 +110,7 @@ extension View {
     public func clipShape<S: Shape>(_ shape: S, style: FillStyle = FillStyle()) -> some View { _V(self) }
     public func clipped(antialiased: Bool = false) -> some View { _V(self) }
     public func rotationEffect(_ angle: Angle, anchor: UnitPoint = .center) -> some View { _V(self) }
+    public func scaleEffect(_ s: CGFloat, anchor: UnitPoint = .center) -> some View { _V(self) }
     public func symbolEffect<T: IndefiniteSymbolEffect & SymbolEffect>(_ effect: T, options: SymbolEffectOptions = .default, isActive: Bool = true) -> some View { _V(self) }
     public func ignoresSafeArea(_ regions: SafeAreaRegions = .all, edges: Edge.Set = .all) -> some View { _V(self) }
     public func id<ID: Hashable>(_ id: ID) -> some View { _V(self) }

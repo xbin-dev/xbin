@@ -173,6 +173,7 @@ func (r *Runner) deploy(ctx context.Context, c *registry.Component, dep string, 
 		return err
 	}
 	defer releaseTurn(s)
+	r.resetRetry(s) // retry.go: a deploy or restart is the start now
 	if !backend {
 		return r.deployStatic(c, s, p, commit, rep)
 	}

@@ -851,7 +851,7 @@ export class BxShell extends LitElement {
            style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px; z-index:${w.z}"
            @pointerdown=${() => this._spawnFront(w.id)}>
         <div class="shead" @pointerdown=${(e) => this._spawnDragStart(e, w.id)}>
-          ${liveSquare(fr?.buildState || 'live', framedTile(w.src, this._components).row?.runtime)}
+          ${liveSquare(fr?.buildState || 'live', framedTile(w.src, this._components).row?.runtime, fr?.buildRetry)}
           ${spawnTitle(w.title, w.src, this._components, this._who)}
           <span class="sfrom">${w.from}</span>
           <button class="wc close" title="close" aria-label="close ${w.title}" @click=${() => this._closeSpawn(w.id)}><bx-icon name="xmark"></bx-icon></button>

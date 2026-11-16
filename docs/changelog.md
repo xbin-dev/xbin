@@ -50,6 +50,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   the web" line now reads "the web or an outside server". See
   [protocol/delegation.md §Outside MCP servers](/docs/protocol/delegation.md)
   and [mcp.md §Use an outside MCP server](/docs/mcp.md).
+- runner: **a failed start retries by itself** (D242). A start that failed
+  for a reason that can clear by itself — the backend was running but never
+  listened by its deadline (also while still waiting on xbind), it listened
+  but never accepted, the launch met a transient error (`EAGAIN`, `ENOMEM`,
+  `EMFILE`, `ENFILE`, `ETXTBSY`), or it exited before it listened (once) —
+  is started again after 10 s, 1 min and 5 min, each a new generation of
+  the same code, then stays `failed` with its last reason as before. A
+  build or manifest error, a refusal, a hold or a limit never retries.
+  While one is pending the state is still `failed`: `bx status` reads
+  *failed · retrying in 48s (2 of 3)*, the window's title bar *failed ·
+  retrying*, the admin console's Runtime tab the same; the log gets one
+  line per retry. A save, deploy, restart or healthy start resets the
+  count; a stop, a hold or xbind's shutdown cancels the pending retry.
+  Additive wire: `retry {attempt, of, at, inSec}` on the rows of
+  `/backends`, `/runtime` and `/tile-status`, a `backend-retry` event after
+  the primary's `build-error`, `<bx-frame>.buildRetry` and `bx-build`'s
+  `detail.retry` ([elements.md](/docs/elements.md) §Runtimes & backend
+  lifecycle has the table; [sdk.md](/docs/sdk.md#startup)). The shell's
+  cards draw it from this version's workspace template; an older shell
+  keeps drawing plain `failed`.
+
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the
   web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
   generated vectors): lines that create a tile or start a tile agent, what
