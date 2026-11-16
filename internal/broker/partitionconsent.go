@@ -442,6 +442,13 @@ func (b *Broker) partitionGrantWarning(from, target string) string {
 	if x == "" || x == from {
 		return ""
 	}
+	return b.partitionEdgeWarning(from, x)
+}
+
+// partitionEdgeWarning is partitionGrantWarning's sentence for from and x,
+// two tiles that both keep each person's data apart (a plan says it of a
+// tile that is still to be made: plan.go).
+func (b *Broker) partitionEdgeWarning(from, x string) string {
 	who := "every person who can read " + x
 	if b.Policies().PartitionConsent {
 		who = "every person who allows it"

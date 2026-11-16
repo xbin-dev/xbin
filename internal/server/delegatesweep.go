@@ -109,6 +109,7 @@ func (s *Server) delegationStopped(user string, keepApprovals bool) {
 		for _, id := range sets {
 			s.delegateEvent(user, "changeset", id)
 		}
+		s.withdrawAsksFrom(user) // and what they asked the admins to apply for it (plan.go)
 	}
 	changed := false
 	if n, _ := s.Delegation.VoidTickets(user); n > 0 {

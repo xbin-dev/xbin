@@ -218,9 +218,11 @@ POST /create	refused	body.path
 POST /delegate/approvals	refused	body.tile
 POST /delegate/changesets	no-tile
 POST /delegate/changesets/{id}/approve	no-tile
+POST /delegate/changesets/{id}/ask	no-tile
 POST /delegate/changesets/{id}/reject	no-tile
 POST /delegate/changesets/{id}/undo	no-tile
 POST /delegate/page/dismiss	no-tile
+POST /delegate/plans	no-tile
 POST /delegate/requests	no-tile
 POST /delegate/requests/{id}/approve	no-tile
 POST /delegate/requests/{id}/deny	no-tile

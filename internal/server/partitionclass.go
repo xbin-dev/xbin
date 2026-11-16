@@ -649,6 +649,8 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /delegate/approvals":               PartitionNeutral,
 	"DELETE /delegate/approvals/{id}":        PartitionNeutral,
 	"POST /delegate/changesets":              PartitionNeutral,
+	"POST /delegate/plans":                   PartitionNeutral,
+	"POST /delegate/changesets/{id}/ask":     PartitionNeutral,
 	"GET /delegate/changesets":               PartitionNeutral,
 	"GET /delegate/changesets/{id}":          PartitionNeutral,
 	"DELETE /delegate/changesets/{id}":       PartitionNeutral,

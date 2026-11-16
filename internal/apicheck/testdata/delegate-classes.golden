@@ -219,9 +219,11 @@ POST /create	never
 POST /delegate/approvals	never
 POST /delegate/changesets	act
 POST /delegate/changesets/{id}/approve	never
+POST /delegate/changesets/{id}/ask	never
 POST /delegate/changesets/{id}/reject	never
 POST /delegate/changesets/{id}/undo	never
 POST /delegate/page/dismiss	never
+POST /delegate/plans	act
 POST /delegate/requests	act
 POST /delegate/requests/{id}/approve	never
 POST /delegate/requests/{id}/deny	never

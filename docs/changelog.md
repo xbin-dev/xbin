@@ -12,6 +12,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-16
 
+- delegation: **plans — multi-step work is one change set.** `POST
+  /delegate/plans` (a person's agent, no opt-in to propose) takes the
+  admin kinds and two new ones, `tile.create {template, path, owner?}` and
+  `agent.start {tile, brief, harness?, mode?}`; a later line may name a
+  tile an earlier line creates (described from the template's manifest,
+  checked against the tile when applied; lines apply in order, a line with
+  the lines it `needs`). Each line is the person's own to do or an
+  `admin`'s: an approval of personal lines needs no opt-in and no recent
+  sign-in, one with an admin's line needs both (`403 {optIn: true}`; the
+  review offers the switch). For a person who is no admin such a line is
+  `needsAdmin` — xbind's sentence and nothing of the state behind it — and
+  `POST /delegate/changesets/<id>/ask` sends it to the admins as a change
+  set `from` that person. Additive: the two routes; on a change set `plan`,
+  `session`, `from`, `askOf`, `askId`, `decidedBy`, `byHand`; on an item
+  `admin`, `needsAdmin`, `needs`, `deferred`, `start`, `out`, `undoByHand`,
+  `of` and the result `asked`. `POST /delegate/changesets` and the sets it
+  makes are as they were ([protocol/delegation.md](/docs/protocol/delegation.md)
+  §Plans).
 - delegation: **an admin's workspace agent can create a tile, and a dry
   run says what the real call does.** Under delegation a creation that
   names no owner is the person's (`user:<id>`) for an admin too — it was

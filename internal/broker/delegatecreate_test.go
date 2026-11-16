@@ -18,7 +18,7 @@ func planTemplates(t *testing.T, w *csWorld) {
 	t.Helper()
 	set, err := builtins.LoadTemplates(fstest.MapFS{
 		"assistant/xbin.json": {Data: []byte(`{"runtime":"go","template": {"title": "AI Agent", "defaultName": "assistant"},
-			"interfaces": {"mcp": {"kind": "http", "service": "mcp", "multi": true}, "llm": {"kind": "http", "service": "llm"}, "net": {"kind": "net"}}}`)},
+			"interfaces": {"mcp": {"kind": "http", "service": "mcp", "multi": true}, "llm": {"kind": "http", "service": "openai", "multi": true, "required": true}, "net": {"kind": "net"}}}`)},
 		"assistant/backend/main.go": {Data: []byte("package main\n")},
 		"tool/xbin.json": {Data: []byte(`{"runtime":"go","template": {"title": "MCP server", "defaultName": "tool"},
 			"provides": {"mcp": {"kind": "http", "service": "mcp", "role": "reader"}}}`)},

@@ -84,7 +84,7 @@ forwards them):
 |---|---|
 | reads, at the person's level | `GET /whoami`, `/components`, `/components/<path>`, `/tile-status`, `/tile-report`, `/logs`, `/alerts`, `/screens`, `/templates`, `/agent/providers`, `/term/sessions`, `/term/sessions/<id>`, `…/events`, `…/log`, `…/diff`, `/agent/history`, `/agent/history/<id>/events`, `/code/tree`, `/code/file`, and its own `/delegate/state`, `/delegate/approvals`, `/delegate/requests/<id>`, `/delegate/changesets[/<id>]` |
 | a tile's API | `/api/<tile>/…` where the person can read the tile: `GET`/`HEAD` freely; any other method needs the person's approval |
-| acts | `POST /preview` (a picture of one tile, as the person: [preview.md](/docs/protocol/preview.md) — no approval; rate-limited), `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…` |
+| acts | `POST /preview` (a picture of one tile, as the person: [preview.md](/docs/protocol/preview.md) — no approval; rate-limited), `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…`, `POST /delegate/plans` |
 | admin reads, only for an admin who opted in | `GET /grants`, `/bindings`, `/orgs` (without SSO group rules), `/limits` — answered as the person |
 | refused | everything else: `403 {error, refusal: "not-delegated", class}`. In particular: answering a tile agent's permission request or question, a session's options and restart, terminals, deleting or disabling tiles, code writes and pull requests, the account, devices and sign-in tickets, frame tokens and path tickets, view-as, a person's consents, tile stores, the admin API, and every approval on this page |
 
@@ -656,7 +656,9 @@ POST   /delegate/changesets     the person's agent only. {title, items:
                                  arguments; at most 20 items; 409 past 10
                                  open sets
 GET    /delegate/changesets     the person, their agent's page, or their
-                                 agent. {changesets}, oldest first
+                                 agent. {changesets}, oldest first (a set
+                                 from another person — §Plans — only to
+                                 the person's own session)
 GET    /delegate/changesets/<id>
                                  the person, their agent's page, or their
                                  agent
@@ -741,6 +743,85 @@ A change set:
   `slot`, `provider`, `host`, `zone`, `listen`, `org`, `tile`, `level`,
   `kind`) is at most 200 bytes of letters, digits and `._~:@#/*+=,[]-`
   (`400` otherwise): they are written into xbind's line.
+
+### Plans
+
+Multi-step work is **one** change set. A person's agent proposes the whole
+of it — create these tiles, bind these slots, start this tile agent — and
+the person reviews it once.
+
+```
+POST   /delegate/plans          the person's agent only, under its agent
+                                 session. {title, items: [{kind, args,
+                                 why?}]} → a change set with plan: true.
+                                 Any person's agent: no opt-in to propose
+POST   /delegate/changesets/<id>/ask
+                                 the person, in their own session.
+                                 {items?: [n, …]} → their set, the lines
+                                 that need an admin marked "asked"
+```
+
+A plan may hold the kinds above and two more:
+
+| `kind` | `args` | Applies as |
+|---|---|---|
+| `tile.create` | `{template, path, owner?}` — `owner` absent: the person's (an admin's too); or `"org:<id>"` | `POST /templates/new` |
+| `agent.start` | `{tile, brief, harness?, mode?}` — the brief is the session's first prompt, sent exactly as written | `POST /term/sessions`, as the conversation that proposed the plan |
+
+and its items carry, beside a change set's:
+
+```
+{…, beforeText?, afterText?, admin?, needsAdmin?, needs?: [n, …],
+ deferred?, start?, out?, undoByHand?, of?}
+```
+
+- **A later line may name a tile an earlier `tile.create` line makes.** It
+  is described from the template's manifest — its slots, what it provides
+  — with the earlier creations taken as made (`deferred: true`, `needs`:
+  those lines), and judged by the handler's own check when it is applied,
+  after the tile exists; it is `stale` if xbind's sentence then differs or
+  a warning appears that was not shown. On a tile that is still to be
+  made a plan binds http slots (to tiles and to `xbin:llm`) and starts a
+  tile agent; anything else waits until the tile exists (`400`). Lines
+  apply in order, a line only with the lines it `needs` (`400`
+  otherwise), and a failure skips the rest.
+- **`admin`** — applying the line takes an admin's rights. A line without
+  it is one the person could do with their own hands and no admin: a
+  creation their own rule allows, a binding between tiles they own
+  (never `xbin:llm` or a named set), a tile agent's start. An approval
+  whose chosen lines are all personal needs no opt-in and no recent
+  sign-in. One that holds an `admin` line needs `adminChanges` on (`403
+  {error, optIn: true}` — the review offers the switch) and the step-up.
+  A personal line is applied only while it still is one.
+- **`needsAdmin`** — an `admin` line of a person who is no admin. It
+  carries xbind's `line` and nothing of the state behind it, and can't be
+  chosen (`400`). `…/ask` sends such lines, once the lines they need are
+  applied, to every workspace admin as a change set `from` that person
+  (`askOf`, `askId`; each item's `of` is its number in the asker's set),
+  described as that admin would apply it. An admin applies it with a
+  recent sign-in (no opt-in: it is not their agent's proposal) or rejects
+  it; the first to decide ends the others' copies (`withdrawn`,
+  `decidedBy`) and the results come back to the asker's lines. Only the
+  admin's own session reads a set that is `from` someone. At most 3 of a
+  person's requests wait.
+- **`start`** — what an `agent.start` line starts, as a start request's
+  `preview.session`: `{tile, provider, providerName, mode, asks, prompt,
+  net, api, …}`. Only a mode xbind vouches for (`asks: true`: a harness's
+  ask or plan mode) is drawn as asking; any other carries the warning
+  `ACTS WITHOUT ASKING: …`. A set records the agent session that proposed
+  it (`session`): the start runs under it, is refused when its taint
+  forbids briefing a session there or when it is over, and the tile agent
+  is that conversation's to follow (`out: {session}`; a creation's `out`
+  is `{path}`).
+- Every line is held, when described and when applied, to the tile's
+  agent level (it must be `full`) and its orgs' agent rules, for the tiles
+  it changes.
+- `beforeText` / `afterText` are `before` and `after` in xbind's words —
+  what a review draws. `undoByHand` says what undoing takes when xbind
+  can't: `…/undo` lists those in the new set's `byHand` (a created tile is
+  its person's to delete), and answers `409 {error, byHand}` when nothing
+  else is left.
+- An `agent.start` line carries at most 68 KiB of arguments.
 
 ## A tile's agent level
 

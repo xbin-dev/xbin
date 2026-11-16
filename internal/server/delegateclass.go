@@ -302,6 +302,7 @@ var delegateClasses = map[string]delegateRow{
 	"GET /docs/page":                      dRead(),
 	"GET /delegate/approvals":             dRead(),
 	"POST /delegate/changesets":           dAct(),
+	"POST /delegate/plans":                dAct(), // a plan: a change set that may create tiles and start tile agents (plan.go)
 	"GET /delegate/changesets":            dRead(),
 	"GET /delegate/changesets/{id}":       dRead(),
 	"DELETE /delegate/changesets/{id}":    dAct(),
@@ -318,6 +319,7 @@ var delegateClasses = map[string]delegateRow{
 	"POST /delegate/page/dismiss":            dNever(neverApprove),
 	"GET /delegate/audit":                    dNever(neverApprove),
 	"POST /delegate/changesets/{id}/approve": dNever(neverApprove),
+	"POST /delegate/changesets/{id}/ask":     dNever(neverApprove), // asking an admin is the person's own act
 	"POST /delegate/changesets/{id}/reject":  dNever(neverApprove),
 	"POST /delegate/changesets/{id}/undo":    dNever(neverApprove),
 

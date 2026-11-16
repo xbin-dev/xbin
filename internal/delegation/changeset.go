@@ -42,6 +42,7 @@ const (
 	ItemSkipped  = "skipped"  // an earlier item failed
 	ItemRejected = "rejected" // the person left it out
 	ItemBlocked  = "blocked"  // it could never be applied (the preview's refusal)
+	ItemAsked    = "asked"    // it needs an admin, and its person asked one (ChangeSet.From on the admins' copies)
 )
 
 // Limits.
@@ -56,11 +57,26 @@ const (
 	// What was applied stays in the audit log for its 13 months.
 	MaxDecidedSets = 50
 	MaxItemArgs    = 4 << 10
-	MaxSetBytes    = 256 << 10
-	KeepSets       = 30 * 24 * time.Hour
+	// MaxStartArgs bounds an agent.start line's arguments: they carry the
+	// brief, which a single start request may carry too (64 KiB).
+	MaxStartArgs = 68 << 10
+	// MaxAsked bounds the requests one person has waiting with the admins
+	// ("Ask an admin"), and MaxAskedOfOne the ones an admin has waiting
+	// from other people.
+	MaxAsked      = 3
+	MaxAskedOfOne = 30
+	MaxSetBytes   = 256 << 10
+	KeepSets      = 30 * 24 * time.Hour
 	// applyingStale: a set still "applying" this long after it was claimed
 	// was interrupted (applying takes seconds).
 	applyingStale = 10 * time.Minute
+)
+
+// The kinds a plan adds to the admin kinds (the broker's plan.go describes
+// a creation; the server, which knows sessions, a start).
+const (
+	KindTileCreate = "tile.create"
+	KindAgentStart = "agent.start"
 )
 
 // ChangeOp is one admin operation of a closed list of kinds.
@@ -92,6 +108,38 @@ type ChangePreview struct {
 	Blocked               string    // why the handler would refuse it; "" when it would apply
 	Inverse               *ChangeOp // what undoes it, when something does
 	Call                  AdminCall
+	// Admin: applying it takes an admin's rights — it is not something the
+	// person could do with their own hands and no admin (a plan's line).
+	Admin bool
+	// Tiles are the existing tiles the operation is ON: the ones whose
+	// "agent" level and orgs' agent rules a plan's line is held to.
+	Tiles []string
+	// Creates is the tile a tile.create line would make: later lines of the
+	// same set may name it.
+	Creates *PlannedTile
+	// Uses are the lines (their numbers) whose planned tiles this one names;
+	// Deferred says it was described from those templates' manifests and is
+	// checked for real once they exist.
+	Uses     []int
+	Deferred bool
+	// Start is what an agent.start line starts, as a single start's sheet
+	// shows it (the server's sessionPreview).
+	Start json.RawMessage
+	// UndoByHand: what undoing it takes when xbind can't (a created tile is
+	// its person's to delete).
+	UndoByHand string
+}
+
+// PlannedTile is a tile an earlier tile.create line of the same set makes
+// when it is applied: what xbind knows of it beforehand — its path, whose
+// it will be, and its template's manifest (slots, provides).
+type PlannedTile struct {
+	N           int // the line that creates it
+	Path        string
+	Template    string
+	Owner       string
+	Manifest    json.RawMessage
+	Partitioned bool
 }
 
 // ChangeItem is one operation of a set, as xbind described it.
@@ -125,6 +173,34 @@ type ChangeItem struct {
 	Inverse *ChangeOp `json:"inverse,omitempty"`
 	Result  string    `json:"result,omitempty"`
 	Error   string    `json:"error,omitempty"`
+
+	// The fields below are a plan's (ChangeSet.Plan).
+
+	// Admin: applying this line takes an admin's rights. A line without it
+	// is something the person could do themselves, with no admin.
+	Admin bool `json:"admin,omitempty"`
+	// NeedsAdmin: an Admin line of a person who is no admin. They can't
+	// apply it; they can ask an admin (…/ask). xbind says nothing more of
+	// it than its line — its before and after are an admin's to read.
+	NeedsAdmin bool `json:"needsAdmin,omitempty"`
+	// Needs are the earlier lines this one depends on: tile.create lines
+	// whose tile it names. It is applied only with them.
+	Needs []int `json:"needs,omitempty"`
+	// Deferred: described from the template of a tile an earlier line
+	// creates; checked against the tile itself when it is applied.
+	Deferred bool `json:"deferred,omitempty"`
+	// Start is what an agent.start line starts: {tile, provider,
+	// providerName, mode, asks, prompt, net, api, …}, as a start request's
+	// preview.session.
+	Start json.RawMessage `json:"start,omitempty"`
+	// Out is what applying it made: {path} for tile.create, {session} for
+	// agent.start.
+	Out json.RawMessage `json:"out,omitempty"`
+	// UndoByHand: xbind's words for undoing it by hand, when it can't.
+	UndoByHand string `json:"undoByHand,omitempty"`
+	// Of: in a set an admin was asked to apply, the line's number in the
+	// asker's set.
+	Of int `json:"of,omitempty"`
 }
 
 // ChangeSet is one proposal.
@@ -142,6 +218,25 @@ type ChangeSet struct {
 	// WithdrawnBy is "xbin" for a proposal xbind withdrew because its
 	// person's agent stopped for good (WithdrawOpenSets).
 	WithdrawnBy string `json:"withdrawnBy,omitempty"`
+
+	// Plan: proposed as a plan (POST /delegate/plans) — its lines may create
+	// tiles and start tile agents, and are personal or an admin's
+	// (ChangeItem.Admin). Session is the agent session (the conversation)
+	// that proposed it: an agent.start line starts under it, held to its
+	// taint.
+	Plan    bool   `json:"plan,omitempty"`
+	Session string `json:"session,omitempty"`
+	// From: this set is a request to an admin (User) from that person, who
+	// pressed "Ask an admin" on the lines of their own set AskOf that need
+	// one. Every admin has a copy; AskID is the same on all of them, and
+	// the first to decide ends the others (DecidedBy).
+	From      string `json:"from,omitempty"`
+	AskOf     string `json:"askOf,omitempty"`
+	AskID     string `json:"askId,omitempty"`
+	DecidedBy string `json:"decidedBy,omitempty"`
+	// ByHand: for an undo set, what xbind can't undo, in its words (a
+	// created tile is its person's to delete).
+	ByHand []string `json:"byHand,omitempty"`
 }
 
 // Open reports a set still waiting for its person.
@@ -313,7 +408,7 @@ func (s *Store) NewChangeSet(cs ChangeSet) (ChangeSet, error) {
 		return ChangeSet{}, ErrTooManyItems
 	}
 	for _, it := range cs.Items {
-		if len(it.Args) > MaxItemArgs {
+		if max := map[bool]int{false: MaxItemArgs, true: MaxStartArgs}[it.Kind == KindAgentStart]; len(it.Args) > max {
 			return ChangeSet{}, ErrSetTooLarge
 		}
 	}
@@ -326,13 +421,17 @@ func (s *Store) NewChangeSet(cs ChangeSet) (ChangeSet, error) {
 	if err != nil {
 		return ChangeSet{}, err
 	}
-	open := 0
+	open, asked := 0, 0
 	for _, e := range sets {
-		if e.Open() {
+		switch {
+		case !e.Open():
+		case e.From != "":
+			asked++ // other people's requests never crowd out the person's own agent
+		default:
 			open++
 		}
 	}
-	if open >= MaxOpenSets {
+	if cs.From == "" && open >= MaxOpenSets || cs.From != "" && asked >= MaxAskedOfOne {
 		return ChangeSet{}, ErrTooManySets
 	}
 	now := s.now().UTC().Truncate(time.Second)
@@ -389,7 +488,7 @@ func (s *Store) WithdrawOpenSets(user string) ([]string, error) {
 	now := s.now().UTC().Truncate(time.Second)
 	var ids []string
 	for _, cs := range sets {
-		if !cs.Open() {
+		if !cs.Open() || cs.From != "" { // a request from someone else isn't this person's agent's
 			continue
 		}
 		cs.State, cs.Decided, cs.WithdrawnBy = SetWithdrawn, now, WithdrawnByXbin
