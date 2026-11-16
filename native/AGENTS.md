@@ -528,9 +528,10 @@ Mac tools (`ci-local-check.sh`).
   builds for a device (`generic/platform=iOS`, what the `duo` job does),
   not a simulator. `sudo DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
   xcodebuild -runFirstLaunch`, as the admin, installs its CoreSimulator.
-  The iOS 27.1 simulator runtime (24A94232) is installed (dev, via
-  `xcodebuild -downloadPlatform iOS -buildVersion 27.1`); it has no Duo
-  device type (iPhone 18 Pro / Pro Max are the newest). Xcode 27.0 lists
+  The iOS 27.1 simulator runtime (24A94232; after the 2026-10-31
+  reinstall 24A94401, downloaded again 2026-11-16) is installed (dev, via
+  `xcodebuild -downloadPlatform iOS`); its one device type, iPhone Duo,
+  arrives with that first launch (see "No simulator draws an iPhone Duo"). Xcode 27.0 lists
   that runtime but can't run a device on it ("Incompatible device"), so
   `pick-sim.sh` skips runtimes newer than the selected Xcode's simulator
   SDK.
@@ -1236,11 +1237,31 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   (default 3600 s) bounds a run that never says it. Give a run you start a
   ceiling of your own too (`timeout 40m mac-remote.sh e2e …`) and never
   wait on one without.
-- **No simulator draws an iPhone Duo** (checked 2026-11-16: Xcode 27.0's
-  device types end at iPhone 18 Pro / Pro Max, its only runtime is iOS
-  27.0; Xcode-beta's CoreSimulator was never installed): the Duo paths —
-  the vertical bar's items, `XbinTwoPanes`' halves — are compiled for a
-  device with the 27.1 SDK and have never been drawn.
+- **No simulator draws an iPhone Duo here yet — one admin step away**
+  (checked 2026-11-16). Apple ships it with Xcode 27.1 (Xcode 27.1 Release
+  Notes → Simulator: "the iPhone Duo Simulator runtime"): the device type
+  `iPhone Duo` (`com.apple.CoreSimulator.SimDeviceType.iPhone-Duo`,
+  `iPhone19,4`, `minRuntimeVersion` 27.1, needs the framebuffer.27
+  feature) is inside `Xcode-beta.app/Contents/Resources/Packages/
+  XcodeSystemResources.pkg`, which installs it into the root-owned
+  `/Library/Developer/CoreSimulator/Profiles/DeviceTypes` together with
+  CoreSimulator 1174.9.2 (the box has 1171.7, Xcode 27.0's). CoreSimulator
+  reads device types only from there and from Xcode's own `/Developer`
+  paths — no per-user place. The iOS 27.1 runtime (24A94401, 7.85 GB) is
+  installed (dev, `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+  xcodebuild -downloadPlatform iOS`, 2026-11-16) and supports no device
+  type the current CoreSimulator knows; `simctl create … iPhone-Duo …`
+  says "Invalid device type". The admin's `sudo
+  DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer xcodebuild
+  -runFirstLaunch` (see "What the box turned out to be") is the missing
+  step. Until then the Duo paths — the vertical bar's items,
+  `XbinTwoPanes`' halves — are compiled for a device with the 27.1 SDK
+  and have never been drawn. After it: `xcrun simctl create xbin-duo-<you>
+  com.apple.CoreSimulator.SimDeviceType.iPhone-Duo
+  com.apple.CoreSimulator.SimRuntime.iOS-27-1`, then `XBIN_XCODE=/Applications/Xcode-beta.app
+  XBIN_SWIFT_CONDITIONS=XBIN_SDK_27_1 XBIN_SIM=xbin-duo-<you>` with `run`
+  or `e2e`. Poses (Closed, Book, Open) are DeviceHub buttons only; simctl
+  has none.
 - **A link into the running app**: `XCUIApplication.open(url)` relaunches
   the app (a cold start with the link); `XCUIDevice.shared.system.open(url)`
   hands it to the running app as a notification's tap does
