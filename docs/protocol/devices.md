@@ -511,7 +511,8 @@ its activities at once. Updates are limited to 240/hour per activity (burst
 limit allows. Wire formats: native/spec/push.md §7.
 
 **The workspace agent's notifications** (D241;
-plans/wsagent/ios-stage2.md; protocol/delegation.md §Events and pushes).
+[workspace-agent.md](/docs/workspace-agent.md) §When the app is not open;
+protocol/delegation.md §Events and pushes).
 One notification a thing that waits for the person, after a 3 s grace (one
 decided at once raises nothing): `agent.approval` a request (collapse
 `agent-approval:<id>`, link `xbin/agent#r=<id>`), `agent.changeset` a plan,

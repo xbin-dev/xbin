@@ -74,16 +74,17 @@ final class AgentLiveActivity {
         observers.append(nc.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { AgentLiveActivity.shared.becameActive() }
         })
-        // the cards from before this launch: taken back, never started again
-        for s in Self.snapshotsNow() where s.active { adoptOwn(s) }
         #if DEBUG
         if Self.demo != nil {
-            // the UI tests' shots: the card in one state, for the first workspace, no xbind behind it
+            // the UI tests' shots: the card in one state, for the first workspace, no
+            // xbind behind it — the cards from before this launch go, none is adopted
             for s in Self.snapshotsNow() { Task { await Self.end(s.id, s.state, dismissAt: Date()) } }
             startDemo()
             return
         }
         #endif
+        // the cards from before this launch: taken back, never started again
+        for s in Self.snapshotsNow() where s.active { adoptOwn(s) }
         Task {
             await Self.pushToStartTokens { hex in await PushManager.shared.agentPushToStartTokenChanged(hex) }
         }
@@ -208,6 +209,9 @@ final class AgentLiveActivity {
             followState(id, workspace: w.id)
             return id
         } catch {
+            #if DEBUG
+            NSLog("xbin-agent card: not started: %@", String(describing: error))
+            #endif
             return nil
         }
     }
@@ -239,6 +243,7 @@ final class AgentLiveActivity {
     /// Debug's demo card, once the app is in front (ActivityKit starts cards only then).
     private func startDemo() {
         guard let d = Self.demo, let w = AppModel.shared.workspaces.first, cards[w.id]?.activityID == nil else { return }
+        NSLog("xbin-agent card demo: %@, enabled %@", d.phase.rawValue, ActivityAuthorizationInfo().areActivitiesEnabled ? "yes" : "no")
         if let a = request(w, d) { cards[w.id] = Card(activityID: a, shown: d, stretchSince: d.startDate) }
     }
     #endif

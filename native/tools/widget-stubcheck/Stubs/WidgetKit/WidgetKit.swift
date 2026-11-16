@@ -111,3 +111,11 @@ public struct Link<Label: View>: View {
     public init(destination: URL, @ViewBuilder label: () -> Label) {}
     public var body: some View { EmptyView() }
 }
+
+// An expanded region's content that may move under the camera (iOS 16.1).
+public struct DynamicIslandExpandedRegionVerticalPlacement: Sendable {
+    public static let belowIfTooWide = DynamicIslandExpandedRegionVerticalPlacement()
+}
+extension View {
+    public func dynamicIsland(verticalPlacement: DynamicIslandExpandedRegionVerticalPlacement) -> some View { self }
+}

@@ -1,5 +1,5 @@
 // ws_done.go — "Workspace agent finished" reaching the person's phone
-// (xbin D241; plans/wsagent/ios-stage2.md §3.4).
+// (xbin D241; docs/workspace-agent.md §When the app is not open).
 //
 // One push per finished request, none per turn: a workspace session's
 // top-level turn that ends answered or finished is looked at again after a

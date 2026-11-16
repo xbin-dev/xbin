@@ -181,12 +181,14 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open func press(forDuration duration: TimeInterval) {}
     open func typeText(_ text: String) {}
     open func swipeUp() {}
+    open func swipeLeft() {}
     open func swipeUp(velocity: XCUIGestureVelocity) {}
     open func swipeDown() {}
     open func pinch(withScale scale: CGFloat, velocity: CGFloat) {}
     open func coordinate(withNormalizedOffset normalizedOffset: CGVector) -> XCUICoordinate { XCUICoordinate() }
     open func screenshot() -> XCUIScreenshot { XCUIScreenshot() }
     open var buttons: XCUIElementQuery { XCUIElementQuery() }
+    open var icons: XCUIElementQuery { XCUIElementQuery() }
     open var staticTexts: XCUIElementQuery { XCUIElementQuery() }
     open var textFields: XCUIElementQuery { XCUIElementQuery() }
     open var secureTextFields: XCUIElementQuery { XCUIElementQuery() }
@@ -217,6 +219,7 @@ open class XCUIElementQuery: XCUIElementTypeQueryProvider {
     open var element: XCUIElement { XCUIElement() }
     open var count: Int { 0 }
     open func element(boundBy index: Int) -> XCUIElement { XCUIElement() }
+    open var allElementsBoundByIndex: [XCUIElement] { [] }
     open var buttons: XCUIElementQuery { self }
     open var staticTexts: XCUIElementQuery { self }
     open var textFields: XCUIElementQuery { self }

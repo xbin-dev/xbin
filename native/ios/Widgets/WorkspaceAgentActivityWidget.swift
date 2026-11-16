@@ -69,13 +69,22 @@ struct WorkspaceAgentLockScreen: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 WorkspaceAgentGlyph(card: card).font(.headline)
-                Text("\(card.display.title) · \(card.display.subtitle)")
+                // "Workspace agent" stays whole; the workspace's name gives way first
+                Text(card.display.title)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
+                    .layoutPriority(2)
+                Text("· \(card.display.subtitle)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer(minLength: 4)
+                // a timer text takes all the width it is offered: a width of its own
                 WorkspaceAgentElapsed(card: card).font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 64, alignment: .trailing)
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(card.display.status)
@@ -151,12 +160,14 @@ struct WorkspaceAgentIslandLeading: View {
 
     var body: some View {
         Label {
-            Text(card.display.status).lineLimit(1)
+            Text(card.display.status).lineLimit(1).fixedSize()
         } icon: {
             WorkspaceAgentGlyph(card: card)
         }
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(card.accent)
+        // "Needs you (2)" whole: under the camera when the leading slot is too narrow
+        .dynamicIsland(verticalPlacement: .belowIfTooWide)
     }
 }
 

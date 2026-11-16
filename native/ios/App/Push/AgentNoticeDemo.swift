@@ -18,14 +18,20 @@ import XbinCore
 enum AgentNoticeDemo {
     @MainActor static func runIfAsked() {
         let d = UserDefaults.standard
-        if d.bool(forKey: "XbinAgentAllowOnce"), let w = AppModel.shared.workspaces.first {
-            var p = AgentNotifications.shared.prefs(w)
-            p.lockAllowOnce = true
-            p.allowOnceExplained = true
-            AgentNoticeStore.setPrefs(p, w.id, group: AppInfo.sharedKeychainGroup)
+        if d.bool(forKey: "XbinAgentAllowOnce") {
+            // once there is a workspace (a first launch signs in after it starts)
+            Task { @MainActor in
+                for _ in 0..<600 where AppModel.shared.workspaces.isEmpty { try? await Task.sleep(nanoseconds: 200_000_000) }
+                guard let w = AppModel.shared.workspaces.first else { return }
+                var p = AgentNotifications.shared.prefs(w)
+                p.lockAllowOnce = true
+                p.allowOnceExplained = true
+                AgentNoticeStore.setPrefs(p, w.id, group: AppInfo.sharedKeychainGroup)
+            }
         }
         guard let what = d.string(forKey: "XbinAgentNotice"), !what.isEmpty else { return }
-        let delay = d.object(forKey: "XbinAgentNoticeDelay") as? Double ?? 4
+        // a launch argument is a string: double(forKey:) reads it
+        let delay = d.object(forKey: "XbinAgentNoticeDelay") == nil ? 4 : d.double(forKey: "XbinAgentNoticeDelay")
         // a test may leave the app before xbind has answered: finish in the background
         hold = UIApplication.shared.beginBackgroundTask(withName: "xbin-agent-notice-demo")
         Task { @MainActor in
