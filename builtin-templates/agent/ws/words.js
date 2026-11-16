@@ -128,7 +128,7 @@ export function agentCard(a, now = Date.now(), tileName = (p) => p) {
 
 // ---- a request for the person's approval (cards → requests) -----------------------------
 
-const KIND_WORD = { call: 'change something in', session: 'start a tile agent in', template: 'create a tile', changeset: 'propose admin changes' };
+const KIND_WORD = { call: 'change something in', session: 'start a tile agent in', template: 'create a tile', changeset: 'propose admin changes', web: 'read a web page', mcp: 'use a tool of' };
 // where the person decided (a request's `via`)
 const VIA = { app: 'in the app', device: 'on a device', page: 'on the brief' };
 
@@ -280,6 +280,11 @@ export function refusalCard(r, tileName = (p) => p) {
     case 'mode': return { kind: 'mode', icon: 'lock', title: 'That tile agent takes no more messages from your agent', text: reason ? `${reason}.` : '',
       note: 'You switched it to a mode that doesn’t ask before it acts, so only you can drive it now. Switch it back to a mode that asks to let your agent message it again.', ways: [] };
     case 'command': return { kind: 'command', icon: 'lock', title: 'Not sent: it began with “/”', text: 'A coding agent reads a message that begins with “/” as one of its own commands, and those are yours to give. Your agent should say it in words.', ways: [] };
+    // the web (D239): a page xbin didn't read — the policy, your setting, an org's rule, or the address itself
+    case 'web': return { kind: 'web', icon: 'globe', title: 'xbin didn’t read that web page', text: reason ? `${reason}.` : '',
+      note: 'What your agent may read of the web is set by an admin for the workspace, by you in Preferences, and by the orgs whose data this conversation holds.', ways: ['whatCan'] };
+    case 'mcp': return { kind: 'mcp', icon: 'plug', title: 'xbin didn’t run that tool', text: reason ? `${reason}.` : '',
+      note: 'What MCP tools your agent may use is set by an admin for the workspace, by you in Preferences, by the tile, and by the orgs whose data this conversation holds.', ways: ['whatCan'] };
     case 'no-agent': return { kind: 'no-agent', quiet: true, icon: 'power', text: 'You haven’t been given a workspace agent — an admin chooses who has one. Nothing was read or changed.' };
     case 'held': return { kind: 'held', quiet: true, icon: 'power', text: 'Your agent is held on this xbin — an admin can clear it. Nothing was read or changed.' };
     case 'paused': return { kind: 'paused', quiet: true, icon: 'pause', text: 'Paused — nothing was read or changed.' };
@@ -341,14 +346,30 @@ export function sessionRow(s, now = Date.now()) {
  * model — xbin's own sentence where it gave one, shortened when narrow
  * ("14 connected · 6 not"); and the screen reader's one sentence.
  */
-export function chipWords(counts, model, narrow = false, priv = false) {
+export function chipWords(counts, model, narrow = false, priv = false, reach = null) {
   const c = counts || {};
   const t = c.tiles || 0, o = c.orgs || 0, n = c.notConnected || 0;
   const m = short(model) + (priv ? ' · private' : '');
   const conn = narrow ? `${t} connected` : `${t} tile${t === 1 ? '' : 's'} · ${o} org${o === 1 ? '' : 's'}`;
   const not = n ? (narrow ? `${n} not` : `${n} not connected`) : '';
-  const label = `Scope: ${t} tile${t === 1 ? '' : 's'} in ${o} org${o === 1 ? '' : 's'} connected${n ? `, ${n} not connected` : ''}. Model ${m || 'not set'}.`;
-  return { conn, not, model: m, label, summary: c.summary || '' };
+  const nw = netWords(reach);
+  const label = `Scope: ${t} tile${t === 1 ? '' : 's'} in ${o} org${o === 1 ? '' : 's'} connected${n ? `, ${n} not connected` : ''}. Model ${m || 'not set'}.${nw.said ? ` ${nw.said}` : ''}`;
+  return { conn, not, model: m, label, summary: c.summary || '', net: nw.seg, netTitle: nw.said };
+}
+
+/**
+ * netWords(reach): the web and MCP tools in the connection line (the
+ * session's `reach`, xbind's: {web, mcp: {state: on | asks | off, why}}) —
+ * {seg: "web · MCP" | "web" | "MCP" | '', said: the sentence a screen
+ * reader and the title say}. Off says nothing in the line: the empty state
+ * and "What can it do?" say why.
+ */
+export function netWords(reach) {
+  const on = (x) => !!x && (x.state === 'on' || x.state === 'asks');
+  const web = on(reach && reach.web), mcp = on(reach && reach.mcp);
+  const seg = [web ? 'web' : '', mcp ? 'MCP' : ''].filter(Boolean).join(' · ');
+  const said = [web ? (reach.web.state === 'asks' ? 'Reads web pages you approve.' : 'Reads the web.') : '', mcp ? 'Uses MCP tools you approve.' : ''].filter(Boolean).join(' ');
+  return { seg, said };
 }
 
 // ---- the page's states (docs/workspace-agent.md §The agent's page) ------------------------------------------

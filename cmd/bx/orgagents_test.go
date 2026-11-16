@@ -55,6 +55,7 @@ func TestBxOrgAgents(t *testing.T) {
 		{},
 		{"--models", "any", "--credentials", "connector-first"},
 		{"finance", "--pin", "--models", "private"},
+		{"finance", "--web", "never", "--mcp", "org"},
 	} {
 		if err := cmdOrgAgents(args); err != nil {
 			t.Fatalf("bx org agents %v: %v", args, err)
@@ -71,6 +72,7 @@ func TestBxOrgAgents(t *testing.T) {
 		"GET /api/xbin/agents/policy",
 		`PUT /api/xbin/agents/policy {"credentials":"connector-first","models":"any"}`,
 		`PUT /api/xbin/orgs/finance/agents/pin {"models":"private"}`,
+		`PUT /api/xbin/orgs/finance/agents {"mcp":"org","web":"never"}`,
 		"GET /api/xbin/agents/connection?model=hosted%2Fbig&orgs=finance%2Cworkspace&whatIf=local%2Fllama",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -94,7 +96,8 @@ func TestBxOrgAgents(t *testing.T) {
 		}
 	}
 	for _, args := range [][]string{{"a", "b"}, {"finance", "--workspace-agent", "maybe"}, {"finance", "--harnesses", "private"},
-		{"finance", "--credentials", "connector-only"}, {"finance", "--models"}, {"finance", "--frob", "x"}, {"--pin", "--models", "private"}} {
+		{"finance", "--credentials", "connector-only"}, {"finance", "--models"}, {"finance", "--frob", "x"}, {"--pin", "--models", "private"},
+		{"finance", "--web", "sometimes"}, {"finance", "--mcp", "all"}} {
 		var e *dcError
 		if err := cmdOrgAgents(args); !errors.As(err, &e) || e.code != exitUsage {
 			t.Errorf("bx org agents %v: %v, want a usage error", args, err)

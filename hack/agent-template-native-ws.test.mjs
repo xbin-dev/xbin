@@ -131,8 +131,8 @@ test('the empty state: what it can and can\'t do in three lines, starters that f
   const pad = await run(seedOf(), [], { caps: PAD });
   const e2 = find(pad.tree, { t: 'transcript' }).p.empty;
   assert.equal(e2.suggestions.length, 4, 'four beside the work');
-  assert.equal(e2.lists[0].items.length, 4);
-  assert.equal(find(pad.tree, { t: 'connection' }).p.connected, '3 tiles · 2 orgs', 'the whole line where there is room');
+  assert.equal(e2.lists[0].items.length, 5, 'its four, and the web its person approves page by page (D239)');
+  assert.equal(find(pad.tree, { t: 'connection' }).p.connected, '3 tiles · 2 orgs · web', 'the whole line where there is room, the web on it (D239)');
 });
 
 test('paused: no banner of its own (the app\'s bar says it, with Resume), the draft kept in a read-only composer', async () => {
@@ -358,7 +358,7 @@ test('an app from before these nodes still gets a native view: every addition ha
   assert.deepEqual([find(t, { t: 'question' }).p.style, find(t, { t: 'question' }).p.schema.properties.answer.title], [undefined, 'Choose']);
   assert.ok(find(t, { t: 'markdown', has: 'Ledger is blocked by a rule' }));
   // the connection line is a badge in the bar; replies and the cards' buttons are the composer's chips
-  assert.equal(find(t, { t: 'badge', in: { t: 'toolbar' } }).p.text, '3 tiles · 2 orgs connected · 3 not connected');
+  assert.equal(find(t, { t: 'badge', in: { t: 'toolbar' } }).p.text, '3 tiles · 2 orgs connected · 3 not connected · web');
   const c = find(t, { t: 'composer' });
   assert.deepEqual([c.p.replies, c.p.context, c.p.hint], [undefined, undefined, undefined]);
   const chips = all(c, { t: 'button' }).map((b) => b.p.label);

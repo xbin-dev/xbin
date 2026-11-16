@@ -268,6 +268,20 @@ async function agentPolicy(browser) {
     await until(async () => (await ed.locator('.ok').count()) === 1, 'saved');
     const got = (await a.get('/orgs')).body.orgs.find((o) => o.id === ORG)?.agents;
     check(JSON.stringify(got) === '{"workspaceAgent":"on","harnesses":["claude","codex"],"models":"private"}', `the org's rules are stored (${JSON.stringify(got)})`);
+    // the web and MCP rules (D239): the org's data never to the web, its MCP tools only from its own tiles
+    check(await ed.locator('select[data-rule=web]').inputValue() === '' && await ed.locator('select[data-rule=mcp]').inputValue() === '', 'an org with no web or MCP rule reads "no rule" for both');
+    await ed.locator('select[data-rule=web]').selectOption('never');
+    await ed.locator('select[data-rule=mcp]').selectOption('org');
+    await shotEl(C.page, `bx-org-agents[org="${ORG}"]:not([pinned])`, `agentpolicy-admin-net-${THEME}`);
+    const [netReq] = await Promise.all([C.page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith(`/api/xbin/orgs/${ORG}/agents`)), ed.locator('[data-save]').click()]);
+    check(netReq.postData() === '{"web":"never","mcp":"org"}', `Save sends the web and MCP rules alone (${netReq.postData()})`);
+    await until(async () => (await ed.locator('.ok').count()) === 1, 'saved');
+    const net = (await a.get('/orgs')).body.orgs.find((o) => o.id === ORG)?.agents;
+    check(net?.web === 'never' && net?.mcp === 'org', `the org's web and MCP rules are stored (${JSON.stringify(net)})`);
+    await a.put(`/orgs/${ORG}/agents`, { web: null, mcp: null });
+    await C.page.reload();
+    await gotoTab(C.page, `orgs/${ORG}`, 'resource ceilings');
+    await until(async () => (await ed.locator('select[data-rule=web]').count()) === 1 && await ed.locator('select[data-rule=web]').inputValue() === '', 'the rules taken back');
     // the workspace's bounds, under the list; then an org list that reaches past them
     await gotoTab(C.page, 'orgs', 'workspace policy');
     const ws = C.page.locator('bx-org-agents:not([org]), bx-org-agents[org=""]');

@@ -76,7 +76,7 @@ public enum AgentWidening {
     private static func rank(_ c: GrantChoice.ID) -> Int {
         switch c {
         case .once: return 0
-        case .call: return 1
+        case .call, .tool: return 1
         case .tile: return 2
         }
     }
@@ -99,7 +99,7 @@ public enum AgentWidening {
 
 /// One way to allow a tile call.
 public struct GrantChoice: Sendable, Equatable, Identifiable {
-    public enum ID: String, Sendable { case once, call, tile }
+    public enum ID: String, Sendable { case once, call, tile, tool }
     public var id: ID
     public var label: String
     public var text: String
@@ -200,6 +200,7 @@ public enum DelegationWords {
         case .session: return r.isResume ? "Continue the tile agent in \(t)" : "Start a tile agent in \(t)"
         case .template: return "Create a tile"
         case .call: return "Approve a change to \(t)"
+        case .web, .mcp, .unknown: return netNeedTitle(r)
         }
     }
 
@@ -211,6 +212,7 @@ public enum DelegationWords {
                               : ApprovalHeading(before: "Start a tile agent in ", strong: t, after: "?")
         case .template: return ApprovalHeading(before: "Your agent wants to create a tile", strong: "", after: "")
         case .call: return ApprovalHeading(before: "Your agent wants to change something in ", strong: t, after: "")
+        case .web, .mcp, .unknown: return netHeading(r)
         }
     }
 
@@ -308,6 +310,7 @@ public enum DelegationWords {
     /// The three ways to allow a tile call; a session start and a tile
     /// create have none (they are asked every time).
     public static func grantChoices(_ r: DelegateRequest) -> [GrantChoice] {
+        if r.kind == .mcp { return mcpChoices(r) }
         guard r.kind == .call else { return [] }
         let t = tile(r).name.isEmpty ? "this tile" : tile(r).name
         let st = r.preview["standing"]
@@ -330,17 +333,19 @@ public enum DelegationWords {
         switch r.kind {
         case .session: return r.neverAsks ? "Start without asking" : "Start"
         case .template: return "Create the tile"
+        case .web, .mcp, .unknown: return netAllowLabel(r, choice: choice)
         case .call:
             switch choice {
             case .once: return "Allow once"
             case .call: return "Allow always"
-            case .tile: return "Allow every change to \(tile(r).name.isEmpty ? "the tile" : tile(r).name)"
+            case .tile, .tool: return "Allow every change to \(tile(r).name.isEmpty ? "the tile" : tile(r).name)"
             }
         }
     }
 
     /// …and as VoiceOver says them.
     public static func allowSpoken(_ r: DelegateRequest, choice: GrantChoice.ID = .once) -> String {
+        if r.kind == .mcp { return choice == .tool ? "Allow always, this tool" : "Allow once" }
         guard r.kind == .call else { return allowLabel(r, choice: choice) }
         return choice == .call ? "Allow always, this exact action" : allowLabel(r, choice: choice)
     }
@@ -350,12 +355,13 @@ public enum DelegationWords {
     public static func approveBody(_ r: DelegateRequest, choice: GrantChoice.ID = .once, duration: String = "") -> JSONValue {
         var o: [String: JSONValue] = [:]
         if sends(r).binary { o["unseen"] = true }
-        if r.kind != .call || choice == .once {
+        let tool = r.kind == .mcp && choice == .tool // an MCP tool: always, this tool (D239)
+        if !tool, r.kind != .call || choice == .once {
             o["grant"] = "once"
             return .object(o)
         }
         o["grant"] = .string(duration == "hour" || duration == "always" ? duration : AgentChoices.duration(for: choice))
-        o["scope"] = choice == .tile ? "tile" : "call"
+        o["scope"] = tool ? "tool" : choice == .tile ? "tile" : "call"
         return .object(o)
     }
 
@@ -490,7 +496,7 @@ public enum DelegationWords {
 
     public static func requestCard(_ r: DelegateRequest, now: Date = Date(), zone: TimeZone = .current) -> RequestCard {
         let what = needTitle(r)
-        switch r.state {
+        switch r.kind == .unknown ? .unknown : r.state { // a kind this app doesn't know is never one to decide
         case .pending:
             return RequestCard(head: "Waiting for your approval", what: what,
                                line: asked(created: r.created, expires: r.expires, now: now, zone: zone),
@@ -498,7 +504,7 @@ public enum DelegationWords {
         case .approved:
             return RequestCard(head: settled(r, zone: zone), what: what, line: "running now…", glyph: "clock", tone: "", waits: false, button: "")
         case .used:
-            return RequestCard(head: settled(r, zone: zone), what: what, line: r.kind == .call ? "\(r.method) \(r.target)" : "",
+            return RequestCard(head: settled(r, zone: zone), what: what, line: r.kind == .call ? "\(r.method) \(r.target)" : r.kind == .web ? webOf(r).url : "",
                                glyph: "check", tone: "ok", waits: false, button: "")
         case .denied, .withdrawn:
             return RequestCard(head: settled(r, zone: zone), what: what, line: "", glyph: "xmark", tone: "", waits: false, button: "")
@@ -544,12 +550,13 @@ public enum DelegationWords {
         let name = lastOf(a.tile)
         return StandingRow(
             tile: name.isEmpty ? a.tile : name,
-            text: a.scope == "tile" ? "Always · every change" : "Always · this action: \(a.method) \(a.path)".trimmingCharacters(in: .whitespaces),
+            text: a.scope == "tile" ? "Always · every change" : a.scope == "tool" ? "Always · this tool: \(a.path)"
+                : "Always · this action: \(a.method) \(a.path)".trimmingCharacters(in: .whitespaces),
             wider: a.scope == "tile",
             until: a.until.map { $0 > now ? "ends in \(left($0.timeIntervalSince(now)))" : "ended" } ?? "until you take it back")
     }
 
-    public static let standingNote = "Starting a tile agent and creating a tile are asked every time. Taking an approval back stops a change that is running under it."
+    public static let standingNote = "Starting a tile agent, creating a tile and reading a web page are asked every time. Taking an approval back stops a change that is running under it."
 
     // MARK: Change sets
 
@@ -691,7 +698,7 @@ public enum DelegationWords {
         return g + (sc == "tile" ? ", every change" : sc == "call" ? ", this action" : "")
     }
 
-    private static func underWords(_ row: AuditRow) -> String {
+    static func underWords(_ row: AuditRow) -> String {
         let u = row.under
         if u == "preference" { return "without asking: your preference" }
         if u.hasPrefix("approval:") { return "under a standing approval of yours" }
@@ -723,6 +730,7 @@ public enum DelegationWords {
             return Did(text: text, strong: "", detail: [t, grantWords(row.under)].filter { !$0.isEmpty }.joined(separator: " · "),
                        icon: "person", group: "change", at: row.ts)
         }
+        if let d = netDid(row) { return d }
         if row.cls.hasPrefix("changeset:") {
             return Did(text: "Applied an admin change as you", strong: "",
                        detail: kindTag(String(row.cls.dropFirst(10))) + (row.status >= 400 ? " · failed" : ""),

@@ -452,19 +452,23 @@ struct AgentApprovalSheet: View {
 
     @ViewBuilder private func content(_ r: DelegateRequest) -> some View {
         let h = DelegationWords.heading(r)
-        Text("\(Text(verbatim: h.before))\(Text(verbatim: h.strong).bold())\(Text(verbatim: h.after))")
-            .font(.title3).accessibilityAddTraits(.isHeader)
+        Text(AgentReveal.heading(h)) // a tile's or a tool's name is never drawn as it came (reveal)
+            .accessibilityLabel(Text(verbatim: DelegationWords.revealed(h.plain)))
+            .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier("approval-heading")
         if !r.isPending {
-            Label { Text(verbatim: DelegationWords.settled(r)) } icon: { Image(systemName: "info.square") }
+            Label { Text(verbatim: r.kind == .unknown ? DelegationWords.unknownState.text : DelegationWords.settled(r)) } icon: { Image(systemName: "info.square") }
                 .font(.callout.weight(.semibold))
         }
+        if r.preview["readWeb"]?.boolValue == true { AgentReadWebBanner() }
         switch r.kind {
         case .session: sessionRows(r)
         case .call, .template: callRows(r)
+        case .web, .mcp: AgentNetRows(request: r)
+        case .unknown: EmptyView() // a newer xbind's kind: said above, never decided here
         }
         if !r.summary.isEmpty { AgentQuote(label: "The agent's own words — not checked by xbin", text: r.summary) }
-        if r.kind == .call, r.isPending { choices(r) }
+        if r.kind == .call || r.kind == .mcp, r.isPending { choices(r) }
         if let problem {
             Label { Text(verbatim: problem) } icon: { Image(systemName: "exclamationmark.octagon") }
                 .font(.callout).foregroundStyle(XbinColor.danger)
@@ -474,7 +478,8 @@ struct AgentApprovalSheet: View {
 
     private func footer(_ r: DelegateRequest) -> String {
         let asked = DelegationWords.asked(created: r.created, expires: r.isPending ? r.expires : nil)
-        return r.kind == .call ? asked : [asked, "asked every time · change in Preferences"].filter { !$0.isEmpty }.joined(separator: " · ")
+        if r.kind == .call || r.kind == .mcp { return asked }
+        return [asked, r.kind == .web ? "asked every time" : "asked every time · change in Preferences"].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     // MARK: A tile call, a tile's creation
@@ -485,8 +490,8 @@ struct AgentApprovalSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             if r.kind == .call {
                 ApprovalRow(label: "Tile") {
-                    Text(verbatim: t.name).font(.body.weight(.semibold))
-                    Text(verbatim: [t.path, t.org].filter { !$0.isEmpty }.joined(separator: " · ")).font(XbinFont.code).foregroundStyle(XbinColor.muted)
+                    Text(AgentReveal.attributed(t.name, font: .body.weight(.semibold)))
+                    Text(AgentReveal.attributed([t.path, t.org].filter { !$0.isEmpty }.joined(separator: " · "), font: XbinFont.code)).foregroundStyle(XbinColor.muted)
                     let level = DelegationWords.levelWords(r.preview["level"]?.stringValue ?? "")
                     if !level.isEmpty { Text(verbatim: level).font(.caption).foregroundStyle(XbinColor.muted) }
                 }
@@ -511,7 +516,7 @@ struct AgentApprovalSheet: View {
                 }
             }
             if r.kind == .call {
-                ApprovalRow(label: "Undo") { Text(verbatim: DelegationWords.undoWords(r)).font(.callout) }
+                ApprovalRow(label: "Undo") { Text(AgentReveal.attributed(DelegationWords.undoWords(r), font: .callout)) }
             }
         }
     }
@@ -553,7 +558,7 @@ struct AgentApprovalSheet: View {
                 .accessibilityIdentifier("approval-choice-\(c.id.rawValue)")
                 .widens(armed: !widening || widen.armed)
             }
-            if choice == .call {
+            if choice == .call || choice == .tool {
                 AgentDurationPicker(duration: $duration, armed: widen.armed, id: "approval-duration")
             }
         }
@@ -579,8 +584,8 @@ struct AgentApprovalSheet: View {
                 if !s.modeName.isEmpty { Text(verbatim: s.modeName).font(XbinFont.code).foregroundStyle(XbinColor.muted) }
             }
             ApprovalRow(label: "Tile") {
-                Text(verbatim: t.name).font(.body.weight(.semibold))
-                Text(verbatim: [t.path, t.org].filter { !$0.isEmpty }.joined(separator: " · ")).font(XbinFont.code).foregroundStyle(XbinColor.muted)
+                Text(AgentReveal.attributed(t.name, font: .body.weight(.semibold)))
+                Text(AgentReveal.attributed([t.path, t.org].filter { !$0.isEmpty }.joined(separator: " · "), font: XbinFont.code)).foregroundStyle(XbinColor.muted)
             }
             ApprovalRow(label: "Coding agent") { Text(verbatim: s.agent).font(.callout) }
             ApprovalRow(label: "Network") { Text(verbatim: s.network).font(.callout) }
@@ -701,9 +706,9 @@ struct AgentWiderSheet: View {
                         AgentTag(text: "WIDER", symbol: "exclamationmark.triangle", tone: "warn")
                         Spacer()
                     }
-                    Text(verbatim: w.heading).font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                    Text(AgentReveal.attributed(w.heading, font: .title3.weight(.semibold))).accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("wider-heading")
-                    Text(verbatim: w.means)
+                    Text(AgentReveal.attributed(w.means, font: .body))
                     AgentDurationPicker(duration: $duration, armed: widen.armed, id: "wider-duration")
                     Text(verbatim: w.ends).font(.callout).foregroundStyle(XbinColor.muted)
                     if refused {

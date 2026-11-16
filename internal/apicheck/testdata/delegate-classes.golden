@@ -222,6 +222,7 @@ POST /delegate/changesets	act
 POST /delegate/changesets/{id}/approve	never
 POST /delegate/changesets/{id}/reject	never
 POST /delegate/changesets/{id}/undo	never
+POST /delegate/mcp/call	act
 POST /delegate/page/dismiss	never
 POST /delegate/requests	act
 POST /delegate/requests/{id}/approve	never
@@ -229,6 +230,7 @@ POST /delegate/requests/{id}/deny	never
 POST /delegate/sessions	act
 POST /delegate/sessions/{id}/allows	act
 POST /delegate/sessions/{id}/taint	act
+POST /delegate/web/fetch	act
 POST /deployments/add	refused
 POST /deployments/always-on	refused
 POST /deployments/backup	refused

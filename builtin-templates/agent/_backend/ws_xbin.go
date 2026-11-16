@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -94,6 +95,22 @@ type wsXbin interface {
 	ChangeSet(ctx context.Context, sid, id string) (wsChangeSet, error)
 	ChangeSets(ctx context.Context, sid string) ([]wsChangeSet, error)
 	Preview(ctx context.Context, sid string, p wsPreviewAsk) (wsPreview, error)
+
+	// The web and MCP servers (ws_xbin_net.go; D239): xbind reads a page for
+	// the conversation (with ticket: under its person's approval of that
+	// URL), files the approval, and keeps "this conversation has read the
+	// web" with a handle that is renewed (MarkWeb). What the conversation
+	// may do there is the handle's reach (wsHandle.Reach).
+	WebFetch(ctx context.Context, sid, url, ticket string) (wsWebPage, error)
+	AskWeb(ctx context.Context, sid, url, summary string) (wsRequest, error)
+	MarkWeb(ctx context.Context, sid string) error
+	// MCP tiles: their tools, read on the tile's own endpoint as the person
+	// (initialize and tools/list are reads at xbind); a tool's call through
+	// xbind (with ticket: under its person's approval; dry: xbind's word on
+	// what it would need), and its approval filed.
+	MCPTools(ctx context.Context, sid, tile string) ([]wsMCPTool, error)
+	MCPCall(ctx context.Context, sid string, c wsMCPCall, ticket string, dry bool) (wsMCPResult, *wsDry, error)
+	AskMCP(ctx context.Context, sid string, c wsMCPCall, summary string) (wsRequest, error)
 }
 
 // wsX is xbind for this process: the delegate client, or a test's fake.
@@ -115,6 +132,71 @@ type wsHandle struct {
 	Model      string       `json:"model"`
 	Tainted    []string     `json:"tainted,omitempty"` // the orgs whose data the conversation holds
 	Connection wsConnection `json:"connection"`
+	// Web: the conversation has read the web — as xbind holds it for the
+	// handle, and as the conversation keeps it across handles (it only goes
+	// from false to true). Reach: what it may do on the web and with MCP
+	// servers now, by xbind (an xbind before D239 says nothing: off).
+	Web   bool    `json:"web,omitempty"`
+	Reach wsReach `json:"reach,omitempty"`
+}
+
+// wsReach is a conversation's reach on the web and with MCP servers.
+type wsReach struct {
+	Web    wsReachOne `json:"web,omitempty"`
+	Search wsReachOne `json:"search,omitempty"`
+	MCP    wsReachOne `json:"mcp,omitempty"`
+}
+
+// wsReachOne is one capability's reach: State on | asks | off ("": xbind
+// didn't say — off), Why in words a person reads, Code the refusal a call
+// meets while it is off, Orgs the orgs whose data is why it asks.
+type wsReachOne struct {
+	State string   `json:"state,omitempty"`
+	Why   string   `json:"why,omitempty"`
+	Code  string   `json:"code,omitempty"`
+	Orgs  []string `json:"orgs,omitempty"`
+}
+
+// on: the capability may be used now, freely or asking.
+func (r wsReachOne) on() bool { return r.State == "on" || r.State == "asks" }
+
+// wsMCPTool is one tool of an MCP tile, as its server lists it.
+type wsMCPTool struct {
+	Name        string         `json:"name"`
+	Title       string         `json:"title,omitempty"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"inputSchema,omitempty"`
+	ReadOnly    bool           `json:"readOnly,omitempty"` // the server marks it read-only (readOnlyHint): its word
+}
+
+// wsMCPCall is one tool's call, exactly as it is sent (and approved).
+type wsMCPCall struct {
+	Server    string         `json:"server"`
+	Tool      string         `json:"tool"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+// wsMCPResult is what a tool answered.
+type wsMCPResult struct {
+	IsError bool `json:"isError"`
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text,omitempty"`
+	} `json:"content"`
+	Structured json.RawMessage `json:"structured,omitempty"`
+}
+
+// wsWebPage is what xbind read of one page.
+type wsWebPage struct {
+	URL         string   `json:"url"`
+	FinalURL    string   `json:"finalUrl"`
+	Status      int      `json:"status"`
+	ContentType string   `json:"contentType"`
+	Title       string   `json:"title,omitempty"`
+	Text        string   `json:"text"`
+	Bytes       int64    `json:"bytes"`
+	Truncated   bool     `json:"truncated"`
+	Redirects   []string `json:"redirects,omitempty"`
 }
 
 // wsHandleChange is a change to a handle: its scope (SetScope with a nil
@@ -256,6 +338,7 @@ type wsTile struct {
 	Running bool     `json:"running,omitempty"` // a tile agent runs there now
 	Level   string   `json:"level,omitempty"`   // the person's level on it
 	Rev     string   `json:"rev,omitempty"`     // its code's revision, when xbind says
+	MCP     bool     `json:"mcp,omitempty"`     // it is an MCP server (its endpoint /api/<tile>/mcp)
 }
 
 // wsNoOrg is the org xbind names for the tiles in no org.

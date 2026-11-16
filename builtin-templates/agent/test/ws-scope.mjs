@@ -51,8 +51,8 @@ const seed = () => ({
 {
   const { ctx, page, errors } = await openWs(browser, seed());
   const chip = await page.$eval('.wsp-chip', (b) => ({ t: [...b.querySelectorAll('.seg')].map((x) => x.textContent.trim()).join(' | '), label: b.getAttribute('aria-label'), exp: b.getAttribute('aria-expanded') }));
-  ok('the chip: connected, not connected, the model', chip.t === '3 tiles · 2 orgs | 3 not connected | big', JSON.stringify(chip));
-  ok('…one element for a screen reader', chip.label === 'Scope: 3 tiles in 2 orgs connected, 3 not connected. Model big.' && chip.exp === 'false', JSON.stringify(chip));
+  ok('the chip: connected, not connected, the model', chip.t === '3 tiles · 2 orgs | 3 not connected | web | big', JSON.stringify(chip)); // (the stub's web asks: D239)
+  ok('…one element for a screen reader', chip.label === 'Scope: 3 tiles in 2 orgs connected, 3 not connected. Model big. Reads web pages you approve.' && chip.exp === 'false', JSON.stringify(chip));
   await page.click('.wsp-chip');
   await until(async () => !!(await page.$('.wsp-tree')));
   ok('the panel is a dialog named for what it says', (await page.$eval('.wsp-scope', (d) => `${d.getAttribute('role')}:${d.getAttribute('aria-label')}`)) === 'dialog:What this session is connected to');

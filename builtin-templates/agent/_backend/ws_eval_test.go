@@ -569,7 +569,7 @@ func TestWsEvalImpossibleRequestYieldsCant(t *testing.T) {
 			t.Errorf("the agent is offered %s", n)
 		}
 	}
-	for _, want := range []string{"You can't delete tiles, open terminals, use the web", "the nearest thing you can do", "Look there, and at your tools, before you tell your person something can't be done."} {
+	for _, want := range []string{"You can't delete tiles, open terminals, or change accounts", "Reading the web: off —", "the nearest thing you can do", "Look there, and at your tools, before you tell your person something can't be done."} {
 		if !strings.Contains(systemOf(c), want) {
 			t.Errorf("the prompt lacks %q", want)
 		}

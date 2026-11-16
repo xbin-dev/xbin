@@ -20,7 +20,7 @@ export const CHOICES = Object.freeze({
   dockWidth: 400, dockMin: 360, dockMax: 720, // the dock: default, and how far it resizes (px)
   narrow: 640,                                // under this the dock is the whole page
   armMs: 600,                                 // Allow is not armed before this long after the sheet is shown
-  duration: Object.freeze({ call: 'always', tile: 'hour' }), // a standing choice's default duration (Q5)
+  duration: Object.freeze({ call: 'always', tile: 'hour', tool: 'always' }), // a standing choice's default duration (Q5)
   warnedStartUnticked: true,                  // a change with a warning starts unticked (Q7)
   typeWhilePaused: false,                     // the page is not shown while paused (Q10)
   shortcut: Object.freeze({ key: 'j', ctrlOrMeta: true }), // Ctrl+J / ⌘J, when the shell has it free (Q11)
@@ -88,6 +88,8 @@ export const levelWords = (level) => LEVEL[level] || (level ? `your level: ${lev
 
 /** needTitle(req): a request as a row of Needs you. */
 export function needTitle(req) {
+  if (req.kind === 'web') return `Read a web page on ${webOf(req).host || 'the web'}`;
+  if (req.kind === 'mcp') return `Run ${mcpOf(req).tool || 'a tool'} on ${mcpOf(req).server}`;
   const t = tileOf(req).name || 'a tile';
   if (req.kind === 'session') return req.preview && req.preview.session && req.preview.session.resume ? `Continue the tile agent in ${t}` : `Start a tile agent in ${t}`;
   if (req.kind === 'template') return 'Create a tile';
@@ -96,6 +98,8 @@ export function needTitle(req) {
 
 /** heading(req): the sheet's heading — {before, strong, after}: the tile's name is the strong part. */
 export function heading(req) {
+  if (req.kind === 'web') return { before: 'Your agent wants to read a page on ', strong: webOf(req).host || 'the web', after: '' };
+  if (req.kind === 'mcp') return { before: 'Your agent wants to run ', strong: mcpOf(req).tool || 'a tool', after: ` on ${mcpOf(req).server}` };
   const t = tileOf(req).name || 'a tile';
   if (req.kind === 'session') {
     return req.preview && req.preview.session && req.preview.session.resume
@@ -191,6 +195,13 @@ export const undoWords = (req) => `xbin can't undo this. Whether ${tileOf(req).n
  * one: they are asked every time.
  */
 export function grantChoices(req) {
+  if (req.kind === 'mcp') {
+    const m = mcpOf(req);
+    return [
+      { id: 'once', scope: '', label: 'Once', text: 'This call only. The agent has 15 minutes to make it.', wider: false },
+      { id: 'tool', scope: 'tool', label: 'Always, this tool', text: m.standing || `${m.tool} on ${m.server}, as it is described now, with any arguments, without asking again.`, wider: false },
+    ];
+  }
   if (req.kind !== 'call') return [];
   const t = tileOf(req).name || 'this tile';
   const st = (req.preview && req.preview.standing) || {};
@@ -208,11 +219,14 @@ export const DURATIONS = Object.freeze([{ id: 'hour', label: 'For one hour' }, {
 export function allowLabel(req, choice = 'once') {
   if (req.kind === 'session') return req.preview && req.preview.session && req.preview.session.asks === true ? 'Start' : 'Start without asking'; // only xbind's word that the mode asks
   if (req.kind === 'template') return 'Create the tile';
+  if (req.kind === 'web') return 'Read this page';
+  if (req.kind === 'mcp') return choice === 'tool' ? 'Allow always' : 'Allow once';
   return choice === 'once' ? 'Allow once' : choice === 'call' ? 'Allow always' : `Allow every change to ${tileOf(req).name || 'the tile'}`;
 }
 
 /** allowSpoken(req, choice): …and as a screen reader says them. */
 export function allowSpoken(req, choice = 'once') {
+  if (req.kind === 'mcp') return choice === 'tool' ? 'Allow always, this tool' : 'Allow once';
   if (req.kind !== 'call') return allowLabel(req, choice);
   return choice === 'once' ? 'Allow once' : choice === 'call' ? 'Allow always, this exact action' : `Allow every change to ${tileOf(req).name || 'the tile'}`;
 }
@@ -224,6 +238,10 @@ export function allowSpoken(req, choice = 'once') {
  */
 export function approveBody(req, choice = 'once', duration = '') {
   const unseen = sends(req).binary ? { unseen: true } : {};
+  if (req.kind === 'mcp' && choice === 'tool') {
+    const d = duration === 'hour' || duration === 'always' ? duration : CHOICES.duration.tool;
+    return { grant: d, scope: 'tool', ...unseen };
+  }
   if (req.kind !== 'call' || choice === 'once') return { grant: 'once', ...unseen };
   const d = duration === 'hour' || duration === 'always' ? duration : CHOICES.duration[choice] || 'hour';
   return { grant: d, scope: choice === 'tile' ? 'tile' : 'call', ...unseen };
@@ -346,12 +364,12 @@ export function standingRow(a, now = Date.now()) {
     tile: lastOf(a.tile) || a.tile || '',
     path: a.tile || '',
     wider: a.scope === 'tile',
-    text: a.scope === 'tile' ? 'Always · every change' : `Always · this action: ${a.method || ''} ${a.path || ''}`.trim(),
+    text: a.scope === 'tile' ? 'Always · every change' : a.scope === 'tool' ? `Always · this tool: ${a.path || ''}` : `Always · this action: ${a.method || ''} ${a.path || ''}`.trim(),
     since: toMs(a.created) ? `since ${new Date(toMs(a.created)).toLocaleDateString()} ${clock(toMs(a.created))}` : '',
     until: until ? (until > now ? `ends in ${left(until - now)}` : 'ended') : 'until you take it back',
   };
 }
-export const STANDING_NOTE = 'Starting a tile agent and creating a tile are asked every time. Taking an approval back stops a change that is running under it.';
+export const STANDING_NOTE = 'Starting a tile agent, creating a tile and reading a web page are asked every time. Taking an approval back stops a change that is running under it.';
 
 // ---- change sets -------------------------------------------------------------------------
 
@@ -445,6 +463,65 @@ export function stepUp(kind) {
       sso: 'Use sign in again instead; your ticks are kept.' };
 }
 
+// ---- the web and MCP tools (D239) -------------------------------------------------------------
+
+/** webOf(req): a web request's page as xbind previews it — {url, host, why, orgs}. */
+export function webOf(req) {
+  const p = (req && req.preview) || {};
+  return { url: String(p.url || ''), host: String(p.host || webHost(p.url)), why: String(p.why || ''), orgs: Array.isArray(p.orgs) ? p.orgs : [] };
+}
+/** webHost(url): the host of a URL ('' when none). */
+export function webHost(url) { const m = /^[a-z]+:\/\/([^/?#:]+)/i.exec(String(url || '')); return m ? m[1] : ''; }
+
+/** mcpOf(req): an MCP request's tool as xbind previews it — {server, path, tool, title, description, readOnly, arguments, standing}. */
+export function mcpOf(req) {
+  const p = (req && req.preview) || {};
+  return { server: String(p.serverName || p.server || lastOf(req && req.tile) || 'an MCP server'), path: String(p.server || (req && req.tile) || ''), tool: String(p.tool || ''),
+    title: String(p.title || ''), description: String(p.description || ''), readOnly: p.readOnly === true, arguments: String(p.arguments || ''),
+    standing: (p.standing && p.standing.tool) || '', changed: Array.isArray(p.changed) ? p.changed.map(String) : [] };
+}
+
+const CHANGED = Object.freeze({ name: 'its name', title: 'its title', description: 'its description', inputSchema: 'its arguments',
+  outputSchema: 'its answer’s form', annotations: 'its marks (read-only and the like)' });
+
+/** READ_WEB: what a sheet says when the conversation that asks has read the web (preview.readWeb). */
+export const READ_WEB = 'This conversation has read the web: what your agent asks may come from a page it read.';
+/** webRows(req): a web request as the sheet's rows — {url, host, why, once}. */
+export function webRows(req) {
+  const w = webOf(req);
+  return { url: w.url, host: w.host, why: w.why || 'This conversation holds data of an organisation: the address itself can carry it out of the workspace.',
+    once: 'Reading a page is asked every time: the address is the data.' };
+}
+/** mcpRows(req): an MCP request as the sheet's rows. */
+export function mcpRows(req) {
+  const m = mcpOf(req);
+  return { ...m, marked: m.readOnly ? 'Its server marks it read-only — the server’s word, not xbin’s.' : 'Its server doesn’t mark it read-only: it may change things.',
+    undo: `xbin can't undo this. Whether ${m.server} can is up to ${m.server}.`,
+    changedLine: m.changed.length ? `Changed since you last allowed it or first met it: ${m.changed.map((k) => CHANGED[k] || k).join(', ')}.` : '' };
+}
+
+/**
+ * netPrefs(state): the two Preferences controls (and the read-only one
+ * under MCP) — [{id: 'web' | 'mcp' | 'mcpReadOnly', label, note, on,
+ * allowed, why}], from GET /delegate/state: the person's own settings and
+ * what the workspace policy lets them turn on (net). Turning one on widens:
+ * the chrome arms it like Allow. Off is never held.
+ */
+export function netPrefs(state) {
+  const st = state || {}, net = st.net || {};
+  const web = net.web || {}, mcp = net.mcp || {};
+  const webOk = !!web.policy && web.policy !== 'off', mcpOk = !!mcp.policy && mcp.policy !== 'off';
+  const only = Array.isArray(web.only) && web.only.length ? ` Only ${web.only.join(', ')}.` : '';
+  return [
+    { id: 'web', label: 'Let my agent read web pages', on: !!st.web && webOk, allowed: webOk, why: webOk ? '' : (web.why || 'Off for this workspace — an admin can change it.'),
+      note: `It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve.${only}` },
+    { id: 'mcp', label: 'Let my agent use MCP tools from this workspace’s tiles', on: !!st.mcp && mcpOk, allowed: mcpOk, why: mcpOk ? '' : (mcp.why || 'Off for this workspace — an admin can change it.'),
+      note: 'As you, on the tiles you can reach. Each tool asks you the first time.' },
+    { id: 'mcpReadOnly', label: 'MCP tools marked read-only don’t ask me', on: !!st.mcpReadOnly && mcpOk && !!st.mcp, allowed: mcpOk && !!st.mcp, sub: true,
+      why: !mcpOk ? '' : st.mcp ? '' : 'Turn on MCP tools first.', note: '“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask.' },
+  ];
+}
+
 // ---- needs you ---------------------------------------------------------------------------
 
 /**
@@ -505,6 +582,13 @@ export function did(row) {
     const d = cls.slice(9);
     return { text: d.startsWith('den') ? 'You denied a request' : d.startsWith('revoke') ? 'You took an approval back' : 'You allowed a request', strong: '', detail: [t, effect || grantWords(row.under)].filter(Boolean).join(' · '), icon: 'person', group: 'change', at };
   }
+  if (cls === 'web') {
+    const host = webHost(row.path);
+    return row.refused ? { text: 'Was refused a web page on ', strong: host, detail: String(row.refused), icon: 'lock', group: 'refused', at }
+      : { text: 'Read a web page on ', strong: host, detail: [row.path, row.bytes ? bytes(row.bytes) : '', row.ticket ? 'you allowed it once' : ''].filter(Boolean).join(' · '), icon: 'globe', group: 'change', at };
+  }
+  if (cls === 'mcp' && !row.refused) return { text: 'Ran a tool of ', strong: t, detail: [row.under === 'preference' ? 'without asking: marked read-only, your preference' : underWords(row), row.status >= 400 ? 'failed' : ''].filter(Boolean).join(' · '), icon: 'plug', group: 'change', at };
+  if (cls === 'mcp-read' && !row.refused) return { text: 'Read the tools of ', strong: t, detail: '', icon: 'eye', group: 'read', at };
   if (cls.startsWith('changeset:')) return { text: 'Applied an admin change as you', strong: '', detail: `${kindTag(cls.slice(10))}${row.status >= 400 ? ' · failed' : ''}`, icon: 'shield', group: 'change', at };
   if (row.refused) return { text: 'Was refused: ', strong: t || call, detail: String(row.refused), icon: 'lock', group: 'refused', at };
   const under = underWords(row);
@@ -548,7 +632,7 @@ export function requestCard(req, now = Date.now()) {
   switch (req.state) {
     case 'pending': return card('Waiting for your approval', asked(req, now), 'shield', 'warn', true, 'Review…');
     case 'approved': return card(settled(req), 'running now…', 'clock', '');
-    case 'used': return card(settled(req), req.kind === 'call' ? `${req.method} ${req.target}` : '', 'check', 'ok');
+    case 'used': return card(settled(req), req.kind === 'call' ? `${req.method} ${req.target}` : req.kind === 'web' ? webOf(req).url : '', 'check', 'ok');
     case 'denied': case 'withdrawn': return card(settled(req), '', 'xmark', '');
     case 'expired': return card(settled(req), '', 'clock', '');
   }

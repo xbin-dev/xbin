@@ -23,6 +23,17 @@ const session = (s = {}, o = {}) => ({ id: 'rq_sess', user: 'ana', agent: 'xbin/
   summary: 'Start Claude Code on the export.', state: 'pending', created: t('10:02:00'), expires: '2026-11-17T10:02:00Z',
   preview: { class: 'act', session: { tile: 'apps/orders', provider: 'claude', providerName: 'Claude Code', mode: 'default', asks: true, net: 'none', api: true, model: 'sonnet', ...s } }, ...o });
 
+const web = (o = {}) => ({ id: 'rq_web', user: 'ana', agent: 'xbin/wsagent', kind: 'web', method: 'POST', target: 'xbin/delegate/web/fetch', tile: '',
+  contentType: 'application/json', body: '{"url":"https://status.example.com/incidents?since=today"}', bodyShown: true, bodySize: 57, bodySha256: 'ef56',
+  summary: 'To see whether the payment provider reports an outage.', state: 'pending', created: t('10:10:00'), expires: '2026-11-17T10:10:00Z',
+  preview: { class: 'web', url: 'https://status.example.com/incidents?since=today', host: 'status.example.com', orgs: ['sales'], readWeb: true,
+    why: 'This conversation holds data of Sales: an address can carry it out, so each page it reads is one you approve' }, ...o });
+const mcp = (o = {}) => ({ id: 'rq_mcp', user: 'ana', agent: 'xbin/wsagent', kind: 'mcp', method: 'POST', target: 'xbin/delegate/mcp/call', tile: 'apps/dice',
+  contentType: 'application/json', body: '{"server":"apps/dice","tool":"wipe","arguments":{"table":"main"}}', bodyShown: true, bodySize: 62, bodySha256: '9a8b',
+  summary: 'You asked to clear the table.', state: 'pending', created: t('10:12:00'), expires: '2026-11-17T10:12:00Z',
+  preview: { class: 'mcp', tile: 'apps/dice', server: 'apps/dice', serverName: 'Dice', tool: 'wipe', title: 'Wipe the table', description: 'Clears every die from the table.',
+    readOnly: false, arguments: '{\n  "table": "main"\n}', standing: { tool: 'wipe on Dice — this tool again, with any arguments, without asking' } }, ...o });
+
 export const requests = [
   call(),
   call({ id: 'rq_nobody', body: '', bodySize: 0, preview: { class: 'tile-write', tile: 'apps/ledger', level: 'owner' }, tile: 'apps/ledger', method: 'DELETE', target: 'apps/ledger/rows/7' }),
@@ -49,6 +60,13 @@ export const requests = [
     body: JSON.stringify({ cwd: 'apps/orders', kind: 'agent', prompt: 'Goal: export the \u202Einvoices\u202C.\nDone when: the test passes.' }) }),
   session({ asks: 'yes', mode: 'odd' }, { id: 'rq_odd_asks' }),
   session({}, { id: 'rq_tmpl', kind: 'template', tile: '', target: 'xbin/templates/new', preview: { class: 'act' } }),
+  // the web and MCP tools (D239): a page is asked every time, with its whole address; a tool once or always
+  web(), web({ id: 'rq_web_used', state: 'used', grant: 'once', decided: t('10:15:00') }),
+  web({ id: 'rq_web_bare', body: '{"url":"HTTPS://Docs.Example.com:8443/a?b=1"}', bodySize: 44, preview: { class: 'web', url: 'HTTPS://Docs.Example.com:8443/a?b=1' } }),
+  mcp(), mcp({ id: 'rq_mcp_ro', preview: { class: 'mcp', tile: 'apps/dice', server: 'apps/dice', tool: 'roll_dice', readOnly: true, arguments: '{}' } }),
+  mcp({ id: 'rq_mcp_used', state: 'approved', grant: 'always', decided: t('10:16:00') }),
+  // a tool that changed since it was allowed or first met: what changed, said
+  mcp({ id: 'rq_mcp_changed', preview: { class: 'mcp', tile: 'apps/dice', server: 'apps/dice', serverName: 'Dice', tool: 'wipe', readOnly: true, arguments: '{}', changed: ['description', 'annotations', 'somethingNew'] } }),
 ];
 
 const item = (n, o = {}) => ({ n, kind: 'grant.add', args: {}, line: `Give Invoices read access to Orders (${n})`, before: 'no access', after: 'read', ...o });
@@ -78,6 +96,7 @@ export const approvals = [
   { id: 'ap_1', user: 'ana', tile: 'apps/invoices', scope: 'call', method: 'POST', path: 'apps/invoices/links/rebuild', created: t('09:00:00') },
   { id: 'ap_2', user: 'ana', tile: 'apps/orders', scope: 'tile', until: t('10:40:00'), created: t('09:40:00') },
   { id: 'ap_3', user: 'ana', tile: 'apps/orders', scope: 'tile', until: t('10:00:00'), created: t('09:00:00') },
+  { id: 'ap_4', user: 'ana', tile: 'apps/dice', scope: 'tool', method: 'MCP', path: 'wipe', created: t('09:30:00') },
 ];
 
 export const audit = [
@@ -100,6 +119,14 @@ export const audit = [
   { ts: t('09:53:00'), method: 'PATCH', path: '/api/xbin/delegate/sessions/h1', class: 'act', status: 200 },
   { ts: t('09:52:00'), method: 'DELETE', path: '/api/xbin/delegate/sessions/h1', class: 'act', status: 204 },
   { ts: t('09:51:00'), method: 'GET', path: '/api/xbin/whoami', class: 'read', status: 200 },
+  { ts: t('09:50:00'), method: 'GET', path: 'https://status.example.com/incidents', class: 'web', status: 200, bytes: 14336, ticket: 'rq_web' },
+  { ts: t('09:49:00'), method: 'GET', path: 'https://docs.example.com/', class: 'web', status: 200 },
+  { ts: t('09:48:00'), method: 'GET', path: 'https://intranet.example.com/', class: 'web', status: 403, refused: 'intranet.example.com is on the workspace\'s deny list' },
+  { ts: t('09:47:00'), method: 'POST', path: '/api/apps/dice/mcp', tile: 'apps/dice', class: 'mcp', effect: true, status: 200, ticket: 'rq_mcp' },
+  { ts: t('09:46:00'), method: 'POST', path: '/api/apps/dice/mcp', tile: 'apps/dice', class: 'mcp', effect: true, status: 200, under: 'preference' },
+  { ts: t('09:45:00'), method: 'POST', path: '/api/apps/dice/mcp', tile: 'apps/dice', class: 'mcp', effect: true, status: 502, under: 'approval:ap_4' },
+  { ts: t('09:44:00'), method: 'POST', path: '/api/apps/dice/mcp', tile: 'apps/dice', class: 'mcp-read', status: 200 },
+  { ts: t('09:43:00'), method: 'POST', path: '/api/apps/dice/mcp', tile: 'apps/dice', class: 'mcp', status: 403, refused: 'Using MCP tools is off for this workspace' },
 ];
 
 const S = (o = {}) => ({ user: 'ana', workspace: true, paused: false, adminChanges: false, canAdminChanges: false, pendingRequests: 2, standingApprovals: 1, openChangeSets: 1, access: true, agent: 'xbin/wsagent', workspaceAt: t('09:12:00'), ...o });
@@ -132,6 +159,8 @@ for (const r of requests) {
     choices: W.grantChoices(r).map((c) => ({ id: c.id, label: c.label, text: c.text, wider: c.wider })),
     allow: ['once', 'call', 'tile'].map((c) => [W.allowLabel(r, c), W.allowSpoken(r, c)]),
     bodies: [W.approveBody(r, 'once'), W.approveBody(r, 'call'), W.approveBody(r, 'tile'), W.approveBody(r, 'call', 'hour'), W.approveBody(r, 'tile', 'always')],
+    tool: [W.allowLabel(r, 'tool'), W.allowSpoken(r, 'tool'), W.approveBody(r, 'tool'), W.approveBody(r, 'tool', 'hour')],
+    net: r.kind === 'web' ? W.webRows(r) : r.kind === 'mcp' ? W.mcpRows(r) : null,
     wider: W.widerWords(r), session: r.kind === 'session' ? W.sessionRows(r) : null, settled: W.settled(r), asked: W.asked(r, NOW), card: W.requestCard(r, NOW) });
 }
 for (const c of changesets) {
@@ -202,6 +231,15 @@ out.small = {
     .map(([tileAgents, working, count]) => ({ dock, tileAgents, working, count, out: W.homeStatus(dock, { tileAgents, working, count }) }))),
   clip: W.CLIP,
   clips: ['', 'short', 'x'.repeat(4000), 'x'.repeat(4001), '😀'.repeat(4002), `${'a'.repeat(3999)}😀b`].map((input) => ({ input, ...W.clipText(input), note: W.clipNote(W.clipText(input)) })),
+  // the Preferences of the web and MCP tools (D239), from GET /delegate/state: what the person set, what the policy lets them
+  readWeb: W.READ_WEB,
+  netPrefs: [
+    {}, { web: true, mcp: true, mcpReadOnly: true },
+    { web: true, net: { web: { policy: 'read' }, mcp: { policy: 'off', why: 'Using MCP tools is off for this workspace — an admin can change it (the workspace agent’s settings)' } } },
+    { web: false, mcp: true, mcpReadOnly: false, net: { web: { policy: 'read', only: ['docs.example.com', '*.wiki.test'] }, mcp: { policy: 'tiles' } } },
+    { web: true, mcp: true, mcpReadOnly: true, net: { web: { policy: 'off' }, mcp: { policy: 'tiles' } } },
+    { mcp: false, mcpReadOnly: true, net: { web: { policy: 'read' }, mcp: { policy: 'tiles' } } },
+  ].map((state) => ({ state, prefs: W.netPrefs(state) })),
   standingNote: W.STANDING_NOTE, didNote: W.DID_NOTE, arm: W.CHOICES.armMs, duration: W.CHOICES.duration,
 };
 // ---- the app's Debug demo (-XbinAgentDemo <state>, native/AGENTS.md): the same corpus, as xbind would answer it ----
@@ -215,6 +253,9 @@ out.small = {
 const byId = (list, id) => list.find((x) => x.id === id);
 export const demo = {
   requests: ['rq_call', 'rq_never', 'rq_unknown_mode', 'rq_sess'].map((id) => byId(requests, id)),
+  // the demo `net` (D239): a web page and an MCP tool to approve, the web on by the workspace's policy and MCP tiles too
+  netRequests: ['rq_web', 'rq_mcp'].map((id) => byId(requests, id)),
+  net: { web: { policy: 'read' }, mcp: { policy: 'tiles' } },
   changeset: byId(changesets, 'cs_1'),
   approvals,
   audit,

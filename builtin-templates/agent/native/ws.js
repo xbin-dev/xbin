@@ -124,13 +124,14 @@ function mainScreen() {
 
 // connWords: the chip's segments in xbind's own numbers (ws/words.js chipWords), and one line of them
 function connWords(s) {
-  const w = chipWords(store.counts(), s.model, chat.compact(), store.isPrivate());
-  return { ...w, summary: w.summary || [w.conn, w.not].filter(Boolean).join(' · ') };
+  const w = chipWords(store.counts(), s.model, chat.compact(), store.isPrivate(), s.reach);
+  return { ...w, summary: [w.summary || [w.conn, w.not].filter(Boolean).join(' · '), w.net].filter(Boolean).join(' · ') };
 }
-// the connection line: a tap opens the scope panel, its model part the models
+// the connection line: a tap opens the scope panel, its model part the models; the web and MCP tools, when on,
+// ride the connected part ("14 tiles · 3 orgs · web")
 function connectionTpl(s) {
   const w = connWords(s);
-  return html`<connection connected=${w.conn} not=${w.not || nothing} model=${short(s.model) || nothing} ?private=${store.isPrivate()} label=${w.label}
+  return html`<connection connected=${[w.conn, w.net].filter(Boolean).join(' · ')} not=${w.not || nothing} model=${short(s.model) || nothing} ?private=${store.isPrivate()} label=${w.label}
     @tap=${() => store.openScope({})} @model=${() => store.openScope({ models: true })}/>`;
 }
 

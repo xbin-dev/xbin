@@ -162,7 +162,10 @@ struct AgentActivityView: View {
 /// Both controls WIDEN what the agent may do, so both are armed like Allow
 /// (`widens(armed:)`): "Start without asking" and turning the admin opt-in
 /// ON answer only a tap made 600 ms after the panel shows, with the app in
-/// front. Narrowing — back to asking, the opt-in off — is never held. (The
+/// front. Narrowing — back to asking, the opt-in off — is never held. The
+/// web and MCP tools (D239) are the person's own switches and widen too:
+/// the same gate, and one the workspace policy has off can't be turned on
+/// and says why. (The
 /// web's Preferences also set a started tile agent's network and whether it
 /// may call other tiles' APIs; the app has no such control. One added here
 /// is a widening control and gets the same gate.)
@@ -184,6 +187,11 @@ struct AgentPrefsView: View {
                 Text("When my agent wants to start a tile agent")
             } footer: {
                 Text("Without asking: xbin lets a start through only in a mode it says asks you before acting, with its model as its only network. You are told in the chat. Modes that never ask can't be saved here.")
+            }
+            Section {
+                ForEach(DelegationWords.netPrefs(agent.state)) { p in netRow(p) }
+            } header: {
+                Text("The web and MCP tools")
             }
             if agent.state?.canAdminChanges == true {
                 let on = agent.state?.adminChanges ?? false
@@ -210,6 +218,24 @@ struct AgentPrefsView: View {
             }
         }
         .onChange(of: phase) { _, p in if p == .active { widen.arm() } else { widen.disarm() } }
+    }
+
+    /// One of the web and MCP settings (D239): the person's own, turned on
+    /// only armed (it widens); one the workspace policy has off can't be
+    /// turned on and says why.
+    @ViewBuilder private func netRow(_ p: NetPref) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(isOn: Binding(get: { p.on }, set: { next in
+                guard p.allowed || !next else { return }
+                guard AgentWidening.takes(widening: AgentWidening.widens(from: p.on, to: next), armed: widen.armed) else { return }
+                Task { problem = await workspace.agent.setNet(p.id, next) }
+            })) { Text(verbatim: p.label) }
+            .disabled(!p.allowed && !p.on)
+            .widens(armed: p.on || widen.armed)
+            .accessibilityIdentifier("prefs-net-\(p.id)")
+            Text(verbatim: p.why.isEmpty ? p.note : p.why).font(.caption).foregroundStyle(XbinColor.muted)
+        }
+        .padding(.leading, p.sub ? 16 : 0)
     }
 
     /// One of the two answers, as a radio row. "Start without asking"

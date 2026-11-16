@@ -90,3 +90,27 @@ func TestHostAgentInHostFile(t *testing.T) {
 		t.Fatalf("a refused reload keeps the last good one: %+v", got)
 	}
 }
+
+// covers D239 — the key's web and mcp: the web and MCP policy for people's
+// workspace agents, validated as an admin's would be; alone they leave the
+// switch to the admins
+func TestHostAgentWebAndMCP(t *testing.T) {
+	var h HostAgent
+	if err := json.Unmarshal([]byte(`{"web": {"mode": "read", "deny": ["Intranet.Example.com"]}, "mcp": {"mode": "tiles"}}`), &h); err != nil {
+		t.Fatal(err)
+	}
+	if h.Set || h.Web == nil || h.Web.Mode != "read" || strings.Join(h.Web.Deny, ",") != "intranet.example.com" || h.MCP == nil || h.MCP.Mode != "tiles" {
+		t.Errorf("web and mcp alone: %+v %+v %+v", h, h.Web, h.MCP)
+	}
+	h = HostAgent{}
+	if err := json.Unmarshal([]byte(`{"enabled": true, "who": "admins", "web": {"mode": "off"}}`), &h); err != nil || !h.Set || !h.Enabled || h.Who != "admins" || h.Web == nil || h.Web.Mode != "off" {
+		t.Errorf("with the switch: %+v %v", h, err)
+	}
+	for _, in := range []string{`{"web": {"mode": "full"}}`, `{"mcp": {"mode": "listed"}}`, `{"web": {"search": true}}`, `{"web": {"mode": "read", "alow": []}}`,
+		`{"web": {"deny": ["10.0.0.1"]}}`, `{"web": {"mode": "write"}}`, `{"who": "admins", "web": {"mode": "read"}}`, `{"web": "read"}`} {
+		var h HostAgent
+		if err := json.Unmarshal([]byte(in), &h); err == nil {
+			t.Errorf("%s: want an error, got %+v", in, h)
+		}
+	}
+}

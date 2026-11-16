@@ -221,6 +221,7 @@ POST /delegate/changesets	no-tile
 POST /delegate/changesets/{id}/approve	no-tile
 POST /delegate/changesets/{id}/reject	no-tile
 POST /delegate/changesets/{id}/undo	no-tile
+POST /delegate/mcp/call	refused	body.server
 POST /delegate/page/dismiss	no-tile
 POST /delegate/requests	no-tile
 POST /delegate/requests/{id}/approve	no-tile
@@ -228,6 +229,7 @@ POST /delegate/requests/{id}/deny	no-tile
 POST /delegate/sessions	no-tile
 POST /delegate/sessions/{id}/allows	no-tile
 POST /delegate/sessions/{id}/taint	no-tile
+POST /delegate/web/fetch	no-tile
 POST /deployments/add	refused	?tile body.tile
 POST /deployments/always-on	refused	?tile body.tile
 POST /deployments/backup	refused	?tile body.tile

@@ -239,7 +239,7 @@ function pageTpl() {
     <div class="wsp-strip" role="toolbar" aria-label="this session">
       <button class="wsp-sess" aria-haspopup="dialog" aria-expanded=${S.pop === 'sessions' ? 'true' : 'false'} title="sessions" @click=${(e) => openPop('sessions', e)}>
         <span class="nm">${s ? s.name || (s.main ? 'Main' : 'New session') : '…'}</span>${icon('chevron-down')}</button>
-      ${s ? chipView({ counts, model: s.model, private: store.isPrivate(), narrow: S.narrow, open: S.pop === 'scope' }, { toggle: () => scopeAct.toggle() }) : nothing}
+      ${s ? chipView({ counts, model: s.model, private: store.isPrivate(), narrow: S.narrow, open: S.pop === 'scope', reach: s.reach }, { toggle: () => scopeAct.toggle() }) : nothing}
       <button class="wsp-menu-b" aria-label="more" aria-haspopup="menu" aria-expanded=${S.pop === 'menu' ? 'true' : 'false'} @click=${(e) => openPop('menu', e)}>${icon('ellipsis')}</button>
       ${S.pop === 'sessions' ? sessionsView({ list: S.sessions, current: S.sel, renaming: S.ses.renaming, err: S.ses.err }, sessAct) : nothing}
       ${S.pop === 'scope' ? panelView({ ...S.scope, full: S.full, counts, model: s && s.model, private: store.isPrivate(), models: store.models(), err: S.scope.err || (S.full ? '' : S.fullErr) }, scopeAct) : nothing}

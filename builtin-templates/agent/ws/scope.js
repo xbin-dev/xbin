@@ -18,10 +18,11 @@ const icon = (name) => (name ? html`<bx-icon name=${name} aria-hidden="true"></b
  * Model big."
  */
 export function chipView(c, act) {
-  const w = chipWords(c.counts, c.model, c.narrow, c.private);
+  const w = chipWords(c.counts, c.model, c.narrow, c.private, c.reach);
   return html`<button class="wsp-chip ${c.open ? 'on' : ''}" aria-label=${w.label} aria-haspopup="dialog" aria-expanded=${c.open ? 'true' : 'false'}
-      title=${w.summary || w.label} @click=${() => act.toggle()}>
+      title=${[w.summary || w.label, w.netTitle].filter(Boolean).join(' ')} @click=${() => act.toggle()}>
     <span class="seg">${icon('plug')}${w.conn}</span>${w.not ? html`<span class="seg">${icon('lock')}${w.not}</span>` : nothing}
+    ${w.net ? html`<span class="seg net" data-net>${icon('globe')}${w.net}</span>` : nothing}
     <span class="seg model">${w.model || 'no model'}${icon('chevron-down')}</span></button>`;
 }
 

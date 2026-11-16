@@ -61,11 +61,22 @@ final class AgentDemo {
         data = (try? JSONValue(parsing: AgentDemoData.json)) ?? .null
         let pick: [String: String] = ["setup": "never-on-admin", "setup-who": "nobody-chosen", "off": "off", "nomodel": "no-model",
                                       "locked": "locked", "older": "older", "held": "held-other", "none": "admin-without-one",
-                                      "paused": "paused", "grants": "page"]
+                                      "paused": "paused", "grants": "page", "net": "page"]
         let chosen = data["states"]?[pick[name] ?? "page"]
         state = chosen?["state"]?.objectValue ?? [:]
         llm = chosen?["llm"] ?? ["configured": true]
         if llm.isNull { llm = ["configured": true] }
+        if name == "net" {
+            // the web and MCP tools (D239): the workspace's policy has both on; the person hasn't yet
+            state["net"] = data["net"] ?? .null
+            let now = Date()
+            requests = (data["netRequests"]?.arrayValue ?? []).compactMap(\.objectValue).map { r in
+                var r = r
+                r["created"] = .string(DelegateTime.rfc3339(now.addingTimeInterval(-60)))
+                r["expires"] = .string(DelegateTime.rfc3339(now.addingTimeInterval(86_400 - 60)))
+                return r
+            }
+        }
         if name == "grants" {
             // times of now: asked a moment ago, a day (a week) to decide
             let now = Date()
@@ -114,6 +125,7 @@ final class AgentDemo {
                 state["pausedAt"] = p ? .string(DelegateTime.rfc3339(Date())) : nil
             }
             if let a = body["adminChanges"]?.boolValue { state["adminChanges"] = .bool(a) }
+            for k in ["web", "mcp", "mcpReadOnly"] { if let v = body[k]?.boolValue { state[k] = .bool(v) } }
             return ok(stateNow)
         case ("GET", "/api/xbin/llm"): return ok(llm)
         case ("GET", "/api/xbin/components"): return ok([])
@@ -196,7 +208,7 @@ final class AgentDemo {
     /// The state with its counts as they are now.
     private var stateNow: JSONValue {
         var s = state
-        if name == "grants" {
+        if name == "grants" || name == "net" {
             s["pendingRequests"] = .int(Int64(requests.filter { $0["state"] == "pending" }.count))
             s["openChangeSets"] = .int(Int64(changesets.filter { $0["state"] == "proposed" }.count))
             s["standingApprovals"] = .int(Int64(approvals.count))

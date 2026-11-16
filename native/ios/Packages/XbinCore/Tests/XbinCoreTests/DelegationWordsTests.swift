@@ -57,6 +57,23 @@ import Testing
                 DelegationWords.approveBody(r, choice: .tile, duration: "always"),
             ]
             #expect(JSONValue.array(bodies) == c["bodies"], "\(id)")
+            // an MCP tool's own choice (D239): always, this tool — and what every other kind makes of it
+            #expect(DelegationWords.allowLabel(r, choice: .tool) == c["tool"]?[0]?.stringValue, "\(id) tool")
+            #expect(DelegationWords.allowSpoken(r, choice: .tool) == c["tool"]?[1]?.stringValue, "\(id) tool")
+            #expect(DelegationWords.approveBody(r, choice: .tool) == c["tool"]?[2], "\(id) tool")
+            #expect(DelegationWords.approveBody(r, choice: .tool, duration: "hour") == c["tool"]?[3], "\(id) tool, an hour")
+            if let want = c["net"], !want.isNull {
+                if r.kind == .web {
+                    let w = DelegationWords.webRows(r)
+                    #expect(w.url == s(want, "url") && w.host == s(want, "host") && w.why == s(want, "why") && w.once == s(want, "once"), "\(id)")
+                } else {
+                    let m = DelegationWords.mcpRows(r)
+                    #expect(m.call.server == s(want, "server") && m.call.path == s(want, "path") && m.call.tool == s(want, "tool") && m.call.title == s(want, "title"), "\(id)")
+                    #expect(m.call.description == s(want, "description") && m.call.readOnly == want["readOnly"]?.boolValue && m.call.arguments == s(want, "arguments"), "\(id)")
+                    #expect(m.call.standing == s(want, "standing") && m.marked == s(want, "marked") && m.undo == s(want, "undo"), "\(id)")
+                    #expect(m.changedLine == s(want, "changedLine") && m.call.changed == (want["changed"]?.arrayValue ?? []).compactMap(\.stringValue), "\(id)")
+                }
+            }
             let w = DelegationWords.widerWords(r)
             #expect(w.heading == s(c["wider"], "heading") && w.means == s(c["wider"], "means") && w.ends == s(c["wider"], "ends")
                 && w.back == s(c["wider"], "back") && w.allow == s(c["wider"], "allow"), "\(id)")
@@ -143,6 +160,20 @@ import Testing
             #expect(d.icon == s(c, "icon") && d.group == s(c, "group"), "\(s(c["json"], "path"))")
         }
         #expect(DelegationWords.standingNote == v["small"]?["standingNote"]?.stringValue)
+        #expect(DelegationWords.readWeb == v["small"]?["readWeb"]?.stringValue)
+        // the Preferences of the web and MCP tools (D239): what the person set, what the policy lets them
+        let prefs = try #require(v["small"]?["netPrefs"]?.arrayValue)
+        #expect(prefs.count >= 5)
+        for (i, c) in prefs.enumerated() {
+            let got = DelegationWords.netPrefs(DelegateState(json: c["state"]))
+            let want = c["prefs"]?.arrayValue ?? []
+            #expect(got.count == want.count, "netPrefs \(i)")
+            for (a, b) in zip(got, want) {
+                #expect(a.id == s(b, "id") && a.label == s(b, "label") && a.note == s(b, "note"), "netPrefs \(i) \(a.id)")
+                #expect(a.on == b["on"]?.boolValue && a.allowed == b["allowed"]?.boolValue && a.why == s(b, "why") && a.sub == (b["sub"]?.boolValue ?? false), "netPrefs \(i) \(a.id)")
+            }
+        }
+        #expect(DelegateRoute.setNet("web", true)?.method == "PUT" && DelegateRoute.setNet("paused", true) == nil, "only the three settings")
         #expect(DelegationWords.didNote == v["small"]?["didNote"]?.stringValue)
     }
 
@@ -520,10 +551,26 @@ import Testing
         #expect(c.isArmed(at: t0.addingTimeInterval(60.6)))
     }
 
+    /// A request of a kind this app doesn't know (a newer xbind's) is never
+    /// one to decide here — as a state it doesn't know isn't — and says so.
+    @Test func unknownKindsAreNotActionable() throws {
+        let r = try #require(DelegateRequest(json: ["id": "rq_new", "kind": "sandbox", "state": "pending", "method": "POST", "target": "/api/apps/x/y", "tile": "apps/x"]))
+        #expect(r.kind == .unknown && !r.isPending)
+        #expect(DelegationWords.needTitle(r) == DelegationWords.unknownKind && DelegationWords.heading(r).plain == DelegationWords.unknownKind)
+        #expect(DelegationWords.grantChoices(r).isEmpty && DelegationWords.allowLabel(r).isEmpty)
+        let card = DelegationWords.requestCard(r)
+        #expect(card.head == DelegationWords.unknownState.title && card.line == DelegationWords.unknownState.text && !card.waits)
+        // a request from before kinds: a call
+        let old = try #require(DelegateRequest(json: ["id": "rq_old", "state": "pending", "method": "POST", "target": "/api/apps/x/y"]))
+        #expect(old.kind == .call && old.isPending)
+    }
+
     @Test func whatWidens() {
         #expect(AgentWidening.widens(from: .once, to: .call) && AgentWidening.widens(from: .once, to: .tile) && AgentWidening.widens(from: .call, to: .tile))
         #expect(!AgentWidening.widens(from: .tile, to: .once) && !AgentWidening.widens(from: .call, to: .once) && !AgentWidening.widens(from: .tile, to: .call))
         #expect(!AgentWidening.widens(from: .call, to: .call))
+        // an MCP tool's "always, this tool" (D239) widens Once; Once never widens it
+        #expect(AgentWidening.widens(from: .once, to: .tool) && !AgentWidening.widens(from: .tool, to: .once))
         #expect(AgentWidening.widens(fromDuration: "hour", toDuration: "always"))
         #expect(!AgentWidening.widens(fromDuration: "always", toDuration: "hour") && !AgentWidening.widens(fromDuration: "always", toDuration: "always"))
         #expect(AgentWidening.widens(fromStart: "ask", toStart: "allow") && !AgentWidening.widens(fromStart: "allow", toStart: "ask"))

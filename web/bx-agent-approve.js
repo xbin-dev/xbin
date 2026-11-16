@@ -36,7 +36,7 @@ import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, asked, settled,
-  stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote,
+  stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote, webRows, mcpRows, READ_WEB,
 } from '/vendor/agent-chrome-words.js';
 
 /** shown(text): the agent's text as parts — each hidden character (bidi, zero-width, control) a chip, ⟨U+202E⟩, never interpreted. */
@@ -203,11 +203,12 @@ export class BxAgentApprove extends LitElement {
     return html`<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="h" aria-roledescription="xbin approval" data-kind=${req.kind} data-step=${this._step} @keydown=${this._key}>
       <div class="xbar"><bx-icon name="shield"></bx-icon><span>xbin · approval</span>${this.position ? html`<span>${this.position}</span>` : nothing}
         ${this.person ? html`<span class="who">asking ${this.person}</span>` : nothing}</div>
-      ${!pending ? html`<div class="in"><h2 id="h" tabindex="-1">${h.before}<b>${h.strong}</b>${h.after}</h2><p>${settled(req)}</p></div>
+      ${!pending ? html`<div class="in"><h2 id="h" tabindex="-1">${shown(h.before)}<b>${shown(h.strong)}</b>${shown(h.after)}</h2><p>${settled(req)}</p></div>
           <div class="foot"><span class="when"></span><button class="primary" @click=${() => this._done('gone')}>Close</button></div>`
         : this._step === 'wider' ? this._wider(req) : html`<div class="in">
-          <h2 id="h" tabindex="-1">${h.before}<b>${h.strong}</b>${h.after}</h2>
-          ${req.kind === 'session' ? this._session(req) : req.kind === 'template' ? this._template(req) : this._call(req)}
+          <h2 id="h" tabindex="-1">${shown(h.before)}<b>${shown(h.strong)}</b>${shown(h.after)}</h2>
+          ${req.preview && req.preview.readWeb ? html`<div class="banner warn" data-read-web><bx-icon name="globe"></bx-icon><span>${READ_WEB}</span></div>` : nothing}
+          ${req.kind === 'session' ? this._session(req) : req.kind === 'template' ? this._template(req) : req.kind === 'web' ? this._web(req) : req.kind === 'mcp' ? this._mcp(req) : this._call(req)}
           ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
         </div>${this._foot(req)}`}
     </div>`;
@@ -219,7 +220,7 @@ export class BxAgentApprove extends LitElement {
 
   _tileRow(req) {
     const t = tile(req), p = req.preview || {};
-    return html`<dt>Tile</dt><dd><b>${t.name}</b> <span class="mono muted">${t.path}</span>${t.org ? html` <span class="muted">· ${t.org}</span>` : nothing}
+    return html`<dt>Tile</dt><dd><b>${shown(t.name)}</b> <span class="mono muted">${shown(t.path)}</span>${t.org ? html` <span class="muted">· ${shown(t.org)}</span>` : nothing}
       ${levelWords(p.level) ? html`<div class="small muted">${levelWords(p.level)}</div>` : nothing}</dd>`;
   }
 
@@ -232,7 +233,7 @@ export class BxAgentApprove extends LitElement {
         <dt>Sends</dt><dd data-row="sends">${s.text ? html`${hiddenLine(req.body)}<pre class="body" tabindex="-1">${shown(s.text)}${s.clipped ? '…' : ''}</pre>` : nothing}
           <div class="small muted" data-note>${s.note}${s.clipped ? html` — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}</div>
           ${s.binary ? html`<div class="small err">Nobody can read this before it is sent: allowing it approves bytes you have not seen.</div>` : nothing}</dd>
-        <dt>Undo</dt><dd>${undoWords(req)}</dd>
+        <dt>Undo</dt><dd>${shown(undoWords(req))}</dd>
       </dl>
       ${this._quote(req.summary)}
       <fieldset class="choices" role="radiogroup" aria-label="Allow">
@@ -241,7 +242,7 @@ export class BxAgentApprove extends LitElement {
           <input type="radio" name="grant" .checked=${this._choice === c.id} data-widen=${c.wider ? 'on' : nothing} @click=${c.wider ? this._widen.click : nothing}
             @keydown=${c.wider ? this._widen.key : nothing} @change=${() => { this._choice = c.id; this._duration = ''; }}
             aria-label=${`${c.label}${c.wider ? ', wider' : ''}. ${c.text}`}>
-          <span class="ct"><b>${c.label}${c.wider ? html`<span class="tag warn"><bx-icon name="warning"></bx-icon>wider</span>` : nothing}</b><span class="small muted">${c.text}</span></span></label>`)}
+          <span class="ct"><b>${shown(c.label)}${c.wider ? html`<span class="tag warn"><bx-icon name="warning"></bx-icon>wider</span>` : nothing}</b><span class="small muted">${shown(c.text)}</span></span></label>`)}
       </fieldset>
       ${this._choice !== 'once' ? this._durations() : nothing}`;
   }
@@ -255,8 +256,8 @@ export class BxAgentApprove extends LitElement {
   _wider(req) {
     const w = widerWords(req);
     return html`<div class="in">
-        <h2 id="h" tabindex="-1">${w.heading}</h2>
-        <div class="banner warn"><bx-icon name="warning"></bx-icon><span>${w.means}</span></div>
+        <h2 id="h" tabindex="-1">${shown(w.heading)}</h2>
+        <div class="banner warn"><bx-icon name="warning"></bx-icon><span>${shown(w.means)}</span></div>
         <p class="mono small" data-row="standing">${(req.preview && req.preview.standing && req.preview.standing.tile) || ''}</p>
         ${this._durations()}
         <p class="small muted">${w.ends}</p>
@@ -284,6 +285,44 @@ export class BxAgentApprove extends LitElement {
       <p class="small muted">${r.comes}</p>`;
   }
 
+  // a web page the conversation would read (D239): the whole address, why xbin asks, once only
+  _web(req) {
+    const w = webRows(req);
+    return html`<dl class="rows">
+        <dt>Address</dt><dd data-row="url">${hiddenLine(w.url)}<pre class="body mono" tabindex="-1">${shown(w.url)}</pre>
+          <div class="small muted">fetched exactly like this — a GET, nothing else sent, no sign-in</div></dd>
+        <dt>Site</dt><dd class="mono">${shown(w.host)}</dd>
+        <dt>Why xbin asks</dt><dd data-row="why">${shown(w.why)}</dd>
+      </dl>
+      ${this._quote(req.summary)}
+      <p class="small muted">${w.once}</p>`;
+  }
+
+  // one tool of an MCP tile (D239): the server, the tool, its mark, the arguments as sent; once or always for this tool
+  _mcp(req) {
+    const m = mcpRows(req);
+    const args = clipText(m.arguments, this._all);
+    const choices = grantChoices(req);
+    return html`<dl class="rows">
+        <dt>Server</dt><dd><b>${shown(m.server)}</b> <span class="mono muted">${shown(m.path)}</span></dd>
+        <dt>Tool</dt><dd data-row="tool"><b class="mono">${shown(m.tool)}</b>${m.title ? html` <span class="muted">${shown(m.title)}</span>` : nothing}
+          <div class="small ${m.readOnly ? 'muted' : ''}" data-row="marked">${m.marked}</div>
+          ${m.changedLine ? html`<div class="small err" data-row="changed">${m.changedLine}</div>` : nothing}</dd>
+        ${m.description ? html`<dt>It says</dt><dd>${this._quote(m.description, 'The server’s own words — not checked by xbin')}</dd>` : nothing}
+        <dt>Arguments</dt><dd data-row="arguments">${hiddenLine(m.arguments)}<pre class="body" tabindex="-1">${shown(args.text)}${args.clipped ? '…' : ''}</pre>
+          <div class="small muted">${args.clipped ? html`${clipNote(args)} — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button> · ` : nothing}sent exactly like this</div></dd>
+        <dt>Undo</dt><dd>${shown(m.undo)}</dd>
+      </dl>
+      ${this._quote(req.summary)}
+      <fieldset class="choices" role="radiogroup" aria-label="Allow">
+        <legend><h3>Allow</h3></legend>
+        ${choices.map((c) => html`<label class="choice ${this._choice === c.id ? 'on' : ''}" data-choice=${c.id}>
+          <input type="radio" name="grant" .checked=${this._choice === c.id} @change=${() => { this._choice = c.id; this._duration = ''; }} aria-label=${`${c.label}. ${c.text}`}>
+          <span class="ct"><b>${shown(c.label)}</b><span class="small muted">${shown(c.text)}</span></span></label>`)}
+      </fieldset>
+      ${this._choice !== 'once' ? this._durations() : nothing}`;
+  }
+
   _template(req) {
     let b = {};
     try { b = JSON.parse(req.body || '{}') || {}; } catch { /* shown raw below */ }
@@ -303,10 +342,10 @@ export class BxAgentApprove extends LitElement {
     const never = req.kind === 'session' && !(req.preview && req.preview.session && req.preview.session.asks === true);
     const on = this._armed && !this._busy;
     return html`<div class="foot">
-      <span class="when small muted">${req.kind === 'call' ? asked(req) : `asked every time${req.kind === 'session' ? ' · change in Preferences' : ''}`}</span>
+      <span class="when small muted">${req.kind === 'call' || req.kind === 'mcp' ? asked(req) : `asked every time${req.kind === 'session' ? ' · change in Preferences' : ''}`}</span>
       <button class=${never || this.stopped ? 'primary' : ''} data-deny ?disabled=${this._busy} @click=${this._deny}>Deny</button>
       ${this.stopped ? this._stop() : html`<button class="${never ? 'danger' : 'primary'} arming" data-allow=${this._choice} aria-disabled=${on ? 'false' : 'true'} aria-label=${allowSpoken(req, this._choice)}
-        @click=${this._allow}>${allowLabel(req, this._choice)}</button>`}
+        @click=${this._allow}>${shown(allowLabel(req, this._choice))}</button>`}
     </div>`;
   }
 

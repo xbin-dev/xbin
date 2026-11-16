@@ -3,6 +3,7 @@ package boot
 import (
 	"path/filepath"
 
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/llm"
 	"github.com/xbin-dev/xbin/internal/server"
 )
@@ -21,6 +22,13 @@ func (st *State) hostAgent(srv *server.Server, svc *llm.Service) {
 		srv.HostAgent = func() server.HostAgentRule {
 			h := svc.HostWorkspaceAgent()
 			return server.HostAgentRule{Set: h.Set, Enabled: h.Enabled, Who: h.Who}
+		}
+		// the key's web and mcp: the web and MCP policy's preset and ceiling (D239)
+		if srv.Delegation != nil {
+			srv.Delegation.SetHost(func() delegation.HostNet {
+				h := svc.HostWorkspaceAgent()
+				return delegation.HostNet{Web: h.Web, MCP: h.MCP}
+			})
 		}
 	}
 	srv.ApplyHostAgent()
