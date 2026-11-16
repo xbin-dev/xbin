@@ -44,7 +44,6 @@ package term
 // logged, published or written to history.
 
 import (
-	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
@@ -169,6 +168,9 @@ type sessionSignin struct {
 	view   SessionSignin
 	user   string
 	secret []byte
+	// red masks the sign-in in what the session says (signinredact.go);
+	// kept while the session lives, also once the secret was taken away
+	red *redactor
 	// held: the session's agent held a saved sign-in at some point (also
 	// after it was taken away), or resumes a past session that did — its
 	// log may hold what its tools printed, so it stays its person's alone
@@ -337,11 +339,14 @@ func othersWords(others []string) string {
 func (m *Manager) signinTake(pl signinPlan, id, rel string, prov agent.Provider, connector bool) (*sessionSignin, *acp.SpawnSignin) {
 	if m.Signins == nil {
 		if pl.past {
-			return &sessionSignin{user: pl.user, held: true}, nil
+			return &sessionSignin{user: pl.user, held: true, red: newRedactor(nil)}, nil
 		}
 		return nil, nil // no store: the session is exactly as before — nothing said, nothing noted
 	}
 	ss := &sessionSignin{user: pl.user, choice: pl.choice, held: pl.past}
+	if pl.past {
+		ss.red = newRedactor(nil) // the transcript it resumes was made on a sign-in: the shapes at least
+	}
 	if pl.saved == nil {
 		return ss, nil
 	}
@@ -361,7 +366,7 @@ func (m *Manager) signinTake(pl signinPlan, id, rel string, prov agent.Provider,
 		}
 		return ss, nil
 	}
-	ss.secret, ss.held = []byte(cred.Secret), true
+	ss.secret, ss.held, ss.red = []byte(cred.Secret), true, newRedactor([]byte(cred.Secret))
 	sp := &acp.SpawnSignin{Env: cred.Env + "=" + cred.Secret}
 	for _, k := range prov.Keys { // none of the provider's other credential variables outranks it
 		if k.Env != cred.Env {
@@ -504,20 +509,25 @@ func (s *Session) carriesSignin() bool {
 	return s.signin != nil && (s.signin.held || s.signin.carries())
 }
 
-// redact is b with the session's saved sign-in masked (b itself when it
-// holds none). The secret is one line of printable ASCII without quotes or
-// backslashes (signins.CleanSecret), so it reads the same inside JSON.
-func (s *Session) redact(b []byte) []byte {
+// redact is a line of the session's own log with its saved sign-in masked
+// (as it came when the session holds none).
+func (s *Session) redact(line string) string {
+	return s.redactor().mask(line)
+}
+
+// redactEvents is e as it may leave the session (signinredact.go): masked,
+// with the held ends of the streams it closes before it.
+func (s *Session) redactEvents(e agent.Event) []agent.Event {
+	return s.redactor().event(e)
+}
+
+func (s *Session) redactor() *redactor {
 	s.mu.Lock()
-	var secret []byte
-	if s.signin.carries() {
-		secret = append(secret, s.signin.secret...)
+	defer s.mu.Unlock()
+	if s.signin == nil {
+		return nil
 	}
-	s.mu.Unlock()
-	if len(secret) < 8 || !bytes.Contains(b, secret) {
-		return b
-	}
-	return bytes.ReplaceAll(b, secret, []byte(signinMask))
+	return s.signin.red
 }
 
 // dropSignin forgets the session's copy of the secret (the session ended).
@@ -529,6 +539,7 @@ func (s *Session) dropSignin() {
 			ss.secret[i] = 0
 		}
 		ss.secret = nil
+		ss.red.drop()
 	}
 }
 

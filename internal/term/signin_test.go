@@ -777,3 +777,38 @@ func TestSigninsOffEndsRunningSessions(t *testing.T) {
 	ended(b.ID)
 	r.endSession(t, plain.ID)
 }
+
+// What a session says is masked on the joined stream (review finding 3b):
+// the sign-in split across the pieces of a message, written one character
+// per line, as base64 in a tool's output and as hex in the session's log.
+func TestSigninRedactionOnTheJoinedStream(t *testing.T) {
+	r, f, _ := signinRig(t, "--require-login")
+	f.put("alice", "fake", "Personal", "CLAUDE_CODE_OAUTH_TOKEN", signins.KindSetupToken, fakeSavedToken)
+	info := r.openLLM(t, termAdmin("alice"), AgentOpen{})
+	if _, err := r.m.AgentPrompt(context.Background(), info.ID, "spill CLAUDE_CODE_OAUTH_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	r.until(t, func(e SessionEvent) bool { return e.ID == info.ID && e.Type == agent.EvTurnEnd })
+	evs, _, _, err := r.m.AgentEvents(info.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var said, all strings.Builder
+	for _, e := range evs {
+		all.Write(e.Data)
+		if e.Type == agent.EvMessageDelta {
+			text, _ := edata(e)["text"].(string)
+			said.WriteString(text)
+		}
+	}
+	if got := said.String(); leaks(got, fakeSavedToken) || !strings.Contains(got, "pieces: "+signinMask+" lines: "+signinMask+" spilled") {
+		t.Fatalf("the message, joined: %q", got)
+	}
+	if got := all.String(); leaks(got, fakeSavedToken) || strings.Count(got, signinMask) < 3 {
+		t.Fatalf("the events (the tool's base64 too):\n%s", got)
+	}
+	if log, _ := r.m.AgentLog(info.ID); leaks(log, fakeSavedToken) || !strings.Contains(log, "hook: "+signinMask) {
+		t.Fatalf("the session's text log: %q", log)
+	}
+	r.endSession(t, info.ID)
+}

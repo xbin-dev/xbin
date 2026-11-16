@@ -1,6 +1,7 @@
 package acptest
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -230,6 +231,21 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 		f.say("listed")
 	case strings.HasPrefix(text, "llm-call"):
 		f.say(f.llmCall(strings.TrimPrefix(text, "llm-call"))) // one call to the injected LLM connector (llm.go)
+	case strings.HasPrefix(text, "spill "):
+		// a variable getting out by accident, the ways one does: in the
+		// pieces of a message (five characters each, then one per line), as
+		// base64 in a tool's output, as hex on stderr
+		v := f.getenv(strings.TrimSpace(strings.TrimPrefix(text, "spill ")))
+		f.say("pieces: ")
+		for i := 0; i < len(v); i += 5 {
+			f.say(v[i:min(i+5, len(v))])
+		}
+		f.say(" lines: " + strings.Join(strings.Split(v, ""), "\n") + " ")
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "spill1", "title": "base64", "kind": "execute", "status": "in_progress"})
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "spill1", "status": "completed",
+			"content": []map[string]any{{"type": "content", "content": acp.ContentBlock{Type: "text", Text: base64.StdEncoding.EncodeToString([]byte(v + "\n"))}}}})
+		fmt.Fprintf(os.Stderr, "hook: %x\n", v)
+		f.say("spilled")
 	case strings.HasPrefix(text, "printenv "):
 		// as Claude Code's own Bash tool: a child of the agent's process,
 		// its environment inherited (a hook prints on stderr)

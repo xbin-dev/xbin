@@ -459,7 +459,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		sandboxCleanup := s.cleanup
 		s.cleanup = func() { sandboxCleanup(); rm() }
 	}
-	st.redact = func(line string) string { return string(s.redact([]byte(line))) }
+	st.redact = s.redact
 	drv := acp.NewFor(func(h acp.HelloParams) {
 		s.llmHello(m, h)    // who serves its model calls (llmhook.go)
 		s.signinHello(m, h) // what it signs in with (signin.go)
@@ -669,8 +669,16 @@ ended:
 // logEvent numbers an event into the log, updates the session's summary
 // fields from it, and publishes it.
 func (s *Session) logEvent(m *Manager, e agent.Event) {
+	// a saved sign-in is masked before the log, the hub or history see the
+	// event — on the joined stream, so a piece may wait for the next one
+	// (signinredact.go)
+	for _, e := range s.redactEvents(e) {
+		s.logOne(m, e)
+	}
+}
+
+func (s *Session) logOne(m *Manager, e agent.Event) {
 	st := s.agent
-	e.Data = s.redact(e.Data) // the saved sign-in never reaches the log, the hub or history (signin.go)
 	ev := st.log.Append(e)
 	st.noteSaid(e) // its last line, for a status poll (agentstatus.go)
 	renamed := false
