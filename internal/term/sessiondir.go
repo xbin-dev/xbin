@@ -8,11 +8,11 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// noTerminal is why p opens no terminal at rel ("" when it may), and the
-// tile the session is on: the path is no tile (sessionTile), or p has no
-// terminal level on the TILE it is, or lies in. err is SafeJoin's.
-func (m *Manager) noTerminal(p auth.Principal, rel string, err error) (tile, why string) {
-	if err == nil && rel != "" {
+// noTerminal is why p opens no terminal at cwd ("" when it may), and the
+// tile the session is on: the path is unsafe (SafeJoin) or no tile
+// (sessionTile), or p has no terminal level on the TILE it is, or lies in.
+func (m *Manager) noTerminal(p auth.Principal, cwd string) (tile, why string) {
+	if _, rel, err := util.SafeJoin(m.Root, cwd); err == nil && rel != "" {
 		if tile, why = m.sessionTile(rel); why != "" {
 			return "", why
 		}

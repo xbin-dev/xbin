@@ -289,8 +289,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "the root terminal is disabled — open a terminal on a tile (admin ops: the admin tile, or bx from the host)", http.StatusForbidden)
 			return
 		}
-		_, rel, err := util.SafeJoin(m.Root, cwd)
-		tile, why := m.noTerminal(p, rel, err) // a tile, never xbind's own trees or a sealed component; the level is the tile's (sessiondir.go)
+		tile, why := m.noTerminal(p, cwd) // a tile, never xbind's own trees or a sealed component; the level is the tile's (sessiondir.go)
 		if why != "" {
 			http.Error(w, why, http.StatusForbidden)
 			return
@@ -581,8 +580,7 @@ func (m *Manager) releaseEnv(key string) {
 // live session may hold a component's layer; concurrent sessions on the same
 // component fall back to an ephemeral upper. netMode picks the network scope.
 func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string, []string, error) {
-	tile := o.onTile(rel) // what the binds are decided on; rel is the directory bound read-write
-	binds := scopedBinds(m.Root, tile, rel, homeDir, m.ExtraBinds, o.hide)
+	binds := scopedBinds(m.Root, o.onTile(rel), rel, homeDir, m.ExtraBinds, o.hide) // decided on the tile; rel is the directory bound read-write
 	viewDir := ""
 	if o.restricted && rel != "" && o.rootFiles != nil { // D40 allow-list view
 		vd, err := m.stageView(rel, o.homeKey, o.readable, o.rootFiles)
@@ -591,7 +589,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		}
 		viewDir = vd
 		m.trackView(viewDir, o.readable) // its go.work follows the workspace (RefreshViews)
-		binds = scopedBindsView(m.Root, tile, rel, homeDir, viewDir, o.readable, m.ExtraBinds)
+		binds = scopedBindsView(m.Root, o.onTile(rel), rel, homeDir, viewDir, o.readable, m.ExtraBinds)
 	}
 	if o.kind == KindAgent { // the daemon's own bx, read-only, is the entry (agent.go)
 		binds = append(binds, sandbox.Bind{Src: m.BxPath, Dst: agentHostPath, RO: true})
@@ -601,7 +599,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			m.dropView(viewDir)
 		}
 	}
-	env := m.sessionEnv(tile, !o.netHost && o.net != NetNone, homeDir, token, o)
+	env := m.sessionEnv(o.onTile(rel), !o.netHost && o.net != NetNone, homeDir, token, o) // XBIN_COMPONENT: the tile
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
 	if o.gpu != "" && o.gpu != "none" {
 		if gb, genv := gpu.Binds(gpu.Resolve([]string{"gpu:" + o.gpu})); len(gb) > 0 {
