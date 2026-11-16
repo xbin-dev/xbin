@@ -122,6 +122,15 @@ func (m MCPServer) Key() string {
 // IsExt reports a server name or key of an outside server.
 func IsExt(server string) bool { return strings.HasPrefix(server, ExtPrefix) }
 
+// origin is a URL's scheme, host and port.
+func origin(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return u.Scheme + "://" + u.Host
+}
+
 // Host is the server's host as its URL names it (no port).
 func (m MCPServer) Host() string {
 	u, err := url.Parse(m.URL)
@@ -439,9 +448,10 @@ func planServers(old []MCPServer, in []MCPServerPatch, hasVault bool) ([]MCPServ
 			}
 			has = false
 		case p.Secret == nil:
-			// kept — but never sent to another host than the one it was given for
-			if has && prev.Host() != m.Host() {
-				return nil, nil, fmt.Errorf("mcp.servers %s: its address moved from %s to %s — give its secret again: xbin never sends one host's secret to another", m.ID, prev.Host(), m.Host())
+			// kept — but never sent elsewhere than where it was given for: another
+			// host, port or scheme (https to http) needs it given again
+			if has && origin(prev.URL) != origin(m.URL) {
+				return nil, nil, fmt.Errorf("mcp.servers %s: its address moved from %s to %s — give its secret again: xbin never sends a secret to another address than the one it was given for", m.ID, origin(prev.URL), origin(m.URL))
 			}
 		case *p.Secret == "":
 			if has {

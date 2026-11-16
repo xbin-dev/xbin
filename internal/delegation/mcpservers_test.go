@@ -119,6 +119,11 @@ func TestMCPServerSecrets(t *testing.T) {
 	if err := setServers(s, moved); err == nil || !strings.Contains(err.Error(), "give its secret again") {
 		t.Errorf("a secret followed its server to another host: %v", err)
 	}
+	clear := keep // …nor to plain http on the same host
+	clear.URL, clear.PlainHTTP = "http://mcp.example.com/v2/mcp", true
+	if err := setServers(s, clear); err == nil || !strings.Contains(err.Error(), "give its secret again") {
+		t.Errorf("a secret followed its server to plain http: %v", err)
+	}
 	// "" removes it — and then bearer has none
 	empty := keep
 	empty.Secret = new(string)

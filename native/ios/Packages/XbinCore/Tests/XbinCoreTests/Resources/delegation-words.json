@@ -5684,6 +5684,26 @@
    "text": "Always · this tool: wipe",
    "wider": false,
    "until": "until you take it back"
+  },
+  {
+   "json": {
+    "id": "ap_5",
+    "user": "ana",
+    "tile": "ext:tracker@1a2b3c4d",
+    "scope": "tool",
+    "method": "MCP",
+    "path": "post",
+    "created": "2026-11-16T09:35:00Z",
+    "server": {
+     "server": "ext:tracker",
+     "name": "Tracker",
+     "host": "mcp.tracker.example"
+    }
+   },
+   "tile": "Tracker",
+   "text": "Always · this tool: post — outside this workspace (mcp.tracker.example)",
+   "wider": false,
+   "until": "until you take it back"
   }
  ],
  "audit": [

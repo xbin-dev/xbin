@@ -135,6 +135,24 @@ func (s *Server) mcpServersForPerson(user string) []map[string]any {
 	return out
 }
 
+// mcpExtApprovalRows are standing approvals as GET /delegate/approvals
+// answers them: one of an outside server's tool (its key ext:<id>@<hash>)
+// adds server: {server, name, host} while the server is in force (D240).
+func (s *Server) mcpExtApprovalRows(rows []delegation.Approval) []any {
+	out := make([]any, 0, len(rows))
+	for _, ap := range rows {
+		if m, ok := s.Delegation.MCPKeyInForce(ap.Tile); ok && delegation.IsExt(ap.Tile) {
+			out = append(out, struct {
+				delegation.Approval
+				Server map[string]string `json:"server"`
+			}{ap, map[string]string{"server": m.Server(), "name": m.Name, "host": m.Host()}})
+			continue
+		}
+		out = append(out, ap)
+	}
+	return out
+}
+
 // mcpHostView is the host's file's mcp as the admin's view shows it.
 func mcpHostView(m *delegation.MCPPolicy) map[string]any {
 	out := map[string]any{}

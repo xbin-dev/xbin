@@ -213,10 +213,17 @@ public struct StandingApproval: Sendable, Equatable, Identifiable {
     public var path: String
     public var until: Date?
     public var created: Date?
+    /// An outside MCP server's tool (D240): the server's name and host.
+    public var serverName = ""
+    public var serverHost = ""
 
     public init?(json: JSONValue?) {
         guard let json, let id = json["id"]?.stringValue, !id.isEmpty else { return nil }
         self.id = id
+        if let s = json["server"], s.objectValue != nil {
+            serverName = s["name"]?.stringValue ?? s["server"]?.stringValue ?? ""
+            serverHost = s["host"]?.stringValue ?? ""
+        }
         tile = json["tile"]?.stringValue ?? ""
         scope = json["scope"]?.stringValue ?? ""
         method = json["method"]?.stringValue ?? ""

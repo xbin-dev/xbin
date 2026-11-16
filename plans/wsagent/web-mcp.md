@@ -291,7 +291,7 @@ the whole list, replaced):
 | `name` | what people and the model read; ≤ 80 bytes, no control characters |
 | `url` | the streamable-HTTP endpoint: `https`, a host that is a name or a canonical address, no user info or fragment, ≤ 2 KiB; `http` only with `plainHttp` ("plain http, I know" — the card warns that the secret and every argument cross the network in the clear); never one of the workspace's own hosts |
 | `auth` | `none` · `bearer` (`Authorization: Bearer <secret>`) · `header` (`<header>: <secret>`; `header` a token name, not one xbind sets itself: `Host`, `Content-*`, `Accept*`, `Mcp-*`, `Connection`, `Transfer-Encoding`, `Cookie`, `User-Agent`…) |
-| `secret` | write-only: absent keeps the stored one, `""` removes it, a value (one line, ≤ 4 KiB) replaces it. Reads say `hasSecret`. `bearer`/`header` without one is `400`. |
+| `secret` | write-only: absent keeps the stored one (unless the URL's scheme, host or port changed: then it is given again — a secret never follows its server elsewhere), `""` removes it, a value (one line, ≤ 4 KiB) replaces it. Reads say `hasSecret`. `bearer`/`header` without one is `400`. |
 | `note` | the admin's words for people and the model (≤ 500 bytes) |
 | `orgs` | `[]` (everyone given an agent) or org ids: only active members of one of them see the server — the others don't see it at all (no listing, `404` on a call, the same answer as for no such server); and the server counts as **inside** those orgs for their `mcp` rule |
 | `privateNetwork` | the server's addresses may be private (RFC 1918, ULA, CGNAT), loopback or xbind's own host's — link-local (the metadata address), multicast and unspecified stay refused. Off: the web's address rule. Armed and warned on the card |

@@ -104,6 +104,8 @@ export const approvals = [
   { id: 'ap_2', user: 'ana', tile: 'apps/orders', scope: 'tile', until: t('10:40:00'), created: t('09:40:00') },
   { id: 'ap_3', user: 'ana', tile: 'apps/orders', scope: 'tile', until: t('10:00:00'), created: t('09:00:00') },
   { id: 'ap_4', user: 'ana', tile: 'apps/dice', scope: 'tool', method: 'MCP', path: 'wipe', created: t('09:30:00') },
+  { id: 'ap_5', user: 'ana', tile: 'ext:tracker@1a2b3c4d', scope: 'tool', method: 'MCP', path: 'post', created: t('09:35:00'),
+    server: { server: 'ext:tracker', name: 'Tracker', host: 'mcp.tracker.example' } }, // an outside server's tool (D240)
 ];
 
 export const audit = [
@@ -317,8 +319,9 @@ const byId = (list, id) => list.find((x) => x.id === id);
 export const demo = {
   requests: ['rq_call', 'rq_never', 'rq_unknown_mode', 'rq_sess'].map((id) => byId(requests, id)),
   // the demo `net` (D239): a web page and an MCP tool to approve, the web on by the workspace's policy and MCP tiles too
-  netRequests: ['rq_web', 'rq_mcp'].map((id) => byId(requests, id)),
-  net: { web: { policy: 'read' }, mcp: { policy: 'tiles' } },
+  netRequests: ['rq_web', 'rq_mcp', 'rq_mcp_each'].map((id) => byId(requests, id)),
+  // …and an outside server listed (D240): its tool asked once only, the server in Preferences
+  net: { web: { policy: 'read' }, mcp: { policy: 'listed', servers: [{ server: 'ext:tracker', name: 'Tracker', host: 'mcp.tracker.example' }] } },
   changeset: byId(changesets, 'cs_1'),
   approvals,
   audit,

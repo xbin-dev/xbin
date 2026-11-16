@@ -895,7 +895,7 @@ func (s *Server) apiDelegateApprovals(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "the approvals can't be read", delegationDocs)
 		return
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{"approvals": rows})
+	WriteJSON(w, http.StatusOK, map[string]any{"approvals": s.mcpExtApprovalRows(rows)})
 }
 
 // apiDelegateApprovalAdd — POST /delegate/approvals {tile, grant: "hour" |

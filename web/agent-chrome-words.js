@@ -358,12 +358,12 @@ export function stopWords(refusal, kind = 'request') {
 
 /** standingRow(a, now): one standing approval — {tile, text, wider, since, until}. */
 export function standingRow(a, now = Date.now()) {
-  const until = toMs(a.until);
+  const until = toMs(a.until), srv = a.server && typeof a.server === 'object' ? a.server : null; // an outside server's tool (D240)
   return {
-    tile: lastOf(a.tile) || a.tile || '',
-    path: a.tile || '',
+    tile: srv ? String(srv.name || srv.server || '') : lastOf(a.tile) || a.tile || '',
+    path: srv ? String(srv.server || '') : a.tile || '',
     wider: a.scope === 'tile',
-    text: a.scope === 'tile' ? 'Always · every change' : a.scope === 'tool' ? `Always · this tool: ${a.path || ''}` : `Always · this action: ${a.method || ''} ${a.path || ''}`.trim(),
+    text: a.scope === 'tile' ? 'Always · every change' : a.scope === 'tool' ? `Always · this tool: ${a.path || ''}${srv ? ` — outside this workspace (${srv.host || ''})` : ''}` : `Always · this action: ${a.method || ''} ${a.path || ''}`.trim(),
     since: toMs(a.created) ? `since ${new Date(toMs(a.created)).toLocaleDateString()} ${clock(toMs(a.created))}` : '',
     until: until ? (until > now ? `ends in ${left(until - now)}` : 'ended') : 'until you take it back',
   };

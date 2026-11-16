@@ -139,6 +139,9 @@ func TestMCPExtListAndCall(t *testing.T) {
 	if len(aps) != 1 || aps[0].Scope != delegation.ScopeTool || aps[0].Tile != req.Tile || aps[0].Path != "post" || aps[0].Pin == nil {
 		t.Fatalf("the standing approval: %+v", aps)
 	}
+	if rec := w.do(w.full, "GET", "/api/xbin/delegate/approvals", "", w.cookie("bob")); !strings.Contains(rec.Body.String(), `"server":{"host":"example.com","name":"Tracker","server":"ext:tracker"}`) {
+		t.Errorf("the approvals as the person reads them: %s, want the server named", rec.Body.String())
+	}
 	for i := 0; i < 2; i++ {
 		rec := w.call("post", header(HeaderTicket, req.ID))
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), "called post") || !strings.Contains(rec.Body.String(), `"outside":true`) {
