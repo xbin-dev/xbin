@@ -534,7 +534,7 @@ export function mcpRows(req) {
   const ro = m.outside && !m.trusted ? 'Its server marks it read-only — an outside server’s word, which your “read-only tools don’t ask me” doesn’t take.' : 'Its server marks it read-only — the server’s word, not xbin’s.';
   return { ...m, marked: m.readOnly ? ro : 'Its server doesn’t mark it read-only: it may change things.',
     undo: `xbin can't undo this. Whether ${m.server} can is up to ${m.server}.`, outsideLine: m.outside ? `Outside this workspace: ${m.host || 'an outside server'}` : '',
-    eachLine: m.each ? `${m.why || 'This conversation holds an organisation’s data'} — so it is asked every time.` : '',
+    eachLine: m.each ? (m.why ? `${m.why}.` : 'This conversation holds an organisation’s data: what is sent leaves the workspace, so each call is asked every time.') : '',
     changedLine: m.changed.length ? `Changed since you last allowed it or first met it: ${m.changed.map((k) => CHANGED[k] || k).join(', ')}.` : '' };
 }
 

@@ -4358,7 +4358,7 @@
     "marked": "Its server doesn’t mark it read-only: it may change things.",
     "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
     "outsideLine": "Outside this workspace: mcp.tracker.example",
-    "eachLine": "This conversation holds data of Sales: what is sent to Tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve — so it is asked every time.",
+    "eachLine": "This conversation holds data of Sales: what is sent to Tracker (mcp.tracker.example) leaves the workspace, so each call is one you approve.",
     "changedLine": ""
    },
    "wider": {
@@ -4507,7 +4507,7 @@
     "marked": "Its server doesn’t mark it read-only: it may change things.",
     "undo": "xbin can't undo this. Whether Tracker can is up to Tracker.",
     "outsideLine": "Outside this workspace: an outside server",
-    "eachLine": "This conversation holds an organisation’s data — so it is asked every time.",
+    "eachLine": "This conversation holds an organisation’s data: what is sent leaves the workspace, so each call is asked every time.",
     "changedLine": ""
    },
    "wider": {

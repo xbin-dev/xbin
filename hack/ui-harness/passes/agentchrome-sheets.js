@@ -155,7 +155,7 @@ async function sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot,
     await page.waitForSelector(`${SHEET} [data-outside]`);
     const outText = await text(`${SHEET} [role="dialog"]`);
     check(/Your agent wants to run post on Issue tracker, outside this workspace/.test(outText) && /Outside this workspace: mcp\.tracker\.example/.test(await text(`${SHEET} [data-outside]`))
-      && /asked every time/.test(await text(`${SHEET} [data-each]`)) && (await page.$$(`${SHEET} [data-choice]`)).length === 1 && !!(await page.$(`${SHEET} [data-read-web]`)),
+      && /each call is one you approve\.$/.test(await text(`${SHEET} [data-each]`)) && (await page.$$(`${SHEET} [data-choice]`)).length === 1 && !!(await page.$(`${SHEET} [data-read-web]`)),
       `[${width}] an outside server's tool: outside this workspace and its host, said plainly; from a tainted conversation once only (${outText.replace(/\s+/g, ' ').slice(0, 200)})`);
     await shot(page, `agent-chrome-mcp-outside${tag}`, { fullPage: false });
     await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);

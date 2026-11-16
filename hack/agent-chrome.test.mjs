@@ -354,7 +354,8 @@ test('an outside MCP server (D240): the sheet says outside and the host; from a 
   assert.equal(W.heading(req).after, ' on Tracker, outside this workspace');
   const each = { ...req, preview: { ...req.preview, each: true, why: 'This conversation holds data of Sales: what is sent leaves the workspace', standing: undefined } };
   assert.deepEqual(W.grantChoices(each).map((c) => c.id), ['once']);
-  assert.match(W.mcpRows(each).eachLine, /asked every time/);
+  assert.equal(W.mcpRows(each).eachLine, 'This conversation holds data of Sales: what is sent leaves the workspace.');
+  assert.match(W.mcpRows({ ...each, preview: { ...each.preview, why: '' } }).eachLine, /each call is asked every time\.$/);
   const trusted = { ...req, preview: { ...req.preview, readOnlyTrusted: true } };
   assert.match(W.mcpRows(trusted).marked, /the server’s word, not xbin’s/);
   const prefs = W.netPrefs({ mcp: true, net: { web: { policy: 'off' }, mcp: { policy: 'listed', servers: [{ server: 'ext:tracker', name: 'Tracker', host: 'mcp.tracker.example' }] } } });

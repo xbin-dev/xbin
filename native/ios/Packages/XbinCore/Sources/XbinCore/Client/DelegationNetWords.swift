@@ -116,7 +116,7 @@ extension DelegationWords {
         return (m, m.readOnly ? ro : "Its server doesn’t mark it read-only: it may change things.",
                 "xbin can't undo this. Whether \(m.server) can is up to \(m.server).", changed,
                 m.outside ? "Outside this workspace: \(nonEmpty(m.host, "an outside server"))" : "",
-                m.each ? "\(nonEmpty(m.why, "This conversation holds an organisation’s data")) — so it is asked every time." : "")
+                m.each ? (m.why.isEmpty ? "This conversation holds an organisation’s data: what is sent leaves the workspace, so each call is asked every time." : "\(m.why).") : "")
     }
 
     /// A request of a kind this app doesn't know (a newer xbind's): said
