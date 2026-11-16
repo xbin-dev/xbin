@@ -56,7 +56,7 @@ func (s *Server) registerFirstRunAPI() {
 // cookie) — not bx's bearer, a tile's frame, a view-as session or the
 // implicit owner of --no-auth.
 func tokenSession(p auth.Principal) bool {
-	return p.Owner && p.Via == "cookie" && p.Component == "" && p.Agent == "" && p.Impersonator == ""
+	return p.Owner && p.Via == "cookie" && p.Component == "" && p.Agent == "" && !p.ReadOnly()
 }
 
 // noAccounts: the workspace has no accounts at all (an invited one that

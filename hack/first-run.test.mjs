@@ -46,8 +46,10 @@ test('no model: the agent needs one, and the button only makes the account', () 
     assert.equal(p.agent.kind, 'no-model');
     assert.equal(p.primary, 'Create my account');
     assert.equal(p.quiet, '');
-    assert.match(p.line, /\/xbin\/llm/);
+    assert.match(p.line, /needs a language model/);
+    assert.deepEqual(p.link, { href: '/xbin/llm', text: 'Connect a language model' });
   }
+  assert.equal(F.plan({ vault: null, llm, ws: never }).link, null, 'a model: no link');
 });
 
 test('the agent is never turned on where it was switched before, "everyone" never chosen', () => {

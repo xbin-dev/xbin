@@ -34,8 +34,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   Read and locked like the connector's settings; `GET /delegate/state`
   and `GET/PUT /delegate/workspace` carry `locks: {enabled?, who?}`, and a
   PUT of a locked key is 409 (docs/workspace-agent.md §Set by your host).
-  The dock's setup steps say "Set by your host"; `bx-agent-dock` gains
-  `focusComposer()`.
+  The dock's setup steps and `/xbin/system` say "Set by your host",
+  read-only; `bx-agent-dock` gains `focusComposer()`.
 - access: **`GET /access?tile=` says what reaches everyone.** A new
   `defaults: [{level, source}]` lists the workspace defaults that reach the
   tile (additive; none on an org-owned tile), and a system component no

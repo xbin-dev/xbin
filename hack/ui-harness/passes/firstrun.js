@@ -22,7 +22,9 @@
 //      pass): the account is made, the person signed in, the sheet says
 //      what is left
 //   D  the host's "workspaceAgent": false: the sheet says the host turned
-//      agents off
+//      agents off; and a vault that is set up and sealed (its status and
+//      the unseal answered by the pass): one field to unlock it, tried
+//      first, a wrong passphrase said in place with nothing made
 //
 // A screenshot of each state at 1280 and 390 wide, dark and light, and at
 // 200 % zoom (FIRSTRUN_SHOTS, default out/firstrun-shots). Passwords and
@@ -102,7 +104,8 @@ async function stateA(browser, check) {
     check(await page.locator(`${S} [data-primary]`).innerText() === 'Create my account and turn on my workspace agent', 'A: the primary button turns the agent on');
     check(await page.locator(`${S} [data-quiet]`).count() === 1, 'A: a quiet button makes the account without it');
     check(/asks you before it changes anything/.test(await page.locator(`${S} [data-agent]`).innerText()), 'A: one sentence says what the agent is and that it asks first');
-    check(/cannot be recovered/.test(await page.locator(`${S} #bxfr-vault-line`).innerText()), 'A: the vault\'s "cannot be recovered" line, over its two fields');
+    check(/cannot be recovered/.test(await page.locator(`${S} #bxfr-vault-hint`).innerText()) && /bxfr-vault-hint/.test(await page.getAttribute(`${S} #bxfr-vault`, 'aria-describedby')),
+      'A: the vault\'s "cannot be recovered" line, over its two fields (and the passphrase\'s description)');
     check(/Admin → Users → sign-in security/.test(await page.locator(`${S} [data-token]`).innerText()), 'A: the token keeps working until turned off — said, with where');
     check(await activeId(page) === 'bxfr-name', 'A: focus starts in the name');
     check(await page.evaluate(() => document.querySelector('bx-shell').inert === true), 'A: the shell behind the sheet is inert');
@@ -206,7 +209,8 @@ async function stateB(browser, check) {
     await sheetUp(page);
     const t = await sheetApi(page);
     check(t.plan.vault === '' && await page.locator(`${S} #bxfr-vault`).count() === 0, 'B: the host unseals: no vault field');
-    check(t.plan.agent.kind === 'no-model' && /\/xbin\/llm/.test(await page.locator(`${S} [data-agent]`).innerText()), 'B: no model: the agent needs one, and the sheet names /xbin/llm');
+    check(t.plan.agent.kind === 'no-model' && /needs a language model/.test(await page.locator(`${S} [data-agent]`).innerText()) && await page.getAttribute(`${S} [data-agent] a[data-link]`, 'href') === '/xbin/llm',
+      'B: no model: the agent needs one, and the sheet links /xbin/llm');
     check(await page.locator(`${S} [data-primary]`).innerText() === 'Create my account' && await page.locator(`${S} [data-quiet]`).count() === 0, 'B: …and the button is just "Create my account"');
     const wide = await shots(page, 'b-host-vault-no-model');
     check(wide.length === 0, `B: never sideways (${wide.join(' ') || 'none'})`);
@@ -255,6 +259,12 @@ async function stateC(browser, check) {
     const st = await api(page, '/delegate/state');
     check(st.body.access === true && st.body.locks && st.body.locks.who, 'C: the host gave the new admin an agent of their own, with no click');
     check((await bearer(X, '/vault-status')).body.mode === 'unconfigured', 'C: the vault is left for the admin console, as the sheet said');
+    await page.goto(`${X.url}/xbin/system`);
+    await page.waitForSelector('[data-host]', { timeout: 20000 }).catch(() => {});
+    check(/Set by your host/.test(await page.locator('[data-host]').first().innerText().catch(() => ''))
+      && await page.locator('button', { hasText: /^Remove$/ }).count() === 0 && await page.locator('button', { hasText: 'Give access' }).count() === 0,
+      'C: /xbin/system shows who has an agent as the host\'s — read-only, no Remove, no Give access');
+    await page.screenshot({ path: path.join(SHOTS, 'c-system-page-desktop-dark.png') });
   } finally {
     await ctx.close().catch(() => {});
     await X.stop();
@@ -271,6 +281,23 @@ async function stateD(browser, check) {
     check(t.plan.agent.kind === 'host-off' && /turned workspace agents off/.test(await page.locator(`${S} [data-agent]`).innerText()), 'D: the host locked agents off: the sheet says so');
     check(await page.locator(`${S} [data-primary]`).innerText() === 'Create my account' && await page.locator(`${S} [data-quiet]`).count() === 0, 'D: …and offers no agent');
     await shots(page, 'd-host-off');
+    // a vault set up and sealed (after a restart without the host's passphrase): answered by the pass —
+    // one field, to unlock it, tried before anything is made: a wrong passphrase is said in place
+    await page.route('**/api/xbin/vault-status', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"initialized":true,"sealed":true,"mode":"sealed","insecure":false}' }));
+    await page.route('**/api/xbin/vault-unseal', (r) => r.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"bad passphrase"}' }));
+    await page.evaluate(() => { try { localStorage.clear(); } catch { /* none */ } });
+    await page.reload();
+    await J0.shellUp(page);
+    await sheetUp(page);
+    check((await sheetApi(page)).plan.vault === 'unlock' && await page.locator(`${S} #bxfr-repeat`).count() === 0, 'D: a sealed vault: one field, to unlock it');
+    await page.fill(`${S} #bxfr-name`, 'Di Admin');
+    await page.fill(`${S} #bxfr-pw`, secret());
+    await page.fill(`${S} #bxfr-vault`, 'not-the-passphrase');
+    await page.press(`${S} #bxfr-vault`, 'Enter');
+    await page.waitForSelector(`${S} [data-err="vault"]`, { timeout: 10000 });
+    check(/isn't the vault's passphrase/.test(await page.locator(`${S} [data-err="vault"]`).innerText()) && ((await bearer(X, '/users')).body.users || []).length === 0,
+      'D: …a wrong passphrase is said under it, and nothing was made');
+    await shots(page, 'd-unlock-wrong');
   } finally {
     await ctx.close().catch(() => {});
     await X.stop();

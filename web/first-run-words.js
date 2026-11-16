@@ -57,7 +57,8 @@ export const WORDS = Object.freeze({
   vaultUnlock: "The vault's passphrase",
   vaultUnlockLine: 'The vault is locked since xbin last started: its passphrase opens it again.',
   agentLine: 'Your workspace agent is an AI assistant that plans and does work across your tiles for you, and asks you before it changes anything.',
-  agentNoModel: 'It needs a language model, and none is connected yet: connect one on the LLM page afterwards (/xbin/llm), then turn it on.',
+  agentNoModel: 'It needs a language model, and none is connected yet.',
+  connectModel: { href: '/xbin/llm', text: 'Connect a language model' },
   agentHostOn: 'Your host has turned it on for you: it opens once you are in.',
   agentHostOff: 'Your host has turned workspace agents off in this workspace.',
   agentSet: 'An admin has set workspace agents up already: they are in the top bar once you are in.',
@@ -97,7 +98,7 @@ const zeroTime = (t) => !t || /^0001-01-01/.test(String(t));
  *   agent  {kind, body?}: offer (the button sends PUT /delegate/workspace
  *          body), host-on, host-off, no-model, set, none
  *   primary / quiet  the buttons' words (quiet '' when there is none)
- *   line   the sentence under the agent's own ('' none)
+ *   line   the sentence under the agent's own ('' none); link {href, text} after it, or null
  */
 export function plan({ vault = null, llm = null, ws = null } = {}) {
   const mode = vault && vault.mode;
@@ -105,7 +106,8 @@ export function plan({ vault = null, llm = null, ws = null } = {}) {
   const agent = agentPlan(llm, ws);
   const offer = agent.kind === 'offer';
   const line = { 'host-on': WORDS.agentHostOn, 'host-off': WORDS.agentHostOff, 'no-model': WORDS.agentNoModel, set: WORDS.agentSet }[agent.kind] || '';
-  return { vault: v, agent, primary: offer ? WORDS.primaryAgent : WORDS.primary, quiet: offer ? WORDS.quiet : '', line, says: agent.kind !== 'none' };
+  const link = agent.kind === 'no-model' ? WORDS.connectModel : null; // the LLM page: then back here, and the sheet offers the agent
+  return { vault: v, agent, primary: offer ? WORDS.primaryAgent : WORDS.primary, quiet: offer ? WORDS.quiet : '', line, link, says: agent.kind !== 'none' };
 }
 
 function agentPlan(llm, ws) {

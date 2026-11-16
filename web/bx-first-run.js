@@ -80,6 +80,7 @@ bx-first-run fieldset > label:first-of-type { margin-top: 6px; }
 bx-first-run .agent { display: flex; gap: 8px; align-items: flex-start; margin: 14px 0 0; padding: 10px 12px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); }
 bx-first-run .agent bx-icon { flex: none; margin-top: 1px; }
 bx-first-run .agent .more { margin-top: 4px; color: var(--bx-muted); }
+bx-first-run .agent a { color: var(--bx-link); }
 bx-first-run .btns { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
 bx-first-run button, bx-first-run a.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--bx-control-h); width: 100%;
   padding: 6px 12px; border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius); background: var(--bx-panel); color: var(--bx-text);
@@ -201,6 +202,7 @@ export class BxFirstRun extends LitElement {
       this._busy = WORDS.busy.vault;
       const r = await call('/vault-unseal', { method: 'POST', body: { passphrase: f.vault } });
       if (!r.ok) return this._fail('vault', r.status === 403 ? WORDS.errors.wrongUnlock : r.error);
+      this.plan = { ...p, vault: '' }; // open now: not asked again if the account needs another try
     }
     this._busy = WORDS.busy.account;
     let r = await call('/users', { method: 'POST', body: { id, name: f.name.trim(), role: 'admin', password: f.password } });
@@ -266,13 +268,13 @@ export class BxFirstRun extends LitElement {
   _form(p) {
     const f = this._f, busy = !!this._busy;
     const vault = p.vault === 'new' ? html`<fieldset data-vault="new"><legend>${WORDS.vault}</legend>
-        <p class="hint" id="bxfr-vault-line">${WORDS.vaultLine}</p>
-        ${this._field('vault', WORDS.vaultNew, () => this._input('vault', { type: 'password', ac: 'off', form: 'bxfr-vaultform', extra: { name: 'vault-passphrase', ignore: true } }))}
+        <p class="hint" id="bxfr-vault-hint">${WORDS.vaultLine}</p>
+        ${this._field('vault', WORDS.vaultNew, () => this._input('vault', { type: 'password', ac: 'off', form: 'bxfr-vaultform', extra: { name: 'vault-passphrase', ignore: true, hint: true } }))}
         ${this._field('repeat', WORDS.vaultRepeat, () => this._input('repeat', { type: 'password', ac: 'off', form: 'bxfr-vaultform', extra: { name: 'vault-passphrase-again', ignore: true } }))}
       </fieldset>`
       : p.vault === 'unlock' ? html`<fieldset data-vault="unlock"><legend>${WORDS.vault}</legend>
-        <p class="hint">${WORDS.vaultUnlockLine}</p>
-        ${this._field('vault', WORDS.vaultUnlock, () => this._input('vault', { type: 'password', ac: 'off', form: 'bxfr-vaultform', extra: { name: 'vault-passphrase', ignore: true } }))}
+        <p class="hint" id="bxfr-vault-hint">${WORDS.vaultUnlockLine}</p>
+        ${this._field('vault', WORDS.vaultUnlock, () => this._input('vault', { type: 'password', ac: 'off', form: 'bxfr-vaultform', extra: { name: 'vault-passphrase', ignore: true, hint: true } }))}
       </fieldset>` : nothing;
     const offer = p.agent.kind === 'offer';
     return html`
@@ -290,7 +292,8 @@ export class BxFirstRun extends LitElement {
       </form>
       <form id="bxfr-vaultform" novalidate autocomplete="off" @submit=${(e) => { e.preventDefault(); this._submit(true); }} @keydown=${this._key}></form>
       <div @keydown=${this._key}>${vault}</div>
-      ${p.says ? html`<div class="agent" data-agent=${p.agent.kind}><bx-icon name="agent"></bx-icon><div><p>${WORDS.agentLine}</p>${p.line ? html`<p class="more">${p.line}</p>` : nothing}</div></div>` : nothing}
+      ${p.says ? html`<div class="agent" data-agent=${p.agent.kind}><bx-icon name="agent"></bx-icon><div><p>${WORDS.agentLine}</p>${p.line ? html`<p class="more">${p.line}${p.link
+        ? html` <a href=${p.link.href} data-link>${p.link.text}</a>` : nothing}</p>` : nothing}</div></div>` : nothing}
       ${this._err.form ? html`<div class="err" data-err="form" role="alert"><bx-icon name="error"></bx-icon><span>${this._err.form}</span></div>` : nothing}
       <div class="btns">
         <button type="submit" form="bxfr-form" class="primary" data-primary ?disabled=${busy}>${p.primary}</button>

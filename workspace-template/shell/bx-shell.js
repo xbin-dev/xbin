@@ -1431,6 +1431,7 @@ export class BxShell extends LitElement {
         this._adminOrgs = new Set((d.orgs ?? []).filter((o) => o.admin).map((o) => o.id));
         this._ownedTiles = new Set(d.owned ?? []);
         this._orgish = !!((d.orgs ?? []).length || (d.owned ?? []).length);
+        await firstRun(this); // the bootstrap state: the first-run sheet, before any hint of the shell's (shell-first-run.js)
         // First-run hardening card: running on the bootstrap token with no
         // accounts yet (the reusable token URL is the only credential).
         if (d.kind === 'root' && !localStorage.getItem('xbin-setup-dismissed')) {
@@ -1439,7 +1440,6 @@ export class BxShell extends LitElement {
         } else {
           this._setupCard = false;
         }
-        firstRun(this); // the bootstrap state: the first-run sheet instead (shell-first-run.js)
       }
     } catch { /* xbind restarting */ }
     loadAccessRequests(this);
