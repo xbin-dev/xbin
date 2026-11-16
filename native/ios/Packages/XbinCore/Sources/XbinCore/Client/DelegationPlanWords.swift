@@ -117,6 +117,16 @@ public enum PlanWords {
         return "\(plural(n, "line")) \(n == 1 ? "waits" : "wait"): xbin applies \(n == 1 ? "it" : "them") by itself once the tile provides what you approved. Rejecting the plan from here cancels \(n == 1 ? "it" : "them")."
     }
 
+    /// The same line as the app's sheet says it. The app shows what waits
+    /// and decides nothing about it (the rule for everything it can't act
+    /// on): the web's "Rejecting the plan from here cancels it" names a
+    /// control this sheet doesn't have.
+    public static func waitingWordsInApp(_ c: AdminChangeSet) -> String {
+        let n = c.items.filter { $0.result == "waiting" }.count
+        guard n > 0 else { return "" }
+        return "\(plural(n, "line")) \(n == 1 ? "waits" : "wait"): xbin applies \(n == 1 ? "it" : "them") by itself once the tile provides what you approved. To cancel \(n == 1 ? "it" : "them"), open this review on the web."
+    }
+
     /// What the review says under a line, beside xbind's own words.
     public static func lineNotes(_ c: AdminChangeSet, item: AdminChangeSet.Item)
         -> (tag: String, needs: String, neededBy: String, why: String) {

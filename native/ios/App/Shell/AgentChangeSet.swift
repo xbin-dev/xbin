@@ -409,8 +409,8 @@ struct AgentChangeSetSheet: View {
                         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
                         .background(XbinColor.warnBackground, in: .xbinPlate)
                 }
-                if s.plan, !PlanWords.waitingWords(s).isEmpty {
-                    Text(verbatim: PlanWords.waitingWords(s)).font(.callout).foregroundStyle(XbinColor.muted).accessibilityIdentifier("changeset-waiting")
+                if s.plan, !PlanWords.waitingWordsInApp(s).isEmpty {
+                    Text(verbatim: PlanWords.waitingWordsInApp(s)).font(.callout).foregroundStyle(XbinColor.muted).accessibilityIdentifier("changeset-waiting")
                 }
                 if s.plan, !PlanWords.askedWords(s).isEmpty {
                     Text(verbatim: PlanWords.askedWords(s)).font(.callout).foregroundStyle(XbinColor.muted).accessibilityIdentifier("changeset-asked")
