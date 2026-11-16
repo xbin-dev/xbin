@@ -5516,3 +5516,67 @@ here: cut from the old end, never reword.
   - **Not yet**: `web.mode: "full"`, `web.search` and `mcp.mode: "listed"`
     (external MCP servers with credentials held by xbind) are refused with
     "not available yet" rather than half-built.
+
+- **D241 — The workspace agent reachable when the app is not open:
+  pushes, lock-screen actions, one Live Activity per workspace, one router
+  (2026-11-16; issue #51; `plans/wsagent/ios-stage2.md`; package E2).** The
+  owner: "do STAGE 2 — make the agent reachable when the app is not open".
+  Stage 1 (D233) had no notification actions and no card of its own.
+  - **One push per thing that waits, on the one push path.** Requests,
+    change sets (plans, an admin's ask), the agent's own question and a
+    finished request are `agent.*` kinds sealed to the device as every
+    xbin push is; the new data rides in the sealed plaintext (`agent`), so
+    the relay learns nothing new. One per thing (collapse
+    `agent-approval:<id>`, …), a 3 s grace, a per-person budget with one
+    summary past it — replacing "one notification a person, a count, one a
+    minute". Rejected: a payload with ids only and a fetch on wake (the NSE
+    holds no session to fetch with, and giving it one is a credential on
+    the lock screen's side); the agent's words in a title (never).
+  - **Allow once from the lock screen only where the whole call is shown
+    and two independent checks agree.** xbind's clip rule
+    (`LockScreenOffer`: a tile call, text body ≤ 200 bytes and 3 lines,
+    target ≤ 120 bytes, nothing hidden, no warning) sets `offer`; the app
+    re-checks the same fields itself; the person turns it on per workspace
+    after an explanation (off by default); the action needs device
+    authentication; the app re-reads the request and sends nothing that
+    differs from what was shown; xbind refuses a `via: notification` Allow
+    that fails its rule and audits the decision as one. Everything wider is
+    Review only; Deny (and Reject) wherever it is on. This answers ux.md's
+    Q3 "revisit for once approvals whose whole body fits". Rejected:
+    deciding in the NSE (no session there), and an approval from the Live
+    Activity (no room to show the call).
+  - **Clearing by a sealed background push** (`agent.clear`, the relay's new
+    `background` type) plus a sweep on every foreground and background
+    refresh: iOS rations background pushes and drops them for a force-quit
+    app, so the sweep is what makes it hold. Rejected: an alert with the
+    same collapse id (it shows again), the notification-filtering
+    entitlement (Apple's approval, and still a delivered push).
+  - **One Live Activity per workspace on the existing activity plane**: a
+    type of its own (`WorkspaceAgentActivityAttributes`: its push-to-start
+    token is its own), registered through the same routes (`agent: true`,
+    `agentStartHandle`), state counts and a phase only (`agents`, `paused`
+    added to the relay's checked fields). An older relay gets the subset it
+    checks. Rejected: reusing the tile agent's attributes type with a
+    marker (an older app would draw it as a tile agent's turn).
+  - **The holder's notifications are worded by xbind.** A delegation
+    holder's `POST /notify` (`question`, `done`) becomes `agent.ask` /
+    `agent.done` with xbind's title and body; the agent's question is drawn
+    by the app quoted as its words, below xbind's title — a deliberate
+    change of ux.md §9.3's "no body text": a Reply needs the question in
+    view.
+  - **One router; links are xbind's page link plus a fragment**
+    (`xbin/agent#r=<id>`, `cs=`, `ts=`, `c=`, `needs`, `first`): stage 1's
+    app opens the agent, an older one the workspace. Fixed on the way: the
+    approval pushes linked the holder's path, which no app parses.
+  - **Quick replies fill, never send** (the template's store, web and
+    native alike) and are labelled the agent's suggestions; **dictation is
+    on-device system speech**, app chrome given only to the person's
+    agent's view — no vocabulary change, no microphone for any tile.
+  - **Handoff to `/xbin/agent`** (the web page opens the person's last
+    session, which the view keeps); universal links only for a domain the
+    project controls — a self-hosted workspace's domain can't be claimed by
+    the App Store app, and its `xbin://` link stays the way in.
+  - **Owner steps** (ios-stage2.md §12): deploy the relay, set the app's
+    relay, the Time Sensitive Notifications capability and its entitlement,
+    the review notes. Not verified without a device: real APNs, Face ID on
+    an action, the Dynamic Island, dictation audio, Handoff between devices.
