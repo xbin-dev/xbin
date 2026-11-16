@@ -549,3 +549,29 @@ func TestRestoreRegistersOnlyItsOwnCronJobs(t *testing.T) {
 		t.Errorf("an archive of apps/calendar registered a job of %s", c)
 	}
 }
+
+// A file is read only out of the component's own archive: one whose
+// manifest names another component — an archiver serving tile B's archive
+// under tile A's key — is refused, as a whole restore of it always was.
+func TestFileRestoreReadsOnlyItsOwnArchive(t *testing.T) {
+	f := sealFx(t)
+	b := f.b
+	if _, err := b.doBackup(bkTile); err != nil {
+		t.Fatal(err)
+	}
+	if data, code, err := b.extractMember(bkTile, "latest", "source/index.html"); err != nil || code != 200 || !strings.Contains(string(data), sealMarker) {
+		t.Fatalf("a file of its own archive: %q %d %v", data, code, err)
+	}
+	other := safetyArchive(t, backup.Manifest{Component: "apps/other", Scope: "apps/other", Includes: []string{"source"}},
+		archiveEntry{"source/notes.txt", "another tile's file"})
+	f.arch.set(backupKey(bkTile), other.Bytes())
+	for _, name := range []string{"source/notes.txt", backup.ManifestName} {
+		data, code, err := b.extractMember(bkTile, "latest", name)
+		if err == nil || code != http.StatusConflict || len(data) != 0 {
+			t.Errorf("%s out of an archive of apps/other, served as %s's: %q %d %v, want 409", name, bkTile, data, code, err)
+		}
+	}
+	if _, _, err := b.restoreTile(bkTile, "latest"); err == nil {
+		t.Error("an archive of another component restored as the tile")
+	}
+}
