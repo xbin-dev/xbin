@@ -387,7 +387,7 @@ func (s *Server) apiDelegateMap(w http.ResponseWriter, r *http.Request) {
 	if s.Term != nil {
 		for _, si := range s.Term.ListFor(term.HomeKey(personOf(p)), "", nil) {
 			if si.Kind == term.KindAgent {
-				running[si.Cwd]++
+				running[s.sessionTile(si.Cwd)]++ // a session inside a tile is that tile's
 			}
 		}
 	}
@@ -635,6 +635,9 @@ func (s *Server) apiStartDefaults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
+	if tile != "" {
+		tile = s.sessionTile(tile) // a directory inside a tile starts on that tile, and is decided on it
+	}
 	if tile == "" || !p.CanTerminalTileVia(tile) {
 		WriteError(w, http.StatusForbidden, p.UserID+" doesn't have terminal access there: their agent can't start a tile agent", delegationDocs)
 		return

@@ -272,7 +272,7 @@ func (m *Manager) ListHistory(h HistoryScope, cwd string, may func(rel string) b
 				continue
 			}
 			meta, ok := readHistoryMeta(filepath.Join(d.path, e.Name()))
-			if !ok || (may != nil && !may(meta.Cwd)) || (d.cwd != "" && meta.Cwd != d.cwd) {
+			if !ok || (may != nil && !may(m.historyTile(meta))) || (d.cwd != "" && meta.Cwd != d.cwd) {
 				continue
 			}
 			if h.ViewAs && meta.Signin {

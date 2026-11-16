@@ -20,19 +20,22 @@ import { html, css, nothing } from 'lit';
 import '/vendor/bx-icons.js';
 
 // The live square (product-ui 3): the tile's code is live (the accent),
-// building (hollow) or its build failed (a danger outline and the word).
+// building (hollow) or its build failed (a danger outline and the word) —
+// "failed · retrying" while xbind will start it again (D242: retry is the
+// frame's buildRetry, the time and count in the tooltip).
 const LIVE = { live: 'live', building: 'building', failed: 'build failed' };
-function liveSquare(state) {
-  const t = LIVE[state] || LIVE.live;
+const retryWords = (r) => (r ? `retrying at ${new Date(r.at).toLocaleTimeString()} (${r.attempt} of ${r.of})` : '');
+function liveSquare(state, retry) {
+  const t = [LIVE[state] || LIVE.live, state === 'failed' ? retryWords(retry) : ''].filter(Boolean).join(' — ');
   return html`<span class="lsq ${state}" role="img" aria-label=${t} title=${t}></span>${state === 'failed'
-    ? html`<span class="lfail">failed</span>` : nothing}`;
+    ? html`<span class="lfail" title=${t}>${retry ? 'failed · retrying' : 'failed'}</span>` : nothing}`;
 }
 
 export function titlebar(f) {
   const name = f.src.slice(f.src.lastIndexOf('/') + 1);
   return html`
     <div class="titlebar" @pointerdown=${(e) => { if (!e.target.closest('button')) f._dragStart(e); }}>
-      <span class="tname">${liveSquare(f.buildState)}<span class="path" title=${f.src}><b class="nm">${name}</b><span class="dir">${f.src}</span></span></span>
+      <span class="tname">${liveSquare(f.buildState, f.buildRetry)}<span class="path" title=${f.src}><b class="nm">${name}</b><span class="dir">${f.src}</span></span></span>
       <button class="winx ib" title="close (sessions keep running)" aria-label="close the window (sessions keep running)"
               @click=${() => { f._termOpen = false; }}><bx-icon name="xmark"></bx-icon></button>
     </div>`;

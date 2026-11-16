@@ -184,13 +184,15 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		return SessionInfo{}, 403, errors.New("an agent session runs on a tile — pass cwd")
 	}
 	_, rel, err := util.SafeJoin(m.Root, cwd)
+	tile := ""
 	if err == nil && rel != "" {
-		if why := m.sessionDir(rel); why != "" {
+		var why string
+		if tile, why = m.sessionTile(rel); why != "" { // the level, rules and target are the tile's (sessiondir.go)
 			return SessionInfo{}, 403, errors.New(why)
 		}
 	}
-	if err != nil || rel == "" || !p.CanTerminalTileVia(rel) {
-		return SessionInfo{}, 403, errors.New("your account doesn't have terminal access to this tile")
+	if err != nil || rel == "" || !p.CanTerminalTileVia(tile) {
+		return SessionInfo{}, 403, errors.New(noTerminalLevel)
 	}
 	// resume: reopen one of the caller's past sessions on this tile
 	// (history.go) — its provider, mode and name carry over; the agent must
@@ -225,7 +227,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	}
 	if p.Agent != "" { // a person's workspace agent: narrowed beyond the person's own gates (delegate.go)
 		var why string
-		if mode, netMode, why = m.delegateOpen(p, &a, rel, prov, mode, netMode, resumeFrom); why != "" {
+		if mode, netMode, why = m.delegateOpen(p, &a, tile, prov, mode, netMode, resumeFrom); why != "" {
 			return SessionInfo{}, 403, errors.New(why)
 		}
 	}
@@ -238,7 +240,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		return SessionInfo{}, 403, fmt.Errorf("a workspace agent opens exactly the session its person approved (%s in mode %s): this would be %s in mode %s — ask again",
 			d.Provider, d.Mode, prov.ID, mode)
 	}
-	if err := m.HarnessAllowed(p, rel, prov.ID); err != nil { // the tile's orgs' harness rules (D229)
+	if err := m.HarnessAllowed(p, tile, prov.ID); err != nil { // the tile's orgs' harness rules (D229)
 		if resume != "" {
 			return SessionInfo{}, 403, fmt.Errorf("this session can't be resumed here any more: %w", err)
 		}
@@ -247,19 +249,19 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if m.BxPath == "" {
 		return SessionInfo{}, 503, errors.New("agent sessions need the bx binary the daemon could not find at startup (build it: CGO_ENABLED=0 go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
-	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
+	o := m.openOptsFor(p, tile, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
 	o.origin = cmp.Or(p.Agent, a.origin) // a delegate's open; a restart keeps its session's (delegate.go)
 	if o.originMode = a.originMode; p.Agent != "" {
 		o.originMode = mode // the mode its person approved, or their preference's
 	}
-	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
+	if code, err := m.pickTarget(p, &o, tile, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
-	if code, err := m.llmGate(&o, rel, prov, a.LLM, options); err != nil { // who serves its model calls (llmhook.go)
+	if code, err := m.llmGate(&o, tile, prov, a.LLM, options); err != nil { // who serves its model calls (llmhook.go)
 		return SessionInfo{}, code, err
 	}
-	if code, err := m.pickPartition(p, &o, rel); err != nil { // partition.go
+	if code, err := m.pickPartition(p, &o, tile); err != nil { // partition.go
 		return SessionInfo{}, code, err
 	}
 	// the person's saved sign-in for the harness, and whether the rule lets
@@ -339,11 +341,11 @@ func (m *Manager) MayDrive(id string, p auth.Principal) error {
 	}
 	if s.homeKey != HomeKey(p) {
 		if p.IsAdmin() {
-			return fmt.Errorf("%w: %s", ErrForbidden, notYours(s.Cwd))
+			return fmt.Errorf("%w: %s", ErrForbidden, notYours(m.tileOf(s)))
 		}
 		return fmt.Errorf("%w: session belongs to another user", ErrForbidden)
 	}
-	if !p.CanTerminalTileVia(s.Cwd) {
+	if !p.CanTerminalTileVia(m.tileOf(s)) {
 		return fmt.Errorf("%w: terminal access to this tile was revoked", ErrForbidden)
 	}
 	return nil
@@ -381,7 +383,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
-	if revokeTok, err = m.llmArm(&o, rel, &prov, revokeTok); err != nil { // the session's LLM key, ended with its token (llmhook.go)
+	if revokeTok, err = m.llmArm(&o, o.onTile(rel), &prov, revokeTok); err != nil { // the session's LLM key, ended with its token (llmhook.go)
 		revokeTok()
 		return nil, err
 	}
@@ -389,7 +391,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	cmd, cleanup, postStart, envKey, env, err := m.shellCmd(start, rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
-		m.sbxFail(o, rel, err)
+		m.sbxFail(o, o.onTile(rel), err)
 		return nil, err
 	}
 	// A prompt's files (agent/host/attach.go): in a sandbox they go to its
@@ -428,7 +430,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return fail(err)
 	}
 	if err := cmd.Start(); err != nil {
-		m.sbxFail(o, rel, err)
+		m.sbxFail(o, o.onTile(rel), err)
 		return fail(fmt.Errorf("spawn agent host: %w", err))
 	}
 	id := util.RandomToken(8)
@@ -441,7 +443,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed,
 		attachDir: attachDir, replay: replayState{on: resumeID != ""}, llm: o.llm, llmChoice: o.llmChoice}
 	s := &Session{
-		ID: id, Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
+		ID: id, Cwd: rel, tile: o.onTile(rel), Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
@@ -496,7 +498,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return &agent.Process{Stdin: stdin, Stdout: stdout, Stderr: stderr, Kill: s.kill}, nil
 	}
 	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: start, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
-		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel},
+		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": o.onTile(rel)},
 		// a session a person's workspace agent opened: its mode is the one
 		// its person approved, and no option may move it (an agent's config
 		// option of category mode is set after the mode; delegate.go)
@@ -719,7 +721,7 @@ func (s *Session) logOne(m *Manager, e agent.Event) {
 	}
 	s.hub.Touch()
 	if m.OnEvent != nil && !s.replayed(m, ev) {
-		m.OnEvent(s.Cwd, SessionEvent{Event: ev, User: s.homeKey, ID: s.ID, private: s.carriesSignin()})
+		m.OnEvent(m.tileOf(s), SessionEvent{Event: ev, User: s.homeKey, ID: s.ID, private: s.carriesSignin()})
 	}
 	if renamed {
 		m.changed("rename", s)

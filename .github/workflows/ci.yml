@@ -246,6 +246,7 @@ jobs:
           node-version: "24"
       - id: pw
         run: |
+          # shellcheck disable=SC2016 # ${...} is sed text matching dev-setup.sh's line, not an expansion
           v=$(sed -n 's/^PLAYWRIGHT_VERSION=${XBIN_PLAYWRIGHT_VERSION:-\([0-9.]*\)}$/\1/p' hack/dev-setup.sh)
           test -n "$v"
           echo "version=$v" >> "$GITHUB_OUTPUT"

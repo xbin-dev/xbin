@@ -651,7 +651,7 @@ func (s *Session) llmEnd(m *Manager, why error) {
 	text := why.Error() + ". The session was ended."
 	s.logEvent(m, agent.New(EvNotice, noticeData{Text: text}))
 	st.logf(text)
-	slog.Warn("agent session ended: not on the LLM connector, which alone may serve it", "id", s.ID, "tile", s.Cwd)
+	slog.Warn("agent session ended: not on the LLM connector, which alone may serve it", "id", s.ID, "tile", m.tileOf(s))
 	s.kill()
 }
 
@@ -869,11 +869,12 @@ func (m *Manager) llmRestart(p auth.Principal, s *Session, st *agentState, net, 
 	if st.llmChoice == "" {
 		return ""
 	}
-	o := m.openOptsFor(p, s.Cwd, s.Cwd, normalizeNet(net), gpu, api)
-	if _, err := m.pickTarget(p, &o, s.Cwd, deployment); err != nil {
+	tile := m.tileOf(s)
+	o := m.openOptsFor(p, tile, s.Cwd, normalizeNet(net), gpu, api)
+	if _, err := m.pickTarget(p, &o, tile, deployment); err != nil {
 		return "" // the restart's own target check refuses it, before the session ends
 	}
-	if _, err := m.llmGate(&o, s.Cwd, st.provider, st.llmChoice, nil); err != nil {
+	if _, err := m.llmGate(&o, tile, st.provider, st.llmChoice, nil); err != nil {
 		return ""
 	}
 	return st.llmChoice

@@ -129,7 +129,7 @@ func (m *Manager) ListFor(homeKey, cwd string, may func(rel string) bool) []Sess
 		if s.homeKey != homeKey || (cwd != "" && s.Cwd != cwd) {
 			continue
 		}
-		if may != nil && !may(s.Cwd) {
+		if may != nil && !may(m.tileOf(s)) { // the tile's level, not its directory's (sessiondir.go)
 			continue
 		}
 		out = append(out, m.row(s))
@@ -199,21 +199,23 @@ func (m *Manager) Owner(id string) string {
 // door to sessions already open there; the session itself lives on until
 // killed or reaped). On a partitioned tile (partitioned) an admin has no
 // pass into another person's session, nor view-as into any (PD-09). "" =
-// allowed, else the refusal.
+// allowed, else the refusal. The level is the tile's s is on, never the
+// one of the directory it opened in (sessiondir.go).
 func (s *Session) mayReattach(p auth.Principal, partitioned bool) string {
+	tile := s.onTileOrCwd()
 	if partitioned && p.ReadOnly() {
-		return viewAsRefusal(s.Cwd)
+		return viewAsRefusal(tile)
 	}
 	if p.IsAdmin() && (!partitioned || s.homeKey == HomeKey(p)) {
 		return ""
 	}
 	if s.homeKey != HomeKey(p) {
 		if partitioned && p.IsAdmin() {
-			return notYours(s.Cwd)
+			return notYours(tile)
 		}
 		return "session belongs to another user"
 	}
-	if !p.CanTerminalTile(s.Cwd) {
+	if !p.CanTerminalTile(tile) {
 		return "terminal access to this tile was revoked"
 	}
 	return ""
@@ -224,6 +226,6 @@ func (s *Session) mayReattach(p auth.Principal, partitioned bool) string {
 // renamed. Nil-safe; never called under m.mu.
 func (m *Manager) changed(op string, s *Session) {
 	if m.OnChange != nil {
-		m.OnChange(op, s.homeKey, s.ID, s.Cwd)
+		m.OnChange(op, s.homeKey, s.ID, m.tileOf(s)) // announced on its tile (a shell token's events are its tile's)
 	}
 }

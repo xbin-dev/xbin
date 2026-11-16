@@ -108,5 +108,5 @@ func (s *Session) endReplay(m *Manager) {
 		return
 	}
 	data, _ := json.Marshal(map[string]uint64{"first": r.first, "last": r.last})
-	m.OnEvent(s.Cwd, SessionEvent{Event: agent.Event{TS: time.Now().UnixMilli(), Type: agent.EvReplayed, Data: data}, User: s.homeKey, ID: s.ID})
+	m.OnEvent(m.tileOf(s), SessionEvent{Event: agent.Event{TS: time.Now().UnixMilli(), Type: agent.EvReplayed, Data: data}, User: s.homeKey, ID: s.ID})
 }

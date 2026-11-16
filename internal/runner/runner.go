@@ -100,7 +100,8 @@ type state struct {
 	lastReq time.Time
 	active  int // in-flight proxied connections (incl. SSE/WS streams; a partition's passive ones apart)
 	crashes []time.Time
-	pt      *partInfo // a person's partition's (partitions.go); nil for every other state
+	retry   startRetry // a failed start's retries (retry.go)
+	pt      *partInfo  // a person's partition's (partitions.go); nil for every other state
 }
 
 type Runner struct {
@@ -253,11 +254,14 @@ func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *stat
 		s.dirty = false
 		s.readAt = time.Now() // the wall clock the watcher's batches carry (watch.Event.Last)
 		s.buildDone = make(chan struct{})
+		epoch := s.retry.epoch
 		s.mu.Unlock()
 
 		err := r.runCurrent(c, s)
 
-		if s.built(err) {
+		retry := s.built(err)
+		r.startEnded(s, err, epoch) // retry.go: a failure that can clear by itself is tried again later
+		if retry {
 			return nil, err // a start to try again: this request's answer, never a loop here (sealed.go)
 		}
 		// Loop: re-check (another change may have arrived mid-build).
