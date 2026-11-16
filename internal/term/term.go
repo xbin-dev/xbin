@@ -875,6 +875,9 @@ func scrollTail(b []byte, n int) string {
 }
 
 func (s *Session) kill() {
+	if s.agent != nil {
+		s.agent.killed.Store(true) // before the agent goes: no held message is sent after it (flushQueue)
+	}
 	if s.cmd.Process != nil {
 		if s.pgid { // the non-isolated agent host and its agent: the whole group
 			_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)

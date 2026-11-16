@@ -325,7 +325,10 @@ func (m *Manager) kickQueue(s *Session) {
 func (m *Manager) flushQueue(s *Session) {
 	st := s.agent
 	st.mu.Lock()
-	if !st.queueStateLocked().Flush() { // sdk/acp: the turn is over, no turn of the agent's own runs, no prompt is on its way
+	// a session being ended sends nothing: its turn ended because the agent
+	// is going, and a prompt now would leave on a dead pipe after the queue
+	// said "sent" — the teardown drops them and says so (dropQueue)
+	if st.killed.Load() || !st.queueStateLocked().Flush() { // sdk/acp: the turn is over, no turn of the agent's own runs, no prompt is on its way
 		st.mu.Unlock()
 		return
 	}

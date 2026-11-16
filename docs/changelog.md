@@ -17,6 +17,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   for the prompt's frame to leave. Before, either could be written first:
   the agent answered the steer `promptRequired` (held for the turn's end)
   and ignored the cancel. No API change.
+- agent sessions: **messages held for a session that is ended are
+  dropped, and its log says so** (`queue` with `dropped`, and the
+  notice). Before, the turn the end cut short could send them on to the
+  agent that was going and report them `sent`.
 - templates, docs: **an MCP server tile is written, not stamped — and
   [mcp.md](/docs/mcp.md) is its interface** (D243). The builtin template
   for one, which landed earlier today (in no release), is gone from the

@@ -126,6 +126,11 @@ type agentState struct {
 	llmChoice string              // the session's own choice of who serves it, kept for a restart
 	redact    func(string) string // masks the session's saved sign-in in a log line (signin.go); nil = none
 	signin    *sessionSignin      // the session's sign-in and the saved one it carries (signin.go); under the Session's mu
+
+	// killed: the session is being ended (Session.kill) — the turn that
+	// ends with its agent flushes no held message into it (flushQueue):
+	// they are dropped at the teardown, and said so (dropQueue)
+	killed atomic.Bool
 }
 
 func (st *agentState) logf(line string) {
