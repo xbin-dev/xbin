@@ -65,6 +65,10 @@ final class XbinWorkspaceAgentPlanTests: XCTestCase {
             tick(e, 1).tap()
             XCTAssertTrue(e.until(10) { apply.label == "Apply 1 change…" }, "unticking a line unticks the lines that need it: \(apply.label)")
             tick(e, 1).tap()
+            // the admin's own tick (it is above the start line: ticked before scrolling on)
+            e.wsScrollTo(tick(e, 3))
+            tick(e, 3).tap()
+            XCTAssertTrue(e.until(10) { apply.label == "Apply 5 changes…" }, apply.label)
             // the start line: the mode xbind vouches for, the coding agent, the brief as sent
             let brief = e.element("changeset-brief-5")
             e.wsScrollTo(tick(e, 5))
@@ -73,9 +77,6 @@ final class XbinWorkspaceAgentPlanTests: XCTestCase {
             shot(e, "plan-start-line")
             // the admin's tick and Apply (with xbind's recent sign-in) are the consent; then the results show in
             // place and the sheet closes itself — no Done to tap
-            e.wsScrollTo(tick(e, 3))
-            tick(e, 3).tap()
-            XCTAssertTrue(e.until(10) { apply.label == "Apply 5 changes…" }, apply.label)
             XCTAssertTrue(e.until(15) { apply.isEnabled }, "Apply arms again after a tick")
             apply.tap()
             e.expect(e.element("changeset-stepup"), 30, "an admin's line: xbind's recent-sign-in step")
