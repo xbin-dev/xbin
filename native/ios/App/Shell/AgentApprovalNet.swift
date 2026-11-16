@@ -4,8 +4,8 @@ import XbinRenderer
 
 // The approval sheet's rows for the web and MCP tools (D239), as the web
 // chrome draws them (web/bx-agent-approve.js): a web page by its whole
-// address, why xbin asks, asked every time; an MCP tool by its server, the
-// tool, its read-only mark (the server's word), the server's own words
+// address, why xbin asks, asked every time; an MCP tool by its server — an
+// outside one's host said plainly (D240) — the tool, its read-only mark (the server's word), the server's own words
 // quoted, the arguments exactly as they will be sent — every name and word
 // a tile or the model wrote revealed (AgentReveal), as the web's shown(). Split from
 // AgentApproval.swift for its size; the words are XbinCore's
@@ -61,10 +61,27 @@ struct AgentNetRows: View {
 
     @ViewBuilder private var mcp: some View {
         let m = DelegationWords.mcpRows(request)
+        if !m.outsideLine.isEmpty { // an outside server (D240): said plainly, its host xbind's
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(AgentReveal.attributed(m.outsideLine, font: .callout.weight(.semibold)))
+                    Text("What is sent goes out of the workspace, to the server an admin listed.").font(.caption)
+                }
+            } icon: { Image(systemName: "globe") }
+                .foregroundStyle(XbinColor.warn)
+                .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                .background(XbinColor.warnBackground, in: .xbinPlate)
+                .accessibilityIdentifier("approval-outside")
+        }
+        if !m.eachLine.isEmpty {
+            Text(AgentReveal.attributed(m.eachLine, font: .caption.weight(.semibold))).foregroundStyle(XbinColor.warn)
+                .accessibilityIdentifier("approval-each")
+        }
+        let shownPath = m.call.outside ? m.call.host : m.call.path
         VStack(alignment: .leading, spacing: 0) {
             ApprovalRow(label: "Server") {
                 Text(AgentReveal.attributed(m.call.server, font: .body.weight(.semibold)))
-                if !m.call.path.isEmpty, m.call.path != m.call.server { Text(AgentReveal.attributed(m.call.path, font: XbinFont.code)).foregroundStyle(XbinColor.muted) }
+                if !shownPath.isEmpty, shownPath != m.call.server { Text(AgentReveal.attributed(shownPath, font: XbinFont.code)).foregroundStyle(XbinColor.muted) }
             }
             ApprovalRow(label: "Tool") {
                 Text(AgentReveal.attributed(m.call.tool, font: XbinFont.code.weight(.semibold)))

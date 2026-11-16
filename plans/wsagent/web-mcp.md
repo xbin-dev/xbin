@@ -431,7 +431,7 @@ longer in force), pending requests refused at use.
 - **Preferences** (web and the app) list under the MCP toggle the outside
   servers the person's agent may use (`net.mcp.servers` of
   `GET /delegate/state`: name and host) and say that a call to one leaves
-  the workspace; the app's list is a marked not-yet where it isn't built.
+  the workspace.
 - **The sheets** (web and the app) for an outside server's tool lead with
   "Outside this workspace: <host>" (xbind's host), the server's name, and
   — while the call asks each time — why, with Once the only choice.
