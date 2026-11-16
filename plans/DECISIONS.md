@@ -5225,3 +5225,46 @@ here: cut from the old end, never reword.
     events, a real `bye` on an xbind update, the full connection view's
     frame check.
 
+- **D236 — The workspace agent on the web and with MCP servers:
+  workspace policy, org rules, the person's settings; xbind fetches and
+  speaks MCP (2026-11-16; issue #51; `plans/wsagent/web-mcp.md`).** The
+  owner: "Web access/MCP — let's make this configurable in agent settings
+  + have workspace policy."
+  - **Three layers, each narrowing the one above.** The workspace policy
+    (`PUT /delegate/workspace` `web`, `mcp`; off by default), preset and
+    capped by the host's file `XBIN_WSAGENT_CONFIG` the way
+    `XBIN_LLM_CONFIG` holds the connector; the org rules (`web: ask |
+    allow | never`, `mcp: any | org` in `Org.Agents`); the person's
+    toggles in Preferences (`PUT /delegate/state` `web`, `mcp`,
+    `mcpReadOnly`), widening and so armed like Allow. The host's mode is a
+    ceiling and a preset, not a lock against narrowing: turning a
+    capability off is never what a host must prevent (`lockAll` freezes
+    all of it).
+  - **xbind fetches, the sandbox stays "model only".** `POST
+    /delegate/web/fetch` (an act): GET only, no credentials, addresses
+    checked when the socket connects (no rebinding), redirects judged hop
+    by hop, 2 MiB / 20 s, a type list, text out, a per-person limit, an
+    audit row per fetch. Rejected: giving the backend's sandbox a network
+    and filtering there — the policy, the org rules and the taint are
+    xbind's, and a sandbox network can't see a conversation's taint.
+  - **A URL is a way out.** A conversation that holds any org's data —
+    the tiles in no org included — fetches only a URL its person approved
+    once (`kind: "web"`), unless every org it holds allows the web
+    outright; one that holds an org's data whose rule is `never` loses the
+    tool. No standing approval of a URL: a URL is the data.
+  - **xbind is the MCP client, not the template's.** To judge a
+    `tools/call` — which tool, its `readOnlyHint`, the tile's agent level
+    — xbind must read it; forwarding the backend's JSON-RPC through the
+    gate would mean parsing a streamed protocol at the gate. So
+    `GET /delegate/mcp/servers` and `POST /delegate/mcp/call {server,
+    tool, arguments}`, xbind calling the MCP tile as the person. The
+    template's own MCP client keeps serving ordinary instances. A tool
+    asks the first time; "always for this tool" is a standing approval of
+    scope `tool`.
+  - **Search only where the provider has it.** A native search tool of an
+    upstream an admin marked `webSearch`, refused by the connector unless
+    the session's reach allows it; no third-party search service.
+  - **Not yet**: `web.mode: "full"` and `mcp.mode: "listed"` (external
+    MCP servers with credentials held by xbind) are refused with "not
+    available yet" rather than half-built.
+
