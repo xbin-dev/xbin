@@ -5274,8 +5274,11 @@ here: cut from the old end, never reword.
     "Everyone" is never chosen here. After it the shell reloads as the
     account and, when the agent was turned on, opens the dock and gives
     the agent's composer the keys (the dock's `focusComposer()`: the frame
-    focused and a cleared `xbin:agent-context`, which the page already
-    answers by focusing its composer).
+    focused and a cleared `xbin:agent-context`, which the page answers by
+    focusing its composer — once its store has booted, when the context
+    came before the composer was drawn, as it does on a first open). The
+    reload lands on `/`, not the token's screen, which isn't the account's.
+    `/xbin/system` shows a host-locked who read-only.
   - **The host's preset: `"workspaceAgent"` in `XBIN_LLM_CONFIG`.** Beside
     the connector's settings, read and validated with them
     (`internal/llm/hostagent.go`: a misspelling stops the boot, a bad
