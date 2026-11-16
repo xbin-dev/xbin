@@ -129,7 +129,7 @@ export class BxAgentDock extends LitElement {
    * focusComposer(): open, and give the agent's page the keys once it is
    * framed — the frame focused, and a cleared xbin:agent-context, which the
    * page answers by focusing its composer (the first-run sheet's hand-over,
-   * D236). Nothing when no page is framed (setup, a state in its place).
+   * D237). Nothing when no page is framed (setup, a state in its place).
    */
   focusComposer() {
     this.open = true;

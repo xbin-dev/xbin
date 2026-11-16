@@ -704,7 +704,7 @@ export function stateWords(kind, x = {}) {
 export function setupSteps({ llm = null, state = null } = {}) {
   const model = !!(llm && llm.configured), hosted = !!(llm && llm.host), on = !!(state && state.workspace);
   const who = (state && state.who) || null, chosen = !!(who && who.chosen), n = who ? Number(who.entries) || 0 : 0;
-  const locks = (state && state.locks) || {}, HOST = 'Set by your host'; // what the host's file sets is read-only here (D236)
+  const locks = (state && state.locks) || {}, HOST = 'Set by your host'; // what the host's file sets is read-only here (D237)
   return [
     { id: 'model', title: 'Connect a language model', done: model, enabled: true, tag: hosted ? HOST : '',
       text: model ? (hosted ? "Your host provides the models and sets the limits; those can't be changed here." : 'Connected.') : 'None is connected. Use a provider key, or a model your organisation runs itself.', action: model ? '' : 'Connect…' },

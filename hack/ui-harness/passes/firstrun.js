@@ -1,4 +1,4 @@
-// hack/ui-harness/passes/firstrun.js — the first-run sheet (D236; plans/
+// hack/ui-harness/passes/firstrun.js — the first-run sheet (D237; plans/
 // wsagent/journey.md G3, G5, G7), asserted on xbinds of its own booted as an
 // install boots one (journey.js boot: no --dev, --isolate, the owner-token
 // login), in the states the sheet has:

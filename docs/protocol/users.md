@@ -372,7 +372,7 @@ POST   /auth-settings/sso/test    admin/xbin:users. probe the provider
 
 ## First run
 
-The first-run sheet (D236; docs/auth.md §Owner login mechanics): the owner
+The first-run sheet (D237; docs/auth.md §Owner login mechanics): the owner
 opens the login URL for the first time and makes their account, sets up
 the vault and turns on their workspace agent in one sheet of xbin's
 chrome. It calls the ordinary routes — `POST /users {id, name, role:

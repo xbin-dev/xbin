@@ -139,7 +139,7 @@ export class BxSystemPage extends LitElement {
       this._access = access;
       this._defaults = defaults;
       const ws = await req('/delegate/workspace');
-      this._hostWho = !!(ws.ok && ws.body.locks && ws.body.locks.who); // who gets an agent is the host's file's (D236): read-only here
+      this._hostWho = !!(ws.ok && ws.body.locks && ws.body.locks.who); // who gets an agent is the host's file's (D237): read-only here
       this._agent = ws.ok ? (ws.body.agent || '') : '';
       const [u, o] = await Promise.all([req('/users-directory'), req('/orgs')]);
       const list = (r, key) => (!r.ok ? [] : Array.isArray(r.body) ? r.body : Array.isArray(r.body[key]) ? r.body[key] : []);

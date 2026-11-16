@@ -1,6 +1,6 @@
 /**
  * bx-first-run.js — <bx-first-run>, the first-run sheet (/vendor/bx-first-run.js,
- * D236; docs/auth.md §Owner login mechanics): xbin's own chrome over the shell, shown
+ * D237; docs/auth.md §Owner login mechanics): xbin's own chrome over the shell, shown
  * only in the bootstrap state (GET /api/xbin/first-run — the owner token's
  * browser session, no accounts yet), where the owner's first visit becomes
  * their account, the vault and their workspace agent in one sheet:

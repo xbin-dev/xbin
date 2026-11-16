@@ -1,5 +1,5 @@
 /**
- * shell-first-run.js — the shell's one hook for the first-run sheet (D236):
+ * shell-first-run.js — the shell's one hook for the first-run sheet (D237):
  * the sheet itself is xbind's own chrome (/vendor/bx-first-run.js); this
  * only asks whether to show it, mounts it, and keeps the shell's own
  * first-run hints out from under it — one thing at a time.

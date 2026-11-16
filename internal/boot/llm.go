@@ -62,7 +62,7 @@ func (st *State) setupLLM(srv *server.Server) error {
 			acc, ok := userStore.Access(user)
 			return ok && acc.CanReadTile(component)
 		},
-		// the file's workspaceAgent key, put in force again when it changed (D236)
+		// the file's workspaceAgent key, put in force again when it changed (D237)
 		HostChanged: srv.ApplyHostAgent,
 		// a person's orgs, for the orgs' quota overrides: active memberships only
 		OrgsOf: func(user string) []string {

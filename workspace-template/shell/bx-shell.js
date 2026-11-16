@@ -89,7 +89,7 @@ import { gridItems, itemsOf } from './blocks.js'; // headings and text on a scre
 import { mutateItems, addBlock, blockTestApi } from './shell-blocks.js';
 import { followRoute, routeUpdated, routeBar } from './shell-route.js'; // the place shown, in the page's URL (#7)
 import { followAgent, agentChip, agentDock, agentTileItems, shownAlert } from './shell-agent.js'; // the workspace agent: its chip, and xbind's dock beside the canvas (D232)
-import { firstRun, afterFirstRun } from './shell-first-run.js'; // the first-run sheet: xbind's, over the shell (D236)
+import { firstRun, afterFirstRun } from './shell-first-run.js'; // the first-run sheet: xbind's, over the shell (D237)
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid

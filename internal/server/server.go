@@ -80,7 +80,7 @@ type Server struct {
 	// table; nil: this xbind ships no agent.
 	AgentHolder func() string
 	// HostAgent, if set, answers the host's rule for workspace agents (the
-	// deployment file's workspaceAgent key; agenthost.go, D236); nil: none.
+	// deployment file's workspaceAgent key; agenthost.go, D237); nil: none.
 	HostAgent func() HostAgentRule
 	// HostAgentFile keeps what the host's rule wrote, to take back exactly
 	// that when the rule changes (agenthost.go); "" = in memory alone.

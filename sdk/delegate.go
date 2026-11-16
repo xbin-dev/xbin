@@ -723,6 +723,7 @@ type StartHarness struct {
 	Net         string `json:"net"`
 	API         bool   `json:"api"`
 	NeedsTicket bool   `json:"needsTicket"` // the person approves each start
+	NoSignIn    bool   `json:"noSignIn"`    // it runs on the workspace's LLM connector: no sign-in of the person's needed
 }
 
 // StartDefaults is what a start on Tile resolves to: Harness is the

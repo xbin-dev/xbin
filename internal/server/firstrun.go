@@ -1,6 +1,6 @@
 package server
 
-// firstrun.go — the first-run sheet's two routes (D236; docs/protocol/
+// firstrun.go — the first-run sheet's two routes (D237; docs/protocol/
 // users.md "First run"): what lets the owner's first visit end signed in
 // as an account of their own, in one sheet, instead of on the bootstrap
 // token.

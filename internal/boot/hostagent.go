@@ -7,7 +7,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/server"
 )
 
-// hostAgent puts the host's rule for workspace agents in force (D236;
+// hostAgent puts the host's rule for workspace agents in force (D237;
 // server/agenthost.go): the deployment file's workspaceAgent key, read by
 // the LLM connector with the rest of the file. At boot — the key first
 // appearing gives every admin there is an agent under "admins"; a key the

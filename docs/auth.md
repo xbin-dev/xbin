@@ -2008,7 +2008,7 @@ behave exactly as before.
 
 - First boot generates a token (`.xbin/token`); xbind prints
   `…/login?token=…` — opening it sets an HttpOnly SameSite=Lax cookie.
-- **First run** (D236). While the workspace has no accounts at all, the
+- **First run** (D237). While the workspace has no accounts at all, the
   shell opens on the token's browser session with **one sheet** of xbin's
   own chrome: your name, a password, the vault's passphrase twice (none
   when the host unseals it with `XBIN_VAULT_PASSPHRASE`; once, to unlock

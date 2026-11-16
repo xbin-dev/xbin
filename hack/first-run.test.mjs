@@ -1,5 +1,5 @@
 // hack/first-run.test.mjs — the first-run sheet's words and rules
-// (web/first-run-words.js, D236), run by `make js-test`: the sign-in name a
+// (web/first-run-words.js, D237), run by `make js-test`: the sign-in name a
 // person's name gives, what the sheet asks in each state, what its button
 // sends, the checks before anything is sent, and where a refusal is shown;
 // and the host's locks as the agent chrome's setup draws them.

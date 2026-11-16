@@ -2,7 +2,7 @@
 // the workspace agent, as far as today's agent gets (plans/wsagent/
 // journey.md): the same start as journeymanual.js — a fresh install, the
 // host's LLM, the first login — then the first-run sheet (the account, the
-// vault and the agent turned on, in one: D236) and ONE prompt, "Make
+// vault and the agent turned on, in one: D237) and ONE prompt, "Make
 // a tool that rolls dice and give it to a new assistant I can chat with."
 // Every interaction is counted the same way (journey.js); every place the
 // agent stops and the person has to do something by hand is a "dead-end"
@@ -19,8 +19,10 @@
 // What today's agent can't do is what this pass finds: on this tree an
 // admin's agent can't create a tile at all (xbind refuses the approved call),
 // so the person makes both tiles by hand; the admin opt-in is off until they
-// find it in Preferences; the default coding agent is one the connector
-// can't serve. The table (out/journey-agent.md) has each. It asserts the
+// find it in Preferences. The default coding agent is one the connector
+// serves (G8: Claude Code, first in the catalog, needs a sign-in nobody has
+// here), and the card names the ones that need no sign-in. The table
+// (out/journey-agent.md) has each. It asserts the
 // journey's end like the manual pass. Needs HARNESS_ISOLATE=1, `make sealed`.
 'use strict';
 const path = require('path');
@@ -70,7 +72,7 @@ async function journeyAgent(browser) {
     await J0.firstLogin(J, page, X);
     const root = await call('GET', '/delegate/state');
     check(root.status === 403, `the owner token's session has no workspace agent: an agent is a person's (${root.status})`);
-    // the first-run sheet (D236): the account, the vault and the agent in one
+    // the first-run sheet (D237): the account, the vault and the agent in one
     const started = await J0.firstRunSheet(J, page, PERSON);
     check(started, 'the first-run sheet starts in the name field');
     const me = await call('GET', '/whoami');
@@ -118,10 +120,11 @@ async function journeyAgent(browser) {
     await say(`"${SAY2}"`, PROMPT2);
     await J.wait('the brief, and a request to start the tile agent', () => f.waitForSelector('.wsc-req[data-state="pending"]', { timeout: 120000 }));
     const picked = (await main()).match(/(Claude Code|Codex|Gemini CLI|OpenCode|Fake agent \(tests\)) · asks before acting/);
-    check(!!picked && picked[1] === 'Claude Code', `the start is filed for the default coding agent, ${picked && picked[1]}: one the workspace connector can't serve, and nobody is signed in to`);
-    J.know('which coding agent to pick on the brief: the default (Claude Code) needs the person\'s own sign-in; Codex and OpenCode run on the workspace connector. The card lists five names and says neither');
+    check(!!picked && picked[1] !== 'Claude Code' && picked[1] !== 'Gemini CLI', `the start is filed for the default coding agent, ${picked && picked[1]}: one the workspace connector serves (G8), not Claude Code, which nobody is signed in to`);
+    const names = await f.locator('.wsp-main select').last().locator('option').allInnerTexts().catch(() => []);
+    check(names.some((n) => /— no sign-in$/.test(n)) && !names.some((n) => /^Claude Code — no sign-in/.test(n)), `the card names the coding agents that run with no sign-in (${names.join(', ')})`);
     await J.field('the brief\'s card: the coding agent', async () => { await f.locator('.wsp-main select').last().selectOption('fake'); await f.waitForFunction(() => /Fake agent \(tests\) · asks before acting/.test(document.querySelector('.wsp-main').innerText), null, { timeout: 20000 }); },
-      { note: 'the scripted agent stands in for Codex or OpenCode' });
+      { note: 'the scripted agent stands in for the default (the connector-served one, G8): a real run keeps the default and skips this pick' });
     await page.waitForFunction(async () => { const r = await fetch('/api/xbin/delegate/requests'); const p = ((await r.json()).requests || []).filter((x) => x.state === 'pending'); return p.length === 1 && !!p[0].preview && !!p[0].preview.session && p[0].preview.session.provider === 'fake'; }, null, { timeout: 20000, polling: 300 });
     const sheet2 = await allow('start the tile agent');
     check(/Start a tile agent in Dice\?/.test(sheet2) && /ASKS BEFORE ACTING/i.test(sheet2) && sheet2.includes(BRIEF.done_when), 'xbin\'s sheet for the start: the mode, the coding agent, the brief as sent');

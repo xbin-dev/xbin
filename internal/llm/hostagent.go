@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-// hostagent.go — the workspace agent's key in the host's file (D236;
+// hostagent.go — the workspace agent's key in the host's file (D237;
 // docs/llm.md "The host's file", docs/workspace-agent.md "Set by your
 // host"): the deployment file is read here, so its one key that isn't the
 // connector's is read here too, and validated with the rest — a file that

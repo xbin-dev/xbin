@@ -2,7 +2,7 @@
 
 > Status: live — a measurement and a plan (2026-11-16, branch
 > `wsagent/journey`, from `wsagent/main`). Built since: G3, G5, G7 — the
-> first-run sheet (branch `wsagent/first-run`, D236; §8). Read with
+> first-run sheet (branch `wsagent/first-run`, D237; §8). Read with
 > [ux.md](ux.md) and [../workspace-agent.md](../workspace-agent.md).
 
 The owner's benchmark: *"starting with an installed workspace that has a
@@ -21,13 +21,20 @@ number of steps is ~30-50 … make sure nearly all that is collapsed to a
 | through the workspace agent | **49** (1 navigation, 30 clicks, 15 fields, 3 keys) | 4 | 3 | 2 sheets and a review (8 clicks), plus the tile agent's permissions | 3 | 3 |
 | the target (§4) | **12** (10 where the host unseals the vault) | 0 | 1 | 1 review (4 clicks) | 0 | 0 |
 
-**With the first-run sheet** (G3, G5, G7 — built on `wsagent/first-run`,
-D236; the same passes, measured 2026-11-16; §8):
+After G8, G9 and G10 (branch `wsagent/mcp-template`, D236) the same
+passes count **20** by hand (the MCP tile from the `mcp-server` template:
+no coding agent, no prompt, +0 by hand, 2 to know; the assistant's slots
+fold into one line once `llm` is bound) and **48** through the agent (the
+popover fold gone; the brief's card names the coding agents that need no
+sign-in and defaults to one).
+
+**And with the first-run sheet** (G3, G5, G7 — `wsagent/first-run`, D237;
+the same passes on the tree with both, measured 2026-11-16; §8):
 
 | Path | Interactions | + by hand | Prompts | Dead ends | Things to know |
 |---|---|---|---|---|---|
-| by hand | **28** (1 navigation, 17 clicks, 7 fields, 3 keys) | 3 | — | 0 | 3 |
-| through the workspace agent | **37** (1 navigation, 22 clicks, 11 fields, 3 keys) | 4 | 3 | 3 | 2 |
+| by hand | **21** (1 navigation, 12 clicks, 6 fields, 2 keys) | 0 | — | 0 | 2 |
+| through the workspace agent | **36** (1 navigation, 21 clicks, 11 fields, 3 keys) | 4 | 3 | 3 | 1 |
 
 The agent path costs almost twice the manual one today. It needs an account
 the manual path never makes (10 interactions), it cannot create a tile for
@@ -471,7 +478,7 @@ first-run sheet (G3, G5, G7) should exist natively for a hosted workspace,
 where the app may be the first thing a person opens. That is the one piece
 of new native UI.
 
-**What a native first run would need** (the web sheet is built, D236; the
+**What a native first run would need** (the web sheet is built, D237; the
 app is not touched — it joins a workspace that already has an account):
 
 - **A way in without an account.** The app signs in with a password, SSO
@@ -512,22 +519,24 @@ app is not touched — it joins a workspace that already has an account):
 - A person who is no admin: `tile_create` should work for them (the refusal
   is the admin's default owner) — not driven.
 
-## 8. After the first-run sheet (G3, G5, G7 — D236)
+## 8. After the first-run sheet (G3, G5, G7 — D237)
 
 Built on `wsagent/first-run`; the passes above, run again on it
 (`journeyManual`, `journeyAgent`), and `firstRun`, which asserts the sheet's
-own states.
+own states. Measured first on its own (49 → 37 through the agent, 27 → 28 by
+hand), then again with `wsagent/main`'s G8–G10 merged in (48 → **36**, 20 →
+**21**) — the second is the table at the top.
 
-**The agent path: 49 → 37.** Steps 2–18 of §3 (the vault's banner, an
+**The agent path: 48 → 36.** Steps 2–18 of §3 (the vault's banner, an
 account in the admin console, sign out and in, the three setup steps — 17
 interactions and one "know") are now five: the login URL lands on one sheet
 — your name (the sign-in name follows from it), a password, the vault's
 passphrase twice, **Create my account and turn on my workspace agent** — and
 the shell comes back as that account with the agent's dock open and its
-message box focused. The rest of §3 is unchanged (G1, G2, G4, G6 are other
-packages'): 3 prompts, 3 dead ends, 2 things to know.
+message box focused. The rest is G8–G10's path (G1, G2, G4, G6 are other
+packages'): 3 prompts, 3 dead ends, 1 thing to know.
 
-**By hand: 27 → 28.** The by-hand path's first stretch is the sheet's quiet
+**By hand: 20 → 21.** The by-hand path's first stretch is the sheet's quiet
 button now: name, password, the passphrase twice, "Create my account without
 it" — five where the banner's vault was four — and the person ends on an
 account of their own, not the reusable token. Skipping the sheet ("Not now")

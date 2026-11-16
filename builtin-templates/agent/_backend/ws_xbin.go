@@ -425,6 +425,7 @@ type wsHarness struct {
 	Asks        bool   `json:"asks"`
 	Net         string `json:"net,omitempty"`
 	NeedsTicket bool   `json:"needsTicket"`
+	NoSignIn    bool   `json:"noSignIn,omitempty"` // it runs on the workspace's LLM connector: no sign-in needed (xbind's word)
 }
 
 // wsStartDefaults is what a start in a tile resolves to, for the brief's

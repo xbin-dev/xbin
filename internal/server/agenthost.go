@@ -1,6 +1,6 @@
 package server
 
-// agenthost.go — workspace agents as the host sets them (D236;
+// agenthost.go — workspace agents as the host sets them (D237;
 // docs/workspace-agent.md "Set by your host"): the deployment file the LLM
 // connector reads (XBIN_LLM_CONFIG) may carry a "workspaceAgent" key beside
 // the connector's settings (internal/llm/hostagent.go parses it), and

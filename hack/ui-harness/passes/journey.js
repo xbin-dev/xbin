@@ -210,7 +210,7 @@ async function firstLogin(J, page, X) {
 }
 /**
  * firstRunSheet(J, page, who, {agent}): the first-run sheet the login URL
- * lands on (D236) — the name, a password, the vault's passphrase twice
+ * lands on (D237) — the name, a password, the vault's passphrase twice
  * (it asks: the vault boots unconfigured here), and the primary button
  * (agent: "Create my account and turn on my workspace agent") or the quiet
  * one; the page reloads as the new account. → whether focus started in
@@ -239,10 +239,10 @@ async function makeTile(J, page, name) {
   await J.click('Tile Manager: "Create"', () => m.locator('button#create').click());
   await J.wait('the tile is created', () => m.waitForSelector(`text=created apps/${name.toLowerCase()}`, { timeout: 20000 }));
 }
-/** makeFromTemplate(J, page, title, tile): the Tile Manager's templates tab → an instance at `tile` ('' = the template's default path). */
-async function makeFromTemplate(J, page, title, tile) {
+/** makeFromTemplate(J, page, title, tile, {tabOpen}): the Tile Manager's templates tab → an instance at `tile` ('' = the template's default path); tabOpen: the tab is open already (no click). */
+async function makeFromTemplate(J, page, title, tile, { tabOpen = false } = {}) {
   const m = await tileFrame(page, 'tiles/manager');
-  await J.click('Tile Manager: the "new from template" tab', () => m.locator('.tabs button[data-tab="template"]').click());
+  if (!tabOpen) await J.click('Tile Manager: the "new from template" tab', () => m.locator('.tabs button[data-tab="template"]').click());
   const card = m.locator('#templates .tile', { has: m.locator('.title', { hasText: new RegExp(`^${title}$`) }) });
   await card.waitFor({ timeout: 20000 });
   if (tile) await J.field(`the ${title} template: where to create it (${tile})`, () => card.locator('input.path').fill(tile));

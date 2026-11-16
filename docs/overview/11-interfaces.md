@@ -130,6 +130,15 @@ declares it accepts a *set* — e.g. the `chat` builtin's `llm` and `mcp` slots 
 number of model providers and MCP servers. The owner's control becomes a multiselect;
 the injection becomes a JSON list (below); binding order is preserved.
 
+**Required slots** (`required: true` on a request): the component can't do its work
+without this one — the agent template's `llm` (its model). It changes nothing about what a
+binding grants; it tells people what to wire first. `GET /api/xbin/bindings` marks a
+pending row `required`, and once every required slot of a tile is bound, its other
+unbound rows `optional`: the shell then shows them as one line above the tile ("3
+optional interfaces · show") instead of a popover over it, and `<bx-bindings>` folds them
+into one line until it is clicked. Nothing is bound or dismissed for the person. A
+component that marks no slot required keeps every unbound slot in the popover, as before.
+
 **Provider instances** (`instances: true` on a provide — **IFACE-7**): for providers
 whose outputs are runtime *config*, not manifest data (one IMAP tile serving three
 accounts). The provider registers a plain `map[id]pathPrefix` at runtime:

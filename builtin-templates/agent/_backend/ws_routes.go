@@ -522,6 +522,9 @@ func handleWsBriefDefaults(w http.ResponseWriter, r *http.Request) {
 		out["line"] = orStr(d.Why, "No coding agent may run in this tile")
 	} else {
 		out["line"] = orStr(h.Name, id) + " · " + map[bool]string{true: "asks before acting", false: "acts without asking"}[h.Asks]
+		if h.NoSignIn {
+			out["line"] = out["line"].(string) + " · no sign-in needed"
+		}
 	}
 	xbin.WriteJSON(w, http.StatusOK, out)
 }

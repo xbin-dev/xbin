@@ -196,7 +196,8 @@ export const BRIEF_FIELDS = Object.freeze([['goal', 'Goal'], ['doneWhen', 'Done 
  * runsOn, harnesses, picked, note}. sd is the backend's start-defaults for
  * the brief (GET …/briefs/{bid}/start-defaults: what the start would run
  * on, from xbind — {line, harness, harnesses: [{id, name, asks, net,
- * needsTicket}], ticket}). The one button is the backend's: "Review and
+ * needsTicket, noSignIn}], ticket}; a harness that runs with no sign-in is
+ * named so in the picker). The one button is the backend's: "Review and
  * start…" (xbind's approval opens) or, where the person's preferences let
  * this start through without a ticket (`ticket: false`), "Start" — the
  * click is then the confirmation. The brief is what the tile agent is told
@@ -206,7 +207,9 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
   const tile = tileName(b.tile) || b.tile;
   const st = b.state || 'draft';
   const words = { draft: '', asked: 'Waiting for your approval', started: 'Started', denied: 'Denied by you', replaced: 'Replaced by a newer brief' };
-  const harnesses = (sd && sd.defaults && Array.isArray(sd.defaults.harnesses) ? sd.defaults.harnesses : []).map((h) => ({ id: h.id, name: h.name || harness(h.id) }));
+  // xbind says which run on the workspace's model with no sign-in (noSignIn): the picker says so
+  const harnesses = (sd && sd.defaults && Array.isArray(sd.defaults.harnesses) ? sd.defaults.harnesses : [])
+    .map((h) => ({ id: h.id, name: `${h.name || harness(h.id)}${h.noSignIn ? ' — no sign-in' : ''}`, noSignIn: !!h.noSignIn }));
   const runsOn = sd ? sd.line || '' : [b.harness ? harness(b.harness) : ''].filter(Boolean).join('');
   const free = !!sd && sd.ticket === false && !!sd.harness;
   return {

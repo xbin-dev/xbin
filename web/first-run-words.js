@@ -1,6 +1,6 @@
 /**
  * first-run-words.js — the first-run sheet's words and rules
- * (/vendor/first-run-words.js, D236): pure, for /vendor/bx-first-run.js,
+ * (/vendor/first-run-words.js, D237): pure, for /vendor/bx-first-run.js,
  * the shell's hook (shell-first-run.js) and hack/first-run.test.mjs.
  *
  *   signInName(name)                 the account id a name gives

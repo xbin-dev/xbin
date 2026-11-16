@@ -675,7 +675,7 @@ bring its own models and hold quotas the workspace's admins can't lift.
 - Reads mark each locked setting: `locks: {"defaults.model": {"locked":
   true, "reason": "set by your host"}}`; a write to one answers `409` with
   the settings it named.
-- **`workspaceAgent`** (D236) is the file's one key that isn't the
+- **`workspaceAgent`** (D237) is the file's one key that isn't the
   connector's: the host's say over workspace agents
   ([workspace-agent.md §Set by your host](/docs/workspace-agent.md#set-by-your-host)),
   read, validated and reloaded with the rest of the file and locked the
