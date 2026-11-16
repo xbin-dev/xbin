@@ -583,6 +583,8 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /devices/enroll-code":                            PartitionNeutral,
 	"POST /web-ticket":                                     PartitionNeutral,
 	"POST /account/password":                               PartitionNeutral,
+	"GET /first-run":                                       PartitionNeutral,
+	"POST /first-run/session":                              PartitionNeutral,
 	"GET /devices":                                         PartitionNeutral,
 	"DELETE /devices/{id}":                                 PartitionNeutral,
 	"GET /devices/pairing/{id}":                            PartitionNeutral,

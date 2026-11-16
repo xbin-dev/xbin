@@ -34,6 +34,9 @@ type hostConfig struct {
 	// file leaves out keeps its default, and the admin's own settings and
 	// upstreams are not in force.
 	LockAll bool `json:"lockAll,omitempty"`
+	// WorkspaceAgent is the one key that isn't the connector's: the host's
+	// rule for workspace agents (hostagent.go).
+	WorkspaceAgent HostAgent `json:"workspaceAgent"`
 
 	keys   map[string]string // upstream → the key read from its keyFile
 	stamps map[string]fileStamp

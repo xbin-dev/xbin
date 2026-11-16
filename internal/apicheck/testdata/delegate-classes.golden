@@ -104,6 +104,7 @@ GET /devices/pairing/{id}	never
 GET /devices/push	never
 GET /docs/page	read
 GET /docs/search	read
+GET /first-run	never
 GET /frame-token	never
 GET /git/activity	refused
 GET /git/diff	refused
@@ -258,6 +259,7 @@ POST /devices/pairing/{id}/confirm	never
 POST /devices/push	never
 POST /devices/push/activities	never
 POST /devices/{id}/tunnel	never
+POST /first-run/session	never
 POST /git/import	never
 POST /go-build-versions/check	never
 POST /go-build-versions/dismiss	never

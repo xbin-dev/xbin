@@ -35,6 +35,7 @@ func (s *Server) registerCoreAPI() {
 	s.registerNativeAPI()                                         // the workspace's native-runtime switch (native.go)
 	s.registerChromeAPI()                                         // admin-approved chrome (chrome.go, D118)
 	s.registerWorkspaceSettingsAPI()                              // base auto-update, … (wssettings.go, D175)
+	s.registerFirstRunAPI()                                       // the first-run sheet: bootstrap state, the session swap (firstrun.go, D236)
 }
 
 // apiGPUs lists the host GPUs available for gpu:* grants / the terminal picker.

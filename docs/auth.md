@@ -2008,6 +2008,30 @@ behave exactly as before.
 
 - First boot generates a token (`.xbin/token`); xbind prints
   `…/login?token=…` — opening it sets an HttpOnly SameSite=Lax cookie.
+- **First run** (D236). While the workspace has no accounts at all, the
+  shell opens on the token's browser session with **one sheet** of xbin's
+  own chrome: your name, a password, the vault's passphrase twice (none
+  when the host unseals it with `XBIN_VAULT_PASSPHRASE`; once, to unlock
+  it, when it is set up and sealed) and **Create my account and turn on
+  my workspace agent**. It makes an ordinary admin account through
+  `POST /api/xbin/users` (its password rules, its audit line), signs this
+  browser in as it in one step (`POST /api/xbin/first-run/session`:
+  the token's browser session only, the bootstrap account only — the
+  workspace's only account, an enabled admin that never signed in, made in
+  the last 15 minutes — its own password, same origin, throttled with
+  `/login`, audited; docs/protocol/users.md §First run), sets up the vault
+  as that account and, where a model is connected and workspace agents
+  were never switched, turns them on for that person alone (`who: "me"`,
+  never everyone); the shell then reloads as the account with the agent's
+  dock open. A quiet button makes the account without the agent; with no
+  model the sheet says the agent needs one (`/xbin/llm`). A step after the
+  account that fails is said as what is left — the person is signed in by
+  then. **Not now** is remembered in that browser only, and everything is
+  then as before. A workspace with any account (an invited one included)
+  never sees the sheet, nor does `--dev` (its seeded admin) or
+  `--no-auth`; a shell from before it has no hook and keeps the old path.
+  The token stays the bootstrap credential until you turn token sign-in
+  off (below).
 - CLI/scripts use `Authorization: Bearer`. **Inside a terminal**, `$XBIN_TOKEN`
   is a per-session token scoped to that tile (the tile's element principal —
   self-admin + its approved grants, never the owner; docs/overview/09-terminals.md);

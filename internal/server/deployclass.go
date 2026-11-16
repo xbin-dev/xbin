@@ -391,6 +391,8 @@ var routeClasses = map[string]RouteClass{
 	"POST /devices/enroll-code":          Neutral,
 	"POST /web-ticket":                   Neutral,
 	"POST /account/password":             Neutral,
+	"GET /first-run":                     Neutral,
+	"POST /first-run/session":            Neutral,
 	"GET /devices":                       Neutral,
 	"DELETE /devices/{id}":               Neutral,
 	"GET /devices/pairing/{id}":          Neutral,

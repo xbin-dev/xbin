@@ -103,6 +103,7 @@ GET /devices/pairing/{id}	no-tile
 GET /devices/push	no-tile
 GET /docs/page	no-tile
 GET /docs/search	no-tile
+GET /first-run	no-tile
 GET /frame-token	handled
 GET /git/activity	refused	?component
 GET /git/diff	refused	?component
@@ -257,6 +258,7 @@ POST /devices/pairing/{id}/confirm	no-tile
 POST /devices/push	no-tile
 POST /devices/push/activities	no-tile
 POST /devices/{id}/tunnel	no-tile
+POST /first-run/session	no-tile
 POST /git/import	refused	body.path
 POST /go-build-versions/check	no-tile
 POST /go-build-versions/dismiss	refused	body.tile

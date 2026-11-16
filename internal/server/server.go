@@ -79,6 +79,9 @@ type Server struct {
 	// (agentpage.go, D232). Boot's assignment, from the sealed-component
 	// table; nil: this xbind ships no agent.
 	AgentHolder func() string
+	// HostAgent, if set, answers the host's rule for workspace agents (the
+	// deployment file's workspaceAgent key; agenthost.go, D236); nil: none.
+	HostAgent func() HostAgentRule
 	// DelegationDev: xbind runs with --dev or --no-auth. Approving admin
 	// change sets then needs no recent sign-in, and under --no-auth — where
 	// nobody signs in — the implicit owner answers for the person a

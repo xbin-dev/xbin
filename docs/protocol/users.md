@@ -369,3 +369,49 @@ POST   /auth-settings/sso/test    admin/xbin:users. probe the provider
                                    issuer, redirectUri, externalUrl, ready,
                                    endpoints, jwksKeys, warnings, error}
 ```
+
+## First run
+
+The first-run sheet (D236; docs/auth.md §First run): the owner opens the
+login URL for the first time and makes their account, sets up the vault
+and turns on their workspace agent in one sheet of xbin's chrome. It calls
+the ordinary routes — `POST /users {id, name, role: "admin", password}`,
+then the swap below, then as the new account `POST /vault-unseal
+{passphrase}` (when the vault isn't set up and the host doesn't unseal it)
+and `PUT /delegate/workspace {enabled: true, who: "me"}`
+(docs/protocol/delegation.md) — so each keeps its own rules, refusals and
+audit line.
+
+```
+GET    /first-run                 authenticated. {bootstrap}: true only to
+                                   the owner token's BROWSER session (its
+                                   cookie — not bx's bearer, a tile, a
+                                   view-as session or --no-auth's implicit
+                                   owner) in a workspace with no accounts
+                                   at all (an invited account counts) —
+                                   the one state the sheet shows in
+POST   /first-run/session         the owner token's browser session only
+                                   (403 otherwise). {id, password} →
+                                   {user: {id, name, role}}, and this
+                                   browser's cookie is now that account's
+                                   session (the token's copy in it
+                                   replaced; last sign-in via
+                                   "first-run"). Only for the bootstrap
+                                   account: the workspace's ONLY account,
+                                   an enabled admin that has never signed
+                                   in, made in the last 15 minutes — 409
+                                   otherwise (sign in at /login); with its
+                                   own password — 401, counted by the
+                                   login throttle (429 + Retry-After);
+                                   from this origin's own page —
+                                   Sec-Fetch-Site same-origin, else an
+                                   Origin naming this host (403). So it
+                                   opens no session for an account that
+                                   existed before or was ever used, and
+                                   nothing /login wouldn't. Audited. The
+                                   owner token stays valid — the bootstrap
+                                   credential — until an admin turns token
+                                   sign-in off (PATCH /auth-settings
+                                   {tokenLoginDisabled: true}; Admin →
+                                   Users → sign-in security)
+```

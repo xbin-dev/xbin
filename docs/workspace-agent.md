@@ -127,13 +127,28 @@ The workspace agent ships in xbind and is inert until a workspace admin does thr
 
 Each step is checked by xbind when the agent acts, not by the page: a person without access gets no agent, no chip and no notice even while the switch is on; with access and the switch off, their agent can call nothing.
 
+**On a new workspace, one click.** The first time the owner opens the login URL — the bootstrap token's browser session, in a workspace with no accounts yet — xbin's **first-run sheet** makes their admin account, sets up the vault and, where a model is connected (the host's or an admin's) and the switch was never set, does steps 2 and 3 for them: its button reads **Create my account and turn on my workspace agent**, sends `PUT /api/xbin/delegate/workspace {enabled: true, who: "me"}` as the new account, and the shell opens with the agent's dock and its message box ready. **Just me** is the only choice it makes; **Everyone** stays a later, deliberate one. A quiet button makes the account without the agent; with no model the sheet says the agent needs one. A workspace that has any account never sees the sheet ([auth.md §Owner login mechanics](/docs/auth.md#owner-login-mechanics), D236).
+
+### Set by your host
+
+A host can decide this for its workspaces in its deployment file — the LLM connector's (`XBIN_LLM_CONFIG`, [llm.md §The host's file](/docs/llm.md#the-hosts-file-xbin_llm_config)) — with the key `workspaceAgent`, read and locked as the connector's settings are:
+
+```jsonc
+"workspaceAgent": false                                 // off, and admins can't turn it on
+"workspaceAgent": true                                  // on; who gets one stays the admins' choice
+"workspaceAgent": { "enabled": true, "who": "admins" }  // on, and every admin account has one
+"workspaceAgent": { "enabled": true, "who": "everyone" }
+```
+
+What it sets, xbind keeps in force: the switch (written as the host's, `by: "host"`) and who has an agent — `"everyone"` an entry in the workspace defaults, `"admins"` an entry of its own for every admin account, given when the key first appears, to each admin made after, and again when people change. Reads say what is the host's (`locks` on `GET /api/xbin/delegate/state` and `/delegate/workspace`: `{"enabled": {"locked": true, "reason": "set by your host"}}`), a `PUT /delegate/workspace` of a locked key answers 409, and the chrome shows **Set by your host** on those steps, read-only, or says the host turned agents off. A misspelled key stops xbind's boot; a bad change is refused and the last good file stays.
+
 **What a person then sees.** The **workspace agent** chip in the top bar (in a workspace whose shell predates it: one notice that names `/xbin/agent`). The first time they open it xbind starts *their* agent — a backend of their own, in a sandbox, with their conversations and notebook in their own encrypted data — which takes under a second; it stops again after three minutes without use and starts on the next visit, or when something it waits for happens. Their first session, Main, is made then.
 
 **What it costs to run.** One backend per person who is using it: about 60 MiB of memory each when idle and 74 MiB after a long conversation and a compaction (measured), plus the encrypted volumes of their data. Each is capped at 512 MiB — a quarter of a tile's default, and yours to raise as a tile's ([isolation.md](/docs/isolation.md) → Resource limits) — and xbind stops one that sat unused for three minutes: the next visit starts it again in a fraction of a second. At most 32 run at once by default (the partition limits of any per-person tile: Admin → Runtime, `GET /api/xbin/partitions?tile=xbin/wsagent`). It needs sandboxes: on an xbind run without `--isolate` the agent is held and the chrome says so. A development xbind (`--dev`, `--no-auth`) compiles the agent from the checkout the first time it is opened; an install runs the build that came with the release and never compiles.
 
 ## Running it
 
-- **Turn it on**: the three steps above.
+- **Turn it on**: the three steps above — on a new workspace, the first-run sheet's one button; or the host's file ([Set by your host](#set-by-your-host)).
 - **Constrain it**: per org — workspace agent on or off, which models, which coding agents ([protocol/orgs.md](/docs/protocol/orgs.md)). Per tile — its `"agent"` level.
 - **Watch it**: every side effect, approval and refusal is in the person's log (`GET /api/xbin/delegate/audit`; an admin reads another person's with `?user=`). The agent and its page can't read it.
 - **Stop it**: a person pauses their own (`PUT /delegate/state`); an admin turns it off for the workspace. Tile agents already running keep going, as their person's sessions.

@@ -5225,3 +5225,77 @@ here: cut from the old end, never reword.
     events, a real `bye` on an xbind update, the full connection view's
     frame check.
 
+- **D236 — The first-run sheet: one sheet from the login URL to the
+  agent's dock, and the host's preset for workspace agents (2026-11-16;
+  issue #51; `plans/wsagent/journey.md` G3, G5, G7).** The owner opens the
+  login URL and lands in the shell as the bootstrap token, which has no
+  agent; today's path to a useful agent is the vault banner, an account in
+  the admin console, a sign-out and in, and three setup steps (17
+  interactions of the measured 49).
+  - **One sheet, xbin's own chrome, in the bootstrap state only.** The
+    owner token's browser session (its cookie: not bx's bearer, a tile,
+    view-as, `--no-auth`) in a workspace with no accounts at all —
+    `GET /first-run {bootstrap}` answers it, so the shell never decides it.
+    A workspace with any account (an invited one included) and `--dev`
+    (its seeded admin) never see it. "Not now — set up by hand" is
+    remembered in that browser only (localStorage), and everything is
+    then as before. The sheet is `/vendor/bx-first-run.js` (light DOM, in
+    `document.body`, so a password manager sees an ordinary form); the
+    scaffold's shell only asks and mounts it (`shell-first-run.js`), and
+    keeps its own first-run hints (the "Secure this workspace" card, the
+    alerts) off while it is up.
+  - **The ordinary routes, in order, and one new one.** `POST /users
+    {role: admin}` makes the account — its password rules, defaults and
+    audit line; then `POST /first-run/session {id, password}` swaps this
+    browser's token cookie for the account's session in one step; then,
+    as the new account, `POST /vault-unseal` (when the vault is
+    unconfigured and the host doesn't unseal it) and `PUT
+    /delegate/workspace {enabled: true, who: "me"}` (when a model is
+    connected and the switch was never set). The swap is a sign-in no
+    wider than `POST /login`: the account's own password, the owner
+    token's browser session only, the bootstrap account only (the
+    workspace's ONLY account, an enabled admin, never signed in, made in
+    the last 15 minutes), same-origin by Fetch Metadata (else Origin),
+    throttled with `/login`, audited. So it can't open a session for an
+    account that existed before or was ever used. The token stays the
+    bootstrap credential until an admin turns token sign-in off; the sheet
+    says so, and where. Rejected: one route that creates and signs in
+    (a second account-creation path to keep in step with `POST /users`);
+    `POST /login` from the sheet (it would do, but nothing narrows it to
+    the bootstrap account); the vault first (a failure would then leave
+    nothing made; the sheet makes the account first, and a vault or agent
+    step that fails is said as what is left, never a state that locks the
+    person out — they are signed in by then).
+  - **What the button does.** With a model (the host's or an admin's) and
+    the switch never set (`workspaceAt` absent), the primary button reads
+    "Create my account and turn on my workspace agent" and a quiet one
+    makes the account without it; without a model the sheet says the
+    agent needs one (`/xbin/llm`) and the button is "Create my account".
+    "Everyone" is never chosen here. After it the shell reloads as the
+    account and, when the agent was turned on, opens the dock and gives
+    the agent's composer the keys (the dock's `focusComposer()`: the frame
+    focused and a cleared `xbin:agent-context`, which the page already
+    answers by focusing its composer).
+  - **The host's preset: `"workspaceAgent"` in `XBIN_LLM_CONFIG`.** Beside
+    the connector's settings, read and validated with them
+    (`internal/llm/hostagent.go`: a misspelling stops the boot, a bad
+    change is refused and the last good file stays), and locked as they
+    are: `false` locks agents off; `true` locks them on and leaves who to
+    admins; `{"enabled": true, "who": "admins" | "everyone"}` locks who
+    too. "admins" is a new value: the defaults' entry goes and every admin
+    account has an entry of its own — at boot (the key first appearing),
+    on every `users` event (an admin made, or made an admin) and when the
+    file changes. xbind keeps it in force by writing it (the switch by
+    "host", the entries), so every reader of the switch reads the host's;
+    `GET /delegate/state` and `GET/PUT /delegate/workspace` carry `locks:
+    {enabled?, who?: {locked, reason}}` (the connector's shape) and a PUT
+    of a locked key is 409. The chrome draws "Set by your host" on the
+    setup steps and says the host turned agents off. Rejected: an env
+    variable of its own (a second file and lock model for a host to
+    learn); overlaying the host's value at every read of the switch (the
+    delegation package's readers are many; writing it keeps them one).
+  - **Not built.** Shells from before keep today's path (no hook; xbind
+    rewrites no HTML); the iOS app's first run (the app joins a workspace
+    that has an account — `plans/wsagent/journey.md` §6e says what a
+    native sheet would need).
+
