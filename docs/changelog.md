@@ -211,29 +211,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   takes `template: "mcp-tool"` with `tool: {name, arguments, result}`; the
   fields it leaves out come from the template — done when `tools/list`
   names the tool and a call returns that shape, check by those two calls
-  from the tile's own sandbox, leave alone the manifest's `provides` and
-  the wire — so a hand-off of MCP-tool work to a tile's coding agent says
-  how to tell it is done (the template's `API.md` §Workspace mode).
-- docs: **[mcp.md](/docs/mcp.md), "Give an agent a tool"**: the
-  `mcp-server` template, the `mcp` slot and the binding as the grant, the
-  JSON-RPC methods, adding and checking a tool, how an assistant picks it
-  up, personal and global binds; and two lines of the workspace agent's
+  from the tile's own sandbox, known: `/docs/mcp.md` has the interface and
+  a server to start from — so a hand-off of MCP-tool work to a tile's
+  coding agent says what to build and how to tell it is done (the
+  template's `API.md` §Workspace mode).
+- docs: **[mcp.md](/docs/mcp.md), "Give an agent a tool"**: an MCP
+  server tile's interface — the manifest's `provides.mcp`, the JSON-RPC
+  wire — with a complete Go server inline, the `mcp` slot and the binding
+  as the grant, adding and checking a tool, how an assistant picks it up,
+  personal and global binds; and two lines of the workspace agent's
   map of xbin from it (tools come from MCP tiles bound to an instance's
   `mcp` slot; an instance needs its `llm` slot bound, `xbin:llm` the
   workspace's connector).
-- templates: **`mcp-server`, tools for an agent.** A new builtin template
-  (`bx template new mcp-server as apps/dice`, the Tile Manager's "New from
-  template"): a small Go backend on the sdk serving MCP over streamable
-  HTTP at `POST /mcp` — `initialize` (protocol version negotiation),
-  `ping`, `tools/list`, `tools/call`, JSON-RPC errors — with one example
-  tool, `roll_dice {sides?, count?}` (`readOnlyHint`), a page that lists
-  the tools and calls one, and an `AGENTS.md` for the tile's coding agent
-  (where tools go: one function and one line in `_backend/tools.go`; how to
-  check with `tools/list` and `tools/call` from its own terminal). Its
-  manifest provides `mcp` from the first second, so an agent instance's
-  `mcp` slot can be bound to a fresh copy before anyone has written a tool.
-  No third-party modules: it builds in its sandbox with no network
-  ([mcp.md](/docs/mcp.md)).
 - access: **`GET /access?tile=` says what reaches everyone.** A new
   `defaults: [{level, source}]` lists the workspace defaults that reach the
   tile (additive; none on an org-owned tile), and a system component no

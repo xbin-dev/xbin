@@ -49,10 +49,11 @@ overview is the map that puts them in context.
 - [ingress.md](/docs/ingress.md) — publishing tiles: public HTTP(S) + TCP/UDP endpoints
 - [agent-inbox.md](/docs/agent-inbox.md) — the contract between chat adapters
   (Slack, …) and agents built from the agent template
-- [mcp.md](/docs/mcp.md) — give an agent a tool: the `mcp-server` template
-  (an MCP server tile), the agent template's `mcp` slot and the binding as
-  the grant, the JSON-RPC methods, adding a tool, checking it, and how an
-  assistant picks it up (personal and global binds)
+- [mcp.md](/docs/mcp.md) — give an agent a tool: an MCP server tile's
+  interface (the manifest's `provides.mcp`, the JSON-RPC wire) with a
+  complete Go server inline, the agent template's `mcp` slot and the
+  binding as the grant, adding a tool, checking it, and how an assistant
+  picks it up (personal and global binds)
 - [sandbox-manager.md](/docs/sandbox-manager.md) — the contract between
   sandbox managers (tiles that run coding sandboxes) and the tiles that use
   them, such as the agent template

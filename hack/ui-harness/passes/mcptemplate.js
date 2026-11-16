@@ -1,8 +1,8 @@
-// hack/ui-harness/passes/mcptemplate.js — the mcp-server template's page and
+// hack/ui-harness/passes/mcptemplate.js — the MCP server example's page and
 // the one-line fold of a tile's optional slots (docs/mcp.md; the journey's
 // G9a and G10). As the admin:
-//   1. (HARNESS_ISOLATE=1: the backend runs) the template instantiated as
-//      apps/mcpt-dice: its page lists roll_dice, read-only, with a form;
+//   1. (HARNESS_ISOLATE=1: the backend runs) examples/mcp-server copied in
+//      as apps/mcpt-dice: its page lists roll_dice, read-only, with a form;
 //      calling it with sides 20 shows "rolled 1d20: N"; at phone width the
 //      page has no sideways scroll (shots: mcptemplate-page-<theme>,
 //      mcptemplate-page-phone-<theme>);
@@ -84,10 +84,11 @@ async function mcpTemplate(browser) {
     await settle(A.page);
 
     // 1. the template's page
-    if (!process.env.HARNESS_ISOLATE) skip('the mcp-server page: its backend runs under HARNESS_ISOLATE=1 only');
+    if (!process.env.HARNESS_ISOLATE) skip('the MCP server example\'s page: its backend runs under HARNESS_ISOLATE=1 only');
     else {
-      const made = await api('POST', '/templates/new', { source: 'mcp-server', path: DICE });
-      check(made.ok(), `the mcp-server template instantiates as ${DICE} (${made.status()})`);
+      const stamped = await api('POST', '/templates/new', { source: 'mcp-server', path: 'apps/mcpt-stamped' });
+      check(stamped.status() === 404, `there is no mcp-server template to instantiate (${stamped.status()})`);
+      fs.cpSync(path.join(__dirname, '..', '..', '..', 'examples', 'mcp-server'), path.join(WS, DICE), { recursive: true }); // as a tile's coding agent would write it (docs/mcp.md)
       await until(async () => (await (await api('GET', '/components')).json()).some((c) => c.path === DICE), 'apps/mcpt-dice registered');
       await sh(A.page, (t, p) => t.openTile(p), DICE);
       const frame = await until(async () => A.page.frames().find((f) => f.url().includes(`/c/${DICE}/`)), 'the page\'s frame', 30000);

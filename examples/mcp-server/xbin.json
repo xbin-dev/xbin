@@ -1,0 +1,20 @@
+{
+  // An MCP server tile: tools an agent calls (docs/mcp.md is the interface;
+  // backend/main.go is the whole server).
+  "runtime": "go",
+
+  // "reader" is what a bound consumer holds — an agent's `mcp` slot: POST
+  // /mcp, the tools. The tile itself, its owner and its managers are admin.
+  "expose": {
+    "roles": {
+      "reader": "Call this tile's tools: MCP at POST /mcp (API.md)"
+    }
+  },
+
+  // The contract an agent's `mcp` slot binds: kind http, service "mcp", the
+  // endpoint at /mcp under this tile. The binding is the consumer's grant —
+  // of the role named here, and "reader" is all a tool's caller needs.
+  "provides": {
+    "mcp": { "kind": "http", "service": "mcp", "role": "reader" }
+  }
+}

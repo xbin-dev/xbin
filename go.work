@@ -9,6 +9,7 @@ use (
 	./examples/calendar
 	./examples/counter-go
 	./examples/email
+	./examples/mcp-server
 	./examples/netrouter
 	./examples/sandbox-go
 	./relay

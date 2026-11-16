@@ -4,7 +4,7 @@ package isolated
 
 // wsagent_mcp_test.go — the workspace agent and an MCP tile (D239), end to
 // end on the xbind wsagent_test.go boots (startWsAgent): the builtin
-// mcp-server template instantiated as apps/dice, MCP tiles on in the
+// examples/mcp-server copied in as apps/dice, MCP tiles on in the
 // workspace's policy and in alice's Preferences.
 //
 //   - the free reads: alice's agent sends tools/list to apps/dice's declared
@@ -32,8 +32,7 @@ func TestWorkspaceAgentMCPTile(t *testing.T) {
 	e := startWsAgent(t)
 	d := e.d
 	const dice = "apps/dice"
-	d.Must(t, "POST", "/api/xbin/templates/new", map[string]any{"source": "mcp-server", "path": dice}, 200)
-	d.WaitComponent(t, dice)
+	d.CopyTile(t, d.A.Example("mcp-server"), dice)
 
 	e.person(wsAdmin, "admin", nil)
 	e.person("alice", "user", map[string]string{dice: "write"})
