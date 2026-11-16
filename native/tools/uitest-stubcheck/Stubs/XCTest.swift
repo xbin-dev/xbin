@@ -191,6 +191,7 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open func screenshot() -> XCUIScreenshot { XCUIScreenshot() }
     open var buttons: XCUIElementQuery { XCUIElementQuery() }
     open var icons: XCUIElementQuery { XCUIElementQuery() }
+    open var collectionViews: XCUIElementQuery { XCUIElementQuery() }
     open var staticTexts: XCUIElementQuery { XCUIElementQuery() }
     open var textFields: XCUIElementQuery { XCUIElementQuery() }
     open var secureTextFields: XCUIElementQuery { XCUIElementQuery() }
