@@ -220,7 +220,7 @@ func (m *Manager) partitioned(s *Session) bool {
 	if m.TilePartitioned == nil {
 		return false
 	}
-	_, on := m.TilePartitioned(s.Cwd)
+	_, on := m.TilePartitioned(m.tileOf(s))
 	return on
 }
 
@@ -238,7 +238,7 @@ func (m *Manager) viewAsBarred(s *Session, p auth.Principal) string {
 	if !p.ViewAs() || !m.partitioned(s) { // a preview is the person's own read (D234)
 		return ""
 	}
-	return viewAsRefusal(s.Cwd)
+	return viewAsRefusal(m.tileOf(s))
 }
 
 func viewAsRefusal(tile string) string {
@@ -309,10 +309,11 @@ func (m *Manager) StopTileSessions(tile string) error {
 }
 
 // onTile reports whether s is a session on tile: opened on it or on a
-// sub-path of it (its owning tile, recorded at open), or — a session opened
-// without the partition hooks — in its directory.
+// sub-path of it (its owning tile, recorded at open: the gate's, and the
+// partition hook's), or — a session opened without either — in its
+// directory.
 func (s *Session) onTile(tile string) bool {
-	return s.Cwd == tile || s.part.tile == tile
+	return s.Cwd == tile || s.tile == tile || s.part.tile == tile
 }
 
 // stopWhere ends every session on matches and waits for their teardown,

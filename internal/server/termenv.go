@@ -7,7 +7,6 @@ package server
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 )
@@ -16,7 +15,7 @@ import (
 // back to the base rootfs, killing any live session on it first
 // (DELETE /ws/term/env). The UI's "reset sandbox" action calls this.
 func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
-	cwd, ok := termEnvGate(w, r)
+	cwd, ok := s.termEnvGate(w, r)
 	if !ok {
 		return
 	}
@@ -33,7 +32,7 @@ func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
 // terminal is open (GET /ws/term/env) — and whether a VM terminal
 // can open ({vm: {available, reason}}, plans/vm-sandbox.md).
 func (s *Server) handleTermEnv(w http.ResponseWriter, r *http.Request) {
-	cwd, ok := termEnvGate(w, r)
+	cwd, ok := s.termEnvGate(w, r)
 	if !ok {
 		return
 	}
@@ -43,9 +42,10 @@ func (s *Server) handleTermEnv(w http.ResponseWriter, r *http.Request) {
 
 // termEnvGate: a tile's dev layer is the terminal plane (it IS the terminal's
 // overlay), so reading or resetting it needs terminal level on that tile
-// (admins: any); the legacy root layer ("" — root terminals are disabled) is
-// admin-only.
-func termEnvGate(w http.ResponseWriter, r *http.Request) (string, bool) {
+// (admins: any) — the tile cwd is or lies in, whose level a session there is
+// opened on (sessionTile); the legacy root layer ("" — root terminals are
+// disabled) is admin-only.
+func (s *Server) termEnvGate(w http.ResponseWriter, r *http.Request) (string, bool) {
 	cwd := r.URL.Query().Get("cwd")
 	p := auth.PrincipalOf(r)
 	if cwd == "" {
@@ -53,7 +53,7 @@ func termEnvGate(w http.ResponseWriter, r *http.Request) (string, bool) {
 			http.Error(w, "the root layer is admin-only", http.StatusForbidden)
 			return "", false
 		}
-	} else if !p.CanTerminalTile(strings.Trim(cwd, "/")) {
+	} else if !p.CanTerminalTile(s.sessionTile(cwd)) {
 		http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
 		return "", false
 	}

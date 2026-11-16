@@ -129,5 +129,5 @@ func (s *Session) publishStatus(m *Manager) {
 	if same || m.OnStatus == nil {
 		return
 	}
-	m.OnStatus(s.Cwd, StatusChange{User: s.homeKey, ID: s.ID, Summary: k})
+	m.OnStatus(m.tileOf(s), StatusChange{User: s.homeKey, ID: s.ID, Summary: k})
 }
