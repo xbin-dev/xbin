@@ -397,9 +397,16 @@ PUT    /delegate/state          the person, or their agent's page —
                                  the person's own session's; only a
                                  workspace or org admin turns adminChanges
                                  on (403)
-GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?}:
-                                 off until an admin turns it on; who as
-                                 in the state
+GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?,
+                                 locks?}: off until an admin turns it
+                                 on; who as in the state. locks: what
+                                 the host's file sets — its
+                                 workspaceAgent key (docs/workspace-
+                                 agent.md §Set by your host, D236) —
+                                 {enabled?, who?: {locked: true,
+                                 reason: "set by your host"}}, absent
+                                 when it sets nothing (by is "host"
+                                 when the file set the switch)
 PUT    /delegate/workspace      admin. {enabled?, who?}, at least one.
                                  Off refuses every person's agent at
                                  once. who gives the agent to people —
