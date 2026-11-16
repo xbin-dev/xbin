@@ -544,8 +544,9 @@ an existing workspace, `--dev` and `--no-auth` never do; "Not now" is
 per-browser; the account is an ordinary admin from `POST /users`; the swap
 (`POST /first-run/session`) opens no session for an account that existed
 before or was used, only from the token's browser session, same origin,
-throttled; the token stays valid until token sign-in is turned off (the
-sheet says where); "Everyone" is never chosen; a vault or agent step that
+throttled; the token's browser sign-in stays until it is turned off (the
+sheet says where), the token itself until it is rotated; "Everyone" is
+never chosen; a vault or agent step that
 fails is said as what is left, with the person signed in; the host's
 `workspaceAgent` preset turns the agent on (or off) with no click and locks
 the controls.

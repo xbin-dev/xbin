@@ -22,10 +22,11 @@ package server
 // open a session for anyone who existed before, or for an account that
 // has been used; it is throttled with /login (failed passwords count
 // there), refused from anything but this origin's own page, and audited
-// (the API's audit line, and one of its own). The owner token stays what
-// it was — the bootstrap credential — until an admin turns token sign-in
-// off (Admin → Users → sign-in security); only this browser's copy of it
-// is replaced.
+// (the API's audit line, and one of its own). Only this browser's copy of
+// the owner token is replaced; the token stays the bootstrap credential —
+// its browser sign-in (the link, its cookie) until an admin turns token
+// sign-in off (Admin → Users → sign-in security), the token itself (bx's
+// bearer) until it is rotated.
 
 import (
 	"log/slog"
@@ -152,7 +153,7 @@ func (s *Server) apiFirstRunSession(w http.ResponseWriter, r *http.Request) {
 	s.loginThrottle.ok(ip)
 	s.touchLogin(u.ID, "first-run")
 	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, ip)) // replaces this browser's copy of the token; the token itself stays valid
-	slog.Info("first run: this browser now signs in as the account it made (the owner token stays valid until token sign-in is turned off)", "user", u.ID, "ip", ip)
+	slog.Info("first run: this browser now signs in as the account it made (the owner token's browser sign-in stays until it is turned off, the token itself until it is rotated)", "user", u.ID, "ip", ip)
 	w.Header().Set("Cache-Control", "no-store")
 	WriteJSON(w, http.StatusOK, map[string]any{"user": map[string]string{"id": u.ID, "name": u.Name, "role": u.Role}})
 }

@@ -5258,8 +5258,9 @@ here: cut from the old end, never reword.
     the last 15 minutes), same-origin by Fetch Metadata (else Origin),
     throttled with `/login`, audited. So it can't open a session for an
     account that existed before or was ever used. The token stays the
-    bootstrap credential until an admin turns token sign-in off; the sheet
-    says so, and where. Rejected: one route that creates and signs in
+    bootstrap credential — its browser sign-in until an admin turns token
+    sign-in off (the sheet says so, and where), the token itself until it
+    is rotated. Rejected: one route that creates and signs in
     (a second account-creation path to keep in step with `POST /users`);
     `POST /login` from the sheet (it would do, but nothing narrows it to
     the bootstrap account); the vault first (a failure would then leave

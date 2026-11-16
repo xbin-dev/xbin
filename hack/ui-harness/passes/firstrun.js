@@ -106,7 +106,7 @@ async function stateA(browser, check) {
     check(/asks you before it changes anything/.test(await page.locator(`${S} [data-agent]`).innerText()), 'A: one sentence says what the agent is and that it asks first');
     check(/cannot be recovered/.test(await page.locator(`${S} #bxfr-vault-hint`).innerText()) && /bxfr-vault-hint/.test(await page.getAttribute(`${S} #bxfr-vault`, 'aria-describedby')),
       'A: the vault\'s "cannot be recovered" line, over its two fields (and the passphrase\'s description)');
-    check(/Admin → Users → sign-in security/.test(await page.locator(`${S} [data-token]`).innerText()), 'A: the token keeps working until turned off — said, with where');
+    check(/Admin → Users → sign-in security/.test(await page.locator(`${S} [data-token]`).innerText()), 'A: the sign-in link keeps working until it is turned off — said, with where');
     check(await activeId(page) === 'bxfr-name', 'A: focus starts in the name');
     check(await page.evaluate(() => document.querySelector('bx-shell').inert === true), 'A: the shell behind the sheet is inert');
     check(await page.evaluate(() => !document.querySelector('bx-shell').shadowRoot.querySelector('.alerts')), 'A: no first-run hint under the sheet (no setup card, no alert)');

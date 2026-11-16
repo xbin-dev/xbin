@@ -2030,8 +2030,9 @@ behave exactly as before.
   then as before. A workspace with any account (an invited one included)
   never sees the sheet, nor does `--dev` (its seeded admin) or
   `--no-auth`; a shell from before it has no hook and keeps the old path.
-  The token stays the bootstrap credential until you turn token sign-in
-  off (below).
+  The token stays the bootstrap credential: its browser sign-in until you
+  turn token sign-in off, the token itself (bx's bearer) until you rotate
+  it (both below).
 - CLI/scripts use `Authorization: Bearer`. **Inside a terminal**, `$XBIN_TOKEN`
   is a per-session token scoped to that tile (the tile's element principal —
   self-admin + its approved grants, never the owner; docs/overview/09-terminals.md);

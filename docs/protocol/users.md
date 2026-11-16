@@ -410,9 +410,13 @@ POST   /first-run/session         the owner token's browser session only
                                    opens no session for an account that
                                    existed before or was ever used, and
                                    nothing /login wouldn't. Audited. The
-                                   owner token stays valid — the bootstrap
-                                   credential — until an admin turns token
-                                   sign-in off (PATCH /auth-settings
-                                   {tokenLoginDisabled: true}; Admin →
-                                   Users → sign-in security)
+                                   owner token stays the bootstrap
+                                   credential: its browser sign-in (the
+                                   login link, its cookie) until an admin
+                                   turns token sign-in off (PATCH
+                                   /auth-settings {tokenLoginDisabled:
+                                   true}; Admin → Users → sign-in
+                                   security), the token itself (a bearer)
+                                   until it is rotated (POST
+                                   /auth-rotate-token)
 ```
