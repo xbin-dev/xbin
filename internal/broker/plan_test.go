@@ -385,6 +385,10 @@ func TestPlanLinesFollowTheAgentRules(t *testing.T) {
 	if cs = w.plan(t, "bob", `[{"kind":"org.share","args":{"org":"fin","tile":"apps/pu","level":"read"}}]`); cs.Items[0].Blocked != "" {
 		t.Fatalf("a line on a tile whose agent level is read: %+v", cs.Items[0])
 	}
+	// …and the review says what that means, in xbind's words
+	if eff := strings.Join(cs.Items[0].Effects, "\n"); !strings.Contains(eff, "apps/pu: this tile's author marked it read-only for agents: this changes how it is wired, not its data") {
+		t.Fatalf("a line that manages a read-only tile doesn't say so: %s", eff)
+	}
 	// an org's rule that arrives between the proposal and the approval
 	cs = w.plan(t, "bob", `[{"kind":"org.share","args":{"org":"fin","tile":"apps/pg","level":"read"}}]`)
 	if cs.Items[0].Blocked != "" {

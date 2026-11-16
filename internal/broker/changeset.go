@@ -122,7 +122,7 @@ func (c *captured) refusal() string {
 // under --no-auth, where nobody signs in (the server decides when that
 // counts): a tile's, a delegate's or a view-as one previews nothing.
 func (b *Broker) PreviewChange(p auth.Principal, op delegation.ChangeOp) (delegation.ChangePreview, error) {
-	return b.PreviewPlanned(p, op, nil)
+	return b.preview(p, op, nil, false)
 }
 
 // PreviewPlanned is PreviewChange for a line of a plan (plan.go): planned
@@ -130,10 +130,17 @@ func (b *Broker) PreviewChange(p auth.Principal, op delegation.ChangeOp) (delega
 // made — a line that names one is described from its template's manifest
 // (ChangePreview.Deferred) and checked against the tile once it exists.
 func (b *Broker) PreviewPlanned(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile) (delegation.ChangePreview, error) {
+	return b.preview(p, op, planned, true)
+}
+
+func (b *Broker) preview(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile, plan bool) (delegation.ChangePreview, error) {
 	if p.Component != "" || p.Agent != "" || p.Impersonator != "" || p.UserID == "" && !p.Owner {
 		return delegation.ChangePreview{}, errors.New("an admin change is described for the person who would apply it")
 	}
 	pv, err := b.previewChange(p, op, planned)
+	if err == nil && plan && pv.Blocked == "" {
+		b.readOnlyNote(&pv)
+	}
 	if err == nil {
 		slices.Sort(pv.Warnings) // the basis of "what the person saw" (the server's changeBasis)
 	}

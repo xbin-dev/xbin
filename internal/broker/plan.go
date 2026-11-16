@@ -454,15 +454,38 @@ func (b *Broker) previewPlannedBinding(p auth.Principal, pv delegation.ChangePre
 	return pv, nil
 }
 
-// AgentLineAllows is why a plan's line may not act ON tile for user's agent
-// holder (nil: it may): a tile whose "agent" level is off takes nothing
-// from a person's agent — no line about it either — and the policy ceiling
-// and the tile's orgs' agent rules must let the agent in, on the model its
-// conversation is on. "read" and "full" are about calls to the tile's own
-// API (GET only, or all the person's level allows): a line is no call to
-// the tile — it is the person's own change to it, written by xbind and
-// applied by them — so both let it be proposed. What the person may do
-// there is the line's own check; this is what their agent may.
+// readOnlyWords is what a plan's line says of a tile whose agent level is
+// "read", so the person knows what they tick.
+const readOnlyWords = "this tile's author marked it read-only for agents: this changes how it is wired, not its data"
+
+// readOnlyNote adds readOnlyWords to pv's effects for each tile the line
+// names whose agent level in force is "read" (D238: the level governs an
+// agent's calls to the tile's API and its reads of the tile's data;
+// managing the tile — its bindings, a grant, a start of its own coding
+// agent — is the person's right and their approval on xbin's review).
+func (b *Broker) readOnlyNote(pv *delegation.ChangePreview) {
+	for _, t := range pv.Tiles {
+		c, ok := b.Reg.Component(t)
+		if !ok {
+			continue
+		}
+		if inForce, _ := b.agentLevel(c); inForce == registry.AgentRead {
+			pv.Effects = append(pv.Effects, t+": "+readOnlyWords)
+		}
+	}
+}
+
+// AgentLineAllows is why a plan's line may not name tile for user's agent
+// holder (nil: it may). The decision (D238): a tile's "agent" level governs
+// an agent's CALLS to the tile's API and its reads of the tile's data —
+// "read": GET only; "full": what the person's level allows. MANAGING a
+// tile — its bindings, a grant, creating it, starting its own coding agent
+// — is governed by the person's rights and their approval on xbin's
+// review, and a line says so of a "read" tile (readOnlyNote). "off"
+// refuses both, on either side of a line: a tile that turns agents away
+// takes no line about it, as consumer or provider, source or target. The
+// policy ceiling and the tile's orgs' agent rules must let the agent in
+// too, on the model its conversation is on.
 func (b *Broker) AgentLineAllows(holder, user, model, tile string) error {
 	c, ok := b.Reg.Component(tile)
 	if !ok {

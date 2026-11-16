@@ -65,7 +65,13 @@ A person's **workspace agent** (xbind's delegation, `/docs/auth.md`
   purpose, and hold if the role gate is ever opened:
   - the manifest's `"agent": "read"`: xbind refuses an agent's `POST`,
     `PUT`, `PATCH` and `DELETE` before they arrive (and holds that level:
-    a manifest edited to say more waits for someone who manages the tile);
+    a manifest edited to say more waits for someone who manages the tile).
+    That is about calls to this API and reads of its data. Managing an
+    instance — binding its `llm` or `mcp` slot, a grant, starting its own
+    coding agent — is its person's right, exercised on xbin's review of a
+    plan: the line says the tile is read-only for agents and that it
+    changes how it is wired, not its data (`"off"` would refuse that
+    too; /docs/protocol/delegation.md §A tile's agent level);
   - the backend's own list (`_backend/wsagent.go`, `agentMay`): an agent
     may use the routes on it and no other — reading a conversation as its
     person sees it (the list, a run, its view, stream, tree, tasks,

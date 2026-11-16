@@ -869,7 +869,16 @@ and its items carry, beside a change set's:
 
 ## A tile's agent level
 
-A tile's `"agent"` (`off`, `read`, `full`) is a line of its own manifest,
+A tile's `"agent"` (`off`, `read`, `full`) governs a person's agent's
+**calls to the tile's API and its reads of the tile's data**: `read` is
+GET and HEAD only, `full` what the person's level allows. **Managing** a
+tile — its bindings, a grant, creating it, starting its own coding agent —
+is governed by the person's rights and their approval on xbin's review
+(§Change sets, §Plans): a plan's line about a `read` tile is proposed, and
+says "this tile's author marked it read-only for agents: this changes how
+it is wired, not its data". `off` refuses both, on either side of a line.
+
+The level is a line of the tile's own manifest,
 which its terminals and tile agents can write. So the manifest alone never
 **raises** it: xbind keeps the level each tile last had approved
 (`data/agent-levels.json`).

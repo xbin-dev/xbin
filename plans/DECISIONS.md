@@ -5415,10 +5415,18 @@ here: cut from the old end, never reword.
     to follow), is refused when its taint forbids the target's model or
     when it is over, and starts on the coding agent and mode that were
     shown (pinned when the line named none).
-  - **What an agent may touch.** Every line of a plan is held to its
-    tiles' orgs' agent rules and to a tile whose agent level is "off";
-    "read" does not refuse a line — the level is about calls to the tile's
-    API, and the agent template's instances are "read".
+  - **What an agent may touch.** A tile's agent level governs an agent's
+    calls to the tile's API and its reads of the tile's data; managing a
+    tile (its bindings, a grant, creating it, starting its own coding
+    agent) is governed by the person's rights and their approval on xbin's
+    review. So a line about a "read" tile is proposed, and says "this
+    tile's author marked it read-only for agents: this changes how it is
+    wired, not its data" (the agent template's instances are "read"), and
+    "off" refuses a line on either side of it — as consumer or provider,
+    source or target. Every tile a line names is also held to the
+    proposing conversation's scope, to what its person can read (one
+    answer for a hidden tile and a missing one) and to its orgs' agent
+    rules, when described and when applied.
   - **G1.** Under delegation an empty owner is the person's, for an admin
     too. `POST /templates/new`'s checks are one function the handler, the
     dry run and the request's preview share; every `DelegateAct` row has
