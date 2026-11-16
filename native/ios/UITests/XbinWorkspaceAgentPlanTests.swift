@@ -65,13 +65,16 @@ final class XbinWorkspaceAgentPlanTests: XCTestCase {
             tick(e, 1).tap()
             XCTAssertTrue(e.until(10) { apply.label == "Apply 1 change…" }, "unticking a line unticks the lines that need it: \(apply.label)")
             tick(e, 1).tap()
-            // the admin's own tick (it is above the start line: ticked before scrolling on)
-            e.wsScrollTo(tick(e, 3))
-            tick(e, 3).tap()
-            XCTAssertTrue(e.until(10) { apply.label == "Apply 5 changes…" }, apply.label)
+            // (ticking line 1 again ticks only it: the lines that need it are the person's to tick again)
+            XCTAssertTrue(e.until(10) { apply.label == "Apply 2 changes…" }, apply.label)
+            // the admin's own tick, then the binding and the start that were unticked with line 1 — top to bottom
+            for (i, want) in [(3, "Apply 3 changes…"), (4, "Apply 4 changes…"), (5, "Apply 5 changes…")] {
+                e.wsScrollTo(tick(e, i))
+                tick(e, i).tap()
+                XCTAssertTrue(e.until(10) { apply.label == want }, "after ticking line \(i): \(apply.label)")
+            }
             // the start line: the mode xbind vouches for, the coding agent, the brief as sent
             let brief = e.element("changeset-brief-5")
-            e.wsScrollTo(tick(e, 5))
             XCTAssertTrue(e.containing("asks before acting").exists && e.containing("Coding agent: Codex").exists, "the start's mode and coding agent")
             XCTAssertTrue(brief.exists && e.containing("sent exactly like this").exists, "the brief, as it will be sent")
             shot(e, "plan-start-line")
