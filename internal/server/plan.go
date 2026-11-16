@@ -126,7 +126,7 @@ func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.Cha
 			continue
 		}
 		w := *it.Wait
-		w.Owners, w.Was = nil, ""
+		w.Owners, w.Ids, w.Was = nil, nil, ""
 		if w.Held != "" {
 			w.Held = lineHeldForAgent
 		}

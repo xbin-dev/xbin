@@ -1191,7 +1191,9 @@ manifest). Without such a start before it, the line is `blocked` as ever.
   on a decided set with a waiting line cancels it, as does `…/undo` — or
   their agent does (`DELETE`), when their agent stops for good
   (workspace agents off, the agent taken from them), when either tile is
-  deleted or changes owner, when the slot was bound by someone meanwhile,
+  deleted — a tile made again at the same path is another tile, by the
+  same owner too: the line is held to the tiles it was approved for, not
+  to their paths — or changes owner, when the slot was bound by someone meanwhile,
   and when a check refuses it at the moment it would apply. While the
   person's agent is paused or held it neither applies nor ends; any
   other stop ends it, and xbind judges that at the line each time it

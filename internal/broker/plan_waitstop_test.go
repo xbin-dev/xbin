@@ -9,7 +9,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
@@ -116,5 +118,40 @@ func TestWaitingLineEndsWhateverStoppedTheAgent(t *testing.T) {
 				t.Fatalf("the log: applied %+v, refused %+v", ok, refused)
 			}
 		})
+	}
+}
+
+// At most once, whoever looks at the same moment. The second look is
+// started while the first is between its judgement and its bind (the hook
+// holds it there): it waits for the first to end and then finds the line
+// applied — one bind, one row. Without that rule the second runs through
+// in the hook's window and the line is bound and logged twice, every time.
+func TestWaitingLineAppliesOnceUnderTwoLooks(t *testing.T) {
+	w, _, cs := waitWorld(t, "bob")
+	var binds atomic.Int32
+	second := make(chan struct{})
+	bindWaitHook = func() {
+		if binds.Add(1) > 1 {
+			return
+		}
+		go func() { defer close(second); w.srv.CheckPlanWaits() }()
+		select {
+		case <-second: // it ran through while the first look was mid-bind
+		case <-time.After(300 * time.Millisecond): // it waits for the first
+		}
+	}
+	t.Cleanup(func() { bindWaitHook = nil })
+	w.write(map[string]string{"apps/dice/xbin.json": diceProvides, "apps/dice/backend/main.go": diceMain})
+	w.rescan()
+	w.srv.CheckPlanWaits()
+	select {
+	case <-second:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the second look never ended")
+	}
+	got := w.set(t, "bob", cs.ID).Items[3]
+	ok, refused := w.waitRows(t, "bob", cs.ID)
+	if binds.Load() != 1 || len(ok) != 1 || len(refused) != 0 || got.Result != delegation.ItemApplied || w.binding("apps/assistant", "mcp") != "apps/dice" {
+		t.Fatalf("two looks at once: %d binds, %d applied rows, %d refused, the line %s (%s) — want one of each, applied", binds.Load(), len(ok), len(refused), got.Result, got.Error)
 	}
 }

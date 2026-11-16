@@ -305,6 +305,29 @@ func TestWaitingLineEnds(t *testing.T) {
 			}
 			w.rescan()
 		}, delegation.ItemCancelled, "apps/assistant no longer exists"},
+		// made again at the same path, by the same owner, between two scans: xbind never saw the path empty — it is another tile all the same
+		{"the provider is deleted and made again", "bob", func(t *testing.T, w world) {
+			if err := os.RemoveAll(filepath.Join(w.b.Reg.Root, "apps", "dice")); err != nil {
+				t.Fatal(err)
+			}
+			w.write(map[string]string{"apps/dice/xbin.json": diceProvides, "apps/dice/backend/main.go": diceMain})
+			w.rescan()
+			if owner := (brokerPolicy{w.b}).OwnerOf("apps/dice"); owner != "user:bob" {
+				t.Fatalf("the tile made again is %s's", owner)
+			}
+		}, delegation.ItemCancelled, "apps/dice was deleted and made again since you approved this — it is another tile"},
+		{"the consumer is deleted and made again", "bob", func(t *testing.T, w world) {
+			dir := filepath.Join(w.b.Reg.Root, "apps", "assistant")
+			manifest, err := os.ReadFile(filepath.Join(dir, "xbin.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.RemoveAll(dir); err != nil {
+				t.Fatal(err)
+			}
+			w.write(map[string]string{"apps/assistant/xbin.json": string(manifest)})
+			w.rescan()
+		}, delegation.ItemCancelled, "apps/assistant was deleted and made again since you approved this — it is another tile"},
 		{"the provider changes owner", "bob", func(t *testing.T, w world) {
 			if err := w.b.Users.SetOwner("apps/dice", "user:alice"); err != nil {
 				t.Fatal(err)

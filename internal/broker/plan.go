@@ -39,6 +39,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -611,6 +612,22 @@ func (b *Broker) PreviewWait(p auth.Principal, op delegation.ChangeOp, w delegat
 	}
 	pv, err := b.preview(p, op, nil, nil, true)
 	return pv, delegation.WaitReady, "", err
+}
+
+// TileIdentity is what tells the tile at a path from another made later at
+// the same path: its directory's own identity on disk (dirIdentity). ""
+// for a sealed component — its tree is xbind's — and where nothing can be
+// read. A waiting line is pinned to the tiles it was approved for, not to
+// their paths.
+func (b *Broker) TileIdentity(tile string) string {
+	dir := filepath.Join(b.Reg.Root, filepath.FromSlash(tile))
+	if c, ok := b.Reg.Component(tile); ok {
+		if c.Sealed {
+			return ""
+		}
+		dir = c.Dir
+	}
+	return dirIdentity(dir)
 }
 
 // waitState is where the tile a waiting line is pinned to (w) stands now,

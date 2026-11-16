@@ -18,7 +18,9 @@ package server
 //   - it lapses delegation.MaxWait after the plan was applied;
 //   - it is cancelled when the person's agent stops for good or they lose
 //     it, when the person takes the plan back (reject, undo) or their
-//     agent does, when either tile is deleted or changes owner, when the
+//     agent does, when either tile is deleted (made again at the same path,
+//     even by the same owner within one scan, it is another tile:
+//     ItemWait.Ids) or changes owner, when the
 //     slot was bound by someone meanwhile — and when, at the moment it
 //     would apply, any check a line gets at Apply refuses it: the person's
 //     own rights (the handler's check, run as them now), the conversation's
@@ -53,6 +55,8 @@ import (
 type WaitPreviewer interface {
 	PreviewPlan(p auth.Principal, op delegation.ChangeOp, planned []delegation.PlannedTile, starts []delegation.PlannedStart) (delegation.ChangePreview, error)
 	PreviewWait(p auth.Principal, op delegation.ChangeOp, w delegation.PlanWait) (delegation.ChangePreview, delegation.WaitState, string, error)
+	// TileIdentity tells the tile at a path from another made later at the same path ("" when it can't)
+	TileIdentity(tile string) string
 }
 
 // startsOf are cs's agent.start lines before line n that are (applied:
@@ -94,6 +98,9 @@ func (s *Server) startWaiting(it *delegation.ChangeItem, pv delegation.ChangePre
 	w.Until = time.Now().UTC().Truncate(time.Second).Add(delegation.MaxWait)
 	w.Owners = []string{s.policy().OwnerOf(w.Component), s.policy().OwnerOf(w.Tile)}
 	w.Was, w.Held = string(pv.Before), ""
+	if wp, ok := s.ChangeSets.(WaitPreviewer); ok {
+		w.Ids = []string{wp.TileIdentity(w.Component), wp.TileIdentity(w.Tile)}
+	}
 	it.Wait, it.Result, it.Error = &w, delegation.ItemWaiting, ""
 }
 
@@ -248,6 +255,17 @@ func (s *Server) judgeWait(cs delegation.ChangeSet, i int) bool {
 	}
 	if why := s.waitStopped(cs.User, cs.Agent); why != "" {
 		return end(why)
+	}
+	if len(w.Ids) == 2 { // the tiles themselves, not what is at their paths now
+		for k, t := range []string{w.Component, w.Tile} {
+			if w.Ids[k] == "" || wp.TileIdentity(t) == w.Ids[k] {
+				continue
+			}
+			if _, there := s.tileThere(t); !there {
+				return end(t + " no longer exists")
+			}
+			return end(t + " was deleted and made again since you approved this — it is another tile: nothing was bound")
+		}
 	}
 	if len(w.Owners) == 2 && (s.policy().OwnerOf(w.Component) != w.Owners[0] || s.policy().OwnerOf(w.Tile) != w.Owners[1]) {
 		for _, t := range []string{w.Component, w.Tile} {

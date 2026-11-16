@@ -82,6 +82,11 @@ type ItemWait struct {
 	Owners []string  `json:"owners,omitempty"`
 	Was    string    `json:"was,omitempty"`
 	Held   string    `json:"held,omitempty"`
+	// Ids: the two tiles' own identities when the line was approved
+	// (component, tile — as Owners): a tile deleted and made again at the
+	// same path is another tile, and the line is not for it. "" where none
+	// could be read.
+	Ids []string `json:"ids,omitempty"`
 }
 
 type bindWaitKey struct{}
