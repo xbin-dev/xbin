@@ -32,7 +32,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   its grant requests) as one line above the tile — "1 grant request · 3
   optional interfaces · show" — instead of a popover over it, so a freshly
   made assistant opens on its chat; `<bx-bindings>` (also in an older
-  shell's popover) folds optional rows into one line until clicked.
+  shell's popover) marks a required row "required" and folds optional rows
+  into one line until clicked.
   Nothing is bound or dismissed for the person
   ([overview/11-interfaces.md](/docs/overview/11-interfaces.md)).
 - delegation: **an agent-started tile agent defaults to a coding agent

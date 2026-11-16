@@ -5,10 +5,11 @@
 // through the real UI — every interaction counted (journey.js).
 //
 // The path, as the owner token's session (the shortest: no account is made):
-// the vault's passphrase; a new tile; its window's coding agent, told to
-// build the MCP server; an instance of the agent template; its `llm` slot
-// bound to the workspace's connector and its `mcp` slot to the new tile; one
-// question in its chat. It asserts the journey's end — the answer shows the
+// the vault's passphrase; an MCP tile from the mcp-server template (its
+// roll_dice is the template's example tool: no coding agent); an instance of
+// the agent template; its `mcp` slot bound to the new tile and its `llm` slot
+// (marked required) to the workspace's connector — after which the rest of
+// its slots fold into one line above it (G10); one question in its chat. It asserts the journey's end — the answer shows the
 // roll, and the roll came from the tile's tool — and writes the step table
 // to out/journey-manual.md. Needs HARNESS_ISOLATE=1 and `make sealed`.
 'use strict';
@@ -35,46 +36,37 @@ async function journeyManual(browser) {
     check(llm.configured === true && llm.host && llm.host.active === true, 'the LLM connector is the host\'s: nothing to set up (no card, no banner, no key)');
 
     J.section('the MCP tile');
-    await J0.makeTile(J, page, 'Dice');
-    J0.plant(X.ws); // (out of band: the scripted coding agent and the source a real one would write)
-    await J0.openFromSidebar(J, page, J0.DICE);
-    const F = `bx-frame[src="${J0.DICE}"]`;
-    await J.click('the tile\'s title bar: the terminal button (opens its window)', () => page.locator(`.card[data-path="${J0.DICE}"] .wc.term`).click());
-    await page.waitForSelector(`${F} .pop`, { timeout: 20000 });
-    await J.click('the window\'s launcher: a coding agent', async () => { await page.locator(`${F} .pop button`, { hasText: 'Fake agent (tests)' }).first().click(); await page.waitForSelector(`${F} bx-agent textarea`, { timeout: 30000 }); },
-      { note: 'the scripted agent stands in for Codex or OpenCode, which the launcher offers on the workspace connector with no sign-in; Claude Code and Gemini CLI need the person\'s own sign-in (docs/llm.md)' });
-    J.know('what an MCP tile is here, to say it in the prompt: a backend (xbin.json "runtime"), streamable HTTP at /mcp, and "provides": {"mcp": {"kind": "http", "service": "mcp"}} — no doc page, starter or template says it (the agent template\'s xbin.json comments do)');
-    const ta = page.locator(`${F} bx-agent textarea`).first();
-    await J.field('the coding agent: the prompt (make this tile an MCP server with a roll_dice tool)', () => ta.fill(J0.BUILD), { note: 'the scripted agent copies a prepared source into place (fixtures/journey-dice); a real one writes the four files' });
-    await J.key('the coding agent: Enter', () => ta.press('Enter'));
-    await J.wait('the coding agent\'s turn ends', () => page.waitForFunction((tile) => { const a = document.querySelector('bx-shell').testApi().frameFor(tile)?.testApi().agent(); return !!a && a.status === 'idle' && (a.blocks || []).some((b) => b.kind === 'turn'); }, J0.DICE, { timeout: 120000, polling: 250 }),
-      'scripted: 8 s. A real coding agent on this task: one to three minutes');
-    J.hand(3, 'a real coding agent in its asking mode asks before it writes and before it runs: about three permission clicks for four files and a check (one "Allow always" for edits, one or two for commands)');
-    await J.click('the tile\'s window: close it (it covers the next tile)', () => page.evaluate((tile) => document.querySelector('bx-shell').testApi().frameFor(tile).testApi().closeTerminal(), J0.DICE), { api: true });
-    const tools = await J0.servesDice(ctx, X);
+    // the mcp-server template (docs/mcp.md): its example tool is roll_dice,
+    // so the tile serves it from its first build — no coding agent, no
+    // prompt, nothing to know about MCP
+    await J0.makeFromTemplate(J, page, 'MCP server', J0.DICE);
+    const tools = await J.wait('the MCP tile\'s backend is built and answers', () => J0.servesDice(ctx, X));
     check(tools.ok, `the new tile serves MCP: tools/list names roll_dice (${tools.status})`);
 
     J.section('the agent instance');
-    await J0.makeFromTemplate(J, page, 'AI Agent', '');
+    await J0.makeFromTemplate(J, page, 'AI Agent', '', { tabOpen: true });
     await J0.openFromSidebar(J, page, AGENT);
     const pop = page.locator(`.pqpop[data-prompts-for="${AGENT}"]`);
     await pop.waitFor({ timeout: 30000 });
-    J.know('which of the five slots matter: `llm` must be bound to "LLM by xbin" and `mcp` to the new tile before the chat can do anything; `net`, `sandboxes` and `scm` can wait. The popover lists five rows and a grant request without saying so');
+    const req = await pop.locator('bx-bindings .row', { hasText: 'required' }).locator('.slot').allInnerTexts();
+    check(req.length === 1 && req[0] === 'llm', `the popover marks the llm slot required (${JSON.stringify(req)})`);
+    J.know('that the mcp slot is the one the new tile goes in, and to bind it before llm: once llm (marked "required") is bound, the other slots fold into one line above the chat ("show" opens them again, one more click)');
     const bind = async (slot, option, label) => {
-      const ms = pop.locator('bx-bindings bx-multiselect').nth(0); // a bound row leaves the list: the next unbound multi slot is first again
-      const multis = await pop.locator('bx-bindings bx-multiselect').count();
-      await J.click(`the ${slot} slot: "pick providers…"`, () => ms.locator('button.control').click());
-      await J.click(`the ${slot} slot: tick ${label}`, () => ms.locator('label.opt', { hasText: option }).click());
+      const row = pop.locator('bx-bindings .row', { has: page.locator('.slot', { hasText: new RegExp(`^${slot}$`) }) });
+      await J.click(`the ${slot} slot: "pick providers…"`, () => row.locator('bx-multiselect button.control').click());
+      await J.click(`the ${slot} slot: tick ${label}`, () => row.locator('bx-multiselect label.opt', { hasText: option }).click());
       await J.key(`the ${slot} slot: Escape (closes the list)`, () => page.keyboard.press('Escape'));
-      await J.click(`the ${slot} slot: "bind"`, () => pop.locator('bx-bindings button', { hasText: /^bind$/ }).first().click());
+      await J.click(`the ${slot} slot: "bind"`, () => row.locator('button', { hasText: /^bind$/ }).click());
       await page.waitForFunction(async ([tile, s]) => { const r = await fetch('/api/xbin/bindings'); const b = (await r.json()).bindings || {}; return !!(b[tile] && b[tile][s]); }, [AGENT, slot], { timeout: 20000, polling: 300 });
-      await page.waitForFunction(([sel, was]) => document.querySelector('bx-shell').testApi().query(sel).querySelector('bx-bindings').shadowRoot.querySelectorAll('bx-multiselect').length < was, [`.pqpop[data-prompts-for="${AGENT}"]`, multis], { timeout: 20000, polling: 100 });
+      await page.waitForFunction(([tile, s]) => { const p = document.querySelector('bx-shell').testApi().query(`.pqpop[data-prompts-for="${tile}"]`); return !p || ![...p.querySelector('bx-bindings').shadowRoot.querySelectorAll('.row .slot')].some((x) => x.textContent.trim() === s); }, [AGENT, slot], { timeout: 20000, polling: 100 });
     };
-    await bind('llm', 'LLM by xbin', 'LLM by xbin');
     await bind('mcp', 'Dice', 'Dice');
+    await bind('llm', 'LLM by xbin', 'LLM by xbin');
     const b = (await (await ctx.request.get(`${X.url}/api/xbin/bindings`)).json()).bindings[AGENT] || {};
     check(String(b.llm) === 'xbin:llm' && String(b.mcp) === J0.DICE, `the instance's slots are bound: ${JSON.stringify(b)}`);
-    await J.click('the popover: fold it (it covers the chat)', () => pop.locator('.pqx').click());
+    const line = page.locator(`.pqline[data-prompts-for="${AGENT}"]`);
+    await line.waitFor({ timeout: 20000 }).catch(() => {});
+    check(await line.count() === 1 && await pop.count() === 0 && /optional interfaces/.test(await line.innerText()), `its required slot bound, the rest fold into one line above the chat — no popover to fold (${await line.innerText().catch(() => '')})`);
 
     J.section('the chat');
     const said = await J0.askAssistant(J, page, AGENT);

@@ -106,6 +106,7 @@ export class BxBindings extends LitElement {
     .rerr { color: var(--bx-danger, #FF7A7A); padding: 0 0 4px 2px; }
     /* the optional slots, folded: one quiet line */
     .row.opt { color: var(--bx-muted, #A3A6B6); }
+    .kind.req { color: var(--bx-accent, #8C9BFF); }
     .rerr bx-icon { margin-right: 6px; }
     /* Dismiss: a quiet row action (R1), last on the row */
     button.quiet { background: transparent; color: var(--bx-muted, #A3A6B6); border-color: transparent; font-weight: 400; }
@@ -290,6 +291,7 @@ export class BxBindings extends LitElement {
             <span class="who">${p.component}</span>
             <span class="slot">${p.slot}</span>
             <span class="kind">${p.expose ? `publish ${p.kind}` : p.service ? `${p.kind}:${p.service}` : p.kind}</span>
+            ${p.required ? html`<span class="kind req" title="the tile can't do its work until this is bound">required</span>` : nothing}
             ${p.options.length === 0 ? html`
               <span class="none">no provider available — install one first</span>` : p.multi ? html`
               <bx-multiselect style="flex:1" .options=${p.options} .selected=${this._pick[key] ?? []}

@@ -21,6 +21,13 @@ number of steps is ~30-50 … make sure nearly all that is collapsed to a
 | through the workspace agent | **49** (1 navigation, 30 clicks, 15 fields, 3 keys) | 4 | 3 | 2 sheets and a review (8 clicks), plus the tile agent's permissions | 3 | 3 |
 | the target (§4) | **12** (10 where the host unseals the vault) | 0 | 1 | 1 review (4 clicks) | 0 | 0 |
 
+After G8, G9 and G10 (branch `wsagent/mcp-template`, D236) the same
+passes count **20** by hand (the MCP tile from the `mcp-server` template:
+no coding agent, no prompt, +0 by hand, 2 to know; the assistant's slots
+fold into one line once `llm` is bound) and **48** through the agent (the
+popover fold gone; the brief's card names the coding agents that need no
+sign-in and defaults to one).
+
 The agent path costs almost twice the manual one today. It needs an account
 the manual path never makes (10 interactions), it cannot create a tile for
 an admin at all, and each of its approvals is a card, a sheet and a button
