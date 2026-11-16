@@ -77,6 +77,11 @@ overview is the map that puts them in context.
   and keys, binding a tile's `llm` slot to `xbin:llm`, model names and
   aliases, usage per person, quotas, and the host's lockable configuration
   file; its routes are in [protocol/llm.md](/docs/protocol/llm.md)
+- [agent-signins.md](/docs/agent-signins.md) — coding-agent sign-ins held
+  by xbind (D230): sign in to Claude Code once (or paste a key for Codex,
+  Gemini, OpenCode), which sessions use it, the rule for shared tiles, who
+  can read what; its routes are in
+  [protocol/signins.md](/docs/protocol/signins.md)
 - [workspace-agent.md](/docs/workspace-agent.md) — the workspace agent
   (D231): one agent per person that plans across tiles and asks before
   anything changes — what it reaches, how its approvals work, what a tile

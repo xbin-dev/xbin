@@ -61,7 +61,7 @@ person ([agent-signins.md](/docs/agent-signins.md)).
 ```
 { "available": true,            false: this xbind keeps none — "why" says
   "unisolated": true,           only on a development workspace run without
-                                sandboxes (--dev, --no-auth)
+                                sandboxes (--dev)
   "vault": "open",              open | sealed | locked | plaintext
   "policy": {"enabled": true, "locked": true, "reason": "set by your host"},
   "notice": {"at": 1794845000000, "text": "Your saved sign-in Work was removed by root."},

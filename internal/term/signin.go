@@ -224,7 +224,7 @@ func (m *Manager) signinPlanFor(p auth.Principal, o openOpts, rel string, prov a
 // signinPerson reports a session opened by a person themselves, or by
 // their workspace agent for them: the only openers a saved sign-in serves.
 func signinPerson(p auth.Principal) bool {
-	if p.UserID == "" || p.Component != "" || p.Impersonator != "" || p.Owner {
+	if p.UserID == "" || p.Component != "" || p.ReadOnly() || p.Owner {
 		return false
 	}
 	switch p.Via {
@@ -275,6 +275,9 @@ func othersWords(others []string) string {
 // switch off — is left out with the reason. connector: the connector
 // serves this session by the person's standing choice.
 func (m *Manager) signinTake(pl signinPlan, id, rel string, prov agent.Provider, connector bool) (*sessionSignin, *acp.SpawnSignin) {
+	if m.Signins == nil {
+		return nil, nil // no store: the session is exactly as before — nothing said, nothing noted
+	}
 	ss := &sessionSignin{user: pl.user}
 	if pl.saved == nil {
 		return ss, nil

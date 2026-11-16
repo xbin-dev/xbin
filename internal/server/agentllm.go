@@ -60,7 +60,7 @@ func (s *Server) withAgentLLM(r *http.Request, tile string, rows []providerRow) 
 	for i := range rows {
 		rows[i].LLM = llm[rows[i].ID]
 		rows[i].Saved = s.providerSaved(p, tile, rows[i].Provider, rows[i].LLM)
-		rows[i].Savable = s.Signins != nil && len(rows[i].Keys) > 0 && s.signinsAvail().OK && p.UserID != "" && p.Component == "" && p.Impersonator == "" && p.Agent == ""
+		rows[i].Savable = s.Signins != nil && len(rows[i].Keys) > 0 && s.signinsAvail().OK && p.UserID != "" && p.Component == "" && !p.ReadOnly() && p.Agent == ""
 		if sv, l := rows[i].Saved, rows[i].LLM; sv != nil && sv.Inject && l != nil && (l.Use == "signin" || l.Use == "own-first") {
 			l.Use = "own" // their saved sign-in is their own: it serves
 		}

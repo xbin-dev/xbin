@@ -68,8 +68,9 @@ a sign-in, make it the default, replace it or remove it.
 
 The store needs sandboxes (`xbind --isolate`): without them every terminal
 runs as xbind's own user and could read a coding agent's environment. A
-development workspace (`--dev`, `--no-auth`) is excepted, and the list says
-so.
+development workspace (`--dev`) is excepted, and the list says so. Saved
+sign-ins are a signed-in person's: a workspace run with `--no-auth` has no
+people, and so none.
 
 ## Which sessions use it
 

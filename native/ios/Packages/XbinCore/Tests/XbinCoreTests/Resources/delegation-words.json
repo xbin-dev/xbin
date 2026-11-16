@@ -2108,6 +2108,7 @@
    },
    "session": {
     "agent": "Claude Code · model sonnet, through the workspace's connector",
+    "signin": null,
     "mode": {
      "tag": "asks before acting",
      "tone": "ok",
@@ -2241,6 +2242,7 @@
    },
    "session": {
     "agent": "Claude Code, on your own sign-in",
+    "signin": null,
     "mode": {
      "tag": "acts without asking",
      "tone": "bad",
@@ -2374,6 +2376,7 @@
    },
    "session": {
     "agent": "claude",
+    "signin": null,
     "mode": {
      "tag": "asks before acting",
      "tone": "ok",
@@ -2505,6 +2508,7 @@
    },
    "session": {
     "agent": "Claude Code · model sonnet, through the workspace's connector",
+    "signin": null,
     "mode": {
      "tag": "acts without asking",
      "tone": "bad",
@@ -2637,6 +2641,7 @@
    },
    "session": {
     "agent": "Claude Code · model sonnet, through the workspace's connector",
+    "signin": null,
     "mode": {
      "tag": "acts without asking",
      "tone": "bad",
@@ -7659,6 +7664,7 @@
      "neededBy": [],
      "start": {
       "agent": "Codex",
+      "signin": null,
       "mode": {
        "tag": "asks before acting",
        "tone": "ok",
@@ -8476,6 +8482,7 @@
      "neededBy": [],
      "start": {
       "agent": "Codex",
+      "signin": null,
       "mode": {
        "tag": "asks before acting",
        "tone": "ok",
@@ -9234,6 +9241,7 @@
      "neededBy": [],
      "start": {
       "agent": "Codex",
+      "signin": null,
       "mode": {
        "tag": "asks before acting",
        "tone": "ok",
@@ -9931,6 +9939,7 @@
      "neededBy": [],
      "start": {
       "agent": "Codex",
+      "signin": null,
       "mode": {
        "tag": "asks before acting",
        "tone": "ok",
@@ -10647,6 +10656,7 @@
      "neededBy": [],
      "start": {
       "agent": "Codex",
+      "signin": null,
       "mode": {
        "tag": "acts without asking",
        "tone": "bad",
@@ -11412,6 +11422,7 @@
      "neededBy": [],
      "start": {
       "agent": "codex",
+      "signin": null,
       "mode": {
        "tag": "acts without asking",
        "tone": "bad",

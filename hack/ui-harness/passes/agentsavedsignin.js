@@ -210,7 +210,8 @@ async function agentSavedSignin(browser) {
   await waitFor(page, (t, tile) => { const api = t.frameFor(tile)?.testApi(); const ag = api && api.agent(api.tabs.length - 1); return !!ag && !!ag.sessionId && !!ag.signinState; }, SHARED, { timeout: 20000, label: 'the agent on the shared tile says what it signs in with' });
   const sidx = await fr(page, SHARED, (f) => f.tabs.length - 1);
   const shared = await fr(page, SHARED, (f, t, i) => ({ chip: f.agent(i).signinChip, state: f.agent(i).signinState }), sidx);
-  check(shared.state.source !== 'saved' && /dev1.* can also open terminals on apps\/leads/.test(shared.state.why) && /saved sign-in not used/.test(shared.chip),
+  // (what it runs on instead depends on the home: the tile's own login where an earlier pass signed the fake in, else nothing)
+  check(shared.state.source !== 'saved' && /dev1.* can also open terminals on apps\/leads/.test(shared.state.why) && /saved sign-in not used|this tile's own login/.test(shared.chip),
     `on ${SHARED} the saved sign-in is left out, and the session says who can also open a terminal there (${JSON.stringify(shared)})`);
   await fr(page, SHARED, (f, t, i) => f.agent(i).send('please fail'), sidx);
   await waitFor(page, (t, a) => { const g = t.frameFor(a.tile)?.testApi().agent(a.i)?.signin; return !!g && g.data && g.primary === 'tile'; }, { tile: SHARED, i: sidx }, { timeout: 15000, label: 'the shared tile\'s card offers the tile\'s own sign-in first' });

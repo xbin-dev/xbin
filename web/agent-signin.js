@@ -420,6 +420,7 @@ export class BxAgentSignin extends LitElement {
         </form>` : nothing}
       <div class="status ${cls}" role="status">${cls === 'ok' ? html`<bx-icon name="ok"></bx-icon>` : cls === 'bad' ? html`<bx-icon name="error"></bx-icon>` : nothing}${line}</div>
       ${hint ? html`<div class="hint">${hint}</div>` : nothing}
+      ${p === 'done' && this._saved && this._here && !this._here.inject && this.spec ? html`<div class="row"><button class="go tile-now" @click=${() => this.start()}>Sign in on this tile</button></div>` : nothing}
       ${p === 'done' ? nothing : html`<div class="row links">
         ${p === 'idle' && primary === 'tile' && guided ? html`<button class="link save-other" @click=${() => this.startSaved()}>Save a sign-in for my other tiles</button>` : nothing}
         ${p === 'idle' && canPaste && primary !== 'paste' ? html`<button class="link paste-instead" @click=${() => this._pasteForm()}>Paste a key instead</button>` : nothing}

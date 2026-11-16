@@ -83,7 +83,7 @@ func (s *Server) signinsPerson(w http.ResponseWriter, r *http.Request) string {
 	switch {
 	case s.Signins == nil:
 		WriteError(w, http.StatusNotImplemented, "this xbind keeps no coding-agent sign-ins", agentSigninsDocs)
-	case p.Component != "" || p.Impersonator != "" || p.UserID == "" || p.Agent != "" || p.Via == "terminal" || p.Via == "instance" || p.Via == "frame":
+	case p.Component != "" || p.ReadOnly() || p.UserID == "" || p.Agent != "" || p.Via == "terminal" || p.Via == "instance" || p.Via == "frame":
 		WriteError(w, http.StatusForbidden, "saved sign-ins are a person's own: sign in and manage them yourself — a tile's credentials, a session's token and view-as can't", agentSigninsDocs)
 	default:
 		return p.UserID
