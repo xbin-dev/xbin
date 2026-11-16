@@ -151,6 +151,7 @@ public protocol XCUIElementTypeQueryProvider {
     var alerts: XCUIElementQuery { get }
     var cells: XCUIElementQuery { get }
     var otherElements: XCUIElementQuery { get }
+    var switches: XCUIElementQuery { get }
     var windows: XCUIElementQuery { get }
     var keyboards: XCUIElementQuery { get }
     func descendants(matching type: XCUIElement.ElementType) -> XCUIElementQuery
@@ -197,6 +198,7 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open var alerts: XCUIElementQuery { XCUIElementQuery() }
     open var cells: XCUIElementQuery { XCUIElementQuery() }
     open var otherElements: XCUIElementQuery { XCUIElementQuery() }
+    open var switches: XCUIElementQuery { XCUIElementQuery() }
     open var windows: XCUIElementQuery { XCUIElementQuery() }
     open var keyboards: XCUIElementQuery { XCUIElementQuery() }
     open func descendants(matching type: ElementType) -> XCUIElementQuery { XCUIElementQuery() }
@@ -227,6 +229,7 @@ open class XCUIElementQuery: XCUIElementTypeQueryProvider {
     open var alerts: XCUIElementQuery { self }
     open var cells: XCUIElementQuery { self }
     open var otherElements: XCUIElementQuery { self }
+    open var switches: XCUIElementQuery { self }
     open var windows: XCUIElementQuery { self }
     open var keyboards: XCUIElementQuery { self }
     open func descendants(matching type: XCUIElement.ElementType) -> XCUIElementQuery { self }

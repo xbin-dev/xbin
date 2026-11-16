@@ -450,12 +450,14 @@ struct AgentApprovalSheet: View {
             Label { Text(verbatim: DelegationWords.settled(r)) } icon: { Image(systemName: "info.square") }
                 .font(.callout.weight(.semibold))
         }
+        if r.preview["readWeb"]?.boolValue == true { AgentReadWebBanner() }
         switch r.kind {
         case .session: sessionRows(r)
         case .call, .template: callRows(r)
+        case .web, .mcp: AgentNetRows(request: r)
         }
         if !r.summary.isEmpty { AgentQuote(label: "The agent's own words — not checked by xbin", text: r.summary) }
-        if r.kind == .call, r.isPending { choices(r) }
+        if r.kind == .call || r.kind == .mcp, r.isPending { choices(r) }
         if let problem {
             Label { Text(verbatim: problem) } icon: { Image(systemName: "exclamationmark.octagon") }
                 .font(.callout).foregroundStyle(XbinColor.danger)
@@ -465,7 +467,8 @@ struct AgentApprovalSheet: View {
 
     private func footer(_ r: DelegateRequest) -> String {
         let asked = DelegationWords.asked(created: r.created, expires: r.isPending ? r.expires : nil)
-        return r.kind == .call ? asked : [asked, "asked every time · change in Preferences"].filter { !$0.isEmpty }.joined(separator: " · ")
+        if r.kind == .call || r.kind == .mcp { return asked }
+        return [asked, r.kind == .web ? "asked every time" : "asked every time · change in Preferences"].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     // MARK: A tile call, a tile's creation
@@ -544,7 +547,7 @@ struct AgentApprovalSheet: View {
                 .accessibilityIdentifier("approval-choice-\(c.id.rawValue)")
                 .widens(armed: !widening || widen.armed)
             }
-            if choice == .call {
+            if choice == .call || choice == .tool {
                 AgentDurationPicker(duration: $duration, armed: widen.armed, id: "approval-duration")
             }
         }

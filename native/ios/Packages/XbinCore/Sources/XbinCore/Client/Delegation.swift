@@ -41,6 +41,21 @@ public struct DelegateState: Sendable, Equatable {
     public var heldWhy: String
     /// A workspace admin's view of who was given one.
     public var who: Who?
+    /// The person's own settings of the web and MCP tools (D236).
+    public var web: Bool
+    public var mcp: Bool
+    public var mcpReadOnly: Bool
+    /// What the workspace policy lets them turn on (`net`); empty on an
+    /// xbind before D236, which reads as off.
+    public struct NetReach: Sendable, Equatable {
+        /// "off" | "read" (the web) · "off" | "tiles" (MCP) · "" absent.
+        public var policy = ""
+        public var why = ""
+        /// The sites the web is held to ([] any public site).
+        public var only: [String] = []
+    }
+    public var netWeb: NetReach
+    public var netMCP: NetReach
 
     public init?(json: JSONValue?) {
         guard let json, json.objectValue != nil else { return nil }
@@ -62,6 +77,14 @@ public struct DelegateState: Sendable, Equatable {
             who = Who(everyone: w["everyone"]?.boolValue ?? false, entries: Int(w["entries"]?.intValue ?? 0),
                       chosen: w["chosen"]?.boolValue ?? false)
         }
+        web = json["web"]?.boolValue ?? false
+        mcp = json["mcp"]?.boolValue ?? false
+        mcpReadOnly = json["mcpReadOnly"]?.boolValue ?? false
+        let reach = { (v: JSONValue?) in
+            NetReach(policy: v?["policy"]?.stringValue ?? "", why: v?["why"]?.stringValue ?? "", only: (v?["only"]?.arrayValue ?? []).compactMap(\.stringValue))
+        }
+        netWeb = reach(json["net"]?["web"])
+        netMCP = reach(json["net"]?["mcp"])
     }
 }
 
@@ -93,7 +116,8 @@ public enum DelegateTime {
 /// creation), as xbind reads it — the only thing an approval sheet is
 /// drawn from.
 public struct DelegateRequest: Sendable, Equatable, Identifiable {
-    public enum Kind: String, Sendable { case call, session, template }
+    /// `web` and `mcp`: a web page and an MCP tool (D236).
+    public enum Kind: String, Sendable { case call, session, template, web, mcp }
     /// `unknown`: a state this app doesn't know (a newer xbind's) — never
     /// read as one that can be decided.
     public enum State: String, Sendable { case pending, approved, denied, used, expired, withdrawn, unknown }
@@ -171,7 +195,7 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
 public struct StandingApproval: Sendable, Equatable, Identifiable {
     public var id: String
     public var tile: String
-    /// "call" | "tile".
+    /// "call" | "tile" | "tool" (an MCP tool: `method` "MCP", `path` the tool).
     public var scope: String
     public var method: String
     public var path: String
@@ -289,6 +313,8 @@ public struct AuditRow: Sendable, Equatable {
     public var ticket: String
     public var under: String
     public var n: Int
+    /// What a web page read came to (D236).
+    public var bytes: Int
 
     public init(json: JSONValue) {
         ts = DelegateTime.date(json["ts"])
@@ -303,6 +329,7 @@ public struct AuditRow: Sendable, Equatable {
         ticket = json["ticket"]?.stringValue ?? ""
         under = json["under"]?.stringValue ?? ""
         n = Int(json["n"]?.intValue ?? 0)
+        bytes = Int(json["bytes"]?.intValue ?? 0)
     }
 
     public static func list(_ json: JSONValue?) -> [AuditRow] {
@@ -390,6 +417,10 @@ public enum DelegateRoute {
 
     public static func setPaused(_ paused: Bool) -> APIRequest { .json("PUT", "\(base)/state", ["paused": .bool(paused)]) }
     public static func setAdminChanges(_ on: Bool) -> APIRequest { .json("PUT", "\(base)/state", ["adminChanges": .bool(on)]) }
+    /// One of the web and MCP settings (``NetPref/id``: web, mcp, mcpReadOnly).
+    public static func setNet(_ id: String, _ on: Bool) -> APIRequest? {
+        ["web", "mcp", "mcpReadOnly"].contains(id) ? .json("PUT", "\(base)/state", .object([id: .bool(on)])) : nil
+    }
 
     public static func audit(before: Date? = nil) -> APIRequest {
         APIRequest("GET", "\(base)/audit" + (before.map { "?before=\(seg(DelegateTime.rfc3339($0)))" } ?? ""))
