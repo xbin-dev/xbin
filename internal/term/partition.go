@@ -227,7 +227,9 @@ func (m *Manager) partitioned(s *Session) bool {
 // adminPass reports whether admin p may act on s, another person's
 // session, as an admin: never on a partitioned tile (PD-09).
 func (m *Manager) adminPass(s *Session, p auth.Principal) bool {
-	return p.IsAdmin() && (s.homeKey == HomeKey(p) || !m.partitioned(s))
+	// nor in a session that carries its person's saved sign-in, on any tile
+	// (signin.go): driving it would be a way to its environment
+	return p.IsAdmin() && (s.homeKey == HomeKey(p) || !(m.partitioned(s) || s.carriesSignin()))
 }
 
 // viewAsBarred is the refusal of p, an admin viewing as a person
@@ -235,7 +237,13 @@ func (m *Manager) adminPass(s *Session, p auth.Principal) bool {
 // opens no partition (PD-08), so no session there either — nor its events,
 // log or diff (PD-09). "" otherwise, the view-as pass of today.
 func (m *Manager) viewAsBarred(s *Session, p auth.Principal) string {
-	if !p.ViewAs() || !m.partitioned(s) { // a preview is the person's own read (D234)
+	if !p.ViewAs() { // a preview is the person's own read (D234)
+		return ""
+	}
+	if !m.partitioned(s) {
+		if s.carriesSignin() { // its person's alone (signin.go)
+			return "viewing as someone opens no session that runs on their saved sign-in"
+		}
 		return ""
 	}
 	return viewAsRefusal(s.Cwd)

@@ -71,6 +71,107 @@ runs as xbind's own user and could read a coding agent's environment. A
 development workspace (`--dev`, `--no-auth`) is excepted, and the list says
 so.
 
+## Which sessions use it
+
+When you start a coding agent on a tile — in the Agent tab, or through
+your workspace agent — xbind looks up your default sign-in for that coding
+agent (or the one the start names) and, where the rule below allows, puts
+it into the session:
+
+- into the **coding agent's process alone**. The credential rides the one
+  frame that starts the agent, to the agent host inside the session's
+  sandbox, which sets it on the agent it spawns. The sandbox's own
+  environment, the agent host and a terminal you open on the tile never
+  hold it.
+- **Codex** takes a key only through its own sign-in call and then writes
+  it to `auth.json`. The agent host gives that session a `CODEX_HOME` of
+  its own — a directory in the sandbox's `/tmp`, which no other session
+  mounts and which dies with the sandbox, holding links to everything in
+  your `~/.codex` but `auth.json` — so the key file is never in your shared
+  home. If Codex is already signed in on its own in that home, its login
+  stays in force and the saved key is left out.
+
+**What a session runs on, in order**:
+
+1. the start's own choice (`signin`: one of yours, or `"none"`);
+2. your saved default for the coding agent, where the rule allows it;
+3. the coding agent's own login in the session's `$HOME` — the tile's own
+   login;
+4. the workspace's LLM connector, where it can serve.
+
+Where a rule gives the connector alone (the workspace's `connector-only`,
+an org's model rule), or you chose the connector, no sign-in goes in. The
+session says which it is — "Using your saved sign-in Personal", or why
+not — in its first lines and in the Agent tab's header.
+
+### The rule for shared tiles
+
+Every session is a sandbox of its own, so nobody else can read what your
+coding agent holds. But what *runs* in that sandbox comes from two places
+other people may write: the tile's environment layer, which holds the
+programs and is shared by everyone who may open a terminal on the tile,
+and the tile's directory, whose project settings a coding agent loads
+(hooks, MCP servers, scripts it is asked to run). Someone who can open a
+terminal on the tile could change either, and so reach a credential in
+your session.
+
+So xbind puts a saved sign-in into a session only when **all** of these
+hold, and decides it itself at every start:
+
+1. **It is your own session**: opened by your signed-in browser, app or
+   device, or by your workspace agent for you. Never by an admin viewing
+   as you, a tile's own credentials (a frame, a backend, a terminal's
+   token), or the root token.
+2. **Sandboxes are on.**
+3. **Nobody else can change what the sandbox runs**: the tile is
+   partitioned and the session is in your own partition (your own layer,
+   started in your `$HOME`) — or no other person has terminal access to
+   the tile.
+4. The connector isn't the only one allowed to serve, and you didn't
+   choose it.
+
+Otherwise the session starts without it and says why — "bob can also open
+terminals on apps/crm and could change what your agent runs there, so your
+saved Claude Code sign-in isn't used on this tile" — and runs on the
+tile's own login or the connector.
+
+Workspace admins are not counted as "other people" in 3: an admin can
+change any tile, its grants and the workspace itself. What an admin
+cannot do is listed under "Who can read it" below.
+
+A session that carries a saved sign-in is **yours alone**: no one else —
+admins included — can prompt it, answer its questions or read its
+transcript, as on a partitioned tile. An admin can still end it.
+
+### When it stops being used
+
+| What happens | Then |
+|---|---|
+| You remove the sign-in, or replace its secret | later starts don't have it; the sessions running on it are **ended** (they hold a copy), with a line saying why. The credential stays valid at its vendor until it expires or you revoke it there. |
+| An admin revokes it | the same, and your list says who |
+| Someone gains terminal access to the tile | the session running there on your sign-in is ended; the next start is judged again |
+| An admin sets your password, mints you a sign-in link, or binds an SSO email to you | **all your saved sign-ins are removed**: otherwise resetting your account would be a way to run sessions on them. Your list says so; sign in again. |
+| Your account is disabled, or signed out everywhere | no sign-in is used; sessions running on one are ended |
+| Your account is deleted | your sign-ins and their use log are deleted at once; an account made later under the same id reads none of it |
+| The vault is sealed | none can be used; sessions start without and say so |
+| It expires (a setup-token: a year) | it is not used, and the list says so |
+
+### Who can read it
+
+| | |
+|---|---|
+| Other people on a shared tile | no: it is not put into a session there |
+| A tile's own code (backend, frame) | no: `data/` is in no sandbox, the routes refuse tile credentials |
+| **Code that runs in your own session** | **yes**: the coding agent's tools, the project's hooks and scripts share its environment. On a tile only you (and admins) can change, that code is yours — but a tile you imported can carry a hook. The same was always true of a login in `$HOME`, which is the broader credential. |
+| The coding agent's model | it sees what its tools print; it is the credential's own vendor unless you pointed the agent elsewhere |
+| Your workspace agent's model, other people, backups, logs | no: what xbind keeps of a session has the secret replaced by `[saved sign-in]` wherever it appears whole in an event or a log line (a tool that printed its environment). A secret split or encoded by a tool is not caught. |
+| A workspace admin | not through xbind: no route reads it, they can't drive your session, and a reset of your account removes the sign-ins. An admin can change a tile's programs or code before you start a session there. |
+| Whoever runs the machine | yes (xbind's memory; the files, in the plaintext vault mode) |
+
+Every use is logged for you (`GET /agent/signins/uses`: when, which
+sign-in, which tile and session, whether you or your agent started it) and
+in xbind's audit log — never the secret.
+
 ## Admins and hosts
 
 - **The workspace's switch** — "people may save coding-agent sign-ins", on

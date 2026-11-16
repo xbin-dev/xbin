@@ -167,3 +167,33 @@ Every save, removal, revoke, switch and use is in xbind's audit log
 (`audit` lines with `event` `signin.save`, `signin.remove`,
 `signin.revoke`, `signin.policy`, `signin.use`) — ids, names, the tile and
 the session; never a secret.
+
+## What other routes say
+
+- `POST /term/sessions` takes `signin`: one of the caller's sign-ins by
+  id, `"none"`, or nothing for their default for the harness. 404 for an
+  id that isn't theirs; a person's workspace agent can't send it (403).
+- A session's row (`GET /term/sessions`, `GET /term/sessions/<id>`) and
+  one of its first `notice` events carry `signin: {source, id?, name?,
+  why?}` once the sandbox settled it:
+
+  | `source` | The session signs in with |
+  |---|---|
+  | `saved` | the person's saved sign-in `name` |
+  | `home` | the coding agent's own login in the session's `$HOME` — the tile's own login |
+  | `connector` | nothing: the workspace's LLM connector serves it |
+  | `none` | nothing was found: the agent will say it is signed out |
+
+  `why` (with `id` and `name`) says why a saved sign-in the person has is
+  not used: other people can open a terminal on the tile, the connector
+  alone may serve there or was chosen, the vault is sealed, the switch is
+  off, it expired, or the CLI is signed in on its own in this home (Codex).
+- `GET /agent/providers[?cwd=]` adds `saved: {id, name, kind, expiresAt?,
+  inject, why?}` to a harness the caller has a default sign-in for:
+  `inject` — a session of theirs on that tile would get it — and `why`
+  not. Its `llm.use` reads `own` where a saved sign-in would serve.
+- `GET /delegate/start-defaults` adds `signIn` and `savedSignIn` per
+  harness ([delegation.md](/docs/protocol/delegation.md)).
+- An admin's `GET`/`POST` on another person's session that carries a saved
+  sign-in is 403, as on a partitioned tile; `DELETE` still ends it. Such a
+  session's `session` events reach its person's sockets only.

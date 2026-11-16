@@ -145,6 +145,7 @@ type llmOpts struct {
 	llm       *llmSession // the session's hold on the connector (llmArm); nil = none
 	llmChoice string      // an agent session's own choice of who serves it ("" | connector | own)
 	noLLM     bool        // a person whose terminals hold no tile API token (D17): no LLM key in one either
+	signin    signinPlan  // an agent session's saved sign-in, as decided (signin.go, D230)
 }
 
 // llmKeyShape is an LLM key as it shows in text (internal/llm's KeyPrefix).

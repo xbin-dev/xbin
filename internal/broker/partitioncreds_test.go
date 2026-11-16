@@ -2,6 +2,7 @@ package broker
 
 import (
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -185,4 +186,30 @@ func TestPartitionSSOProviderChange(t *testing.T) {
 	if u, _ := b.Users.Get("alice"); u.Email != "" {
 		t.Errorf("a refused provider change left alice's email bound: %q", u.Email)
 	}
+}
+
+// covers D230 — OnCredentialMade: a way into an account that someone else
+// made (an admin's sign-in link, a password set on them) is told, whether
+// or not the person holds partitions; the person's own change is not.
+func TestCredentialMadeIsTold(t *testing.T) {
+	f := newOpsFx(t)
+	b := f.b
+	bob, alice := personP(t, f.partWS, "bob"), personP(t, f.partWS, "alice")
+	var told []string
+	b.OnCredentialMade = func(id, by string) { told = append(told, id+" by "+by) }
+	mustCode(t, call(t, b.apiUsersInvite, bob, "POST", "/", "", map[string]string{"id": "alice"}), 200, "bob mints alice a link")
+	if !slices.Equal(told, []string{"alice by bob"}) {
+		t.Fatalf("a link minted by someone else: %q", told)
+	}
+	told = nil
+	mustCode(t, call(t, func(w http.ResponseWriter, r *http.Request) { b.apiUsersUpdate(nil, w, r) }, bob, "PATCH", "/", `{"password":"a-new-password-9"}`, map[string]string{"id": "alice"}), 200, "bob sets alice's password")
+	if !slices.Equal(told, []string{"alice by bob"}) {
+		t.Fatalf("a password set by someone else: %q", told)
+	}
+	told = nil
+	mustCode(t, call(t, func(w http.ResponseWriter, r *http.Request) { b.apiUsersUpdate(nil, w, r) }, bob, "PATCH", "/", `{"name":"Alice A."}`, map[string]string{"id": "alice"}), 200, "bob renames alice")
+	if len(told) != 0 {
+		t.Fatalf("a change that makes no credential: %q", told)
+	}
+	_ = alice
 }

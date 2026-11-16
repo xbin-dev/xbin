@@ -237,12 +237,18 @@ POST   /delegate/sessions/<id>/taint
                                  one the session's model may not see
 GET    /delegate/start-defaults  the person's agent. ?tile= → {tile,
                                  harness, harnesses: [{id, name, mode,
-                                 asks, net, api, needsTicket, noSignIn}],
-                                 why?}: what a tile agent started there
-                                 opens with; noSignIn: it runs on the
-                                 workspace's LLM connector, no sign-in of
-                                 the person's needed. 403 without terminal
-                                 access to the tile
+                                 asks, net, api, needsTicket, noSignIn,
+                                 signIn?, savedSignIn?}], why?}: what a
+                                 tile agent started there opens with;
+                                 noSignIn: it runs on the workspace's LLM
+                                 connector, no sign-in of the person's
+                                 needed; signIn: "saved" (their saved
+                                 sign-in, named in savedSignIn, would go
+                                 in), "connector", "own" (the tile's own
+                                 login, as a session last saw it) or
+                                 "needed" (none: the person signs in
+                                 first). 403 without terminal access to
+                                 the tile
 GET    /delegate/map            a person, or their agent. {user, tiles:
                                  [{tile, title, kind: "app" | "page",
                                  orgs, state, agent, tileAgents}],
@@ -848,9 +854,13 @@ hours; decided and withdrawn ones are kept a day, 200 a person at most.
 (`{cwd, kind: "agent"}`): the harness is the person's default for agent-
 started sessions among those the tile's orgs allow — the one their
 preference lets start unasked; without one, the first allowed that can run
-as things are: on the person's own sign-in where a session saw one, or on
-the workspace's LLM connector (`noSignIn`), so a start doesn't open on a
-coding agent the connector can't serve and nobody is signed in to. The
+as things are: on the person's saved sign-in (`signIn: "saved"`, D230 —
+where the shared-tile rule lets it into a session there), on the tile's
+own login where a session saw one, or on the workspace's LLM connector
+(`noSignIn`), so a start doesn't open on a coding agent the connector
+can't serve and nobody is signed in to. A person's agent never names a
+saved sign-in (`signin` in a start's body is 403 for it) and can't list
+them: xbind puts the person's default in, where it may. The
 mode and network are their preference's (or the harness's asking mode), and the request's
 `preview.session` shows the **effective** `provider`, `mode`, `net` — what
 `GET /delegate/start-defaults?tile=` answers beforehand. A value the rules

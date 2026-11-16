@@ -78,6 +78,7 @@ type Session struct {
 	// its person approved, or their preference's (delegate.go); a restart
 	// carries it over
 	originMode string
+	signin     *sessionSignin // an agent session's sign-in and the saved one it carries (signin.go); its fields under mu
 
 	// hub is the session's side of the /ws/term wire: its scrollback, the
 	// attached sockets, the last activity (the reaper's clock) and the exit.
@@ -207,7 +208,8 @@ type Manager struct {
 	TilePartitioned    func(path string) (tile string, partitioned bool)
 	PersonPartitionKey func(userID string) string
 
-	LLMHook // the workspace's LLM connector for sessions: LLM, Credentials, LLMDoor (llmhook.go, D226)
+	LLMHook    // the workspace's LLM connector for sessions: LLM, Credentials, LLMDoor (llmhook.go, D226)
+	SigninHook // people's saved coding-agent sign-ins: Signins, SigninOthers, SigninDev (signin.go, D230)
 	// SigninLife is how long a guided sign-in's shell (?purpose=signin,
 	// purpose.go) lives before xbind ends it. 0 ⇒ 15 minutes.
 	SigninLife time.Duration

@@ -74,9 +74,22 @@ type SessionEvent struct {
 	agent.Event
 	User string `json:"user"`
 	ID   string `json:"id"`
+	// private: the session carries its person's saved sign-in (signin.go)
+	// and is theirs alone — no admin follows it.
+	private bool
 }
 
 func (e SessionEvent) Owner() string { return e.User }
+
+// PrivateSessionEvent is an event of a session that carries its person's
+// saved sign-in, for a consumer's tests of who may follow it.
+func PrivateSessionEvent(user, id string) SessionEvent {
+	return SessionEvent{User: user, ID: id, private: true}
+}
+
+// Private reports an event of a session only its person may follow: one
+// that carries their saved sign-in (signin.go).
+func (e SessionEvent) Private() bool { return e.private }
 
 // agentState is the agent half of a KindAgent session.
 type agentState struct {
@@ -110,10 +123,14 @@ type agentState struct {
 	said      []byte              // the tail of what the agent wrote since its last prompt (agentstatus.go); under mu
 	llm       *llmSession         // the session's hold on the LLM connector (llmhook.go); nil = none
 	llmChoice string              // the session's own choice of who serves it, kept for a restart
+	redact    func(string) string // masks the session's saved sign-in in a log line (signin.go); nil = none
 }
 
 func (st *agentState) logf(line string) {
 	line = maskLLMKeys(line) // a hook that printed the environment (llmhook.go)
+	if st.redact != nil {
+		line = st.redact(line) // …or the saved sign-in (signin.go)
+	}
 	st.mu.Lock()
 	st.text = append(st.text, line...)
 	st.text = append(st.text, '\n')
@@ -147,6 +164,9 @@ type AgentOpen struct {
 	// the workspace has an LLM connector: "connector", "own", or "" — the
 	// person's saved default, then the workspace's (llmhook.go).
 	LLM string
+	// Signin is the session's own choice of saved sign-in (signin.go): ""
+	// (the person's default for the harness), "none", or a sign-in's id.
+	Signin string
 	// Delegate says how a delegate's open was authorised (delegate.go): the
 	// server's delegate gate fills it; nil for everyone else, and a
 	// delegate's open without it is refused.
@@ -241,6 +261,13 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	}
 	if code, err := m.pickPartition(p, &o, rel); err != nil { // partition.go
 		return SessionInfo{}, code, err
+	}
+	// the person's saved sign-in for the harness, and whether the rule lets
+	// it into this session (signin.go) — after the partition is known
+	o.signin = m.signinPlanFor(p, o, rel, prov, a.Signin, m.credentialRule(o, rel, prov.ID, o.llmChoice).Forced, a.LLM == sdkacp.UseConnector)
+	if a.Signin != "" && a.Signin != SigninNone && o.signin.saved == nil {
+		m.partOpened(&o)
+		return SessionInfo{}, 404, errors.New("signin: you have no such saved sign-in for " + prov.Name + " (GET /api/xbin/agent/signins lists them)")
 	}
 	if code, err := m.resumeHere(resume, fromPart, o); err != nil { // partition.go
 		m.partOpened(&o)
@@ -415,8 +442,22 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
-	drv := acp.NewFor(func(h acp.HelloParams) { s.llmHello(m, h) }) // who serves its model calls (llmhook.go)
-	st.drv = drv                                                    // before the session is visible: info() and the API read it
+	// the person's saved sign-in, taken for this session (signin.go): what
+	// the session carries, and the spawn frame's part
+	var signinSpawn *acp.SpawnSignin
+	s.signin, signinSpawn = m.signinTake(o.signin, id, rel, prov, o.llm != nil && o.llm.token != "" && o.llm.rule == sdkacp.UseConnector)
+	if signinSpawn != nil && signinSpawn.KeyHome != nil && !m.Isolate {
+		d, rm := keyHomeDir() // isolation off: the daemon owns the key's directory, as it does the attachments'
+		signinSpawn.KeyHome.At = d
+		sandboxCleanup := s.cleanup
+		s.cleanup = func() { sandboxCleanup(); rm() }
+	}
+	st.redact = func(line string) string { return string(s.redact([]byte(line))) }
+	drv := acp.NewFor(func(h acp.HelloParams) {
+		s.llmHello(m, h)    // who serves its model calls (llmhook.go)
+		s.signinHello(m, h) // what it signs in with (signin.go)
+	})
+	st.drv = drv // before the session is visible: info() and the API read it
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -439,7 +480,9 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		if err != nil {
 			return nil, err
 		}
-		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir, LLM: llm})
+		// the saved sign-in rides this one frame, to the agent's process alone (signin.go)
+		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir, LLM: llm,
+			Signin: signinSpawn, LoginFiles: prov.LoginFiles})
 		if err := acp.Encode(stdin, &acp.Message{Method: acp.MXbinSpawn, Params: params}); err != nil {
 			return nil, err
 		}
@@ -453,7 +496,10 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		SkipModeOptions: o.origin != "",
 		// a workspace agent's start is the harness and mode its person
 		// approved (or their preference) or it isn't at all (acp.Config.Strict)
-		Strict: o.origin != ""}
+		Strict: o.origin != "",
+		// a saved sign-in in its environment: the adapter's probe isn't
+		// believed, a key it wants through authenticate is handed over
+		Credential: s.signinCredential(m, prov, signinSpawn)}
 	if onAgentConfig != nil {
 		onAgentConfig(cfg)
 	}
@@ -466,6 +512,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		m.remove(s.ID)
 		m.changed("close", s)
 		revokeTok()
+		s.dropSignin() // its copy of the saved sign-in (signin.go)
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
@@ -616,6 +663,7 @@ ended:
 // fields from it, and publishes it.
 func (s *Session) logEvent(m *Manager, e agent.Event) {
 	st := s.agent
+	e.Data = s.redact(e.Data) // the saved sign-in never reaches the log, the hub or history (signin.go)
 	ev := st.log.Append(e)
 	st.noteSaid(e) // its last line, for a status poll (agentstatus.go)
 	renamed := false
@@ -656,7 +704,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 	}
 	s.hub.Touch()
 	if m.OnEvent != nil && !s.replayed(m, ev) {
-		m.OnEvent(s.Cwd, SessionEvent{Event: ev, User: s.homeKey, ID: s.ID})
+		m.OnEvent(s.Cwd, SessionEvent{Event: ev, User: s.homeKey, ID: s.ID, private: s.carriesSignin()})
 	}
 	if renamed {
 		m.changed("rename", s)

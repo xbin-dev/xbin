@@ -87,7 +87,9 @@ func (s *Server) TermChanged(op, homeKey, id, cwd string) {
 func termEventFor(p auth.Principal, e events.Event) bool {
 	switch {
 	case p.Component == "": // a human principal
-		if p.IsAdmin() {
+		// (an admin follows everyone's — but for a session that carries its
+		// person's saved sign-in, which is theirs alone: D230, term/signin.go)
+		if pr, ok := e.Data.(interface{ Private() bool }); p.IsAdmin() && !(ok && pr.Private()) {
 			return true
 		}
 		if p.UserID == "" { // no one in particular (never the owner's home by default)

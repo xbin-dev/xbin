@@ -447,6 +447,13 @@ type startHarness struct {
 	// NoSignIn: it runs here with no sign-in of the person's — the
 	// workspace's LLM connector serves it (G8). A brief's card says so.
 	NoSignIn bool `json:"noSignIn"`
+	// SignIn: what a session of it would sign in with here (D230) — "saved"
+	// (the person's saved sign-in, named in SavedSignIn), "connector" (none:
+	// the workspace's LLM connector serves), "own" (the tile's own login, as
+	// a session last saw it), "needed" (none of these: the person signs in
+	// first — a brief's card offers it). Absent: nothing is known yet.
+	SignIn      string `json:"signIn,omitempty"`
+	SavedSignIn string `json:"savedSignIn,omitempty"`
 }
 
 // startDefaultsView is GET /delegate/start-defaults' answer.
@@ -512,6 +519,10 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 		}
 		h.Asks = prov.Asks(h.Mode)
 		h.NoSignIn = noSignIn(llm[prov.ID])
+		h.SignIn, h.SavedSignIn = startSignIn(s, p, tile, prov, llm[prov.ID])
+		if h.SignIn == "saved" {
+			h.NoSignIn = false // it runs on their saved sign-in, not on the connector
+		}
 		out.Harnesses = append(out.Harnesses, h)
 	}
 	for _, h := range out.Harnesses {
@@ -520,9 +531,12 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 			break
 		}
 	}
-	if out.Harness == "" && len(out.Harnesses) > 0 && llm != nil && !runsNow(llm[out.Harnesses[0].ID]) {
+	if first := out.Harnesses; out.Harness == "" && len(first) > 0 && first[0].SignIn != "saved" &&
+		(llm != nil && !runsNow(llm[first[0].ID]) || llm == nil && first[0].SignIn == "needed") {
+		// the first allowed can't run as things are: the first that can — on
+		// the person's saved sign-in (D230) or on the connector
 		for _, h := range out.Harnesses {
-			if h.NoSignIn {
+			if h.NoSignIn || h.SignIn == "saved" {
 				out.Harness = h.ID
 				break
 			}
@@ -548,6 +562,35 @@ var startLLMOf = func(s *Server, p auth.Principal, tile string, provs []agent.Pr
 	}
 	person := personOf(p)
 	return s.Term.AgentLLM(person.UserID, term.HomeKey(person), tile, provs)
+}
+
+// startSignIn is what a session of prov started for p on tile would sign
+// in with, and the saved sign-in's name: the person's saved sign-in where
+// the shared-tile rule lets it in (term's SigninPreview), unless the
+// connector serves by a rule or their own choice; else the connector, the
+// tile's own login as a session last saw it, or "needed". A var for tests.
+var startSignIn = func(s *Server, p auth.Principal, tile string, prov agent.Provider, row *term.ProviderLLM) (signIn, saved string) {
+	if s.Term == nil {
+		return "", ""
+	}
+	person := personOf(p)
+	connector := row != nil && row.Connector && row.Use == "connector"
+	if !connector && s.Signins != nil && s.signinsAvail().OK {
+		// asked as the delegate: it is the person's agent's start that would get it
+		if sg, why := s.Term.SigninPreview(p, tile, prov, row != nil && row.Forced); sg != nil && why == "" {
+			return "saved", sg.Name
+		}
+	}
+	signedIn, known := s.Term.HomeLogin(term.HomeKey(person), prov.ID)
+	switch {
+	case noSignIn(row) && !(known && signedIn && row.Use == "own-first"):
+		return "connector", ""
+	case known && signedIn:
+		return "own", ""
+	case known:
+		return "needed", ""
+	}
+	return "", ""
 }
 
 // noSignIn: the connector serves this harness here, whatever sign-ins the

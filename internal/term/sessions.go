@@ -59,8 +59,13 @@ type SessionInfo struct {
 	// Origin is set by xbind only: "agent" for a session the person's
 	// workspace agent opened for them (delegate.go); absent when they
 	// opened it themselves.
-	Origin   string `json:"origin,omitempty"`
-	personal bool   // a person's session on a partitioned tile (Personal)
+	Origin string `json:"origin,omitempty"`
+	// Signin is what an agent session signs in with, once its sandbox
+	// settled it (signin.go, D230): {source: saved | home | connector |
+	// none, id?, name?, why?} — why a saved sign-in of the person's isn't
+	// used. Absent before, for a shell, and where xbind keeps no sign-ins.
+	Signin   *SessionSignin `json:"signin,omitempty"`
+	personal bool           // a person's session on a partitioned tile (Personal)
 }
 
 // Personal reports a person's session on a partitioned tile — in their
@@ -82,6 +87,9 @@ func (s *Session) info() SessionInfo {
 		LastActive: s.hub.LastActive().UTC().Format(time.RFC3339),
 		Clients:    s.hub.Clients(), EnvHeld: s.envKey != "",
 		Partition: s.part.part, personal: s.part.personal(),
+	}
+	if s.kind == KindAgent {
+		si.Signin = s.signinView()
 	}
 	if st := s.agent; st != nil {
 		st.mu.Lock()

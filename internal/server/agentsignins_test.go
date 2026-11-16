@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/signins"
+	"github.com/xbin-dev/xbin/internal/term"
+	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
@@ -418,5 +421,67 @@ func TestSigninsAdminRoutes(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(filepath.Dir(s.Signins.PolicyPath()), "policy.json")); !strings.Contains(string(b), "false") {
 		t.Fatalf("the switch wasn't written: %s", b)
+	}
+}
+
+// covers D230 — GET /agent/providers says, per harness, the caller's saved
+// sign-in and whether a session of theirs on the tile asked about would get
+// it (term's rule, repeated — never decided — here); a session that carries
+// one is followed by its person only.
+func TestSigninsInProviders(t *testing.T) {
+	h, s, _ := signinsServer(t)
+	alice, bob := s.Auth.NewSession("alice", ""), s.Auth.NewSession("bob", "")
+	others := []string{}
+	s.Term.Signins, s.Term.SigninDev = s.Signins, true
+	s.Term.SigninOthers = func(user, tile string) []string { return others }
+	if _, _, err := s.Signins.Save("alice", "claude", "Personal", fakeSigninToken, false); err != nil {
+		t.Fatal(err)
+	}
+	type row struct {
+		ID    string
+		Saved *providerSaved
+	}
+	get := func(sid, q string) map[string]row {
+		t.Helper()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, withCookie("GET", "/api/xbin/agent/providers"+q, "", sid))
+		var rows []row
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &rows) != nil {
+			t.Fatalf("providers: %d %s", w.Code, w.Body.String())
+		}
+		if strings.Contains(w.Body.String(), "FAKEFAKE") {
+			t.Fatalf("providers carries a secret: %s", w.Body.String())
+		}
+		out := map[string]row{}
+		for _, r := range rows {
+			out[r.ID] = r
+		}
+		return out
+	}
+	rows := get(alice, "?cwd=apps/x")
+	if sv := rows["claude"].Saved; sv == nil || sv.Name != "Personal" || sv.Kind != "setup-token" || !sv.Inject || sv.Why != "" || sv.ExpiresAt == 0 {
+		t.Fatalf("alice's Claude Code row: %+v", sv)
+	}
+	if rows["codex"].Saved != nil {
+		t.Fatalf("a harness she saved nothing for: %+v", rows["codex"].Saved)
+	}
+	if get(bob, "?cwd=apps/x")["claude"].Saved != nil {
+		t.Fatal("bob's row names alice's sign-in")
+	}
+	others = []string{"bob"}
+	if sv := get(alice, "?cwd=apps/x")["claude"].Saved; sv == nil || sv.Inject || !strings.Contains(sv.Why, "bob can also open terminals on apps/x") {
+		t.Fatalf("a shared tile: %+v", sv)
+	}
+
+	// a session that carries a saved sign-in: its person follows it, an admin doesn't
+	admin := auth.Principal{UserID: "alice", User: &users.User{ID: "alice", Role: users.RoleAdmin}}
+	owner := auth.Principal{UserID: "bob", User: &users.User{ID: "bob", Role: users.RoleUser}}
+	plain := events.Event{Type: "session", Component: "apps/x", Data: term.SessionEvent{User: "bob", ID: "s1"}}
+	if !termEventFor(admin, plain) || !termEventFor(owner, plain) {
+		t.Fatal("an ordinary session's events: its person and admins")
+	}
+	private := events.Event{Type: "session", Component: "apps/x", Data: term.PrivateSessionEvent("bob", "s2")}
+	if termEventFor(admin, private) || !termEventFor(owner, private) || termEventFor(auth.Principal{Owner: true}, private) {
+		t.Fatal("a session on a saved sign-in is followed by its person alone")
 	}
 }

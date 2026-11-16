@@ -30,6 +30,36 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   workspace is excepted and says so). `sdk/acp` gains `Guided` (the guided
   sign-in's driver over any `GuidedExec`), `CleanCode`, `MaskCredentials`
   and `MintCommand`.
+- coding agents: **a saved sign-in is used by your sessions on every
+  tile where nobody else can change what the session runs** (D230). At an
+  agent session's start xbind puts your default sign-in for the coding
+  agent into the agent's environment — through the spawn frame, to the
+  agent's process alone — on ordinary tiles, partitioned tiles and VM
+  sandboxes: Claude Code's token or key, OpenCode's provider key, and for
+  Codex and Gemini the key handed over through the adapter's own
+  `authenticate` (Codex's `auth.json` then lands in a `CODEX_HOME` of the
+  session's own, never in your home). Not on a tile someone else can open
+  a terminal on (unless it is partitioned: your partition is yours), not
+  where the connector alone may serve, never into a session opened by
+  view-as, a tile's credentials or the root token; the session then says
+  why and runs on the tile's own login or the connector. A login in
+  `$HOME` keeps working as before and is what a session uses when no saved
+  sign-in goes in. Additive: `POST /term/sessions` takes `signin` (an id,
+  `"none"`); a session's row and one of its first `notice` events carry
+  `signin: {source: saved | home | connector | none, id?, name?, why?}`;
+  `GET /agent/providers` rows carry `saved: {id, name, kind, expiresAt?,
+  inject, why?}`; `GET /delegate/start-defaults` harnesses carry `signIn`
+  (`saved` | `connector` | `own` | `needed`) and `savedSignIn`, and the
+  default harness prefers one that runs on a saved sign-in. **Changed for
+  admins**: a session that carries its person's saved sign-in is that
+  person's alone — an admin's read or prompt of it is 403 (ending it is
+  allowed) and its `session` events reach its person's sockets only, as
+  on a partitioned tile. A sign-in removed, replaced or revoked ends the
+  sessions running on it; so does someone gaining terminal access to the
+  tile. An admin-made credential for an account (a password set, a
+  sign-in link, an SSO email) removes that person's saved sign-ins.
+  `sdk/acp`: `Config.Credential`, `Credential`, `KeyHome`,
+  `Provider.KeyHome`, `APIKeyMeta`.
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the
   web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
   generated vectors): lines that create a tile or start a tile agent, what

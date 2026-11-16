@@ -1,7 +1,9 @@
 package boot
 
 import (
+	"log/slog"
 	"path/filepath"
+	"sort"
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -56,6 +58,56 @@ func (st *State) setupSignins(srv *server.Server) {
 			return server.SigninsAvailability{OK: true, Unisolated: true}
 		}
 		return server.SigninsAvailability{Why: "saved sign-ins need sandboxes (xbind --isolate): without them every terminal runs as xbind's own user and could read a coding agent's environment — sign in on the tile, in a terminal"}
+	}
+	if tm := st.Term; tm != nil { // sessions take a person's sign-in from it (term/signin.go)
+		tm.Signins = store
+		tm.SigninDev = !isolate && dev
+		// who else could change what a session on a tile runs: the other
+		// enabled people with terminal access there. Workspace admins aren't
+		// counted: they can change any tile and are in the trust base.
+		tm.SigninOthers = func(user, tile string) []string {
+			if userStore == nil {
+				return nil
+			}
+			var out []string
+			for _, u := range userStore.List() {
+				if u.ID == user || u.Disabled || u.IsAdmin() {
+					continue
+				}
+				if acc, ok := userStore.Access(u.ID); ok && acc.CanTerminal() && acc.CanTerminalTile(tile) {
+					out = append(out, u.ID)
+				}
+			}
+			sort.Strings(out)
+			return out
+		}
+		// people or their access changed: a session on a saved sign-in whose
+		// tile someone else can now open a terminal on is ended
+		prevPeople := brk.OnPeopleChanged
+		brk.OnPeopleChanged = func() {
+			if prevPeople != nil {
+				prevPeople()
+			}
+			tm.SigninSweep()
+		}
+	}
+	// someone else made a way into a person's account (an admin set their
+	// password, minted a sign-in link, bound an SSO email): their saved
+	// sign-ins go, so a reset is no way to run sessions on them
+	prevMade := brk.OnCredentialMade
+	brk.OnCredentialMade = func(id, by string) {
+		if prevMade != nil {
+			prevMade(id, by)
+		}
+		srv.SigninFlows.DropUser(id)
+		gone := store.Clear(id, "Your saved sign-ins were removed when "+by+" reset your sign-in to this workspace: whoever holds that new sign-in must not get them too. Sign in to your coding agents again.")
+		if len(gone) == 0 {
+			return
+		}
+		slog.Info("audit", "event", "signin.clear", "user", id, "by", by, "removed", len(gone))
+		if st.Term != nil {
+			st.Term.EndSigninSessions(id, "", "Your sign-in to this workspace was reset by "+by+", so this session — which ran on your saved sign-in — was ended.")
+		}
 	}
 	// a person signed out everywhere, disabled or deleted: their guided
 	// sign-ins end and their sessions on a saved sign-in with them; a
