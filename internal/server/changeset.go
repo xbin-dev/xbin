@@ -428,16 +428,16 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 		}
 		pv, err := s.previewLine(approver, agent, pinStart(it.ChangeOp, it.Start), nil)
 		why := ""
-		if err == nil && pv.Blocked == "" && cs.Plan {
-			why = s.lineAgentRefusal(agent, pv.Tiles)
+		if err == nil && cs.Plan {
+			why = cmpOr(s.lineAgentRefusal(agent, pv.Tiles), s.createScopeRefusal(agent, pv.Creates))
 		}
 		switch {
 		case err != nil:
 			it.Result, it.Error = delegation.ItemFailed, err.Error()
+		case why != "": // before the line's own refusal: nothing is said of a tile the conversation may not see
+			it.Result, it.Error = delegation.ItemFailed, why
 		case pv.Blocked != "":
 			it.Result, it.Error = delegation.ItemFailed, pv.Blocked
-		case why != "":
-			it.Result, it.Error = delegation.ItemFailed, why
 		case cs.Plan && cs.From == "" && !it.Admin && pv.Admin:
 			it.Result, it.Error = delegation.ItemFailed, "this now takes an admin's rights — it was yours to do when it was proposed: nothing was applied; ask your agent to propose it again"
 		case cs.Plan && lineStale(*it, pv), !cs.Plan && changeBasis(pv) != it.Basis:

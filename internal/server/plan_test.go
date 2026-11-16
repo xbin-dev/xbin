@@ -148,3 +148,59 @@ func TestDeferredLineStaleness(t *testing.T) {
 		t.Error("a line described against the tile itself isn't held to its before")
 	}
 }
+
+// A plan is no way around the scope a person gave a conversation, nor to a
+// tile hidden from it: a start on a tile outside the scope is refused when
+// it is described and — the scope narrowed since — when it is applied; and
+// a single start is held to the same (it reached the open before).
+func TestPlanLinesStayInsideTheConversation(t *testing.T) {
+	w := delegateWorld(t)
+	w.s.AgentWorld = fakeWorld{}
+	w.s.ChangeSets = planStub{}
+	alice := delegateCred("d-alice")
+	sid := w.s.Auth.NewSession("alice", "")
+	own := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: sid}) }
+	id, _ := testHandles.Load("d-alice")
+	scope := func(body string) {
+		t.Helper()
+		if rec := w.do(w.full, "PATCH", "/api/xbin/delegate/sessions/"+id.(string), body, alice); rec.Code != 200 {
+			t.Fatalf("scope %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	plan := func(tile string) delegation.ChangeSet {
+		t.Helper()
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"`+tile+`","brief":"go","harness":"claude"}}]}`, alice)
+		var cs delegation.ChangeSet
+		_ = json.Unmarshal(rec.Body.Bytes(), &cs)
+		full, ok := w.store.ChangeSet("alice", cs.ID)
+		if rec.Code != 200 || !ok {
+			t.Fatalf("plan: %d %s", rec.Code, rec.Body.String())
+		}
+		return full
+	}
+	open := plan("apps/x") // proposed while the conversation sees everything
+	if open.Items[0].Blocked != "" {
+		t.Fatalf("a start inside the scope: %+v", open.Items[0])
+	}
+	scope(`{"scope":{"orgs":["fin"],"tiles":[]}}`) // now limited to Finance: apps/mail is in, apps/x is out
+	if cs := plan("apps/x"); !strings.Contains(cs.Items[0].Blocked, "hidden by you") {
+		t.Fatalf("a start outside the conversation's scope is proposed: %+v", cs.Items[0])
+	}
+	if cs := plan("apps/mail"); cs.Items[0].Blocked != "" {
+		t.Fatalf("a start inside the scope: %+v", cs.Items[0])
+	}
+	rec := w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+open.ID+"/approve", `{"items":[1]}`, own)
+	done := decode[delegation.ChangeSet](t, rec)
+	if rec.Code != 200 || done.Items[0].Result != delegation.ItemFailed || !strings.Contains(done.Items[0].Error, "hidden by you") {
+		t.Fatalf("a start applied after the scope was narrowed past it: %d %+v", rec.Code, done.Items[0])
+	}
+	// the single start, by the same rule: its dry run, its request and the call
+	const onX = `{"cwd":"apps/x","kind":"agent","provider":"claude","prompt":"go"}`
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", onX, alice, header(HeaderDryRun, "1")); !strings.Contains(rec.Body.String(), "hidden by you") {
+		t.Errorf("the dry run of a single start outside the scope: %s", rec.Body.String())
+	}
+	in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/term/sessions", "body": onX})
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), alice); rec.Code != 403 || !strings.Contains(rec.Body.String(), "hidden by you") {
+		t.Errorf("a request for a single start outside the scope: %d %s", rec.Code, rec.Body.String())
+	}
+}

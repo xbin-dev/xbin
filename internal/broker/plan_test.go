@@ -12,6 +12,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
@@ -553,5 +554,77 @@ func TestPlanShowsTheAgentNoAdminState(t *testing.T) {
 	}
 	if code, body := w.do("POST", "/delegate/plans", `{"title":"probe","items":`+lines+`}`, agentOf("bob")); code != 200 || len(leaks(body)) < 4 {
 		t.Fatalf("an opted-in admin's agent: %d %v", code, leaks(body))
+	}
+}
+
+// scoped is user's agent under a conversation limited to tiles.
+func (w *csWorld) scoped(t *testing.T, user string, tiles ...string) func(*http.Request) {
+	t.Helper()
+	h, err := w.store.NewAgentSession(user, "apps/q", &delegation.SessionScope{Tiles: tiles, Orgs: []string{}}, "local/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(r *http.Request) {
+		agentOf(user)(r)
+		r.Header.Set(server.HeaderAgentSession, h.ID)
+	}
+}
+
+func (w *csWorld) planAs(t *testing.T, user string, cred func(*http.Request), items string) delegation.ChangeSet {
+	t.Helper()
+	code, body := w.do("POST", "/delegate/plans", `{"title":"t","items":`+items+`}`, cred)
+	var cs delegation.ChangeSet
+	if json.Unmarshal([]byte(body), &cs); code != 200 {
+		t.Fatalf("plan: %d %s", code, body)
+	}
+	return w.set(t, user, cs.ID)
+}
+
+// Every tile a line names is held to what the conversation may see: its
+// scope, and the tiles hidden from its person — the consumer and the
+// provider of a binding, both ends of a grant, a start's tile. A tile
+// that is hidden and one that isn't there get one answer.
+func TestPlanLinesNameOnlyWhatTheConversationSees(t *testing.T) {
+	w := changeSetWorld(t)
+	planTemplates(t, w)
+	_, bob := w.session("bob")
+	if code, _ := w.do("PUT", "/delegate/state", `{"adminChanges":true}`, bob); code != 200 {
+		t.Fatal("opt in")
+	}
+	narrow := w.scoped(t, "bob", "apps/x")
+	cs := w.planAs(t, "bob", narrow, `[
+		{"kind":"grant.add","args":{"from":"apps/pu","target":"apps/x","role":"writer"}},
+		{"kind":"grant.add","args":{"from":"apps/pg","target":"apps/x","role":"reader"}},
+		{"kind":"binding.set","args":{"component":"apps/pu","slot":"mcp","provider":"apps/x"}},
+		{"kind":"org.share","args":{"org":"fin","tile":"apps/pg","level":"read"}},
+		{"kind":"org.share","args":{"org":"fin","tile":"apps/x","level":"read"}},
+		{"kind":"tile.create","args":{"template":"tool","path":"apps/new"}}]`)
+	for i, want := range []bool{true, true, true, true, false, true} {
+		if got := strings.Contains(cs.Items[i].Blocked, "hidden by you"); got != want {
+			t.Errorf("line %d (%s) outside the scope: blocked %q", i+1, cs.Items[i].Line, cs.Items[i].Blocked)
+		}
+	}
+	// narrowed after the proposal: refused at Apply
+	wide := w.planAs(t, "bob", agentOf("bob"), `[{"kind":"org.share","args":{"org":"fin","tile":"apps/pg","level":"read"}}]`)
+	if wide.Items[0].Blocked != "" {
+		t.Fatalf("with no scope: %+v", wide.Items[0])
+	}
+	h, _ := csHandles.Load("bob")
+	if _, err := w.store.UpdateAgentSession("bob", "apps/q", h.(string), func(s *delegation.AgentSession) error {
+		s.Scope = &delegation.SessionScope{Tiles: []string{"apps/x"}, Orgs: []string{}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	done := w.approve(t, wide.ID, `{"items":[1],"password":"password1"}`, bob)
+	if results(done) != "failed" || !strings.Contains(done.Items[0].Error, "hidden by you") {
+		t.Fatalf("applied past the conversation's scope: %s %q", results(done), done.Items[0].Error)
+	}
+	// hidden from its person, or not there: one answer
+	w.write(map[string]string{"secret/t/xbin.json": `{"runtime":"go"}`, "secret/t/backend/main.go": "package main\n"})
+	w.rescan()
+	a := w.planAs(t, "alice", agentOf("alice"), `[{"kind":"agent.start","args":{"tile":"secret/t","brief":"go"}},{"kind":"agent.start","args":{"tile":"secret/none","brief":"go"}}]`)
+	if a.Items[0].Blocked == "" || a.Items[0].Blocked != a.Items[1].Blocked || strings.Contains(a.Items[0].Blocked, "secret/") {
+		t.Fatalf("a tile hidden from alice and one that isn't there are told apart:\n%q\n%q", a.Items[0].Blocked, a.Items[1].Blocked)
 	}
 }

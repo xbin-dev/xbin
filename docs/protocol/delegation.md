@@ -837,10 +837,17 @@ and its items carry, beside a change set's:
   forbids briefing a session there or when it is over, and the tile agent
   is that conversation's to follow (`out: {session}`; a creation's `out`
   is `{path}`).
-- Every line is held, when described and when applied, to the tile's
-  agent level (a tile that is `off` takes no line; `read` and `full` are
-  about calls to its API, which a line is not) and its orgs' agent rules,
-  for the tiles it changes.
+- Every tile a line names — the tile it changes, a binding's providers,
+  both ends of a grant, a start's tile, a template that is a tile — is
+  held, when the line is described and again when it is applied, to what
+  a call by the proposing conversation would be held to: the person can
+  read it (`blocked` with the one answer a missing tile gets), it is
+  inside the conversation's scope ("hidden by you"; a tile a plan would
+  create must fall inside it too), and its orgs' agent rules let the agent
+  in. That refusal comes before anything else is said of the tile. A
+  start — a plan's or a single one — is refused the same way for a tile
+  outside the scope or hidden, and a plan's start is registered like any
+  running delegate call: a pause or the switch going off cuts it.
 - `beforeText` / `afterText` are `before` and `after` in xbind's words —
   what a review draws. `undoByHand` says what undoing takes when xbind
   can't: `…/undo` lists those in the new set's `byHand` (a created tile is

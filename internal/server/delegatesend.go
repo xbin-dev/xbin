@@ -167,6 +167,18 @@ func (s *Server) startRefusal(p auth.Principal, ask sessionAsk) (refusal, why st
 	if why := harnessCommand(ask.Prompt); why != "" {
 		return "command", why
 	}
+	// a start is on a tile: one hidden from the person, or outside what they
+	// let this conversation see, is no place for it to start a tile agent
+	// (the gate's rule for every other request that names a tile) — except
+	// a plan's start on a tile an earlier line of the plan makes (planned)
+	if h, ok := s.handleOf(p); ok && ask.Cwd != "" && !ask.planned {
+		switch {
+		case s.tileHidden(p, ask.Cwd): // not there, or not theirs to read: one answer
+			return "tile", noTileFor(p.UserID)
+		case !s.inSessionScope(h, ask.Cwd):
+			return "hidden", hiddenByScope(p.UserID)
+		}
+	}
 	if h, ok := s.handleOf(p); !ok || len(h.Tainted) == 0 {
 		return "", "" // nothing to hold it to: don't resolve a harness for it
 	}
@@ -204,6 +216,9 @@ type sessionAsk struct {
 	Resume                           string
 	Model                            string
 	Options                          map[string]string
+	// planned: the tile is one an earlier line of the same plan makes
+	// (previewStart): it isn't there yet, by design. Never read from a body.
+	planned bool
 }
 
 func sessionAskOf(body []byte) sessionAsk {

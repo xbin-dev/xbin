@@ -147,6 +147,13 @@ func (s *Server) agentOf(cs delegation.ChangeSet, person auth.Principal) planAge
 	d := auth.Principal{UserID: user, Via: "delegate", Agent: cs.Agent}
 	if person.UserID == user {
 		d.User, d.Access = person.User, person.Access
+	} else if s.Auth != nil && s.Auth.Users != nil {
+		// an admin applying another person's request: the lines are held to
+		// what the ASKER's agent may see, so the asker's own access is read
+		if u, ok := s.Auth.Users.Get(user); ok && !u.Disabled {
+			d.User = u
+			d.Access, _ = s.Auth.Users.Access(user)
+		}
 	}
 	h, ok := s.Delegation.AgentSession(user, cs.Agent, cs.Session)
 	if !ok {
@@ -172,8 +179,15 @@ func (s *Server) currentPerson(p auth.Principal) (auth.Principal, bool) {
 	return p, true
 }
 
-// lineAgentRefusal is why the agent may not change one of tiles ("": it
-// may): AgentLineChecker's answer, in its words.
+// lineAgentRefusal is why the agent may not propose a line that names
+// tiles ("": it may). Each tile the line names — the one it changes, the
+// providers it binds, a grant's two ends, a start's tile, a template that
+// is a tile — is held to what a call by this conversation would be held
+// to: the person can read it (one answer for a tile that isn't there and
+// one they can't see), it is inside the conversation's scope, it doesn't
+// turn agents away ("off"), and its orgs' rules let the agent in
+// (AgentLineChecker). A plan is no way around the scope a person gave a
+// conversation, nor to a tile hidden from it.
 func (s *Server) lineAgentRefusal(a planAgent, tiles []string) string {
 	if a.p.Agent == "" {
 		return ""
@@ -182,12 +196,42 @@ func (s *Server) lineAgentRefusal(a planAgent, tiles []string) string {
 	if !ok {
 		return "this xbind applies no plans"
 	}
+	h, hasHandle := s.handleOf(a.p)
 	for _, t := range tiles {
-		if err := lc.AgentLineAllows(a.p.Agent, a.p.UserID, a.p.AgentModel, strings.Trim(t, "/")); err != nil {
+		t = strings.Trim(t, "/")
+		switch {
+		case !s.tileExists(t):
+			continue // nothing there: the line's own check says so (in its own words)
+		case !a.p.CanReadTile(t):
+			return noTileFor(a.p.UserID)
+		case hasHandle && !s.inSessionScope(h, t):
+			return hiddenByScope(a.p.UserID)
+		}
+		if err := lc.AgentLineAllows(a.p.Agent, a.p.UserID, a.p.AgentModel, t); err != nil {
 			return err.Error()
 		}
 	}
 	return ""
+}
+
+// createScopeRefusal is why a conversation limited to some orgs or tiles
+// may not create the tile a line would make ("": it may): the new tile
+// would be outside what its person let it see.
+func (s *Server) createScopeRefusal(a planAgent, made *delegation.PlannedTile) string {
+	h, ok := s.handleOf(a.p)
+	if made == nil || !ok || h.Scope == nil {
+		return ""
+	}
+	orgs := s.orgsOf(made.Path)
+	if org, isOrg := strings.CutPrefix(made.Owner, "org:"); isOrg {
+		orgs = []string{org}
+	}
+	for _, o := range orgs {
+		if slices.Contains(h.Scope.Orgs, o) {
+			return ""
+		}
+	}
+	return "this conversation is limited to part of the workspace, and the new tile would be outside it: " + hiddenByScope(a.p.UserID)
 }
 
 // previewLine describes one line of a plan as person would apply it now.
@@ -279,7 +323,9 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		pv.Tiles = []string{in.Tile}
 	} else {
 		pv.Uses, pv.Deferred = []int{n}, true
-		if _, why := s.startRefusal(p, sessionAskOf(body)); why != "" {
+		ask := sessionAskOf(body)
+		ask.planned = true
+		if _, why := s.startRefusal(p, ask); why != "" {
 			pv.Blocked = why
 			return pv, nil
 		}
@@ -344,8 +390,10 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 				it.Why = it.Why[:500]
 			}
 		}
-		if it.Blocked == "" {
-			it.Blocked = s.lineAgentRefusal(a, pv.Tiles)
+		// what the conversation may not see comes first: nothing is said of
+		// such a tile, the line's own refusal included
+		if why := cmpOr(s.lineAgentRefusal(a, pv.Tiles), s.createScopeRefusal(a, pv.Creates)); why != "" {
+			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: pv.Line, Blocked: why, Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred}
 		}
 		waits := 0 // a line it needs that waits for an admin
 		for _, dep := range it.Needs {
@@ -508,6 +556,22 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	if ok, wait := s.delegateRT.allowAct(a.p.UserID); !ok {
 		return http.StatusTooManyRequests, fmt.Sprintf("your agent is acting too fast: try again in %d s", int(wait/time.Second)+1), nil
 	}
+	// registered as the gate registers a single start (serveDelegate, step
+	// 7): a pause, the switch going off or the tile turning the agent away
+	// cuts it, and it is judged once more after it is registered
+	tile := shownTile(pv)
+	still := func() string {
+		if _, why := s.decideRefusal(a.p.UserID, a.p.Agent); why != "" {
+			return why
+		}
+		return s.lineAgentRefusal(a, []string{tile})
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer s.delegateRT.track(a.p.UserID, &runningCall{cancel: cancel, still: still})()
+	if why := still(); why != "" {
+		return http.StatusForbidden, why, nil
+	}
 	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/xbin/term/sessions", bytes.NewReader(pv.Call.Body))
 	if err != nil {
@@ -521,7 +585,7 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	}
 	var info struct{ ID string }
 	_ = json.Unmarshal(rec.body.Bytes(), &info)
-	s.taint(a.p, shownTile(pv)) // the conversation now follows a session on that tile
+	s.taint(a.p, tile) // the conversation now follows a session on that tile
 	out, _ := json.Marshal(map[string]string{"session": info.ID})
 	return rec.status, "", out
 }
