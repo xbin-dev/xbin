@@ -103,7 +103,10 @@ public struct TabView<SelectionValue: Hashable, Content: View>: _Leaf {
     public init(selection: Binding<SelectionValue>?, @ViewBuilder content: () -> Content) {}
 }
 
-public struct PresentationDetent: Hashable, Sendable { public static let medium = PresentationDetent(), large = PresentationDetent() }
+public struct PresentationDetent: Hashable, Sendable {
+    public static let medium = PresentationDetent(), large = PresentationDetent()
+    public static func fraction(_ f: CGFloat) -> PresentationDetent { PresentationDetent() }
+}
 
 public struct SubmitLabel: Sendable { public static let done = SubmitLabel(), go = SubmitLabel(), send = SubmitLabel(), join = SubmitLabel(), route = SubmitLabel(), search = SubmitLabel(), `return` = SubmitLabel(), next = SubmitLabel(), `continue` = SubmitLabel() }
 public struct TextInputAutocapitalization: Sendable { public static let never = TextInputAutocapitalization(), words = TextInputAutocapitalization(), sentences = TextInputAutocapitalization(), characters = TextInputAutocapitalization() }

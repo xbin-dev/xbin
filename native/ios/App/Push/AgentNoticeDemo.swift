@@ -1,10 +1,11 @@
 #if DEBUG
 import Foundation
+import UIKit
 import UserNotifications
 import XbinCore
 
 /// Debug builds only (the UI tests, D241): `-XbinAgentNotice <what>` posts,
-/// `-XbinAgentNoticeDelay` seconds after launch (default 4), the
+/// `-XbinAgentNoticeDelay` seconds after the person leaves the app (default 4), the
 /// notification a push about `<what>` makes — drawn by XbinCore's
 /// AgentNotice exactly as the extension draws a sealed push (the simulator
 /// gets no APNs push sealed to this install's key, and the extension runs
@@ -25,6 +26,8 @@ enum AgentNoticeDemo {
         }
         guard let what = d.string(forKey: "XbinAgentNotice"), !what.isEmpty else { return }
         let delay = d.object(forKey: "XbinAgentNoticeDelay") as? Double ?? 4
+        // a test may leave the app before xbind has answered: finish in the background
+        hold = UIApplication.shared.beginBackgroundTask(withName: "xbin-agent-notice-demo")
         Task { @MainActor in
             // the app asks once whether it may notify (with push, PushManager.start asks)
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
@@ -34,24 +37,52 @@ enum AgentNoticeDemo {
             }
             guard let w = AppModel.shared.workspaces.first, let payload = await payload(what, in: w) else {
                 NSLog("xbin-agent notice demo: nothing for %@", what)
+                release()
                 return
             }
-            let prefs = AgentNotifications.shared.prefs(w)
-            guard let c = AgentNotice.content(payload, appWorkspace: w.id, prefs: prefs) else { return }
-            let n = UNMutableNotificationContent()
-            n.title = c.title
-            n.subtitle = w.title
-            n.body = c.body
-            n.threadIdentifier = c.threadID
-            n.categoryIdentifier = c.category
-            n.userInfo = c.userInfo
-            n.interruptionLevel = c.timeSensitive ? .timeSensitive : .active
-            n.sound = .default
-            if let b = c.badge { n.badge = NSNumber(value: AgentNoticeStore.setCount(b, for: w.id, group: AppInfo.sharedKeychainGroup)) }
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, delay), repeats: false)
-            try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: payload.collapseID, content: n, trigger: trigger))
-            NSLog("xbin-agent notice demo: %@ in %.0f s, category %@", what, delay, c.category)
+            // a push comes while the app is not open: the notification is drawn
+            // when the person leaves the app — with the settings as they are then,
+            // as the extension draws it with the settings at arrival
+            pending = (payload, w.id, delay)
+            if UIApplication.shared.applicationState == .background { post(); return }
+            observer = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { post() }
+            }
         }
+    }
+
+    @MainActor private static var pending: (payload: PushPayload, workspace: String, delay: Double)?
+    @MainActor private static var observer: NSObjectProtocol?
+    @MainActor private static var hold = UIBackgroundTaskIdentifier.invalid
+
+    @MainActor private static func release() {
+        if hold != .invalid { UIApplication.shared.endBackgroundTask(hold); hold = .invalid }
+    }
+
+    @MainActor private static func post() {
+        guard let (payload, id, delay) = pending, let w = AppModel.shared.workspaces.first(where: { $0.id == id }) else { return }
+        pending = nil
+        if let o = observer { NotificationCenter.default.removeObserver(o); observer = nil }
+        let prefs = AgentNotifications.shared.prefs(w)
+        guard let c = AgentNotice.content(payload, appWorkspace: w.id, prefs: prefs) else {
+            release()
+            return
+        }
+        let n = UNMutableNotificationContent()
+        n.title = c.title
+        n.subtitle = w.title
+        n.body = c.body
+        n.threadIdentifier = c.threadID
+        n.categoryIdentifier = c.category
+        n.userInfo = c.userInfo
+        n.interruptionLevel = c.timeSensitive ? .timeSensitive : .active
+        n.sound = .default
+        if let b = c.badge { n.badge = NSNumber(value: AgentNoticeStore.setCount(b, for: w.id, group: AppInfo.sharedKeychainGroup)) }
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, delay), repeats: false)
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: payload.collapseID, content: n, trigger: trigger)) { _ in
+            DispatchQueue.main.async { release() }
+        }
+        NSLog("xbin-agent notice demo: %@ in %.0f s, category %@", payload.collapseID, delay, c.category)
     }
 
     @MainActor private static func payload(_ what: String, in w: WorkspaceModel) async -> PushPayload? {

@@ -126,7 +126,9 @@ struct AllowOnceExplainSheet: View {
             .padding(.horizontal, 16).padding(.vertical, 10)
         }
         .background(XbinColor.background)
-        .presentationDetents([.large])
+        // three quarters fit the words on a phone (no empty half under them); larger text scrolls, or drags up
+        .presentationDetents([.fraction(0.75), .large])
+        .presentationDragIndicator(.visible)
         .onAppear { arming.arm(settle: 0.4) }
         .onChange(of: phase) { _, p in if p == .active { arming.arm() } else { arming.disarm() } }
     }

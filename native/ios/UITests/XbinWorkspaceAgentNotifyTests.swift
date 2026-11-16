@@ -10,7 +10,7 @@ import XCTest
 ///
 /// The simulator gets no APNs push sealed to this install's key, so a test
 /// launches the app with Debug's `-XbinAgentNotice <what>`: the app posts,
-/// a few seconds later, the notification such a push makes — drawn by the
+/// a few seconds after the test leaves it, the notification such a push makes — drawn by the
 /// same XbinCore AgentNotice the extension uses, from xbind's own reading of
 /// the request — and the test acts on it in Springboard as a person does.
 /// What the app then sends, it sends to the real xbind, which is checked.
@@ -41,7 +41,7 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
         let e = try E2E(self)
         let run = try await e.server.wsPrepare("E2E notify allow")
         let ref = try await e.server.wsFileNoteRequest(run, note: "allowed from a notification")
-        e.app.launchArguments += ["-XbinAgentNotice", "request:\(ref)", "-XbinAgentNoticeDelay", "25"]
+        e.app.launchArguments += ["-XbinAgentNotice", "request:\(ref)", "-XbinAgentNoticeDelay", "3"]
         e.launch()
         e.ensureWorkspace()
         e.notifyAllowPermission()
@@ -53,7 +53,7 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
         e.expect(allow, 20, "Allow once from a notification")
         XCTAssertEqual(allow.value as? String, "0", "off until the person turns it on")
         XCTAssertEqual(e.app.switches.matching(identifier: "agent-notify-deny").firstMatch.value as? String, "1", "Deny on by default")
-        allow.tap()
+        e.flip(allow)
         let turnOn = e.app.buttons.matching(identifier: "allow-once-turn-on").firstMatch
         e.expect(turnOn, 15, "the explanation before Allow once is on")
         XCTAssertTrue(e.containing("Never for a plan or admin changes").exists, "it says what it never covers")
@@ -61,9 +61,8 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
         XCTAssertTrue(e.until(10) { turnOn.isEnabled }, "Turn on is armed a moment after it shows")
         turnOn.tap()
         XCTAssertTrue(e.until(10) { allow.value as? String == "1" }, "on, after Turn on")
-        e.app.buttons["Done"].tap()
 
-        // leave the app; the notification comes
+        // leave the app (Settings open as it is); the notification comes
         XCUIDevice.shared.press(.home)
         let banner = e.notifyBanner("Approval needed")
         e.expect(banner, 60, "the approval's banner")
@@ -193,7 +192,6 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
             e.notifyOpenSettings()
             e.expect(e.app.switches.matching(identifier: "agent-notify-allow-once").firstMatch, 20, "the settings")
             e.shot("wsnotify-\(appearance)-01-settings")
-            e.app.buttons["Done"].tap()
             // the Live Activity: the Dynamic Island, compact, on the home screen
             XCUIDevice.shared.press(.home)
             e.shot("wsnotify-\(appearance)-02-island-compact")
@@ -222,6 +220,15 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
 
 extension E2E {
     var springboard: XCUIApplication { XCUIApplication(bundleIdentifier: "com.apple.springboard") }
+
+    /// Flip a SwiftUI Toggle in a list: the element spans the row, and a tap
+    /// at its middle lands on the label, which doesn't flip it — tap the
+    /// switch itself, at the row's trailing end.
+    func flip(_ toggle: XCUIElement) {
+        let inner = toggle.switches.firstMatch
+        if inner.exists, inner.frame.width < toggle.frame.width { inner.tap(); return }
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+    }
 
     /// A banner (or a notification in the list) whose text has `title`.
     func notifyBanner(_ title: String) -> XCUIElement {

@@ -702,6 +702,16 @@ views that change nothing open for a message. A new session's `draft`
 (`session: "new"`) is shown labelled as the view's suggestion, never as the
 person's own words, and waits unsent.
 
+**For that one tile, the composer** (D241) labels its `replies` "Suggested
+by your agent — tap to edit, then send" (fill the composer on `@reply`;
+never send from it — the workspace agent's own view does exactly that), and
+shows a mic while the box is empty: on-device speech recognition whose words
+land in `value` through `@input`, as typing does — nothing is sent by voice.
+The notifications, their lock-screen actions and the Live Activity are the
+app's and xbind's alone ([workspace-agent.md](/docs/workspace-agent.md)
+§When the app is not open): no message or node of a tile makes one, and a
+notification's Reply reaches the conversation as the person's message.
+
 **Older apps.** An app released before these shows your web page as soon as
 the tree uses one of them (§Fallback, versions and older apps), so branch
 with `supports()` and draw the older way:

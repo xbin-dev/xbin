@@ -33,7 +33,7 @@ extension WidgetBundle {
 @resultBuilder
 public struct WidgetBundleBuilder {
     public static func buildBlock<W: Widget>(_ content: W) -> W { content }
-    public static func buildBlock<each W: Widget>(_ content: repeat each W) -> _TupleWidget<(repeat each W)> { _TupleWidget() }
+    @MainActor public static func buildBlock<each W: Widget>(_ content: repeat each W) -> _TupleWidget<(repeat each W)> { _TupleWidget() }
 }
 
 /// Several widgets of one bundle (the SDK's builder result; opaque there).

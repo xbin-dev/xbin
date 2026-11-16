@@ -93,4 +93,18 @@ extension UIApplication {
     public func registerForRemoteNotifications() {}
     nonisolated public static let willResignActiveNotification = Notification.Name("UIApplicationWillResignActiveNotification")
     nonisolated public static let didBecomeActiveNotification = Notification.Name("UIApplicationDidBecomeActiveNotification")
+    nonisolated public static let didEnterBackgroundNotification = Notification.Name("UIApplicationDidEnterBackgroundNotification")
+    public enum State: Int, Sendable { case active, inactive, background }
+    public var applicationState: State { .active }
+    // Debug's notification demo (D241) finishes in the background
+    public func beginBackgroundTask(withName taskName: String?,
+                                    expirationHandler handler: (@MainActor @Sendable () -> Void)? = nil) -> UIBackgroundTaskIdentifier {
+        .invalid
+    }
+    public func endBackgroundTask(_ identifier: UIBackgroundTaskIdentifier) {}
+}
+public struct UIBackgroundTaskIdentifier: RawRepresentable, Hashable, Sendable {
+    public var rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+    public static let invalid = UIBackgroundTaskIdentifier(rawValue: 0)
 }
