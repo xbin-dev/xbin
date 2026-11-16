@@ -5641,6 +5641,17 @@ here: cut from the old end, never reword.
     provides nothing (the handler refuses it, rightly: a binding is a
     grant of a role the tile does not yet define); a standing "bind
     whatever it provides" (a coding agent would choose the role).
+  - **What the review promised holds after the line fired** (review of
+    7d17c1ff). The approved role is recorded with the binding
+    (`bindingCaps`) and is the most it grants whatever the tile declares
+    later; the bind re-reads the tile under the lock it writes under. The
+    line is held to its two tiles' own identities, not their paths (a
+    tile made again at the same path is another tile). It is watched only
+    once its set is written, and every stop of its person's agent but a
+    pause or a hold ends it, judged at the line — not left to each stop
+    path to remember. Of a held line the agent reads one fixed sentence;
+    the mismatch is the person's. Taking a plan back ends what it asked
+    of the admins.
   - **The start must come before the line that waits on it.** The line
     needs the start (it is applied only with it), and without one the
     binding is blocked as ever: nothing waits on a tile nobody is
