@@ -58,6 +58,14 @@
 #   XBIN_E2E_WSAGENT (1: e2e-xbind.sh sets the workspace agent up — it needs
 #                      --isolate in XBIN_E2E_XBIND_ARGS — and
 #                      XbinWorkspaceAgentTests run, D233)
+#   XBIN_DUO           1: on an iPhone Duo (D200; opt-in — CI's Xcode is
+#                      27.0): build, run and e2e with the Xcode that has
+#                      the iOS 27.1 SDK (ci-pick-xcode.sh 27.1, for this run
+#                      only: DEVELOPER_DIR, never xcode-select),
+#                      XBIN_SWIFT_CONDITIONS=XBIN_SDK_27_1, the simulator
+#                      xbin-e2e-duo (made on the iOS 27.1 runtime, whose one
+#                      device type is the Duo) and DerivedData of its own
+#                      (derived-duo/); each of those can still be given
 #                      passed through (pick-sim.sh, ci-*.sh; GUI: show the
 #                      simulator on the Mac's screen: Simulator.app, or
 #                      DeviceHub.app from Xcode 27 on; ENSURE: a
@@ -83,9 +91,22 @@ on_mac() {
   local prefix=${XBIN_MAC_PATH_PREFIX-/opt/homebrew/bin:/usr/local/bin}
   if [ -n "$prefix" ]; then PATH="$prefix:$PATH"; fi
   export PATH
-  local base
+  local base derived=derived
   base=${XBIN_MAC_BASE:-$(dirname "$repo")}
-  export XBIN_CI_OUT="$base/out/$cmd" XBIN_CI_DERIVED="$base/derived"
+  # XBIN_DUO=1: an iPhone Duo, opt-in (see the header). Set before ci-lib.sh,
+  # which turns XBIN_XCODE into DEVELOPER_DIR; the other Xcode's build
+  # products never mix with the default one's.
+  if [ "${XBIN_DUO:-0}" = 1 ]; then
+    if [ -z "${XBIN_XCODE:-}" ]; then
+      XBIN_XCODE=$("$here/ci-pick-xcode.sh" 27.1) || return 1
+    fi
+    XBIN_SWIFT_CONDITIONS=${XBIN_SWIFT_CONDITIONS:-XBIN_SDK_27_1}
+    XBIN_SIM_ENSURE=${XBIN_SIM_ENSURE:-xbin-e2e-duo}
+    export XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_ENSURE
+    derived="derived-duo"
+    say "iPhone Duo: $XBIN_XCODE, $XBIN_SWIFT_CONDITIONS, simulator $XBIN_SIM_ENSURE"
+  fi
+  export XBIN_CI_OUT="$base/out/$cmd" XBIN_CI_DERIVED="$base/$derived"
   export XBIN_CI_TOOLS="$base/tools"
   rm -rf "$XBIN_CI_OUT"
   mkdir -p "$XBIN_CI_OUT" "$XBIN_CI_DERIVED"
@@ -256,7 +277,7 @@ remote() {
   [ $# -gt 0 ] && shift
   local v
   for v in XBIN_MAC_SENTINEL XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_E2E_WARMUP XBIN_SIM_ENSURE \
-    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL XBIN_E2E_WSAGENT; do
+    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL XBIN_E2E_WSAGENT XBIN_DUO; do
     if [ -n "${!v:-}" ]; then envs="$envs $v=$(printf '%q' "${!v}")"; fi
   done
   REMOTE_SSH=(ssh ${ssh_opts[@]+"${ssh_opts[@]}"} ${opts[@]+"${opts[@]}"} "$XBIN_MAC"
