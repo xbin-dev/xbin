@@ -165,3 +165,58 @@ func TestHostAgentSwitchOnly(t *testing.T) {
 		t.Fatal("no rule: apply changes nothing")
 	}
 }
+
+// A users event that began before the host's file flipped must not write
+// the old rule over the new one: the rule is read under the lock. Forced
+// interleaving: the flip and its reload run while the first apply is about
+// to take the lock.
+func TestHostAgentApplyReadsTheRuleUnderTheLock(t *testing.T) {
+	rule := HostAgentRule{Set: true, Enabled: true}
+	_, s, _, _ := hostServer(t, &rule)
+	s.ApplyHostAgent()
+	first := true
+	hostAgentLocking = func() {
+		if !first {
+			return
+		}
+		first = false
+		rule = HostAgentRule{Set: true, Enabled: false} // the file flips…
+		s.ApplyHostAgent()                              // …and its reload is put in force first
+	}
+	defer func() { hostAgentLocking = nil }()
+	s.ApplyHostAgent() // the users event that read the file before the flip
+	if s.Delegation.Workspace().Enabled {
+		t.Fatal("an apply that started before the flip wrote the old rule over the new one")
+	}
+}
+
+// An admin's PUT that passed the host's check before a reload locked the
+// switch off must not write on after it: the check and the write hold the
+// lock the reload takes. Forced interleaving: the reload comes between them.
+func TestHostAgentPutAndReloadAreSerialised(t *testing.T) {
+	rule := HostAgentRule{}
+	h, s, _, _ := hostServer(t, &rule)
+	alice := s.Auth.NewSession("alice", "10.0.0.1")
+	var reload chan struct{}
+	hostAgentChecked = func() {
+		hostAgentChecked = nil
+		rule = HostAgentRule{Set: true, Enabled: false} // the host's file now locks agents off
+		if hostAgentMu.TryLock() {                      // the PUT holds nothing: the reload runs to its end now
+			hostAgentMu.Unlock()
+			s.ApplyHostAgent()
+			return
+		}
+		reload = make(chan struct{}) // the PUT holds the lock: the reload waits for its write
+		go func() { s.ApplyHostAgent(); close(reload) }()
+	}
+	defer func() { hostAgentChecked = nil }()
+	if code, out := putWorkspace(h, alice, `{"enabled":true}`); code != http.StatusOK {
+		t.Fatalf("the PUT passed the check: %d %s", code, out)
+	}
+	if reload != nil {
+		<-reload
+	}
+	if s.Delegation.Workspace().Enabled {
+		t.Fatal("the PUT wrote on after the host locked agents off")
+	}
+}

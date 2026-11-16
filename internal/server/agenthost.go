@@ -39,6 +39,13 @@ const hostLockReason = "set by your host"
 
 var hostAgentMu sync.Mutex // one ApplyHostAgent at a time
 
+// Test seams (nil in production): where the two writers of the host's rule
+// can be made to meet.
+var (
+	hostAgentLocking func() // ApplyHostAgent, just before it takes hostAgentMu
+	hostAgentChecked func() // PUT /delegate/workspace, between the host's check and its write
+)
+
 func (s *Server) hostAgent() HostAgentRule {
 	if s.HostAgent == nil {
 		return HostAgentRule{}
@@ -76,15 +83,31 @@ func (s *Server) hostRefuses(enabled *bool, who *string) string {
 	return ""
 }
 
+// hostAgentHold takes the lock ApplyHostAgent takes, for PUT
+// /delegate/workspace: the host's check and the admin's write as one, so a
+// reload of the host's file lands before both or after both. → unlock.
+func (s *Server) hostAgentHold() func() {
+	hostAgentMu.Lock()
+	return hostAgentMu.Unlock
+}
+
 // ApplyHostAgent puts the host's rule in force; it changes nothing when the
 // rule already is (so the `users` event its own writes cause ends there).
+// The rule is read under the lock: an apply that began before the file
+// changed never writes the old rule over the new one.
 func (s *Server) ApplyHostAgent() {
-	h := s.hostAgent()
-	if !h.Set || s.Delegation == nil {
+	if s.Delegation == nil {
 		return
+	}
+	if hostAgentLocking != nil {
+		hostAgentLocking()
 	}
 	hostAgentMu.Lock()
 	defer hostAgentMu.Unlock()
+	h := s.hostAgent()
+	if !h.Set {
+		return
+	}
 	if ws := s.Delegation.Workspace(); ws.Enabled != h.Enabled || ws.At.IsZero() {
 		nw, err := s.Delegation.SetWorkspace(h.Enabled, "host")
 		if err != nil {
@@ -156,6 +179,9 @@ func (s *Server) hostAgentWrite(w http.ResponseWriter, enabled *bool, who *strin
 	if msg := s.hostRefuses(enabled, who); msg != "" {
 		WriteError(w, http.StatusConflict, msg, "/docs/workspace-agent.md#set-by-your-host")
 		return true
+	}
+	if hostAgentChecked != nil {
+		hostAgentChecked()
 	}
 	return false
 }

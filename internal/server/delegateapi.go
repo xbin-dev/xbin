@@ -344,7 +344,8 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 		WriteError(w, http.StatusBadRequest, `need {enabled?: bool, who?: "everyone" | "me" | "chosen"} with at least one key`, delegationDocs)
 		return
 	}
-	if s.hostAgentWrite(w, body.Enabled, body.Who) { // the host's file sets it (agenthost.go)
+	defer s.hostAgentHold()()                        // the host's check and this write under one lock (agenthost.go)
+	if s.hostAgentWrite(w, body.Enabled, body.Who) { // the host's file sets it
 		return
 	}
 	if body.Who != nil { // who gets an agent (agentwho.go): before the switch, so a refusal changes nothing
