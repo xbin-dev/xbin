@@ -446,7 +446,7 @@ host and path with `?…` for a query, `bytes`, `status`).
 An **MCP tile** is one whose manifest provides an `http` interface of
 service `mcp` (`"provides": {"mcp": {"kind": "http", "service": "mcp"}}`);
 its endpoint is `/api/<tile>/mcp`. With the workspace policy's `mcp.mode`
-at `tiles` and the person's `mcp` on, the agent uses it as its person, by
+at `tiles` or `listed` and the person's `mcp` on, the agent uses it as its person, by
 two ways — each judged by xbind, under the tile's own rules (the person's
 level on it, its `"agent"` level, its orgs' rules, the session's scope):
 
@@ -853,7 +853,8 @@ POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
 | the person loses a tile | refused for that tile | cut | — | refused at use (the tile is judged again) | — | dropped for that tile | refused at use | — |
 | the workspace's web or MCP policy off (the admin's, or the host's file) | web fetches or MCP calls refused (`web-off`, `mcp-off`); the rest goes on | finishes (a fetch: at most 20 s) | — | refused at use (the policy is judged before the ticket) | — | `tool` approvals kept, refused at use | kept; allowing works, the ticket is refused at use | — |
 | the person turns the web or MCP tools off | refused (`web-person`, `mcp-person`) | finishes | — | refused at use | — | `tool` approvals kept, refused at use | kept; refused at use | — |
-| an org's rule `web: "never"` or `mcp: "org"` | refused for a conversation that holds its data (`web-org`, `mcp-org`), said once; a new session that hasn't read it can | finishes | — | refused at use | — | kept, refused at use there | refused at use there | — |
+| an org's rule `web: "never"` or `mcp: "org"` / `"never"` | refused for a conversation that holds its data (`web-org`, `mcp-org`), said once; a new session that hasn't read it can | finishes | — | refused at use | — | kept, refused at use there | refused at use there | — |
+| an outside MCP server leaves the list, its URL changes, or the person leaves its orgs (D240) | its lists and calls refused (`mcp-server`, as for no such server) | finishes (60 s at most) | — | refused at use | — | its `tool` approvals dropped at the next sweep (the list's every write sweeps) | refused at use | — |
 
 **While the agent is stopped nothing can be allowed.** Approving a request
 (once, hour or always), `POST /delegate/approvals` and applying a change set

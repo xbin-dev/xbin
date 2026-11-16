@@ -21,8 +21,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   "vault"}` while it can't). The host's file may name the list in its
   `workspaceAgent.mcp.servers` (secrets by `secretFile` or `secretEnv`),
   and then the list is the host's (`locks["mcp.servers"]`, a `PUT` of it
-  `409`). `GET /delegate/state`'s `net.mcp.servers` lists the ones a
-  person's agent may use.
+  `409`). New routes: `GET /delegate/mcp/servers` and `POST
+  /delegate/mcp/tools {server}` for the person's agent, `POST
+  /delegate/mcp/test {id}` for an admin; `POST /delegate/mcp/call` takes
+  `server: "ext:<id>"` (its answer adds `name`, `host`, `outside`). xbind is
+  the client — to the listed address alone, through the web's guarded
+  dialer (a private address only with `privateNetwork`), TLS verified,
+  1 MiB and 20/60 s, a server's own requests refused. A tool asks the first
+  time; from a conversation that holds an org's data each call asks
+  (`preview.each`, once only). An org's `mcp` rule takes `listed` (trusts
+  the list) and `never` beside `any` and `org` (`bx org agents --mcp`).
+  `GET /delegate/state`'s `net.mcp.servers` lists the servers a person's
+  agent may use; a session's `reach.mcp.listed` counts them; audit rows
+  gain `server` and `tool`. The agent's `mcp_tools` and `mcp_call` take
+  `server`; the chrome's sheets and the app's say "Outside this workspace:"
+  and the host; Preferences (web and app) list the servers; the card on
+  `/xbin/system` edits the list and tests a server. The sheets' "has read
+  the web" line now reads "the web or an outside server". See
+  [protocol/delegation.md §Outside MCP servers](/docs/protocol/delegation.md)
+  and [mcp.md §Use an outside MCP server](/docs/mcp.md).
 - iOS app: **a plan is reviewed in the app's change-set sheet**, by the
   web's rules (XbinCore `PlanWords`, held to `agent-plan-words.js` by the
   generated vectors): lines that create a tile or start a tile agent, what
