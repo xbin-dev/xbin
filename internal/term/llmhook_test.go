@@ -133,13 +133,33 @@ func (r *agentRig) agentEnv(t *testing.T, id, name string) string {
 	if _, err := r.m.AgentPrompt(context.Background(), id, "printenv "+name); err != nil {
 		t.Fatal(err)
 	}
-	e := r.until(t, func(e SessionEvent) bool {
-		text, _ := edata(e.Event)["text"].(string)
-		return e.ID == id && e.Type == agent.EvMessageDelta && strings.HasPrefix(text, "printenv: ")
+	return r.turnSaid(t, id, "printenv: ")
+}
+
+// turnSaid is what the agent of session id said in the turn now running,
+// after prefix: its message joined from every piece up to the turn's end.
+// A message is a stream of pieces, and how it is cut is no promise — a
+// session that holds a saved sign-in holds back the end of a piece that
+// could start the secret until the next event settles it (signinredact.go),
+// so "printenv: /tmp/xbin-signin-1234567" can leave as "…12345" and "67".
+func (r *agentRig) turnSaid(t *testing.T, id, prefix string) string {
+	t.Helper()
+	var said strings.Builder
+	r.until(t, func(e SessionEvent) bool {
+		if e.ID != id {
+			return false
+		}
+		if d := edata(e.Event); e.Type == agent.EvMessageDelta && d["role"] != "user" {
+			text, _ := d["text"].(string)
+			said.WriteString(text)
+		}
+		return e.Type == agent.EvTurnEnd
 	})
-	text, _ := edata(e.Event)["text"].(string)
-	r.until(t, func(e SessionEvent) bool { return e.ID == id && e.Type == agent.EvTurnEnd })
-	return strings.TrimPrefix(text, "printenv: ")
+	_, after, ok := strings.Cut(said.String(), prefix)
+	if !ok {
+		t.Fatalf("the agent never said %q: %q", prefix, said.String())
+	}
+	return after
 }
 
 // openLLM opens a fake-agent session and waits until it is idle.

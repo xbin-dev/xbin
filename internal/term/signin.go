@@ -182,6 +182,9 @@ type sessionSignin struct {
 	// SigninNone, or a sign-in's id — kept so a restart asks for no more
 	// (signinRestart)
 	choice string
+	// ending: a sweep or a removal is ending the session for its sign-in
+	// (endClaim) — the one that claimed it says why and counts it
+	ending bool
 }
 
 // sig is s's sign-in state: nil for a terminal, and where no store is
@@ -569,6 +572,17 @@ func (m *Manager) endForSignin(s *Session, why string) {
 	s.kill()
 }
 
+// endClaim claims s, which carries a saved sign-in, for ending: false when
+// another sweep or removal already did — it is ending, said and counted
+// there. s.mu held.
+func (ss *sessionSignin) endClaim() bool {
+	if ss.ending {
+		return false
+	}
+	ss.ending = true
+	return true
+}
+
 // EndSigninSessions ends user's running agent sessions that carry saved
 // sign-in id ("": any saved sign-in), saying why in each, and answers how
 // many it ended.
@@ -577,7 +591,7 @@ func (m *Manager) EndSigninSessions(user, id, why string) int {
 	for _, s := range m.sorted() {
 		s.mu.Lock()
 		ss := s.sig()
-		hit := ss.carries() && ss.user == user && (id == "" || ss.view.ID == id)
+		hit := ss.carries() && ss.user == user && (id == "" || ss.view.ID == id) && ss.endClaim()
 		s.mu.Unlock()
 		if hit {
 			m.endForSignin(s, why)
@@ -593,7 +607,11 @@ func (m *Manager) EndSigninSessions(user, id, why string) int {
 // tile someone else can now change is (the next start is judged afresh and
 // says why it runs without). It answers how many it ended.
 func (m *Manager) SigninSweep() int {
-	off := m.signinsOff()
+	// this is the sweep: the switch seen off here starts no other one
+	// (signinsOff), which would race this one for the sessions it ends and
+	// leave the count the switch's route reports short
+	off := m.SigninsOff != nil && m.SigninsOff()
+	m.offSeen.Store(off)
 	if m.SigninOthers == nil && !off {
 		return 0
 	}
@@ -601,7 +619,7 @@ func (m *Manager) SigninSweep() int {
 	for _, s := range m.sorted() {
 		s.mu.Lock()
 		ss := s.sig()
-		carries, user := ss.carries(), ""
+		carries, user := ss.carries() && !ss.ending, ""
 		if carries {
 			user = ss.user
 		}
@@ -609,21 +627,29 @@ func (m *Manager) SigninSweep() int {
 		if !carries {
 			continue
 		}
+		why := ""
 		if off {
-			m.endForSignin(s, "Saved coding-agent sign-ins were switched off for this workspace, so this session — which ran on yours — was ended.")
-			n++
+			why = "Saved coding-agent sign-ins were switched off for this workspace, so this session — which ran on yours — was ended."
+		} else {
+			tile, ok := m.TileOf(s.Cwd) // judged afresh, on the tile as the registry has it now
+			var others []string
+			if ok && m.SigninOthers != nil {
+				tile, others, ok = m.SigninOthers(user, tile)
+			}
+			if !ok { // its tile is gone from the registry: nothing vouches for it any more
+				why = s.Cwd + " is no longer a registered tile, so this session — which ran on your saved sign-in — was ended."
+			} else if len(others) > 0 {
+				why = othersWords(others) + " can now change " + tile + ", so this session — which ran on your saved sign-in — was ended. Start it again: it will say what it runs on."
+			}
+		}
+		if why == "" {
 			continue
 		}
-		tile, ok := m.TileOf(s.Cwd) // judged afresh, on the tile as the registry has it now
-		var others []string
-		if ok && m.SigninOthers != nil {
-			tile, others, ok = m.SigninOthers(user, tile)
-		}
-		if !ok { // its tile is gone from the registry: nothing vouches for it any more
-			m.endForSignin(s, s.Cwd+" is no longer a registered tile, so this session — which ran on your saved sign-in — was ended.")
-			n++
-		} else if len(others) > 0 {
-			m.endForSignin(s, othersWords(others)+" can now change "+tile+", so this session — which ran on your saved sign-in — was ended. Start it again: it will say what it runs on.")
+		s.mu.Lock()
+		claimed := s.sig().endClaim()
+		s.mu.Unlock()
+		if claimed {
+			m.endForSignin(s, why)
 			n++
 		}
 	}

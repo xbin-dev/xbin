@@ -43,6 +43,7 @@ type Client struct {
 	turn        uint64
 	busy        bool
 	promptRPC   json.RawMessage         // the in-flight session/prompt's request id (State)
+	promptOut   chan struct{}           // closed once that prompt's frame has left (prompt.go): a steer or cancel goes after it
 	preparing   bool                    // a prompt's files are on their way to the agent (prompt.go): the next prompt is busy
 	prepCancel  context.CancelCauseFunc // aborts that hand-off (Cancel)
 	status      string

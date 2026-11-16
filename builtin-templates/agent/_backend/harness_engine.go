@@ -661,6 +661,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	}
 	s.c = acp.NewWith(acp.ClientOptions{Caps: harnessCaps(), IDPrefix: fmt.Sprintf("h%d.%d", run.ID, gen), AwaitLogin: true,
 		AuthHint: s.authHint})
+	s.e.consumers.Add(1)
 	go s.consume()
 	opts := map[string]string{}
 	for k, v := range h.Options {
@@ -928,6 +929,7 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 	}
 	s.c = acp.NewWith(acp.ClientOptions{Caps: harnessCaps(), AwaitLogin: true, Attach: &st, AuthHint: s.authHint,
 		IDPrefix: fmt.Sprintf("h%d.%de%da%d", run.ID, hs.Gen, epoch, seq)})
+	s.e.consumers.Add(1)
 	go s.consume()
 	acfg := acp.Config{Provider: prov, Mode: s.startMode(cfg.Harness.Mode), Cwd: hs.Cwd, Argv: prov.Argv, Perms: s.perms, Log: s.log,
 		Spawn: func(context.Context, acp.Config) (*acp.Process, error) { return s.process(), nil }}
@@ -1121,6 +1123,7 @@ func (s *hsess) log(line string) {
 // consume applies the session's events in order until the client's stream
 // ends — then the adapter is gone (unless this process let it go).
 func (s *hsess) consume() {
+	defer s.e.consumers.Done()
 	defer close(s.done)
 	for ev := range s.c.Events() {
 		if s.isHalted() {

@@ -89,6 +89,8 @@ func (c *Client) Prompt(ctx context.Context, p Prompt) error {
 	sid := c.sessionID
 	id := c.conn.newID() // known before the frame leaves: State names it from here on
 	c.promptRPC = id
+	out := make(chan struct{})
+	c.promptOut = out
 	c.mu.Unlock()
 	echo := map[string]any{"role": "user", "text": p.Text}
 	if len(infos) > 0 { // the transcript names them; the bytes are not logged
@@ -99,11 +101,33 @@ func (c *Client) Prompt(ctx context.Context, p Prompt) error {
 	go func() {
 		// an answer ends the turn on the read loop (promptAnswered), in the
 		// stream's order; here only a prompt that never got one
-		if resp, err := c.conn.callID(context.Background(), id, MSessionPrompt, PromptParams{SessionID: sid, Prompt: blocks}); resp == nil {
+		if resp, err := c.conn.callIDThen(context.Background(), id, MSessionPrompt, PromptParams{SessionID: sid, Prompt: blocks}, func() { close(out) }); resp == nil {
 			c.endTurn(turn, id, nil, err)
 		}
 	}()
 	return nil
+}
+
+// promptLeft waits until the running prompt's frame has gone to the agent.
+// The session says running before it leaves (the frame is sent on its own
+// goroutine), so a steer or a cancel made the moment a client sees that
+// would otherwise reach the agent before the turn it is meant for — a
+// steer answered promptRequired, a cancel that cancels nothing.
+func (c *Client) promptLeft(ctx context.Context) error {
+	c.mu.Lock()
+	out := c.promptOut
+	c.mu.Unlock()
+	if out == nil {
+		return nil
+	}
+	select {
+	case <-out:
+		return nil
+	case <-c.done:
+		return ErrEnded
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // promptAnswered is a session/prompt's answer, on the read loop — this

@@ -261,10 +261,20 @@ func (c *Conn) newID() json.RawMessage {
 // callID sends a request with the given id and waits for its response;
 // an error response is returned as its *Error.
 func (c *Conn) callID(ctx context.Context, id json.RawMessage, method string, params any) (*Message, error) {
+	return c.callIDThen(ctx, id, method, params, nil)
+}
+
+// callIDThen is callID, calling sent (when not nil) once the request has
+// been written — or failed to be — before it waits for the answer.
+func (c *Conn) callIDThen(ctx context.Context, id json.RawMessage, method string, params any, sent func()) (*Message, error) {
 	key := idKey(id)
 	ch := c.wait(key, method)
 	p, _ := json.Marshal(params)
-	if err := c.send(&Message{ID: id, Method: method, Params: p}); err != nil {
+	err := c.send(&Message{ID: id, Method: method, Params: p})
+	if sent != nil {
+		sent()
+	}
+	if err != nil {
 		c.drop(key)
 		return nil, err
 	}

@@ -289,7 +289,10 @@ func TestForkSigninNote(t *testing.T) {
 
 	// in alice's partition: the card's one-click path; one saved goes in
 	// (nothing said); one the gate leaves out (a team project's shared fork)
-	// says why
+	// says why. forkSigninNote alone from here: the engine — whose project
+	// worker reads the process's mode and vault — stops before they change,
+	// not after setMode's cleanup has put them back
+	settleHarnesses(fx.ag.eng)
 	setMode(t, modeUser, "alice")
 	memVault(t)
 	box := &sbxSandbox{Visibility: "private"}

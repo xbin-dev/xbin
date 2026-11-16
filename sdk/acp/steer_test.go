@@ -88,6 +88,63 @@ func TestSteer(t *testing.T) {
 	}
 }
 
+// A message steered the moment Prompt returns — the session says running
+// from then on — reaches the agent after the prompt it steers, never
+// before: an agent asked to steer before its turn began answers
+// promptRequired, and the message would wait for the turn's end. The same
+// for a cancel: one the agent got before the prompt would cancel nothing.
+func TestSteerAndCancelFollowThePromptFrame(t *testing.T) {
+	ctx := context.Background()
+	order := func(p *peer, first, then string) {
+		t.Helper()
+		at := map[string]int{}
+		for i, m := range p.seen() {
+			if _, ok := at[m.Method]; !ok {
+				at[m.Method] = i
+			}
+		}
+		if a, ok := at[first]; !ok || at[then] < a {
+			t.Fatalf("%s reached the agent before %s: %v", then, first, at)
+		}
+	}
+	p := newPeer(t)
+	p.steering = true
+	c, _, err := p.start(ClientOptions{}, NewPermissions(), 0, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	collect(t, c, idle)
+	if err := c.Prompt(ctx, Prompt{Text: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := c.Steer(ctx, Prompt{Text: "use tabs"}); err != nil || out != SteerInjected {
+		t.Fatalf("steered right after the prompt: %q %v", out, err)
+	}
+	order(p, MSessionPrompt, MSessionSteering)
+	p.end("end_turn")
+	collect(t, c, isType(EvTurnEnd))
+
+	p2 := newPeer(t)
+	c2, _, err := p2.start(ClientOptions{}, NewPermissions(), 0, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c2.Close()
+	collect(t, c2, idle)
+	if err := c2.Prompt(ctx, Prompt{Text: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c2.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	// the turn ends cancelled only when the cancel came after the prompt
+	if e := collect(t, c2, isType(EvTurnEnd)); data(e[len(e)-1])["stopReason"] != "cancelled" {
+		t.Fatalf("the cancelled turn: %s", e[len(e)-1].Data)
+	}
+	order(p2, MSessionPrompt, MSessionCancel)
+}
+
 // Authenticate: the methods with their _meta; an agent that refuses the
 // session signed out stays up with AwaitLogin, and signing in opens it.
 func TestAuthenticate(t *testing.T) {

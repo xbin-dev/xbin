@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 )
@@ -299,6 +300,9 @@ func (c *Client) Cancel() error {
 	}
 	c.cancelElicits()
 	c.setStatus(StatusCancelling, "")
+	if err := c.promptLeft(context.Background()); err != nil { // the prompt it cancels first
+		return err
+	}
 	return c.conn.Notify(MSessionCancel, SessionIDParams{SessionID: sid})
 }
 

@@ -873,18 +873,3 @@ func scrollTail(b []byte, n int) string {
 	}
 	return strings.TrimSpace(string(out))
 }
-
-func (s *Session) kill() {
-	if s.cmd.Process != nil {
-		if s.pgid { // the non-isolated agent host and its agent: the whole group
-			_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
-		}
-		if s.vm && s.hangupVM() {
-			return
-		}
-		_ = s.cmd.Process.Kill()
-	}
-	if s.pty != nil {
-		_ = s.pty.Close()
-	}
-}
