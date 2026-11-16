@@ -54,6 +54,8 @@ const delegationDocs = "/docs/protocol/delegation.md"
 func (s *Server) registerDelegationAPI() {
 	s.registerDelegateSessionsAPI() // agent sessions (handles), the connection view, the map (delegatesessions.go)
 	s.registerDocsAPI()             // the docs, searchable on /api/ (docsapi.go)
+	s.registerDelegateWebAPI()      // the web (delegateweb.go)
+	s.registerDelegateMCPAPI()      // MCP tiles (delegatemcp.go)
 	s.RegisterAPI("GET /delegate/state", s.apiDelegateState)
 	s.RegisterAPI("PUT /delegate/state", s.apiDelegateStatePut)
 	s.RegisterAPI("GET /delegate/workspace", s.apiDelegateWorkspace)
@@ -225,6 +227,9 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 		"user": a.user, "workspace": ws.Enabled,
 		"paused": st.Paused, "adminChanges": st.AdminChanges, "canAdminChanges": mayOptInAdmin(a.p),
 		"pendingRequests": len(pend), "standingApprovals": len(aps), "openChangeSets": open,
+		// the web and MCP (D239): the person's own settings, and what the
+		// workspace policy lets them turn on
+		"web": st.Web, "mcp": st.MCP, "mcpReadOnly": st.MCPReadOnly, "net": s.netForPerson(),
 	}
 	// what xbin's own chrome draws its states from (agentpage.go; D232)
 	if !ws.At.IsZero() {
@@ -284,13 +289,22 @@ func (s *Server) apiDelegateStatePut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Paused       *bool `json:"paused"`
 		AdminChanges *bool `json:"adminChanges"`
+		// the web and MCP (D239): what widens is the person's own
+		Web         *bool `json:"web"`
+		MCP         *bool `json:"mcp"`
+		MCPReadOnly *bool `json:"mcpReadOnly"`
 	}
-	if err := DecodeJSON(r, &body); err != nil || body.Paused == nil && body.AdminChanges == nil {
-		WriteError(w, http.StatusBadRequest, "need {paused?, adminChanges?: bool} with at least one key", delegationDocs)
+	net := func() bool { return body.Web != nil || body.MCP != nil || body.MCPReadOnly != nil }
+	if err := DecodeJSON(r, &body); err != nil || body.Paused == nil && body.AdminChanges == nil && !net() {
+		WriteError(w, http.StatusBadRequest, "need {paused?, adminChanges?, web?, mcp?, mcpReadOnly?: bool} with at least one key", delegationDocs)
 		return
 	}
-	if !a.own && (body.AdminChanges != nil || body.Paused == nil || !*body.Paused) {
-		WriteError(w, http.StatusForbidden, "the agent's page may pause it; resuming it, and letting it propose admin changes, are decided in your own session", delegationDocs)
+	if !a.own && (body.AdminChanges != nil || net() || body.Paused == nil || !*body.Paused) {
+		WriteError(w, http.StatusForbidden, "the agent's page may pause it; resuming it, letting it propose admin changes, read the web or use MCP tools are decided in your own session", delegationDocs)
+		return
+	}
+	if refusal, msg := s.netSettingRefusal(body.Web, body.MCP, body.MCPReadOnly); refusal != "" {
+		WriteJSON(w, http.StatusConflict, map[string]any{"error": msg, "refusal": refusal, "docs": delegationDocs})
 		return
 	}
 	if body.AdminChanges != nil {
@@ -306,6 +320,15 @@ func (s *Server) apiDelegateStatePut(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.AdminChanges != nil {
 			st.AdminChanges = *body.AdminChanges
+		}
+		if body.Web != nil {
+			st.Web = *body.Web
+		}
+		if body.MCP != nil {
+			st.MCP = *body.MCP
+		}
+		if body.MCPReadOnly != nil {
+			st.MCPReadOnly = *body.MCPReadOnly
 		}
 	})
 	if err != nil {
@@ -339,14 +362,47 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 	var body struct {
 		Enabled *bool   `json:"enabled"`
 		Who     *string `json:"who"`
+		// the web and MCP policy (D239): what a person's agent may do there
+		Web *struct {
+			Mode   *string   `json:"mode"`
+			Allow  *[]string `json:"allow"`
+			Deny   *[]string `json:"deny"`
+			Search *bool     `json:"search"`
+		} `json:"web"`
+		MCP *struct {
+			Mode *string `json:"mode"`
+		} `json:"mcp"`
 	}
-	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil && body.Who == nil {
-		WriteError(w, http.StatusBadRequest, `need {enabled?: bool, who?: "everyone" | "me" | "chosen"} with at least one key`, delegationDocs)
+	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil && body.Who == nil && body.Web == nil && body.MCP == nil {
+		WriteError(w, http.StatusBadRequest, `need {enabled?: bool, who?: "everyone" | "me" | "chosen", web?: {mode?, allow?, deny?, search?}, mcp?: {mode?}} with at least one key`, delegationDocs)
 		return
 	}
 	defer s.hostAgentHold()()                        // the host's check and this write under one lock (agenthost.go)
 	if s.hostAgentWrite(w, body.Enabled, body.Who) { // the host's file sets it
 		return
+	}
+	if body.Web != nil || body.MCP != nil { // before the switch, so a refusal changes nothing
+		var np delegation.NetPatch
+		if body.Web != nil {
+			np.WebMode, np.WebAllow, np.WebDeny, np.WebSearch = body.Web.Mode, body.Web.Allow, body.Web.Deny, body.Web.Search
+		}
+		if body.MCP != nil {
+			np.MCPMode = body.MCP.Mode
+		}
+		if _, err := s.Delegation.SetNet(np, p.From()); err != nil {
+			var lk *delegation.ErrHostLocked
+			if errors.As(err, &lk) {
+				WriteJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "settings": lk.Settings, "docs": delegationDocs})
+				return
+			}
+			WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
+			return
+		}
+		s.netPolicyChanged()
+		if body.Enabled == nil && body.Who == nil {
+			WriteJSON(w, http.StatusOK, s.delegateWorkspaceView(p))
+			return
+		}
 	}
 	if body.Who != nil { // who gets an agent (agentwho.go): before the switch, so a refusal changes nothing
 		if code, msg := s.setAgentWho(p, *body.Who); code != 0 {
@@ -488,8 +544,12 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	case v.deny != "":
 		WriteError(w, http.StatusBadRequest, "this call isn't delegated: "+v.deny, delegationDocs)
 		return
-	case !v.effect || !(v.tileAPI || v.row.ticket):
+	case !v.effect || !(v.tileAPI || v.row.ticket || v.pattern == webFetchPattern || v.pattern == mcpCallPattern):
 		WriteError(w, http.StatusBadRequest, "this call needs no approval: make it", delegationDocs)
+		return
+	case v.tileAPI && s.mcpEndpointOf(u.Path) != "":
+		// an MCP server's tools are called through xbind, each approved as itself
+		WriteError(w, http.StatusBadRequest, "a call to an MCP server's endpoint isn't approved as a tile call: call the tool with POST /api/xbin/delegate/mcp/call {server, tool, arguments} and ask for that", delegationDocs)
 		return
 	}
 	if u.Query().Has("_method") {
@@ -537,6 +597,27 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Tile = ask["tile"].(string)
 		preview["tile"], preview["owner"], preview["session"] = req.Tile, s.policy().OwnerOf(req.Tile), ask
+	case v.pattern == mcpCallPattern: // one tool of an MCP tile (delegatemcp.go)
+		req.Kind = delegation.KindMCP
+		mp, tile, status, why := s.mcpRequestPreview(r.Context(), p, body)
+		if why != "" {
+			WriteError(w, status, why, delegationDocs)
+			return
+		}
+		req.Tile = tile
+		for k, v := range mp {
+			preview[k] = v
+		}
+	case v.pattern == webFetchPattern: // a URL the conversation may read (delegateweb.go)
+		req.Kind = delegation.KindWeb
+		wp, status, why := s.webRequestPreview(p, body)
+		if why != "" {
+			WriteError(w, status, why, delegationDocs)
+			return
+		}
+		for k, v := range wp {
+			preview[k] = v
+		}
 	default:
 		req.Kind = delegation.KindTemplate
 		// the handler's own check, before anything is put in front of the
@@ -547,6 +628,9 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		preview["create"] = create
+	}
+	if h, ok := s.handleOf(p); ok && h.Web {
+		preview["readWeb"] = true // what it asks may come from a page it read
 	}
 	if len(body) > 0 && !delegation.TextBody(body) {
 		// xbind's words for what can't be shown: the person approves this

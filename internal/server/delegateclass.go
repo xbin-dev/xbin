@@ -301,11 +301,21 @@ var delegateClasses = map[string]delegateRow{
 	"GET /docs/search":                    dRead(),
 	"GET /docs/page":                      dRead(),
 	"GET /delegate/approvals":             dRead(),
-	"POST /delegate/changesets":           dAct(),
-	"POST /delegate/plans":                dAct(), // a plan: a change set that may create tiles and start tile agents (plan.go)
-	"GET /delegate/changesets":            dRead(),
-	"GET /delegate/changesets/{id}":       dRead(),
-	"DELETE /delegate/changesets/{id}":    dAct(),
+	// the web (D239, delegateweb.go): one page read by xbind for the
+	// conversation, under the workspace's policy, the orgs' rules and the
+	// person's setting; a conversation holding any org's data needs a
+	// ticket for each URL — the handler asks, as the web's reach decides
+	"POST /delegate/web/fetch": dAct().judged(dryWeb),
+	// MCP tiles (D239, delegatemcp.go): one tool's call, xbind the client,
+	// as the person; a ticket per call unless a standing approval of that
+	// tool, or the person's "read-only tools don't ask" for a tool the
+	// server marks read-only, covers it — the handler asks
+	"POST /delegate/mcp/call":          dAct().judged(dryMCP),
+	"POST /delegate/changesets":        dAct(),
+	"POST /delegate/plans":             dAct(), // a plan: a change set that may create tiles and start tile agents (plan.go)
+	"GET /delegate/changesets":         dRead(),
+	"GET /delegate/changesets/{id}":    dRead(),
+	"DELETE /delegate/changesets/{id}": dAct(),
 
 	// ---- never: answering itself ----
 	"GET /delegate/requests":                 dNever(neverApprove),

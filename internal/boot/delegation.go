@@ -33,10 +33,12 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/broker"
+	"github.com/xbin-dev/xbin/internal/ingress"
 	"github.com/xbin-dev/xbin/internal/llm"
 
 	"github.com/xbin-dev/xbin/internal/delegation"
@@ -47,6 +49,18 @@ import (
 func (st *State) setupDelegation(srv *server.Server) {
 	store := delegation.OpenStore(filepath.Join(st.WS, "data", "delegation"))
 	srv.Delegation = store
+	// (the host's web and MCP policy comes with the LLM connector's file:
+	// hostagent.go)
+	// a workspace agent's fetch never names a host the workspace's tiles
+	// are published at (delegateweb.go)
+	srv.OwnHost = func(host string) bool {
+		for _, r := range st.Broker.IngressRoutes() {
+			if strings.EqualFold(r.Host, host) || r.Zone != "" && ingress.HostInZone(host, r.Zone) {
+				return true
+			}
+		}
+		return false
+	}
 	// an agent session, for the connection view its holder's page reads
 	st.Broker.AgentHandle = func(user, holder, id string) (orgs, tiles []string, scoped bool, model string, ok bool) {
 		h, ok := store.AgentSession(user, holder, id)

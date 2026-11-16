@@ -30,11 +30,11 @@
           "lists": [
             {
               "title": "It can",
-              "items": ["Look across your 18 connected tiles", "Start tile agents and keep track of them", "Do things in a tile for you, once you approve"]
+              "items": ["Look across your 18 connected tiles", "Change a tile’s code — by briefing that tile’s own agent", "Do things in a tile for you, once you approve"]
             },
             {
               "title": "It can’t",
-              "items": ["Change code itself — a tile’s agent does", "Answer a tile agent’s questions for you", "Use the web"]
+              "items": ["Answer a tile agent’s questions for you — those come to you", "Act without your approval where a change is involved", "Use the web — off for this workspace — an admin can turn it on"]
             }
           ],
           "suggestionsTitle": "Try one — from your tiles",

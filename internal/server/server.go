@@ -29,6 +29,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/webfetch"
 	"github.com/xbin-dev/xbin/internal/wssettings"
 )
 
@@ -109,6 +110,13 @@ type Server struct {
 	// HolderNotify tells a holder's backend, in its person's partition, that
 	// something it waits on changed (kind, id only); nil: nobody is told.
 	HolderNotify func(holder, user, kind, id string)
+	// WebFetch is the fetcher a workspace agent's web reads go through
+	// (delegateweb.go): nil is the real one; tests give a resolver and a
+	// local server's address. Its Check is always the server's.
+	WebFetch *webfetch.Fetcher
+	// OwnHost reports a hostname this workspace's tiles are published at
+	// (ingress): a workspace agent's fetch never names one. nil: none.
+	OwnHost func(host string) bool
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.

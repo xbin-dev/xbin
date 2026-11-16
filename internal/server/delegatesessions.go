@@ -142,6 +142,7 @@ func (s *Server) sessionCaller(w http.ResponseWriter, r *http.Request) (auth.Pri
 
 func (s *Server) sessionView(p auth.Principal, h delegation.AgentSession) map[string]any {
 	out := map[string]any{"id": h.ID, "scope": h.Scope, "model": h.Model, "tainted": h.Tainted, "created": h.Created, "used": h.Used}
+	s.sessionNet(p, h, out) // web, reach (delegatenet.go)
 	if s.AgentWorld != nil {
 		view, _ := s.connectionOf(p, h, "")
 		out["connection"] = map[string]any{"counts": view.Counts}
@@ -417,6 +418,9 @@ func (s *Server) apiDelegateMap(w http.ResponseWriter, r *http.Request) {
 		if level == registry.AgentOff {
 			row["agent"] = level
 		}
+		if isMCPTile(c) {
+			row["mcp"] = true // an MCP server: its endpoint is /api/<tile>/mcp (delegatemcp.go)
+		}
 		tiles = append(tiles, row)
 		s.taint(p, c.Path) // its name and title are its org's data
 	}
@@ -604,6 +608,27 @@ func (s *Server) sessionOrgs(w http.ResponseWriter, r *http.Request, p auth.Prin
 	return body.Orgs, true
 }
 
+// taintBody reads {orgs?: […], web?: true} — at least one — and checks
+// each org as sessionOrgs does.
+func (s *Server) taintBody(w http.ResponseWriter, r *http.Request, p auth.Principal) ([]string, bool, bool) {
+	var body struct {
+		Orgs []string `json:"orgs"`
+		Web  bool     `json:"web"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	if err := DecodeJSON(r, &body); err != nil || len(body.Orgs) == 0 && !body.Web || len(body.Orgs) > 200 {
+		WriteError(w, http.StatusBadRequest, "need {orgs?: [id, …] (at most 200), web?: true}, at least one", delegationDocs)
+		return nil, false, false
+	}
+	for _, o := range body.Orgs {
+		if o == "" || len(o) > 200 || s.AgentWorld == nil || !s.AgentWorld.AgentOrgVisible(personOf(p), o) {
+			WriteError(w, http.StatusForbidden, "no org "+strconv.Quote(o)+" that "+p.UserID+" can see", delegationDocs)
+			return nil, false, false
+		}
+	}
+	return body.Orgs, body.Web, true
+}
+
 // apiAgentSessionAllows — POST /delegate/sessions/{id}/allows {orgs}: does
 // the session's model satisfy those orgs' rules? → {allowed, reasons:
 // {org: why}}. For what the agent keeps itself (its notebook): a page
@@ -648,9 +673,20 @@ func (s *Server) apiAgentSessionTaint(w http.ResponseWriter, r *http.Request) {
 		s.writeSessionErr(w, delegation.ErrNoAgentSession)
 		return
 	}
-	orgs, ok := s.sessionOrgs(w, r, p)
+	orgs, web, ok := s.taintBody(w, r, p)
 	if !ok {
 		return
+	}
+	if web { // the conversation has read the web: a handle it renews carries that too (D239)
+		if err := s.Delegation.MarkWeb(p.UserID, p.Agent, id); err != nil {
+			s.writeSessionErr(w, err)
+			return
+		}
+		if len(orgs) == 0 {
+			h, _ = s.Delegation.AgentSession(p.UserID, p.Agent, id)
+			WriteJSON(w, http.StatusOK, s.sessionView(p, h))
+			return
+		}
 	}
 	var refused []string
 	reason := ""

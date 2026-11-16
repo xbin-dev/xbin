@@ -442,6 +442,20 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, xr wsRequ
 		outcome = fmt.Sprintf("%s — tile agent #%d started in %s (%s, %s) and was told the brief. It is your person's session: they can open it and only they answer its questions. You are told when it ends its turn, fails or waits for them; until then go on with what doesn't depend on it.",
 			how, row.ID, row.Tile, orStr(row.Harness, "coding agent"), map[bool]string{true: "asks before acting", false: "acts without asking"}[row.Asks])
 		done.Result = fmt.Sprintf("tile agent #%d started in %s (%s)", row.ID, row.Tile, orStr(row.Harness, "coding agent"))
+	case wsReqMCP:
+		o, res, err := ag.wsDecideMCP(ctx, s, r, ticket, how)
+		if err != nil {
+			fail(err)
+			break
+		}
+		outcome, done.Result = o, res
+	case wsReqWeb:
+		o, res, err := ag.wsDecideWeb(ctx, s, r, ticket, how)
+		if err != nil {
+			fail(err)
+			break
+		}
+		outcome, done.Result = o, res
 	case wsReqTemplate:
 		var create wsTileCreate
 		_ = json.Unmarshal(r.Body, &create)

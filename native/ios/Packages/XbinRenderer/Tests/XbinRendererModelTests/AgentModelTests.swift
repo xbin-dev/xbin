@@ -102,7 +102,7 @@ import XbinCore
     @Test func emptySlot() throws {
         let e = try #require(TranscriptEmpty(props: try props("workspace-agent-empty", "r.2")))
         #expect(e.title == "Ask for an outcome" && e.text?.hasPrefix("The workspace agent plans the work") == true)
-        #expect(e.lists.map(\.title) == ["It can", "It can’t"] && e.lists[0].items.count == 3 && e.lists[1].items.last == "Use the web")
+        #expect(e.lists.map(\.title) == ["It can", "It can’t"] && e.lists[0].items.count == 3 && e.lists[1].items.last?.hasPrefix("Use the web — ") == true)
         #expect(e.suggestionsTitle == "Try one — from your tiles")
         #expect(e.suggestions.map(\.id) == ["ask", "fix", "change"] && e.suggestions[1].kind == "Fix")
         #expect(e.suggestions[1].accessibilityLabel == "Fix: Team calendar’s last sync failed. Find out why.")

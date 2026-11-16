@@ -126,6 +126,7 @@ func (s *Server) delegateWorkspaceView(p auth.Principal) map[string]any {
 	if l := s.agentLocks(); l != nil {
 		out["locks"] = l // the host's file sets these (agenthost.go)
 	}
+	s.netWorkspaceView(out) // the web and MCP policy (delegatenet.go)
 	if h := s.agentHolder(); h != "" {
 		out["agent"] = h
 		if who, ok := s.agentWho(p, h); ok {

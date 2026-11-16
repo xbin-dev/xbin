@@ -9,7 +9,8 @@
  *   <bx-agent-approvals>  the standing approvals, each with Take back
  *   <bx-agent-activity>   "What my agent did": the audit log in sentences
  *                         (Changes · Refused · Everything)
- *   <bx-agent-prefs>      what a tile agent the agent starts gets, and — for
+ *   <bx-agent-prefs>      what a tile agent the agent starts gets, whether it
+ *                         reads the web and uses MCP tools, and — for
  *                         admins — the opt-in to proposing admin changes;
  *                         opened from the dock's own menu, never by the
  *                         agent's page, and every control that widens the
@@ -27,7 +28,7 @@ import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import { WidenGuard } from '/vendor/bx-agent-approve.js';
-import { needs, standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, neverAsks } from '/vendor/agent-chrome-words.js';
+import { needs, standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, neverAsks, netPrefs } from '/vendor/agent-chrome-words.js';
 
 // an element that draws the store: it subscribes while it is in the page
 class StoreView extends LitElement {
@@ -113,7 +114,7 @@ export class BxAgentActivity extends StoreView {
 export class BxAgentPrefs extends StoreView {
   static properties = { _prefs: { state: true }, _provs: { state: true }, _err: { state: true } };
   static styles = [chromeCss, css`:host { display: flex; flex-direction: column; min-height: 0; flex: 1; } .sec { padding: 12px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--bx-border, #33353F); }
-    label.row { display: flex; gap: 8px; align-items: flex-start; } label.row input { margin-top: 3px; }
+    label.row { display: flex; gap: 8px; align-items: flex-start; } label.row input { margin-top: 3px; } label.row.sub { padding-left: 24px; }
     label.mode { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } label.mode .nm { flex: 1 1 120px; min-width: 0; }
     label.mode select { flex: 1 1 160px; min-width: 0; max-width: 100%; }`];
   // what widens the agent's reach — starting without asking, the internet, other tiles' APIs, the admin opt-in — answers
@@ -134,6 +135,14 @@ export class BxAgentPrefs extends StoreView {
   async _admin(e) {
     if (!e.isTrusted) return;
     const r = await this.store.setAdminChanges(e.target.checked);
+    if (!r.ok) { this._err = r.error; e.target.checked = !e.target.checked; }
+  }
+
+  // the web and MCP tools (D239): the person's own toggles, within what the workspace policy allows
+  async _net(e, id) {
+    if (!e.isTrusted) return;
+    this._err = '';
+    const r = await this.store.setNet({ [id]: e.target.checked });
     if (!r.ok) { this._err = r.error; e.target.checked = !e.target.checked; }
   }
 
@@ -159,6 +168,10 @@ export class BxAgentPrefs extends StoreView {
           @change=${(e) => this._save({ net: e.target.checked ? 'none' : null })}><span>Its model only. No internet.</span></label>
         <label class="row"><input type="checkbox" data-api data-widen="on" .checked=${a.api !== false} @click=${this._widen.click} @keydown=${this._widen.key}
           @change=${(e) => this._save({ api: e.target.checked })}><span>Other tiles: it may call the tile APIs its tile is granted</span></label></div>
+      <div class="sec" data-net-tools><h3>The web and MCP tools</h3>
+        ${netPrefs(st).map((x) => html`<label class="row ${x.sub ? 'sub' : ''}"><input type="checkbox" data-net-pref=${x.id} data-widen="on" .checked=${x.on} ?disabled=${!x.allowed}
+            @click=${this._widen.click} @keydown=${this._widen.key} @change=${(e) => this._net(e, x.id)}>
+          <span><b>${x.label}</b><div class="small muted">${x.allowed ? x.note : x.why}</div></span></label>`)}</div>
       ${st.canAdminChanges ? html`<div class="sec" data-admin><h3>Admin changes</h3>
         <label class="row"><input type="checkbox" data-admin-changes data-widen="on" .checked=${!!st.adminChanges} @click=${this._widen.click} @keydown=${this._widen.key}
           @change=${this._admin}><span><b>Let my agent propose admin changes</b>

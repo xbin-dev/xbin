@@ -97,7 +97,7 @@ type orderArgs struct {
 }
 ```
 
-The backend rebuilds on save; `tools/list` names the tool at once. Mark a tool that changes nothing `readOnlyHint: true`, one that deletes or sends `destructiveHint: true`. A tool that needs data, another tile or the internet needs what any backend does: a resource, a grant in `uses`, a `net` binding.
+The backend rebuilds on save; `tools/list` names the tool at once. Mark a tool that changes nothing `readOnlyHint: true` (a person's workspace agent then calls it without asking, once its person turned on "MCP tools marked read-only don't ask me" — [workspace-agent.md §The web and MCP tools](/docs/workspace-agent.md#the-web-and-mcp-tools)), one that deletes or sends `destructiveHint: true`. A tool that needs data, another tile or the internet needs what any backend does: a resource, a grant in `uses`, a `net` binding.
 
 ## Checking it
 

@@ -5225,7 +5225,6 @@ here: cut from the old end, never reword.
     events, a real `bye` on an xbind update, the full connection view's
     frame check.
 
-
 - **D236 — Give an agent a tool: the `mcp-server` template, `GET /tools`,
   required slots, a default coding agent that runs (2026-11-16; issue #51,
   plans/wsagent/journey.md G4 instance half, G8, G9, G10).** Building an
@@ -5464,3 +5463,56 @@ here: cut from the old end, never reword.
     asker's conversation by itself when an admin decides (`admin_changes`
     reads it).
 
+- **D239 — The workspace agent on the web and with MCP servers:
+  workspace policy, org rules, the person's settings; xbind fetches and
+  speaks MCP (2026-11-16; issue #51; `plans/wsagent/web-mcp.md`).** The
+  owner: "Web access/MCP — let's make this configurable in agent settings
+  + have workspace policy."
+  - **Three layers, each narrowing the one above.** The workspace policy
+    (`PUT /delegate/workspace` `web`, `mcp`; off by default), preset and
+    capped by the host's one deployment file (`XBIN_LLM_CONFIG`'s
+    `workspaceAgent` key, beside D237's `enabled` and `who`); the org rules (`web: ask |
+    allow | never`, `mcp: any | org` in `Org.Agents`); the person's
+    toggles in Preferences (`PUT /delegate/state` `web`, `mcp`,
+    `mcpReadOnly`), widening and so armed like Allow. The host's mode is a
+    ceiling and a preset, not a lock against narrowing: turning a
+    capability off is never what a host must prevent. One host file, not two: `web` and `mcp` are members of
+    the `workspaceAgent` key (parsed with it in `internal/llm`), and
+    `locks` names the held settings by their `PUT` names in the one locks
+    map; a write past a ceiling is `409 {settings}`. Rejected: a file of
+    its own (`XBIN_WSAGENT_CONFIG`, this change's first version), and
+    `lockAll` for these keys — the switch and who are what locks outright.
+  - **xbind fetches, the sandbox stays "model only".** `POST
+    /delegate/web/fetch` (an act): GET only, no credentials, addresses
+    checked when the socket connects (no rebinding), redirects judged hop
+    by hop, 2 MiB / 20 s, a type list, text out, a per-person limit, an
+    audit row per fetch. Rejected: giving the backend's sandbox a network
+    and filtering there — the policy, the org rules and the taint are
+    xbind's, and a sandbox network can't see a conversation's taint.
+  - **A URL is a way out.** A conversation that holds any org's data —
+    the tiles in no org included — fetches only a URL its person approved
+    once (`kind: "web"`), unless every org it holds allows the web
+    outright; one that holds an org's data whose rule is `never` loses the
+    tool. No standing approval of a URL: a URL is the data.
+  - **xbind is the MCP client for a tool's call.** To judge a
+    `tools/call` — which tool, its `readOnlyHint`, the tile's agent level
+    — xbind must read it, and the tool's annotation must come from the
+    server, not from the agent. So `POST /delegate/mcp/call {server,
+    tool, arguments}`, xbind calling the MCP tile as the person. The
+    template's own MCP client is reused for the reads (`initialize`,
+    `tools/list` on the tile's endpoint, through the gate). A tool asks
+    the first time; "always for this tool" is a standing approval of
+    scope `tool`.
+  - **Search only where the provider has it** — a native search tool of
+    an upstream an admin marked, refused by the connector unless the
+    session's reach allows it; never a third-party search service. Not
+    built in this change: `web.search: true` is refused "not available
+    yet", and the reach's `search` is off.
+  - **The reads of an MCP server are reads** (the journey plan's G4): on
+    a tile's declared endpoint, exactly `initialize`, `ping` and
+    `tools/list` (one JSON-RPC request) pass unasked; every other POST
+    there is refused, so a tile-call ticket or standing approval of the
+    endpoint never covers a tool.
+  - **Not yet**: `web.mode: "full"`, `web.search` and `mcp.mode: "listed"`
+    (external MCP servers with credentials held by xbind) are refused with
+    "not available yet" rather than half-built.

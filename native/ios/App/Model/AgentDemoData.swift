@@ -128,6 +128,76 @@ enum AgentDemoData {
    }
   }
  ],
+ "netRequests": [
+  {
+   "id": "rq_web",
+   "user": "ana",
+   "agent": "xbin/wsagent",
+   "kind": "web",
+   "method": "POST",
+   "target": "xbin/delegate/web/fetch",
+   "tile": "",
+   "contentType": "application/json",
+   "body": "{\"url\":\"https://status.example.com/incidents?since=today\"}",
+   "bodyShown": true,
+   "bodySize": 57,
+   "bodySha256": "ef56",
+   "summary": "To see whether the payment provider reports an outage.",
+   "state": "pending",
+   "created": "2026-11-16T10:10:00Z",
+   "expires": "2026-11-17T10:10:00Z",
+   "preview": {
+    "class": "web",
+    "url": "https://status.example.com/incidents?since=today",
+    "host": "status.example.com",
+    "orgs": [
+     "sales"
+    ],
+    "readWeb": true,
+    "why": "This conversation holds data of Sales: an address can carry it out, so each page it reads is one you approve"
+   }
+  },
+  {
+   "id": "rq_mcp",
+   "user": "ana",
+   "agent": "xbin/wsagent",
+   "kind": "mcp",
+   "method": "POST",
+   "target": "xbin/delegate/mcp/call",
+   "tile": "apps/dice",
+   "contentType": "application/json",
+   "body": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+   "bodyShown": true,
+   "bodySize": 62,
+   "bodySha256": "9a8b",
+   "summary": "You asked to clear the table.",
+   "state": "pending",
+   "created": "2026-11-16T10:12:00Z",
+   "expires": "2026-11-17T10:12:00Z",
+   "preview": {
+    "class": "mcp",
+    "tile": "apps/dice",
+    "server": "apps/dice",
+    "serverName": "Dice",
+    "tool": "wipe",
+    "title": "Wipe the table",
+    "description": "Clears every die from the table.",
+    "readOnly": false,
+    "arguments": "{\n  \"table\": \"main\"\n}",
+    "standing": {
+     "tool": "wipe on Dice — this tool again, with any arguments, without asking"
+    }
+   }
+  }
+ ],
+ "net": {
+  "web": {
+   "policy": "read"
+  },
+  "mcp": {
+   "policy": "tiles"
+  }
+ },
  "changeset": {
   "id": "cs_1",
   "user": "ana",
@@ -221,6 +291,15 @@ enum AgentDemoData {
    "scope": "tile",
    "until": "2026-11-16T10:00:00Z",
    "created": "2026-11-16T09:00:00Z"
+  },
+  {
+   "id": "ap_4",
+   "user": "ana",
+   "tile": "apps/dice",
+   "scope": "tool",
+   "method": "MCP",
+   "path": "wipe",
+   "created": "2026-11-16T09:30:00Z"
   }
  ],
  "audit": [
@@ -379,6 +458,77 @@ enum AgentDemoData {
    "path": "/api/xbin/whoami",
    "class": "read",
    "status": 200
+  },
+  {
+   "ts": "2026-11-16T09:50:00Z",
+   "method": "GET",
+   "path": "https://status.example.com/incidents",
+   "class": "web",
+   "status": 200,
+   "bytes": 14336,
+   "ticket": "rq_web"
+  },
+  {
+   "ts": "2026-11-16T09:49:00Z",
+   "method": "GET",
+   "path": "https://docs.example.com/",
+   "class": "web",
+   "status": 200
+  },
+  {
+   "ts": "2026-11-16T09:48:00Z",
+   "method": "GET",
+   "path": "https://intranet.example.com/",
+   "class": "web",
+   "status": 403,
+   "refused": "intranet.example.com is on the workspace's deny list"
+  },
+  {
+   "ts": "2026-11-16T09:47:00Z",
+   "method": "POST",
+   "path": "/api/apps/dice/mcp",
+   "tile": "apps/dice",
+   "class": "mcp",
+   "effect": true,
+   "status": 200,
+   "ticket": "rq_mcp"
+  },
+  {
+   "ts": "2026-11-16T09:46:00Z",
+   "method": "POST",
+   "path": "/api/apps/dice/mcp",
+   "tile": "apps/dice",
+   "class": "mcp",
+   "effect": true,
+   "status": 200,
+   "under": "preference"
+  },
+  {
+   "ts": "2026-11-16T09:45:00Z",
+   "method": "POST",
+   "path": "/api/apps/dice/mcp",
+   "tile": "apps/dice",
+   "class": "mcp",
+   "effect": true,
+   "status": 502,
+   "under": "approval:ap_4"
+  },
+  {
+   "ts": "2026-11-16T09:44:00Z",
+   "method": "POST",
+   "path": "/api/apps/dice/mcp",
+   "tile": "apps/dice",
+   "class": "mcp-read",
+   "status": 200
+  },
+  {
+   "ts": "2026-11-16T09:43:00Z",
+   "method": "POST",
+   "path": "/api/apps/dice/mcp",
+   "tile": "apps/dice",
+   "class": "mcp",
+   "status": 403,
+   "refused": "Using MCP tools is off for this workspace"
   }
  ],
  "states": {

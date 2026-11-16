@@ -179,6 +179,11 @@ func (ag *Agent) wsOpenHolding(ctx context.Context, s *wsSession, scope *wsScope
 	if h.Model == "" {
 		h.Model = model
 	}
+	if s.Conn.Web && !h.Web { // it has read the web: the new handle holds that too (D239)
+		if err := wsX.MarkWeb(ctx, h.ID); err == nil {
+			h.Web = true
+		}
+	}
 	if len(s.Tainted) == 0 {
 		return h, nil
 	}
@@ -282,6 +287,7 @@ func (ag *Agent) wsReopen(ctx context.Context, s *wsSession) error {
 // wsKeepHandle stores h as s's handle: the conversation can go on.
 func (ag *Agent) wsKeepHandle(s *wsSession, h wsHandle) error {
 	h.Tainted = wsUnion(s.Tainted, h.Tainted)
+	h.Web = h.Web || s.Conn.Web // what the conversation holds outlives the handle
 	all, err := ag.db.wsPutHandle(s.Run, h)
 	if err != nil {
 		return err
@@ -338,6 +344,7 @@ func (ag *Agent) wsRefresh(ctx context.Context, s *wsSession, force bool) {
 		return
 	}
 	h.Tainted = wsUnion(s.Tainted, h.Tainted)
+	h.Web = h.Web || s.Conn.Web
 	if h.Model == "" {
 		h.Model = s.Model
 	}

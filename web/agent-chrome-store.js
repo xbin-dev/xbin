@@ -216,6 +216,14 @@ class AgentStore {
     return r.ok ? { ok: true } : { ok: false, error: say(r, "That couldn't be changed") };
   }
 
+  /** setNet({web?, mcp?, mcpReadOnly?}): the person's own web and MCP settings (D239) — on only while the workspace policy allows (409 otherwise, said). */
+  async setNet(patch) {
+    const r = await call('/delegate/state', { method: 'PUT', body: patch });
+    if (r.ok) this.state = r.data;
+    this.emit();
+    return r.ok ? { ok: true } : { ok: false, error: say(r, "That couldn't be changed") };
+  }
+
   /** setWorkspace(on): an admin turns workspace agents on or off for everyone. */
   async setWorkspace(on) {
     const r = await call('/delegate/workspace', { method: 'PUT', body: { enabled: !!on } });

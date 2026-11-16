@@ -192,15 +192,16 @@ export const FULL = {
 };
 
 export const SESSIONS = [
-  { id: 1, name: 'Main', main: true, model: 'hosted/big', handle: 'h1', status: 'running', agents: 2, requests: 1, connection: { counts: FULL.counts }, summary: FULL.counts.summary, activityMs: now },
+  { id: 1, name: 'Main', main: true, model: 'hosted/big', handle: 'h1', status: 'running', agents: 2, requests: 1, connection: { counts: FULL.counts }, summary: FULL.counts.summary, activityMs: now,
+    reach: { web: { state: 'asks', orgs: ['sales'] }, mcp: { state: 'off', code: 'mcp-off' } } },
   { id: 2, name: 'Month-end', main: false, model: 'local/llama', handle: 'h2', status: 'waiting_input', agents: 0, requests: 0, connection: { counts: { tiles: 5, orgs: 3 } }, activityMs: now - 3600e3 },
   { id: 3, name: 'Leave tracker idea', main: false, model: 'hosted/big', handle: 'h3', status: 'idle', archivedAt: now - 1e6, connection: { counts: { tiles: 2, orgs: 1 } }, activityMs: now - 9 * 86400e3 },
 ];
 
 export const EMPTY = {
   heading: 'Ask for an outcome', line: 'The workspace agent plans the work, hands building to each tile’s own agent, and asks you before anything changes.',
-  can: ['Look across your 3 connected tiles', 'Start tile agents and keep track of them', 'Do things in a tile for you, once you approve', 'Remember what you tell it'],
-  cant: ['Change code itself — a tile’s agent does', 'Answer a tile agent’s questions for you', 'See the 3 tiles that aren’t connected', 'Use the web'],
+  can: ['Look across your 3 connected tiles', 'Change a tile’s code — by briefing that tile’s own agent', 'Do things in a tile for you, once you approve', 'Remember what you tell it', 'Read web pages you approve, one by one'],
+  cant: ['Answer a tile agent’s questions for you — those come to you', 'Act without your approval where a change is involved', 'See the 3 tiles that aren’t connected', 'Use MCP tools — off for this workspace — an admin can turn it on'],
   connected: 3, notConnected: 3, placeholder: 'Ask for an outcome…', hint: 'Say what you want and how you’ll know it’s done. The agent works out the steps.',
   startersTitle: 'Try one — from your tiles',
   starters: [{ kind: 'Fix', tile: 'people/calendar', text: 'Team calendar isn’t running. Find out why.' }, { kind: 'Ask', tile: 'sales/orders', text: 'What does Orders do, and who can use it?' },

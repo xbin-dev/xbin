@@ -66,7 +66,7 @@ func TestWsEvalDicePlan(t *testing.T) {
 			t.Errorf("plan_propose as offered doesn't say what it replaces: %s", o.Function.Description)
 		}
 	}
-	if !strings.Contains(wsSystem(), "propose them as ONE plan (plan_propose), never as a chain of single requests") {
+	if !strings.Contains(wsSystem(), "are ONE plan (plan_propose), never a chain of single requests") || !strings.Contains(wsSystem(), "Applied is not done") {
 		t.Error("the prompt doesn't teach the plan")
 	}
 	got := fx.toolResult(t, s, "plan_propose")

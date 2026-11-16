@@ -58,6 +58,8 @@ const (
 	KindCall     = "call"     // a tile API call
 	KindSession  = "session"  // POST /term/sessions
 	KindTemplate = "template" // POST /templates/new
+	KindWeb      = "web"      // POST /delegate/web/fetch: a URL the conversation may read (D239)
+	KindMCP      = "mcp"      // POST /delegate/mcp/call: a tool of an MCP server (D239)
 )
 
 // Standing approval scopes.
@@ -68,7 +70,14 @@ const (
 	// ScopeTile: every write to the tile's API. The wider choice, made
 	// explicitly.
 	ScopeTile = "tile"
+	// ScopeTool: one tool of an MCP tile — "always for this tool", any
+	// arguments (D239). Method is MCPMethod and Path the tool's name.
+	ScopeTool = "tool"
 )
+
+// MCPMethod is the method a standing approval of an MCP tool names: never
+// an HTTP method, so it covers no call of the tile's API.
+const MCPMethod = "MCP"
 
 // Limits.
 const (
@@ -160,6 +169,9 @@ type Approval struct {
 	Created time.Time `json:"created"`
 	Via     string    `json:"via,omitempty"`
 	Request string    `json:"request,omitempty"` // the request it was given on
+	// Pin: scope tool — the tool's definition the person allowed
+	// (toolpins.go); a served definition that differs isn't covered
+	Pin *ToolPin `json:"pin,omitempty"`
 }
 
 // covers reports whether a allows method on path of tile.
@@ -167,7 +179,15 @@ func (a Approval) covers(tile, method, path string) bool {
 	if a.Tile != tile {
 		return false
 	}
-	return a.Scope == ScopeTile || a.Scope == ScopeCall && a.Method == method && a.Path == path
+	switch a.Scope {
+	case ScopeTile:
+		return true
+	case ScopeCall: // a method and a path — never an MCP tool's call
+		return method != MCPMethod && a.Method == method && a.Path == path
+	case ScopeTool: // a tool, by its name — never an HTTP call
+		return method == MCPMethod && a.Method == MCPMethod && a.Path == path
+	}
+	return false
 }
 
 type requestsDoc struct {
@@ -193,7 +213,7 @@ var (
 	// ErrUnseenBody: the request's body can't be shown, and the approval
 	// didn't say it approves it unseen.
 	ErrUnseenBody   = errors.New("this request carries a body that can't be shown as text: approving it means approving bytes nobody read — say so ({unseen: true}) or deny it")
-	ErrStandingKind = errors.New("a standing approval covers a tile's API: a session start or a tile create is approved each time")
+	ErrStandingKind = errors.New("a standing approval covers a tile's API or one MCP tool: a session start, a tile create or a web page is approved each time")
 )
 
 // BodyHash is the hex SHA-256 a ticket binds a body by.
@@ -363,10 +383,7 @@ func (s *Store) DecideWith(user, id, grant, scope, via string, unseen bool) (Req
 	if grant != "" && grant != GrantOnce && grant != GrantHour && grant != GrantAlways {
 		return Request{}, nil, ErrBadGrant
 	}
-	if scope == "" {
-		scope = ScopeCall
-	}
-	if scope != ScopeCall && scope != ScopeTile {
+	if scope != "" && scope != ScopeCall && scope != ScopeTile && scope != ScopeTool {
 		return Request{}, nil, ErrBadScope
 	}
 	p := s.lock(user)
@@ -383,7 +400,23 @@ func (s *Store) DecideWith(user, id, grant, scope, via string, unseen bool) (Req
 	if r.State != Pending {
 		return *r, nil, ErrNotPending
 	}
-	if (grant == GrantHour || grant == GrantAlways) && (r.Kind != KindCall || r.Tile == "") {
+	tool, _ := r.Preview["tool"].(string)
+	switch {
+	case grant != GrantHour && grant != GrantAlways:
+	case r.Kind == KindCall && r.Tile != "":
+		if scope == "" {
+			scope = ScopeCall
+		}
+		if scope == ScopeTool {
+			return *r, nil, ErrBadScope
+		}
+	case r.Kind == KindMCP && r.Tile != "" && tool != "":
+		// "always for this tool": that server and that tool, any arguments
+		if scope != "" && scope != ScopeTool {
+			return *r, nil, ErrBadScope
+		}
+		scope = ScopeTool
+	default:
 		return *r, nil, ErrStandingKind
 	}
 	if grant != "" && r.BodyBinary && !unseen {
@@ -398,7 +431,11 @@ func (s *Store) DecideWith(user, id, grant, scope, via string, unseen bool) (Req
 	} else {
 		r.State, r.Expires = Approved, now.Add(TicketTTL)
 		if grant != GrantOnce {
-			a, err := s.addApproval(p, Approval{User: user, Tile: r.Tile, Scope: scope, Method: r.Method, Path: r.Path(), Via: via, Request: r.ID}, grant)
+			give := Approval{User: user, Tile: r.Tile, Scope: scope, Method: r.Method, Path: r.Path(), Via: via, Request: r.ID}
+			if scope == ScopeTool {
+				give.Method, give.Path, give.Pin = MCPMethod, tool, PinFromPreview(r.Preview["pin"])
+			}
+			a, err := s.addApproval(p, give, grant)
 			if err != nil {
 				return Request{}, nil, err
 			}
@@ -503,6 +540,7 @@ func (s *Store) addApproval(p *person, a Approval, grant string) (Approval, erro
 	case a.Scope == ScopeTile:
 		a.Method, a.Path = "", ""
 	case a.Scope == ScopeCall && a.Method != "" && a.Path != "" && len(a.Path) <= MaxTarget:
+	case a.Scope == ScopeTool && a.Method == MCPMethod && a.Path != "" && len(a.Path) <= MaxTarget:
 	default:
 		return Approval{}, ErrBadScope
 	}

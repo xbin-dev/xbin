@@ -649,6 +649,12 @@ Where it differs from §4 and §6c:
   behind it — unless the person turned the standing opt-in on. Every tile
   a line names is held to the conversation's scope and to what its person
   can see, when described and when applied.
+- **The agent's own check after Apply** is a read of the assistant's
+  `GET /tools`. With MCP for the workspace agent (D239) it can also list
+  the dice tile's tools itself (`mcp_tools`, a free read) — only where the
+  person's `mcp` setting allows workspace tiles, which is off by default
+  and which a plan never turns on: without it the agent says that check
+  was not possible.
 - **A creation says what the template gives** the new tile (a use inside
   the scope it lands in is a warning: the line gives that access by
   itself), and is stale when the template changed since it was shown.

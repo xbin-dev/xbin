@@ -257,10 +257,21 @@ shape for both:
 ```jsonc
 {"workspaceAgent": "on",              // "on" | "off": may people's workspace agents work on these tiles
  "harnesses": "any",                  // "any" | ["claude", "codex"] — ids of GET /agent/providers; [] allows none
- "models": "any"}                     // "any" | "private" | ["local", "hosted/small"] — LLM connector ids:
+ "models": "any",                     // "any" | "private" | ["local", "hosted/small"] — LLM connector ids:
                                       //   an upstream (all its models) or upstream/model; "private": a model
                                       //   of an upstream the connector marks private
+ "web": "ask",                        // "ask" | "allow" | "never": a workspace agent's conversation that holds
+                                      //   this org's data reads only URLs its person approves, reads freely,
+                                      //   or never reads the web (D239); omitted when unset
+ "mcp": "any"}                        // "any" | "org": such a conversation uses any MCP server the workspace
+                                      //   allows, or only the MCP tiles under this org; omitted when unset
 ```
+
+`web` and `mcp` are asked for every org whose data a workspace agent's
+conversation holds — its session's taint — not for the tile a call names
+([protocol/delegation.md](/docs/protocol/delegation.md) §Web and MCP).
+Strictest wins: `never` over `ask` over `allow`, `org` over `any`; an org
+can't loosen the bounds or its pin (`allow` under an `ask` is 400).
 
 A call is filtered by the **tile's** orgs — the org that owns it and every
 org it is shared into, by an exact share or a pattern — and by the
@@ -308,7 +319,8 @@ GET    /agents/policy             a person, or admin/xbin:users (a tile's
                                    knownHarnesses: the ids a list may name;
                                    canSet: the caller may PUT
 PUT    /agents/policy             admin/xbin:users. {workspaceAgent?,
-                                   harnesses?, models?, credentials?}: each
+                                   harnesses?, models?, web?, mcp?,
+                                   credentials?}: each
                                    key named is set, the rest keep their
                                    value, null puts a rule back to its
                                    default → the view above. 400 an unknown
@@ -322,7 +334,8 @@ PUT    /orgs/<org>/agents         admin/xbin:users for any org; an admin of
                                    own — never a tile driven by one, a
                                    terminal's or an agent session's token,
                                    or view-as (403). {workspaceAgent?,
-                                   harnesses?, models?}, as above → {agents,
+                                   harnesses?, models?, web?, mcp?}, as
+                                   above → {agents,
                                    pin, bounds}. The result must sit within
                                    the workspace's bounds and the org's
                                    pin: an org narrows them, never widens —
@@ -333,7 +346,8 @@ PUT    /orgs/<org>/agents         admin/xbin:users for any org; an admin of
                                    Audited; `users` and `agents` events
 PUT    /orgs/<org>/agents/pin     admin/xbin:users only (an org's own admin:
                                    403). {workspaceAgent?, harnesses?,
-                                   models?}: the pinned rules, each key
+                                   models?, web?, mcp?}: the pinned rules,
+                                   each key
                                    named set, null back to none → {agents,
                                    pin, bounds}. Within the workspace's
                                    bounds (400). The org's own rules are

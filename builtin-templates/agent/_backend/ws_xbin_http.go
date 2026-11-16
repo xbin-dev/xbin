@@ -221,7 +221,8 @@ func (h wsHTTP) Map(ctx context.Context, sid string) (wsMap, error) {
 		Tiles []struct {
 			Tile, Title, Kind, State, Agent string
 			Orgs                            []string
-			TileAgents                      int `json:"tileAgents"`
+			TileAgents                      int  `json:"tileAgents"`
+			MCP                             bool `json:"mcp"`
 		} `json:"tiles"`
 		Screens []struct {
 			ID, Name string
@@ -238,7 +239,7 @@ func (h wsHTTP) Map(ctx context.Context, sid string) (wsMap, error) {
 	_ = h.get(ctx, sid, "/api/xbin/tile-report", &rep) // best effort: a map without status lines is still a map
 	out := wsMap{Orgs: raw.Orgs}
 	for _, t := range raw.Tiles {
-		tile := wsTile{Path: t.Tile, Title: t.Title, Kind: t.Kind, Orgs: t.Orgs, Status: t.State, Agent: orStr(t.Agent, "full"), Running: t.TileAgents > 0}
+		tile := wsTile{Path: t.Tile, Title: t.Title, Kind: t.Kind, Orgs: t.Orgs, Status: t.State, Agent: orStr(t.Agent, "full"), Running: t.TileAgents > 0, MCP: t.MCP}
 		if st, ok := rep.Statuses[t.Tile]; ok && st.Message != "" {
 			tile.Report = st.Level + ": " + st.Message
 		}

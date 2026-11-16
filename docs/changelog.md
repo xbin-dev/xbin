@@ -101,6 +101,30 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   waiting). The review of a change set draws a binding's before and after
   in words (`beforeText`, `afterText` on each item, written by xbind;
   additive) — it showed `[object Object]`.
+- delegation, the workspace agent: **it can read the web and use MCP
+  tiles — off until turned on.** Three layers, each only narrowing: the
+  workspace's policy (`web: {mode: off|read, allow, deny}`, `mcp: {mode:
+  off|tiles}` on `PUT /delegate/workspace`, additive; the agent's card on
+  `/xbin/system`), preset and capped by the host's file
+  (`XBIN_LLM_CONFIG`'s `workspaceAgent` key: `web`, `mcp`); an org's agent rules (`web: ask|allow|never`,
+  `mcp: org`; `bx org agents --web --mcp`); and the person's own
+  Preferences (`web`, `mcp`, `mcpReadOnly` on `PUT /delegate/state`, armed
+  like Allow, web and app). New routes for the agent: `POST
+  /delegate/web/fetch` (one `GET` made by xbind to public addresses only,
+  checked as it connects; a conversation holding an org's data asks its
+  person for each URL — request kind `web`, once only) and `POST
+  /delegate/mcp/call` (request kind `mcp`, approved once or always for
+  that tool — a standing approval of `scope: "tool"`); the agent may also
+  send `initialize`, `ping` and `tools/list` to a tile's declared MCP
+  endpoint without asking. A session's handle carries `web` and `reach`;
+  requests carry `preview.readWeb` after a page was read; the log has
+  `class: "web" | "mcp" | "mcp-read"` rows. The agent template's
+  workspace mode gains the tools `web_read`, `mcp_tools` and `mcp_call`, and
+  its empty state lists what it can't do with who can turn it on. Not yet:
+  search, sending to the web, MCP servers listed by URL — each refused as
+  "not available yet" ([workspace-agent.md](/docs/workspace-agent.md) §The
+  web and MCP tools, [protocol/delegation.md](/docs/protocol/delegation.md)
+  §Web and MCP, [protocol/orgs.md](/docs/protocol/orgs.md)).
 - sign-in: **the first-run sheet** (D237). While a workspace has no
   accounts, the owner token's first visit opens one sheet of xbin's
   chrome over the shell — a name, a password, the vault's passphrase

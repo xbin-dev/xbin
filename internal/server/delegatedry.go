@@ -140,3 +140,42 @@ func dryPreview(s *Server, p auth.Principal, _ *http.Request, body []byte, row *
 	row.Tile, preview["tile"] = strings.Trim(t.Tile, "/"), strings.Trim(t.Tile, "/")
 	return "", ""
 }
+
+// dryWeb: what this fetch would need now — the reach, the URL — or why it
+// is refused (delegateweb.go's webDry, the handler's own check).
+func dryWeb(s *Server, p auth.Principal, _ *http.Request, body []byte, _ *delegation.Call, preview map[string]any) (string, string) {
+	h, ok := s.handleOf(p)
+	if !ok {
+		return "", ""
+	}
+	switch why, asks := s.webDry(p, h, body); {
+	case why != "":
+		return "web", why
+	case asks:
+		preview["needsApproval"] = true
+	}
+	return "", ""
+}
+
+// dryMCP: what this tool's call would need now — a standing approval
+// covers it, or the person is asked — or why it is refused (delegatemcp.go's
+// mcpJudge, the handler's own check).
+func dryMCP(s *Server, p auth.Principal, r *http.Request, body []byte, _ *delegation.Call, preview map[string]any) (string, string) {
+	h, ok := s.handleOf(p)
+	if !ok {
+		return "", ""
+	}
+	c, err := readMCPCall(body)
+	if err != nil {
+		return "mcp", err.Error()
+	}
+	switch _, under, _, _, _, msg := s.mcpJudge(r.Context(), p, h, c); {
+	case msg != "":
+		return "mcp", msg
+	case under != "":
+		preview["under"] = under
+	default:
+		preview["needsApproval"] = true
+	}
+	return "", ""
+}

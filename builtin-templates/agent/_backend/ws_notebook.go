@@ -481,6 +481,7 @@ func (ag *Agent) wsPromptFor(run *Run, cfg Config) string {
 	if len(s.Tainted) > 0 {
 		fmt.Fprintf(&b, "This conversation holds data from: %s. It can move only to a model those orgs allow.\n", strings.Join(s.Tainted, ", "))
 	}
+	b.WriteString(wsNetLines(s.Conn.Reach)) // the web and MCP tools (ws_tools_web.go)
 	if s.Plan != "" {
 		var steps []wsPlanStep
 		if json.Unmarshal([]byte(s.Plan), &steps) == nil && len(steps) > 0 {

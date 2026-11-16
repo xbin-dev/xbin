@@ -50,6 +50,8 @@ func init() {
 			"tile_agent_brief", "tile_agent_start", "tile_agent_message", "tile_agent_status", "tile_agent_result", "tile_agent_cancel", "tile_agents",
 			"research", "tile_create", "admin_propose", "admin_changes", "preview", "plan_propose",
 			"plan", "notebook_search", "notebook_read", "notebook_write", "notebook_edit", "notebook_archive",
+			"web_read",              // the web, through xbind (ws_tools_web.go; D239)
+			"mcp_tools", "mcp_call", // MCP tiles, through xbind (ws_tools_mcp.go)
 		},
 		Limits: coordBounds{Research: wsResearchMax, ResearchTimeout: wsResearchTimeout, Wakes: wsWakeBurst},
 		Is: func(d *DB, run *Run) bool {
@@ -68,6 +70,8 @@ func init() {
 	coordWorkspace.mustRegister(wsOtherTools()...)
 	coordWorkspace.mustRegister(wsPlanTools()...)
 	coordWorkspace.mustRegister(wsTalkTools()...)
+	coordWorkspace.mustRegister(wsNetTools()...)
+	coordWorkspace.mustRegister(wsMCPTools()...)
 }
 
 // wsResolve is the coordinator's boundary, on every tool call: the
@@ -208,6 +212,11 @@ func wsWaitingWords(d *DB, runID int64) string {
 // wsSpecs words the core tools for a workspace agent: ask_user takes
 // choices, since people answer a choice more easily than an open question.
 func wsSpecs(cfg Config, run *Run, specs []toolSpec) []toolSpec {
+	if agent != nil && run != nil { // what this session can't use now isn't offered (ws_tools_web.go)
+		if s, err := agent.db.wsSession(run.ID); err == nil {
+			specs = wsNetSpecs(s, specs)
+		}
+	}
 	out := make([]toolSpec, 0, len(specs))
 	for _, s := range specs {
 		if s.Function.Name == "ask_user" {

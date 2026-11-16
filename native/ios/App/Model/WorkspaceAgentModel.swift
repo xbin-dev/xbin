@@ -364,6 +364,19 @@ final class WorkspaceAgentModel {
         return nil
     }
 
+    /// One of the web and MCP settings (D239; ``NetPref/id``). xbind refuses
+    /// one its workspace policy has off (409, in its words).
+    func setNet(_ id: String, _ on: Bool) async -> String? {
+        guard let req = DelegateRoute.setNet(id, on) else { return nil }
+        let out = await decide(req)
+        if case .done(let j) = out, let s = DelegateState(json: j) { state = s } else { await readState() }
+        switch out {
+        case .done: return nil
+        case .failed(let why), .gone(let why), .stopped(_, let why): return why
+        case .stepUp, .unseen: return "That couldn't be saved."
+        }
+    }
+
     func audit(before: Date? = nil) async -> [AuditRow]? {
         guard let j = await get(DelegateRoute.audit(before: before)) else { return nil }
         return AuditRow.list(j)

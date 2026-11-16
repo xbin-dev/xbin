@@ -69,7 +69,8 @@ const changeSet = (id) => ({ id, user: 'admin', agent: 'system/agent', title: 'W
 
 // the fake of docs/protocol/delegation.md, for one browser context
 async function fakeDelegation(ctx) {
-  const S = { state: { user: 'admin', workspace: true, paused: false, adminChanges: false, canAdminChanges: true }, llm: { configured: true, enabled: true }, requests: [], approvals: [], changesets: [],
+  const S = { state: { user: 'admin', workspace: true, paused: false, adminChanges: false, canAdminChanges: true, web: false, mcp: false, mcpReadOnly: false,
+    net: { web: { policy: 'read' }, mcp: { policy: 'off', why: 'Using MCP tools is off for this workspace — an admin can change it (the workspace agent’s settings)' }, search: false } }, llm: { configured: true, enabled: true }, requests: [], approvals: [], changesets: [],
     audit: [], prefs: { agentSessions: { start: 'ask' } }, sent: [], stepUp: '', n: 0, refuse: '' };
   const json = (route, v, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(v) });
   const state = () => ({ ...S.state, pendingRequests: S.requests.filter((r) => r.state === 'pending').length, standingApprovals: S.approvals.length, openChangeSets: S.changesets.filter((c) => c.state === 'proposed').length });
@@ -100,7 +101,7 @@ async function fakeDelegation(ctx) {
       // as xbind does while the agent is stopped: nothing is allowed (409 {refusal}); deny still works
       if (S.refuse) return json(route, { error: 'the agent is stopped', refusal: S.refuse }, 409);
       r.state = 'approved'; r.grant = body.grant || 'once'; r.decided = new Date().toISOString();
-      if (body.grant && body.grant !== 'once') S.approvals.push({ id: `a${++S.n}`, user: 'admin', tile: r.tile, scope: body.scope, ...(body.scope === 'call' ? { method: r.method, path: '/links/rebuild' } : {}), created: new Date().toISOString(), ...(body.grant === 'hour' ? { until: iso(3600000) } : {}) });
+      if (body.grant && body.grant !== 'once') S.approvals.push({ id: `a${++S.n}`, user: 'admin', tile: r.tile, scope: body.scope, ...(body.scope === 'call' ? { method: r.method, path: '/links/rebuild' } : body.scope === 'tool' ? { method: 'MCP', path: r.preview.tool } : {}), created: new Date().toISOString(), ...(body.grant === 'hour' ? { until: iso(3600000) } : {}) });
       return json(route, { request: r });
     }
     if (seg[0] === 'approvals') {
@@ -379,7 +380,7 @@ async function agentChrome(browser) {
     await page.waitForTimeout(150); // (a negative: nothing may be sent)
     await page.$eval(`${DOCK} bx-agent-prefs [data-api]`, (e) => { e.checked = true; }); // (back as it is)
     const held = await page.$$eval(`${DOCK} bx-agent-prefs [data-start="allow"], ${DOCK} bx-agent-prefs [data-net], ${DOCK} bx-agent-prefs [data-api], ${DOCK} bx-agent-prefs [data-admin-changes]`, (els) => els.map((e) => e.checked));
-    check(unarmed.length === 4 && unarmed.every((u) => u.endsWith(':true')) && sentTo(/PUT \/agent\/prefs/).length === 0 && !S.state.adminChanges && JSON.stringify(held) === '[false,true,true,false]',
+    check(unarmed.length === 7 && unarmed.every((u) => u.endsWith(':true')) && sentTo(/PUT \/agent\/prefs/).length === 0 && !S.state.adminChanges && JSON.stringify(held) === '[false,true,true,false]',
       `[${width}] Preferences: what widens the agent's reach — start without asking, the internet, other tiles, the admin opt-in — isn't armed at once, answers no script's click and no Enter (${unarmed.join(' ')}; ${JSON.stringify(held)})`);
     await armed(PREF('[data-start="allow"]'));
     await page.click(`${DOCK} bx-agent-prefs [data-admin-changes]`);
@@ -405,6 +406,17 @@ async function agentChrome(browser) {
     const refused = await ctx.request.put(`${URL}/api/xbin/agent/prefs`, { data: { agentSessions: { modes: { claude: 'bypassPermissions' } } } }); // (the real route: page routes don't reach ctx.request)
     const refusedWhy = (await refused.json().catch(() => ({}))).error || '';
     check(refused.status() === 400 && /can't be saved/.test(refusedWhy), `[${width}] …and xbind itself refuses a mode that never asks (${refused.status()} ${refusedWhy})`);
+    // the web and MCP tools (D239): turning one on widens — armed like Allow; one the workspace policy has off says why and can't be ticked
+    const netRows = await page.$$eval(`${DOCK} bx-agent-prefs [data-net-pref]`, (els) => els.map((e) => `${e.dataset.netPref}:${e.disabled}`));
+    await page.$eval(`${DOCK} bx-agent-prefs [data-net-pref="web"]`, (e) => e.click()); // a script's click
+    await page.waitForTimeout(150); // (a negative: nothing may be sent)
+    const webEarly = sentTo(/PUT \/state$/).some((c) => c.body && c.body.web === true);
+    await armed(PREF('[data-net-pref="web"]'));
+    await page.click(`${DOCK} bx-agent-prefs [data-net-pref="web"]`);
+    for (let i = 0; i < 50 && S.state.web !== true; i++) await page.waitForTimeout(40);
+    const mcpWhy = await text(`${DOCK} bx-agent-prefs [data-net-tools]`);
+    check(netRows.join(' ') === 'web:false mcp:true mcpReadOnly:true' && !webEarly && S.state.web === true && /Using MCP tools is off for this workspace — an admin can change it/.test(mcpWhy),
+      `[${width}] Preferences: the web is the person's to turn on, armed like Allow; MCP, off by policy, says why (${netRows.join(' ')})`);
     await shot(page, `agent-chrome-prefs${tag}`, { fullPage: false });
 
     // ---- a hostile page in the dock's frame cannot grant ----

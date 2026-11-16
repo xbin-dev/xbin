@@ -291,7 +291,9 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a := d.Attribute; a != nil && a.ReadOnly && r.Method != http.MethodGet && r.Method != http.MethodHead {
+	// (a POST xbind itself judged a read — an MCP server's read, a read-only
+	// tool's call — is one: auth.WithAgentRead, never anything a caller sends)
+	if a := d.Attribute; a != nil && a.ReadOnly && r.Method != http.MethodGet && r.Method != http.MethodHead && !auth.AgentRead(r.Context()) {
 		jsonErr(w, http.StatusForbidden, comp.Path+" lets a person's agent read only (its agent level is \"read\")", "")
 		return
 	}

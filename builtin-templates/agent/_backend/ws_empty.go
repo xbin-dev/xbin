@@ -94,6 +94,51 @@ func wsStarters(tiles []wsTile) []wsStarter {
 	return out
 }
 
+// wsCanCant are the empty state's two lists: nothing in "can't" is a thing
+// the agent can get done another way, and what the session's reach turns
+// on or off is said with who can change it.
+func wsCanCant(c wsConnection, reach wsReach) (can, cant []string) {
+	can = []string{
+		fmt.Sprintf("Look across your %d connected tiles", c.Counts.Tiles),
+		"Change a tile's code — by briefing that tile's own agent",
+		"Do things in a tile for you, once you approve",
+		"Remember what you tell it",
+	}
+	switch reach.Web.State {
+	case "on":
+		can = append(can, "Read web pages")
+	case "asks":
+		can = append(can, "Read web pages you approve, one by one")
+	}
+	if reach.MCP.on() {
+		can = append(can, "Use MCP tools from your tiles, once you approve each")
+	}
+	cant = []string{"Answer a tile agent's questions for you — those come to you", "Act without your approval where a change is involved"}
+	if not := c.Counts.NotConnected; not > 0 {
+		cant = append(cant, fmt.Sprintf("See the %d tiles that aren't connected", not))
+	}
+	if !reach.Web.on() {
+		cant = append(cant, "Use the web — "+wsWhoTurnsOn(reach.Web, "web-person"))
+	}
+	if !reach.MCP.on() {
+		cant = append(cant, "Use MCP tools — "+wsWhoTurnsOn(reach.MCP, "mcp-person"))
+	}
+	return can, cant
+}
+
+// wsWhoTurnsOn is who can turn a capability on, in the empty state's words.
+func wsWhoTurnsOn(r wsReachOne, person string) string {
+	switch {
+	case r.Code == person:
+		return "you can turn it on in Preferences"
+	case r.Code == "web-org":
+		return "this conversation holds data of an org that keeps it off the web; a new session can"
+	case strings.Contains(r.Why, "set by your host"):
+		return "off for this workspace — set by your host"
+	}
+	return "off for this workspace — an admin can turn it on"
+}
+
 func handleWsEmpty(w http.ResponseWriter, r *http.Request) {
 	owner, ok := wsCaller(w, r)
 	if !ok {
@@ -107,17 +152,7 @@ func handleWsEmpty(w http.ResponseWriter, r *http.Request) {
 	agent.wsRefresh(r.Context(), s, false)
 	c := s.Conn.Connection
 	not := c.Counts.NotConnected
-	can := []string{
-		fmt.Sprintf("Look across your %d connected tiles", c.Counts.Tiles),
-		"Start tile agents and keep track of them",
-		"Do things in a tile for you, once you approve",
-		"Remember what you tell it",
-	}
-	cant := []string{"Change code itself — a tile's agent does", "Answer a tile agent's questions for you"}
-	if not > 0 {
-		cant = append(cant, fmt.Sprintf("See the %d tiles that aren't connected", not))
-	}
-	cant = append(cant, "Use the web")
+	can, cant := wsCanCant(c, s.Conn.Reach)
 	out := map[string]any{
 		"heading": "Ask for an outcome",
 		"line":    "The workspace agent plans the work, hands building to each tile's own agent, and asks you before it changes anything itself.",

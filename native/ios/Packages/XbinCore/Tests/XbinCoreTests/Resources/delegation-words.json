@@ -110,6 +110,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -234,6 +247,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Ledger",
+    "Allow every change to Ledger",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Ledger?",
     "means": "From now on your agent can create, change and delete anything in Ledger that you can, without asking.",
@@ -369,6 +395,21 @@
      "unseen": true
     }
    ],
+   "tool": [
+    "Allow every change to Files",
+    "Allow every change to Files",
+    {
+     "grant": "always",
+     "scope": "call",
+     "unseen": true
+    },
+    {
+     "grant": "hour",
+     "scope": "call",
+     "unseen": true
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Files?",
     "means": "From now on your agent can create, change and delete anything in Files that you can, without asking.",
@@ -497,6 +538,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Team calendar",
+    "Allow every change to Team calendar",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Team calendar?",
     "means": "From now on your agent can create, change and delete anything in Team calendar that you can, without asking.",
@@ -628,6 +682,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -759,6 +826,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -890,6 +970,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -1020,6 +1113,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -1149,6 +1255,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -1278,6 +1397,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -1407,6 +1539,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -1538,6 +1683,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -1667,6 +1825,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -1796,6 +1967,19 @@
      "scope": "tile"
     }
    ],
+   "tool": [
+    "Allow every change to Invoices",
+    "Allow every change to Invoices",
+    {
+     "grant": "always",
+     "scope": "call"
+    },
+    {
+     "grant": "hour",
+     "scope": "call"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Invoices?",
     "means": "From now on your agent can create, change and delete anything in Invoices that you can, without asking.",
@@ -1904,6 +2088,17 @@
      "grant": "once"
     }
    ],
+   "tool": [
+    "Start",
+    "Start",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Orders?",
     "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
@@ -2026,6 +2221,17 @@
      "grant": "once"
     }
    ],
+   "tool": [
+    "Start without asking",
+    "Start without asking",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Orders?",
     "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
@@ -2148,6 +2354,17 @@
      "grant": "once"
     }
    ],
+   "tool": [
+    "Start",
+    "Start",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Orders?",
     "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
@@ -2268,6 +2485,17 @@
      "grant": "once"
     }
    ],
+   "tool": [
+    "Start without asking",
+    "Start without asking",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Orders?",
     "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
@@ -2389,6 +2617,17 @@
      "grant": "once"
     }
    ],
+   "tool": [
+    "Start without asking",
+    "Start without asking",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to Orders?",
     "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
@@ -2500,6 +2739,17 @@
      "grant": "once"
     }
    ],
+   "tool": [
+    "Create the tile",
+    "Create the tile",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
    "wider": {
     "heading": "Allow every change to this tile?",
     "means": "From now on your agent can create, change and delete anything in this tile that you can, without asking.",
@@ -2514,6 +2764,964 @@
     "head": "Waiting for your approval",
     "what": "Create a tile",
     "line": "asked 10:02 · expires in 23 h 46 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_web",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "web",
+    "method": "POST",
+    "target": "xbin/delegate/web/fetch",
+    "tile": "",
+    "contentType": "application/json",
+    "body": "{\"url\":\"https://status.example.com/incidents?since=today\"}",
+    "bodyShown": true,
+    "bodySize": 57,
+    "bodySha256": "ef56",
+    "summary": "To see whether the payment provider reports an outage.",
+    "state": "pending",
+    "created": "2026-11-16T10:10:00Z",
+    "expires": "2026-11-17T10:10:00Z",
+    "preview": {
+     "class": "web",
+     "url": "https://status.example.com/incidents?since=today",
+     "host": "status.example.com",
+     "orgs": [
+      "sales"
+     ],
+     "readWeb": true,
+     "why": "This conversation holds data of Sales: an address can carry it out, so each page it reads is one you approve"
+    }
+   },
+   "tile": {
+    "name": "",
+    "path": "",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Read a web page on status.example.com",
+   "heading": {
+    "before": "Your agent wants to read a page on ",
+    "strong": "status.example.com",
+    "after": ""
+   },
+   "sends": {
+    "text": "{\"url\":\"https://status.example.com/incidents?since=today\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "57 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"url\":\"https://status.example.com/incidents?since=today\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "57 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether the tile can is up to the tile.",
+   "choices": [],
+   "allow": [
+    [
+     "Read this page",
+     "Read this page"
+    ],
+    [
+     "Read this page",
+     "Read this page"
+    ],
+    [
+     "Read this page",
+     "Read this page"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Read this page",
+    "Read this page",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": {
+    "url": "https://status.example.com/incidents?since=today",
+    "host": "status.example.com",
+    "why": "This conversation holds data of Sales: an address can carry it out, so each page it reads is one you approve",
+    "once": "Reading a page is asked every time: the address is the data."
+   },
+   "wider": {
+    "heading": "Allow every change to this tile?",
+    "means": "From now on your agent can create, change and delete anything in this tile that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:10 · expires in 23 h 54 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Read a web page on status.example.com",
+    "line": "asked 10:10 · expires in 23 h 54 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_web_used",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "web",
+    "method": "POST",
+    "target": "xbin/delegate/web/fetch",
+    "tile": "",
+    "contentType": "application/json",
+    "body": "{\"url\":\"https://status.example.com/incidents?since=today\"}",
+    "bodyShown": true,
+    "bodySize": 57,
+    "bodySha256": "ef56",
+    "summary": "To see whether the payment provider reports an outage.",
+    "state": "used",
+    "created": "2026-11-16T10:10:00Z",
+    "expires": "2026-11-17T10:10:00Z",
+    "preview": {
+     "class": "web",
+     "url": "https://status.example.com/incidents?since=today",
+     "host": "status.example.com",
+     "orgs": [
+      "sales"
+     ],
+     "readWeb": true,
+     "why": "This conversation holds data of Sales: an address can carry it out, so each page it reads is one you approve"
+    },
+    "grant": "once",
+    "decided": "2026-11-16T10:15:00Z"
+   },
+   "tile": {
+    "name": "",
+    "path": "",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Read a web page on status.example.com",
+   "heading": {
+    "before": "Your agent wants to read a page on ",
+    "strong": "status.example.com",
+    "after": ""
+   },
+   "sends": {
+    "text": "{\"url\":\"https://status.example.com/incidents?since=today\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "57 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"url\":\"https://status.example.com/incidents?since=today\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "57 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether the tile can is up to the tile.",
+   "choices": [],
+   "allow": [
+    [
+     "Read this page",
+     "Read this page"
+    ],
+    [
+     "Read this page",
+     "Read this page"
+    ],
+    [
+     "Read this page",
+     "Read this page"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Read this page",
+    "Read this page",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": {
+    "url": "https://status.example.com/incidents?since=today",
+    "host": "status.example.com",
+    "why": "This conversation holds data of Sales: an address can carry it out, so each page it reads is one you approve",
+    "once": "Reading a page is asked every time: the address is the data."
+   },
+   "wider": {
+    "heading": "Allow every change to this tile?",
+    "means": "From now on your agent can create, change and delete anything in this tile that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Allowed by you, and used · 10:15",
+   "asked": "asked 10:10 · expires in 23 h 54 min",
+   "card": {
+    "head": "Allowed by you, and used · 10:15",
+    "what": "Read a web page on status.example.com",
+    "line": "https://status.example.com/incidents?since=today",
+    "glyph": "check",
+    "tone": "ok",
+    "waits": false,
+    "button": ""
+   }
+  },
+  {
+   "json": {
+    "id": "rq_web_bare",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "web",
+    "method": "POST",
+    "target": "xbin/delegate/web/fetch",
+    "tile": "",
+    "contentType": "application/json",
+    "body": "{\"url\":\"HTTPS://Docs.Example.com:8443/a?b=1\"}",
+    "bodyShown": true,
+    "bodySize": 44,
+    "bodySha256": "ef56",
+    "summary": "To see whether the payment provider reports an outage.",
+    "state": "pending",
+    "created": "2026-11-16T10:10:00Z",
+    "expires": "2026-11-17T10:10:00Z",
+    "preview": {
+     "class": "web",
+     "url": "HTTPS://Docs.Example.com:8443/a?b=1"
+    }
+   },
+   "tile": {
+    "name": "",
+    "path": "",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Read a web page on Docs.Example.com",
+   "heading": {
+    "before": "Your agent wants to read a page on ",
+    "strong": "Docs.Example.com",
+    "after": ""
+   },
+   "sends": {
+    "text": "{\"url\":\"HTTPS://Docs.Example.com:8443/a?b=1\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "44 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"url\":\"HTTPS://Docs.Example.com:8443/a?b=1\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "44 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether the tile can is up to the tile.",
+   "choices": [],
+   "allow": [
+    [
+     "Read this page",
+     "Read this page"
+    ],
+    [
+     "Read this page",
+     "Read this page"
+    ],
+    [
+     "Read this page",
+     "Read this page"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Read this page",
+    "Read this page",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": {
+    "url": "HTTPS://Docs.Example.com:8443/a?b=1",
+    "host": "Docs.Example.com",
+    "why": "This conversation holds data of an organisation: the address itself can carry it out of the workspace.",
+    "once": "Reading a page is asked every time: the address is the data."
+   },
+   "wider": {
+    "heading": "Allow every change to this tile?",
+    "means": "From now on your agent can create, change and delete anything in this tile that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:10 · expires in 23 h 54 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Read a web page on Docs.Example.com",
+    "line": "asked 10:10 · expires in 23 h 54 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "apps/dice",
+    "contentType": "application/json",
+    "body": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "bodyShown": true,
+    "bodySize": 62,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "tile": "apps/dice",
+     "server": "apps/dice",
+     "serverName": "Dice",
+     "tool": "wipe",
+     "title": "Wipe the table",
+     "description": "Clears every die from the table.",
+     "readOnly": false,
+     "arguments": "{\n  \"table\": \"main\"\n}",
+     "standing": {
+      "tool": "wipe on Dice — this tool again, with any arguments, without asking"
+     }
+    }
+   },
+   "tile": {
+    "name": "Dice",
+    "path": "apps/dice",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run wipe on Dice",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "wipe",
+    "after": " on Dice"
+   },
+   "sends": {
+    "text": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "62 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "62 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "wipe on Dice — this tool again, with any arguments, without asking",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Dice",
+    "path": "apps/dice",
+    "tool": "wipe",
+    "title": "Wipe the table",
+    "description": "Clears every die from the table.",
+    "readOnly": false,
+    "arguments": "{\n  \"table\": \"main\"\n}",
+    "standing": "wipe on Dice — this tool again, with any arguments, without asking",
+    "changed": [],
+    "marked": "Its server doesn’t mark it read-only: it may change things.",
+    "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Dice?",
+    "means": "From now on your agent can create, change and delete anything in Dice that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run wipe on Dice",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_ro",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "apps/dice",
+    "contentType": "application/json",
+    "body": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "bodyShown": true,
+    "bodySize": 62,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "tile": "apps/dice",
+     "server": "apps/dice",
+     "tool": "roll_dice",
+     "readOnly": true,
+     "arguments": "{}"
+    }
+   },
+   "tile": {
+    "name": "Dice",
+    "path": "apps/dice",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run roll_dice on apps/dice",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "roll_dice",
+    "after": " on apps/dice"
+   },
+   "sends": {
+    "text": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "62 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "62 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "roll_dice on apps/dice, as it is described now, with any arguments, without asking again.",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "apps/dice",
+    "path": "apps/dice",
+    "tool": "roll_dice",
+    "title": "",
+    "description": "",
+    "readOnly": true,
+    "arguments": "{}",
+    "standing": "",
+    "changed": [],
+    "marked": "Its server marks it read-only — the server’s word, not xbin’s.",
+    "undo": "xbin can't undo this. Whether apps/dice can is up to apps/dice.",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Dice?",
+    "means": "From now on your agent can create, change and delete anything in Dice that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run roll_dice on apps/dice",
+    "line": "asked 10:12 · expires in 23 h 56 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_used",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "apps/dice",
+    "contentType": "application/json",
+    "body": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "bodyShown": true,
+    "bodySize": 62,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "approved",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "tile": "apps/dice",
+     "server": "apps/dice",
+     "serverName": "Dice",
+     "tool": "wipe",
+     "title": "Wipe the table",
+     "description": "Clears every die from the table.",
+     "readOnly": false,
+     "arguments": "{\n  \"table\": \"main\"\n}",
+     "standing": {
+      "tool": "wipe on Dice — this tool again, with any arguments, without asking"
+     }
+    },
+    "grant": "always",
+    "decided": "2026-11-16T10:16:00Z"
+   },
+   "tile": {
+    "name": "Dice",
+    "path": "apps/dice",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run wipe on Dice",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "wipe",
+    "after": " on Dice"
+   },
+   "sends": {
+    "text": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "62 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "62 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "wipe on Dice — this tool again, with any arguments, without asking",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Dice",
+    "path": "apps/dice",
+    "tool": "wipe",
+    "title": "Wipe the table",
+    "description": "Clears every die from the table.",
+    "readOnly": false,
+    "arguments": "{\n  \"table\": \"main\"\n}",
+    "standing": "wipe on Dice — this tool again, with any arguments, without asking",
+    "changed": [],
+    "marked": "Its server doesn’t mark it read-only: it may change things.",
+    "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "changedLine": ""
+   },
+   "wider": {
+    "heading": "Allow every change to Dice?",
+    "means": "From now on your agent can create, change and delete anything in Dice that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Allowed by you · 10:16",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Allowed by you · 10:16",
+    "what": "Run wipe on Dice",
+    "line": "running now…",
+    "glyph": "clock",
+    "tone": "",
+    "waits": false,
+    "button": ""
+   }
+  },
+  {
+   "json": {
+    "id": "rq_mcp_changed",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "mcp",
+    "method": "POST",
+    "target": "xbin/delegate/mcp/call",
+    "tile": "apps/dice",
+    "contentType": "application/json",
+    "body": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "bodyShown": true,
+    "bodySize": 62,
+    "bodySha256": "9a8b",
+    "summary": "You asked to clear the table.",
+    "state": "pending",
+    "created": "2026-11-16T10:12:00Z",
+    "expires": "2026-11-17T10:12:00Z",
+    "preview": {
+     "class": "mcp",
+     "tile": "apps/dice",
+     "server": "apps/dice",
+     "serverName": "Dice",
+     "tool": "wipe",
+     "readOnly": true,
+     "arguments": "{}",
+     "changed": [
+      "description",
+      "annotations",
+      "somethingNew"
+     ]
+    }
+   },
+   "tile": {
+    "name": "Dice",
+    "path": "apps/dice",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Run wipe on Dice",
+   "heading": {
+    "before": "Your agent wants to run ",
+    "strong": "wipe",
+    "after": " on Dice"
+   },
+   "sends": {
+    "text": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "62 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"server\":\"apps/dice\",\"tool\":\"wipe\",\"arguments\":{\"table\":\"main\"}}",
+    "binary": false,
+    "clipped": false,
+    "note": "62 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+   "choices": [
+    {
+     "id": "once",
+     "label": "Once",
+     "text": "This call only. The agent has 15 minutes to make it.",
+     "wider": false
+    },
+    {
+     "id": "tool",
+     "label": "Always, this tool",
+     "text": "wipe on Dice, as it is described now, with any arguments, without asking again.",
+     "wider": false
+    }
+   ],
+   "allow": [
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ],
+    [
+     "Allow once",
+     "Allow once"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Allow always",
+    "Allow always, this tool",
+    {
+     "grant": "always",
+     "scope": "tool"
+    },
+    {
+     "grant": "hour",
+     "scope": "tool"
+    }
+   ],
+   "net": {
+    "server": "Dice",
+    "path": "apps/dice",
+    "tool": "wipe",
+    "title": "",
+    "description": "",
+    "readOnly": true,
+    "arguments": "{}",
+    "standing": "",
+    "changed": [
+     "description",
+     "annotations",
+     "somethingNew"
+    ],
+    "marked": "Its server marks it read-only — the server’s word, not xbin’s.",
+    "undo": "xbin can't undo this. Whether Dice can is up to Dice.",
+    "changedLine": "Changed since you last allowed it or first met it: its description, its marks (read-only and the like), somethingNew."
+   },
+   "wider": {
+    "heading": "Allow every change to Dice?",
+    "means": "From now on your agent can create, change and delete anything in Dice that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": null,
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:12 · expires in 23 h 56 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Run wipe on Dice",
+    "line": "asked 10:12 · expires in 23 h 56 min",
     "glyph": "shield",
     "tone": "warn",
     "waits": true,
@@ -3659,6 +4867,21 @@
    "text": "Always · every change",
    "wider": true,
    "until": "ended"
+  },
+  {
+   "json": {
+    "id": "ap_4",
+    "user": "ana",
+    "tile": "apps/dice",
+    "scope": "tool",
+    "method": "MCP",
+    "path": "wipe",
+    "created": "2026-11-16T09:30:00Z"
+   },
+   "tile": "Dice",
+   "text": "Always · this tool: wipe",
+   "wider": false,
+   "until": "until you take it back"
   }
  ],
  "audit": [
@@ -3950,6 +5173,133 @@
    "detail": "GET /api/xbin/whoami",
    "icon": "eye",
    "group": "read"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:50:00Z",
+    "method": "GET",
+    "path": "https://status.example.com/incidents",
+    "class": "web",
+    "status": 200,
+    "bytes": 14336,
+    "ticket": "rq_web"
+   },
+   "text": "Read a web page on ",
+   "strong": "status.example.com",
+   "detail": "https://status.example.com/incidents · 14 KiB · you allowed it once",
+   "icon": "globe",
+   "group": "change"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:49:00Z",
+    "method": "GET",
+    "path": "https://docs.example.com/",
+    "class": "web",
+    "status": 200
+   },
+   "text": "Read a web page on ",
+   "strong": "docs.example.com",
+   "detail": "https://docs.example.com/",
+   "icon": "globe",
+   "group": "change"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:48:00Z",
+    "method": "GET",
+    "path": "https://intranet.example.com/",
+    "class": "web",
+    "status": 403,
+    "refused": "intranet.example.com is on the workspace's deny list"
+   },
+   "text": "Was refused a web page on ",
+   "strong": "intranet.example.com",
+   "detail": "intranet.example.com is on the workspace's deny list",
+   "icon": "lock",
+   "group": "refused"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:47:00Z",
+    "method": "POST",
+    "path": "/api/apps/dice/mcp",
+    "tile": "apps/dice",
+    "class": "mcp",
+    "effect": true,
+    "status": 200,
+    "ticket": "rq_mcp"
+   },
+   "text": "Ran a tool of ",
+   "strong": "Dice",
+   "detail": "you allowed it once",
+   "icon": "plug",
+   "group": "change"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:46:00Z",
+    "method": "POST",
+    "path": "/api/apps/dice/mcp",
+    "tile": "apps/dice",
+    "class": "mcp",
+    "effect": true,
+    "status": 200,
+    "under": "preference"
+   },
+   "text": "Ran a tool of ",
+   "strong": "Dice",
+   "detail": "without asking: marked read-only, your preference",
+   "icon": "plug",
+   "group": "change"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:45:00Z",
+    "method": "POST",
+    "path": "/api/apps/dice/mcp",
+    "tile": "apps/dice",
+    "class": "mcp",
+    "effect": true,
+    "status": 502,
+    "under": "approval:ap_4"
+   },
+   "text": "Ran a tool of ",
+   "strong": "Dice",
+   "detail": "under a standing approval of yours · failed",
+   "icon": "plug",
+   "group": "change"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:44:00Z",
+    "method": "POST",
+    "path": "/api/apps/dice/mcp",
+    "tile": "apps/dice",
+    "class": "mcp-read",
+    "status": 200
+   },
+   "text": "Read the tools of ",
+   "strong": "Dice",
+   "detail": "",
+   "icon": "eye",
+   "group": "read"
+  },
+  {
+   "json": {
+    "ts": "2026-11-16T09:43:00Z",
+    "method": "POST",
+    "path": "/api/apps/dice/mcp",
+    "tile": "apps/dice",
+    "class": "mcp",
+    "status": 403,
+    "refused": "Using MCP tools is off for this workspace"
+   },
+   "text": "Was refused: ",
+   "strong": "Dice",
+   "detail": "Using MCP tools is off for this workspace",
+   "icon": "lock",
+   "group": "refused"
   }
  ],
  "states": [
@@ -4766,6 +6116,36 @@
     "id": "rq_tmpl",
     "title": "Create a tile",
     "note": "asked 10:02 · expires in 23 h 46 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_web",
+    "title": "Read a web page on status.example.com",
+    "note": "asked 10:10 · expires in 23 h 54 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_web_bare",
+    "title": "Read a web page on Docs.Example.com",
+    "note": "asked 10:10 · expires in 23 h 54 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp",
+    "title": "Run wipe on Dice",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_ro",
+    "title": "Run roll_dice on apps/dice",
+    "note": "asked 10:12 · expires in 23 h 56 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_mcp_changed",
+    "title": "Run wipe on Dice",
+    "note": "asked 10:12 · expires in 23 h 56 min"
    },
    {
     "kind": "request",
@@ -5842,12 +7222,250 @@
     "note": "first 4000 of 4001 characters"
    }
   ],
-  "standingNote": "Starting a tile agent and creating a tile are asked every time. Taking an approval back stops a change that is running under it.",
+  "readWeb": "This conversation has read the web: what your agent asks may come from a page it read.",
+  "netPrefs": [
+   {
+    "state": {},
+    "prefs": [
+     {
+      "id": "web",
+      "label": "Let my agent read web pages",
+      "on": false,
+      "allowed": false,
+      "why": "Off for this workspace — an admin can change it.",
+      "note": "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve."
+     },
+     {
+      "id": "mcp",
+      "label": "Let my agent use MCP tools from this workspace’s tiles",
+      "on": false,
+      "allowed": false,
+      "why": "Off for this workspace — an admin can change it.",
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+     },
+     {
+      "id": "mcpReadOnly",
+      "label": "MCP tools marked read-only don’t ask me",
+      "on": false,
+      "allowed": false,
+      "sub": true,
+      "why": "",
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
+     }
+    ]
+   },
+   {
+    "state": {
+     "web": true,
+     "mcp": true,
+     "mcpReadOnly": true
+    },
+    "prefs": [
+     {
+      "id": "web",
+      "label": "Let my agent read web pages",
+      "on": false,
+      "allowed": false,
+      "why": "Off for this workspace — an admin can change it.",
+      "note": "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve."
+     },
+     {
+      "id": "mcp",
+      "label": "Let my agent use MCP tools from this workspace’s tiles",
+      "on": false,
+      "allowed": false,
+      "why": "Off for this workspace — an admin can change it.",
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+     },
+     {
+      "id": "mcpReadOnly",
+      "label": "MCP tools marked read-only don’t ask me",
+      "on": false,
+      "allowed": false,
+      "sub": true,
+      "why": "",
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
+     }
+    ]
+   },
+   {
+    "state": {
+     "web": true,
+     "net": {
+      "web": {
+       "policy": "read"
+      },
+      "mcp": {
+       "policy": "off",
+       "why": "Using MCP tools is off for this workspace — an admin can change it (the workspace agent’s settings)"
+      }
+     }
+    },
+    "prefs": [
+     {
+      "id": "web",
+      "label": "Let my agent read web pages",
+      "on": true,
+      "allowed": true,
+      "why": "",
+      "note": "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve."
+     },
+     {
+      "id": "mcp",
+      "label": "Let my agent use MCP tools from this workspace’s tiles",
+      "on": false,
+      "allowed": false,
+      "why": "Using MCP tools is off for this workspace — an admin can change it (the workspace agent’s settings)",
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+     },
+     {
+      "id": "mcpReadOnly",
+      "label": "MCP tools marked read-only don’t ask me",
+      "on": false,
+      "allowed": false,
+      "sub": true,
+      "why": "",
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
+     }
+    ]
+   },
+   {
+    "state": {
+     "web": false,
+     "mcp": true,
+     "mcpReadOnly": false,
+     "net": {
+      "web": {
+       "policy": "read",
+       "only": [
+        "docs.example.com",
+        "*.wiki.test"
+       ]
+      },
+      "mcp": {
+       "policy": "tiles"
+      }
+     }
+    },
+    "prefs": [
+     {
+      "id": "web",
+      "label": "Let my agent read web pages",
+      "on": false,
+      "allowed": true,
+      "why": "",
+      "note": "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve. Only docs.example.com, *.wiki.test."
+     },
+     {
+      "id": "mcp",
+      "label": "Let my agent use MCP tools from this workspace’s tiles",
+      "on": true,
+      "allowed": true,
+      "why": "",
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+     },
+     {
+      "id": "mcpReadOnly",
+      "label": "MCP tools marked read-only don’t ask me",
+      "on": false,
+      "allowed": true,
+      "sub": true,
+      "why": "",
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
+     }
+    ]
+   },
+   {
+    "state": {
+     "web": true,
+     "mcp": true,
+     "mcpReadOnly": true,
+     "net": {
+      "web": {
+       "policy": "off"
+      },
+      "mcp": {
+       "policy": "tiles"
+      }
+     }
+    },
+    "prefs": [
+     {
+      "id": "web",
+      "label": "Let my agent read web pages",
+      "on": false,
+      "allowed": false,
+      "why": "Off for this workspace — an admin can change it.",
+      "note": "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve."
+     },
+     {
+      "id": "mcp",
+      "label": "Let my agent use MCP tools from this workspace’s tiles",
+      "on": true,
+      "allowed": true,
+      "why": "",
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+     },
+     {
+      "id": "mcpReadOnly",
+      "label": "MCP tools marked read-only don’t ask me",
+      "on": true,
+      "allowed": true,
+      "sub": true,
+      "why": "",
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
+     }
+    ]
+   },
+   {
+    "state": {
+     "mcp": false,
+     "mcpReadOnly": true,
+     "net": {
+      "web": {
+       "policy": "read"
+      },
+      "mcp": {
+       "policy": "tiles"
+      }
+     }
+    },
+    "prefs": [
+     {
+      "id": "web",
+      "label": "Let my agent read web pages",
+      "on": false,
+      "allowed": true,
+      "why": "",
+      "note": "It reads public pages by their address, through xbin: nothing is sent but the address. Once a conversation holds your organisation’s data, each page is one you approve."
+     },
+     {
+      "id": "mcp",
+      "label": "Let my agent use MCP tools from this workspace’s tiles",
+      "on": false,
+      "allowed": true,
+      "why": "",
+      "note": "As you, on the tiles you can reach. Each tool asks you the first time."
+     },
+     {
+      "id": "mcpReadOnly",
+      "label": "MCP tools marked read-only don’t ask me",
+      "on": false,
+      "allowed": false,
+      "sub": true,
+      "why": "Turn on MCP tools first.",
+      "note": "“Read-only” is what the tool’s author says of it — anyone who can change that tile’s code, which here means whoever has a terminal on it — not something xbin checks. A tool that changes, or newly says it is read-only, asks you once; tools that aren’t marked always ask."
+     }
+    ]
+   }
+  ],
+  "standingNote": "Starting a tile agent, creating a tile and reading a web page are asked every time. Taking an approval back stops a change that is running under it.",
   "didNote": "Kept by xbin for 13 months. Your agent and its page can't read or change this list. It never holds what was sent, only what was called.",
   "arm": 600,
   "duration": {
    "call": "always",
-   "tile": "hour"
+   "tile": "hour",
+   "tool": "always"
   }
  },
  "plans": [

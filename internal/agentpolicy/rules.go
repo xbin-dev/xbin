@@ -167,11 +167,16 @@ type Rules struct {
 	// private, or LLM connector ids — an upstream ("local") for all of its
 	// models, or "upstream/model" for one.
 	Models Allow `json:"models"`
+	// Web and MCP say what a workspace agent's conversation that holds the
+	// layer's data may do on the web and with MCP servers (netrules.go;
+	// D239). Unset (omitted): no rule of the layer's own.
+	Web WebRule `json:"web,omitempty"`
+	MCP MCPRule `json:"mcp,omitempty"`
 }
 
 // IsZero reports rules that narrow nothing (stored as no rules at all).
 func (r Rules) IsZero() bool {
-	return !r.WorkspaceAgent.IsOff() && r.Harnesses.IsAny() && r.Models.IsAny()
+	return !r.WorkspaceAgent.IsOff() && r.Harnesses.IsAny() && r.Models.IsAny() && r.Web == "" && r.MCP == ""
 }
 
 const (
@@ -232,6 +237,12 @@ func validID(id string, slashes bool) bool {
 // it adds nothing of the org's own, and the bounds still apply to its
 // tiles on every call.
 func (r Rules) Within(bounds Rules) error {
+	if err := webWithin(r.Web, bounds.Web); err != nil {
+		return err
+	}
+	if err := mcpWithin(r.MCP, bounds.MCP); err != nil {
+		return err
+	}
 	if ids, ok := r.Harnesses.List(); ok {
 		if allowed, bounded := bounds.Harnesses.List(); bounded {
 			for _, id := range ids {
@@ -272,10 +283,12 @@ type Patch struct {
 	WorkspaceAgent *Switch
 	Harnesses      *Allow
 	Models         *Allow
+	Web            *WebRule
+	MCP            *MCPRule
 }
 
 // PatchKeys are the keys ParsePatch reads.
-var PatchKeys = []string{"workspaceAgent", "harnesses", "models"}
+var PatchKeys = []string{"workspaceAgent", "harnesses", "models", "web", "mcp"}
 
 // ParsePatch reads a patch from a decoded JSON object: each key present
 // sets its rule, null puts it back to the default (on, any); keys it
@@ -302,9 +315,21 @@ func ParsePatch(body map[string]json.RawMessage, ignore ...string) (Patch, error
 				return p, fmt.Errorf("models: %v", err)
 			}
 			p.Models = &a
+		case "web":
+			var w WebRule
+			if err := json.Unmarshal(raw, &w); err != nil {
+				return p, err
+			}
+			p.Web = &w
+		case "mcp":
+			var m MCPRule
+			if err := json.Unmarshal(raw, &m); err != nil {
+				return p, err
+			}
+			p.MCP = &m
 		default:
 			if !slices.Contains(ignore, k) {
-				return p, fmt.Errorf("unknown key %q (workspaceAgent, harnesses, models)", k)
+				return p, fmt.Errorf("unknown key %q (workspaceAgent, harnesses, models, web, mcp)", k)
 			}
 		}
 	}
@@ -324,6 +349,12 @@ func (r Rules) Apply(p Patch) Rules {
 	}
 	if p.Models != nil {
 		r.Models = *p.Models
+	}
+	if p.Web != nil {
+		r.Web = *p.Web
+	}
+	if p.MCP != nil {
+		r.MCP = *p.MCP
 	}
 	return r
 }

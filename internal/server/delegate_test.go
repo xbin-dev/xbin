@@ -71,6 +71,9 @@ type dPolicy struct {
 	// agent level is "off" — a rule of the tile, which TileAllows (the
 	// orgs' rules) knows nothing of.
 	tileOff map[string]bool
+	// readLevel: DelegateTile refuses a write to these tiles as the broker
+	// does one whose agent level is "read".
+	readLevel map[string]bool
 }
 
 func (d *dPolicy) TileAllows(s delegation.Subject) error {
@@ -96,10 +99,13 @@ func (d *dPolicy) DelegateTile(p auth.Principal, tile string, write bool) (strin
 		return "", "", false, err
 	}
 	d.mu.Lock()
-	check, off := d.readCheck, d.tileOff[tile]
+	check, off, ro := d.readCheck, d.tileOff[tile], d.readLevel[tile]
 	d.mu.Unlock()
 	if off {
 		return "", "", false, errors.New(tile + ` doesn't let a person's agent use it (its agent level is "off")`)
+	}
+	if ro && write {
+		return "", "", false, errors.New(tile + ` lets a person's agent read only (its agent level is "read")`)
 	}
 	if check && !p.CanReadTile(tile) {
 		return "", "", false, errors.New(p.UserID + " can't read " + tile)
@@ -458,7 +464,7 @@ func TestDelegateNeverList(t *testing.T) {
 	}{
 		{"acts that need the person's approval", tickets, "POST /templates/new\nPOST /term/sessions"},
 		{"acts that need none (driving its own sessions, asking)", acts, "DELETE /delegate/changesets/{id}\nDELETE /delegate/requests/{id}\nDELETE /delegate/sessions/{id}\nDELETE /term/sessions/{id}\n" +
-			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPATCH /delegate/sessions/{id}\nPOST /delegate/changesets\nPOST /delegate/plans\nPOST /delegate/requests\nPOST /delegate/sessions\nPOST /delegate/sessions/{id}/allows\nPOST /delegate/sessions/{id}/taint\nPOST /preview\n" +
+			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPATCH /delegate/sessions/{id}\nPOST /delegate/changesets\nPOST /delegate/mcp/call\nPOST /delegate/plans\nPOST /delegate/requests\nPOST /delegate/sessions\nPOST /delegate/sessions/{id}/allows\nPOST /delegate/sessions/{id}/taint\nPOST /delegate/web/fetch\nPOST /preview\n" +
 			"POST /term/sessions/{id}/cancel\nPOST /term/sessions/{id}/prompt\nPOST /term/sessions/{id}/queue"},
 		{"admin reads", admin, "GET /bindings\nGET /grants\nGET /limits\nGET /orgs"},
 	} {

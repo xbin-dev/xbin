@@ -29,7 +29,7 @@
 //   6. the tile listing the shell reads (GET /components) has no xbin/ row,
 //      and the shell shows none (shots: systempage-<theme>,
 //      systempage-phone-<theme>).
-const { URL, login, closeCtx, settle, shot, checker, THEME } = require('../lib');
+const { URL, login, closeCtx, settle, shot, shotEl, checker, THEME } = require('../lib');
 const { snapshot, putBack, putBackChecked, caller } = require('./wsagentpage'); // the component's access, read and put back
 
 async function until(fn, label, timeout = 15000) {
@@ -135,6 +135,42 @@ async function systemPage(browser) {
         await A.page.evaluate(() => document.querySelector('bx-system-page').testApi().reload());
         await until(async () => !(await card.innerText()).includes('Everyone in this workspace'), 'the everyone line goes');
         check((await card.innerText()).includes('Nobody but workspace admins'), `${P}: taken back, nobody but admins again`);
+        // the web and MCP tools (D239): off until an admin sets them here; the modes not built yet can't be picked
+        const pol = card.locator('bx-wsagent-policy');
+        await until(async () => (await pol.locator('[data-save]').count()) === 1, 'the web and MCP settings');
+        const offFirst = await pol.locator('input[name=web][value=off]').isChecked() && await pol.locator('input[name=mcp][value=off]').isChecked();
+        const notYet = await pol.locator('input[name=web][value=full]').isDisabled() && await pol.locator('input[name=mcp][value=listed]').isDisabled();
+        check(offFirst && notYet, `${P}: the web and MCP read off; "send to the web" and listed servers can't be picked yet`);
+        await pol.locator('input[name=web][value=read]').check();
+        await pol.locator('textarea[data-field=deny]').fill('intranet.example.com\nbank.test');
+        await pol.locator('input[name=mcp][value=tiles]').check();
+        const [put] = await Promise.all([A.page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/xbin/delegate/workspace')), pol.locator('[data-save]').click()]);
+        await until(async () => (await pol.locator('[role=status]').count()) === 1, 'saved');
+        const ws = await (await A.ctx.request.get(`${URL}/api/xbin/delegate/workspace`)).json();
+        check(JSON.parse(put.postData()).web.mode === 'read' && ws.web?.mode === 'read' && JSON.stringify(ws.web?.deny) === '["bank.test","intranet.example.com"]' && ws.mcp?.mode === 'tiles',
+          `${P}: Save sets the policy (${put.postData()} → ${JSON.stringify({ web: ws.web, mcp: ws.mcp })})`);
+        await shotEl(A.page, 'bx-system-page bx-wsagent-policy', `systempage-netpolicy-${THEME}`);
+        const back = await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { web: { mode: 'off', allow: [], deny: [] }, mcp: { mode: 'off' } } });
+        check(back.status() === 200, `${P}: put back off (${back.status()})`);
+        // the host's file (XBIN_LLM_CONFIG's workspaceAgent key) caps the web: a ceiling the admin may narrow, said on the card
+        const HOSTFILE = process.env.LLM_HOST_FILE || '';
+        if (HOSTFILE && require('fs').existsSync(HOSTFILE)) {
+          const before = require('fs').readFileSync(HOSTFILE, 'utf8');
+          require('fs').writeFileSync(HOSTFILE, `${JSON.stringify({ workspaceAgent: { web: { mode: 'off', deny: ['intranet.example.com'] } } }, null, 2)}\n`);
+          const wsv = async () => (await (await A.ctx.request.get(`${URL}/api/xbin/delegate/workspace`)).json());
+          await until(async () => (await wsv()).locks?.['web.mode']?.ceiling === 'off', 'the host file read again');
+          await pol.evaluate((el) => el.testApi().reload());
+          await until(async () => (await pol.locator('[data-capped="web"]').count()) === 1, 'the card says the ceiling');
+          const capped = await pol.locator('[data-capped="web"]').innerText();
+          const past = await pol.locator('input[name=web][value=read]').isDisabled();
+          const put = await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { web: { mode: 'read' } } });
+          check(/Set by your host: at most “Off”\. You can narrow it here, not widen it\./.test(capped) && past && put.status() === 409
+            && (await pol.locator('[data-host-note]').count()) === 1 && (await pol.locator('.mono', { hasText: 'intranet.example.com' }).count()) === 1,
+            `${P}: the host's ceiling — said on the card, past it can't be picked, a PUT past it is 409 (${put.status()})`);
+          await shotEl(A.page, 'bx-system-page bx-wsagent-policy', `systempage-netpolicy-host-${THEME}`);
+          require('fs').writeFileSync(HOSTFILE, before);
+          await until(async () => !(await wsv()).locks?.['web.mode'], 'the host file emptied again');
+        } else skip(`${P}: no LLM_HOST_FILE — the host's ceiling on the card is driven by run.sh's xbind`);
       } else skip(`${P} isn't the workspace agent here: the everyone line (its who: everyone) is the release table's to drive`);
 
       // 4. off and on

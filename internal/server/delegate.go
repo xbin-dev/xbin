@@ -138,6 +138,7 @@ type delegateVerdict struct {
 const (
 	classTileRead  = "tile-read"
 	classTileWrite = "tile-write"
+	classMCPRead   = "mcp-read" // a read method on a tile's MCP endpoint (delegatemcp.go)
 )
 
 func isRead(method string) bool {
@@ -218,6 +219,7 @@ type delegateRuntime struct {
 	mu      sync.Mutex
 	buckets map[string]*actBucket
 	noise   map[string]*noiseBucket
+	net     map[string]*actBucket // a person's and a conversation's web fetches and MCP tool calls (delegateweb.go)
 	calls   map[string]map[uint64]*runningCall
 	nextID  uint64
 	pushed  map[string]time.Time // person + kind → the last "something waits" push
@@ -542,6 +544,27 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		refuse(http.StatusForbidden, "no-session", "this call needs an agent session: make one (POST /api/xbin/delegate/sessions {scope, model}) and send its id as "+HeaderAgentSession+" — it says what this conversation may see and which model it is on")
 		return
 	}
+	// a tile's declared MCP endpoint, however the path spells it
+	// (mcpEndpointOf resolves it as the proxy does): a POST is judged by its
+	// JSON-RPC method (delegatemcp.go) — initialize, ping and tools/list are
+	// reads — and anything else is refused here, before any approval: a
+	// tool is called through xbind, never as a tile call
+	mcpRead := false
+	if ep := s.mcpEndpointOf(r.URL.Path); v.tileAPI && ep != "" {
+		switch {
+		case r.Method != http.MethodPost || ep != v.tile:
+			refuse(http.StatusForbidden, "mcp-call", "an MCP server's endpoint takes only an agent's POST of initialize, ping or tools/list; a tool is called with POST /api/xbin/delegate/mcp/call {server, tool, arguments}, which xbin shows your person")
+			return
+		case hasHandle && !s.tileHidden(p, v.tile) && s.inSessionScope(handle, v.tile):
+			read, code, msg := s.mcpGate(w, r, p, handle, v.tile)
+			if !read {
+				refuse(http.StatusForbidden, code, msg)
+				return
+			}
+			mcpRead, v.class, v.effect = true, classMCPRead, false
+			row.Class, row.Effect = v.class, false
+		} // else: a tile it can't see or outside the session's scope — refused below, before any approval
+	}
 	dry := r.Header.Get(HeaderDryRun) != ""
 	preview := map[string]any{"dryRun": true, "class": v.class, "as": p.UserID, "agent": p.Agent, "sideEffect": v.effect}
 
@@ -649,6 +672,10 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 	if v.row.class == DelegateAdminRead {
 		ctx = context.WithValue(ctx, delegateAdminReadKey{}, true)
 	}
+	ctx = context.WithValue(ctx, delegateRowKey{}, &row) // a handler that knows more of the call says it in the row (delegateRowOf)
+	if mcpRead {
+		ctx = auth.WithAgentRead(ctx) // a tile at agent level "read" takes an MCP read as it takes a GET
+	}
 
 	// 7. run it, under a context that ends when it may no longer run: the
 	// call is registered FIRST and judged again after, so a pause that lands
@@ -678,7 +705,7 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 	}()
 	if v.tileAPI { // the tile is sent the headers on the list and no other (delegateForwards)
 		for h := range r.Header {
-			if !delegateForwards[h] {
+			if !delegateForwards[h] && !(mcpRead && mcpForwards[h]) {
 				r.Header.Del(h)
 			}
 		}
