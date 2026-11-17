@@ -150,7 +150,9 @@ func wsTileLine(t wsTile) string {
 		bits = append(bits, "agents may only read its API")
 	}
 	if t.Running {
-		bits = append(bits, "a tile agent is running here")
+		// (xbind counts the tile's agent sessions, working or at rest: "is running here" read as a contradiction
+		// of "ended its turn" to two real conversations)
+		bits = append(bits, "a tile agent's session is open here — working or at rest: tile_agents says which")
 	}
 	if t.MCP {
 		bits = append(bits, "an MCP server (mcp_tools)")

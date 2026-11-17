@@ -131,4 +131,12 @@ func TestWsEvalFeedbackWordings(t *testing.T) {
 	if got := fx.tool(t, s, "tile_status", map[string]any{"tile": "apps/orders"}); !strings.Contains(got, `"idle" says only that its backend isn't running now`) || !strings.Contains(got, "nothing here shows that it works") {
 		t.Errorf("an idle tile's status: %s", got)
 	}
+
+	// a tile with an agent session: open, not necessarily working
+	fx.x.mu.Lock()
+	fx.x.tiles["apps/orders"].Running = true
+	fx.x.mu.Unlock()
+	if got := fx.tool(t, s, "tile_status", map[string]any{"tile": "apps/orders"}); !strings.Contains(got, "a tile agent's session is open here — working or at rest") {
+		t.Errorf("a tile with an agent session: %s", got)
+	}
 }
