@@ -448,9 +448,9 @@ func wsNotebookChange(ctx context.Context, ag *Agent, s *wsSession, c coordCall,
 	case p.Archived:
 		return fmt.Sprintf("Removed %s from the notebook (its history is kept).", slug), nil
 	case p.Version == 1:
-		return fmt.Sprintf("Noted in the notebook: %q (%s). Your person sees it and can edit or undo it.", p.Title, slug), nil
+		return fmt.Sprintf("Noted in the notebook as a new page (nothing was replaced): %q (%s). Your person sees it and can edit or undo it.", p.Title, slug), nil
 	}
-	return fmt.Sprintf("Updated %s — now version %d.", slug, p.Version), nil
+	return fmt.Sprintf("Updated %s — now version %d (version %d is kept in its history).", slug, p.Version, p.Version-1), nil
 }
 
 // --- the prompt's block --------------------------------------------------------------

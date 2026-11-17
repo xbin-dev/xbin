@@ -440,7 +440,7 @@ func wsProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 		case !hasStr(wsChangeKinds, ch.Kind):
 			return "", fmt.Errorf("change %d: no kind %q — a change is one of %s; anything else is your person's to do in the admin console", i+1, clip(ch.Kind, 40), strings.Join(wsChangeKinds, ", "))
 		case strings.TrimSpace(ch.Why) == "":
-			return "", fmt.Errorf("change %d: why — the reason for it, in plain words", i+1)
+			return "", fmt.Errorf("change %d has no \"why\": add the reason for this change, in plain words (the admin reads it on the review)", i+1)
 		}
 		items = append(items, xbin.Change{Kind: ch.Kind, Args: ch.Args, Why: clip(strings.TrimSpace(ch.Why), 400)})
 	}
