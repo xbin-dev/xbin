@@ -492,7 +492,9 @@ func TestCoordDeliverBounded(t *testing.T) {
 	for i := 0; i < coordMaxLines+10; i++ {
 		addProjectEventTx(t, fx.ag.db, fx.p.ID, 0, pevNote, fmt.Sprintf("note %d", i), false)
 	}
-	if _, err := fx.ag.db.q.Exec(`INSERT INTO project_events (project_id, kind, body, coord_user, created) VALUES (?, 'note', '{"text":"bob"}', 'bob', 1)`, fx.p.ID); err != nil {
+	// (dated now: an event dated 1970 is one the worker's retention sweep — events older than 30 days —
+	// deletes whenever it happens to pass, and "bob's undelivered 0" was this test's failure 6 times in 1000)
+	if _, err := fx.ag.db.q.Exec(`INSERT INTO project_events (project_id, kind, body, coord_user, created) VALUES (?, 'note', '{"text":"bob"}', 'bob', ?)`, fx.p.ID, nowMs()); err != nil {
 		t.Fatal(err)
 	}
 	if err := fx.ag.db.Tx(func(tx *DB) error {
