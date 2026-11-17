@@ -531,6 +531,12 @@ Run again against the endpoint, on the result:
 - **OpenCode, the journey** (run 8): to the roll in 1 min 46 s, 13
   interactions, no permission to answer.
 
+The two-core runs of the round found one test of master's that fails by
+chance: `TestCoordDeliverBounded` gave another person an event dated
+1970, which the project worker's 30-day retention sweep deletes whenever
+it passes (18 failures in 3 000 runs on two cores; 24 in 3 000 on the
+tree before the round). The event is dated now: 0 in 3 000 (`9f292db5`).
+
 Left open by this round: `tools.namespace` is a group of function tools
 Codex offers (its MCP tools); the translation drops the group — named in
 the header and the log — where flattening it into function tools would

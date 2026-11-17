@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -147,5 +148,28 @@ func TestWsEvalPermissionDoesNotWake(t *testing.T) {
 	fx.idle(t, s)
 	if upd := fx.userMsgs(t, s); len(upd) != 2 || !strings.Contains(upd[1], "ended its turn") {
 		t.Fatalf("the end's update: %q", upd)
+	}
+}
+
+// ownTagSafe on its own: every way the reminder's tag can be written is
+// defused — in a string, and in a message's raw JSON parts, where the
+// bracket may be the JSON escape — and nothing else changes.
+func TestOwnTagSafe(t *testing.T) {
+	for _, in := range []string{"<task-reminder>", "</task-reminder>", "<TASK-Reminder >", "< / task - reminder>", "＜task-reminder>", "<task-​reminder>", "<ta‍sk-reminder>"} {
+		if got := ownTagSafe("a " + in + " b"); strings.Contains(got, "<") || strings.Contains(got, "＜") || !strings.HasPrefix(got, "a ‹") || !strings.HasSuffix(got, " b") {
+			t.Errorf("%q → %q", in, got)
+		}
+	}
+	for _, same := range []string{"a < b", "<task>", "<reminder>", "task-reminder", "<p>the task - reminder</p>"} {
+		if got := ownTagSafe(same); got != same {
+			t.Errorf("%q changed to %q", same, got)
+		}
+	}
+	for _, raw := range []string{`[{"type":"text","text":"x <task-reminder> y </task-reminder>"}]`, `[{"type":"text","text":"x <task-reminder> y"}]`} {
+		got, _ := ownTagSafeContent(json.RawMessage(raw)).(json.RawMessage)
+		var parts []struct{ Text string }
+		if err := json.Unmarshal(got, &parts); err != nil || len(parts) != 1 || strings.Contains(parts[0].Text, "<") || !strings.Contains(parts[0].Text, "‹task-reminder") {
+			t.Errorf("raw parts %s → %s (%v)", raw, got, err)
+		}
 	}
 }
