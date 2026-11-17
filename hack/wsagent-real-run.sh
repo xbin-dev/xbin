@@ -69,6 +69,17 @@ if [[ $run_scenarios == 1 ]]; then
     XBIN_REAL_ADDR=127.0.0.1:$port XBIN_REAL_QUOTA=$quota XBIN_REAL_SCENARIOS=$scenarios \
     go test -tags integration -count=1 -p 1 -timeout 180m -run '^TestWsRealModel' ./test/isolated/ > "$out/scenarios.log" 2>&1 || rc=$?
   grep -E 'scenario [0-9]+[ab]?:|^(ok|FAIL|---)' "$out/scenarios.log" | sed -E 's/^ +[a-z_]+\.go:[0-9]+: //' || true
+  # scenario 29, a web page that tries to direct the agent: xbind reads public addresses only, so the page is
+  # the agent backend's fake and the model is the real one (builtin-templates/agent/_backend/ws_real_test.go)
+  if [[ -z "$scenarios" || ",$scenarios," == *,29,* ]]; then
+    XBIN_REAL_LLM_BASE=$base XBIN_REAL_LLM_MODEL=$model XBIN_REAL_LLM_KEYFILE=$keyfile XBIN_REAL_OUT=$out \
+      TILE_TEST_FLAGS="-run TestWsRealWebPageInjection -count=1 -v" ./hack/tile-check.sh agent > "$out/scenario-29.log" 2>&1 || rc=$?
+    grep -E '^(---|ok|FAIL)' "$out/scenario-29.log" || true
+  fi
+  # the table again, with that row (the scenarios' own boot wrote it without)
+  XBIN_REAL_LLM_BASE=$base XBIN_REAL_LLM_MODEL=$model XBIN_REAL_LLM_KEYFILE=$keyfile XBIN_REAL_OUT=$out \
+    go test -tags integration -count=1 -run '^TestWsRealModelTable$' ./test/isolated/ > /dev/null 2>&1 || true
+  echo "table: $out/table.md"
 fi
 
 if [[ $bench -gt 0 ]]; then

@@ -22,12 +22,14 @@ package isolated
 //	XBIN_REAL_ADDR         the address xbind listens on (default: a free port)
 //	XBIN_REAL_QUOTA        tokens per person and day (default 3000000)
 //	XBIN_REAL_SCENARIOS    a comma list of scenario ids to run (default: all)
-//	XBIN_REAL_TILE_AGENT   "real" (default): tile agents are the rootfs's coding
-//	                       agents on the connector, doing real work in the
-//	                       synthetic tiles; "fake": the scripted one, in
-//	                       Invoices (cheaper, and a model that checks the
-//	                       tile agent's claims finds them false — which
-//	                       derails the scenarios after it)
+//	XBIN_REAL_TILE_AGENT   "fake" (default): the scenarios' tile agents are the
+//	                       scripted coding agent, in Invoices — which really
+//	                       makes the change it reports (a model that checks
+//	                       a tile agent's claim finds it true); "real": the
+//	                       rootfs's coding agents on the connector. A real
+//	                       one's single turn was 33 model calls and 1.6 M
+//	                       input tokens here: over the cap below, so it is
+//	                       the benchmark's (journeyReal), not the default
 //
 // The grade it writes is mechanical — which tools the model called, what
 // reached xbind, a few words of its answer — and each row names what it
@@ -82,7 +84,7 @@ func realConfig(t *testing.T) realCfg {
 		}
 		c.quota = n
 	}
-	c.fakeAgent = os.Getenv("XBIN_REAL_TILE_AGENT") == "fake"
+	c.fakeAgent = os.Getenv("XBIN_REAL_TILE_AGENT") != "real"
 	if s := os.Getenv("XBIN_REAL_SCENARIOS"); s != "" {
 		c.only = map[string]bool{}
 		for _, id := range strings.Split(s, ",") {
@@ -174,22 +176,22 @@ func (e *realEnv) permissions(person, option string, wait time.Duration) int {
 	return n
 }
 
-// work answers a real tile agent's permission requests ("always") until
-// it is at rest — idle, with nothing pending — or the time is up; with
-// the scripted agent it answers what its script asks. It returns how many
+// work answers a tile agent's permission requests until it is at rest —
+// idle, with nothing pending — or the time is up. It returns how many
 // answers the person gave.
 func (e *realEnv) work(person string, timeout time.Duration) int {
 	e.t.Helper()
+	option := "always"
 	if e.cfg.fakeAgent {
-		return e.permissions(person, "once", 40*time.Second)
+		option = "once" // the scripted one asks before each command of its script
 	}
 	n, rest := 0, 0
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) && rest < 6 {
-		n += e.permissions(person, "always", 3*time.Second)
+	for time.Now().Before(deadline) && rest < 3 {
+		n += e.permissions(person, option, 3*time.Second)
 		busy := false
 		for _, s := range e.tileAgents(person) {
-			busy = busy || s.Status != "idle" || s.Pending > 0
+			busy = busy || s.Status == "running" || s.Status == "starting" || s.Status == "waiting_permission" || s.Pending > 0
 		}
 		if busy {
 			rest = 0
@@ -552,6 +554,14 @@ func (e *realEnv) record(row realRow) {
 	}
 	defer f.Close()
 	_, _ = f.Write(append([]byte(e.redact(string(b))), '\n'))
+}
+
+// TestWsRealModelTable writes the graded table again from what the run's
+// boots recorded (rows.jsonl) — rows other tests add to it included (the
+// agent backend's TestWsRealWebPageInjection). It boots nothing.
+func TestWsRealModelTable(t *testing.T) {
+	cfg := realConfig(t)
+	(&realEnv{wsEnv: &wsEnv{t: t}, cfg: cfg, model: realUp + "/" + cfg.model}).writeTable(t)
 }
 
 // writeTable writes the graded table, table.md, from rows.jsonl.

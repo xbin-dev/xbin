@@ -21,6 +21,8 @@
 //   JOURNEY_REAL_MODEL    the model's id at the upstream
 //   JOURNEY_REAL_KEYFILE  a file holding the key (never the key)
 //   JOURNEY_REAL_BUILD_MIN  how long the tile agent may build (default 25)
+//   JOURNEY_REAL_HARNESS  hold the workspace to this coding agent (codex,
+//                         opencode) instead of xbind's own pick
 //
 // Needs HARNESS_ISOLATE=1 and `make sealed`; SKIPs without the endpoint.
 'use strict';
@@ -59,6 +61,12 @@ async function journeyReal(browser) {
     await J0.firstRunSheet(J, page, PERSON);
     const frame = async () => { const el = await page.waitForSelector(`${DOCK} iframe`, { state: 'attached', timeout: 60000 }); const f = await el.contentFrame(); await f.waitForSelector('.wsp-main[aria-busy="false"]', { timeout: 180000 }); return f; };
     const f = await J.wait('the dock opens by itself; the agent\'s page is up', async () => { await page.waitForSelector(`${DOCK}[open]`, { timeout: 30000 }); return frame(); });
+    // JOURNEY_REAL_HARNESS: hold the workspace to one coding agent (an admin's setting, made here through the API and
+    // not counted: the journey's own default is whatever xbind resolves — the first the connector can serve)
+    if (process.env.JOURNEY_REAL_HARNESS) {
+      const r = await call('PUT', '/agents/policy', { harnesses: [process.env.JOURNEY_REAL_HARNESS] });
+      say(`the workspace's coding agents held to ${process.env.JOURNEY_REAL_HARNESS} (PUT /agents/policy → ${r.status})`);
+    }
     const provs = await call('GET', '/agent/providers');
     say(`coding agents here (GET /agent/providers): ${[].concat(provs.data || []).map((h) => `${h.id}${h.llm ? ` [llm ${JSON.stringify(h.llm).slice(0, 120)}]` : ''}`).join(', ')}`);
 

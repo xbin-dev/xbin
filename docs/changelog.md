@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **`sdk/acp`: a steered message's echo precedes what the agent says next.**
+  `Client.Steer` emitted the echo (`message.delta`, `role: "user"`,
+  `steered: true`) after its call returned, so it could land behind the
+  first events of the turn the steer started — the person's message drawn
+  after the agent's reaction to it. It is now emitted when the steer's
+  answer is read, in the stream's own order. No API change.
+  `sdk/acp/acptest` gains `--steps-file=<path>`: a prompt that carries no
+  `fakeacp-steps:` line plays the steps the file holds.
 - **The LLM connector's `/v1/responses` works on upstreams that have only
   chat completions** (D244; [llm.md §Responses on a chat-only
   upstream](/docs/llm.md#responses-on-a-chat-only-upstream),

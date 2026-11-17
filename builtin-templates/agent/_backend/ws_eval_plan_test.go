@@ -73,6 +73,17 @@ func TestWsEvalDicePlan(t *testing.T) {
 	if !strings.Contains(wsSystem(), "are ONE plan (plan_propose), never a chain of single requests") || !strings.Contains(wsSystem(), "Applied is not done") || !strings.Contains(wsSystem(), "built, not stamped") {
 		t.Error("the prompt doesn't teach the plan")
 	}
+	// one prompt, one review: a steps plan shown first ends the turn on "wait for their go-ahead", and the person
+	// says go twice — a real model did, one journey in four (the real-model run, 2026-11-17). The prompt's rule
+	// about showing a plan and the steps tool both say the proposed plan is not preceded by one.
+	if !strings.Contains(wsSystem(), "Not for changes that create or bind: propose those at once (Plans, below) — xbin's review is the plan shown, and their go-ahead.") {
+		t.Error("the prompt's \"show the plan first\" doesn't except the changes a plan_propose carries")
+	}
+	for _, o := range f.callsFor(s.Run)[0].Tools {
+		if o.Function.Name == "plan" && !strings.Contains(o.Function.Description, "Not before plan_propose") {
+			t.Errorf("the steps plan as offered doesn't say it is not a step before plan_propose: %s", o.Function.Description)
+		}
+	}
 	got := fx.toolResult(t, s, "plan_propose")
 	for _, want := range []string{
 		"1. [tile.create] Create the tile apps/dice from the template starter — yours",

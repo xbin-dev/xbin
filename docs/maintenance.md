@@ -1270,6 +1270,22 @@ other states — a mode that doesn't ask, a person who is no admin and Ask an
 admin, a request from another person, a kind the page doesn't know — are
 `agentChrome`'s, on its faked delegation (`passes/agentchrome-plan.js`,
 `out/agent-plan-*.png`, both widths; run it in both themes).
+`journeyReal` is the same journey with **nothing scripted** — a real model
+behind the workspace agent and a real coding agent from the rootfs in the
+tile — for a run against an endpoint you name (`JOURNEY_REAL_BASE`,
+`JOURNEY_REAL_MODEL`, `JOURNEY_REAL_KEYFILE`: xbind reads the key from the
+file; the pass never sees it) and `SKIP`s without one. It asserts nothing
+about what the model says: it drives what a person would (Review…, the
+ticks, Apply, each permission request in Needs you, its own roll in the
+assistant) and records what happened — `out/journey-real.md` (the counted
+steps), `-notes.md`, `-summary.json` (interactions, seconds per stretch,
+tokens) and `-transcript.md`. `hack/wsagent-real-run.sh <base-url> <model>
+<key-file>` runs it (`--bench N`) together with the scenario list of
+`builtin-templates/agent/_backend/testdata/ws-real-model-scenarios.md`
+(`test/isolated/wsagent_real*_test.go`: skipped unless
+`XBIN_REAL_LLM_BASE` is set, so CI never calls a provider) and writes the
+graded table; `plans/wsagent/real-model-run-2026-11-17.md` is the first
+such run.
 `firstRun` asserts that sheet on xbinds of its own, booted the journeys' way
 (`boot(name, {llm, host, vault})`: no host file, more of the host's keys, the
 host unsealing) on the same port, one after the other: the installer's

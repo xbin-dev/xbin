@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -131,6 +132,36 @@ func main() {
 }
 `
 
+// The list handler's answer, and the same with the overdue filter: what a
+// coding agent asked for that filter writes.
+const (
+	realInvoicesList     = `json.NewEncoder(w).Encode(map[string]any{"today": "2026-11-17", "invoices": inv})`
+	realInvoicesFiltered = `out := inv
+		if r.URL.Query().Get("overdue") == "1" { // sent, and due before today
+			out = []*invoice{}
+			for _, i := range inv {
+				if i.Status == "sent" && i.Due < "2026-11-17" {
+					out = append(out, i)
+				}
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"today": "2026-11-17", "invoices": out})`
+)
+
+// realFilterSteps is the scripted coding agent's work on "add an overdue
+// filter": it puts the filter in the backend, says so in API.md, waits for
+// the tile to answer with it, and reports what it did and did not check —
+// truthfully. more commands run after it (their output is the report's
+// last lines).
+func realFilterSteps(more ...string) []string {
+	steps := []string{
+		`cp .bin/with-overdue-filter.txt backend/main.go && printf '%s\n' '- GET /invoices?overdue=1 — only the overdue invoices (status sent, due before today).' >> API.md && echo "backend/main.go and API.md changed"`,
+		`for i in $(seq 1 60); do n=$(curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/api/$XBIN_COMPONENT/invoices?overdue=1" | grep -o '"id"' | wc -l); [ "$n" -gt 0 ] && [ "$n" -lt 7 ] && break; sleep 2; done; ` +
+			`echo "Added an overdue filter to Invoices: GET /invoices?overdue=1 returns only the invoices that are sent and due before today ($n of 7 right now); GET /invoices is unchanged. API.md says so. Checked: the rebuilt backend answers both calls. Not checked: the page — it has no list yet, so there is nothing on it to filter."`,
+	}
+	return append(steps, more...)
+}
+
 const realInvoicesAPI = `# Invoices
 
 The invoices this business sent, with what is paid and what is not.
@@ -243,6 +274,15 @@ func (e *realEnv) seedReal(t *testing.T) {
 		d.WriteTile(t, tile, map[string]string{"xbin.json": `{"title":"` + title + `","runtime":"go","agent":"full","expose":{"roles":{"reader":"read","writer":"read and change"}}` + more + `}` + "\n"})
 	}
 	goTile(realInvoices, "Invoices", "invoices", realInvoicesSrc, realInvoicesAPI, "")
+	// what the scripted coding agent puts in place when a brief asks for the overdue filter (realFilterSteps):
+	// the same backend with the filter in it. Not a .go file: nothing builds it where it lies.
+	withFilter := strings.Replace(realInvoicesSrc, realInvoicesList, realInvoicesFiltered, 1)
+	if withFilter == realInvoicesSrc {
+		t.Fatal("the Invoices source has no list handler to put the filter in")
+	}
+	if err := d.WriteFiles(realInvoices, map[string]string{".bin/with-overdue-filter.txt": withFilter}); err != nil {
+		t.Fatal(err)
+	}
 	goTile(realOrders, "Orders", "orders", realOrdersSrc, realOrdersAPI, "")
 	goTile(realCalendar, "Calendar", "calendar", realCalendarSrc, realCalendarAPI, `,"provides":{"calendar":{"kind":"http","service":"calendar","role":"reader"}}`)
 	e.staticTile(realSales, "Sales")
