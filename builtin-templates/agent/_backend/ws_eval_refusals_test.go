@@ -31,6 +31,18 @@ func TestWsEvalStartRefusedByTaint(t *testing.T) {
 	f.on(forRun(s.Run, lastTool("tile_agent_start")), say("I can't brief the Orders agent from this conversation: it has read Finance's data. Start it on the workspace connector on a model Finance allows, or ask me in a new session.")).once()
 	calls := len(f.callsFor(s.Run))
 	fx.say(t, s, "add a csv export to Orders")
+	// the turn is over when the model has explained: "at rest" alone was once read between the refusal and
+	// the explanation (a two-core run under load, 1 in 40) — the count below was then 1
+	waitFor(t, "the explanation after the refusal", func() bool {
+		if n := len(f.callsFor(s.Run)) - calls; n >= 2 {
+			return true
+		}
+		if st := statusOf(fx.ag.db, s.Run); st == statusError {
+			r, _ := fx.ag.db.getRun(s.Run)
+			t.Fatalf("the turn stopped on an error after %d model call(s): %s", len(f.callsFor(s.Run))-calls, r.Result)
+		}
+		return false
+	})
 	fx.idle(t, s)
 	got := fx.toolResult(t, s, "tile_agent_start")
 	for _, want := range []string{"is refused", "holds data of finance", "telling it less, rewording it or asking again changes nothing", "workspace's LLM connector, on a model those orgs allow", "a clean conversation", "Stop here and tell your person"} {
