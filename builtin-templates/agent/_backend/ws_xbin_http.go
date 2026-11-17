@@ -746,49 +746,111 @@ func (h wsHTTP) AgentCancel(ctx context.Context, sid, id string) error {
 // AgentReport folds the tail of a session's log — live, or its history once
 // it ended — into what its last turn left. Patches and file contents in the
 // log are never copied: a change is its path and line counts.
+// wsReportPages bounds how far back a report reads for its turn's start
+// (pages of 400 events); wsReportCommands is how many commands it lists.
+const (
+	wsReportPages    = 12
+	wsReportCommands = 20
+)
+
 func (h wsHTTP) AgentReport(ctx context.Context, sid, id string) (wsAgentReport, error) {
-	var page struct {
-		Events []struct {
-			Type string          `json:"type"`
-			Data json.RawMessage `json:"data"`
-		} `json:"events"`
+	type event struct {
+		Type string          `json:"type"`
+		Data json.RawMessage `json:"data"`
 	}
-	err := h.get(ctx, sid, "/api/xbin/term/sessions/"+url.PathEscape(id)+"/events?limit=400", &page)
+	type evPage struct {
+		Events     []event `json:"events"`
+		HasOlder   bool    `json:"hasOlder"`
+		NextBefore int     `json:"nextBefore"`
+	}
+	base := "/api/xbin/term/sessions/" + url.PathEscape(id) + "/events"
+	var page evPage
+	err := h.get(ctx, sid, base+"?limit=400", &page)
 	if err != nil {
 		var de *xbin.DelegateError
 		if !errors.As(err, &de) || de.Status != http.StatusNotFound {
 			return wsAgentReport{}, err
 		}
-		if err := h.get(ctx, sid, "/api/xbin/agent/history/"+url.PathEscape(id)+"/events?limit=400", &page); err != nil {
+		base = "/api/xbin/agent/history/" + url.PathEscape(id) + "/events"
+		if err := h.get(ctx, sid, base+"?limit=400", &page); err != nil {
 			return wsAgentReport{}, err
 		}
+	}
+	// The report is of the session's last turn — from its last prompt on. The tail page alone often
+	// doesn't reach back to it: an agent that writes its answer token by token (Codex) fills 400 events
+	// with the answer, and its commands and file changes are in the pages before (the feedback run,
+	// 2026-11-17: "Files changed: none reported" of a turn that changed two). Read back to the prompt.
+	prompted := func(evs []event) bool {
+		for _, ev := range evs {
+			if ev.Type == "message.delta" {
+				var d struct {
+					Role    string
+					Steered bool
+				}
+				if json.Unmarshal(ev.Data, &d) == nil && d.Role == "user" && !d.Steered {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	events := page.Events
+	for n := 0; page.HasOlder && page.NextBefore > 0 && !prompted(events) && n < wsReportPages; n++ {
+		var older evPage
+		if err := h.get(ctx, sid, fmt.Sprintf("%s?before=%d&limit=400", base, page.NextBefore), &older); err != nil || len(older.Events) == 0 {
+			break
+		}
+		events, page = append(older.Events, events...), older
 	}
 	var rep wsAgentReport
 	var text strings.Builder
 	files := map[string]wsFileStat{}
-	for _, ev := range page.Events {
+	// a command is a tool.call (its title and kind) and the tool.update that ends it (its exit code): two
+	// events for most agents, one for some
+	type call struct {
+		title, kind string
+		told        bool
+	}
+	calls := map[string]*call{}
+	for _, ev := range events {
 		switch ev.Type {
 		case "message.delta":
-			var d struct{ Role, Text, Parent string }
+			var d struct {
+				Role, Text, Parent string
+				Steered            bool
+			}
 			_ = json.Unmarshal(ev.Data, &d)
 			switch {
-			case d.Role == "user": // a new prompt: what came before is an earlier turn's
+			case d.Role == "user" && !d.Steered: // a new prompt: what came before is an earlier turn's
 				text.Reset()
-				rep.Verified, files = nil, map[string]wsFileStat{}
+				rep.Verified, files, calls = nil, map[string]wsFileStat{}, map[string]*call{}
+			case d.Role == "user":
 			case d.Parent == "":
 				text.WriteString(d.Text)
 			}
 		case "tool.call", "tool.update":
 			var d struct {
-				Title, Kind, Status string
-				ExitCode            *int `json:"exitCode"`
+				ID, Title, Kind, Status string
+				ExitCode                *int `json:"exitCode"`
 			}
 			_ = json.Unmarshal(ev.Data, &d)
 			if ev.Type == "tool.call" {
 				text.Reset() // the answer is what it said after its last call
 			}
-			if d.Kind == "execute" && d.ExitCode != nil && d.Title != "" && len(rep.Verified) < 20 {
-				rep.Verified = append(rep.Verified, fmt.Sprintf("%s → exit %d", clip(oneLineTitle(d.Title), 160), *d.ExitCode))
+			c := calls[d.ID]
+			if c == nil {
+				c = &call{}
+				calls[d.ID] = c
+			}
+			if d.Title != "" {
+				c.title = d.Title
+			}
+			if d.Kind != "" {
+				c.kind = d.Kind
+			}
+			if c.kind == "execute" && d.ExitCode != nil && c.title != "" && !c.told {
+				c.told = true
+				rep.Verified = append(rep.Verified, fmt.Sprintf("%s → exit %d", clip(oneLineTitle(c.title), 160), *d.ExitCode))
 			}
 		case "files.changed":
 			var d struct {
@@ -817,6 +879,9 @@ func (h wsHTTP) AgentReport(ctx context.Context, sid, id string) (wsAgentReport,
 				rep.Status = "running"
 			}
 		}
+	}
+	if n := len(rep.Verified); n > wsReportCommands { // the last ones: the checks come after the looking around
+		rep.Verified = append([]string{fmt.Sprintf("(%d earlier commands not shown)", n-wsReportCommands)}, rep.Verified[n-wsReportCommands:]...)
 	}
 	rep.Answer = strings.TrimSpace(text.String())
 	for _, f := range files {
