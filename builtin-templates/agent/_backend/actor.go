@@ -636,24 +636,44 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 	specs, own := injectSummaries(runToolSpecs(cfg, run, ts.mcp))
 	ts.own = own
 	msgs, specs, ts.back = wireNames(msgs, specs)
-	release, err := e.acquireLLM(ctx, e.modelGateTop(run)) // a built-in task takes a subagent's place (project_gate.go)
-	if err != nil {
-		e.failTurn(ctx, ts, err.Error())
-		return LLMReply{}, false
-	}
 	model := visionModelFor(ctx, cfg, msgs)
-	e.draftStart(ts, model)
-	t0 := time.Now()
-	reply, err := e.chat(ctx, LLMRequest{
-		Run: run.ID, Purpose: "turn",
-		Model: model, Msgs: msgs, Tools: specs, Stream: cfg.feature("streaming"),
-		Wire: cfg.Wire, ReasoningEffort: cfg.ReasoningEffort,
-	}, func(ev LLMEvent) { e.draftEvent(ts, ev) })
-	release()
-	e.draftEnd(ts)
-	if err != nil {
-		e.failTurn(ctx, ts, err.Error())
-		return LLMReply{}, false
+	var reply LLMReply
+	var t0 time.Time
+	// The call — made again by the turn itself when the provider failed with something that may be gone a
+	// moment later (llm_failed.go): a bounded number of times, said in the transcript each time. The gate is
+	// not held while it waits.
+	for try := 0; ; try++ {
+		release, err := e.acquireLLM(ctx, e.modelGateTop(run)) // a built-in task takes a subagent's place (project_gate.go)
+		if err != nil {
+			e.failTurn(ctx, ts, err.Error())
+			return LLMReply{}, false
+		}
+		e.draftStart(ts, model)
+		t0 = time.Now()
+		reply, err = e.chat(ctx, LLMRequest{
+			Run: run.ID, Purpose: "turn",
+			Model: model, Msgs: msgs, Tools: specs, Stream: cfg.feature("streaming"),
+			Wire: cfg.Wire, ReasoningEffort: cfg.ReasoningEffort,
+		}, func(ev LLMEvent) { e.draftEvent(ts, ev) })
+		release()
+		e.draftEnd(ts)
+		if err == nil {
+			break
+		}
+		wait, again := turnRetry(err, try)
+		if !again || ctx.Err() != nil {
+			e.failTurn(ctx, ts, llmStopWords(err, try+1))
+			return LLMReply{}, false
+		}
+		note := fmt.Sprintf("The model's provider failed (%s): trying again in %s — try %d of %d.", flatClip(err.Error(), 160), wait, try+2, len(turnRetryWaits)+1)
+		_ = e.fenced(func(t *DB) error {
+			e.emitStep(t, ts.root, t.journal(run.ID, "note", map[string]string{"text": note}))
+			return nil
+		})
+		if !waitCtx(ctx, wait) {
+			e.failTurn(ctx, ts, err.Error()) // cancelled on purpose: failTurn writes nothing
+			return LLMReply{}, false
+		}
 	}
 	if reply.Model == "" {
 		reply.Model = model

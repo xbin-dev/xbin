@@ -180,16 +180,27 @@ func (g *gatewayLLM) call(ctx context.Context, base string, req LLMRequest, onEv
 			}
 			return rep, nil
 		}
-		lastErr = err
+		lastErr = failedLLM(err, retry)
 		if !retry || emitted || ctx.Err() != nil {
 			rep.Wire, rep.Model = w.name(), req.Model
-			return rep, err
+			return rep, lastErr
 		}
 	}
 	if lastErr == nil {
 		lastErr = ctx.Err()
 	}
 	return LLMReply{Wire: w.name(), Model: req.Model}, lastErr
+}
+
+// failedLLM is an attempt's error as Chat returns it: typed (llmFailed),
+// with what the attempt judged of it — unless it is already, or says the
+// wire isn't the upstream's (the caller's to switch).
+func failedLLM(err error, retry bool) error {
+	var f *llmFailed
+	if errors.As(err, &f) || errors.Is(err, errWireUnsupported) || errors.Is(err, context.Canceled) {
+		return err
+	}
+	return &llmFailed{err: err, Transient: retry}
 }
 
 // attempt is one HTTP round trip. retry reports whether the failure is worth
@@ -240,7 +251,8 @@ func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w
 		if w.unsupported(resp.StatusCode, msg) {
 			return LLMReply{}, false, fmt.Errorf("%w (llm-gw %s: %s)", errWireUnsupported, resp.Status, msg)
 		}
-		return LLMReply{}, retryableLLM(resp.StatusCode), fmt.Errorf("llm-gw %s: %s", resp.Status, msg)
+		transient := llmTransient(resp.StatusCode, msg)
+		return LLMReply{}, transient, &llmFailed{err: fmt.Errorf("llm-gw %s: %s", resp.Status, msg), Status: resp.StatusCode, Transient: transient}
 	}
 	for _, f := range llmStatusHooks {
 		f(req, resp.StatusCode, nil)
