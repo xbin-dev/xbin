@@ -13,8 +13,8 @@
 > tabs, the kill switches, signed-in chrome tiles, the escape hatches, Live
 > Activities, the terminal's search and selection, drawers and IME-safe
 > input (§26 "Round 2") — passes `swift test` and the stub checks on Linux
-> and awaits its first Apple CI run. Nothing has run on a device. Open: who
-> operates the push relay (decision 13) and App Review (16). §26 lists
+> and awaits its first Apple CI run. Nothing has run on a device. Open:
+> App Review (16); the push relay runs at notif-fwd.xbin.dev (decision 13). §26 lists
 > where the build departs from this text. Companion plans:
 > plans/tile-asset-auth.md (strict frontend gating) and
 > plans/agent-template-native.md (the agent tile's native mode). Dev loop:
@@ -1628,7 +1628,8 @@ native/AGENTS.md ("Mac mini" included).
   Xcode 27.1 SDK before use; the design only needs size classes + two optional
   APIs (reserved regions, hinge).
 - **App Review** (§23).
-- **Relay operations**: who runs it, where (decision 13); abuse limits now
+- **Relay operations**: the project, at notif-fwd.xbin.dev (decision 13);
+  abuse limits now
   include an optional proof of work on anonymous registration (D102).
 
 ## 25. Decisions for review
@@ -1674,7 +1675,10 @@ its server additions, the drawer).
 12. **iOS colours** — platform semantic colours + xbin amber as tint, with a
     light palette defined for tokens (recommended) vs the exact xbin palette.
 13. **Push relay** — run by xbin-dev, code in `relay/`, E2E-encrypted,
-    opt-in per workspace: **who operates it and at which domain?**
+    opt-in per workspace. **Decided (2026-11-17):** the project runs it at
+    `https://notif-fwd.xbin.dev` on its own VPS (deployed from the project's infrastructure
+    repository, kept apart from this one); the app's
+    `XbinPushRelay` and xbind's `XBIN_PUSH_RELAY` default name it.
 14. **Agent-session server additions** — prompt attachments, a full-diff route,
     pending elicitations in the snapshot (recommended).
 15. **`POST /api/xbin/notify`** — a generic backend → user notification API

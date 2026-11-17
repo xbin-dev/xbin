@@ -5,9 +5,10 @@ import XbinCore
 
 /// Push, the app side (native/spec/push.md): the APNs token, one relay
 /// handle per workspace, the registration with each xbind, and keeping it
-/// working on launch and foreground (§1.4). The relay URL is configuration —
-/// no relay is deployed yet (plans/native.md decision 13) — so with none
-/// set, push stays off and nothing is sent anywhere.
+/// working on launch and foreground (§1.4). The relay URL is configuration
+/// (the project's relay, https://notif-fwd.xbin.dev, by default:
+/// AppInfo.defaultPushRelay); with none set, push stays off and nothing is
+/// sent anywhere.
 @MainActor
 final class PushManager {
     static let shared = PushManager()

@@ -1575,7 +1575,8 @@ developers don't compile a kernel and QEMU on every cold cache.
   `hack/helpers-static.sh DIR` (checks each staged tarball, copies it to
   the gitignored `website/static-helpers/`, merges the entries into
   `hack/helpers.sha256`), `make website` (→ `website/dist/static/helpers/`),
-  deploy the site by hand, then commit the manifest. Until the site serves a
+  deploy the site (the maintainers' playbook, in the project's
+  infrastructure repository — kept apart from this one), then commit the manifest. Until the site serves a
   set, `make helpers` falls back to building it from source; `make pins`
   (online, and so a release) fails on a pinned set the URL doesn't serve —
   deploy first.

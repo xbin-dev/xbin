@@ -48,9 +48,9 @@ enum AppInfo {
     /// The device's name for the Devices list (users rename it there).
     @MainActor static var deviceName: String { UIDevice.current.name }
 
-    /// The push relay: configuration only — nothing is deployed and the
-    /// operator is undecided (plans/native.md decision 13). Info.plist
-    /// `XbinPushRelay`, overridable in Settings; empty = push off.
+    /// The push relay: Info.plist `XbinPushRelay` — the project's relay,
+    /// https://notif-fwd.xbin.dev (plans/native.md decision 13) —
+    /// overridable in Settings; empty = push off.
     static var defaultPushRelay: String {
         (Bundle.main.object(forInfoDictionaryKey: "XbinPushRelay") as? String ?? "")
             .trimmingCharacters(in: .whitespaces)

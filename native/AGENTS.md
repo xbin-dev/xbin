@@ -840,9 +840,11 @@ connection metadata, never content (Noise inside QUIC). That is the user's
 connection to their own server, so nothing is declared as collected;
 `website/privacy.html` says who sees what (n0 states its relays don't record
 it). The phone uses iroh's Minimal preset and publishes nothing. Push is the
-exception once a relay ships: the app then registers its APNs token with the
-relay the xbin project runs (spec/push.md). Three places say this and must
-agree:
+exception: once the user allows notifications for a workspace, the app
+registers its APNs token with the relay the xbin project runs
+(`https://notif-fwd.xbin.dev`, spec/push.md), which
+`XbinPushRelay` names. Three places say this and must agree (the right
+column is the state now):
 
 | | While `XbinPushRelay` (Support/App-Info.plist) is empty: push off | Once it names the project's relay |
 |---|---|---|
@@ -864,7 +866,9 @@ for statfs-type symbols) and go into the manifest and store-check.py's
 policy URL for App Store Connect is `https://xbin.dev/privacy.html` (deploy
 with the website: `make website`). Its sentence that the relay does not
 store IP addresses holds only if the relay's deployment (its reverse proxy
-included) keeps no access logs with them.
+included) keeps no access logs with them — the project's deployment (its
+infrastructure repository, kept apart from this one) logs no client addresses
+or headers.
 
 **Plain http (App Review).** `NSAllowsArbitraryLoads` is on, alone: the
 app connects to servers its user runs, at whatever address they give —

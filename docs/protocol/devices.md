@@ -406,8 +406,9 @@ DELETE /push/devices/<user>/<deviceId>   admin. Revoke one (a lost phone) →
 ```
 
 **Push notifications** (D94). The xbin app receives pushes through a push relay
-(the repo's `relay/`, relay/README.md): it holds the APNs key, maps an opaque
-handle to the device, and never sees content. An admin turns push on per
+(the repo's `relay/`, relay/README.md; the project runs the App Store app's at
+`https://notif-fwd.xbin.dev`, `XBIN_PUSH_RELAY`'s default): it holds the APNs
+key, maps an opaque handle to the device, and never sees content. An admin turns push on per
 workspace (`PUT /push/config`, or `XBIN_PUSH_RELAY` + `XBIN_PUSH_RELAY_KEY`,
 docs/config.md); the app registers each device with `POST /devices/push`.
 Each notification is sealed to the device's X25519 key — ephemeral X25519,

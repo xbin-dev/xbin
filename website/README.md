@@ -211,13 +211,17 @@ helpers"; `hack/helpers-static.sh` stages them into the gitignored
 serves and check their sums), and a deploy without one would send everyone's
 `make helpers` for that set back to building from source.
 
-Deploying is by hand: `make website`, then copy `website/dist/` to the host as it is
-(nothing to rewrite; serve `app/ios.json` as `application/json`). Then a smoke check
+Deploying: commit, then run the maintainers' site deploy (a playbook in the project's
+infrastructure repository, kept apart from this one). It runs
+`make website` itself, unpacks `dist/` once into a release directory on the project's
+VPS and switches the served copy to it in one atomic rename; a rollback points it back
+at an older release. Caddy serves the headers, types and caching (`install.sh` as
+`text/plain`, `app/ios.json` as `application/json` cached a minute). Then a smoke check
 against the live site: `/`, `/install.sh` (byte-identical, `sha256sum` against
 `INSTALL_SH_SHA256` in `hack/check-website.mjs`), `/app/ios.json`, `/privacy.html`,
 `/og.png` and one `/static/helpers/<group>/<key>/amd64.tar.zst` answer 200, and the
-browser pass run against `dist/` before the copy (`make website-check
-WEBSITE_CHECK_FLAGS=--dist`) found nothing.
+browser pass against what the host serves (`make website-check
+WEBSITE_CHECK_FLAGS="--dist --origin https://xbin.dev"`) finds nothing.
 
 ## Checks
 
@@ -287,7 +291,9 @@ fails on:
 - an animation that runs under `prefers-reduced-motion`.
 
 `WEBSITE_CHECK_FLAGS` passes its flags: `--dist` checks `website/dist` as
-`make website` left it, `--page NAME` one page, `--shots DIR` also writes full-page
+`make website` left it, `--origin https://HOST` checks the pages that copy lists as
+that origin serves them (a deployed site, with its headers: the CSP, the types; no
+local server; requests leaving that origin are the ones blocked), `--page NAME` one page, `--shots DIR` also writes full-page
 screenshots of every page at 1440 × 900 and 390 × 844 (DPR 2), light and dark.
 
 ## Preserved URLs
@@ -332,4 +338,4 @@ the bootstrap picks it up on the next run. Only when the bootstrap or the site
 *themselves* change: sync the `releases` branch (`git push origin master:releases`) so
 the stable raw URL
 `https://raw.githubusercontent.com/xbin-dev/xbin/releases/website/install.sh` serves the
-current copy, and `make website` + redeploy `dist/`.
+current copy, and redeploy the site (`--tags site`, above).
