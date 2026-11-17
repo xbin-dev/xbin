@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -251,6 +252,24 @@ func wsAnswerText(tile string, c wsCall, a wsAnswer) string {
 	return head + "\n" + wsData(tile, "its API's answer", body) + more
 }
 
+// wsCrashLog is what a read adds when xbind answered for a backend that
+// didn't: the 502 is xbind's ("backend error: EOF" — the backend crashed
+// on the call, or is not up), and why is in the tile's log. A real model
+// needed a second call to learn that the EOF was a panic and where (the
+// feedback run, 2026-11-17); the log's last lines come with the failure,
+// where the person may read logs.
+func wsCrashLog(ctx context.Context, ag *Agent, s *wsSession, tile string, a wsAnswer) string {
+	if a.Status != http.StatusBadGateway || !strings.Contains(string(a.Body), "backend error") {
+		return ""
+	}
+	out := "\nThat is xbin's answer, not the tile's: its backend did not answer this call — it crashed on it, or isn't up."
+	var text string
+	if err := ag.wsWith(ctx, s, func(sid string) (err error) { text, err = wsX.Logs(ctx, sid, tile, 15); return }); err != nil || strings.TrimSpace(text) == "" {
+		return out + " tile_logs may say why."
+	}
+	return out + " Its log's last lines:\n" + wsData(tile, "its log", clip(text, 2400))
+}
+
 func wsTileCall(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (string, error) {
 	args := c0.Args
 	t, err := wsFindTile(ctx, ag, s, str(args["tile"]))
@@ -270,7 +289,7 @@ func wsTileCall(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (str
 			return "", err
 		}
 		ag.wsRefresh(ctx, s, true) // what the conversation now holds
-		return wsAnswerText(t.Path, c, a), nil
+		return wsAnswerText(t.Path, c, a) + wsCrashLog(ctx, ag, s, t.Path, a), nil
 	}
 	// a change: what xbind says it would be, before anything is asked
 	dc := c

@@ -101,4 +101,26 @@ func TestWsEvalFeedbackWordings(t *testing.T) {
 	if !strings.Contains(got, "Files changed (2):\n- index.html (+12 −1)\n- backend/main.go (+30 −2)\n(and 60 file(s) with no line of text changed") || strings.Contains(got, "obj-d (+0") || !strings.Contains(got, "go vet ./... → exit 0") {
 		t.Errorf("a result with build output among its files:\n%s", got)
 	}
+
+	// A read of a tile whose backend crashes on it: xbin's 502 comes with the log's last lines.
+	fx.x.api["GET /api/apps/orders/items"] = func([]byte) (int, string) { return 502, `{"docs":"/docs/protocol.md","error":"backend error: EOF"}` }
+	fx.x.mu.Lock()
+	fx.x.logs["apps/orders"] = "panic: assignment to entry in nil map\n\tmain.go:26 +0x1c4"
+	fx.x.mu.Unlock()
+	got = fx.tool(t, s, "tile_call", map[string]any{"tile": "apps/orders", "method": "GET", "path": "/items"})
+	for _, want := range []string{"GET /items → 502", "That is xbin's answer, not the tile's", "panic: assignment to entry in nil map", "main.go:26"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a read the backend crashed on lacks %q:\n%s", want, got)
+		}
+	}
+	// where the person may not read the tile's log, the answer still says whose 502 it is, and where to look
+	fx.x.api["GET /api/apps/invoices/items"] = func([]byte) (int, string) { return 502, `{"error":"backend error: EOF"}` }
+	if got := fx.tool(t, s, "tile_call", map[string]any{"tile": "apps/invoices", "method": "GET", "path": "/items"}); !strings.Contains(got, "That is xbin's answer, not the tile's") || !strings.Contains(got, "tile_logs may say why") {
+		t.Errorf("a crashed read where the log can't be read: %s", got)
+	}
+	// a tile's own 404 or 500 is the tile's answer: no log with it
+	fx.x.api["GET /api/apps/invoices/nope"] = func([]byte) (int, string) { return 404, "no such route" }
+	if got := fx.tool(t, s, "tile_call", map[string]any{"tile": "apps/invoices", "method": "GET", "path": "/nope"}); strings.Contains(got, "xbin's answer, not the tile's") {
+		t.Errorf("a tile's own 404: %s", got)
+	}
 }
