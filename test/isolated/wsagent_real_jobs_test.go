@@ -224,6 +224,15 @@ func (jr *jobsRun) tileAsk(person, sid string) string {
 	return answer.String()
 }
 
+// fresh gives the conversation, and every tile read after it, new page
+// credentials: a frame token doesn't outlive a long job.
+func (jr *jobsRun) fresh(c *wsConv) {
+	for k := range jr.e.frames {
+		delete(jr.e.frames, k)
+	}
+	c.fr = jr.e.agentPage(c.person)
+}
+
 // run drives one job to its end and asks for the feedback.
 func (jr *jobsRun) run(j realJob) {
 	if !jr.wanted(j.id) {
@@ -260,7 +269,12 @@ func (jr *jobsRun) run(j realJob) {
 	row.Messages++
 	mark("the person: %q", clipLine(j.say))
 	rest := 0
+	renewed := time.Now()
 	for {
+		if time.Since(renewed) > 3*time.Minute {
+			jr.fresh(c)
+			renewed = time.Now()
+		}
 		if j.each != nil {
 			j.each()
 		}
@@ -383,6 +397,7 @@ func (jr *jobsRun) run(j realJob) {
 	row.WallSec = int(time.Since(began).Seconds())
 	row.TileAgents = len(tile)
 	row.Interactions = row.Messages + row.Approvals + row.Plans + row.AskAdmin + row.Permissions
+	jr.fresh(c)
 	tn := realTurn{msgs: wsAfter(c.messages(), after)}
 	mark("at rest; the agent's tools: %s", toolTally(tn))
 	if j.verify != nil {
@@ -394,11 +409,20 @@ func (jr *jobsRun) run(j realJob) {
 		jr.keepTile(j.id, tl)
 	}
 
+	// the row and the transcript as they stand, should the feedback round not come back
+	writeRow := func() {
+		b, _ := json.Marshal(row)
+		jr.keep("rows/job"+j.id+".json", string(b))
+		jr.keep("transcripts/job"+j.id+".md", fmt.Sprintf("# Job %s — %s\n\n%s\n\n## The drive\n\n- %s\n\n%s", j.id, j.name, map[bool]string{true: "DONE", false: "NOT DONE"}[row.Done]+": "+row.Why, strings.Join(row.Timeline, "\n- "), e.transcriptOf(c)))
+	}
+	writeRow()
+
 	// --- the feedback round: the conversation's context is all still there ---
 	for _, q := range feedbackAsks {
 		if u := e.usage(); u.Requests-u1.Requests >= 40 {
 			break
 		}
+		jr.fresh(c)
 		ft := c.tell(q.text)
 		ans := ft.Answer
 		if strings.TrimSpace(ans) == "" {
@@ -889,6 +913,7 @@ func TestWsRealJobsC(t *testing.T) {
 		c := e.session("carol", "control", nil)
 		for _, q := range feedbackAsks {
 			text := strings.ReplaceAll(strings.ReplaceAll(q.text, "in THIS conversation", "going by your instructions and tools as you read them now (nothing has happened in this conversation yet)"), "in this conversation", "going by your instructions and tool list as you read them now")
+			jr.fresh(c)
 			ft := c.tell(text)
 			ans := ft.Answer
 			if strings.TrimSpace(ans) == "" {

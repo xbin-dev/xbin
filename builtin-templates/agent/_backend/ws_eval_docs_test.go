@@ -52,4 +52,22 @@ func TestWsEvalDocsToolsTakeWhatAModelSends(t *testing.T) {
 	if got := fx.tool(t, s, "docs_search", map[string]any{"query": "bound slot"}); !strings.HasPrefix(got, "1 section(s) of xbin's docs:") {
 		t.Errorf("a query that matches: %s", got)
 	}
+	// a snippet cut mid-word begins at the next word
+	if got := wsSnippet("…nd the owning org's admins may edit\na tile's list"); got != "… the owning org's admins may edit a tile's list" {
+		t.Errorf("a snippet cut mid-word: %q", got)
+	}
+	if got := wsSnippet("A slot is bound"); got != "A slot is bound" {
+		t.Errorf("a whole snippet: %q", got)
+	}
+	// "give one person access to a tile" is nothing admin_propose can say — and its description says so
+	// (a real model spent thirty calls in the docs establishing it, by elimination)
+	said := false
+	for _, tool := range wsOtherTools() {
+		if tool.Spec.Function.Name == "admin_propose" {
+			said = strings.Contains(tool.Spec.Function.Description, "none names one person")
+		}
+	}
+	if !said {
+		t.Error("admin_propose as offered doesn't say that it can't give one person access to a tile")
+	}
 }

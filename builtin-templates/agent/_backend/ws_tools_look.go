@@ -298,7 +298,7 @@ func wsDocsSearchTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall)
 			fmt.Fprintf(&b, " — %s", h.Title)
 		}
 		if h.Snippet != "" {
-			fmt.Fprintf(&b, ": %s", clip(oneLineTitle(h.Snippet), 300))
+			fmt.Fprintf(&b, ": %s", clip(wsSnippet(h.Snippet), 300))
 		}
 		b.WriteString("\n")
 	}
@@ -317,6 +317,19 @@ func wsPaged(text string, off, page int) string {
 		out += fmt.Sprintf("\n\n(more: offset %d)", end)
 	}
 	return out
+}
+
+// wsSnippet is a hit's snippet on one line, begun at a word: xbind cuts
+// it around the match, mid-word as it falls ("…nd the owning org's
+// admins"), and a snippet is there to judge the hit by.
+func wsSnippet(s string) string {
+	s = oneLineTitle(s)
+	if rest, cut := strings.CutPrefix(s, "…"); cut {
+		if i := strings.IndexByte(rest, ' '); i >= 0 && i < 24 {
+			return "… " + strings.TrimSpace(rest[i+1:])
+		}
+	}
+	return s
 }
 
 // wsDocsClosest is the sections that hold the most of q's words, when none

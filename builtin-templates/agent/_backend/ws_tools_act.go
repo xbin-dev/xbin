@@ -73,7 +73,8 @@ func wsOtherTools() []coordTool {
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "admin_propose",
 			Description: "Propose a batch of admin changes — access between tiles, bindings, an org's share of a tile, a tile's limits — for your person to review. Only for a person who is an admin and turned on \"Let my agent propose admin changes\". " +
 				"Nothing is applied: xbin writes what each change does, its before and after and its warnings, and your person approves all, some or none; xbin then applies those as them. " +
-				"This returns xbin's description at once and does not wait; the decision reaches you as a workspace update. Put related changes in one batch, each with a plain reason.",
+				"This returns xbin's description at once and does not wait; the decision reaches you as a workspace update. Put related changes in one batch, each with a plain reason. " +
+				"These kinds are all there is, and none names one person: giving a single person access to a tile (\"let Dave see Orders\") is not something you can propose here or in a plan — it is the tile's owner's or an admin's own act in xbin (the tile's sharing), or an org's share when everyone in an org may have it. Say that in your first answer; don't search the docs for another way.",
 			Parameters: obj([]string{"title", "changes"}, map[string]any{
 				"title": strProp("what the batch is for, in a few words (shown as yours)"),
 				"changes": map[string]any{"type": "array", "minItems": 1, "maxItems": 20, "items": obj([]string{"kind", "args", "why"}, map[string]any{
