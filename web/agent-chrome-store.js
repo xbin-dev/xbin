@@ -173,8 +173,10 @@ class AgentStore {
    * 'signin'} | {ok: false, error}: approve the ticked items of a change
    * set. xbind asks for a recent sign-in first when it has none.
    */
-  async apply(id, items, password = '', trust = []) { // trust: the start lines whose trust line the person ticked (D230)
-    const r = await call(`/delegate/changesets/${encodeURIComponent(id)}/approve`, { method: 'POST', body: { items, ...(password ? { password } : {}), ...(trust.length ? { trust } : {}) } });
+  async apply(id, items, password = '', ticks = {}) { // ticks {signin, trust}: the start lines whose own sign-in lines the person ticked (D230)
+    const signin = ticks.signin || [], trust = ticks.trust || [];
+    const r = await call(`/delegate/changesets/${encodeURIComponent(id)}/approve`, { method: 'POST',
+      body: { items, ...(password ? { password } : {}), ...(signin.length ? { signin } : {}), ...(trust.length ? { trust } : {}) } });
     this.readState(); this.readChangesets();
     if (r.ok) return { ok: true, set: r.data };
     if (r.status === 403 && r.data && r.data.stepUp) return { ok: false, stepUp: r.data.stepUp, error: password ? say(r, 'That password was not accepted') : '' };

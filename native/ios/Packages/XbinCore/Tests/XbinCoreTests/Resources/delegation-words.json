@@ -2120,6 +2120,7 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "",
     "trustWhose": ""
    },
    "settled": "Waiting for your approval",
@@ -2255,6 +2256,7 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "",
     "trustWhose": ""
    },
    "settled": "Waiting for your approval",
@@ -2390,6 +2392,7 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "",
     "trustWhose": ""
    },
    "settled": "Waiting for your approval",
@@ -2406,7 +2409,7 @@
   },
   {
    "json": {
-    "id": "rq_saved_signin",
+    "id": "rq_offer_connector",
     "user": "ana",
     "agent": "xbin/wsagent",
     "kind": "session",
@@ -2433,7 +2436,7 @@
       "api": true,
       "model": "",
       "credentials": "own",
-      "signIn": "saved",
+      "signIn": "connector",
       "signInId": "si_1a2b",
       "savedSignIn": "a label the agent wrote"
      }
@@ -2515,13 +2518,12 @@
     "allow": "Allow every change"
    },
    "session": {
-    "agent": "Claude Code",
+    "agent": "Claude Code, on your own sign-in",
     "signin": {
-     "saved": true,
+     "offer": true,
      "id": "si_1a2b",
      "name": "Claude Code",
-     "text": "Uses your saved Claude Code sign-in",
-     "holds": "The tile's coding agent will hold that sign-in: it, and anything it runs in Orders, can read it.",
+     "without": "connector",
      "trust": null
     },
     "mode": {
@@ -2535,6 +2537,293 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "Runs on the workspace's model.",
+    "trustWhose": ""
+   },
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:02 · expires in 23 h 46 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Start a tile agent in Orders",
+    "line": "asked 10:02 · expires in 23 h 46 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_offer_own",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "session",
+    "method": "POST",
+    "target": "xbin/term/sessions",
+    "tile": "apps/orders",
+    "body": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "bodyShown": true,
+    "bodySize": 96,
+    "bodySha256": "cd34",
+    "summary": "Start Claude Code on the export.",
+    "state": "pending",
+    "created": "2026-11-16T10:02:00Z",
+    "expires": "2026-11-17T10:02:00Z",
+    "preview": {
+     "class": "act",
+     "session": {
+      "tile": "apps/orders",
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "default",
+      "asks": true,
+      "net": "none",
+      "api": true,
+      "model": "",
+      "signIn": "own",
+      "signInId": "si_1a2b"
+     }
+    }
+   },
+   "tile": {
+    "name": "Orders",
+    "path": "apps/orders",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Start a tile agent in Orders",
+   "heading": {
+    "before": "Start a tile agent in ",
+    "strong": "Orders",
+    "after": "?"
+   },
+   "sends": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
+   "choices": [],
+   "allow": [
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Start",
+    "Start",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
+   "wider": {
+    "heading": "Allow every change to Orders?",
+    "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": {
+    "agent": "Claude Code",
+    "signin": {
+     "offer": true,
+     "id": "si_1a2b",
+     "name": "Claude Code",
+     "without": "own",
+     "trust": null
+    },
+    "mode": {
+     "tag": "asks before acting",
+     "tone": "ok",
+     "text": "It asks you before it edits a file or runs a command.",
+     "name": "default"
+    },
+    "network": "Its model only. No internet.",
+    "others": "It can call the tile APIs this tile is granted.",
+    "brief": "Goal: add CSV export.\nDone when: the export test passes.",
+    "danger": "",
+    "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "Runs on this tile's own Claude Code login.",
+    "trustWhose": ""
+   },
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:02 · expires in 23 h 46 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Start a tile agent in Orders",
+    "line": "asked 10:02 · expires in 23 h 46 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_offer_needed",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "session",
+    "method": "POST",
+    "target": "xbin/term/sessions",
+    "tile": "apps/orders",
+    "body": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "bodyShown": true,
+    "bodySize": 96,
+    "bodySha256": "cd34",
+    "summary": "Start Claude Code on the export.",
+    "state": "pending",
+    "created": "2026-11-16T10:02:00Z",
+    "expires": "2026-11-17T10:02:00Z",
+    "preview": {
+     "class": "act",
+     "session": {
+      "tile": "apps/orders",
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "default",
+      "asks": true,
+      "net": "none",
+      "api": true,
+      "model": "",
+      "signIn": "needed",
+      "signInId": "si_1a2b"
+     }
+    }
+   },
+   "tile": {
+    "name": "Orders",
+    "path": "apps/orders",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Start a tile agent in Orders",
+   "heading": {
+    "before": "Start a tile agent in ",
+    "strong": "Orders",
+    "after": "?"
+   },
+   "sends": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
+   "choices": [],
+   "allow": [
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Start",
+    "Start",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
+   "wider": {
+    "heading": "Allow every change to Orders?",
+    "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": {
+    "agent": "Claude Code",
+    "signin": {
+     "offer": true,
+     "id": "si_1a2b",
+     "name": "Claude Code",
+     "without": "needed",
+     "trust": null
+    },
+    "mode": {
+     "tag": "asks before acting",
+     "tone": "ok",
+     "text": "It asks you before it edits a file or runs a command.",
+     "name": "default"
+    },
+    "network": "Its model only. No internet.",
+    "others": "It can call the tile APIs this tile is granted.",
+    "brief": "Goal: add CSV export.\nDone when: the export test passes.",
+    "danger": "",
+    "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "Starts signed out: Claude Code isn't served by the workspace's model here.",
     "trustWhose": ""
    },
    "settled": "Waiting for your approval",
@@ -2670,6 +2959,7 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "",
     "trustWhose": ""
    },
    "settled": "Waiting for your approval",
@@ -2712,18 +3002,25 @@
       "net": "none",
       "api": true,
       "model": "",
-      "signIn": "saved",
+      "signIn": "connector",
       "signInId": "si_1a2b",
       "signInTrust": {
        "tile": "apps/orders",
+       "basis": "tb_1",
        "ownerKind": "person",
        "owner": "bob",
+       "ownerName": "Bob B.",
        "editors": [
         "carol",
         "dave",
-        "erin"
+        "erin",
+        "frank",
+        "gus"
        ],
-       "more": 2,
+       "names": {
+        "carol": "Carol C.",
+        "erin": "erin"
+       },
        "allowed": true
       }
      }
@@ -2807,21 +3104,27 @@
    "session": {
     "agent": "Claude Code",
     "signin": {
-     "saved": true,
+     "offer": true,
      "id": "si_1a2b",
      "name": "Claude Code",
-     "text": "Uses your saved Claude Code sign-in",
-     "holds": "The tile's coding agent will hold that sign-in: it, and anything it runs in Orders, can read it.",
+     "without": "connector",
      "trust": {
       "tile": "apps/orders",
+      "basis": "tb_1",
       "ownerKind": "person",
       "owner": "bob",
+      "ownerName": "Bob B.",
       "editors": [
        "carol",
        "dave",
-       "erin"
+       "erin",
+       "frank",
+       "gus"
       ],
-      "more": 2,
+      "names": {
+       "carol": "Carol C.",
+       "erin": "erin"
+      },
       "allowed": true
      }
     },
@@ -2836,7 +3139,8 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
-    "trustWhose": "This tile belongs to bob. carol, dave, erin and 2 more can also change it."
+    "runs": "Runs on the workspace's model.",
+    "trustWhose": "This tile belongs to bob (Bob B.). carol (Carol C.), dave, erin, frank and gus can also change it."
    },
    "settled": "Waiting for your approval",
    "asked": "asked 10:02 · expires in 23 h 46 min",
@@ -2878,11 +3182,13 @@
       "net": "none",
       "api": true,
       "model": "",
-      "signIn": "saved",
+      "signIn": "connector",
       "signInId": "si_1a2b",
       "signInTrust": {
        "tile": "apps/orders",
+       "basis": "tb_2",
        "ownerKind": "you",
+       "owner": "ana",
        "editors": [
         "carol"
        ],
@@ -2969,14 +3275,15 @@
    "session": {
     "agent": "Claude Code",
     "signin": {
-     "saved": true,
+     "offer": true,
      "id": "si_1a2b",
      "name": "Claude Code",
-     "text": "Uses your saved Claude Code sign-in",
-     "holds": "The tile's coding agent will hold that sign-in: it, and anything it runs in Orders, can read it.",
+     "without": "connector",
      "trust": {
       "tile": "apps/orders",
+      "basis": "tb_2",
       "ownerKind": "you",
+      "owner": "ana",
       "editors": [
        "carol"
       ],
@@ -2994,6 +3301,7 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "Runs on the workspace's model.",
     "trustWhose": "This tile is yours. carol can change it."
    },
    "settled": "Waiting for your approval",
@@ -3036,12 +3344,14 @@
       "net": "none",
       "api": true,
       "model": "",
-      "signIn": "saved",
+      "signIn": "own",
       "signInId": "si_1a2b",
       "signInTrust": {
        "tile": "apps/orders",
+       "basis": "tb_3",
        "ownerKind": "org",
-       "owner": "Sales",
+       "owner": "sales",
+       "ownerName": "Sales",
        "allowed": true
       }
      }
@@ -3125,15 +3435,16 @@
    "session": {
     "agent": "Claude Code",
     "signin": {
-     "saved": true,
+     "offer": true,
      "id": "si_1a2b",
      "name": "Claude Code",
-     "text": "Uses your saved Claude Code sign-in",
-     "holds": "The tile's coding agent will hold that sign-in: it, and anything it runs in Orders, can read it.",
+     "without": "own",
      "trust": {
       "tile": "apps/orders",
+      "basis": "tb_3",
       "ownerKind": "org",
-      "owner": "Sales",
+      "owner": "sales",
+      "ownerName": "Sales",
       "allowed": true
      }
     },
@@ -3148,7 +3459,8 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
-    "trustWhose": "This tile belongs to the org Sales."
+    "runs": "Runs on this tile's own Claude Code login.",
+    "trustWhose": "This tile belongs to the org sales (Sales)."
    },
    "settled": "Waiting for your approval",
    "asked": "asked 10:02 · expires in 23 h 46 min",
@@ -3190,10 +3502,11 @@
       "net": "none",
       "api": true,
       "model": "",
-      "signIn": "saved",
+      "signIn": "connector",
       "signInId": "si_1a2b",
       "signInTrust": {
        "tile": "apps/orders",
+       "basis": "tb_4",
        "ownerKind": "workspace",
        "editors": [
         "carol",
@@ -3282,13 +3595,13 @@
    "session": {
     "agent": "Claude Code",
     "signin": {
-     "saved": true,
+     "offer": true,
      "id": "si_1a2b",
      "name": "Claude Code",
-     "text": "Uses your saved Claude Code sign-in",
-     "holds": "The tile's coding agent will hold that sign-in: it, and anything it runs in Orders, can read it.",
+     "without": "connector",
      "trust": {
       "tile": "apps/orders",
+      "basis": "tb_4",
       "ownerKind": "workspace",
       "editors": [
        "carol",
@@ -3308,7 +3621,170 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "Runs on the workspace's model.",
     "trustWhose": "This tile belongs to the workspace. carol and dave can also change it."
+   },
+   "settled": "Waiting for your approval",
+   "asked": "asked 10:02 · expires in 23 h 46 min",
+   "card": {
+    "head": "Waiting for your approval",
+    "what": "Start a tile agent in Orders",
+    "line": "asked 10:02 · expires in 23 h 46 min",
+    "glyph": "shield",
+    "tone": "warn",
+    "waits": true,
+    "button": "Review…"
+   }
+  },
+  {
+   "json": {
+    "id": "rq_trust_ws_admin",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "session",
+    "method": "POST",
+    "target": "xbin/term/sessions",
+    "tile": "apps/orders",
+    "body": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "bodyShown": true,
+    "bodySize": 96,
+    "bodySha256": "cd34",
+    "summary": "Start Claude Code on the export.",
+    "state": "pending",
+    "created": "2026-11-16T10:02:00Z",
+    "expires": "2026-11-17T10:02:00Z",
+    "preview": {
+     "class": "act",
+     "session": {
+      "tile": "apps/orders",
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "default",
+      "asks": true,
+      "net": "none",
+      "api": true,
+      "model": "",
+      "signIn": "connector",
+      "signInId": "si_1a2b",
+      "signInTrust": {
+       "tile": "apps/orders",
+       "basis": "tb_5",
+       "ownerKind": "workspace",
+       "admin": true,
+       "editors": [
+        "carol"
+       ],
+       "allowed": true
+      }
+     }
+    }
+   },
+   "tile": {
+    "name": "Orders",
+    "path": "apps/orders",
+    "org": ""
+   },
+   "level": "",
+   "needTitle": "Start a tile agent in Orders",
+   "heading": {
+    "before": "Start a tile agent in ",
+    "strong": "Orders",
+    "after": "?"
+   },
+   "sends": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "sendsAll": {
+    "text": "{\"cwd\":\"apps/orders\",\"kind\":\"agent\",\"prompt\":\"Goal: add CSV export.\\nDone when: the export test passes.\"}",
+    "binary": false,
+    "clipped": false,
+    "note": "96 bytes · shown in full"
+   },
+   "undo": "xbin can't undo this. Whether Orders can is up to Orders.",
+   "choices": [],
+   "allow": [
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ],
+    [
+     "Start",
+     "Start"
+    ]
+   ],
+   "bodies": [
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "tool": [
+    "Start",
+    "Start",
+    {
+     "grant": "once"
+    },
+    {
+     "grant": "once"
+    }
+   ],
+   "net": null,
+   "wider": {
+    "heading": "Allow every change to Orders?",
+    "means": "From now on your agent can create, change and delete anything in Orders that you can, without asking.",
+    "ends": "It ends by itself after the time you pick. You can take it back sooner in Approvals.",
+    "back": "Go back",
+    "allow": "Allow every change"
+   },
+   "session": {
+    "agent": "Claude Code",
+    "signin": {
+     "offer": true,
+     "id": "si_1a2b",
+     "name": "Claude Code",
+     "without": "connector",
+     "trust": {
+      "tile": "apps/orders",
+      "basis": "tb_5",
+      "ownerKind": "workspace",
+      "admin": true,
+      "editors": [
+       "carol"
+      ],
+      "allowed": true
+     }
+    },
+    "mode": {
+     "tag": "asks before acting",
+     "tone": "ok",
+     "text": "It asks you before it edits a file or runs a command.",
+     "name": "default"
+    },
+    "network": "Its model only. No internet.",
+    "others": "It can call the tile APIs this tile is granted.",
+    "brief": "Goal: add CSV export.\nDone when: the export test passes.",
+    "danger": "",
+    "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "Runs on the workspace's model.",
+    "trustWhose": "This tile belongs to the workspace, which you administer. carol can change it."
    },
    "settled": "Waiting for your approval",
    "asked": "asked 10:02 · expires in 23 h 46 min",
@@ -3447,6 +3923,7 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "",
     "trustWhose": ""
    },
    "settled": "Waiting for your approval",
@@ -3580,6 +4057,7 @@
     "brief": "Goal: export the ‮invoices‬.\nDone when: the test passes.",
     "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "",
     "trustWhose": ""
    },
    "settled": "Waiting for your approval",
@@ -3714,6 +4192,7 @@
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
+    "runs": "",
     "trustWhose": ""
    },
    "settled": "Waiting for your approval",
@@ -8059,7 +8538,19 @@
    },
    {
     "kind": "request",
-    "id": "rq_saved_signin",
+    "id": "rq_offer_connector",
+    "title": "Start a tile agent in Orders",
+    "note": "asked 10:02 · expires in 23 h 46 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_offer_own",
+    "title": "Start a tile agent in Orders",
+    "note": "asked 10:02 · expires in 23 h 46 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_offer_needed",
     "title": "Start a tile agent in Orders",
     "note": "asked 10:02 · expires in 23 h 46 min"
    },
@@ -8090,6 +8581,12 @@
    {
     "kind": "request",
     "id": "rq_trust_ws",
+    "title": "Start a tile agent in Orders",
+    "note": "asked 10:02 · expires in 23 h 46 min"
+   },
+   {
+    "kind": "request",
+    "id": "rq_trust_ws_admin",
     "title": "Start a tile agent in Orders",
     "note": "asked 10:02 · expires in 23 h 46 min"
    },

@@ -139,7 +139,7 @@ async function agentSigninTrust(browser) {
   const forbidden = (await get(`?tile=${encodeURIComponent(TILE)}`)).harnesses.find((h) => h.id === 'fake').here;
   check(off.ok() && forbidden.inject === false && forbidden.trust.allowed === false && /a workspace admin can change it/.test(forbidden.trust.forbidden),
     `trusting switched off: nothing is used there, and the answer says who can change that (${JSON.stringify(forbidden.trust)})`);
-  const refused = await ctx.request.post(`${API}/trust`, { data: { tile: TILE } });
+  const refused = await ctx.request.post(`${API}/trust`, { data: { tile: TILE, basis: forbidden.trust.basis } });
   check(refused.status() === 403, `…and nothing can be trusted (${refused.status()})`);
   await ctx.request.put(`${API}/policy`, { data: { trust: true } });
   await fr(page, TILE, (f) => { while (f.tabs.length) f.closeTab(0); });
@@ -177,6 +177,66 @@ async function agentSigninTrust(browser) {
       await pp.screenshot({ path: `${OUT}/trust-card-${name}-${scheme}.png`, fullPage: false });
       await pc.close();
     }
+  }
+
+  // ---- (h) the card on a question that changes under the person, with more people than it lists (a scripted store) ----
+  {
+    const pc = await browser.newContext({ viewport: { width: 1280, height: 520 }, colorScheme: 'dark' });
+    const pp = await pc.newPage();
+    await pp.goto(`${URL}/login`);
+    await pp.fill('input[name=username]', 'admin');
+    await pp.fill('input[name=password]', 'admin');
+    await Promise.all([pp.waitForNavigation(), pp.click('button')]);
+    await pp.goto(`${URL}/xbin/system`);
+    await pp.evaluate(async () => {
+      await import('/vendor/agent-signin.js');
+      const el = document.createElement('bx-agent-signin');
+      el.setAttribute('view', 'trust'); el.setAttribute('harness', 'fake'); el.setAttribute('provider', 'Claude Code'); el.setAttribute('component', 'apps/x');
+      const S = window.S = { basis: 'tb_1', editors: ['carol', 'dave', 'erin', 'frank', 'gus'], sent: [], trusted: 0 };
+      const question = () => ({ available: true, vault: 'open', policy: { enabled: true, trust: { allowed: true } }, flows: [], trusted: [],
+        harnesses: [{ id: 'fake', name: 'Claude Code', guided: true, keys: [], signins: [{ id: 'si_1', name: 'Personal', harness: 'fake', kind: 'setup-token', default: true }],
+          here: { inject: false, why: 'x', without: 'own', trust: { tile: 'apps/x', basis: S.basis, ownerKind: 'person', owner: 'mallory', ownerName: 'Dev Admin', editors: S.editors, names: { carol: 'Dev Admin' }, allowed: true } } }] });
+      el.api = { list: async () => question(), trust: async (tile, basis) => { S.sent.push(basis);
+        if (basis !== S.basis) { const e = new Error('this tile changed since you were asked'); e.status = 409; e.data = { changed: true }; throw e; }
+        S.trusted++; return { trust: { id: 'tr_1', tile } }; } };
+      el.addEventListener('bx-signin-trusted', () => { S.event = (S.event || 0) + 1; });
+      const box = document.createElement('div');
+      box.style.cssText = 'padding: 12px; background: var(--bx-bg, #0B0C12); min-height: 100vh; box-sizing: border-box; max-width: 640px';
+      box.append(el);
+      document.body.replaceChildren(box);
+      for (let n = 0; n < 200 && !el.testApi().ask; n++) await new Promise((r) => setTimeout(r, 25));
+      await el.updateComplete;
+    });
+    const card = () => pp.evaluate(() => { const el = document.querySelector('bx-agent-signin'), q = (s) => el.shadowRoot.querySelector(s), yes = q('.trust-yes');
+      return { whose: q('[data-whose]').textContent.replace(/\s+/g, ' ').trim(), disabled: yes.disabled, armed: yes.getAttribute('aria-disabled'), basis: q('.box').dataset.basis,
+        hint: q('[data-then]').textContent.replace(/\s+/g, ' ').trim(), alert: q('[role="alert"]') ? q('[role="alert"]').textContent.trim() : '', sent: window.S.sent.slice(), trusted: window.S.trusted, event: window.S.event || 0 }; });
+    let c = await card();
+    check(/^This tile belongs to mallory \(Dev Admin\)\. carol \(Dev Admin\), dave, erin and 2 more can also change it\. Show all 5$/.test(c.whose) && c.disabled === true && /Show everyone who can change this tile before you trust it/.test(c.hint),
+      `people are named by account id, a display name only beside it — and with more than three, "Trust this tile" waits for Show all (${c.whose})`);
+    await pp.screenshot({ path: `${OUT}/trust-card-many.png` });
+    // Show all: every one of them, and the button — now usable — waits again
+    const after = await pp.evaluate(async () => { const el = document.querySelector('bx-agent-signin'); el.shadowRoot.querySelector('button.show-all').click(); await el.updateComplete; await el.updateComplete;
+      const yes = el.shadowRoot.querySelector('.trust-yes'); return { whose: el.shadowRoot.querySelector('[data-whose]').textContent.replace(/\s+/g, ' ').trim(), disabled: yes.disabled, armed: yes.getAttribute('aria-disabled') }; });
+    check(/carol \(Dev Admin\), dave, erin, frank and gus can also change it\.$/.test(after.whose) && after.disabled === false && after.armed === 'true', `Show all lists everyone, and the button is not armed as its content changes (${JSON.stringify(after)})`);
+    await pp.locator('bx-agent-signin button.trust-yes[aria-disabled="false"]').waitFor({ timeout: 10000 });
+    await pp.screenshot({ path: `${OUT}/trust-card-many-all.png` });
+    // the tile changes while she decides (someone new can change it): her click answers the question she was shown — refused, the card draws
+    // the question as it stands, says so, and its button waits again; nothing was trusted
+    await pp.evaluate(() => { window.S.basis = 'tb_2'; window.S.editors = ['carol', 'dave', 'erin', 'frank', 'gus', 'zed']; });
+    await pp.locator('bx-agent-signin button.trust-yes').click();
+    await pp.waitForFunction(() => document.querySelector('bx-agent-signin').shadowRoot.querySelector('.box')?.dataset.basis === 'tb_2');
+    c = await card();
+    check(c.sent.join() === 'tb_1' && c.trusted === 0 && c.event === 0 && /changed while you were deciding/.test(c.alert) && /and 3 more/.test(c.whose) && c.disabled === true,
+      `the question changed under her: refused, nothing trusted, the card redraws it and asks to look again (${JSON.stringify({ sent: c.sent, alert: c.alert, whose: c.whose })})`);
+    await pp.screenshot({ path: `${OUT}/trust-card-changed.png` });
+    const again = await pp.evaluate(async () => { const el = document.querySelector('bx-agent-signin'); el.shadowRoot.querySelector('button.show-all').click(); await el.updateComplete; await el.updateComplete;
+      return el.shadowRoot.querySelector('.trust-yes').getAttribute('aria-disabled'); });
+    check(again === 'true', `…and the button for the new question is not armed as it appears (aria-disabled ${again})`);
+    await pp.locator('bx-agent-signin button.trust-yes[aria-disabled="false"]').click({ timeout: 15000 });
+    await pp.waitForFunction(() => window.S.trusted === 1);
+    c = await pp.evaluate(() => ({ sent: window.S.sent.slice(), event: window.S.event || 0 }));
+    check(c.sent.join() === 'tb_1,tb_2' && c.event === 1, `her answer to the question as it stands is sent with its basis (${c.sent.join()})`);
+    await pc.close();
   }
 
   // leave nothing behind for the passes that follow

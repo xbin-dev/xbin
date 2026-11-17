@@ -91,15 +91,16 @@ import Testing
                 #expect(rows.network == s(want, "network") && rows.others == s(want, "others"), "\(id)")
                 #expect(rows.brief == s(want, "brief") && rows.danger == s(want, "danger") && rows.comes == s(want, "comes"), "\(id)")
                 // the sign-in a start would use is said before it is allowed, with who will hold it (D230)
-                // …and where the tile's source isn't only theirs, the app is truthful: allowed here, the start runs WITHOUT
-                // the sign-in (the trust card is the web's); whose tile it is, in the web's words
+                // a saved sign-in is only offered — a line ticked on the web: the app says what the session runs on (the
+                // web's words) and where to go; whose tile it is, in the web's words, where the tile's trust is asked too
                 let whose = s(want, "trustWhose")
                 #expect(rows.signInTrustWhose == whose, "\(id)")
-                if whose.isEmpty {
-                    #expect(rows.signIn == s(want["signin"], "text") && rows.signInHolds == s(want["signin"], "holds") && rows.signInTrust.isEmpty, "\(id)")
+                if want["signin"]?["offer"]?.boolValue == true {
+                    #expect(rows.signIn == s(want, "runs") && rows.signInHolds.isEmpty, "\(id)")
+                    #expect(rows.signInTrust.contains("on the web") && rows.signInTrust.contains("has no saved sign-in"), "\(id)")
+                    #expect(rows.signInTrust.contains("trust line") == !whose.isEmpty, "\(id)")
                 } else {
-                    #expect(rows.signIn.hasPrefix("Starts without your saved ") && rows.signInHolds.isEmpty, "\(id)")
-                    #expect(rows.signInTrust.contains("on the web") && rows.signInTrust.contains("starts without your sign-in"), "\(id)")
+                    #expect(rows.signIn == s(want["signin"], "text") && rows.signInHolds.isEmpty && rows.signInTrust.isEmpty, "\(id)")
                 }
             }
             if r.state == .unknown {

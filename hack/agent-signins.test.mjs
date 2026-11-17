@@ -2,7 +2,7 @@
 // calls and words (D230). node --test hack/agent-signins.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { signinsApi, SigninsError, harnessOf, whyNot, kindWords, dayWords, expiryWords, signinChip, savedHint, startSignInWords, nextStep, trustWords, namesWords } from '../web/agent-signins.js';
+import { signinsApi, SigninsError, harnessOf, whyNot, kindWords, dayWords, expiryWords, signinChip, savedHint, startSignInWords, nextStep, trustWords, namesWords, offerWords } from '../web/agent-signins.js';
 
 const DAY = 86400000;
 
@@ -130,7 +130,7 @@ test('an error says what to do next', () => {
   assert.equal(nextStep(null), '');
 });
 
-test('"I trust this tile\'s source": the card\'s words — whose tile, who can change it, the risk, two choices, what happens without', () => {
+test('"I trust this tile\'s source": the card\'s words — whose tile, who can change it (by account id), the risk, two choices, what happens without', () => {
   assert.equal(namesWords([]), '');
   assert.equal(namesWords(['bob']), 'bob');
   assert.equal(namesWords(['bob', 'carol']), 'bob and carol');
@@ -144,25 +144,81 @@ test('"I trust this tile\'s source": the card\'s words — whose tile, who can c
   assert.equal(w.without, 'Start without my sign-in');
   assert.equal(w.then, "Without it, the agent uses this tile's own login.");
   assert.equal(w.forbidden, '');
+  assert.equal(w.more, 0);
   assert.ok(w.risk.split(/(?<=\.) /).length === 2 && w.risk.length < 180, 'the risk is two short sentences');
-  assert.equal(trustWords({ ownerKind: 'you', editors: ['carol'], allowed: true }).whose, 'This tile is yours. carol can change it.');
-  assert.equal(trustWords({ ownerKind: 'org', owner: 'Sales', allowed: true }).whose, 'This tile belongs to the org Sales.');
-  assert.equal(trustWords({ ownerKind: 'workspace', editors: ['a', 'b', 'c'], more: 4, allowed: true }).whose, 'This tile belongs to the workspace. a, b, c and 4 more can also change it.');
+  // account ids are what xbind enforces: a display name — its bearer's to set, to "alice" too — only rides beside the id
+  const spoof = trustWords({ ownerKind: 'person', owner: 'mallory', ownerName: 'alice', editors: ['eve', 'bob'], names: { eve: 'alice (you)', bob: 'bob' }, allowed: true });
+  assert.equal(spoof.whose, 'This tile belongs to mallory (alice). eve (alice (you)) and bob can also change it.');
+  assert.equal(trustWords({ ownerKind: 'you', owner: 'alice', editors: ['carol'], allowed: true }).whose, 'This tile is yours. carol can change it.');
+  assert.equal(trustWords({ ownerKind: 'org', owner: 'sales', ownerName: 'Sales', allowed: true }).whose, 'This tile belongs to the org sales (Sales).');
+  assert.equal(trustWords({ ownerKind: 'workspace', editors: ['carol'], allowed: true }).whose, 'This tile belongs to the workspace. carol can also change it.');
+  assert.equal(trustWords({ ownerKind: 'workspace', admin: true, editors: ['carol'], allowed: true }).whose, 'This tile belongs to the workspace, which you administer. carol can change it.');
+  // more than three: three and a count — and "show all" before it can be trusted (the person sees everyone they trust)
+  const many = { ownerKind: 'workspace', editors: ['a', 'b', 'c', 'd', 'e', 'f', 'g'], allowed: true };
+  const first = trustWords(many);
+  assert.equal(first.whose, 'This tile belongs to the workspace. a, b, c and 4 more can also change it.');
+  assert.equal(first.more, 4);
+  assert.equal(first.showAll, 'Show all 7');
+  const every = trustWords(many, 'Claude Code', '', true);
+  assert.equal(every.whose, 'This tile belongs to the workspace. a, b, c, d, e, f and g can also change it.');
+  assert.equal(every.more, 0);
   assert.equal(trustWords({ ownerKind: 'you', allowed: true }, 'Codex', 'connector').then, "Without it, the agent runs on the workspace's model.");
   assert.equal(trustWords({ ownerKind: 'you', allowed: true }, 'Codex', 'none').then, 'Without it, the agent starts signed out — you can sign in on this tile.');
   assert.equal(trustWords({ ownerKind: 'person', owner: 'bob', allowed: false, forbidden: "Trusting a tile's source is switched off for this workspace — a workspace admin can change it" }).forbidden,
     "Trusting a tile's source is switched off for this workspace — a workspace admin can change it.");
+  // a start's "use my sign-in" line, on the approval: what the session runs on as it stands, the line, why it is warned
+  const o = offerWords({ offer: true, name: 'Claude Code', without: 'connector' });
+  assert.equal(o.runs, "Runs on the workspace's model.");
+  assert.equal(o.line, 'Use my Claude Code sign-in for this session');
+  assert.equal(o.warn, 'Your workspace agent directs this session: what it tells the coding agent could expose your sign-in.');
+  assert.equal(offerWords({ name: 'Codex', without: 'own' }).runs, "Runs on this tile's own Codex login.");
+  assert.equal(offerWords({ name: 'Codex', without: 'needed' }).runs, "Starts signed out: Codex isn't served by the workspace's model here.");
   // a launcher's hint and a session's chip say it waits for trust — not that something is wrong
   const t = { tile: 'apps/crm', ownerKind: 'person', owner: 'bob', allowed: true };
   assert.match(savedHint({ saved: { name: 'Personal', inject: false, why: 'x', trust: t } }), /xbin asks first whether you trust this tile's source/);
   assert.deepEqual(signinChip({ source: 'home', name: 'Personal', why: "apps/crm isn't only yours", trust: t }).text, 'saved sign-in waits for your trust');
   assert.equal(signinChip({ source: 'saved', name: 'Personal' }).text, 'your saved sign-in: Personal');
-  // a start that needs no approval runs on it as things are (the default is on)
-  assert.deepEqual(startSignInWords({ name: 'Claude Code', signIn: 'saved', needsTicket: false }), { text: 'your saved Claude Code sign-in', needs: false });
-  // the calls
+  assert.equal(signinChip({ source: 'saved' }).text, 'your saved sign-in', 'a session the workspace agent started names none');
+  // the calls: an answer carries the question's basis; a refusal's body rides the error (409 {changed, trust})
   const sent = [];
   const api = signinsApi(async (url, init) => { sent.push([init.method, url, init.body || '']); return { ok: true, json: async () => ({}) }; });
-  return Promise.all([api.trust('apps/crm'), api.untrust('tr_1/x'), api.setTrustPolicy(false)]).then(() => {
-    assert.deepEqual(sent, [['POST', '/api/xbin/agent/signins/trust', '{"tile":"apps/crm"}'], ['DELETE', '/api/xbin/agent/signins/trust/tr_1%2Fx', ''], ['PUT', '/api/xbin/agent/signins/policy', '{"trust":false}']]);
+  const refusing = signinsApi(async () => ({ ok: false, status: 409, json: async () => ({ error: 'look again', changed: true, trust: { basis: 'tb_new' } }) }));
+  return Promise.all([api.trust('apps/crm', 'tb_1'), api.untrust('tr_1/x'), api.setTrustPolicy(false), refusing.trust('apps/crm', 'tb_old').catch((e) => e)]).then(([, , , err]) => {
+    assert.deepEqual(sent, [['POST', '/api/xbin/agent/signins/trust', '{"tile":"apps/crm","basis":"tb_1"}'], ['DELETE', '/api/xbin/agent/signins/trust/tr_1%2Fx', ''], ['PUT', '/api/xbin/agent/signins/policy', '{"trust":false}']]);
+    assert.ok(err instanceof SigninsError && err.status === 409 && err.data.changed === true && err.data.trust.basis === 'tb_new');
   });
+});
+
+// A button armed for one question is not armed for the next: lit reuses the element when a card redraws, so the wait starts again whenever what
+// the button stands for (its data-armed key: the question's basis, who is listed) changes — review finding 2
+test('ArmedButtons: armed a moment after it appears — and again whenever what it stands for changes', async () => {
+  globalThis.document ??= { hasFocus: () => true, visibilityState: 'visible' };
+  const { ArmedButtons, ARM_MS } = await import('../web/agent-armed.js');
+  const attrs = { 'data-armed': 'tb_1|' };
+  const el = { isConnected: true, getAttribute: (k) => (k in attrs ? attrs[k] : null), setAttribute: (k, v) => { attrs[k] = v; } };
+  const host = { renderRoot: { querySelectorAll: () => [el] }, addController() {} };
+  const armed = new ArmedButtons(host);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  armed.hostUpdated();
+  assert.equal(attrs['aria-disabled'], 'true');
+  assert.equal(armed.armed(el), false, 'not as it appears');
+  await wait(ARM_MS + 60);
+  assert.equal(armed.armed(el), true);
+  assert.equal(attrs['aria-disabled'], 'false');
+  armed.hostUpdated(); // a redraw that changes nothing: still armed
+  assert.equal(armed.armed(el), true);
+  attrs['data-armed'] = 'tb_2|'; // the question changed under the person (the same element, reused)
+  assert.equal(armed.armed(el), false, 'the key moved: not armed even before the host redraws');
+  armed.hostUpdated();
+  assert.equal(attrs['aria-disabled'], 'true', 'it waits again');
+  await wait(ARM_MS / 2);
+  assert.equal(armed.armed(el), false);
+  attrs['data-armed'] = 'tb_2|all'; // …and again when more names are shown
+  armed.hostUpdated();
+  await wait(ARM_MS / 2 + 60);
+  assert.equal(armed.armed(el), false, 'the earlier timer does not arm it for the newer content');
+  assert.equal(attrs['aria-disabled'], 'true');
+  await wait(ARM_MS / 2 + 60);
+  assert.equal(armed.armed(el), true);
+  assert.equal(attrs['aria-disabled'], 'false');
 });

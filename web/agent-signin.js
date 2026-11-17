@@ -56,6 +56,7 @@ export class BxAgentSignin extends LitElement {
     component: { type: String },
     view: { type: String, reflect: true }, // '' (the card) | manage | button | name (one sign-in's label, by sid) | trust ("I trust this tile's source")
     _trusting: { state: true }, // the trust card: '' | 'busy' | an error's words
+    _trustAll: { state: true }, // …everyone who can change the tile is shown (more than three: before it can be trusted)
     sid: { type: String },
     // idle → starting → waiting (the link is up) → checking (a code sent) →
     // done | failed | ended | old (no link: an old CLI) | error; paste: the key's form
@@ -88,6 +89,7 @@ export class BxAgentSignin extends LitElement {
     this._flow = '';
     this.api = signinsApi();
     this._trusting = '';
+    this._trustAll = false;
     this._armed = new ArmedButtons(this); // "Trust this tile": the person's deliberate click, never Enter
   }
 
@@ -475,17 +477,22 @@ export class BxAgentSignin extends LitElement {
   }
 
   async _trust(e) {
-    if (!this._armed.may(e) || this._trusting === 'busy') return;
+    const t = this._ask;
+    // everyone who could change the tile has been shown (never "and 4 more"), and the click is the person's own on the armed button
+    if (!t || trustWords(t, '', '', this._trustAll).more > 0 || !this._armed.may(e) || this._trusting === 'busy') return;
     this._trusting = 'busy';
     try {
-      const { trust } = await this.api.trust(this.component || '');
+      const { trust } = await this.api.trust(this.component || '', t.basis); // for the question as it was shown: its basis
       this._trusting = '';
       await this.reload();
       this.dispatchEvent(new CustomEvent('bx-signin-trusted', { detail: { trust }, bubbles: true, composed: true }));
       this.dispatchEvent(new CustomEvent('bx-signins-changed', { bubbles: true, composed: true }));
     } catch (err) {
-      this._trusting = err.message || String(err);
-      this.reload(); // (the question may have changed under the person: ask what xbind says now)
+      // 409 {changed}: the tile is no longer what the card showed — the question as it stands now is drawn (its basis is
+      // another, so the button waits again: agent-armed.js) and nothing was trusted
+      this._trusting = err.status === 409 && err.data && err.data.changed ? 'This tile changed while you were deciding — who owns it or who can change it. Look again.' : err.message || String(err);
+      this._trustAll = false;
+      await this.reload();
     }
   }
 
@@ -493,25 +500,27 @@ export class BxAgentSignin extends LitElement {
     this.dispatchEvent(new CustomEvent('bx-signin-declined', { detail: { tile: this.component || '' }, bubbles: true, composed: true }));
   }
 
-  // the card: whose tile it is and who can change it, what trusting means,
-  // and two choices of equal weight — neither is the default, neither is
-  // pre-selected, and Enter picks neither
+  // the card: whose tile it is and who can change it — by account id, the
+  // display name beside it, every one of them before it can be trusted —
+  // what trusting means, and two choices of equal weight: neither is the
+  // default, neither is pre-selected, and Enter picks neither
   _trustCard() {
     const t = this._ask;
     if (!t) return nothing;
     const name = this.provider || this._harness?.name || 'coding agent';
-    const w = trustWords(t, name, this._here?.without || '');
+    const w = trustWords(t, name, this._here?.without || '', this._trustAll);
     const busy = this._trusting === 'busy';
-    return html`<div class="box trust" role="group" aria-label=${w.title} data-trust=${t.tile} data-allowed=${t.allowed ? 'true' : 'false'}>
+    return html`<div class="box trust" role="group" aria-label=${w.title} data-trust=${t.tile} data-basis=${t.basis || ''} data-allowed=${t.allowed ? 'true' : 'false'}>
       <div class="row"><span class="msg"><bx-icon name="shield"></bx-icon><b>${w.title}</b></span></div>
-      <div class="whose" data-whose>${w.whose}</div>
+      <div class="whose" data-whose>${w.whose}${w.more > 0 ? html` <button class="link show-all" @click=${() => { this._trustAll = true; }}>${w.showAll}</button>` : nothing}</div>
       <div class="risk" data-risk>${w.risk}</div>
       ${w.forbidden ? html`<div class="status bad" data-forbidden><bx-icon name="lock"></bx-icon>${w.forbidden}</div>` : nothing}
       <div class="choices">
-        ${t.allowed ? html`<button class="choice trust-yes" data-armed aria-disabled="true" ?disabled=${busy} @click=${(e) => this._trust(e)} @keydown=${this._armed.key}>${w.trust}</button>` : nothing}
+        ${t.allowed ? html`<button class="choice trust-yes" data-armed=${`${t.basis}|${this._trustAll ? 'all' : ''}`} aria-disabled="true" ?disabled=${busy || w.more > 0}
+          title=${w.more > 0 ? 'Show everyone who can change this tile first' : ''} @click=${(e) => this._trust(e)} @keydown=${this._armed.key}>${w.trust}</button>` : nothing}
         <button class="choice trust-no" ?disabled=${busy} @click=${() => this._without()}>${w.without}</button>
       </div>
-      <div class="hint" data-then>${w.then}</div>
+      <div class="hint" data-then>${w.more > 0 ? html`<span data-show-first>Show everyone who can change this tile before you trust it. </span>` : nothing}${w.then}</div>
       ${this._trusting && !busy ? html`<div class="status bad" role="alert"><bx-icon name="error"></bx-icon>${this._trusting}</div>` : nothing}
     </div>`;
   }
