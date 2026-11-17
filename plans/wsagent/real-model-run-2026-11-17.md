@@ -21,8 +21,8 @@ host file's `keyFile`); it is in no command line, log, transcript or commit.
   the first coding agent that needs no sign-in, so every tile agent a plan
   started would have failed. The connector now translates (D244); Codex
   built the journey's tool through that translation in every benchmark run.
-- **The scenarios**: 29 graded (the 28 of the list, and a web page that
-  tries to direct the agent, and a first row for the connector itself).
+- **The scenarios**: 30 rows graded (the list's 28, a web page that tries
+  to direct the agent, and a first row for the connector itself).
   Read against the transcripts, after the fixes: **28 pass, 2 partial, 0
   fail**; on first runs, before any fix, 22 pass, 6 partial, 2 fail — §3.
 - **The benchmark, for real**: from a fresh workspace, one prompt → the
@@ -34,11 +34,13 @@ host file's `keyFile`); it is in no command line, log, transcript or commit.
   cached). With OpenCode — once two bugs it met were fixed — 13
   interactions and 1 min 43 s, with no permission to answer because it
   doesn't ask — §4.
-- **What the run changed in the product** (§6): the connector's translation;
-  the engine's task reminder, which a real model reported as an injected
-  instruction; four tool results a real model misread; four rules of the
-  prompt; an ordering race in `sdk/acp`'s steering. Each behaviour fix has a
-  scripted twin.
+- **What the run changed in the product** (§6): the connector's
+  translation; a plan that could not start OpenCode; the engine's task
+  reminder, which a real model reported as an injected instruction; seven
+  tool results a real model misread (a plan's dry run among them, which
+  now asks xbind); four rules of the prompt; an ordering race in
+  `sdk/acp`'s steering. Each behaviour fix has a scripted twin. No
+  approval, taint, scope or redaction rule was touched.
 
 ## 1. The setup, and how to repeat it
 
@@ -233,7 +235,7 @@ answers):
 - **The plan** was the journey's own five lines every time it was
   proposed: an empty tile, its tile agent with the `mcp-tool` brief, the
   assistant, its `llm` binding (unticked: an admin's line), its `mcp`
-  binding as the line that waits. 13–34 s from Enter to the card.
+  binding as the line that waits. 12–30 s from Enter to the card.
 - **13 scripted, 14–17 real.** The difference is the coding agent's
   permission requests: the scripted one takes one "Allow always"; Codex
   asked two to five times. Its own sandbox cannot start inside a tile's
@@ -244,7 +246,7 @@ answers):
   healthy; the assistant's own tool list names `roll_dice` from the dice
   tile) and what it took on the tile agent's word (the rolls: it could not
   call the tool itself — MCP for the workspace agent is off by default).
-- **Two runs did not get there, and say why.** With the workspace held to
+- **Three more attempts did not get there, and say why.** With the workspace held to
   OpenCode the first attempt's plan could not be applied (the start line's
   `mode ""`, fixed), and the second's first turn ended on a steps plan and
   "say go ahead" instead of the proposed plan (finding 10, fixed). A third
