@@ -453,7 +453,8 @@ func wsProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	case !st.CanAdminChanges:
 		return "Your person isn't a workspace or org admin, so you can't propose admin changes for them. Say what would need to change and that an admin has to do it.", nil
 	case !st.AdminChanges:
-		return "Your person hasn't turned on \"Let my agent propose admin changes\" (Preferences). Until they do you can't read admin state or propose changes: say what you would propose, and that they can turn it on if they want you to.", nil
+		return "Your person hasn't turned on \"Let my agent propose admin changes\" (Preferences). Until they do you can't read admin state or propose a batch of admin changes: say what you would propose, and that they can turn it on if they want you to. " +
+			"A change that belongs to work you are setting up — a tile's access to another tile (grant.add), a binding — goes in a plan instead (plan_propose): a plan needs no such setting, and its admin's lines are ticked by an admin on the review.", nil
 	}
 	if a.DryRun {
 		return fmt.Sprintf("This would propose %d admin change(s) to your person as one batch. Nothing would be applied: xbin describes each change (before, after, warnings), they tick what to apply, and xbin applies those as them — some can be undone by a new batch, and xbin says which. Nothing was proposed.", len(items)), nil

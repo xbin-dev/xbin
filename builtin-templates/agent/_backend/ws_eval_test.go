@@ -347,7 +347,7 @@ func TestWsEvalChangeSetProposed(t *testing.T) {
 	fx.x.mu.Unlock()
 	fx.say(t, s, "give the report access to the calendar")
 	fx.idle(t, s)
-	if got := fx.toolResult(t, s, "admin_propose"); !strings.Contains(got, "hasn't turned on \"Let my agent propose admin changes\"") || fx.x.count("Propose") != 0 {
+	if got := fx.toolResult(t, s, "admin_propose"); !strings.Contains(got, "hasn't turned on \"Let my agent propose admin changes\"") || !strings.Contains(got, "goes in a plan instead (plan_propose)") || fx.x.count("Propose") != 0 {
 		t.Fatalf("without the opt-in: %q", got)
 	}
 	// opted in
