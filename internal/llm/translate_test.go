@@ -456,3 +456,49 @@ func TestResponsesTranslationIsBounded(t *testing.T) {
 		t.Errorf("a stream's endless line: %d, %d bytes, ends %s", a.code, len(a.body), eventTypes(evs))
 	}
 }
+
+// A model an admin listed for an upstream carries what the upstream's own
+// list says of it. The feedback run (2026-11-17): on an upstream with a
+// models list the connector's list was bare names, so the agent template —
+// which sizes its context by the model's window — took a 1 M-token model
+// for an unknown one, compacted at 32 000 tokens, and a real model advised
+// its person on tool outputs it could only see the first and last words of.
+func TestListedModelsCarryTheUpstreamsMetadata(t *testing.T) {
+	r := newRig(t, "")
+	up := newUpstream(t)
+	r.addUpstream("main", up, map[string]any{"models": []string{"gpt-5", "not-in-its-list"}})
+	list := func() map[string]map[string]any {
+		out := map[string]map[string]any{}
+		data, _ := r.must(200, pOwner, "GET", "/llm/v1/models", nil).json(t)["data"].([]any)
+		for _, m := range data {
+			mm := m.(map[string]any)
+			out[mm["id"].(string)] = mm
+		}
+		return out
+	}
+	got := list()
+	if m := got["main/gpt-5"]; m == nil || m["context_length"] != 400000.0 || m["owned_by"] != "main" {
+		t.Errorf("a listed model the upstream describes: %v — want its context_length", m)
+	}
+	if m := got["main/not-in-its-list"]; m == nil || m["context_length"] != nil {
+		t.Errorf("a listed model the upstream's list doesn't have: %v — want its name alone", m)
+	}
+	if len(got) != 2 || got["main/gpt-5-mini"] != nil {
+		t.Errorf("the list: %v — want the two configured models and no other of the upstream's", got)
+	}
+	// an upstream whose own list fails still lists what the admin configured
+	up2 := newUpstream(t)
+	up2.mu.Lock()
+	up2.fail = func(w http.ResponseWriter, req *http.Request) bool {
+		if strings.HasSuffix(req.URL.Path, "/models") {
+			http.Error(w, "no", 500)
+			return true
+		}
+		return false
+	}
+	up2.mu.Unlock()
+	r.addUpstream("other", up2, map[string]any{"models": []string{"qwen"}})
+	if m := list()["other/qwen"]; m == nil {
+		t.Errorf("a listed model of an upstream whose own list fails is gone from the list")
+	}
+}

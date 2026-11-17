@@ -317,14 +317,14 @@ func TestWsPlanToolRules(t *testing.T) {
 	fx := newWsFix(t)
 	s := fx.main(t)
 	for want, args := range map[string]map[string]any{
-		"title: what the plan is for":    {"changes": []any{map[string]any{"kind": "tile.create", "args": map[string]any{}, "why": "x"}}},
-		`no kind "users.delete"`:         {"title": "t", "changes": []any{map[string]any{"kind": "users.delete", "args": map[string]any{}, "why": "x"}}},
-		"why — the reason for it":        {"title": "t", "changes": []any{map[string]any{"kind": "tile.create", "args": map[string]any{"template": "agent", "name": "A"}}}},
-		`there is no template "nope"`:    {"title": "t", "changes": []any{map[string]any{"kind": "tile.create", "args": map[string]any{"template": "nope", "name": "A"}, "why": "x"}}},
-		"name — what the new tile":       {"title": "t", "changes": []any{map[string]any{"kind": "tile.create", "args": map[string]any{"template": "agent"}, "why": "x"}}},
-		"done_when: what is true":        {"title": "t", "changes": []any{map[string]any{"kind": "agent.start", "args": map[string]any{"tile": "apps/orders", "goal": "g"}, "why": "x"}}},
-		"an earlier tile.create line":    {"title": "t", "changes": []any{map[string]any{"kind": "agent.start", "args": map[string]any{"tile": "apps/nope", "goal": "g", "done_when": "d"}, "why": "x"}}},
-		"This would propose 1 change(s)": {"title": "t", "dry_run": true, "changes": []any{map[string]any{"kind": "agent.start", "args": map[string]any{"tile": "Orders", "goal": "g", "done_when": "d"}, "why": "x"}}},
+		"title: what the plan is for":                  {"changes": []any{map[string]any{"kind": "tile.create", "args": map[string]any{}, "why": "x"}}},
+		`no kind "users.delete"`:                       {"title": "t", "changes": []any{map[string]any{"kind": "users.delete", "args": map[string]any{}, "why": "x"}}},
+		`has no "why": add the reason for this change`: {"title": "t", "changes": []any{map[string]any{"kind": "tile.create", "args": map[string]any{"template": "agent", "name": "A"}}}},
+		`there is no template "nope"`:                  {"title": "t", "changes": []any{map[string]any{"kind": "tile.create", "args": map[string]any{"template": "nope", "name": "A"}, "why": "x"}}},
+		"name — what the new tile":                     {"title": "t", "changes": []any{map[string]any{"kind": "tile.create", "args": map[string]any{"template": "agent"}, "why": "x"}}},
+		"done_when: what is true":                      {"title": "t", "changes": []any{map[string]any{"kind": "agent.start", "args": map[string]any{"tile": "apps/orders", "goal": "g"}, "why": "x"}}},
+		"an earlier tile.create line":                  {"title": "t", "changes": []any{map[string]any{"kind": "agent.start", "args": map[string]any{"tile": "apps/nope", "goal": "g", "done_when": "d"}, "why": "x"}}},
+		"This would propose 1 change(s)":               {"title": "t", "dry_run": true, "changes": []any{map[string]any{"kind": "agent.start", "args": map[string]any{"tile": "Orders", "goal": "g", "done_when": "d"}, "why": "x"}}},
 	} {
 		if got := fx.tool(t, s, "plan_propose", args); !strings.Contains(got, want) {
 			t.Errorf("want %q, got %q", want, got)

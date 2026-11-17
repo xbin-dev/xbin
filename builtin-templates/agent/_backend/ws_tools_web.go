@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
@@ -216,6 +217,12 @@ func (ag *Agent) wsDecideWeb(ctx context.Context, s *wsSession, r *wsReq, ticket
 
 // --- what the session may do, for the prompt and the tool list ------------------------
 
+// wsNoPreviews: this xbind answered that it takes no previews (the host
+// can't run the browser). Known only once a preview was tried; from then
+// on the session block says so, and no conversation spends a call to find
+// out (the feedback run: one wasted call a conversation).
+var wsNoPreviews atomic.Bool
+
 // wsNetLines is the session's reach on the web, in the prompt's words.
 func wsNetLines(r wsReach) string {
 	var b strings.Builder
@@ -236,7 +243,12 @@ func wsNetLines(r wsReach) string {
 			fmt.Fprintf(&b, "Outside MCP servers: %d an admin listed (mcp_tools names them ext:<id>; mcp_call with server) — what you send one leaves the workspace and its answers are an outsider's words; once this conversation holds an org's data, each call asks.\n", r.MCP.Listed)
 		}
 	} else {
-		fmt.Fprintf(&b, "MCP tools: off — %s. You can't call MCP tools in this session.\n", wsPlain(orStr(r.MCP.Why, "xbin doesn't offer them here")))
+		// (the feedback run, 2026-11-17: asked to build an MCP tool, a real model planned "done when a roll
+		// comes back", and found at the last step that nothing it has can make a tool call)
+		fmt.Fprintf(&b, "MCP tools: off — %s. You can't call MCP tools in this session — an MCP tile's own tools/call through tile_call neither. So a tool you have built can be checked only as far as its tile's status and the tool list of what uses it; that it answers is then the tile agent's word. Say so before the work if that matters, with who can turn MCP tools on.\n", wsPlain(orStr(r.MCP.Why, "xbin doesn't offer them here")))
+	}
+	if wsNoPreviews.Load() {
+		b.WriteString("Seeing a page (preview): not available on this xbin — don't call preview; tile_status, tile_logs and a read through tile_call are what you have. A page with no backend can't be checked by you: say so.\n")
 	}
 	return b.String()
 }

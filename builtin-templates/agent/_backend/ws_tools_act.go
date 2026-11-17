@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -73,7 +74,8 @@ func wsOtherTools() []coordTool {
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "admin_propose",
 			Description: "Propose a batch of admin changes — access between tiles, bindings, an org's share of a tile, a tile's limits — for your person to review. Only for a person who is an admin and turned on \"Let my agent propose admin changes\". " +
 				"Nothing is applied: xbin writes what each change does, its before and after and its warnings, and your person approves all, some or none; xbin then applies those as them. " +
-				"This returns xbin's description at once and does not wait; the decision reaches you as a workspace update. Put related changes in one batch, each with a plain reason.",
+				"This returns xbin's description at once and does not wait; the decision reaches you as a workspace update. Put related changes in one batch, each with a plain reason. " +
+				"These kinds are all there is, and none names one person: giving a single person access to a tile (\"let Dave see Orders\") is not something you can propose here or in a plan — it is the tile's owner's or an admin's own act in xbin (the tile's sharing), or an org's share when everyone in an org may have it. Say that in your first answer; don't search the docs for another way.",
 			Parameters: obj([]string{"title", "changes"}, map[string]any{
 				"title": strProp("what the batch is for, in a few words (shown as yours)"),
 				"changes": map[string]any{"type": "array", "minItems": 1, "maxItems": 20, "items": obj([]string{"kind", "args", "why"}, map[string]any{
@@ -250,6 +252,24 @@ func wsAnswerText(tile string, c wsCall, a wsAnswer) string {
 	return head + "\n" + wsData(tile, "its API's answer", body) + more
 }
 
+// wsCrashLog is what a read adds when xbind answered for a backend that
+// didn't: the 502 is xbind's ("backend error: EOF" — the backend crashed
+// on the call, or is not up), and why is in the tile's log. A real model
+// needed a second call to learn that the EOF was a panic and where (the
+// feedback run, 2026-11-17); the log's last lines come with the failure,
+// where the person may read logs.
+func wsCrashLog(ctx context.Context, ag *Agent, s *wsSession, tile string, a wsAnswer) string {
+	if a.Status != http.StatusBadGateway || !strings.Contains(string(a.Body), "backend error") {
+		return ""
+	}
+	out := "\nThat is xbin's answer, not the tile's: its backend did not answer this call — it crashed on it, or isn't up."
+	var text string
+	if err := ag.wsWith(ctx, s, func(sid string) (err error) { text, err = wsX.Logs(ctx, sid, tile, 15); return }); err != nil || strings.TrimSpace(text) == "" {
+		return out + " tile_logs may say why."
+	}
+	return out + " Its log's last lines:\n" + wsData(tile, "its log", clip(text, 2400))
+}
+
 func wsTileCall(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (string, error) {
 	args := c0.Args
 	t, err := wsFindTile(ctx, ag, s, str(args["tile"]))
@@ -269,7 +289,7 @@ func wsTileCall(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (str
 			return "", err
 		}
 		ag.wsRefresh(ctx, s, true) // what the conversation now holds
-		return wsAnswerText(t.Path, c, a), nil
+		return wsAnswerText(t.Path, c, a) + wsCrashLog(ctx, ag, s, t.Path, a), nil
 	}
 	// a change: what xbind says it would be, before anything is asked
 	dc := c
@@ -440,7 +460,7 @@ func wsProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 		case !hasStr(wsChangeKinds, ch.Kind):
 			return "", fmt.Errorf("change %d: no kind %q — a change is one of %s; anything else is your person's to do in the admin console", i+1, clip(ch.Kind, 40), strings.Join(wsChangeKinds, ", "))
 		case strings.TrimSpace(ch.Why) == "":
-			return "", fmt.Errorf("change %d: why — the reason for it, in plain words", i+1)
+			return "", fmt.Errorf("change %d has no \"why\": add the reason for this change, in plain words (the admin reads it on the review)", i+1)
 		}
 		items = append(items, xbin.Change{Kind: ch.Kind, Args: ch.Args, Why: clip(strings.TrimSpace(ch.Why), 400)})
 	}
@@ -452,7 +472,8 @@ func wsProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	case !st.CanAdminChanges:
 		return "Your person isn't a workspace or org admin, so you can't propose admin changes for them. Say what would need to change and that an admin has to do it.", nil
 	case !st.AdminChanges:
-		return "Your person hasn't turned on \"Let my agent propose admin changes\" (Preferences). Until they do you can't read admin state or propose changes: say what you would propose, and that they can turn it on if they want you to.", nil
+		return "Your person hasn't turned on \"Let my agent propose admin changes\" (Preferences). Until they do you can't read admin state or propose a batch of admin changes: say what you would propose, and that they can turn it on if they want you to. " +
+			"A change that belongs to work you are setting up — a tile's access to another tile (grant.add), a binding — goes in a plan instead (plan_propose): a plan needs no such setting, and its admin's lines are ticked by an admin on the review.", nil
 	}
 	if a.DryRun {
 		return fmt.Sprintf("This would propose %d admin change(s) to your person as one batch. Nothing would be applied: xbin describes each change (before, after, warnings), they tick what to apply, and xbin applies those as them — some can be undone by a new batch, and xbin says which. Nothing was proposed.", len(items)), nil
@@ -503,6 +524,7 @@ func wsPreviewTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	ask := wsPreviewAsk{Tile: t.Path, At: strings.TrimSpace(str(c.Args["at"])), Phone: str(c.Args["viewport"]) == "phone"}
 	var p wsPreview
 	err = ag.wsWith(ctx, s, func(sid string) (err error) { p, err = wsX.Preview(ctx, sid, ask); return })
+	wsNoPreviews.Store(errors.Is(err, errWsUnavailable))
 	if errors.Is(err, errWsUnavailable) {
 		// (a real model, told "Say so", told its person about previews — and the host's cgroup — in every answer,
 		// asked for or not: the real-model run, 2026-11-17)

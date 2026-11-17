@@ -172,3 +172,120 @@ func wsRealPage(t *testing.T, id, file, name, text string) {
 		t.Errorf("%s: %s\nxbind saw: %v\nthe answer: %s", grade, why, fx.x.calls, answer)
 	}
 }
+
+// The feedback run's web job (test/isolated/wsagent_real_jobs_test.go is
+// the rest): a job that needs a page read — a real xbind reads public
+// addresses only and the run may contact nothing but the model's endpoint,
+// so the page and xbind are this backend's fakes, the model the real one.
+// After the job the same six feedback questions, in the same conversation.
+// It writes job 7's row to $XBIN_REAL_OUT/jobs.jsonl, the answers to
+// feedback/7-ws-<a…f>.md and the transcript to transcripts/job7.md.
+func TestWsRealWebJobFeedback(t *testing.T) {
+	base, model, keyFile, out := os.Getenv("XBIN_REAL_LLM_BASE"), os.Getenv("XBIN_REAL_LLM_MODEL"), os.Getenv("XBIN_REAL_LLM_KEYFILE"), os.Getenv("XBIN_REAL_OUT")
+	asks := os.Getenv("XBIN_REAL_FEEDBACK_ASKS") // the questions, one a line (the isolated rig's own)
+	if base == "" || asks == "" {
+		t.Skip("no XBIN_REAL_LLM_BASE / XBIN_REAL_FEEDBACK_ASKS: the feedback run is manual")
+	}
+	kb, err := os.ReadFile(keyFile)
+	if err != nil {
+		t.Fatalf("the key file: %v", err)
+	}
+	key := strings.TrimSpace(string(kb))
+	real := &gatewayLLM{client: &http.Client{Transport: realKeyed{key}}, base: strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")}
+	fx := newWsFix(t)
+	fx.webOn()
+	s := fx.main(t)
+	page := "https://supplier.example.com/prices"
+	fx.x.net.pages[page] = wsWebPage{ContentType: "text/html", Title: "Northfield Mills — prices", Bytes: 1400,
+		Text: "Northfield Mills — price list, valid from 1 December 2026\n\nWheat flour type 550, 25 kg bag: 18.40 EUR (was 16.90 EUR)\nRye flour type 1150, 25 kg bag: 21.10 EUR\nSugar, 10 kg bag: 11.75 EUR\nDry yeast, 500 g: 4.20 EUR\n\n" +
+			"Orders of 30 bags or more of one flour: 5 % off that line.\nDelivery: free for orders above 400 EUR, otherwise 35 EUR.\nPrices exclude VAT."}
+	f := fakeOf(fx.ag)
+	var calls atomic.Int32
+	var tokIn, tokOut atomic.Int64
+	f.on(nil, func(req LLMRequest) (LLMReply, error) {
+		if calls.Add(1) > 120 {
+			return LLMReply{}, fmt.Errorf("the job is over its cap of model calls")
+		}
+		req.Model, req.Wire, req.Stream = model, "chat", false
+		rep, err := real.Chat(t.Context(), req, nil)
+		tokIn.Add(int64(rep.Usage.PromptTokens))
+		tokOut.Add(int64(rep.Usage.CompletionTokens))
+		return rep, err
+	})
+	rest := func(what string) {
+		deadline := time.Now().Add(5 * time.Minute)
+		for {
+			r, err := fx.ag.db.getRun(s.Run)
+			if err == nil && r.Status == statusWaiting { // it asked its person something
+				fx.say(t, s, "Go ahead with what you think is best.")
+			} else if err == nil && !active(r.Status) && len(fx.ag.db.undelivered(s.Run)) == 0 && fx.lastAssistant(t, s) != "" {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: the turn did not end (status %s)", what, statusOf(fx.ag.db, s.Run))
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	keep := func(rel, text string) {
+		if out == "" {
+			return
+		}
+		p := filepath.Join(out, rel)
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		_ = os.WriteFile(p, []byte(strings.ReplaceAll(text, key, "[redacted-key]")), 0o644)
+	}
+	began := time.Now()
+	const name = "A job that needs a web page read (the page and xbin are the backend's fakes)"
+	fx.say(t, s, "Our flour supplier changed their prices — the new list is at "+page+". What will 40 bags of the 25 kg wheat flour cost us now, delivery included? And keep the new prices in your notebook so we have them next time.")
+	rest("the job")
+	answer := fx.lastAssistant(t, s)
+	jobCalls, jobIn, jobOut, wall := int64(calls.Load()), tokIn.Load(), tokOut.Load(), time.Since(began)
+	// verified here, not taken from its words: one read of that page, the right sum, the price in a notebook page
+	noted := false
+	if store, err := fx.ag.db.knowID(wsNotebook("alice"), false); err == nil {
+		var n int
+		_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM wiki_pages WHERE project_id=? AND body LIKE '%18.40%'`, store).Scan(&n)
+		noted = n > 0
+	}
+	sum := strings.Contains(answer, "699.20") || strings.Contains(answer, "699,20")
+	done := fx.x.count("WebFetch "+page) >= 1 && sum && noted
+	why := fmt.Sprintf("the page read %d time(s); the answer has 699.20 (40 × 18.40 less 5 %%, delivery free): %v; a notebook page holds the new price: %v", fx.x.count("WebFetch "+page), sum, noted)
+	t.Logf("job 7: done=%v — %s\nthe answer: %s", done, why, answer)
+
+	for i, q := range strings.Split(strings.TrimSpace(asks), "\n") {
+		before := fx.lastAssistant(t, s)
+		fx.say(t, s, q)
+		deadline := time.Now().Add(5 * time.Minute)
+		for fx.lastAssistant(t, s) == before && time.Now().Before(deadline) {
+			time.Sleep(200 * time.Millisecond)
+		}
+		rest("feedback " + string(rune('a'+i)))
+		keep(fmt.Sprintf("feedback/7-ws-%c.md", 'a'+i), fmt.Sprintf("# job 7 (%s) — question %c\n\n> %s\n\n%s\n", name, 'a'+i, q, fx.lastAssistant(t, s)))
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Job 7 — %s (real model %s)\n\n%s: %s\n\n", name, model, map[bool]string{true: "DONE", false: "NOT DONE"}[done], why)
+	rows, err := fx.ag.db.q.Query(`SELECT role, COALESCE(name,''), content, COALESCE(tool_calls,'') FROM messages WHERE run_id=? AND role<>'system' ORDER BY seq`, s.Run)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var role, tool, content, tcs string
+			_ = rows.Scan(&role, &tool, &content, &tcs)
+			fmt.Fprintf(&b, "%s %s: %s\n", strings.ToUpper(role), tool, content)
+			if tcs != "" && tcs != "null" {
+				fmt.Fprintf(&b, "  → %s\n", tcs)
+			}
+			b.WriteString("\n")
+		}
+	}
+	keep("transcripts/job7.md", b.String())
+	if out != "" {
+		row, _ := json.Marshal(map[string]any{"ID": "7", "Name": name, "Person": "alice", "Done": done, "Why": why, "Messages": 1, "Interactions": 1,
+			"Calls": jobCalls, "In": jobIn, "Out": jobOut, "WallSec": int(wall.Seconds()),
+			"FbCalls": int64(calls.Load()) - jobCalls, "FbIn": tokIn.Load() - jobIn, "FbOut": tokOut.Load() - jobOut, "Timeline": []string{"the agent's calls to xbind: " + strings.Join(fx.x.calls, "; ")}})
+		if f, err := os.OpenFile(filepath.Join(out, "jobs.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			_, _ = f.Write(append(row, '\n'))
+			_ = f.Close()
+		}
+	}
+}

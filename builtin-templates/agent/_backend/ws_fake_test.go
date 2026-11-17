@@ -423,9 +423,20 @@ func (f *fakeXbin) DocsSearch(_ context.Context, sid, q string, limit int) ([]ws
 	defer f.mu.Unlock()
 	f.note("DocsSearch %s", q)
 	var out []wsDocHit
-	for path, text := range f.docs {
-		if strings.Contains(strings.ToLower(text), strings.ToLower(q)) {
-			out = append(out, wsDocHit{Path: path, Snippet: clip(text, 80)})
+	// as xbind's search: every word of q in the page
+	words := strings.Fields(strings.ToLower(q))
+	var paths []string
+	for path := range f.docs {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		text, all := strings.ToLower(f.docs[path]), len(words) > 0
+		for _, w := range words {
+			all = all && strings.Contains(text, w)
+		}
+		if all {
+			out = append(out, wsDocHit{Path: path, Snippet: clip(f.docs[path], 80)})
 		}
 	}
 	return out, nil
@@ -438,7 +449,27 @@ func (f *fakeXbin) DocsPage(_ context.Context, sid, path, section string) (wsDoc
 	if !ok {
 		return wsDocPage{}, &xbin.DelegateError{Status: 404, Message: "no such page"}
 	}
-	return wsDocPage{Path: path, Text: text}, nil
+	f.note("DocsPage %s §%s", path, section)
+	// as xbind: a page's "## " headings are its sections, named by their slugs
+	p := wsDocPage{Path: path, Text: text}
+	var body []string
+	in := section == ""
+	for _, line := range strings.Split(text, "\n") {
+		if h, ok := strings.CutPrefix(line, "## "); ok {
+			p.Sections = append(p.Sections, wsDocSlug(h))
+			in = section == "" || wsDocSlug(h) == section
+		}
+		if in && section != "" {
+			body = append(body, line)
+		}
+	}
+	if section != "" {
+		if len(body) == 0 {
+			return wsDocPage{}, &xbin.DelegateError{Status: 404, Message: "no such section on this page"}
+		}
+		p.Text = strings.Join(body, "\n")
+	}
+	return p, nil
 }
 
 func (f *fakeXbin) CodeTree(_ context.Context, sid, tile string) ([]wsCodeFile, error) {

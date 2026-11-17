@@ -448,9 +448,9 @@ func wsNotebookChange(ctx context.Context, ag *Agent, s *wsSession, c coordCall,
 	case p.Archived:
 		return fmt.Sprintf("Removed %s from the notebook (its history is kept).", slug), nil
 	case p.Version == 1:
-		return fmt.Sprintf("Noted in the notebook: %q (%s). Your person sees it and can edit or undo it.", p.Title, slug), nil
+		return fmt.Sprintf("Noted in the notebook as a new page (nothing was replaced): %q (%s). Your person sees it and can edit or undo it.", p.Title, slug), nil
 	}
-	return fmt.Sprintf("Updated %s — now version %d.", slug, p.Version), nil
+	return fmt.Sprintf("Updated %s — now version %d (version %d is kept in its history).", slug, p.Version, p.Version-1), nil
 }
 
 // --- the prompt's block --------------------------------------------------------------
@@ -514,6 +514,12 @@ func (ag *Agent) wsPromptFor(run *Run, cfg Config) string {
 	size := 0
 	for i, p := range pages {
 		line := wsPromptSafe(clip(wsPageLine(p, stamps[i]), 380))
+		if p.UpdatedRun == run.ID && run.ID != 0 {
+			// this list is rebuilt for every call, so a page written a moment ago is in it — and three real
+			// conversations took such a page for one that had been there before they began, and their own
+			// write for an overwrite (the feedback run, 2026-11-17)
+			line = strings.TrimSuffix(line, ")") + " — written in THIS conversation, not before it)"
+		}
 		if i == wsIndexLines || size+len(line) > wsIndexBytes {
 			fmt.Fprintf(&b, "… and %d more: notebook_search finds them.\n", len(pages)-i)
 			break

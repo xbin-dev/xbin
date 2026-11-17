@@ -249,13 +249,14 @@ func wsPlanProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 	made := map[string]string{} // a created tile's name and path (lower case) → its path
 	meta := wsPlanMeta{Plan: true, Starts: map[int]string{}}
 	items := make([]xbin.Change, 0, len(a.Changes))
+	var briefs []string // the briefs a template wrote, as the tile agents will be told them
 	for i, ch := range a.Changes {
 		n := i + 1
 		switch {
 		case !hasStr(wsPlanKinds, ch.Kind):
 			return "", fmt.Errorf("line %d: no kind %q — a plan's line is one of %s", n, clip(ch.Kind, 40), strings.Join(wsPlanKinds, ", "))
 		case strings.TrimSpace(ch.Why) == "":
-			return "", fmt.Errorf("line %d: why — the reason for it, in plain words", n)
+			return "", fmt.Errorf("line %d has no \"why\": add the reason for this change, in plain words (your person reads it on the review)", n)
 		}
 		args := any(ch.Args)
 		switch ch.Kind {
@@ -295,6 +296,9 @@ func wsPlanProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 				return "", fmt.Errorf("line %d: %w", n, err)
 			}
 			args, meta.Starts[n] = line, tile
+			if strings.TrimSpace(str(ch.Args["template"])) != "" { // a brief it did not write itself: shown to it, below
+				briefs = append(briefs, fmt.Sprintf("Line %d's brief, as the template wrote it — what its tile agent is told first, and what your person reads (and may edit) on the review:\n%s\n", n, clip(str(line["brief"]), 2400)))
+			}
 		default:
 			// a tile this plan creates may be named by the name it was given
 			for _, k := range []string{"component", "provider", "from", "target", "tile"} {
@@ -319,7 +323,7 @@ func wsPlanProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 			return "", err
 		}
 		cs.ID, cs.State = "(not proposed)", "a dry run"
-		return "As xbin would describe it — " + wsChangeSetText(cs) + "\n" + wsPlanNotes(cs) + plain, nil
+		return "As xbin would describe it — " + wsChangeSetText(cs) + "\n" + strings.Join(briefs, "") + wsPlanNotes(cs) + plain, nil
 	}
 	if e := projEng(); e != nil && e.halted() {
 		return "", errors.New("this agent is halted: nothing is proposed until it is resumed")
@@ -333,7 +337,7 @@ func wsPlanProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 		Title: fmt.Sprintf("a plan of %d change(s): %s", len(cs.Items), a.Title), State: "proposed"})
 	wsArmPoll()
 	ag.wsChanged(s.Run, "request")
-	return wsChangeSetText(cs) + "\n" + wsPlanNotes(cs) + "Proposed as one plan; nothing is applied. Your person reviews it in xbin (the lines above are xbin's, and what they see) and applies what they tick, in order. " +
+	return wsChangeSetText(cs) + "\n" + strings.Join(briefs, "") + wsPlanNotes(cs) + "Proposed as one plan; nothing is applied. Your person reviews it in xbin (the lines above are xbin's, and what they see) and applies what they tick, in order. " +
 		"Their decision reaches you as a workspace update — don't wait for it here, and don't file any of these steps again as single requests.", nil
 }
 
@@ -360,6 +364,14 @@ func wsPlanNotes(cs wsChangeSet) string {
 		}
 	}
 	out := waiting
+	for _, it := range cs.Items {
+		if it.Kind == "agent.start" && it.Blocked == "" {
+			// (two real-model conversations read Codex's mode "read-only" as "it can't write", and warned their
+			// person the work could not be done: the feedback run, 2026-11-17)
+			out += "The mode named in a start line is the coding agent's own word for how it runs, not a limit on what it may change: xbin starts it in one that asks your person before it edits a file or runs a command (Codex calls that \"read-only\"), unless the line carries a warning that says otherwise. "
+			break
+		}
+	}
 	if len(blocked) > 0 {
 		out += "xbin can't apply line " + strings.Join(blocked, ", ") + " as proposed (its reason is above): say so, or propose a plan without it. "
 	}

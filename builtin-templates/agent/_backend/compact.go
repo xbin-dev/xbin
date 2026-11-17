@@ -241,7 +241,9 @@ func sentTokens(m *Message, jobs map[string]int) int {
 // to get it back, and its first and last words.
 func maskStub(m *Message, job int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[%s output, %s — hidden to save context; message_get {\"seq\": %d} shows it",
+	// (a real model took the stub's "begins/ends" for a summary of the output and advised on it: the
+	// feedback run, 2026-11-17 — so it says what it is, and what to do before relying on it)
+	fmt.Fprintf(&b, "[%s output, %s — hidden to save context: what follows is only its first and last words, not a summary. message_get {\"seq\": %d} shows it whole — read it again before you rely on it",
 		orStr(m.Name, "tool"), humanBytes(len(m.Content)), m.Seq)
 	if job > 0 {
 		fmt.Fprintf(&b, ", or bash_output {\"job\": %d, \"offset\": 0} rereads the job while the sandbox keeps it", job)

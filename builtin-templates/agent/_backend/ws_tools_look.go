@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Bounds of what one look returns.
@@ -68,15 +69,15 @@ func wsLookTools() []coordTool {
 			Description: "Search xbin's own documentation by words, for the best-matching sections with a snippet each. A read. " +
 				"Use it whenever a question is about how xbin works or what is possible — and before you tell your person something can't be done. docs_read reads a hit in full.",
 			Parameters: obj([]string{"query"}, map[string]any{
-				"query": strProp("search words"),
+				"query": strProp("two or three words the page would use (bindings interface slot) — every word must be in one section; a whole sentence finds only the closest sections"),
 				"limit": intProp("hits (default 6, at most 15)"),
 			})}},
 			Run: wsTool(wsDocsSearchTool)},
 		{Spec: toolSpec{Type: "function", Function: funcDef{Name: "docs_read",
-			Description: "Read a page of xbin's documentation, or one section of it, by the path docs_search gave (overview/07-users-orgs.md). A read; 12000 characters per call, offset reads on.",
+			Description: "Read a page of xbin's documentation, or one section of it, by the path docs_search gave (overview/07-users-orgs.md). A read; 12000 characters per call, offset reads on. A page read whole ends with the names of its sections.",
 			Parameters: obj([]string{"path"}, map[string]any{
 				"path":    strProp("the page's path under the docs"),
-				"section": strProp("a section heading of the page, to read only that (optional)"),
+				"section": strProp("one section of the page, to read only that (optional): its name as docs_search gave it after § or as the page's own list of sections has it (binding-mechanics) — its heading in words works too"),
 				"offset":  intProp("character offset to start from (default 0)"),
 			})}},
 			Run: wsTool(wsDocsReadTool)},
@@ -149,7 +150,9 @@ func wsTileLine(t wsTile) string {
 		bits = append(bits, "agents may only read its API")
 	}
 	if t.Running {
-		bits = append(bits, "a tile agent is running here")
+		// (xbind counts the tile's agent sessions, working or at rest: "is running here" read as a contradiction
+		// of "ended its turn" to two real conversations)
+		bits = append(bits, "a tile agent's session is open here — working or at rest: tile_agents says which")
 	}
 	if t.MCP {
 		bits = append(bits, "an MCP server (mcp_tools)")
@@ -191,7 +194,11 @@ func wsMapTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (strin
 	if len(lines) == 0 {
 		b.WriteString("No connected tile" + map[bool]string{true: " matches that filter", false: ""}[filter != ""] + ".\n")
 	} else {
-		fmt.Fprintf(&b, "Tiles (%d):\n%s\n", len(lines), strings.Join(lines, "\n"))
+		if filter != "" { // (a real model read "11 tiles connected / Tiles (1)" as ten tiles gone missing)
+			fmt.Fprintf(&b, "Tiles matching %q (%d of the %d connected; the others are left out by the filter):\n%s\n", filter, shown, len(m.Tiles), strings.Join(lines, "\n"))
+		} else {
+			fmt.Fprintf(&b, "Tiles (%d):\n%s\n", len(lines), strings.Join(lines, "\n"))
+		}
 		if shown > wsMapTiles {
 			fmt.Fprintf(&b, "… and %d more: pass filter to narrow.\n", shown-wsMapTiles)
 		}
@@ -226,6 +233,11 @@ func wsStatusTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (st
 	out := wsTileLine(full)
 	if full.Report == "" && len(full.Alerts) == 0 {
 		out += "\nIt reports nothing about itself and xbin flags nothing."
+		if full.Status == "idle" {
+			// (three real conversations read "idle … xbin flags nothing" of a tile that crashed on every call
+			// as "healthy", or as "down": the feedback run, 2026-11-17)
+			out += " \"idle\" says only that its backend isn't running now — it starts on the first call — so nothing here shows that it works: a read through tile_call does (tile_api_doc lists its reads), and tile_logs says what happened when it last ran."
+		}
 	}
 	if full.Level != "" {
 		out += "\nYour person's level here: " + full.Level + "."
@@ -276,11 +288,18 @@ func wsDocsSearchTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall)
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { hits, err = wsX.DocsSearch(ctx, sid, q, min(limit, 15)); return }); err != nil {
 		return "", err
 	}
-	if len(hits) == 0 {
-		return fmt.Sprintf("nothing in xbin's docs matches %q — try other words", clip(q, 80)), nil
-	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d section(s) of xbin's docs:\n", len(hits))
+	if len(hits) == 0 {
+		// xbind's search wants every word in one section (eight words at most): a question asked in a
+		// sentence finds nothing that way. The sections that have the most of its words are the answer then
+		hits = wsDocsClosest(ctx, ag, s, q, min(limit, 15))
+		if len(hits) == 0 {
+			return fmt.Sprintf("nothing in xbin's docs matches %q, nor any one of its words — try other words (two or three that the page would use)", clip(q, 80)), nil
+		}
+		fmt.Fprintf(&b, "No section of xbin's docs has all of those words (the search wants every word in one section: two or three key words work best). The %d closest:\n", len(hits))
+	} else {
+		fmt.Fprintf(&b, "%d section(s) of xbin's docs:\n", len(hits))
+	}
 	for _, h := range hits {
 		fmt.Fprintf(&b, "- %s", h.Path)
 		if h.Section != "" {
@@ -290,7 +309,7 @@ func wsDocsSearchTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall)
 			fmt.Fprintf(&b, " — %s", h.Title)
 		}
 		if h.Snippet != "" {
-			fmt.Fprintf(&b, ": %s", clip(oneLineTitle(h.Snippet), 300))
+			fmt.Fprintf(&b, ": %s", clip(wsSnippet(h.Snippet), 300))
 		}
 		b.WriteString("\n")
 	}
@@ -311,16 +330,95 @@ func wsPaged(text string, off, page int) string {
 	return out
 }
 
+// wsSnippet is a hit's snippet on one line, begun at a word: xbind cuts
+// it around the match, mid-word as it falls ("…nd the owning org's
+// admins"), and a snippet is there to judge the hit by.
+func wsSnippet(s string) string {
+	s = oneLineTitle(s)
+	if rest, cut := strings.CutPrefix(s, "…"); cut {
+		if i := strings.IndexByte(rest, ' '); i >= 0 && i < 24 {
+			return "… " + strings.TrimSpace(rest[i+1:])
+		}
+	}
+	return s
+}
+
+// wsDocsClosest is the sections that hold the most of q's words, when none
+// holds them all: each word (the eight longest, three letters or more)
+// searched by itself, a section ranked by how many of them found it.
+func wsDocsClosest(ctx context.Context, ag *Agent, s *wsSession, q string, limit int) []wsDocHit {
+	words := strings.FieldsFunc(strings.ToLower(q), func(c rune) bool {
+		return !unicode.IsLetter(c) && !unicode.IsDigit(c) && c != '-' && c != '_' && c != '/' && c != '.'
+	})
+	seen := map[string]bool{}
+	var terms []string
+	for _, w := range words {
+		if len(w) >= 3 && !seen[w] && !wsDocsCommon[w] {
+			seen[w] = true
+			terms = append(terms, w)
+		}
+	}
+	if len(terms) < 2 {
+		return nil // one word, searched already
+	}
+	sort.SliceStable(terms, func(i, j int) bool { return len(terms[i]) > len(terms[j]) })
+	terms = terms[:min(len(terms), 8)]
+	type scored struct {
+		hit   wsDocHit
+		words int
+		first int
+	}
+	by := map[string]*scored{}
+	var order []string
+	for _, w := range terms {
+		var hits []wsDocHit
+		if err := ag.wsWith(ctx, s, func(sid string) (err error) { hits, err = wsX.DocsSearch(ctx, sid, w, 8); return }); err != nil {
+			continue
+		}
+		for rank, h := range hits {
+			k := h.Path + "\x00" + h.Section
+			if by[k] == nil {
+				by[k] = &scored{hit: h, first: rank}
+				order = append(order, k)
+			}
+			by[k].words++
+		}
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := by[order[i]], by[order[j]]
+		if a.words != b.words {
+			return a.words > b.words
+		}
+		return a.first < b.first
+	})
+	var out []wsDocHit
+	for _, k := range order[:min(len(order), limit)] {
+		out = append(out, by[k].hit)
+	}
+	return out
+}
+
+// wsDocsCommon are words a question has and a page's section is not found by.
+var wsDocsCommon = map[string]bool{"the": true, "and": true, "how": true, "what": true, "does": true, "for": true, "with": true, "from": true, "that": true,
+	"this": true, "its": true, "are": true, "can": true, "into": true, "when": true, "which": true, "where": true, "why": true, "who": true, "get": true, "gets": true}
+
 func wsDocsReadTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (string, error) {
 	path := strings.TrimSpace(str(c.Args["path"]))
 	if path == "" {
 		return "", errors.New("path: the page's path (docs_search gives them)")
 	}
+	// a section is named by its slug at xbind; a model as readily passes the heading it read ("What the
+	// component sees"), which is the same name once slugged
+	path, section := strings.TrimPrefix(path, "/docs/"), wsDocSlug(str(c.Args["section"]))
 	var p wsDocPage
-	err := ag.wsWith(ctx, s, func(sid string) (err error) {
-		p, err = wsX.DocsPage(ctx, sid, strings.TrimPrefix(path, "/docs/"), str(c.Args["section"]))
-		return
-	})
+	err := ag.wsWith(ctx, s, func(sid string) (err error) { p, err = wsX.DocsPage(ctx, sid, path, section); return })
+	if err != nil && section != "" && strings.Contains(err.Error(), "no such section") {
+		// say which sections there are, not only that this isn't one
+		var whole wsDocPage
+		if e2 := ag.wsWith(ctx, s, func(sid string) (err error) { whole, err = wsX.DocsPage(ctx, sid, path, ""); return }); e2 == nil && len(whole.Sections) > 0 {
+			return "", fmt.Errorf("%s has no section %q — its sections: %s", path, str(c.Args["section"]), clip(strings.Join(whole.Sections, " · "), 800))
+		}
+	}
 	if err != nil {
 		return "", err
 	}
@@ -329,6 +427,23 @@ func wsDocsReadTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (
 		out += "\n\n(sections: " + clip(strings.Join(p.Sections, " · "), 800) + ")"
 	}
 	return out, nil
+}
+
+// wsDocSlug is a section's name as xbind's docs index has it (its
+// heading lowercased, letters and digits kept, spaces and dashes one dash
+// each): what docs_search answers after § — and what a heading in words
+// becomes.
+func wsDocSlug(heading string) string {
+	var b strings.Builder
+	for _, c := range strings.ToLower(strings.TrimSpace(heading)) {
+		switch {
+		case unicode.IsLetter(c) || unicode.IsDigit(c):
+			b.WriteRune(c)
+		case c == ' ' || c == '-' || c == '_':
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func wsAPIDocTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (string, error) {

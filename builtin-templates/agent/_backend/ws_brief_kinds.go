@@ -114,7 +114,7 @@ func wsApplyBriefTemplate(id string, tool *wsBriefToolAsk, f *wsBriefFields) err
 		leave += "; " + v
 	}
 	f.LeaveAlone = leave
-	known := "The tile may be empty (a page and a manifest). /docs/mcp.md is the interface and carries a complete Go server to start from — read it from this sandbox: curl -s -H \"Authorization: Bearer $XBIN_TOKEN\" \"$XBIN_URL/docs/mcp.md?raw=1\". A Go backend tile is three files: xbin.json (the manifest), go.mod (module <a name>, go 1.24, require github.com/xbin-dev/xbin/sdk v0.0.0 — xbin resolves the sdk) and backend/main.go; xbin builds and restarts the backend on every save."
+	known := "The tile may be empty (a page and a manifest). /docs/mcp.md is the interface and carries a complete Go server to start from — read it from this sandbox: curl -s -H \"Authorization: Bearer $XBIN_TOKEN\" \"$XBIN_URL/docs/mcp.md?raw=1\". A Go backend tile is xbin.json (the manifest: with the provide, the \"expose\" role it names, as the page's manifest has it), go.mod (module <a name>, go 1.24, require github.com/xbin-dev/xbin/sdk v0.0.0 — xbin resolves the sdk), backend/main.go, and an API.md saying what the endpoint is (a tile that exposes a role ships one). xbin builds and restarts the backend on every save: you need not build it yourself, and a build error is in the tile's log (bx logs $XBIN_COMPONENT — bx takes the tile's full path, not its last part)."
 	if v := strings.TrimSpace(f.Known); v != "" {
 		known += " " + v
 	}
