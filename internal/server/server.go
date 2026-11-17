@@ -134,6 +134,9 @@ type Server struct {
 	Signins      *signins.Store
 	SigninFlows  *signins.Flows
 	SigninsAvail func() SigninsAvailability
+	// SigninSourcePlanned is the broker's: where the code of a tile a plan
+	// is about to create at path for owner comes from, for user (D230).
+	SigninSourcePlanned func(user, path, owner string) signins.Source
 	// AgentLevel answers the level of a tile's API a person's workspace
 	// agent may use as it is in force (the broker's: the manifest's, never
 	// above what was last approved), and the raise its manifest asks for;

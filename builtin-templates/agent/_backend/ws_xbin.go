@@ -549,6 +549,10 @@ type wsHarness struct {
 	// connector | own | needed (the person signs in first); "" unknown, and
 	// from an xbind that doesn't say.
 	SignIn string `json:"signIn,omitempty"`
+	// SignInOffered (an xbind from 2026-11-17): the person has a saved
+	// sign-in, and xbin's approval of the start offers it as a line they
+	// tick — a session this agent starts never has one otherwise.
+	SignInOffered bool `json:"signInOffered,omitempty"`
 }
 
 // wsStartDefaults is what a start in a tile resolves to, for the brief's

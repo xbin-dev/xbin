@@ -231,12 +231,12 @@ export function allowSpoken(req, choice = 'once') {
 }
 
 /**
- * approveBody(req, choice, duration): what POST …/approve sends —
- * {grant, scope?, unseen?}. A body nobody could read is approved only by
- * saying so (unseen).
+ * approveBody(req, choice, duration, ticks): what POST …/approve sends — {grant, scope?, unseen?, signin?, trust?}. A body nobody
+ * could read is approved only by saying so (unseen); ticks {signin, trust} are a start's own lines, ticked (D230): never by default.
  */
-export function approveBody(req, choice = 'once', duration = '') {
-  const unseen = sends(req).binary ? { unseen: true } : {};
+export function approveBody(req, choice = 'once', duration = '', ticks = null) {
+  const s = (req.kind === 'session' && req.preview && req.preview.session) || {}, use = !!(ticks && ticks.signin && s.signInId);
+  const unseen = { ...(sends(req).binary ? { unseen: true } : {}), ...(use ? { signin: true } : {}), ...(use && ticks.trust && s.signInTrust ? { trust: true } : {}) };
   if (req.kind === 'mcp' && choice === 'tool') {
     const d = duration === 'hour' || duration === 'always' ? duration : CHOICES.duration.tool;
     return { grant: d, scope: 'tool', ...unseen };
@@ -272,16 +272,16 @@ export function sessionRows(req) {
   const who = s.providerName || s.provider || 'A coding agent';
   const model = s.model ? ` · model ${s.model}` : '';
   // what it signs in with, as xbind read it when the request was filed (D230): a saved sign-in is named; none at all is said, with the harness to sign in to
-  const cred = s.signIn === 'saved' || s.signIn === 'needed' ? ''
+  const cred = s.signIn === 'needed' ? ''
     : s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';
   let brief = '';
   try { const b = JSON.parse(req.body || '{}'); brief = String(b.prompt ?? b.brief ?? b.message ?? ''); } catch { brief = String(req.body || ''); }
   return {
     agent: `${who}${model}${cred}`,
-    // a saved sign-in is named on the approval, in xbind's words — its label is drawn by the chrome from the person's own list (id),
-    // and approving is what puts it into the session: say who then holds it
-    signin: s.signIn === 'saved' && typeof s.signInId === 'string' && s.signInId
-      ? { saved: true, id: s.signInId, name: who, text: `Uses your saved ${who} sign-in`, holds: `The tile's coding agent will hold that sign-in: it, and anything it runs in ${t}, can read it.` }
+    // a saved sign-in is OFFERED (xbind's signInId), never used by itself: the sheet's own line, unticked — the label drawn by the chrome
+    // from the person's own list (agent-signins.js offerWords); without it the session runs on signIn. trust: xbind's trust question
+    signin: typeof s.signInId === 'string' && s.signInId
+      ? { offer: true, id: s.signInId, name: who, without: s.signIn || '', trust: s.signInTrust && typeof s.signInTrust === 'object' ? s.signInTrust : null }
       : s.signIn === 'needed' && typeof s.provider === 'string' ? { harness: s.provider, name: who, text: `Needs your ${who} sign-in: without it the tile agent starts signed out.` } : null,
     mode: asks ? { tag: 'asks before acting', tone: 'ok', text: 'It asks you before it edits a file or runs a command.', name: s.mode || '' }
       : { tag: 'acts without asking', tone: 'bad', text: `It edits files and runs commands in ${t} without asking you.`, name: s.mode || '' },

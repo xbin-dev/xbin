@@ -598,10 +598,15 @@ struct AgentApprovalSheet: View {
             }
             ApprovalRow(label: "Coding agent") { Text(verbatim: s.agent).font(.callout) }
             if !s.signIn.isEmpty {
-                // allowing is what puts a saved sign-in into the session: said here, in xbin's words (D230)
+                // what the session runs on, in xbin's words (D230): a saved sign-in goes in only by a tick on the web's sheet
                 ApprovalRow(label: "Sign-in") {
                     Text(verbatim: s.signIn).font(.callout)
                     if !s.signInHolds.isEmpty { Text(verbatim: s.signInHolds).font(.callout).foregroundStyle(XbinColor.muted) }
+                    // a saved sign-in is a line ticked on the web (with the tile's trust line where it isn't only theirs): from here the session has none
+                    if !s.signInTrust.isEmpty {
+                        if !s.signInTrustWhose.isEmpty { Text(verbatim: s.signInTrustWhose).font(.callout.weight(.semibold)) }
+                        Text(verbatim: s.signInTrust).font(.callout).foregroundStyle(XbinColor.muted)
+                    }
                 }
                 .accessibilityIdentifier("approval-signin")
             }

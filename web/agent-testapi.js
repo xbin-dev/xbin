@@ -80,6 +80,9 @@ export function agentTestApi(a) {
     // the guided sign-in strip (agent-signin.js, D178), when it shows; the note after it worked
     get signin() { return a.renderRoot?.querySelector('bx-agent-signin:not([view])')?.testApi() || null; },
     get signedNote() { return a._signedNote || ''; },
+    // "I trust this tile's source" (D230): the card when it asks (answering it takes a person's click), and whether the header offers it again
+    get trust() { return a.renderRoot?.querySelector('bx-agent-signin[view="trust"]')?.testApi() || null; },
+    get trustAgain() { return !!a.renderRoot?.querySelector('button.trust-again'); },
     // what the session signs in with, as the header says it (D230)
     get signinChip() { return a.renderRoot?.querySelector('.signin-chip')?.textContent.trim() || ''; },
     get signinState() { return a._tx.st.signin || null; },

@@ -182,105 +182,206 @@ A rule that gives the connector alone (`connector-only`, an org's model
 rule) still wins over all of it: no sign-in is injected into a session
 only the connector may serve.
 
-## 5. The shared-tile rule
+## 5. The rule: used by default, trust asked where the source isn't only the person's
+
+> Changed 2026-11-17. The first rule here ("a saved sign-in goes in only
+> where nobody else who isn't an admin can change the tile's code",
+> reviewed and released in v0.3.80) was replaced on the owner's word:
+> "maybe let's default sign-in, AND on tiles which were created by
+> different users have a 'I trust this tile source' with a small risks
+> explanation." The owner **accepted the risk model** of this section and
+> §9 on 2026-11-17. An independent review of the same day changed four
+> things, all below: a trust is VOID when its basis is seen to change and
+> stays void; an answer is bound to the basis it was shown; a session the
+> workspace agent starts has a sign-in only by the person's tick on that
+> start (never by default — the earlier "start without asking carries the
+> default" is reverted); a workspace-owned tile needs no trust for a
+> workspace admin.
 
 What is true of a session's sandbox (checked in `internal/term`):
 
 - every session is a sandbox of its own — own PID, mount and network
   namespaces, own `/tmp` — and the adapter's environment is readable only
   from inside it;
-- but what *runs* inside comes from three places: the tile's persistent
-  environment layer (the binaries — shared by everyone who may open a
-  terminal on the tile, one per person on a partitioned tile), the tile's
-  directory (the project's own configuration: hooks, MCP servers,
-  instructions, scripts the agent is asked to run — written by everyone
-  with terminal access), and the person's `$HOME`;
+- but what *runs* inside comes from the tile's directory (the project's
+  own configuration: hooks, MCP servers, instructions, scripts the agent
+  is asked to run), the tile's persistent environment layer and the
+  person's `$HOME`: **code in the tile runs with the sign-in**;
 - an admin may drive another person's session on a tile that isn't
   partitioned.
 
-So a co-user of a shared tile cannot *read* another person's session, but
-can change what that session runs — a hook in `.claude/settings.json`, a
-Makefile target, a script the agent is asked to run — and so reach its
-environment. The rule, enforced in `internal/term/signin.go`
-(`signinPlanFor` / `signinWhy`; the UI only repeats its answer):
-
-A saved sign-in is injected only when **all** hold:
+The rule, enforced in `internal/term/signin.go` (`signinPlanFor` /
+`signinJudge`; the UI only repeats its answer). A saved sign-in is
+injected when **all** hold:
 
 1. **The session is the person's own**: opened by their own signed-in
-   session, app or device. Never a view-as session, never a component's
-   credentials (a tile's backend, frame, cron, an agent session's own
-   token), never the root token, never another person. A session the
-   person's **workspace agent** starts (D228) gets one only when the
-   person approved that start and the approval named the sign-in — never
-   by default, never on a start their preference lets through unasked
-   (below).
-2. **Sandboxes are on** (or the workspace is a development one, §2).
-3. **Nobody else can change the tile's code**: no other person who is not
-   a workspace admin holds **write level or more** on the tile, by any
-   source — ownership, an entry of their own, a pattern, an org's share
-   (`Broker.SigninOthers`, the one real answer; table-tested). The tile is
-   the **registered tile the session's directory lies in**
-   (`term.Manager.TileOf`, the one resolver every session decision uses),
-   never the directory as written: a session in
-   `apps/crm/src` is judged on `apps/crm`, and a directory in no tile gets
-   nothing. **Partitioned tiles are not exempt**: a partition isolates
-   data, and the tile's directory is bound read-write into every
-   partition's sessions. Workspace admins are not counted: they can
-   already change any tile's code, grants and the workspace itself, and
-   are in the trust base (D179 N20) — the table in §9 says what that
-   leaves.
-4. **The connector is not the only server allowed** (§4).
-5. The store can be read (vault open), the workspace policy allows saved
-   sign-ins (§7), the tile's orgs allow the harness (D229, already checked
-   by the start), the sign-in isn't expired.
+   session, app or device, or by their workspace agent for them (below).
+   Never a view-as session, never a component's credentials (a tile's
+   backend, frame, cron, an agent session's own token), never the root
+   token, never another person.
+2. **Sandboxes are on** (or the workspace is a development one, §2); the
+   workspace policy allows saved sign-ins (§7); **the connector is not
+   the only server allowed** and wasn't chosen (§4); the store can be
+   read; the tile's orgs allow the harness (D229); the sign-in isn't
+   expired.
+3. **The tile's source is only the person's own — the default is on —
+   or the person said they trust it.** A source is not only theirs under
+   either of two conditions, kept apart in the code so one can go without
+   the other:
 
-Where 3 fails the session starts **without** the saved sign-in and says
-why — "Your saved sign-in Personal isn't used here: bob, carol and 1 more
-can also change apps/crm and could change what your agent runs there" —
-and offers what works: the LLM connector where it can serve, or the
-tile's own login. The same reason is in `GET /agent/providers?tile=`
-before the session starts and on the brief's card.
+   | | Condition | Where |
+   |---|---|---|
+   | 1 | **the tile is owned by someone else** — another person, an org, or the workspace (the owner's "created by different users": a tile belongs to whoever created it until it is handed on). **Not** a workspace-owned tile for a workspace admin — by their STORED role (`Source.Admin`), never the request's principal: admins can change every tile, theirs included; a demotion flips the answer and the sweep ends the session. Org tiles always ask (an org's other admins can give themselves write at any time); the "sole org admin" case was left asking | `broker.signinNotOwn`, `signins.Source.NotOwn` |
+   | 2 | **someone else who is not a workspace admin can change its code** — write level or more, by any source (an entry, a pattern, an org's share); partitioned tiles included, whose directory is shared code | `broker.signinEditors`, `signins.Source.Editors`; **off with one line: `signins.CoEditorsNeedTrust = false`** (then `NeedsTrust` and a trust's basis ignore editors) |
 
-**The workspace agent.** It steers a session it started and reads what
-the session prints (`tile_agent_result`), so a sign-in in such a session
-is, in effect, within its model's reach. A start's preview therefore says
-it in xbind's words: `preview.session` / a plan line's `start` carry
-`signIn: "saved"` and `signInId`; xbin's chrome (never the agent's page)
-draws "Uses your saved Claude Code sign-in ‹label›. The tile's coding
-agent will hold that sign-in: it, and anything it runs in ‹tile›, can read
-it", the label read from the person's own list; the ticket binds the id
-with the harness and the mode (`DelegateStart.Signin`), and the open uses
-exactly that sign-in or is refused. The agent's model is told that a
-saved sign-in exists (`start-defaults` `signIn: "saved"`, only for a
-start that needs approval) — never its label.
+   Condition 2 is the coordinator's addition to the owner's sentence: the
+   risk is identical (a file a co-editor plants runs with the credential).
+   The tile is the **registered tile the session's directory lies in**
+   (`term.Manager.TileOf`), never the directory as written; a directory in
+   no tile gets nothing. Workspace admins are not counted as editors
+   (they are in the trust base, D179 N20); an admin who *owns* the tile is
+   its owner like anyone (condition 1).
+
+**Trust** (`internal/signins/trust.go`) is the person's own answer, "I
+trust this tile's source":
+
+- **per (person, tile identity)** — the directory's own identity
+  (`broker.TileIdentity`: inode, birth time, generation — what a waiting
+  plan line is pinned to) **at its path**. Kept in the person's sign-in
+  file (`trust: [{id, tile, name, ident, owner, notOwn, editors, at, via,
+  voidAt?, voidWhy?}]`), metadata, readable while the vault is sealed;
+  removed with the account and by an admin-made credential (`Clear`).
+- **for the tile as it stood, and VOID once that is seen to differ**
+  (`Trust.against`, `Store.judge`): another identity at the path
+  (re-made), another path (moved — a move is a change), another owner,
+  the tile becoming someone else's, or an editor who was not one when it
+  was given. Void is recorded (`voidAt`, `voidWhy`) and **permanent**:
+  the tile back as it was — mallory gained write and lost it, the owner
+  A→B→A — does not revive it; only a new answer does. An editor who
+  *left* is dropped from the record when that is seen, so their return
+  is someone new. Seen where: (a) **at the event** — `Store.Revalidate`
+  from the broker's `OnPeopleChanged` (every users-plane mutation:
+  accounts, roles, access entries and patterns, permission sets, orgs,
+  their members and shares, owner transfers) and from the watcher's
+  rescan when the set of (tile path, identity) changes (moved, removed,
+  re-made) — with or without a session running; (b) **at every
+  judgement** of the rule (`Store.Trusts`), the backstop for a change no
+  event announced; (c) at the person's list (`Recheck`). Then
+  `SigninSweep` ends the sessions that ran on it.
+  `TestSigninTrustIsVoidedByEveryChangeOfItsBasis` (internal/boot)
+  enumerates the ways through the routes an admin uses.
+- **bound to what the person was shown** — `Source.Basis()`: a token over
+  identity, path, owner, whose-it-is and the full editor list. The
+  question carries it (`here.trust.basis`, `signInTrust.basis`); the
+  answer returns it; another basis than the tile's now is 409 — nothing
+  recorded, nothing approved or applied — and the card redraws the
+  question and **re-arms** (`agent-armed.js`: a button is armed for its
+  `data-armed` key; lit reuses the element, so a changed key waits
+  again).
+- **given only by the person**, in xbin's own chrome: `POST
+  /agent/signins/trust {tile}` (person-only: never a tile's credentials,
+  a delegate, view-as, the root token), the tick of an approval's trust
+  line, the tick of a plan's start line. Never implied by an admin, a
+  tile's owner, the workspace agent, or a page message —
+  `xbin:agent-open-signin` opens the card, nothing answers it.
+- **listed and revocable**: `GET /agent/signins` → `trusted` (with
+  `holds` / `why`), `DELETE /agent/signins/trust/{id}` → the person's
+  sessions there on a saved sign-in are ended.
+- **forbiddable**: a workspace switch beside the sign-ins switch (§7),
+  default allowed, host-lockable the same way. Off, nothing is trusted
+  (kept answers aren't used) and the card says who can change that. An
+  org-level switch was not built.
+
+Where trust is needed and absent the session starts **without** the
+sign-in and says why — "Your saved sign-in Personal isn't used here:
+apps/crm isn't only yours — it belongs to bob, and carol can change it —
+and you haven't said you trust its source" — and its row carries the
+question (`signin.trust`), as do `GET /agent/providers` (`saved.trust`)
+and `GET /agent/signins?tile=` (`here.trust`, with `without`: what a
+session runs on instead).
+
+**The card** (`<bx-agent-signin view="trust">`, the tile window's Agent
+tab, before a first start and whenever a session ran without): whose tile
+it is and who can change it (xbind's names, at most three and "N more");
+"Code in this tile runs with your sign-in while your coding agent works.
+People who can change this tile could read it and use your ‹harness›
+account."; two buttons of the same size and look — "Trust this tile — use
+my sign-in" (armed: 600 ms after it shows, the person's own click, nothing
+over it, never Enter) and "Start without my sign-in" — and what the agent
+runs on without. Neither is focused or pre-selected. Declining is
+remembered per tile in the browser until the question changes.
+
+**The workspace agent** (decision A of the review, 2026-11-17). It
+directs a session it started — nothing refuses its prompts to a session
+that carries a sign-in — and reads what the session prints
+(`tile_agent_result`); redaction is best-effort and a file written in the
+tile skips it. So **a session it starts never carries the person's
+sign-in unless the person ticked it for that start, each time**:
+
+- A start under **"start without asking"** has none, on any tile; no
+  sub-preference changes that. `start-defaults` says what the session
+  runs on (`connector` | `own` | `needed`), never `saved`, and prefers a
+  harness the workspace's model serves — the owner's original decision
+  for harness auth: connector by default, sign-ins held by xbind.
+- A start **the person approves**: `preview.session` / a plan line's
+  `start` carry `signIn` (what it runs on as it stands) and `signInId` —
+  the sign-in the sheet OFFERS, a line of its own, **unticked**, warned,
+  in xbind's words: "Use my ‹harness› sign-in ‹label› for this session —
+  Your workspace agent directs this session: what it tells the coding
+  agent could expose your sign-in." The tick rides the approval
+  (`approve {signin: true}` → `Request.UseSignin`; a plan's apply
+  `{signin: [n]}` → `ChangeItem.SigninUse`), the ticket then carries the
+  id (`DelegateStart.Signin`) and the open uses exactly that sign-in or
+  is refused.
+- Where the tile needs trust the preview also carries **`signInTrust`**
+  and the sheet the trust line under the first — unticked, tickable only
+  with it and only once every editor has been shown. `{signin, trust}`
+  records the person's trust (`via` approval/plan) before the open, for
+  the basis the sheet showed (409 otherwise: nothing decided). The
+  sign-in ticked without it: the session starts without
+  (`DelegateStart.TrustAsked`); a sheet that carried no line, on a tile
+  that asks by the open, is refused.
+- A start on a tile **the same plan creates** as the person's own offers
+  their default (`plannedSignIn`, `broker.SigninSourcePlanned`).
+
+The agent learns that a saved sign-in exists (`start-defaults`
+`signInOffered`, `GET /agent/providers` `saved: {inject: false}`) —
+never its label, kind or id outside its own requests; the row and events
+of a session it started name no sign-in and nobody's access.
+
+**Remaining exposure of a ticked start**, stated: the agent can steer
+that session — tell the coding agent to print its environment, or to
+write the sign-in into a file in the tile, which no mask sees. The tick
+is the person's informed consent to that for one session.
 
 And a session that carries a saved sign-in is **its person's alone**:
 `MayDrive`, the reattach rule and the event, log and diff reads refuse
 everyone else, admins included (they may still end it) — as on a
-partitioned tile (PD-09). Without this an admin would prompt the session to
-print its environment. The mark is sticky (`sessionSignin.held`): it
+partitioned tile (PD-09). The mark is sticky (`sessionSignin.held`): it
 outlives the sign-in being taken away mid-run, goes into the session's
 history entry (`HistoryMeta.Signin`: view-as reads neither transcript nor
 first prompt, 403), and a session that resumes such a transcript is one
 too.
 
-The rule is evaluated at the session's start, and a **restart never
-widens it**: the session keeps the choice it was opened with (none stays
-none; a named sign-in stays that one or becomes none; an agent-started
-session keeps exactly what it carried). If someone becomes able to change
-the tile while a session with a saved sign-in runs — or saved sign-ins
-are switched off — the session is ended with a notice (the broker's
-`OnPeopleChanged` and the policy route call `Term.SigninSweep`; a host
-file that turns them off is noticed at the next judgement); the next
-start is judged afresh.
+A **restart never widens**: the session keeps the choice it was opened
+with (none stays none; a named sign-in stays that one or becomes none; an
+agent-started session keeps exactly what its tick put in). A person's own
+session opened on their default asks for the default again — which is how
+the Agent tab's restart after "Trust this tile" picks the sign-in up.
 
-**What the rule costs** (measured on the UI harness's seed, where most
-tiles belong to an org whose members hold terminal level): a saved sign-in
-is used on the tiles a person alone can change (others may hold read
-level) and in a one-person workspace — and on none of a team's shared tiles, where the
-card leads with the tile's own sign-in instead. A per-tile "use it here
-anyway" is the obvious next lever; it is the person's informed choice and
-the owner's call, and is not built.
+**Migration from the first rule.** Nothing is stored that needs
+converting. A session that was refused under the old rule ("bob can also
+change apps/crm") now carries the question; the card asks the next time
+the person opens the tab. Tiles owned by an org, the workspace or another
+person that nobody else could change used the sign-in silently under the
+old rule and now ask once. Nothing is trusted on anyone's behalf.
+
+**What the rule costs.** A non-admin on a workspace-owned tile, and
+anyone on an org's tile, is asked once per tile — and again after any
+change of its owner or editors, also one that was undone. A workspace
+admin on the scaffold's workspace-owned tiles is not asked (decision B).
+A session the workspace agent starts runs on the workspace's model unless
+the person ticks their sign-in each time.
 
 ## 6. The consumer interface (designed; not built in this change)
 
@@ -330,6 +431,11 @@ sandbox runtime, the template) and needs its own review; the store's
   on; kept in `data/signins/policy.json`. Off: nothing is injected,
   nothing can be saved or made default; what is saved stays listed (and
   removable) and works again when the switch returns.
+- **The switch on trusting** "people may trust a tile that isn't only
+  theirs" — `PUT /agent/signins/policy {trust}`, default allowed, in the
+  same `policy.json`; `policy.trust: {allowed, locked?, reason?}`. Off:
+  kept answers aren't used, none can be given, the sweep ends the
+  sessions that ran on one. The host's file: `"agentSignInTrust"`.
 - **The host's file** (`XBIN_LLM_CONFIG`) gains a sibling of
   `workspaceAgent`: `"agentSignIns": true | false`. Set, it is the host's:
   the policy reads `{enabled, locked: true, reason: "set by your host"}`
@@ -379,6 +485,9 @@ sandbox runtime, the template) and needs its own review; the store's
 
 ## 9. Who could read a credential, step by step
 
+> Revised 2026-11-17 for the rule of §5, whose risk model the owner
+> accepted that day: what the default exposes, and what trusting does.
+
 | Step | Other people on a shared tile | The tile's code | A tile agent's model (tool output) | The workspace agent's model | Logs | Backups | A downgraded xbind |
 |---|---|---|---|---|---|---|---|
 | Guided flow: link shown | no: the flow answers its starter only | no: the throwaway sandbox binds no tile | no | no: `/agent/signins*` is refused to delegates | the URL is not logged | — | — |
@@ -387,21 +496,24 @@ sandbox runtime, the template) and needs its own review; the store's
 | At rest | no | no: `data/` is mounted in no sandbox | no | no | — | sealed (plaintext mode: in the clear) | not read |
 | Read routes | metadata of their own only | refused | — | refused | — | — | — |
 | Admin routes | — | refused | — | refused | — | — | — |
-| Spawn frame → adapter | no: own sandbox; not injected on a tile anyone else (non-admin) can change | **yes** — residual 1 | **yes**: it can run a command that prints it — residual 2 | **only for a start the person approved with the sign-in named — then yes**, through the session it steers — residual 7 | masked in the session log | history is masked | — |
+| Spawn frame → adapter | **by default: nobody** — it goes in unasked only on a tile the person owns (or, for a workspace admin, a workspace-owned one) that no non-admin else can change. **After "I trust this tile's source": the people the card listed, by account id** — the tile's owner and every editor at that moment: a file any of them leaves in the tile runs in the session — residual 8. Someone new, another owner, a move: the trust is void for good, the session is ended, trust is asked again | **yes** — residual 1: on the person's own tile only code they (or an admin) put there; on a trusted tile the listed people's too | **yes**: it can run a command that prints it — residual 2 | **never by default; yes for a session whose start the person approved with "Use my sign-in for this session" ticked** — it directs that session — residual 7 | masked in the session log | history is masked | — |
+| The trust answer | given by the person only (person-only route; a ticked line of their own approval), for the basis they were shown (409 on another); never an admin, an owner, the agent, a page message | refused: tile credentials can't call the route | — | refused (`dNever`); a tick can't be sent by the agent or from a notification | audited (`signin.trust`, `signin.untrust`, `signin.trust.void`): tile, owner, counts | metadata in the person's file | an older xbind ignores it (it uses the stricter rule of v0.3.80). The admins' ban on trusting is in `policy.trust.json`, which an older xbind never rewrites: a downgrade and return keeps it |
+| The person's `$HOME`, one for all their tiles — **OPEN** | **yes, indirectly**: someone who can change a tile the person has NOT trusted, where the person runs a coding agent or a terminal | **yes**: code in that tile runs in a session that carries no sign-in but mounts the person's home read-write — residual 10 | — | — | — | — | — |
 | Codex's `auth.json` | no: private `CODEX_HOME` in the session's `/tmp` | yes, as above | yes, as above | no | — | not in `$HOME`, so not in a backup of homes | — |
 | Session events, history | the person only (admins and view-as barred, live and in history) | — | — | masked on the joined stream (value with separators, base64, hex, %XX; credential shapes) — lowers accidental exposure, **not a guarantee** — residual 7 | masked, the same way | masked, the same way | reads masked history |
-| The harness's own transcripts in `$HOME` (`~/.claude/projects`, `~/.codex/sessions`) | no | **a session of the person's on another tile can read them** — residual 9 | yes | through a session it steers | — | **unmasked**, in a backup of homes | — |
+| The harness's own transcripts in `$HOME` (`~/.claude/projects`, `~/.codex/sessions`) | no | **a session of the person's on another tile — one they haven't trusted — can read them** — residual 9 | yes | through a session it steers | — | **unmasked**, in a backup of homes | — |
 | Use log, audit | the person; admins see metadata | no | no | no | ids and names only | no secret | — |
 
 Residual risks, stated:
 
-1. **The tile's code and the person's own session.** Anything that runs in
-   the session's sandbox — the agent's tools, the project's hooks and
-   scripts — can read the adapter's environment. On a tile only the
-   person (and admins) can change, that code is theirs or an
-   admin's; a tile imported from elsewhere can carry a hook. This is the
-   same exposure the `$HOME` login has always had, with a narrower
-   credential (a setup-token makes model requests only).
+1. **The tile's code and the person's own session.** Anything that runs
+   in the session's sandbox — the agent's tools, the project's hooks and
+   scripts — can read the adapter's environment. **By default** (a tile
+   the person owns, which nobody else who isn't an admin can change) that
+   code is theirs or an admin's; a tile they made from a template or
+   imported can carry a hook. This is the same exposure the `$HOME` login
+   has always had, with a narrower credential (a setup-token makes model
+   requests only).
 2. **The harness's own model can read the credential**: it can run a
    command that prints its environment and read the output. It is the
    vendor the credential belongs to, except when a harness is pointed at
@@ -417,26 +529,45 @@ Residual risks, stated:
    follow-up (`plans/workspace-agent.md` §4).
 6. **A running session** keeps its copy until xbind ends it; a vendor-side
    revoke is the person's.
-7. **Redaction is not a guarantee, and the workspace agent can get the
-   credential of a session it was approved to start with one.** xbind
-   masks the value on the joined text of each stream — with anything
-   between its characters, as base64 (any offset), hex or `%XX` — and
-   the harnesses' credential shapes (`signinredact.go`). That catches
-   accidents: a tool that printed its environment, `env | base64`. A
-   session that is *asked* to hand the credential over can do it in a
-   form nothing recognises (reversed, in words, across interleaved
-   streams). So the boundary is the approval, not the mask: the sheet
-   says the tile's coding agent will hold the sign-in, and nothing
-   starts with one unasked.
-8. **A team's shared tiles get nothing** from the store (§5), so people
-   there keep using the `$HOME` login — the broader credential.
+7. **Redaction is not a guarantee; a session the workspace agent starts
+   with a ticked sign-in is within the agent's reach.** xbind masks the
+   value on the joined text of each stream — with anything between its
+   characters, as base64 (any offset), hex or `%XX` — and the harnesses'
+   credential shapes (`signinredact.go`). That catches accidents: a tool
+   that printed its environment, `env | base64`. It does not see a file
+   written in the tile, and a session that is *asked* to hand the
+   credential over can do it in a form nothing recognises. The workspace
+   agent drives the sessions it opened and nothing refuses its prompts
+   to one that carries a sign-in. So the boundary is the person's tick,
+   not the mask and not the approval alone: a session the agent starts
+   has NO saved sign-in by default — not under "start without asking",
+   not by approving the start — and has one only where the person ticked
+   "Use my ‹harness› sign-in for this session" on that start's sheet,
+   whose one sentence says the agent directs the session. What a ticked
+   start exposes is exactly this residual.
+8. **A trusted tile exposes the sign-in to the people the card listed**
+   (accepted by the owner, 2026-11-17). Trust is the person's informed
+   choice, once per tile: its owner and everyone who could change it then
+   can plant a file that runs in the person's session, read the sign-in
+   and use the person's account with the harness's vendor until the
+   person revokes it there. What bounds it: the card names them, by
+   account id, all of them; a change of the basis — someone new, another
+   owner, a move, a re-made tile — voids the trust when it is seen, for
+   good (the session ends, trust is asked again, and undoing the change
+   revives nothing); the person can stop trusting, and
+   an admin or the host can forbid trusting. What doesn't: a person who
+   trusted a tile and one of the listed people turning hostile later; an
+   org owner whose membership grows *read*-level people is unaffected,
+   but one who gains write is "someone new" only if they weren't an
+   editor when trust was given. Workspace admins are never listed as
+   editors and are always able to change a tile (residual 3).
 9. **One `$HOME` for all of a person's tiles, and the harnesses keep
    their own transcripts in it**, unmasked — Claude Code's
    `~/.claude/projects/*.jsonl`, Codex's `sessions/` and `log/` (linked
    into the private `CODEX_HOME` on purpose). If a tool printed the
    credential in a session on a tile the person alone can change, a
-   session of theirs on a shared tile — which got no sign-in, but runs
-   the co-users' hooks — can read it from those files. A per-session
+   session of theirs on a tile they have NOT trusted — which got no
+   sign-in, but runs other people's hooks — can read it from those files. A per-session
    private state directory would close this and was not built: session
    resume (`session/load`, D75) reads exactly those files, and the
    person's settings, MCP servers and memory live beside them, so every
@@ -445,6 +576,19 @@ Residual risks, stated:
    did, remove the sign-in, revoke it at the vendor and delete that
    transcript. Narrowing `$HOME` per tile (`plans/workspace-agent.md` §4)
    is the real fix.
+10. **OPEN — the person's one `$HOME` is mounted read-write into every
+    session, so an untrusted tile can reach a sign-in used elsewhere.**
+    A session on a tile the person has not trusted carries no sign-in.
+    But code in that tile (a hook a co-editor left) runs with the
+    person's home writable, and can plant `~/.claude/settings.json`
+    hooks, `~/.gitconfig` (an alias, `core.hooksPath`, a credential
+    helper) or `~/.bashrc` that run LATER, in a session of the person's
+    on their own or a trusted tile — one that does carry the sign-in.
+    The default and the trust prompt therefore bound code that runs in
+    the session they are decided for, not code that waits in the home.
+    Not changed in this round (the owner is being asked; the fix is a
+    home per tile, `plans/workspace-agent.md` §4). The builder docs say
+    it under "Who can read it" with what a person can do meanwhile.
 
 ## 10. Routes, fields, settings
 
@@ -463,7 +607,9 @@ the root token, or a delegate (`PersonOnly`; delegation class `never`).
 | `POST /agent/signins/guided/{flow}` | person | `{code}` → 201 `{signin}` · 409 · 502 · 504 |
 | `DELETE /agent/signins/guided/{flow}` | person | cancel |
 | `GET /agent/signins/uses` | person | the use log, newest first |
-| `PUT /agent/signins/policy` | workspace admin | `{enabled}` → `{policy, ended}` (off ends the sessions running on one); 409 when the host holds it |
+| `PUT /agent/signins/policy` | workspace admin | `{enabled?, trust?}` → `{policy, ended}` (off ends the sessions running on one; trust off, those on tiles that needed it); 409 when the host holds the one written |
+| `POST /agent/signins/trust` | person | `{tile, basis}` → 201 `{trust}`: "I trust this tile's source", for the question as shown · 409 `{changed, trust}` the tile is no longer that · 409 the tile is theirs alone · 403 trusting is off |
+| `DELETE /agent/signins/trust/{id}` | person | → `{ok, ended}` (their sessions there on a saved sign-in are ended) |
 | `GET /agent/signins/people` | workspace admin | counts and metadata per person |
 | `DELETE /agent/signins/people/{user}/{id}` | workspace admin | revoke one |
 
@@ -480,7 +626,13 @@ Additive fields elsewhere:
   (`saved` | `own` | `connector` | `needed`) — no name, no id;
   the default harness prefers one that runs as things are, a saved
   sign-in included. A start's preview (`preview.session`, a plan line's
-  `start`) carries `signIn` and `signInId`, which the ticket binds.
+  `start`) carries `signIn` (what it runs on), `signInId` (the sign-in
+  the sheet offers, unticked) and `signInTrust` where the tile's source
+  needs the person's trust (`approve {signin: true, trust: true}`, a
+  plan's apply `{signin: [n], trust: [n]}`).
+- `GET /agent/signins`: `trusted`, `policy.trust`, `here.trust`,
+  `here.without`; a session's `signin.trust`; a providers row's
+  `saved.trust`. The host's file: `agentSignInTrust`.
 - The agent's page and the chrome: `xbin:agent-open-signin {harness}` (page
   → chrome), `xbin:agent-signins` (chrome → page).
 - No hub event was added: the element reads the list again after its own

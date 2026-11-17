@@ -576,6 +576,20 @@ func TestSealedRouteAnswers(t *testing.T) {
 		}
 	})
 
+	t.Run("no source to trust", func(t *testing.T) {
+		// "I trust this tile's source" (D230) is a person's answer about a
+		// tile their coding agent runs in: no session opens in a system
+		// component, so whoever asks — a person with access to it too —
+		// trusts nothing there
+		on("POST /agent/signins/trust")
+		for _, as := range [][]string{nil, {reader}} {
+			code, body := api("POST", "/agent/signins/trust", map[string]any{"tile": probePath}, as...)
+			if code < 400 || strings.Contains(body, `"trust"`) {
+				t.Errorf("POST /agent/signins/trust on a system component: %d %s", code, body)
+			}
+		}
+	})
+
 	t.Run("no agent level", func(t *testing.T) {
 		on("GET /agent-levels")
 		code, body := api("GET", "/agent-levels", nil)

@@ -670,6 +670,8 @@ var delegateClasses = map[string]delegateRow{
 	"GET /agent/signins/people":                dNo(noSignins),
 	"DELETE /agent/signins/people/{user}/{id}": dNever(neverSignins),
 	"PUT /agent/signins/policy":                dNever(neverSignins),
+	"POST /agent/signins/trust":                dNever(neverSignins), // "I trust this tile's source": the person's own answer, never their agent's
+	"DELETE /agent/signins/trust/{id}":         dNever(neverSignins),
 	"GET /agents/policy":                       dNo(noAgentRules),
 	"PUT /agents/policy":                       dNever(neverAdmin),
 	"PUT /orgs/{org}/agents":                   dNever(neverAdmin),

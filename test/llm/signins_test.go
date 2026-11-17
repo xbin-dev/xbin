@@ -77,6 +77,9 @@ func TestSavedSignInInSandbox(t *testing.T) {
 		}
 		return r
 	}
+	// the tile is alice's own (written to disk above, it is the workspace's:
+	// a tile whose source isn't only hers would ask for her trust first)
+	must(200, admin, "POST", "/api/xbin/owner", map[string]any{"tile": tile, "to": "user:alice"})
 	events := func(who xbindtest.Header, id string, since uint64) []sessionEvent {
 		t.Helper()
 		var out struct{ Events []sessionEvent }
@@ -208,17 +211,89 @@ func TestSavedSignInInSandbox(t *testing.T) {
 		t.Fatalf("what an admin sees: %+v", people.People)
 	}
 
-	// ---- someone else may now open a terminal on the tile: ended, and left out ----
+	// ---- someone else can now change the tile: its source isn't only hers any more — the session is ended, and the next asks for her trust ----
 	d.AddUser(t, "bob", pw, "user", map[string]string{tile: "terminal"})
-	xbindtest.Eventually(t, 30*time.Second, "the session ended once bob could open a terminal there", func() (bool, string) {
+	xbindtest.Eventually(t, 30*time.Second, "the session ended once bob could change the tile", func() (bool, string) {
 		r := d.Call(t, "GET", "/api/xbin/term/sessions/"+id, nil, alice)
 		return r.Status == 404, fmt.Sprint(r.Status)
 	})
 	id = open(nil)
 	r := rowOf(id)
-	if r == nil || r.Source == "saved" || !strings.Contains(r.Why, "bob can also change "+tile) {
-		t.Fatalf("a shared tile's session: %+v", r)
+	if r == nil || r.Source == "saved" || !strings.Contains(r.Why, tile+" isn't only yours — bob can change it") {
+		t.Fatalf("a session on a tile bob can change: %+v", r)
 	}
+	// "I trust this tile's source": hers to say, for the tile as she is shown it — not an admin's for her, and not for a tile that changed since
+	question := func(who xbindtest.Header) string {
+		t.Helper()
+		var v struct {
+			Harnesses []struct {
+				ID   string
+				Here *struct {
+					Trust *struct {
+						Basis   string
+						Editors []string
+					}
+				}
+			}
+		}
+		must(200, who, "GET", "/api/xbin/agent/signins?tile="+tile, nil).Decode(t, &v)
+		for _, h := range v.Harnesses {
+			if h.ID == "fake" && h.Here != nil && h.Here.Trust != nil {
+				return h.Here.Trust.Basis
+			}
+		}
+		t.Fatalf("no trust question for %s: %+v", tile, v)
+		return ""
+	}
+	trusted := func() int {
+		var v struct{ Trusted []struct{ Holds bool } }
+		must(200, alice, "GET", "/api/xbin/agent/signins", nil).Decode(t, &v)
+		n := 0
+		for _, row := range v.Trusted {
+			if row.Holds {
+				n++
+			}
+		}
+		return n
+	}
+	if r := call(admin, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": question(admin)}); r.Status == 201 && trusted() != 0 {
+		t.Fatal("an admin's answer became alice's trust")
+	}
+	if r := call(alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile}); r.Status != 400 {
+		t.Fatalf("an answer with no basis: %d %s", r.Status, r)
+	}
+	if r := call(alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": "tb_0000"}); r.Status != 409 || trusted() != 0 {
+		t.Fatalf("an answer to another question than the tile's: %d %s", r.Status, r)
+	}
+	must(201, alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": question(alice)})
+	onTrust := open(nil)
+	if r := rowOf(onTrust); r == nil || r.Source != "saved" {
+		t.Fatalf("after she trusted the tile: %+v", r)
+	}
+	if got := say(onTrust, "whoami"); got != "account: token …4b7a" {
+		t.Fatalf("on the trusted tile the agent signed in with %q", got)
+	}
+	// someone NEW can change it: her answer is void from that moment — the session ends — and stays void when they are gone again
+	d.AddUser(t, "carol", pw, "user", map[string]string{tile: "write"})
+	xbindtest.Eventually(t, 30*time.Second, "the session ended once carol could change the tile", func() (bool, string) {
+		r := d.Call(t, "GET", "/api/xbin/term/sessions/"+onTrust, nil, alice)
+		return r.Status == 404, fmt.Sprint(r.Status)
+	})
+	var hers struct {
+		Trusted []struct {
+			ID, Why string
+			Holds   bool
+		}
+	}
+	must(200, alice, "GET", "/api/xbin/agent/signins", nil).Decode(t, &hers)
+	if len(hers.Trusted) != 1 || hers.Trusted[0].Holds || hers.Trusted[0].Why != "someone new could change the tile" {
+		t.Fatalf("her trusted tiles once carol can change it: %+v", hers.Trusted)
+	}
+	must(200, admin, "PUT", "/api/xbin/access", map[string]any{"tile": tile, "kind": "user", "id": "carol", "level": ""})
+	if trusted() != 0 {
+		t.Fatal("carol came and went, and alice's old answer holds again")
+	}
+	must(200, admin, "PUT", "/api/xbin/access", map[string]any{"tile": tile, "kind": "user", "id": "carol", "level": "write"})
 	var provs []struct {
 		ID    string
 		Saved *struct {
@@ -228,8 +303,8 @@ func TestSavedSignInInSandbox(t *testing.T) {
 	}
 	must(200, alice, "GET", "/api/xbin/agent/providers?cwd="+tile, nil).Decode(t, &provs)
 	for _, p := range provs {
-		if p.ID == "fake" && (p.Saved == nil || p.Saved.Inject || !strings.Contains(p.Saved.Why, "bob")) {
-			t.Errorf("the launcher's word on the shared tile: %+v", p.Saved)
+		if p.ID == "fake" && (p.Saved == nil || p.Saved.Inject || !strings.Contains(p.Saved.Why, "bob") || !strings.Contains(p.Saved.Why, "carol")) {
+			t.Errorf("the launcher's word on the tile others can change: %+v", p.Saved)
 		}
 	}
 	if evs, _ := json.Marshal(events(alice, id, 0)); bytes.Contains(evs, []byte("FAKEFAKE")) || !bytes.Contains(evs, []byte("isn't used here")) {

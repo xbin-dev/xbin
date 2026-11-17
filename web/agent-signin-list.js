@@ -23,6 +23,13 @@ export const signinCss = css`
   :host([view="manage"]) { margin: 0; }
   .box { border: 1px solid var(--bx-warn, #F2994A); border-radius: var(--bx-radius, 2px); background: var(--bx-warn-bg, #382F2C); padding: 8px 12px;
     display: flex; flex-direction: column; gap: 8px; }
+  .box.trust { border-color: var(--bx-warn, #F2994A); }
+  .box.trust .whose { font-weight: 600; overflow-wrap: anywhere; }
+  .box.trust .risk { overflow-wrap: anywhere; }
+  /* the two choices: the same size, the same weight — neither is the default */
+  .choices { display: flex; gap: 8px; flex-wrap: wrap; }
+  .choices .choice { flex: 1 1 200px; justify-content: center; min-height: 36px; font-weight: 600; white-space: normal; text-align: center; }
+  button[aria-disabled="true"] { opacity: .5; cursor: default; }
   .box[data-phase="done"] { border-color: var(--bx-ok, #A3CF5E); background: var(--bx-ok-bg, #2F352E); }
   .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .row form { display: contents; }
@@ -156,6 +163,23 @@ async function loadUses(el) {
   try { const { uses } = await el.api.uses(); set(el, { uses: uses || [] }); } catch (e) { set(el, { err: e.message }); }
 }
 
+// "Tiles you trust": the tiles whose source the person said they trust
+// (D230) — where their sign-in is used though the tile isn't only theirs.
+// One that no longer holds says what changed: xbin asks again there.
+function trustedSection(el, d, now) {
+  const rows = d.trusted || [];
+  return html`<section class="trusted">
+    <div class="row"><h4>Tiles you trust</h4></div>
+    <p class="lead">Your sign-in is used on your own tiles that nobody else can change. On any other tile xbin asks first whether you trust its source — once per tile, and again when someone new can change it or it has another owner.</p>
+    ${!rows.length ? html`<p class="lead">You have trusted no tile.</p>` : html`<div class="items">${rows.map((t) => html`<div class="item" data-trust=${t.id} data-holds=${t.holds ? 'true' : 'false'}>
+      <div class="what"><span class="name">${t.name && t.name !== t.tile ? html`${t.name} ` : nothing}<code>${t.tile}</code></span>
+        <div class="meta"><span>trusted ${dayWords(t.at, now)}</span>${t.holds ? nothing : html`<span class="warn">xbin will ask again: ${t.why}</span>`}</div></div>
+      <button class="untrust" ?disabled=${!!el._m.busy} title="your sessions on this tile that run on a saved sign-in are ended"
+        @click=${() => act(el, t.id, () => el.api.untrust(t.id))}>Stop trusting</button>
+    </div>`)}</div>`}
+  </section>`;
+}
+
 function usesSection(el, now) {
   const uses = el._m.uses;
   return html`<section class="uses">
@@ -181,6 +205,10 @@ function adminSection(el, d, now) {
     <label class="switch"><input type="checkbox" class="policy" .checked=${!!pol.enabled} ?disabled=${!!pol.locked || m.busy === 'policy'} @change=${toggle}>
       <span>People may save coding-agent sign-ins${pol.locked ? html` <span class="muted">— ${pol.reason || 'set by your host'}</span>` : nothing}</span></label>
     <p class="lead">Off: none is used or saved; what people saved stays and works again when it is back on. You see that people have sign-ins — never their names for them, never a secret.</p>
+    <label class="switch"><input type="checkbox" class="policy-trust" .checked=${!!(pol.trust && pol.trust.allowed)} ?disabled=${!!(pol.trust && pol.trust.locked) || m.busy === 'policy'}
+      @change=${(e) => { const on = e.target.checked; act(el, 'policy', () => el.api.setTrustPolicy(on)).then(() => loadPeople(el)); }}>
+      <span>People may trust a tile that isn't only theirs${pol.trust && pol.trust.locked ? html` <span class="muted">— ${pol.trust.reason || 'set by your host'}</span>` : nothing}</span></label>
+    <p class="lead">Code in a tile runs with a person's sign-in while their coding agent works there. On a tile someone else owns or can change, the person is asked first; off, their sign-in is never used on such a tile.</p>
     ${m.peopleErr ? html`<div class="status bad">${m.peopleErr}</div>` : nothing}
     ${!rows.length ? html`<p class="lead">${m.people ? 'Nobody has saved a sign-in.' : 'Loading…'}</p>` : html`<div class="scroll-x"><table class="people">
       <tr><th>Person</th><th>Coding agent</th><th>Kind</th><th>Saved</th><th>Last used</th><th></th></tr>
@@ -208,12 +236,13 @@ export function manageView(el, onClose) {
   const hs = el.harness && el.view !== 'manage' ? d.harnesses.filter((h) => h.id === el.harness).concat(d.harnesses.filter((h) => h.id !== el.harness)) : d.harnesses;
   return html`<div class="list">
     ${head}
-    <p class="lead">Sign in to a coding agent once. xbind keeps the sign-in sealed with the workspace vault — it is never shown again, to you or anyone — and uses it for the coding agents you start, on every tile only you can change. On a tile other people can change it is left out, and the session says so.</p>
+    <p class="lead">Sign in to a coding agent once. xbind keeps the sign-in sealed with the workspace vault — it is never shown again, to you or anyone — and uses it for the coding agents you start. On a tile that isn't only yours — someone else owns it or can change it — xbin asks first whether you trust its source.</p>
     ${d.notice ? html`<div class="banner notice"><span>${d.notice.text}</span><button class="dismiss" @click=${() => act(el, 'notice', () => el.api.dismissNotice())}>OK</button></div>` : nothing}
     ${not ? html`<div class="banner why-not"><span>${not}</span></div>` : nothing}
     ${d.unisolated && !not ? html`<div class="banner"><span>This workspace runs without sandboxes (a development workspace): everything it runs could read a coding agent's sign-in.</span></div>` : nothing}
     ${m.err ? html`<div class="banner bad" role="alert"><span>${m.err}</span><button @click=${() => set(el, { err: '' })}>OK</button></div>` : nothing}
     ${d.available ? hs.map((h) => harnessSection(el, h, now, canChange)) : nothing}
+    ${d.available ? trustedSection(el, d, now) : nothing}
     ${d.available ? usesSection(el, now) : nothing}
     ${d.admin ? adminSection(el, d, now) : nothing}
   </div>`;

@@ -80,6 +80,10 @@ type State struct {
 	// Signins is the coding-agent sign-in store (signins.go, D230).
 	Signins     *signins.Store
 	signinFlows *signins.Flows
+	// signinTiles: the tiles changed on disk (a rescan) — the sign-in
+	// trusts whose tile moved, went or was made again are voided
+	// (signins.go). nil: no store.
+	signinTiles func()
 	held        *push.Holder // non-primary notifications, kept as would-notify (push.go)
 	Started     time.Time
 	// Deployments is the deployments plane: its methods are the registry's,
@@ -896,6 +900,9 @@ func (st *State) stepWatch() error {
 				st.Broker.ObserveAgentLevels() // a manifest that states or lowers its agent level: on record now (broker/agentlevel.go)
 				st.Server.SweepDelegation()    // a tile gone: its standing approvals and the agents' calls into it end (D228)
 				st.Server.CheckPlanWaits()     // a manifest changed: a plan's line that waited for it applies now, or ends (D243)
+			}
+			if st.signinTiles != nil {
+				st.signinTiles() // a tile moved, gone or made again: the sign-in trusts in it are void (signins.go)
 			}
 		}, refreshViews)
 	}()

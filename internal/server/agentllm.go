@@ -33,14 +33,20 @@ type providerRow struct {
 // providerSaved is a provider row's `saved`: the person's default saved
 // sign-in for the harness — metadata, never a secret.
 type providerSaved struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Kind      string `json:"kind"`
+	// (id, name and kind are left out for a person's workspace agent: it
+	// learns that one exists, nothing of it)
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Kind      string `json:"kind,omitempty"`
 	ExpiresAt int64  `json:"expiresAt,omitempty"`
 	// Inject: a session of the caller's on the tile would run on it. false:
 	// Why says why it would be left out.
 	Inject bool   `json:"inject"`
 	Why    string `json:"why,omitempty"`
+	// Trust: it is left out because the tile's source isn't only the
+	// caller's own and they haven't said they trust it — the question
+	// xbin's sign-in card asks (D230).
+	Trust *term.SigninTrust `json:"trust,omitempty"`
 }
 
 // withAgentLLM is rows with each one's `llm`, while the workspace's LLM
@@ -75,9 +81,19 @@ func (s *Server) providerSaved(p auth.Principal, tile string, prov agent.Provide
 	if s.Term == nil || s.Signins == nil || !s.signinsAvail().OK {
 		return nil
 	}
-	sg, why := s.Term.SigninPreview(p, tile, prov, llm != nil && llm.Forced)
+	if p.Agent != "" {
+		// a person's workspace agent reads this route too: it learns that a
+		// saved sign-in exists — never its label, its kind, or who can
+		// change the tile. (A session it starts has one only by the
+		// person's tick on that start's approval.)
+		if sg, err := s.Signins.Peek(p.UserID, prov.ID, ""); err == nil && sg != nil {
+			return &providerSaved{}
+		}
+		return nil
+	}
+	sg, why, trust := s.Term.SigninPreview(p, tile, prov, llm != nil && llm.Forced)
 	if sg == nil {
 		return nil
 	}
-	return &providerSaved{ID: sg.ID, Name: sg.Name, Kind: sg.Kind, ExpiresAt: sg.ExpiresAt, Inject: why == "", Why: why}
+	return &providerSaved{ID: sg.ID, Name: sg.Name, Kind: sg.Kind, ExpiresAt: sg.ExpiresAt, Inject: why == "", Why: why, Trust: trust}
 }

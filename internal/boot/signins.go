@@ -3,6 +3,8 @@ package boot
 import (
 	"log/slog"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -43,6 +45,7 @@ func (st *State) setupSignins(srv *server.Server) {
 	}
 	if svc := st.LLM; svc != nil && st.Cfg.LLMConfig != "" { // the host's file: "agentSignIns"
 		o.Host = svc.HostAgentSignIns
+		o.HostTrust = svc.HostAgentSignInTrust
 	}
 	store := signins.New(o)
 	srv.Signins = store
@@ -61,20 +64,55 @@ func (st *State) setupSignins(srv *server.Server) {
 	if tm := st.Term; tm != nil { // sessions take a person's sign-in from it (term/signin.go)
 		tm.Signins = store
 		tm.SigninDev = !isolate && dev
-		// who else could change what a session on a tile runs: the other
-		// enabled people with write level or more on the tile the path lies
-		// in (broker/signinothers.go). Workspace admins aren't counted.
-		tm.SigninOthers = brk.SigninOthers
-		tm.SigninsOff = func() bool { return !store.Policy().Enabled } // the admins' switch, or the host's file
-		// people or their access changed: a session on a saved sign-in whose
-		// tile someone else can now open a terminal on is ended
+		// where a tile's code comes from for a person: who owns it and who
+		// else can change it (broker/signinothers.go) — what decides whether
+		// their trust is asked first
+		tm.SigninSource = brk.SigninSource
+		srv.SigninSourcePlanned = brk.SigninSourcePlanned
+		tm.SigninsOff = func() bool { return !store.Policy().Enabled }           // the admins' switch, or the host's file
+		tm.SigninTrustOff = func() bool { return !store.Policy().Trust.Allowed } // …and the one on trusting a tile's source
+		// A trust answer is for a tile as it stood. Whatever changes who
+		// owns a tile or who can change it ends at the broker's
+		// OnPeopleChanged (usersEvent: accounts, roles, access entries and
+		// patterns, permission sets, orgs and their members, an org's
+		// shares, owner transfers), and whatever moves, removes or re-makes
+		// a tile at the watcher's rescan (signinTiles): at each, every
+		// person's live answers are held to their tiles as they stand and
+		// the ones whose basis changed are VOIDED — with no session running
+		// too, so someone who gains write and loses it again is seen while
+		// they have it — and then the sessions that ran on one are ended.
+		// (The judgement at every start voids as well: the backstop.)
+		revalidate := func() {
+			if n := store.Revalidate(brk.SigninSource); n > 0 {
+				slog.Info("saved sign-ins: trusted tiles changed and ask again", "voided", n)
+			}
+			tm.SigninSweep()
+		}
 		prevPeople := brk.OnPeopleChanged
 		brk.OnPeopleChanged = func() {
 			if prevPeople != nil {
 				prevPeople()
 			}
-			tm.SigninSweep()
+			revalidate()
 		}
+		var seen string // the registered tiles and their identities, as last judged
+		var seenMu sync.Mutex
+		st.signinTiles = func() {
+			var b strings.Builder
+			for _, c := range st.Reg.Components() {
+				if !c.Sealed {
+					b.WriteString(c.Path + "\x00" + brk.TileIdentity(c.Path) + "\n")
+				}
+			}
+			seenMu.Lock()
+			same := b.String() == seen
+			seen = b.String()
+			seenMu.Unlock()
+			if !same {
+				revalidate()
+			}
+		}
+		st.signinTiles() // the tiles as xbind finds them at its start
 	}
 	// someone else made a way into a person's account (an admin set their
 	// password, minted a sign-in link, bound an SSO email): their saved

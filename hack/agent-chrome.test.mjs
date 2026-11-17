@@ -49,12 +49,31 @@ test('a tile agent start: the mode leads, and one that never asks is the danger 
   assert.equal(asks.network, 'Its model only. No internet.');
   // what it signs in with, by xbind's word (D230): a saved sign-in named; none at all said, with the harness to sign in to
   assert.equal(asks.signin, null);
-  // a saved sign-in: named on the approval by xbind's id (the chrome draws its label), with who will hold it — never a label from the request
-  const uses = W.sessionRows(s({ model: '', provider: 'claude', signIn: 'saved', signInId: 'si_1a2b', savedSignIn: 'a label the agent wrote' }));
+  // a saved sign-in is OFFERED by xbind's id — a line of the sheet's own, unticked; the chrome draws its label from the person's list, never one the
+  // request carried — beside what the session runs on as it stands. Nothing is sent of it unless the person ticked it
+  const offerReq = s({ model: '', provider: 'claude', signIn: 'connector', signInId: 'si_1a2b', savedSignIn: 'a label the agent wrote' });
+  const uses = W.sessionRows(offerReq);
   assert.equal(uses.agent, 'Claude Code');
-  assert.deepEqual(uses.signin, { saved: true, id: 'si_1a2b', name: 'Claude Code', text: 'Uses your saved Claude Code sign-in',
-    holds: "The tile's coding agent will hold that sign-in: it, and anything it runs in Invoices, can read it." });
-  assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'saved' })).signin, null, 'saved without an id names nothing');
+  assert.deepEqual(uses.signin, { offer: true, id: 'si_1a2b', name: 'Claude Code', without: 'connector', trust: null });
+  assert.deepEqual(W.approveBody(offerReq), { grant: 'once' }, 'approved as it comes: no sign-in');
+  assert.deepEqual(W.approveBody(offerReq, 'once', '', {}), { grant: 'once' });
+  assert.deepEqual(W.approveBody(offerReq, 'once', '', { signin: true }), { grant: 'once', signin: true }, 'the person ticked "use my sign-in"');
+  assert.deepEqual(W.approveBody(offerReq, 'once', '', { signin: true, trust: true }), { grant: 'once', signin: true }, 'no trust line on the sheet: nothing to tick');
+  assert.deepEqual(W.approveBody(s({ model: '', provider: 'claude', signIn: 'needed' }), 'once', '', { signin: true, trust: true }), { grant: 'once' }, 'nothing offered: nothing to tick');
+  // a tile whose source isn't only theirs: xbind's trust question rides the row (the sheet draws the trust line under the sign-in's); its tick
+  // is sent only with the sign-in's, and only where the sheet carried the line
+  const line = { tile: 'apps/invoices', basis: 'tb_1', ownerKind: 'person', owner: 'bob', editors: ['carol'], allowed: true };
+  const asked = s({ model: '', provider: 'claude', signIn: 'own', signInId: 'si_1a2b', signInTrust: line });
+  assert.deepEqual(W.sessionRows(asked).signin, { offer: true, id: 'si_1a2b', name: 'Claude Code', without: 'own', trust: line });
+  assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'own', signInId: 'si_1a2b', signInTrust: 'yes' })).signin.trust, null, 'only xbind\'s object is a trust question');
+  assert.deepEqual(W.approveBody(asked, 'once', '', { signin: true, trust: true }), { grant: 'once', signin: true, trust: true });
+  assert.deepEqual(W.approveBody(asked, 'once', '', { signin: true }), { grant: 'once', signin: true }, 'the trust line unticked');
+  assert.deepEqual(W.approveBody(asked, 'once', '', { trust: true }), { grant: 'once' }, 'the trust line alone is nothing: it goes with the sign-in');
+  assert.deepEqual(W.approveBody(asked, 'once', '', null), { grant: 'once' });
+  // the agent's page can open the sign-in card, never answer it: no message of its vocabulary carries trust
+  assert.deepEqual(W.pageMessage({ type: 'xbin:agent-open-signin', harness: 'claude', trust: true, tile: 'apps/invoices' }), { type: 'signin', harness: 'claude' });
+  for (const type of ['xbin:agent-trust', 'xbin:agent-signin-trust', 'xbin:agent-trust-tile']) assert.equal(W.pageMessage({ type, tile: 'apps/invoices', trust: true }), null, type);
+  assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'connector' })).signin, null, 'nothing offered: nothing drawn');
   assert.deepEqual(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'needed' })).signin, { harness: 'claude', name: 'Claude Code', text: 'Needs your Claude Code sign-in: without it the tile agent starts signed out.' });
   assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'needed' })).agent, 'Claude Code');
   assert.equal(asks.brief, 'Fix the export');

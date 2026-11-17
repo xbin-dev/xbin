@@ -706,13 +706,11 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	if b.Model != "" { // the body's shorthand for options.model
 		options["model"] = b.Model
 	}
-	// what it would sign in with if the person approves this start (D230):
-	// signInId names their saved sign-in — the chrome shows its label from
-	// the person's own list, the open is bound to this id, and the label
-	// itself is not here (the agent reads its own requests)
-	signIn, signInID := s.approvalSignIn(p, eff.Tile, eff.Provider)
+	// signIn: what it runs on as things are; signInId OFFERS the person's saved sign-in (the sheet's own line,
+	// unticked; the label is drawn from their list); signInTrust: the trust line that goes with it (signinstrust.go)
+	signIn, signInID, trust := s.approvalSignIn(p, eff.Tile, eff.Provider)
 	return map[string]any{
-		"signIn": signIn, "signInId": signInID,
+		"signIn": signIn, "signInId": signInID, "signInTrust": trustLine(trust),
 		"tile": eff.Tile, "provider": eff.Provider.ID, "providerName": eff.Provider.Name, "mode": eff.Mode,
 		// false: this mode lets the tile agent act without asking. The mode
 		// alone decides it: a delegate's start is strict (acp.Config.Strict)
@@ -786,11 +784,12 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		// Via "notification": the person decided from a notification's
 		// action on their device (D241) — held to the lock screen's rule
 		// and recorded as such
-		Via string `json:"via"`
+		Via           string `json:"via"`
+		Signin, Trust bool   // a start's "use my sign-in" line and its trust line, ticked (signinstrust.go)
 	}
 	if r.ContentLength != 0 {
 		if err := DecodeJSON(r, &body); err != nil {
-			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, via?: "notification"}`, delegationDocs)
+			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification"}`, delegationDocs)
 			return
 		}
 	}
@@ -817,7 +816,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		// show in full (the same rule the push offered it by)
 		if body.Via == viaNotification && found && cur.State == delegation.Pending {
 			ok, why := delegation.LockScreenOffer(cur)
-			if grant != delegation.GrantOnce || scope != "" || unseen {
+			if grant != delegation.GrantOnce || scope != "" || unseen || body.Signin || body.Trust {
 				ok, why = false, "only an approval of this one call can be given from a notification"
 			}
 			if !ok {
@@ -830,8 +829,13 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 	if a.p.Via == "device" {
 		device = a.p.DeviceID
 	}
+	// a start's sign-in lines, ticked: held to what the sheet showed, before anything is decided
+	basis, ok := s.approveTicks(w, a.user, r.PathValue("id"), approve && body.Signin, approve && body.Trust)
+	if !ok {
+		return
+	}
 	req, ap, err := s.Delegation.DecideAs(a.user, r.PathValue("id"), delegation.Decision{Grant: grant, Scope: scope, Via: a.via,
-		Unseen: unseen, From: body.Via, Device: device})
+		Unseen: unseen, UseSignin: approve && body.Signin, From: body.Via, Device: device})
 	switch {
 	case errors.Is(err, delegation.ErrUnseenBody):
 		// say what would be approved: bytes of this size and hash, unread
@@ -863,6 +867,9 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		s.notifyAt(req.Expires, a.user, req.ID, req.Agent) // a ticket nobody used
 	}
 	out := map[string]any{"request": req}
+	if approve && body.Trust && req.State == delegation.Approved {
+		s.approvalTrust(out, a.user, req, basis) // the trust line, ticked (signinstrust.go)
+	}
 	if ap != nil {
 		out["approval"] = ap
 		s.delegateEvent(a.user, "approval", ap.ID)

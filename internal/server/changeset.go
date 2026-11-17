@@ -300,11 +300,17 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		// all name nothing, and nothing is applied (400; the set stays open).
 		Items    []int  `json:"items"`
 		Password string `json:"password"`
+		// Signin are the agent.start lines whose "Use my … sign-in for this
+		// session" the person ticked (D230; each offered one: start.signInId)
+		// — a start applied without it has no saved sign-in. Trust: the ones
+		// whose trust line they ticked with it ("I trust this tile's source").
+		Signin []int `json:"signin"`
+		Trust  []int `json:"trust"`
 	}
 	if r.ContentLength != 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		if err := DecodeJSON(r, &body); err != nil {
-			WriteError(w, http.StatusBadRequest, "need {items: [n, …], password?}", delegationDocs)
+			WriteError(w, http.StatusBadRequest, "need {items: [n, …], password?, signin?: [n, …], trust?: [n, …]}", delegationDocs)
 			return
 		}
 	}
@@ -389,6 +395,13 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		"confirm your password to approve admin changes"):
 		return
 	}
+	// a start line's sign-in ticks: held to what the line showed, before
+	// the set is claimed — a refusal leaves it open (signinstrust.go)
+	ticks, status, why := s.planTicks(a.user, cs, chosen, body.Signin, body.Trust)
+	if why != "" {
+		WriteJSON(w, status, map[string]any{"error": why, "changed": status == http.StatusConflict, "docs": agentSigninsDocs})
+		return
+	}
 	// claim the set: only one approval applies it
 	cs, err := s.Delegation.UpdateChangeSet(a.user, id, func(cs *delegation.ChangeSet) error {
 		if !cs.Open() {
@@ -413,6 +426,9 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		}
 		refuseDecision(w, refusal, msg)
 		return
+	}
+	for n, t := range ticks { // the start lines' sign-in ticks, checked before the claim
+		cs.Items[n-1].SigninUse, cs.Items[n-1].SigninTrust = true, t
 	}
 	s.applyChangeSet(r.Context(), a.p, &cs, chosen)
 	cs, err = s.Delegation.UpdateChangeSet(a.user, id, func(stored *delegation.ChangeSet) error {
@@ -519,7 +535,7 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 		default:
 			status, msg, out := 0, "", json.RawMessage(nil)
 			if it.Kind == delegation.KindAgentStart {
-				status, msg, out = s.planStart(ctx, agent, pv, it.Start)
+				status, msg, out = s.planStart(ctx, agent, pv, it.Start, it.SigninUse, it.SigninTrust)
 			} else {
 				status, msg, out = s.adminCallOut(ctx, approver, pv.Call)
 				if it.Kind != delegation.KindTileCreate {

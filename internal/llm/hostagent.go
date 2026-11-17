@@ -180,3 +180,15 @@ func (s *Service) HostAgentSignIns() (set, enabled bool) {
 	}
 	return true, *h.AgentSignIns
 }
+
+// HostAgentSignInTrust is the host's file's word on trusting a tile's
+// source for saved sign-ins (its agentSignInTrust key): set false when no
+// file is in force or it doesn't name the key.
+func (s *Service) HostAgentSignInTrust() (set, allowed bool) {
+	s.current()
+	h, _ := s.host.current()
+	if h == nil || h.AgentSignInTrust == nil {
+		return false, false
+	}
+	return true, *h.AgentSignInTrust
+}

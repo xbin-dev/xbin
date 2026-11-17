@@ -718,7 +718,8 @@ bring its own models and hold quotas the workspace's admins can't lift.
     "default": { "tokensPerDay": 2000000 }   // a ceiling: admins may narrow it per user or org
   },
   "workspaceAgent": { "enabled": true, "who": "admins" },  // not the connector's: workspace agents (below)
-  "agentSignIns": true                   // nor this: people may save coding-agent sign-ins (below)
+  "agentSignIns": true,                  // nor this: people may save coding-agent sign-ins (below)
+  "agentSignInTrust": true               // …and may trust a tile that isn't only theirs (below)
   // "lockAll": true                      // every setting is the host's
 }
 ```
@@ -771,6 +772,13 @@ bring its own models and hold quotas the workspace's admins can't lift.
   locks — whether people may save coding-agent sign-ins
   ([agent-signins.md](/docs/agent-signins.md)). Absent, the switch is the
   admins' (`PUT /agent/signins/policy`). `lockAll` doesn't touch it.
+- **`agentSignInTrust`** is the same for the switch beside it: whether
+  people may trust a tile whose source isn't only their own and have
+  their saved sign-in used there (`policy.trust`). `false`: a saved
+  sign-in is used only on a tile that is its person's alone, and the
+  sessions that ran on someone's trust are ended — also when the file
+  changes under a running xbind. Absent, the admins decide (allowed by
+  default).
 
 ## Limits today
 

@@ -12,6 +12,60 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- coding agents: **a saved sign-in is used by default in your own
+  sessions — on a tile that isn't only yours xbin asks "I trust this
+  tile's source" first — and a session your workspace agent starts has it
+  only when you tick it** (D230; [agent-signins.md](/docs/agent-signins.md),
+  [protocol/signins.md](/docs/protocol/signins.md)). This replaces
+  v0.3.80's rule ("not on a tile someone else can change"). **Your own
+  sessions**: your default sign-in for the coding agent goes in; on a
+  tile whose source isn't only yours — it is owned by someone else (a
+  person, an org; the workspace, unless you are a workspace admin),
+  **or** someone else who isn't a workspace admin can change its code
+  (write level or more; partitioned tiles too) — it stays out until you
+  say, once per tile, that you trust its source. The Agent tab's card
+  names whose tile it is and everyone who can change it, by account id
+  with the display name beside it, says what trusting means ("Code in
+  this tile runs with your sign-in while your coding agent works. People
+  who can change this tile could read it and use your … account."), and
+  offers two choices of equal weight. Your answer is for what the card
+  showed (`basis`), and it is **void from the moment** the tile's owner
+  or editors change, it moves or is made again — for good, also if the
+  change is undone; the session that ran on it is ended and xbin asks
+  again. **Your workspace agent**: a session it starts never has your
+  sign-in by itself — not under "start without asking", not by approving
+  the start. The approval sheet and a plan's start line say what the
+  session runs on (the workspace's model, by default) and offer "Use my
+  … sign-in for this session" as a line of its own, unticked; where the
+  tile isn't only yours the trust line sits under it. **What changes for
+  existing workspaces**: your own sessions that were refused a sign-in
+  under the old rule get the question instead; tiles owned by an org or
+  another person now ask once; a start your agent proposes, which used
+  your sign-in when you approved it, now uses it only when you tick the
+  line. Nothing is trusted or ticked for you. API, additive except as
+  marked: `POST /agent/signins/trust {tile, basis}` (409 `{changed,
+  trust}` when the tile is no longer as shown), `DELETE
+  /agent/signins/trust/{id}`; `GET /agent/signins` gains `trusted`,
+  `policy.trust` and `here.trust` (with `basis`, account ids, `names`) /
+  `here.without`; `PUT /agent/signins/policy` takes `trust` (a workspace
+  switch on trusting, allowed by default; the host's file locks it with
+  `"agentSignInTrust"`); a session's `signin` and a providers row's
+  `saved` gain `trust`. **Changed since v0.3.80** for a start by a
+  workspace agent: `preview.session.signIn` and `start-defaults`'
+  `signIn` are no longer `"saved"` — they say what the session runs on
+  (`connector` | `own` | `needed`); `signInId` now OFFERS the sign-in,
+  `start-defaults` adds `signInOffered`, the preview adds `signInTrust`;
+  `POST …/requests/{id}/approve` takes `signin` and `trust`,
+  `…/changesets/{id}/approve` `signin: [n]` and `trust: [n]`. `GET
+  /agent/providers`, read by a person's workspace agent, answers `saved:
+  {inject: false}` — no label. `<bx-agent-signin view="trust">` (events
+  `bx-signin-trusted`, `bx-signin-declined`) and `/vendor/agent-armed.js`
+  are new. iOS: a start allowed from the app has no saved sign-in and the
+  sheet says what it runs on; ticking and trusting are done on the web.
+  **Known and open**: your one home is mounted into every session, so
+  code in a tile you haven't trusted can leave hooks there that run
+  later in a session that does carry your sign-in
+  ([agent-signins.md](/docs/agent-signins.md) → "Who can read it").
 - **Push notifications: the project's relay is the default.** The xbin
   project now runs the push relay the App Store app uses, at
   `https://notif-fwd.xbin.dev`, and `XBIN_PUSH_RELAY` defaults to it: an

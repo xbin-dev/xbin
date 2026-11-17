@@ -45,7 +45,7 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
-import { uncovered, shown, hiddenLine, signinRow } from '/vendor/bx-agent-approve.js';
+import { uncovered, shown, hiddenLine, signinRow, WidenGuard } from '/vendor/bx-agent-approve.js';
 import { CHOICES, kindTag, warning, stateText, tickable, initialTicks, reviewWords, resultOf, resultsWords, stepUp, stopRefusal, stopWords, endedWords, knownState, UNKNOWN_STATE, clipText, clipNote } from '/vendor/agent-chrome-words.js';
 import { lineState, canTick, planTicks, setTick, keepTicks, lineNotes, planWords, startRows, askedWords, waitingWords, closesItself, closingWords, PLAN_CLOSE_MS } from '/vendor/agent-plan-words.js';
 
@@ -54,7 +54,7 @@ const KEEP = 'xbin-agent-ticks:'; // sessionStorage: a set's ticks, kept across 
 export class BxAgentChanges extends LitElement {
   static properties = {
     set: { attribute: false }, person: { type: String },
-    _ticks: { state: true }, _view: { state: true }, _step: { state: true }, _busy: { state: true }, _err: { state: true }, _armed: { state: true },
+    _ticks: { state: true }, _signins: { state: true }, _view: { state: true }, _step: { state: true }, _busy: { state: true }, _err: { state: true }, _armed: { state: true },
     _stopped: { state: true }, _briefs: { state: true }, _closing: { state: true },
   };
 
@@ -100,6 +100,8 @@ export class BxAgentChanges extends LitElement {
     this.set = null; this.person = '';
     this._ticks = []; this._view = 'review'; this._step = null; this._busy = false; this._err = ''; this._armed = false;
     this._stopped = ''; this._briefs = []; this._closing = false;
+    this._signins = {}; // n → {signin, trust, all}: a start line's own sign-in lines, ticked ("Use my … sign-in", "I trust this tile's source")
+    this._widen = new WidenGuard(this); // …a tick held like Apply: the person's own click, a moment after it shows
     this._timer = 0; this._closeTimer = 0;
     this.store = agentStore();
   }
@@ -149,12 +151,18 @@ export class BxAgentChanges extends LitElement {
     try { sessionStorage.setItem(KEEP + this.set.id, JSON.stringify(this._ticks)); } catch { /* not kept */ }
   }
 
+  // the start lines whose sign-in lines are ticked, among the lines to apply: {signin: [n…], trust: [n…]} (trust only with its sign-in)
+  _signinTicks() {
+    const on = (k) => this._ticks.filter((n) => this._signins[n] && this._signins[n].signin && this._signins[n][k]);
+    return { signin: on('signin'), trust: on('trust') };
+  }
+
   async _apply(e, password = '') {
     if (!e || !e.isTrusted || !this._armed || this._busy || !document.hasFocus() || !uncovered(e.currentTarget)) return;
     if (!this._ticks.length) return this._reject(e);
     if (this.stopped) return; // "Apply none" ends the set rejected
     this._busy = true; this._err = '';
-    const r = await this.store.apply(this.set.id, this._ticks, password);
+    const r = await this.store.apply(this.set.id, this._ticks, password, this._signinTicks());
     this._busy = false;
     if (r.ok) {
       try { sessionStorage.removeItem(KEEP + this.set.id); } catch { /* nothing kept */ }
@@ -270,7 +278,8 @@ export class BxAgentChanges extends LitElement {
     return html`<dl class="rows small" data-start>
         <dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>
         <dt>Coding agent</dt><dd data-row="agent">${r.agent}</dd>
-        ${signinRow(r)}
+        ${signinRow(r, this._view === 'review' && !this._busy ? { ...(this._signins[it.n] || {}), guard: this._widen,
+    set: (patch) => { this._signins = { ...this._signins, [it.n]: { ...(this._signins[it.n] || {}), ...patch } }; } } : null)}
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="brief mono" tabindex="-1" data-row="brief">${shown(brief.text)}${brief.clipped ? '…' : ''}</pre>
           <div class="small muted">${brief.clipped ? html`${clipNote(brief)} — <button class="link" data-show-all @click=${() => { this._briefs = [...this._briefs, it.n]; }}>Show all</button> · ` : nothing}sent exactly like this</div></dd>

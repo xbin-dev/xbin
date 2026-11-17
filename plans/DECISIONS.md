@@ -5672,6 +5672,81 @@ here: cut from the old end, never reword.
     policy stands); validating a pasted key against its vendor (xbind
     calls no provider); showing a hint of the secret; a per-tile opt-in
     for shared tiles (possible later: the person's informed choice).
+  - **Changed 2026-11-17 — used by default; "I trust this tile's source"
+    where the source isn't only the person's.** The owner, a day after
+    the strict rule shipped (v0.3.80): "maybe let's default sign-in, AND
+    on tiles which were created by different users have a 'I trust this
+    tile source' with a small risks explanation." The shared-tile rule
+    above ("only where nobody else can change the tile's code") is
+    REPLACED: it left a team's shared tiles — where people work — with no
+    sign-in at all, and people fell back to the `$HOME` login, the
+    broader credential. Now the default sign-in goes into a person's own
+    sessions; on a tile whose source is not only theirs it waits for
+    their answer, once per tile. Two conditions make a source not only
+    theirs, kept apart in the code: (1) the tile is owned by someone
+    else — a person, an org, the workspace — which is the owner's
+    sentence; (2) someone else who isn't an admin can change its code
+    (write level, any source, partitioned tiles too) — the coordinator's
+    addition, because a file a co-editor plants runs with the credential
+    just the same; one line turns it off (`signins.CoEditorsNeedTrust`).
+    Trust is per (person, tile identity — the directory's own, as waiting
+    plan lines pin it), kept with the person's sign-ins, listed and
+    revocable, and re-asked when its basis changes (a new editor, another
+    owner, a re-made tile); only the person gives it, in xbin's chrome —
+    the card, or the ticked trust line of a start they approve — never an
+    admin, an owner, the agent or a page message; a workspace switch
+    (host-lockable) can forbid trusting. A workspace-agent start under
+    "start without asking" now gets the default on the person's own and
+    trusted tiles and never into an untrusted one; a start on a tile the
+    same plan creates as the person's own names their default. Kept from
+    the review of 2026-11-16: restarts never widen, sign-in sessions and
+    their transcripts are their person's alone, masking on the joined
+    stream, the sweep, the structural guard against real CLIs in tests.
+    **The owner accepted the risk model on 2026-11-17**: on the person's
+    own tile nobody else can edit, only code they put there runs with the
+    sign-in; after trusting, the people the card listed can read it
+    (spec §9, residual 8). Rejected: asking on every tile (the default is
+    the point); implying trust by approving a start (an approval is of a
+    start, not of a tile's source — the line is separate and unticked);
+    trusting a path (a tile made again at the path is another tile);
+    letting a tile's owner or an admin vouch for it (the credential is
+    the person's).
+  - **Changed again 2026-11-17, after the independent review of the
+    trust rule** (the coordinator's decisions A and B, and findings 1–7).
+    **A. A session the workspace agent starts never carries the person's
+    sign-in unless the person ticks it, each time** — "start without
+    asking carries the default" above is REVERTED. The reviewer confirmed
+    in code that the agent drives the sessions it opens, nothing refuses
+    its prompts to one that carries a sign-in, redaction is best-effort
+    and a file written in the tile skips it. So: never under the
+    preference, on any tile, with no sub-preference; on an approval or a
+    plan's start line, "Use my ‹harness› sign-in for this session" is a
+    line of its own, unticked, warned, saying the agent directs the
+    session; the trust line goes under it and only with it; unticked,
+    the session runs on the workspace's model — the owner's original
+    decision for harness auth, "connector by default + sign-ins held by
+    xbind". The person's OWN starts keep the default-on rule. **B. A
+    workspace-owned tile needs no trust for a workspace admin** while no
+    non-admin can change it — keyed on the stored role, so a demotion
+    sweeps; not extended to org tiles. **Trust is void when its basis is
+    seen to change, and stays void** (finding 1: a stateless "editors ⊆
+    then" check let mallory gain write, plant a hook and leave); a move
+    is a change (5); **an answer is bound to a basis token** and a card
+    re-arms when its content changes (2); the trust switch gets the
+    host-file latch (3) and its own file, which a downgraded xbind never
+    rewrites (7); people are shown by account id with the display name
+    beside it, all of them before the button can be used (4); the
+    agent's credential learns that a sign-in exists and nothing else
+    (6). Rejected: reviving a void trust when the tile is back as it was
+    (the gap is exactly when something was planted); hashing the basis
+    alone for staleness (a gain and loss between two looks hashes the
+    same — hence the event-time void); a "use my sign-in for agent
+    starts" preference (it would be the default again). **Open, with
+    the owner** (the reviewer's HIGH): one `$HOME` is mounted read-write
+    into every session, so code in an untrusted tile can plant
+    `~/.claude/settings.json` hooks, `~/.gitconfig` or `~/.bashrc` that
+    run later in a session that carries the sign-in — in the threat
+    table as an open residual (§9, 10), not changed here.
 - **D242 — A failed start retries by itself (2026-11-16; the postfix
   report: a tile sat `failed` for eight days after one slow start).** The
   owner: "a failed start retries by itself." Until now every start failure

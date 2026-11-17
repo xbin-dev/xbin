@@ -6169,14 +6169,17 @@ resolve from the person's preferences and the tile's org's rules; a brief
 carries a `harness` only when its person picked one of the allowed ones on
 its card (`PUT …/briefs/{bid} {harness}`; `GET …/briefs/{bid}/start-defaults`
 → `{defaults: {tile, harness, harnesses: [{id, name, mode, asks, net,
-needsTicket, noSignIn, signIn?}], why?}, picked, harness,
+needsTicket, noSignIn, signIn?, signInOffered?}], why?}, picked, harness,
 harnessName, mode, asks, net, ticket, line, needsSignIn?}` — the top-level
 fields are the picked harness's, else the default's; `signIn` is xbind's
-word on what a session of the harness would sign in with (`saved`: a
-saved sign-in of the person's, used only once they approve the start —
-xbind's approval names it, nothing here does; `connector`; `own`;
-`needed`),
-and `needsSignIn: true` puts "Needs your ‹coding agent› sign-in" and a
+word on what a session of the harness would run on (`connector`; `own`;
+`needed`; an xbind before 2026-11-17 also says `saved`: a saved sign-in
+of the person's, used once they approve the start). A session this
+agent starts never has the person's saved sign-in by itself:
+`signInOffered` says the person has one and xbin's approval of the start
+will offer it — a line they tick, each time; nothing here names it —
+and `needsSignIn: true` (a harness that would start signed out, with
+none to offer) puts "Needs your ‹coding agent› sign-in" and a
 button on the card — the button asks xbin's chrome (`xbin:agent-open-signin
 {harness}`), which draws the sign-in and says `xbin:agent-signins` when
 the person's sign-ins changed; nothing of a sign-in is ever in this page

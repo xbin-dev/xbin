@@ -36,6 +36,11 @@ export const chromeCss = css`
     border-radius: var(--bx-radius, 2px); font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase; }
   .tag.ok { color: var(--bx-ok, #A3CF5E); border-color: currentColor; background: var(--bx-ok-bg, #2F352E); }
   .tag.warn { color: var(--bx-warn, #F2994A); border-color: currentColor; background: var(--bx-warn-bg, #382F2C); }
+  /* a start's trust line (D230): xbind's own words, warned, with the tick the person makes */
+  .trustline { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding: 6px 8px; border: 1px solid var(--bx-warn, #F2994A); border-radius: var(--bx-radius, 2px); }
+  .trustline label.row { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+  .trustline label.row input { margin-top: 3px; flex: none; }
+  .trustline .trustline { margin-top: 2px; } /* the trust line, inside the sign-in's: it goes with it */
   .tag.bad { color: var(--bx-danger, #FF7A7A); border-color: currentColor; background: var(--bx-danger-bg, #3A2B32); }
   .count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; background: var(--bx-accent, #8C9BFF);
     color: var(--bx-accent-ink, #0B0C12); font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); font-variant-numeric: tabular-nums; }

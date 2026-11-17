@@ -71,6 +71,13 @@ type DelegateStart struct {
 	// id, "" when the approval named none. Only an approved start that
 	// names one gets one, and exactly that one (signin.go).
 	Signin string
+	// TrustAsked: the approval's sheet carried the trust line for the
+	// tile's source (its preview's signInTrust). The person ticking it is
+	// recorded as their trust before the open; approved without it, the
+	// session starts without the sign-in — the start they approved. Where
+	// the sheet carried none and the tile asks for trust by the time of the
+	// open, the open is refused (ask again).
+	TrustAsked bool
 	// Net is the network the person was shown, used when the request names
 	// none (xbind resolved it from their preferences: the request's preview).
 	Net string

@@ -179,8 +179,10 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
       bodyShown: 30, bodySize: 30, summary: 'I will fix the export', state: 'pending', created: iso(-500), expires: iso(86390000),
       preview: { class: 'session', tile: 'apps/crawler', session: { tile: 'apps/crawler', provider: 'claude', providerName: 'Claude Code', mode: 'default', asks: true, net: 'none', api: true, ...session } } });
     const row = `${SHEET} [data-row="signin"]`;
-    // a label the agent put in its request is never what the sheet shows: the id is xbind's, the label the person's own list's
-    S.requests.push(start('g1', { signIn: 'saved', signInId: 'si_harness01', savedSignIn: 'FORGED LABEL' }));
+    // a session the workspace agent starts never has the person's sign-in unless they tick it, each time: the sheet says what the session runs
+    // on as it stands and OFFERS the sign-in — a warned line of xbin's own, unticked; its label is the person's own list's (the id is xbind's),
+    // never one the request carried
+    S.requests.push(start('g1', { signIn: 'connector', signInId: 'si_harness01', savedSignIn: 'FORGED LABEL' }));
     await refresh();
     await review(page, 'request', 'g1');
     await page.waitForSelector(row);
@@ -189,13 +191,34 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
     const label = await page.evaluate(() => { const q = (root, parts) => parts.reduce((r, p) => r && (r.shadowRoot || r).querySelector(p), root);
       return q(document, ['bx-agent-dock', 'bx-agent-approve', '[data-row="signin"] bx-agent-signin']).shadowRoot.textContent.trim(); });
     const uses = await text(row);
-    check(/Uses your saved Claude Code sign-in/.test(uses) && label === 'Personal' && /The tile's coding agent will hold that sign-in: it, and anything it runs in Crawler, can read it\./.test(uses) && !/FORGED/.test(uses + label)
-      && (await page.$eval(row, (e) => e.dataset.signinId)) === 'si_harness01', `[${width}] a start on a saved sign-in: named on the sheet by its label from your own list, with who will hold it (${uses} / ${label})`);
+    check(/^Runs on the workspace's model\./.test(uses) && /YOUR SIGN-IN/.test(uses) && /Your workspace agent directs this session: what it tells the coding agent could expose your sign-in\./.test(uses)
+      && /Use my Claude Code sign-in for this session/.test(uses) && label === 'Personal' && !/FORGED/.test(uses + label) && (await page.$eval(row, (e) => e.dataset.signinId)) === 'si_harness01'
+      && (await page.$eval(`${SHEET} input[data-signin]`, (e) => e.checked)) === false && !(await page.$(`${SHEET} [data-trust-line]`)),
+      `[${width}] a start offers the saved sign-in as its own warned line, unticked, named from your own list; it says what the session runs on as it stands (${uses} / ${label})`);
     await shot(page, `agent-chrome-approve-saved-signin${tag}`, { fullPage: false });
-    await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+    // approved as it comes: nothing of the sign-in is sent
+    await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+    await page.click(`${SHEET} button[data-allow]`);
+    await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, 'g1');
+    if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
+    check(JSON.stringify(sentTo(/g1\/approve$/).map((c) => c.body)) === '[{"grant":"once"}]', `[${width}] approved without the tick: no sign-in (${JSON.stringify(sentTo(/g1\/approve$/).map((c) => c.body))})`);
+    // ticked — the person's own click, held like Allow; a script's click ticks nothing
+    S.requests = S.requests.filter((r) => r.id !== 'g1'); S.requests.push(start('g1b', { signIn: 'needed', signInId: 'si_harness01' })); await refresh();
+    await review(page, 'request', 'g1b');
+    await page.waitForSelector(`${SHEET} input[data-signin]`);
+    check(/^Starts signed out: Claude Code isn't served by the workspace's model here\./.test(await text(row)), `[${width}] a coding agent the workspace's model can't serve: the sheet says so before Start (${(await text(row)).slice(0, 90)})`);
+    await page.$eval(`${SHEET} input[data-signin]`, (e) => e.click());
+    check((await page.$eval(`${SHEET} input[data-signin]`, (e) => e.checked)) === false, `[${width}] a scripted click ticks nothing`);
+    await armed(['bx-agent-dock', 'bx-agent-approve', 'input[data-signin]']);
+    await page.click(`${SHEET} input[data-signin]`);
+    await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+    await page.click(`${SHEET} button[data-allow]`);
+    await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, 'g1b');
+    if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
+    check(JSON.stringify(sentTo(/g1b\/approve$/).map((c) => c.body)) === '[{"grant":"once","signin":true}]', `[${width}] ticked: the approval carries it (${JSON.stringify(sentTo(/g1b\/approve$/).map((c) => c.body))})`);
+    S.requests = S.requests.filter((r) => r.id !== 'g1b'); await refresh();
     // a sign-in that is gone by the time the sheet is read says so (the open would be refused)
-    S.requests = S.requests.filter((r) => r.id !== 'g1'); S.requests.push(start('g2', { signIn: 'saved', signInId: 'si_gone' })); await refresh();
+    S.requests.push(start('g2', { signIn: 'connector', signInId: 'si_gone' })); await refresh();
     await review(page, 'request', 'g2');
     await page.waitForSelector(row);
     await page.waitForFunction(() => { const q = (root, parts) => parts.reduce((r, p) => r && (r.shadowRoot || r).querySelector(p), root);
@@ -216,6 +239,50 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     S.requests = S.requests.filter((r) => r.id !== 'g3'); await refresh();
+
+    // a tile whose source isn't only theirs: the trust line sits under the sign-in's — warned, unticked, xbind's words, people by account id with
+    // the display name beside it — and can only be ticked with it. More than three people: every one is shown before it can be ticked, and
+    // showing them makes the ticks wait again
+    const line = { tile: 'apps/crawler', basis: 'tb_harness', ownerKind: 'person', owner: 'mallory', ownerName: 'Dev Admin', editors: ['carol', 'dave', 'erin', 'frank', 'gus'], names: { carol: 'Carol C.' }, allowed: true };
+    const tickOf = (sel) => page.$eval(`${SHEET} ${sel}`, (e) => ({ checked: e.checked, disabled: e.disabled, armed: e.getAttribute('aria-disabled') }));
+    for (const [id, both] of [['g4', false], ['g5', true]]) {
+      S.requests.push(start(id, { signIn: 'connector', signInId: 'si_harness01', signInTrust: line })); await refresh();
+      await review(page, 'request', id);
+      await page.waitForSelector(`${SHEET} [data-trust-line]`);
+      const tl = await text(`${SHEET} [data-trust-line]`);
+      if (!both) {
+        check(/NOT ONLY YOURS/.test(tl) && /This tile belongs to mallory \(Dev Admin\)\. carol \(Carol C\.\), dave, erin and 2 more can also change it\./.test(tl) && /could read it and use your Claude Code account\./.test(tl)
+          && /I trust this tile's source/.test(tl) && /Tick both, or the session starts without your sign-in\./.test(tl) && /Show all 5/.test(tl),
+          `[${width}] a start on a tile that isn't only yours: the trust line, in xbind's words — account ids, display names beside them (${tl})`);
+        const t0 = await tickOf('input[data-trust]');
+        check(t0.checked === false && t0.disabled === true, `[${width}] …unticked, and not tickable before the sign-in's line is (${JSON.stringify(t0)})`);
+        await shot(page, `agent-chrome-approve-trust-line${tag}`, { fullPage: false });
+      }
+      await armed(['bx-agent-dock', 'bx-agent-approve', 'input[data-signin]']);
+      await page.click(`${SHEET} input[data-signin]`);
+      const t1 = await tickOf('input[data-trust]');
+      check(t1.disabled === true && /Show everyone who can change this tile before you trust it/.test(await text(`${SHEET} [data-unticked]`)), `[${width}] with five people able to change it, the trust line waits for "Show all" (${JSON.stringify(t1)})`);
+      if (both) {
+        await page.click(`${SHEET} [data-show-all-editors]`);
+        await page.waitForFunction(() => /carol \(Carol C\.\), dave, erin, frank and gus can also change it/.test(document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve').shadowRoot.querySelector('[data-whose]').textContent));
+        const t2 = await tickOf('input[data-trust]');
+        check(t2.disabled === false && t2.armed === 'true', `[${width}] everyone shown: the tick can be made — after a moment (it waits again: ${JSON.stringify(t2)})`);
+        await page.$eval(`${SHEET} input[data-trust]`, (e) => e.click()); // a script's click
+        check((await tickOf('input[data-trust]')).checked === false, `[${width}] a scripted click ticks nothing`);
+        await armed(['bx-agent-dock', 'bx-agent-approve', 'input[data-trust]']);
+        await page.click(`${SHEET} input[data-trust]`);
+        check((await tickOf('input[data-trust]')).checked === true, `[${width}] the person's own click ticks it`);
+        await shot(page, `agent-chrome-approve-trust-ticked${tag}`, { fullPage: false });
+      }
+      await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+      await page.click(`${SHEET} button[data-allow]`);
+      // decided: the sheet closes, or moves on to the next thing that needs the person
+      await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, id);
+      if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
+      const sentBody = JSON.stringify(sentTo(new RegExp(`${id}/approve$`)).map((c) => c.body));
+      check(sentBody === (both ? '[{"grant":"once","signin":true,"trust":true}]' : '[{"grant":"once","signin":true}]'), `[${width}] ${both ? 'both ticked: the approval carries both' : 'the sign-in ticked, the trust line not: no trust is sent'} (${sentBody})`);
+      S.requests = S.requests.filter((r) => r.id !== id); await refresh();
+    }
 
     // the dock's overlay: the agent's page names a coding agent; the card is the chrome's, outside the page's frame
     await ctx.route('**/signin-page.html', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body><h1>the agent's page</h1><script>

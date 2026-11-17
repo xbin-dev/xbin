@@ -247,8 +247,8 @@ struct AgentChangeSetSheet: View {
             }
             Text(verbatim: r.modeText).font(.callout)
             Text(verbatim: "Coding agent: \(r.agent)").font(.callout)
-            if !r.signIn.isEmpty { // applying the line is what puts a saved sign-in into the session (D230)
-                Text(verbatim: r.signInHolds.isEmpty ? r.signIn : "\(r.signIn). \(r.signInHolds)").font(.callout)
+            if !r.signIn.isEmpty { // what it runs on (D230): a saved sign-in goes in only by a tick on the web's review
+                Text(verbatim: [r.signIn.hasSuffix(".") ? r.signIn : r.signIn + ".", r.signInHolds, r.signInTrustWhose, r.signInTrust].filter { !$0.isEmpty }.joined(separator: " ")).font(.callout)
                     .accessibilityIdentifier("changeset-signin-\(item.n)")
             }
             Text(verbatim: r.network).font(.callout)
