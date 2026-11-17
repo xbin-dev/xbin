@@ -889,7 +889,13 @@ func TestWsRealJobsC(t *testing.T) {
 	main := filepath.Join(d.Workspace(), realOrders, "backend", "main.go")
 	broke := `sed -i 's|\txbin.Serve(mux)|\tmux.HandleFunc("GET /orders/open", func(w http.ResponseWriter, r *http.Request) { w.Header().Set("Content-Type", "application/json"); json.NewEncoder(w).Encode(map[string]any{"open": []int{102}) })\n\txbin.Serve(mux)|' backend/main.go && echo "added GET /orders/open to backend/main.go"`
 	mend := `sed -i 's|map\[string\]any{"open": \[\]int{102})|map[string]any{"open": []int{102}})|' backend/main.go && gofmt -l backend/ ; echo "fixed the missing brace in the GET /orders/open handler"`
-	e.steps(broke, `echo "Done: Orders now has GET /orders/open, listing the orders that have not shipped."`)
+	// (written directly: realEnv.steps is a no-op when the run's other tile agents are real ones)
+	script := func(cmds ...string) {
+		if err := os.WriteFile(e.stepsFile, []byte(strings.Join(cmds, " ||| ")+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script(broke, `echo "Done: Orders now has GET /orders/open, listing the orders that have not shipped."`)
 	switched := false
 	jr.run(realJob{id: "11", name: "A first attempt that fails (a build error in the tile agent's work), and the recovery", person: "carol", harness: "fake", minutes: 14,
 		say:     "Orders needs a way to list only the orders that haven't shipped yet — add that to Orders, please.",
@@ -897,7 +903,7 @@ func TestWsRealJobsC(t *testing.T) {
 		each: func() {
 			if b, err := os.ReadFile(main); err == nil && !switched && strings.Contains(string(b), `[]int{102})`) {
 				switched = true
-				e.steps(mend, `echo "Done: the handler compiles now."`)
+				script(mend, `echo "Done: the handler compiles now."`)
 			}
 		},
 		verify: func() (bool, string) {
