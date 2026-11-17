@@ -313,3 +313,27 @@ func TestRealFilterStepsEdit(t *testing.T) {
 		t.Fatalf("the edited backend is not Go: %v", err)
 	}
 }
+
+// The run's script never puts the key, or a piece of it, on a command
+// line: an argument is in /proc/<pid>/cmdline for every user of the
+// machine to read. Its last step looks for the key's start in what the run
+// kept — with the pattern handed to grep as a file (a process
+// substitution), not as "$(head -c 12 keyfile)".
+func TestRealRunScriptKeepsTheKeyOffCommandLines(t *testing.T) {
+	b, err := os.ReadFile("../../hack/wsagent-real-run.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n, line := range strings.Split(string(b), "\n") {
+		code, _, _ := strings.Cut(line, " #")
+		if strings.HasPrefix(strings.TrimSpace(code), "#") {
+			continue
+		}
+		if strings.Contains(code, "keyfile") && (strings.Contains(code, "$(head") || strings.Contains(code, "$(cat") || strings.Contains(code, "$(<")) {
+			t.Errorf("hack/wsagent-real-run.sh:%d expands the key file into a command line: %s", n+1, strings.TrimSpace(line))
+		}
+	}
+	if !strings.Contains(string(b), `grep -rlFf <(head -c 12 "$keyfile")`) {
+		t.Error("the script's check of what it kept doesn't read the key's start through a process substitution")
+	}
+}

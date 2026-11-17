@@ -112,8 +112,9 @@ if [[ $bench -gt 0 ]]; then
   done
 fi
 
-# nothing kept holds the key
-if grep -rlF -- "$(head -c 12 "$keyfile")" "$out" > /dev/null 2>&1; then
+# nothing kept holds the key. Its start goes to grep as a pattern FILE (a process substitution): on a command
+# line it would be in /proc/<pid>/cmdline, for every user of this machine to read
+if grep -rlFf <(head -c 12 "$keyfile") "$out" > /dev/null 2>&1; then
   echo "WARNING: a file under $out holds the start of the key — find it (grep -rlF) and remove it before sharing anything" >&2
   rc=1
 fi
