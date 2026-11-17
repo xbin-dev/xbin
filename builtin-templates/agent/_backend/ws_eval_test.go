@@ -10,6 +10,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -169,6 +170,11 @@ func TestWsEvalMessageHeldBehindQuestion(t *testing.T) {
 		tc("m2", "tile_agent_message", `{"agent":"#1","text":"And yes, run the tests."}`))).once()
 	fx.say(t, s, "tell it to also cover refunds")
 	fx.idle(t, s)
+	// (the real-model run, 2026-11-17: asked to pass this on, a model questioned its person about what "refunds"
+	// means instead of sending it — the prompt now says whose words those are)
+	if sys := systemOf(f.callsFor(s.Run)[0]); !strings.Contains(sys, "send it in their words: the tile agent can ask them what it means") {
+		t.Error("the prompt doesn't say that what a person tells it to pass on is passed on")
+	}
 	got := fx.toolResult(t, s, "tile_agent_message")
 	if !strings.Contains(got, "Held, not delivered") || !strings.Contains(got, "«permission: run the export tests»") || !strings.Contains(got, "you can't give one") {
 		t.Fatalf("the message's result: %q", got)
@@ -521,7 +527,10 @@ func TestWsEvalLowLevelRequestYieldsRedirect(t *testing.T) {
 			t.Errorf("the agent is offered %s", n)
 		}
 	}
-	for _, want := range []string{"You don't read or change code.", "Low-level (\"change line 40 in export.go\")", "hand it to that tile's own agent as written", "This is a redirect, not a refusal.", `ask_user, kind "redirect", naming the tile`} {
+	// (the real-model run, 2026-11-17: a model that wasn't told "no research first" sent a research subagent into
+	// every tile to find the file — 35 model calls before the redirect)
+	for _, want := range []string{"You don't read or change code.", "Low-level (\"change line 40 in export.go\")", "hand it to that tile's own agent as written", "This is a redirect, not a refusal.", `ask_user, kind "redirect", naming the tile`,
+		"you don't search for the line either (no research)", "if they named none, ask which tile instead"} {
 		if !strings.Contains(systemOf(c), want) {
 			t.Errorf("the prompt lacks %q", want)
 		}
@@ -901,5 +910,33 @@ func TestWsEvalEndedByRestartOffersResume(t *testing.T) {
 	rows := fx.ag.db.wsAgents(`WHERE run_id=? AND tile='apps/orders' ORDER BY id`, s.Run)
 	if len(rows) != 2 || rows[1].Status != "running" || fx.x.count("AgentStart "+rows[1].Session+" resume="+sid) != 1 || len(fx.x.said[rows[1].Session]) != 0 {
 		t.Fatalf("after the resume: %+v / %v", rows, fx.x.calls)
+	}
+}
+
+// The real-model run (2026-11-17) — a log that isn't there yet. A tile's
+// backend starts on its first use; asked for its log before that, xbind
+// answers "no logs yet". A real model took that for "the log is empty" and
+// reported so after a read through the tile's API had started the backend
+// — whose log then held the answer. The tool says what the state is and
+// what to do next, and it is not a failure.
+func TestWsEvalLogsBeforeTheBackendStarted(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	fx.x.mu.Lock()
+	fx.x.logsErr = map[string]error{"apps/orders": errors.New("xbind 404: no logs yet — the backend hasn't started")}
+	fx.x.mu.Unlock()
+	f := fakeOf(fx.ag)
+	f.on(forRun(s.Run, lastUser("why did the export fail")), callTools(tc("g1", "tile_logs", `{"tile":"apps/orders"}`))).once()
+	f.on(forRun(s.Run, lastTool("tile_logs")), say("Its backend hasn't run yet, so there is no log to read; I'll look again after a read.")).once()
+	fx.say(t, s, "why did the export fail?")
+	fx.idle(t, s)
+	got := fx.toolResult(t, s, "tile_logs")
+	for _, want := range []string{"apps/orders has no log yet", "starts on first use", "a read through tile_call starts it", "then read the log again", "says nothing either way"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("tile_logs before the backend started lacks %q: %q", want, got)
+		}
+	}
+	if strings.HasPrefix(got, "error") || strings.Contains(got, "untrusted") {
+		t.Errorf("tile_logs before the backend started reads as a failure, or as the tile's words: %q", got)
 	}
 }

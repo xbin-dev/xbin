@@ -38,6 +38,7 @@ type fakeXbin struct {
 	docs      map[string]string
 	code      map[string]map[string]string
 	logs      map[string]string
+	logsErr   map[string]error                           // per tile: xbind's refusal of its log
 	api       map[string]func(body []byte) (int, string) // "METHOD /api/<tile>/path": a tile's API
 	state     wsState
 	startAsk  bool  // starting a tile agent asks (false: the person's preference lets it through)
@@ -408,6 +409,9 @@ func (f *fakeXbin) Logs(_ context.Context, sid, tile string, lines int) (string,
 	}
 	if t.Level != "terminal" {
 		return "", &xbin.DelegateError{Status: 403, Message: "logs need terminal access on the tile"}
+	}
+	if err := f.logsErr[tile]; err != nil { // xbind's own refusal for that tile's log (a backend that hasn't started)
+		return "", err
 	}
 	return f.logs[tile], nil
 }

@@ -162,6 +162,11 @@
 //	                removing the file doesn't sign the running agent out; no
 //	                key from the environment; session/new and session/load
 //	                refused signed out (-32000); `whoami` says "key …<last 4>"
+//	--steps-file=P  a prompt that carries no "fakeacp-steps:" line plays the
+//	                 steps P holds (its first line, <cmd> ||| <cmd> …; read at
+//	                 each prompt; no file or an empty one: nothing changes) —
+//	                 for prompts the test doesn't write, as a brief a real
+//	                 model wrote (test/isolated's real-model run)
 //	--persist       sessions get their own ids; every session's updates (and
 //	                 its prompts, as user_message_chunk) are appended to
 //	                 $HOME/.fakeacp/sessions/<id>.jsonl, and session/load

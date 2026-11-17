@@ -245,6 +245,11 @@ func wsLogsTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (stri
 	n = min(n, wsLogLines)
 	var text string
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { text, err = wsX.Logs(ctx, sid, t.Path, n); return }); err != nil {
+		if strings.Contains(err.Error(), "no logs yet") {
+			// not a failure, and not "nothing in the log": a backend starts on its first use, so the next step is
+			// said here — a real model otherwise reports "the log is empty" for a tile whose log would have the answer
+			return t.Path + " has no log yet: its backend hasn't started since xbin did. A backend starts on first use — a read through tile_call starts it (tile_api_doc lists its reads); then read the log again. Until then the log says nothing either way.", nil
+		}
 		return "", err
 	}
 	ag.wsRefresh(ctx, s, true) // what the conversation now holds

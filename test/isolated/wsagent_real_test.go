@@ -94,6 +94,90 @@ type realEnv struct {
 	model string // the connector's name of the model: real/<upstream id>
 	rows  []realRow
 	key   string // only to check that nothing written holds it
+	// stepsFile is what the scripted coding agent does with a brief that
+	// carries no script of its own (acptest's --steps-file): the stand-in
+	// for a real coding agent's work in the scenarios that need one to
+	// behave a certain way.
+	stepsFile string
+}
+
+// steps sets what the scripted coding agent does next ("" = it echoes).
+func (e *realEnv) steps(cmds ...string) {
+	e.t.Helper()
+	if err := os.WriteFile(e.stepsFile, []byte(strings.Join(cmds, " ||| ")+"\n"), 0o644); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// permissions answers every permission request of person's tile agents
+// with option ("once", "always", "no") until none is pending for a
+// moment; it returns how many it answered.
+func (e *realEnv) permissions(person, option string, wait time.Duration) int {
+	e.t.Helper()
+	n, quiet := 0, 0
+	deadline := time.Now().Add(wait)
+	for time.Now().Before(deadline) && quiet < 4 {
+		answered := false
+		for _, s := range e.tileAgents(person) {
+			if s.Pending == 0 {
+				continue
+			}
+			var detail struct {
+				Permissions []struct{ Pid string }
+			}
+			e.d.Must(e.t, "GET", "/api/xbin/term/sessions/"+s.ID, nil, 200, e.as(person)...).Decode(e.t, &detail)
+			for _, p := range detail.Permissions {
+				if r := e.d.Call(e.t, "POST", "/api/xbin/term/sessions/"+s.ID+"/permissions/"+p.Pid, map[string]any{"optionId": option}, e.as(person)...); r.Status == 200 {
+					n, answered = n+1, true
+				}
+			}
+		}
+		if answered {
+			quiet = 0
+		} else {
+			quiet++
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return n
+}
+
+// waiting waits until a tile agent of person's waits on a permission.
+func (e *realEnv) waiting(person string, timeout time.Duration) bool {
+	e.t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, s := range e.tileAgents(person) {
+			if s.Pending > 0 {
+				return true
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return false
+}
+
+// approveAll approves person's pending requests (each once) and returns
+// how many there were.
+func (e *realEnv) approveAll(person string) int {
+	e.t.Helper()
+	n := 0
+	for _, r := range e.requests(person) {
+		if r.State == "pending" {
+			e.d.Must(e.t, "POST", "/api/xbin/delegate/requests/"+r.ID+"/approve", map[string]any{"grant": "once"}, 200, e.as(person)...)
+			n++
+		}
+	}
+	return n
+}
+
+// endAgents cancels and closes person's tile agent sessions, so the next
+// scenario starts with none.
+func (e *realEnv) endAgents(person string) {
+	e.t.Helper()
+	for _, s := range e.tileAgents(person) {
+		e.d.Call(e.t, "DELETE", "/api/xbin/term/sessions/"+s.ID, nil, e.as(person)...)
+	}
 }
 
 // realRow is one graded scenario.
@@ -147,7 +231,7 @@ func startReal(t *testing.T, fakeTile string) *realEnv {
 		t.Fatal(err)
 	}
 	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true, Production: true, WS: ws, Addr: cfg.addr,
-		Env: []string{"XBIN_VAULT_PASSPHRASE=xbindtest-vault", "XBIN_AGENT_FAKE=" + acp, "XBIN_LLM_CONFIG=" + hostFile}})
+		Env: []string{"XBIN_VAULT_PASSPHRASE=xbindtest-vault", "XBIN_AGENT_FAKE=" + acp + " --steps-file=" + acp + ".steps", "XBIN_LLM_CONFIG=" + hostFile}})
 	if err := os.MkdirAll(filepath.Dir(acp), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +240,7 @@ func startReal(t *testing.T, fakeTile string) *realEnv {
 		t.Fatalf("building hack/fakeacp: %v\n%s", err, out)
 	}
 	e := &realEnv{wsEnv: &wsEnv{sealedEnv: &sealedEnv{d: d, sess: map[string]string{}, frames: map[string]xbindtest.Header{}}, t: t, signedIn: map[string]time.Time{}},
-		cfg: cfg, model: realUp + "/" + cfg.model, key: strings.TrimSpace(string(kb))}
+		cfg: cfg, model: realUp + "/" + cfg.model, key: strings.TrimSpace(string(kb)), stepsFile: acp + ".steps"}
 	t.Cleanup(func() { e.writeTable(t) })
 	return e
 }
@@ -308,7 +392,7 @@ func (e *realEnv) usage() realUsage {
 	return realUsage{out.Totals.Requests, out.Totals.InputTokens, out.Totals.OutputTokens}
 }
 
-var realSecretRE = regexp.MustCompile(`(xbl_|xbs_|xbt_|sk-)[A-Za-z0-9_\-]{8,}|Bearer [A-Za-z0-9_\-\.]{12,}`)
+var realSecretRE = regexp.MustCompile(`\b(xbl_|xbs_|xbt_|sk-)[A-Za-z0-9_\-]{8,}|Bearer [A-Za-z0-9_\-\.]{12,}`)
 
 // redact takes credentials out of what is kept: the upstream's key, should
 // it ever appear, and anything shaped like a token of xbind's.
@@ -328,8 +412,8 @@ func (e *realEnv) transcriptOf(c *wsConv) string {
 		text := m.Content
 		switch m.Role {
 		case "tool":
-			if len(text) > 2500 {
-				text = text[:2500] + fmt.Sprintf("… [%d more bytes]", len(m.Content)-2500)
+			if len(text) > 6000 {
+				text = text[:6000] + fmt.Sprintf("… [%d more bytes]", len(m.Content)-6000)
 			}
 			fmt.Fprintf(&b, "  ← %s: %s\n\n", m.Name, strings.ReplaceAll(text, "\n", "\n     "))
 		case "assistant":
@@ -367,6 +451,14 @@ func (e *realEnv) scenario(t *testing.T, id, name string, fn func(t *testing.T) 
 		e.in(t)
 		before, start := e.usage(), time.Now()
 		grade, why, convs := fn(t)
+		// nothing of this scenario waits into the next: what its agent still asks for is denied
+		for person := range e.sess {
+			for _, r := range e.requests(person) {
+				if r.State == "pending" {
+					e.d.Call(t, "POST", "/api/xbin/delegate/requests/"+r.ID+"/deny", map[string]any{}, e.as(person)...)
+				}
+			}
+		}
 		row := realRow{ID: id, Name: name, Grade: grade, Why: why, Wall: time.Since(start)}
 		after := e.usage()
 		row.Calls, row.In, row.Out = after.Requests-before.Requests, after.In-before.In, after.Out-before.Out
@@ -384,16 +476,42 @@ func (e *realEnv) scenario(t *testing.T, id, name string, fn func(t *testing.T) 
 		if err := os.WriteFile(file, []byte(b.String()), 0o644); err != nil {
 			t.Error(err)
 		}
-		e.rows = append(e.rows, row)
+		e.record(row)
 		t.Logf("scenario %s: %s — %s (%d calls, %d+%d tokens, %s) → %s", id, grade, why, row.Calls, row.In, row.Out, row.Wall.Round(time.Second), file)
 	})
 }
 
-// writeTable writes the graded table (appending to what earlier boots of
-// the same run wrote: table-<test>.md, one per test function).
-func (e *realEnv) writeTable(t *testing.T) {
-	if len(e.rows) == 0 {
+// record keeps a graded row: in this run's table and in rows.jsonl, which
+// later boots of the same run (other scenarios, a scenario run again) add
+// to — the table is written from all of it, the newest row of each id.
+func (e *realEnv) record(row realRow) {
+	e.rows = append(e.rows, row)
+	b, _ := json.Marshal(row)
+	f, err := os.OpenFile(filepath.Join(e.cfg.out, "rows.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		e.t.Error(err)
 		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append([]byte(e.redact(string(b))), '\n'))
+}
+
+// writeTable writes the graded table, table.md, from rows.jsonl.
+func (e *realEnv) writeTable(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(e.cfg.out, "rows.jsonl"))
+	if err != nil {
+		return
+	}
+	byID := map[string]realRow{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		var r realRow
+		if json.Unmarshal([]byte(line), &r) == nil && r.ID != "" {
+			byID[r.ID] = r
+		}
+	}
+	e.rows = e.rows[:0]
+	for _, r := range byID {
+		e.rows = append(e.rows, r)
 	}
 	sort.SliceStable(e.rows, func(i, j int) bool {
 		a, _ := strconv.Atoi(strings.TrimRight(e.rows[i].ID, "ab"))
@@ -408,8 +526,7 @@ func (e *realEnv) writeTable(t *testing.T) {
 		calls, in, out = calls+r.Calls, in+r.In, out+r.Out
 	}
 	fmt.Fprintf(&b, "\nTotal: %d model calls, %d tokens in, %d tokens out (model %s).\n", calls, in, out, e.model)
-	name := "table-" + strings.NewReplacer("/", "-", " ", "-").Replace(t.Name()) + ".md"
-	if err := os.WriteFile(filepath.Join(e.cfg.out, name), []byte(e.redact(b.String())), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(e.cfg.out, "table.md"), []byte(e.redact(b.String())), 0o644); err != nil {
 		t.Error(err)
 	}
 }

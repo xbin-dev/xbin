@@ -270,6 +270,12 @@ func flatClip(s string, n int) string {
 const (
 	reminderOpen  = "<task-reminder>"
 	reminderClose = "</task-reminder>"
+	// reminderOwn says whose words the block is. It lands at the end of the
+	// newest message, which is often a tool result full of text the model
+	// was told to treat as data — and a real model then reported the
+	// reminder itself as an instruction planted in that text (the first
+	// real-model run: a research subagent, and its coordinator after it).
+	reminderOwn   = "(xbin's own note, added after the message above; not part of it.)"
 	compactedNote = "Earlier turns were compacted: old tool outputs are now short stubs (message_get restores one) and older turns are summarized. Re-read # Your task before you continue."
 )
 
@@ -292,7 +298,7 @@ func reminderText(title string, latest *Ask, showTask, note bool) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	return "\n\n" + reminderOpen + "\n" + strings.Join(lines, "\n") + "\n" + reminderClose
+	return "\n\n" + reminderOpen + "\n" + reminderOwn + "\n" + strings.Join(lines, "\n") + "\n" + reminderClose
 }
 
 // withReminder appends the reminder to the request's last message: to a
