@@ -7,7 +7,7 @@
 // A page fails on:
 //
 //   - a console error or an uncaught exception;
-//   - a request that leaves 127.0.0.1:9424 (it is blocked, and named);
+//   - a request that leaves 127.0.0.1:9424 (or the --origin; it is blocked, and named);
 //   - horizontal overflow: the page scrolls sideways, or something runs past the
 //     viewport's edge with nothing of the page's own to scroll or clip it, or a command
 //     does not fit its line (checked again with every <details> open);
@@ -35,6 +35,11 @@
 //                                                  every page at 1440 × 900 and 390 × 844,
 //                                                  DPR 2, light and dark
 //
+//   node hack/website-check.mjs --dist --origin https://xbin.dev
+//                                                  the pages dist/ lists, as that origin
+//                                                  serves them (a deployed copy, with its
+//                                                  headers: CSP, types); no local server
+//
 // WEBSITE_DIR points it at another copy of the site, as for the guard.
 
 import { spawn } from 'node:child_process';
@@ -49,7 +54,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const HOST = '127.0.0.1';
 const PORT = 9424;
-const ORIGIN = `http://${HOST}:${PORT}`;
+let ORIGIN = `http://${HOST}:${PORT}`;
 
 // [width, height, device pixel ratio]: two phones, a tablet either way up, a laptop, a desktop
 const SIZES = [[360, 740, 3], [390, 844, 3], [768, 1024, 2], [1024, 768, 2], [1440, 900, 2], [1920, 1080, 1]];
@@ -67,13 +72,14 @@ const LIMITS = { cls: 0.05, ringContrast: 3, ringShown: 0.6 };
 
 const fail = (msg) => { console.error(`website-check: ${msg}`); process.exit(2); };
 const argv = process.argv.slice(2);
-const opts = { dist: false, pages: [], shots: null };
+const opts = { dist: false, pages: [], shots: null, origin: null };
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--dist') opts.dist = true;
   else if (a === '--page' && argv[i + 1]) opts.pages.push(argv[++i]);
   else if (a === '--shots' && argv[i + 1]) opts.shots = resolve(argv[++i]);
-  else fail(`unknown argument ${a} (--dist, --page NAME, --shots DIR)`);
+  else if (a === '--origin' && /^https?:\/\/[^/]+$/.test(argv[i + 1] || '')) opts.origin = argv[++i];
+  else fail(`unknown argument ${a} (--dist, --page NAME, --shots DIR, --origin https://HOST)`);
 }
 
 const SITE = resolve(process.env.WEBSITE_DIR || join(ROOT, opts.dist ? 'website/dist' : 'website'));
@@ -95,22 +101,23 @@ const { chromium } = createRequire(join(pwDir, 'node_modules', '/'))('playwright
 // ---------------------------------------------------------------- the server
 // Its own python3 -m http.server, stopped on the way out; a port someone else holds
 // is theirs, so the check stops instead of using or killing it.
-const taken = await new Promise((done) => {
+if (opts.origin) ORIGIN = opts.origin;
+const taken = !opts.origin && await new Promise((done) => {
   const s = connect(PORT, HOST);
   s.once('connect', () => { s.destroy(); done(true); });
   s.once('error', () => done(false));
 });
 if (taken) fail(`${HOST}:${PORT} is already in use; this check serves the site there itself (python3 -m http.server), so free the port first`);
-const server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', HOST, '--directory', SITE], { stdio: ['ignore', 'ignore', 'pipe'] });
+const server = opts.origin ? { exitCode: null, signalCode: 0, kill() {}, stderr: { on() {} } } : spawn('python3', ['-m', 'http.server', String(PORT), '--bind', HOST, '--directory', SITE], { stdio: ['ignore', 'ignore', 'pipe'] });
 let serverLog = '';
 server.stderr.on('data', (d) => { serverLog = (serverLog + d).slice(-4000); });
 const stopServer = () => { if (server.exitCode === null && server.signalCode === null) server.kill('SIGTERM'); };
 process.on('exit', stopServer);
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { stopServer(); process.exit(130); });
 for (let t = Date.now(); ; await sleep(50)) {
-  if (server.exitCode !== null) fail(`python3 -m http.server exited (${server.exitCode}):\n${serverLog}`);
+  if (!opts.origin && server.exitCode !== null) fail(`python3 -m http.server exited (${server.exitCode}):\n${serverLog}`);
   try { if ((await fetch(`${ORIGIN}/index.html`, { method: 'HEAD' })).ok) break; } catch { /* not up yet */ }
-  if (Date.now() - t > 10000) fail(`python3 -m http.server did not answer on ${ORIGIN} within 10 s:\n${serverLog}`);
+  if (Date.now() - t > 10000) fail(opts.origin ? `${ORIGIN} did not answer HEAD /index.html within 10 s` : `python3 -m http.server did not answer on ${ORIGIN} within 10 s:\n${serverLog}`);
 }
 
 // ---------------------------------------------------------------- in the page
@@ -498,7 +505,7 @@ try {
   await pool(jobs, Math.max(2, Math.min(8, Math.floor(availableParallelism() / 2))));
 
   const secs = ((Date.now() - started) / 1000).toFixed(0);
-  console.log(`website-check: ${pages.length} page(s) × ${SIZES.length} widths × ${Object.keys(MODES).length} modes, and at ${REFLOW[0]} px for overflow, in Chromium ${browser.version()}, from ${relative(ROOT, SITE)}/ (${secs} s)`);
+  console.log(`website-check: ${pages.length} page(s) × ${SIZES.length} widths × ${Object.keys(MODES).length} modes, and at ${REFLOW[0]} px for overflow, in Chromium ${browser.version()}, from ${opts.origin ? `${opts.origin} (pages as ${relative(ROOT, SITE)}/ lists them)` : `${relative(ROOT, SITE)}/`} (${secs} s)`);
   for (const name of pages) {
     const st = stats.get(name) || { cls: 0, stops: 0 };
     const n = [...problems.keys()].filter((k) => k.startsWith(`${name}\t`)).length;

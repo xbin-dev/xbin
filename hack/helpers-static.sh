@@ -6,7 +6,7 @@
 #   hack/publish-helpers.sh --stage-only DIR     # build + pack (docker)
 #   hack/helpers-static.sh DIR                   # this: check, copy, manifest
 #   make website                                 # → website/dist/static/helpers/
-#   (deploy website/dist by hand; then commit hack/helpers.sha256)
+#   (deploy the site — the project's infrastructure repository; then commit hack/helpers.sha256)
 #
 # It checks every staged tarball against DIR/helpers.sha256, copies the
 # tarballs to website/static-helpers/<group>/<key>/<arch>.tar.zst (gitignored:
