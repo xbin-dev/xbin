@@ -32,14 +32,15 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 	}
 	var sys strings.Builder
 	sys.WriteString(ag.coordSystemFor(run, cfg)) // cfg.System, or a coordinator profile's as this build words it (coord_prompt.go)
-	sys.WriteString(taskBlock(asks))             // D133: verbatim, before anything the model wrote
+	sys.WriteString(ownTagSafe(taskBlock(asks))) // D133: verbatim, before anything the model wrote
+	sys.WriteString("\n\n" + reminderRule)
 	// Date only (not a full timestamp) keeps the system prefix stable within a
 	// day, so prompt caching keeps hitting.
 	fmt.Fprintf(&sys, "\n\nToday's date (UTC): %s.", time.Now().UTC().Format("2006-01-02"))
 	sys.WriteString(sandboxPrompt(cfg))            // the bound sandbox; "" when none (sandbox_tools.go)
 	sys.WriteString(ag.projectPromptFor(run, cfg)) // a project's task or coordinator: # Project (project_gate.go)
 	sys.WriteString(ag.coordPromptFor(run, cfg))   // any other profile's coordinator: its block (coord_prompt.go)
-	sys.WriteString(notesBlock(mem))               // sorted: the same bytes every call
+	sys.WriteString(ownTagSafe(notesBlock(mem)))   // sorted: the same bytes every call
 	if cfg.feature("skills") {
 		if skills := ag.db.visibleSkills(ag.scopeOf(run, cfg)); len(skills) > 0 {
 			sys.WriteString("\n\n# Skills (call skill_view to load one's full steps)\n")
@@ -64,7 +65,7 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 	}
 	if run.Summary != "" {
 		sys.WriteString("\n\n# Summary of earlier conversation\n")
-		sys.WriteString(run.Summary)
+		sys.WriteString(ownTagSafe(run.Summary))
 	}
 
 	out := []wireMsg{{Role: "system", Content: sys.String()}}
@@ -98,7 +99,9 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 				}
 			}
 		}
-		wm := wireMsg{Role: m.Role, Content: content, Name: m.Name, ToolCallID: m.ToolCallID}
+		// xbin's own tags in anything that is not xbin's — a tool's result, a tile agent's words, a person's
+		// paste — are defused here, where every message passes: only the reminder below is the reminder
+		wm := wireMsg{Role: m.Role, Content: ownTagSafeContent(content), Name: m.Name, ToolCallID: m.ToolCallID}
 		if m.ToolCalls != "" {
 			_ = json.Unmarshal([]byte(m.ToolCalls), &wm.ToolCalls)
 		}

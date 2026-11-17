@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **Agent template: a task reminder can't be forged.** The engine ends a
+  model call with a `<task-reminder>` block of its own; text from outside
+  — a web page, a tile's data, a tile agent's report, a notebook page, a
+  pasted message — could reproduce the block with another "latest
+  request" in it. The tag is now defused (its bracket made a quote mark)
+  in every message of a call that is not the engine's own, at the one
+  place a call is assembled, and the system prompt says what a reminder
+  is: it restates the task and never asks for an action.
 - **The connector's Responses translation says what it leaves out, and
   can't be switched on by a caller** ([llm.md](/docs/llm.md) §Responses on
   a chat-only upstream). Nothing of a translated request vanishes
