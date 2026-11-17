@@ -231,6 +231,11 @@ func wsStatusTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (st
 	out := wsTileLine(full)
 	if full.Report == "" && len(full.Alerts) == 0 {
 		out += "\nIt reports nothing about itself and xbin flags nothing."
+		if full.Status == "idle" {
+			// (three real conversations read "idle … xbin flags nothing" of a tile that crashed on every call
+			// as "healthy", or as "down": the feedback run, 2026-11-17)
+			out += " \"idle\" says only that its backend isn't running now — it starts on the first call — so nothing here shows that it works: a read through tile_call does (tile_api_doc lists its reads), and tile_logs says what happened when it last ran."
+		}
 	}
 	if full.Level != "" {
 		out += "\nYour person's level here: " + full.Level + "."

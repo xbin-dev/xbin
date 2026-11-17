@@ -123,4 +123,12 @@ func TestWsEvalFeedbackWordings(t *testing.T) {
 	if got := fx.tool(t, s, "tile_call", map[string]any{"tile": "apps/invoices", "method": "GET", "path": "/nope"}); strings.Contains(got, "xbin's answer, not the tile's") {
 		t.Errorf("a tile's own 404: %s", got)
 	}
+
+	// "idle" in a tile's status: neither "healthy" nor "down"
+	fx.x.mu.Lock()
+	fx.x.tiles["apps/orders"].Status = "idle"
+	fx.x.mu.Unlock()
+	if got := fx.tool(t, s, "tile_status", map[string]any{"tile": "apps/orders"}); !strings.Contains(got, `"idle" says only that its backend isn't running now`) || !strings.Contains(got, "nothing here shows that it works") {
+		t.Errorf("an idle tile's status: %s", got)
+	}
 }
