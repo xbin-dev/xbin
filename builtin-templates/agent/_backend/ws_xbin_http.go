@@ -845,6 +845,24 @@ func (h wsHTTP) ProposePlan(ctx context.Context, sid, title string, items []xbin
 	return out, h.json(ctx, sid, http.MethodPost, "/api/xbin/delegate/plans", map[string]any{"title": title, "items": items}, &out)
 }
 
+// DescribePlan asks xbind to describe a plan and propose nothing (dryRun).
+// An xbind that doesn't know the flag proposes it: that plan is withdrawn
+// at once — a dry run never leaves something in front of a person.
+func (h wsHTTP) DescribePlan(ctx context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
+	var out struct {
+		wsChangeSet
+		DryRun bool `json:"dryRun"`
+	}
+	if err := h.json(ctx, sid, http.MethodPost, "/api/xbin/delegate/plans", map[string]any{"title": title, "items": items, "dryRun": true}, &out); err != nil {
+		return wsChangeSet{}, err
+	}
+	if !out.DryRun && out.ID != "" {
+		_ = h.json(ctx, sid, http.MethodDelete, "/api/xbin/delegate/changesets/"+url.PathEscape(out.ID), nil, nil)
+		return wsChangeSet{}, errWsUnavailable
+	}
+	return out.wsChangeSet, nil
+}
+
 func (h wsHTTP) ChangeSet(ctx context.Context, sid, id string) (wsChangeSet, error) {
 	var out wsChangeSet
 	return out, h.get(ctx, sid, "/api/xbin/delegate/changesets/"+url.PathEscape(id), &out)

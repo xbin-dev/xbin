@@ -95,6 +95,10 @@ type wsXbin interface {
 	// ProposePlan proposes multi-step work as one change set (xbind's
 	// POST /delegate/plans): any person's agent, nothing applied.
 	ProposePlan(ctx context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error)
+	// DescribePlan is ProposePlan's dry run: the plan as xbind would
+	// describe it, line for line, with nothing proposed (the set has no
+	// id).
+	DescribePlan(ctx context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error)
 	ChangeSet(ctx context.Context, sid, id string) (wsChangeSet, error)
 	ChangeSets(ctx context.Context, sid string) ([]wsChangeSet, error)
 	Preview(ctx context.Context, sid string, p wsPreviewAsk) (wsPreview, error)

@@ -365,3 +365,38 @@ func TestWsPlanLineThatMayNotWait(t *testing.T) {
 		}
 	}
 }
+
+// The real-model run (2026-11-17) — a dry run of a plan says what xbin
+// would say. A model that looks before it files (the prompt tells it to
+// when unsure) got "this would propose 5 change(s)" for a plan two of
+// whose lines xbin could not apply, filed it, and left its person a review
+// with dead lines — then proposed a second plan beside it. The dry run now
+// asks xbind to describe the plan without proposing it: the lines as its
+// person would see them, the ones that can't be applied named, nothing
+// kept and nobody told.
+func TestWsEvalPlanDryRunDescribes(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	plan := func(name string, dry bool) string {
+		return fx.tool(t, s, "plan_propose", map[string]any{"title": "A place for notes", "dry_run": dry, "changes": []any{
+			map[string]any{"kind": "tile.create", "args": map[string]any{"template": "starter", "name": name}, "why": "somewhere to keep them"},
+			map[string]any{"kind": "agent.start", "args": map[string]any{"tile": name, "goal": "a notes page", "done_when": "the page lists notes"}, "why": "its tile agent builds the page"}}})
+	}
+	got := plan("Orders", true) // a tile is there already
+	for _, want := range []string{"As xbin would describe it", "(not proposed)", "a dry run", "1. [tile.create] Create the tile apps/orders", "can't be applied",
+		"xbin can't apply line 1 as proposed", "propose a plan without it", "This would propose 2 change(s)", "Nothing was proposed."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the dry run of a plan with a dead line lacks %q:\n%s", want, got)
+		}
+	}
+	if fx.x.count("DescribePlan") != 1 || fx.x.count("ProposePlan") != 0 || len(fx.x.sets) != 0 {
+		t.Fatalf("a dry run proposed something: xbind saw %v, %d set(s)", fx.x.calls, len(fx.x.sets))
+	}
+	// mended, the dry run has no dead line — and the plan is then proposed once
+	if got := plan("Notes", true); strings.Contains(got, "can't be applied") || !strings.Contains(got, "1. [tile.create] Create the tile apps/notes") {
+		t.Fatalf("the dry run of the mended plan: %s", got)
+	}
+	if got := plan("Notes", false); !strings.Contains(got, "Proposed as one plan") || fx.x.count("ProposePlan") != 1 || len(fx.x.sets) != 1 {
+		t.Fatalf("proposing it: %s (%v)", got, fx.x.calls)
+	}
+}

@@ -1232,7 +1232,13 @@ the person reviews it once.
 POST   /delegate/plans          the person's agent only, under its agent
                                  session. {title, items: [{kind, args,
                                  why?}]} → a change set with plan: true.
-                                 Any person's agent: no opt-in to propose
+                                 Any person's agent: no opt-in to propose.
+                                 With dryRun: true the plan is described
+                                 and not proposed: the same set as the
+                                 agent would read it — each line in
+                                 xbind's words, `blocked` on a line it
+                                 can't apply — with no id and dryRun:
+                                 true; nothing is kept and nobody is told
 POST   /delegate/changesets/<id>/ask
                                  the person, in their own session.
                                  {items?: [n, …]} → their set, the lines

@@ -492,9 +492,13 @@ func (s *Server) apiPlanNew(w http.ResponseWriter, r *http.Request) {
 			Args json.RawMessage `json:"args"`
 			Why  string          `json:"why"`
 		} `json:"items"`
+		// DryRun: describe the plan as it would be proposed — each line in
+		// xbind's words, with what an agent may read of it — and propose
+		// nothing: no set is kept, nobody is told.
+		DryRun bool `json:"dryRun"`
 	}
 	if err := DecodeJSON(r, &in); err != nil || len(in.Items) == 0 {
-		WriteError(w, http.StatusBadRequest, "need {title, items: [{kind, args, why?}]} with at least one line", delegationDocs)
+		WriteError(w, http.StatusBadRequest, "need {title, items: [{kind, args, why?}], dryRun?} with at least one line", delegationDocs)
 		return
 	}
 	if len(in.Items) > delegation.MaxItems {
@@ -512,6 +516,20 @@ func (s *Server) apiPlanNew(w http.ResponseWriter, r *http.Request) {
 	items, err := s.describePlan(personOf(a.p), planAgent{p: a.p}, ops, whys)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
+		return
+	}
+	if in.DryRun {
+		// what proposing it would answer, line for line (the same redaction: an agent reads of a line it can't
+		// apply, or that is an admin's, xbind's sentence and no more) — so an agent that looks before it files
+		// learns which lines would be dead on its person's review, and files a plan without them
+		for i := range items {
+			items[i].N = i + 1
+		}
+		dry := s.setFor(a, delegation.ChangeSet{User: a.user, Agent: a.p.Agent, Title: in.Title, Items: items, Plan: true, Session: a.p.AgentSession, State: delegation.SetProposed})
+		WriteJSON(w, http.StatusOK, struct {
+			delegation.ChangeSet
+			DryRun bool `json:"dryRun"`
+		}{dry, true})
 		return
 	}
 	cs, err := s.Delegation.NewChangeSet(delegation.ChangeSet{User: a.user, Agent: a.p.Agent, Title: in.Title, Items: items, Plan: true, Session: a.p.AgentSession})

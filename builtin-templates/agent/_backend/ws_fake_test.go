@@ -860,13 +860,25 @@ func (f *fakeXbin) Propose(_ context.Context, sid, title string, items []xbin.Ch
 // sees it: every line described, a binding of xbin:llm an admin's (and
 // needsAdmin for a person who is none), a line that names a tile an
 // earlier line creates needing that line.
-func (f *fakeXbin) ProposePlan(_ context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
+func (f *fakeXbin) ProposePlan(ctx context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
+	return f.plan(sid, title, items, false)
+}
+
+// DescribePlan is xbind's dry run of a plan: described, not kept.
+func (f *fakeXbin) DescribePlan(_ context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
+	return f.plan(sid, title, items, true)
+}
+
+func (f *fakeXbin) plan(sid, title string, items []xbin.Change, dry bool) (wsChangeSet, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, err := f.handle(sid); err != nil {
 		return wsChangeSet{}, err
 	}
-	cs := &wsChangeSet{ID: f.id("cs"), Title: title, State: "proposed", Plan: true}
+	cs := &wsChangeSet{Title: title, State: "proposed", Plan: true}
+	if !dry {
+		cs.ID = f.id("cs")
+	}
 	made := map[string]int{}
 	blank, started := map[string]bool{}, map[string]int{} // tiles made from the empty template; tiles an earlier line starts a tile agent in
 	for i, it := range items {
@@ -919,8 +931,14 @@ func (f *fakeXbin) ProposePlan(_ context.Context, sid, title string, items []xbi
 		if item.Admin && !f.state.CanAdminChanges {
 			item.NeedsAdmin, item.Warnings = true, nil
 		}
-		f.planArgs[cs.ID+"/"+fmt.Sprint(item.N)] = args
+		if !dry {
+			f.planArgs[cs.ID+"/"+fmt.Sprint(item.N)] = args
+		}
 		cs.Items = append(cs.Items, item)
+	}
+	if dry {
+		f.note("DescribePlan")
+		return *cs, nil
 	}
 	f.sets[cs.ID] = cs
 	f.note("ProposePlan %s", cs.ID)

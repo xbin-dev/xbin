@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **A plan's dry run describes it** (`POST /delegate/plans` with `dryRun:
+  true`; [protocol/delegation.md](/docs/protocol/delegation.md) §Plans).
+  The answer is the set as proposing it would answer — each line in
+  xbind's words, the lines xbind can't apply marked — with no id; nothing
+  is kept and nobody is told. The workspace agent's `plan_propose` dry run
+  uses it, so a plan with a line that can't be applied is mended before it
+  is in front of its person (before, the dry run only counted the lines,
+  and a real model filed plans with dead lines). A workspace agent's
+  message to a tile agent that begins with `/` is refused at once, also
+  while that tile agent waits for its person (it was held, and refused when
+  it would have gone in).
 - **A plan can start OpenCode.** A coding agent whose catalog entry names
   no default mode (OpenCode: it opens as it opens itself) was shown on a
   plan's start line as `in its mode ""` and refused at Apply ("the start
