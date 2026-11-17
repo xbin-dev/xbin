@@ -124,7 +124,7 @@ func (s *Server) apiSigninsTrust(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "need {tile}", agentSigninsDocs)
 		return
 	}
-	if p := auth.PrincipalOf(r); !p.CanTerminalTile(strings.Trim(body.Tile, "/")) {
+	if p := auth.PrincipalOf(r); !p.CanTerminalTile(s.sessionTile(body.Tile)) { // the level of the tile the path lies in
 		WriteError(w, http.StatusNotFound, "no such tile", agentSigninsDocs)
 		return
 	}

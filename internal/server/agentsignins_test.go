@@ -606,6 +606,31 @@ func TestSigninsTrustRoutes(t *testing.T) {
 			t.Errorf("POST /trust %s: %d %s, want %d", body, c, b, want)
 		}
 	}
+	// a directory inside the tile is the tile: asked and answered for apps/x, at the level she holds on apps/x
+	if _, err := s.Auth.Users.Upsert(users.User{ID: "carol", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelTerminal}}, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Signins.Save("carol", "claude", "Hers", fakeSigninToken, false); err != nil {
+		t.Fatal(err)
+	}
+	sub := s.Auth.NewSession("carol", "")
+	s.Term.TileAt = func(rel string) (string, bool) {
+		if rel == "apps/x" || strings.HasPrefix(rel, "apps/x/") {
+			return "apps/x", true
+		}
+		return "", false
+	}
+	var cv signinsView
+	if c, b := do(sub, "GET", "?tile=apps/x/src", ""); c != 200 || json.Unmarshal([]byte(b), &cv) != nil || here(cv) == nil || here(cv).Trust == nil || here(cv).Trust.Tile != "apps/x" {
+		t.Fatalf("carol, whose access is to apps/x, asking about apps/x/src: %d %s", c, b)
+	}
+	if c, b := do(sub, "POST", "/trust", `{"tile":"apps/x/src"}`); c != 201 || !strings.Contains(b, `"tile":"apps/x"`) {
+		t.Fatalf("carol trusting from a directory inside the tile: %d %s", c, b)
+	}
+	if c, _ := do(sub, "POST", "/trust", `{"tile":"apps/y/src"}`); c != 404 {
+		t.Fatalf("carol trusting a tile she has no access to: %d", c)
+	}
+	s.Term.TileAt = nil
 	// her answer
 	c, b := do(alice, "POST", "/trust", `{"tile":"apps/x"}`)
 	if c != 201 || !strings.Contains(b, `"tile":"apps/x"`) || !strings.Contains(b, `"holds":true`) {

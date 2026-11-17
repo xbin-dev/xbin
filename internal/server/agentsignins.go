@@ -198,7 +198,8 @@ func (s *Server) signinsViewFor(r *http.Request, user string) (signinsView, erro
 				h.Signins = append(h.Signins, sg)
 			}
 		}
-		if p := auth.PrincipalOf(r); tile != "" && s.Term != nil && p.CanTerminalTile(tile) {
+		// (the caller's level is the tile's the path lies in, as for a session there: sessionTile)
+		if p := auth.PrincipalOf(r); tile != "" && s.Term != nil && p.CanTerminalTile(s.sessionTile(tile)) {
 			why, trust := s.Term.SigninRule(p, tile, prov)
 			h.Here = &signinHere{Inject: why == "", Why: why, Trust: trust, Without: s.withoutSignin(p, tile, prov)}
 		}
