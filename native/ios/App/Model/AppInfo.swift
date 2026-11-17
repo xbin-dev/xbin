@@ -82,7 +82,11 @@ enum AppSettings {
     /// "Require Face ID when opening the app" (plans/native.md §5), off by default.
     static var appLock: Bool {
         get { d.bool(forKey: "appLock") }
-        set { d.set(newValue, forKey: "appLock") }
+        set {
+            d.set(newValue, forKey: "appLock")
+            // the notification extension reads it: under the lock, Review only (D241)
+            AgentNoticeStore.setAppLock(newValue, group: AppInfo.sharedKeychainGroup)
+        }
     }
 
     /// Predictive echo: auto (default), on, off.

@@ -69,6 +69,10 @@ type deviceView struct {
 	// the agent sessions an activity is registered for
 	PushToStart bool     `json:"pushToStart,omitempty"`
 	Activities  []string `json:"activities,omitempty"`
+	// the workspace agent's card (D241): a push-to-start handle for it, and
+	// whether the card is registered (it is not among Activities)
+	AgentStart    bool `json:"agentStart,omitempty"`
+	AgentActivity bool `json:"agentActivity,omitempty"`
 }
 
 func view(d Device, epoch string) deviceView {
@@ -78,7 +82,12 @@ func view(d Device, epoch string) deviceView {
 	}
 	v := deviceView{DeviceID: d.DeviceID, Kinds: k, Created: d.Created, Updated: d.Updated, LastSent: d.LastSent,
 		PushToStart: d.StartHandle != ""}
+	v.AgentStart = d.AgentStartHandle != ""
 	for _, a := range d.Activities {
+		if a.Session == AgentSession {
+			v.AgentActivity = true
+			continue
+		}
 		v.Activities = append(v.Activities, a.Session)
 	}
 	if d.stale(epoch) {
@@ -110,6 +119,8 @@ func (s *Service) APIRegister(w http.ResponseWriter, r *http.Request) {
 		PublicKey   string   `json:"publicKey"`
 		Kinds       []string `json:"kinds"`
 		StartHandle *string  `json:"startHandle"`
+		// the push-to-start handle of the workspace agent's card (D241)
+		AgentStartHandle *string `json:"agentStartHandle"`
 	}
 	if decode(r, &body) != nil {
 		fail(w, http.StatusBadRequest, "need {deviceId, handle, publicKey, kinds?}")
@@ -127,6 +138,10 @@ func (s *Service) APIRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	case body.StartHandle != nil && *body.StartHandle != "" && (!handleRe.MatchString(*body.StartHandle) || *body.StartHandle == body.Handle):
 		fail(w, http.StatusBadRequest, "startHandle: the relay's Live Activity handle for the push-to-start token")
+		return
+	case body.AgentStartHandle != nil && *body.AgentStartHandle != "" && (!handleRe.MatchString(*body.AgentStartHandle) ||
+		*body.AgentStartHandle == body.Handle || body.StartHandle != nil && *body.AgentStartHandle == *body.StartHandle):
+		fail(w, http.StatusBadRequest, "agentStartHandle: the relay's Live Activity handle for the workspace agent card's push-to-start token")
 		return
 	}
 	pub, err := ParsePublicKey(body.PublicKey)
@@ -162,7 +177,7 @@ func (s *Service) APIRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, err := s.st.upsert(Device{User: user, DeviceID: body.DeviceID, Session: session, Handle: body.Handle,
-		PublicKey: b64.EncodeToString(pub), Kinds: kinds}, s.o.Now().Unix(), body.StartHandle)
+		PublicKey: b64.EncodeToString(pub), Kinds: kinds}, s.o.Now().Unix(), body.StartHandle, body.AgentStartHandle)
 	if errors.Is(err, errDeviceBound) {
 		fail(w, http.StatusConflict, err.Error())
 		return
@@ -185,8 +200,15 @@ func (s *Service) APIList(w http.ResponseWriter, r *http.Request) {
 	for _, d := range s.devices(user) {
 		out = append(out, view(d, e))
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"workspace": s.Workspace(), "enabled": s.Enabled(), "devices": out})
+	server.WriteJSON(w, http.StatusOK, map[string]any{"workspace": s.Workspace(), "enabled": s.Enabled(), "devices": out,
+		"features": Features})
 }
+
+// Features are what this xbind's push plane does beyond push.md's first
+// version, for the app to feature-detect (GET /devices/push): the
+// workspace agent's notifications, their actions' rule, its Live Activity
+// (D241).
+var Features = []string{"agent-push/1", "agent-actions/1", "agent-activity/1"}
 
 // APIUnregister is DELETE /devices/push/{deviceId}.
 func (s *Service) APIUnregister(w http.ResponseWriter, r *http.Request) {
@@ -386,6 +408,10 @@ func (s *Service) notify(w http.ResponseWriter, r *http.Request, h *Holder) {
 	}
 	if !s.o.CanRead(user, tile) {
 		fail(w, http.StatusForbidden, "that user cannot read this tile")
+		return
+	}
+	// the person's own workspace agent: xbind's words, its own kinds (agent.go)
+	if s.notifyHolder(w, p, tile, user, body.Kind, body.Body, link) {
 		return
 	}
 	n := note{user: user, tile: tile, kind: KindTile, title: title, body: body.Body, link: "c/" + tile + "/" + link}

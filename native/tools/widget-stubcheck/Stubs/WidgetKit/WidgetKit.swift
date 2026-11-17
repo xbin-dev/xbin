@@ -33,7 +33,16 @@ extension WidgetBundle {
 @resultBuilder
 public struct WidgetBundleBuilder {
     public static func buildBlock<W: Widget>(_ content: W) -> W { content }
+    @MainActor public static func buildBlock<each W: Widget>(_ content: repeat each W) -> _TupleWidget<(repeat each W)> { _TupleWidget() }
 }
+
+/// Several widgets of one bundle (the SDK's builder result; opaque there).
+public struct _TupleWidget<T>: Widget {
+    public init() {}
+    public var body: _EmptyWidgetConfiguration { _EmptyWidgetConfiguration() }
+}
+
+public struct _EmptyWidgetConfiguration: WidgetConfiguration {}
 
 public struct ActivityViewContext<Attributes: ActivityAttributes> {
     public var state: Attributes.ContentState { fatalError() }
@@ -95,4 +104,18 @@ extension Color {
     public init(red: Double, green: Double, blue: Double, opacity: Double = 1) { self.init(white: 0) }
     public static let green = Color(white: 0)
     public static let orange = Color(white: 0)
+}
+
+// SwiftUI's Link (a widget's buttons open the app's links).
+public struct Link<Label: View>: View {
+    public init(destination: URL, @ViewBuilder label: () -> Label) {}
+    public var body: some View { EmptyView() }
+}
+
+// An expanded region's content that may move under the camera (iOS 16.1).
+public struct DynamicIslandExpandedRegionVerticalPlacement: Sendable {
+    public static let belowIfTooWide = DynamicIslandExpandedRegionVerticalPlacement()
+}
+extension View {
+    public func dynamicIsland(verticalPlacement: DynamicIslandExpandedRegionVerticalPlacement) -> some View { self }
 }

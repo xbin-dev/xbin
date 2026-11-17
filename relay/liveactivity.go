@@ -30,8 +30,17 @@ const PushTypeLiveActivity = "liveactivity"
 
 // ActivityAttributesType is the app's ActivityAttributes type — the
 // "attributes-type" of a push-to-start (native/ios: XbinAgent's
-// AgentActivityAttributes).
-const ActivityAttributesType = "AgentActivityAttributes"
+// AgentActivityAttributes). AgentActivityAttributesType is the workspace
+// agent's card's (activity kind "agent": WorkspaceAgentActivityAttributes).
+const (
+	ActivityAttributesType      = "AgentActivityAttributes"
+	AgentActivityAttributesType = "WorkspaceAgentActivityAttributes"
+)
+
+// ActivityKindAgent is the workspace agent's card: one per person and
+// workspace while their agent works or something waits for them. Its state
+// may also say phase "paused" and how many tile agents work (agents).
+const ActivityKindAgent = "agent"
 
 const (
 	// maxChildren is how many activity handles (one per card) one device
@@ -49,13 +58,17 @@ var liveRefRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // ActivityState is a Live Activity's content state — the app's
 // AgentActivityState, key for key.
 type ActivityState struct {
-	Phase   string `json:"phase"`   // running | waiting | idle
+	Phase   string `json:"phase"`   // running | waiting | idle (kind agent: also paused)
 	Since   int64  `json:"since"`   // unix seconds the turn started (0 = unknown)
 	Pending int    `json:"pending"` // requests waiting for the user (0–99)
+	// Agents: kind agent only — tile agents working (0–99)
+	Agents int `json:"agents,omitempty"`
 }
 
 // ActivityPush is the "activity" of a liveactivity push.
 type ActivityPush struct {
+	// Kind: "" a tile agent's turn, "agent" the workspace agent's card
+	Kind          string         `json:"kind,omitempty"`
 	Event         string         `json:"event"`     // update | end | start
 	Timestamp     int64          `json:"timestamp"` // unix seconds; the device ignores anything older than what it shows
 	State         *ActivityState `json:"state"`
@@ -79,12 +92,17 @@ func (a *ActivityPush) check(now time.Time) string {
 		return "activity.timestamp: unix seconds, not in the future"
 	case a.State == nil:
 		return "activity.state: {phase, since, pending}"
-	case a.State.Phase != "running" && a.State.Phase != "waiting" && a.State.Phase != "idle":
-		return "activity.state.phase: running | waiting | idle"
+	case a.Kind != "" && a.Kind != ActivityKindAgent:
+		return "activity.kind: \"\" | agent"
+	case a.State.Phase != "running" && a.State.Phase != "waiting" && a.State.Phase != "idle" &&
+		!(a.State.Phase == "paused" && a.Kind == ActivityKindAgent):
+		return "activity.state.phase: running | waiting | idle (kind agent: also paused)"
 	case a.State.Since < 0 || a.State.Since > soon:
 		return "activity.state.since: unix seconds"
 	case a.State.Pending < 0 || a.State.Pending > maxPending:
 		return "activity.state.pending: 0–99"
+	case a.State.Agents < 0 || a.State.Agents > maxPending || a.State.Agents != 0 && a.Kind != ActivityKindAgent:
+		return "activity.state.agents: 0–99, kind agent only"
 	case a.StaleDate < 0 || a.StaleDate > later:
 		return "activity.staleDate: unix seconds, within a day"
 	case a.DismissalDate < 0 || a.DismissalDate > later || (a.DismissalDate != 0 && a.Event != "end"):
@@ -101,8 +119,15 @@ func (a *ActivityPush) check(now time.Time) string {
 }
 
 // startAlert is the generic alert of a push-to-start (ActivityKit shows one
-// when an activity starts by push), by phase.
-func startAlert(phase string) map[string]string {
+// when an activity starts by push), by kind and phase.
+func startAlert(kind, phase string) map[string]string {
+	if kind == ActivityKindAgent {
+		body := "Your workspace agent is working."
+		if phase == "waiting" {
+			body = "Your workspace agent needs you."
+		}
+		return map[string]string{"title": "xbin", "body": body}
+	}
 	body := "An agent is working."
 	switch phase {
 	case "waiting":
@@ -121,6 +146,9 @@ func activityBody(a *ActivityPush) ([]byte, error) {
 		"event":         a.Event,
 		"content-state": ActivityState{Phase: a.State.Phase, Since: a.State.Since, Pending: a.State.Pending},
 	}
+	if a.Kind == ActivityKindAgent { // the workspace agent's card: its count too, always present
+		aps["content-state"] = map[string]any{"phase": a.State.Phase, "since": a.State.Since, "pending": a.State.Pending, "agents": a.State.Agents}
+	}
 	if a.StaleDate != 0 {
 		aps["stale-date"] = a.StaleDate
 	}
@@ -133,7 +161,11 @@ func activityBody(a *ActivityPush) ([]byte, error) {
 		// of ws); a push never carries them
 		aps["attributes"] = map[string]string{"ws": a.WS, "ref": a.Ref, "workspace": "", "session": "",
 			"appWorkspace": "", "sessionID": ""}
-		aps["alert"] = startAlert(a.State.Phase)
+		if a.Kind == ActivityKindAgent {
+			aps["attributes-type"] = AgentActivityAttributesType
+			aps["attributes"] = map[string]string{"ws": a.WS, "ref": a.Ref, "workspace": "", "appWorkspace": ""}
+		}
+		aps["alert"] = startAlert(a.Kind, a.State.Phase)
 		// ask for the new activity's update token (the app registers it)
 		aps["input-push-token"] = 1
 	}

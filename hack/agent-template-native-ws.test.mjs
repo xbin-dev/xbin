@@ -105,10 +105,14 @@ test('the conversation: the agent\'s cards where it made them, a request and a t
   assert.deepEqual(r.messages.filter((m) => m.op === 'meta').pop(), { op: 'meta', title: 'Workspace agent', badge: '3' });
 });
 
-test('a quick reply answers the question: it is the person\'s next message', async () => {
-  const r = await run(talking(), [{ event: { k: { t: 'composer' }, type: 'reply', payload: { id: 'ask:1' } } }]);
-  const [m] = sent(r, 'POST', /\/runs\/1\/message$/);
-  assert.equal(JSON.parse(m.body).text, 'Everyone with an open order');
+test('a quick reply is the agent\'s suggestion: a tap fills the composer, and only Send sends it (D241)', async () => {
+  const r = await run(talking(), [{ event: { k: { t: 'composer' }, type: 'reply', payload: { id: 'ask:1' } } }, { snapshot: 'filled' }]);
+  assert.equal(sent(r, 'POST', /\/runs\/1\/message$/).length, 0, 'a tap sends nothing');
+  assert.equal(find(r.snapshots.filled, { t: 'composer' }).p.value, 'Everyone with an open order', 'the composer holds it, to edit or send');
+  const rs = await run(talking(), [{ event: { k: { t: 'composer' }, type: 'reply', payload: { id: 'ask:1' } } },
+    { event: { k: { t: 'composer' }, type: 'send', payload: { value: 'Everyone with an open order, please' } } }]);
+  const [m] = sent(rs, 'POST', /\/runs\/1\/message$/);
+  assert.equal(JSON.parse(m.body).text, 'Everyone with an open order, please');
   const r2 = await run(talking(), [{ event: { k: { t: 'question' }, type: 'submit', payload: { content: { other: 'Only Acme' } } } }]);
   assert.equal(JSON.parse(sent(r2, 'POST', /\/message$/)[0].body).text, 'Only Acme');
   const r3 = await run(talking(), [{ event: { k: { t: 'question' }, type: 'skip', payload: {} } }]);

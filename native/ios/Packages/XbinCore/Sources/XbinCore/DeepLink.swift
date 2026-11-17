@@ -10,6 +10,7 @@ import Foundation
 /// | `xbin://<ws>/term/<session>` | ``terminal(workspace:session:)`` |
 /// | `xbin://<ws>/agent/<session>` | ``agent(workspace:session:)`` |
 /// | `xbin://<ws>/xbin/<page>` | ``page(workspace:page:)`` |
+/// | `xbin://<ws>/xbin/agent#r=<id>` (`cs=`, `ts=`, `c=`, `needs`, `first`) | ``workspaceAgent(workspace:route:)`` (D241) |
 /// | `xbin://enroll?u=<server>&c=<code>` | ``enroll(server:code:)`` |
 /// | `xbin://enroll?u&c&tv=1&t&k&p[&r][&rq=1]` | ``tunnelEnroll(_:)`` (``TunnelLink``) |
 /// | `xbin://sso?ticket=<ticket>` | ``sso(ticket:)`` |
@@ -31,6 +32,10 @@ public enum DeepLink: Sendable, Hashable {
     /// One of xbind's own pages (D181): the app opens it in a web view of
     /// its own, signed in, once the workspace says it serves it.
     case page(workspace: String, page: XbindPage)
+    /// The person's workspace agent, on one thing (D241; ``AgentRoute``):
+    /// xbind's page link with a fragment — an app before it opens the agent
+    /// (`xbin/agent`), an older one the workspace.
+    case workspaceAgent(workspace: String, route: AgentRoute)
     /// A device enrollment QR code from a signed-in browser (§5).
     case enroll(server: ServerOrigin, code: String)
     /// A device pairing through the workspace's app tunnel (D204,
@@ -61,7 +66,7 @@ public enum DeepLink: Sendable, Hashable {
     /// The workspace the link targets, when it targets one.
     public var workspace: String? {
         switch self {
-        case .workspace(let w), .tile(let w, _, _), .terminal(let w, _), .agent(let w, _), .page(let w, _): return w
+        case .workspace(let w), .tile(let w, _, _), .terminal(let w, _), .agent(let w, _), .page(let w, _), .workspaceAgent(let w, _): return w
         case .enroll, .tunnelEnroll, .sso, .ssoError: return nil
         }
     }
@@ -125,6 +130,10 @@ public enum DeepLink: Sendable, Hashable {
         case "xbin":
             guard rest.count == 1 else { throw Invalid(reason: "xbin: expected one page") }
             guard let page = XbindPage(linkName: rest[0]) else { throw Invalid(reason: "unknown xbind page \(rest[0])") }
+            if page == .agent, let route = AgentRoute(fragment: c.fragment ?? "") {
+                self = .workspaceAgent(workspace: ws, route: route)
+                return
+            }
             self = .page(workspace: ws, page: page)
         default:
             throw Invalid(reason: "unknown link kind \(kind)")
@@ -169,6 +178,8 @@ public enum DeepLink: Sendable, Hashable {
             return "xbin://\(w)/agent/\(Self.encodeSegment(s))"
         case .page(let w, let page):
             return "xbin://\(w)/\(page.link)"
+        case .workspaceAgent(let w, let route):
+            return "xbin://\(w)/\(XbindPage.agent.link)#\(route.fragment)"
         case .enroll(let server, let code):
             return "xbin://enroll?u=\(Self.encodeQueryValue(server.origin))&c=\(Self.encodeQueryValue(code))"
         case .tunnelEnroll(let link):
@@ -192,5 +203,67 @@ public enum DeepLink: Sendable, Hashable {
 
     static func encodeQueryValue(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: unreserved) ?? s
+    }
+}
+
+/// What a link to the person's workspace agent opens (D241;
+/// plans/wsagent/ios-stage2.md §7): one router for the notifications, the
+/// Live Activity, Home's row and Handoff. The fragment of xbind's page link
+/// `xbin/agent#…`; ids are xbind's shapes (``DelegateID``), anything else is
+/// no route (the agent itself).
+public enum AgentRoute: Sendable, Hashable {
+    /// One request's approval sheet.
+    case request(String)
+    /// One change set's (a plan's, admin changes') review.
+    case changeset(String)
+    /// A tile agent's session: the app's agent screen.
+    case tileSession(String)
+    /// One of the agent's conversations (its run id).
+    case conversation(String)
+    /// Needs you.
+    case needs
+    /// What waits first (oldest), else the agent.
+    case first
+
+    public init?(fragment raw: String) {
+        let f = raw.hasPrefix("#") ? String(raw.dropFirst()) : raw
+        switch f {
+        case "needs": self = .needs; return
+        case "first": self = .first; return
+        default: break
+        }
+        guard let eq = f.firstIndex(of: "=") else { return nil }
+        let key = String(f[..<eq]), value = String(f[f.index(after: eq)...])
+        switch key {
+        case "r" where DelegateID.isRequest(value): self = .request(value)
+        case "cs" where DelegateID.isRequest(value): self = .changeset(value)
+        case "ts" where DelegateID.isSession(value) && value != "new": self = .tileSession(value)
+        case "c" where Self.isConversation(value): self = .conversation(value)
+        default: return nil
+        }
+    }
+
+    /// A conversation id as the agent's backend has them: a run number.
+    public static func isConversation(_ s: String) -> Bool {
+        (1...18).contains(s.count) && s.allSatisfy { $0.isASCII && $0.isNumber }
+    }
+
+    public var fragment: String {
+        switch self {
+        case .request(let id): return "r=" + id
+        case .changeset(let id): return "cs=" + id
+        case .tileSession(let id): return "ts=" + id
+        case .conversation(let id): return "c=" + id
+        case .needs: return "needs"
+        case .first: return "first"
+        }
+    }
+
+    /// The route a push's workspace-relative link names (`xbin/agent#…`),
+    /// if any.
+    public static func of(pushLink link: String) -> AgentRoute? {
+        let parts = link.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0] == Substring(XbindPage.agent.link) else { return nil }
+        return AgentRoute(fragment: String(parts[1]))
     }
 }

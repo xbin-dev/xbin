@@ -169,10 +169,12 @@ function cantView(d, act) {
 }
 
 // ---- quick replies ------------------------------------------------------------------------
+// The agent's suggestions: a click fills the composer, to edit or send —
+// never a message by itself (xbin D241).
 
 function repliesView(d, act) {
   return html`<div class="wsc wsc-replies" role="group" aria-label="quick replies">${(d.choices || []).map((c) => html`<button class=${c.primary ? 'primary' : ''}
-    @click=${() => (c.send ? act.send(c.send) : act.fill(c.fill || c.label))}>${c.label}</button>`)}</div>`;
+    @click=${() => act.fill(c.send || c.fill || c.label)}>${c.label}</button>`)}</div>`;
 }
 
 function noticeCard(d) {

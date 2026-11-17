@@ -156,8 +156,6 @@ func (s *Server) apiChangeSetNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.delegateEvent(a.user, "changeset", cs.ID)
-	s.delegatePush(a.user, a.p.Agent, "agent.changeset", "Your agent proposes admin changes",
-		fmt.Sprintf("%d change(s) wait for your approval. Nothing is applied until you approve it.", len(cs.Items)), "agent-changeset:"+cs.ID)
 	WriteJSON(w, http.StatusOK, s.setFor(a, cs))
 }
 
@@ -197,7 +195,7 @@ func (s *Server) apiChangeSet(w http.ResponseWriter, r *http.Request) {
 }
 
 // endChangeSet moves an open set to state (withdrawn, rejected).
-func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state string) {
+func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state string) bool {
 	if cur, ok := s.Delegation.ChangeSet(a.user, id); ok && !cur.Open() && unsettled(cur) && (cur.From == "" || a.own) {
 		// decided, with a line that still waits — for xbind, or with the
 		// admins: taking the plan back ends both, here and in every admin's
@@ -209,7 +207,7 @@ func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state 
 		s.takeBack(a.user, id, why)
 		cur, _ = s.Delegation.ChangeSet(a.user, id)
 		WriteJSON(w, http.StatusOK, s.setFor(a, cur))
-		return
+		return true
 	}
 	cs, err := s.Delegation.UpdateChangeSet(a.user, id, func(cs *delegation.ChangeSet) error {
 		switch {
@@ -234,16 +232,17 @@ func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state 
 	switch {
 	case errors.Is(err, delegation.ErrNoChangeSet):
 		WriteError(w, http.StatusNotFound, err.Error(), delegationDocs)
-		return
+		return false
 	case errors.Is(err, delegation.ErrSetNotOpen):
 		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
-		return
+		return false
 	case err != nil:
 		WriteError(w, http.StatusInternalServerError, "the change set can't be written", delegationDocs)
-		return
+		return false
 	}
 	s.delegateEvent(a.user, "changeset", cs.ID)
 	WriteJSON(w, http.StatusOK, s.setFor(a, cs))
+	return true
 }
 
 // apiChangeSetWithdraw — DELETE /delegate/changesets/{id}: the agent takes
@@ -255,9 +254,25 @@ func (s *Server) apiChangeSetWithdraw(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiChangeSetReject — POST /delegate/changesets/{id}/reject: the person.
+// {via: "notification"} says the person rejected it from a notification's
+// action (D241): the log says so.
 func (s *Server) apiChangeSetReject(w http.ResponseWriter, r *http.Request) {
-	if a, ok := s.delegateCaller(w, r, true, false, false); ok {
-		s.endChangeSet(w, a, r.PathValue("id"), delegation.SetRejected)
+	a, ok := s.delegateCaller(w, r, true, false, false)
+	if !ok {
+		return
+	}
+	var body struct {
+		Via string `json:"via"`
+	}
+	if r.ContentLength != 0 {
+		if err := DecodeJSON(r, &body); err != nil || body.Via != "" && body.Via != viaNotification {
+			WriteError(w, http.StatusBadRequest, `need {via?: "notification"}`, delegationDocs)
+			return
+		}
+	}
+	if s.endChangeSet(w, a, r.PathValue("id"), delegation.SetRejected) && body.Via != "" {
+		s.delegateAudit(delegation.Call{User: a.user, Method: "POST", Path: "/api/xbin/delegate/changesets/" + r.PathValue("id") + "/reject",
+			Class: "decision:" + delegation.SetRejected, Effect: true, Status: http.StatusOK, Ticket: r.PathValue("id"), Via: body.Via})
 	}
 }
 

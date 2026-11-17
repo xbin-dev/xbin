@@ -180,11 +180,11 @@ func TestLiveActivityFollowsTheTurn(t *testing.T) {
 		state ActivityState
 		prio  int
 	}{
-		{"update", ActivityState{PhaseWaiting, since, 1}, 10},
-		{"update", ActivityState{PhaseWaiting, since, 2}, 10},
-		{"update", ActivityState{PhaseWaiting, since, 1}, 10},
-		{"update", ActivityState{PhaseRunning, since, 0}, 5},
-		{"end", ActivityState{PhaseIdle, since, 0}, 10},
+		{"update", ActivityState{PhaseWaiting, since, 1, 0}, 10},
+		{"update", ActivityState{PhaseWaiting, since, 2, 0}, 10},
+		{"update", ActivityState{PhaseWaiting, since, 1, 0}, 10},
+		{"update", ActivityState{PhaseRunning, since, 0, 0}, 5},
+		{"end", ActivityState{PhaseIdle, since, 0, 0}, 10},
 	}
 	var last int64
 	for i, p := range got {
@@ -251,7 +251,7 @@ func TestLiveActivityPushToStart(t *testing.T) {
 	p := got[0]
 	checkGeneric(t, p)
 	if p.Handle != "start-handle-phone" || p.Activity.Event != "start" || p.Activity.WS != r.s.Workspace() || p.Activity.Ref == "" ||
-		p.Activity.State != (ActivityState{PhaseRunning, (t0 + 1000) / 1000, 0}) || p.Priority != 10 {
+		p.Activity.State != (ActivityState{PhaseRunning, (t0 + 1000) / 1000, 0, 0}) || p.Priority != 10 {
 		t.Fatalf("start: %+v %+v", p, p.Activity)
 	}
 	ref := p.Activity.Ref
@@ -270,7 +270,7 @@ func TestLiveActivityPushToStart(t *testing.T) {
 		t.Fatalf("register by ref: %d %v", code, out)
 	}
 	got = waitLive(t, r, 3)
-	if got[2].Handle != "la-handle-phone" || got[2].Activity.Event != "update" || got[2].Activity.State != (ActivityState{PhaseWaiting, (t0 + 1000) / 1000, 1}) {
+	if got[2].Handle != "la-handle-phone" || got[2].Activity.Event != "update" || got[2].Activity.State != (ActivityState{PhaseWaiting, (t0 + 1000) / 1000, 1, 0}) {
 		t.Fatalf("catch-up after the ref registration: %+v", got[2].Activity)
 	}
 	if code, _ := r.activity(alice, map[string]any{"deviceId": "phone", "ref": "unknownref123", "handle": "la-handle-xx"}); code != 404 {
@@ -638,7 +638,7 @@ func TestLiveActivityLimitedUpdateGoesLater(t *testing.T) {
 	got := waitLive(t, r, 3)
 	slices.SortFunc(got, func(a, b relayPush) int { return int(a.Activity.Timestamp - b.Activity.Timestamp) })
 	since := t0 / 1000
-	for i, want := range []ActivityState{{PhaseWaiting, since, 1}, {PhaseRunning, since, 0}, {PhaseWaiting, since, 1}} {
+	for i, want := range []ActivityState{{PhaseWaiting, since, 1, 0}, {PhaseRunning, since, 0, 0}, {PhaseWaiting, since, 1, 0}} {
 		if got[i].Activity.Event != "update" || got[i].Activity.State != want {
 			t.Fatalf("push %d: %+v, want %+v", i, got[i].Activity, want)
 		}
@@ -654,12 +654,12 @@ func TestLiveActivityLimitedUpdateGoesLater(t *testing.T) {
 	eventually(t, "the card catches up", func() bool {
 		ps := livePushes(r)
 		slices.SortFunc(ps, func(a, b relayPush) int { return int(a.Activity.Timestamp - b.Activity.Timestamp) })
-		return ps[len(ps)-1].Activity.State == ActivityState{PhaseRunning, since, 0}
+		return ps[len(ps)-1].Activity.State == ActivityState{PhaseRunning, since, 0, 0}
 	})
 	time.Sleep(150 * time.Millisecond)
 	ps := livePushes(r)
 	slices.SortFunc(ps, func(a, b relayPush) int { return int(a.Activity.Timestamp - b.Activity.Timestamp) })
-	if last := ps[len(ps)-1].Activity.State; last != (ActivityState{PhaseRunning, since, 0}) {
+	if last := ps[len(ps)-1].Activity.State; last != (ActivityState{PhaseRunning, since, 0, 0}) {
 		t.Fatalf("the card ends on %+v", last)
 	}
 }

@@ -388,6 +388,9 @@ struct AgentApprovalSheet: View {
     @State private var showAllBrief = false
     /// A 409's refusal: the agent stopped while the sheet was open.
     @State private var refusal = ""
+    /// Where a request that no longer waits was decided ("on the web",
+    /// "from a notification on this iPhone", D241).
+    @State private var place = ""
 
     /// Why nothing can be allowed now ("" when it can): xbind's 409, else the state.
     private var stop: String { refusal.isEmpty ? DelegationWords.stopRefusal(workspace.agent.state) : refusal }
@@ -403,7 +406,7 @@ struct AgentApprovalSheet: View {
                 }
                 if r.isPending { buttons(r) } else { doneBar }
             } else if loaded {
-                AgentStateView(title: "Nothing to approve", text: "This request isn't waiting any more, or isn't yours.", more: "", retry: nil)
+                AgentStateView(title: "Nothing to approve", text: AgentNoticeWords.gone404, more: "", retry: nil)
                 doneBar
             } else {
                 ProgressView().controlSize(.large).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -416,6 +419,7 @@ struct AgentApprovalSheet: View {
         .task(id: id) {
             request = await workspace.agent.request(id)
             loaded = true
+            if let r = request, !r.isPending { place = await AgentNotifications.shared.placeOf(r, in: workspace) }
             duration = AgentChoices.duration(for: choice)
             arming.arm(settle: 0.4) // the sheet's own slide comes first
             widen.arm(settle: 0.4)
@@ -459,6 +463,11 @@ struct AgentApprovalSheet: View {
         if !r.isPending {
             Label { Text(verbatim: r.kind == .unknown ? DelegationWords.unknownState.text : DelegationWords.settled(r)) } icon: { Image(systemName: "info.square") }
                 .font(.callout.weight(.semibold))
+                .accessibilityIdentifier("approval-settled")
+            if !place.isEmpty {
+                Text(verbatim: "Already decided \(place).").font(.callout).foregroundStyle(XbinColor.muted)
+                    .accessibilityIdentifier("approval-decided-where")
+            }
         }
         if r.preview["readWeb"]?.boolValue == true { AgentReadWebBanner() }
         switch r.kind {

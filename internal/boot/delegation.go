@@ -189,6 +189,9 @@ func holderCallPolicy(srv *server.Server, brk *broker.Broker) llm.CallPolicy {
 				return fmt.Errorf("this agent session has seen data of %s, which %s may no longer see: %w", org, h.Model, err)
 			}
 		}
+		if srv.AgentWorked != nil {
+			srv.AgentWorked(c.User) // its turn runs: the person's Live Activity says so (D241)
+		}
 		return nil
 	}
 }

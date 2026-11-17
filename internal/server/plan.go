@@ -521,8 +521,6 @@ func (s *Server) apiPlanNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.delegateEvent(a.user, "changeset", cs.ID)
-	s.delegatePush(a.user, a.p.Agent, "agent.changeset", "Your agent proposes a plan",
-		fmt.Sprintf("%d change(s) wait for your approval. Nothing is applied until you approve it.", len(cs.Items)), "agent-changeset:"+cs.ID)
 	WriteJSON(w, http.StatusOK, s.setFor(a, cs))
 }
 
@@ -820,8 +818,6 @@ func (s *Server) apiChangeSetAsk(w http.ResponseWriter, r *http.Request) {
 		}
 		sent++
 		s.delegateEvent(adm.UserID, "changeset", copy.ID)
-		s.delegatePush(adm.UserID, cs.Agent, "agent.changeset", a.user+" asks for an admin's changes",
-			fmt.Sprintf("%d change(s) their workspace agent proposed need an admin. Nothing is applied until an admin approves it.", len(items)), "agent-ask:"+ask)
 	}
 	if sent == 0 {
 		WriteError(w, http.StatusConflict, "no admin could be asked now (their lists are full): try again later", delegationDocs)

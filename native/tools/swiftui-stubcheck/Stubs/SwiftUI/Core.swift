@@ -131,3 +131,21 @@ public struct ProposedViewSize: Sendable, Equatable {
     public init(_ size: CGSize) { width = size.width; height = size.height }
     public static let unspecified = ProposedViewSize(width: nil, height: nil)
 }
+
+// TimelineView (the composer's dictation clock, D241).
+public protocol TimelineSchedule {}
+public struct PeriodicTimelineSchedule: TimelineSchedule {
+    public init(from startDate: Date, by interval: TimeInterval) {}
+}
+extension TimelineSchedule where Self == PeriodicTimelineSchedule {
+    public static func periodic(from startDate: Date, by interval: TimeInterval) -> PeriodicTimelineSchedule {
+        PeriodicTimelineSchedule(from: startDate, by: interval)
+    }
+}
+public struct TimelineViewDefaultContext {
+    public var date: Date { Date() }
+}
+public struct TimelineView<Schedule: TimelineSchedule, Content: View>: View {
+    public init(_ schedule: Schedule, @ViewBuilder content: @escaping (TimelineViewDefaultContext) -> Content) {}
+    public var body: some View { EmptyView() }
+}

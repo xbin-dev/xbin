@@ -49,6 +49,7 @@ public struct EnvironmentValues {
     }
     public var colorScheme: ColorScheme { get { .light } set {} }
     public var dynamicTypeSize: DynamicTypeSize { get { .large } set {} }
+    public var accessibilityReduceMotion: Bool { false }
     public var horizontalSizeClass: UserInterfaceSizeClass? { get { nil } set {} }
     public var scenePhase: ScenePhase { get { .active } set {} }
     public var timeZone: TimeZone { get { .current } set {} }

@@ -145,13 +145,38 @@ public enum HandoffLink {
 
     public static func pageURL(origin: ServerOrigin, page: XbindPage) -> URL? { origin.url(path: page.path) }
 
+    /// The workspace agent's conversation, for Handoff (D241): the web's
+    /// `/xbin/agent` — xbind's page, which opens on the person's last
+    /// session (the view keeps it in the agent's prefs) — and the link
+    /// another device's app opens.
+    public static func agentPage(origin: ServerOrigin) -> (page: URL?, link: DeepLink) {
+        (origin.url(path: XbindPage.agent.path), .page(workspace: origin.authority, page: .agent))
+    }
+
+    /// A web URL handed to the app (Handoff of a browsing activity, a
+    /// universal link where the app's link domain allows one): the
+    /// workspace agent's page of one of `origins` — `(app workspace id,
+    /// origin)` — as the router's link; nil for anything else (it stays the
+    /// browser's). A self-hosted workspace's own domain never reaches the
+    /// app this way: the App Store app can claim only domains its
+    /// entitlements name.
+    public static func agentLink(webURL: URL, origins: [(id: String, origin: ServerOrigin)]) -> DeepLink? {
+        guard let c = URLComponents(url: webURL, resolvingAgainstBaseURL: false), let scheme = c.scheme, let host = c.host,
+              c.user == nil, c.password == nil, let o = try? ServerOrigin(scheme: scheme, host: host, port: c.port),
+              let w = origins.first(where: { $0.origin == o }) else { return nil }
+        let path = c.percentEncodedPath.hasSuffix("/") ? String(c.percentEncodedPath.dropLast()) : c.percentEncodedPath
+        guard path == XbindPage.agent.path else { return nil }
+        if let f = c.fragment, let r = AgentRoute(fragment: f) { return .workspaceAgent(workspace: w.id, route: r) }
+        return .page(workspace: w.id, page: .agent)
+    }
+
     public static func userInfo(_ link: DeepLink) -> [String: String] { [linkKey: link.string] }
 
     /// The link a continued activity carries (nil: none, or not ours).
     public static func link(fromUserInfo info: [AnyHashable: Any]?) -> DeepLink? {
         guard let s = info?[linkKey] as? String, let l = try? DeepLink(string: s) else { return nil }
         switch l {
-        case .tile, .agent, .terminal, .workspace, .page: return l
+        case .tile, .agent, .terminal, .workspace, .page, .workspaceAgent: return l
         case .enroll, .tunnelEnroll, .sso, .ssoError: return nil // never from an activity
         }
     }

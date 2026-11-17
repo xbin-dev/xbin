@@ -57,10 +57,55 @@ extension PushAPI {
         APIRequest("DELETE", "\(registrations)/\(URLComponent.encode(deviceId))/activities/\(URLComponent.encode(session))")
     }
 
-    /// The session an activity registration names (`{activity: {session}}`).
+    /// The session an activity registration names (`{activity: {session}}`;
+    /// the workspace agent's card answers `{activity: {agent: true}}`:
+    /// ``agentSession``).
     public static func activitySession(_ json: JSONValue) -> String? {
+        if json["activity"]?["agent"]?.boolValue == true { return agentSession }
         guard let s = json["activity"]?["session"]?.stringValue, !s.isEmpty else { return nil }
         return s
+    }
+
+    /// The workspace agent's card as xbind's store names it (D241): no
+    /// agent session id has an '@'.
+    public static let agentSession = "@agent"
+
+    /// `POST …/devices/push/activities {deviceId, agent: true, handle, since?}`:
+    /// the workspace agent's card the app started (D241).
+    public static func registerAgentActivity(deviceId: String, handle: String, since: Int64 = 0) -> APIRequest {
+        var o: [String: JSONValue] = ["deviceId": .string(deviceId), "agent": .bool(true), "handle": .string(handle)]
+        if since > 0 { o["since"] = .int(since) }
+        return .json("POST", activities, .object(o))
+    }
+
+    /// The registration with both push-to-start handles: the tile agents'
+    /// (`startHandle`) and the workspace agent card's (`agentStartHandle`,
+    /// D241) — nil leaves one as it is, "" removes it.
+    public static func register(deviceId: String, handle: String, publicKey: String, kinds: [String], startHandle: String?,
+                                agentStartHandle: String?) -> APIRequest {
+        var r = register(deviceId: deviceId, handle: handle, publicKey: publicKey, kinds: kinds, startHandle: startHandle)
+        if let agentStartHandle, var o = r.body.flatMap({ try? JSONValue(parsing: $0) })?.objectValue {
+            o["agentStartHandle"] = .string(agentStartHandle)
+            r = .json("POST", registrations, .object(o))
+        }
+        return r
+    }
+
+    /// Whether xbind holds the workspace agent card's push-to-start handle
+    /// for this device (`agentStart`); nil when the device is not listed.
+    public static func hasAgentPushToStart(_ json: JSONValue, deviceId: String) -> Bool? {
+        var list = json["devices"]?.arrayValue ?? []
+        if let one = json["device"] { list.append(one) }
+        for d in list where d["deviceId"]?.stringValue == deviceId {
+            return d["agentStart"]?.boolValue ?? false
+        }
+        return nil
+    }
+
+    /// What this xbind's push plane does beyond the first version
+    /// (`features` of `GET /api/xbin/devices/push`, D241): [] on an older one.
+    public static func features(_ json: JSONValue?) -> [String] {
+        (json?["features"]?.arrayValue ?? []).compactMap(\.stringValue)
     }
 
     /// Whether xbind holds a push-to-start handle for this device, from

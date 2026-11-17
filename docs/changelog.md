@@ -10,6 +10,51 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-17
+
+- **The workspace agent reaches you when the app is not open** (D241;
+  [workspace-agent.md §In the xbin app](/docs/workspace-agent.md#in-the-xbin-app),
+  [protocol/devices.md](/docs/protocol/devices.md) §The workspace agent's
+  notifications and §…card). xbind sends **one notification a thing that
+  waits** — a request, a plan, admin changes, an admin's ask, the agent's
+  question — after a 3 s grace, and one when a request is finished; the
+  words are xbind's (a delegation holder's `POST /notify` is worded by
+  xbind; the agent's question is drawn quoted, never as a title), and the
+  request's own fields ride sealed with it (the payload's new `agent`
+  member). When the thing no longer waits — decided on the web or another
+  device, withdrawn, expired, withdrawn by a switch — a background
+  `agent.clear` takes the notification back (new relay push type
+  `background`, listed in the relay's `GET /v1/workspace` `features`).
+  The approval and change-set pushes now link `xbin/agent#r=<id>` /
+  `#cs=<id>` (before: the holder's path, which the app could not open).
+  **Lock-screen actions**: Allow once only for a single tile API call whose
+  whole call fits the notification (xbind's rule, `offer: "once"`, and the
+  app's own check), and only after you turn it on in the app; Deny (on by
+  default) and Review… otherwise; every action asks for device
+  authentication and re-reads the request first. `POST
+  /delegate/requests/<id>/approve` and `…/deny`, and `…/changesets/<id>/reject`,
+  take `via: "notification"`: an Allow sent that way is held to the same
+  rule (`409 {review: true}` otherwise), and the decision is recorded
+  (`decidedFrom`, `decidedDevice` on the request; `via` in the log). **One
+  Live Activity per workspace** while your agent works or something waits:
+  counts and a phase only (`POST /devices/push/activities {agent: true}`,
+  `agentStartHandle`; the relay's activity `kind: "agent"`). `GET
+  /devices/push` lists `features` (`agent-push/1`, `agent-actions/1`,
+  `agent-activity/1`). In the app: the router opens exactly the thing from
+  a notification, the card or Handoff (cold start, another workspace, "Already
+  decided on the web" when it is gone); per-workspace settings (Needs you,
+  Finished, Live Activity, Deny and Allow once from a notification) that
+  the push registration's kinds follow; a mic in the agent's composer
+  (on-device speech, nothing sent by voice); Reply from a notification
+  (a message, never a decision); Handoff of the conversation to
+  `/xbin/agent`; the badge across workspaces. The agent's quick replies
+  (the composer's chips, the plan card's Go ahead) now fill the message
+  box and never send by themselves — on the web too. Under the app's
+  "Require Face ID to open", notifications offer only Review/Open; a
+  notification's title never holds a tile's name (it is quoted in the
+  text); the agent and its page read a request without `decidedFrom` and
+  `decidedDevice`. The relay gains a development `-spool-dir`.
+
 ## 2026-11-16
 
 - sdk/acp: **a steer or a cancel made right after `Prompt` returns reaches

@@ -42,6 +42,8 @@ public func XCTAssertFalse(_ expression: @autoclosure () throws -> Bool, _ messa
                            file: StaticString = #filePath, line: UInt = #line) {}
 public func XCTAssertEqual<T: Equatable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
                                          _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
+public func XCTAssertNotEqual<T: Equatable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
+                                            _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
 public func XCTAssertLessThan<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
                                             _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {}
 public func XCTAssertGreaterThan<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T,
@@ -181,12 +183,15 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open func press(forDuration duration: TimeInterval) {}
     open func typeText(_ text: String) {}
     open func swipeUp() {}
+    open func swipeLeft() {}
     open func swipeUp(velocity: XCUIGestureVelocity) {}
     open func swipeDown() {}
     open func pinch(withScale scale: CGFloat, velocity: CGFloat) {}
     open func coordinate(withNormalizedOffset normalizedOffset: CGVector) -> XCUICoordinate { XCUICoordinate() }
     open func screenshot() -> XCUIScreenshot { XCUIScreenshot() }
     open var buttons: XCUIElementQuery { XCUIElementQuery() }
+    open var icons: XCUIElementQuery { XCUIElementQuery() }
+    open var collectionViews: XCUIElementQuery { XCUIElementQuery() }
     open var staticTexts: XCUIElementQuery { XCUIElementQuery() }
     open var textFields: XCUIElementQuery { XCUIElementQuery() }
     open var secureTextFields: XCUIElementQuery { XCUIElementQuery() }
@@ -217,6 +222,7 @@ open class XCUIElementQuery: XCUIElementTypeQueryProvider {
     open var element: XCUIElement { XCUIElement() }
     open var count: Int { 0 }
     open func element(boundBy index: Int) -> XCUIElement { XCUIElement() }
+    open var allElementsBoundByIndex: [XCUIElement] { [] }
     open var buttons: XCUIElementQuery { self }
     open var staticTexts: XCUIElementQuery { self }
     open var textFields: XCUIElementQuery { self }
@@ -246,6 +252,8 @@ open class XCUIApplication: XCUIElement {
     open func activate() {}
     open func terminate() {}
     open func open(_ url: URL) {}
+    public enum State: UInt, Sendable { case unknown, notRunning, runningBackgroundSuspended = 2, runningBackground, runningForeground }
+    open var state: State { .unknown }
 }
 
 @MainActor
@@ -254,7 +262,13 @@ open class XCUIDevice {
     public enum Button: Int, Sendable { case home = 1 }
     open func press(_ button: Button) {}
     open var system: XCUISystem { XCUISystem() }
+    // NSObject's perform (the simulator's lock button, D241's tests)
+    @discardableResult open func perform(_ aSelector: Selector) -> Any? { nil }
 }
+
+// Objective-C selectors as the tests name them (there is no runtime here).
+public struct Selector { public init(_ name: String) {} }
+public func NSSelectorFromString(_ name: String) -> Selector { Selector(name) }
 
 @MainActor
 open class XCUISystem {

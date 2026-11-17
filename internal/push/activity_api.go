@@ -61,10 +61,19 @@ func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 		Ref      string `json:"ref"`
 		Handle   string `json:"handle"`
 		Since    int64  `json:"since"`
+		// Agent: the workspace agent's card (D241; agentactivity.go), not a
+		// session's
+		Agent bool `json:"agent"`
 	}
 	if decode(r, &body) != nil {
-		fail(w, http.StatusBadRequest, "need {deviceId, session | ref, handle}")
+		fail(w, http.StatusBadRequest, "need {deviceId, session | ref | agent: true, handle}")
 		return
+	}
+	named := 0
+	for _, b := range []bool{body.Session != "", body.Ref != "", body.Agent} {
+		if b {
+			named++
+		}
 	}
 	switch {
 	case !deviceIDRe.MatchString(body.DeviceID):
@@ -73,8 +82,8 @@ func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 	case !handleRe.MatchString(body.Handle):
 		fail(w, http.StatusBadRequest, "handle: the relay's Live Activity handle (base64url)")
 		return
-	case (body.Session == "") == (body.Ref == ""):
-		fail(w, http.StatusBadRequest, "session or ref: one of them")
+	case named != 1:
+		fail(w, http.StatusBadRequest, "session, ref or agent: one of them")
 		return
 	case body.Session != "" && !sessionIDRe.MatchString(body.Session):
 		fail(w, http.StatusBadRequest, "session: an agent session id")
@@ -96,6 +105,9 @@ func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, pushStarted := body.Session, false
+	if body.Agent {
+		session = AgentSession
+	}
 	if body.Ref != "" {
 		for _, a := range d.Activities {
 			if a.Ref == body.Ref {
@@ -112,10 +124,26 @@ func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 			if s.Enabled() {
 				s.endLate(user, body.DeviceID, body.Handle, e, body.Since)
 			}
-			server.WriteJSON(w, http.StatusOK, map[string]any{"activity": map[string]any{"session": e.session,
-				"created": s.o.Now().Unix(), "ended": true}})
+			out := map[string]any{"session": e.session, "created": s.o.Now().Unix(), "ended": true}
+			if e.session == AgentSession {
+				out = map[string]any{"agent": true, "created": s.o.Now().Unix(), "ended": true}
+			}
+			server.WriteJSON(w, http.StatusOK, map[string]any{"activity": out})
 			return
 		}
+	}
+	if session == AgentSession { // the workspace agent's card: the person's own, whatever runs
+		a := Activity{Session: AgentSession, Handle: body.Handle, Ref: body.Ref, Created: s.o.Now().Unix()}
+		if !s.st.setActivity(user, body.DeviceID, a) {
+			fail(w, http.StatusNotFound, "no push registration for that device: POST /devices/push first")
+			return
+		}
+		out := map[string]any{"agent": true, "created": a.Created}
+		if s.Enabled() && s.agentRegistered(user, body.DeviceID, body.Handle, pushStarted, body.Since) {
+			out["ended"] = true
+		}
+		server.WriteJSON(w, http.StatusOK, map[string]any{"activity": out})
+		return
 	}
 	// the session must be the caller's: its turns are nobody else's to watch
 	if s.o.Session == nil {
@@ -157,7 +185,12 @@ func (s *Service) APIActivityDelete(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.ownDevice(w, r, user, dev); !ok {
 		return
 	}
-	noted := s.dismissCard(user, dev, session)
+	noted := false
+	if session == AgentSession {
+		noted = s.agentDismissed(user, dev)
+	} else {
+		noted = s.dismissCard(user, dev, session)
+	}
 	if !s.st.removeActivity(user, dev, session, "") && !noted {
 		fail(w, http.StatusNotFound, "no Live Activity registered for that session")
 		return

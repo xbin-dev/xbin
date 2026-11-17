@@ -520,11 +520,17 @@ func (s *Server) bearer(w http.ResponseWriter, r *http.Request) (string, bool) {
 
 // handleWorkspace is GET /v1/workspace: which workspace a key is — how
 // xbind checks a key an admin gives it (and a use of the key).
+// It lists what this relay can do beyond the first version (xbind sends
+// only what is listed): background pushes, and the workspace agent's Live
+// Activity (activity kind "agent").
 func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 	if ws, ok := s.bearer(w, r); ok {
-		writeJSON(w, http.StatusOK, map[string]string{"workspaceId": ws})
+		writeJSON(w, http.StatusOK, map[string]any{"workspaceId": ws, "features": Features})
 	}
 }
+
+// Features are what GET /v1/workspace lists.
+var Features = []string{"background", "activity-agent"}
 
 // Envelope is the sealed notification as xbind produces it (native/spec/
 // push.md). The relay checks its shape and size only — it cannot open it.
@@ -550,9 +556,18 @@ type pushReq struct {
 	CollapseID string    `json:"collapseId"`
 	Priority   int       `json:"priority"`
 	// Type "liveactivity" pushes a content state (Activity) to a Live
-	// Activity handle; "" or "alert" an envelope to a device handle.
+	// Activity handle; "" or "alert" an envelope to a device handle;
+	// "background" an envelope to a device handle as a background push —
+	// nothing shown, the app wakes and opens it (xbind takes notifications
+	// back with it).
 	Type     string        `json:"type"`
 	Activity *ActivityPush `json:"activity"`
+}
+
+// backgroundBody is a background push: no alert, content-available so the
+// app wakes, and the envelope under "xbin".
+func backgroundBody(env *Envelope) ([]byte, error) {
+	return json.Marshal(map[string]any{"aps": map[string]any{"content-available": 1}, "xbin": env})
 }
 
 // apnsBody is the alert the device receives: generic text, mutable-content
@@ -580,9 +595,10 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	live := q.Type == PushTypeLiveActivity
+	background := q.Type == "background"
 	switch {
-	case q.Type != "" && q.Type != "alert" && !live:
-		writeErr(w, http.StatusBadRequest, ErrBadRequest, "type: alert | liveactivity")
+	case q.Type != "" && q.Type != "alert" && !live && !background:
+		writeErr(w, http.StatusBadRequest, ErrBadRequest, "type: alert | background | liveactivity")
 		return
 	case live && q.Activity == nil:
 		writeErr(w, http.StatusBadRequest, ErrBadRequest, "need {handle, type: liveactivity, activity, priority?}")
@@ -659,10 +675,15 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 	}
 	n := Notification{Token: h.Token, Topic: h.Topic, Env: h.Env, CollapseID: q.CollapseID, Priority: q.Priority,
 		Expiration: now.Add(s.cfg.Expiry)}
-	if live {
+	switch {
+	case live:
 		n.Payload, err = activityBody(q.Activity)
 		n.Topic, n.PushType = h.Topic+liveTopicSuffix, PushTypeLiveActivity
-	} else {
+	case background:
+		// APNs takes a background push only at priority 5
+		n.Payload, err = backgroundBody(q.Envelope)
+		n.Background, n.Priority = true, 5
+	default:
 		n.Payload, err = apnsBody(q.Envelope)
 	}
 	if err != nil || len(n.Payload) > maxAPNsBody {

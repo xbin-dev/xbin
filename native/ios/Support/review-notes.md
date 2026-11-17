@@ -45,16 +45,17 @@ a coding session there. The app then shows its own approval sheet with the
 exact request as the server reports it, and nothing happens until the person
 taps Allow or Deny. Allowing every change to an app, and applying
 administrator changes, ask for Face ID first. Pause stops the agent at once.
-The app runs no model and downloads no code for this. The demo account has an
-agent.
+Notification actions (Deny; Allow once only for a small change shown whole,
+if turned on) ask for Face ID. The mic uses on-device speech only. The app
+runs no model and downloads no code for it. The demo account has an agent.
 
 **Not a VPN.** The tunnel carries only this app's own traffic to the user's
 own workspace. The app uses no NetworkExtension, installs no VPN
 configuration and routes nothing for the system or other apps. While the app
 is in the foreground it listens on 127.0.0.1 inside the app and forwards its
 own requests (including its web views') through the tunnel; it stops when the
-app leaves the foreground. The app has no background modes. It downloads no
-code.
+app leaves the foreground. Background modes (remote notifications, fetch)
+only clear decided notifications and the badge. It downloads no code.
 
 **Local Network.** iOS may ask whether xbin can use the local network. The
 tunnel uses it to connect directly when the phone and the workspace are on

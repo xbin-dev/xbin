@@ -416,7 +416,14 @@ final class NativeTileRuntime: NSObject {
         var s = hatches.services(copy: copy, openLink: openLink, imageData: imageData)
         // `request` and `session` nodes are the app's to draw, from xbind's
         // reading of the id — and only in the agent's own container.
-        if isAgent, let host = agentHost { s.trustedNode = host.node }
+        if isAgent, let host = agentHost {
+            s.trustedNode = host.node
+            // the composer's mic and whose quick replies they are (D241): the
+            // person's agent's view only — no tile gets a microphone
+            AgentDictation.shared.refreshAvailable()
+            s.dictation = AgentDictation.shared
+            s.suggestionsLabel = "Suggested by your agent — tap to edit, then send"
+        }
         return s
     }
 

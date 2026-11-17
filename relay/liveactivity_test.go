@@ -480,3 +480,85 @@ func TestLiveActivityStartHandleOutlivesCards(t *testing.T) {
 		t.Fatalf("start after the reopen: %d", code)
 	}
 }
+
+// The workspace agent's card (kind "agent", D241): its own attributes type
+// on a start, paused and a count of working tile agents in its state —
+// still numbers and enumerated words only.
+func TestAgentActivityPushShape(t *testing.T) {
+	r := newRig(t, nil)
+	key, parent := r.workspace(), r.handle(tokenOK)
+	h := r.mustChild(parent, laToken)
+	sh := r.startChild(parent, laToken2)
+	now := r.clock().Unix()
+	start := map[string]any{"kind": "agent", "event": "start", "timestamp": now, "ws": "wsPushId_1", "ref": "ref-9",
+		"state": map[string]any{"phase": "waiting", "since": now, "pending": 2, "agents": 3}}
+	if code, out := r.live(key, sh, start, nil); code != 200 {
+		t.Fatalf("start: %d %v", code, out)
+	}
+	upd := map[string]any{"kind": "agent", "event": "update", "timestamp": now + 1,
+		"state": map[string]any{"phase": "paused", "since": now, "pending": 0, "agents": 0}}
+	if code, out := r.live(key, h, upd, nil); code != 200 {
+		t.Fatalf("paused update: %d %v", code, out)
+	}
+	got := r.fake.pushes()
+	if len(got) != 2 {
+		t.Fatalf("fake got %d pushes", len(got))
+	}
+	a, _ := json.Marshal(got[0].body)
+	want := `{"aps":{"alert":{"body":"Your workspace agent needs you.","title":"xbin"},"attributes":{"appWorkspace":"","ref":"ref-9","workspace":"","ws":"wsPushId_1"},` +
+		`"attributes-type":"WorkspaceAgentActivityAttributes","content-state":{"agents":3,"pending":2,"phase":"waiting","since":` + fmtInt(now) + `},` +
+		`"event":"start","input-push-token":1,"timestamp":` + fmtInt(now) + `}}`
+	if string(a) != want {
+		t.Fatalf("the card's start\n got %s\nwant %s", a, want)
+	}
+	if cs := got[1].body["aps"].(map[string]any)["content-state"].(map[string]any); cs["phase"] != "paused" || cs["agents"] != float64(0) {
+		t.Fatalf("the paused update: %v", cs)
+	}
+}
+
+// Nothing but the card's numbers and words passes; a tile agent's turn
+// can't say paused or carry a count; text is refused.
+func TestAgentActivityRefusesText(t *testing.T) {
+	r := newRig(t, nil)
+	key, parent := r.workspace(), r.handle(tokenOK)
+	h := r.mustChild(parent, laToken)
+	now := r.clock().Unix()
+	for name, act := range map[string]map[string]any{
+		"another kind":           {"kind": "tile", "event": "update", "timestamp": now, "state": map[string]any{"phase": "running", "since": now, "pending": 0}},
+		"a turn paused":          {"event": "update", "timestamp": now, "state": map[string]any{"phase": "paused", "since": now, "pending": 0}},
+		"a turn with a count":    {"event": "update", "timestamp": now, "state": map[string]any{"phase": "running", "since": now, "pending": 0, "agents": 2}},
+		"too many tile agents":   {"kind": "agent", "event": "update", "timestamp": now, "state": map[string]any{"phase": "running", "since": now, "pending": 0, "agents": 100}},
+		"a phase of its own":     {"kind": "agent", "event": "update", "timestamp": now, "state": map[string]any{"phase": "Invoices is done", "since": now, "pending": 0}},
+		"text in a number field": {"kind": "agent", "event": "update", "timestamp": now, "state": map[string]any{"phase": "running", "since": now, "pending": "2 — approve the transfer"}},
+	} {
+		if code, out := r.live(key, h, act, nil); code != 400 {
+			t.Errorf("%s: %d %v", name, code, out)
+		}
+	}
+	if n := len(r.fake.pushes()); n != 0 {
+		t.Fatalf("%d refused pushes reached APNs", n)
+	}
+}
+
+// A background push: the sealed envelope with no alert, priority 5, push
+// type background — and the relay lists it.
+func TestBackgroundPush(t *testing.T) {
+	r := newRig(t, nil)
+	key, h := r.workspace(), r.handle(tokenOK)
+	code, out, _ := r.call("POST", "/v1/push", key, map[string]any{"handle": h, "type": "background", "envelope": envelope(), "priority": 10})
+	if code != 200 {
+		t.Fatalf("background: %d %v", code, out)
+	}
+	got := r.fake.pushes()
+	if len(got) != 1 || got[0].pushType != "background" || got[0].priority != "5" {
+		t.Fatalf("headers: %+v", got)
+	}
+	aps := got[0].body["aps"].(map[string]any)
+	if aps["content-available"] != float64(1) || aps["alert"] != nil || aps["mutable-content"] != nil || got[0].body["xbin"] == nil {
+		t.Fatalf("body: %v", got[0].body)
+	}
+	_, ws, _ := r.call("GET", "/v1/workspace", key, nil)
+	if f, _ := ws["features"].([]any); len(f) != 2 || f[0] != "background" || f[1] != "activity-agent" {
+		t.Fatalf("features: %v", ws)
+	}
+}

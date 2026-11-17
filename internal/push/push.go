@@ -115,7 +115,18 @@ type Options struct {
 	// Activity by push on devices that show none (0 = 30s; negative =
 	// never).
 	StartAfter time.Duration
-	Log        *slog.Logger
+	// AgentBadge is the person's count for the workspace agent's
+	// notifications (what waits for them; agent.go). nil: 0.
+	AgentBadge func(user string) int
+	// AgentPicture reads what the person's workspace agent is doing, for
+	// its Live Activity (agentactivity.go). nil: no such card.
+	AgentPicture func(user string) AgentPicture
+	// AgentIdleGrace is how long the workspace agent's card stays up with
+	// nothing working or waiting before it ends (0 = 2 min); AgentCoalesce
+	// how long changes gather into one update (0 = 500 ms; tests: < 0 at
+	// once).
+	AgentIdleGrace, AgentCoalesce time.Duration
+	Log                           *slog.Logger
 }
 
 // SessionInfo is what the push plane needs of an agent session.
@@ -145,6 +156,17 @@ type Service struct {
 	lmu   sync.Mutex
 	turns map[string]*liveSession // agent sessions followed for Live Activities (activity.go)
 	ended map[string]endedRef     // push-started activities whose turn ended before their token came (activity.go)
+
+	// the relay's features (agent.go relayHas): what it listed, when, for
+	// which key
+	fmu     sync.Mutex
+	feats   map[string]bool
+	featAt  time.Time
+	featKey string
+
+	// the workspace agents' Live Activities (agentactivity.go), per person
+	amu    sync.Mutex
+	agents map[string]*agentLive
 
 	// the last key check (StartKeyCheck): when, and what went wrong ("" ok)
 	keyAt  int64
@@ -180,7 +202,7 @@ func New(o Options) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{o: o, st: st, held: map[string]*time.Timer{}, turns: map[string]*liveSession{}, done: make(chan struct{}),
+	s := &Service{o: o, st: st, held: map[string]*time.Timer{}, turns: map[string]*liveSession{}, done: make(chan struct{}), agents: map[string]*agentLive{},
 		actReg: newLimiter(o.Limits.Activities, o.Now), actPush: newLimiter(o.Limits.ActivityPush, o.Now), ended: map[string]endedRef{},
 		tile: newLimiter(o.Limits.Tile, o.Now), user: newLimiter(o.Limits.User, o.Now), agent: newLimiter(o.Limits.Agent, o.Now),
 		sess: newLimiter(o.Limits.Session, o.Now), self: newLimiter(o.Limits.Test, o.Now), reg: newLimiter(o.Limits.Register, o.Now)}
@@ -289,6 +311,9 @@ func (s *Service) checkKey() {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	_, code, err := s.probeKey(ctx, c.URL, c.Key)
+	if err == nil {
+		s.readFeatures(c) // what the relay can do (agent.go): read with the key check
+	}
 	msg := ""
 	switch {
 	case code == http.StatusUnauthorized:
@@ -396,6 +421,8 @@ type note struct {
 	link       string
 	collapse   string
 	priority   int
+	agent      RawJSON // Payload.Agent (agent.go)
+	background bool    // a background push (agent.clear): nothing shown
 }
 
 func kindAllowed(kinds []string, k string) bool {
@@ -417,6 +444,7 @@ const (
 	maxBody  = 1000 // runes
 	maxLink  = 512  // bytes
 	maxPlain = 2300 // bytes of payload JSON
+	maxAgent = 1600 // bytes of Payload.Agent
 )
 
 func marshalPayload(p Payload) ([]byte, error) {
@@ -440,6 +468,9 @@ func cut(s string, runes int) string {
 // fit truncates a payload until its JSON fits maxPlain.
 func fit(p Payload) ([]byte, error) {
 	p.Title, p.Body = cut(p.Title, maxTitle), cut(p.Body, maxBody)
+	if len(p.Agent) > maxAgent {
+		p.Agent = "" // (cannot happen with our own fields: agent.go keeps them small)
+	}
 	if len(p.Link) > maxLink {
 		p.Link = ""
 	}

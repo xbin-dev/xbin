@@ -65,6 +65,12 @@
 #                       from the checkout the first time it is opened (minutes
 #                       on a cold Go cache). The env file gains
 #                       XBIN_E2E_WSAGENT=1. 0 (default): none of it
+#   XBIN_E2E_PUSH       1: a development push relay (relay/, -spool-dir) on
+#                       P+3, xbind's push set up with it: what xbind sends
+#                       — sealed — is spooled in <dir>/spool as simctl push
+#                       takes it (mac-remote.sh hands each file to the
+#                       simulator); the env file gains XBIN_E2E_PUSH_RELAY
+#                       (the app's relay: -pushRelay). 0 (default): none
 #   XBIN_E2E_BIN        where start builds xbind, bx, fakeacp and fakeopenai
 #                       (default <repo>/bin; a directory elsewhere keeps a
 #                       full disk's checkout small)
@@ -126,6 +132,10 @@ stop() {
   if [ -f "$dir/relay.pid" ]; then
     kill "$(cat "$dir/relay.pid")" 2>/dev/null || true
     rm -f "$dir/relay.pid"
+  fi
+  if [ -f "$dir/pushrelay.pid" ]; then
+    kill "$(cat "$dir/pushrelay.pid")" 2>/dev/null || true
+    rm -f "$dir/pushrelay.pid"
   fi
   # A killed xbind can leave FUSE mounts under the workspace; a stale one
   # makes the next start's rm -rf fail.
@@ -231,6 +241,9 @@ start)
   say "building xbind, bx, fakeacp, fakeopenai into $bin"
   (cd "$repo" && go build -o "$bin/xbind" ./cmd/xbind && CGO_ENABLED=0 go build -o "$bin/bx" ./cmd/bx &&
     CGO_ENABLED=0 go build -o "$bin/fakeacp" ./hack/fakeacp && go build -o "$bin/fakeopenai" ./hack/fakeopenai)
+  if [ "${XBIN_E2E_PUSH:-0}" = 1 ]; then
+    (cd "$repo/relay" && CGO_ENABLED=0 go build -o "$bin/xbin-relay" ./cmd/xbin-relay) || { say "could not build the push relay"; exit 1; }
+  fi
   # apps/agent needs gocryptfs (its db, files and team are encrypted
   # resources; xbind finds it as internal/resenc Resolve does).
   agent=${XBIN_E2E_AGENT:-1} gcf=""
@@ -311,6 +324,16 @@ start)
     echo $! >"$dir/relay.pid"
     envs+=(XBIN_IROH="$XBIN_IROH")
   fi
+  # The push relay (XBIN_E2E_PUSH=1, D241): the real relay, spooling what it
+  # would send to APNs; loopback on P+3, carried to the Mac like xbind's port.
+  push_port=$((port + 3))
+  if [ "${XBIN_E2E_PUSH:-0}" = 1 ]; then
+    rm -rf "$dir/spool" "$dir/pushrelay-state.json" "$dir/pushrelay-state.json.log"
+    mkdir -p "$dir/spool"
+    nohup "$bin/xbin-relay" -listen "127.0.0.1:$push_port" -state "$dir/pushrelay-state.json" -spool-dir "$dir/spool" \
+      >"$dir/pushrelay.log" 2>&1 </dev/null &
+    echo $! >"$dir/pushrelay.pid"
+  fi
   [ -n "$gcf" ] && envs+=(XBIN_GOCRYPTFS="$gcf")
   ns=()
   [ "${XBIN_E2E_UNSHARE:-0}" = 1 ] && ns=(unshare -Urm) # it execs xbind: $! stays xbind's pid
@@ -358,6 +381,12 @@ start)
     wait_for 60 "the app tunnel's sidecar" tunnel_running
     say "app tunnel: relay http://127.0.0.1:$relay_port (log $dir/relay.log)"
   fi
+  if [ "${XBIN_E2E_PUSH:-0}" = 1 ]; then
+    wait_for 20 "the push relay" curl -fsS -o /dev/null "http://127.0.0.1:$push_port/healthz"
+    api PUT /api/xbin/push/config "{\"relay\":\"http://127.0.0.1:$push_port\"}" >/dev/null ||
+      { say "could not turn push on with the spooling relay — stopping"; stop; exit 1; }
+    say "push: relay http://127.0.0.1:$push_port spooling to $dir/spool (log $dir/pushrelay.log)"
+  fi
   # The counter's Go backend builds on first use (a cold build can take a
   # minute or two); the UI tests should not wait for it.
   wait_for 240 "the counter's backend" api GET /api/apps/counter/count
@@ -393,6 +422,7 @@ print(json.dumps(c))' >"$dir/agent-config.json"
     echo "XBIN_E2E_PASSWORD=$password"
     [ -n "$relay_token" ] && echo "XBIN_E2E_RELAY_PORT=$relay_port"
     [ "$wsagent" = 1 ] && echo "XBIN_E2E_WSAGENT=1"
+    [ "${XBIN_E2E_PUSH:-0}" = 1 ] && echo "XBIN_E2E_PUSH_RELAY=http://127.0.0.1:$push_port"
   } >"$dir/env"
   chmod 600 "$dir/env"
   # The workspace agent (D233), as an admin sets it up (docs/workspace-agent.md

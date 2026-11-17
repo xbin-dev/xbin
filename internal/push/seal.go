@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 )
 
@@ -28,6 +29,33 @@ type Payload struct {
 	Body       string `json:"body"`       // plain text
 	Link       string `json:"link"`       // workspace-relative: c/<tile>/…, agent/<session>, "" = none
 	CollapseID string `json:"collapseId"` // notifications sharing one replace each other ("" = none)
+	// Agent is a workspace agent notification's own data (agent.* kinds,
+	// D241; native/spec/push.md §2): the request or set it is about, the
+	// person's count, what to take back. Sealed with the rest.
+	Agent RawJSON `json:"agent,omitempty"`
+}
+
+// RawJSON is a JSON value kept as its text (comparable, unlike
+// json.RawMessage).
+type RawJSON string
+
+func (r RawJSON) MarshalJSON() ([]byte, error) {
+	if r == "" {
+		return []byte("null"), nil
+	}
+	return []byte(r), nil
+}
+
+func (r *RawJSON) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		*r = ""
+		return nil
+	}
+	if !json.Valid(b) {
+		return errors.New("not JSON")
+	}
+	*r = RawJSON(b)
+	return nil
 }
 
 // Envelope is a sealed Payload: base64url (no padding) of the ephemeral

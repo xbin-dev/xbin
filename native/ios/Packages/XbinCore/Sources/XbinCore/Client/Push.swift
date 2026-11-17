@@ -99,14 +99,18 @@ public struct PushPayload: Sendable, Equatable {
     public var body: String
     public var link: String
     public var collapseID: String
+    /// The workspace agent's kinds' own data (D241; ``AgentNoticeData``).
+    public var agent: JSONValue?
 
-    public init(ws: String, kind: String, title: String, body: String = "", link: String = "", collapseID: String = "") {
+    public init(ws: String, kind: String, title: String, body: String = "", link: String = "", collapseID: String = "",
+                agent: JSONValue? = nil) {
         self.ws = ws
         self.kind = kind
         self.title = title
         self.body = body
         self.link = link
         self.collapseID = collapseID
+        self.agent = agent
     }
 
     /// From the decrypted bytes; nil unless `v` is 1 (unknown fields ignored).
@@ -115,7 +119,7 @@ public struct PushPayload: Sendable, Equatable {
               let ws = j["ws"]?.stringValue, !ws.isEmpty else { return nil }
         self.init(ws: ws, kind: j["kind"]?.stringValue ?? "", title: j["title"]?.stringValue ?? "",
                   body: j["body"]?.stringValue ?? "", link: j["link"]?.stringValue ?? "",
-                  collapseID: j["collapseId"]?.stringValue ?? "")
+                  collapseID: j["collapseId"]?.stringValue ?? "", agent: j["agent"].flatMap { $0.objectValue != nil ? $0 : nil })
     }
 
     public var typedKind: Kind { Kind(kind) }

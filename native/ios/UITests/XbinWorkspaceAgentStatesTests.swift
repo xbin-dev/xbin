@@ -465,9 +465,14 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         e.expect(e.containing("You allowed a request"), 20, "the log in sentences")
         // (the list's closing note: a lazy list has it once it is scrolled to)
         let note = e.containing("can't read or change this list")
+        // drag inside the list (on an iPad it is a form sheet in the middle of the screen,
+        // whose bottom is above the screen's lower quarter)
+        let listRow = e.containing("You allowed a request").frame
+        let middle = CGPoint(x: listRow.midX, y: listRow.midY)
+        let list = e.app.collectionViews.allElementsBoundByIndex.last { $0.frame.contains(middle) } ?? e.app
         var swipes = 0
         while !note.exists, swipes < 12 {
-            e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).press(forDuration: 0.05, thenDragTo: e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(forDuration: 0.05, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)))
             swipes += 1
         }
         XCTAssertTrue(note.exists, "…and whose it is")

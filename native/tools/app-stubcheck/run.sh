@@ -50,7 +50,7 @@ cp "$term/SwiftTerm.swift" "$out/Sources/SwiftTerm/"
 # …and the app's.
 cp "$here/Stubs/UIKit/"*.swift "$out/Sources/UIKit/"
 cp "$here/Stubs/SwiftUI/"*.swift "$out/Sources/SwiftUI/"
-for m in WebKit CoreImage PhotosUI UniformTypeIdentifiers; do cp -R "$here/Stubs/$m" "$out/Sources/"; done
+for m in WebKit CoreImage PhotosUI UniformTypeIdentifiers Speech AVFoundation; do cp -R "$here/Stubs/$m" "$out/Sources/"; done
 # The SDK runs a view's refreshable action on the main actor.
 sed -i.orig 's/public func refreshable(action:/public func refreshable(@_inheritActorContext action:/' "$out/Sources/SwiftUI/Modifiers.swift"
 if [ "$strict" = 1 ]; then
@@ -100,13 +100,15 @@ let package = Package(
         .target(name: "WebKit", dependencies: ["UIKit"]),
         .target(name: "CoreImage", dependencies: ["UIKit"]),
         .target(name: "PhotosUI", dependencies: ["SwiftUI", "UniformTypeIdentifiers"]),
+        .target(name: "AVFoundation"),
+        .target(name: "Speech", dependencies: ["AVFoundation"]),
         .target(name: "SwiftTerm", dependencies: ["UIKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .target(name: "XbinRendererModel", dependencies: [.product(name: "XbinCore", package: "XbinCore")]),
         .target(name: "XbinRendererCheck", dependencies: [
             "SwiftUI", "UIKit", "Charts", "QuickLook", "XbinRendererModel", .product(name: "XbinCore", package: "XbinCore"),
         ]),
         .target(name: "AppCheck", dependencies: [
-            "UIKit", "SwiftUI", "WebKit", "CoreImage", "PhotosUI", "UniformTypeIdentifiers", "SwiftTerm",
+            "UIKit", "SwiftUI", "WebKit", "CoreImage", "PhotosUI", "UniformTypeIdentifiers", "SwiftTerm", "Speech", "AVFoundation",
             "XbinRendererModel", "XbinRendererCheck",
             .product(name: "XbinCore", package: "XbinCore"),
             .product(name: "XbinTerm", package: "XbinTerm"),

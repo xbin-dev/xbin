@@ -797,7 +797,10 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 		e.settleOwnLink(t, run, linkState, outcome, res)
 	}
 	runTurnEnd(t, run, turnWhy(why), outcome, result) // turnEndHooks (project_events.go)
-	e.judgeTurn(t, run, turnWhy(why))                 // a project's turn that stopped part-way (judge.go, D198)
+	if wsMode() && run.ParentID == 0 && run.Origin == originWorkspace && (why == endAnswered || why == endFinished) {
+		t.AfterCommit(func() { e.ag.wsDoneMoment(run.ID) }) // "finished" for the person's phone, once a request (ws_done.go)
+	}
+	e.judgeTurn(t, run, turnWhy(why)) // a project's turn that stopped part-way (judge.go, D198)
 	// Nothing below a run outlives the turn that was going to consume it —
 	// except below a top-level run that errored: its subagents' results are
 	// delivered when the owner resumes it.

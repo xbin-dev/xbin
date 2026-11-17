@@ -41,6 +41,7 @@ go build -o xbin-relay ./relay/cmd/xbin-relay
 | `-topics` | `XBIN_RELAY_TOPICS` | any | comma-separated bundle ids a handle may name — **set it in production** |
 | `-trust-proxy` | `XBIN_RELAY_TRUST_PROXY` | off | client IP = the last `X-Forwarded-For` hop (registration rate limits) |
 | `-verify-tokens` | `XBIN_RELAY_NO_VERIFY_TOKENS` (set = off) | on | check each device token with APNs before storing a handle (needs `-apns-key`) |
+| `-spool-dir` | `XBIN_RELAY_SPOOL_DIR` | — | development only (not with `-apns-key`): each notification is written to this directory as the JSON `xcrun simctl push` takes (the APNs body plus `"Simulator Target Bundle"`) instead of going to APNs; tokens aren't checked. The iOS UI tests hand them to a simulator (`XBIN_E2E_PUSH`, native/ios/scripts/mac-remote.sh) |
 | `-tls-cert`, `-tls-key` | `XBIN_RELAY_TLS_CERT`, `XBIN_RELAY_TLS_KEY` | — | serve TLS directly; otherwise run behind a TLS proxy |
 | `-registration-tokens` | `XBIN_RELAY_REGISTRATION_TOKENS` | open | comma-separated tokens `POST /v1/workspaces` then requires (see *Capacity and retention*) |
 | `-registration-pow` | `XBIN_RELAY_REGISTRATION_POW` | 0 (none) | bits of proof of work an anonymous `POST /v1/workspaces` must carry, 0–32 (see *Proof of work*) |
@@ -66,9 +67,10 @@ PUT    /v1/handles/<handle>   {apnsToken, topic, env, pushType?} → {handle}
 DELETE /v1/handles/<handle>   → 204 | 404
 GET    /v1/workspaces/challenge → {challenge, bits, expires} | {bits: 0}
 POST   /v1/workspaces         {pow?: {challenge, nonce}} → {workspaceId, key}
-GET    /v1/workspace          Authorization: Bearer <key> → {workspaceId}
+GET    /v1/workspace          Authorization: Bearer <key> → {workspaceId, features}
 POST   /v1/push               Authorization: Bearer <key>
                               {handle, envelope, collapseId?, priority?}
+                              {handle, type: "background", envelope, collapseId?}
                               {handle, type: "liveactivity", activity, priority?}
                               → {ok: true, apnsId}
 GET    /healthz               → ok
@@ -132,6 +134,17 @@ with `apns-push-type: alert`, `apns-priority` 10 (or 5 when `priority` is 5),
 A 403 or 404 without one of these codes (a proxy, a WAF, a wrong URL) is
 not the relay's word: xbind fails that notification and keeps the
 registration.
+
+**Background pushes** (`type: "background"`, D241): the same envelope to a
+device handle as `{"aps": {"content-available": 1}, "xbin": <envelope>}`
+with `apns-push-type: background` and `apns-priority` 5 (APNs takes a
+background push only at 5): nothing is shown, the app wakes and opens it —
+xbind takes the workspace agent's notifications back this way. Counted and
+answered like an alert.
+
+**Features.** `GET /v1/workspace` lists what this relay does beyond the
+first version — `features: ["background", "activity-agent"]` — and xbind
+sends only what is listed (an older relay lists nothing).
 
 ## Live Activities
 
@@ -207,7 +220,15 @@ which takes nothing else; `update` and `end` go to an activity's handle) also
 "workspace": "", "session": "", "appWorkspace": "", "sessionID": ""}` (the
 app fills the names in from its own records of `ws`), `"input-push-token": 1`
 and a generic alert chosen by phase (`{"title": "xbin", "body": "An agent is
-working."}`, `… is waiting for you.`, `… finished.`). Anything else — an
+working."}`, `… is waiting for you.`, `… finished.`).
+
+**The workspace agent's card** (`"kind": "agent"` in `activity`, D241): the
+same events, its state may also say `"phase": "paused"` and
+`"agents": <0–99, tile agents working>` (both refused for a card without
+the kind), its content state always carries `agents`, and a start names
+`"attributes-type": "WorkspaceAgentActivityAttributes"` with `"attributes":
+{"ws", "ref", "workspace": "", "appWorkspace": ""}` and the alert "Your
+workspace agent is working." / "… needs you.". Anything else — an
 unknown phase, a string where a number goes, a field of the wrong event, an
 envelope or collapse id, a device handle, an event the handle's kind does
 not take — is 400 `bad_request` before APNs sees it (and before anything

@@ -41,6 +41,8 @@ type fakeRelay struct {
 	pow         int
 	noChallenge bool
 	powSpent    map[string]bool
+	// features GET /v1/workspace lists (agent_test.go)
+	features []string
 }
 
 type fakeAnswer struct {
@@ -126,13 +128,21 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 		f.mu.Lock()
 		f.probes++
 		id, ok := f.keys[key]
+		if !ok && key == "k1" { // the environment's key names its own workspace
+			id, ok = key, true
+		}
 		ok = ok && !f.revoked[key]
+		feats := append([]string(nil), f.features...)
 		f.mu.Unlock()
 		if !ok {
 			relayErr(w, 401, "bad_key")
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"workspaceId": id})
+		out := map[string]any{"workspaceId": id}
+		if feats != nil {
+			out["features"] = feats
+		}
+		_ = json.NewEncoder(w).Encode(out)
 	})
 	mux.HandleFunc("POST /v1/push", func(w http.ResponseWriter, r *http.Request) {
 		if f.block != nil {

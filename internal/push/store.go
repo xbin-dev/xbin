@@ -50,6 +50,11 @@ type Device struct {
 	// relay: a new Handle drops them.
 	StartHandle string     `json:"startHandle,omitempty"`
 	Activities  []Activity `json:"activities,omitempty"`
+	// AgentStartHandle is the relay's Live Activity handle for the
+	// push-to-start token of the workspace agent's card (its own ActivityKit
+	// type, so its own token: agentactivity.go). The card itself is the
+	// Activity of session AgentSession.
+	AgentStartHandle string `json:"agentStartHandle,omitempty"`
 }
 
 // clone copies d with slices of its own (a copy handed out of the store
@@ -162,7 +167,7 @@ var errDeviceBound = errors.New("that deviceId is an enrolled device's registrat
 // device session's alone. start, when set, replaces the push-to-start
 // handle ("" removes it); a new handle drops it and the Live Activities
 // (they hang off the old one at the relay).
-func (s *store) upsert(d Device, now int64, start *string) (Device, error) {
+func (s *store) upsert(d Device, now int64, start *string, agentStart ...*string) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, x := range s.st.Devices {
@@ -200,10 +205,13 @@ func (s *store) upsert(d Device, now int64, start *string) (Device, error) {
 	}
 	if cur.Handle != d.Handle { // a fresh handle: nothing the relay said about the old one holds
 		cur.Bound, cur.RelayErr, cur.ErrEpoch = "", "", ""
-		cur.StartHandle, cur.Activities = "", nil
+		cur.StartHandle, cur.Activities, cur.AgentStartHandle = "", nil, ""
 	}
 	if start != nil {
 		cur.StartHandle = *start
+	}
+	if len(agentStart) > 0 && agentStart[0] != nil {
+		cur.AgentStartHandle = *agentStart[0]
 	}
 	cur.Handle, cur.PublicKey, cur.Kinds, cur.Updated, cur.Session = d.Handle, d.PublicKey, d.Kinds, now, d.Session
 	return cur.clone(), s.saveLocked()

@@ -156,6 +156,10 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
     public var decided: Date?
     public var expires: Date?
     public var decidedVia: String
+    /// "notification": decided from a notification's action (D241).
+    public var decidedFrom: String
+    /// The enrolled device whose session decided ("" for any other).
+    public var decidedDevice: String
     /// "xbin" for a request xbind withdrew because the agent stopped for
     /// good (switched off, no longer the person's); "" otherwise.
     public var withdrawnBy: String
@@ -181,6 +185,8 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
         decided = DelegateTime.date(json["decided"])
         expires = DelegateTime.date(json["expires"])
         decidedVia = json["decidedVia"]?.stringValue ?? ""
+        decidedFrom = json["decidedFrom"]?.stringValue ?? ""
+        decidedDevice = json["decidedDevice"]?.stringValue ?? ""
         withdrawnBy = json["withdrawnBy"]?.stringValue ?? ""
     }
 
@@ -470,6 +476,18 @@ public enum DelegateRoute {
         .json("POST", "\(base)/requests/\(seg(id))/approve", body)
     }
     public static func deny(_ id: String) -> APIRequest { .json("POST", "\(base)/requests/\(seg(id))/deny", .object([:])) }
+
+    /// From a notification's action (D241): Allow once — the only grant one
+    /// may give — and Deny, each saying where it was decided.
+    public static func approveFromNotification(_ id: String) -> APIRequest {
+        .json("POST", "\(base)/requests/\(seg(id))/approve", ["grant": "once", "via": "notification"])
+    }
+    public static func denyFromNotification(_ id: String) -> APIRequest {
+        .json("POST", "\(base)/requests/\(seg(id))/deny", ["via": "notification"])
+    }
+    public static func rejectFromNotification(_ id: String) -> APIRequest {
+        .json("POST", "\(base)/changesets/\(seg(id))/reject", ["via": "notification"])
+    }
     public static func takeBack(_ id: String) -> APIRequest { APIRequest("DELETE", "\(base)/approvals/\(seg(id))") }
 
     /// Apply the ticked items of a change set (never an empty list: xbind

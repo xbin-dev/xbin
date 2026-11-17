@@ -40,10 +40,18 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>dev.xbin.app.refresh</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan a workspace's QR code to add this device to it, or take a photo to attach to a message.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Face ID unlocks this device's key for your workspaces, and confirms it is you before the widest approvals you give your workspace agent.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dictate a message to your workspace agent. What you say is turned into text on this device; you edit it, then send it yourself.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Turn what you dictate to your workspace agent into text, on this device only. Nothing is sent until you press Send.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect directly to your workspaces on your local network, including through their encrypted tunnel.</string>
 	<key>NSSupportsLiveActivities</key>
@@ -51,6 +59,11 @@
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>dev.xbin.app.view</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
 	</array>
 	<key>UIAppFonts</key>
 	<array>
