@@ -447,16 +447,18 @@ type startHarness struct {
 	// NoSignIn: it runs here with no sign-in of the person's — the
 	// workspace's LLM connector serves it (G8). A brief's card says so.
 	NoSignIn bool `json:"noSignIn"`
-	// SignIn: what a session of it would sign in with here (D230) — "saved"
-	// (a saved sign-in of the person's, which a start uses only when they
-	// approve it: the approval names it, this answer — read by their
-	// agent's model — never does), "connector" (none: the workspace's LLM
-	// connector serves), "own" (the tile's own login, as a session last saw
-	// it), "needed" (none of these: the person signs in first — a brief's
-	// card offers it). Absent: nothing is known yet.
+	// SignIn: what a session of it would run on here as things are (D230)
+	// — "connector" (the workspace's LLM connector serves), "own" (the
+	// tile's own login, as a session last saw it), "needed" (neither: it
+	// would start signed out). Never the person's saved sign-in: a session
+	// their agent starts has one only where they tick it on that start's
+	// approval. Absent: nothing is known yet.
 	SignIn string `json:"signIn,omitempty"`
-	// signInID: the saved sign-in's id, for the approval's preview only
-	// (sessionPreview); never in this route's answer
+	// SignInOffered: the person has a saved sign-in the start's approval
+	// will offer as a line to tick — that one exists, nothing of it.
+	SignInOffered bool `json:"signInOffered,omitempty"`
+	// signInID: the saved sign-in a start's approval may offer, for the
+	// preview only (sessionPreview); never in this route's answer
 	signInID string
 }
 
@@ -523,11 +525,9 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 		}
 		h.Asks = prov.Asks(h.Mode)
 		h.NoSignIn = noSignIn(llm[prov.ID])
-		// (a start the person's preference lets through unasked never gets a saved sign-in)
+		// (never a saved sign-in by itself: the sheet offers one, unticked — the id is the preview's, not this answer's)
 		h.SignIn, h.signInID, _ = startSignIn(s, p, tile, prov, llm[prov.ID], h.NeedsTicket)
-		if h.SignIn == "saved" {
-			h.NoSignIn = false // it runs on their saved sign-in, not on the connector
-		}
+		h.SignInOffered = h.signInID != ""
 		out.Harnesses = append(out.Harnesses, h)
 	}
 	for _, h := range out.Harnesses {
@@ -536,12 +536,13 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 			break
 		}
 	}
-	if first := out.Harnesses; out.Harness == "" && len(first) > 0 && first[0].SignIn != "saved" &&
+	if first := out.Harnesses; out.Harness == "" && len(first) > 0 &&
 		(llm != nil && !runsNow(llm[first[0].ID]) || llm == nil && first[0].SignIn == "needed") {
-		// the first allowed can't run as things are: the first that can — on
-		// the person's saved sign-in (D230) or on the connector
+		// the first allowed can't run as things are: the first the
+		// workspace's model serves — a session the agent starts has no
+		// sign-in of the person's unless they tick one on its approval
 		for _, h := range out.Harnesses {
-			if h.NoSignIn || h.SignIn == "saved" {
+			if h.NoSignIn {
 				out.Harness = h.ID
 				break
 			}
@@ -570,46 +571,48 @@ var startLLMOf = func(s *Server, p auth.Principal, tile string, provs []agent.Pr
 }
 
 // startSignIn is what a session of prov started for p — a person's agent —
-// on tile would sign in with, and the saved sign-in's id: the person's
-// default saved sign-in where the rule lets it in (term's SigninForStart)
-// — for a start they approve, named on the sheet by its id, with the
-// trust line (need) where the tile's source isn't only theirs; for one
-// their preference lets start unasked, only on their own tiles and the
-// ones they trust — unless the connector serves by a rule or their own
-// choice; else the connector, the tile's own login as a session last saw
-// it, or "needed". A var for tests.
-var startSignIn = func(s *Server, p auth.Principal, tile string, prov agent.Provider, row *term.ProviderLLM, approved bool) (signIn, id string, need *term.SigninTrust) {
+// on tile would sign in with: never a saved sign-in by itself (the agent
+// directs the session). signIn is what it runs on as things are — the
+// connector, the tile's own login as a session last saw it, or "needed";
+// offer is the person's default saved sign-in the approval's sheet may
+// OFFER, as a line of its own that starts unticked ("Use my … sign-in for
+// this session": term's SigninForStart) — only for a start they approve,
+// and not where the connector serves by a rule or their own choice; need
+// is the trust line that goes with it where the tile's source isn't only
+// theirs. A var for tests.
+var startSignIn = func(s *Server, p auth.Principal, tile string, prov agent.Provider, row *term.ProviderLLM, approved bool) (signIn, offer string, need *term.SigninTrust) {
 	if s.Term == nil {
 		return "", "", nil
 	}
 	person := personOf(p)
 	connector := row != nil && row.Connector && row.Use == "connector"
-	if !connector && s.Signins != nil && s.signinsAvail().OK {
-		if sg, need := s.Term.SigninForStart(p, tile, prov, row != nil && row.Forced, approved); sg != nil {
-			return "saved", sg.ID, need
+	if approved && !connector && s.Signins != nil && s.signinsAvail().OK {
+		if sg, trust := s.Term.SigninForStart(p, tile, prov, row != nil && row.Forced); sg != nil {
+			offer, need = sg.ID, trust
 		}
 	}
 	signedIn, known := s.Term.HomeLogin(term.HomeKey(person), prov.ID)
 	switch {
 	case noSignIn(row) && !(known && signedIn && row.Use == "own-first"):
-		return "connector", "", nil
+		return "connector", offer, need
 	case known && signedIn:
-		return "own", "", nil
+		return "own", offer, need
 	case known:
-		return "needed", "", nil
+		return "needed", offer, need
 	}
-	return "", "", nil
+	return "", offer, need
 }
 
 // approvalSignIn is startSignIn for a start the person is about to approve
 // (a request's preview, a plan's start line).
-func (s *Server) approvalSignIn(p auth.Principal, tile string, prov agent.Provider) (signIn, id string, need *term.SigninTrust) {
+func (s *Server) approvalSignIn(p auth.Principal, tile string, prov agent.Provider) (signIn, offer string, need *term.SigninTrust) {
 	return startSignIn(s, p, tile, prov, startLLMOf(s, p, tile, []agent.Provider{prov})[prov.ID], true)
 }
 
-// plannedSignIn is the saved sign-in a start line names for a tile the
-// same plan creates for owner (D230): the person's default, where the new
-// tile will be theirs alone (term's SigninForPlanned). "" otherwise.
+// plannedSignIn is the saved sign-in a start line OFFERS (unticked, as
+// approvalSignIn's) for a tile the same plan creates for owner (D230):
+// the person's default, where the new tile will be theirs alone (term's
+// SigninForPlanned). "" otherwise.
 func (s *Server) plannedSignIn(p auth.Principal, tile, owner string, prov agent.Provider) string {
 	if s.Term == nil || s.Signins == nil || s.SigninSourcePlanned == nil || !s.signinsAvail().OK {
 		return ""

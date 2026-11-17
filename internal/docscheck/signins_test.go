@@ -25,23 +25,34 @@ func TestSigninDocsSayTheLimits(t *testing.T) {
 		"masking is not a guarantee":                  "**not guaranteed**",
 		"…nor a boundary":                             "it is not a boundary",
 		"the workspace agent can get it":              "**it can**",
-		"the approval says who holds it":              "The tile's coding agent will hold that sign-in",
+		"the approval's line says why it is warned":   "what it tells the coding agent could expose your sign-in",
 		"the harness's own transcripts are unmasked":  "~/.claude/projects/",
 		"…and what a person does about it":            "revoke it at its vendor, and delete that transcript",
 		"the rule is on the tile, not the directory":  "is judged on `apps/crm`",
 		// the rule of 2026-11-17: used by default, trust asked where the source isn't only the person's
-		"the default is on":                            "**The default is on.**",
-		"what the default exposes":                     "**only code you put there**",
-		"what trusting exposes":                        "**the people the card listed**",
-		"condition 1, apart":                           "**it is owned by someone else**",
-		"condition 2, apart; write level":              "**someone else who isn't a workspace admin can change its code**",
-		"partitioned tiles are not exempt":             "on a partitioned tile too",
-		"trust is re-asked when its basis changes":     "**asks again** when someone new can change it",
-		"approving a start is not trusting":            "approving a start never implies trust",
-		"unasked starts never reach an untrusted tile": "**never** on a tile you haven't trusted",
-		"nothing but the person answers":               "nothing but you answers it",
-		"the migration":                                "get the question instead",
-		"the owner accepted the risk":                  "accepted the risk",
+		"the default is on":                             "**The default is on.**",
+		"what the default exposes":                      "**only code you put there**",
+		"what trusting exposes":                         "**the people the card listed**",
+		"condition 1, apart":                            "**it is owned by someone else**",
+		"condition 2, apart; write level":               "**someone else who isn't a workspace admin can change its code**",
+		"partitioned tiles are not exempt":              "on a partitioned tile too",
+		"a changed basis voids the trust, for good":     "A void answer **stays void**",
+		"…when it is seen, with no session running":     "with no session of yours running",
+		"the answer is for what was shown":              "**You answer what you were shown.**",
+		"people are shown by account id":                "by **account id**",
+		"everyone is shown before it can be trusted":    "you see every one of them before the button can be used",
+		"a workspace tile is an admin's own":            "**for a workspace admin**",
+		"the agent never gets it by itself":             "**Your workspace agent never gets your sign-in by itself.**",
+		"never under start without asking, on any tile": "**never has your sign-in**, on any tile",
+		"the line is unticked":                          "a line of its own, **unticked**",
+		"approving is neither using nor trusting":       "approving a start never implies using your sign-in, and never implies trust",
+		"what a ticked start exposes":                   "your agent can steer that session",
+		"a file in the tile is not masked":              "a file written in the tile is not masked at all",
+		"the open residual: the home":                   "**Your home, shared by all your tiles — OPEN**",
+		"…with the exact attack":                        "`~/.claude/settings.json` hooks, `~/.gitconfig`",
+		"nothing but the person answers":                "nothing but you answers it",
+		"the migration":                                 "get the question instead",
+		"the owner accepted the risk":                   "accepted the risk",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Errorf("docs/agent-signins.md doesn't say %s (%q)", what, want)
@@ -50,7 +61,7 @@ func TestSigninDocsSayTheLimits(t *testing.T) {
 	if !strings.Contains(proto, "This lowers accidental exposure and is not a guarantee") {
 		t.Error("docs/protocol/signins.md doesn't say masking is not a guarantee")
 	}
-	for _, stale := range []string{"wherever it appears whole", "no other person has terminal access", "can also open terminals on", "never on a start your"} {
+	for _, stale := range []string{"wherever it appears whole", "no other person has terminal access", "can also open terminals on", "never on a start your", "gets your default sign-in on a tile", "asks again** when someone new"} {
 		if strings.Contains(guide, stale) || strings.Contains(proto, stale) {
 			t.Errorf("a doc still says %q", stale)
 		}

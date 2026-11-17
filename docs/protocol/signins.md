@@ -103,12 +103,18 @@ person ([agent-signins.md](/docs/agent-signins.md)).
 
   ```
   "trust": { "tile": "apps/crm", "name": "CRM",
+             "basis": "tb_9c1e…",          a token of everything below: sent back with the answer
              "ownerKind": "person",        you | person | org | workspace
-             "owner": "bob",               a person's or an org's name
-             "editors": ["carol", "dave"], up to three of the others who can change it
-             "more": 2,                    …and how many more
+             "owner": "bob",               the owner's ACCOUNT (or org) id — what xbind enforces
+             "ownerName": "Bob B.",        its display name, where it has another: beside the id, never instead
+             "admin": false,               true: a workspace-owned tile, and you administer the workspace
+             "editors": ["carol", "dave"], the account ids of ALL the others who can change it
+             "names": {"carol": "Carol C."},  their display names, where they have another
              "allowed": true }             false + forbidden: trusting is switched off
   ```
+
+  A client lists a few editors and must let the person see all of them
+  before it offers the answer.
 
   `without` is what a session there runs on without a saved sign-in:
   `own` (the tile's own login), `connector` (the workspace's model) or
@@ -196,19 +202,33 @@ admin can change its code (write level or more; partitioned tiles too) —
 it is used only once the person says so
 ([agent-signins.md](/docs/agent-signins.md) → the rule).
 
-`POST /agent/signins/trust {tile}` is that answer: "I trust this tile's
-source". `tile` is a tile the caller may open a terminal on, or a
-directory in one. 201 `{trust: {id, tile, name?, at, via, holds}}`; 409
-when the tile is the caller's alone (nothing to trust), or xbind can't
-tell it from another tile at its path; 403 when the workspace doesn't let
-people trust; 404 no such tile. The answer is kept with the person's
-sign-ins **for the tile as it stood** — the tile itself (its directory's
-identity, not its path), its owner, and who could change it — and holds
-until a **new** person can change the tile, it has another owner, or a
-tile is made again at the path: then `holds` is false (`why` says what
-changed), `here.trust` is back, and the sessions that ran on it are
-ended. `via` is `card`, `approval` (the trust line of a start the person
-approved) or `plan`.
+`POST /agent/signins/trust {tile, basis}` is that answer: "I trust this
+tile's source". `tile` is a tile the caller may open a terminal on, or a
+directory in one; **`basis` is the question's own** (`here.trust.basis`,
+or a start's `signInTrust.basis`): the person trusts what they were
+shown. 201 `{trust: {id, tile, name?, at, via, holds}}`. **409 `{error,
+changed: true, trust}`** when the tile is no longer what that basis
+stands for — another owner, someone else able to change it, moved, made
+again: nothing is recorded, and `trust` is the question as it stands now
+(a card draws it again and makes its button wait again). 400 without a
+basis; 409 when the tile is the caller's alone (nothing to trust), or
+xbind can't tell it from another tile at its path; 403 when the workspace
+doesn't let people trust; 404 no such tile.
+
+The answer is kept with the person's sign-ins **for the tile as it
+stood** — the tile itself (its directory's identity) at its path, its
+owner, and who could change it. It is **void from the moment xbind sees
+any of that change** — on the event that changes it (an account, a role,
+an access entry or pattern, a permission set, an org's members or
+shares, an owner transfer; a tile moved, removed or made again on disk),
+with or without a session running, and again at every judgement of the
+rule as a backstop — and it **stays void** until the person answers
+again: someone who gained write and lost it, or an owner changed and
+changed back, do not bring it back. `holds` is then false (`why` says
+what changed), `here.trust` is back, and the sessions that ran on it are
+ended. People who can no longer change the tile are dropped from the
+answer's record, so their return is someone new. `via` is `card`,
+`approval` (the trust line of a start the person approved) or `plan`.
 
 `DELETE /agent/signins/trust/<id>` takes it back → `{ok, ended}`: the
 caller's sessions on that tile that run on a saved sign-in are ended.
@@ -239,7 +259,12 @@ default: `policy.trust: {allowed, locked?, reason?}`. Off: nothing can be
 trusted, what was trusted isn't used (it is kept, and holds again when the
 switch returns), `here.trust.allowed` is false with `forbidden` saying who
 can change that, and the sessions that ran on a trust are ended. The
-host's file sets and locks it with `"agentSignInTrust": true | false`.
+host's file sets and locks it with `"agentSignInTrust": true | false` —
+turned off there while sessions run, they are ended the next time xbind
+judges any tile's source, as with `agentSignIns`. The admins' word is
+kept in `data/signins/policy.trust.json`, a file of its own: an xbind
+from before this switch rewrites `policy.json` and would drop a ban kept
+there, so a downgrade keeps it.
 
 Every save, removal, revoke, switch and use is in xbind's audit log
 (`audit` lines with `event` `signin.save`, `signin.remove`,
@@ -266,14 +291,19 @@ the session; never a secret.
   `why` (with `id` and `name`) says why a saved sign-in the person has is
   not used: the tile's source isn't only theirs and they haven't said
   they trust it (`trust` then carries the question, as `here.trust`), a
-  start they approved without its trust line or with no sign-in named,
+  start by their workspace agent without their tick (then with no `id`,
+  `name` or `trust`: what the agent can read of a session names nothing
+  of the person's — a session it started on a ticked sign-in says
+  `source: "saved"` and no more),
   the connector alone may serve there or was chosen, the vault is sealed,
   a switch is off, it expired, or the CLI is signed in on its own in this
   home (Codex).
 - `GET /agent/providers[?cwd=]` adds `saved: {id, name, kind, expiresAt?,
   inject, why?, trust?}` to a harness the caller has a default sign-in
   for: `inject` — a session of theirs on that tile would get it — `why`
-  not, and `trust` where the tile asks for it first. Its `llm.use` reads `own` where a saved sign-in would serve.
+  not, and `trust` where the tile asks for it first. Read by a person's
+  workspace agent it is `saved: {inject: false}` — that one exists, and
+  nothing of it. Its `llm.use` reads `own` where a saved sign-in would serve.
 - A session that holds a saved sign-in has it masked in everything xbind
   keeps or sends of it — events, history, the session's log,
   `GET /delegate/sessions/<id>/result` — as `[saved sign-in]`: the value
@@ -289,12 +319,14 @@ the session; never a secret.
   started with and never adds one; `GET /agent/history` entries carry
   `signin: true` for a session that ran on one, and an admin viewing as
   the person reads no such transcript (403).
-- `GET /delegate/start-defaults` adds `signIn` per harness, and a start's
-  preview `signIn`, `signInId` and `signInTrust`: a start the person
-  approves names the sign-in, with the trust line where the tile isn't
-  only theirs; one their preference lets start unasked gets their default
-  on their own and trusted tiles, never on an untrusted one
-  ([delegation.md](/docs/protocol/delegation.md)).
+- `GET /delegate/start-defaults` says per harness what a session would
+  run on (`signIn`: `connector` | `own` | `needed` — never a saved
+  sign-in) and `signInOffered` where the person has one; a start's
+  preview carries `signIn`, `signInId` (the sign-in the sheet OFFERS as
+  an unticked line) and `signInTrust`. A session a person's workspace
+  agent starts has their sign-in only where they ticked that line on the
+  start's approval — never by default, never under "start without
+  asking" ([delegation.md](/docs/protocol/delegation.md)).
 - An admin's `GET`/`POST` on another person's session that carries a saved
   sign-in is 403, as on a partitioned tile; `DELETE` still ends it. Such a
   session's `session` events reach its person's sockets only.

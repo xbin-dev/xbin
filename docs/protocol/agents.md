@@ -47,7 +47,10 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    tile's own login, neither; why a
                                    saved sign-in they have isn't used —
                                    trust: it waits for "I trust this
-                                   tile's source" (agent-signins.md));
+                                   tile's source" (agent-signins.md).
+                                   A session the person's workspace
+                                   agent started names no sign-in: no
+                                   id, name or trust);
                                    ?cwd=<p> one tile only. ?origin=agent:
                                    only the sessions the person's
                                    workspace agent opened. ?compact=1: a

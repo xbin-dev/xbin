@@ -771,8 +771,10 @@ bring its own models and hold quotas the workspace's admins can't lift.
 - **`agentSignInTrust`** is the same for the switch beside it: whether
   people may trust a tile whose source isn't only their own and have
   their saved sign-in used there (`policy.trust`). `false`: a saved
-  sign-in is used only on a tile that is its person's alone. Absent, the
-  admins decide (allowed by default).
+  sign-in is used only on a tile that is its person's alone, and the
+  sessions that ran on someone's trust are ended — also when the file
+  changes under a running xbind. Absent, the admins decide (allowed by
+  default).
 
 ## Limits today
 

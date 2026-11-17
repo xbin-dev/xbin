@@ -288,8 +288,11 @@ type ChangeItem struct {
 	// providerName, mode, asks, prompt, net, api, …}, as a start request's
 	// preview.session.
 	Start json.RawMessage `json:"start,omitempty"`
-	// SigninTrust: applying an agent.start line whose start carried the
-	// trust line (start.signInTrust), its person ticked it.
+	// SigninUse: applying an agent.start line, its person ticked "Use my …
+	// sign-in for this session" (the line's start offered it: signInId) —
+	// the session carries the sign-in only then. SigninTrust: they ticked
+	// its trust line too (start.signInTrust).
+	SigninUse   bool `json:"signinUse,omitempty"`
 	SigninTrust bool `json:"signinTrust,omitempty"`
 	// Out is what applying it made: {path} for tile.create, {session} for
 	// agent.start.

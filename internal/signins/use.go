@@ -212,9 +212,7 @@ func (s *Store) policy() Policy {
 	if f.Enabled != nil {
 		p.Enabled = *f.Enabled
 	}
-	if f.Trust != nil {
-		p.Trust.Allowed = *f.Trust
-	}
+	p.Trust.Allowed = s.trustAllowed()
 	if s.o.Host != nil {
 		if set, on := s.o.Host(); set {
 			p.Enabled, p.Locked, p.Reason = on, true, HostLockReason

@@ -6173,11 +6173,9 @@ needsTicket, noSignIn, signIn?}], why?}, picked, harness,
 harnessName, mode, asks, net, ticket, line, needsSignIn?}` — the top-level
 fields are the picked harness's, else the default's; `signIn` is xbind's
 word on what a session of the harness would sign in with (`saved`: a
-saved sign-in of the person's — where the start needs their approval,
-xbind's approval names it (and carries the trust line on a tile that isn't
-only theirs), nothing here does; where their preference lets it start
-unasked, xbind says `saved` only for a tile that is theirs alone or that
-they trust; `connector`; `own`; `needed`),
+saved sign-in of the person's, used only once they approve the start —
+xbind's approval names it, nothing here does; `connector`; `own`;
+`needed`),
 and `needsSignIn: true` puts "Needs your ‹coding agent› sign-in" and a
 button on the card — the button asks xbin's chrome (`xbin:agent-open-signin
 {harness}`), which draws the sign-in and says `xbin:agent-signins` when

@@ -218,11 +218,7 @@ func (ag *Agent) wsRunsOn(ctx context.Context, s *wsSession, tile, picked string
 	}
 	switch h.SignIn { // xbind's word on the sign-in (D230): never more than that
 	case "saved":
-		if h.NeedsTicket {
-			on += ", on a saved sign-in of the person's if they approve the start (xbin's approval names it, and asks them first where the tile isn't only theirs)"
-		} else {
-			on += ", on a saved sign-in of the person's"
-		}
+		on += ", on a saved sign-in of the person's if they approve the start (xbin's approval names it)"
 	case "needed":
 		on += " — it needs the person's sign-in first: the brief's card has the button, the agent can't sign in for them"
 	}

@@ -222,26 +222,61 @@ func TestSavedSignInInSandbox(t *testing.T) {
 	if r == nil || r.Source == "saved" || !strings.Contains(r.Why, tile+" isn't only yours — bob can change it") {
 		t.Fatalf("a session on a tile bob can change: %+v", r)
 	}
-	// "I trust this tile's source": hers to say — not bob's, not an admin's for her — and then her sign-in is used there
-	if r := call(admin, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile}); r.Status == 201 {
-		var v struct{ Trusted []any }
-		must(200, alice, "GET", "/api/xbin/agent/signins", nil).Decode(t, &v)
-		if len(v.Trusted) != 0 {
-			t.Fatalf("an admin's answer became alice's trust: %+v", v.Trusted)
+	// "I trust this tile's source": hers to say, for the tile as she is shown it — not an admin's for her, and not for a tile that changed since
+	question := func(who xbindtest.Header) string {
+		t.Helper()
+		var v struct {
+			Harnesses []struct {
+				ID   string
+				Here *struct {
+					Trust *struct {
+						Basis   string
+						Editors []string
+					}
+				}
+			}
 		}
+		must(200, who, "GET", "/api/xbin/agent/signins?tile="+tile, nil).Decode(t, &v)
+		for _, h := range v.Harnesses {
+			if h.ID == "fake" && h.Here != nil && h.Here.Trust != nil {
+				return h.Here.Trust.Basis
+			}
+		}
+		t.Fatalf("no trust question for %s: %+v", tile, v)
+		return ""
 	}
-	must(201, alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile})
-	trusted := open(nil)
-	if r := rowOf(trusted); r == nil || r.Source != "saved" {
+	trusted := func() int {
+		var v struct{ Trusted []struct{ Holds bool } }
+		must(200, alice, "GET", "/api/xbin/agent/signins", nil).Decode(t, &v)
+		n := 0
+		for _, row := range v.Trusted {
+			if row.Holds {
+				n++
+			}
+		}
+		return n
+	}
+	if r := call(admin, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": question(admin)}); r.Status == 201 && trusted() != 0 {
+		t.Fatal("an admin's answer became alice's trust")
+	}
+	if r := call(alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile}); r.Status != 400 {
+		t.Fatalf("an answer with no basis: %d %s", r.Status, r)
+	}
+	if r := call(alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": "tb_0000"}); r.Status != 409 || trusted() != 0 {
+		t.Fatalf("an answer to another question than the tile's: %d %s", r.Status, r)
+	}
+	must(201, alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": question(alice)})
+	onTrust := open(nil)
+	if r := rowOf(onTrust); r == nil || r.Source != "saved" {
 		t.Fatalf("after she trusted the tile: %+v", r)
 	}
-	if got := say(trusted, "whoami"); got != "account: token …4b7a" {
+	if got := say(onTrust, "whoami"); got != "account: token …4b7a" {
 		t.Fatalf("on the trusted tile the agent signed in with %q", got)
 	}
-	// someone NEW can change it: her answer no longer covers the tile
+	// someone NEW can change it: her answer is void from that moment — the session ends — and stays void when they are gone again
 	d.AddUser(t, "carol", pw, "user", map[string]string{tile: "write"})
 	xbindtest.Eventually(t, 30*time.Second, "the session ended once carol could change the tile", func() (bool, string) {
-		r := d.Call(t, "GET", "/api/xbin/term/sessions/"+trusted, nil, alice)
+		r := d.Call(t, "GET", "/api/xbin/term/sessions/"+onTrust, nil, alice)
 		return r.Status == 404, fmt.Sprint(r.Status)
 	})
 	var hers struct {
@@ -251,9 +286,14 @@ func TestSavedSignInInSandbox(t *testing.T) {
 		}
 	}
 	must(200, alice, "GET", "/api/xbin/agent/signins", nil).Decode(t, &hers)
-	if len(hers.Trusted) != 1 || hers.Trusted[0].Holds || hers.Trusted[0].Why != "someone new can change the tile" {
+	if len(hers.Trusted) != 1 || hers.Trusted[0].Holds || hers.Trusted[0].Why != "someone new could change the tile" {
 		t.Fatalf("her trusted tiles once carol can change it: %+v", hers.Trusted)
 	}
+	must(200, admin, "PUT", "/api/xbin/access", map[string]any{"tile": tile, "kind": "user", "id": "carol", "level": ""})
+	if trusted() != 0 {
+		t.Fatal("carol came and went, and alice's old answer holds again")
+	}
+	must(200, admin, "PUT", "/api/xbin/access", map[string]any{"tile": tile, "kind": "user", "id": "carol", "level": "write"})
 	var provs []struct {
 		ID    string
 		Saved *struct {

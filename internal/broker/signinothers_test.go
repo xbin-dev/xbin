@@ -57,7 +57,7 @@ func TestSigninSource(t *testing.T) {
 	check := func(c want) signins.Source {
 		t.Helper()
 		src, ok := b.SigninSource(c.as, c.path)
-		if src.Tile != c.tile || ok != c.ok || src.OwnerKind != c.kind || src.OwnerName != c.name || src.NotOwn != c.notOwn ||
+		if src.Tile != c.tile || ok != c.ok || src.OwnerKind != c.kind || src.OwnerID != c.name || src.NotOwn != c.notOwn ||
 			!slices.Equal(src.Editors, c.editors) || src.NeedsTrust() != c.trust || ok && src.ID == "" {
 			t.Errorf("%s (%s as %s): %+v ok %v needs trust %v, want %+v", c.what, c.path, c.as, src, ok, src.NeedsTrust(), c)
 		}
@@ -70,7 +70,7 @@ func TestSigninSource(t *testing.T) {
 		{"deeper", "alice", "apps/x/backend/sub/dir", "apps/x", "workspace", "", true, xEditors, true, true},
 		{"an org's share, on the workspace's tile", "alice", "apps/q", "apps/q", "workspace", "", true, []string{"orgmember"}, true, true},
 		{"another person's partitioned tile: shared code — its owner, a writer and a pattern can change it", "alice", "apps/pg", "apps/pg", "person", "mona", true, []string{"mona", "pattern", "wendy"}, true, true},
-		{"another person's tile, named as people know them", "alice", "apps/pu", "apps/pu", "person", "Olga P", true, []string{"olga", "pattern"}, true, true},
+		{"another person's tile, named as people know them", "alice", "apps/pu", "apps/pu", "person", "olga", true, []string{"olga", "pattern"}, true, true},
 		{"her own partitioned tile, with a co-editor by a pattern", "olga", "apps/pu", "apps/pu", "you", "olga", false, []string{"pattern"}, true, true},
 		{"a deployment-qualified path is no tile", "alice", "apps/x+dev", "", "", "", false, nil, false, false},
 		{"no tile", "alice", "apps/nowhere", "", "", "", false, nil, false, false},
@@ -80,13 +80,48 @@ func TestSigninSource(t *testing.T) {
 	}
 	// condition 1 alone, condition 2 alone, neither
 	owner("apps/q", "org:crew")
-	check(want{"an org's tile", "alice", "apps/q", "apps/q", "org", "Crew", true, []string{"orgmember"}, true, true})
+	check(want{"an org's tile", "alice", "apps/q", "apps/q", "org", "crew", true, []string{"orgmember"}, true, true})
 	owner("apps/q", "user:orgmember")
 	q := check(want{"her own tile, nobody else able to change it: nothing to trust", "orgmember", "apps/q", "apps/q", "you", "orgmember", false, nil, false, true})
 	owner("apps/x", "user:alice")
 	check(want{"her own tile, three co-editors", "alice", "apps/x", "apps/x", "you", "alice", false, xEditors, true, true})
 	owner("apps/x", "user:root2")
-	check(want{"an admin's own tile is another person's", "alice", "apps/x", "apps/x", "person", "Root Two", true, xEditors, true, true})
+	check(want{"an admin's own tile is another person's", "alice", "apps/x", "apps/x", "person", "root2", true, xEditors, true, true})
+	// ids are what xbind enforces and what is compared; a display name — its bearer's to set — only rides beside the id
+	if src, _ := b.SigninSource("alice", "apps/pu"); src.OwnerID != "olga" || src.OwnerName != "Olga P" || src.Names["olga"] != "Olga P" || src.Names["pattern"] != "" {
+		t.Errorf("the owner's and editors' display names: %+v", src)
+	}
+	owner("apps/q", "org:crew")
+	if src, _ := b.SigninSource("alice", "apps/q"); src.OwnerID != "crew" || src.OwnerName != "Crew" {
+		t.Errorf("an org's id and name: %+v", src)
+	}
+	owner("apps/q", "user:orgmember")
+	// a workspace-owned tile is every workspace admin's to change, so for an admin — by their STORED role — it is
+	// not someone else's: they are asked only where a non-admin can change it. Not so an org's tile, nor another
+	// admin's own
+	owner("apps/x", "")
+	if src, _ := b.SigninSource("root2", "apps/x"); src.NotOwn || !src.Admin || src.OwnerKind != "workspace" || !src.NeedsTrust() || !slices.Contains(src.Editors, "alice") {
+		t.Errorf("a workspace tile non-admins can change, for an admin: %+v", src)
+	}
+	if src := b.SigninSourcePlanned("root2", "apps/zz", ""); src.NotOwn || src.NeedsTrust() || len(src.Editors) != 0 {
+		t.Errorf("a workspace tile only admins can change, for an admin: %+v — no trust is needed", src)
+	}
+	if src := b.SigninSourcePlanned("alice", "apps/zz", ""); !src.NotOwn || !src.NeedsTrust() || src.Admin {
+		t.Errorf("the same tile for someone who is no admin: %+v", src)
+	}
+	if src := b.SigninSourcePlanned("root2", "apps/zz", "org:crew"); !src.NotOwn {
+		t.Errorf("an org's tile, for a workspace admin: %+v — its other admins can give themselves write", src)
+	}
+	if src := b.SigninSourcePlanned("root2", "apps/zz", "user:olga"); !src.NotOwn {
+		t.Errorf("another person's tile, for a workspace admin: %+v", src)
+	}
+	was := b.SigninSourcePlanned("root2", "apps/zz", "").Basis()
+	add(users.User{ID: "root2", Name: "Root Two", Role: users.RoleUser}) // demoted: the stored role decides, and the basis moves with it
+	if src := b.SigninSourcePlanned("root2", "apps/zz", ""); !src.NotOwn || src.Admin || !src.NeedsTrust() || src.Basis() == was {
+		t.Errorf("a demoted admin: %+v", src)
+	}
+	add(users.User{ID: "root2", Name: "Root Two", Role: users.RoleAdmin})
+	owner("apps/x", "user:root2")
 	// asked as someone else, alice herself is one of the editors
 	if src, _ := b.SigninSource("exact", "apps/x"); !slices.Contains(src.Editors, "alice") || slices.Contains(src.Editors, "exact") {
 		t.Errorf("asked as exact: %v", src.Editors)

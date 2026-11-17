@@ -122,9 +122,10 @@ with the coding agent's vendor.
 So xbind decides, itself, at every start:
 
 1. **It is your own session**: opened by your signed-in browser, app or
-   device, or by your workspace agent for you (below). Never by an admin
-   viewing as you, a tile's own credentials (a frame, a backend, a
-   terminal's token), or the root token.
+   device. Never by an admin viewing as you, a tile's own credentials (a
+   frame, a backend, a terminal's token), or the root token. A session
+   **your workspace agent** starts has a sign-in only where you ticked it
+   for that start (below).
 2. **Sandboxes are on**, the workspace's switch is on, the connector
    isn't the only one allowed to serve, and you didn't choose it.
 3. **The default is on.** On a tile whose source is only your own — you
@@ -135,7 +136,9 @@ So xbind decides, itself, at every start:
    they are two separate conditions:
    - **it is owned by someone else**: another person, an org, or the
      workspace (a tile belongs to whoever created it until it is handed
-     on);
+     on). A workspace-owned tile is not someone else's **for a workspace
+     admin**: every admin can change every tile anyway — theirs too. (An
+     org's tile always asks, whatever you are in the org.)
    - **someone else who isn't a workspace admin can change its code**:
      write level or more, by an entry of their own, a pattern, or an org
      the tile is shared with — on a partitioned tile too (a partition
@@ -151,41 +154,74 @@ So xbind decides, itself, at every start:
    connector.
 
 **The card.** In the tile's Agent tab: whose tile it is and who can
-change it (at most three names, "and N more"), two sentences — "Code in
-this tile runs with your sign-in while your coding agent works. People who
-can change this tile could read it and use your Claude Code account." —
-and two choices of equal weight: **Trust this tile — use my sign-in**, or
-**Start without my sign-in** (it says what the agent then runs on).
-Neither is pre-selected; "Trust this tile" answers only your own click, a
-moment after it appears, never Enter. A page can open the card
-(`xbin:agent-open-signin`); nothing but you answers it — not an admin, the
-tile's owner, your workspace agent, or a page's message.
+change it — by **account id**, the display name beside it (a display name
+is its bearer's to set; the id is what xbind checks) — two sentences —
+"Code in this tile runs with your sign-in while your coding agent works.
+People who can change this tile could read it and use your Claude Code
+account." — and two choices of equal weight: **Trust this tile — use my
+sign-in**, or **Start without my sign-in** (it says what the agent then
+runs on). Neither is pre-selected; "Trust this tile" answers only your own
+click, a moment after it appears, never Enter. With more than three people
+able to change the tile the card lists three and offers **Show all**: you
+see every one of them before the button can be used. A page can open the
+card (`xbin:agent-open-signin`); nothing but you answers it — not an
+admin, the tile's owner, your workspace agent, or a page's message.
 
-**What your trust covers.** That tile — the tile itself, not its path —
-as it stood: its owner, and the people who could change it. xbin **asks
-again** when someone new can change it, when it has another owner, or when
-a tile is made again at the same path; a session running on your sign-in
-is ended when that happens. Your trusted tiles are listed with your
-sign-ins ("Tiles you trust"), and **Stop trusting** ends your sessions
-there that run on a saved sign-in.
+**You answer what you were shown.** The card's question carries a token
+of what it shows — the tile, its owner, everyone who can change it. If
+any of that changed while the card was open, your click is refused: the
+card draws the question as it stands, says so, and its button waits
+again.
 
-**Your workspace agent.** It steers a session it starts and reads what
-the session prints.
-- A start **you approve** says it in xbin's own words — "Uses your saved
-  Claude Code sign-in Personal. The tile's coding agent will hold that
-  sign-in: it, and anything it runs in ‹tile›, can read it" — and
-  approving puts that sign-in, and no other, into that session. On a tile
-  that isn't only yours the sheet carries the **trust line** under it —
-  warned, unticked: "I trust this tile's source — use my sign-in there".
-  Approve without ticking it and the session starts without your
-  sign-in; approving a start never implies trust.
-- A start your **"start without asking"** preference lets through gets
-  your default sign-in on a tile that is yours alone, or that you trust —
-  and **never** on a tile you haven't trusted.
-- A start on a tile the same plan creates as your own names your default
-  sign-in like any other.
+**What your trust covers — and when it ends.** That tile — the tile
+itself, at that path — as it stood: its owner, and the people who could
+change it. It is **void from the moment any of that changes**: someone
+new can change the tile, it has another owner, it moved, or a tile was
+made again at its path. xbind sees the change when it happens — with no
+session of yours running — ends the session that ran on your sign-in,
+and asks again the next time. A void answer **stays void**: if someone
+gained write and lost it again, or the owner changed and changed back,
+you are still asked — they may have left something behind. (Someone who
+can *no longer* change the tile is simply dropped from what you trusted;
+their coming back is someone new.) Your trusted tiles are listed with
+your sign-ins ("Tiles you trust"), and **Stop trusting** ends your
+sessions there that run on a saved sign-in.
 
-Your agent is told only that a saved sign-in exists, not its name.
+**Your workspace agent never gets your sign-in by itself.** It directs a
+session it starts — it writes the session's prompts and reads what the
+session prints — so what it tells the coding agent could expose a sign-in
+that session holds.
+
+- A start your **"start without asking"** preference lets through
+  **never has your sign-in**, on any tile — your own included. There is
+  no setting that changes this.
+- A start **you approve** shows, on xbin's own sheet, what the session
+  runs on as it stands ("Runs on the workspace's model.") and — when you
+  have a sign-in saved — a line of its own, **unticked**, in the warned
+  style: "Use my Claude Code sign-in ‹label› for this session — Your
+  workspace agent directs this session: what it tells the coding agent
+  could expose your sign-in." Tick it and that sign-in, and no other,
+  goes into that one session. The next start asks again.
+- On a tile that isn't only yours the **trust line** sits under it —
+  "I trust this tile's source", unticked, tickable only together with
+  the first, and only once everyone who can change the tile has been
+  shown. Tick both, or the session starts without your sign-in:
+  approving a start never implies using your sign-in, and never implies
+  trust.
+- Left unticked, the session runs on the workspace's model with a coding
+  agent it serves — the default for a start your agent proposes. Where
+  the chosen coding agent can't run that way, the sheet says so before
+  Start ("Starts signed out: …").
+- A start on a tile the same plan creates as your own offers the line
+  like any other.
+
+Your agent is told only that a saved sign-in exists — never its name, in
+`start-defaults`, in the providers list or in what it reads of a session
+it started. **What remains when you do tick it**: your agent can steer
+that session — ask it to print its environment, to write the sign-in to
+a file in the tile — and masking what the session prints is best-effort
+(a file written in the tile is not masked at all). Tick it for a start
+whose brief you have read.
 
 Workspace admins are not counted among the people who "can change" a
 tile: an admin can change any tile, its grants and the workspace itself.
@@ -200,14 +236,15 @@ once it ended (an admin viewing as you sees the entry, not what was said:
 
 A restart keeps what the session was started with and never adds to it:
 one started without a saved sign-in stays without, one your agent started
-keeps exactly what it carried. (After you trust a tile, the Agent tab
+keeps exactly what your tick put in — or nothing. (After you trust a tile, the Agent tab
 restarts your own session there — one you opened on your default — and
 that restart uses it.)
 
 **Coming from the stricter rule.** Sessions that were refused a sign-in
 because someone else could change the tile get the question instead: the
 next time you open the Agent tab there, the card asks. Nothing is trusted
-for you. Your own tiles that nobody else can change keep working as they
+for you. A session your workspace agent starts, which used your sign-in
+when you approved the start, now uses it only when you tick the line. Your own tiles that nobody else can change keep working as they
 did; tiles owned by an org, the workspace or another person — where the
 old rule used your sign-in if nobody else could change them — now ask
 once.
@@ -218,7 +255,8 @@ once.
 |---|---|
 | You remove the sign-in, or replace its secret | later starts don't have it; the sessions running on it are **ended** (they hold a copy), with a line saying why. The credential stays valid at its vendor until it expires or you revoke it there. |
 | An admin revokes it | the same, and your list says who |
-| Someone **new** becomes able to change the tile, the tile gets another owner, or it is made again at its path | your trust no longer covers it: the session running there on your sign-in is ended, and xbin asks again |
+| Someone **new** becomes able to change the tile, the tile gets another owner, moves, or is made again at its path | your trust is void from that moment — for good, also if it is undone: the session running there on your sign-in is ended, and xbin asks again |
+| You are a workspace admin working on a workspace-owned tile, and stop being an admin | the tile is no longer yours to change as an admin: the session on your sign-in is ended, and xbin asks |
 | You stop trusting a tile | your sessions there on a saved sign-in are ended |
 | An admin switches saved sign-ins off, or switches trusting off (or the host does) | the sessions running on one are ended — with trusting off, the ones on tiles that aren't only yours |
 | An admin sets your password, mints you a sign-in link, or binds an SSO email to you | **all your saved sign-ins and your trusted tiles are removed**: otherwise resetting your account would be a way to run sessions on them. Your list says so; sign in again. |
@@ -232,14 +270,16 @@ once.
 | | |
 |---|---|
 | **On your own tile that nobody else can change** (the default) | **only code you put there** — and code an admin put there. A tile you made from a template or imported can carry a hook: that code is yours to have read. |
-| **On a tile you trusted** | **the people the card listed**: its owner (a person, the members of the org who can change it, the workspace's admins) and everyone else who could change it then. Any of them can leave a file in the tile that runs in your session, reads your sign-in and uses your account with the coding agent's vendor. Someone who gains that ability later is not covered: xbin ends the session and asks again. |
+| **On a workspace-owned tile, as a workspace admin** (no trust asked while no non-admin can change it) | code any workspace admin put there: admins can change every tile, yours included. |
+| **On a tile you trusted** | **the people the card listed**: its owner (a person, the members of the org who can change it, the workspace's admins) and everyone else who could change it then. Any of them can leave a file in the tile that runs in your session, reads your sign-in and uses your account with the coding agent's vendor. Someone who gains that ability later is not covered: your trust is void from then on — also if they lose it again — and xbin ends the session and asks again. |
 | On a tile that isn't only yours and that you haven't trusted | no: it is not put into a session there |
 | A tile's own code (backend, frame) | no: `data/` is in no sandbox, the routes refuse tile credentials — it reaches a sign-in only by running inside your coding-agent session, as above |
 | **Code that runs in your own session** | **yes**: the coding agent, its tools, the project's hooks and scripts share its environment. The same was always true of a login in `$HOME`, which is the broader credential. |
 | **The coding agent's model** | **yes**: it can run a command that prints the credential and read the answer. It is the credential's own vendor unless you pointed the agent elsewhere. |
-| **Your workspace agent's model** | for a session it started with your sign-in — one you approved with the sign-in named, or one your "start without asking" preference let through on a tile that is yours alone or that you trust — **it can**: it prompts that session and reads its results. Masking (next row) lowers the chance; it does not prevent a session that is asked to from handing the credential over in a form xbind doesn't recognise. |
+| **Your workspace agent's model** | never by default: a session it starts has your sign-in only where you ticked "Use my … sign-in for this session" on that start's approval — and then **it can**: it prompts that session and reads its results. Masking (next row) lowers the chance; it does not prevent a session that is asked to from handing the credential over in a form xbind doesn't recognise. |
 | What xbind keeps of a session (events to pages, history, your agent's `tile_agent_result`, logs, backups of them) | masked, **not guaranteed**: xbind replaces the credential with `[saved sign-in]` on the joined text of each stream — as it is, with anything between its characters (spaces, newlines), as base64, hex or `%XX` — and masks anything shaped like a harness credential (`sk-…`, `AIza…`). That catches a tool that printed its environment. It cannot catch every encoding, and it is not a boundary: treat a session that holds your sign-in as able to disclose it. |
 | **The coding agent's own files in your home** | **not masked**: Claude Code and Codex keep their own transcripts (`~/.claude/projects/`, `~/.codex/sessions/`) — xbind needs them there to resume a conversation — and your home is the same on every tile. If a tool printed the credential, it is in those files, where a session of yours on *another* tile (one you haven't trusted, which got no sign-in) could read it. If that happened: remove the sign-in here, revoke it at its vendor, and delete that transcript. |
+| **Your home, shared by all your tiles — OPEN** | **code in a tile you have NOT trusted can still reach a sign-in used elsewhere.** Your one `$HOME` is mounted read-write into every session of yours, on every tile. A session on an untrusted tile gets no sign-in — but code there (a hook someone left) can write `~/.claude/settings.json` hooks, `~/.gitconfig` (an alias, `core.hooksPath`, a credential helper) or `~/.bashrc`, and those run later, in a session of yours on your own or a trusted tile that *does* carry the sign-in. Trusting a tile and the default therefore protect against code that runs in the session they are decided for — not against code that waits in your home. This is known and not closed in this version (it needs a home per tile). Until then: treat running a coding agent or a terminal on a tile you don't trust as letting its editors write to your home; look at `~/.claude/settings.json`, `~/.gitconfig` and your shell profile after working on such a tile. |
 | A workspace admin | not through xbind: no route reads it, they can't drive your session, and a reset of your account removes the sign-ins. An admin can change a tile's programs or code before you start a session there. |
 | Whoever runs the machine | yes (xbind's memory; the files, in the plaintext vault mode) |
 
@@ -275,13 +315,15 @@ One element, `<bx-agent-signin>`, in xbin's own chrome:
   button. The agent's page only names the coding agent
   (`xbin:agent-open-signin`): the card is drawn by xbin's chrome, so no
   link, code or key passes through the agent or its page. The approval
-  sheet and a plan's start line say what the session will sign in with,
-  and carry the trust line where the tile isn't only yours.
+  sheet and a plan's start line say what the session runs on, and offer
+  your saved sign-in as an unticked line — with the trust line under it
+  where the tile isn't only yours.
 - **The app (iOS)** uses a saved sign-in like every other client — it is
   xbind that puts it into the session — and shows what a session signs in
-  with; saving one, and trusting a tile, are done on the web. A start
-  allowed from the app on a tile that isn't only yours runs **without**
-  your sign-in, and the sheet says so.
+  with; saving one, trusting a tile, and ticking your sign-in for a
+  session your workspace agent starts are done on the web. A start
+  allowed from the app has **no** saved sign-in, and the sheet says what
+  it runs on and where to go for the tick.
 
 ## Admins and hosts
 

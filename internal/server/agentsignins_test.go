@@ -503,9 +503,9 @@ func testSource(owner *string, editors *[]string) func(user, tile string) (signi
 		switch {
 		case src.Owner == "user:"+user:
 		case strings.HasPrefix(src.Owner, "user:"):
-			src.OwnerKind, src.OwnerName = "person", strings.TrimPrefix(src.Owner, "user:")
+			src.OwnerKind, src.OwnerID = "person", strings.TrimPrefix(src.Owner, "user:")
 		case strings.HasPrefix(src.Owner, "org:"):
-			src.OwnerKind, src.OwnerName = "org", strings.TrimPrefix(src.Owner, "org:")
+			src.OwnerKind, src.OwnerID = "org", strings.TrimPrefix(src.Owner, "org:")
 		default:
 			src.OwnerKind = "workspace"
 		}
@@ -550,9 +550,22 @@ func TestSigninsTrustRoutes(t *testing.T) {
 		}
 		return nil
 	}
+	// trust answers a question as it was asked: tile and basis
+	answer := func(sid, tile string) (int, string) {
+		t.Helper()
+		var q signinsView
+		if c, b := do(sid, "GET", "?tile="+tile, ""); c != 200 || json.Unmarshal([]byte(b), &q) != nil {
+			t.Fatalf("the question for %s: %d %s", tile, c, b)
+		}
+		basis := "tb_none"
+		if hr := here(q); hr != nil && hr.Trust != nil {
+			basis = hr.Trust.Basis
+		}
+		return do(sid, "POST", "/trust", `{"tile":"`+tile+`","basis":"`+basis+`"}`)
+	}
 	// asked: whose tile it is, who can change it, and what a session runs on without
 	v := view(alice)
-	if hr := here(v); hr == nil || hr.Inject || hr.Trust == nil || hr.Trust.OwnerKind != "person" || hr.Trust.Owner != "bob" ||
+	if hr := here(v); hr == nil || hr.Inject || hr.Trust == nil || hr.Trust.OwnerKind != "person" || hr.Trust.Owner != "bob" || !strings.HasPrefix(hr.Trust.Basis, "tb_") ||
 		len(hr.Trust.Editors) != 1 || hr.Trust.Editors[0] != "carol" || !hr.Trust.Allowed || hr.Without != "none" || len(v.Trusted) != 0 || !v.Policy.Trust.Allowed {
 		t.Fatalf("before her answer: %+v (trust %+v)", hr, hr.Trust)
 	}
@@ -573,7 +586,7 @@ func TestSigninsTrustRoutes(t *testing.T) {
 		"a workspace terminal's token": s.Auth.MintTerminal("", "alice"),
 		"the root token":               s.Auth.OwnerTokenValue(),
 	} {
-		if c := bearer(cred, "POST", "/trust", `{"tile":"apps/x"}`); c != 403 {
+		if c := bearer(cred, "POST", "/trust", `{"tile":"apps/x","basis":"`+here(v).Trust.Basis+`"}`); c != 403 {
 			t.Errorf("%s trusted the tile: %d", name, c)
 		}
 	}
@@ -583,7 +596,7 @@ func TestSigninsTrustRoutes(t *testing.T) {
 		"an admin viewing as her":                       {UserID: "alice", Impersonator: "bob"},
 		"the tile's backend":                            {Component: "apps/x", Via: "instance"},
 	} {
-		for _, try := range [][3]string{{"POST", "/api/xbin/agent/signins/trust", `{"tile":"apps/x"}`}, {"DELETE", "/api/xbin/agent/signins/trust/tr_x", ""}} {
+		for _, try := range [][3]string{{"POST", "/api/xbin/agent/signins/trust", `{"tile":"apps/x","basis":"` + here(v).Trust.Basis + `"}`}, {"DELETE", "/api/xbin/agent/signins/trust/tr_x", ""}} {
 			r := httptest.NewRequest(try[0], try[1], strings.NewReader(try[2]))
 			r.SetPathValue("id", "tr_x")
 			r = r.WithContext(auth.WithPrincipal(r.Context(), p))
@@ -601,7 +614,7 @@ func TestSigninsTrustRoutes(t *testing.T) {
 	if len(s.Signins.Trusted("alice")) != 0 {
 		t.Fatal("something that isn't her own session recorded her trust")
 	}
-	for body, want := range map[string]int{`{}`: 400, `{"tile":""}`: 400, `{"tile":"apps/x","extra":1}`: 400, `{"tile":"apps/none"}`: 404} {
+	for body, want := range map[string]int{`{}`: 400, `{"tile":""}`: 400, `{"tile":"apps/x"}`: 400, `{"tile":"apps/x","basis":"tb_x","extra":1}`: 400, `{"tile":"apps/none","basis":"tb_x"}`: 404} {
 		if c, b := do(alice, "POST", "/trust", body); c != want {
 			t.Errorf("POST /trust %s: %d %s, want %d", body, c, b, want)
 		}
@@ -624,15 +637,24 @@ func TestSigninsTrustRoutes(t *testing.T) {
 	if c, b := do(sub, "GET", "?tile=apps/x/src", ""); c != 200 || json.Unmarshal([]byte(b), &cv) != nil || here(cv) == nil || here(cv).Trust == nil || here(cv).Trust.Tile != "apps/x" {
 		t.Fatalf("carol, whose access is to apps/x, asking about apps/x/src: %d %s", c, b)
 	}
-	if c, b := do(sub, "POST", "/trust", `{"tile":"apps/x/src"}`); c != 201 || !strings.Contains(b, `"tile":"apps/x"`) {
+	if c, b := answer(sub, "apps/x/src"); c != 201 || !strings.Contains(b, `"tile":"apps/x"`) {
 		t.Fatalf("carol trusting from a directory inside the tile: %d %s", c, b)
 	}
-	if c, _ := do(sub, "POST", "/trust", `{"tile":"apps/y/src"}`); c != 404 {
+	if c, _ := do(sub, "POST", "/trust", `{"tile":"apps/y/src","basis":"tb_x"}`); c != 404 {
 		t.Fatalf("carol trusting a tile she has no access to: %d", c)
 	}
 	s.Term.TileAt = nil
-	// her answer
-	c, b := do(alice, "POST", "/trust", `{"tile":"apps/x"}`)
+	// her answer is for what she was shown: the tile changes while the card
+	// is open (dave gains write) — refused, the question as it stands now
+	// comes back for the card to draw again, and nothing is recorded
+	stale := here(view(alice)).Trust.Basis
+	others = []string{"carol", "dave"}
+	if c, b := do(alice, "POST", "/trust", `{"tile":"apps/x","basis":"`+stale+`"}`); c != 409 || !strings.Contains(b, `"changed":true`) || !strings.Contains(b, "look again") ||
+		!strings.Contains(b, `"editors":["carol","dave"]`) || strings.Contains(b, stale) || len(s.Signins.Trusted("alice")) != 0 {
+		t.Fatalf("an answer to a question that changed: %d %s", c, b)
+	}
+	others = []string{"carol"}
+	c, b := answer(alice, "apps/x")
 	if c != 201 || !strings.Contains(b, `"tile":"apps/x"`) || !strings.Contains(b, `"holds":true`) {
 		t.Fatalf("trust: %d %s", c, b)
 	}
@@ -643,27 +665,41 @@ func TestSigninsTrustRoutes(t *testing.T) {
 	if bv := view(bob); len(bv.Trusted) != 0 {
 		t.Fatalf("bob's list shows hers: %+v", bv.Trusted)
 	}
-	// the basis changes: asked again, and her list says what changed
+	// the basis changes: asked again, her list says what changed — and it
+	// stays so when the tile is back as it was (dave gained write and lost it)
 	others = []string{"carol", "dave"}
 	v = view(alice)
-	if hr := here(v); hr.Inject || hr.Trust == nil || v.Trusted[0].Holds || v.Trusted[0].Why != "someone new can change the tile" {
+	if hr := here(v); hr.Inject || hr.Trust == nil || v.Trusted[0].Holds || v.Trusted[0].Why != signins.VoidEditor {
 		t.Fatalf("dave can change the tile: %+v trusted %+v", hr, v.Trusted)
 	}
-	others, owner = []string{"carol"}, "org:sales"
-	if v = view(alice); v.Trusted[0].Holds || v.Trusted[0].Why != "the tile has another owner now" {
+	others = []string{"carol"}
+	if v = view(alice); here(v).Inject || here(v).Trust == nil || v.Trusted[0].Holds {
+		t.Fatalf("dave came and went, and her old answer holds again: %+v trusted %+v", here(v), v.Trusted)
+	}
+	if c, b := answer(alice, "apps/x"); c != 201 {
+		t.Fatalf("answering again: %d %s", c, b)
+	}
+	owner = "org:sales"
+	if v = view(alice); len(v.Trusted) != 1 || v.Trusted[0].Holds || v.Trusted[0].Why != signins.VoidOwner {
 		t.Fatalf("another owner: %+v", v.Trusted)
 	}
 	owner = "user:bob"
+	if v = view(alice); here(v).Inject || v.Trusted[0].Holds {
+		t.Fatalf("the owner changed and changed back, and her old answer holds again: %+v", v.Trusted)
+	}
 	// a tile that is hers alone: nothing to trust
 	mine := "user:alice"
 	s.Term.SigninSource = testSource(&mine, nil)
-	if c, b := do(alice, "POST", "/trust", `{"tile":"apps/x"}`); c != 409 || !strings.Contains(b, "yours alone") {
+	if c, b := answer(alice, "apps/x"); c != 409 || !strings.Contains(b, "yours alone") {
 		t.Fatalf("trusting her own tile: %d %s", c, b)
 	}
 	if hr := here(view(alice)); !hr.Inject || hr.Trust != nil {
 		t.Fatalf("her own tile, by default: %+v", hr)
 	}
 	s.Term.SigninSource = testSource(&owner, &others)
+	if c, b := answer(alice, "apps/x"); c != 201 {
+		t.Fatalf("answering again: %d %s", c, b)
+	}
 	// the admins' switch: off, nothing can be trusted and the card says who can change that
 	if c, _ := do(bob, "PUT", "/policy", `{"trust":false}`); c != 403 {
 		t.Fatalf("bob set the switch: %d", c)
@@ -674,7 +710,7 @@ func TestSigninsTrustRoutes(t *testing.T) {
 	if hr := here(view(alice)); hr.Inject || hr.Trust == nil || hr.Trust.Allowed || !strings.Contains(hr.Trust.Forbidden, "a workspace admin can change it") {
 		t.Fatalf("trusting forbidden: %+v (%+v)", hr, hr.Trust)
 	}
-	if c, b := do(alice, "POST", "/trust", `{"tile":"apps/x"}`); c != 403 || !strings.Contains(b, "switched off") {
+	if c, b := answer(alice, "apps/x"); c != 403 || !strings.Contains(b, "switched off") {
 		t.Fatalf("trusting while off: %d %s", c, b)
 	}
 	if c, _ := do(alice, "PUT", "/policy", `{"trust":true}`); c != 200 {

@@ -156,100 +156,117 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	if _, _, err := w.s.Signins.Save("alice", "claude", "Personal", fakeSigninToken, false); err != nil {
 		t.Fatal(err)
 	}
+	// her workspace agent directs the sessions it starts, so a saved sign-in
+	// is never what one runs on by itself (decision A): the default stays
+	// the harness the workspace's model serves, and start-defaults says
+	// nothing of the sign-in — not that it would be used, not its label, not
+	// its id
 	d = get()
 	c, _ := d.of("claude")
-	if d.Harness != "claude" || c.SignIn != "saved" || c.NoSignIn {
+	if d.Harness != "codex" || c.SignIn == "saved" || c.NoSignIn {
 		t.Fatalf("with a saved sign-in: %q %+v", d.Harness, c)
 	}
-	// the agent's model learns that a saved sign-in exists — never its label
-	// or its id (review finding 7): those are on the approval, for the person
-	if b := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice).Body.String(); strings.Contains(b, "Personal") || strings.Contains(b, "si_") {
-		t.Fatalf("start-defaults names the sign-in: %s", b)
+	if b := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice).Body.String(); strings.Contains(b, "Personal") || strings.Contains(b, "si_") || strings.Contains(b, `"saved"`) {
+		t.Fatalf("start-defaults speaks of the sign-in: %s", b)
 	}
-	// a start she is asked to approve says what it would use, by id: the
-	// sheet shows the label from her own list, and the open is bound to it
-	req := w.ask(alice, "POST", "/api/xbin/term/sessions", `{"cwd":"apps/x","kind":"agent","provider":"claude","prompt":"p"}`)
-	sess, _ := req.Preview["session"].(map[string]any)
-	mine, _, _ := w.s.Signins.List("alice")
-	if sess["signIn"] != "saved" || sess["signInId"] != mine[0].ID || sess["savedSignIn"] != nil {
-		t.Fatalf("the approval's preview: %v", sess)
+	// …nor does the providers list, which her agent may read: that one exists, nothing of it
+	if b := w.do(w.full, "GET", "/api/xbin/agent/providers?cwd=apps/x", "", alice).Body.String(); strings.Contains(b, "Personal") || strings.Contains(b, "si_") || strings.Contains(b, "setup-token") ||
+		strings.Contains(b, `"trust"`) || !strings.Contains(b, `"saved":{"inject":false}`) {
+		t.Fatalf("GET /agent/providers, read by her agent: %s", b)
 	}
-	if sess["signInTrust"] != nil {
-		t.Fatalf("her own tile carries a trust line: %v", sess["signInTrust"])
-	}
-	if d, why := ticketStart(req.Preview); why != "" || d.Signin != mine[0].ID || d.TrustAsked || !d.Approved {
-		t.Fatalf("the ticket's start: %+v %q", d, why)
-	}
-	// the default is on: where her preference lets the agent start unasked
-	// on her own tile, the session gets her sign-in and the answer says so
-	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: c.Mode, API: true} })
-	if c2, _ := get().of("claude"); c2.SignIn != "saved" || c2.NeedsTicket {
-		t.Fatalf("an unasked start on her own tile: %+v", c2)
-	}
-	// …and never into a tile whose source isn't only hers, until she trusts it
-	w.s.Term.NoteHomeLogin("alice", "claude", false)
-	others = []string{"bob"}
-	if c2, _ := get().of("claude"); c2.SignIn != "needed" || c2.NeedsTicket {
-		t.Fatalf("an unasked start on a tile bob can change was promised her sign-in: %+v", c2)
-	}
-	w.policy.set(func(p *dPolicy) { delete(p.prefs, "alice") })
-	// a start she is asked to approve there names the sign-in AND carries
-	// the trust line; approving without ticking it records no trust, and
-	// the ticket's start is one that asked
-	d = get()
-	c, _ = d.of("claude")
-	if d.Harness != "claude" || c.SignIn != "saved" || !c.NeedsTicket {
-		t.Fatalf("a tile bob can change, a start she approves: %q %+v", d.Harness, c)
-	}
+	// a start she is asked to approve OFFERS the sign-in, by id — the sheet
+	// draws the label from her own list and its own line, unticked. Approved
+	// without the tick, the ticket's start has none
 	sid := w.s.Auth.NewSession("alice", "")
 	own := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: sid}) }
 	ask := func() delegation.Request {
 		return w.ask(alice, "POST", "/api/xbin/term/sessions", `{"cwd":"apps/x","kind":"agent","provider":"claude","prompt":"p"}`)
 	}
+	approve := func(id, body string, who cred) (int, string) {
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+id+"/approve", body, who)
+		return rec.Code, rec.Body.String()
+	}
+	stored := func(id string) delegation.Request { r, _ := w.store.Request("alice", id); return r }
+	mine, _, _ := w.s.Signins.List("alice")
+	req := ask()
+	sess, _ := req.Preview["session"].(map[string]any)
+	if sess["signIn"] == "saved" || sess["signInId"] != mine[0].ID || sess["savedSignIn"] != nil || sess["signInTrust"] != nil {
+		t.Fatalf("the approval's preview on her own tile: %v", sess)
+	}
+	if c, b := approve(req.ID, `{"grant":"once"}`, own); c != 200 {
+		t.Fatalf("approve: %d %s", c, b)
+	}
+	if d, why := ticketStart(stored(req.ID).Preview, stored(req.ID).UseSignin); why != "" || d.Signin != "" || d.TrustAsked || !d.Approved {
+		t.Fatalf("approved without the tick: the ticket's start %+v %q", d, why)
+	}
+	// ticked — by her, in her own session; never by the agent, never from a notification
+	req = ask()
+	if c, _ := approve(req.ID, `{"grant":"once","signin":true}`, alice); c == 200 || stored(req.ID).UseSignin {
+		t.Fatalf("her agent approved its own start with the sign-in ticked: %d", c)
+	}
+	if c, b := approve(req.ID, `{"grant":"once","signin":true,"via":"notification"}`, own); c != 409 || stored(req.ID).State != delegation.Pending {
+		t.Fatalf("the sign-in's line from a notification: %d %s", c, b)
+	}
+	if c, b := approve(req.ID, `{"grant":"once","trust":true}`, own); c != 400 || stored(req.ID).State != delegation.Pending {
+		t.Fatalf("the trust line without the sign-in's: %d %s", c, b)
+	}
+	if c, b := approve(req.ID, `{"grant":"once","signin":true,"trust":true}`, own); c != 400 || stored(req.ID).State != delegation.Pending {
+		t.Fatalf("a trust tick where the sheet carried no trust line: %d %s", c, b)
+	}
+	if c, b := approve(req.ID, `{"grant":"once","signin":true}`, own); c != 200 {
+		t.Fatalf("approve with the sign-in ticked: %d %s", c, b)
+	}
+	if d, _ := ticketStart(stored(req.ID).Preview, stored(req.ID).UseSignin); d == nil || d.Signin != mine[0].ID || d.TrustAsked {
+		t.Fatalf("approved with the tick: the ticket's start %+v", d)
+	}
+	// the tick is this start's: her preference to start unasked changes nothing of it
+	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: c.Mode, API: true} })
+	if c2, _ := get().of("claude"); c2.SignIn == "saved" || c2.NeedsTicket {
+		t.Fatalf("an unasked start was promised her sign-in: %+v", c2)
+	}
+	w.policy.set(func(p *dPolicy) { delete(p.prefs, "alice") })
+
+	// a tile whose source isn't only hers: the sheet carries the trust line
+	// too — xbind's question, with the basis of what it shows
+	others = []string{"bob"}
 	req = ask()
 	sess, _ = req.Preview["session"].(map[string]any)
 	line, _ := sess["signInTrust"].(map[string]any)
-	if sess["signIn"] != "saved" || sess["signInId"] != mine[0].ID || line == nil || line["ownerKind"] != "you" || line["allowed"] != true || fmt.Sprint(line["editors"]) != "[bob]" {
+	basis, _ := line["basis"].(string)
+	if sess["signInId"] != mine[0].ID || line == nil || line["ownerKind"] != "you" || line["allowed"] != true || fmt.Sprint(line["editors"]) != "[bob]" || !strings.HasPrefix(basis, "tb_") {
 		t.Fatalf("the approval's preview on a tile bob can change: %v", sess)
 	}
-	if d, _ := ticketStart(req.Preview); d == nil || !d.TrustAsked || d.Signin != mine[0].ID {
-		t.Fatalf("the ticket's start: %+v", d)
+	// the sign-in ticked, the trust line not: approved, no trust recorded — the start is one that asked
+	if c, b := approve(req.ID, `{"grant":"once","signin":true}`, own); c != 200 {
+		t.Fatalf("approve: %d %s", c, b)
 	}
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"once"}`, own); rec.Code != 200 {
-		t.Fatalf("approve: %d %s", rec.Code, rec.Body.String())
+	if d, _ := ticketStart(stored(req.ID).Preview, stored(req.ID).UseSignin); d == nil || !d.TrustAsked || d.Signin != mine[0].ID || len(w.s.Signins.Trusted("alice")) != 0 {
+		t.Fatalf("the ticket's start: %+v; trusted %+v", d, w.s.Signins.Trusted("alice"))
 	}
-	if len(w.s.Signins.Trusted("alice")) != 0 {
-		t.Fatal("approving a start without the trust line recorded her trust")
-	}
-	// the agent can't tick it for her, nor from a notification
+	// the tile changes between the question and her answer: the tick is for
+	// what the sheet showed — refused, nothing decided, nothing recorded
 	req = ask()
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"once","trust":true}`, alice); rec.Code == 200 || len(w.s.Signins.Trusted("alice")) != 0 {
-		t.Fatalf("her agent approved its own start with the trust line: %d", rec.Code)
+	others = []string{"bob", "mallory"}
+	if c, b := approve(req.ID, `{"grant":"once","signin":true,"trust":true}`, own); c != 409 || !strings.Contains(b, "look again") || !strings.Contains(b, `"changed":true`) ||
+		stored(req.ID).State != delegation.Pending || len(w.s.Signins.Trusted("alice")) != 0 {
+		t.Fatalf("trusting a tile that changed since the sheet was drawn: %d %s (state %s, trusted %+v)", c, b, stored(req.ID).State, w.s.Signins.Trusted("alice"))
 	}
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"once","trust":true,"via":"notification"}`, own); rec.Code != 409 || len(w.s.Signins.Trusted("alice")) != 0 {
-		t.Fatalf("the trust line from a notification: %d %s", rec.Code, rec.Body.String())
+	// both ticked, the tile as shown: her trust is on record — for that tile, as it stands — and the start carries the sign-in
+	req = ask()
+	c0, b0 := approve(req.ID, `{"grant":"once","signin":true,"trust":true}`, own)
+	if tr := w.s.Signins.Trusted("alice"); c0 != 200 || len(tr) != 1 || tr[0].Tile != "apps/x" || tr[0].Via != "approval" || len(tr[0].Editors) != 2 || !stored(req.ID).UseSignin {
+		t.Fatalf("approved with both lines ticked: %d %s — %+v", c0, b0, tr)
 	}
-	// ticked: her trust is on record — for that tile, as it stands — and a
-	// start there no longer asks
-	rec0 := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"once","trust":true}`, own)
-	if tr := w.s.Signins.Trusted("alice"); rec0.Code != 200 || len(tr) != 1 || tr[0].Tile != "apps/x" || tr[0].Via != "approval" || len(tr[0].Editors) != 1 {
-		t.Fatalf("approved with the trust line: %d %s — %+v", rec0.Code, rec0.Body.String(), tr)
-	}
-	if sess, _ = ask().Preview["session"].(map[string]any); sess["signIn"] != "saved" || sess["signInTrust"] != nil {
+	// her trust in the tile is no tick: the next start offers the line again, unticked, without the trust line
+	if sess, _ = ask().Preview["session"].(map[string]any); sess["signInId"] != mine[0].ID || sess["signInTrust"] != nil || sess["signIn"] == "saved" {
 		t.Fatalf("a start on the tile she trusts: %v", sess)
 	}
-	// a tile whose source she may not trust (the workspace's switch): the
-	// sheet names no sign-in at all
+	// a tile whose source she may not trust (the workspace's switch): the sheet offers no sign-in at all
 	if _, err := w.s.Signins.SetTrustPolicy(false); err != nil {
 		t.Fatal(err)
 	}
-	if sess, _ = ask().Preview["session"].(map[string]any); sess["signIn"] == "saved" || sess["signInId"] != "" || sess["signInTrust"] != nil {
+	if sess, _ = ask().Preview["session"].(map[string]any); sess["signInId"] != "" || sess["signInTrust"] != nil {
 		t.Fatalf("trusting forbidden: %v", sess)
-	}
-	d = get()
-	c, _ = d.of("claude")
-	if d.Harness != "codex" || c.SignIn != "needed" {
-		t.Fatalf("trusting forbidden: %q %+v", d.Harness, c)
 	}
 	// the answer never carries the sign-in's id or anything of its secret
 	rec := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice)

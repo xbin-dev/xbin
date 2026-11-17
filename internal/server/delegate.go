@@ -418,11 +418,11 @@ type delegateAdminReadKey struct{}
 
 // ticketStart is the start a ticket authorises: the harness and mode the
 // person was shown (sessionPreview) — the open refuses anything else —
-// the saved sign-in the sheet named (D230: the open uses that one, or
-// none), and whether the sheet carried the trust line: ticked, the
-// person's trust is on record by now; not, the start they approved is one
-// without the sign-in.
-func ticketStart(preview map[string]any) (*term.DelegateStart, string) {
+// and the saved sign-in the sheet offered ONLY where they ticked it for
+// this start (use: Request.UseSignin; D230): the open then uses that one,
+// or none. trustAsked: the sheet carried the trust line too — ticked, the
+// person's trust is on record by now; not, the session has no sign-in.
+func ticketStart(preview map[string]any, use bool) (*term.DelegateStart, string) {
 	shown, _ := preview["session"].(map[string]any)
 	prov, _ := shown["provider"].(string)
 	mode, _ := shown["mode"].(string)
@@ -430,7 +430,10 @@ func ticketStart(preview map[string]any) (*term.DelegateStart, string) {
 		return nil, "the ticket says no harness and mode: ask again"
 	}
 	net, _ := shown["net"].(string)
-	signin, _ := shown["signInId"].(string)
+	signin := ""
+	if use {
+		signin, _ = shown["signInId"].(string)
+	}
 	return &term.DelegateStart{Approved: true, Provider: prov, Mode: mode, Net: net, Signin: signin, TrustAsked: shown["signInTrust"] != nil}, ""
 }
 
@@ -826,7 +829,7 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		row.Ticket = req.ID
 		if session {
 			var why string
-			if start, why = ticketStart(req.Preview); why != "" {
+			if start, why = ticketStart(req.Preview, req.UseSignin); why != "" {
 				return nil, http.StatusForbidden, "ticket", why
 			}
 		}

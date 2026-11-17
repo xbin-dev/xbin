@@ -383,11 +383,15 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		}
 		shown = map[string]any{"tile": in.Tile, "provider": prov.ID, "providerName": prov.Name, "mode": mode, "asks": prov.Asks(mode),
 			"options": map[string]string{}, "prompt": in.Brief, "net": def.netFor(harness), "api": true, "vm": false, "gpu": "", "model": "", "name": "", "resume": false}
-		// a tile this plan makes the person's own: their default saved
-		// sign-in, named like any start's (D230) — the open judges the tile
+		// what it runs on as things are, and — a tile this plan makes the
+		// person's own — their default saved sign-in, OFFERED like any
+		// start's (D230: the line's own tick): the open judges the tile
 		// itself once it exists
+		if h, _ := def.of(harness); h.SignIn != "" {
+			shown["signIn"] = h.SignIn
+		}
 		if id := s.plannedSignIn(p, in.Tile, owner, prov); id != "" {
-			shown["signIn"], shown["signInId"] = "saved", id
+			shown["signInId"] = id
 		}
 	}
 	name, _ := shown["providerName"].(string)

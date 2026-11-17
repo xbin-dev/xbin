@@ -26,10 +26,19 @@ import (
 //
 // Workspace admins are not counted as editors: they can change any tile
 // and the workspace itself, and are in the trust base. An admin who OWNS
-// the tile is its owner like anyone else (condition 1).
+// the tile is its owner like anyone else (condition 1). A WORKSPACE-owned
+// tile is every admin's to change, so for a person who is a workspace
+// admin — by their stored role, never by what a request's credential says
+// — it is not someone else's: they are asked only when a non-admin can
+// change it (condition 2). An org's tile always asks, whatever the person
+// is in the org: its other admins can give themselves write at any time.
 
 // signinNotOwn is condition 1: owner — a tile's owner ref — is not user.
-func signinNotOwn(owner, user string) bool {
+// admin: user is a workspace admin by their stored role.
+func signinNotOwn(owner, user string, admin bool) bool {
+	if owner == "" {
+		return !admin // the workspace's: its admins', and theirs among them
+	}
 	return owner != users.OwnerKindUser+":"+user
 }
 
@@ -73,24 +82,40 @@ func (b *Broker) SigninSourcePlanned(user, path, owner string) signins.Source {
 }
 
 func (b *Broker) signinSourceOf(user, tile, owner string) signins.Source {
-	src := signins.Source{Tile: tile, Owner: owner, OwnerKind: "workspace"}
+	src := signins.Source{Tile: tile, Owner: owner, OwnerKind: "workspace", Names: map[string]string{}}
+	name := func(id string) { // the display name beside the id, where the account has another
+		if u, ok := b.Users.Get(id); ok && u.Name != "" && u.Name != id {
+			src.Names[id] = u.Name
+		}
+	}
+	if b.Users != nil {
+		if u, ok := b.Users.Get(user); ok && !u.Disabled && u.IsAdmin() {
+			src.Admin = true // their stored role: a demotion changes the answer below
+		}
+	}
 	if kind, id, err := users.ParseOwner(owner); err == nil && b.Users != nil {
+		src.OwnerID = id
 		switch kind {
 		case users.OwnerKindUser:
-			src.OwnerKind, src.OwnerName = "person", id
+			src.OwnerKind = "person"
 			if id == user {
 				src.OwnerKind = "you"
-			} else if u, ok := b.Users.Get(id); ok && u.Name != "" {
+			} else if u, ok := b.Users.Get(id); ok && u.Name != "" && u.Name != id {
 				src.OwnerName = u.Name
 			}
 		case users.OwnerKindOrg:
-			src.OwnerKind, src.OwnerName = "org", id
-			if o, ok := b.Users.Org(id); ok && o.Name != "" {
+			src.OwnerKind = "org"
+			if o, ok := b.Users.Org(id); ok && o.Name != "" && o.Name != id {
 				src.OwnerName = o.Name
 			}
 		}
 	}
-	src.NotOwn = signinNotOwn(owner, user)    // condition 1
-	src.Editors = b.signinEditors(user, tile) // condition 2
+	src.NotOwn = signinNotOwn(owner, user, src.Admin) // condition 1
+	src.Editors = b.signinEditors(user, tile)         // condition 2
+	if b.Users != nil {
+		for _, id := range src.Editors {
+			name(id)
+		}
+	}
 	return src
 }

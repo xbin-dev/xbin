@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,41 +43,31 @@ type fakeSignins struct {
 	useErr  error
 	// the tile every path of the rig resolves to, as the broker would say
 	// it: owner ("" = the asker's own), its identity, and — the rig's
-	// others — who else can change it; the person's answers, and the switch
-	owner    string
-	ident    string
-	trusted  map[string][]signins.Trust
-	trustOff bool
+	// others — who else can change it. The person's answers and the switch
+	// on trusting are the real store's (trust.go): what a basis is, and
+	// that a changed one voids, is not re-made here
+	owner string
+	ident string
+	real  *signins.Store
 }
 
-func (f *fakeSignins) Trusts(user string, src signins.Source) bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.trustOff {
-		return false
-	}
-	for _, t := range f.trusted[user] {
-		if t.Holds(src) {
-			return true
-		}
-	}
-	return false
-}
-
-func (f *fakeSignins) Policy() signins.Policy {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return signins.Policy{Enabled: true, Trust: signins.TrustPolicy{Allowed: !f.trustOff}}
-}
+func (f *fakeSignins) Trusts(user string, src signins.Source) bool { return f.real.Trusts(user, src) }
+func (f *fakeSignins) Policy() signins.Policy                      { return f.real.Policy() }
 
 // trust records user's "I trust this tile's source" for src as it stands.
-func (f *fakeSignins) trust(user string, src signins.Source) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.trusted == nil {
-		f.trusted = map[string][]signins.Trust{}
+func (f *fakeSignins) trust(t *testing.T, user string, src signins.Source) {
+	t.Helper()
+	if _, err := f.real.TrustTile(user, src, "card", src.Basis()); err != nil {
+		t.Fatal(err)
 	}
-	f.trusted[user] = append(f.trusted[user], signins.Trust{ID: "tr_1", Tile: src.Tile, Ident: src.ID, Owner: src.Owner, Editors: append([]string(nil), src.Editors...)})
+}
+
+// trustOff sets the workspace's switch on trusting.
+func (f *fakeSignins) trustOff(t *testing.T, off bool) {
+	t.Helper()
+	if _, err := f.real.SetTrustPolicy(!off); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (f *fakeSignins) set(fn func()) {
@@ -91,6 +82,7 @@ func rigSource(f *fakeSignins, others *[]string) func(user, tile string) (signin
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		src := signins.Source{Tile: tile, ID: f.ident, Owner: f.owner, OwnerKind: "you", Editors: append([]string(nil), *others...)}
+		sort.Strings(src.Editors)
 		if src.ID == "" {
 			src.ID = "i1"
 		}
@@ -100,9 +92,9 @@ func rigSource(f *fakeSignins, others *[]string) func(user, tile string) (signin
 		switch {
 		case src.Owner == "user:"+user:
 		case strings.HasPrefix(src.Owner, "user:"):
-			src.OwnerKind, src.OwnerName = "person", strings.TrimPrefix(src.Owner, "user:")
+			src.OwnerKind, src.OwnerID = "person", strings.TrimPrefix(src.Owner, "user:")
 		case strings.HasPrefix(src.Owner, "org:"):
-			src.OwnerKind, src.OwnerName = "org", strings.TrimPrefix(src.Owner, "org:")
+			src.OwnerKind, src.OwnerID = "org", strings.TrimPrefix(src.Owner, "org:")
 		default:
 			src.OwnerKind = "workspace"
 		}
@@ -173,7 +165,7 @@ func signinRig(t *testing.T, fakeArgs string) (*agentRig, *fakeSignins, *[]strin
 	t.Helper()
 	t.Setenv(agent.FakeEnv, strings.TrimSpace(fakeBin+" "+fakeArgs))
 	r := newAgentRig(t)
-	f := &fakeSignins{}
+	f := &fakeSignins{real: signins.New(signins.Options{Dir: filepath.Join(t.TempDir(), "signins"), AllowPlaintext: true})}
 	others := &[]string{}
 	r.m.Signins, r.m.SigninDev = f, true
 	r.m.SigninSource = rigSource(f, others)
@@ -302,28 +294,31 @@ func TestSigninRule(t *testing.T) {
 	if pl := plan(alice, openOpts{}, false, false); pl.saved == nil || pl.why != "" || pl.origin != "person" {
 		t.Fatalf("alice alone on the tile: %+v", pl)
 	}
-	// her workspace agent: a start she approved gets the sign-in the sheet
-	// named and no other; one her "start without asking" preference lets
-	// through gets her default on her own tile (the default is on)
+	// her workspace agent directs the sessions it starts: a sign-in goes
+	// in only where she ticked it for that very start, on xbin's sheet —
+	// never by default, never on a start her "start without asking"
+	// preference lets through, on her own tile either; and nothing of the
+	// sign-in is looked up for a start without the tick
 	agentP := auth.Principal{UserID: "alice", Via: "delegate", Agent: "xbin/wsagent", User: alice.User}
 	asAgent := func(d *DelegateStart) signinPlan {
 		return m.signinPlanFor(agentP, openOpts{}, "apps/x", prov, "", false, false, d)
 	}
+	unasked := &DelegateStart{Provider: "fake", Prefs: &delegation.StartPrefs{}}
 	for name, d := range map[string]*DelegateStart{
-		"no authorisation":                nil,
-		"approved, no sign-in was named":  {Approved: true, Provider: "fake", Mode: "ask"},
-		"approved, another sign-in named": {Approved: true, Provider: "fake", Mode: "ask", Signin: "si_other"},
+		"no authorisation":                         nil,
+		"started unasked, by her preference":       unasked,
+		"approved, the sign-in's line not ticked":  {Approved: true, Provider: "fake", Mode: "ask"},
+		"approved without it, the trust line seen": {Approved: true, Provider: "fake", Mode: "ask", TrustAsked: true},
 	} {
-		if pl := asAgent(d); pl.why == "" {
-			t.Errorf("her agent, %s: the sign-in would go in (%+v)", name, pl)
+		if pl := asAgent(d); pl.saved != nil || pl.bound || !strings.Contains(pl.agentWhy, "only where you tick it") {
+			t.Errorf("her agent, %s: %+v", name, pl)
 		}
 	}
-	if pl := asAgent(&DelegateStart{Approved: true, Provider: "fake", Mode: "ask", Signin: "si_Personal"}); pl.saved == nil || pl.why != "" || pl.origin != "agent" || !pl.bound {
-		t.Fatalf("her agent, with her approval of a start that named it: %+v", pl)
+	if pl := asAgent(&DelegateStart{Approved: true, Provider: "fake", Mode: "ask", Signin: "si_other"}); pl.why == "" || pl.saved != nil {
+		t.Errorf("her agent, a sign-in ticked that is no longer there: %+v", pl)
 	}
-	unasked := &DelegateStart{Provider: "fake", Prefs: &delegation.StartPrefs{}}
-	if pl := asAgent(unasked); pl.saved == nil || pl.why != "" || pl.origin != "agent" || pl.bound {
-		t.Fatalf("her agent, started unasked on her own tile: %+v", pl)
+	if pl := asAgent(&DelegateStart{Approved: true, Provider: "fake", Mode: "ask", Signin: "si_Personal"}); pl.saved == nil || pl.why != "" || pl.origin != "agent" || !pl.bound {
+		t.Fatalf("her agent, with the sign-in ticked on the start's approval: %+v", pl)
 	}
 	// never anyone or anything else: nothing of hers is even looked up
 	for name, p := range map[string]auth.Principal{
@@ -350,18 +345,14 @@ func TestSigninRule(t *testing.T) {
 	}
 	*others = []string{"bob", "carol", "dave", "erin", "frank"}
 	if pl := plan(alice, openOpts{}, false, false); !strings.Contains(pl.why, "bob, carol and 3 more can change it") ||
-		pl.trust == nil || len(pl.trust.Editors) != 3 || pl.trust.More != 2 || !pl.trust.Allowed || pl.trust.OwnerKind != "you" {
-		t.Fatalf("a tile five others can change: %q %+v", pl.why, pl.trust)
+		pl.trust == nil || len(pl.trust.Editors) != 5 || !pl.trust.Allowed || pl.trust.OwnerKind != "you" || !strings.HasPrefix(pl.trust.Basis, "tb_") {
+		t.Fatalf("a tile five others can change — the question names every one of them: %q %+v", pl.why, pl.trust)
 	}
 	// a partitioned tile is no exception: its directory is shared code,
 	// bound read-write into every partition's sessions
 	mine := openOpts{part: sessionPart{on: true, tile: "apps/x", part: "user:alice", key: "k-alice"}}
 	if pl := plan(alice, mine, false, false); pl.trust == nil || !strings.Contains(pl.why, "can change it") {
 		t.Fatalf("her own partition of a tile others can change: %q", pl.why)
-	}
-	// her agent, unasked, never carries it into a tile she hasn't trusted
-	if pl := asAgent(unasked); pl.why == "" || pl.trust == nil {
-		t.Fatalf("her agent, started unasked on a tile she hasn't trusted: %+v", pl)
 	}
 	*others = nil
 	// the connector alone may serve, or she chose it
@@ -950,7 +941,7 @@ func TestSigninDelegateStartIsBoundToTheApprovedSignin(t *testing.T) {
 		t.Fatalf("approved with a sign-in that is gone: %d %v", code, err)
 	}
 	info, code, err = open("")
-	if err != nil || info.Signin == nil || info.Signin.Source == SigninSaved || !strings.Contains(info.Signin.Why, "the start you approved named no saved sign-in") {
+	if err != nil || info.Signin == nil || info.Signin.Source == SigninSaved || !strings.Contains(info.Signin.Why, "only where you tick it") {
 		t.Fatalf("approved, none named: %d %v %+v", code, err, info.Signin)
 	}
 	r.endSession(t, info.ID)
@@ -1007,7 +998,7 @@ func TestSigninDefaultOnAndTrust(t *testing.T) {
 
 	// trusted: remembered — for this tile as it stands
 	set("user:bob", "carol")
-	f.trust("alice", source())
+	f.trust(t, "alice", source())
 	if pl := judge(); pl.why != "" || pl.trust != nil {
 		t.Fatalf("after she trusted the tile: %+v", pl)
 	}
@@ -1019,35 +1010,49 @@ func TestSigninDefaultOnAndTrust(t *testing.T) {
 	if pl := judge(); pl.why != "" {
 		t.Fatalf("carol lost write: asked again (%+v)", pl)
 	}
-	// asked again on each change of the basis
-	set("user:bob", "carol", "dave")
-	if pl := judge(); pl.trust == nil || !strings.Contains(pl.why, "carol and dave can change it") {
-		t.Fatalf("a new person can change the tile: %+v", pl)
+	// asked again on each change of the basis — and the answer is VOID from
+	// then on: the tile back as it was (someone gained write and lost it,
+	// the owner changed and changed back) is asked about all the same
+	for name, c := range map[string]struct {
+		change func()
+		words  string
+	}{
+		"a new person can change the tile": {func() { set("user:bob", "dave") }, "dave can change it"},
+		"someone who left came back":       {func() { set("user:bob", "carol") }, "carol can change it"},
+		"the tile has another owner":       {func() { set("user:erin") }, "it belongs to erin"},
+		"the tile was made again there":    {func() { f.set(func() { f.ident = "i2" }) }, "it belongs to bob"},
+	} {
+		set("user:bob")
+		f.set(func() { f.ident = "" })
+		f.trust(t, "alice", source())
+		if pl := judge(); pl.why != "" {
+			t.Fatalf("%s: before the change: %+v", name, pl)
+		}
+		c.change()
+		if pl := judge(); pl.trust == nil || !strings.Contains(pl.why, c.words) {
+			t.Errorf("%s: %+v", name, pl)
+		}
+		set("user:bob")
+		f.set(func() { f.ident = "" })
+		if pl := judge(); pl.trust == nil {
+			t.Errorf("%s, and back as it was: the old answer holds again (%+v)", name, pl)
+		}
 	}
-	set("user:erin", "carol")
-	if pl := judge(); pl.trust == nil || !strings.Contains(pl.why, "it belongs to erin") {
-		t.Fatalf("the tile has another owner: %+v", pl)
-	}
-	set("user:bob", "carol")
-	if pl := judge(); pl.why != "" {
-		t.Fatalf("back as it was when she trusted it: %+v", pl)
-	}
-	f.set(func() { f.ident = "i2" }) // made again at the same path
-	if pl := judge(); pl.trust == nil {
-		t.Fatalf("the tile was made again at its path: %+v", pl)
-	}
-	f.set(func() { f.ident = "" })
 	// another person's trust is not hers; hers is not theirs
 	if pl := m.signinPlanFor(termAdmin("zoe"), openOpts{}, "apps/x", prov, "", false, false, nil); pl.saved != nil {
 		t.Fatalf("zoe: %+v", pl)
 	}
 	// the workspace forbids trusting: the answer says who can change that,
 	// and what she trusted before isn't used
-	f.set(func() { f.trustOff = true })
+	f.trust(t, "alice", source())
+	f.trustOff(t, true)
 	if pl := judge(); pl.trust == nil || pl.trust.Allowed || !strings.Contains(pl.trust.Forbidden, "a workspace admin can change it") || !strings.Contains(pl.why, "switched off for this workspace") {
 		t.Fatalf("trusting forbidden: %+v (trust %+v)", pl, pl.trust)
 	}
-	f.set(func() { f.trustOff = false })
+	f.trustOff(t, false)
+	if pl := judge(); pl.why != "" {
+		t.Fatalf("trusting allowed again: her answer was kept (%+v)", pl)
+	}
 }
 
 // Live: a session on a tile she trusted runs on her sign-in; when someone
@@ -1082,7 +1087,7 @@ func TestSigninTrustLive(t *testing.T) {
 	}
 	// she answers; the restart — a session opened on her default — uses it
 	src, _ := r.m.SigninSource("alice", "apps/x")
-	f.trust("alice", src)
+	f.trust(t, "alice", src)
 	info, _, code, err := r.m.RestartAgent(alice, asked.ID, "", "", true, nil)
 	if err != nil || code != 200 {
 		t.Fatalf("restart: %d %v", code, err)
@@ -1096,17 +1101,24 @@ func TestSigninTrustLive(t *testing.T) {
 	if n := r.m.SigninSweep(); n != 0 {
 		t.Fatalf("nothing changed, yet the sweep ended %d", n)
 	}
-	// someone new can change the tile: the basis of her answer is gone
+	// someone new can change the tile: the basis of her answer is gone —
+	// the session ends, and her answer is void though carol leaves again
 	*others = []string{"carol"}
 	if n := r.m.SigninSweep(); n != 1 {
 		t.Fatalf("carol can change the tile now: the sweep ended %d", n)
 	}
 	gone(info.ID)
-	// she takes her trust back: the sessions on that tile end, no other
 	*others = nil
+	without := r.openLLM(t, alice, AgentOpen{})
+	if row, _ := r.m.Info(without.ID); row.Signin == nil || row.Signin.Source == SigninSaved || row.Signin.Trust == nil {
+		t.Fatalf("carol came and went: the old answer put the sign-in back (%+v)", row.Signin)
+	}
+	r.endSession(t, without.ID)
+	// she answers again, then takes her trust back: the sessions on that tile end, no other
+	f.trust(t, "alice", src)
 	again := r.openLLM(t, alice, AgentOpen{})
 	if row, _ := r.m.Info(again.ID); row.Signin == nil || row.Signin.Source != SigninSaved {
-		t.Fatalf("the basis is back: %+v", row.Signin)
+		t.Fatalf("after she answered again: %+v", row.Signin)
 	}
 	if n := r.m.EndSigninSessionsOn("alice", "apps/other", "x"); n != 0 {
 		t.Fatalf("another tile's revoke ended %d", n)
@@ -1119,22 +1131,66 @@ func TestSigninTrustLive(t *testing.T) {
 	}
 	gone(again.ID)
 	// trusting forbidden for the workspace: the sweep ends what ran on trust
-	f.set(func() { f.trusted = nil })
-	f.trust("alice", src)
 	third := r.openLLM(t, alice, AgentOpen{})
-	f.set(func() { f.trustOff = true })
+	f.trustOff(t, true)
 	if n := r.m.SigninSweep(); n != 1 {
 		t.Fatalf("trusting was switched off: the sweep ended %d", n)
 	}
 	gone(third.ID)
 }
 
-// Her workspace agent's starts and the trust line: an approved start whose
-// sheet carried the line gets the sign-in only if she ticked it (her trust
-// is on record by the open) — approved without, it starts without; a sheet
-// that carried none, on a tile that asks by the time of the open, is
-// refused; a start her preference lets through unasked never carries one
-// into a tile she hasn't trusted, and does on one she has.
+// The switch on trusting can go off with no request to xbind — the host's
+// file (review finding 3): the next judgement of any tile's source sees it
+// and ends the sessions that ran on a trust.
+func TestSigninTrustOffByTheHostEndsSessions(t *testing.T) {
+	r, f, _ := signinRig(t, "--require-login")
+	f.put("alice", "fake", "Personal", "CLAUDE_CODE_OAUTH_TOKEN", signins.KindSetupToken, fakeSavedToken)
+	signIn(t, r.root, "alice")
+	alice := termAdmin("alice")
+	prov, _ := agent.Lookup("fake")
+	var off atomic.Bool
+	r.m.SigninTrustOff = off.Load
+	f.set(func() { f.owner = "user:bob" })
+	src, _ := r.m.SigninSource("alice", "apps/x")
+	f.trust(t, "alice", src)
+	trusted := r.openLLM(t, alice, AgentOpen{})
+	if row, _ := r.m.Info(trusted.ID); row.Signin == nil || row.Signin.Source != SigninSaved {
+		t.Fatalf("on the tile she trusts: %+v", row.Signin)
+	}
+	r.m.SigninRule(alice, "apps/x", prov)
+	if _, _, err := r.m.agentOf(trusted.ID); err != nil {
+		t.Fatal("a judgement with the switch on ended the session")
+	}
+	// the host forbids trusting: nobody calls the sweep — the next judgement notices
+	f.trustOff(t, true)
+	off.Store(true)
+	r.m.SigninRule(alice, "apps/x", prov)
+	_, st, err := r.m.agentOf(trusted.ID)
+	if err == nil {
+		select {
+		case <-st.gone:
+		case <-time.After(10 * time.Second):
+			t.Fatal("trusting was forbidden by the host, and the session that ran on a trust kept running")
+		}
+	}
+	// …and a new session there has none, saying why
+	after := r.openLLM(t, alice, AgentOpen{})
+	if row, _ := r.m.Info(after.ID); row.Signin == nil || row.Signin.Source == SigninSaved || !strings.Contains(row.Signin.Why, "switched off for this workspace") {
+		t.Fatalf("a session after trusting was forbidden: %+v", row.Signin)
+	}
+	r.endSession(t, after.ID)
+}
+
+// Her workspace agent directs the sessions it starts, so none carries her
+// sign-in unless she ticked it for that start (decision A of the review of
+// 2026-11-17): never under "start without asking" — on her own tile, on a
+// tile she trusts — and never by an approval alone. Ticked ("Use my …
+// sign-in for this session": DelegateStart.Signin), the session runs on
+// that sign-in; where the tile needs her trust, the trust line goes with
+// it — ticked too (her trust is on record by the open) it goes in; the
+// sign-in ticked without it, the session starts without; a sheet that
+// carried no trust line, on a tile that asks by the open, is refused.
+// What the agent can read of such a session names no sign-in.
 func TestSigninDelegateStartsAndTrust(t *testing.T) {
 	r, f, _ := signinRig(t, "--require-login")
 	f.put("alice", "fake", "Personal", "CLAUDE_CODE_OAUTH_TOKEN", signins.KindSetupToken, fakeSavedToken)
@@ -1155,55 +1211,81 @@ func TestSigninDelegateStartsAndTrust(t *testing.T) {
 		}
 		return info, code, err
 	}
-	approved := func(asked bool) *DelegateStart {
-		return &DelegateStart{Approved: true, Provider: "fake", Mode: "ask", Signin: "si_Personal", TrustAsked: asked}
+	ticked := func(trustAsked bool) *DelegateStart {
+		return &DelegateStart{Approved: true, Provider: "fake", Mode: "ask", Signin: "si_Personal", TrustAsked: trustAsked}
 	}
+	unticked := func() *DelegateStart { return &DelegateStart{Approved: true, Provider: "fake", Mode: "ask"} }
 	unasked := func() *DelegateStart {
 		return &DelegateStart{Provider: "fake", Prefs: &delegation.StartPrefs{Mode: "ask"}}
 	}
+	without := func(what string, d *DelegateStart) {
+		t.Helper()
+		info, code, err := open(d)
+		if err != nil || info.Signin == nil || info.Signin.Source == SigninSaved || len(f.used()) != 0 {
+			t.Fatalf("%s: %d %v %+v (uses %+v)", what, code, err, info.Signin, f.used())
+		}
+		// …and what her agent reads of it names nothing of hers
+		if info.Signin.ID != "" || info.Signin.Name != "" || info.Signin.Trust != nil || bytes.Contains(seen(t, r.m, info.ID), []byte("Personal")) {
+			t.Fatalf("%s: the session's row or events name her sign-in or who can change the tile: %+v", what, info.Signin)
+		}
+		r.endSession(t, info.ID)
+	}
+	// her own tile, nobody else on it — the tile where her own session gets the sign-in by default
+	without("started unasked on her own tile", unasked())
+	without("approved without the sign-in's line ticked, on her own tile", unticked())
+	if sg, need := r.m.SigninForStart(agentP, "apps/x", prov, false); sg == nil || sg.ID != "si_Personal" || need != nil {
+		t.Fatalf("what the approval offers on her own tile: %+v %+v", sg, need)
+	}
+	info, code, err := open(ticked(false))
+	if err != nil || info.Signin == nil || info.Signin.Source != SigninSaved || info.Signin.Name != "" || info.Signin.ID != "" {
+		t.Fatalf("ticked on her own tile: %d %v %+v", code, err, info.Signin)
+	}
+	if all := seen(t, r.m, info.ID); bytes.Contains(all, []byte("Personal")) || !bytes.Contains(all, []byte("Using your saved sign-in, as you ticked on this start's approval.")) {
+		t.Fatalf("what the session says of its sign-in:\n%s", all)
+	}
+	if rows := f.used(); len(rows) != 1 || rows[0].Origin != "agent" {
+		t.Fatalf("the use log: %+v", rows)
+	}
+	// its sign-in removed: the session ends, though its row never named it
+	if n := r.m.EndSigninSessions("alice", "si_Personal", "removed"); n != 1 {
+		t.Fatalf("removing the sign-in ended %d agent-started session(s)", n)
+	}
+	f.set(func() { f.uses = nil })
+
+	// an org's tile: the sheet offers the sign-in and carries the trust line
 	f.set(func() { f.owner = "org:sales" })
-	// what the sheet shows: the sign-in, and the trust line
-	if sg, need := r.m.SigninForStart(agentP, "apps/x", prov, false, true); sg == nil || need == nil || need.OwnerKind != "org" {
+	if sg, need := r.m.SigninForStart(agentP, "apps/x", prov, false); sg == nil || need == nil || need.OwnerKind != "org" || need.Basis == "" {
 		t.Fatalf("the approval of a start on an org's tile: %+v %+v", sg, need)
 	}
-	if sg, _ := r.m.SigninForStart(agentP, "apps/x", prov, false, false); sg != nil {
-		t.Fatalf("an unasked start on an untrusted tile was promised the sign-in: %+v", sg)
-	}
-	// approved without the tick: it starts, without the sign-in
-	info, code, err := open(approved(true))
+	without("started unasked on a tile she hasn't trusted", unasked())
+	// the sign-in ticked, the trust line not: it starts, without the sign-in
+	info, code, err = open(ticked(true))
 	if err != nil || info.Signin == nil || info.Signin.Source == SigninSaved || !strings.Contains(info.Signin.Why, "you approved this start without trusting the source of apps/x") || len(f.used()) != 0 {
-		t.Fatalf("approved, the trust line not ticked: %d %v %+v", code, err, info.Signin)
+		t.Fatalf("ticked, the trust line not: %d %v %+v", code, err, info.Signin)
 	}
 	r.endSession(t, info.ID)
 	// the sheet carried no trust line and the tile asks now: refused, not opened without
-	if _, code, err := open(approved(false)); err == nil || code != 403 || !strings.Contains(err.Error(), "ask again") {
-		t.Fatalf("approved before the tile asked for trust: %d %v", code, err)
+	if _, code, err := open(ticked(false)); err == nil || code != 403 || !strings.Contains(err.Error(), "ask again") {
+		t.Fatalf("ticked before the tile asked for trust: %d %v", code, err)
 	}
-	// unasked: never into a tile she hasn't trusted
-	info, code, err = open(unasked())
-	if err != nil || info.Signin == nil || info.Signin.Source == SigninSaved || info.Signin.Trust == nil || len(f.used()) != 0 {
-		t.Fatalf("started unasked on an untrusted tile: %d %v %+v", code, err, info.Signin)
-	}
-	r.endSession(t, info.ID)
-	// she ticks the line (her trust is recorded before the open): it goes in
+	// both ticked (her trust is recorded before the open): it goes in
 	src, _ := r.m.SigninSource("alice", "apps/x")
-	f.trust("alice", src)
-	info, code, err = open(approved(true))
+	f.trust(t, "alice", src)
+	info, code, err = open(ticked(true))
 	if err != nil || info.Signin == nil || info.Signin.Source != SigninSaved {
-		t.Fatalf("approved with the trust line ticked: %d %v %+v", code, err, info.Signin)
+		t.Fatalf("both lines ticked: %d %v %+v", code, err, info.Signin)
 	}
 	r.endSession(t, info.ID)
-	// …and from then on an unasked start on that tile carries it too
-	info, code, err = open(unasked())
-	if err != nil || info.Signin == nil || info.Signin.Source != SigninSaved {
-		t.Fatalf("started unasked on a tile she trusts: %d %v %+v", code, err, info.Signin)
+	f.set(func() { f.uses = nil })
+	// …and her trust in the tile is no tick for the next start
+	without("started unasked on a tile she trusts", unasked())
+	without("approved without the tick on a tile she trusts", unticked())
+	// nothing is offered where the connector alone serves
+	if sg, _ := r.m.SigninForStart(agentP, "apps/x", prov, true); sg != nil {
+		t.Fatalf("offered where the connector alone may serve: %+v", sg)
 	}
-	if rows := f.used(); len(rows) != 2 || rows[1].Origin != "agent" {
-		t.Fatalf("the use log: %+v", rows)
-	}
-	r.endSession(t, info.ID)
-	// a tile a plan is about to make hers: the line names her default; one
-	// it would make an org's, or that someone else could change, names none
+	// a tile a plan is about to make hers: the line offers her default; one
+	// it would make an org's, or that someone else could change, offers none
 	own := signins.Source{Tile: "apps/new", Owner: "user:alice", OwnerKind: "you"}
 	if sg := r.m.SigninForPlanned(agentP, prov, own, false); sg == nil || sg.ID != "si_Personal" {
 		t.Fatalf("a tile the plan makes hers: %+v", sg)
@@ -1213,10 +1295,10 @@ func TestSigninDelegateStartsAndTrust(t *testing.T) {
 		"with a writer": {Tile: "apps/new", Owner: "user:alice", OwnerKind: "you", Editors: []string{"bob"}},
 	} {
 		if sg := r.m.SigninForPlanned(agentP, prov, src, false); sg != nil {
-			t.Errorf("a planned tile, %s, was promised the sign-in", name)
+			t.Errorf("a planned tile, %s, was offered the sign-in", name)
 		}
 	}
 	if sg := r.m.SigninForPlanned(agentP, prov, own, true); sg != nil {
-		t.Error("a planned tile where the connector alone serves was promised the sign-in")
+		t.Error("a planned tile where the connector alone serves was offered the sign-in")
 	}
 }

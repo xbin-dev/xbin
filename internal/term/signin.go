@@ -61,7 +61,6 @@ import (
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/agent/acp"
 	"github.com/xbin-dev/xbin/internal/auth"
-	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/signins"
 	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 )
@@ -91,6 +90,12 @@ type SigninHook struct {
 	// are ended, as when a sign-in is removed (SigninSweep). nil ⇒ never.
 	SigninsOff func() bool
 	offSeen    atomic.Bool
+	// SigninTrustOff reports trusting a tile's source switched off for the
+	// workspace (the admins' switch, or the host's file): the running
+	// sessions that carry a sign-in on a trust are ended (SigninSweep).
+	// nil ⇒ never.
+	SigninTrustOff func() bool
+	trustOffSeen   atomic.Bool
 	// SigninDev: a development workspace (--dev, --no-auth), where saved
 	// sign-ins work without sandboxes.
 	SigninDev bool
@@ -165,14 +170,25 @@ type SessionSignin struct {
 type SigninTrust struct {
 	Tile string `json:"tile"`
 	Name string `json:"name,omitempty"`
-	// OwnerKind: you | person | org | workspace; Owner its name (a person's
-	// or an org's).
+	// Basis is the token of what is asked about — the tile itself, its
+	// owner and everyone who can change it (signins.Source.Basis). The
+	// answer carries it back, and one for another basis is refused (409):
+	// the person trusts what they were shown.
+	Basis string `json:"basis"`
+	// OwnerKind: you | person | org | workspace. Owner is the owner's
+	// account or org id — what xbind enforces — and OwnerName its display
+	// name where it has another (shown beside the id, never instead).
+	// Admin: a workspace-owned tile, and the person administers the
+	// workspace.
 	OwnerKind string `json:"ownerKind"`
 	Owner     string `json:"owner,omitempty"`
-	// Editors: up to three of the other people who can change the tile's
-	// code; More counts the rest.
-	Editors []string `json:"editors,omitempty"`
-	More    int      `json:"more,omitempty"`
+	OwnerName string `json:"ownerName,omitempty"`
+	Admin     bool   `json:"admin,omitempty"`
+	// Editors: the account ids of ALL the other people who can change the
+	// tile's code (the person must be able to see everyone they trust);
+	// Names their display names by id, where they have another.
+	Editors []string          `json:"editors,omitempty"`
+	Names   map[string]string `json:"names,omitempty"`
 	// Allowed false: the workspace doesn't let people trust a tile's
 	// source — Forbidden says who can change that.
 	Allowed   bool   `json:"allowed"`
@@ -181,11 +197,12 @@ type SigninTrust struct {
 
 // trustNeed is src as a card asks about it.
 func trustNeed(src signins.Source, pol signins.TrustPolicy) *SigninTrust {
-	t := &SigninTrust{Tile: src.Tile, Name: src.Name, OwnerKind: src.OwnerKind, Owner: src.OwnerName, Allowed: pol.Allowed}
+	t := &SigninTrust{Tile: src.Tile, Name: src.Name, Basis: src.Basis(), OwnerKind: src.OwnerKind, Owner: src.OwnerID, OwnerName: src.OwnerName,
+		Admin: src.OwnerKind == "workspace" && src.Admin, Allowed: pol.Allowed}
 	if signins.CoEditorsNeedTrust {
 		t.Editors = src.Editors
-		if len(t.Editors) > 3 {
-			t.Editors, t.More = t.Editors[:3:3], len(src.Editors)-3
+		if len(src.Names) > 0 {
+			t.Names = src.Names
 		}
 	}
 	switch {
@@ -198,16 +215,24 @@ func trustNeed(src signins.Source, pol signins.TrustPolicy) *SigninTrust {
 	return t
 }
 
+// SigninQuestion is the trust question for src as it stands (a card's
+// redraw after "this changed").
+func (m *Manager) SigninQuestion(src signins.Source, pol signins.TrustPolicy) *SigninTrust {
+	return trustNeed(src, pol)
+}
+
 // sourceWords says why src isn't only the person's own.
 func sourceWords(src signins.Source) string {
 	var parts []string
 	switch src.OwnerKind {
-	case "person":
-		parts = append(parts, "it belongs to "+src.OwnerName)
+	case "person": // account and org ids: what xbind enforces
+		parts = append(parts, "it belongs to "+src.OwnerID)
 	case "org":
-		parts = append(parts, "it belongs to the org "+src.OwnerName)
+		parts = append(parts, "it belongs to the org "+src.OwnerID)
 	case "workspace":
-		parts = append(parts, "it belongs to the workspace")
+		if src.NotOwn {
+			parts = append(parts, "it belongs to the workspace")
+		}
 	}
 	if signins.CoEditorsNeedTrust && len(src.Editors) > 0 {
 		parts = append(parts, othersWords(src.Editors)+" can change it")
@@ -231,6 +256,9 @@ type signinPlan struct {
 	// trust: it is left out because the tile's source needs the person's
 	// trust (why says it too)
 	trust *SigninTrust
+	// agentWhy: a workspace agent's start without the person's tick — why
+	// it has no saved sign-in, said without naming one
+	agentWhy string
 }
 
 // sessionSignin is a live session's: what it carries. secret is the
@@ -239,6 +267,7 @@ type signinPlan struct {
 type sessionSignin struct {
 	view   SessionSignin
 	user   string
+	id     string // the saved sign-in's id (the view names it only in a session its person started)
 	secret []byte
 	// red masks the sign-in in what the session says (signinredact.go);
 	// kept while the session lives, also once the secret was taken away
@@ -285,14 +314,15 @@ func (m *Manager) SigninPreview(p auth.Principal, tile string, prov agent.Provid
 }
 
 // SigninForStart answers, for a start by p — a person's workspace agent —
-// on tile, the person's default sign-in for prov that the start would use
-// (nil: none, or it would not go in). approved: the person is about to
-// approve it — the sheet names the sign-in by its id and the open is bound
-// to it (DelegateStart.Signin), and where the tile's source needs their
-// trust the sheet carries the trust line (need): the sign-in goes in only
-// if they tick it. Not approved (their preference lets it start unasked):
-// only where it goes in as things are — never into an untrusted tile.
-func (m *Manager) SigninForStart(p auth.Principal, tile string, prov agent.Provider, forced, approved bool) (sg *signins.Signin, need *SigninTrust) {
+// on tile that the person is about to APPROVE, the person's default
+// sign-in for prov that the sheet OFFERS (nil: none, or it could not go
+// in): a line of its own, unticked — "Use my … sign-in for this session".
+// Ticked, the open is bound to its id (DelegateStart.Signin); not ticked,
+// the session has none. need: the tile's source isn't only theirs — the
+// sheet carries the trust line too, tickable only with the first. A start
+// that is not approved (their "start without asking" preference) is never
+// asked about: it never has a sign-in.
+func (m *Manager) SigninForStart(p auth.Principal, tile string, prov agent.Provider, forced bool) (sg *signins.Signin, need *SigninTrust) {
 	if m.Signins == nil || p.Agent == "" {
 		return nil, nil
 	}
@@ -300,17 +330,13 @@ func (m *Manager) SigninForStart(p auth.Principal, tile string, prov agent.Provi
 	if err != nil || def == nil {
 		return nil, nil
 	}
-	d := &DelegateStart{Prefs: &delegation.StartPrefs{}}
-	if approved {
-		d = &DelegateStart{Approved: true, Signin: def.ID, TrustAsked: true}
-	}
-	pl := m.signinPlanFor(p, openOpts{}, tile, prov, "", forced, false, d)
+	pl := m.signinPlanFor(p, openOpts{}, tile, prov, "", forced, false, &DelegateStart{Approved: true, Signin: def.ID, TrustAsked: true})
 	switch {
 	case pl.saved == nil:
 		return nil, nil
 	case pl.why == "":
 		return pl.saved, nil
-	case approved && pl.trust != nil && pl.trust.Allowed:
+	case pl.trust != nil && pl.trust.Allowed:
 		return pl.saved, pl.trust
 	}
 	return nil, nil
@@ -343,25 +369,22 @@ func (m *Manager) signinPlanFor(p auth.Principal, o openOpts, rel string, prov a
 		return pl // not a person's own session: nothing of theirs is even looked up
 	}
 	if p.Agent != "" {
-		// a workspace agent's start, for its person
-		switch {
-		case d != nil && d.Approved && d.Signin != "":
-			// the approval named a sign-in, in xbind's own words: exactly
-			// that one
-			choice, pl.bound = d.Signin, true
-		case d != nil && !d.Approved && d.Prefs != nil:
-			// let through unasked by the person's own preference: their
-			// default, where the rule below lets it in — their own tiles
-			// and the ones they trust, never one they haven't
-		default:
-			// approved with no sign-in named (the sheet showed none), or no
-			// authorisation at all: none
-			if sg, err := m.Signins.Peek(p.UserID, prov.ID, ""); err == nil && sg != nil {
-				pl.saved = sg
-				pl.why = "your workspace agent started this session, and the start you approved named no saved sign-in"
+		// a workspace agent's start, for its person. The agent directs the
+		// session and reads what it prints, so a sign-in goes in only where
+		// the person TICKED it for this very start, on xbin's own sheet
+		// (DelegateStart.Signin: the approval's "Use my … sign-in for this
+		// session", unticked by default) — each time. A start their
+		// "start without asking" preference lets through never has one, on
+		// any tile; nor one approved without the tick. Nothing of the
+		// person's is looked up for those: the session's row, which the
+		// agent reads, says only that it has none.
+		if d == nil || !d.Approved || d.Signin == "" {
+			if sg, err := m.Signins.Peek(p.UserID, prov.ID, ""); err == nil && sg != nil { // (that one exists, nothing of it)
+				pl.agentWhy = "your workspace agent started this session, and a saved sign-in goes into such a session only where you tick it on the start's approval"
 			}
 			return pl
 		}
+		choice, pl.bound = d.Signin, true
 	}
 	sg, err := m.Signins.Peek(p.UserID, prov.ID, choice)
 	if err != nil || sg == nil {
@@ -418,6 +441,7 @@ func (m *Manager) signinJudge(p auth.Principal, o openOpts, rel string, prov age
 	if !ok {
 		return rel + " is in no registered tile, so xbind can't tell whose code runs there", nil
 	}
+	m.signinTrustOff() // (seen forbidden for the first time: the sessions on a trust end)
 	// its source is only the person's own, or they said they trust it
 	if !src.NeedsTrust() || m.Signins.Trusts(p.UserID, src) {
 		return "", nil
@@ -497,9 +521,13 @@ func (m *Manager) signinTake(pl signinPlan, id, rel string, prov agent.Provider,
 		ss.red = newRedactor(nil) // the transcript it resumes was made on a sign-in: the shapes at least
 	}
 	if pl.saved == nil {
+		ss.view.Why = pl.agentWhy
 		return ss, nil
 	}
-	ss.view.ID, ss.view.Name, ss.view.Trust = pl.saved.ID, pl.saved.Name, pl.trust
+	ss.id = pl.saved.ID
+	if pl.origin != "agent" {
+		ss.view.ID, ss.view.Name, ss.view.Trust = pl.saved.ID, pl.saved.Name, pl.trust
+	} // (a session the workspace agent started is read by it — its row, its events: they name no sign-in and no one's access)
 	if pl.why == "" && connector {
 		pl.why = "you chose the workspace's LLM connector for " + prov.Name
 	}
@@ -547,7 +575,7 @@ func (m *Manager) signinRestart(s *Session, provider string) string {
 	if origin != "" { // agent-started: exactly what it carried
 		want = SigninNone
 		if ss.carries() {
-			want = ss.view.ID
+			want = ss.id
 		}
 	}
 	if want == "" || want == SigninNone {
@@ -569,7 +597,7 @@ func (s *Session) signinCredential(m *Manager, prov agent.Provider, sp *acp.Spaw
 	}
 	secret := string(ss.secret)
 	c := &sdkacp.Credential{OnRefused: func(msg string) {
-		m.Signins.MarkRefused(ss.user, ss.view.ID, strings.ReplaceAll(msg, secret, signinMask))
+		m.Signins.MarkRefused(ss.user, ss.id, strings.ReplaceAll(msg, secret, signinMask))
 	}}
 	if sp.KeyHome != nil || prov.ID == "gemini" { // an adapter that takes a key only through authenticate
 		c.APIKey = secret
@@ -613,8 +641,12 @@ func (s *Session) signinHello(m *Manager, h acp.HelloParams) {
 	s.mu.Unlock()
 	text := ""
 	switch {
+	case v.Source == SigninSaved && v.Name == "": // (a workspace agent's start: ticked on its approval, named there)
+		text = "Using your saved sign-in, as you ticked on this start's approval."
 	case v.Source == SigninSaved:
 		text = "Using your saved sign-in " + v.Name + "."
+	case v.Why != "" && v.Name == "": // (a workspace agent's start: no sign-in is named to it)
+		text = "No saved sign-in is used in this session: " + v.Why + "."
 	case v.Why != "":
 		text = "Your saved sign-in " + v.Name + " isn't used here: " + v.Why + "."
 		if v.Trust != nil && v.Trust.Allowed {
@@ -726,7 +758,7 @@ func (m *Manager) EndSigninSessions(user, id, why string) int {
 	for _, s := range m.sorted() {
 		s.mu.Lock()
 		ss := s.sig()
-		hit := ss.carries() && ss.user == user && (id == "" || ss.view.ID == id) && ss.endClaim()
+		hit := ss.carries() && ss.user == user && (id == "" || ss.id == id) && ss.endClaim()
 		s.mu.Unlock()
 		if hit {
 			m.endForSignin(s, why)
@@ -766,6 +798,7 @@ func (m *Manager) SigninSweep() int {
 	// leave the count the switch's route reports short
 	off := m.SigninsOff != nil && m.SigninsOff()
 	m.offSeen.Store(off)
+	m.trustOffSeen.Store(m.SigninTrustOff != nil && m.SigninTrustOff())
 	if m.SigninSource == nil && !off {
 		return 0
 	}
@@ -828,6 +861,21 @@ func (m *Manager) signinsOff() bool {
 		go m.SigninSweep()
 	}
 	return off
+}
+
+// signinTrustOff is signinsOff for the switch on trusting: the host's file
+// can forbid it with no request to xbind, so every judgement of a tile's
+// source looks — and the first time it is seen off, sweeps: the sessions
+// that ran on a trust end.
+func (m *Manager) signinTrustOff() {
+	if m.SigninTrustOff == nil {
+		return
+	}
+	if !m.SigninTrustOff() {
+		m.trustOffSeen.Store(false)
+	} else if !m.trustOffSeen.Swap(true) {
+		go m.SigninSweep()
+	}
 }
 
 // keyHomeDir makes the directory a non-isolated session's saved key lives

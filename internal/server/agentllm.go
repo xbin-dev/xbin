@@ -33,9 +33,11 @@ type providerRow struct {
 // providerSaved is a provider row's `saved`: the person's default saved
 // sign-in for the harness — metadata, never a secret.
 type providerSaved struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Kind      string `json:"kind"`
+	// (id, name and kind are left out for a person's workspace agent: it
+	// learns that one exists, nothing of it)
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Kind      string `json:"kind,omitempty"`
 	ExpiresAt int64  `json:"expiresAt,omitempty"`
 	// Inject: a session of the caller's on the tile would run on it. false:
 	// Why says why it would be left out.
@@ -77,6 +79,16 @@ func (s *Server) withAgentLLM(r *http.Request, tile string, rows []providerRow) 
 // when they have none, or xbind keeps none.
 func (s *Server) providerSaved(p auth.Principal, tile string, prov agent.Provider, llm *term.ProviderLLM) *providerSaved {
 	if s.Term == nil || s.Signins == nil || !s.signinsAvail().OK {
+		return nil
+	}
+	if p.Agent != "" {
+		// a person's workspace agent reads this route too: it learns that a
+		// saved sign-in exists — never its label, its kind, or who can
+		// change the tile. (A session it starts has one only by the
+		// person's tick on that start's approval.)
+		if sg, err := s.Signins.Peek(p.UserID, prov.ID, ""); err == nil && sg != nil {
+			return &providerSaved{}
+		}
 		return nil
 	}
 	sg, why, trust := s.Term.SigninPreview(p, tile, prov, llm != nil && llm.Forced)

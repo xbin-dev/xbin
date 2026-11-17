@@ -119,10 +119,15 @@ type Request struct {
 	// UTF-8, or with control characters): the person sees its size and
 	// hash, and approves it only by saying they approve it unseen —
 	// ApprovedUnseen records that they did.
-	BodyBinary     bool   `json:"bodyBinary,omitempty"`
-	ApprovedUnseen bool   `json:"approvedUnseen,omitempty"`
-	BodySize       int    `json:"bodySize"`
-	BodySHA256     string `json:"bodySha256"`
+	BodyBinary     bool `json:"bodyBinary,omitempty"`
+	ApprovedUnseen bool `json:"approvedUnseen,omitempty"`
+	// UseSignin: approving a tile agent's start, the person ticked "Use my
+	// … sign-in for this session" — the line the sheet offered, unticked
+	// (preview.session.signInId). The ticket's start carries that sign-in
+	// only then.
+	UseSignin  bool   `json:"useSignin,omitempty"`
+	BodySize   int    `json:"bodySize"`
+	BodySHA256 string `json:"bodySha256"`
 	// Summary is the agent's own words, shown as such.
 	Summary string `json:"summary,omitempty"`
 	// Preview is xbind's description of the call, computed when it was
@@ -397,6 +402,7 @@ func (s *Store) DecideWith(user, id, grant, scope, via string, unseen bool) (Req
 type Decision struct {
 	Grant, Scope, Via string
 	Unseen            bool
+	UseSignin         bool // the start's own "use my sign-in" line, ticked
 	From, Device      string
 }
 
@@ -457,6 +463,7 @@ func (s *Store) DecideAs(user, id string, d Decision) (Request, *Approval, error
 	r.Decided, r.DecidedVia, r.Grant = now, via, grant
 	r.DecidedFrom, r.DecidedDevice = d.From, d.Device
 	r.ApprovedUnseen = grant != "" && r.BodyBinary
+	r.UseSignin = grant != "" && d.UseSignin && r.Kind == KindSession
 	var ap *Approval
 	if grant == "" {
 		r.State, r.Body = Denied, ""

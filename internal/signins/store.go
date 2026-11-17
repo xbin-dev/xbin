@@ -760,7 +760,7 @@ func (s *Store) People() []PersonRow {
 	for _, e := range ents {
 		name, ok := strings.CutSuffix(e.Name(), ".json")
 		raw, err := hex.DecodeString(name)
-		if !ok || err != nil || name == "policy" {
+		if !ok || err != nil { // (policy.json, policy.trust.json: no person's file — not hex)
 			continue
 		}
 		f, err := s.read(string(raw))

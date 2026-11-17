@@ -273,14 +273,11 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 	alice := delegateCred("d-alice")
 	sid := w.s.Auth.NewSession("alice", "")
 	own := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: sid}) }
-	now := "" // the saved sign-in a start of alice's would use at this moment ("": none)
+	now := "" // the saved sign-in a start of alice's is offered at this moment ("": none)
 	was := startSignIn
 	var line *term.SigninTrust // the trust line a start of alice's carries at this moment (nil: none)
 	startSignIn = func(*Server, auth.Principal, string, agent.Provider, *term.ProviderLLM, bool) (string, string, *term.SigninTrust) {
-		if now == "" {
-			return "needed", "", nil
-		}
-		return "saved", now, line
+		return "needed", now, line // (what it runs on as things are; the sign-in the sheet offers; its trust line)
 	}
 	t.Cleanup(func() { startSignIn = was })
 	var opened []term.DelegateStart
@@ -320,10 +317,14 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 			t.Error("which coding agents open with no mode named")
 		}
 	}
-	for _, c := range []struct{ name, shown, atApply, want string }{
-		{"the sign-in the line named, though the default moved", "sg-work", "sg-other", "sg-work"},
-		{"none named: none used, though one exists by Apply", "", "sg-work", ""},
-		{"the one named, unchanged", "sg-work", "sg-work", "sg-work"},
+	// the sign-in a line OFFERS is its person's to tick when they apply it —
+	// unticked, the session has none; ticked, it is the one the line showed,
+	// not whatever their default is by then
+	for _, c := range []struct{ name, shown, atApply, body, want string }{
+		{"offered, not ticked: none", "sg-work", "sg-work", `{"items":[1]}`, ""},
+		{"ticked: the one the line offered, though the default moved", "sg-work", "sg-other", `{"items":[1],"signin":[1]}`, "sg-work"},
+		{"ticked, unchanged", "sg-work", "sg-work", `{"items":[1],"signin":[1]}`, "sg-work"},
+		{"none offered: none used, though one exists by Apply", "", "sg-work", `{"items":[1]}`, ""},
 	} {
 		now = c.shown
 		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"claude"}}]}`, alice)
@@ -335,34 +336,60 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 		}
 		var start struct{ SignIn, SignInID string }
 		_ = json.Unmarshal(full.Items[0].Start, &start)
-		if start.SignInID != c.shown || (c.shown != "") != (start.SignIn == "saved") || len(full.Items[0].Warnings) != 0 || full.Items[0].Wait != nil {
+		if start.SignInID != c.shown || start.SignIn == "saved" || len(full.Items[0].Warnings) != 0 || full.Items[0].Wait != nil {
 			t.Fatalf("%s: the line as its person is shown it: %+v (warnings %v, wait %v)", c.name, start, full.Items[0].Warnings, full.Items[0].Wait)
 		}
 		now, opened = c.atApply, nil
-		done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, own))
+		done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", c.body, own))
 		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 {
 			t.Fatalf("%s: applying: %+v (%d opens)", c.name, done.Items[0], len(opened))
 		}
 		if d := opened[0]; d.Signin != c.want || !d.Approved || d.Provider != "claude" || d.TrustAsked {
-			t.Errorf("%s: the open was authorised for the sign-in %q — the line named %q", c.name, d.Signin, c.shown)
+			t.Errorf("%s: the open was authorised for the sign-in %q — the line offered %q", c.name, d.Signin, c.shown)
+		}
+	}
+	// a tick where none was offered, or for a line that wasn't chosen, applies nothing
+	{
+		now = ""
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"claude"}}]}`, alice)
+		var cs delegation.ChangeSet
+		_ = json.Unmarshal(rec.Body.Bytes(), &cs)
+		opened = nil
+		for _, body := range []string{`{"items":[1],"signin":[1]}`, `{"items":[1],"signin":[2]}`, `{"items":[1],"trust":[1]}`} {
+			if rec := w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", body, own); rec.Code != 400 || len(opened) != 0 {
+				t.Fatalf("%s: %d %s (%d opens)", body, rec.Code, rec.Body.String(), len(opened))
+			}
 		}
 	}
 	// a start line on a tile whose source isn't only hers carries the trust
-	// line: applied without it, the open is one that asked and nothing is
-	// recorded; with it (trust: [n]), her trust is on record before the open
+	// line under the sign-in's: the sign-in ticked without it, the open is
+	// one that asked and nothing is recorded; both ticked (signin: [n],
+	// trust: [n]), her trust is on record before the open — for the tile as
+	// the line showed it: one that changed since applies nothing (409)
 	w.s.Signins = signins.New(signins.Options{Dir: filepath.Join(t.TempDir(), "signins"), AllowPlaintext: true})
 	owner := "org:sales"
+	var editors []string
 	w.s.Term.Signins, w.s.Term.SigninDev = w.s.Signins, true
-	w.s.Term.SigninSource = testSource(&owner, nil)
-	now, line = "sg-work", &term.SigninTrust{Tile: "apps/x", OwnerKind: "org", Owner: "sales", Allowed: true}
+	w.s.Term.SigninSource = testSource(&owner, &editors)
+	question := func() *term.SigninTrust {
+		src, _ := w.s.Term.SigninSource("alice", "apps/x")
+		return w.s.Term.SigninQuestion(src, w.s.Signins.Policy().Trust)
+	}
 	for _, c := range []struct {
 		name, body string
+		change     func()
+		status     int
+		signin     string
 		trusted    int
 	}{
-		{"applied without the trust line", `{"items":[1]}`, 0},
-		{"a trust tick for a line that wasn't chosen", `{"items":[1],"trust":[2]}`, 0},
-		{"applied with the trust line ticked", `{"items":[1],"trust":[1]}`, 1},
+		{"neither ticked", `{"items":[1]}`, nil, 200, "", 0},
+		{"the sign-in ticked, the trust line not", `{"items":[1],"signin":[1]}`, nil, 200, "sg-work", 0},
+		{"the trust line alone", `{"items":[1],"trust":[1]}`, nil, 400, "", 0},
+		{"the tile changed since the line was drawn", `{"items":[1],"signin":[1],"trust":[1]}`, func() { editors = []string{"mallory"} }, 409, "", 0},
+		{"both ticked", `{"items":[1],"signin":[1],"trust":[1]}`, nil, 200, "sg-work", 1},
 	} {
+		editors = nil
+		now, line = "sg-work", question()
 		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"claude"}}]}`, alice)
 		var cs delegation.ChangeSet
 		_ = json.Unmarshal(rec.Body.Bytes(), &cs)
@@ -375,12 +402,25 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 			SignInTrust *term.SigninTrust
 		}
 		_ = json.Unmarshal(full.Items[0].Start, &start)
-		if start.SignInID != "sg-work" || start.SignInTrust == nil || start.SignInTrust.Owner != "sales" {
+		if start.SignInID != "sg-work" || start.SignInTrust == nil || start.SignInTrust.Owner != "sales" || start.SignInTrust.Basis == "" {
 			t.Fatalf("%s: the line as shown: %s", c.name, full.Items[0].Start)
 		}
+		if c.change != nil {
+			c.change()
+		}
 		opened = nil
-		done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", c.body, own))
-		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || !opened[0].TrustAsked || opened[0].Signin != "sg-work" {
+		rec = w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", c.body, own)
+		if rec.Code != c.status {
+			t.Fatalf("%s: apply: %d %s", c.name, rec.Code, rec.Body.String())
+		}
+		if c.status != 200 {
+			if len(opened) != 0 || len(w.s.Signins.Trusted("alice")) != 0 {
+				t.Fatalf("%s: refused, yet %d open(s), trusted %+v", c.name, len(opened), w.s.Signins.Trusted("alice"))
+			}
+			continue
+		}
+		done := decode[delegation.ChangeSet](t, rec)
+		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || !opened[0].TrustAsked || opened[0].Signin != c.signin {
 			t.Fatalf("%s: applying: %+v (opens %+v)", c.name, done.Items[0], opened)
 		}
 		if tr := w.s.Signins.Trusted("alice"); len(tr) != c.trusted || c.trusted == 1 && (tr[0].Via != "plan" || tr[0].Owner != "org:sales") {
