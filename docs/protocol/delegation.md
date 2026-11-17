@@ -243,9 +243,11 @@ GET    /delegate/start-defaults  the person's agent. ?tile= → {tile,
                                  runs on the workspace's LLM connector, no
                                  sign-in of the person's needed; signIn:
                                  "saved" (a saved sign-in of theirs would
-                                 go in if they approve the start — never
-                                 its name or id, and never for a start
-                                 that needs no approval), "connector",
+                                 go in — once they approve the start
+                                 where needsTicket, as things are where
+                                 not: on a tile that is theirs alone or
+                                 that they trust; never its name or id),
+                                 "connector",
                                  "own" (the tile's own login, as a session
                                  last saw it) or "needed" (none: the
                                  person signs in first). 403 without
@@ -971,8 +973,13 @@ POST   /delegate/requests/<id>/approve
                                  device — never the agent's page (403).
                                  {grant?: "once" | "hour" | "always",
                                  scope?: "call" | "tile", unseen?: true,
-                                 via?: "notification"}
-                                 → {request, approval?}. via: the person
+                                 trust?: true, via?: "notification"}
+                                 → {request, approval?, trust?}. trust: a
+                                 tile agent's start whose sheet carried
+                                 the trust line (preview.session.
+                                 signInTrust), ticked — "I trust this
+                                 tile's source"; without it the start
+                                 runs without the saved sign-in. via: the person
                                  decided from a notification's action
                                  (D241): only once, and only a request the
                                  lock-screen rule passes (§Events and
@@ -1033,33 +1040,45 @@ hours; decided and withdrawn ones are kept a day, 200 a person at most.
 started sessions among those the tile's orgs allow — the one their
 preference lets start unasked; without one, the first allowed that can run
 as things are: on the person's saved sign-in (`signIn: "saved"`, D230 —
-where the shared-tile rule lets it into a session there and the person
-approves the start), on the tile's own login where a session saw one, or
+where the rule lets it into a session there), on the tile's own login where a session saw one, or
 on the workspace's LLM connector (`noSignIn`), so a start doesn't open on
 a coding agent the connector can't serve and nobody is signed in to.
 
-**A saved sign-in goes into a session the agent starts only by the
-person's approval of that start.** The agent steers such a session and
-reads what it prints, so the start's preview says it in xbind's words —
-`preview.session` (and a plan line's `start`) carries `signIn: "saved"`
-and `signInId`, the sign-in's id; the sheet reads "Uses your saved Claude
-Code sign-in ‹label›" with the label from the person's own list, and "the
-tile's coding agent will hold that sign-in". The ticket binds the id with
-the harness and the mode: the session opens with exactly that sign-in, or
-is refused (403: it was removed, or someone else can change the tile
-now — ask again). A start the person's preference lets through unasked,
-and one whose approval named none, never gets one. A plan's start line is
-held to the same: the session gets the sign-in the line named when it was
-proposed — not the person's default as it is when the plan is applied —
-and a start on a tile an earlier line of the plan creates names none (the
-tile didn't exist to be judged), so it gets none. A person's agent never
-names a saved sign-in (`signin` in a start's body is 403 for it), can't
-list them, and is told neither a label nor, outside its own requests, an
-id. The
-mode and network are their preference's (or the harness's asking mode), and the request's
-`preview.session` shows the **effective** `provider`, `mode`, `net` — what
-`GET /delegate/start-defaults?tile=` answers beforehand. A value the rules
-don't allow is refused with the rule's reason.
+**A saved sign-in in a session the agent starts.** The agent steers such
+a session and reads what it prints.
+
+- **A start the person approves** says it in xbind's words —
+  `preview.session` (and a plan line's `start`) carries `signIn: "saved"`
+  and `signInId`, the sign-in's id; the sheet reads "Uses your saved
+  Claude Code sign-in ‹label›" with the label from the person's own list,
+  and "the tile's coding agent will hold that sign-in". The ticket binds
+  the id with the harness and the mode: the session opens with exactly
+  that sign-in, or is refused (403: it was removed — ask again).
+- **Where the tile's source isn't only the person's**
+  ([signins.md](/docs/protocol/signins.md) → "Trusting a tile's source")
+  the preview also carries `signInTrust` — xbind's question: `{tile,
+  name?, ownerKind, owner?, editors?, more?, allowed}` — and the sheet
+  draws the **trust line** under the sign-in: warned, unticked. The
+  person's tick is sent with the approval — `POST …/requests/<id>/approve
+  {grant, trust: true}`; a plan's apply names the lines: `POST
+  …/changesets/<id>/approve {items, trust: [n, …]}` — and recorded as
+  their trust in that tile before the session opens (→ `trust`, or
+  `trustError`). **Approved without it, the session starts without the
+  sign-in**: approving a start never implies trust. A sheet that carried
+  no trust line, on a tile that asks for trust by the time of the open, is
+  refused (403: ask again). `trust` can't be sent from a notification
+  (409 `review`), nor by the agent.
+- **A start the person's preference lets through unasked** gets their
+  default sign-in on a tile that is theirs alone or that they trust —
+  `start-defaults` says `signIn: "saved"` there — and never on a tile
+  they haven't trusted.
+- **A tile the same plan creates** as the person's own: its start line
+  names their default sign-in (`signIn`, `signInId`) like any other; the
+  open judges the tile itself once it exists.
+
+A person's agent never names a saved sign-in (`signin` in a start's body
+is 403 for it), can't list them, can't trust a tile, and is told neither a
+label nor, outside its own requests, an id.
 
 **The first prompt is part of the start.** A start may carry `prompt` (at
 most 64 KiB): what the session is told first. The ticket binds it with the
@@ -1144,7 +1163,9 @@ DELETE /delegate/changesets/<id>
 POST   /delegate/changesets/<id>/approve
                                  the person whose agent proposed it, in
                                  their own session, app or device. {items?:
-                                 [n, …], password?} → the set with each
+                                 [n, …], password?, trust?: [n, …]} (trust:
+                                 the agent.start lines whose trust line
+                                 was ticked) → the set with each
                                  item's result. items is required and
                                  not empty: no body, null and [] apply
                                  nothing (400; the set stays proposed).

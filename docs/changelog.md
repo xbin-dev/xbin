@@ -12,6 +12,47 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- coding agents: **a saved sign-in is used by default — and on a tile
+  that isn't only yours xbin asks "I trust this tile's source" first**
+  (D230; [agent-signins.md](/docs/agent-signins.md),
+  [protocol/signins.md](/docs/protocol/signins.md)). This replaces
+  yesterday's rule ("not on a tile someone else can change"). Your default
+  sign-in for the coding agent goes into your own sessions; on a tile
+  whose source isn't only yours — it is owned by someone else (a person,
+  an org, the workspace), **or** someone else who isn't a workspace admin
+  can change its code (write level or more; partitioned tiles too) — it
+  stays out until you say, once per tile, that you trust its source. The
+  Agent tab's card says whose tile it is, who can change it and what
+  trusting means ("Code in this tile runs with your sign-in while your
+  coding agent works. People who can change this tile could read it and
+  use your … account."), with two choices of equal weight. Trust is kept
+  for the tile itself (not its path), its owner and its editors: someone
+  new able to change it, another owner, or a tile made again at the path
+  asks again and ends the session that ran on it. **What changes for
+  existing workspaces**: sessions that were refused a sign-in under the
+  old rule get the question instead of the refusal; tiles owned by an
+  org, the workspace or another person — where the old rule used your
+  sign-in when nobody else could change them — now ask once; your own
+  tiles that nobody else can change work as before. Nothing is trusted
+  for you. Additive API: `POST /agent/signins/trust {tile}`, `DELETE
+  /agent/signins/trust/{id}` (ends the sessions there); `GET
+  /agent/signins` gains `trusted`, `policy.trust` and `here.trust` /
+  `here.without`; `PUT /agent/signins/policy` takes `trust` (a workspace
+  switch on trusting, allowed by default; the host's file locks it with
+  `"agentSignInTrust"`); a session's `signin` and a providers row's
+  `saved` gain `trust`. **Workspace agent**: a start you approve names
+  the sign-in as before and, where the tile isn't only yours, its preview
+  carries `signInTrust` and the sheet the trust line — `POST
+  …/requests/{id}/approve {trust: true}`, `…/changesets/{id}/approve
+  {trust: [n]}`; approved without it the session starts without your
+  sign-in. A start your "start without asking" preference lets through
+  now gets your default on your own and trusted tiles (`start-defaults`
+  says `signIn: "saved"` there) and never on an untrusted one; a start on
+  a tile the same plan creates as yours names your default sign-in.
+  `<bx-agent-signin view="trust">` (events `bx-signin-trusted`,
+  `bx-signin-declined`) and `/vendor/agent-armed.js` are new. iOS: a
+  start allowed from the app on a tile that isn't only yours runs without
+  your sign-in and says so; trusting is done on the web.
 - **Agent template: a provider's hiccup no longer stops a conversation.**
   A model call that failed with something that may be gone a moment later
   (the provider's `5xx` or `429`, a call that got no answer) is made again
