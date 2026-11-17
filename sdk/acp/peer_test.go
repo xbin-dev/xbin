@@ -98,6 +98,7 @@ type peer struct {
 	prompt    json.RawMessage // the open session/prompt's id
 	steering  bool            // advertise _session/steering
 	steerNext string          // the next steer's outcome ("": injected in a turn, else promptRequired)
+	steerThen string          // said right after the next steer's answer, as a turn the steer started would
 	signedOut bool            // session/new answers -32000 until authenticate
 	modeOpt   bool            // its modes only as a config option of category mode (opencode), set_mode taken
 	noSetMode bool            // session/set_mode answers an error (a mode it doesn't have)
@@ -198,8 +199,14 @@ func (p *peer) onRequest(m *Message) (any, *Error) {
 		_ = json.Unmarshal(m.Params, &sp)
 		p.mu.Lock()
 		out, running := p.steerNext, p.prompt != nil
-		p.steerNext = ""
+		then := p.steerThen
+		p.steerNext, p.steerThen = "", ""
 		p.mu.Unlock()
+		if then != "" { // the answer, and at once what the agent says next
+			_ = p.conn.Reply(m.ID, SteerResult{Outcome: out}, nil)
+			p.chunk(then)
+			return nil, nil
+		}
 		if out == "" {
 			out = SteerPromptRequired
 			if running {

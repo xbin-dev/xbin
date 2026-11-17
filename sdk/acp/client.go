@@ -48,8 +48,9 @@ type Client struct {
 	prepCancel  context.CancelCauseFunc // aborts that hand-off (Cancel)
 	status      string
 	usage       *UsageUpdate
-	tools       map[string]string // tool call id → last status, this turn
-	toolKinds   map[string]string // tool call id → its kind, this turn (a permission request may not repeat it)
+	tools       map[string]string         // tool call id → last status, this turn
+	toolKinds   map[string]string         // tool call id → its kind, this turn (a permission request may not repeat it)
+	steers      map[string]map[string]any // steer request id → the echo its answer emits, on the read loop (steer.go)
 	closed      bool
 	done        chan struct{}
 	// replaying: a session/load is streaming earlier turns back (Wire.Replay);
@@ -97,6 +98,8 @@ func (c *Client) Start(ctx context.Context, cfg Config) error {
 			c.replaying.Store(false) // what follows the load's answer is live
 		case MSessionPrompt:
 			c.promptAnswered(m) // the turn ends before whatever the agent says next
+		case MSessionSteering:
+			c.steerAnswered(m) // the steered message is echoed before whatever the agent says next
 		}
 	}
 	if c.opts.Attach != nil {
