@@ -202,3 +202,28 @@ func TestWsOffRefusalWords(t *testing.T) {
 		t.Fatal("wsSendRefused")
 	}
 }
+
+// The real-model run (2026-11-17) — continuing a tile agent by its brief.
+// Asked to continue a tile agent an xbin restart had cut off, a real model
+// named the brief it had started it with; the refusal said "write a new
+// brief for new work", and it briefed the same work anew. The refusal now
+// names the way to continue: resume.
+func TestWsEvalStartedBriefPointsAtResume(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	if got := fx.tool(t, s, "tile_agent_brief", map[string]any{"tile": "apps/orders", "goal": "an export", "done_when": "the export downloads"}); !strings.Contains(got, "Brief 1") {
+		t.Fatalf("the brief: %s", got)
+	}
+	if _, err := fx.ag.db.q.Exec(`UPDATE ws_briefs SET state='started' WHERE run_id=? AND id=1`, s.Run); err != nil {
+		t.Fatal(err)
+	}
+	got := fx.tool(t, s, "tile_agent_start", map[string]any{"brief": 1})
+	for _, want := range []string{"brief 1 was started already", `tile_agent_start {"resume": its number}`, "a restart cut it off", "write a new brief only for new work"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("starting a brief that was started lacks %q: %s", want, got)
+		}
+	}
+	if fx.x.count("Ask") != 0 {
+		t.Fatalf("something was filed: %v", fx.x.calls)
+	}
+}

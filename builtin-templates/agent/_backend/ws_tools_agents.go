@@ -248,7 +248,9 @@ func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (st
 		}
 		switch b.State {
 		case "started":
-			return "", fmt.Errorf("brief %d was started already (tile_agents lists its tile agent): write a new brief for new work", b.ID)
+			// (a real model, asked to continue a tile agent a restart had cut off, named its brief here, read "write
+			// a new brief" and briefed the work anew instead of resuming it: the real-model run, 2026-11-17)
+			return "", fmt.Errorf("brief %d was started already (tile_agents lists its tile agent). To continue that tile agent where it stopped — it failed, or a restart cut it off — tile_agent_start {\"resume\": its number}; write a new brief only for new work", b.ID)
 		case "asked":
 			return "", fmt.Errorf("brief %d already waits for your person's decision: don't ask twice", b.ID)
 		case "replaced":

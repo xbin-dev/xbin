@@ -601,7 +601,9 @@ func TestWsRealModelScenarios(t *testing.T) {
 			c.settle(0, time.Minute)
 			after := c.last()
 			d.Restart(t)
-			e.signIn("alice")
+			for person := range e.sess { // a sign-in doesn't outlive xbind: everybody signs in again
+				e.signIn(person)
+			}
 			e.frames = map[string]xbindtest.Header{}
 			c.fr = e.agentPage("alice")
 			w := c.wake(after, 3*time.Minute)
