@@ -56,4 +56,25 @@ func TestWsEvalFeedbackWordings(t *testing.T) {
 			t.Errorf("the stub lacks %q:\n%s", want, stub)
 		}
 	}
+
+	// What the session can't do is said before the work, not found at its last step: with MCP tools off no
+	// tool call can be made (an MCP tile's own /mcp through tile_call neither), and an xbind that takes no
+	// previews says so once it is known — one conversation spent a call to learn each.
+	prompt := func() string {
+		r, _ := fx.ag.db.getRun(s.Run)
+		cfg, _ := fx.ag.db.runConfig(s.Run)
+		return fx.ag.wsPromptFor(r, cfg)
+	}
+	if p := prompt(); !strings.Contains(p, "an MCP tile's own tools/call through tile_call neither") || !strings.Contains(p, "that it answers is then the tile agent's word") || strings.Contains(p, "Seeing a page (preview)") {
+		t.Errorf("the session block, MCP off, previews not yet tried:\n%s", p)
+	}
+	fx.x.mu.Lock()
+	fx.x.noPreview = true
+	fx.x.mu.Unlock()
+	if got := fx.tool(t, s, "preview", map[string]any{"tile": "apps/orders"}); !strings.Contains(got, "Previews aren't available on this xbin") {
+		t.Fatalf("a preview where there are none: %s", got)
+	}
+	if p := prompt(); !strings.Contains(p, "Seeing a page (preview): not available on this xbin — don't call preview") {
+		t.Errorf("the session block after a preview was refused:\n%s", p)
+	}
 }

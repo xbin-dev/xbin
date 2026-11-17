@@ -120,6 +120,8 @@ func wsSyncReset() {
 func newWsFix(t *testing.T) *wsFix {
 	t.Helper()
 	setWsMode(t, true)
+	wsNoPreviews.Store(false) // what a process learned of its xbind: each test's own
+	t.Cleanup(func() { wsNoPreviews.Store(false) })
 	t.Setenv("XBIN_COMPONENT", "xbin/wsagent")
 	db := newTestDB(t)
 	ag := newTestAgent(t, db)

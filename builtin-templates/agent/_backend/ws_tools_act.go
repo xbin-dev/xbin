@@ -503,6 +503,7 @@ func wsPreviewTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	ask := wsPreviewAsk{Tile: t.Path, At: strings.TrimSpace(str(c.Args["at"])), Phone: str(c.Args["viewport"]) == "phone"}
 	var p wsPreview
 	err = ag.wsWith(ctx, s, func(sid string) (err error) { p, err = wsX.Preview(ctx, sid, ask); return })
+	wsNoPreviews.Store(errors.Is(err, errWsUnavailable))
 	if errors.Is(err, errWsUnavailable) {
 		// (a real model, told "Say so", told its person about previews — and the host's cgroup — in every answer,
 		// asked for or not: the real-model run, 2026-11-17)
