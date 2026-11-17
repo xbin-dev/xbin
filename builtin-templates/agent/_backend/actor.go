@@ -642,6 +642,7 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 	// The call — made again by the turn itself when the provider failed with something that may be gone a
 	// moment later (llm_failed.go): a bounded number of times, said in the transcript each time. The gate is
 	// not held while it waits.
+	var failedAt time.Time // the call's first failure
 	for try := 0; ; try++ {
 		release, err := e.acquireLLM(ctx, e.modelGateTop(run)) // a built-in task takes a subagent's place (project_gate.go)
 		if err != nil {
@@ -660,7 +661,10 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 		if err == nil {
 			break
 		}
-		wait, again := turnRetry(err, try)
+		if failedAt.IsZero() {
+			failedAt = time.Now()
+		}
+		wait, again := turnRetry(err, try, time.Since(failedAt))
 		if !again || ctx.Err() != nil {
 			e.failTurn(ctx, ts, llmStopWords(err, try+1))
 			return LLMReply{}, false

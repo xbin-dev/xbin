@@ -68,6 +68,15 @@ func TestWsEvalProviderFailureRetries(t *testing.T) {
 		}
 	}
 
+	// … and bounded in time too: a provider whose every call fails only after a long wait is not tried for ever
+	slow := &llmFailed{err: errors.New("llm stream stalled"), Transient: true}
+	if _, again := turnRetry(slow, 0, 0); !again {
+		t.Error("a first transient failure isn't retried")
+	}
+	if _, again := turnRetry(slow, 1, turnRetryFor); again {
+		t.Errorf("a call failing for %s is tried again", turnRetryFor)
+	}
+
 	// failures only a person can lift: one call, no retry, and whose it is to fix
 	for _, c := range []struct {
 		ask    string

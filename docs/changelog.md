@@ -16,7 +16,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   A model call that failed with something that may be gone a moment later
   (the provider's `5xx` or `429`, a call that got no answer) is made again
   by the turn itself — after its quick retries, three more times, 10 s,
-  30 s and 90 s apart — and each wait is a note in the transcript. A turn
+  30 s and 90 s apart, and never past five minutes of failing — and each
+  wait is a note in the transcript. A turn
   that still stops, or stops on a failure only a person can lift (a
   rejected key, a quota, a refused request), says whether trying again
   helps, that nothing is lost, and who can fix it (`/xbin/llm`). Before,

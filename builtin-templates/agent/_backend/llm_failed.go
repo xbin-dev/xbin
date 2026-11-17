@@ -52,11 +52,18 @@ func llmTransient(status int, body string) bool {
 // more tries, so far apart. A var: tests shorten it.
 var turnRetryWaits = []time.Duration{10 * time.Second, 30 * time.Second, 90 * time.Second}
 
+// turnRetryFor bounds the whole of it: no further try once the call has
+// been failing for this long since its first failure (a provider that
+// says nothing fails each call only after the idle watchdog's 90 s, four
+// times over).
+const turnRetryFor = 5 * time.Minute
+
 // turnRetry: whether the turn tries the call again after err, its try'th
-// failure (from 0), and how long it waits first.
-func turnRetry(err error, try int) (time.Duration, bool) {
+// failure (from 0) and failing for `failing` since the first, and how long
+// it waits first.
+func turnRetry(err error, try int, failing time.Duration) (time.Duration, bool) {
 	var f *llmFailed
-	if !errors.As(err, &f) || !f.Transient || try >= len(turnRetryWaits) {
+	if !errors.As(err, &f) || !f.Transient || try >= len(turnRetryWaits) || failing+turnRetryWaits[try] > turnRetryFor {
 		return 0, false
 	}
 	return turnRetryWaits[try], true
