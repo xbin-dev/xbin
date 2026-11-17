@@ -2,7 +2,7 @@
 // calls and words (D230). node --test hack/agent-signins.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { signinsApi, SigninsError, harnessOf, whyNot, kindWords, dayWords, expiryWords, signinChip, savedHint, startSignInWords, nextStep } from '../web/agent-signins.js';
+import { signinsApi, SigninsError, harnessOf, whyNot, kindWords, dayWords, expiryWords, signinChip, savedHint, startSignInWords, nextStep, trustWords, namesWords } from '../web/agent-signins.js';
 
 const DAY = 86400000;
 
@@ -128,4 +128,41 @@ test('an error says what to do next', () => {
   assert.match(nextStep({ status: 429 }), /Wait a minute/);
   assert.equal(nextStep({ status: 409 }), '');
   assert.equal(nextStep(null), '');
+});
+
+test('"I trust this tile\'s source": the card\'s words — whose tile, who can change it, the risk, two choices, what happens without', () => {
+  assert.equal(namesWords([]), '');
+  assert.equal(namesWords(['bob']), 'bob');
+  assert.equal(namesWords(['bob', 'carol']), 'bob and carol');
+  assert.equal(namesWords(['bob', 'carol', 'dave']), 'bob, carol and dave');
+  assert.equal(namesWords(['bob', 'carol', 'dave'], 2), 'bob, carol, dave and 2 more');
+  const w = trustWords({ tile: 'apps/crm', ownerKind: 'person', owner: 'bob', editors: ['carol', 'dave'], allowed: true }, 'Claude Code', 'own');
+  assert.equal(w.title, 'Use your Claude Code sign-in on this tile?');
+  assert.equal(w.whose, 'This tile belongs to bob. carol and dave can also change it.');
+  assert.equal(w.risk, 'Code in this tile runs with your sign-in while your coding agent works. People who can change this tile could read it and use your Claude Code account.');
+  assert.equal(w.trust, 'Trust this tile — use my sign-in');
+  assert.equal(w.without, 'Start without my sign-in');
+  assert.equal(w.then, "Without it, the agent uses this tile's own login.");
+  assert.equal(w.forbidden, '');
+  assert.ok(w.risk.split(/(?<=\.) /).length === 2 && w.risk.length < 180, 'the risk is two short sentences');
+  assert.equal(trustWords({ ownerKind: 'you', editors: ['carol'], allowed: true }).whose, 'This tile is yours. carol can change it.');
+  assert.equal(trustWords({ ownerKind: 'org', owner: 'Sales', allowed: true }).whose, 'This tile belongs to the org Sales.');
+  assert.equal(trustWords({ ownerKind: 'workspace', editors: ['a', 'b', 'c'], more: 4, allowed: true }).whose, 'This tile belongs to the workspace. a, b, c and 4 more can also change it.');
+  assert.equal(trustWords({ ownerKind: 'you', allowed: true }, 'Codex', 'connector').then, "Without it, the agent runs on the workspace's model.");
+  assert.equal(trustWords({ ownerKind: 'you', allowed: true }, 'Codex', 'none').then, 'Without it, the agent starts signed out — you can sign in on this tile.');
+  assert.equal(trustWords({ ownerKind: 'person', owner: 'bob', allowed: false, forbidden: "Trusting a tile's source is switched off for this workspace — a workspace admin can change it" }).forbidden,
+    "Trusting a tile's source is switched off for this workspace — a workspace admin can change it.");
+  // a launcher's hint and a session's chip say it waits for trust — not that something is wrong
+  const t = { tile: 'apps/crm', ownerKind: 'person', owner: 'bob', allowed: true };
+  assert.match(savedHint({ saved: { name: 'Personal', inject: false, why: 'x', trust: t } }), /xbin asks first whether you trust this tile's source/);
+  assert.deepEqual(signinChip({ source: 'home', name: 'Personal', why: "apps/crm isn't only yours", trust: t }).text, 'saved sign-in waits for your trust');
+  assert.equal(signinChip({ source: 'saved', name: 'Personal' }).text, 'your saved sign-in: Personal');
+  // a start that needs no approval runs on it as things are (the default is on)
+  assert.deepEqual(startSignInWords({ name: 'Claude Code', signIn: 'saved', needsTicket: false }), { text: 'your saved Claude Code sign-in', needs: false });
+  // the calls
+  const sent = [];
+  const api = signinsApi(async (url, init) => { sent.push([init.method, url, init.body || '']); return { ok: true, json: async () => ({}) }; });
+  return Promise.all([api.trust('apps/crm'), api.untrust('tr_1/x'), api.setTrustPolicy(false)]).then(() => {
+    assert.deepEqual(sent, [['POST', '/api/xbin/agent/signins/trust', '{"tile":"apps/crm"}'], ['DELETE', '/api/xbin/agent/signins/trust/tr_1%2Fx', ''], ['PUT', '/api/xbin/agent/signins/policy', '{"trust":false}']]);
+  });
 });

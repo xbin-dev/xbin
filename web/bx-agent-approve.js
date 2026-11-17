@@ -35,6 +35,8 @@ import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import '/vendor/agent-signin.js';
+import { uncovered } from '/vendor/agent-armed.js';
+import { trustWords } from '/vendor/agent-signins.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, asked, settled,
   stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote, ownerWords, webRows, mcpRows, READ_WEB,
@@ -45,20 +47,7 @@ export const shown = (text) => reveal(text).parts.map((p) => (p.hidden ? html`<s
 /** hiddenLine(text): above text that holds a hidden character, the line that says so (nothing for text that holds none). */
 export const hiddenLine = (text) => (reveal(text).hidden ? html`<div class="small hidnote" data-hidden><bx-icon name="warning"></bx-icon><span>${HIDDEN_NOTE}</span></div>` : nothing);
 
-/** uncovered(el): the person can see el and nothing is drawn over its middle — through every shadow root on the way. */
-export function uncovered(el) {
-  if (!el || !el.isConnected || document.visibilityState !== 'visible') return false;
-  const r = el.getBoundingClientRect();
-  if (r.width < 4 || r.height < 4) return false;
-  const x = r.left + r.width / 2, y = r.top + r.height / 2;
-  let at = document.elementFromPoint(x, y);
-  for (let i = 0; at && at.shadowRoot && i < 16; i++) {
-    const inner = at.shadowRoot.elementFromPoint(x, y);
-    if (!inner || inner === at) break;
-    at = inner;
-  }
-  return !!at && (at === el || el.contains(at));
-}
+export { uncovered }; // (/vendor/agent-armed.js: shared with the sign-in card's trust button)
 
 /**
  * WidenGuard: a control that widens what the agent may do — start tile
@@ -74,18 +63,34 @@ export function uncovered(el) {
  * the control carries aria-disabled until it is armed.
  */
 /**
- * signinRow(r): a start's "Sign-in" row (sessionRows' signin, D230), drawn
- * here — in the person's own document, never by the agent's page. A start
- * that would use the person's saved sign-in names it (its label read from
- * their own list by id) and says who will hold it: approving is what puts
- * it into the session. One that would start signed out gets the chrome's
- * sign-in card. Nothing where neither is the case.
+ * signinRow(r, trust): a start's "Sign-in" row (sessionRows' signin, D230),
+ * drawn here — in the person's own document, never by the agent's page. A
+ * start that would use the person's saved sign-in names it (its label read
+ * from their own list by id) and says who will hold it: approving is what
+ * puts it into the session. Where the tile's source isn't only theirs the
+ * row carries the trust line (trust: {on, guard, set} — the host's tick,
+ * its WidenGuard and its setter; a line with no host is read-only):
+ * warned, unticked, in xbind's words — approving without it starts the
+ * session without the sign-in. One that would start signed out gets the
+ * chrome's sign-in card. Nothing where neither is the case.
  */
-export const signinRow = (r) => (!r.signin ? nothing : r.signin.saved
-  ? html`<dt>Sign-in</dt><dd data-row="signin" data-signin-id=${r.signin.id}>${r.signin.text} <bx-agent-signin view="name" sid=${r.signin.id}></bx-agent-signin>.
-      <div class="small muted">${r.signin.holds}</div></dd>`
-  : html`<dt>Sign-in</dt><dd data-row="signin"><div class="small">${r.signin.text}</div>
-      <bx-agent-signin harness=${r.signin.harness} provider=${r.signin.name}></bx-agent-signin></dd>`);
+export const signinRow = (r, trust = null) => {
+  if (!r.signin) return nothing;
+  if (!r.signin.saved) {
+    return html`<dt>Sign-in</dt><dd data-row="signin"><div class="small">${r.signin.text}</div>
+      <bx-agent-signin harness=${r.signin.harness} provider=${r.signin.name}></bx-agent-signin></dd>`;
+  }
+  const w = r.signin.trust ? trustWords(r.signin.trust, r.signin.name) : null;
+  return html`<dt>Sign-in</dt><dd data-row="signin" data-signin-id=${r.signin.id}>${r.signin.text} <bx-agent-signin view="name" sid=${r.signin.id}></bx-agent-signin>${w ? ' — only if you trust this tile.' : '.'}
+      <div class="small muted">${r.signin.holds}</div>
+      ${w ? html`<div class="trustline" data-trust-line>
+        <div class="small"><span class="tag bad"><bx-icon name="warning"></bx-icon>NOT ONLY YOURS</span> <b data-whose>${w.whose}</b></div>
+        <div class="small" data-risk>${w.risk}</div>
+        ${trust ? html`<label class="row"><input type="checkbox" data-trust data-widen="on" .checked=${!!trust.on} @click=${trust.guard.click} @keydown=${trust.guard.key}
+          @change=${(e) => trust.set(e.target.checked)}><span><b>${w.line}</b></span></label>` : nothing}
+        <div class="small muted" data-unticked>${w.unticked}</div>
+      </div>` : nothing}</dd>`;
+};
 
 export class WidenGuard {
   constructor(host) { this.host = host; this.seen = new WeakMap(); host.addController(this); }
@@ -114,7 +119,7 @@ export class BxAgentApprove extends LitElement {
   static properties = {
     request: { attribute: false }, person: { type: String }, position: { type: String },
     _choice: { state: true }, _duration: { state: true }, _step: { state: true }, _armed: { state: true }, _busy: { state: true }, _err: { state: true }, _all: { state: true },
-    _stopped: { state: true }, _allBrief: { state: true },
+    _stopped: { state: true }, _allBrief: { state: true }, _trust: { state: true }, // _trust: the start's trust line is ticked
   };
 
   static styles = [chromeCss, css`
@@ -144,13 +149,14 @@ export class BxAgentApprove extends LitElement {
     this._choice = 'once'; this._duration = ''; this._step = 'main'; this._armed = false; this._busy = false; this._err = ''; this._all = false;
     this._stopped = ''; // a 409's refusal: the agent stopped while the sheet was open
     this._allBrief = false;
+    this._trust = false;
     this._timer = 0;
     this.store = agentStore();
     this._widen = new WidenGuard(this); // the wider standing choices
   }
 
   willUpdate(ch) {
-    if (ch.has('request')) { this._choice = 'once'; this._duration = ''; this._step = 'main'; this._err = ''; this._all = false; this._allBrief = false; this._stopped = ''; this._arm(); }
+    if (ch.has('request')) { this._choice = 'once'; this._duration = ''; this._step = 'main'; this._err = ''; this._all = false; this._allBrief = false; this._stopped = ''; this._trust = false; this._arm(); }
   }
 
   updated(ch) {
@@ -185,7 +191,7 @@ export class BxAgentApprove extends LitElement {
     const req = this.request;
     if (req.kind === 'call' && this._choice === 'tile' && this._step === 'main') { this._step = 'wider'; this._arm(); return; }
     this._busy = true; this._err = '';
-    const r = await this.store.approve(req.id, approveBody(req, this._choice, this._duration || CHOICES.duration[this._choice]));
+    const r = await this.store.approve(req.id, approveBody(req, this._choice, this._duration || CHOICES.duration[this._choice], this._trust));
     this._busy = false;
     // stopped meanwhile: say why where Allow was — never send it again
     if (r.ok) this._done('allow'); else if (r.stopped) this._stopAt(r.stopped); else if (r.gone) this._done('gone'); else { this._err = r.error; this._arm(); }
@@ -291,7 +297,7 @@ export class BxAgentApprove extends LitElement {
         <dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>
         ${this._tileRow(req)}
         <dt>Coding agent</dt><dd>${r.agent}</dd>
-        ${signinRow(r)}
+        ${signinRow(r, { on: this._trust, guard: this._widen, set: (on) => { this._trust = on; } })}
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>Other tiles</dt><dd>${r.others}</dd>
         <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="body brief" tabindex="-1" data-row="brief">${r.brief ? html`${shown(brief.text)}${brief.clipped ? '…' : ''}` : '(nothing: it starts without a message)'}</pre>

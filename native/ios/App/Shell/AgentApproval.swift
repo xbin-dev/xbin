@@ -602,6 +602,11 @@ struct AgentApprovalSheet: View {
                 ApprovalRow(label: "Sign-in") {
                     Text(verbatim: s.signIn).font(.callout)
                     if !s.signInHolds.isEmpty { Text(verbatim: s.signInHolds).font(.callout).foregroundStyle(XbinColor.muted) }
+                    // a tile that isn't only theirs: trusting it is decided on the web; from here it starts without
+                    if !s.signInTrust.isEmpty {
+                        Text(verbatim: s.signInTrustWhose).font(.callout.weight(.semibold))
+                        Text(verbatim: s.signInTrust).font(.callout).foregroundStyle(XbinColor.muted)
+                    }
                 }
                 .accessibilityIdentifier("approval-signin")
             }

@@ -62,6 +62,11 @@ import { agentPrefs } from '/vendor/agent-prefs.js';
 import '/vendor/agent-signin.js';
 import { signinChip, savedHint } from '/vendor/agent-signins.js';
 
+// localStorage: the trust question a person answered "Start without my sign-in" on a tile — kept so the card
+// doesn't ask at every start; a question that changed (another owner, someone new) is asked again
+const DECLINED = 'xbin-signin-declined:';
+const trustPrint = (t) => JSON.stringify([t.tile, t.ownerKind, t.owner || '', t.editors || [], t.more || 0]);
+
 useDiffHighlighter(diffHTML, langFor); // the code panels' highlighter is here already: diffs are coloured at once
 
 export class BxAgent extends LitElement {
@@ -540,6 +545,7 @@ export class BxAgent extends LitElement {
   // — unless it isn't used on this tile, which the strip keeps saying.
   _signedIn(lg, ev) {
     const saved = ev?.detail?.saved, here = ev?.detail?.here;
+    if (saved && here && here.trust) { this._providersP = this._loadProviders().then(() => this.requestUpdate()); return; } // saved; the trust card asks before it is used here
     if (saved && here && !here.inject) return;
     this._signedSeq = this._tx.lastSeq;
     this._authErr = false;
@@ -552,6 +558,48 @@ export class BxAgent extends LitElement {
       return;
     }
     this._signedNote = `Signed in to ${lg.provider}.${asked ? ' Send your message again.' : ''}`;
+  }
+
+  // ---- "I trust this tile's source" (D230): the tile's source isn't only
+  // this person's, and their saved sign-in waits for their answer ----
+
+  // xbind's question for this tab — the session's own (it started without
+  // the sign-in, and says why) or, before a session, the provider row's —
+  // or null: nothing is asked, or the person chose to start without
+  _trustNeed(evenDeclined = false) {
+    if (this.history) return null;
+    const prov = (this._providers || []).find((x) => x.id === (this.provider || this._provider));
+    const sn = this.session && !this.ended ? this._tx.st.signin : null;
+    const t = sn ? sn.trust : prov && prov.saved && prov.saved.trust;
+    if (!t || !t.allowed) return null; // (where trusting is switched off the header's chip says why: there is nothing to answer)
+    return evenDeclined || this._declinedNow() !== trustPrint(t) ? t : null;
+  }
+
+  _declinedNow() {
+    if (this._decl == null) { // (read once; not a reactive property: it is read while rendering)
+      try { this._decl = localStorage.getItem(DECLINED + this.component) || ''; } catch { this._decl = ''; }
+    }
+    return this._decl;
+  }
+
+  _setDeclined(print) {
+    this._decl = print;
+    this.requestUpdate();
+    try { if (print) localStorage.setItem(DECLINED + this.component, print); else localStorage.removeItem(DECLINED + this.component); } catch { /* not kept: asked again next time */ }
+  }
+
+  // trusted: the sign-in reaches the agent at a start, so a running session restarts to use it (its conversation resumes)
+  _trusted() {
+    this._setDeclined('');
+    this._authErr = false;
+    this._signedNote = `You trust this tile's source. ${this.session && !this.ended ? 'Restarting the agent to use your sign-in…' : 'New sessions here use your sign-in.'}`;
+    this._providersP = this._loadProviders().then(() => this.requestUpdate());
+    if (this.session && !this.ended) this.dispatchEvent(new CustomEvent('bx-agent-restart', { detail: { quiet: true, what: 'to use your saved sign-in' }, bubbles: true }));
+  }
+
+  _trustCard(t) {
+    return html`<bx-agent-signin view="trust" harness=${this.provider || this._provider || ''} provider=${this._provName()} component=${this.component}
+      @bx-signin-trusted=${() => this._trusted()} @bx-signin-declined=${() => this._setDeclined(trustPrint(t))}></bx-agent-signin>`;
   }
 
   // "use a terminal instead": today's shell tab, running the login — or the
@@ -682,10 +730,11 @@ export class BxAgent extends LitElement {
           ${this.session && signinChip(tx.st.signin, this._provName()) ? html`<span class="signin-chip ${signinChip(tx.st.signin).tone}" title=${signinChip(tx.st.signin, this._provName()).title}>· ${signinChip(tx.st.signin).text}</span>` : nothing}
           ${this._followUp ? html`<span title=${this._followUp.text}>· your feedback goes in when the turn ends</span>` : nothing}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
+          ${this._trustNeed(true) && !this._trustNeed() ? html`<button class="link trust-again" title="xbin asks whether you trust this tile's source" @click=${() => this._setDeclined('')}>Use my sign-in here…</button>` : nothing}
           ${!lg && this._savable() ? html`<bx-agent-signin class="signins" view="button" harness=${this.provider || this._provider || ''} component=${this.component}
             @bx-signins-changed=${() => { this._providersP = this._loadProviders(); }}></bx-agent-signin>` : nothing}
         </div>
-        ${lg ? this._signin(lg) : this._signedNote ? html`<div class="status signed"><bx-icon name="ok"></bx-icon>${this._signedNote}</div>` : nothing}
+        ${this._trustNeed() ? this._trustCard(this._trustNeed()) : lg ? this._signin(lg) : this._signedNote ? html`<div class="status signed"><bx-icon name="ok"></bx-icon>${this._signedNote}</div>` : nothing}
         <bx-chat-composer .draft=${this._draft} .fit=${this} .commands=${this._commands()} .queue=${queue}
           .pickers=${this._pickers()} .unavailable=${this.session || this.provider || this.restarting ? [] : this._notOffered.map((p) => ({ id: p.id, name: p.name, reason: p.unavailable }))}
           ?disabled=${this.ended} ?busy=${busy} ?sending=${this._creating || this.restarting} ?attach=${!this.ended && !this.history}

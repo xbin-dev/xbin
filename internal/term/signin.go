@@ -617,6 +617,10 @@ func (s *Session) signinHello(m *Manager, h acp.HelloParams) {
 		text = "Using your saved sign-in " + v.Name + "."
 	case v.Why != "":
 		text = "Your saved sign-in " + v.Name + " isn't used here: " + v.Why + "."
+		if v.Trust != nil && v.Trust.Allowed {
+			// where to answer, for every client (the app has no card of its own)
+			text += " To use it here, say you trust this tile's source: xbin asks in the tile's Agent tab, on the web."
+		}
 		switch v.Source {
 		case SigninHome:
 			text += " This session uses this tile's own login."

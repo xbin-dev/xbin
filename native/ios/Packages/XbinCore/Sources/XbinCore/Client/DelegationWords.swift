@@ -393,6 +393,30 @@ public enum DelegationWords {
         /// the session — or "Needs your … sign-in". "" otherwise.
         public var signIn: String = ""
         public var signInHolds: String = ""
+        /// The tile's source isn't only the person's own (xbind's
+        /// `signInTrust`, the rule of 2026-11-17): their sign-in is used
+        /// there only once they trust it, and the app has no trust card —
+        /// `signIn` then says the start runs WITHOUT it, `signInTrustWhose`
+        /// whose tile it is and who can change it (the web's words), and
+        /// `signInTrust` where to decide. "" where no trust is asked.
+        public var signInTrustWhose: String = ""
+        public var signInTrust: String = ""
+    }
+
+    /// Whose tile it is and who else can change it — the web's
+    /// `trustWords(...).whose`, from xbind's trust question.
+    public static func trustWhose(_ t: JSONValue?) -> String {
+        guard let t, t.objectValue != nil else { return "" }
+        let kind = t["ownerKind"]?.stringValue ?? ""
+        let owner = t["owner"]?.stringValue ?? ""
+        let whose = kind == "you" ? "This tile is yours." : kind == "person" ? "This tile belongs to \(owner)."
+            : kind == "org" ? "This tile belongs to the org \(owner)." : "This tile belongs to the workspace."
+        var names = (t["editors"]?.arrayValue ?? []).compactMap(\.stringValue)
+        let more = Int(t["more"]?.doubleValue ?? 0)
+        if more > 0 { names.append("\(more) more") }
+        guard let last = names.last else { return whose }
+        let list = names.count == 1 ? last : names.dropLast().joined(separator: ", ") + " and " + last
+        return "\(whose) \(list) can \(kind == "you" ? "" : "also ")change it."
     }
 
     public static func sessionRows(_ r: DelegateRequest) -> SessionRows {
@@ -405,6 +429,9 @@ public enum DelegationWords {
         let credentials = s["credentials"]?.stringValue ?? ""
         let signIn = s["signIn"]?.stringValue ?? ""
         let saved = signIn == "saved" && !(s["signInId"]?.stringValue ?? "").isEmpty
+        // a tile whose source isn't only theirs: trusting it is decided on the web, so a start allowed here runs without the sign-in
+        let whose = saved ? trustWhose(s["signInTrust"]) : ""
+        let asks = !whose.isEmpty
         let cred = signIn == "saved" || signIn == "needed" ? ""
             : credentials == "own" ? ", on your own sign-in"
             : credentials == "connector" || !modelName.isEmpty ? ", through the workspace's connector" : ""
@@ -427,9 +454,11 @@ public enum DelegationWords {
             brief: brief,
             danger: asks ? "" : "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
             comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.",
-            signIn: saved ? "Uses your saved \(who) sign-in"
+            signIn: asks ? "Starts without your saved \(who) sign-in" : saved ? "Uses your saved \(who) sign-in"
                 : signIn == "needed" && s["provider"]?.stringValue != nil ? "Needs your \(who) sign-in: without it the tile agent starts signed out." : "",
-            signInHolds: saved ? "The tile's coding agent will hold that sign-in: it, and anything it runs in \(t), can read it." : "")
+            signInHolds: saved && !asks ? "The tile's coding agent will hold that sign-in: it, and anything it runs in \(t), can read it." : "",
+            signInTrustWhose: whose,
+            signInTrust: asks ? "Your sign-in is used on a tile that isn't only yours once you trust its source. Decide that on the web — on this request, or in the tile's Agent tab — then start it there. Allowed here, it starts without your sign-in." : "")
     }
 
     private static func nonEmpty(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }

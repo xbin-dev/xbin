@@ -534,7 +534,9 @@ func handleWsBriefDefaults(w http.ResponseWriter, r *http.Request) {
 		}
 		switch h.SignIn { // what it signs in with, where xbind keeps sign-ins (D230)
 		case "saved":
-			out["line"] = out["line"].(string) + " · your saved sign-in, once you approve the start"
+			// (a start that needs no approval runs on it as things are: xbind says "saved" there only for a tile that is the
+			// person's alone or that they trust)
+			out["line"] = out["line"].(string) + map[bool]string{true: " · your saved sign-in, once you approve the start", false: " · your saved sign-in"}[h.NeedsTicket]
 		case "needed":
 			out["line"] = out["line"].(string) + " · needs your sign-in"
 			out["needsSignIn"] = true

@@ -10,6 +10,7 @@
 process.env.TZ = 'UTC';
 const W = await import(new URL('../../web/agent-chrome-words.js', import.meta.url).href);
 const P = await import(new URL('../../web/agent-plan-words.js', import.meta.url).href); // a plan's review (DelegationPlanWords.swift)
+const { trustWords } = await import(new URL('../../web/agent-signins.js', import.meta.url).href); // whose tile it is, for a start's trust need (D230)
 
 export const NOW = Date.parse('2026-11-16T10:16:00Z');
 const t = (s) => `2026-11-16T${s}Z`;
@@ -58,6 +59,11 @@ export const requests = [
   // a saved sign-in (D230): named by xbind's id, with who will hold it — a label in the request is never shown; one that would start signed out
   session({ model: '', credentials: 'own', signIn: 'saved', signInId: 'si_1a2b', savedSignIn: 'a label the agent wrote' }, { id: 'rq_saved_signin' }),
   session({ model: '', signIn: 'saved' }, { id: 'rq_saved_no_id' }),
+  // …on a tile whose source isn't only the person's (D230, 2026-11-17): the trust need, in xbind's words — the app says "decide on the web"
+  session({ model: '', signIn: 'saved', signInId: 'si_1a2b', signInTrust: { tile: 'apps/orders', ownerKind: 'person', owner: 'bob', editors: ['carol', 'dave', 'erin'], more: 2, allowed: true } }, { id: 'rq_trust_person' }),
+  session({ model: '', signIn: 'saved', signInId: 'si_1a2b', signInTrust: { tile: 'apps/orders', ownerKind: 'you', editors: ['carol'], allowed: true } }, { id: 'rq_trust_own' }),
+  session({ model: '', signIn: 'saved', signInId: 'si_1a2b', signInTrust: { tile: 'apps/orders', ownerKind: 'org', owner: 'Sales', allowed: true } }, { id: 'rq_trust_org' }),
+  session({ model: '', signIn: 'saved', signInId: 'si_1a2b', signInTrust: { tile: 'apps/orders', ownerKind: 'workspace', editors: ['carol', 'dave'], allowed: true } }, { id: 'rq_trust_ws' }),
   session({ model: '', signIn: 'needed' }, { id: 'rq_needs_signin' }),
   // a mode xbind doesn't vouch for (no `asks`): never the green tag
   // …whose words hold characters that reorder or hide text: the sheets show each as its escape
@@ -231,7 +237,7 @@ for (const r of requests) {
     bodies: [W.approveBody(r, 'once'), W.approveBody(r, 'call'), W.approveBody(r, 'tile'), W.approveBody(r, 'call', 'hour'), W.approveBody(r, 'tile', 'always')],
     tool: [W.allowLabel(r, 'tool'), W.allowSpoken(r, 'tool'), W.approveBody(r, 'tool'), W.approveBody(r, 'tool', 'hour')],
     net: r.kind === 'web' ? W.webRows(r) : r.kind === 'mcp' ? W.mcpRows(r) : null,
-    wider: W.widerWords(r), session: r.kind === 'session' ? W.sessionRows(r) : null, settled: W.settled(r), asked: W.asked(r, NOW), card: W.requestCard(r, NOW) });
+    wider: W.widerWords(r), session: r.kind === 'session' ? { ...W.sessionRows(r), trustWhose: r.preview?.session?.signInTrust ? trustWords(r.preview.session.signInTrust).whose : '' } : null, settled: W.settled(r), asked: W.asked(r, NOW), card: W.requestCard(r, NOW) });
 }
 for (const c of changesets) {
   const ticks = W.initialTicks(c);

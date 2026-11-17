@@ -17,6 +17,13 @@
  *   a button (view="button") — "Sign-ins…", which opens the list.
  *   a name (view="name", sid) — one saved sign-in's label, inline: how
  *     the chrome names the sign-in on an approval, from your own list.
+ *   the trust card (view="trust", harness, component) — "I trust this
+ *     tile's source": on a tile whose source isn't only yours, your saved
+ *     sign-in waits for your answer. Whose tile it is and who can change
+ *     it (xbind's words), what trusting means, and two choices of equal
+ *     weight; "Trust this tile" answers only your own click, a moment after
+ *     it appears, never Enter. Events bx-signin-trusted {trust},
+ *     bx-signin-declined {tile}. It draws nothing where nothing is asked.
  *
  * No secret is ever shown: the guided sign-in's token never leaves xbind,
  * and a pasted key goes from its field into one request.
@@ -33,7 +40,8 @@ import { LitElement, html, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { SigninReader, typedLine, cleanCode } from '/vendor/signin-scan.js';
 import { SIGNIN_PURPOSE } from '/vendor/term-sessions.js';
-import { signinsApi, harnessOf, whyNot, nextStep } from '/vendor/agent-signins.js';
+import { signinsApi, harnessOf, whyNot, nextStep, trustWords } from '/vendor/agent-signins.js';
+import { ArmedButtons } from '/vendor/agent-armed.js';
 import { signinCss, manageView, manageInit } from '/vendor/agent-signin-list.js';
 
 const enc = new TextEncoder();
@@ -46,7 +54,8 @@ export class BxAgentSignin extends LitElement {
     provider: { type: String },
     harness: { type: String },
     component: { type: String },
-    view: { type: String, reflect: true }, // '' (the card) | manage | button | name (one sign-in's label, by sid)
+    view: { type: String, reflect: true }, // '' (the card) | manage | button | name (one sign-in's label, by sid) | trust ("I trust this tile's source")
+    _trusting: { state: true }, // the trust card: '' | 'busy' | an error's words
     sid: { type: String },
     // idle → starting → waiting (the link is up) → checking (a code sent) →
     // done | failed | ended | old (no link: an old CLI) | error; paste: the key's form
@@ -78,6 +87,8 @@ export class BxAgentSignin extends LitElement {
     this._id = '';
     this._flow = '';
     this.api = signinsApi();
+    this._trusting = '';
+    this._armed = new ArmedButtons(this); // "Trust this tile": the person's deliberate click, never Enter
   }
 
   connectedCallback() {
@@ -334,7 +345,7 @@ export class BxAgentSignin extends LitElement {
   // would be used on this tile, else the tile's own, else a pasted key
   get _primary() {
     const guided = this._canSave && this._harness?.guided;
-    if (guided && (!this._here || this._here.inject)) return 'saved';
+    if (guided && (!this._here || this._here.inject || (this._here.trust && this._here.trust.allowed))) return 'saved';
     if (this.spec) return 'tile';
     if (guided) return 'saved';
     return this._canSave ? 'paste' : '';
@@ -366,8 +377,9 @@ export class BxAgentSignin extends LitElement {
   // where a saved sign-in is used, in one sentence — and whether here
   _usedWords() {
     const here = this._here;
-    if (here && !here.inject) return `It is used on tiles only you can change — not on this one: ${here.why}.`;
-    return 'xbind uses it for your coding agents on every tile only you can change.';
+    if (here && here.trust && here.trust.allowed) return "xbin asks whether you trust this tile's source before it is used here.";
+    if (here && !here.inject) return `It isn't used on this tile: ${here.why}.`;
+    return "xbind uses it for your coding agents — on a tile that isn't only yours, once you trust it.";
   }
 
   // the line under the status while idle: what the main button will do, or
@@ -377,8 +389,9 @@ export class BxAgentSignin extends LitElement {
     const not = whyNot(this._data);
     if (not) return not;
     const here = this._here;
+    if (here && here.trust && here.trust.allowed) return "A sign-in saved with xbind is used on this tile once you trust its source — xbin asks after you sign in.";
     if (here && !here.inject) return `A sign-in saved with xbind isn't used on this tile: ${here.why}.`;
-    if (this._primary === 'saved') return `xbind keeps the sign-in sealed and uses it for your coding agents on every tile only you can change.${this._data.unisolated ? ' This workspace runs without sandboxes (a development workspace): everything it runs could read it.' : ''}`;
+    if (this._primary === 'saved') return `xbind keeps the sign-in sealed and uses it for your coding agents — on a tile that isn't only yours, once you trust it.${this._data.unisolated ? ' This workspace runs without sandboxes (a development workspace): everything it runs could read it.' : ''}`;
     return '';
   }
 
@@ -451,7 +464,60 @@ export class BxAgentSignin extends LitElement {
 
   _close() { this._open = false; this.updateComplete.then(() => this.renderRoot?.querySelector('button.manage, button.open-list')?.focus()); }
 
+  // ---- "I trust this tile's source" (view="trust", D230) ----
+
+  // what the card asks: xbind's question for this tile and coding agent —
+  // null when there is none (the tile is the person's alone, they trust it
+  // already, or they have no sign-in saved for this coding agent)
+  get _ask() {
+    const h = this._harness, t = this._here?.trust;
+    return h && t && (h.signins || []).length && !whyNot(this._data) ? t : null;
+  }
+
+  async _trust(e) {
+    if (!this._armed.may(e) || this._trusting === 'busy') return;
+    this._trusting = 'busy';
+    try {
+      const { trust } = await this.api.trust(this.component || '');
+      this._trusting = '';
+      await this.reload();
+      this.dispatchEvent(new CustomEvent('bx-signin-trusted', { detail: { trust }, bubbles: true, composed: true }));
+      this.dispatchEvent(new CustomEvent('bx-signins-changed', { bubbles: true, composed: true }));
+    } catch (err) {
+      this._trusting = err.message || String(err);
+      this.reload(); // (the question may have changed under the person: ask what xbind says now)
+    }
+  }
+
+  _without() {
+    this.dispatchEvent(new CustomEvent('bx-signin-declined', { detail: { tile: this.component || '' }, bubbles: true, composed: true }));
+  }
+
+  // the card: whose tile it is and who can change it, what trusting means,
+  // and two choices of equal weight — neither is the default, neither is
+  // pre-selected, and Enter picks neither
+  _trustCard() {
+    const t = this._ask;
+    if (!t) return nothing;
+    const name = this.provider || this._harness?.name || 'coding agent';
+    const w = trustWords(t, name, this._here?.without || '');
+    const busy = this._trusting === 'busy';
+    return html`<div class="box trust" role="group" aria-label=${w.title} data-trust=${t.tile} data-allowed=${t.allowed ? 'true' : 'false'}>
+      <div class="row"><span class="msg"><bx-icon name="shield"></bx-icon><b>${w.title}</b></span></div>
+      <div class="whose" data-whose>${w.whose}</div>
+      <div class="risk" data-risk>${w.risk}</div>
+      ${w.forbidden ? html`<div class="status bad" data-forbidden><bx-icon name="lock"></bx-icon>${w.forbidden}</div>` : nothing}
+      <div class="choices">
+        ${t.allowed ? html`<button class="choice trust-yes" data-armed aria-disabled="true" ?disabled=${busy} @click=${(e) => this._trust(e)} @keydown=${this._armed.key}>${w.trust}</button>` : nothing}
+        <button class="choice trust-no" ?disabled=${busy} @click=${() => this._without()}>${w.without}</button>
+      </div>
+      <div class="hint" data-then>${w.then}</div>
+      ${this._trusting && !busy ? html`<div class="status bad" role="alert"><bx-icon name="error"></bx-icon>${this._trusting}</div>` : nothing}
+    </div>`;
+  }
+
   render() {
+    if (this.view === 'trust') return this._data ? this._trustCard() : nothing;
     if (this.view === 'name') { // a saved sign-in's label, for xbin's own chrome to name it on an approval
       const sg = (this._data ? this._data.harnesses : []).flatMap((h) => h.signins).find((x) => x.id === this.sid);
       return html`<b class="label" data-known=${sg ? 'true' : 'false'}>${sg ? sg.name : this._data === null ? '…' : '(no longer saved)'}</b>`;
@@ -481,6 +547,8 @@ export class BxAgentSignin extends LitElement {
       get data() { return s._data; },
       get open() { return s._open || s.view === 'manage'; },
       get list() { return s._m; },
+      get ask() { return s._ask; }, // the trust card's question (null: nothing asked); answering it takes a person's click
+      get trusting() { return s._trusting; },
       start: () => s.start(), // the tile's own sign-in (D178)
       startSaved: (name) => s.startSaved(name), // xbind's guided sign-in
       go: () => s._go(), // the card's main button

@@ -231,12 +231,11 @@ export function allowSpoken(req, choice = 'once') {
 }
 
 /**
- * approveBody(req, choice, duration): what POST …/approve sends —
- * {grant, scope?, unseen?}. A body nobody could read is approved only by
- * saying so (unseen).
+ * approveBody(req, choice, duration, trust): what POST …/approve sends — {grant, scope?, unseen?, trust?}. A body
+ * nobody could read is approved only by saying so (unseen); trust is a start's trust line, ticked (D230).
  */
-export function approveBody(req, choice = 'once', duration = '') {
-  const unseen = sends(req).binary ? { unseen: true } : {};
+export function approveBody(req, choice = 'once', duration = '', trust = false) {
+  const unseen = { ...(sends(req).binary ? { unseen: true } : {}), ...(trust && req.kind === 'session' && req.preview?.session?.signInTrust ? { trust: true } : {}) }; // trust: the start's trust line, ticked
   if (req.kind === 'mcp' && choice === 'tool') {
     const d = duration === 'hour' || duration === 'always' ? duration : CHOICES.duration.tool;
     return { grant: d, scope: 'tool', ...unseen };
@@ -281,7 +280,8 @@ export function sessionRows(req) {
     // a saved sign-in is named on the approval, in xbind's words — its label is drawn by the chrome from the person's own list (id),
     // and approving is what puts it into the session: say who then holds it
     signin: s.signIn === 'saved' && typeof s.signInId === 'string' && s.signInId
-      ? { saved: true, id: s.signInId, name: who, text: `Uses your saved ${who} sign-in`, holds: `The tile's coding agent will hold that sign-in: it, and anything it runs in ${t}, can read it.` }
+      ? { saved: true, id: s.signInId, name: who, text: `Uses your saved ${who} sign-in`, holds: `The tile's coding agent will hold that sign-in: it, and anything it runs in ${t}, can read it.`,
+        trust: s.signInTrust && typeof s.signInTrust === 'object' ? s.signInTrust : null } // xbind's trust question (agent-signins.js trustWords): unticked, it starts without the sign-in
       : s.signIn === 'needed' && typeof s.provider === 'string' ? { harness: s.provider, name: who, text: `Needs your ${who} sign-in: without it the tile agent starts signed out.` } : null,
     mode: asks ? { tag: 'asks before acting', tone: 'ok', text: 'It asks you before it edits a file or runs a command.', name: s.mode || '' }
       : { tag: 'acts without asking', tone: 'bad', text: `It edits files and runs commands in ${t} without asking you.`, name: s.mode || '' },

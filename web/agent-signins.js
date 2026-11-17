@@ -51,6 +51,9 @@ export function signinsApi(fetchFn = (...a) => fetch(...a)) {
     people: () => c('GET', '/people'),
     revoke: (user, sid) => c('DELETE', `/people/${id(user)}/${id(sid)}`),
     setPolicy: (enabled) => c('PUT', '/policy', { enabled }),
+    setTrustPolicy: (trust) => c('PUT', '/policy', { trust }),
+    trust: (tile) => c('POST', '/trust', { tile }),
+    untrust: (tid) => c('DELETE', `/trust/${id(tid)}`),
   };
 }
 
@@ -111,6 +114,9 @@ export function expiryWords(sg, now = Date.now()) {
 export function signinChip(sn, provider = 'the agent') {
   if (!sn || !sn.source) return null;
   const left = sn.why ? ` Your saved sign-in ${sn.name || ''} isn't used here: ${sn.why}.`.replace('  ', ' ') : '';
+  if (sn.trust && sn.source !== 'saved') { // it waits for "I trust this tile's source": said as that, not as a fault
+    return { text: 'saved sign-in waits for your trust', title: left.trim(), tone: 'warn' };
+  }
   switch (sn.source) {
     case 'saved':
       return { text: `your saved sign-in: ${sn.name}`, title: `${provider} runs on the sign-in you saved with xbind (${sn.name}).`, tone: '' };
@@ -123,6 +129,48 @@ export function signinChip(sn, provider = 'the agent') {
   }
 }
 
+/** namesWords(names, more): "bob", "bob and carol", "bob, carol and dave", "bob, carol, dave and 2 more". */
+export function namesWords(names = [], more = 0) {
+  const all = more > 0 ? [...names, `${more} more`] : [...names];
+  if (all.length <= 1) return all[0] || '';
+  return `${all.slice(0, -1).join(', ')} and ${all[all.length - 1]}`;
+}
+
+/**
+ * trustWords(trust, harness, without): the words of "I trust this tile's
+ * source" (D230) — xbind's question (a row's `trust`: {tile, name?,
+ * ownerKind, owner?, editors?, more?, allowed, forbidden?}), for the tile's
+ * card and for the trust line of a start's approval:
+ *
+ *   title    "Use your Claude Code sign-in on this tile?"
+ *   whose    whose tile it is and who can change it
+ *   risk     what trusting means, in two sentences
+ *   trust, without   the two choices — of equal weight
+ *   then     what the agent runs on without the sign-in ('own' |
+ *            'connector' | anything else: signed out)
+ *   line     the approval's trust line; unticked what leaving it means
+ *   forbidden  why it can't be trusted here ('' when it can)
+ */
+export function trustWords(trust, harness = 'coding agent', without = '') {
+  const t = trust || {};
+  const whose = t.ownerKind === 'you' ? 'This tile is yours.' : t.ownerKind === 'person' ? `This tile belongs to ${t.owner}.`
+    : t.ownerKind === 'org' ? `This tile belongs to the org ${t.owner}.` : 'This tile belongs to the workspace.';
+  const eds = namesWords(t.editors || [], t.more || 0);
+  const who = eds ? `${eds} can ${t.ownerKind === 'you' ? '' : 'also '}change it.` : '';
+  return {
+    title: `Use your ${harness} sign-in on this tile?`,
+    whose: [whose, who].filter(Boolean).join(' '),
+    risk: `Code in this tile runs with your sign-in while your coding agent works. People who can change this tile could read it and use your ${harness} account.`,
+    trust: 'Trust this tile — use my sign-in',
+    without: 'Start without my sign-in',
+    then: without === 'own' ? "Without it, the agent uses this tile's own login." : without === 'connector' ? "Without it, the agent runs on the workspace's model."
+      : 'Without it, the agent starts signed out — you can sign in on this tile.',
+    line: "I trust this tile's source — use my sign-in there",
+    unticked: 'Left unticked, the session starts without your sign-in.',
+    forbidden: t.allowed === false ? `${t.forbidden || "Trusting a tile's source is switched off for this workspace"}.` : '',
+  };
+}
+
 /**
  * savedHint(prov): the launcher's words for a provider row's `saved` (GET
  * /agent/providers): what a session started now would sign in with — ''
@@ -131,7 +179,8 @@ export function signinChip(sn, provider = 'the agent') {
 export function savedHint(prov) {
   const s = prov?.saved;
   if (!s) return '';
-  return s.inject ? `your saved sign-in: ${s.name}` : `saved sign-in ${s.name} not used here — ${s.why}`;
+  if (s.inject) return `your saved sign-in: ${s.name}`;
+  return s.trust ? `saved sign-in ${s.name} — xbin asks first whether you trust this tile's source` : `saved sign-in ${s.name} not used here — ${s.why}`;
 }
 
 /**
@@ -142,7 +191,7 @@ export function savedHint(prov) {
 export function startSignInWords(h) {
   const name = h?.name || 'the coding agent';
   switch (h?.signIn) {
-    case 'saved': return { text: `your saved ${name} sign-in, once you approve the start`, needs: false };
+    case 'saved': return { text: h.needsTicket === false ? `your saved ${name} sign-in` : `your saved ${name} sign-in, once you approve the start`, needs: false };
     case 'connector': return { text: "the workspace's model — no sign-in needed", needs: false };
     case 'own': return { text: `the ${name} login on this workspace`, needs: false };
     case 'needed': return { text: `needs your ${name} sign-in`, needs: true };
