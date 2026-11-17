@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -122,7 +124,7 @@ func wsMCPToolsTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (
 				line += ": " + clip(tl.Description, 300)
 			}
 			if len(tl.InputSchema) > 0 {
-				line += " — arguments: " + clip(mustJSON(tl.InputSchema), 400)
+				line += " — arguments: " + wsSchemaWords(tl.InputSchema)
 			}
 			lines = append(lines, line)
 		}
@@ -378,4 +380,75 @@ func wsMCPOutsideTools(ctx context.Context, ag *Agent, s *wsSession, name string
 	}
 	ag.wsRefresh(ctx, s, true) // the conversation has read an outsider's words
 	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// wsSchemaWords is a tool's input schema as a line a model reads at a
+// glance — "count (integer 1–100, default 1); sides (integer 2–1000,
+// default 6)" — where it is the usual object of plain properties; the
+// schema itself, clipped, where it is anything else. (The tool's
+// description promises "the arguments it takes"; raw JSON Schema made a
+// real model dig the range out of nested objects.)
+func wsSchemaWords(schema any) string {
+	raw := mustJSON(schema)
+	var sc struct {
+		Type       string                     `json:"type"`
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if json.Unmarshal([]byte(raw), &sc) != nil || len(sc.Properties) == 0 {
+		if raw == "{}" || raw == `{"type":"object"}` {
+			return "none"
+		}
+		return clip(raw, 400)
+	}
+	names := make([]string, 0, len(sc.Properties))
+	for n := range sc.Properties {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var out []string
+	for _, n := range names {
+		var p struct {
+			Type        any               `json:"type"`
+			Description string            `json:"description"`
+			Minimum     *json.Number      `json:"minimum"`
+			Maximum     *json.Number      `json:"maximum"`
+			Default     json.RawMessage   `json:"default"`
+			Enum        []json.RawMessage `json:"enum"`
+			Properties  json.RawMessage   `json:"properties"`
+			Items       json.RawMessage   `json:"items"`
+		}
+		if json.Unmarshal(sc.Properties[n], &p) != nil || len(p.Properties) > 0 {
+			return clip(raw, 400) // a nested object: the schema says it better than a line would
+		}
+		typ, _ := p.Type.(string)
+		bits := []string{orStr(typ, "any")}
+		switch {
+		case p.Minimum != nil && p.Maximum != nil:
+			bits[0] += " " + p.Minimum.String() + "–" + p.Maximum.String()
+		case p.Minimum != nil:
+			bits[0] += " ≥ " + p.Minimum.String()
+		case p.Maximum != nil:
+			bits[0] += " ≤ " + p.Maximum.String()
+		}
+		if len(p.Enum) > 0 {
+			var vs []string
+			for _, v := range p.Enum {
+				vs = append(vs, string(v))
+			}
+			bits = append(bits, "one of "+clip(strings.Join(vs, " | "), 120))
+		}
+		if len(p.Default) > 0 && string(p.Default) != "null" {
+			bits = append(bits, "default "+clip(string(p.Default), 40))
+		}
+		if slices.Contains(sc.Required, n) {
+			bits = append(bits, "required")
+		}
+		line := wsPlain(n) + " (" + strings.Join(bits, ", ") + ")"
+		if p.Description != "" {
+			line += ": " + clip(oneLineTitle(p.Description), 100)
+		}
+		out = append(out, line)
+	}
+	return clip(strings.Join(out, "; "), 700)
 }

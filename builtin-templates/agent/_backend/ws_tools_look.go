@@ -192,7 +192,11 @@ func wsMapTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (strin
 	if len(lines) == 0 {
 		b.WriteString("No connected tile" + map[bool]string{true: " matches that filter", false: ""}[filter != ""] + ".\n")
 	} else {
-		fmt.Fprintf(&b, "Tiles (%d):\n%s\n", len(lines), strings.Join(lines, "\n"))
+		if filter != "" { // (a real model read "11 tiles connected / Tiles (1)" as ten tiles gone missing)
+			fmt.Fprintf(&b, "Tiles matching %q (%d of the %d connected; the others are left out by the filter):\n%s\n", filter, shown, len(m.Tiles), strings.Join(lines, "\n"))
+		} else {
+			fmt.Fprintf(&b, "Tiles (%d):\n%s\n", len(lines), strings.Join(lines, "\n"))
+		}
 		if shown > wsMapTiles {
 			fmt.Fprintf(&b, "… and %d more: pass filter to narrow.\n", shown-wsMapTiles)
 		}

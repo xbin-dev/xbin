@@ -70,4 +70,18 @@ func TestWsEvalDocsToolsTakeWhatAModelSends(t *testing.T) {
 	if !said {
 		t.Error("admin_propose as offered doesn't say that it can't give one person access to a tile")
 	}
+	// an MCP tool's arguments, as a line to read rather than a schema to parse
+	schema := map[string]any{"type": "object", "additionalProperties": false, "required": []string{"sides"}, "properties": map[string]any{
+		"count": map[string]any{"type": "integer", "minimum": 1, "maximum": 100, "default": 1, "description": "how many dice"},
+		"sides": map[string]any{"type": "integer", "minimum": 2, "maximum": 1000}}}
+	if got := wsSchemaWords(schema); got != "count (integer 1–100, default 1): how many dice; sides (integer 2–1000, required)" {
+		t.Errorf("a tool's arguments: %q", got)
+	}
+	if got := wsSchemaWords(map[string]any{"type": "object", "properties": map[string]any{"where": map[string]any{"type": "object", "properties": map[string]any{"x": map[string]any{"type": "number"}}}}}); !strings.HasPrefix(got, "{") {
+		t.Errorf("a nested schema stays a schema: %q", got)
+	}
+	// a filtered map says it is filtered
+	if got := fx.tool(t, s, "workspace_map", map[string]any{"filter": "orders"}); !strings.Contains(got, `Tiles matching "orders" (1 of the `) || !strings.Contains(got, "left out by the filter") {
+		t.Errorf("a filtered map: %s", got)
+	}
 }
