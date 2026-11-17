@@ -108,8 +108,9 @@ func startWsAgent(t *testing.T) *wsEnv { return startWsAgentAt(t, wsNoteTile) }
 // startWsAgentAt is startWsAgent with the scripted coding agent's binary in
 // fakeTile's directory — which need not be a tile yet: a tile a plan
 // creates there finds it in its sandbox (a real coding agent comes from
-// the rootfs, and needs no such thing).
-func startWsAgentAt(t *testing.T, fakeTile string) *wsEnv {
+// the rootfs, and needs no such thing). fakeArgs are more arguments of the
+// "fake" provider's command (sdk/acp's Fake reads some: --no-default-mode).
+func startWsAgentAt(t *testing.T, fakeTile string, fakeArgs ...string) *wsEnv {
 	t.Helper()
 	a := xbindtest.Require(t)
 	if a.Gocryptfs == "" {
@@ -124,7 +125,7 @@ func startWsAgentAt(t *testing.T, fakeTile string) *wsEnv {
 	ws := filepath.Join(dir, "ws")
 	acp := filepath.Join(ws, fakeTile, ".bin", "fakeacp")
 	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true, Production: true, WS: ws,
-		Env: []string{"XBIN_VAULT_PASSPHRASE=xbindtest-vault", "XBIN_AGENT_FAKE=" + acp}})
+		Env: []string{"XBIN_VAULT_PASSPHRASE=xbindtest-vault", "XBIN_AGENT_FAKE=" + strings.Join(append([]string{acp}, fakeArgs...), " ")}})
 	if err := os.MkdirAll(filepath.Dir(acp), 0o755); err != nil {
 		t.Fatal(err)
 	}

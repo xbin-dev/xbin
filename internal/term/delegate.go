@@ -85,8 +85,12 @@ type DelegateStart struct {
 type EffectiveStart struct {
 	Tile     string
 	Provider agent.Provider
-	Mode     string // resolved: never ""
-	Resumes  bool
+	// Mode is resolved. It is "" only for a harness whose catalog entry
+	// names no default mode (OpenCode), started with none: it opens as it
+	// opens itself, nothing says it asks — its person is shown it warned,
+	// and a preference never starts it unasked (delegateOpen).
+	Mode    string
+	Resumes bool
 }
 
 // DelegateEffective computes it for delegate p's open a, with the refusals
