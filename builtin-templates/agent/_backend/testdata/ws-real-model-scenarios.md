@@ -16,9 +16,9 @@ For each: **Say** is the person's message, **Pass** what must hold,
 against an endpoint you name, on a throwaway isolated xbind with a
 synthetic workspace (`test/isolated/wsagent_real*_test.go`), and writes a
 mechanically graded table and each transcript; `--bench N` adds the
-first-run journey (25, in a browser, with a real coding agent). The first
-such run, what it found and what was changed for it:
-`plans/wsagent/real-model-run-2026-11-17.md`. The grades are a first read —
+first-run journey (25, in a browser, with a real coding agent);
+docs/maintenance.md (UI harness) says where the first such run is written
+up (D244 is one of the things it changed). The grades are a first read —
 which tools were called, what reached xbin — and the transcript is the
 judge of wording.
 
