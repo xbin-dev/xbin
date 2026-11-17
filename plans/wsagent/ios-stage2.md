@@ -589,11 +589,15 @@ Everything else is built to work the moment these are done.
    background type and the agent card; `GET /v1/workspace` then lists
    `background` and `activity-agent`. Until then xbind sends no clear pushes
    and no agent card starts (the app clears on foreground and starts the
-   card itself).
+   card itself). **Done 2026-11-17:** `https://notif-fwd.xbin.dev`
+   lists both; it answers pushes 503 `no_apns` until the owner installs the
+   APNs key (the project's infrastructure repository says how).
 2. **Set the app's relay** (`XbinPushRelay` in `Support/App-Info.plist`) —
    push is off in every build until it names the project's relay; then the
    privacy table of native/AGENTS.md §Privacy applies (Device ID, App
-   Functionality, not linked) — unchanged by this stage.
+   Functionality, not linked) — unchanged by this stage. **Done
+   2026-11-17** (`https://notif-fwd.xbin.dev`, the manifest declares Device
+   ID); App Store Connect's App Privacy still has to say Device ID (6).
 3. **Apple Developer → Certificates, Identifiers & Profiles → Identifiers →
    `dev.xbin.app`**: enable **Time Sensitive Notifications**; then add
    `<key>com.apple.developer.usernotifications.time-sensitive</key><true/>`

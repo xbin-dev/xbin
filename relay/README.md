@@ -18,9 +18,12 @@ xbind ──(phase, since, pending — no text)──▶ relay: POST /v1/push {t
 ```
 
 Go, standard library only (its own module in `relay/`, part of the repo's
-`go.work`). Who operates the public relay, and at which domain, is not yet
-decided (plans/native.md decision 13) — relay URLs are configuration
-everywhere; nothing here assumes one.
+`go.work`). The xbin project runs the public relay at
+`https://notif-fwd.xbin.dev` (plans/native.md decision 13): the app's
+`XbinPushRelay` and xbind's `XBIN_PUSH_RELAY` default name it (its
+deployment lives in the project's infrastructure repository, kept apart
+from this one). Relay URLs stay
+configuration everywhere; nothing in this module assumes one.
 
 ## Running
 

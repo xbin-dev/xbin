@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **Push notifications: the project's relay is the default.** The xbin
+  project now runs the push relay the App Store app uses, at
+  `https://notif-fwd.xbin.dev`, and `XBIN_PUSH_RELAY` defaults to it: an
+  admin turns push on with `PUT /api/xbin/push/config {}` (no relay to
+  name) and the apps' notifications reach their devices. Push is still off
+  until an admin opts in; a workspace that set `XBIN_PUSH_RELAY` keeps its
+  own relay.
 - **Agent template: a provider's hiccup no longer stops a conversation.**
   A model call that failed with something that may be gone a moment later
   (the provider's `5xx` or `429`, a call that got no answer) is made again
