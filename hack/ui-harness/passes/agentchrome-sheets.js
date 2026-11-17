@@ -217,6 +217,36 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     S.requests = S.requests.filter((r) => r.id !== 'g3'); await refresh();
 
+    // a tile whose source isn't only theirs (the rule of 2026-11-17): the trust line under the named sign-in — warned, unticked, xbind's
+    // words; approved without it nothing of trust is sent (the session starts without the sign-in); ticked — the person's own click,
+    // held like Allow — it is
+    const line = { tile: 'apps/crawler', ownerKind: 'person', owner: 'bob', editors: ['carol'], allowed: true };
+    for (const [id, tick] of [['g4', false], ['g5', true]]) {
+      S.requests.push(start(id, { signIn: 'saved', signInId: 'si_harness01', signInTrust: line })); await refresh();
+      await review(page, 'request', id);
+      await page.waitForSelector(`${SHEET} [data-trust-line]`);
+      const tl = await text(`${SHEET} [data-trust-line]`);
+      if (!tick) {
+        check(/NOT ONLY YOURS/.test(tl) && /This tile belongs to bob\. carol can also change it\./.test(tl) && /could read it and use your Claude Code account\./.test(tl)
+          && /I trust this tile's source — use my sign-in there/.test(tl) && /Left unticked, the session starts without your sign-in\./.test(tl)
+          && (await page.$eval(`${SHEET} input[data-trust]`, (e) => e.checked)) === false && /only if you trust this tile/.test(await text(row)),
+          `[${width}] a start on a tile that isn't only yours: the trust line, in xbind's words, unticked (${tl})`);
+        await shot(page, `agent-chrome-approve-trust-line${tag}`, { fullPage: false });
+        await page.$eval(`${SHEET} input[data-trust]`, (e) => e.click()); // a script's click
+        check((await page.$eval(`${SHEET} input[data-trust]`, (e) => e.checked)) === false, `[${width}] a scripted click ticks nothing`);
+      } else {
+        await armed(['bx-agent-dock', 'bx-agent-approve', 'input[data-trust]']);
+        await page.click(`${SHEET} input[data-trust]`);
+        check((await page.$eval(`${SHEET} input[data-trust]`, (e) => e.checked)) === true, `[${width}] the person's own click ticks it`);
+      }
+      await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
+      await page.click(`${SHEET} button[data-allow]`);
+      await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+      const sentBody = JSON.stringify(sentTo(new RegExp(`${id}/approve$`)).map((c) => c.body));
+      check(sentBody === (tick ? '[{"grant":"once","trust":true}]' : '[{"grant":"once"}]'), `[${width}] ${tick ? 'ticked: the approval carries the trust' : 'unticked: the approval carries no trust'} (${sentBody})`);
+      S.requests = S.requests.filter((r) => r.id !== id); await refresh();
+    }
+
     // the dock's overlay: the agent's page names a coding agent; the card is the chrome's, outside the page's frame
     await ctx.route('**/signin-page.html', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body><h1>the agent's page</h1><script>
       const got = [];

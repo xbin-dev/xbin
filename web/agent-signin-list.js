@@ -172,7 +172,7 @@ function trustedSection(el, d, now) {
     <div class="row"><h4>Tiles you trust</h4></div>
     <p class="lead">Your sign-in is used on your own tiles that nobody else can change. On any other tile xbin asks first whether you trust its source — once per tile, and again when someone new can change it or it has another owner.</p>
     ${!rows.length ? html`<p class="lead">You have trusted no tile.</p>` : html`<div class="items">${rows.map((t) => html`<div class="item" data-trust=${t.id} data-holds=${t.holds ? 'true' : 'false'}>
-      <div class="what"><b>${t.name || t.tile}</b> <code>${t.tile}</code>
+      <div class="what"><span class="name">${t.name && t.name !== t.tile ? html`${t.name} ` : nothing}<code>${t.tile}</code></span>
         <div class="meta"><span>trusted ${dayWords(t.at, now)}</span>${t.holds ? nothing : html`<span class="warn">xbin will ask again: ${t.why}</span>`}</div></div>
       <button class="untrust" ?disabled=${!!el._m.busy} title="your sessions on this tile that run on a saved sign-in are ended"
         @click=${() => act(el, t.id, () => el.api.untrust(t.id))}>Stop trusting</button>

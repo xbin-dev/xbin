@@ -41,6 +41,7 @@ function register(P) {
   P.firstRun = require('./passes/firstrun').firstRun; // D237: the first-run sheet — bootstrap with/without the host's vault and a model, the host's preset, skip, a second browser, a weak password, a repeat that doesn't match, a vault that fails, the swap refused (its own xbinds, HARNESS_ISOLATE=1, make sealed)
   P.mcpTemplate = require('./passes/mcptemplate').mcpTemplate; // the MCP server example's page (HARNESS_ISOLATE=1) and a tile whose required slot is bound folding the rest into one line (docs/mcp.md, overview/11-interfaces.md)
   P.agentSavedSignin = require('./passes/agentsavedsignin').agentSavedSignin; // D230: the sign-ins xbind keeps, through <bx-agent-signin> in the Agent tab
+  P.agentSigninTrust = require('./passes/agentsignintrust').agentSigninTrust; // D230 (2026-11-17): "I trust this tile's source" — the card on a tile that isn't only yours, both choices, the list, the switch
 }
 
 module.exports = { register };

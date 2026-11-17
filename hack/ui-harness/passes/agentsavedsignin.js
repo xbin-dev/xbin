@@ -21,8 +21,8 @@
 // there says who; (g) the element alone at phone width, light and dark.
 const { URL, OUT, login, closeCtx, settle, fr, waitFor, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
 
-const TILE = 'apps/welcome'; // only admins open a terminal here
-const SHARED = 'apps/leads'; // dev1 and sales1 (not admins) may too
+const TILE = 'apps/signin-own'; // the admin's own tile, made here: nobody else can change it, so a saved sign-in is used by default
+const SHARED = 'apps/leads'; // the Sales org's; dev1 and sales1 (not admins) can change it: xbin asks before a sign-in is used there
 const VIEW = { viewport: { width: 1400, height: 1300 } };
 const FAKE_URL = 'https://claude.com/cai/oauth/authorize?code=true&client_id=harness-client-0123456789abcdef&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=harnessChallenge0123456789&code_challenge_method=S256&state=harness-state';
 const CODE = 'harness-code#harness-state';
@@ -41,7 +41,18 @@ async function agentSavedSignin(browser) {
   const wipe = async () => { for (const h of (await get('')).body.harnesses || []) for (const s of h.signins) await ctx.request.delete(`${API}/${s.id}`); };
   const sessions = async (tile) => (await ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=${encodeURIComponent(tile)}`)).json();
   const endAll = async (tile) => { for (const s of await sessions(tile)) await ctx.request.delete(`${URL}/api/xbin/term/sessions/${encodeURIComponent(s.id)}`); };
-  await ctx.request.put(`${API}/policy`, { data: { enabled: true } });
+  await ctx.request.put(`${API}/policy`, { data: { enabled: true, trust: true } });
+  // a tile of the admin's own (the seed's are an org's or the workspace's): created once, as any person creates one
+  const registered = async () => {
+    const h = ((await (await ctx.request.get(`${API}?tile=${encodeURIComponent(TILE)}`)).json()).harnesses || []).find((x) => x.id === 'fake');
+    return !!h && !!h.here && !/no registered tile/.test(h.here.why || '');
+  };
+  if (!(await registered())) {
+    const made = await ctx.request.post(`${URL}/api/xbin/create`, { data: { path: TILE, owner: 'user:admin', runtime: 'static', title: 'Sign-in probe' } });
+    check(made.ok(), `the admin's own tile ${TILE} is made (${made.status()} ${made.ok() ? '' : await made.text()})`);
+    for (let n = 0; n < 150 && !(await registered()); n++) await page.waitForTimeout(100); // …and registered, once xbind's watcher has seen it
+  }
+  for (const t of (await get('')).body.trusted || []) await ctx.request.delete(`${API}/trust/${t.id}`);
   await wipe();
   await endAll(TILE);
   await endAll(SHARED);
@@ -52,7 +63,8 @@ async function agentSavedSignin(browser) {
   const here = (await get(`?tile=${encodeURIComponent(TILE)}`)).body.harnesses.find((h) => h.id === 'fake');
   const there = (await get(`?tile=${encodeURIComponent(SHARED)}`)).body.harnesses.find((h) => h.id === 'fake');
   check(here.guided && here.here?.inject === true, `on ${TILE} a saved sign-in would be used (${JSON.stringify(here.here)})`);
-  check(there.here?.inject === false && /dev1/.test(there.here.why) && there.here.why.includes(SHARED), `on ${SHARED} it would not, and it says who (${JSON.stringify(there.here)})`);
+  check(there.here?.inject === false && /dev1/.test(there.here.why) && there.here.why.includes(SHARED) && there.here.trust?.ownerKind === 'org' && there.here.trust.allowed === true,
+    `on ${SHARED} — an org's, which others can change — it waits for the person's trust, and the answer says whose it is (${JSON.stringify(there.here)})`);
 
   await openShell(page);
   await usePersonalScreen(page);
@@ -68,7 +80,7 @@ async function agentSavedSignin(browser) {
   await waitFor(page, (t, a) => { const g = t.frameFor(a.tile)?.testApi().agent(a.i)?.signin; return !!g && g.data && g.primary === 'saved'; }, { tile: TILE, i: idx }, { timeout: 15000, label: 'the signed-out agent shows the card, with xbind\'s sign-in first' });
   const card = () => fr(page, TILE, (f, t, i) => { const s = f.agent(i).signin; return s && { phase: s.phase, how: s.how, url: s.url, code: s.code, status: s.status, hint: s.hint, primary: s.primary, session: s.session, saved: s.saved }; }, idx);
   let s = await card();
-  check(s.phase === 'idle' && /Not signed in to Fake agent/.test(s.status) && /keeps the sign-in sealed/.test(s.hint) && /every tile only you can change/.test(s.hint) && /without sandboxes/.test(s.hint),
+  check(s.phase === 'idle' && /Not signed in to Fake agent/.test(s.status) && /keeps the sign-in sealed/.test(s.hint) && /on a tile that isn't only yours, once you trust it/.test(s.hint) && /without sandboxes/.test(s.hint),
     `the card says what Sign in does, where a saved sign-in is used, and that this workspace runs without sandboxes (${JSON.stringify(s)})`);
   const links = await page.locator(`${CARD} .links button`).allTextContents();
   check(['Paste a key instead', 'Sign in on this tile only', 'Use a terminal instead', 'Saved sign-ins…'].every((l) => links.includes(l)), `…and the other ways beside it (${JSON.stringify(links)})`);
@@ -211,14 +223,15 @@ async function agentSavedSignin(browser) {
   const sidx = await fr(page, SHARED, (f) => f.tabs.length - 1);
   const shared = await fr(page, SHARED, (f, t, i) => ({ chip: f.agent(i).signinChip, state: f.agent(i).signinState }), sidx);
   // (what it runs on instead depends on the home: the tile's own login where an earlier pass signed the fake in, else nothing)
-  check(shared.state.source !== 'saved' && /dev1.* can also change apps\/leads/.test(shared.state.why) && /saved sign-in not used|this tile's own login/.test(shared.chip),
-    `on ${SHARED} the saved sign-in is left out, and the session says who can also open a terminal there (${JSON.stringify(shared)})`);
-  await fr(page, SHARED, (f, t, i) => f.agent(i).send('please fail'), sidx);
-  await waitFor(page, (t, a) => { const g = t.frameFor(a.tile)?.testApi().agent(a.i)?.signin; return !!g && g.data && g.primary === 'tile'; }, { tile: SHARED, i: sidx }, { timeout: 15000, label: 'the shared tile\'s card offers the tile\'s own sign-in first' });
-  const scard = await fr(page, SHARED, (f, t, i) => { const g = f.agent(i).signin; return { hint: g.hint, primary: g.primary }; }, sidx);
-  const sbtn = await page.locator(`bx-frame[src="${SHARED}"] bx-agent-signin:not([view]) button.start`).textContent();
-  check(/isn't used on this tile: dev1.* can also change/.test(scard.hint) && sbtn.trim() === 'Sign in on this tile', `…and its card says so and signs in on the tile ("${sbtn.trim()}": ${scard.hint})`);
+  check(shared.state.source !== 'saved' && /isn't only yours/.test(shared.state.why) && /dev1/.test(shared.state.why) && !!shared.state.trust && /waits for your trust/.test(shared.chip),
+    `on ${SHARED} the saved sign-in waits for the person's trust, and the session says whose tile it is (${JSON.stringify(shared)})`);
+  // the card asks (the agentSigninTrust pass drives it); turned down, the tile's own sign-in is what is left
+  await waitFor(page, (t, a) => !!t.frameFor(a.tile)?.testApi().agent(a.i)?.trust?.ask, { tile: SHARED, i: sidx }, { timeout: 15000, label: 'the trust card asks on the shared tile' });
   await shotEl(page, `bx-frame[src="${SHARED}"] .pop`, 'signin-card-shared-tile');
+  await page.locator(`bx-frame[src="${SHARED}"] bx-agent-signin[view="trust"] button.trust-no`).click();
+  await waitFor(page, (t, a) => { const ag = t.frameFor(a.tile)?.testApi().agent(a.i); return !!ag && !ag.trust?.ask && ag.trustAgain; }, { tile: SHARED, i: sidx }, { timeout: 10000, label: 'turned down: the card goes, the header offers it again' });
+  check(((await get('')).body.trusted || []).length === 0, '"Start without my sign-in" trusts nothing');
+  await page.evaluate((k) => localStorage.removeItem(k), `xbin-signin-declined:${SHARED}`);
   await fr(page, SHARED, (f) => { while (f.tabs.length) f.closeTab(0); });
   await settle(page);
 
