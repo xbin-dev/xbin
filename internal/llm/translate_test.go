@@ -378,3 +378,46 @@ func TestResponsesTranslatedErrors(t *testing.T) {
 		t.Errorf("a model the upstream doesn't have: %d %s after %d calls", a.code, a.body, up2.calls())
 	}
 }
+
+// A provider's model ids often hold a slash ("vendor/model", as on
+// OpenRouter-style gateways): the connector's name for one is
+// <upstream>/<vendor>/<model>, and every place a model is named takes it —
+// the list, a call by its full name, by the provider's own id where one
+// upstream offers it, the default and a role, an alias, the row it is
+// metered under, and the provider's Test. (The first real endpoint the
+// workspace agent ran on, 2026-11-17.)
+func TestModelIDsWithASlash(t *testing.T) {
+	r := newRig(t, "")
+	up := newUpstream(t)
+	up.mu.Lock()
+	up.models = []map[string]any{{"id": "vendor/model-x", "object": "model"}, {"id": "vendor/model-y", "object": "model"}}
+	up.mu.Unlock()
+	r.addUpstream("gw", up, nil) // no list of its own: the provider's passes through
+	const full = "gw/vendor/model-x"
+	list := string(r.must(200, pOwner, "GET", "/llm/v1/models", nil).body)
+	if !strings.Contains(list, `"id":"`+full+`"`) || !strings.Contains(list, `"id":"gw/vendor/model-y"`) {
+		t.Fatalf("the model list: %s", list)
+	}
+	r.must(200, pOwner, "PUT", "/llm/config", map[string]any{"defaults": map[string]any{"model": full, "roles": map[string]string{"agent": "gw/vendor/model-y"}},
+		"aliases": map[string]string{"fast": full}})
+	for asked, want := range map[string]string{full: "vendor/model-x", "vendor/model-x": "vendor/model-x", "": "vendor/model-x", "xbin/default": "vendor/model-x",
+		"xbin/agent": "vendor/model-y", "fast": "vendor/model-x"} {
+		r.must(200, pOwner, "POST", "/llm/v1/chat/completions", chatBody(asked, false))
+		if got := up.lastBody()["model"]; got != want {
+			t.Errorf("model %q reached the upstream as %v, want %s", asked, got, want)
+		}
+	}
+	names := map[string]int64{}
+	for _, row := range r.usageRows("") {
+		names[row.Model] += row.Requests
+	}
+	if names[full] != 5 || names["gw/vendor/model-y"] != 1 || len(names) != 2 {
+		t.Errorf("metered under: %v, want %s ×5 and gw/vendor/model-y ×1", names, full)
+	}
+	if a := r.must(200, pOwner, "POST", "/llm/upstreams/gw/test", map[string]any{"model": "vendor/model-x"}).json(t); a["ok"] != true || a["model"] != "vendor/model-x" {
+		t.Errorf("Test with a model id that holds a slash: %v", a)
+	}
+	if st := r.must(200, pOwner, "GET", "/llm", nil).json(t); strings.Contains(fmt.Sprint(st["problems"]), "vendor") {
+		t.Errorf("the status takes the default for a model that doesn't exist: %v", st["problems"])
+	}
+}

@@ -504,7 +504,10 @@ func wsPreviewTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	var p wsPreview
 	err = ag.wsWith(ctx, s, func(sid string) (err error) { p, err = wsX.Preview(ctx, sid, ask); return })
 	if errors.Is(err, errWsUnavailable) {
-		return "Previews aren't available on this xbin (" + err.Error() + "), so you can't look at the page. Say so, and use what you can read instead: tile_status, tile_logs, or a read through tile_call.", nil
+		// (a real model, told "Say so", told its person about previews — and the host's cgroup — in every answer,
+		// asked for or not: the real-model run, 2026-11-17)
+		return "Previews aren't available on this xbin, so you can't look at the page. Use what you can read instead: tile_status, tile_logs, or a read through tile_call. " +
+			"Tell your person only when seeing the page mattered for what they asked, in one line; the cause is the host's and an admin's to fix (" + err.Error() + ").", nil
 	}
 	if err != nil {
 		return "", err

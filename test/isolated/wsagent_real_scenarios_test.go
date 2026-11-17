@@ -39,6 +39,7 @@ func (e *realEnv) session(person, name string, more map[string]any) *wsConv {
 	for k, v := range more {
 		body[k] = v
 	}
+	delete(e.frames, wsAgent+"\x00"+person) // a page's credential doesn't outlive a long run: each scenario opens the page anew
 	return e.open(person, body)
 }
 
@@ -711,14 +712,24 @@ func TestWsRealModelScenarios(t *testing.T) {
 	e.scenario(t, "16", "Admin changes", func(t *testing.T) (string, string, []*wsConv) {
 		off := e.session(wsAdmin, "s16-off", nil)
 		t0 := off.tell("Let the report tile read the calendar.")
-		must := map[string]bool{"opt-in off: nothing proposed or applied": len(e.sets(e.as(wsAdmin)...)) == 0 || true}
-		should := map[string]bool{"opt-in off: says how to turn it on": has(t0.said()+strings.Join(t0.calls(), " "), "turn", "Preferences", "enable", "opt", "propose admin changes", "plan")}
+		// (since D238 an admin's line can ride a plan without the standing opt-in: the tick and Apply are the consent)
+		must := map[string]bool{"opt-in off: no admin batch, and nothing filed twice": t0.n("admin_propose") == 0 && len(e.pending(wsAdmin)) == 0}
+		should := map[string]bool{
+			"opt-in off: says how to turn it on, or proposes the binding as a plan's line": has(t0.said(), "Preferences", "turn on", "opt") || t0.n("plan_propose") > 0,
+			"opt-in off: adds no work nobody asked for":                                    t0.n("tile_agent_brief") == 0 && !has(strings.Join(t0.calls(), " "), `"agent.start"`),
+		}
 		before := len(e.sets(e.as(wsAdmin)...))
 		d.Must(t, "PUT", "/api/xbin/delegate/state", map[string]any{"adminChanges": true}, 200, e.as(wsAdmin)...)
 		on := e.session(wsAdmin, "s16-on", nil)
 		tn := on.tell("Let the report tile read the calendar.")
 		sets := e.sets(e.as(wsAdmin)...)
-		must["opt-in on: one batch proposed"] = len(sets)-before == 1 && tn.n("admin_propose")+tn.n("plan_propose") == 1
+		filed := 0
+		for _, c := range tn.calls() { // a dry run first is a look, not a batch
+			if (strings.HasPrefix(c, "admin_propose ") || strings.HasPrefix(c, "plan_propose ")) && !has(c, `"dry_run":true`, `"dry_run": true`) {
+				filed++
+			}
+		}
+		must["opt-in on: one batch proposed"] = len(sets)-before == 1 && filed == 1
 		must["no claim that anything is applied"] = !has(tn.said(), "is now bound", "has been applied", "now reads", "can now read", "done —", "is done")
 		if len(sets) > before {
 			lines := ""

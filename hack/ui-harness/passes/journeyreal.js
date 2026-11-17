@@ -228,11 +228,15 @@ async function journeyReal(browser) {
       await J.field('the assistant: the message ("Roll a d20 for me.")', () => tf.locator('textarea#msg').fill('Roll a d20 for me.'));
       await J.click('the assistant: "Send"', () => tf.locator('button#send').click());
       rolled = await J.wait('the answer shows a roll made with the tool', async () => {
+        let lastAfter = '', same = 0;
         for (let i = 0; i < 360; i++) {
           const body = await tf.locator('body').innerText();
           const after = body.split('Roll a d20 for me.').pop();
-          // the chat folds the tool's call; its result line ("Rolled 1d20: 7") and the conversation's DONE mark are what a person sees
-          if (/roll(ed)?\s+\d*d20\D{0,4}\d+/i.test(after) || (/\bDONE\b/.test(body) && /\b([1-9]|1\d|20)\b/.test(after.replace(/d20/gi, '')))) { await sleep(2000); return (await tf.locator('body').innerText()).split('Roll a d20 for me.').pop().replace(/\s+/g, ' ').slice(0, 400); }
+          // the chat folds the tool's call and the model words the roll as it likes ("Rolled 1d20: 7", "8 (1d20)"): a
+          // number a d20 can show, after the question, once the answer has stopped changing
+          const nums = after.replace(/\d*d20|20-sided|twenty/gi, ' ').match(/\b([1-9]|1\d|20)\b/g);
+          if (nums && after === lastAfter && ++same >= 6) return after.replace(/\s+/g, ' ').slice(0, 400);
+          if (after !== lastAfter) { lastAfter = after; same = 0; }
           await sleep(500);
         }
         return '';
