@@ -114,15 +114,22 @@ stream event by event as it arrives. So a client that speaks Responses
 only (Codex) runs on any OpenAI-compatible upstream, and a tile need not
 know which wire a provider has.
 
-- **Found by itself.** With `responsesVia: "auto"` (the default) the first
+- **Found by itself.** With `responsesVia: "auto"` (the default) a
   Responses call is sent to the upstream's own `/responses`; when it
-  answers that it has no such route (a `404`, `405` or `501` that isn't
-  about the model), the call is made again as a chat completion and the
-  upstream is remembered as chat-only for ten minutes, then asked again.
-  The provider's row on `/xbin/llm` and `GET /llm/config` say so
-  (`translating: true`). `"chat"` always translates and never asks;
-  `"upstream"` never translates — the upstream's `404` is the caller's.
-  `bx llm upstream set <name> --responses-via chat`.
+  answers that it has no such route — a `404`, `405` or `501` whose own
+  body doesn't speak of a model, judged as the upstream sent it — the call
+  is made again as a chat completion. Only when that translated call
+  **works** is it remembered, for that model, for ten minutes (then the
+  upstream is asked again): a refusal alone is something any caller can
+  provoke by naming a model the upstream doesn't have, and must never
+  change how other people's calls are served. The provider's row on
+  `/xbin/llm` says "Responses: translated — detected 14:02" with a
+  **reset**, and `GET /llm/config` `translating: true, translatingSince`;
+  setting `responsesVia` again (to `auto` too) forgets what was found.
+  An explicit setting always wins over detection: `"chat"` always
+  translates and never asks; `"upstream"` never translates — the
+  upstream's `404` is the caller's. `bx llm upstream set <name>
+  --responses-via chat`.
 - **What is translated**: `instructions` and `input` (messages with text
   and images, function calls and their outputs), function tools, tool
   choice, `parallel_tool_calls`, `max_output_tokens`, `temperature`,

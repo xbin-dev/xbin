@@ -46,124 +46,91 @@ const (
 	ViaChat     = "chat"     // always translated to chat completions
 )
 
-// chatOnlyTTL is how long an upstream that answered "no such route" to a
-// Responses call is taken to have none before it is asked again.
+// chatOnlyTTL is how long a model found to have no Responses API at its
+// upstream is taken to have none before the upstream is asked again.
 const chatOnlyTTL = 10 * time.Minute
 
-// wireMemo remembers which upstreams have no Responses API.
+// maxChatOnly bounds what is remembered for one upstream (a caller names
+// models; only ones a translated call worked for are kept).
+const maxChatOnly = 256
+
+// wireMemo remembers, per upstream, the models whose Responses calls it
+// has no API for: found by the upstream's own "no such route" AND a
+// translated call that then worked — never by a refusal alone, which a
+// caller can provoke by naming a model the upstream doesn't have. An
+// explicit responsesVia never reads it.
 type wireMemo struct {
 	mu       sync.Mutex
-	chatOnly map[string]time.Time // upstream name + address → when it said so
+	chatOnly map[string]map[string]time.Time // upstream name + address → model → when it was found
 }
 
 func wireKey(t Target) string { return t.Name + "\x00" + t.BaseURL }
 
-func (m *wireMemo) isChatOnly(t Target, now time.Time) bool {
+func (m *wireMemo) isChatOnly(t Target, model string, now time.Time) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	at, ok := m.chatOnly[wireKey(t)]
-	return ok && now.Sub(at) < chatOnlyTTL
+	at, ok := m.chatOnly[wireKey(t)][model]
+	if ok && now.Sub(at) >= chatOnlyTTL {
+		delete(m.chatOnly[wireKey(t)], model)
+		return false
+	}
+	return ok
 }
 
-func (m *wireMemo) setChatOnly(t Target, now time.Time) {
+func (m *wireMemo) setChatOnly(t Target, model string, now time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.chatOnly == nil {
-		m.chatOnly = map[string]time.Time{}
+		m.chatOnly = map[string]map[string]time.Time{}
 	}
-	m.chatOnly[wireKey(t)] = now
+	k := wireKey(t)
+	if m.chatOnly[k] == nil {
+		m.chatOnly[k] = map[string]time.Time{}
+	}
+	if _, known := m.chatOnly[k][model]; !known && len(m.chatOnly[k]) >= maxChatOnly {
+		return
+	}
+	m.chatOnly[k][model] = now
 }
 
-// routeMissing reports whether an upstream's answer to a Responses call
-// says it has no such API — rather than refusing this call: a 404, 405 or
-// 501 that doesn't speak of the model.
+// since is when the upstream at t was first found to have no Responses
+// API for a model (zero: for none), among what is still remembered.
+func (m *wireMemo) since(t Target, now time.Time) time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var first time.Time
+	for _, at := range m.chatOnly[wireKey(t)] {
+		if now.Sub(at) < chatOnlyTTL && (first.IsZero() || at.Before(first)) {
+			first = at
+		}
+	}
+	return first
+}
+
+// forget drops what was found of the upstream called name, at whatever
+// address (an admin set its responsesVia, or its address, again).
+func (m *wireMemo) forget(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k := range m.chatOnly {
+		if strings.HasPrefix(k, name+"\x00") {
+			delete(m.chatOnly, k)
+		}
+	}
+}
+
+// routeMissing reports whether an upstream's refusal of a Responses call —
+// its own status and body, as it gave them — says it has no such API
+// rather than refusing this call: a 404, 405 or 501 that doesn't speak of
+// a model. A refusal that names the model is the model's, in whatever
+// shape the upstream words it (OpenAI's {"error": {…}}, Ollama's
+// {"error": "model … not found"}, vLLM's {"object": "error", "message":
+// …}); a caller can provoke one, so it must never read as "no route".
 func routeMissing(status int, body []byte) bool {
 	if status != http.StatusNotFound && status != http.StatusMethodNotAllowed && status != http.StatusNotImplemented {
 		return false
 	}
-	var e struct {
-		Error struct {
-			Message string `json:"message"`
-			Code    any    `json:"code"`
-		} `json:"error"`
-	}
-	if json.Unmarshal(body, &e) != nil {
-		return true
-	}
-	code := strings.ToLower(fmt.Sprint(e.Error.Code))
-	msg := strings.ToLower(e.Error.Message)
-	if strings.Contains(code, "model") || strings.Contains(msg, "model") && !strings.Contains(msg, "/responses") {
-		return false // it knows the route and not the model
-	}
-	return true
-}
-
-// heldAnswer is a ResponseWriter that keeps a "no such route" answer back
-// instead of writing it, so the call can be made again another way; any
-// other answer passes straight through.
-type heldAnswer struct {
-	http.ResponseWriter
-	held   bool
-	status int
-	header http.Header
-	body   bytes.Buffer
-	wrote  bool
-}
-
-func (h *heldAnswer) Unwrap() http.ResponseWriter { return h.ResponseWriter }
-
-// FlushError flushes what was let through; a held answer has nothing out.
-func (h *heldAnswer) FlushError() error {
-	if !h.wrote || h.held {
-		return nil
-	}
-	return http.NewResponseController(h.ResponseWriter).Flush()
-}
-
-func (h *heldAnswer) Header() http.Header {
-	if h.header == nil {
-		h.header = http.Header{}
-	}
-	return h.header // copied out when the answer is let through
-}
-
-func (h *heldAnswer) WriteHeader(code int) {
-	if h.wrote {
-		return
-	}
-	h.wrote, h.status = true, code
-	if code == http.StatusNotFound || code == http.StatusMethodNotAllowed || code == http.StatusNotImplemented {
-		h.held = true
-		return
-	}
-	h.release()
-}
-
-func (h *heldAnswer) release() {
-	dst := h.ResponseWriter.Header()
-	for k, vs := range h.header {
-		dst[k] = vs
-	}
-	h.ResponseWriter.WriteHeader(h.status)
-}
-
-func (h *heldAnswer) Write(p []byte) (int, error) {
-	if !h.wrote {
-		h.WriteHeader(http.StatusOK)
-	}
-	if h.held {
-		if h.body.Len() < maxErrorBody {
-			h.body.Write(p)
-		}
-		return len(p), nil
-	}
-	return h.ResponseWriter.Write(p)
-}
-
-// pass writes a held answer after all: it was the call's own refusal.
-func (h *heldAnswer) pass() {
-	h.release()
-	_, _ = h.ResponseWriter.Write(h.body.Bytes())
+	return !bytes.Contains(bytes.ToLower(body), []byte("model"))
 }
 
 // ResponsesViaChat answers w one Responses request (body) by a chat

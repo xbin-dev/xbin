@@ -59,6 +59,12 @@ type Call struct {
 	// Answer is set on the answer's headers before its status is written,
 	// whoever writes it (a quota warning).
 	Answer http.Header
+	// Withhold, when set, is shown an upstream's refusal as the upstream
+	// gave it — its status and its body, before anything is rewritten for
+	// the caller — and answers whether to keep it back: then nothing is
+	// written to w and Outcome.Withheld is set (the caller makes the call
+	// another way). Bounded like every refusal (maxErrorBody).
+	Withhold func(status int, body []byte) bool
 }
 
 // Outcome is how a call went.
@@ -75,6 +81,9 @@ type Outcome struct {
 	Stream bool
 	Bytes  int64
 	Events int64
+	// Withheld: the upstream refused and Call.Withhold kept the refusal
+	// back: w was not answered.
+	Withheld bool
 	// Canceled: the client went away before the answer ended.
 	Canceled bool
 	Err      string // why it failed, for the log: never a body or a key
@@ -309,6 +318,10 @@ func (p *Proxy) Relay(ctx context.Context, w http.ResponseWriter, c Call) Outcom
 func (p *Proxy) relayError(w http.ResponseWriter, resp *http.Response, c Call) Outcome {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 	out := Outcome{Status: resp.StatusCode, Upstream: true, Sent: true, Err: "upstream status " + resp.Status}
+	if c.Withhold != nil && c.Withhold(resp.StatusCode, body) {
+		out.Withheld = true
+		return out
+	}
 	own := func(code, msg string) Outcome {
 		copyHeader(w.Header(), c.Answer)
 		sdkllm.WriteError(w, http.StatusBadGateway, sdkllm.Error{Message: msg, Code: code})

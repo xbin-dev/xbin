@@ -372,6 +372,7 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 	}
 	name := r.PathValue("name")
 	var notices []string
+	forget := false // the upstream's detected "no Responses API" is dropped (translate.go)
 	var body struct {
 		Kind    *string            `json:"kind"`
 		BaseURL *string            `json:"baseURL"`
@@ -425,6 +426,7 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 			if u.ResponsesVia = *body.Via; u.ResponsesVia == ViaAuto {
 				u.ResponsesVia = "" // the default is not stored
 			}
+			forget = true // what was detected is forgotten: "auto" asks the upstream again
 		}
 		if err := validUpstream(name, u); err != nil {
 			return badRequest(err.Error())
@@ -464,6 +466,9 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if forget {
+		s.wires.forget(name)
 	}
 	v := s.configView()
 	v.Notices = notices

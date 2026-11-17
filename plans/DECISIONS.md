@@ -5881,11 +5881,16 @@ here: cut from the old end, never reword.
     translating it is one file (`internal/llm/translate.go`) and makes
     "any OpenAI-compatible endpoint" true for both.
   - **Detect, with a setting to pin it.** `responsesVia: "auto"` (the
-    default) sends the first Responses call to the upstream; a `404`,
-    `405` or `501` that is not about the model marks it chat-only for ten
-    minutes and the call is made again as chat (the probe generated
-    nothing, so the call is metered once). `"chat"` and `"upstream"` pin
-    either way. No probe at configuration time: an upstream may be down
+    default) sends a Responses call to the upstream; a `404`, `405` or
+    `501` whose own body doesn't speak of a model — judged before it is
+    rewritten for the caller, in whatever shape the upstream words it —
+    makes the call go again as chat (the probe generated nothing, so the
+    call is metered once), and only a translated call that works is
+    remembered, per model, for ten minutes. A refusal alone never is: a
+    caller can provoke one by naming a model the upstream doesn't have
+    (review of 2026-11-17: as first built, that switched everyone's
+    Responses calls for the upstream to translation). `"chat"` and
+    `"upstream"` pin either way and always win. No probe at configuration time: an upstream may be down
     or unreachable when it is added, and one settings write should not
     make a model call.
   - **What is not translated is refused, not dropped** —

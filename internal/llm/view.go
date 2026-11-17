@@ -3,6 +3,7 @@ package llm
 import (
 	"maps"
 	"slices"
+	"time"
 
 	sdkllm "github.com/xbin-dev/xbin/sdk/llm"
 )
@@ -38,9 +39,12 @@ type UpstreamView struct {
 	// API, so they are translated to chat completions for now.
 	ResponsesVia string `json:"responsesVia"`
 	Translating  bool   `json:"translating,omitempty"`
-	Source       string `json:"source"` // admin | host
-	Locked       bool   `json:"locked"`
-	Reason       string `json:"reason,omitempty"`
+	// TranslatingSince: when that was first found (RFC 3339); setting
+	// responsesVia again forgets it.
+	TranslatingSince string `json:"translatingSince,omitempty"`
+	Source           string `json:"source"` // admin | host
+	Locked           bool   `json:"locked"`
+	Reason           string `json:"reason,omitempty"`
 }
 
 // HostView says whether a deployment file is in force.
@@ -105,7 +109,9 @@ func (s *Service) upstreamView(snap *snapshot, u effUpstream) UpstreamView {
 	}
 	if v.ResponsesVia == "" {
 		v.ResponsesVia = ViaAuto
-		v.Translating = s.wires.isChatOnly(Target{Name: u.Name, BaseURL: u.BaseURL}, s.now())
+		if at := s.wires.since(Target{Name: u.Name, BaseURL: u.BaseURL}, s.now()); !at.IsZero() {
+			v.Translating, v.TranslatingSince = true, at.UTC().Format(time.RFC3339)
+		}
 	}
 	switch {
 	case u.Host:

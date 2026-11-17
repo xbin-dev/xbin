@@ -318,7 +318,11 @@ PUT    /llm/upstreams/<name>       admin. Add or change an upstream: {baseURL?,
                                    responsesVia?: "auto" | "upstream" |
                                    "chat" (how its Responses calls are
                                    served; the view adds translating: true
-                                   while "auto" found no Responses API),
+                                   and translatingSince while "auto" found
+                                   no Responses API for a model — by the
+                                   upstream's own refusal and a translated
+                                   call that worked; sending responsesVia
+                                   again forgets what was found),
                                    kind?: "openai"} — a new one needs
                                    baseURL (http(s), no credentials or query
                                    in it); what isn't named stays. name:

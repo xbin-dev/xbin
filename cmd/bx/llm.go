@@ -71,8 +71,9 @@ type llmUpstream struct {
 	Source  string              `json:"source"`
 	Locked  bool                `json:"locked"`
 	// how its Responses calls are served (D244); Translating: found to have no Responses API
-	ResponsesVia string `json:"responsesVia"`
-	Translating  bool   `json:"translating"`
+	ResponsesVia     string `json:"responsesVia"`
+	Translating      bool   `json:"translating"`
+	TranslatingSince string `json:"translatingSince"`
 }
 
 type llmDefaults struct {
@@ -366,8 +367,10 @@ func printLLMConfig(v llmConfig) {
 		}
 		fmt.Printf("  upstream %s  %s  (%s%s)%s\n    models: %s\n", u.Name, u.BaseURL, key, private, lock("upstreams."+u.Name), models)
 		switch {
-		case u.ResponsesVia == "chat" || u.Translating:
-			fmt.Println("    Responses calls: translated to chat completions (the upstream has no Responses API)")
+		case u.ResponsesVia == "chat":
+			fmt.Println("    Responses calls: translated to chat completions (responsesVia: chat)")
+		case u.Translating:
+			fmt.Printf("    Responses calls: translated to chat completions — the upstream has no Responses API (detected %s; bx llm upstream set %s --responses-via auto asks it again)\n", u.TranslatingSince, u.Name)
 		case u.ResponsesVia == "upstream":
 			fmt.Println("    Responses calls: the upstream's own, never translated")
 		}

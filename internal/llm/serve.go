@@ -111,28 +111,26 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 		}
 		start := s.now()
 		if path == sdkllm.PathResponses && u.ResponsesVia != ViaUpstream {
-			// an upstream without a Responses API is served by translation (translate.go, D244)
-			translate := u.ResponsesVia == ViaChat || s.wires.isChatOnly(t, start)
-			if !translate {
-				held := &heldAnswer{ResponseWriter: w}
-				res := s.plane.Relay(r.Context(), held, Call{Target: t, Path: path, Body: out, Header: h, Sink: usageSink, Answer: answer})
-				switch {
-				case !held.held:
-				case routeMissing(held.status, held.body.Bytes()):
-					s.wires.setChatOnly(t, start)
-					s.log.Info("llm: upstream has no Responses API; its Responses calls are translated to chat completions", "upstream", u.Name)
-					translate = true // nothing was generated: the call is made again, and metered once
-				default:
-					held.pass()
-				}
-				if !translate {
+			// an upstream without a Responses API is served by translation (translate.go, D244). An explicit
+			// "chat" always translates. Otherwise the upstream is asked, and its own "no such route" — judged on
+			// its own status and body — makes this call go again as chat; that is remembered, for this model,
+			// only once such a call has worked: a refusal alone is something a caller can provoke.
+			translate, probed := u.ResponsesVia == ViaChat, false
+			if !translate && !s.wires.isChatOnly(t, model, start) {
+				res := s.plane.Relay(r.Context(), w, Call{Target: t, Path: path, Body: out, Header: h, Sink: usageSink, Answer: answer, Withhold: routeMissing})
+				if !res.Withheld {
 					s.account(c, u, model, name, res, len(out))
 					s.logCall(c, name, res, s.now().Sub(start))
 					return
 				}
+				probed = true // nothing was generated and nothing answered: the call is made again, and metered once
 			}
 			res, sent, ok := ResponsesViaChat(r.Context(), s.plane, w, t, body, req.Model, model, h, answer)
 			if ok {
+				if probed && res.OK() {
+					s.wires.setChatOnly(t, model, start)
+					s.log.Info("llm: upstream has no Responses API for this model; its Responses calls are translated to chat completions", "upstream", u.Name, "model", model)
+				}
 				s.account(c, u, model, name, res, sent)
 				s.logCall(c, name, res, s.now().Sub(start))
 			}
