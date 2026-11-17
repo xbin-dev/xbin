@@ -5858,3 +5858,44 @@ here: cut from the old end, never reword.
     beside it on master (outside MCP servers, a start naming a sign-in,
     waiting plan lines, dock permission prompts) are Review only, and so is
     a tile call whose preview says more than a tile call's.
+
+- **D244 — The connector translates Responses to chat completions for an
+  upstream that has no Responses API (2026-11-17; issue #51; the first
+  real-model run, `plans/wsagent/real-model-run-2026-11-17.md`).** The
+  first endpoint the workspace agent was pointed at that was not a
+  scripted one serves `POST /chat/completions` and nothing else — as
+  OpenRouter-style gateways and most local model servers do. The agent
+  template's own engine was fine (it picks the chat wire for every model
+  that is not an OpenAI reasoning family, and falls back by itself). The
+  connector was not: it relayed `/v1/responses` to the upstream's `404`,
+  while telling every host that it serves both wires — so Codex, which
+  speaks Responses only and is the first coding agent the connector can
+  serve, was offered with "no sign-in needed", picked as the default for
+  a tile agent's start, and could not make one call.
+  - **Translate in the connector, not gate in the catalog.** The
+    alternative — report per upstream which wires it has and stop
+    offering Codex — keeps the lie out of the catalog but leaves a
+    workspace on such an endpoint with one coding agent and every tile
+    that calls `/v1/responses` broken. The wires share a stateless core
+    (messages, function tools, streamed text and tool calls, usage);
+    translating it is one file (`internal/llm/translate.go`) and makes
+    "any OpenAI-compatible endpoint" true for both.
+  - **Detect, with a setting to pin it.** `responsesVia: "auto"` (the
+    default) sends the first Responses call to the upstream; a `404`,
+    `405` or `501` that is not about the model marks it chat-only for ten
+    minutes and the call is made again as chat (the probe generated
+    nothing, so the call is metered once). `"chat"` and `"upstream"` pin
+    either way. No probe at configuration time: an upstream may be down
+    or unreachable when it is added, and one settings write should not
+    make a model call.
+  - **What is not translated is refused, not dropped** —
+    `previous_response_id`, item references, file parts: `400
+    xbin_llm_translate` before anything is sent. Two things are left out
+    and said in the docs: OpenAI's hosted tools (the upstream has none)
+    and a provider's opaque reasoning items in `input`. A `custom`
+    (free-form) tool becomes a one-argument function and its call comes
+    back as a `custom_tool_call`, since Codex sends such tools.
+  - **Not done:** the reverse (chat completions for an upstream that has
+    only Responses); Anthropic's wire (unchanged: not relayed); a control
+    on `/xbin/llm`'s provider form (the row says "translating"; the
+    setting is the API's and `bx`'s).

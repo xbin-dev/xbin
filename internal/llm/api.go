@@ -379,9 +379,10 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 		Models  *[]string          `json:"models"`
 		Private *bool              `json:"private"`
 		Prices  *sdkllm.PriceTable `json:"prices"`
+		Via     *string            `json:"responsesVia"`
 	}
 	if err := decode(r, &body); err != nil {
-		server.WriteError(w, http.StatusBadRequest, "need {baseURL?, key?, models?: [<model>], private?, prices?: {<model>: {in, out, cachedIn?}}, kind?: openai}", docs)
+		server.WriteError(w, http.StatusBadRequest, "need {baseURL?, key?, models?: [<model>], private?, prices?: {<model>: {in, out, cachedIn?}}, responsesVia?: auto | upstream | chat, kind?: openai}", docs)
 		return
 	}
 	if body.Key != nil {
@@ -419,6 +420,11 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Prices != nil {
 			u.Prices = *body.Prices
+		}
+		if body.Via != nil {
+			if u.ResponsesVia = *body.Via; u.ResponsesVia == ViaAuto {
+				u.ResponsesVia = "" // the default is not stored
+			}
 		}
 		if err := validUpstream(name, u); err != nil {
 			return badRequest(err.Error())

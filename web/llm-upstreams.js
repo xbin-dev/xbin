@@ -137,7 +137,8 @@ export class BxLlmUpstreams extends LitElement {
         <td class="url mono" data-l="base URL">${u.baseURL}</td>
         <td data-l="key" data-key>${keyWords(u.key)}</td>
         <td data-l="models">${modelsWords(u.models)}${Object.keys(u.prices ?? {}).length ? html`<div class="meta">${plural(Object.keys(u.prices).length, 'price')}</div>` : nothing}</td>
-        <td>${u.private ? html`<span class="badge">private</span> ` : nothing}${lockTpl(lock)}</td>
+        <td>${u.private ? html`<span class="badge">private</span> ` : nothing}${u.translating || u.responsesVia === 'chat'
+    ? html`<span class="badge" data-translating title="This provider has no Responses API: the connector translates Responses calls to chat completions for it (docs: llm.md)">chat only</span> ` : nothing}${lockTpl(lock)}</td>
         <td class="acts">
           <button class="small" data-test ?disabled=${t?.running} title="a one-line call through this provider (metered to you)" @click=${() => this._test(u)}>Test</button>
           <button class="small" data-edit ?disabled=${lock.locked || busy} title=${why} @click=${() => this._open(u.name)}>edit…</button>

@@ -12,6 +12,26 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **The LLM connector's `/v1/responses` works on upstreams that have only
+  chat completions** (D244; [llm.md §Responses on a chat-only
+  upstream](/docs/llm.md#responses-on-a-chat-only-upstream),
+  [protocol/llm.md](/docs/protocol/llm.md)). Many OpenAI-compatible
+  providers and gateways serve `POST /chat/completions` and nothing else;
+  a Responses call for such an upstream used to be its `404`, so Codex —
+  which speaks Responses only, and is the first coding agent the connector
+  offers — could not run there. The connector now translates: the request
+  becomes a chat completion and the answer comes back in the Responses
+  shape, a stream event by event (text, reasoning, tool calls — parallel
+  ones too — usage; errors pass as they are; a broken stream ends
+  `response.failed`). Found by itself (the upstream's "no such route",
+  remembered for ten minutes) or set per upstream: `responsesVia: "auto" |
+  "upstream" | "chat"` on `PUT /llm/upstreams/<name>` and in the host's
+  file, `bx llm upstream set <name> --responses-via chat`; the upstream's
+  view gains `responsesVia` and `translating`. What chat can't carry
+  (`previous_response_id`, an item reference, a file part) is `400
+  xbin_llm_translate`; OpenAI's hosted tools are left out. Additive:
+  an upstream that has a Responses API is called as before.
+
 - **The workspace agent reaches you when the app is not open** (D241;
   [workspace-agent.md §In the xbin app](/docs/workspace-agent.md#in-the-xbin-app),
   [protocol/devices.md](/docs/protocol/devices.md) §The workspace agent's

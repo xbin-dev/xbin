@@ -117,6 +117,7 @@ type Service struct {
 	closeOnce sync.Once
 	watch     keyWatch // minters told of their keys' refused calls (keywatch.go)
 	models    modelCache
+	wires     wireMemo // upstreams found to have no Responses API (translate.go)
 
 	flightMu sync.Mutex
 	flight   map[string]int // caller → its calls in flight (serve.go)

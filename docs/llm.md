@@ -86,6 +86,8 @@ optionally:
   provider's own `/models` list and any model name through.
 - `private` — marks an upstream that keeps prompts inside your
   organisation. Nothing filters on it yet; org constraints will.
+- `responsesVia` — how a Responses call for its models is served: `auto`
+  (the default), `upstream` or `chat` (§Responses on a chat-only upstream).
 - `prices` — `{<model>: {in, out, cachedIn?}}` in USD per million tokens,
   for the cost counters and cost quotas. `"gpt-5*"` prices a family. A
   provider that reports the cost of a call itself (OpenRouter) is believed
@@ -100,6 +102,52 @@ say so).
 `bx llm upstream test` makes the smallest call there is (one word in, one
 token out). It is a call like any other: metered to you, held by your
 quota and the workspace's, and refused while the connector is off.
+
+### Responses on a chat-only upstream
+
+Many OpenAI-compatible providers and gateways — OpenRouter-style
+aggregators, most local model servers — serve `POST /chat/completions` and
+have no Responses API. The connector's `/v1/responses` works on them all
+the same (D244): for such an upstream it **translates** — the request is
+rewritten as a chat completion, and the answer is rewritten back, a
+stream event by event as it arrives. So a client that speaks Responses
+only (Codex) runs on any OpenAI-compatible upstream, and a tile need not
+know which wire a provider has.
+
+- **Found by itself.** With `responsesVia: "auto"` (the default) the first
+  Responses call is sent to the upstream's own `/responses`; when it
+  answers that it has no such route (a `404`, `405` or `501` that isn't
+  about the model), the call is made again as a chat completion and the
+  upstream is remembered as chat-only for ten minutes, then asked again.
+  The provider's row on `/xbin/llm` and `GET /llm/config` say so
+  (`translating: true`). `"chat"` always translates and never asks;
+  `"upstream"` never translates — the upstream's `404` is the caller's.
+  `bx llm upstream set <name> --responses-via chat`.
+- **What is translated**: `instructions` and `input` (messages with text
+  and images, function calls and their outputs), function tools, tool
+  choice, `parallel_tool_calls`, `max_output_tokens`, `temperature`,
+  `top_p`, `reasoning.effort`, a JSON output format (`text.format`),
+  streamed text, reasoning text (as a reasoning summary) and tool calls —
+  several in one answer too — and usage, cached and reasoning tokens
+  included. Metering reads the chat completion's own usage: one call, one
+  row.
+- **What is not**, and how it is said: `previous_response_id` and stored
+  conversations are OpenAI's own service — `400 xbin_llm_translate`
+  ("send the conversation in input"); an input item or content part chat
+  can't carry (a file id, an item reference) is refused the same way,
+  naming it, before anything is sent; OpenAI's hosted tools (web search,
+  file search, the code interpreter …) are left out of the tool list; a
+  provider's opaque reasoning items in `input` are dropped. A `custom`
+  (free-form) tool becomes a function tool with one string argument,
+  `input`, and its call comes back as a `custom_tool_call`.
+- **Errors pass as they are.** An upstream's refusal of the chat
+  completion — a context-length error, a rate limit — is an OpenAI-shaped
+  error on either wire. An error inside a stream, or a stream that breaks
+  off, ends the answer with `response.failed`; an answer cut by the
+  output limit ends `response.incomplete` (`max_output_tokens`).
+
+The other direction is not translated: a chat-completions call for an
+upstream that has only a Responses API is that upstream's `404`.
 
 ### Model names
 
@@ -273,7 +321,7 @@ connector in its environment. What each harness gets:
 | Harness | Through the connector | What xbind sets |
 |---|---|---|
 | OpenCode | yes — beside the person's own providers | an inline config (`OPENCODE_CONFIG_CONTENT`) declaring the provider **LLM by xbin** with the connector's models, so they can always be picked; its `model` — what makes it the session's default — only when the connector serves the session |
-| Codex | yes — in place of a sign-in | codex-acp's gateway sign-in (`DEFAULT_AUTH_REQUEST`) and the connector as the session's model provider, with its model (`CODEX_CONFIG`, `MODEL_PROVIDER`) — over the person's `config.toml` — only when the connector serves the session |
+| Codex | yes — in place of a sign-in; on an upstream without a Responses API through the connector's translation (§Responses on a chat-only upstream) | codex-acp's gateway sign-in (`DEFAULT_AUTH_REQUEST`) and the connector as the session's model provider, with its model (`CODEX_CONFIG`, `MODEL_PROVIDER`) — over the person's `config.toml` — only when the connector serves the session |
 | Claude Code | not yet | nothing: it speaks Anthropic's Messages wire, which the connector doesn't relay yet. It runs on the person's own sign-in |
 | Gemini CLI | no | nothing: it has no OpenAI-compatible mode. Own sign-in only |
 
@@ -697,6 +745,9 @@ bring its own models and hold quotas the workspace's admins can't lift.
 
 ## Limits today
 
+- Responses calls for an upstream without a Responses API are translated
+  to chat completions (§Responses on a chat-only upstream); OpenAI's
+  stored conversations and hosted tools don't exist there.
 - One upstream kind: OpenAI-compatible APIs. Anthropic's Messages wire is
   not relayed yet; Claude models are reachable through a provider that
   serves them on the OpenAI wire.
