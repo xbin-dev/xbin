@@ -150,7 +150,9 @@ know which wire a provider has.
   upstream has chat completions only", and is made before anything is
   sent. What was dropped is listed — sorted, comma-separated — in the
   answer's **`X-XBin-LLM-Dropped`** header (`metadata,include,
-  tools.web_search`); no header, nothing dropped.
+  tools.web_search`); no header, nothing dropped. (A name that is no
+  plain field name, and any past the first 24, reads `other`. xbind's log
+  says once per upstream what its translated calls leave out.)
 - **Of the answer**: streamed text, reasoning text (as a reasoning
   summary), tool calls — several in one answer, also from a provider that
   numbers every call `0` and tells them apart by id — a refusal

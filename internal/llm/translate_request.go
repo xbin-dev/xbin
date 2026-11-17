@@ -26,11 +26,24 @@ type xlate struct {
 	dropped  []string        // what of it was not sent
 }
 
+// drop notes that what — a field, or tools.<type> — was not sent. The
+// names are the caller's own JSON: one that is no plain name, and any past
+// the first maxDropped, is "other" (the list goes into a header and a log
+// line).
 func (x *xlate) drop(what string) {
+	plain := what != "" && len(what) <= 48
+	for _, c := range what {
+		plain = plain && (c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '.' || c == '-')
+	}
+	if !plain || len(x.dropped) >= maxDropped && !slices.Contains(x.dropped, what) {
+		what = "other"
+	}
 	if !slices.Contains(x.dropped, what) {
 		x.dropped = append(x.dropped, what)
 	}
 }
+
+const maxDropped = 24
 
 type chatMsg struct {
 	Role       string         `json:"role"`

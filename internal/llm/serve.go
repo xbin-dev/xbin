@@ -132,7 +132,10 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 			}
 			res, sent, ok := ResponsesViaChat(r.Context(), s.plane, w, t, body, req.Model, model, h, answer)
 			if d := w.Header().Get(DroppedHeader); d != "" {
-				s.log.Debug("llm: a translated Responses call left fields out", "upstream", u.Name, "model", model, "dropped", d)
+				// what a client's Responses calls lose on this upstream, in the log once per kind of loss
+				if _, said := s.droppedSaid.LoadOrStore(u.Name+"\x00"+d, true); !said && s.droppedKinds.Add(1) <= 64 {
+					s.log.Info("llm: translated Responses calls to this upstream leave fields out (said once)", "upstream", u.Name, "dropped", d)
+				}
 			}
 			if ok {
 				if probed && res.OK() {

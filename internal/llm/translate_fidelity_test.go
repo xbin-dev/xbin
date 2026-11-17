@@ -53,6 +53,14 @@ func TestResponsesTranslationSaysWhatItDropped(t *testing.T) {
 			t.Errorf("%s was sent to the chat upstream", k)
 		}
 	}
+	// a field name that is no plain name, and names past a bound, are "other": the list is a header and a log line
+	odd := map[string]any{"weird name\r\nX-Evil: 1": 1}
+	for i := range 40 {
+		odd[fmt.Sprintf("f%02d", i)] = 1
+	}
+	if h := req(odd).h.Get(DroppedHeader); strings.ContainsAny(h, "\r\n ") || strings.Count(h, ",") > maxDropped || !strings.Contains(h, "other") {
+		t.Errorf("odd and many field names: %s: %q", DroppedHeader, h)
+	}
 	// the response object says what the request said
 	resp := a.json(t)
 	if tools, _ := resp["tools"].([]any); len(tools) != 3 || resp["parallel_tool_calls"] != true {
