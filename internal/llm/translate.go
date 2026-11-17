@@ -313,7 +313,7 @@ func responsesToChat(body []byte, asked, upstreamModel string) ([]byte, *xlate, 
 		out["parallel_tool_calls"] = in["parallel_tool_calls"]
 	}
 	for from, to := range map[string]string{"max_output_tokens": "max_tokens", "temperature": "temperature", "top_p": "top_p",
-		"user": "user", "metadata": "metadata", "seed": "seed", "top_logprobs": "top_logprobs"} {
+		"user": "user", "seed": "seed", "top_logprobs": "top_logprobs"} {
 		if isSet(from) {
 			out[to] = in[from]
 		}

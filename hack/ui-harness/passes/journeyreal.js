@@ -236,15 +236,20 @@ async function journeyReal(browser) {
       await J.field('the assistant: the message ("Roll a d20 for me.")', () => tf.locator('textarea#msg').fill('Roll a d20 for me.'));
       await J.click('the assistant: "Send"', () => tf.locator('button#send').click());
       rolled = await J.wait('the answer shows a roll made with the tool', async () => {
+        // the chat folds the tool's call and the model words the roll as it likes ("Rolled 1d20: 7", "8 (1d20)"): it
+        // is over when the assistant made a second model call (the first called the tool), the composer is back,
+        // and the answer has stopped changing
         let lastAfter = '', same = 0;
         for (let i = 0; i < 360; i++) {
           const body = await tf.locator('body').innerText();
           const after = body.split('Roll a d20 for me.').pop();
-          // the chat folds the tool's call and the model words the roll as it likes ("Rolled 1d20: 7", "8 (1d20)"): a
-          // number a d20 can show, after the question, once the answer has stopped changing
-          const nums = after.replace(/\d*d20|20-sided|twenty/gi, ' ').match(/\b([1-9]|1\d|20)\b/g);
-          if (nums && after === lastAfter && ++same >= 6) return after.replace(/\s+/g, ' ').slice(0, 400);
-          if (after !== lastAfter) { lastAfter = after; same = 0; }
+          const waiting = /Waiting for the model|Stop\s+Send\s*$/.test(after);
+          if (!waiting && after === lastAfter) same++; else same = 0;
+          lastAfter = after;
+          if (same >= 6 && i % 2 === 0) {
+            const made = (((await call('GET', '/llm/usage')).data || {}).rows || []).filter((r) => r.component === assistant).reduce((a, r) => a + r.requests, 0);
+            if (made >= 2) return after.replace(/\s+/g, ' ').slice(0, 400);
+          }
           await sleep(500);
         }
         return '';
