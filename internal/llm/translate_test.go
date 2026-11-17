@@ -421,3 +421,38 @@ func TestModelIDsWithASlash(t *testing.T) {
 		t.Errorf("the status takes the default for a model that doesn't exist: %v", st["problems"])
 	}
 }
+
+// covers D244 — a translation holds back a bounded amount: a plain chat
+// completion past the cap is a 502 of the connector's own, a stream's line
+// with no end ends the answer response.failed — in xbind's words, and
+// with the rest of the upstream's answer read and dropped, not kept.
+func TestResponsesTranslationIsBounded(t *testing.T) {
+	body, line := maxTranslatedBody, maxTranslatedLine
+	maxTranslatedBody, maxTranslatedLine = 4<<10, 4<<10
+	t.Cleanup(func() { maxTranslatedBody, maxTranslatedLine = body, line })
+	r := newRig(t, "")
+	up := newUpstream(t)
+	big := strings.Repeat("x", 64<<10)
+	chatOnly(up, func(w http.ResponseWriter, body map[string]any) {
+		if body["stream"] == true {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(200)
+			fmt.Fprint(w, `data: {"id":"chatcmpl-1","choices":[{"index":0,"delta":{"content":"ok"}}]}`+"\n\n")
+			fmt.Fprint(w, `data: {"id":"chatcmpl-1","choices":[{"index":0,"delta":{"content":"`+big) // no end of line
+			fmt.Fprint(w, big)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"id": "chatcmpl-1", "choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": big}, "finish_reason": "stop"}}})
+	})
+	r.addUpstream("main", up, map[string]any{"responsesVia": "chat"})
+	a := r.do(pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "main/gpt-5", "input": "x"})
+	if a.code != 502 || a.errCode(t) != "xbin_llm_translate" || !strings.Contains(string(a.body), "too large to translate") || len(a.body) > 1<<10 {
+		t.Errorf("a plain answer past the cap: %d, %d bytes: %.200s", a.code, len(a.body), a.body)
+	}
+	a = r.do(pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "main/gpt-5", "stream": true, "input": "x"})
+	evs := events(t, a.body)
+	last := evs[len(evs)-1]
+	if a.code != 200 || last.Type != "response.failed" || !strings.Contains(fmt.Sprint(last.Data["response"].(map[string]any)["error"]), "too long to translate") || len(a.body) > 16<<10 {
+		t.Errorf("a stream's endless line: %d, %d bytes, ends %s", a.code, len(a.body), eventTypes(evs))
+	}
+}

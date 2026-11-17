@@ -152,6 +152,10 @@ know which wire a provider has.
   error on either wire. An error inside a stream, or a stream that breaks
   off, ends the answer with `response.failed`; an answer cut by the
   output limit ends `response.incomplete` (`max_output_tokens`).
+- **A translation holds back a bounded amount** (the relay itself holds
+  nothing): a plain chat completion of more than 32 MiB is `502
+  xbin_llm_translate`, and a stream whose one line passes 8 MiB ends
+  `response.failed`.
 
 The other direction is not translated: a chat-completions call for an
 upstream that has only a Responses API is that upstream's `404`.

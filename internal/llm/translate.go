@@ -558,6 +558,14 @@ func customInput(args string) string {
 	return args
 }
 
+// What a translated answer may hold back (vars: tests lower them). The
+// relay itself holds nothing; a translation holds a plain answer whole,
+// and a stream's current line.
+var (
+	maxTranslatedBody = MaxRequestBody // a plain chat completion: as large as a request may be
+	maxTranslatedLine = 8 << 20        // one line of a stream (a tool call's arguments arrive as one on some providers)
+)
+
 // respWriter is the ResponseWriter a translated call's upstream answer is
 // written to: it writes the Responses form of it to the client. An answer
 // that is no success passes as it is.
@@ -569,6 +577,7 @@ type respWriter struct {
 	plain  bool // not a success: passed through
 	head   bool
 	buf    bytes.Buffer // a stream's unfinished line; a plain answer's body
+	over   bool         // the answer passed what a translation holds: the rest is read (for its usage) and dropped
 	werr   error
 
 	id      string
@@ -622,7 +631,14 @@ func (t *respWriter) Write(p []byte) (int, error) {
 	switch {
 	case t.plain:
 		return t.w.Write(p)
+	case t.over:
+		return len(p), nil
 	case !t.stream:
+		if t.buf.Len()+len(p) > maxTranslatedBody {
+			t.over = true
+			t.buf.Reset()
+			return len(p), nil
+		}
 		t.buf.Write(p)
 		return len(p), nil
 	}
@@ -636,6 +652,14 @@ func (t *respWriter) Write(p []byte) (int, error) {
 		line := strings.TrimRight(string(raw[:i]), "\r")
 		t.buf.Next(i + 1)
 		t.line(line)
+	}
+	if t.buf.Len() > maxTranslatedLine { // a line with no end: nothing more of this answer can be translated
+		t.over = true
+		t.buf.Reset()
+		if !t.started {
+			t.start(&chatChunk{})
+		}
+		t.fail("xbin_llm_translate", fmt.Sprintf("a line of the upstream's stream is over %d MiB: too long to translate", maxTranslatedLine>>20))
 	}
 	return len(p), t.werr
 }
@@ -887,10 +911,14 @@ func (t *respWriter) done(o Outcome) {
 		return
 	}
 	var c chatChunk
-	if err := json.Unmarshal(t.buf.Bytes(), &c); err != nil || len(c.Choices) == 0 {
+	if err := json.Unmarshal(t.buf.Bytes(), &c); t.over || err != nil || len(c.Choices) == 0 {
+		msg := "the upstream's chat completion could not be read as one"
+		if t.over {
+			msg = fmt.Sprintf("the upstream's chat completion is over %d MiB: too large to translate into a response (ask for it streamed)", maxTranslatedBody>>20)
+		}
 		t.w.Header().Set("Content-Type", "application/json")
 		t.w.WriteHeader(http.StatusBadGateway)
-		b, _ := json.Marshal(map[string]any{"error": map[string]any{"message": "the upstream's chat completion could not be read as one", "type": "xbin_error", "code": "xbin_llm_translate"}})
+		b, _ := json.Marshal(map[string]any{"error": map[string]any{"message": msg, "type": "xbin_error", "code": "xbin_llm_translate"}})
 		_, _ = t.w.Write(b)
 		return
 	}
