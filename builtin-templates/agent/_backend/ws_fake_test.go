@@ -23,6 +23,8 @@ type fakeXbin struct {
 	mu sync.Mutex
 	n  int
 
+	noDryRun bool // an xbind from before plans had a dry run: DescribePlan is unavailable
+
 	tiles     map[string]*wsTile
 	orgs      map[string]*fakeOrg
 	private   map[string]bool // models that are private
@@ -874,6 +876,10 @@ func (f *fakeXbin) plan(sid, title string, items []xbin.Change, dry bool) (wsCha
 	defer f.mu.Unlock()
 	if _, err := f.handle(sid); err != nil {
 		return wsChangeSet{}, err
+	}
+	if dry && f.noDryRun {
+		f.note("DescribePlan")
+		return wsChangeSet{}, errWsUnavailable
 	}
 	cs := &wsChangeSet{Title: title, State: "proposed", Plan: true}
 	if !dry {

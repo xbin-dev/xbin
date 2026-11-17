@@ -42,6 +42,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -507,6 +508,15 @@ func (s *Server) apiPlanNew(w http.ResponseWriter, r *http.Request) {
 	if a.p.AgentSession == "" {
 		WriteError(w, http.StatusForbidden, "a plan is proposed by a conversation: send its agent session ("+HeaderAgentSession+")", delegationDocs)
 		return
+	}
+	if in.DryRun { // nothing is kept, so no cap on open plans bounds it: the conversation's share does (allowDry)
+		if ok, wait := s.delegateRT.allowDry(a.p.UserID, a.p.AgentSession); !ok {
+			secs := int(wait/time.Second) + 1
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			WriteError(w, http.StatusTooManyRequests, fmt.Sprintf("this conversation is dry-running plans too fast (%d at once, one more every %d s): it may try again in %d s",
+				planDryShareBurst, int(planDryShareRefill/time.Second), secs), delegationDocs)
+			return
+		}
 	}
 	ops, whys := make([]delegation.ChangeOp, len(in.Items)), make([]string, len(in.Items))
 	for i, it := range in.Items {

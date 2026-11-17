@@ -105,3 +105,31 @@ func shownTile(pv delegation.ChangePreview) string {
 	_ = json.Unmarshal(pv.Start, &v)
 	return v.Tile
 }
+
+// A conversation's share of its person's acts for plan dry runs: a burst,
+// then one more every planDryShareRefill.
+const (
+	planDryShareBurst  = 10
+	planDryShareRefill = 6 * time.Second
+)
+
+// allowDry takes one plan dry run from the share of user's conversation
+// conv. A dry run keeps nothing, so the cap on open plans never meets it.
+// It is an act at the gate like the proposal it rehearses (one from the
+// person's act bucket, delegateHandler step 5); this is the conversation's
+// own share on top, so one conversation's loop of dry runs can't spend
+// what the person's other conversations need.
+func (d *delegateRuntime) allowDry(user, conv string) (ok bool, wait time.Duration) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.net == nil {
+		d.net = map[string]*actBucket{}
+	}
+	key := "plan\x00" + user + "\x00" + conv
+	share := d.net[key]
+	if share == nil {
+		share = &actBucket{}
+		d.net[key] = share
+	}
+	return share.take(d.clock(), planDryShareBurst, planDryShareRefill)
+}

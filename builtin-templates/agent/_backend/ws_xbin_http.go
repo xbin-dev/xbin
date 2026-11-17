@@ -32,10 +32,12 @@ import (
 // wsReadMax is the most of one answer that is read.
 const wsReadMax = 1 << 20
 
-type wsHTTP struct{}
+// wsHTTP is xbind's delegate API as the person. via is nil but in a test,
+// which points it at a made-up xbind.
+type wsHTTP struct{ via *http.Client }
 
 // do makes one delegate call. path is the whole path from /api on.
-func (wsHTTP) do(ctx context.Context, sid, method, path string, body []byte, ctype string, hdr map[string]string) (*http.Response, error) {
+func (h wsHTTP) do(ctx context.Context, sid, method, path string, body []byte, ctype string, hdr map[string]string) (*http.Response, error) {
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
@@ -52,6 +54,9 @@ func (wsHTTP) do(ctx context.Context, sid, method, path string, body []byte, cty
 	}
 	for k, v := range hdr {
 		req.Header.Set(k, v)
+	}
+	if h.via != nil {
+		return h.via.Do(req)
 	}
 	return xbin.AsPerson().Do(req)
 }
@@ -854,13 +859,27 @@ func (h wsHTTP) DescribePlan(ctx context.Context, sid, title string, items []xbi
 		DryRun bool `json:"dryRun"`
 	}
 	if err := h.json(ctx, sid, http.MethodPost, "/api/xbin/delegate/plans", map[string]any{"title": title, "items": items, "dryRun": true}, &out); err != nil {
+		if wsNoDryRun(err) {
+			return wsChangeSet{}, fmt.Errorf("%w (this xbind describes no plan without proposing it)", errWsUnavailable)
+		}
 		return wsChangeSet{}, err
 	}
-	if !out.DryRun && out.ID != "" {
+	if !out.DryRun && out.ID != "" { // an xbind that read past the field proposed it: withdrawn
 		_ = h.json(ctx, sid, http.MethodDelete, "/api/xbin/delegate/changesets/"+url.PathEscape(out.ID), nil, nil)
 		return wsChangeSet{}, errWsUnavailable
 	}
 	return out.wsChangeSet, nil
+}
+
+// wsNoDryRun: err is how an xbind from before plans had a dry run answers
+// one — its body is read strictly, so the field it doesn't know is a 400
+// whose sentence lists the fields it does ("need {title, items: […]}",
+// without dryRun). Nothing was proposed; the caller says the dry run in
+// its own words. A newer xbind's 400 names dryRun, or is about a line.
+func wsNoDryRun(err error) bool {
+	var de *xbin.DelegateError
+	return errors.As(err, &de) && de.Refusal == "" && de.Status == http.StatusBadRequest &&
+		strings.Contains(de.Message, "need {title, items") && !strings.Contains(de.Message, "dryRun")
 }
 
 func (h wsHTTP) ChangeSet(ctx context.Context, sid, id string) (wsChangeSet, error) {

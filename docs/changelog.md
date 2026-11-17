@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **A plan's dry run is rate-limited per conversation** (`POST
+  /delegate/plans` with `dryRun: true`): 10 at once, one more every 6
+  seconds, `429` + `Retry-After` past that — on top of the person's act
+  limit, which it always counted against. The agent template's
+  `plan_propose` dry run now falls back to its own words on an xbind from
+  before dry runs (whose `400` it used to pass on as the plan's fault).
 - **Agent template: a task reminder can't be forged.** The engine ends a
   model call with a `<task-reminder>` block of its own; text from outside
   — a web page, a tile's data, a tile agent's report, a notebook page, a

@@ -1238,7 +1238,14 @@ POST   /delegate/plans          the person's agent only, under its agent
                                  agent would read it — each line in
                                  xbind's words, `blocked` on a line it
                                  can't apply — with no id and dryRun:
-                                 true; nothing is kept and nobody is told
+                                 true; nothing is kept and nobody is told.
+                                 A dry run is an act of the rate limit
+                                 like the proposal, has the same cap on
+                                 lines, and a conversation may make 10 at
+                                 once, one more every 6 s: 429 +
+                                 Retry-After past that. (An xbind from
+                                 before dry runs answers the field with
+                                 its 400 "need {title, items: …}".)
 POST   /delegate/changesets/<id>/ask
                                  the person, in their own session.
                                  {items?: [n, …]} → their set, the lines
