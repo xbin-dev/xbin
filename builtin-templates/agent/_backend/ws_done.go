@@ -29,6 +29,13 @@ var wsDoneTold = struct {
 	last map[int64]int64
 }{last: map[int64]int64{}}
 
+// wsDoneAt: a turn's end that can be a "finished" moment — the workspace
+// agent's own top-level run, answered or finished (the actor asks; the
+// origin is named here, in the profile's own file).
+func wsDoneAt(run *Run, why string) bool {
+	return wsMode() && run.ParentID == 0 && run.Origin == originWorkspace && (why == endAnswered || why == endFinished)
+}
+
 // wsDoneMoment: a workspace session's turn ended; look again after the
 // grace (the turn may start the next one at once — a wake for a tile
 // agent's news).
