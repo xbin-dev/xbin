@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -146,319 +147,50 @@ func ResponsesViaChat(ctx context.Context, plane Connector, w http.ResponseWrite
 		ref.write(w)
 		return Outcome{Status: ref.status}, 0, false
 	}
+	if len(x.dropped) > 0 { // nothing is left out silently
+		answer = answer.Clone()
+		if answer == nil {
+			answer = http.Header{}
+		}
+		sort.Strings(x.dropped)
+		answer.Set(DroppedHeader, strings.Join(x.dropped, ","))
+	}
+	call := Call{Target: t, Path: sdkllm.PathChat, Body: chat, Header: h, Sink: usageSink, Answer: answer}
+	var over string
+	if x.truncate { // the caller asked for truncation, which chat completions has none of: an overflow is said as that
+		call.Withhold = func(status int, body []byte) bool {
+			over = contextOverflow(status, body)
+			return over != ""
+		}
+	}
 	tw := newRespWriter(w, x)
-	res = plane.Relay(ctx, tw, Call{Target: t, Path: sdkllm.PathChat, Body: chat, Header: h, Sink: usageSink, Answer: answer})
+	res = plane.Relay(ctx, tw, call)
+	if res.Withheld {
+		copyHeader(w.Header(), answer)
+		xlateRefuse("truncation: \"auto\" is not applied here, and the request is over the model's context (the upstream: %s) — send less input", over).write(w)
+		return res, len(chat), true
+	}
 	tw.done(res)
 	return res, len(chat), true
 }
 
-// ---- the request ------------------------------------------------------------------------
-
-// xlate is what the answer's translation needs of the request.
-type xlate struct {
-	stream bool
-	model  string          // as the caller named it: echoed in the answer
-	custom map[string]bool // tools that were "custom" (free-form): their calls go back as custom_tool_call
-}
-
-type chatMsg struct {
-	Role       string         `json:"role"`
-	Content    any            `json:"content"`
-	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
-}
-
-type chatToolCall struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"`
-	Function struct {
-		Name      string `json:"name"`
-		Arguments string `json:"arguments"`
-	} `json:"function"`
-}
-
-func xlateRefuse(format string, a ...any) *refusal {
-	return refuse(http.StatusBadRequest, "xbin_llm_translate",
-		fmt.Sprintf(format, a...)+" — this upstream serves chat completions only, and the connector translates Responses calls for it (docs: /docs/llm.md, \"Responses on a chat-only upstream\")")
-}
-
-// responsesToChat rewrites a Responses request as a chat completion for
-// upstreamModel. asked is the model as the caller named it.
-func responsesToChat(body []byte, asked, upstreamModel string) ([]byte, *xlate, *refusal) {
-	var in map[string]json.RawMessage
-	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, nil, refuse(http.StatusBadRequest, "xbin_llm_body", "the request body is not a JSON object")
+// contextOverflow is the upstream's own sentence when its refusal (status,
+// body — as it gave them) says the request is over the model's context;
+// "" when it says something else.
+func contextOverflow(status int, body []byte) string {
+	if status != http.StatusBadRequest && status != http.StatusRequestEntityTooLarge && status != http.StatusUnprocessableEntity {
+		return ""
 	}
-	isSet := func(k string) bool {
-		v := strings.TrimSpace(string(in[k]))
-		return v != "" && v != "null"
-	}
-	if isSet("previous_response_id") || isSet("conversation") {
-		return nil, nil, xlateRefuse("previous_response_id and stored conversations are OpenAI's own service: send the conversation in input")
-	}
-	x := &xlate{model: asked, custom: map[string]bool{}}
-	out := map[string]any{"model": upstreamModel}
-	if isSet("stream") {
-		_ = json.Unmarshal(in["stream"], &x.stream)
-	}
-	if x.stream {
-		out["stream"] = true
-		out["stream_options"] = map[string]any{"include_usage": true}
-	}
-
-	var msgs []chatMsg
-	if isSet("instructions") {
-		var s string
-		if json.Unmarshal(in["instructions"], &s) != nil {
-			return nil, nil, xlateRefuse("instructions must be a string")
-		}
-		if s != "" {
-			msgs = append(msgs, chatMsg{Role: "system", Content: s})
-		}
-	}
-	more, ref := xlateInput(in["input"])
-	if ref != nil {
-		return nil, nil, ref
-	}
-	msgs = append(msgs, more...)
-	if len(msgs) == 0 {
-		return nil, nil, xlateRefuse("the request has no input")
-	}
-	out["messages"] = msgs
-
-	if isSet("tools") {
-		var tools []map[string]json.RawMessage
-		if json.Unmarshal(in["tools"], &tools) != nil {
-			return nil, nil, xlateRefuse("tools must be a list")
-		}
-		var ct []any
-		for _, t := range tools {
-			var typ, name, desc string
-			_ = json.Unmarshal(t["type"], &typ)
-			_ = json.Unmarshal(t["name"], &name)
-			_ = json.Unmarshal(t["description"], &desc)
-			fn := map[string]any{"name": name}
-			if desc != "" {
-				fn["description"] = desc
+	low := strings.ToLower(string(body))
+	for _, mark := range []string{"context_length_exceeded", "context length", "context window", "maximum context", "too many tokens", "prompt is too long"} {
+		if strings.Contains(low, mark) {
+			if e, ok := sdkllm.ParseError(body); ok && e.Message != "" {
+				return e.Message
 			}
-			switch typ {
-			case "function":
-				if p := t["parameters"]; len(p) > 0 && string(p) != "null" {
-					fn["parameters"] = p
-				}
-				if s := t["strict"]; len(s) > 0 && string(s) != "null" {
-					fn["strict"] = s
-				}
-			case "custom": // free-form text in: one string argument
-				x.custom[name] = true
-				fn["parameters"] = map[string]any{"type": "object", "required": []string{"input"},
-					"properties": map[string]any{"input": map[string]any{"type": "string", "description": "the tool's input, as plain text"}}}
-			default:
-				continue // a hosted tool of OpenAI's own service: this upstream has none
-			}
-			if name == "" {
-				return nil, nil, xlateRefuse("a %s tool has no name", typ)
-			}
-			ct = append(ct, map[string]any{"type": "function", "function": fn})
-		}
-		if len(ct) > 0 {
-			out["tools"] = ct
+			return "its context is exceeded"
 		}
 	}
-	if isSet("tool_choice") && out["tools"] != nil {
-		var s string
-		if json.Unmarshal(in["tool_choice"], &s) == nil {
-			out["tool_choice"] = s
-		} else {
-			var tc struct{ Type, Name string }
-			if json.Unmarshal(in["tool_choice"], &tc) == nil && tc.Name != "" && (tc.Type == "function" || tc.Type == "custom") {
-				out["tool_choice"] = map[string]any{"type": "function", "function": map[string]any{"name": tc.Name}}
-			}
-		}
-	}
-	if out["tools"] != nil && isSet("parallel_tool_calls") {
-		out["parallel_tool_calls"] = in["parallel_tool_calls"]
-	}
-	for from, to := range map[string]string{"max_output_tokens": "max_tokens", "temperature": "temperature", "top_p": "top_p",
-		"user": "user", "seed": "seed", "top_logprobs": "top_logprobs"} {
-		if isSet(from) {
-			out[to] = in[from]
-		}
-	}
-	if isSet("reasoning") {
-		var r struct {
-			Effort string `json:"effort"`
-		}
-		if json.Unmarshal(in["reasoning"], &r) == nil && r.Effort != "" {
-			out["reasoning_effort"] = r.Effort
-		}
-	}
-	if isSet("text") {
-		var t struct {
-			Format map[string]json.RawMessage `json:"format"`
-		}
-		if json.Unmarshal(in["text"], &t) == nil && t.Format != nil {
-			var typ string
-			_ = json.Unmarshal(t.Format["type"], &typ)
-			switch typ {
-			case "json_object":
-				out["response_format"] = map[string]any{"type": "json_object"}
-			case "json_schema":
-				js := map[string]any{}
-				for _, k := range []string{"name", "schema", "strict", "description"} {
-					if v := t.Format[k]; len(v) > 0 && string(v) != "null" {
-						js[k] = v
-					}
-				}
-				out["response_format"] = map[string]any{"type": "json_schema", "json_schema": js}
-			}
-		}
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return nil, nil, refuse(http.StatusBadRequest, "xbin_llm_body", "the request body could not be rewritten for the upstream")
-	}
-	return b, x, nil
-}
-
-// xlateInput turns Responses input — a string, or a list of items — into
-// chat messages. Function calls that follow one another (and the assistant
-// text before them) become one assistant message, as chat wants them.
-func xlateInput(raw json.RawMessage) ([]chatMsg, *refusal) {
-	if s := strings.TrimSpace(string(raw)); s == "" || s == "null" {
-		return nil, nil
-	}
-	var str string
-	if json.Unmarshal(raw, &str) == nil {
-		return []chatMsg{{Role: "user", Content: str}}, nil
-	}
-	var items []map[string]json.RawMessage
-	if json.Unmarshal(raw, &items) != nil {
-		return nil, xlateRefuse("input must be a string or a list of items")
-	}
-	var out []chatMsg
-	var open *chatMsg // an assistant message still taking tool calls
-	flush := func() {
-		if open != nil {
-			out = append(out, *open)
-			open = nil
-		}
-	}
-	str1 := func(m map[string]json.RawMessage, k string) string {
-		var s string
-		_ = json.Unmarshal(m[k], &s)
-		return s
-	}
-	call := func(id, name, args string) {
-		if open == nil {
-			open = &chatMsg{Role: "assistant", Content: nil}
-		}
-		tc := chatToolCall{ID: id, Type: "function"}
-		tc.Function.Name, tc.Function.Arguments = name, args
-		open.ToolCalls = append(open.ToolCalls, tc)
-	}
-	for _, it := range items {
-		typ := str1(it, "type")
-		if typ == "" && len(it["role"]) > 0 {
-			typ = "message"
-		}
-		switch typ {
-		case "message":
-			role := str1(it, "role")
-			if role == "developer" {
-				role = "system"
-			}
-			content, ref := xlateContent(it["content"], role)
-			if ref != nil {
-				return nil, ref
-			}
-			flush()
-			if role == "assistant" {
-				open = &chatMsg{Role: role, Content: content}
-			} else {
-				out = append(out, chatMsg{Role: role, Content: content})
-			}
-		case "function_call":
-			call(str1(it, "call_id"), str1(it, "name"), str1(it, "arguments"))
-		case "custom_tool_call":
-			args, _ := json.Marshal(map[string]string{"input": str1(it, "input")})
-			call(str1(it, "call_id"), str1(it, "name"), string(args))
-		case "function_call_output", "custom_tool_call_output":
-			flush()
-			out = append(out, chatMsg{Role: "tool", ToolCallID: str1(it, "call_id"), Content: xlateOutput(it["output"])})
-		case "reasoning":
-			// the provider's own, opaque: not this upstream's to read
-		default:
-			return nil, xlateRefuse("an input item of type %q can't be sent as a chat completion", typ)
-		}
-	}
-	flush()
-	return out, nil
-}
-
-// xlateContent is a message's content for chat: a string where it is only
-// text, parts where it has images.
-func xlateContent(raw json.RawMessage, role string) (any, *refusal) {
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s, nil
-	}
-	var parts []map[string]json.RawMessage
-	if json.Unmarshal(raw, &parts) != nil {
-		return "", nil
-	}
-	var text []string
-	var out []any
-	images := false
-	for _, p := range parts {
-		var typ, t string
-		_ = json.Unmarshal(p["type"], &typ)
-		switch typ {
-		case "input_text", "output_text", "text", "refusal", "summary_text":
-			if json.Unmarshal(p["text"], &t) != nil {
-				_ = json.Unmarshal(p["refusal"], &t)
-			}
-			text = append(text, t)
-			out = append(out, map[string]any{"type": "text", "text": t})
-		case "input_image":
-			var u string
-			if json.Unmarshal(p["image_url"], &u) != nil || u == "" {
-				return nil, xlateRefuse("an input_image without an image_url (a file id is OpenAI's own service)")
-			}
-			images = true
-			img := map[string]any{"url": u}
-			var detail string
-			if json.Unmarshal(p["detail"], &detail) == nil && detail != "" {
-				img["detail"] = detail
-			}
-			out = append(out, map[string]any{"type": "image_url", "image_url": img})
-		default:
-			return nil, xlateRefuse("a content part of type %q can't be sent as a chat completion", typ)
-		}
-	}
-	if !images || role != "user" {
-		return strings.Join(text, ""), nil
-	}
-	return out, nil
-}
-
-// xlateOutput is a tool's output as chat's tool message carries it: text.
-func xlateOutput(raw json.RawMessage) string {
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s
-	}
-	var parts []struct {
-		Type, Text string
-	}
-	if json.Unmarshal(raw, &parts) == nil && len(parts) > 0 {
-		var b strings.Builder
-		for _, p := range parts {
-			b.WriteString(p.Text)
-		}
-		return b.String()
-	}
-	return string(raw)
+	return ""
 }
 
 // ---- the answer -------------------------------------------------------------------------
@@ -492,6 +224,7 @@ type chatChunk struct {
 
 type chatDelta struct {
 	Content          *string `json:"content"`
+	Refusal          *string `json:"refusal"`
 	Reasoning        *string `json:"reasoning"`
 	ReasoningContent *string `json:"reasoning_content"`
 	ToolCalls        []struct {
@@ -512,6 +245,30 @@ type respItem struct {
 	text   strings.Builder // a message's or the reasoning's text; a call's arguments
 	callID string
 	name   string
+	upID   string // a call's id as the upstream gave it ("" when it gave none)
+
+	// a message's content parts, in the order they first appeared: its
+	// text and the model's refusal (-1: none)
+	textAt, refuseAt int
+	refusal          strings.Builder
+}
+
+// parts is a message's content: its text and its refusal, each where it
+// first appeared.
+func (it *respItem) parts() []any {
+	text := map[string]any{"type": "output_text", "text": it.text.String(), "annotations": []any{}}
+	ref := map[string]any{"type": "refusal", "refusal": it.refusal.String()}
+	switch {
+	case it.textAt < 0 && it.refuseAt < 0:
+		return []any{}
+	case it.refuseAt < 0:
+		return []any{text}
+	case it.textAt < 0:
+		return []any{ref}
+	case it.textAt < it.refuseAt:
+		return []any{text, ref}
+	}
+	return []any{ref, text}
 }
 
 func (it *respItem) object(done bool) map[string]any {
@@ -529,7 +286,7 @@ func (it *respItem) object(done bool) map[string]any {
 	case "message":
 		content := []any{}
 		if done {
-			content = append(content, map[string]any{"type": "output_text", "text": it.text.String(), "annotations": []any{}})
+			content = it.parts()
 		}
 		return map[string]any{"id": it.id, "type": "message", "status": status, "role": "assistant", "content": content}
 	case "custom_tool_call":
@@ -588,7 +345,7 @@ type respWriter struct {
 	items   []*respItem
 	msg     *respItem
 	think   *respItem
-	calls   map[int]*respItem
+	calls   map[int]*respItem // the call being built at each index of the upstream's
 	finish  string
 	usage   map[string]any
 }
@@ -704,7 +461,7 @@ func (t *respWriter) response(status string) map[string]any {
 		out = append(out, it.object(status != "in_progress"))
 	}
 	r := map[string]any{"id": t.id, "object": "response", "created_at": t.created, "status": status, "model": t.x.model,
-		"output": out, "error": nil, "incomplete_details": nil, "parallel_tool_calls": true, "tools": []any{}}
+		"output": out, "error": nil, "incomplete_details": nil, "parallel_tool_calls": t.x.parallel, "tools": t.x.tools}
 	if t.usage != nil {
 		r["usage"] = t.usage
 	}
@@ -730,7 +487,7 @@ func (t *respWriter) start(c *chatChunk) {
 }
 
 func (t *respWriter) add(kind, prefix string) *respItem {
-	it := &respItem{kind: kind, index: len(t.items)}
+	it := &respItem{kind: kind, index: len(t.items), textAt: -1, refuseAt: -1}
 	it.id = prefix + "_" + strings.TrimPrefix(t.id, "resp_") + "_" + strconv.Itoa(it.index)
 	t.items = append(t.items, it)
 	return it
@@ -798,18 +555,39 @@ func (t *respWriter) delta(d *chatDelta) {
 			t.emit("response.reasoning_summary_text.delta", map[string]any{"item_id": t.think.id, "output_index": t.think.index, "summary_index": 0, "delta": *think})
 		}
 	}
-	if d.Content != nil && *d.Content != "" {
+	message := func() *respItem {
 		if t.msg == nil {
 			t.msg = t.add("message", "msg")
 			t.added(t.msg)
+		}
+		return t.msg
+	}
+	if d.Content != nil && *d.Content != "" {
+		m := message()
+		if m.textAt < 0 {
+			m.textAt = m.refuseAt + 1
 			if t.stream {
-				t.emit("response.content_part.added", map[string]any{"item_id": t.msg.id, "output_index": t.msg.index, "content_index": 0,
+				t.emit("response.content_part.added", map[string]any{"item_id": m.id, "output_index": m.index, "content_index": m.textAt,
 					"part": map[string]any{"type": "output_text", "text": "", "annotations": []any{}}})
 			}
 		}
-		t.msg.text.WriteString(*d.Content)
+		m.text.WriteString(*d.Content)
 		if t.stream {
-			t.emit("response.output_text.delta", map[string]any{"item_id": t.msg.id, "output_index": t.msg.index, "content_index": 0, "delta": *d.Content})
+			t.emit("response.output_text.delta", map[string]any{"item_id": m.id, "output_index": m.index, "content_index": m.textAt, "delta": *d.Content})
+		}
+	}
+	if d.Refusal != nil && *d.Refusal != "" { // the model declined: a part of its own, not text
+		m := message()
+		if m.refuseAt < 0 {
+			m.refuseAt = m.textAt + 1
+			if t.stream {
+				t.emit("response.content_part.added", map[string]any{"item_id": m.id, "output_index": m.index, "content_index": m.refuseAt,
+					"part": map[string]any{"type": "refusal", "refusal": ""}})
+			}
+		}
+		m.refusal.WriteString(*d.Refusal)
+		if t.stream {
+			t.emit("response.refusal.delta", map[string]any{"item_id": m.id, "output_index": m.index, "content_index": m.refuseAt, "delta": *d.Refusal})
 		}
 	}
 	for n, tc := range d.ToolCalls {
@@ -818,13 +596,16 @@ func (t *respWriter) delta(d *chatDelta) {
 			idx = *tc.Index
 		}
 		it := t.calls[idx]
+		if it != nil && tc.ID != "" && it.upID != "" && tc.ID != it.upID {
+			it = nil // another call under the same index: some providers number every call 0 and tell them apart by id
+		}
 		if it == nil {
 			kind, prefix := "function_call", "fc"
 			if t.x.custom[tc.Function.Name] {
 				kind, prefix = "custom_tool_call", "ctc"
 			}
 			it = t.add(kind, prefix)
-			it.callID, it.name = tc.ID, tc.Function.Name
+			it.callID, it.upID, it.name = tc.ID, tc.ID, tc.Function.Name
 			if it.callID == "" {
 				it.callID = "call_" + it.id
 			}
@@ -852,9 +633,14 @@ func (t *respWriter) closeItems() {
 			t.emit("response.reasoning_summary_part.done", map[string]any{"item_id": it.id, "output_index": it.index, "summary_index": 0,
 				"part": map[string]any{"type": "summary_text", "text": it.text.String()}})
 		case "message":
-			t.emit("response.output_text.done", map[string]any{"item_id": it.id, "output_index": it.index, "content_index": 0, "text": it.text.String()})
-			t.emit("response.content_part.done", map[string]any{"item_id": it.id, "output_index": it.index, "content_index": 0,
-				"part": map[string]any{"type": "output_text", "text": it.text.String(), "annotations": []any{}}})
+			for at, part := range it.parts() {
+				if at == it.textAt {
+					t.emit("response.output_text.done", map[string]any{"item_id": it.id, "output_index": it.index, "content_index": at, "text": it.text.String()})
+				} else {
+					t.emit("response.refusal.done", map[string]any{"item_id": it.id, "output_index": it.index, "content_index": at, "refusal": it.refusal.String()})
+				}
+				t.emit("response.content_part.done", map[string]any{"item_id": it.id, "output_index": it.index, "content_index": at, "part": part})
+			}
 		case "function_call":
 			t.emit("response.function_call_arguments.done", map[string]any{"item_id": it.id, "output_index": it.index, "arguments": it.text.String()})
 		case "custom_tool_call":
@@ -871,13 +657,25 @@ func (t *respWriter) complete() {
 	}
 	t.ended = true
 	t.closeItems()
-	if t.finish == "length" {
+	if why := t.cut(); why != "" {
 		r := t.response("incomplete")
-		r["incomplete_details"] = map[string]any{"reason": "max_output_tokens"}
+		r["incomplete_details"] = map[string]any{"reason": why}
 		t.emit("response.incomplete", map[string]any{"response": r})
 		return
 	}
 	t.emit("response.completed", map[string]any{"response": t.response("completed")})
+}
+
+// cut is why the answer is not whole, in the Responses API's words: the
+// output limit, or the provider's content filter ("" when it is whole).
+func (t *respWriter) cut() string {
+	switch t.finish {
+	case "length":
+		return "max_output_tokens"
+	case "content_filter":
+		return "content_filter"
+	}
+	return ""
 }
 
 func (t *respWriter) fail(code, msg string) {
@@ -923,10 +721,9 @@ func (t *respWriter) done(o Outcome) {
 		return
 	}
 	t.chunk(&c)
-	status := "completed"
-	r := t.response(status)
-	if t.finish == "length" {
-		r["status"], r["incomplete_details"] = "incomplete", map[string]any{"reason": "max_output_tokens"}
+	r := t.response("completed")
+	if why := t.cut(); why != "" {
+		r["status"], r["incomplete_details"] = "incomplete", map[string]any{"reason": why}
 	}
 	b, _ := json.Marshal(r)
 	t.w.Header().Set("Content-Type", "application/json")

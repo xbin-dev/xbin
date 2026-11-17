@@ -130,28 +130,40 @@ know which wire a provider has.
   translates and never asks; `"upstream"` never translates — the
   upstream's `404` is the caller's. `bx llm upstream set <name>
   --responses-via chat`.
-- **What is translated**: `instructions` and `input` (messages with text
-  and images, function calls and their outputs), function tools, tool
-  choice, `parallel_tool_calls`, `max_output_tokens`, `temperature`,
-  `top_p`, `reasoning.effort`, a JSON output format (`text.format`),
-  streamed text, reasoning text (as a reasoning summary) and tool calls —
-  several in one answer too — and usage, cached and reasoning tokens
-  included. Metering reads the chat completion's own usage: one call, one
-  row.
-- **What is not**, and how it is said: `previous_response_id` and stored
-  conversations are OpenAI's own service — `400 xbin_llm_translate`
-  ("send the conversation in input"); an input item or content part chat
-  can't carry (a file id, an item reference) is refused the same way,
-  naming it, before anything is sent; OpenAI's hosted tools (web search,
-  file search, the code interpreter …) are left out of the tool list; a
-  provider's opaque reasoning items in `input` are dropped. A `custom`
-  (free-form) tool becomes a function tool with one string argument,
-  `input`, and its call comes back as a `custom_tool_call`.
+- **Nothing vanishes silently.** A field is translated, refused, or
+  dropped and named:
+
+  | of the request | what happens |
+  |---|---|
+  | `instructions`, `input` (messages with text; images in user messages; function and custom tool calls and their outputs), function tools, `tool_choice` (`auto`, `none`, `required`, one function, `allowed_tools` — only those tools are offered), `parallel_tool_calls`, `max_output_tokens`, `temperature`, `top_p`, `seed`, `user`, `top_logprobs` (with `logprobs`), `reasoning.effort`, `text.format` (JSON object or schema) | translated |
+  | a `custom` (free-form) tool | a function tool with one string argument, `input`; its call comes back as a `custom_tool_call` |
+  | an image in a tool's output | follows the tool messages in a user message that names the call (a chat tool message carries text only) |
+  | `previous_response_id`, `conversation`, `prompt` (stored prompt) | **refused** — OpenAI's own service: send the conversation in `input` |
+  | a hosted tool the caller **requires** (`tool_choice` of a hosted type; `required`, or `allowed_tools` in mode `required`, with no function tool left) | **refused** |
+  | content chat can't carry: an item reference, a file (`input_file`, an image by file id), an image outside a user message, content that is neither a string nor a list of parts | **refused** |
+  | `truncation: "auto"` | not applied (dropped, named); when the request then is over the model's context the refusal is `400 xbin_llm_translate` and says so, with the upstream's sentence |
+  | hosted tools merely offered (`web_search`, `file_search`, `local_shell`, `mcp`, `image_generation`, the code interpreter …) | dropped, named `tools.<type>` |
+  | `metadata`, `include`, `store: true`, `reasoning.summary`, `text.verbosity`, `prompt_cache_key`, `service_tier`, `max_tool_calls`, `safety_identifier`, `stream_options`, and any field this table doesn't list | dropped, named |
+  | a provider's opaque `reasoning` items in `input` | dropped (not this upstream's to read) |
+
+  A refusal is `400 xbin_llm_translate`, names the field, says "this
+  upstream has chat completions only", and is made before anything is
+  sent. What was dropped is listed — sorted, comma-separated — in the
+  answer's **`X-XBin-LLM-Dropped`** header (`metadata,include,
+  tools.web_search`); no header, nothing dropped.
+- **Of the answer**: streamed text, reasoning text (as a reasoning
+  summary), tool calls — several in one answer, also from a provider that
+  numbers every call `0` and tells them apart by id — a refusal
+  (`message.refusal` → a `refusal` content part, `response.refusal.delta`),
+  and usage, cached and reasoning tokens included. The response object
+  echoes the request's `tools` and `parallel_tool_calls`. Metering reads
+  the chat completion's own usage: one call, one row.
 - **Errors pass as they are.** An upstream's refusal of the chat
   completion — a context-length error, a rate limit — is an OpenAI-shaped
   error on either wire. An error inside a stream, or a stream that breaks
   off, ends the answer with `response.failed`; an answer cut by the
-  output limit ends `response.incomplete` (`max_output_tokens`).
+  output limit or by the provider's content filter ends
+  `response.incomplete` (`max_output_tokens`, `content_filter`).
 - **A translation holds back a bounded amount** (the relay itself holds
   nothing): a plain chat completion of more than 32 MiB is `502
   xbin_llm_translate`, and a stream whose one line passes 8 MiB ends

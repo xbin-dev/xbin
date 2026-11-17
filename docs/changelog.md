@@ -12,6 +12,28 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **The connector's Responses translation says what it leaves out, and
+  can't be switched on by a caller** ([llm.md](/docs/llm.md) §Responses on
+  a chat-only upstream). Nothing of a translated request vanishes
+  silently now: what would change its meaning is a `400
+  xbin_llm_translate` naming the field (a hosted tool the caller requires,
+  a stored `prompt`, content chat can't carry, `truncation: "auto"` on a
+  request over the model's context); advisory fields and hosted tools
+  merely offered are dropped and listed in the answer's
+  `X-XBin-LLM-Dropped` header. An image in a tool's output is carried (in
+  a user message after the tool messages); `tool_choice` `allowed_tools`
+  narrows the tools; `top_logprobs` sends `logprobs`; a filtered answer
+  ends `incomplete` (`content_filter`), a refusal is a `refusal` part,
+  tool calls a provider numbers `0` throughout are kept apart, and the
+  response object echoes the request's `tools` and `parallel_tool_calls`.
+  A translated answer is held back only up to a bound (32 MiB plain, 8 MiB
+  a stream line). Detection is safer: "this upstream has no Responses
+  API" is judged on the upstream's own refusal, never on one that speaks
+  of a model, and remembered — per model, ten minutes — only after a
+  translated call worked; before, any caller naming a model the upstream
+  doesn't have could switch everyone's Responses calls for it to
+  translation. `GET /llm/config` adds `translatingSince`; the provider's
+  row has a reset.
 - **A plan's dry run describes it** (`POST /delegate/plans` with `dryRun:
   true`; [protocol/delegation.md](/docs/protocol/delegation.md) §Plans).
   The answer is the set as proposing it would answer — each line in

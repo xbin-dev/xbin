@@ -76,7 +76,12 @@ POST   /llm/v1/chat/completions    a caller (above). OpenAI's Chat Completions
                                    headers: the upstream's Content-Type,
                                    Retry-After, request id and x-ratelimit-*
                                    only; X-XBin-LLM-Quota: warn; quota=<name>;
-                                   resets=<time> when a warn quota is reached
+                                   resets=<time> when a warn quota is reached;
+                                   X-XBin-LLM-Dropped: <field>,… on a
+                                   translated Responses call that left
+                                   advisory fields or offered hosted tools
+                                   out (llm.md §Responses on a chat-only
+                                   upstream)
 POST   /llm/v1/responses           a caller. OpenAI's Responses request,
                                    relayed the same way; only model is
                                    rewritten and the stream's events pass

@@ -25,6 +25,11 @@ const MaxRequestBody = 32 << 20
 // QuotaHeader marks an answer whose caller reached a quota that only warns.
 const QuotaHeader = "X-XBin-LLM-Quota"
 
+// DroppedHeader, on the answer to a translated Responses call (translate.go),
+// names what of the request was not sent to the chat upstream: advisory
+// fields and hosted tools merely offered, comma-separated and sorted.
+const DroppedHeader = "X-XBin-LLM-Dropped"
+
 // usageSink picks the usage reader of an OpenAI-wire answer.
 func usageSink(stream bool) sdkllm.UsageSink {
 	if stream {
