@@ -454,7 +454,7 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, xr wsRequ
 			break
 		}
 		row := ag.wsAddAgent(s, r, a)
-		outcome = fmt.Sprintf("%s — tile agent #%d started in %s (%s, %s) and was told the brief. It is your person's session: they can open it and only they answer its questions. You are told when it ends its turn, fails or waits for them; until then go on with what doesn't depend on it.",
+		outcome = fmt.Sprintf("%s — tile agent #%d started in %s (%s, %s) and was told the brief. It is your person's session: they can open it and only they answer its questions. You are told when it ends its turn, fails or asks them a question (a permission it asks them for doesn't wake you); until then go on with what doesn't depend on it.",
 			how, row.ID, row.Tile, orStr(row.Harness, "coding agent"), map[bool]string{true: "asks before acting", false: "acts without asking"}[row.Asks])
 		done.Result = fmt.Sprintf("tile agent #%d started in %s (%s)", row.ID, row.Tile, orStr(row.Harness, "coding agent"))
 	case wsReqMCP:

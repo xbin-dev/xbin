@@ -402,7 +402,7 @@ func (ag *Agent) wsPlanDecided(ctx context.Context, s *wsSession, r *wsReq, cs w
 		}
 		row := ag.wsAddAgent(s, &wsReq{ID: r.ID, Run: r.Run, Tile: orStr(a.Tile, meta.Starts[it.N]), CallID: r.CallID}, a)
 		started++
-		fmt.Fprintf(&b, "\nLine %d started tile agent #%d in %s (%s, %s) and it was told the brief. It is your person's session: only they answer its questions. You are told when it ends its turn, fails or waits for them.",
+		fmt.Fprintf(&b, "\nLine %d started tile agent #%d in %s (%s, %s) and it was told the brief. It is your person's session: only they answer its questions. You are told when it ends its turn, fails or asks them a question (a permission it asks them for doesn't wake you).",
 			it.N, row.ID, row.Tile, orStr(row.Harness, "coding agent"), map[bool]string{true: "asks before acting", false: "acts without asking"}[row.Asks])
 	}
 	for _, it := range cs.Items {
