@@ -9,7 +9,9 @@ package main
 // same prompt is the manual run's question (testdata/ws-real-model-scenarios.md).
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -169,6 +171,11 @@ func TestWsEvalMessageHeldBehindQuestion(t *testing.T) {
 		tc("m2", "tile_agent_message", `{"agent":"#1","text":"And yes, run the tests."}`))).once()
 	fx.say(t, s, "tell it to also cover refunds")
 	fx.idle(t, s)
+	// (the real-model run, 2026-11-17: asked to pass this on, a model questioned its person about what "refunds"
+	// means instead of sending it — the prompt now says whose words those are)
+	if sys := systemOf(f.callsFor(s.Run)[0]); !strings.Contains(sys, "send it in their words at once — no research, no question first; the tile agent asks them what it means") {
+		t.Error("the prompt doesn't say that what a person tells it to pass on is passed on")
+	}
 	got := fx.toolResult(t, s, "tile_agent_message")
 	if !strings.Contains(got, "Held, not delivered") || !strings.Contains(got, "«permission: run the export tests»") || !strings.Contains(got, "you can't give one") {
 		t.Fatalf("the message's result: %q", got)
@@ -521,7 +528,10 @@ func TestWsEvalLowLevelRequestYieldsRedirect(t *testing.T) {
 			t.Errorf("the agent is offered %s", n)
 		}
 	}
-	for _, want := range []string{"You don't read or change code.", "Low-level (\"change line 40 in export.go\")", "hand it to that tile's own agent as written", "This is a redirect, not a refusal.", `ask_user, kind "redirect", naming the tile`} {
+	// (the real-model run, 2026-11-17: a model that wasn't told "no research first" sent a research subagent into
+	// every tile to find the file — 35 model calls before the redirect)
+	for _, want := range []string{"You don't read or change code.", "Low-level (\"change line 40 in export.go\")", "hand it to that tile's own agent as written", "This is a redirect, not a refusal.", `ask_user, kind "redirect", naming the tile`,
+		"you don't search for the line either (no research)", "if they named none, ask which tile instead"} {
 		if !strings.Contains(systemOf(c), want) {
 			t.Errorf("the prompt lacks %q", want)
 		}
@@ -901,5 +911,78 @@ func TestWsEvalEndedByRestartOffersResume(t *testing.T) {
 	rows := fx.ag.db.wsAgents(`WHERE run_id=? AND tile='apps/orders' ORDER BY id`, s.Run)
 	if len(rows) != 2 || rows[1].Status != "running" || fx.x.count("AgentStart "+rows[1].Session+" resume="+sid) != 1 || len(fx.x.said[rows[1].Session]) != 0 {
 		t.Fatalf("after the resume: %+v / %v", rows, fx.x.calls)
+	}
+}
+
+// The real-model run (2026-11-17) — a log that isn't there yet. A tile's
+// backend starts on its first use; asked for its log before that, xbind
+// answers "no logs yet". A real model took that for "the log is empty" and
+// reported so after a read through the tile's API had started the backend
+// — whose log then held the answer. The tool says what the state is and
+// what to do next, and it is not a failure.
+func TestWsEvalLogsBeforeTheBackendStarted(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	fx.x.mu.Lock()
+	fx.x.logsErr = map[string]error{"apps/orders": errors.New("xbind 404: no logs yet — the backend hasn't started")}
+	fx.x.mu.Unlock()
+	f := fakeOf(fx.ag)
+	f.on(forRun(s.Run, lastUser("why did the export fail")), callTools(tc("g1", "tile_logs", `{"tile":"apps/orders"}`))).once()
+	f.on(forRun(s.Run, lastTool("tile_logs")), say("Its backend hasn't run yet, so there is no log to read; I'll look again after a read.")).once()
+	fx.say(t, s, "why did the export fail?")
+	fx.idle(t, s)
+	got := fx.toolResult(t, s, "tile_logs")
+	for _, want := range []string{"apps/orders has no log yet", "starts on first use", "a read through tile_call starts it", "then read the log again", "says nothing either way"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("tile_logs before the backend started lacks %q: %q", want, got)
+		}
+	}
+	if strings.HasPrefix(got, "error") || strings.Contains(got, "untrusted") {
+		t.Errorf("tile_logs before the backend started reads as a failure, or as the tile's words: %q", got)
+	}
+}
+
+// The real-model run (2026-11-17) — a scoped session's map accounts for
+// what is not connected. A session scoped to one tile read "1 tile
+// connected · 6 not connected" above a single line about Finance, and the
+// model told its person all six were Finance's. Each line now says how
+// many tiles it is about, and an org that is only partly in scope has a
+// line of its own.
+func TestWsEvalScopedMapAccountsForEveryTile(t *testing.T) {
+	fx := newWsFix(t)
+	var out struct {
+		Session struct{ ID int64 } `json:"session"`
+	}
+	fx.json(t, fx.call(t, wsAlice, "POST", "/ws/sessions", map[string]any{"name": "sales only", "scope": map[string]any{"tiles": []string{"apps/invoices"}}}), 200, &out)
+	s, err := fx.ag.db.wsSession(out.Session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ := fx.ag.db.getRun(s.Run)
+	cfg, _ := fx.ag.db.runConfig(s.Run)
+	m, err := fx.ag.runTool(context.Background(), run, cfg, "workspace_map", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m, "- apps/invoices") || strings.Contains(m, "- apps/orders") {
+		t.Fatalf("the scoped map lists what is outside the scope, or not what is inside:\n%s", m)
+	}
+	var lines, tiles int
+	for _, l := range strings.Split(m, "\n") {
+		if !strings.HasPrefix(l, "Not connected — ") {
+			continue
+		}
+		lines++
+		var n int
+		if _, err := fmt.Sscanf(l[strings.IndexAny(l, "0123456789"):], "%d", &n); err != nil || n == 0 {
+			t.Errorf("a not-connected line that doesn't say how many tiles it is about: %q", l)
+		}
+		tiles += n
+		if !strings.Contains(l, "(") && !strings.Contains(l, " more of ") {
+			t.Errorf("a not-connected line names neither its count nor \"more of\": %q", l)
+		}
+	}
+	if lines < 2 || tiles != s.Conn.Connection.Counts.NotConnected {
+		t.Fatalf("the map's not-connected lines account for %d tiles in %d lines; xbind counts %d not connected:\n%s", tiles, lines, s.Conn.Connection.Counts.NotConnected, m)
 	}
 }

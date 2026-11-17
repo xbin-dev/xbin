@@ -76,14 +76,30 @@ POST   /llm/v1/chat/completions    a caller (above). OpenAI's Chat Completions
                                    headers: the upstream's Content-Type,
                                    Retry-After, request id and x-ratelimit-*
                                    only; X-XBin-LLM-Quota: warn; quota=<name>;
-                                   resets=<time> when a warn quota is reached
+                                   resets=<time> when a warn quota is reached;
+                                   X-XBin-LLM-Dropped: <field>,… on a
+                                   translated Responses call that left
+                                   advisory fields or offered hosted tools
+                                   out (llm.md §Responses on a chat-only
+                                   upstream)
 POST   /llm/v1/responses           a caller. OpenAI's Responses request,
                                    relayed the same way; only model is
                                    rewritten and the stream's events pass
                                    untouched (usage is read from
                                    response.completed). background: true is
                                    400 xbin_llm_unsupported: an answer that
-                                   doesn't pass through can't be metered
+                                   doesn't pass through can't be metered.
+                                   For an upstream that has no Responses
+                                   API (its responsesVia: found by its 404,
+                                   or set) the call is translated to a chat
+                                   completion and the answer back, event by
+                                   event (D244; llm.md §Responses on a
+                                   chat-only upstream): the events are the
+                                   connector's then, the response's model
+                                   is the name the caller sent, and what
+                                   chat can't carry is 400
+                                   xbin_llm_translate before anything is
+                                   sent
 GET    /llm/v1/models              a caller. {object: "list", data: [{id,
                                    object, owned_by, alias_of?, …}],
                                    upstream_errors?}: each upstream's models
@@ -113,6 +129,7 @@ configuration has (a name under an upstream, a listed model).
 | 400 | `xbin_llm_body` | the body is not a JSON object, or `stream` is not a boolean (415: not JSON at all; 413: over 32 MiB) |
 | 400 | `xbin_llm_model` | `model` is not a string, has spaces or is over 200 characters |
 | 400 | `xbin_llm_unsupported` | a Responses request with `background: true` |
+| 400 | `xbin_llm_translate` | a Responses request for an upstream that serves chat completions only, with something chat can't carry (`previous_response_id`, an item reference, a file part) |
 | 400 | `xbin_llm_no_default`, `xbin_llm_ambiguous_model`, `xbin_llm_alias_loop` | no model named and no default; a bare name two upstreams list; aliases in a circle |
 | 401 | `invalid_api_key` | no valid credential; an LLM key that expired or was revoked |
 | 403 | `xbin_llm_not_bound` | a component whose slot isn't bound to `xbin:llm` |
@@ -303,6 +320,14 @@ PUT    /llm/config                 admin. {enabled?, people?: admins |
 PUT    /llm/upstreams/<name>       admin. Add or change an upstream: {baseURL?,
                                    key?, models?: [<model>], private?,
                                    prices?: {<model>: {in, out, cachedIn?}},
+                                   responsesVia?: "auto" | "upstream" |
+                                   "chat" (how its Responses calls are
+                                   served; the view adds translating: true
+                                   and translatingSince while "auto" found
+                                   no Responses API for a model — by the
+                                   upstream's own refusal and a translated
+                                   call that worked; sending responsesVia
+                                   again forgets what was found),
                                    kind?: "openai"} — a new one needs
                                    baseURL (http(s), no credentials or query
                                    in it); what isn't named stays. name:

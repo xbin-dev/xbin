@@ -55,8 +55,26 @@ func (c *Client) Steer(ctx context.Context, p Prompt) (string, error) {
 		return "", err
 	}
 	id := c.conn.newID()
+	// the echo is emitted by the read loop when the answer arrives
+	// (steerAnswered): after this call returned it could land behind the
+	// events of what the agent said next — a steer that starts a turn is
+	// followed at once by that turn's first tool call
+	echo := map[string]any{"role": "user", "text": p.Text, "steered": true}
+	if len(infos) > 0 {
+		echo["attachments"] = infos
+	}
+	key := idKey(id)
+	c.mu.Lock()
+	if c.steers == nil {
+		c.steers = map[string]map[string]any{}
+	}
+	c.steers[key] = echo
+	c.mu.Unlock()
 	resp, err := c.conn.callID(ctx, id, MSessionSteering, SteerParams{SessionID: sid, Prompt: blocks,
 		Meta: map[string]any{"steering": map[string]any{"idleBehavior": SteerPromptRequired}}})
+	c.mu.Lock()
+	delete(c.steers, key) // an answer that never came (the call was given up, the agent went away) echoes nothing
+	c.mu.Unlock()
 	if err != nil {
 		return "", err
 	}
@@ -65,15 +83,30 @@ func (c *Client) Steer(ctx context.Context, p Prompt) (string, error) {
 		return "", err
 	}
 	switch res.Outcome {
-	case SteerInjected, SteerStartedNewTurn:
-		echo := map[string]any{"role": "user", "text": p.Text, "steered": true}
-		if len(infos) > 0 {
-			echo["attachments"] = infos
-		}
-		c.emitW(&Wire{RPCID: id}, NewEvent(EvMessageDelta, echo))
-		return res.Outcome, nil
-	case SteerPromptRequired:
+	case SteerInjected, SteerStartedNewTurn, SteerPromptRequired:
 		return res.Outcome, nil
 	}
 	return res.Outcome, fmt.Errorf("the agent could not take the message mid-turn (outcome %q)", res.Outcome)
+}
+
+// steerAnswered runs on the read loop when a steer's answer arrives, before
+// its caller sees it and before the next frame is read: a message the
+// agent took (injected, or as a new turn) is echoed here, so the echo
+// precedes everything the agent says after its answer.
+func (c *Client) steerAnswered(m *Message) {
+	key := idKey(m.ID)
+	c.mu.Lock()
+	echo := c.steers[key]
+	delete(c.steers, key)
+	c.mu.Unlock()
+	if echo == nil || m.Error != nil {
+		return
+	}
+	var res SteerResult
+	if unmarshalResult(m, &res) != nil {
+		return
+	}
+	if res.Outcome == SteerInjected || res.Outcome == SteerStartedNewTurn {
+		c.emitW(&Wire{RPCID: m.ID}, NewEvent(EvMessageDelta, echo))
+	}
 }

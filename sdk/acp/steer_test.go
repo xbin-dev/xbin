@@ -377,3 +377,47 @@ func TestAbandon(t *testing.T) {
 	p.end("end_turn")
 	collect(t, c, isType(EvTurnEnd))
 }
+
+// A steered message is echoed before whatever the agent says after taking
+// it: the echo is emitted on the read loop with the steer's answer, not by
+// the caller once Steer returned — where it raced the next frames (a steer
+// that starts a turn is followed at once by that turn's first tool call,
+// and the person's message then showed after it: one run in a few hundred
+// of acptest's TestClientDetachedTurn, on two cores).
+func TestSteerEchoPrecedesWhatTheAgentSaysNext(t *testing.T) {
+	p := newPeer(t)
+	p.steering = true
+	c, _, err := p.start(ClientOptions{}, NewPermissions(), 0, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	collect(t, c, idle)
+	ctx := context.Background()
+	_ = c.Prompt(ctx, Prompt{Text: "go"})
+	collect(t, c, isText("working"))
+	for i := 0; i < 200; i++ {
+		say, next := "steer "+strings.Repeat("i", i%7), "the agent goes on"
+		p.mu.Lock()
+		p.steerNext, p.steerThen = SteerStartedNewTurn, next
+		p.mu.Unlock()
+		got := make(chan []Event, 1)
+		go func() { got <- collect(t, c, isText(next)) }() // read while Steer is still in its call, as a host does
+		if out, err := c.Steer(ctx, Prompt{Text: say}); err != nil || out != SteerStartedNewTurn {
+			t.Fatalf("steer %d: %q %v", i, out, err)
+		}
+		es := <-got
+		echo, after := -1, -1
+		for n, e := range es {
+			switch d := data(e); {
+			case e.Type == EvMessageDelta && d["role"] == "user" && d["steered"] == true && d["text"] == say:
+				echo = n
+			case e.Type == EvMessageDelta && d["text"] == next:
+				after = n
+			}
+		}
+		if echo < 0 || after < 0 || echo > after {
+			t.Fatalf("steer %d: the echo at %d, what the agent said next at %d: %s", i, echo, after, types(es))
+		}
+	}
+}

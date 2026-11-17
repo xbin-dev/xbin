@@ -37,12 +37,12 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -387,7 +387,13 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	name, _ := shown["providerName"].(string)
 	mode, _ := shown["mode"].(string)
 	asks, _ := shown["asks"].(bool)
-	pv.Line = fmt.Sprintf("Start a tile agent in %s — %s, in its mode %q", in.Tile, name, mode)
+	// a coding agent whose catalog entry names no default mode (OpenCode) opens as it opens itself: said so,
+	// not as a mode ""
+	inMode, inTheMode := fmt.Sprintf("in its mode %q", mode), fmt.Sprintf("in the mode %q", mode)
+	if mode == "" {
+		inMode, inTheMode = "in its own default mode", "in its own default mode"
+	}
+	pv.Line = fmt.Sprintf("Start a tile agent in %s — %s, %s", in.Tile, name, inMode)
 	pv.Start, _ = json.Marshal(shown)
 	// what the start resolves to is part of what was shown: the network and
 	// the API access too, which a tile's org rules decide once it exists
@@ -397,7 +403,7 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		pv.Effects = []string{"It asks you before it edits a file or runs a command: its questions and permission requests come to you, never to your workspace agent."}
 	} else {
 		// only a harness's ask or plan mode is one xbind vouches for: anything else is the danger wording, and starts unticked
-		pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: in the mode %q %s edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", mode, name, in.Tile)}
+		pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: %s %s edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", inTheMode, name, in.Tile)}
 	}
 	return pv, nil
 }
@@ -486,9 +492,13 @@ func (s *Server) apiPlanNew(w http.ResponseWriter, r *http.Request) {
 			Args json.RawMessage `json:"args"`
 			Why  string          `json:"why"`
 		} `json:"items"`
+		// DryRun: describe the plan as it would be proposed — each line in
+		// xbind's words, with what an agent may read of it — and propose
+		// nothing: no set is kept, nobody is told.
+		DryRun bool `json:"dryRun"`
 	}
 	if err := DecodeJSON(r, &in); err != nil || len(in.Items) == 0 {
-		WriteError(w, http.StatusBadRequest, "need {title, items: [{kind, args, why?}]} with at least one line", delegationDocs)
+		WriteError(w, http.StatusBadRequest, "need {title, items: [{kind, args, why?}], dryRun?} with at least one line", delegationDocs)
 		return
 	}
 	if len(in.Items) > delegation.MaxItems {
@@ -499,6 +509,15 @@ func (s *Server) apiPlanNew(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusForbidden, "a plan is proposed by a conversation: send its agent session ("+HeaderAgentSession+")", delegationDocs)
 		return
 	}
+	if in.DryRun { // nothing is kept, so no cap on open plans bounds it: the conversation's share does (allowDry)
+		if ok, wait := s.delegateRT.allowDry(a.p.UserID, a.p.AgentSession); !ok {
+			secs := int(wait/time.Second) + 1
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			WriteError(w, http.StatusTooManyRequests, fmt.Sprintf("this conversation is dry-running plans too fast (%d at once, one more every %d s): it may try again in %d s",
+				planDryShareBurst, int(planDryShareRefill/time.Second), secs), delegationDocs)
+			return
+		}
+	}
 	ops, whys := make([]delegation.ChangeOp, len(in.Items)), make([]string, len(in.Items))
 	for i, it := range in.Items {
 		ops[i], whys[i] = delegation.ChangeOp{Kind: it.Kind, Args: it.Args}, it.Why
@@ -506,6 +525,20 @@ func (s *Server) apiPlanNew(w http.ResponseWriter, r *http.Request) {
 	items, err := s.describePlan(personOf(a.p), planAgent{p: a.p}, ops, whys)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
+		return
+	}
+	if in.DryRun {
+		// what proposing it would answer, line for line (the same redaction: an agent reads of a line it can't
+		// apply, or that is an admin's, xbind's sentence and no more) — so an agent that looks before it files
+		// learns which lines would be dead on its person's review, and files a plan without them
+		for i := range items {
+			items[i].N = i + 1
+		}
+		dry := s.setFor(a, delegation.ChangeSet{User: a.user, Agent: a.p.Agent, Title: in.Title, Items: items, Plan: true, Session: a.p.AgentSession, State: delegation.SetProposed})
+		WriteJSON(w, http.StatusOK, struct {
+			delegation.ChangeSet
+			DryRun bool `json:"dryRun"`
+		}{dry, true})
 		return
 	}
 	cs, err := s.Delegation.NewChangeSet(delegation.ChangeSet{User: a.user, Agent: a.p.Agent, Title: in.Title, Items: items, Plan: true, Session: a.p.AgentSession})
@@ -582,82 +615,6 @@ func pinStart(op delegation.ChangeOp, start json.RawMessage) delegation.ChangeOp
 	}
 	op.Args, _ = json.Marshal(args)
 	return op
-}
-
-// planStart applies an agent.start line: POST /term/sessions as the
-// conversation that proposed it, authorised as a ticket authorises a
-// single start — the harness and mode its person was shown, and no other.
-// → the status, the refusal, and {session} for the line's Out.
-//
-// approved is the line's start as its person was shown it when it was
-// proposed (ChangeItem.Start), and the saved sign-in is read from THAT
-// (D230): the session gets the sign-in the approved line named — the open
-// uses exactly that one or refuses — and none where it named none. Never
-// the one a fresh preview resolves at Apply: the person's default may have
-// moved since, and a tile an earlier line creates is shown with no sign-in
-// at all (it didn't exist to be judged), so it starts with none.
-func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.ChangePreview, approved json.RawMessage) (int, string, json.RawMessage) {
-	if a.gone != "" || a.p.Agent == "" {
-		return http.StatusConflict, cmpOr(a.gone, "a tile agent is started for the conversation that asks for it"), nil
-	}
-	var shown struct{ Provider, Mode, Net string }
-	if json.Unmarshal(pv.Start, &shown) != nil || shown.Provider == "" || shown.Mode == "" {
-		return http.StatusConflict, "the start names no coding agent and mode: ask your agent to propose it again", nil
-	}
-	var named struct {
-		SignInID string `json:"signInId"` // the saved sign-in the approved line named
-	}
-	_ = json.Unmarshal(approved, &named)
-	if ok, wait := s.delegateRT.allowAct(a.p.UserID); !ok {
-		return http.StatusTooManyRequests, fmt.Sprintf("your agent is acting too fast: try again in %d s", int(wait/time.Second)+1), nil
-	}
-	// registered as the gate registers a single start (serveDelegate, step
-	// 7): a pause, the switch going off or the tile turning the agent away
-	// cuts it, and it is judged once more after it is registered
-	tile := shownTile(pv)
-	still := func() string {
-		if _, why := s.decideRefusal(a.p.UserID, a.p.Agent); why != "" {
-			return why
-		}
-		return s.lineAgentRefusal(a, []string{tile})
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	defer s.delegateRT.track(a.p.UserID, &runningCall{cancel: cancel, still: still})()
-	if why := still(); why != "" {
-		return http.StatusForbidden, why, nil
-	}
-	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net, Signin: named.SignInID})
-	if s.PlanStarter != nil { // (tests: the open itself, authorised as above)
-		id, status, refusal := s.PlanStarter(ctx, a.p, pv.Call.Body)
-		if refusal != "" {
-			return status, refusal, nil
-		}
-		s.taint(a.p, tile)
-		out, _ := json.Marshal(map[string]string{"session": id})
-		return http.StatusOK, "", out
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/xbin/term/sessions", bytes.NewReader(pv.Call.Body))
-	if err != nil {
-		return http.StatusBadRequest, err.Error(), nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-	rec := &memWriter{header: http.Header{}, status: http.StatusOK}
-	s.handleAPI(rec, req)
-	if rec.status >= 300 {
-		return rec.status, errorOf(rec), nil
-	}
-	var info struct{ ID string }
-	_ = json.Unmarshal(rec.body.Bytes(), &info)
-	s.taint(a.p, tile) // the conversation now follows a session on that tile
-	out, _ := json.Marshal(map[string]string{"session": info.ID})
-	return rec.status, "", out
-}
-
-func shownTile(pv delegation.ChangePreview) string {
-	var v struct{ Tile string }
-	_ = json.Unmarshal(pv.Start, &v)
-	return v.Tile
 }
 
 func cmpOr(a, b string) string {

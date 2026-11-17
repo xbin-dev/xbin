@@ -214,7 +214,10 @@ func Providers() []Provider { return append([]Provider(nil), catalog...) }
 // replace the sign-in, set only when the connector serves the session
 // (FAKEACP_LLM_MODEL names the default model, FAKEACP_LLM_ONLY=1 says the
 // connector alone may serve; its `llm-call` script calls the endpoint) — or, with --llm-additive in argv, the way opencode does:
-// always declared, the model only when the connector serves.
+// always declared, the model only when the connector serves. With
+// --no-default-mode in argv its entry names no default, approve or plan
+// mode, as OpenCode's does (a start that names no mode opens as the agent
+// opens itself, and nothing says that asks).
 func Fake(argv []string) Provider {
 	p := Provider{ID: "fake", Name: "Fake agent (tests)", Driver: "acp", Argv: append([]string(nil), argv...),
 		Modes:       []Mode{{ID: "ask", Name: "Ask before acting"}, {ID: "auto", Name: "Auto"}, {ID: "yolo", Name: "Yolo", Explicit: true}},
@@ -234,6 +237,11 @@ func Fake(argv []string) Provider {
 	if len(argv) > 0 {
 		p.Login = argv[0] + " login"
 		p.LoginCmd, p.Bins = p.Login, []string{argv[0]}
+	}
+	if slices.Contains(argv, "--no-default-mode") {
+		// …or as OpenCode's entry is: no default mode — it opens as it opens itself — and no mode a
+		// consumer may pick for it as "the one that asks" (it has an ask mode, as OpenCode has plan)
+		p.DefaultMode, p.ApproveMode, p.PlanMode, p.AskModes = "", "", "", []string{"ask"}
 	}
 	return p
 }

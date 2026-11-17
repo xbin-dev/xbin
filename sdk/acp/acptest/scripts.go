@@ -17,6 +17,13 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 	f.mu.Lock()
 	mode, cwd, sid := f.mode, f.cwd, f.sid
 	f.mu.Unlock()
+	if f.o.StepsFile != "" && stepsOf(text) == nil { // a prompt nobody scripted: the file's steps, when it has some
+		if b, err := os.ReadFile(f.o.StepsFile); err == nil {
+			if line, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n"); line != "" {
+				text += "\nfakeacp-steps: " + line
+			}
+		}
+	}
 	switch {
 	case stepsOf(text) != nil: // a coding agent's work in an asking mode: commands, each asked for (steps.go)
 		if !f.steps(mode, stepsOf(text)) {

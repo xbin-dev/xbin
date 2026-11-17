@@ -25,12 +25,13 @@ func init() { moreCmds["llm"] = cmdLLM }
 const llmUsage = `  bx llm [status] [--json]              the LLM connector: upstreams, default models, your quota
   bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --no-key]
                  [--models a,b] [--private] [--price <model>=<in>:<out>[:<cached-in>]]…
+                 [--responses-via auto|upstream|chat]
                                         add a provider (the key goes to the vault; it is
                                         asked for when no --key… is given: Enter for none;
                                         never on the command line). --price '*=…' prices
                                         every model the upstream has no price for
   bx llm upstream set <name> [--url <u>] [--key…|--no-key] [--models a,b|--any-model]
-                 [--private|--public] [--price …]
+                 [--private|--public] [--price …] [--responses-via auto|upstream|chat]
   bx llm upstream rm <name> | test <name> [<model>]
   bx llm models [--json]                the models offered (<upstream>/<model>, aliases)
   bx llm default [set <model> [--role agent|harness|…] | unset [--role <role>]]
@@ -69,6 +70,10 @@ type llmUpstream struct {
 	Prices  map[string]llmPrice `json:"prices"`
 	Source  string              `json:"source"`
 	Locked  bool                `json:"locked"`
+	// how its Responses calls are served (D244); Translating: found to have no Responses API
+	ResponsesVia     string `json:"responsesVia"`
+	Translating      bool   `json:"translating"`
+	TranslatingSince string `json:"translatingSince"`
 }
 
 type llmDefaults struct {
@@ -361,6 +366,14 @@ func printLLMConfig(v llmConfig) {
 			private = ", private"
 		}
 		fmt.Printf("  upstream %s  %s  (%s%s)%s\n    models: %s\n", u.Name, u.BaseURL, key, private, lock("upstreams."+u.Name), models)
+		switch {
+		case u.ResponsesVia == "chat":
+			fmt.Println("    Responses calls: translated to chat completions (responsesVia: chat)")
+		case u.Translating:
+			fmt.Printf("    Responses calls: translated to chat completions — the upstream has no Responses API (detected %s; bx llm upstream set %s --responses-via auto asks it again)\n", u.TranslatingSince, u.Name)
+		case u.ResponsesVia == "upstream":
+			fmt.Println("    Responses calls: the upstream's own, never translated")
+		}
 		for _, m := range llmKeys(u.Prices) {
 			p := u.Prices[m]
 			cached := ""
@@ -427,7 +440,7 @@ func llmUpstreamCmd(args []string) error {
 	if len(args) == 0 {
 		return llmStatusCmd(false)
 	}
-	pos, vals, on, err := llmFlags(args[1:], map[string]bool{"--key": true, "--key-file": true, "--url": true, "--models": true, "--price": true},
+	pos, vals, on, err := llmFlags(args[1:], map[string]bool{"--key": true, "--key-file": true, "--url": true, "--models": true, "--price": true, "--responses-via": true},
 		map[string]bool{"--key-stdin": true, "--no-key": true, "--private": true, "--public": true, "--any-model": true})
 	if err != nil {
 		return err
@@ -483,6 +496,9 @@ func llmUpstreamCmd(args []string) error {
 		}
 		if on["--private"] || on["--public"] {
 			body["private"] = on["--private"]
+		}
+		if v := one("--responses-via"); v != "" {
+			body["responsesVia"] = v
 		}
 		if len(vals["--price"]) > 0 {
 			prices := map[string]llmPrice{}

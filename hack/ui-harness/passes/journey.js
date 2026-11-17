@@ -55,13 +55,17 @@ function noJourney() {
 const mounts = (dir) => fs.readFileSync('/proc/self/mounts', 'utf8').split('\n').map((l) => l.split(' ')[1] || '').filter((m) => m.startsWith(dir + '/'));
 
 /**
- * boot(name, {llm, host, vault}): a fresh workspace under
+ * boot(name, {llm, host, vault, real}): a fresh workspace under
  * $HARNESS_DIR/journey-<name>, the scripted model and a production-mode
  * xbind on it. → {url, ws, token, stop()}. The login URL is the one xbind
  * prints (…/login?token=…). The default is the journey's install; the
  * first-run pass (firstrun.js) varies it: llm false — no host file, no
  * model; host — more keys of the host's file (its workspaceAgent); vault —
- * the host unseals with this passphrase (XBIN_VAULT_PASSPHRASE).
+ * the host unseals with this passphrase (XBIN_VAULT_PASSPHRASE); real —
+ * {base, model, keyFile, quota}: the upstream is a real endpoint (its key
+ * read by xbind from keyFile, never by this harness), no scripted model and
+ * no scripted coding agent: the journey as a person meets it
+ * (journeyreal.js).
  */
 async function boot(name, o = {}) {
   const dir = path.join(path.resolve(process.env.HARNESS_DIR), `journey-${name}`);
@@ -72,16 +76,27 @@ async function boot(name, o = {}) {
   const init = spawnSync(path.join(REPO, 'bin/xbind'), ['init', ws], { encoding: 'utf8' });
   if (init.status !== 0) throw new Error(`xbind init: ${init.stderr || init.stdout}`);
   // the host's LLM configuration: one upstream, the scripted model; a key that is none
-  fs.writeFileSync(path.join(dir, 'llm.key'), 'sk-fake-JOURNEY-0000\n');
-  fs.writeFileSync(path.join(dir, 'llm.jsonc'), JSON.stringify({
-    upstreams: { fake: { baseURL: `http://${FAKE}/v1`, keyFile: 'llm.key', models: ['fake-chat', 'gpt-5-fake'] } },
-    defaults: { model: 'fake/fake-chat' }, ...(o.host || {}),
-  }, null, 1) + '\n');
   const out = (f) => fs.openSync(path.join(dir, f), 'w');
-  const fake = spawn(path.join(REPO, 'bin/fakeopenai'), ['-addr', FAKE], { cwd: REPO, stdio: ['ignore', out('fakeopenai.log'), out('fakeopenai.err')] });
+  let fake = { kill() {} };
+  if (o.real) {
+    // a real endpoint: one upstream, its key named by file (an absolute path: xbind reads it, nothing here does),
+    // and a quota for each person so a loop can't run away
+    fs.writeFileSync(path.join(dir, 'llm.jsonc'), JSON.stringify({
+      upstreams: { real: { baseURL: o.real.base, keyFile: path.resolve(o.real.keyFile), models: [o.real.model] } },
+      defaults: { model: `real/${o.real.model}` }, quotas: { default: { tokensPerDay: o.real.quota || 6000000 } }, ...(o.host || {}),
+    }, null, 1) + '\n');
+  } else {
+    fs.writeFileSync(path.join(dir, 'llm.key'), 'sk-fake-JOURNEY-0000\n');
+    fs.writeFileSync(path.join(dir, 'llm.jsonc'), JSON.stringify({
+      upstreams: { fake: { baseURL: `http://${FAKE}/v1`, keyFile: 'llm.key', models: ['fake-chat', 'gpt-5-fake'] } },
+      defaults: { model: 'fake/fake-chat' }, ...(o.host || {}),
+    }, null, 1) + '\n');
+    fake = spawn(path.join(REPO, 'bin/fakeopenai'), ['-addr', FAKE], { cwd: REPO, stdio: ['ignore', out('fakeopenai.log'), out('fakeopenai.err')] });
+  }
   if (o.plant) plant(ws); // the scripted coding agent's binary, where the dice tile will be made (a real one comes from the rootfs)
   const env = { ...process.env, XBIN_SDK_PATH: path.join(REPO, 'sdk'), XBIN_BIN: path.join(REPO, 'bin'), XBIN_LLM_CONFIG: path.join(dir, 'llm.jsonc'),
     XBIN_AGENT_FAKE: path.join(ws, DICE, '.bin', 'fakeacp') };
+  if (o.real) delete env.XBIN_AGENT_FAKE; // the coding agents are the rootfs's own
   if (o.llm === false) delete env.XBIN_LLM_CONFIG;
   delete env.XBIN_VAULT_PASSPHRASE; // manual unseal, the installer's default: the vault boots unconfigured
   if (o.vault) env.XBIN_VAULT_PASSPHRASE = o.vault; // …or the host unseals it

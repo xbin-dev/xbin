@@ -308,7 +308,18 @@ func wsPlanProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 		items = append(items, xbin.Change{Kind: ch.Kind, Args: args, Why: clip(strings.TrimSpace(ch.Why), 400)})
 	}
 	if a.DryRun {
-		return fmt.Sprintf("This would propose %d change(s) to your person as one plan. Nothing would be applied: xbin describes each line, they tick what to apply, and xbin applies those in order as them — the lines that take an admin's rights only for an admin, who ticks them there themselves. Nothing was proposed.", len(items)), nil
+		plain := fmt.Sprintf("This would propose %d change(s) to your person as one plan. Nothing would be applied: xbin describes each line, they tick what to apply, and xbin applies those in order as them — the lines that take an admin's rights only for an admin, who ticks them there themselves. Nothing was proposed.", len(items))
+		// xbind describes it without proposing it: the lines as its person would see them, and which of them
+		// xbind could not apply — so a plan with a dead line is mended before it is in front of anyone
+		var cs wsChangeSet
+		if err := ag.wsWith(ctx, s, func(sid string) (err error) { cs, err = wsX.DescribePlan(ctx, sid, a.Title, items); return }); err != nil {
+			if errors.Is(err, errWsUnavailable) {
+				return plain, nil
+			}
+			return "", err
+		}
+		cs.ID, cs.State = "(not proposed)", "a dry run"
+		return "As xbin would describe it — " + wsChangeSetText(cs) + "\n" + wsPlanNotes(cs) + plain, nil
 	}
 	if e := projEng(); e != nil && e.halted() {
 		return "", errors.New("this agent is halted: nothing is proposed until it is resumed")
@@ -391,7 +402,7 @@ func (ag *Agent) wsPlanDecided(ctx context.Context, s *wsSession, r *wsReq, cs w
 		}
 		row := ag.wsAddAgent(s, &wsReq{ID: r.ID, Run: r.Run, Tile: orStr(a.Tile, meta.Starts[it.N]), CallID: r.CallID}, a)
 		started++
-		fmt.Fprintf(&b, "\nLine %d started tile agent #%d in %s (%s, %s) and it was told the brief. It is your person's session: only they answer its questions. You are told when it ends its turn, fails or waits for them.",
+		fmt.Fprintf(&b, "\nLine %d started tile agent #%d in %s (%s, %s) and it was told the brief. It is your person's session: only they answer its questions. You are told when it ends its turn, fails or asks them a question (a permission it asks them for doesn't wake you).",
 			it.N, row.ID, row.Tile, orStr(row.Harness, "coding agent"), map[bool]string{true: "asks before acting", false: "acts without asking"}[row.Asks])
 	}
 	for _, it := range cs.Items {

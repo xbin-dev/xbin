@@ -135,7 +135,9 @@ bx llm [status] [--json]               the LLM connector (D226; docs/llm.md):
                                        by your host"
 bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --no-key]
           [--models a,b] [--private] [--price <model>=<in>:<out>[:<cached-in>]]…
+          [--responses-via auto|upstream|chat]
           | set <name> [--url <u>] [--models a,b | --any-model] [--private | --public] [--key… | --no-key] [--price …]
+            [--responses-via …]  (chat: Responses calls are translated for an upstream that has only chat completions, D244)
           | rm <name> | test <name> [<model>]
                                        its providers (admin): the key goes to
                                        the vault; test makes a one-line call

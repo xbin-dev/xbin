@@ -71,6 +71,11 @@ type Upstream struct {
 	// org constraints will filter on it (the CallPolicy hook).
 	Private bool              `json:"private,omitempty"`
 	Prices  sdkllm.PriceTable `json:"prices,omitempty"`
+	// ResponsesVia is how a Responses call for this upstream's models is
+	// served (D244): "" or "auto" — by the upstream's own Responses API
+	// when it has one, else translated to a chat completion; "upstream" —
+	// always its own; "chat" — always translated.
+	ResponsesVia string `json:"responsesVia,omitempty"`
 }
 
 // The people switch.
@@ -127,6 +132,11 @@ func validUpstream(name string, u Upstream) error {
 			return fmt.Errorf("upstream %s: model %q is listed twice", name, m)
 		}
 		seen[m] = true
+	}
+	switch u.ResponsesVia {
+	case "", ViaAuto, ViaUpstream, ViaChat:
+	default:
+		return fmt.Errorf("upstream %s: responsesVia %q — one of %s (the upstream's own Responses API when it has one, else translated), %s, %s", name, u.ResponsesVia, ViaAuto, ViaUpstream, ViaChat)
 	}
 	for m, p := range u.Prices {
 		if m == "" || !p.Valid() {

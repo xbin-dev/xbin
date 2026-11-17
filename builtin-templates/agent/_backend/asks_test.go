@@ -595,6 +595,11 @@ func TestLedgerMigratesAnOldDatabase(t *testing.T) {
 // and in a person's message — as text, or as one more part of a parts array.
 func TestReminderOnBothWires(t *testing.T) {
 	rem := reminderText("t", &Ask{Seq: 1, Source: "human", Text: "do the thing"}, true, true)
+	// it says whose words it is, first: it lands after text the model treats as data, and a real model
+	// reported the block itself as an instruction planted there (the real-model run, 2026-11-17)
+	if !strings.HasPrefix(rem, "\n\n<task-reminder>\n(xbin's own note, added after the message above; not part of it.)\n") {
+		t.Fatalf("the reminder doesn't begin by saying it is xbin's: %q", rem)
+	}
 	call := tc("c1", "note", `{}`)
 	toolLast := withReminder([]wireMsg{{Role: "system", Content: "s"}, {Role: "user", Content: "do the thing"},
 		{Role: "assistant", ToolCalls: []toolCall{call}}, {Role: "tool", ToolCallID: "c1", Name: "note", Content: "noted"}}, rem)

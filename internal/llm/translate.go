@@ -1,0 +1,732 @@
+package llm
+
+// translate.go — the Responses wire on an upstream that only has Chat
+// Completions (D244). Many OpenAI-compatible providers and gateways serve
+// POST /chat/completions and nothing else; a client that speaks Responses
+// alone (Codex) could not run on them. For such an upstream the connector
+// answers POST /v1/responses itself: it rewrites the request as a chat
+// completion, sends that, and rewrites the answer — a stream event by
+// event, as it arrives — into the Responses shape.
+//
+// What is translated is the stateless core both wires share: instructions
+// and input items (messages with text and images, function calls and
+// their outputs), function tools, tool choice, parallel tool calls,
+// sampling and output limits, a JSON output format, streamed text,
+// reasoning text and tool calls, usage. What only OpenAI's own service has
+// is refused or left out, and said: previous_response_id and stored
+// conversations (400 — the caller sends the conversation in input), an
+// input item or content part of a kind chat can't carry (400, naming it),
+// OpenAI's hosted tools (left out of the tool list: web search, file
+// search, the code interpreter …). A "custom" (free-form) tool becomes a
+// function tool with one string argument, input, and its call comes back
+// as a custom_tool_call.
+//
+// Errors need no translation: an upstream's refusal of a chat completion
+// — a context-length error among them — is an OpenAI-shaped error on
+// either wire, and passes as it is.
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	sdkllm "github.com/xbin-dev/xbin/sdk/llm"
+)
+
+// The ways an upstream's Responses calls are served (Upstream.ResponsesVia).
+const (
+	ViaAuto     = "auto"     // the upstream's own Responses API when it has one, else translated ("" means this)
+	ViaUpstream = "upstream" // always the upstream's own: its 404 is the caller's
+	ViaChat     = "chat"     // always translated to chat completions
+)
+
+// chatOnlyTTL is how long a model found to have no Responses API at its
+// upstream is taken to have none before the upstream is asked again.
+const chatOnlyTTL = 10 * time.Minute
+
+// maxChatOnly bounds what is remembered for one upstream (a caller names
+// models; only ones a translated call worked for are kept).
+const maxChatOnly = 256
+
+// wireMemo remembers, per upstream, the models whose Responses calls it
+// has no API for: found by the upstream's own "no such route" AND a
+// translated call that then worked — never by a refusal alone, which a
+// caller can provoke by naming a model the upstream doesn't have. An
+// explicit responsesVia never reads it.
+type wireMemo struct {
+	mu       sync.Mutex
+	chatOnly map[string]map[string]time.Time // upstream name + address → model → when it was found
+}
+
+func wireKey(t Target) string { return t.Name + "\x00" + t.BaseURL }
+
+func (m *wireMemo) isChatOnly(t Target, model string, now time.Time) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	at, ok := m.chatOnly[wireKey(t)][model]
+	if ok && now.Sub(at) >= chatOnlyTTL {
+		delete(m.chatOnly[wireKey(t)], model)
+		return false
+	}
+	return ok
+}
+
+func (m *wireMemo) setChatOnly(t Target, model string, now time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.chatOnly == nil {
+		m.chatOnly = map[string]map[string]time.Time{}
+	}
+	k := wireKey(t)
+	if m.chatOnly[k] == nil {
+		m.chatOnly[k] = map[string]time.Time{}
+	}
+	if _, known := m.chatOnly[k][model]; !known && len(m.chatOnly[k]) >= maxChatOnly {
+		return
+	}
+	m.chatOnly[k][model] = now
+}
+
+// since is when the upstream at t was first found to have no Responses
+// API for a model (zero: for none), among what is still remembered.
+func (m *wireMemo) since(t Target, now time.Time) time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var first time.Time
+	for _, at := range m.chatOnly[wireKey(t)] {
+		if now.Sub(at) < chatOnlyTTL && (first.IsZero() || at.Before(first)) {
+			first = at
+		}
+	}
+	return first
+}
+
+// forget drops what was found of the upstream called name, at whatever
+// address (an admin set its responsesVia, or its address, again).
+func (m *wireMemo) forget(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k := range m.chatOnly {
+		if strings.HasPrefix(k, name+"\x00") {
+			delete(m.chatOnly, k)
+		}
+	}
+}
+
+// routeMissing reports whether an upstream's refusal of a Responses call —
+// its own status and body, as it gave them — says it has no such API
+// rather than refusing this call: a 404, 405 or 501 that doesn't speak of
+// a model. A refusal that names the model is the model's, in whatever
+// shape the upstream words it (OpenAI's {"error": {…}}, Ollama's
+// {"error": "model … not found"}, vLLM's {"object": "error", "message":
+// …}); a caller can provoke one, so it must never read as "no route".
+func routeMissing(status int, body []byte) bool {
+	if status != http.StatusNotFound && status != http.StatusMethodNotAllowed && status != http.StatusNotImplemented {
+		return false
+	}
+	return !bytes.Contains(bytes.ToLower(body), []byte("model"))
+}
+
+// ResponsesViaChat answers w one Responses request (body) by a chat
+// completion made through plane at t: the request rewritten for
+// upstreamModel, the answer rewritten back as it arrives, asked echoed as
+// its model. It is what the connector does for an upstream that has no
+// Responses API. sent is the size of the request made; ok is false when
+// the request could not be translated — w then holds the refusal and
+// nothing was sent.
+func ResponsesViaChat(ctx context.Context, plane Connector, w http.ResponseWriter, t Target, body []byte, asked, upstreamModel string, h, answer http.Header) (res Outcome, sent int, ok bool) {
+	chat, x, ref := responsesToChat(body, asked, upstreamModel)
+	if ref != nil {
+		ref.write(w)
+		return Outcome{Status: ref.status}, 0, false
+	}
+	if len(x.dropped) > 0 { // nothing is left out silently
+		answer = answer.Clone()
+		if answer == nil {
+			answer = http.Header{}
+		}
+		sort.Strings(x.dropped)
+		answer.Set(DroppedHeader, strings.Join(x.dropped, ","))
+	}
+	call := Call{Target: t, Path: sdkllm.PathChat, Body: chat, Header: h, Sink: usageSink, Answer: answer}
+	var over string
+	if x.truncate { // the caller asked for truncation, which chat completions has none of: an overflow is said as that
+		call.Withhold = func(status int, body []byte) bool {
+			over = contextOverflow(status, body)
+			return over != ""
+		}
+	}
+	tw := newRespWriter(w, x)
+	res = plane.Relay(ctx, tw, call)
+	if res.Withheld {
+		copyHeader(w.Header(), answer)
+		xlateRefuse("truncation: \"auto\" is not applied here, and the request is over the model's context (the upstream: %s) — send less input", over).write(w)
+		return res, len(chat), true
+	}
+	tw.done(res)
+	return res, len(chat), true
+}
+
+// contextOverflow is the upstream's own sentence when its refusal (status,
+// body — as it gave them) says the request is over the model's context;
+// "" when it says something else.
+func contextOverflow(status int, body []byte) string {
+	if status != http.StatusBadRequest && status != http.StatusRequestEntityTooLarge && status != http.StatusUnprocessableEntity {
+		return ""
+	}
+	low := strings.ToLower(string(body))
+	for _, mark := range []string{"context_length_exceeded", "context length", "context window", "maximum context", "too many tokens", "prompt is too long"} {
+		if strings.Contains(low, mark) {
+			if e, ok := sdkllm.ParseError(body); ok && e.Message != "" {
+				return e.Message
+			}
+			return "its context is exceeded"
+		}
+	}
+	return ""
+}
+
+// ---- the answer -------------------------------------------------------------------------
+
+// chatChunk is a chat completion, whole or one chunk of its stream.
+type chatChunk struct {
+	ID      string `json:"id"`
+	Created int64  `json:"created"`
+	Choices []struct {
+		Delta        *chatDelta `json:"delta"`
+		Message      *chatDelta `json:"message"`
+		FinishReason *string    `json:"finish_reason"`
+	} `json:"choices"`
+	Usage *struct {
+		PromptTokens        int64 `json:"prompt_tokens"`
+		CompletionTokens    int64 `json:"completion_tokens"`
+		TotalTokens         int64 `json:"total_tokens"`
+		PromptTokensDetails *struct {
+			CachedTokens int64 `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+		CompletionTokensDetails *struct {
+			ReasoningTokens int64 `json:"reasoning_tokens"`
+		} `json:"completion_tokens_details"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+		Code    any    `json:"code"`
+		Type    string `json:"type"`
+	} `json:"error"`
+}
+
+type chatDelta struct {
+	Content          *string `json:"content"`
+	Refusal          *string `json:"refusal"`
+	Reasoning        *string `json:"reasoning"`
+	ReasoningContent *string `json:"reasoning_content"`
+	ToolCalls        []struct {
+		Index    *int   `json:"index"`
+		ID       string `json:"id"`
+		Function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	} `json:"tool_calls"`
+}
+
+// respItem is one output item of the answer being built.
+type respItem struct {
+	kind   string // reasoning | message | function_call | custom_tool_call
+	id     string
+	index  int
+	text   strings.Builder // a message's or the reasoning's text; a call's arguments
+	callID string
+	name   string
+	upID   string // a call's id as the upstream gave it ("" when it gave none)
+
+	// a message's content parts, in the order they first appeared: its
+	// text and the model's refusal (-1: none)
+	textAt, refuseAt int
+	refusal          strings.Builder
+}
+
+// parts is a message's content: its text and its refusal, each where it
+// first appeared.
+func (it *respItem) parts() []any {
+	text := map[string]any{"type": "output_text", "text": it.text.String(), "annotations": []any{}}
+	ref := map[string]any{"type": "refusal", "refusal": it.refusal.String()}
+	switch {
+	case it.textAt < 0 && it.refuseAt < 0:
+		return []any{}
+	case it.refuseAt < 0:
+		return []any{text}
+	case it.textAt < 0:
+		return []any{ref}
+	case it.textAt < it.refuseAt:
+		return []any{text, ref}
+	}
+	return []any{ref, text}
+}
+
+func (it *respItem) object(done bool) map[string]any {
+	status := "in_progress"
+	if done {
+		status = "completed"
+	}
+	switch it.kind {
+	case "reasoning":
+		sum := []any{}
+		if done && it.text.Len() > 0 {
+			sum = append(sum, map[string]any{"type": "summary_text", "text": it.text.String()})
+		}
+		return map[string]any{"id": it.id, "type": "reasoning", "summary": sum}
+	case "message":
+		content := []any{}
+		if done {
+			content = it.parts()
+		}
+		return map[string]any{"id": it.id, "type": "message", "status": status, "role": "assistant", "content": content}
+	case "custom_tool_call":
+		input := ""
+		if done {
+			input = customInput(it.text.String())
+		}
+		return map[string]any{"id": it.id, "type": "custom_tool_call", "status": status, "call_id": it.callID, "name": it.name, "input": input}
+	}
+	args := ""
+	if done {
+		args = it.text.String()
+	}
+	return map[string]any{"id": it.id, "type": "function_call", "status": status, "call_id": it.callID, "name": it.name, "arguments": args}
+}
+
+// customInput is a free-form tool's input out of the one-argument call the
+// model made for it.
+func customInput(args string) string {
+	var a struct {
+		Input *string `json:"input"`
+	}
+	if json.Unmarshal([]byte(args), &a) == nil && a.Input != nil {
+		return *a.Input
+	}
+	return args
+}
+
+// What a translated answer may hold back (vars: tests lower them). The
+// relay itself holds nothing; a translation holds a plain answer whole,
+// and a stream's current line.
+var (
+	maxTranslatedBody = MaxRequestBody // a plain chat completion: as large as a request may be
+	maxTranslatedLine = 8 << 20        // one line of a stream (a tool call's arguments arrive as one on some providers)
+)
+
+// respWriter is the ResponseWriter a translated call's upstream answer is
+// written to: it writes the Responses form of it to the client. An answer
+// that is no success passes as it is.
+type respWriter struct {
+	w      http.ResponseWriter
+	x      *xlate
+	status int
+	stream bool
+	plain  bool // not a success: passed through
+	head   bool
+	buf    bytes.Buffer // a stream's unfinished line; a plain answer's body
+	over   bool         // the answer passed what a translation holds: the rest is read (for its usage) and dropped
+	werr   error
+
+	id      string
+	created int64
+	seq     int
+	started bool
+	ended   bool
+	items   []*respItem
+	msg     *respItem
+	think   *respItem
+	calls   map[int]*respItem // the call being built at each index of the upstream's
+	finish  string
+	usage   map[string]any
+}
+
+func newRespWriter(w http.ResponseWriter, x *xlate) *respWriter {
+	return &respWriter{w: w, x: x, calls: map[int]*respItem{}}
+}
+
+func (t *respWriter) Unwrap() http.ResponseWriter { return t.w }
+
+// FlushError flushes the client's side — except for a plain success, whose
+// body (and status) are written whole at the end (done).
+func (t *respWriter) FlushError() error {
+	if !t.head || !t.plain && !t.stream {
+		return nil
+	}
+	return http.NewResponseController(t.w).Flush()
+}
+func (t *respWriter) Header() http.Header { return t.w.Header() }
+
+func (t *respWriter) WriteHeader(code int) {
+	if t.head {
+		return
+	}
+	t.head, t.status = true, code
+	h := t.w.Header()
+	t.stream = strings.HasPrefix(strings.ToLower(h.Get("Content-Type")), "text/event-stream")
+	t.plain = code < 200 || code >= 300
+	if !t.plain && !t.stream {
+		return // the body is rewritten whole: its status goes out with it (done)
+	}
+	h.Del("Content-Length")
+	t.w.WriteHeader(code)
+}
+
+func (t *respWriter) Write(p []byte) (int, error) {
+	if !t.head {
+		t.WriteHeader(http.StatusOK)
+	}
+	switch {
+	case t.plain:
+		return t.w.Write(p)
+	case t.over:
+		return len(p), nil
+	case !t.stream:
+		if t.buf.Len()+len(p) > maxTranslatedBody {
+			t.over = true
+			t.buf.Reset()
+			return len(p), nil
+		}
+		t.buf.Write(p)
+		return len(p), nil
+	}
+	t.buf.Write(p)
+	for {
+		raw := t.buf.Bytes()
+		i := bytes.IndexByte(raw, '\n')
+		if i < 0 {
+			break
+		}
+		line := strings.TrimRight(string(raw[:i]), "\r")
+		t.buf.Next(i + 1)
+		t.line(line)
+	}
+	if t.buf.Len() > maxTranslatedLine { // a line with no end: nothing more of this answer can be translated
+		t.over = true
+		t.buf.Reset()
+		if !t.started {
+			t.start(&chatChunk{})
+		}
+		t.fail("xbin_llm_translate", fmt.Sprintf("a line of the upstream's stream is over %d MiB: too long to translate", maxTranslatedLine>>20))
+	}
+	return len(p), t.werr
+}
+
+func (t *respWriter) line(line string) {
+	data, ok := strings.CutPrefix(line, "data:")
+	if !ok {
+		return // event names, comments, blank lines
+	}
+	data = strings.TrimSpace(data)
+	if data == "" {
+		return
+	}
+	if data == "[DONE]" {
+		t.complete()
+		return
+	}
+	var c chatChunk
+	if json.Unmarshal([]byte(data), &c) != nil {
+		return
+	}
+	t.chunk(&c)
+}
+
+func (t *respWriter) emit(typ string, fields map[string]any) {
+	if t.werr != nil {
+		return
+	}
+	fields["type"] = typ
+	fields["sequence_number"] = t.seq
+	t.seq++
+	b, err := json.Marshal(fields)
+	if err != nil {
+		return
+	}
+	_, t.werr = fmt.Fprintf(t.w, "event: %s\ndata: %s\n\n", typ, b)
+}
+
+func (t *respWriter) response(status string) map[string]any {
+	out := []any{}
+	for _, it := range t.items {
+		out = append(out, it.object(status != "in_progress"))
+	}
+	r := map[string]any{"id": t.id, "object": "response", "created_at": t.created, "status": status, "model": t.x.model,
+		"output": out, "error": nil, "incomplete_details": nil, "parallel_tool_calls": t.x.parallel, "tools": t.x.tools}
+	if t.usage != nil {
+		r["usage"] = t.usage
+	}
+	return r
+}
+
+func (t *respWriter) start(c *chatChunk) {
+	if t.started {
+		return
+	}
+	t.started = true
+	t.id, t.created = "resp_"+strings.TrimPrefix(c.ID, "chatcmpl-"), c.Created
+	if c.ID == "" {
+		t.id = "resp_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	if t.created == 0 {
+		t.created = time.Now().Unix()
+	}
+	if t.stream {
+		t.emit("response.created", map[string]any{"response": t.response("in_progress")})
+		t.emit("response.in_progress", map[string]any{"response": t.response("in_progress")})
+	}
+}
+
+func (t *respWriter) add(kind, prefix string) *respItem {
+	it := &respItem{kind: kind, index: len(t.items), textAt: -1, refuseAt: -1}
+	it.id = prefix + "_" + strings.TrimPrefix(t.id, "resp_") + "_" + strconv.Itoa(it.index)
+	t.items = append(t.items, it)
+	return it
+}
+
+func (t *respWriter) added(it *respItem) {
+	if t.stream {
+		t.emit("response.output_item.added", map[string]any{"output_index": it.index, "item": it.object(false)})
+	}
+}
+
+func (t *respWriter) chunk(c *chatChunk) {
+	if c.Error != nil && len(c.Choices) == 0 {
+		t.start(c)
+		t.fail(fmt.Sprint(c.Error.Code), c.Error.Message)
+		return
+	}
+	t.start(c)
+	if u := c.Usage; u != nil {
+		in := map[string]any{"cached_tokens": 0}
+		if u.PromptTokensDetails != nil {
+			in["cached_tokens"] = u.PromptTokensDetails.CachedTokens
+		}
+		out := map[string]any{"reasoning_tokens": 0}
+		if u.CompletionTokensDetails != nil {
+			out["reasoning_tokens"] = u.CompletionTokensDetails.ReasoningTokens
+		}
+		total := u.TotalTokens
+		if total == 0 {
+			total = u.PromptTokens + u.CompletionTokens
+		}
+		t.usage = map[string]any{"input_tokens": u.PromptTokens, "input_tokens_details": in,
+			"output_tokens": u.CompletionTokens, "output_tokens_details": out, "total_tokens": total}
+	}
+	for _, ch := range c.Choices {
+		d := ch.Delta
+		if d == nil {
+			d = ch.Message
+		}
+		if d != nil {
+			t.delta(d)
+		}
+		if ch.FinishReason != nil && *ch.FinishReason != "" {
+			t.finish = *ch.FinishReason
+		}
+	}
+}
+
+func (t *respWriter) delta(d *chatDelta) {
+	think := d.ReasoningContent
+	if think == nil {
+		think = d.Reasoning
+	}
+	if think != nil && *think != "" {
+		if t.think == nil {
+			t.think = t.add("reasoning", "rs")
+			t.added(t.think)
+			if t.stream {
+				t.emit("response.reasoning_summary_part.added", map[string]any{"item_id": t.think.id, "output_index": t.think.index, "summary_index": 0,
+					"part": map[string]any{"type": "summary_text", "text": ""}})
+			}
+		}
+		t.think.text.WriteString(*think)
+		if t.stream {
+			t.emit("response.reasoning_summary_text.delta", map[string]any{"item_id": t.think.id, "output_index": t.think.index, "summary_index": 0, "delta": *think})
+		}
+	}
+	message := func() *respItem {
+		if t.msg == nil {
+			t.msg = t.add("message", "msg")
+			t.added(t.msg)
+		}
+		return t.msg
+	}
+	if d.Content != nil && *d.Content != "" {
+		m := message()
+		if m.textAt < 0 {
+			m.textAt = m.refuseAt + 1
+			if t.stream {
+				t.emit("response.content_part.added", map[string]any{"item_id": m.id, "output_index": m.index, "content_index": m.textAt,
+					"part": map[string]any{"type": "output_text", "text": "", "annotations": []any{}}})
+			}
+		}
+		m.text.WriteString(*d.Content)
+		if t.stream {
+			t.emit("response.output_text.delta", map[string]any{"item_id": m.id, "output_index": m.index, "content_index": m.textAt, "delta": *d.Content})
+		}
+	}
+	if d.Refusal != nil && *d.Refusal != "" { // the model declined: a part of its own, not text
+		m := message()
+		if m.refuseAt < 0 {
+			m.refuseAt = m.textAt + 1
+			if t.stream {
+				t.emit("response.content_part.added", map[string]any{"item_id": m.id, "output_index": m.index, "content_index": m.refuseAt,
+					"part": map[string]any{"type": "refusal", "refusal": ""}})
+			}
+		}
+		m.refusal.WriteString(*d.Refusal)
+		if t.stream {
+			t.emit("response.refusal.delta", map[string]any{"item_id": m.id, "output_index": m.index, "content_index": m.refuseAt, "delta": *d.Refusal})
+		}
+	}
+	for n, tc := range d.ToolCalls {
+		idx := n
+		if tc.Index != nil {
+			idx = *tc.Index
+		}
+		it := t.calls[idx]
+		if it != nil && tc.ID != "" && it.upID != "" && tc.ID != it.upID {
+			it = nil // another call under the same index: some providers number every call 0 and tell them apart by id
+		}
+		if it == nil {
+			kind, prefix := "function_call", "fc"
+			if t.x.custom[tc.Function.Name] {
+				kind, prefix = "custom_tool_call", "ctc"
+			}
+			it = t.add(kind, prefix)
+			it.callID, it.upID, it.name = tc.ID, tc.ID, tc.Function.Name
+			if it.callID == "" {
+				it.callID = "call_" + it.id
+			}
+			t.calls[idx] = it
+			t.added(it)
+		}
+		if tc.Function.Arguments != "" {
+			it.text.WriteString(tc.Function.Arguments)
+			if t.stream && it.kind == "function_call" {
+				t.emit("response.function_call_arguments.delta", map[string]any{"item_id": it.id, "output_index": it.index, "delta": tc.Function.Arguments})
+			}
+		}
+	}
+}
+
+// closeItems ends every output item, in order.
+func (t *respWriter) closeItems() {
+	if !t.stream {
+		return
+	}
+	for _, it := range t.items {
+		switch it.kind {
+		case "reasoning":
+			t.emit("response.reasoning_summary_text.done", map[string]any{"item_id": it.id, "output_index": it.index, "summary_index": 0, "text": it.text.String()})
+			t.emit("response.reasoning_summary_part.done", map[string]any{"item_id": it.id, "output_index": it.index, "summary_index": 0,
+				"part": map[string]any{"type": "summary_text", "text": it.text.String()}})
+		case "message":
+			for at, part := range it.parts() {
+				if at == it.textAt {
+					t.emit("response.output_text.done", map[string]any{"item_id": it.id, "output_index": it.index, "content_index": at, "text": it.text.String()})
+				} else {
+					t.emit("response.refusal.done", map[string]any{"item_id": it.id, "output_index": it.index, "content_index": at, "refusal": it.refusal.String()})
+				}
+				t.emit("response.content_part.done", map[string]any{"item_id": it.id, "output_index": it.index, "content_index": at, "part": part})
+			}
+		case "function_call":
+			t.emit("response.function_call_arguments.done", map[string]any{"item_id": it.id, "output_index": it.index, "arguments": it.text.String()})
+		case "custom_tool_call":
+			t.emit("response.custom_tool_call_input.done", map[string]any{"item_id": it.id, "output_index": it.index, "input": customInput(it.text.String())})
+		}
+		t.emit("response.output_item.done", map[string]any{"output_index": it.index, "item": it.object(true)})
+	}
+}
+
+// complete ends the answer as the upstream ended it.
+func (t *respWriter) complete() {
+	if t.ended || !t.started {
+		return
+	}
+	t.ended = true
+	t.closeItems()
+	if why := t.cut(); why != "" {
+		r := t.response("incomplete")
+		r["incomplete_details"] = map[string]any{"reason": why}
+		t.emit("response.incomplete", map[string]any{"response": r})
+		return
+	}
+	t.emit("response.completed", map[string]any{"response": t.response("completed")})
+}
+
+// cut is why the answer is not whole, in the Responses API's words: the
+// output limit, or the provider's content filter ("" when it is whole).
+func (t *respWriter) cut() string {
+	switch t.finish {
+	case "length":
+		return "max_output_tokens"
+	case "content_filter":
+		return "content_filter"
+	}
+	return ""
+}
+
+func (t *respWriter) fail(code, msg string) {
+	if t.ended {
+		return
+	}
+	t.ended = true
+	r := t.response("failed")
+	r["error"] = map[string]any{"code": code, "message": msg}
+	t.emit("response.failed", map[string]any{"response": r})
+}
+
+// done is called when the upstream's answer has ended, however: a plain
+// answer is rewritten and written now; a stream that broke off before its
+// end is ended as failed, so no client waits on it.
+func (t *respWriter) done(o Outcome) {
+	switch {
+	case !t.head || t.plain:
+		return
+	case t.stream:
+		if !t.ended {
+			if !t.started {
+				t.start(&chatChunk{})
+			}
+			if o.Err == "" && t.finish != "" { // it ended without [DONE]: some servers do
+				t.complete()
+				return
+			}
+			t.fail("upstream_error", "the upstream's answer broke off before it ended")
+		}
+		return
+	}
+	var c chatChunk
+	if err := json.Unmarshal(t.buf.Bytes(), &c); t.over || err != nil || len(c.Choices) == 0 {
+		msg := "the upstream's chat completion could not be read as one"
+		if t.over {
+			msg = fmt.Sprintf("the upstream's chat completion is over %d MiB: too large to translate into a response (ask for it streamed)", maxTranslatedBody>>20)
+		}
+		t.w.Header().Set("Content-Type", "application/json")
+		t.w.WriteHeader(http.StatusBadGateway)
+		b, _ := json.Marshal(map[string]any{"error": map[string]any{"message": msg, "type": "xbin_error", "code": "xbin_llm_translate"}})
+		_, _ = t.w.Write(b)
+		return
+	}
+	t.chunk(&c)
+	r := t.response("completed")
+	if why := t.cut(); why != "" {
+		r["status"], r["incomplete_details"] = "incomplete", map[string]any{"reason": why}
+	}
+	b, _ := json.Marshal(r)
+	t.w.Header().Set("Content-Type", "application/json")
+	t.w.WriteHeader(t.status)
+	_, _ = t.w.Write(b)
+}

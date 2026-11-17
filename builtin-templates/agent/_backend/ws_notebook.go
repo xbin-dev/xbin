@@ -104,7 +104,8 @@ func wsTalkTools() []coordTool {
 		{Spec: toolSpec{Type: "function", Function: funcDef{Name: "plan",
 			Description: "Show your person the plan as numbered steps, each marked as one that only reads or one that will ask them — and keep it up to date as steps finish. " +
 				"Use it before work of more than one step that changes anything. Showing a plan approves nothing: when a step asks, it asks when it is reached. " +
-				"After a plan with a step that asks, end your turn and wait for their go-ahead; a plan that only reads needs none. Call it again with the same steps to update their state.",
+				"After a plan with a step that asks, end your turn and wait for their go-ahead; a plan that only reads needs none. Call it again with the same steps to update their state. " +
+				"Not before plan_propose: changes that create or bind are proposed at once, and xbin's review of them is the plan your person sees — a steps plan first makes them say go twice.",
 			Parameters: obj([]string{"steps"}, map[string]any{
 				"steps": map[string]any{"type": "array", "minItems": 1, "maxItems": 12, "items": obj([]string{"text", "kind"}, map[string]any{
 					"text":  strProp("the step, as an outcome in your person's words"),

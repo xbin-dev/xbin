@@ -128,6 +128,18 @@ export class BxLlmUpstreams extends LitElement {
     </div>`;
   }
 
+  // How this provider's Responses calls are served, when not by its own API: set so ("chat"), or found — with when,
+  // and a way to have the provider asked again (setting responsesVia to auto forgets what was found).
+  _responses(u, lock, busy) {
+    if (u.responsesVia === 'chat') return html`<span class="badge" data-translating="set" title="Responses calls for this provider are translated to chat completions (responsesVia: chat)">Responses: translated</span> `;
+    if (!u.translating) return nothing;
+    const at = u.translatingSince ? new Date(u.translatingSince) : null;
+    const when = at && !Number.isNaN(at.getTime()) ? ` — detected ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '';
+    return html`<span class="badge" data-translating="detected" title="This provider answered that it has no Responses API, and a translated call worked: Responses calls are translated to chat completions for it (docs: llm.md)">Responses: translated${when}</span>
+      <button class="small quiet" data-redetect ?disabled=${lock.locked || busy} title="forget what was detected: the provider is asked for its Responses API again"
+        @click=${async () => { this._done(await this.client.putUpstream(u.name, { responsesVia: 'auto' }), u.name); }}>reset</button> `;
+  }
+
   _row(u) {
     const lock = u.locked ? { locked: true, reason: u.reason } : lockOf(this.cfg?.locks, `upstreams.${u.name}`);
     const t = this._tests[u.name], tw = testWords(t), busy = this._busy;
@@ -137,7 +149,7 @@ export class BxLlmUpstreams extends LitElement {
         <td class="url mono" data-l="base URL">${u.baseURL}</td>
         <td data-l="key" data-key>${keyWords(u.key)}</td>
         <td data-l="models">${modelsWords(u.models)}${Object.keys(u.prices ?? {}).length ? html`<div class="meta">${plural(Object.keys(u.prices).length, 'price')}</div>` : nothing}</td>
-        <td>${u.private ? html`<span class="badge">private</span> ` : nothing}${lockTpl(lock)}</td>
+        <td>${u.private ? html`<span class="badge">private</span> ` : nothing}${this._responses(u, lock, busy)}${lockTpl(lock)}</td>
         <td class="acts">
           <button class="small" data-test ?disabled=${t?.running} title="a one-line call through this provider (metered to you)" @click=${() => this._test(u)}>Test</button>
           <button class="small" data-edit ?disabled=${lock.locked || busy} title=${why} @click=${() => this._open(u.name)}>edit…</button>

@@ -20,7 +20,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 const (
@@ -49,7 +52,7 @@ func wsAgentTools() []coordTool {
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_start",
 			Description: "Start a tile agent from a brief (or continue one that stopped, with resume). Your person is asked, unless their preference lets tile agents start without asking (then Start on the brief's card is their go-ahead): xbin shows them the brief exactly as it will be sent, and the coding agent and mode it will run in. This tool answers \"pending\" at once; the session, or their refusal, reaches you as a workspace update. " +
 				"What they approve is what xbin sends the session first: they may have edited the brief. You choose neither the coding agent nor its mode: those are your person's preferences and the tile's rules. " +
-				"Once started the session is theirs to see and to answer; you are told when it ends a turn, fails, or waits for them.",
+				"Once started the session is theirs to see and to answer; you are told when it ends a turn, fails, or asks them a question (not for a permission it asks them: tile_agent_status says when it waits).",
 			Parameters: obj(nil, map[string]any{
 				"brief":   coordIntProp("the brief's number (from tile_agent_brief)"),
 				"resume":  strProp("instead of a brief: the number of a tile agent that stopped or failed (#3), to continue it where it was"),
@@ -245,7 +248,9 @@ func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (st
 		}
 		switch b.State {
 		case "started":
-			return "", fmt.Errorf("brief %d was started already (tile_agents lists its tile agent): write a new brief for new work", b.ID)
+			// (a real model, asked to continue a tile agent a restart had cut off, named its brief here, read "write
+			// a new brief" and briefed the work anew instead of resuming it: the real-model run, 2026-11-17)
+			return "", fmt.Errorf("brief %d was started already (tile_agents lists its tile agent). To continue that tile agent where it stopped — it failed, or a restart cut it off — tile_agent_start {\"resume\": its number}; write a new brief only for new work", b.ID)
 		case "asked":
 			return "", fmt.Errorf("brief %d already waits for your person's decision: don't ask twice", b.ID)
 		case "replaced":
@@ -366,6 +371,12 @@ func wsMessageTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	}
 	if !row.live() {
 		return "", fmt.Errorf("tile agent #%d is %s: it takes no message. tile_agent_start with resume continues it (your person is asked)", row.ID, row.Status)
+	}
+	if strings.HasPrefix(text, "/") {
+		// a harness command is refused whatever the tile agent is doing: said now, in xbind's own refusal — not
+		// held behind a question and refused when it would go in, by which time the model has told its person
+		// "it gets it once you've answered" (the real-model run, 2026-11-17)
+		return "", &xbin.DelegateError{Status: http.StatusForbidden, Refusal: "command", Message: "a message from a workspace agent can't begin with \"/\""}
 	}
 	if c.Args["dry_run"] == true {
 		if row.Waits {

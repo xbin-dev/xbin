@@ -111,12 +111,15 @@ type Service struct {
 	host  *hostWatch
 	// llmKeys is the store this Service made (nil when Options.Keys is
 	// someone else's).
-	llmKeys   *Keys
-	keySource KeySource
-	stopSweep chan struct{} // ends the key store's sweeper (Close)
-	closeOnce sync.Once
-	watch     keyWatch // minters told of their keys' refused calls (keywatch.go)
-	models    modelCache
+	llmKeys      *Keys
+	keySource    KeySource
+	stopSweep    chan struct{} // ends the key store's sweeper (Close)
+	closeOnce    sync.Once
+	watch        keyWatch // minters told of their keys' refused calls (keywatch.go)
+	models       modelCache
+	wires        wireMemo // upstreams found to have no Responses API (translate.go)
+	droppedSaid  sync.Map // upstream + what a translated call left out → logged once (serve.go)
+	droppedKinds atomic.Int32
 
 	flightMu sync.Mutex
 	flight   map[string]int // caller → its calls in flight (serve.go)

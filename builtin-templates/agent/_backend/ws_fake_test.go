@@ -23,6 +23,8 @@ type fakeXbin struct {
 	mu sync.Mutex
 	n  int
 
+	noDryRun bool // an xbind from before plans had a dry run: DescribePlan is unavailable
+
 	tiles     map[string]*wsTile
 	orgs      map[string]*fakeOrg
 	private   map[string]bool // models that are private
@@ -38,6 +40,7 @@ type fakeXbin struct {
 	docs      map[string]string
 	code      map[string]map[string]string
 	logs      map[string]string
+	logsErr   map[string]error                           // per tile: xbind's refusal of its log
 	api       map[string]func(body []byte) (int, string) // "METHOD /api/<tile>/path": a tile's API
 	state     wsState
 	startAsk  bool  // starting a tile agent asks (false: the person's preference lets it through)
@@ -408,6 +411,9 @@ func (f *fakeXbin) Logs(_ context.Context, sid, tile string, lines int) (string,
 	}
 	if t.Level != "terminal" {
 		return "", &xbin.DelegateError{Status: 403, Message: "logs need terminal access on the tile"}
+	}
+	if err := f.logsErr[tile]; err != nil { // xbind's own refusal for that tile's log (a backend that hasn't started)
+		return "", err
 	}
 	return f.logs[tile], nil
 }
@@ -856,13 +862,29 @@ func (f *fakeXbin) Propose(_ context.Context, sid, title string, items []xbin.Ch
 // sees it: every line described, a binding of xbin:llm an admin's (and
 // needsAdmin for a person who is none), a line that names a tile an
 // earlier line creates needing that line.
-func (f *fakeXbin) ProposePlan(_ context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
+func (f *fakeXbin) ProposePlan(ctx context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
+	return f.plan(sid, title, items, false)
+}
+
+// DescribePlan is xbind's dry run of a plan: described, not kept.
+func (f *fakeXbin) DescribePlan(_ context.Context, sid, title string, items []xbin.Change) (wsChangeSet, error) {
+	return f.plan(sid, title, items, true)
+}
+
+func (f *fakeXbin) plan(sid, title string, items []xbin.Change, dry bool) (wsChangeSet, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, err := f.handle(sid); err != nil {
 		return wsChangeSet{}, err
 	}
-	cs := &wsChangeSet{ID: f.id("cs"), Title: title, State: "proposed", Plan: true}
+	if dry && f.noDryRun {
+		f.note("DescribePlan")
+		return wsChangeSet{}, errWsUnavailable
+	}
+	cs := &wsChangeSet{Title: title, State: "proposed", Plan: true}
+	if !dry {
+		cs.ID = f.id("cs")
+	}
 	made := map[string]int{}
 	blank, started := map[string]bool{}, map[string]int{} // tiles made from the empty template; tiles an earlier line starts a tile agent in
 	for i, it := range items {
@@ -915,8 +937,14 @@ func (f *fakeXbin) ProposePlan(_ context.Context, sid, title string, items []xbi
 		if item.Admin && !f.state.CanAdminChanges {
 			item.NeedsAdmin, item.Warnings = true, nil
 		}
-		f.planArgs[cs.ID+"/"+fmt.Sprint(item.N)] = args
+		if !dry {
+			f.planArgs[cs.ID+"/"+fmt.Sprint(item.N)] = args
+		}
 		cs.Items = append(cs.Items, item)
+	}
+	if dry {
+		f.note("DescribePlan")
+		return *cs, nil
 	}
 	f.sets[cs.ID] = cs
 	f.note("ProposePlan %s", cs.ID)

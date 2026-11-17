@@ -12,6 +12,110 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **Agent template: a provider's hiccup no longer stops a conversation.**
+  A model call that failed with something that may be gone a moment later
+  (the provider's `5xx` or `429`, a call that got no answer) is made again
+  by the turn itself — after its quick retries, three more times, 10 s,
+  30 s and 90 s apart, and never past five minutes of failing — and each
+  wait is a note in the transcript. A turn
+  that still stops, or stops on a failure only a person can lift (a
+  rejected key, a quota, a refused request), says whether trying again
+  helps, that nothing is lost, and who can fix it (`/xbin/llm`). Before,
+  the conversation stood in "error" until its person wrote, and nothing
+  woke it meanwhile.
+- **Workspace agent: a tile agent's permission request no longer wakes
+  it.** Only its person can answer one, and xbin's chrome tells them
+  (Needs you); the wake cost one to three model calls for every command a
+  careful coding agent asks about. It is still woken for a tile agent's
+  question, the end of its turn, and a failure; `tile_agent_status` and a
+  held message's answer say that it waits.
+- **A plan's dry run is rate-limited per conversation** (`POST
+  /delegate/plans` with `dryRun: true`): 10 at once, one more every 6
+  seconds, `429` + `Retry-After` past that — on top of the person's act
+  limit, which it always counted against. The agent template's
+  `plan_propose` dry run now falls back to its own words on an xbind from
+  before dry runs (whose `400` it used to pass on as the plan's fault).
+- **Agent template: a task reminder can't be forged.** The engine ends a
+  model call with a `<task-reminder>` block of its own; text from outside
+  — a web page, a tile's data, a tile agent's report, a notebook page, a
+  pasted message — could reproduce the block with another "latest
+  request" in it. The tag is now defused (its bracket made a quote mark)
+  in every message of a call that is not the engine's own, at the one
+  place a call is assembled, and the system prompt says what a reminder
+  is: it restates the task and never asks for an action.
+- **The connector's Responses translation says what it leaves out, and
+  can't be switched on by a caller** ([llm.md](/docs/llm.md) §Responses on
+  a chat-only upstream). Nothing of a translated request vanishes
+  silently now: what would change its meaning is a `400
+  xbin_llm_translate` naming the field (a hosted tool the caller requires,
+  a stored `prompt`, content chat can't carry, `truncation: "auto"` on a
+  request over the model's context); advisory fields and hosted tools
+  merely offered are dropped and listed in the answer's
+  `X-XBin-LLM-Dropped` header. An image in a tool's output is carried (in
+  a user message after the tool messages); `tool_choice` `allowed_tools`
+  narrows the tools; `top_logprobs` sends `logprobs`; a filtered answer
+  ends `incomplete` (`content_filter`), a refusal is a `refusal` part,
+  tool calls a provider numbers `0` throughout are kept apart, and the
+  response object echoes the request's `tools` and `parallel_tool_calls`.
+  A translated answer is held back only up to a bound (32 MiB plain, 8 MiB
+  a stream line). Detection is safer: "this upstream has no Responses
+  API" is judged on the upstream's own refusal, never on one that speaks
+  of a model, and remembered — per model, ten minutes — only after a
+  translated call worked; before, any caller naming a model the upstream
+  doesn't have could switch everyone's Responses calls for it to
+  translation. `GET /llm/config` adds `translatingSince`; the provider's
+  row has a reset.
+- **A plan's dry run describes it** (`POST /delegate/plans` with `dryRun:
+  true`; [protocol/delegation.md](/docs/protocol/delegation.md) §Plans).
+  The answer is the set as proposing it would answer — each line in
+  xbind's words, the lines xbind can't apply marked — with no id; nothing
+  is kept and nobody is told. The workspace agent's `plan_propose` dry run
+  uses it, so a plan with a line that can't be applied is mended before it
+  is in front of its person (before, the dry run only counted the lines,
+  and a real model filed plans with dead lines). A workspace agent's
+  message to a tile agent that begins with `/` is refused at once, also
+  while that tile agent waits for its person (it was held, and refused when
+  it would have gone in).
+- **A plan can start OpenCode.** A coding agent whose catalog entry names
+  no default mode (OpenCode: it opens as it opens itself) was shown on a
+  plan's start line as `in its mode ""` and refused at Apply ("the start
+  names no coding agent and mode"), so a workspace agent's plan could never
+  start one — a workspace held to OpenCode could not get past Apply. The
+  line now reads `Start a tile agent in <tile> — OpenCode, in its own
+  default mode`, carries the ACTS WITHOUT ASKING warning as before (xbind
+  vouches for no mode it wasn't given; the line starts unticked) and
+  applies. Lines of every other coding agent read as they did.
+- **`sdk/acp`: a steered message's echo precedes what the agent says next.**
+  `Client.Steer` emitted the echo (`message.delta`, `role: "user"`,
+  `steered: true`) after its call returned, so it could land behind the
+  first events of the turn the steer started — the person's message drawn
+  after the agent's reaction to it. It is now emitted when the steer's
+  answer is read, in the stream's own order. No API change.
+  `sdk/acp/acptest` gains `--steps-file=<path>`: a prompt that carries no
+  `fakeacp-steps:` line plays the steps the file holds.
+  `acp.Fake` with `--no-default-mode` in its argv is the scripted agent as
+  a provider whose entry names no default, approve or plan mode (as
+  OpenCode's), for tests of starts that name no mode.
+- **The LLM connector's `/v1/responses` works on upstreams that have only
+  chat completions** (D244; [llm.md §Responses on a chat-only
+  upstream](/docs/llm.md#responses-on-a-chat-only-upstream),
+  [protocol/llm.md](/docs/protocol/llm.md)). Many OpenAI-compatible
+  providers and gateways serve `POST /chat/completions` and nothing else;
+  a Responses call for such an upstream used to be its `404`, so Codex —
+  which speaks Responses only, and is the first coding agent the connector
+  offers — could not run there. The connector now translates: the request
+  becomes a chat completion and the answer comes back in the Responses
+  shape, a stream event by event (text, reasoning, tool calls — parallel
+  ones too — usage; errors pass as they are; a broken stream ends
+  `response.failed`). Found by itself (the upstream's "no such route",
+  remembered for ten minutes) or set per upstream: `responsesVia: "auto" |
+  "upstream" | "chat"` on `PUT /llm/upstreams/<name>` and in the host's
+  file, `bx llm upstream set <name> --responses-via chat`; the upstream's
+  view gains `responsesVia` and `translating`. What chat can't carry
+  (`previous_response_id`, an item reference, a file part) is `400
+  xbin_llm_translate`; OpenAI's hosted tools are left out. Additive:
+  an upstream that has a Responses API is called as before.
+
 - **The workspace agent reaches you when the app is not open** (D241;
   [workspace-agent.md §In the xbin app](/docs/workspace-agent.md#in-the-xbin-app),
   [protocol/devices.md](/docs/protocol/devices.md) §The workspace agent's

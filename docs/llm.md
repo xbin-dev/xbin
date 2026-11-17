@@ -86,6 +86,8 @@ optionally:
   provider's own `/models` list and any model name through.
 - `private` — marks an upstream that keeps prompts inside your
   organisation. Nothing filters on it yet; org constraints will.
+- `responsesVia` — how a Responses call for its models is served: `auto`
+  (the default), `upstream` or `chat` (§Responses on a chat-only upstream).
 - `prices` — `{<model>: {in, out, cachedIn?}}` in USD per million tokens,
   for the cost counters and cost quotas. `"gpt-5*"` prices a family. A
   provider that reports the cost of a call itself (OpenRouter) is believed
@@ -100,6 +102,77 @@ say so).
 `bx llm upstream test` makes the smallest call there is (one word in, one
 token out). It is a call like any other: metered to you, held by your
 quota and the workspace's, and refused while the connector is off.
+
+### Responses on a chat-only upstream
+
+Many OpenAI-compatible providers and gateways — OpenRouter-style
+aggregators, most local model servers — serve `POST /chat/completions` and
+have no Responses API. The connector's `/v1/responses` works on them all
+the same (D244): for such an upstream it **translates** — the request is
+rewritten as a chat completion, and the answer is rewritten back, a
+stream event by event as it arrives. So a client that speaks Responses
+only (Codex) runs on any OpenAI-compatible upstream, and a tile need not
+know which wire a provider has.
+
+- **Found by itself.** With `responsesVia: "auto"` (the default) a
+  Responses call is sent to the upstream's own `/responses`; when it
+  answers that it has no such route — a `404`, `405` or `501` whose own
+  body doesn't speak of a model, judged as the upstream sent it — the call
+  is made again as a chat completion. Only when that translated call
+  **works** is it remembered, for that model, for ten minutes (then the
+  upstream is asked again): a refusal alone is something any caller can
+  provoke by naming a model the upstream doesn't have, and must never
+  change how other people's calls are served. The provider's row on
+  `/xbin/llm` says "Responses: translated — detected 14:02" with a
+  **reset**, and `GET /llm/config` `translating: true, translatingSince`;
+  setting `responsesVia` again (to `auto` too) forgets what was found.
+  An explicit setting always wins over detection: `"chat"` always
+  translates and never asks; `"upstream"` never translates — the
+  upstream's `404` is the caller's. `bx llm upstream set <name>
+  --responses-via chat`.
+- **Nothing vanishes silently.** A field is translated, refused, or
+  dropped and named:
+
+  | of the request | what happens |
+  |---|---|
+  | `instructions`, `input` (messages with text; images in user messages; function and custom tool calls and their outputs), function tools, `tool_choice` (`auto`, `none`, `required`, one function, `allowed_tools` — only those tools are offered), `parallel_tool_calls`, `max_output_tokens`, `temperature`, `top_p`, `seed`, `user`, `top_logprobs` (with `logprobs`), `reasoning.effort`, `text.format` (JSON object or schema) | translated |
+  | a `custom` (free-form) tool | a function tool with one string argument, `input`; its call comes back as a `custom_tool_call` |
+  | an image in a tool's output | follows the tool messages in a user message that names the call (a chat tool message carries text only) |
+  | `previous_response_id`, `conversation`, `prompt` (stored prompt) | **refused** — OpenAI's own service: send the conversation in `input` |
+  | a hosted tool the caller **requires** (`tool_choice` of a hosted type; `required`, or `allowed_tools` in mode `required`, with no function tool left) | **refused** |
+  | content chat can't carry: an item reference, a file (`input_file`, an image by file id), an image outside a user message, content that is neither a string nor a list of parts | **refused** |
+  | `truncation: "auto"` | not applied (dropped, named); when the request then is over the model's context the refusal is `400 xbin_llm_translate` and says so, with the upstream's sentence |
+  | hosted tools merely offered (`web_search`, `file_search`, `local_shell`, `mcp`, `image_generation`, the code interpreter …) | dropped, named `tools.<type>` |
+  | `metadata`, `include`, `store: true`, `reasoning.summary`, `text.verbosity`, `prompt_cache_key`, `service_tier`, `max_tool_calls`, `safety_identifier`, `stream_options`, and any field this table doesn't list | dropped, named |
+  | a provider's opaque `reasoning` items in `input` | dropped (not this upstream's to read) |
+
+  A refusal is `400 xbin_llm_translate`, names the field, says "this
+  upstream has chat completions only", and is made before anything is
+  sent. What was dropped is listed — sorted, comma-separated — in the
+  answer's **`X-XBin-LLM-Dropped`** header (`metadata,include,
+  tools.web_search`); no header, nothing dropped. (A name that is no
+  plain field name, and any past the first 24, reads `other`. xbind's log
+  says once per upstream what its translated calls leave out.)
+- **Of the answer**: streamed text, reasoning text (as a reasoning
+  summary), tool calls — several in one answer, also from a provider that
+  numbers every call `0` and tells them apart by id — a refusal
+  (`message.refusal` → a `refusal` content part, `response.refusal.delta`),
+  and usage, cached and reasoning tokens included. The response object
+  echoes the request's `tools` and `parallel_tool_calls`. Metering reads
+  the chat completion's own usage: one call, one row.
+- **Errors pass as they are.** An upstream's refusal of the chat
+  completion — a context-length error, a rate limit — is an OpenAI-shaped
+  error on either wire. An error inside a stream, or a stream that breaks
+  off, ends the answer with `response.failed`; an answer cut by the
+  output limit or by the provider's content filter ends
+  `response.incomplete` (`max_output_tokens`, `content_filter`).
+- **A translation holds back a bounded amount** (the relay itself holds
+  nothing): a plain chat completion of more than 32 MiB is `502
+  xbin_llm_translate`, and a stream whose one line passes 8 MiB ends
+  `response.failed`.
+
+The other direction is not translated: a chat-completions call for an
+upstream that has only a Responses API is that upstream's `404`.
 
 ### Model names
 
@@ -273,7 +346,7 @@ connector in its environment. What each harness gets:
 | Harness | Through the connector | What xbind sets |
 |---|---|---|
 | OpenCode | yes — beside the person's own providers | an inline config (`OPENCODE_CONFIG_CONTENT`) declaring the provider **LLM by xbin** with the connector's models, so they can always be picked; its `model` — what makes it the session's default — only when the connector serves the session |
-| Codex | yes — in place of a sign-in | codex-acp's gateway sign-in (`DEFAULT_AUTH_REQUEST`) and the connector as the session's model provider, with its model (`CODEX_CONFIG`, `MODEL_PROVIDER`) — over the person's `config.toml` — only when the connector serves the session |
+| Codex | yes — in place of a sign-in; on an upstream without a Responses API through the connector's translation (§Responses on a chat-only upstream) | codex-acp's gateway sign-in (`DEFAULT_AUTH_REQUEST`) and the connector as the session's model provider, with its model (`CODEX_CONFIG`, `MODEL_PROVIDER`) — over the person's `config.toml` — only when the connector serves the session |
 | Claude Code | not yet | nothing: it speaks Anthropic's Messages wire, which the connector doesn't relay yet. It runs on the person's own sign-in |
 | Gemini CLI | no | nothing: it has no OpenAI-compatible mode. Own sign-in only |
 
@@ -697,6 +770,9 @@ bring its own models and hold quotas the workspace's admins can't lift.
 
 ## Limits today
 
+- Responses calls for an upstream without a Responses API are translated
+  to chat completions (§Responses on a chat-only upstream); OpenAI's
+  stored conversations and hosted tools don't exist there.
 - One upstream kind: OpenAI-compatible APIs. Anthropic's Messages wire is
   not relayed yet; Claude models are reachable through a provider that
   serves them on the OpenAI wire.

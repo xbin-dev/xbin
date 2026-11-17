@@ -311,7 +311,7 @@ func TestWsLookingAndCreating(t *testing.T) {
 		return out
 	}
 	m := tool("workspace_map", map[string]any{})
-	for _, want := range []string{"This session: 4 tiles · 1 orgs connected · 1 not connected (model big).", "Not connected — Finance: Finance allows private models only.",
+	for _, want := range []string{"This session: 4 tiles · 1 orgs connected · 1 not connected (model big).", "Not connected — Finance (1 tile): Finance allows private models only.",
 		"- apps/calendar — Team calendar (go; running) — it reports: error: last sync failed", "- tiles/admin — Admin (running; agents may not use its API)", "- Sales desk: apps/invoices, apps/orders"} {
 		if !strings.Contains(m, want) {
 			t.Errorf("the map lacks %q:\n%s", want, m)
@@ -347,7 +347,8 @@ func TestWsLookingAndCreating(t *testing.T) {
 		t.Fatalf("a preview of an unconnected tile: %q", got)
 	}
 	fx.x.noPreview = true
-	if got := tool("preview", map[string]any{"tile": "apps/orders"}); !strings.Contains(got, "Previews aren't available on this xbin") {
+	if got := tool("preview", map[string]any{"tile": "apps/orders"}); !strings.Contains(got, "Previews aren't available on this xbin") ||
+		!strings.Contains(got, "Tell your person only when seeing the page mattered for what they asked") || strings.Contains(got, "Say so") {
 		t.Fatalf("preview where there is none: %q", got)
 	}
 	if got := tool("plan", map[string]any{"steps": []any{map[string]any{"text": "Find the overdue invoices", "kind": "reads"}, map[string]any{"text": "Send the reminders", "kind": "asks"}}}); !strings.Contains(got, "step 2 will ask them when reached") || !strings.Contains(got, "approves nothing else") {

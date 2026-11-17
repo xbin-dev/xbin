@@ -245,6 +245,11 @@ func wsLogsTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (stri
 	n = min(n, wsLogLines)
 	var text string
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { text, err = wsX.Logs(ctx, sid, t.Path, n); return }); err != nil {
+		if strings.Contains(err.Error(), "no logs yet") {
+			// not a failure, and not "nothing in the log": a backend starts on its first use, so the next step is
+			// said here — a real model otherwise reports "the log is empty" for a tile whose log would have the answer
+			return t.Path + " has no log yet: its backend hasn't started since xbin did. A backend starts on first use — a read through tile_call starts it (tile_api_doc lists its reads); then read the log again. Until then the log says nothing either way.", nil
+		}
 		return "", err
 	}
 	ag.wsRefresh(ctx, s, true) // what the conversation now holds
@@ -355,11 +360,21 @@ func wsNotConnected(c wsConnection) string {
 		if o.ID == wsNoOrg {
 			name = "the tiles in no org"
 		}
+		// how many tiles the line is about: a real model read "6 not connected" above one org's line as "all six
+		// are that org's" (the real-model run, 2026-11-17)
+		n := ""
+		if o.Tiles > 0 {
+			n = fmt.Sprintf(" (%d tile%s)", o.Tiles, plural(o.Tiles))
+		}
 		switch o.State {
 		case "blocked":
-			fmt.Fprintf(&b, "Not connected — %s: %s\n", name, wsPlain(orStr(o.Reason, "its rules keep workspace agents out")))
+			fmt.Fprintf(&b, "Not connected — %s%s: %s\n", name, n, wsPlain(orStr(o.Reason, "its rules keep workspace agents out")))
 		case "hidden":
-			fmt.Fprintf(&b, "Not connected — %s: outside this session's scope (your person's choice).\n", name)
+			fmt.Fprintf(&b, "Not connected — %s%s: outside this session's scope (your person's choice).\n", name, n)
+		case "connected":
+			if rest := o.Tiles - o.Connected; rest > 0 && o.Connected > 0 { // partly: the scope names some of its tiles
+				fmt.Fprintf(&b, "Not connected — %d more of %s: outside this session's scope (your person's choice).\n", rest, name)
+			}
 		}
 	}
 	return b.String()

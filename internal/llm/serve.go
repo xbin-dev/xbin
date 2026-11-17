@@ -25,6 +25,11 @@ const MaxRequestBody = 32 << 20
 // QuotaHeader marks an answer whose caller reached a quota that only warns.
 const QuotaHeader = "X-XBin-LLM-Quota"
 
+// DroppedHeader, on the answer to a translated Responses call (translate.go),
+// names what of the request was not sent to the chat upstream: advisory
+// fields and hosted tools merely offered, comma-separated and sorted.
+const DroppedHeader = "X-XBin-LLM-Dropped"
+
 // usageSink picks the usage reader of an OpenAI-wire answer.
 func usageSink(stream bool) sdkllm.UsageSink {
 	if stream {
@@ -110,6 +115,38 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 			h.Set("Accept", a)
 		}
 		start := s.now()
+		if path == sdkllm.PathResponses && u.ResponsesVia != ViaUpstream {
+			// an upstream without a Responses API is served by translation (translate.go, D244). An explicit
+			// "chat" always translates. Otherwise the upstream is asked, and its own "no such route" — judged on
+			// its own status and body — makes this call go again as chat; that is remembered, for this model,
+			// only once such a call has worked: a refusal alone is something a caller can provoke.
+			translate, probed := u.ResponsesVia == ViaChat, false
+			if !translate && !s.wires.isChatOnly(t, model, start) {
+				res := s.plane.Relay(r.Context(), w, Call{Target: t, Path: path, Body: out, Header: h, Sink: usageSink, Answer: answer, Withhold: routeMissing})
+				if !res.Withheld {
+					s.account(c, u, model, name, res, len(out))
+					s.logCall(c, name, res, s.now().Sub(start))
+					return
+				}
+				probed = true // nothing was generated and nothing answered: the call is made again, and metered once
+			}
+			res, sent, ok := ResponsesViaChat(r.Context(), s.plane, w, t, body, req.Model, model, h, answer)
+			if d := w.Header().Get(DroppedHeader); d != "" {
+				// what a client's Responses calls lose on this upstream, in the log once per kind of loss
+				if _, said := s.droppedSaid.LoadOrStore(u.Name+"\x00"+d, true); !said && s.droppedKinds.Add(1) <= 64 {
+					s.log.Info("llm: translated Responses calls to this upstream leave fields out (said once)", "upstream", u.Name, "dropped", d)
+				}
+			}
+			if ok {
+				if probed && res.OK() {
+					s.wires.setChatOnly(t, model, start)
+					s.log.Info("llm: upstream has no Responses API for this model; its Responses calls are translated to chat completions", "upstream", u.Name, "model", model)
+				}
+				s.account(c, u, model, name, res, sent)
+				s.logCall(c, name, res, s.now().Sub(start))
+			}
+			return
+		}
 		res := s.plane.Relay(r.Context(), w, Call{Target: t, Path: path, Body: out, Header: h, Sink: usageSink, Answer: answer})
 		s.account(c, u, model, name, res, len(out))
 		s.logCall(c, name, res, s.now().Sub(start))

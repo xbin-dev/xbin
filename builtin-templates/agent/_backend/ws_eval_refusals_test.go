@@ -83,7 +83,8 @@ func TestWsEvalMessageRefusedByModeAndCommand(t *testing.T) {
 	if got := fx.toolResult(t, s, "tile_agent_message"); !strings.Contains(got, `can't begin with "/"`) || !strings.Contains(got, "Never begin a brief or a message with") {
 		t.Fatalf("the command's answer: %s", got)
 	}
-	if n := len(f.callsFor(s.Run)) - calls; n != 2 || fx.x.count("AgentSay refused") != 2 {
+	// (refused here, in xbind's words, before anything is sent: xbind's own refusal stays for whatever reaches it)
+	if n := len(f.callsFor(s.Run)) - calls; n != 2 || fx.x.count("AgentSay refused") != 1 || len(fx.x.said[sess]) != 0 {
 		t.Fatalf("after a command refusal: %d model calls, %v", n, fx.x.calls)
 	}
 	kinds := []string{}
@@ -96,6 +97,48 @@ func TestWsEvalMessageRefusedByModeAndCommand(t *testing.T) {
 	_ = row
 }
 
+// The real-model run (2026-11-17) — a command for a tile agent that waits
+// for its person. "/model opus" was held behind the tile agent's permission
+// request like any message, the model told its person "it gets it once
+// you've answered", and xbind refused it when it would have gone in. A
+// message that begins with "/" is refused whatever the tile agent is
+// doing, so it is refused at once: nothing held, nothing sent, the same
+// words and the same card as xbind's refusal.
+func TestWsEvalCommandRefusedThoughTheTileAgentWaits(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	row, sess := fx.seedAgent(t, s, "apps/orders")
+	fx.x.setAgent(sess, func(a *wsAgent) { a.Pending, a.Waiting = 1, "permission: run the export tests" })
+	fx.notify(t)
+	fx.rest(t, s)
+	f := fakeOf(fx.ag)
+	f.on(forRun(s.Run, lastUser("/model opus")), callTools(tc("c1", "tile_agent_message", `{"agent":"#1","text":"  /model opus"}`))).once()
+	f.on(forRun(s.Run, lastTool("tile_agent_message")), say("I can't give it commands: those are yours. Tell me what you want changed and I'll say it in words.")).once()
+	fx.say(t, s, "Tell the Orders agent /model opus.")
+	fx.idle(t, s)
+	got := fx.toolResult(t, s, "tile_agent_message")
+	if !strings.Contains(got, `can't begin with "/"`) || !strings.Contains(got, "those are your person's to give") || strings.Contains(got, "Held") {
+		t.Fatalf("a command for a tile agent that waits: %s", got)
+	}
+	if ids, _ := fx.ag.db.wsHeld(row.ID); len(ids) != 0 || fx.x.count("AgentSay") != 0 || len(fx.x.said[sess]) != 0 {
+		t.Fatalf("the command was held or sent: held %v, xbind saw %v", ids, fx.x.calls)
+	}
+	kinds := []string{}
+	for _, r := range fx.ag.db.wsRefusals(s.Run) {
+		kinds = append(kinds, r.Kind)
+	}
+	if strings.Join(kinds, " ") != "command" {
+		t.Fatalf("the refusal's card: %v, want one command refusal", kinds)
+	}
+	// a message in words is still held behind the question, as before
+	f.on(forRun(s.Run, lastUser("say it in words")), callTools(tc("c2", "tile_agent_message", `{"agent":"#1","text":"Please use the opus model for this."}`))).once()
+	fx.say(t, s, "say it in words then")
+	fx.idle(t, s)
+	if ids, _ := fx.ag.db.wsHeld(row.ID); len(ids) != 1 || !strings.Contains(fx.toolResult(t, s, "tile_agent_message"), "Held, not delivered") {
+		t.Fatalf("a message in words to a tile agent that waits: held %v", ids)
+	}
+}
+
 // Scenario R3 — messages held behind a tile agent's question, refused when
 // they would go in (its person switched its mode meanwhile): dropped, not
 // tried at every pass; the conversation is told once.
@@ -105,9 +148,7 @@ func TestWsEvalHeldMessagesRefusedOnce(t *testing.T) {
 	row, sess := fx.seedAgent(t, s, "apps/orders")
 	fx.x.setAgent(sess, func(a *wsAgent) { a.Pending = 1 })
 	fx.notify(t)
-	// the update that it waits wakes the conversation: it reaches it first,
-	// so the person's message below is the last thing the model reads (a
-	// message sent before the update is delivered is read before it)
+	// (a permission request wakes nobody: the conversation is at rest)
 	fx.rest(t, s)
 	f := fakeOf(fx.ag)
 	f.on(forRun(s.Run, lastUser("also add a header row")), callTools(tc("h1", "tile_agent_message", `{"agent":"#1","text":"Also add a header row."}`))).once()
@@ -157,5 +198,30 @@ func TestWsOffRefusalWords(t *testing.T) {
 	}
 	if !wsSendRefused(&xbin.DelegateError{Refusal: "mode"}) || wsSendRefused(errors.New("xbind unreachable")) {
 		t.Fatal("wsSendRefused")
+	}
+}
+
+// The real-model run (2026-11-17) — continuing a tile agent by its brief.
+// Asked to continue a tile agent an xbin restart had cut off, a real model
+// named the brief it had started it with; the refusal said "write a new
+// brief for new work", and it briefed the same work anew. The refusal now
+// names the way to continue: resume.
+func TestWsEvalStartedBriefPointsAtResume(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	if got := fx.tool(t, s, "tile_agent_brief", map[string]any{"tile": "apps/orders", "goal": "an export", "done_when": "the export downloads"}); !strings.Contains(got, "Brief 1") {
+		t.Fatalf("the brief: %s", got)
+	}
+	if _, err := fx.ag.db.q.Exec(`UPDATE ws_briefs SET state='started' WHERE run_id=? AND id=1`, s.Run); err != nil {
+		t.Fatal(err)
+	}
+	got := fx.tool(t, s, "tile_agent_start", map[string]any{"brief": 1})
+	for _, want := range []string{"brief 1 was started already", `tile_agent_start {"resume": its number}`, "a restart cut it off", "write a new brief only for new work"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("starting a brief that was started lacks %q: %s", want, got)
+		}
+	}
+	if fx.x.count("Ask") != 0 {
+		t.Fatalf("something was filed: %v", fx.x.calls)
 	}
 }

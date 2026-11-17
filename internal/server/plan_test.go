@@ -91,6 +91,25 @@ func TestPlanStartsATileAgent(t *testing.T) {
 	if _, cs, _ = plan(`[{"kind":"agent.start","args":{"tile":"apps/x","brief":" /model opus"}}]`); !strings.Contains(cs.Items[0].Blocked, "its own commands") {
 		t.Fatalf("a brief that is a harness command: %+v", cs.Items[0])
 	}
+	// a dry run describes the plan and proposes nothing: the same lines, numbered, and of a line xbind can't apply
+	// the agent reads that it can't — in xbind's one sentence, as on a proposal — so it can mend the plan before
+	// anything is in front of its person. No set is kept and nobody is told.
+	sets := func() int { all, _ := w.store.ChangeSets("alice"); return len(all) }
+	before := sets()
+	rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","dryRun":true,"items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"Goal: fix the bug.","harness":"claude"},"why":"it is broken"},`+
+		`{"kind":"agent.start","args":{"tile":"apps/x","brief":" /model opus"},"why":"x"}]}`, alice)
+	var dry struct {
+		delegation.ChangeSet
+		DryRun bool `json:"dryRun"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &dry)
+	if rec.Code != 200 || !dry.DryRun || dry.ID != "" || len(dry.Items) != 2 || dry.Items[0].N != 1 || dry.Items[1].N != 2 ||
+		dry.Items[0].Line != `Start a tile agent in apps/x — Claude Code, in its mode "default"` || dry.Items[0].Blocked != "" || dry.Items[1].Blocked != lineBlockedForAgent {
+		t.Fatalf("a plan's dry run: %d %s", rec.Code, rec.Body.String())
+	}
+	if sets() != before {
+		t.Fatalf("a dry run kept a change set: %d → %d", before, sets())
+	}
 	// the org's rule for the tile
 	w.policy.set(func(d *dPolicy) { d.deny = map[string]error{"apps/x": errors.New("Sales lets no agent in")} })
 	if _, cs, _ = plan(onX); !strings.Contains(cs.Items[0].Blocked, "Sales lets no agent in") {
@@ -269,6 +288,33 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 		}
 		opened = append(opened, *d)
 		return "sess", 200, ""
+	}
+	// a coding agent with no default mode of its own in the catalog (OpenCode): the line says so in words, warns —
+	// xbind vouches for no mode it wasn't given — and applies; it used to be shown as the mode "" and refused at
+	// Apply ("the start names no coding agent and mode"), so a plan could never start one (the real-model run,
+	// 2026-11-17)
+	{
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"opencode"}}]}`, alice)
+		var cs delegation.ChangeSet
+		_ = json.Unmarshal(rec.Body.Bytes(), &cs)
+		full, ok := w.store.ChangeSet("alice", cs.ID)
+		if rec.Code != 200 || !ok {
+			t.Fatalf("a plan that starts OpenCode: %d %s", rec.Code, rec.Body.String())
+		}
+		it := full.Items[0]
+		if it.Line != "Start a tile agent in apps/x — OpenCode, in its own default mode" || it.Blocked != "" || len(it.Warnings) != 1 ||
+			!strings.HasPrefix(it.Warnings[0], "ACTS WITHOUT ASKING: in its own default mode OpenCode edits files and runs commands in apps/x without asking you.") {
+			t.Fatalf("the line that starts OpenCode: %q blocked %q warnings %q", it.Line, it.Blocked, it.Warnings)
+		}
+		opened = nil
+		done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, own))
+		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "opencode" || opened[0].Mode != "" || !opened[0].Approved {
+			t.Fatalf("applying it: %+v (error %q; opens %+v)", done.Items[0].Result, done.Items[0].Error, opened)
+		}
+		// …and a start of a coding agent that HAS a default is never opened with no mode
+		if noDefaultMode("claude") || noDefaultMode("codex") || noDefaultMode("no-such-agent") || !noDefaultMode("opencode") {
+			t.Error("which coding agents open with no mode named")
+		}
 	}
 	for _, c := range []struct{ name, shown, atApply, want string }{
 		{"the sign-in the line named, though the default moved", "sg-work", "sg-other", "sg-work"},

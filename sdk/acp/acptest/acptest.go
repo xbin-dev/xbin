@@ -28,6 +28,11 @@ type Options struct {
 	// session/load refused signed out (-32000).
 	CodexAuth bool
 	Persist   bool // --persist: sessions in $HOME/.fakeacp/sessions, replayed by session/load
+	// StepsFile (--steps-file=<path>): a prompt that carries no steps
+	// script plays the one this file holds (its first line: <cmd> ||| <cmd>
+	// …), read at each prompt; no file, or an empty one, changes nothing.
+	// For a prompt the test doesn't write — a brief a real model wrote.
+	StepsFile string
 	// DeviceDelay is how long after the client accepts the device-code URL
 	// the sign-in completes (--device-ms): 0 = 1 s, negative = at once.
 	DeviceDelay time.Duration
@@ -122,6 +127,10 @@ func ParseArgs(args []string) Options {
 			o.RequireLogin = on
 		case "persist":
 			o.Persist = on
+		case "steps-file":
+			if hasVal {
+				o.StepsFile = val
+			}
 		case "codex-auth":
 			o.CodexAuth = on
 		case "device-ms":
