@@ -514,6 +514,12 @@ func (ag *Agent) wsPromptFor(run *Run, cfg Config) string {
 	size := 0
 	for i, p := range pages {
 		line := wsPromptSafe(clip(wsPageLine(p, stamps[i]), 380))
+		if p.UpdatedRun == run.ID && run.ID != 0 {
+			// this list is rebuilt for every call, so a page written a moment ago is in it — and three real
+			// conversations took such a page for one that had been there before they began, and their own
+			// write for an overwrite (the feedback run, 2026-11-17)
+			line = strings.TrimSuffix(line, ")") + " — written in THIS conversation, not before it)"
+		}
 		if i == wsIndexLines || size+len(line) > wsIndexBytes {
 			fmt.Fprintf(&b, "… and %d more: notebook_search finds them.\n", len(pages)-i)
 			break

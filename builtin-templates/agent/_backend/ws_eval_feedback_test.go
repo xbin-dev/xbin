@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -78,5 +79,26 @@ func TestWsEvalFeedbackWordings(t *testing.T) {
 	}
 	if p := prompt(); !strings.Contains(p, "Seeing a page (preview): not available on this xbin — don't call preview") {
 		t.Errorf("the session block after a preview was refused:\n%s", p)
+	}
+
+	// the notebook's list marks what this conversation wrote
+	if p := prompt(); !strings.Contains(p, "- prices — Prices") || !strings.Contains(p, "written in THIS conversation, not before it)") {
+		t.Errorf("the notebook's list after this conversation's write:\n%s", p)
+	}
+
+	// A tile agent's result leads with its edits: a real run listed 407 files of a build cache the coding agent
+	// made inside the tile, and none of the three it had edited.
+	row, sid := fx.seedAgent(t, s, "apps/orders")
+	files := []wsFileStat{{Path: "index.html", Add: 12, Del: 1}, {Path: "backend/main.go", Add: 30, Del: 2}}
+	for i := range 60 {
+		files = append(files, wsFileStat{Path: fmt.Sprintf(".verify/gocache/%02d/obj-d", i)})
+	}
+	fx.x.mu.Lock()
+	fx.x.reports[sid] = wsAgentReport{Status: "end_turn", Answer: "done", Turn: 1, Files: files, Verified: []string{"go vet ./... → exit 0"}}
+	fx.x.mu.Unlock()
+	fx.x.setAgent(sid, func(a *wsAgent) { a.Status = "idle" })
+	got = fx.tool(t, s, "tile_agent_result", map[string]any{"agent": fmt.Sprintf("#%d", row.ID)})
+	if !strings.Contains(got, "Files changed (2):\n- index.html (+12 −1)\n- backend/main.go (+30 −2)\n(and 60 file(s) with no line of text changed") || strings.Contains(got, "obj-d (+0") || !strings.Contains(got, "go vet ./... → exit 0") {
+		t.Errorf("a result with build output among its files:\n%s", got)
 	}
 }

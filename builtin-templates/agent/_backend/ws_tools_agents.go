@@ -446,13 +446,24 @@ func wsAgentResultTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 	if len(rep.Files) == 0 {
 		b.WriteString("Files changed: none reported.\n")
 	} else {
-		fmt.Fprintf(&b, "Files changed (%d):\n", len(rep.Files))
-		for i, f := range rep.Files {
+		// the edits first: files with no line changed (a build cache, binaries, scratch the agent made and
+		// removed) are counted, not listed — a real run listed 407 of them and none of the three edits
+		var edits []wsFileStat
+		for _, f := range rep.Files {
+			if f.Add+f.Del > 0 {
+				edits = append(edits, f)
+			}
+		}
+		fmt.Fprintf(&b, "Files changed (%d):\n", len(edits))
+		for i, f := range edits {
 			if i == 40 {
-				fmt.Fprintf(&b, "… and %d more\n", len(rep.Files)-40)
+				fmt.Fprintf(&b, "… and %d more\n", len(edits)-40)
 				break
 			}
 			fmt.Fprintf(&b, "- %s (+%d −%d)\n", wsPlain(f.Path), f.Add, f.Del)
+		}
+		if n := len(rep.Files) - len(edits); n > 0 {
+			fmt.Fprintf(&b, "(and %d file(s) with no line of text changed — binaries, build output or scratch, e.g. %s — not listed)\n", n, wsPlain(clip(wsFirstQuiet(rep.Files), 80)))
 		}
 	}
 	if len(rep.Verified) == 0 {
@@ -507,4 +518,14 @@ func wsAgentsTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (st
 		}
 	}
 	return strings.TrimSpace(b.String()), nil
+}
+
+// wsFirstQuiet is the first of files with no line changed.
+func wsFirstQuiet(files []wsFileStat) string {
+	for _, f := range files {
+		if f.Add+f.Del == 0 {
+			return f.Path
+		}
+	}
+	return ""
 }
