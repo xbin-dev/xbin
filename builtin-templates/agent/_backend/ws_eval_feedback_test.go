@@ -18,7 +18,9 @@ func TestWsEvalFeedbackWordings(t *testing.T) {
 		map[string]any{"kind": "tile.create", "args": map[string]any{"template": "starter", "name": "Dice"}, "why": "the tool's tile"},
 		map[string]any{"kind": "agent.start", "args": map[string]any{"tile": "Dice", "template": "mcp-tool",
 			"tool": map[string]any{"name": "roll_dice", "arguments": "sides: integer", "result": "each roll"}}, "why": "a coding agent builds it"}}})
-	for _, want := range []string{"Line 2's brief, as the template wrote it", "roll_dice", "Done when:",
+	// (and the brief itself: the coding agent that built from it said "three files" was wrong — a tile that
+	// exposes a role ships an API.md — and that it found the build's errors and bx's naming by trial)
+	for _, want := range []string{"Line 2's brief, as the template wrote it", "roll_dice", "Done when:", "an API.md saying what the endpoint is", "bx logs $XBIN_COMPONENT",
 		"The mode named in a start line is the coding agent's own word for how it runs, not a limit on what it may change"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the plan's dry run lacks %q:\n%s", want, got)
