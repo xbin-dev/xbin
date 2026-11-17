@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **A model on an upstream's `models` list keeps its context window.**
+  `GET /llm/v1/models` listed a configured model by name alone, so a
+  consumer that sizes its context by the model's window — the agent
+  template's compaction — took any such model for an unknown one and
+  compacted at 32 000 tokens: on a 1 M-token model, tool results were
+  hidden behind stubs a few calls after they were read. The entry now
+  carries what the upstream's own list says of the model (asked once,
+  cached; the name alone when the upstream has no list). Agent template,
+  from the same run: `tile_agent_result` lists the commands and file
+  changes of a coding agent that reports them in separate events (Codex)
+  and reads the whole turn, not its last 400 events; `docs_read` takes a
+  section by its heading or its name and names the sections on a miss;
+  `docs_search` answers a question in a sentence with the closest
+  sections; a plan's result shows a brief its template wrote and says
+  what a start line's mode means.
 - **Agent template: a provider's hiccup no longer stops a conversation.**
   A model call that failed with something that may be gone a moment later
   (the provider's `5xx` or `429`, a call that got no answer) is made again

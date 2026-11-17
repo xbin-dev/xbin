@@ -316,8 +316,10 @@ func TestModelList(t *testing.T) {
 		t.Errorf("the upstream's own model object did not pass through: %+v", list.Data[1])
 	}
 	r.must(200, pOwner, "GET", "/llm/v1/models", nil)
-	if up.modelsN != 1 {
-		t.Errorf("the upstream's list was asked for %d times within its cache window", up.modelsN)
+	// once for each of the two upstreams at that address: the passthrough one for its list, the one with a
+	// configured list for what the upstream says of its models (their context windows)
+	if up.modelsN != 2 {
+		t.Errorf("the upstream's list was asked for %d times within its cache window, want once an upstream", up.modelsN)
 	}
 	// llm-gw's convention for default models
 	p := r.must(200, pOwner, "GET", "/llm/preferred?use=agent", nil).json(t)

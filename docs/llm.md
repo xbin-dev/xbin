@@ -84,6 +84,10 @@ optionally:
 
 - `models` — the models offered through it. Empty (the default) passes the
   provider's own `/models` list and any model name through.
+  A listed model's entry in `GET /v1/models` carries what the upstream's
+  own list says of it (its context window, which the agent template sizes
+  its context by) when the upstream has such a list; its name alone when
+  it has none or doesn't answer.
 - `private` — marks an upstream that keeps prompts inside your
   organisation. Nothing filters on it yet; org constraints will.
 - `responsesVia` — how a Responses call for its models is served: `auto`

@@ -233,15 +233,34 @@ func (c *modelCache) drop() {
 }
 
 // upstreamModels are the models offered through u: its configured list, or
-// the upstream's own (cached), each as the upstream names it.
+// the upstream's own (cached), each as the upstream names it. A configured
+// model carries what the upstream's own list says of it — its context
+// window above all — when the upstream has such a list and answers: the
+// list an admin wrote names models, it doesn't describe them, and a
+// consumer that sizes its context by the window (the agent template's
+// compaction) would otherwise treat a 1 M-token model as an unknown one.
 func (s *Service) upstreamModels(ctx context.Context, u effUpstream) ([]sdkllm.Model, string) {
 	if len(u.Models) > 0 {
 		out := make([]sdkllm.Model, len(u.Models))
+		fetch, cancel := context.WithTimeout(ctx, 5*time.Second)
+		own, _ := s.upstreamOwn(fetch, u) // only for what it says of them: a failure leaves the names
+		cancel()
 		for i, m := range u.Models {
 			out[i] = sdkllm.Model{ID: m, Object: "model"}
+			for _, o := range own {
+				if o.ID == m {
+					out[i].Created, out[i].Extra = o.Created, o.Extra
+					break
+				}
+			}
 		}
 		return out, ""
 	}
+	return s.upstreamOwn(ctx, u)
+}
+
+// upstreamOwn is the upstream's own model list, cached.
+func (s *Service) upstreamOwn(ctx context.Context, u effUpstream) ([]sdkllm.Model, string) {
 	t, err := s.target(u)
 	if err != nil {
 		return nil, err.Error()
@@ -279,7 +298,7 @@ func (s *Service) meterName(ctx context.Context, u effUpstream, model string) st
 	switch {
 	case !ok:
 		fetch, cancel := context.WithTimeout(ctx, 5*time.Second)
-		models, _ := s.upstreamModels(fetch, u)
+		models, _ := s.upstreamOwn(fetch, u)
 		cancel()
 		e.models = models
 	case stale && s.models.refresh(u.Name, true):
@@ -287,7 +306,7 @@ func (s *Service) meterName(ctx context.Context, u effUpstream, model string) st
 			defer s.models.refresh(u.Name, false)
 			fetch, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
-			s.upstreamModels(fetch, u)
+			s.upstreamOwn(fetch, u)
 		}()
 	}
 	for _, m := range e.models {
@@ -302,6 +321,7 @@ func (s *Service) meterName(ctx context.Context, u effUpstream, model string) st
 // "<upstream>/<model>" (the upstream's own model object kept, so context
 // sizes and the like pass through), then the aliases and the default
 // models as aliases. errs says which upstream's list couldn't be read.
+
 func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdkllm.ModelList, map[string]string) {
 	names := snap.upstreamNames()
 	type res struct {
