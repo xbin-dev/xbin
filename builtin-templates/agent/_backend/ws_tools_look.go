@@ -360,11 +360,21 @@ func wsNotConnected(c wsConnection) string {
 		if o.ID == wsNoOrg {
 			name = "the tiles in no org"
 		}
+		// how many tiles the line is about: a real model read "6 not connected" above one org's line as "all six
+		// are that org's" (the real-model run, 2026-11-17)
+		n := ""
+		if o.Tiles > 0 {
+			n = fmt.Sprintf(" (%d tile%s)", o.Tiles, plural(o.Tiles))
+		}
 		switch o.State {
 		case "blocked":
-			fmt.Fprintf(&b, "Not connected — %s: %s\n", name, wsPlain(orStr(o.Reason, "its rules keep workspace agents out")))
+			fmt.Fprintf(&b, "Not connected — %s%s: %s\n", name, n, wsPlain(orStr(o.Reason, "its rules keep workspace agents out")))
 		case "hidden":
-			fmt.Fprintf(&b, "Not connected — %s: outside this session's scope (your person's choice).\n", name)
+			fmt.Fprintf(&b, "Not connected — %s%s: outside this session's scope (your person's choice).\n", name, n)
+		case "connected":
+			if rest := o.Tiles - o.Connected; rest > 0 && o.Connected > 0 { // partly: the scope names some of its tiles
+				fmt.Fprintf(&b, "Not connected — %d more of %s: outside this session's scope (your person's choice).\n", rest, name)
+			}
 		}
 	}
 	return b.String()

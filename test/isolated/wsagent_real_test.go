@@ -22,6 +22,12 @@ package isolated
 //	XBIN_REAL_ADDR         the address xbind listens on (default: a free port)
 //	XBIN_REAL_QUOTA        tokens per person and day (default 3000000)
 //	XBIN_REAL_SCENARIOS    a comma list of scenario ids to run (default: all)
+//	XBIN_REAL_TILE_AGENT   "real" (default): tile agents are the rootfs's coding
+//	                       agents on the connector, doing real work in the
+//	                       synthetic tiles; "fake": the scripted one, in
+//	                       Invoices (cheaper, and a model that checks the
+//	                       tile agent's claims finds them false — which
+//	                       derails the scenarios after it)
 //
 // The grade it writes is mechanical — which tools the model called, what
 // reached xbind, a few words of its answer — and each row names what it
@@ -57,6 +63,7 @@ type realCfg struct {
 	base, model, keyFile, out, addr string
 	quota                           int64
 	only                            map[string]bool
+	fakeAgent                       bool // tile agents are the scripted one
 }
 
 func realConfig(t *testing.T) realCfg {
@@ -75,6 +82,7 @@ func realConfig(t *testing.T) realCfg {
 		}
 		c.quota = n
 	}
+	c.fakeAgent = os.Getenv("XBIN_REAL_TILE_AGENT") == "fake"
 	if s := os.Getenv("XBIN_REAL_SCENARIOS"); s != "" {
 		c.only = map[string]bool{}
 		for _, id := range strings.Split(s, ",") {
@@ -104,6 +112,9 @@ type realEnv struct {
 // steps sets what the scripted coding agent does next ("" = it echoes).
 func (e *realEnv) steps(cmds ...string) {
 	e.t.Helper()
+	if !e.cfg.fakeAgent {
+		return // a real coding agent does the brief's work
+	}
 	if err := os.WriteFile(e.stepsFile, []byte(strings.Join(cmds, " ||| ")+"\n"), 0o644); err != nil {
 		e.t.Fatal(err)
 	}
@@ -123,11 +134,32 @@ func (e *realEnv) permissions(person, option string, wait time.Duration) int {
 				continue
 			}
 			var detail struct {
-				Permissions []struct{ Pid string }
+				Permissions []struct {
+					Pid     string
+					Options []struct {
+						OptionID, Kind string
+						Explicit       bool
+					}
+				}
 			}
 			e.d.Must(e.t, "GET", "/api/xbin/term/sessions/"+s.ID, nil, 200, e.as(person)...).Decode(e.t, &detail)
 			for _, p := range detail.Permissions {
-				if r := e.d.Call(e.t, "POST", "/api/xbin/term/sessions/"+s.ID+"/permissions/"+p.Pid, map[string]any{"optionId": option}, e.as(person)...); r.Status == 200 {
+				// the option of the kind asked for, as the agent names it (a real one's ids are its own)
+				want, id := map[string]string{"once": "allow_once", "always": "allow_always", "no": "reject_once"}[option], ""
+				for _, o := range p.Options {
+					if o.Kind == want && !o.Explicit && id == "" {
+						id = o.OptionID
+					}
+				}
+				for _, o := range p.Options { // it offers no "always" for this request: once
+					if id == "" && o.Kind == "allow_once" && option != "no" {
+						id = o.OptionID
+					}
+				}
+				if id == "" {
+					id = option
+				}
+				if r := e.d.Call(e.t, "POST", "/api/xbin/term/sessions/"+s.ID+"/permissions/"+p.Pid, map[string]any{"optionId": id}, e.as(person)...); r.Status == 200 {
 					n, answered = n+1, true
 				}
 			}
@@ -138,6 +170,32 @@ func (e *realEnv) permissions(person, option string, wait time.Duration) int {
 			quiet++
 		}
 		time.Sleep(500 * time.Millisecond)
+	}
+	return n
+}
+
+// work answers a real tile agent's permission requests ("always") until
+// it is at rest — idle, with nothing pending — or the time is up; with
+// the scripted agent it answers what its script asks. It returns how many
+// answers the person gave.
+func (e *realEnv) work(person string, timeout time.Duration) int {
+	e.t.Helper()
+	if e.cfg.fakeAgent {
+		return e.permissions(person, "once", 40*time.Second)
+	}
+	n, rest := 0, 0
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) && rest < 6 {
+		n += e.permissions(person, "always", 3*time.Second)
+		busy := false
+		for _, s := range e.tileAgents(person) {
+			busy = busy || s.Status != "idle" || s.Pending > 0
+		}
+		if busy {
+			rest = 0
+		} else {
+			rest++
+		}
 	}
 	return n
 }

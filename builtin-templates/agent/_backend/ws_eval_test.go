@@ -9,6 +9,7 @@ package main
 // same prompt is the manual run's question (testdata/ws-real-model-scenarios.md).
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -938,5 +939,50 @@ func TestWsEvalLogsBeforeTheBackendStarted(t *testing.T) {
 	}
 	if strings.HasPrefix(got, "error") || strings.Contains(got, "untrusted") {
 		t.Errorf("tile_logs before the backend started reads as a failure, or as the tile's words: %q", got)
+	}
+}
+
+// The real-model run (2026-11-17) — a scoped session's map accounts for
+// what is not connected. A session scoped to one tile read "1 tile
+// connected · 6 not connected" above a single line about Finance, and the
+// model told its person all six were Finance's. Each line now says how
+// many tiles it is about, and an org that is only partly in scope has a
+// line of its own.
+func TestWsEvalScopedMapAccountsForEveryTile(t *testing.T) {
+	fx := newWsFix(t)
+	var out struct {
+		Session struct{ ID int64 } `json:"session"`
+	}
+	fx.json(t, fx.call(t, wsAlice, "POST", "/ws/sessions", map[string]any{"name": "sales only", "scope": map[string]any{"tiles": []string{"apps/invoices"}}}), 200, &out)
+	s, err := fx.ag.db.wsSession(out.Session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ := fx.ag.db.getRun(s.Run)
+	cfg, _ := fx.ag.db.runConfig(s.Run)
+	m, err := fx.ag.runTool(context.Background(), run, cfg, "workspace_map", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m, "- apps/invoices") || strings.Contains(m, "- apps/orders") {
+		t.Fatalf("the scoped map lists what is outside the scope, or not what is inside:\n%s", m)
+	}
+	var lines, tiles int
+	for _, l := range strings.Split(m, "\n") {
+		if !strings.HasPrefix(l, "Not connected — ") {
+			continue
+		}
+		lines++
+		var n int
+		if _, err := fmt.Sscanf(l[strings.IndexAny(l, "0123456789"):], "%d", &n); err != nil || n == 0 {
+			t.Errorf("a not-connected line that doesn't say how many tiles it is about: %q", l)
+		}
+		tiles += n
+		if !strings.Contains(l, "(") && !strings.Contains(l, " more of ") {
+			t.Errorf("a not-connected line names neither its count nor \"more of\": %q", l)
+		}
+	}
+	if lines < 2 || tiles != s.Conn.Connection.Counts.NotConnected {
+		t.Fatalf("the map's not-connected lines account for %d tiles in %d lines; xbind counts %d not connected:\n%s", tiles, lines, s.Conn.Connection.Counts.NotConnected, m)
 	}
 }

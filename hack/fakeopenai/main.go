@@ -121,6 +121,11 @@
 // restarted backend took to re-issue its call, or check what a call after a
 // compaction carried.
 //
+// -chat-only leaves the Responses API out (POST /v1/responses is a 404,
+// as on a provider that has only chat completions): the LLM connector then
+// translates Responses calls for it (D244; wire_test.go holds the two
+// wires to the same answers).
+//
 // -script FILE answers from a demo script instead (demo.go: the demo film
 // set's conversations, hack/demo), with its own model list — none of the
 // keywords above then answers; -day YYYY-MM-DD pins the day its answers
@@ -902,6 +907,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:18977", "listen address")
 	scriptFile := flag.String("script", "", "a demo script (JSON): with one, the only script (demo.go)")
 	day := flag.String("day", "", "the demo's day, YYYY-MM-DD, its answers name days from (default: demo.go's demoDay rule)")
+	chatOnly := flag.Bool("chat-only", false, "serve chat completions only: POST /v1/responses is a 404, as on a provider without a Responses API (the connector then translates, D244)")
 	flag.Parse()
 	if *day != "" {
 		d, err := time.ParseInLocation("2006-01-02", *day, time.Local)
@@ -922,6 +928,14 @@ func main() {
 		n, _ := strconv.Atoi(p)
 		servePort = n + 1
 	}
+	log.Printf("fakeopenai on %s", *addr)
+	log.Fatal(http.ListenAndServe(*addr, newMux(*chatOnly)))
+}
+
+// newMux is the server's routes. chatOnly leaves the Responses API out:
+// its path answers 404 with a body that is no OpenAI error, as a gateway
+// that has only chat completions does.
+func newMux(chatOnly bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+llm.PathModels, func(w http.ResponseWriter, r *http.Request) {
 		ids := []string{"fake-chat", "gpt-5-fake"}
@@ -935,14 +949,21 @@ func main() {
 		writeJSON(w, list)
 	})
 	mux.HandleFunc("POST "+llm.PathChat, chatCompletions)
-	mux.HandleFunc("POST "+llm.PathResponses, responses)
+	if chatOnly {
+		mux.HandleFunc("POST "+llm.PathResponses, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"detail":"Not Found"}` + "\n"))
+		})
+	} else {
+		mux.HandleFunc("POST "+llm.PathResponses, responses)
+	}
 	mux.HandleFunc("GET /debug/requests", func(w http.ResponseWriter, r *http.Request) {
 		recMu.Lock()
 		defer recMu.Unlock()
 		writeJSON(w, recs)
 	})
-	log.Printf("fakeopenai on %s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+	return mux
 }
 
 // servePort is "sandbox serve"'s: this server's port + 1 (main).

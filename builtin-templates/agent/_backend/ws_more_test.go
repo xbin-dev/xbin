@@ -311,7 +311,7 @@ func TestWsLookingAndCreating(t *testing.T) {
 		return out
 	}
 	m := tool("workspace_map", map[string]any{})
-	for _, want := range []string{"This session: 4 tiles · 1 orgs connected · 1 not connected (model big).", "Not connected — Finance: Finance allows private models only.",
+	for _, want := range []string{"This session: 4 tiles · 1 orgs connected · 1 not connected (model big).", "Not connected — Finance (1 tile): Finance allows private models only.",
 		"- apps/calendar — Team calendar (go; running) — it reports: error: last sync failed", "- tiles/admin — Admin (running; agents may not use its API)", "- Sales desk: apps/invoices, apps/orders"} {
 		if !strings.Contains(m, want) {
 			t.Errorf("the map lacks %q:\n%s", want, m)

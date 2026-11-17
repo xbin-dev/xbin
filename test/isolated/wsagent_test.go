@@ -398,7 +398,7 @@ func TestWorkspaceAgent(t *testing.T) {
 			t.Errorf("tile_call on a tile whose org keeps agents out: %q, want it refused as not connected", got)
 		}
 		const why = "Closed has the workspace agent turned off"
-		if got := turn.tool("workspace_map", 0); !strings.Contains(got, "Not connected — Closed: "+why) || strings.Contains(got, wsKeptTile) {
+		if got := turn.tool("workspace_map", 0); !strings.Contains(got, "Not connected — Closed (1 tile): "+why) || strings.Contains(got, wsKeptTile) {
 			t.Errorf("workspace_map: %q, want the org's own reason for what is not connected, and the tile not named", got)
 		}
 		c := alice.cards()

@@ -231,13 +231,16 @@ async function journeyReal(browser) {
         for (let i = 0; i < 360; i++) {
           const body = await tf.locator('body').innerText();
           const after = body.split('Roll a d20 for me.').pop();
-          if (/roll_dice/.test(after) && /\b([1-9]|1\d|20)\b/.test(after.replace(/d20/g, '')) && !/thinking|working/i.test(after.slice(-40))) { await sleep(3000); return (await tf.locator('body').innerText()).split('Roll a d20 for me.').pop().replace(/\s+/g, ' ').slice(0, 400); }
+          // the chat folds the tool's call; its result line ("Rolled 1d20: 7") and the conversation's DONE mark are what a person sees
+          if (/roll(ed)?\s+\d*d20\D{0,4}\d+/i.test(after) || (/\bDONE\b/.test(body) && /\b([1-9]|1\d|20)\b/.test(after.replace(/d20/gi, '')))) { await sleep(2000); return (await tf.locator('body').innerText()).split('Roll a d20 for me.').pop().replace(/\s+/g, ' ').slice(0, 400); }
           await sleep(500);
         }
         return '';
       }).catch(() => '');
       await page.screenshot({ path: path.join(J0.SHOTS, 'real-roll.png') }).catch(() => {});
-      check(!!rolled, `the assistant called the tool its coding agent wrote and answered with a roll (${rolled.slice(0, 200)})`);
+      const diceCalls = (((await call('GET', '/llm/usage')).data || {}).rows || []).filter((r) => r.component === assistant).reduce((a, r) => a + r.requests, 0);
+      say(`the assistant answered: ${rolled.slice(0, 300)} (${diceCalls} model calls of its own: a tool call makes it more than one)`);
+      check(!!rolled && diceCalls >= 2, `the assistant called the tool its coding agent wrote and answered with a roll (${rolled.slice(0, 200)})`);
       if (!rolled) J.deadEnd('the assistant did not answer with a roll from the tool');
     }
 
