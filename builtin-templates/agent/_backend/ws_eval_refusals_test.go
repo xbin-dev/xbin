@@ -83,7 +83,8 @@ func TestWsEvalMessageRefusedByModeAndCommand(t *testing.T) {
 	if got := fx.toolResult(t, s, "tile_agent_message"); !strings.Contains(got, `can't begin with "/"`) || !strings.Contains(got, "Never begin a brief or a message with") {
 		t.Fatalf("the command's answer: %s", got)
 	}
-	if n := len(f.callsFor(s.Run)) - calls; n != 2 || fx.x.count("AgentSay refused") != 2 {
+	// (refused here, in xbind's words, before anything is sent: xbind's own refusal stays for whatever reaches it)
+	if n := len(f.callsFor(s.Run)) - calls; n != 2 || fx.x.count("AgentSay refused") != 1 || len(fx.x.said[sess]) != 0 {
 		t.Fatalf("after a command refusal: %d model calls, %v", n, fx.x.calls)
 	}
 	kinds := []string{}
@@ -94,6 +95,48 @@ func TestWsEvalMessageRefusedByModeAndCommand(t *testing.T) {
 		t.Fatalf("the cards: %v", kinds)
 	}
 	_ = row
+}
+
+// The real-model run (2026-11-17) — a command for a tile agent that waits
+// for its person. "/model opus" was held behind the tile agent's permission
+// request like any message, the model told its person "it gets it once
+// you've answered", and xbind refused it when it would have gone in. A
+// message that begins with "/" is refused whatever the tile agent is
+// doing, so it is refused at once: nothing held, nothing sent, the same
+// words and the same card as xbind's refusal.
+func TestWsEvalCommandRefusedThoughTheTileAgentWaits(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	row, sess := fx.seedAgent(t, s, "apps/orders")
+	fx.x.setAgent(sess, func(a *wsAgent) { a.Pending, a.Waiting = 1, "permission: run the export tests" })
+	fx.notify(t)
+	fx.rest(t, s)
+	f := fakeOf(fx.ag)
+	f.on(forRun(s.Run, lastUser("/model opus")), callTools(tc("c1", "tile_agent_message", `{"agent":"#1","text":"  /model opus"}`))).once()
+	f.on(forRun(s.Run, lastTool("tile_agent_message")), say("I can't give it commands: those are yours. Tell me what you want changed and I'll say it in words.")).once()
+	fx.say(t, s, "Tell the Orders agent /model opus.")
+	fx.idle(t, s)
+	got := fx.toolResult(t, s, "tile_agent_message")
+	if !strings.Contains(got, `can't begin with "/"`) || !strings.Contains(got, "those are your person's to give") || strings.Contains(got, "Held") {
+		t.Fatalf("a command for a tile agent that waits: %s", got)
+	}
+	if ids, _ := fx.ag.db.wsHeld(row.ID); len(ids) != 0 || fx.x.count("AgentSay") != 0 || len(fx.x.said[sess]) != 0 {
+		t.Fatalf("the command was held or sent: held %v, xbind saw %v", ids, fx.x.calls)
+	}
+	kinds := []string{}
+	for _, r := range fx.ag.db.wsRefusals(s.Run) {
+		kinds = append(kinds, r.Kind)
+	}
+	if strings.Join(kinds, " ") != "command" {
+		t.Fatalf("the refusal's card: %v, want one command refusal", kinds)
+	}
+	// a message in words is still held behind the question, as before
+	f.on(forRun(s.Run, lastUser("say it in words")), callTools(tc("c2", "tile_agent_message", `{"agent":"#1","text":"Please use the opus model for this."}`))).once()
+	fx.say(t, s, "say it in words then")
+	fx.idle(t, s)
+	if ids, _ := fx.ag.db.wsHeld(row.ID); len(ids) != 1 || !strings.Contains(fx.toolResult(t, s, "tile_agent_message"), "Held, not delivered") {
+		t.Fatalf("a message in words to a tile agent that waits: held %v", ids)
+	}
 }
 
 // Scenario R3 — messages held behind a tile agent's question, refused when

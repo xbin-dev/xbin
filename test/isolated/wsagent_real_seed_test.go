@@ -148,17 +148,17 @@ func sedQuote(s string) string {
 }
 
 // realFilterSteps is the scripted coding agent's work on "add an overdue
-// filter": it puts the filter in the backend, says so in API.md, waits for
-// the tile to answer with it, and reports what it did and did not check —
-// truthfully. more commands run after it (their output is the report's
+// filter": it puts the filter in the backend, says so in API.md, and
+// reports what it did and did not check — truthfully (xbind rebuilds the
+// tile when its files change; whether the rebuilt tile answers with the
+// filter is left for whoever reads the report to check). more commands run after it (their output is the report's
 // last lines).
 func realFilterSteps(more ...string) []string {
 	// the edit as a coding agent would make it from a shell: the list handler's one line, replaced in place
 	edit := `sed -i 's|` + sedQuote(realInvoicesList) + `|` + sedQuote(strings.Join(strings.Fields(realInvoicesFilteredLine), " ")) + `|' backend/main.go`
 	steps := []string{
 		edit + ` && grep -c 'overdue' backend/main.go && printf '%s\n' '- GET /invoices?overdue=1 — only the overdue invoices (status sent, due before today).' >> API.md && echo "backend/main.go and API.md changed"`,
-		`for i in $(seq 1 60); do n=$(curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/api/$XBIN_COMPONENT/invoices?overdue=1" | grep -o '"id"' | wc -l); [ "$n" -gt 0 ] && [ "$n" -lt 7 ] && break; sleep 2; done; ` +
-			`echo "Added an overdue filter to Invoices: GET /invoices?overdue=1 returns only the invoices that are sent and due before today ($n of 7 right now); GET /invoices is unchanged. API.md says so. Checked: the rebuilt backend answers both calls. Not checked: the page — it has no list yet, so there is nothing on it to filter."`,
+		`gofmt -l backend/ && echo "Added an overdue filter to Invoices: GET /invoices?overdue=1 returns only the invoices that are sent and due before today; GET /invoices is unchanged. API.md says so. Checked: the edit is in backend/main.go and the file still formats as Go. Not checked: I did not call the tile after its rebuild, and the page has no list yet, so there is nothing on it to filter."`,
 	}
 	return append(steps, more...)
 }

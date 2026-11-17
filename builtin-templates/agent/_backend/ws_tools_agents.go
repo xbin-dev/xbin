@@ -20,7 +20,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 const (
@@ -366,6 +369,12 @@ func wsMessageTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	}
 	if !row.live() {
 		return "", fmt.Errorf("tile agent #%d is %s: it takes no message. tile_agent_start with resume continues it (your person is asked)", row.ID, row.Status)
+	}
+	if strings.HasPrefix(text, "/") {
+		// a harness command is refused whatever the tile agent is doing: said now, in xbind's own refusal — not
+		// held behind a question and refused when it would go in, by which time the model has told its person
+		// "it gets it once you've answered" (the real-model run, 2026-11-17)
+		return "", &xbin.DelegateError{Status: http.StatusForbidden, Refusal: "command", Message: "a message from a workspace agent can't begin with \"/\""}
 	}
 	if c.Args["dry_run"] == true {
 		if row.Waits {

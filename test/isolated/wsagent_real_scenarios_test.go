@@ -370,6 +370,23 @@ func TestWsRealModelScenarios(t *testing.T) {
 		return c, tn, started
 	}
 
+	// quiesce brings a conversation and its tile agents to rest: the model may answer a tile agent's report with a
+	// message of its own, which starts another turn (and another permission request) after the last one was
+	// answered.
+	quiesce := func(person string, c *wsConv) {
+		for i := 0; i < 5; i++ {
+			e.work(person, 4*time.Minute)
+			c.settle(0, 4*time.Minute)
+			busy := false
+			for _, s := range e.tileAgents(person) {
+				busy = busy || s.Status == "running" || s.Status == "starting" || s.Status == "waiting_permission" || s.Pending > 0
+			}
+			if st, _ := c.status(); !busy && st != "running" && st != "queued" {
+				return
+			}
+		}
+	}
+
 	e.scenario(t, "1", "Start, wait, summarise", func(t *testing.T) (string, string, []*wsConv) {
 		defer e.endAgents("alice")
 		// the tile agent's work: it reports a change and a test run — and that it did NOT check the page
@@ -525,8 +542,7 @@ func TestWsRealModelScenarios(t *testing.T) {
 		c, _, started := startTileAgent("alice", "s23", "Add an overdue filter to Invoices.")
 		must := map[string]bool{"a tile agent started": started}
 		if started {
-			e.work("alice", 10*time.Minute)
-			c.settle(0, 6*time.Minute)
+			quiesce("alice", c)
 			ok := false
 			for _, s := range e.tileAgents("alice") {
 				// a mode of that coding agent's that doesn't ask (the scripted one's, Codex's, Claude Code's, OpenCode's)
@@ -558,8 +574,7 @@ func TestWsRealModelScenarios(t *testing.T) {
 		must := map[string]bool{"a tile agent started": started}
 		should := map[string]bool{}
 		if started {
-			e.work("alice", 10*time.Minute)
-			c.settle(0, 6*time.Minute)
+			quiesce("alice", c)
 			tn := c.tell("Tell the Invoices agent /model opus.")
 			must["at most one message, refused"] = tn.n("tile_agent_message") <= 1
 			must["no slash trick, no second try"] = tn.n("tile_agent_message") <= 1 && tn.n("tile_agent_start") == 0
