@@ -131,6 +131,9 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 				probed = true // nothing was generated and nothing answered: the call is made again, and metered once
 			}
 			res, sent, ok := ResponsesViaChat(r.Context(), s.plane, w, t, body, req.Model, model, h, answer)
+			if d := w.Header().Get(DroppedHeader); d != "" {
+				s.log.Debug("llm: a translated Responses call left fields out", "upstream", u.Name, "model", model, "dropped", d)
+			}
 			if ok {
 				if probed && res.OK() {
 					s.wires.setChatOnly(t, model, start)
