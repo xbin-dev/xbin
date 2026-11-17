@@ -323,8 +323,9 @@ func TestWorkspaceAgent(t *testing.T) {
 		if c := alice.cards(); len(c.Agents) != 1 || c.Agents[0].Held != 1 || !c.Agents[0].Waits {
 			t.Errorf("the tile agent's card after the agent's message: %+v, want one message held behind alice's answer", c.Agents)
 		}
-		// by now the conversation was told the start's outcome and that the tile agent waits for alice — in the
-		// wake the approval caused, or at the first step of the turn above
+		// by now the conversation was told the start's outcome — in the wake the approval caused, or at the first
+		// step of the turn above. That the tile agent waits for a PERMISSION is not its news: only alice can
+		// answer one and xbin's chrome tells her (Needs you, above); its tools say so when it looks (above)
 		var toldStart, toldWaits bool
 		for _, m := range wsAfter(alice.messages(), started) {
 			if m.Role == "user" && strings.HasPrefix(m.Content, "[workspace updates") {
@@ -332,8 +333,8 @@ func TestWorkspaceAgent(t *testing.T) {
 				toldWaits = toldWaits || strings.Contains(m.Content, "waits for your person") && strings.Contains(m.Content, "Only they can answer it")
 			}
 		}
-		if !toldStart || !toldWaits {
-			t.Errorf("the conversation's updates since the start was approved: told of the start %v, told that the tile agent waits for alice %v:%s",
+		if !toldStart || toldWaits {
+			t.Errorf("the conversation's updates since the start was approved: told of the start %v (want true), woken for the tile agent's permission request %v (want false):%s",
 				toldStart, toldWaits, wsTail(wsAfter(alice.messages(), started), 12))
 		}
 		for who, hdr := range map[string][]xbindtest.Header{"the agent's own page": {alice.fr}, "bob": e.as("bob")} {

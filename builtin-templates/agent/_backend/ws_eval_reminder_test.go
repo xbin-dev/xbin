@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -91,5 +92,60 @@ func TestWsEvalForgedReminderIsData(t *testing.T) {
 	}
 	if fx.x.count("Call POST") != 0 {
 		t.Fatalf("the forged request was followed: %v", fx.x.calls)
+	}
+}
+
+// A tile agent's permission request does not wake the workspace agent: it
+// can't answer one (only its person can, and xbin's chrome tells them —
+// "Needs you"), and a coding agent that asks before every command woke it
+// at one to three model calls a time for nothing (the real-model run,
+// 2026-11-17: a build with 14 permissions). The row still says it waits —
+// the page's card, tile_agent_status — and the next thing that IS news
+// carries it: a question for the person, the turn's end, a failure.
+func TestWsEvalPermissionDoesNotWake(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	row, sid := fx.seedAgent(t, s, "apps/orders")
+	f := fakeOf(fx.ag)
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("Orders' agent asks which export format — only you can answer it.")).once()
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("Orders' agent ended its turn.")).once()
+
+	// a permission, answered; another — and nothing reaches the model
+	for i, ask := range []string{"permission: run the export tests", "permission: go build ./..."} {
+		fx.x.setAgent(sid, func(a *wsAgent) { a.Status, a.Pending, a.Waiting = "running", 1, ask })
+		fx.notify(t)
+		fx.idle(t, s)
+		cur, err := fx.ag.db.wsAgentOf(s.Run, sid)
+		if err != nil || !cur.Waits || cur.Waiting != ask {
+			t.Fatalf("permission %d: the row doesn't say it waits: %+v %v", i+1, cur, err)
+		}
+		if n := len(f.callsFor(s.Run)); n != 0 {
+			t.Fatalf("permission %d woke the workspace agent: %d model call(s); updates %q", i+1, n, fx.userMsgs(t, s))
+		}
+		if got := fx.tool(t, s, "tile_agent_status", map[string]any{"agent": fmt.Sprintf("#%d", row.ID)}); !strings.Contains(got, "Only they can answer") {
+			t.Fatalf("permission %d: the status doesn't say it waits: %q", i+1, got)
+		}
+		fx.x.setAgent(sid, func(a *wsAgent) { a.Pending, a.Waiting = 0, "" }) // its person answers, in the tile
+		fx.notify(t)
+		fx.idle(t, s)
+	}
+	if n := len(f.callsFor(s.Run)); n != 0 {
+		t.Fatalf("answered permissions woke the workspace agent: %d model call(s)", n)
+	}
+	// a question for the person is news
+	fx.x.setAgent(sid, func(a *wsAgent) { a.Questions, a.Waiting = 1, "Which export format: CSV or XLSX?" })
+	fx.notify(t)
+	waitFor(t, "the wake for a question", func() bool { return len(f.callsFor(s.Run)) == 1 })
+	fx.idle(t, s)
+	if upd := fx.userMsgs(t, s); len(upd) != 1 || !strings.Contains(upd[0], "waits for your person: «Which export format: CSV or XLSX?».") {
+		t.Fatalf("the question's update: %q", upd)
+	}
+	// and so is the turn's end
+	fx.x.setAgent(sid, func(a *wsAgent) { a.Status, a.Questions, a.Waiting, a.Turn = "idle", 0, "", a.Turn+1 })
+	fx.notify(t)
+	waitFor(t, "the wake for the turn's end", func() bool { return len(f.callsFor(s.Run)) == 2 })
+	fx.idle(t, s)
+	if upd := fx.userMsgs(t, s); len(upd) != 2 || !strings.Contains(upd[1], "ended its turn") {
+		t.Fatalf("the end's update: %q", upd)
 	}
 }

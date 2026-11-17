@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **Workspace agent: a tile agent's permission request no longer wakes
+  it.** Only its person can answer one, and xbin's chrome tells them
+  (Needs you); the wake cost one to three model calls for every command a
+  careful coding agent asks about. It is still woken for a tile agent's
+  question, the end of its turn, and a failure; `tile_agent_status` and a
+  held message's answer say that it waits.
 - **A plan's dry run is rate-limited per conversation** (`POST
   /delegate/plans` with `dryRun: true`): 10 at once, one more every 6
   seconds, `429` + `Retry-After` past that — on top of the person's act

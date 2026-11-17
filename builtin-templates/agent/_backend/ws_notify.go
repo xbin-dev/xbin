@@ -584,7 +584,8 @@ func (ag *Agent) wsAddAgent(s *wsSession, r *wsReq, a wsAgent) *wsAgentRow {
 // a change the conversation hasn't been told (each asks for a wake: a turn
 // that ended — also one that began and ended since the last read: the
 // turn's number says so when the state doesn't — a failure, an end, a
-// question for the person; "working" is never news), and delivers the messages held behind a question once the
+// question for the person; "working" is never news, and a permission
+// request is news that wakes nobody), and delivers the messages held behind a question once the
 // person answered it. True: the conversation is owed news of it and should
 // be woken (wsWake) — the caller's to ask, once for all it read.
 func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a wsAgent, boot bool) (wake bool) {
@@ -628,6 +629,13 @@ func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a ws
 	// between two reads leaves "idle" as it was; only its number moved (G12)
 	news := next.state() != row.Told || next.Status == "idle" && !next.Waits && next.Turn > row.ToldTurn
 	next.Owed, next.Wake = news, news
+	if next.Waits && a.Questions == 0 {
+		// a permission request alone is not the conversation's news: only its person can answer it, and
+		// xbin's chrome tells them. A wake would be a model call (or three) for every command a careful
+		// coding agent asks about. The row says it waits (the page's card, tile_agent_status, a held
+		// message's answer); what it was last told stands until something that is news
+		next.Owed, next.Wake = false, false
+	}
 	if next.state() == wsWorking {
 		next.Told, next.Owed, next.Wake = wsWorking, false, false
 	}

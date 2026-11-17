@@ -148,9 +148,7 @@ func TestWsEvalHeldMessagesRefusedOnce(t *testing.T) {
 	row, sess := fx.seedAgent(t, s, "apps/orders")
 	fx.x.setAgent(sess, func(a *wsAgent) { a.Pending = 1 })
 	fx.notify(t)
-	// the update that it waits wakes the conversation: it reaches it first,
-	// so the person's message below is the last thing the model reads (a
-	// message sent before the update is delivered is read before it)
+	// (a permission request wakes nobody: the conversation is at rest)
 	fx.rest(t, s)
 	f := fakeOf(fx.ag)
 	f.on(forRun(s.Run, lastUser("also add a header row")), callTools(tc("h1", "tile_agent_message", `{"agent":"#1","text":"Also add a header row."}`))).once()
