@@ -434,8 +434,8 @@ No approval, taint, scope or redaction rule was changed.
   than it matters, and its reports are long.
 - The `llm` harness pass fails two checks of the admin console's alert
   bar when it runs after `journeyAgent` and `agentChrome` on one seeded
-  workspace, and passes on a fresh one. Not looked into: whether master
-  does the same was not checked.
+  workspace, and passes on a fresh one. Master (`c4e2e770`) does exactly
+  the same; not this branch's, and not looked into further.
 - The per-call overhead of the tools' descriptions (≈ 10 k tokens) is
   cached by this provider; on one that doesn't cache it is most of the
   bill.
