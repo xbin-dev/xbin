@@ -270,6 +270,33 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 		opened = append(opened, *d)
 		return "sess", 200, ""
 	}
+	// a coding agent with no default mode of its own in the catalog (OpenCode): the line says so in words, warns —
+	// xbind vouches for no mode it wasn't given — and applies; it used to be shown as the mode "" and refused at
+	// Apply ("the start names no coding agent and mode"), so a plan could never start one (the real-model run,
+	// 2026-11-17)
+	{
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"opencode"}}]}`, alice)
+		var cs delegation.ChangeSet
+		_ = json.Unmarshal(rec.Body.Bytes(), &cs)
+		full, ok := w.store.ChangeSet("alice", cs.ID)
+		if rec.Code != 200 || !ok {
+			t.Fatalf("a plan that starts OpenCode: %d %s", rec.Code, rec.Body.String())
+		}
+		it := full.Items[0]
+		if it.Line != "Start a tile agent in apps/x — OpenCode, in its own default mode" || it.Blocked != "" || len(it.Warnings) != 1 ||
+			!strings.HasPrefix(it.Warnings[0], "ACTS WITHOUT ASKING: in its own default mode OpenCode edits files and runs commands in apps/x without asking you.") {
+			t.Fatalf("the line that starts OpenCode: %q blocked %q warnings %q", it.Line, it.Blocked, it.Warnings)
+		}
+		opened = nil
+		done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, own))
+		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "opencode" || opened[0].Mode != "" || !opened[0].Approved {
+			t.Fatalf("applying it: %+v (error %q; opens %+v)", done.Items[0].Result, done.Items[0].Error, opened)
+		}
+		// …and a start of a coding agent that HAS a default is never opened with no mode
+		if noDefaultMode("claude") || noDefaultMode("codex") || noDefaultMode("no-such-agent") || !noDefaultMode("opencode") {
+			t.Error("which coding agents open with no mode named")
+		}
+	}
 	for _, c := range []struct{ name, shown, atApply, want string }{
 		{"the sign-in the line named, though the default moved", "sg-work", "sg-other", "sg-work"},
 		{"none named: none used, though one exists by Apply", "", "sg-work", ""},

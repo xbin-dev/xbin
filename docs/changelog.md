@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-17
 
+- **A plan can start OpenCode.** A coding agent whose catalog entry names
+  no default mode (OpenCode: it opens as it opens itself) was shown on a
+  plan's start line as `in its mode ""` and refused at Apply ("the start
+  names no coding agent and mode"), so a workspace agent's plan could never
+  start one — a workspace held to OpenCode could not get past Apply. The
+  line now reads `Start a tile agent in <tile> — OpenCode, in its own
+  default mode`, carries the ACTS WITHOUT ASKING warning as before (xbind
+  vouches for no mode it wasn't given; the line starts unticked) and
+  applies. Lines of every other coding agent read as they did.
 - **`sdk/acp`: a steered message's echo precedes what the agent says next.**
   `Client.Steer` emitted the echo (`message.delta`, `role: "user"`,
   `steered: true`) after its call returned, so it could land behind the

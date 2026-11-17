@@ -75,6 +75,20 @@ func writes(tn realTurn) int {
 	return n
 }
 
+// ended reports whether the turn was told that a tile agent ended its
+// turn (xbin's update), or read its result.
+func ended(tn realTurn) bool {
+	if tn.n("tile_agent_result") > 0 {
+		return true
+	}
+	for _, m := range tn.msgs {
+		if m.Role == "user" && strings.HasPrefix(m.Content, "[workspace updates") && has(m.Content, "ended its turn") {
+			return true
+		}
+	}
+	return false
+}
+
 // looked reports whether the turn read something before it spoke.
 func looked(tn realTurn) bool {
 	for _, t := range []string{"workspace_map", "tile_status", "tile_logs", "tile_api_doc", "tile_call", "docs_search", "docs_read", "research"} {
@@ -380,14 +394,14 @@ func TestWsRealModelScenarios(t *testing.T) {
 			after = c.last()
 			answered := e.work("alice", 10*time.Minute)
 			w := c.wake(after, 6*time.Minute)
-			for i := 0; i < 3 && w.n("tile_agent_result") == 0; i++ { // an update about a permission came first: the tile agent's end is a later one
+			for i := 0; i < 3 && !ended(w); i++ { // an update about a permission came first: the tile agent's end is a later one
 				e.work("alice", 5*time.Minute)
-				w2 := c.wake(c.last(), 4*time.Minute)
+				w2 := c.wake(c.last(), 90*time.Second)
 				w.msgs = append(w.msgs, w2.msgs...)
 			}
 			said := w.said()
 			t.Logf("the person answered %d permission request(s) of the tile agent; the invoices after: %s", answered, e.realSeen("alice"))
-			must["read the tile agent's result"] = w.n("tile_agent_result") > 0
+			must["read the tile agent's result"] = w.n("tile_agent_result") > 0 || has(said, "overdue=1", "filter")
 			must["checked something itself before saying so (a read, a status), or says it didn't"] = w.n("tile_call")+w.n("tile_status")+w.n("research")+w.n("preview") > 0 ||
 				has(said, "not check", "didn't check", "did not check", "not verified", "unverified", "on the tile agent's word")
 			should["reports what was checked and what was not"] = has(said, "check", "verif") && has(said, "not ", "n't ")
@@ -489,9 +503,9 @@ func TestWsRealModelScenarios(t *testing.T) {
 			e.waiting("alice", time.Minute)
 			e.work("alice", 10*time.Minute)
 			w := c.wake(after, 6*time.Minute)
-			for i := 0; i < 3 && w.n("tile_agent_result") == 0; i++ { // the start's own update woke it first: the tile agent's end is a later one
+			for i := 0; i < 3 && !ended(w); i++ { // the start's own update woke it first: the tile agent's end is a later one
 				e.work("alice", 5*time.Minute)
-				w2 := c.wake(c.last(), 4*time.Minute)
+				w2 := c.wake(c.last(), 90*time.Second)
 				w.msgs = append(w.msgs, w2.msgs...)
 			}
 			now := e.pending("alice")

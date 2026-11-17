@@ -387,7 +387,13 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	name, _ := shown["providerName"].(string)
 	mode, _ := shown["mode"].(string)
 	asks, _ := shown["asks"].(bool)
-	pv.Line = fmt.Sprintf("Start a tile agent in %s — %s, in its mode %q", in.Tile, name, mode)
+	// a coding agent whose catalog entry names no default mode (OpenCode) opens as it opens itself: said so,
+	// not as a mode ""
+	inMode, inTheMode := fmt.Sprintf("in its mode %q", mode), fmt.Sprintf("in the mode %q", mode)
+	if mode == "" {
+		inMode, inTheMode = "in its own default mode", "in its own default mode"
+	}
+	pv.Line = fmt.Sprintf("Start a tile agent in %s — %s, %s", in.Tile, name, inMode)
 	pv.Start, _ = json.Marshal(shown)
 	// what the start resolves to is part of what was shown: the network and
 	// the API access too, which a tile's org rules decide once it exists
@@ -397,7 +403,7 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		pv.Effects = []string{"It asks you before it edits a file or runs a command: its questions and permission requests come to you, never to your workspace agent."}
 	} else {
 		// only a harness's ask or plan mode is one xbind vouches for: anything else is the danger wording, and starts unticked
-		pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: in the mode %q %s edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", mode, name, in.Tile)}
+		pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: %s %s edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", inTheMode, name, in.Tile)}
 	}
 	return pv, nil
 }
@@ -601,7 +607,7 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 		return http.StatusConflict, cmpOr(a.gone, "a tile agent is started for the conversation that asks for it"), nil
 	}
 	var shown struct{ Provider, Mode, Net string }
-	if json.Unmarshal(pv.Start, &shown) != nil || shown.Provider == "" || shown.Mode == "" {
+	if json.Unmarshal(pv.Start, &shown) != nil || shown.Provider == "" || shown.Mode == "" && !noDefaultMode(shown.Provider) {
 		return http.StatusConflict, "the start names no coding agent and mode: ask your agent to propose it again", nil
 	}
 	var named struct {
@@ -652,6 +658,19 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	s.taint(a.p, tile) // the conversation now follows a session on that tile
 	out, _ := json.Marshal(map[string]string{"session": info.ID})
 	return rec.status, "", out
+}
+
+// noDefaultMode: the coding agent's catalog entry names no default mode
+// (OpenCode: it opens as it opens itself), so a start of it that names no
+// mode is shown, approved and opened with none. For every other one a
+// start with no mode is a line that was never resolved.
+func noDefaultMode(harness string) bool {
+	prov, ok := agent.Lookup(harness)
+	if !ok {
+		return false
+	}
+	mode, err := prov.ResolveMode("")
+	return err == nil && mode == ""
 }
 
 func shownTile(pv delegation.ChangePreview) string {
