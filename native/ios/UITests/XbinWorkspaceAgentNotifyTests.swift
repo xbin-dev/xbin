@@ -111,6 +111,9 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
     @MainActor
     func test02DenyAfterItWasDecidedElsewhere() async throws {
         let e = try E2E(self)
+        // the sealed path is test01's: no real push of xbind's (a clear when the
+        // web decides) takes this test's notification back from under it
+        try await e.server.pushForgetAll()
         let run = try await e.server.wsPrepare("E2E notify gone")
         let ref = try await e.server.wsFileNoteRequest(run, note: "decided on the web")
         e.app.launchArguments += ["-XbinAgentNotice", "request:\(ref)", "-XbinAgentNoticeDelay", "8"]
@@ -158,6 +161,9 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
     @MainActor
     func test03TooLongIsReviewOnly() async throws {
         let e = try E2E(self)
+        // the sealed path is test01's: no real push of xbind's (a clear when the
+        // web decides) takes this test's notification back from under it
+        try await e.server.pushForgetAll()
         let run = try await e.server.wsPrepare("E2E notify long")
         let long = String(repeating: "A long note that no lock screen shows whole. ", count: 8)
         let ref = try await e.server.wsFileNoteRequest(run, note: long)
@@ -185,6 +191,9 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
     @MainActor
     func test04ReplyIsAMessage() async throws {
         let e = try E2E(self)
+        // the sealed path is test01's: no real push of xbind's (a clear when the
+        // web decides) takes this test's notification back from under it
+        try await e.server.pushForgetAll()
         let run = try await e.server.wsPrepare("E2E notify reply")
         let ref = try await e.server.wsFileNoteRequest(run, note: "still waiting")
         e.app.launchArguments += ["-XbinAgentNotice", "ask:\(run)", "-XbinAgentNoticeDelay", "8"]
@@ -215,6 +224,7 @@ final class XbinWorkspaceAgentNotifyTests: XCTestCase {
     @MainActor
     func test05Gallery() async throws {
         let e = try E2E(self)
+        try await e.server.pushForgetAll()
         for appearance in ["light", "dark"] {
             let run = try await e.server.wsPrepare("E2E notify gallery \(appearance)")
             let ref = try await e.server.wsFileNoteRequest(run, note: "the gallery's request")
@@ -319,11 +329,14 @@ extension E2E {
     /// press (an iPad's go sooner) is in Notification Center: the press is
     /// made there.
     func notifyActions(_ title: String, until action: String) {
-        notifyCell(title).press(forDuration: 1.2)
-        if springboard.buttons[action].waitForExistence(timeout: 5) { return }
-        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.003))
-            .press(forDuration: 0.05, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
-        _ = notifyBanner(title).waitForExistence(timeout: 10)
+        let cell = notifyCell(title)
+        if cell.exists {
+            cell.press(forDuration: 1.2)
+            if springboard.buttons[action].waitForExistence(timeout: 5) { return }
+        }
+        // gone up: Notification Center has it (under its fold when seen before)
+        let found = notifyFind(title, timeout: 30)
+        guard found.exists else { return }
         notifyCell(title).press(forDuration: 1.5)
         _ = springboard.buttons[action].waitForExistence(timeout: 10)
     }
@@ -413,6 +426,15 @@ extension E2E {
 }
 
 extension E2EServer {
+    /// Forgets the account's push registrations (DELETE /api/xbin/devices/push/<id>):
+    /// a test of the demo path gets no real push of xbind's.
+    func pushForgetAll() async throws {
+        let o = (try JSONSerialization.jsonObject(with: await send("GET", "/api/xbin/devices/push")) as? [String: Any]) ?? [:]
+        for d in (o["devices"] as? [[String: Any]]) ?? [] {
+            if let id = d["deviceId"] as? String { _ = try? await send("DELETE", "/api/xbin/devices/push/\(id)") }
+        }
+    }
+
     /// How many push registrations the account has (GET /api/xbin/devices/push).
     func pushDevices() async throws -> Int {
         let o = (try JSONSerialization.jsonObject(with: await send("GET", "/api/xbin/devices/push")) as? [String: Any]) ?? [:]
