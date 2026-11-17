@@ -431,7 +431,7 @@ public enum DelegationWords {
         let saved = signIn == "saved" && !(s["signInId"]?.stringValue ?? "").isEmpty
         // a tile whose source isn't only theirs: trusting it is decided on the web, so a start allowed here runs without the sign-in
         let whose = saved ? trustWhose(s["signInTrust"]) : ""
-        let asks = !whose.isEmpty
+        let needsTrust = !whose.isEmpty
         let cred = signIn == "saved" || signIn == "needed" ? ""
             : credentials == "own" ? ", on your own sign-in"
             : credentials == "connector" || !modelName.isEmpty ? ", through the workspace's connector" : ""
@@ -454,11 +454,11 @@ public enum DelegationWords {
             brief: brief,
             danger: asks ? "" : "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
             comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.",
-            signIn: asks ? "Starts without your saved \(who) sign-in" : saved ? "Uses your saved \(who) sign-in"
+            signIn: needsTrust ? "Starts without your saved \(who) sign-in" : saved ? "Uses your saved \(who) sign-in"
                 : signIn == "needed" && s["provider"]?.stringValue != nil ? "Needs your \(who) sign-in: without it the tile agent starts signed out." : "",
-            signInHolds: saved && !asks ? "The tile's coding agent will hold that sign-in: it, and anything it runs in \(t), can read it." : "",
+            signInHolds: saved && !needsTrust ? "The tile's coding agent will hold that sign-in: it, and anything it runs in \(t), can read it." : "",
             signInTrustWhose: whose,
-            signInTrust: asks ? "Your sign-in is used on a tile that isn't only yours once you trust its source. Decide that on the web — on this request, or in the tile's Agent tab — then start it there. Allowed here, it starts without your sign-in." : "")
+            signInTrust: needsTrust ? "Your sign-in is used on a tile that isn't only yours once you trust its source. Decide that on the web — on this request, or in the tile's Agent tab — then start it there. Allowed here, it starts without your sign-in." : "")
     }
 
     private static func nonEmpty(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }

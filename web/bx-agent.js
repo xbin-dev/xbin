@@ -65,7 +65,7 @@ import { signinChip, savedHint } from '/vendor/agent-signins.js';
 // localStorage: the trust question a person answered "Start without my sign-in" on a tile — kept so the card
 // doesn't ask at every start; a question that changed (another owner, someone new) is asked again
 const DECLINED = 'xbin-signin-declined:';
-const trustPrint = (t) => JSON.stringify([t.tile, t.ownerKind, t.owner || '', t.editors || [], t.more || 0]);
+const trustPrint = (t) => JSON.stringify([t.tile, t.ownerKind, t.owner || '', t.editors || [], t.more || 0, !!t.allowed]);
 
 useDiffHighlighter(diffHTML, langFor); // the code panels' highlighter is here already: diffs are coloured at once
 
@@ -571,7 +571,7 @@ export class BxAgent extends LitElement {
     const prov = (this._providers || []).find((x) => x.id === (this.provider || this._provider));
     const sn = this.session && !this.ended ? this._tx.st.signin : null;
     const t = sn ? sn.trust : prov && prov.saved && prov.saved.trust;
-    if (!t || !t.allowed) return null; // (where trusting is switched off the header's chip says why: there is nothing to answer)
+    if (!t) return null; // (where trusting is switched off the card says so, and who can change that: there is one choice)
     return evenDeclined || this._declinedNow() !== trustPrint(t) ? t : null;
   }
 

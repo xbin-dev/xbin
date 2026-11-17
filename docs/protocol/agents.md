@@ -42,11 +42,12 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    where xbind keeps sign-ins, signin:
                                    {source: "saved" | "home" |
                                    "connector" | "none", id?, name?,
-                                   why?} once the sandbox settled it:
-                                   the person's saved sign-in, the
+                                   why?, trust?} once the sandbox settled
+                                   it: the person's saved sign-in, the
                                    tile's own login, neither; why a
-                                   saved sign-in they have isn't used
-                                   (agent-signins.md));
+                                   saved sign-in they have isn't used —
+                                   trust: it waits for "I trust this
+                                   tile's source" (agent-signins.md));
                                    ?cwd=<p> one tile only. ?origin=agent:
                                    only the sessions the person's
                                    workspace agent opened. ?compact=1: a
